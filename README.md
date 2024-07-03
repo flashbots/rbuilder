@@ -8,7 +8,7 @@ rbuilder is an open-source, blazingly fast, cutting edge implementation of a Eth
 It is designed to provide a delightful developer experience, enabling community members to contribute and researchers to use rbuilder to study block building.
 
 #### Features
-- **Multiple algorithms**: build Ethereum blocks by sorting for either effective gas price `mev_gas_price` or total profit `max_profit`
+- **Multiple algorithms**: Can be upgraded to handle several block building algorithms. The included algorithm builds blocks by sorting the orders by either effective gas price or total profit and then trying (they might fail!) to execute them to create the block. For more details see [ordering_builder.rs](crates/rbuilder/src/building/builders/ordering_builder.rs)
 - **Backtesting**: support for quick and easy backtesting on mempool transactions and other data
 - **Bundle merging**: bundles that target transactions which have already been included in a pending block can be dropped if they are marked in `reverting_tx_hashes`.
 - **Smart nonce management**: identifies and smartly handles nonce dependencies between bundles and transactions

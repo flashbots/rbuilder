@@ -264,7 +264,10 @@ pub struct BlockBuildingConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Sorting {
+    /// Sorts the SimulatedOrders by its effective gas price. This not only includes the explicit gas price set in the tx but also the direct coinbase payments
+    /// so we compute it as (coinbase balance delta after executing the order) / (gas used)
     MevGasPrice,
+    /// Sorts the SimulatedOrders by its absolute profit which is computed as the coinbase balance delta after executing the order
     MaxProfit,
 }
 

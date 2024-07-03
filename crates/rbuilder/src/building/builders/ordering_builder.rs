@@ -1,4 +1,10 @@
-//! This builder just inserts orders in some order discarding everything that failed
+//! Implementation of BlockBuildingAlgorithm that sorts the SimulatedOrders by some criteria.
+//! After sorting it starts from an empty block and tries to add the SimulatedOrders one by one keeping on the block only the successful ones.
+//! If a SimulatedOrder gives less profit than the value it gave on the top of block simulation is considered as failed (ExecutionError::LowerInsertedValue)
+//! but it can be later reused.
+//! The described algorithm is ran continuously adding new SimulatedOrders (they arrive on real time!) on each iteration until we run out of time (slot ends).
+//! Sorting criteria are described on [`Sorting`].
+//! For some more details see [`OrderingBuilderConfig`]
 use crate::building::block_orders_from_sim_orders;
 use crate::{
     building::{
