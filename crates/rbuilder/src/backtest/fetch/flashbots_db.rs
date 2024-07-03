@@ -1,10 +1,14 @@
 use crate::{
-    backtest::OrdersWithTimestamp,
+    backtest::{
+        fetch::datasource::{BlockRef, Datasource},
+        OrdersWithTimestamp,
+    },
     primitives::{
         serialize::{RawBundle, RawOrder, RawShareBundle, TxEncoding},
         Order, SimValue,
     },
 };
+use async_trait::async_trait;
 use bigdecimal::{
     num_bigint::{BigInt, Sign, ToBigInt},
     BigDecimal,
@@ -14,8 +18,10 @@ use reth::primitives::{Bytes, B256, U256, U64};
 use sqlx::postgres::PgPool;
 use std::{ops::Mul, str::FromStr};
 use time::OffsetDateTime;
+use tracing::trace;
 use uuid::Uuid;
 
+#[derive(Debug, Clone)]
 pub struct RelayDB {
     pool: PgPool,
 }
@@ -238,6 +244,42 @@ impl RelayDB {
         }
 
         Ok(result)
+    }
+}
+
+#[async_trait]
+impl Datasource for RelayDB {
+    async fn get_data(&self, block: BlockRef) -> eyre::Result<Vec<OrdersWithTimestamp>> {
+        let bundles = self
+            .get_simulated_bundles_for_block(block.block_number)
+            .await
+            .with_context(|| format!("Failed to fetch bundles for block {}", block.block_number))?;
+
+        let block_timestamp = OffsetDateTime::from_unix_timestamp(block.block_timestamp as i64)?;
+        let share_bundles = self
+            .get_simulated_share_bundles_for_block(block.block_number, block_timestamp)
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to fetch share bundles for block {}",
+                    block.block_number
+                )
+            })?;
+
+        trace!(
+            "Fetched bundles from flashbots db, bundles: {}, sbundles: {}",
+            bundles.len(),
+            share_bundles.len()
+        );
+
+        Ok(bundles
+            .into_iter()
+            .chain(share_bundles.into_iter())
+            .collect())
+    }
+
+    fn clone_box(&self) -> Box<dyn Datasource> {
+        Box::new(self.clone())
     }
 }
 
