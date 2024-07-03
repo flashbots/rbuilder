@@ -35,7 +35,7 @@ To run rbuilder you need:
 * Reth node for state. (`reth_datadir`)
 * Reth node must expose ipc interface for mempool tx subscription (`el_node_ipc_path`).
 * CL node that triggers new payload events (it must be additionally configured to trigger payload event every single time)
-* Source of bundles that sends `eth_sendBundle`, `mev_sendBundle`, `eth_sendRawTransaction` as JSON rpc calls. (`incoming_bundles_server_port`)
+* Source of bundles that sends `eth_sendBundle`, `mev_sendBundle`, `eth_sendRawTransaction` as JSON rpc calls. (`jsonrpc_server_port`)
   (by default rbuilder will take raw txs from the reth node mempool)
 * Relays so submit to (`relays`)
 * Alternatively it can submit to the block validation API if run in the dry run mode (`dry_run`, `dry_run_validation_url`)
