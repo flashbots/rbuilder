@@ -1,7 +1,7 @@
 //! This builder just inserts orders in some order discarding everything that failed
-use crate::building::block_orders_from_sim_orders;
 use crate::{
     building::{
+        block_orders_from_sim_orders,
         builders::{LiveBuilderInput, OrderIntakeConsumer},
         estimate_payout_gas_limit, BlockBuildingContext, BlockOrders, BlockState, BuiltBlockTrace,
         ExecutionError, PartialBlock, Sorting,

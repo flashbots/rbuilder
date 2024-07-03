@@ -4,22 +4,21 @@ pub mod sign_payload;
 
 use super::utils::u256decimal_serde_helper;
 
-use alloy_primitives::{Address, BlockHash, Bloom, Bytes, B256, U256};
-use ethereum_consensus::ssz::prelude::serialize;
+use alloy_primitives::{Address, BlockHash, Bytes, U256};
+use alloy_rpc_types_beacon::relay::{BidTrace, SignedBidSubmissionV2, SignedBidSubmissionV3};
 use flate2::{write::GzEncoder, Compression};
 use primitive_types::H384;
 use reqwest::{
     header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_ENCODING, CONTENT_TYPE},
     Body, Response, StatusCode,
 };
-use reth::primitives::BlobTransactionSidecar;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
-use std::{io::Write, str::FromStr, sync::Arc};
+use ssz::Encode;
+use std::{io::Write, str::FromStr};
 use thiserror::Error;
 use url::Url;
 
-pub use rpc::*;
 pub use sign_payload::*;
 
 const JSON_CONTENT_TYPE: &str = "application/json";
@@ -260,6 +259,32 @@ pub struct ValidatorSlotData {
 }
 
 #[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("Too many txs")]
+    TooManyTxs,
+    #[error("Tx to big")]
+    TxTooBig,
+    #[error("Extra data too big")]
+    ExtraDataTooBig,
+    #[error("Too many withdrawals")]
+    TooManyWithdrawals,
+    #[error("Invalid signature")]
+    InvalidSignature,
+    #[error("Wrong KzgCommitment size")]
+    WrongKzgCommitmentSize,
+    #[error("Too many KzgCommitment")]
+    TooManyKzgCommitments,
+    #[error("Too many blobs")]
+    TooManyBlobs,
+    #[error("Blob to big")]
+    BlobTooBig,
+    #[error("Wrong proof size")]
+    WrongProofSize,
+    #[error("Too many proofs")]
+    TooManyProofs,
+}
+
+#[derive(Debug, thiserror::Error)]
 pub enum SubmitBlockErr {
     #[error("Relay error: {0}")]
     RelayError(#[from] RelayError),
@@ -275,7 +300,7 @@ pub enum SubmitBlockErr {
     SimError(String),
     #[error("RPC conversion Error")]
     /// RPC validates the submissions (eg: limit of txs) much more that our model.
-    RPCConversionError(rpc::Error),
+    RPCConversionError(Error),
     #[error("RPC serialization failed {0}")]
     RPCSerializationError(String),
     #[error("Invalid header")]
@@ -438,16 +463,15 @@ impl RelayClient {
             url
         };
 
-        let data =
-            marshal_submit_block_request(data).map_err(SubmitBlockErr::RPCConversionError)?;
-
         let mut builder = self.client.post(url.clone());
         let mut headers = HeaderMap::new();
         // SSZ vs JSON
         let (mut body_data, content_type) = if ssz {
             (
-                serialize(&data)
-                    .map_err(|e| SubmitBlockErr::RPCSerializationError(e.to_string()))?,
+                match data {
+                    SubmitBlockRequest::Capella(data) => data.0.as_ssz_bytes(),
+                    SubmitBlockRequest::Deneb(data) => data.0.as_ssz_bytes(),
+                },
                 SSZ_CONTENT_TYPE,
             )
         } else {
@@ -568,87 +592,17 @@ impl RelayClient {
     }
 }
 
-#[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct BidTrace {
-    #[serde_as(as = "DisplayFromStr")]
-    pub slot: u64,
-    pub parent_hash: BlockHash,
-    pub block_hash: BlockHash,
-    pub builder_pubkey: H384,
-    pub proposer_pubkey: H384,
-    pub proposer_fee_recipient: Address,
-    #[serde_as(as = "DisplayFromStr")]
-    pub gas_limit: u64,
-    #[serde_as(as = "DisplayFromStr")]
-    pub gas_used: u64,
-    #[serde(with = "u256decimal_serde_helper")]
-    pub value: U256,
-}
+pub struct DenebSubmitBlockRequest(SignedBidSubmissionV3);
 
-#[serde_as]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct CapellaExecutionPayload {
-    pub parent_hash: BlockHash,
-    pub fee_recipient: Address,
-    pub state_root: B256,
-    pub receipts_root: B256,
-    pub logs_bloom: Bloom,
-    pub prev_randao: B256,
-    #[serde_as(as = "DisplayFromStr")]
-    pub block_number: u64,
-    #[serde_as(as = "DisplayFromStr")]
-    pub gas_limit: u64,
-    #[serde_as(as = "DisplayFromStr")]
-    pub gas_used: u64,
-    #[serde_as(as = "DisplayFromStr")]
-    pub timestamp: u64,
-    pub extra_data: Bytes,
-    #[serde(with = "u256decimal_serde_helper")]
-    pub base_fee_per_gas: U256,
-    pub block_hash: BlockHash,
-    pub transactions: Vec<Bytes>,
-    pub withdrawals: Vec<Withdrawal>,
-}
-
-#[serde_as]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DenebExecutionPayload {
-    #[serde(flatten)]
-    pub capella_payload: CapellaExecutionPayload,
-    #[serde_as(as = "DisplayFromStr")]
-    pub blob_gas_used: u64,
-    #[serde_as(as = "DisplayFromStr")]
-    pub excess_blob_gas: u64,
-}
-
-#[serde_as]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Withdrawal {
-    #[serde_as(as = "DisplayFromStr")]
-    index: u64,
-    #[serde_as(as = "DisplayFromStr")]
-    validator_index: u64,
-    address: Address,
-    #[serde_as(as = "DisplayFromStr")]
-    amount: u64,
+impl DenebSubmitBlockRequest {
+    pub fn as_ssz_bytes(&self) -> Vec<u8> {
+        self.0.as_ssz_bytes()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct CapellaSubmitBlockRequest {
-    pub message: BidTrace,
-    pub execution_payload: CapellaExecutionPayload,
-    pub signature: Bytes,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DenebSubmitBlockRequest {
-    pub message: BidTrace,
-    pub execution_payload: DenebExecutionPayload,
-    /// Sidecars for the txs included in execution_payload
-    pub txs_blobs_sidecars: Vec<Arc<BlobTransactionSidecar>>,
-    pub signature: Bytes,
-}
+pub struct CapellaSubmitBlockRequest(SignedBidSubmissionV2);
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
@@ -660,15 +614,15 @@ pub enum SubmitBlockRequest {
 impl SubmitBlockRequest {
     pub fn bid_trace(&self) -> BidTrace {
         match self {
-            SubmitBlockRequest::Capella(req) => req.message.clone(),
-            SubmitBlockRequest::Deneb(req) => req.message.clone(),
+            SubmitBlockRequest::Capella(req) => req.0.message.clone(),
+            SubmitBlockRequest::Deneb(req) => req.0.message.clone(),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{rpc::TestDataGenerator, *};
     use crate::mev_boost::fake_mev_boost_relay::FakeMevBoostRelay;
 
     use std::str::FromStr;

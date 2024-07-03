@@ -1,4 +1,4 @@
-use rbuilder::mev_boost::{RelayClient, SubmitBlockRequest, TestDataGenerator};
+use rbuilder::mev_boost::{rpc::TestDataGenerator, RelayClient, SubmitBlockRequest};
 use std::str::FromStr;
 use url::Url;
 
