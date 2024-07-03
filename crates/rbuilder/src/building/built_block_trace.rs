@@ -1,5 +1,5 @@
 use super::{BundleErr, ExecutionError, ExecutionResult, OrderErr};
-use crate::primitives::Order;
+use crate::primitives::{Order, OrderReplacementKey};
 use ahash::{HashMap, HashSet};
 use alloy_primitives::{Address, U256};
 use std::time::Duration;
@@ -27,6 +27,18 @@ impl Default for BuiltBlockTrace {
     fn default() -> Self {
         Self::new()
     }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum BuiltBlockTraceError {
+    #[error("More than one order is included with the same replacement data: {0:?}")]
+    DuplicateReplacementData(OrderReplacementKey),
+    #[error("Included order had different number of txs and receipts")]
+    DifferentTxsAndReceipts,
+    #[error("Included order had tx from or to blocked address")]
+    BlockedAddress,
+    #[error("Bundle tx reverted that is not revertable")]
+    BundleTxReverted,
 }
 
 impl BuiltBlockTrace {
@@ -78,24 +90,21 @@ impl BuiltBlockTrace {
             })
     }
 
-    pub fn verify_bundle_consistency(&self, blocklist: &HashSet<Address>) -> eyre::Result<()> {
+    pub fn verify_bundle_consistency(&self, blocklist: &HashSet<Address>) -> eyre::Result<(), BuiltBlockTraceError> {
         let mut replacement_data_count: HashSet<_> = HashSet::default();
 
         for res in &self.included_orders {
             for order in res.order.original_orders() {
                 if let Some(data) = order.replacement_key() {
                     if replacement_data_count.contains(&data) {
-                        eyre::bail!(
-                            "More than one order is included with the same replacement data: {:?}",
-                            data
-                        );
+                        return Err(BuiltBlockTraceError::DuplicateReplacementData(data));
                     }
                     replacement_data_count.insert(data);
                 }
             }
 
             if res.txs.len() != res.receipts.len() {
-                eyre::bail!("Included order had different number of txs and receipts");
+                return Err(BuiltBlockTraceError::DifferentTxsAndReceipts);
             }
 
             let mut executed_tx_hashes = Vec::with_capacity(res.txs.len());
@@ -105,7 +114,7 @@ impl BuiltBlockTrace {
                 if blocklist.contains(&tx.signer())
                     || tx.to().map(|to| blocklist.contains(&to)).unwrap_or(false)
                 {
-                    eyre::bail!("Included order had tx from or to blocked address");
+                    return Err(BuiltBlockTraceError::BlockedAddress);
                 }
             }
 
@@ -118,7 +127,7 @@ impl BuiltBlockTrace {
             for (executed_hash, success) in executed_tx_hashes {
                 if let Some(can_revert) = bundle_txs.get(&executed_hash) {
                     if !success && !can_revert {
-                        eyre::bail!("Bundle tx reverted that is not revertable");
+                        return Err(BuiltBlockTraceError::BundleTxReverted);
                     }
                 }
             }
