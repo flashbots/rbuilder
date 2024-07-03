@@ -5,9 +5,9 @@
 //! The described algorithm is ran continuously adding new SimulatedOrders (they arrive on real time!) on each iteration until we run out of time (slot ends).
 //! Sorting criteria are described on [`Sorting`].
 //! For some more details see [`OrderingBuilderConfig`]
-use crate::building::block_orders_from_sim_orders;
 use crate::{
     building::{
+        block_orders_from_sim_orders,
         builders::{LiveBuilderInput, OrderIntakeConsumer},
         estimate_payout_gas_limit, BlockBuildingContext, BlockOrders, BlockState, BuiltBlockTrace,
         ExecutionError, PartialBlock, Sorting,

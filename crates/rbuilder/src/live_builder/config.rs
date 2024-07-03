@@ -1,14 +1,15 @@
 //! Config should always be deserializable, default values should be used
 //!
-use crate::building::builders::ordering_builder::OrderingBuildingAlgorithm;
-use crate::building::builders::{
-    BacktestSimulateBlockInput, BestBlockCell, Block, BlockBuildingAlgorithm,
-};
-use crate::live_builder::cli::LiveBuilderConfig;
-use crate::utils::build_info::rbuilder_version;
 use crate::{
-    building::{builders::ordering_builder::OrderingBuilderConfig, Sorting},
-    utils::{ProviderFactoryReopener, Signer},
+    building::{
+        builders::{
+            ordering_builder::{OrderingBuilderConfig, OrderingBuildingAlgorithm},
+            BacktestSimulateBlockInput, BestBlockCell, Block, BlockBuildingAlgorithm,
+        },
+        Sorting,
+    },
+    live_builder::cli::LiveBuilderConfig,
+    utils::{build_info::rbuilder_version, ProviderFactoryReopener, Signer},
 };
 use alloy_primitives::{Address, B256};
 use eyre::Context;
