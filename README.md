@@ -1,4 +1,9 @@
 # rbuilder
+
+[![CI status](https://github.com/flashbots/rbuilder/workflows/Checks/badge.svg)](https://github.com/flashbots/rbuilder/actions/workflows/checks.yaml)
+[![Telegram Chat](https://img.shields.io/endpoint?color=neon&logo=telegram&label=Chat&url=https%3A%2F%2Ftg.sumanjay.workers.dev%2Fflashbots_rbuilder)](https://t.me/flashbots_rbuilder)
+![GitHub Release](https://img.shields.io/github/v/release/flashbots/rbuilder?label=Release)
+
 rbuilder is an open-source, blazingly fast, cutting edge implementation of a Ethereum MEV-Boost block builder written in Rust.
 It is designed to provide a delightful developer experience, enabling community members to contribute and researchers to use rbuilder to study block building.
 #### Features:
@@ -99,6 +104,6 @@ See [`SECURITY.md`](./SECURITY.md)
 
 ## Acknowledgements
 
-None of this would have been possible without having a fast and efficient Ethereum node, so big shoutout to the [Reth](https://github.com/paradigmxyz/reth) team. 
+None of this would have been possible without having a fast and efficient Ethereum node, so big shoutout to the [Reth](https://github.com/paradigmxyz/reth) team.
 
 
