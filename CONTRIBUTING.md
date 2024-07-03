@@ -6,7 +6,7 @@ Thanks for your help improving `rbuilder`! We are so happy to have you! We just 
 
 Please start by reading our [license agreement](#individual-contributor-license-agreement) below, and our [code of conduct](#code-of-conduct).
 
-The [dev Telegram](https://t.me/+csTDRpNNzAJmYTk0) is available for any questions and concerns you may have that are not covered in the documentation.
+The [dev Telegram](https://t.me/flashbots_rbuilder) is available for any questions and concerns you may have that are not covered in the documentation.
 
 If you contribute to this project, your contributions will be made to the project under both Apache 2.0 and the MIT
 license.
