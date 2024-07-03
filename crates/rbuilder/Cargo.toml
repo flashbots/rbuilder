@@ -102,7 +102,7 @@ mockall = "0.12.1"
 shellexpand = "3.1.0"
 
 [build-dependencies]
-built = { version = "0.7.1", features = ["git2", "chrono"] }
+built = { version = "0.7.3", features = ["git2", "chrono"] }
 
 [dev-dependencies]
 tempfile = "3.8"
