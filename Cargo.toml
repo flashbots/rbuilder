@@ -51,4 +51,7 @@ alloy-json-rpc = { git = "https://github.com/alloy-rs/alloy", version = "0.1" }
 alloy-transport-http = { git = "https://github.com/alloy-rs/alloy", version = "0.1" }
 alloy-network = { git = "https://github.com/alloy-rs/alloy", version = "0.1" }
 alloy-transport = { git = "https://github.com/alloy-rs/alloy", version = "0.1" }
+alloy-node-bindings = { git = "https://github.com/alloy-rs/alloy", version = "0.1" }
+alloy-consensus = { git = "https://github.com/alloy-rs/alloy", version = "0.1", features = ["kzg"] }
 alloy-serde = { git = "https://github.com/alloy-rs/alloy", version = "0.1" }
+alloy-signer-local = { git = "https://github.com/alloy-rs/alloy", version = "0.1" }
