@@ -44,7 +44,7 @@ revm-inspectors = { git = "https://github.com/paradigmxyz/evm-inspectors", rev =
 
 alloy-primitives = "0.7.2"
 alloy-rlp = "0.3.4"
-alloy-chains = { version = "0.1.15", feature = ["serde", "rlp", "arbitrary"] }
+alloy-chains = { version = "0.1.23", feature = ["serde", "rlp", "arbitrary"] }
 alloy-provider = { git = "https://github.com/alloy-rs/alloy", version = "0.1" }
 alloy-rpc-types = { git = "https://github.com/alloy-rs/alloy", version = "0.1" }
 alloy-json-rpc = { git = "https://github.com/alloy-rs/alloy", version = "0.1" }
