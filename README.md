@@ -2,11 +2,12 @@
 
 [![CI status](https://github.com/flashbots/rbuilder/workflows/Checks/badge.svg)](https://github.com/flashbots/rbuilder/actions/workflows/checks.yaml)
 [![Telegram Chat](https://img.shields.io/endpoint?color=neon&logo=telegram&label=Chat&url=https%3A%2F%2Ftg.sumanjay.workers.dev%2Fflashbots_rbuilder)](https://t.me/flashbots_rbuilder)
-![GitHub Release](https://img.shields.io/github/v/release/flashbots/rbuilder?label=Release)
+[![GitHub Release](https://img.shields.io/github/v/release/flashbots/rbuilder?label=Release)](https://github.com/flashbots/rbuilder/releases)
 
 rbuilder is an open-source, blazingly fast, cutting edge implementation of a Ethereum MEV-Boost block builder written in Rust.
 It is designed to provide a delightful developer experience, enabling community members to contribute and researchers to use rbuilder to study block building.
-#### Features:
+
+#### Features
 - **Multiple algorithms**: build Ethereum blocks by sorting for either effective gas price `mev_gas_price` or total profit `max_profit`
 - **Backtesting**: support for quick and easy backtesting on mempool transactions and other data
 - **Bundle merging**: bundles that target transactions which have already been included in a pending block can be dropped if they are marked in `reverting_tx_hashes`.
@@ -48,19 +49,16 @@ Additionally, you can:
 
 Running:
 1. Prepare config file based on the `config-live-example.toml`
-2. Run `builder run PATH_TO_CONFIG_FILE`
+2. Run `rbuilder run PATH_TO_CONFIG_FILE`
 
 ### Benchmarking
 
 rbuilder has a solid initial benchmarking setup (based on [Criterion.rs](https://github.com/bheisler/criterion.rs)).
 
 - Benchmarks are located in [`crates/rbuilder/benches`](./crates/rbuilder/benches/). We'd love to add more meaningful benchmarks there!
-- All PRs receive a [benchmark report like this](https://flashbots-rbuilder-ci-stats.s3.us-east-2.amazonaws.com/benchmark/17c379a-24c50ff/report/index.html).
+- All PRs receive a [benchmark report like this](https://flashbots-rbuilder-ci-stats.s3.us-east-2.amazonaws.com/benchmark/3b22d52-f468712/report/index.html).
 - You can run benchmarks with `make bench` and open the Criterion-generated report with `make bench-report-open`.
-  Benchmarks also run on every PR.
-- The rbuilder benchmark report is based on the Criterion-generated one, and prettifies it with custom templates. It's produced by
-  [`scripts/ci/benchmark-in-ci.sh`](./scripts/ci/benchmark-in-ci.sh).
-- Let us know about further improvement ideas!
+- Let us know about further improvement ideas and additional relevant benchmarks.
 
 ### Other executables
 
