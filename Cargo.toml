@@ -27,7 +27,7 @@ reth-node-api = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-bet
 reth-trie = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-beta.6" }
 reth-trie-parallel = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-beta.6" }
 reth-basic-payload-builder = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-beta.6" }
-reth-node-core = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-beta.6" }
+reth-node-core = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.0" }
 reth-primitives = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-beta.6" }
 reth-provider = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-beta.6" }
 
