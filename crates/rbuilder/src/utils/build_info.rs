@@ -5,11 +5,12 @@ mod internal {
 }
 
 use internal::{
-    BUILT_TIME_UTC, FEATURES, GIT_COMMIT_HASH_SHORT, GIT_DIRTY, GIT_HEAD_REF, PROFILE,
+    BUILT_TIME_UTC, FEATURES, GIT_COMMIT_HASH_SHORT, GIT_DIRTY, GIT_HEAD_REF, GIT_VERSION, PROFILE,
     RUSTC_VERSION,
 };
 
 pub fn print_version_info() {
+    println!("version:    {}", GIT_VERSION.unwrap_or_default());
     println!("commit:     {}", GIT_COMMIT_HASH_SHORT.unwrap_or_default());
     println!("dirty:      {}", GIT_DIRTY.unwrap_or_default());
     println!("branch:     {}", GIT_HEAD_REF.unwrap_or_default());
