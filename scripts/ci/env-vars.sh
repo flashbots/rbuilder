@@ -26,7 +26,7 @@ if [ -z "$HEAD_BRANCH" ]; then
 fi
 
 # BASE_REF and BASE_SHA are the baseline (what the PR is pointing to, and what Criterion can compoare).
-export BASE_REF=${GITHUB_BASE_REF:=main} # main branch by default
+export BASE_REF=${GITHUB_BASE_REF:=develop} # "develop" branch is the default
 export BASE_SHA=$( git log -n 1 --pretty=format:"%H" origin/${BASE_REF} ) # get hash of base branch
 export BASE_SHA_SHORT=$( echo $BASE_SHA | cut -c1-7 )
 

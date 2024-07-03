@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   pull_request:
   push:
-    branches: [main]
+    branches: [develop]
 
 jobs:
   bench:
@@ -52,7 +52,7 @@ jobs:
 
           # S3 upload directory, depending if it includes a comparison or not
           if [ "$HEAD_SHA" == "$BASE_SHA" ]; then
-            # No comparison (i.e. running on a branch like main directly)
+            # No comparison (i.e. running on a branch like develop directly)
             S3_UPLOAD_DIR="benchmark/${HEAD_SHA_SHORT}"
           else
             # Comparison (i.e. running on a PR)
