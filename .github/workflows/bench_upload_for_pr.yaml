@@ -1,0 +1,76 @@
+name: Benchmark upload for PRs
+
+on:
+  workflow_run:
+    workflows: ["Benchmarks"]
+    types:
+      - completed
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    # runs-on: warp-ubuntu-latest-x64-16x
+    # if: github.event.workflow_run.conclusion == 'success'
+    if: >
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success'
+    steps:
+      # https://github.com/actions/download-artifact
+      - uses: actions/download-artifact@v4
+        with:
+          name: benchmark-report.zip
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Prepare upload
+        id: prepare
+        run: |
+          unzip benchmark-report.zip
+          ls -alh benchmark-report/
+
+          cat benchmark-report/vars.txt
+          source benchmark-report/vars.txt
+
+          S3_UPLOAD_DIR="benchmark/${HEAD_SHA_SHORT}-${BASE_SHA_SHORT}"
+          echo "S3_UPLOAD_DIR=${S3_UPLOAD_DIR}" >> "$GITHUB_OUTPUT"
+          echo "PR_NUMBER=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+
+      # Upload S3 (using https://github.com/shallwefootball/upload-s3-action)
+      - name: Upload report to S3
+        uses: shallwefootball/s3-upload-action@master
+        id: S3
+        with:
+          aws_key_id: ${{secrets.AWS_KEY_ID}}
+          aws_secret_access_key: ${{secrets.AWS_SECRET_ACCESS_KEY}}
+          aws_bucket: flashbots-rbuilder-ci-stats
+          source_dir: benchmark-report
+          destination_dir: ${{ steps.prepare.outputs.S3_UPLOAD_DIR }}
+
+      #
+      # POST SUMMARY (to PR comment and CI job summary)
+      #
+      - name: Add summary to CI job summary
+        run: |
+          BENCH_URL="https://flashbots-rbuilder-ci-stats.s3.us-east-2.amazonaws.com/${{steps.S3.outputs.object_key}}/report/index.html"
+          sed -i "s|__BENCH_URL__|${BENCH_URL}|" benchmark-report/benchmark-pr-comment.md
+          cat benchmark-report/benchmark-pr-comment.md
+
+      # https://github.com/peter-evans/find-comment
+      - name: Find previous PR comment
+        uses: peter-evans/find-comment@v3
+        if: github.event_name == 'pull_request'
+        id: fc
+        with:
+          issue-number: ${{ steps.prepare.outputs.PR_NUMBER }}
+          comment-author: 'github-actions[bot]'
+          body-includes: Benchmark results
+
+      # https://github.com/peter-evans/create-or-update-comment
+      - name: Create or update PR comment
+        uses: peter-evans/create-or-update-comment@v4
+        if: github.event_name == 'pull_request'
+        with:
+          comment-id: ${{ steps.fc.outputs.comment-id }}
+          issue-number: ${{ steps.prepare.outputs.PR_NUMBER }}
+          edit-mode: replace
+          body-path: benchmark-report/benchmark-pr-comment.md

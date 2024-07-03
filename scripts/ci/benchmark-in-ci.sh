@@ -90,11 +90,11 @@ mkdir -p target/benchmark-in-ci
 echo "Saved report: target/benchmark-in-ci/benchmark-report/report/index.html"
 
 # Create summary markdown
-fn="target/benchmark-in-ci/benchmark-summary.md"
+fn="target/benchmark-in-ci/benchmark-report/benchmark-summary.md"
 envsubst < scripts/ci/templates/benchmark-summary.md > $fn
 echo "Wrote summary: $fn"
 
 # Create summary pr comment
-fn="target/benchmark-in-ci/benchmark-pr-comment.md"
+fn="target/benchmark-in-ci/benchmark-report/benchmark-pr-comment.md"
 envsubst < scripts/ci/templates/benchmark-pr-comment.md > $fn
 echo "Wrote PR comment: $fn"
