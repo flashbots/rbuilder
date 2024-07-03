@@ -1,0 +1,181 @@
+//! Error storage is used to store example of errors for the future reproduction
+//! It works as a separate thread that write payload with attached to the sqlite db
+//! Writer limits amount of errors that can be written to the db.
+
+use crossbeam_queue::ArrayQueue;
+use lazy_static::lazy_static;
+use sqlx::{sqlite::SqliteConnectOptions, ConnectOptions, Executor, SqliteConnection};
+use std::{path::Path, time::Duration};
+use tokio_util::sync::CancellationToken;
+use tracing::{error, info_span, warn};
+
+// To prevent db from being overwhelmed with errors we store only a limited amount of errors per category
+// after this limit is reached we stop writing errors to the db
+const MAX_ERRORS_PER_CATEGORY: usize = 100;
+
+// Maximum size of the payload in bytes (100 mb)
+const MAX_PAYLOAD_SIZE_BYTES: usize = 100_000_000;
+
+#[derive(Debug)]
+struct ErrorEvent {
+    category: String,
+    error: String,
+    payload: String,
+}
+
+lazy_static! {
+    static ref EVENT_QUEUE: ArrayQueue<ErrorEvent> = ArrayQueue::new(500);
+}
+
+/// Spawn a new error storage writer.
+/// `db_path` is a path to the sqlite db file
+pub async fn spawn_error_storage_writer(
+    db_path: impl AsRef<Path>,
+    global_cancel: CancellationToken,
+) -> eyre::Result<()> {
+    let mut storage = ErrorEventStorage::new_from_path(db_path).await?;
+
+    tokio::spawn(async move {
+        while !global_cancel.is_cancelled() {
+            if let Some(event) = EVENT_QUEUE.pop() {
+                if let Err(err) = storage.write_error_event(&event).await {
+                    warn!(
+                        category = event.category,
+                        "Error writing error event to storage: {:?}", err
+                    );
+                }
+            } else {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }
+    });
+    Ok(())
+}
+
+/// Store an error event to be written to the error storage
+/// This function is non-blocking. If the error storage is full, the error will be dropped.
+/// `category` is a string that describes the category of the error
+/// `error` is a string that describes the error
+/// `payload` is a serializable payload that will be stored with the error as a json
+pub fn store_error_event<T: serde::Serialize>(category: &str, error: &str, payload: T) {
+    let span = info_span!("store_error_event", category, error);
+    let _span_guard = span.enter();
+
+    let payload_json = match serde_json::to_string(&payload) {
+        Ok(res) => res,
+        Err(err) => {
+            error!("Error serializing error payload: {:?}", err);
+            return;
+        }
+    };
+    if payload_json.as_bytes().len() > MAX_PAYLOAD_SIZE_BYTES {
+        error!(
+            "Error payload is too large, not storing error event. Payload size: {}",
+            payload_json.as_bytes().len()
+        );
+        return;
+    }
+    if EVENT_QUEUE
+        .push(ErrorEvent {
+            category: category.to_string(),
+            error: error.to_string(),
+            payload: payload_json,
+        })
+        .is_err()
+    {
+        error!("Error storing error event, queue is full.");
+    }
+}
+
+#[derive(Debug)]
+struct ErrorEventStorage {
+    conn: SqliteConnection,
+}
+
+impl ErrorEventStorage {
+    async fn new_from_path(path: impl AsRef<Path>) -> eyre::Result<Self> {
+        let mut res = Self {
+            conn: SqliteConnectOptions::new()
+                .filename(path)
+                .create_if_missing(true)
+                .connect()
+                .await?,
+        };
+        res.create_tables().await?;
+        Ok(res)
+    }
+
+    #[allow(dead_code)]
+    async fn new_from_memory() -> eyre::Result<Self> {
+        let mut res = Self {
+            conn: SqliteConnectOptions::new().connect().await?,
+        };
+        res.create_tables().await?;
+        Ok(res)
+    }
+
+    async fn create_tables(&mut self) -> eyre::Result<()> {
+        self.conn
+            .execute(
+                r#"
+            CREATE TABLE IF NOT EXISTS error_events (
+                category TEXT NOT NULL,
+                error TEXT NOT NULL,
+                payload TEXT NOT NULL
+            );
+            "#,
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    async fn write_error_event(&mut self, event: &ErrorEvent) -> eyre::Result<()> {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM error_events WHERE category = ?")
+            .bind(&event.category)
+            .fetch_one(&mut self.conn)
+            .await?;
+
+        if count as usize >= MAX_ERRORS_PER_CATEGORY {
+            warn!(
+                category = &event.category,
+                "Error storage is full, not writing error event"
+            );
+            return Ok(());
+        }
+
+        sqlx::query(
+            r#"
+            INSERT INTO error_events (category, error, payload)
+            VALUES (?, ?, ?)
+            "#,
+        )
+        .bind(&event.category)
+        .bind(&event.error)
+        .bind(&event.payload)
+        .execute(&mut self.conn)
+        .await?;
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_error_storage() {
+        let mut storage = ErrorEventStorage::new_from_memory().await.unwrap();
+
+        let event = ErrorEvent {
+            category: "test".to_string(),
+            error: "test error".to_string(),
+            payload: "test payload".to_string(),
+        };
+
+        for _ in 0..MAX_ERRORS_PER_CATEGORY + 5 {
+            storage.write_error_event(&event).await.unwrap();
+        }
+    }
+}

@@ -1,0 +1,123 @@
+name: Benchmarks
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  bench:
+    name: Benchmark the code
+    runs-on: warp-ubuntu-latest-x64-16x
+    strategy:
+      matrix:
+        toolchain:
+          - stable
+    env:
+      PR_NUMBER: ${{ github.event.number }}
+      BENCH_AGAINST_BASE: 1
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Used to get hash of base branch
+
+      # https://github.com/dtolnay/rust-toolchain
+      - name: Setup rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ matrix.toolchain }}
+
+      # https://github.com/swatinem/rust-cache
+      - name: Run Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Set (and display) useful variables
+        id: vars
+        run: |
+          source scripts/ci/env-vars.sh
+
+          echo "HEAD_SHA: ${HEAD_SHA}"
+          echo "HEAD_SHA_SHORT: ${HEAD_SHA_SHORT}"
+          echo "BASE_SHA: ${BASE_SHA}"
+          echo "BASE_SHA_SHORT: ${BASE_SHA_SHORT}"
+
+          echo "HEAD_SHA=${HEAD_SHA}" >> "$GITHUB_OUTPUT"
+          echo "HEAD_SHA_SHORT=${HEAD_SHA_SHORT}" >> "$GITHUB_OUTPUT"
+          echo "BASE_SHA=${BASE_SHA}" >> "$GITHUB_OUTPUT"
+          echo "BASE_SHA_SHORT=${BASE_SHA_SHORT}" >> "$GITHUB_OUTPUT"
+
+          # S3 upload directory, depending if it includes a comparison or not
+          if [ "$HEAD_SHA" == "$BASE_SHA" ]; then
+            # No comparison (i.e. running on a branch like main directly)
+            S3_UPLOAD_DIR="benchmark/${HEAD_SHA_SHORT}"
+          else
+            # Comparison (i.e. running on a PR)
+            S3_UPLOAD_DIR="benchmark/${HEAD_SHA_SHORT}-${BASE_SHA_SHORT}"
+          fi
+          echo "S3_UPLOAD_DIR: ${S3_UPLOAD_DIR}"
+          echo "S3_UPLOAD_DIR=${S3_UPLOAD_DIR}" >> "$GITHUB_OUTPUT"
+          echo "S3_UPLOAD_DIR=${S3_UPLOAD_DIR}" >> "$GITHUB_ENV"
+
+      #
+      # RUN BENCHMARKS (and upload the report)
+      #
+      - run: make bench-in-ci
+
+      # Upload as artifact first
+      - name: Upload report as artifact
+        uses: actions/upload-artifact@v4.3.1
+        with:
+          name: benchmark-report
+          path: target/benchmark-in-ci/benchmark-report/
+
+      - name: Zip the report and add to folder (for S3 upload)
+        working-directory: target/benchmark-in-ci
+        run: |
+          zip_fn="report.zip"
+          zip -r $zip_fn benchmark-report
+          mv $zip_fn benchmark-report/
+
+      # Upload S3 (using https://github.com/shallwefootball/upload-s3-action)
+      - name: Upload report to S3
+        uses: shallwefootball/s3-upload-action@master
+        id: S3
+        with:
+          aws_key_id: ${{secrets.AWS_KEY_ID}}
+          aws_secret_access_key: ${{secrets.AWS_SECRET_ACCESS_KEY}}
+          aws_bucket: flashbots-rbuilder-ci-stats
+          source_dir: target/benchmark-in-ci/benchmark-report
+          destination_dir: ${{ steps.vars.outputs.S3_UPLOAD_DIR }}
+
+      #
+      # POST SUMMARY (to PR comment and CI job summary)
+      #
+      - name: Add summary to CI job summary
+        run: |
+          BENCH_URL="https://flashbots-rbuilder-ci-stats.s3.us-east-2.amazonaws.com/${{steps.S3.outputs.object_key}}/report/index.html"
+          sed -i "s|__BENCH_URL__|${BENCH_URL}|" target/benchmark-in-ci/benchmark-summary.md
+          sed -i "s|__BENCH_URL__|${BENCH_URL}|" target/benchmark-in-ci/benchmark-pr-comment.md
+          cat target/benchmark-in-ci/benchmark-summary.md >> $GITHUB_STEP_SUMMARY
+
+      # https://github.com/peter-evans/find-comment
+      - name: Find previous PR comment
+        uses: peter-evans/find-comment@v3
+        if: github.event_name == 'pull_request'
+        id: fc
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: 'github-actions[bot]'
+          body-includes: Benchmark results
+
+      # https://github.com/peter-evans/create-or-update-comment
+      - name: Create or update PR comment
+        uses: peter-evans/create-or-update-comment@v4
+        if: github.event_name == 'pull_request'
+        with:
+          comment-id: ${{ steps.fc.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          edit-mode: replace
+          body-path: target/benchmark-in-ci/benchmark-pr-comment.md

@@ -1,0 +1,147 @@
+use crate::{
+    mev_boost::{BuilderBlockReceived, RelayClient, RelayError, RELAYS},
+    primitives::mev_boost::{MevBoostRelay, MevBoostRelayID},
+};
+use futures::{stream::FuturesUnordered, StreamExt};
+use std::collections::HashMap;
+use tracing::trace;
+
+#[derive(Debug)]
+pub struct PayloadDeliveredResult {
+    pub delivered: Vec<(MevBoostRelayID, BuilderBlockReceived)>,
+    pub relay_errors: HashMap<MevBoostRelayID, DeliveredPayloadBidTraceErr>,
+}
+
+impl PayloadDeliveredResult {
+    pub fn best_bid(&self) -> Option<BuilderBlockReceived> {
+        self.delivered.first().map(|(_, p)| p.clone())
+    }
+
+    pub fn best_relay(&self) -> Option<MevBoostRelayID> {
+        self.delivered.first().map(|(r, _)| r.clone())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PayloadDeliveredFetcher {
+    relays: HashMap<MevBoostRelayID, RelayClient>,
+}
+
+impl Default for PayloadDeliveredFetcher {
+    fn default() -> Self {
+        let relays = RELAYS
+            .clone()
+            .into_iter()
+            .map(|r| {
+                MevBoostRelay {
+                    id: r.name(),
+                    client: RelayClient::from_known_relay(r),
+                    priority: 0,
+                    use_ssz_for_submit: false, //Don't use submit so don't care
+                    use_gzip_for_submit: false, //Don't use submit so don't care
+                    optimistic: false,
+                    submission_rate_limiter: None,
+                }
+            })
+            .collect::<Vec<_>>();
+
+        Self::from_relays(&relays)
+    }
+}
+
+impl PayloadDeliveredFetcher {
+    pub fn from_relays(relays: &[MevBoostRelay]) -> Self {
+        let mut result = HashMap::new();
+        for relay in relays.iter().cloned() {
+            result.insert(relay.id, relay.client);
+        }
+        Self { relays: result }
+    }
+
+    /// Returns bid traces for the given block delivered by the selected relays
+    /// sorted by timestamp_ms
+    pub async fn get_payload_delivered(&self, block_number: u64) -> PayloadDeliveredResult {
+        let mut relay_errors = HashMap::new();
+
+        let delivered_payloads = self
+            .relays
+            .clone()
+            .into_iter()
+            .map(|(id, relay)| async move {
+                (
+                    id,
+                    get_delivered_payload_bid_trace(relay, block_number).await,
+                )
+            })
+            .collect::<FuturesUnordered<_>>()
+            .collect::<Vec<_>>()
+            .await;
+
+        let mut relays_delivered_payload = Vec::new();
+        for (relay, res) in delivered_payloads {
+            match res {
+                Ok(payload) => {
+                    relays_delivered_payload.push((relay, payload));
+                }
+                Err(DeliveredPayloadBidTraceErr::NoDeliveredBidTrace) => {
+                    trace!(
+                        relay = relay,
+                        "No payload bid trace for block {}",
+                        block_number
+                    );
+                }
+                Err(err) => {
+                    trace!(
+                        relay = relay,
+                        "Relay error while delivering payload: {:?}",
+                        err
+                    );
+                    relay_errors.insert(relay, err);
+                }
+            }
+        }
+
+        relays_delivered_payload.sort_by_key(|(_, p)| p.timestamp_ms);
+        PayloadDeliveredResult {
+            delivered: relays_delivered_payload,
+            relay_errors,
+        }
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum DeliveredPayloadBidTraceErr {
+    #[error("RelayError: {0}")]
+    RelayError(#[from] RelayError),
+    #[error("No delivered bid trace")]
+    NoDeliveredBidTrace,
+}
+
+pub async fn get_delivered_payload_bid_trace(
+    relay: RelayClient,
+    block_number: u64,
+) -> Result<BuilderBlockReceived, DeliveredPayloadBidTraceErr> {
+    let payload = relay
+        .proposer_payload_delivered_block_number(block_number)
+        .await?
+        .ok_or(DeliveredPayloadBidTraceErr::NoDeliveredBidTrace)?;
+
+    let bid_trace = relay
+        .builder_block_received_block_hash(payload.block_hash)
+        .await?
+        .ok_or(DeliveredPayloadBidTraceErr::NoDeliveredBidTrace)?;
+    Ok(bid_trace)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[ignore]
+    #[tokio::test]
+    async fn test_payload_delivered() {
+        let fetcher = PayloadDeliveredFetcher::default();
+        let res = fetcher.get_payload_delivered(19012899).await;
+        dbg!(res);
+    }
+}

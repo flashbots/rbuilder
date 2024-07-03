@@ -1,0 +1,57 @@
+name: Checks
+
+on:
+  workflow_dispatch:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUN_TEST_FAKE_MEV_BOOST_RELAY: 1
+
+jobs:
+  lint_and_test:
+    name: Lint and test
+    runs-on: warp-ubuntu-latest-x64-16x
+    strategy:
+      matrix:
+        toolchain:
+          - stable
+          #- beta
+          #- nightly
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Download fake mevboost relay
+        uses: ./.github/actions/download_fake_relay
+
+      # https://github.com/dtolnay/rust-toolchain
+      - name: Setup rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ matrix.toolchain }}
+
+      # https://github.com/swatinem/rust-cache
+      - name: Run Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      # https://github.com/Mozilla-Actions/sccache-action
+      - name: Run sccache-action
+        uses: mozilla-actions/sccache-action@v0.0.5
+
+      - name: Set sccache env vars
+        run: |
+          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
+          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+
+      - name: Install native dependencies
+        run: sudo apt-get install -y libsqlite3-dev
+
+      # lint and test
+      - run: make lint
+      - run: make test

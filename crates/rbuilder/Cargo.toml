@@ -1,0 +1,113 @@
+[package]
+name = "rbuilder"
+version.workspace = true
+edition.workspace = true
+build = "build.rs"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tokio = "1.38.0"
+serde = "1.0.188"
+serde_json = "1.0.105"
+thiserror = "1.0.47"
+eyre = "0.6.8"
+ethers = { version = "2.0", features = ["ipc"] }
+reth.workspace = true
+reth-db.workspace = true
+reth-interfaces.workspace = true
+reth-libmdbx.workspace = true
+reth-payload-builder.workspace = true
+reth-basic-payload-builder.workspace = true
+reth-trie.workspace = true
+reth-trie-parallel.workspace = true
+reth-node-api.workspace = true
+reth-node-core.workspace = true
+reth-primitives.workspace = true
+reth-provider.workspace = true
+revm.workspace = true
+
+alloy-primitives.workspace = true
+alloy-rlp.workspace = true
+alloy-chains.workspace = true
+alloy-provider.workspace = true
+alloy-rpc-types.workspace = true
+alloy-json-rpc.workspace = true
+alloy-transport-http.workspace = true
+alloy-network.workspace = true
+alloy-transport.workspace = true
+alloy-serde.workspace = true
+
+reqwest = { version = "0.11.20", features = ["blocking"] }
+serde_with = { version = "3.8.1", features = ["time_0_3"] }
+primitive-types = "0.12.1"
+url = "2.4.1"
+sqlx = { version = "0.7.1", features = [
+    "runtime-tokio-native-tls",
+    "postgres",
+    "sqlite",
+    "chrono",
+    "bigdecimal",
+    "time",
+    "uuid",
+] }
+tracing = "0.1.37"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
+csv = "1.2.2"
+zip = "0.6.6"
+atoi = "2.0.0"
+futures = "0.3.28"
+time = { version = "0.3.36", features = ["macros", "formatting", "parsing"] }
+bigdecimal = "0.4.1"
+mempool-dumpster = "0.1.1"
+itertools = "0.11.0"
+tokio-stream = "0.1.14"
+clap = { version = "4.4.3", features = ["derive", "env"] }
+priority-queue = "2.0.3"
+secp256k1 = { version = "0.27.0", features = [
+    "global-context",
+    "rand-std",
+    "recovery",
+] }
+rayon = "1.8.0"
+flate2 = "1.0.27"
+mev-share-sse = "0.1.5"
+jsonrpsee = { version = "0.20.3", features = ["full"] }
+ssz_rs = { git = "https://github.com/ralexstokes/ssz-rs.git", version = "0.9.0" }
+ethereum-consensus = { git = "https://github.com/ralexstokes/ethereum-consensus/", rev = "0e8809c1eda3f54a78991d7a5987ff42c9195d42" }
+ssz_rs_derive = { git = "https://github.com/ralexstokes/ssz-rs.git", version = "0.9.0" }
+tokio-util = "0.7.11"
+uuid = { version = "1.6.1", features = ["serde", "v5", "v4"] }
+prometheus = "0.13.4"
+hyper = { version = "1.3.1", features = ["server", "full"] }
+warp = "0.3.7"
+lazy_static = "1.4.0"
+toml = "0.8.8"
+ahash = "0.8.6"
+rand = "0.8.5"
+lru = "0.12.1"
+humantime = "2.1.0"
+flume = "0.11.0"
+crossbeam-queue = "0.3.10"
+integer-encoding = "4.0.0"
+sha2 = "0.10.8"
+lz4_flex = "0.11.2"
+once_cell = "1.19.0"
+exponential-backoff = "1.2.0"
+tungstenite = "0.23.0"
+redis = "0.25.4"
+governor = "0.6.3"
+derivative = "2.2.0"
+mockall = "0.12.1"
+shellexpand = "3.1.0"
+
+[build-dependencies]
+built = { version = "0.7.1", features = ["git2", "chrono"] }
+
+[dev-dependencies]
+tempfile = "3.8"
+criterion = { version = "0.5.1", features = ["html_reports"] }
+
+[[bench]]
+name = "bench_main"
+harness = false

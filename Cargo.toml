@@ -1,0 +1,54 @@
+[workspace]
+members = ["crates/rbuilder"]
+resolver = "2"
+
+# Like release, but with full debug symbols. Useful for e.g. `perf`.
+[profile.debug-fast]
+inherits = "release"
+debug = true
+
+[profile.maxperf]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+incremental = false
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[workspace.dependencies]
+reth = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-beta.6" }
+reth-db = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-beta.6" }
+reth-interfaces = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-beta.6" }
+reth-libmdbx = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-beta.6" }
+reth-payload-builder = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-beta.6" }
+reth-node-api = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-beta.6" }
+reth-trie = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-beta.6" }
+reth-trie-parallel = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-beta.6" }
+reth-basic-payload-builder = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-beta.6" }
+reth-node-core = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-beta.6" }
+reth-primitives = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-beta.6" }
+reth-provider = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-beta.6" }
+
+# version is copied from reth  "v0.2.0-beta.6" dependencies
+revm = { version = "8.0.0", features = [
+    "std",
+    "secp256k1",
+    "optional_balance_check",
+], default-features = false }
+revm-primitives = { version = "3.1.0", features = [
+    "std",
+], default-features = false }
+revm-inspectors = { git = "https://github.com/paradigmxyz/evm-inspectors", rev = "dc614ee" }
+
+alloy-primitives = "0.7.2"
+alloy-rlp = "0.3.4"
+alloy-chains = { version = "0.1.15", feature = ["serde", "rlp", "arbitrary"] }
+alloy-provider = { git = "https://github.com/alloy-rs/alloy", version = "0.1" }
+alloy-rpc-types = { git = "https://github.com/alloy-rs/alloy", version = "0.1" }
+alloy-json-rpc = { git = "https://github.com/alloy-rs/alloy", version = "0.1" }
+alloy-transport-http = { git = "https://github.com/alloy-rs/alloy", version = "0.1" }
+alloy-network = { git = "https://github.com/alloy-rs/alloy", version = "0.1" }
+alloy-transport = { git = "https://github.com/alloy-rs/alloy", version = "0.1" }
+alloy-serde = { git = "https://github.com/alloy-rs/alloy", version = "0.1" }
