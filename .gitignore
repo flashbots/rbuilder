@@ -5,3 +5,5 @@
 /target
 /scripts/benchmark-results.*
 /test/
+
+.idea
