@@ -80,7 +80,7 @@ jobs:
           name: benchmark-report.zip
           path: benchmark-report.zip
 
-      # - name: Add summary to CI job summary
-      #   run: |
-      #     cat target/benchmark-in-ci/benchmark-report/benchmark-summary.md >> $GITHUB_STEP_SUMMARY
+      - name: Add summary to CI job summary
+        run: |
+          cat target/benchmark-in-ci/benchmark-report/benchmark-summary.md >> $GITHUB_STEP_SUMMARY
 
