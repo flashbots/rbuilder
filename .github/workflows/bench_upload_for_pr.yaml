@@ -1,4 +1,13 @@
-name: Benchmark upload for PRs
+name: Benchmark upload (for PRs)
+
+#
+# PRs can contain malicious code, and uploading the report requires access to S3 secrets.
+#
+# Therefore we separate this upload workflow for PRs, to run in a safe context when the
+# benchmark has completed successfully for the PR in the previous job.
+#
+# See also
+#
 
 on:
   workflow_run:
@@ -8,6 +17,7 @@ on:
 
 jobs:
   upload:
+    name: Upload benchmark report
     runs-on: ubuntu-latest
     # runs-on: warp-ubuntu-latest-x64-16x
     # if: github.event.workflow_run.conclusion == 'success'
@@ -58,7 +68,6 @@ jobs:
       # https://github.com/peter-evans/find-comment
       - name: Find previous PR comment
         uses: peter-evans/find-comment@v3
-        if: github.event_name == 'pull_request'
         id: fc
         with:
           issue-number: ${{ steps.prepare.outputs.PR_NUMBER }}
@@ -68,7 +77,6 @@ jobs:
       # https://github.com/peter-evans/create-or-update-comment
       - name: Create or update PR comment
         uses: peter-evans/create-or-update-comment@v4
-        if: github.event_name == 'pull_request'
         with:
           comment-id: ${{ steps.fc.outputs.comment-id }}
           issue-number: ${{ steps.prepare.outputs.PR_NUMBER }}

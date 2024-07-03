@@ -39,22 +39,14 @@ jobs:
         run: |
           source scripts/ci/env-vars.sh
 
-          echo "HEAD_SHA: ${HEAD_SHA}"
-          echo "HEAD_SHA_SHORT: ${HEAD_SHA_SHORT}"
-          echo "BASE_SHA: ${BASE_SHA}"
-          echo "BASE_SHA_SHORT: ${BASE_SHA_SHORT}"
-
-          echo "HEAD_SHA=${HEAD_SHA}" >> "$GITHUB_OUTPUT"
-          echo "HEAD_SHA_SHORT=${HEAD_SHA_SHORT}" >> "$GITHUB_OUTPUT"
-          echo "BASE_SHA=${BASE_SHA}" >> "$GITHUB_OUTPUT"
-          echo "BASE_SHA_SHORT=${BASE_SHA_SHORT}" >> "$GITHUB_OUTPUT"
-
+          # Keep important variables around for the upload workflow that comes afterwards
           fn_vars="vars.txt"
           echo "PR_NUMBER=${PR_NUMBER}" >> $fn_vars
           echo "HEAD_SHA=${HEAD_SHA}" >> $fn_vars
           echo "HEAD_SHA_SHORT=${HEAD_SHA_SHORT}" >> $fn_vars
           echo "BASE_SHA=${BASE_SHA}" >> $fn_vars
           echo "BASE_SHA_SHORT=${BASE_SHA_SHORT}" >> $fn_vars
+          cat $fn_vars
 
       #
       # RUN BENCHMARKS (and upload the report)
@@ -73,14 +65,12 @@ jobs:
           zip -r benchmark-report.zip benchmark-report
           mv benchmark-report.zip ../../
 
-      # Upload as artifact
       - name: Upload report as artifact
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-report.zip
           path: benchmark-report.zip
 
-      - name: Add summary to CI job summary
+      - name: Add details to CI job summary
         run: |
           cat target/benchmark-in-ci/benchmark-report/benchmark-summary.md >> $GITHUB_STEP_SUMMARY
-
