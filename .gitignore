@@ -6,4 +6,6 @@
 /scripts/benchmark-results.*
 /test/
 
+# editors
+.code
 .idea
