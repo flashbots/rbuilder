@@ -93,7 +93,7 @@ impl BuiltBlockTrace {
     pub fn verify_bundle_consistency(
         &self,
         blocklist: &HashSet<Address>,
-    ) -> eyre::Result<(), BuiltBlockTraceError> {
+    ) -> Result<(), BuiltBlockTraceError> {
         let mut replacement_data_count: HashSet<_> = HashSet::default();
 
         for res in &self.included_orders {
