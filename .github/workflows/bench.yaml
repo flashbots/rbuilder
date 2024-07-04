@@ -8,8 +8,7 @@ on:
 jobs:
   bench:
     name: Benchmark the code
-    runs-on: ubuntu-latest
-    # runs-on: warp-ubuntu-latest-x64-16x
+    runs-on: warp-ubuntu-latest-x64-16x
     strategy:
       matrix:
         toolchain:
@@ -51,14 +50,9 @@ jobs:
       # RUN BENCHMARKS
       - run: make bench-in-ci
 
-      # Store results as artifact
       - name: Zip the report
         run: |
-          # mkdir -p target/benchmark-in-ci/benchmark-report
-          # echo hello > target/benchmark-in-ci/benchmark-report/index.html
-
           cp vars.txt target/benchmark-in-ci/benchmark-report/
-          # cp scripts/ci/templates/benchmark-pr-comment.md target/benchmark-in-ci/benchmark-report/
 
           cd target/benchmark-in-ci
           zip -r benchmark-report.zip benchmark-report
