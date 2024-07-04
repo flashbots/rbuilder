@@ -55,18 +55,36 @@ Running:
 
 rbuilder has a solid initial benchmarking setup (based on [Criterion.rs](https://github.com/bheisler/criterion.rs)).
 
-- Benchmarks are located in [`crates/rbuilder/benches`](./crates/rbuilder/benches/). We'd love to add more meaningful benchmarks there!
 - All PRs receive a [benchmark report like this](https://flashbots-rbuilder-ci-stats.s3.us-east-2.amazonaws.com/benchmark/3b22d52-f468712/report/index.html).
 - You can run benchmarks with `make bench` and open the Criterion-generated report with `make bench-report-open`.
+- Benchmarks are located in [`crates/rbuilder/benches`](./crates/rbuilder/benches/). We'd love to add more meaningful benchmarks there!
 - Let us know about further improvement ideas and additional relevant benchmarks.
 
-### Other executables
 
-* `misc-relay-slot` shows info about winning bid for the block
-* `debug-bench-machine` tests execution performance
-* `debug-order-input` observe input of the bundles and transactions
-* `debug-order-sim` observe simulation of the bundles and transactions
-* `debug-slot-data-generation` shows new payload jobs coming from CL with attached data from relays.
+---
+
+## Release Stability and Development Process
+
+rbuilder is running in production at Flashbots since Q1 2024, and is reasonably stable. It is under active (and sometimes heavy) development, as we are constantly adding new features and improvements.
+
+We encourage users to choose the version that best fits their needs: the latest stable release for production use, or the `develop` branch for those who want to test the latest features and are comfortable with potential instability.
+
+### Develop Branch
+The `develop` branch is our main integration branch for ongoing development:
+- We frequently merge pull requests into this branch.
+- While we strive for quality, the `develop` branch may occasionally be unstable.
+- There are no guarantees that code in this branch is fully tested or production-ready.
+
+### Stable Releases
+For users seeking stability:
+- We recommend using the latest tagged release.
+- Each release undergoes thorough testing in production environments before publication.
+- Tagged releases offer a higher level of reliability and are suitable for production use.
+- You can find the stable releases at [github.com/flashbots/rbuilder/releases](https://github.com/flashbots/rbuilder/releases)
+
+### Release Cadence
+
+We plan to cut a stable release at least once a month, but this may vary depending on the volume of changes and the stability of the codebase. To get notified, watch the repository, and you'll get an email notification on new releases.
 
 ---
 
@@ -102,6 +120,25 @@ See [`SECURITY.md`](./SECURITY.md)
 
 ## Acknowledgements
 
-None of this would have been possible without having a fast and efficient Ethereum node, so big shoutout to the [Reth](https://github.com/paradigmxyz/reth) team.
+Big shoutout to the [Reth](https://github.com/paradigmxyz/reth) team for building a kick-ass Ethereum node.
 
 
+---
+
+## Various notes
+
+`make build` builds a bunch of additional binaries:
+
+
+| Binary                      | Description                                                                                           |
+| --------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `rbuilder`                  | Live block builder                                                                                    |
+| `backtest-build-block`      | Run backtests for a single block                                                                      |
+| `backtest-build-range`      | Run backtests for a range of block                                                                    |
+| `backtest-fetch`            | Download data for backtesting                                                                         |
+| `dummy-builder`             | Simple sample builder to show how to plugin a custom `BlockBuildingSink` and `BlockBuildingAlgorithm` |
+| `misc-relays-slot`          | Shows info about winning bid for the block                                                            |
+| `debug-bench-machine`       | Tests execution performance                                                                           |
+| `debug-order-input`         | Observe input of the bundles and transactions                                                         |
+| `debug-order-sim`           | Observe simulation of the bundles and transactions                                                    |
+| `debug-slot-data-generator` | Shows new payload jobs coming from CL with attached data from relays.                                 |
