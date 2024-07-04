@@ -48,11 +48,10 @@ jobs:
           echo "BASE_SHA_SHORT=${BASE_SHA_SHORT}" >> $fn_vars
           cat $fn_vars
 
-      #
-      # RUN BENCHMARKS (and upload the report)
-      #
+      # RUN BENCHMARKS
       - run: make bench-in-ci
 
+      # Store results as artifact
       - name: Zip the report
         run: |
           # mkdir -p target/benchmark-in-ci/benchmark-report
