@@ -90,6 +90,8 @@ impl MevBoostSlotDataGenerator {
     }
 
     pub fn spawn(self) -> (JoinHandle<()>, mpsc::UnboundedReceiver<MevBoostSlotData>) {
+        println!("MevoostSlotDataGenerator::spawn");
+
         let relays = RelaysForSlotData::new(&self.relays);
 
         let (send, receive) = mpsc::unbounded_channel();
