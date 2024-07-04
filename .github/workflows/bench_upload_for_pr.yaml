@@ -1,9 +1,9 @@
 name: Benchmark upload
 
 #
-# This workflow runs after every benchmark, to uploading the report to S3.
+# This workflow runs after every benchmark, to upload the report to S3.
 #
-# It is it's own workflow, because PRs can contain malicious code and run in a context with secrets..
+# It is its own workflow, because PRs can contain malicious code and run in a context with secrets..
 #
 # See also https://securitylab.github.com/research/github-actions-preventing-pwn-requests/
 #
