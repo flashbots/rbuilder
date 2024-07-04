@@ -10,6 +10,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUN_TEST_FAKE_MEV_BOOST_RELAY: 1
+  MEMPOOL_DATADIR: /tmp
 
 jobs:
   lint_and_test:
