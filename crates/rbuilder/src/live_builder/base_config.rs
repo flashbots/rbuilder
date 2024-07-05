@@ -22,7 +22,7 @@ use eyre::{eyre, Context};
 use jsonrpsee::RpcModule;
 use lazy_static::lazy_static;
 use reth::{
-    args::utils::chain_spec_value_parser,
+    args::utils::genesis_value_parser,
     primitives::{Chain, ChainSpec, NamedChain, StaticFileSegment},
     tasks::pool::BlockingTaskPool,
 };
@@ -239,7 +239,7 @@ impl BaseConfig {
     }
 
     pub fn chain_spec(&self) -> eyre::Result<Arc<ChainSpec>> {
-        chain_spec_value_parser(&self.chain)
+        genesis_value_parser(&self.chain)
     }
 
     pub fn sbundle_mergeabe_signers(&self) -> Vec<Address> {
