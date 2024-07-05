@@ -1,12 +1,13 @@
 //! Config should always be deserializable, default values should be used
 //!
-use crate::live_builder::bidding::DummyBiddingService;
-use crate::live_builder::building::relay_submit::RelaySubmitSinkFactory;
-use crate::live_builder::order_input::OrderInputConfig;
-use crate::live_builder::LiveBuilder;
 use crate::{
     flashbots::BlocksProcessorClient,
-    live_builder::building::SubmissionConfig,
+    live_builder::{
+        bidding::DummyBiddingService,
+        building::{relay_submit::RelaySubmitSinkFactory, SubmissionConfig},
+        order_input::OrderInputConfig,
+        LiveBuilder,
+    },
     mev_boost::BLSBlockSigner,
     primitives::mev_boost::MevBoostRelay,
     telemetry::{setup_reloadable_tracing_subscriber, LoggerConfig},
@@ -21,7 +22,7 @@ use eyre::{eyre, Context};
 use jsonrpsee::RpcModule;
 use lazy_static::lazy_static;
 use reth::{
-    args::utils::chain_spec_value_parser,
+    args::utils::genesis_value_parser,
     primitives::{Chain, ChainSpec, NamedChain, StaticFileSegment},
     tasks::pool::BlockingTaskPool,
 };
@@ -238,7 +239,7 @@ impl BaseConfig {
     }
 
     pub fn chain_spec(&self) -> eyre::Result<Arc<ChainSpec>> {
-        chain_spec_value_parser(&self.chain)
+        genesis_value_parser(&self.chain)
     }
 
     pub fn sbundle_mergeabe_signers(&self) -> Vec<Address> {
