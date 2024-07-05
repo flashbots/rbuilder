@@ -52,7 +52,10 @@ fmt: ## Format the code
 .PHONY: bench
 bench: ## Run benchmarks
 	cargo bench --bench bench_main
-#	 cargo bench --bench bench_main -- --verbose
+
+.PHONY: bench-flamegraphs
+bench-flamegraphs: ## Create flamegraphs for the benchmarks
+	cargo bench --bench bench_flamegraphs -- --profile-time 3
 
 .PHONY: bench-report-open
 bench-report-open: ## Open last benchmark report in the browser

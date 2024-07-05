@@ -1,4 +1,5 @@
 use criterion::{criterion_group, Criterion};
+use pprof::criterion::{Output, PProfProfiler};
 
 use ethereum_consensus::ssz::prelude::serialize;
 use rbuilder::mev_boost::{
@@ -37,4 +38,26 @@ fn bench_mevboost_serialization(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(serialization, bench_mevboost_serialization);
+fn bench_mevboost_serialization_flamegraphs(c: &mut Criterion) {
+    let mut generator = TestDataGenerator::default();
+    c.bench_function("JSON", |b| {
+        b.iter_batched(
+            || generator.create_deneb_submit_block_request(),
+            |b| {
+                serde_json::to_vec(&b).unwrap();
+            },
+            criterion::BatchSize::SmallInput,
+        );
+    });
+}
+
+criterion_group! {
+    name = serialization;
+    config = Criterion::default();
+    targets = bench_mevboost_serialization
+}
+criterion_group!(
+    name=serialization_flamegraph;
+    config = Criterion::default().with_profiler(PProfProfiler::new(100, Output::Flamegraph(None)));
+    targets = bench_mevboost_serialization_flamegraphs
+);

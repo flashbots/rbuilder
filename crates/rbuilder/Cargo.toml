@@ -107,7 +107,12 @@ built = { version = "0.7.1", features = ["git2", "chrono"] }
 [dev-dependencies]
 tempfile = "3.8"
 criterion = { version = "0.5.1", features = ["html_reports"] }
+pprof = { version = "0.13.0", features = ["flamegraph", "criterion"] }
 
 [[bench]]
 name = "bench_main"
+harness = false
+
+[[bench]]
+name = "bench_flamegraphs"
 harness = false
