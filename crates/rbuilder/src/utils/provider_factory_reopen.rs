@@ -105,13 +105,18 @@ pub fn check_provider_factory_health<DB: Database>(
 ) -> eyre::Result<()> {
     // evm must have access to block hashed of 256 of the previous blocks
     for i in 1u64..=256 {
-        let hash = provider_factory.block_hash(current_block_number - i)?;
+        let num = current_block_number - i;
+        let hash = provider_factory.block_hash(num)?;
         if hash.is_none() {
             eyre::bail!(
                 "Missing historical block hash for block {}, current block: {}",
                 current_block_number - i,
                 current_block_number
             );
+        }
+
+        if num == 0 {
+            break;
         }
     }
 
