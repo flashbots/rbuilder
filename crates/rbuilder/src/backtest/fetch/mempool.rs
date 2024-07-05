@@ -146,7 +146,13 @@ mod test {
 
     #[tokio::test]
     async fn test_get_mempool_transactions() {
-        let data_dir = std::env::var("MEMPOOL_DATADIR").expect("MEMPOOL_DATADIR not set");
+        let data_dir = match std::env::var("MEMPOOL_DATADIR") {
+            Ok(dir) => dir,
+            Err(_) => {
+                println!("MEMPOOL_DATADIR not set, skipping test");
+                return;
+            }
+        };
 
         let source = MempoolDumpsterDatasource::new(data_dir).unwrap();
         let block = BlockRef {
