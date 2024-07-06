@@ -1,5 +1,8 @@
 [workspace]
-members = ["crates/rbuilder"]
+members = [
+    "crates/rbuilder",
+    "crates/rbuilder/src/test_utils"
+]
 resolver = "2"
 
 # Like release, but with full debug symbols. Useful for e.g. `perf`.
