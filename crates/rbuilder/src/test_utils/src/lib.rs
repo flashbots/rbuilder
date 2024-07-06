@@ -10,7 +10,7 @@ pub fn ignore_if_env_not_set(attr: TokenStream, item: TokenStream) -> TokenStrea
     let input = parse_macro_input!(item as ItemFn);
 
     // Check if the environment variable is set
-    let env_var_set = env::var(&env_var_to_check).is_ok();
+    let env_var_set = env::var(env_var_to_check).is_ok();
 
     let result = if env_var_set {
         // If the environment variable is set, return the original function
@@ -43,7 +43,7 @@ pub fn ignore_if_endpoint_unavailable(attr: TokenStream, item: TokenStream) -> T
         .build()
         .unwrap();
 
-    let endpoint_available = client.get(&endpoint_to_check).send().is_ok();
+    let endpoint_available = client.get(endpoint_to_check).send().is_ok();
 
     let result = if endpoint_available {
         // If the endpoint is available, return the original function
