@@ -7,8 +7,10 @@ pub mod order_input;
 pub mod payload_events;
 pub mod simulation;
 mod watchdog;
+use url::Url;
 
 use crate::{
+    beacon_api_client::Client,
     building::{
         builders::{BlockBuildingAlgorithm, BuilderSinkFactory},
         BlockBuildingContext,
@@ -113,9 +115,15 @@ where
 
         let mut inner_jobs_handles = Vec::new();
 
+        let cls = self
+            .cl_urls
+            .iter()
+            .map(|url| Client::new(Url::parse(url).unwrap()))
+            .collect();
+
         let mut payload_events_channel = {
             let payload_event = MevBoostSlotDataGenerator::new(
-                self.cl_urls,
+                cls,
                 self.relays.clone(),
                 self.blocklist.clone(),
                 self.global_cancellation.clone(),
