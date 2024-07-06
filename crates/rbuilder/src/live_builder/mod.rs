@@ -7,7 +7,6 @@ pub mod order_input;
 pub mod payload_events;
 pub mod simulation;
 mod watchdog;
-use url::Url;
 
 use crate::{
     beacon_api_client::Client,
@@ -56,7 +55,7 @@ const GET_BLOCK_HEADER_PERIOD: time::Duration = time::Duration::milliseconds(250
 /// Create and run()
 #[derive(Debug)]
 pub struct LiveBuilder<DB, BuilderSinkFactoryType: BuilderSinkFactory> {
-    pub cl_urls: Vec<String>,
+    pub cls: Vec<Client>,
     pub relays: Vec<MevBoostRelay>,
     pub watchdog_timeout: Duration,
     pub error_storage_path: PathBuf,
@@ -115,15 +114,9 @@ where
 
         let mut inner_jobs_handles = Vec::new();
 
-        let cls = self
-            .cl_urls
-            .iter()
-            .map(|url| Client::new(Url::parse(url).unwrap()))
-            .collect();
-
         let mut payload_events_channel = {
             let payload_event = MevBoostSlotDataGenerator::new(
-                cls,
+                self.cls,
                 self.relays.clone(),
                 self.blocklist.clone(),
                 self.global_cancellation.clone(),

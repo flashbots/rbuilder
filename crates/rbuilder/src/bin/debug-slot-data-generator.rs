@@ -1,7 +1,6 @@
 use clap::Parser;
 use payload_events::MevBoostSlotDataGenerator;
 use rbuilder::{
-    beacon_api_client::Client,
     live_builder::{
         base_config::load_config_toml_and_env, cli::LiveBuilderConfig, config::Config,
         payload_events,
@@ -40,7 +39,7 @@ pub async fn main() -> eyre::Result<()> {
     let relays = config.base_config().relays()?;
 
     let (handle, mut slots) = MevBoostSlotDataGenerator::new(
-        Client::new(config.base_config().cl_node_url.parse().unwrap()),
+        config.base_config().beacon_clients(),
         relays,
         Default::default(),
         cancel,

@@ -17,6 +17,14 @@ impl Debug for Client {
     }
 }
 
+impl Default for Client {
+    fn default() -> Self {
+        Self {
+            inner: bClient::new(Url::parse("http://localhost:8000").unwrap()),
+        }
+    }
+}
+
 impl Client {
     pub fn new(endpoint: Url) -> Self {
         Self {
@@ -52,6 +60,7 @@ impl Topic for PayloadAttributesTopic {
 
 #[cfg(test)]
 mod tests {
+    // TODO: Enable these tests.
     use super::*;
     use futures::StreamExt;
 
@@ -65,6 +74,7 @@ mod tests {
         spec.get("GENESIS_FORK_VERSION").unwrap();
     }
 
+    #[ignore]
     #[tokio::test]
     async fn test_get_events() {
         let client = Client::new(Url::parse("http://localhost:8000").unwrap());
