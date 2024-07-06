@@ -17,8 +17,11 @@ use crate::{
 };
 use ahash::HashSet;
 use alloy_chains::ChainKind;
-use alloy_primitives::{utils::parse_ether, Address, B256};
-use ethereum_consensus::{builder::compute_builder_domain, crypto::SecretKey, networks::Network};
+use alloy_primitives::{utils::parse_ether, Address, FixedBytes, B256};
+use ethereum_consensus::{
+    builder::compute_builder_domain, crypto::SecretKey, primitives::Version,
+    state_transition::Context as ContextEth,
+};
 use eyre::{eyre, Context};
 use jsonrpsee::RpcModule;
 use lazy_static::lazy_static;
@@ -41,6 +44,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
+use tokio::runtime::Runtime;
 use tracing::{info, warn};
 use url::Url;
 
@@ -80,7 +84,6 @@ pub struct BaseConfig {
     pub reth_datadir: Option<PathBuf>,
     pub reth_db_path: Option<PathBuf>,
     pub reth_static_files_path: Option<PathBuf>,
-    pub cl_network_config_dir: Option<String>,
 
     pub blocklist_file_path: Option<PathBuf>,
     pub extra_data: String,
@@ -325,8 +328,10 @@ impl BaseConfig {
 
     pub fn bls_signer(&self) -> eyre::Result<BLSBlockSigner> {
         let chain_spec = self.chain_spec()?;
-        let signing_domain =
-            get_signing_domain(chain_spec.chain, self.cl_network_config_dir.clone())?;
+        let signing_domain = get_signing_domain(
+            chain_spec.chain,
+            self.beacon_clients().first().unwrap().clone(),
+        )?;
         let secret_key = self.relay_secret_key.value()?;
         let secret_key = SecretKey::try_from(secret_key)
             .map_err(|e| eyre::eyre!("Failed to parse relay key: {:?}", e.to_string()))?;
@@ -336,8 +341,10 @@ impl BaseConfig {
 
     pub fn bls_optimistic_signer(&self) -> eyre::Result<BLSBlockSigner> {
         let chain_spec = self.chain_spec()?;
-        let signing_domain =
-            get_signing_domain(chain_spec.chain, self.cl_network_config_dir.clone())?;
+        let signing_domain = get_signing_domain(
+            chain_spec.chain,
+            self.beacon_clients().first().unwrap().clone(),
+        )?;
         let secret_key = self.optimistic_relay_secret_key.value()?;
         let secret_key = SecretKey::try_from(secret_key).map_err(|e| {
             eyre::eyre!("Failed to parse optimistic relay key: {:?}", e.to_string())
@@ -530,7 +537,6 @@ impl Default for BaseConfig {
             reth_datadir: Some(DEFAULT_RETH_DB_PATH.parse().unwrap()),
             reth_db_path: None,
             reth_static_files_path: None,
-            cl_network_config_dir: None,
             blocklist_file_path: None,
             extra_data: "extra_data_change_me".to_string(),
             relays: vec![],
@@ -602,29 +608,42 @@ pub fn coinbase_signer_from_secret_key(secret_key: &str) -> eyre::Result<Signer>
     Ok(Signer::try_from_secret(secret_key)?)
 }
 
-fn get_signing_domain(chain: Chain, cl_network_config_dir: Option<String>) -> eyre::Result<B256> {
-    let network = named_chain_to_network(chain)
-        .or_else(|| cl_network_config_dir.map(Network::Custom))
-        .ok_or_else(|| {
-            eyre::eyre!("Unknown chain. If network is not named, specify cl_network_config_dir")
-        })?;
+fn get_signing_domain(chain: Chain, client: Client) -> eyre::Result<B256> {
+    let cl_context = match chain.kind() {
+        ChainKind::Named(NamedChain::Mainnet) => ContextEth::for_mainnet(),
+        ChainKind::Named(NamedChain::Sepolia) => ContextEth::for_sepolia(),
+        ChainKind::Named(NamedChain::Goerli) => ContextEth::for_goerli(),
+        ChainKind::Named(NamedChain::Holesky) => ContextEth::for_holesky(),
+        _ => {
+            let rt = Runtime::new()?;
+            let spec = rt.block_on(client.get_spec())?;
 
-    let cl_context = ethereum_consensus::state_transition::Context::try_from(network)?;
+            let genesis_fork_version = spec
+                .get("GENESIS_FORK_VERSION")
+                .ok_or_else(|| eyre::eyre!("GENESIS_FORK_VERSION not found in spec"))?;
+
+            let version: FixedBytes<4> = FixedBytes::from_str(genesis_fork_version)
+                .map_err(|e| eyre::eyre!("Failed to parse genesis fork version: {:?}", e))?;
+
+            let version = Version::from(version);
+
+            // use the mainnet one and update the genesis fork version since it is the
+            // only thing required by 'compute_builder_domain'. We do this because
+            // there is no default in Context.
+            let mut network = ContextEth::for_mainnet();
+            network.genesis_fork_version = version;
+
+            network
+        }
+    };
+
     Ok(B256::from(&compute_builder_domain(&cl_context)?))
-}
-fn named_chain_to_network(chain: Chain) -> Option<Network> {
-    match chain.kind() {
-        ChainKind::Named(NamedChain::Mainnet) => Some(Network::Mainnet),
-        ChainKind::Named(NamedChain::Sepolia) => Some(Network::Sepolia),
-        ChainKind::Named(NamedChain::Goerli) => Some(Network::Goerli),
-        ChainKind::Named(NamedChain::Holesky) => Some(Network::Holesky),
-        _ => None,
-    }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
+    use alloy_primitives::fixed_bytes;
     use reth_db::init_db;
     use reth_node_core::{
         dirs::{DataDirPath, MaybePlatformPath},
@@ -633,6 +652,7 @@ mod test {
     use reth_primitives::{Chain, SEPOLIA};
     use reth_provider::ProviderFactory;
     use tempfile::TempDir;
+    use url::Url;
 
     #[test]
     fn test_default_config() {
@@ -640,6 +660,45 @@ mod test {
         let config_default = BaseConfig::default();
 
         assert_eq!(config, config_default);
+    }
+
+    #[test]
+    fn test_signing_domain_known_chains() {
+        let cases = [
+            (
+                NamedChain::Mainnet,
+                fixed_bytes!("00000001f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a9"),
+            ),
+            (
+                NamedChain::Sepolia,
+                fixed_bytes!("00000001d3010778cd08ee514b08fe67b6c503b510987a4ce43f42306d97c67c"),
+            ),
+            (
+                NamedChain::Goerli,
+                fixed_bytes!("00000001e4be9393b074ca1f3e4aabd585ca4bea101170ccfaf71b89ce5c5c38"),
+            ),
+            (
+                NamedChain::Holesky,
+                fixed_bytes!("000000015b83a23759c560b2d0c64576e1dcfc34ea94c4988f3e0d9f77f05387"),
+            ),
+        ];
+
+        for (chain, domain) in cases.iter() {
+            let found = get_signing_domain(Chain::from_named(*chain), Client::default()).unwrap();
+            assert_eq!(found, *domain);
+        }
+    }
+
+    #[ignore]
+    #[test]
+    fn test_signing_domain_custom_chain() {
+        let client = Client::new(Url::parse("http://localhost:8000").unwrap());
+        let found = get_signing_domain(Chain::from_id(12345), client).unwrap();
+
+        assert_eq!(
+            found,
+            fixed_bytes!("00000001aaf2630a2874a74199f4b5d11a7d6377f363a236271bff4bf8eb4ab3")
+        );
     }
 
     #[test]
