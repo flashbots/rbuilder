@@ -10,6 +10,7 @@ use crate::{
     },
     mev_boost::BLSBlockSigner,
     primitives::mev_boost::MevBoostRelay,
+    provider::StateProviderFactory,
     telemetry::{setup_reloadable_tracing_subscriber, LoggerConfig},
     utils::{http_provider, BoxedProvider, ProviderFactoryReopener, Signer},
     validation_api_client::ValidationAPIClient,
@@ -179,12 +180,15 @@ impl BaseConfig {
     }
 
     /// WARN: opens reth db
-    pub async fn create_builder(
+    pub async fn create_builder<Provider>(
         &self,
         cancellation_token: tokio_util::sync::CancellationToken,
     ) -> eyre::Result<
-        super::LiveBuilder<Arc<DatabaseEnv>, super::building::relay_submit::RelaySubmitSinkFactory>,
-    > {
+        super::LiveBuilder<Provider, super::building::relay_submit::RelaySubmitSinkFactory>,
+    >
+    where
+        Provider: StateProviderFactory,
+    {
         let submission_config = self.submission_config()?;
         info!(
             "Builder mev boost normal relay pubkey: {:?}",
@@ -206,7 +210,7 @@ impl BaseConfig {
         let relays = self.relays()?;
         let sink_factory = RelaySubmitSinkFactory::new(self.submission_config()?, relays.clone());
 
-        Ok(LiveBuilder::<Arc<DatabaseEnv>, RelaySubmitSinkFactory> {
+        Ok(LiveBuilder {
             cl_urls: self.cl_node_url.clone(),
             relays,
             watchdog_timeout: self.watchdog_timeout(),

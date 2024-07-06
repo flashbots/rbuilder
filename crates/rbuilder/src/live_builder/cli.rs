@@ -10,7 +10,7 @@ use crate::{
     building::builders::{BacktestSimulateBlockInput, Block},
     live_builder::base_config::load_config_toml_and_env,
     telemetry::spawn_telemetry_server,
-    utils::build_info::Version,
+    utils::{build_info::Version, ProviderFactoryReopener},
 };
 
 use super::{base_config::BaseConfig, building::relay_submit::RelaySubmitSinkFactory, LiveBuilder};
@@ -41,7 +41,9 @@ pub trait LiveBuilderConfig: std::fmt::Debug + serde::de::DeserializeOwned {
         &self,
         cancellation_token: CancellationToken,
     ) -> impl std::future::Future<
-        Output = eyre::Result<LiveBuilder<Arc<DatabaseEnv>, RelaySubmitSinkFactory>>,
+        Output = eyre::Result<
+            LiveBuilder<ProviderFactoryReopener<Arc<DatabaseEnv>>, RelaySubmitSinkFactory>,
+        >,
     > + Send;
 
     /// Patch until we have a unified way of backtesting using the exact algorithms we use on the LiveBuilder.

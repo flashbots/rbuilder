@@ -4,11 +4,10 @@ use crate::{
         simulate_order, BlockState,
     },
     live_builder::simulation::CurrentSimulationContexts,
+    provider::StateProviderFactory,
     telemetry,
     telemetry::add_sim_thread_utilisation_timings,
-    utils::ProviderFactoryReopener,
 };
-use reth_db::database::Database;
 use reth_payload_builder::database::CachedReads;
 use std::{
     sync::{Arc, Mutex},
@@ -18,10 +17,10 @@ use std::{
 use tokio_util::sync::CancellationToken;
 use tracing::error;
 
-pub fn run_sim_worker<DB: Database + Clone + Send + 'static>(
+pub fn run_sim_worker<Provider: StateProviderFactory + Clone + Send + 'static>(
     worker_id: usize,
     ctx: Arc<Mutex<CurrentSimulationContexts>>,
-    provider_factory: ProviderFactoryReopener<DB>,
+    provider_factory: Provider,
     global_cancellation: CancellationToken,
 ) {
     loop {

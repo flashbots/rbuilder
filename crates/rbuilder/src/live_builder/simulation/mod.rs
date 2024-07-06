@@ -7,11 +7,11 @@ use crate::{
     },
     live_builder::order_input::orderpool::OrdersForBlock,
     primitives::{Order, OrderId, SimulatedOrder},
-    utils::{gen_uid, ProviderFactoryReopener},
+    provider::StateProviderFactory,
+    utils::gen_uid,
 };
 use ahash::{HashMap, HashSet};
 use alloy_primitives::utils::format_ether;
-use reth_db::database::Database;
 use std::{
     fmt,
     sync::{Arc, Mutex},
@@ -30,8 +30,8 @@ pub struct SlotOrderSimResults {
 type BlockContextId = u64;
 
 #[derive(Debug)]
-pub struct OrderSimulationPool<DB> {
-    provider_factory: ProviderFactoryReopener<DB>,
+pub struct OrderSimulationPool<Provider> {
+    provider_factory: Provider,
     running_tasks: Arc<Mutex<Vec<JoinHandle<()>>>>,
     current_contexts: Arc<Mutex<CurrentSimulationContexts>>,
     worker_threads: Vec<std::thread::JoinHandle<()>>,
@@ -128,7 +128,7 @@ pub enum SimulatedOrderCommand {
 /// - Always send simulations with increasing `sequence_number`
 /// - When replacing an order we always send a cancellation for the previous one.
 /// - When we gat a cancellation we propagate it and never again send an update.
-impl<DB: Database + Clone + Send + 'static> SimulationJob<DB> {
+impl<Provider: StateProviderFactory + Clone + Send + 'static> SimulationJob<Provider> {
     async fn run(&mut self) {
         let mut new_commands = Vec::new();
         let mut new_sim_results = Vec::new();
@@ -298,9 +298,9 @@ impl<DB: Database + Clone + Send + 'static> SimulationJob<DB> {
 }
 
 // input new slot and a
-impl<DB: Database + Clone + Send + 'static> OrderSimulationPool<DB> {
+impl<Provider: StateProviderFactory + Clone + Send + 'static> OrderSimulationPool<Provider> {
     pub fn new(
-        provider_factory: ProviderFactoryReopener<DB>,
+        provider_factory: Provider,
         num_workers: usize,
         global_cancellation: CancellationToken,
     ) -> Self {

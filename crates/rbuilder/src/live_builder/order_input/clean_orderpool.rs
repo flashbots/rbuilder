@@ -1,15 +1,14 @@
 use super::OrderInputConfig;
 use crate::{
     live_builder::order_input::orderpool::OrderPool,
+    provider::StateProviderFactory,
     telemetry::{set_current_block, set_ordepool_count},
-    utils::ProviderFactoryReopener,
 };
 use ethers::{
     middleware::Middleware,
     providers::{Ipc, Provider},
 };
 use futures::StreamExt;
-use reth_db::database::Database;
 use std::{
     pin::pin,
     sync::{Arc, Mutex},
@@ -19,9 +18,9 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info};
 
-pub async fn spawn_clean_orderpool_job<DB: Database + Clone + 'static>(
+pub async fn spawn_clean_orderpool_job<SProvider: StateProviderFactory + Clone + 'static>(
     config: OrderInputConfig,
-    provider_factory: ProviderFactoryReopener<DB>,
+    provider_factory: SProvider,
     orderpool: Arc<Mutex<OrderPool>>,
     global_cancellation: CancellationToken,
 ) -> eyre::Result<JoinHandle<()>> {
@@ -47,8 +46,6 @@ pub async fn spawn_clean_orderpool_job<DB: Database + Clone + 'static>(
         let mut new_block_stream = pin!(new_block_stream);
 
         while let Some(block) = new_block_stream.next().await {
-            let provider_factory = provider_factory.provider_factory_unchecked();
-
             let block_number = block.number.unwrap_or_default().as_u64();
             set_current_block(block_number);
             let state = match provider_factory.latest() {

@@ -10,9 +10,8 @@ use crate::{
         BlockBuildingContext,
     },
     live_builder::{payload_events::MevBoostSlotData, simulation::SlotOrderSimResults},
-    utils::ProviderFactoryReopener,
+    provider::StateProviderFactory,
 };
-use reth_db::database::Database;
 use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, trace};
@@ -27,27 +26,29 @@ use super::{
 };
 
 #[derive(Debug)]
-pub struct BlockBuildingPool<DB, BuilderSinkFactoryType: BuilderSinkFactory> {
-    provider_factory: ProviderFactoryReopener<DB>,
-    builders: Vec<Arc<dyn BlockBuildingAlgorithm<DB, BuilderSinkFactoryType::SinkType>>>,
+pub struct BlockBuildingPool<Provider, BuilderSinkFactoryType: BuilderSinkFactory> {
+    provider_factory: Provider,
+    builders: Vec<Arc<dyn BlockBuildingAlgorithm<Provider, BuilderSinkFactoryType::SinkType>>>,
     sink_factory: BuilderSinkFactoryType,
     bidding_service: Box<dyn BiddingService>,
     orderpool_subscriber: order_input::OrderPoolSubscriber,
-    order_simulation_pool: OrderSimulationPool<DB>,
+    order_simulation_pool: OrderSimulationPool<Provider>,
 }
 
-impl<DB: Database + Clone + 'static, BuilderSinkFactoryType: BuilderSinkFactory>
-    BlockBuildingPool<DB, BuilderSinkFactoryType>
+impl<
+        Provider: StateProviderFactory + Clone + 'static,
+        BuilderSinkFactoryType: BuilderSinkFactory,
+    > BlockBuildingPool<Provider, BuilderSinkFactoryType>
 where
     <BuilderSinkFactoryType as BuilderSinkFactory>::SinkType: 'static,
 {
     pub fn new(
-        provider_factory: ProviderFactoryReopener<DB>,
-        builders: Vec<Arc<dyn BlockBuildingAlgorithm<DB, BuilderSinkFactoryType::SinkType>>>,
+        provider_factory: Provider,
+        builders: Vec<Arc<dyn BlockBuildingAlgorithm<Provider, BuilderSinkFactoryType::SinkType>>>,
         sink_factory: BuilderSinkFactoryType,
         bidding_service: Box<dyn BiddingService>,
         orderpool_subscriber: order_input::OrderPoolSubscriber,
-        order_simulation_pool: OrderSimulationPool<DB>,
+        order_simulation_pool: OrderSimulationPool<Provider>,
     ) -> Self {
         BlockBuildingPool {
             provider_factory,
@@ -132,7 +133,7 @@ where
         for builder in self.builders.iter() {
             let builder_name = builder.name();
             debug!(block = block_number, builder_name, "Spawning builder job");
-            let input = BlockBuildingAlgorithmInput::<DB, BuilderSinkFactoryType::SinkType> {
+            let input = BlockBuildingAlgorithmInput::<Provider, BuilderSinkFactoryType::SinkType> {
                 provider_factory: provider_factory.clone(),
                 ctx: ctx.clone(),
                 input: broadcast_input.subscribe(),

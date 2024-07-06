@@ -1,9 +1,12 @@
+use crate::provider::StateProviderFactory;
 use reth::{
     primitives::ChainSpec,
     providers::{BlockHashReader, ChainSpecProvider, ProviderFactory},
 };
 use reth_db::database::Database;
-use reth_interfaces::RethResult;
+use reth_interfaces::{provider::ProviderResult, RethResult};
+use reth_primitives::BlockNumber;
+use reth_provider::StateProviderBox;
 use std::{
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -121,4 +124,17 @@ pub fn check_provider_factory_health<DB: Database>(
     }
 
     Ok(())
+}
+
+impl<DB: 'static + Database + Clone> StateProviderFactory for ProviderFactoryReopener<DB> {
+    fn history_by_block_number(
+        &self,
+        block_number: BlockNumber,
+    ) -> ProviderResult<StateProviderBox> {
+        unimplemented!("TODO");
+    }
+
+    fn latest(&self) -> ProviderResult<StateProviderBox> {
+        unimplemented!("TODO");
+    }
 }

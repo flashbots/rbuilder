@@ -62,7 +62,10 @@ impl LiveBuilderConfig for Config {
         &self,
         cancellation_token: tokio_util::sync::CancellationToken,
     ) -> eyre::Result<
-        super::LiveBuilder<Arc<DatabaseEnv>, super::building::relay_submit::RelaySubmitSinkFactory>,
+        super::LiveBuilder<
+            ProviderFactoryReopener<Arc<DatabaseEnv>>,
+            super::building::relay_submit::RelaySubmitSinkFactory,
+        >,
     > {
         let live_builder = self.base_config.create_builder(cancellation_token).await?;
         let root_hash_task_pool = self.base_config.root_hash_task_pool()?;
