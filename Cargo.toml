@@ -52,3 +52,5 @@ alloy-transport-http = { git = "https://github.com/alloy-rs/alloy", version = "0
 alloy-network = { git = "https://github.com/alloy-rs/alloy", version = "0.1" }
 alloy-transport = { git = "https://github.com/alloy-rs/alloy", version = "0.1" }
 alloy-serde = { git = "https://github.com/alloy-rs/alloy", version = "0.1" }
+
+c-kzg = "=1.0.0"
