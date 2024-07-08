@@ -180,13 +180,13 @@ impl HistoricalDataFetcher {
                 async move {
                     let mut all_nonces_failed = true;
                     for nonce in nonces {
-                        let mut res_onchain_nonce = 0_u64;
+                        let mut res_onchain_nonce: Option<u64> = None;
                         if let Ok(nonce_cache) = nonce_cache.read() {
                             if let Some(onchain_nonce) = nonce_cache.get(&nonce.address) {
-                                res_onchain_nonce = *onchain_nonce
+                                res_onchain_nonce = Some(*onchain_nonce);
                             }
                         }
-                        if res_onchain_nonce == 0 {
+                        if res_onchain_nonce.is_none() {
                             let address = nonce.address;
                             let onchain_nonce = self
                                 .eth_provider
@@ -198,15 +198,18 @@ impl HistoricalDataFetcher {
                             if let Ok(mut nonce_cache) = nonce_cache.write() {
                                 nonce_cache.insert(nonce.address, onchain_nonce);
                             }
-                            res_onchain_nonce = onchain_nonce;
+                            res_onchain_nonce = Some(onchain_nonce);
                         }
 
-                        if res_onchain_nonce > nonce.nonce && !nonce.optional {
+                        let low_nonce = res_onchain_nonce.map_or(true, |onchain_nonce| {
+                            onchain_nonce > nonce.nonce && !nonce.optional
+                        });
+                        if low_nonce {
                             trace!(
                                 "Order nonce too low, order: {:?}, nonce: {}, onchain tx count: {}",
                                 id,
                                 nonce.nonce,
-                                res_onchain_nonce,
+                                res_onchain_nonce.unwrap_or_default(),
                             );
                             return Ok(());
                         } else {
