@@ -196,20 +196,17 @@ impl HistoricalDataFetcher {
                                 .wrap_err("Failed to fetch onchain tx count")?;
 
                             if let Ok(mut nonce_cache) = nonce_cache.write() {
-                                nonce_cache.insert(nonce.address, onchain_nonce);
+                                nonce_cache.entry(address).or_insert(onchain_nonce);
                             }
                             res_onchain_nonce = Some(onchain_nonce);
                         }
 
-                        let low_nonce = res_onchain_nonce.map_or(true, |onchain_nonce| {
-                            onchain_nonce > nonce.nonce && !nonce.optional
-                        });
-                        if low_nonce {
+                        if res_onchain_nonce.unwrap() > nonce.nonce && !nonce.optional {
                             trace!(
                                 "Order nonce too low, order: {:?}, nonce: {}, onchain tx count: {}",
                                 id,
                                 nonce.nonce,
-                                res_onchain_nonce.unwrap_or_default(),
+                                res_onchain_nonce.unwrap(),
                             );
                             return Ok(());
                         } else {
