@@ -41,6 +41,8 @@ alloy-consensus.workspace = true
 alloy-serde.workspace = true
 alloy-signer-local.workspace = true
 
+test_utils = { path = "src/test_utils" }
+
 reqwest = { version = "0.11.20", features = ["blocking"] }
 serde_with = { version = "3.8.1", features = ["time_0_3"] }
 primitive-types = "0.12.1"

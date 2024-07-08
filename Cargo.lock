@@ -7721,6 +7721,7 @@ dependencies = [
  "ssz_rs 0.9.0 (git+https://github.com/ralexstokes/ssz-rs.git)",
  "ssz_rs_derive 0.9.0 (git+https://github.com/ralexstokes/ssz-rs.git)",
  "tempfile",
+ "test_utils",
  "thiserror",
  "time",
  "tokio",
@@ -11063,6 +11064,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3369f5ac52d5eb6ab48c6b4ffdc8efbcad6b89c765749064ba298f2c68a16a76"
 
 [[package]]
+name = "test_utils"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "reqwest 0.11.26",
+ "syn 2.0.53",
+ "which",
+]
+
+[[package]]
 name = "thin-vec"
 version = "0.2.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12165,6 +12177,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b3de34ae270483955a94f4b21bdaaeb83d508bb84a01435f393818edb0012009"
 dependencies = [
  "rustls-pki-types",
+]
+
+[[package]]
+name = "which"
+version = "4.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "87ba24419a2078cd2b0f2ede2691b6c66d8e47836da3b6db8265ebad47afbfc7"
+dependencies = [
+ "either",
+ "home",
+ "once_cell",
+ "rustix",
 ]
 
 [[package]]

@@ -89,9 +89,10 @@ fn check_and_download_transaction_files(
 #[cfg(test)]
 mod test {
     use super::*;
+    use test_utils::ignore_if_env_not_set;
     use time::macros::datetime;
 
-    #[ignore]
+    #[ignore_if_env_not_set("MEMPOOL_DATADIR")]
     #[test]
     fn test_get_mempool_transactions() {
         let data_dir = std::env::var("MEMPOOL_DATADIR").expect("MEMPOOL_DATADIR not set");
