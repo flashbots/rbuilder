@@ -3,12 +3,16 @@ mod backtest_build_range;
 pub mod execute;
 pub mod fetch;
 
+pub mod redistribute;
 mod results_store;
 mod store;
+
 pub use backtest_build_block::run_backtest_build_block;
 pub use backtest_build_range::run_backtest_build_range;
 use std::collections::HashSet;
 
+use crate::primitives::OrderId;
+use crate::utils::offset_datetime_to_timestamp_ms;
 use crate::{
     mev_boost::BuilderBlockReceived,
     primitives::{
@@ -16,13 +20,13 @@ use crate::{
         AccountNonce, Order, SimValue,
     },
 };
-use alloy_primitives::TxHash;
+use alloy_primitives::{TxHash, I256};
 use alloy_rpc_types::{BlockTransactions, Transaction};
-use serde::{Deserialize, Serialize};
-
 pub use fetch::HistoricalDataFetcher;
 pub use results_store::{BacktestResultsStorage, StoredBacktestResult};
+use serde::{Deserialize, Serialize};
 pub use store::HistoricalDataStorage;
+use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RawOrdersWithTimestamp {
@@ -62,6 +66,14 @@ pub struct OrdersWithTimestamp {
 /// Historic data for a block.
 /// Used for backtesting.
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuiltBlockData {
+    pub included_orders: Vec<OrderId>,
+    pub orders_closed_at: OffsetDateTime,
+    pub sealed_at: OffsetDateTime,
+    pub profit: I256,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlockData {
     pub block_number: u64,
     /// Extra info for landed block (not contained on onchain_block).
@@ -72,6 +84,7 @@ pub struct BlockData {
     /// Orders we had at the moment of building the block.
     /// This might be an approximation depending on DataSources used.
     pub available_orders: Vec<OrdersWithTimestamp>,
+    pub built_block_data: Option<BuiltBlockData>,
 }
 
 impl BlockData {
@@ -86,6 +99,12 @@ impl BlockData {
     pub fn filter_orders_by_ids(&mut self, order_ids: &[String]) {
         self.available_orders
             .retain(|order| order_ids.contains(&order.order.id().to_string()));
+    }
+
+    pub fn filter_orders_by_end_timestamp(&mut self, final_timestamp: OffsetDateTime) {
+        let final_timestamp_ms = offset_datetime_to_timestamp_ms(final_timestamp);
+        self.available_orders
+            .retain(|orders| orders.timestamp_ms <= final_timestamp_ms);
     }
 
     /// Returns tx's hashes on onchain_block not found on any available_orders, except for the validator payment tx.

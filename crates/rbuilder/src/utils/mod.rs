@@ -14,17 +14,17 @@ use alloy_primitives::U256;
 use alloy_provider::RootProvider;
 use alloy_transport::BoxTransport;
 
+pub use noncer::{NonceCache, NonceCacheRef};
+pub use provider_factory_reopen::{
+    check_provider_factory_health, is_provider_factory_health_error, ProviderFactoryReopener,
+};
 use reth::primitives::{
     revm::config::revm_spec_by_timestamp_after_merge, revm_primitives::CfgEnv, ChainSpec,
 };
 use revm::primitives::CfgEnvWithHandlerCfg;
 use std::cmp::{max, min};
-
-pub use noncer::{NonceCache, NonceCacheRef};
-pub use provider_factory_reopen::{
-    check_provider_factory_health, is_provider_factory_health_error, ProviderFactoryReopener,
-};
 pub use test_data_generator::TestDataGenerator;
+use time::OffsetDateTime;
 pub use tx_signer::Signer;
 
 /// de/serializes U256 as decimal value (U256 serde default is hexa). Needed to interact with some JSONs (eg:ProposerPayloadDelivered in relay provider API)
@@ -178,6 +178,15 @@ pub fn as_hash_set<T: Eq + std::hash::Hash + Copy>(slice: &[T]) -> ahash::HashSe
         set.insert(*t);
     }
     set
+}
+
+pub fn offset_datetime_to_timestamp_ms(date: OffsetDateTime) -> u64 {
+    (date.unix_timestamp_nanos() / 1_000_000) as u64
+}
+
+pub fn timestamp_ms_to_offset_datetime(timestamp: u64) -> OffsetDateTime {
+    OffsetDateTime::from_unix_timestamp_nanos((timestamp * 1_000_000) as i128)
+        .expect("failed to convert timestamp")
 }
 
 #[cfg(test)]

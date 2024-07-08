@@ -1,3 +1,5 @@
+use crate::backtest::BuiltBlockData;
+use crate::primitives::OrderId;
 use crate::{
     backtest::{
         fetch::data_source::{BlockRef, DataSource},
@@ -8,6 +10,7 @@ use crate::{
         Order, SimValue,
     },
 };
+use alloy_primitives::I256;
 use async_trait::async_trait;
 use bigdecimal::{
     num_bigint::{BigInt, Sign, ToBigInt},
@@ -17,7 +20,7 @@ use eyre::WrapErr;
 use reth::primitives::{Bytes, B256, U256, U64};
 use sqlx::postgres::PgPool;
 use std::{ops::Mul, str::FromStr};
-use time::OffsetDateTime;
+use time::{OffsetDateTime, PrimitiveDateTime};
 use tracing::trace;
 use uuid::Uuid;
 
@@ -111,7 +114,7 @@ impl RelayDB {
                     };
 
                     let sim_value = coinbase_diff.zip(total_gas_used).and_then(|(cb, gas)| {
-                        let coinbase_profit = sql_decimal_to_wei(cb)?;
+                        let coinbase_profit = sql_eth_decimal_to_wei(cb)?;
                         let mev_gas_price = coinbase_profit / U256::try_from(gas).ok()?;
                         Some(SimValue {
                             coinbase_profit,
@@ -195,7 +198,7 @@ impl RelayDB {
                         })?;
 
                     let sim_value = coinbase_diff.zip(total_gas_used).and_then(|(cb, gas)| {
-                        let coinbase_profit = sql_decimal_to_wei(cb)?;
+                        let coinbase_profit = sql_eth_decimal_to_wei(cb)?;
                         let mev_gas_price = coinbase_profit / U256::try_from(gas).ok()?;
                         Some(SimValue {
                             coinbase_profit,
@@ -245,6 +248,84 @@ impl RelayDB {
 
         Ok(result)
     }
+
+    pub async fn get_built_block_data(
+        &self,
+        block_hash: B256,
+    ) -> eyre::Result<Option<BuiltBlockData>> {
+        let block_hash = format!("{:?}", block_hash);
+
+        let mut built_blocks = sqlx::query_as::<
+            _,
+            (
+                PrimitiveDateTime,
+                PrimitiveDateTime,
+                Option<sqlx::types::BigDecimal>,
+                Option<sqlx::types::BigDecimal>,
+            ),
+        >(
+            "SELECT orders_closed_at, sealed_at, true_value, block_value from built_blocks bb \
+                  WHERE bb.hash = $1 \
+                  ORDER BY inserted_at DESC LIMIT 1",
+        )
+        .bind(&block_hash)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let (orders_closed_at, sealed_at, true_value, block_value) = match built_blocks.pop() {
+            Some(built_block) => built_block,
+            None => {
+                return Ok(None);
+            }
+        };
+
+        let included_bundles = sqlx::query_as::<_, (Uuid,)>(
+            "select distinct b.bundle_uuid from built_blocks bb
+            join built_blocks_bundles bbb on bb.block_id = bbb.block_id
+            join bundles b on b.id = bbb.bundle_id
+            where bb.hash = $1 and b.bundle_uuid is not null",
+        )
+        .bind(&block_hash)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let included_sbundles = sqlx::query_as::<_, (Vec<u8>,)>(
+            "SELECT DISTINCT sbu.hash FROM built_blocks bb
+            JOIN sbundle_builder_used sbu ON bb.block_id = sbu.block_id
+            WHERE bb.hash = $1 AND sbu.inserted = true",
+        )
+        .bind(&block_hash)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut included_orders = Vec::new();
+        for (bundle_uuid,) in included_bundles {
+            let order_id = OrderId::Bundle(bundle_uuid);
+            included_orders.push(order_id);
+        }
+        for (sbundle_hash,) in included_sbundles {
+            let order_id = OrderId::ShareBundle(B256::from_slice(&sbundle_hash));
+            included_orders.push(order_id);
+        }
+
+        let true_value = I256::try_from(
+            true_value
+                .and_then(sql_wei_decimal_to_wei)
+                .unwrap_or_default(),
+        )?;
+        let block_value = I256::try_from(
+            block_value
+                .and_then(sql_wei_decimal_to_wei)
+                .unwrap_or_default(),
+        )?;
+
+        Ok(Some(BuiltBlockData {
+            included_orders,
+            orders_closed_at: orders_closed_at.assume_utc(),
+            sealed_at: sealed_at.assume_utc(),
+            profit: true_value - block_value,
+        }))
+    }
 }
 
 #[async_trait]
@@ -283,7 +364,23 @@ impl DataSource for RelayDB {
     }
 }
 
-fn sql_decimal_to_wei(val: sqlx::types::BigDecimal) -> Option<U256> {
+fn sql_wei_decimal_to_wei(val: sqlx::types::BigDecimal) -> Option<U256> {
+    let (bi, exp) = val.into_bigint_and_exponent();
+    let (bi_sign, bi_bytes) = bi.to_bytes_be();
+    let bi = BigInt::from_bytes_be(bi_sign, &bi_bytes);
+    let cb = BigDecimal::new(bi, exp);
+
+    let cb = cb.to_bigint()?;
+    let (sign, bytes) = cb.to_bytes_be();
+    if sign == Sign::Minus {
+        return None;
+    }
+    let cb = U256::try_from_be_slice(&bytes)?;
+
+    Some(cb)
+}
+
+fn sql_eth_decimal_to_wei(val: sqlx::types::BigDecimal) -> Option<U256> {
     let (bi, exp) = val.into_bigint_and_exponent();
     let (bi_sign, bi_bytes) = bi.to_bytes_be();
     let bi = BigInt::from_bytes_be(bi_sign, &bi_bytes);
@@ -366,19 +463,19 @@ mod tests {
         set_test_debug_tracing_subscriber();
 
         let val = sqlx::types::BigDecimal::from_str("0.000000000000000001").unwrap();
-        let wei = sql_decimal_to_wei(val);
+        let wei = sql_eth_decimal_to_wei(val);
         assert_eq!(wei, Some(U256::from(1u64)));
 
         let val = sqlx::types::BigDecimal::from_str("0.100000000000000001").unwrap();
-        let wei = sql_decimal_to_wei(val);
+        let wei = sql_eth_decimal_to_wei(val);
         assert_eq!(wei, Some(U256::from(100000000000000001u64)));
 
         let val = sqlx::types::BigDecimal::from_str("-1").unwrap();
-        let wei = sql_decimal_to_wei(val);
+        let wei = sql_eth_decimal_to_wei(val);
         assert_eq!(wei, None);
 
         let val = sqlx::types::BigDecimal::from_str("0.00000000000000000000001").unwrap();
-        let wei = sql_decimal_to_wei(val);
+        let wei = sql_eth_decimal_to_wei(val);
         assert_eq!(wei, Some(U256::from(0u64)));
     }
 }
