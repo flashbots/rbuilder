@@ -21,18 +21,20 @@ version = "0.1.0"
 edition = "2021"
 
 [workspace.dependencies]
-reth = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-beta.6" }
-reth-db = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-beta.6" }
-reth-interfaces = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-beta.6" }
-reth-libmdbx = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-beta.6" }
-reth-payload-builder = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-beta.6" }
-reth-node-api = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-beta.6" }
-reth-trie = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-beta.6" }
-reth-trie-parallel = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-beta.6" }
-reth-basic-payload-builder = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-beta.6" }
-reth-node-core = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-beta.6" }
-reth-primitives = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-beta.6" }
-reth-provider = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-beta.6" }
+reth = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.0" }
+reth-db = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.0" }
+reth-libmdbx = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.0" }
+reth-payload-builder = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.0" }
+reth-node-api = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.0" }
+reth-trie = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.0" }
+reth-trie-parallel = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.0" }
+reth-basic-payload-builder = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.0" }
+reth-node-core = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.0" }
+reth-primitives = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.0" }
+reth-provider = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.0" }
+reth-storage-errors = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.0" }
+reth-chainspec = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.0" }
+reth-errors = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.0" }
 
 # version is copied from reth  "v0.2.0-beta.6" dependencies
 revm = { version = "8.0.0", features = [
@@ -55,6 +57,6 @@ alloy-transport-http = { git = "https://github.com/alloy-rs/alloy", version = "0
 alloy-network = { git = "https://github.com/alloy-rs/alloy", version = "0.1" }
 alloy-transport = { git = "https://github.com/alloy-rs/alloy", version = "0.1" }
 alloy-node-bindings = { git = "https://github.com/alloy-rs/alloy", version = "0.1" }
-alloy-consensus = { git = "https://github.com/alloy-rs/alloy", version = "0.1", features = ["kzg"] }
 alloy-serde = { git = "https://github.com/alloy-rs/alloy", version = "0.1" }
 alloy-signer-local = { git = "https://github.com/alloy-rs/alloy", version = "0.1" }
+alloy-eips = { git = "https://github.com/alloy-rs/alloy", version = "0.1" }

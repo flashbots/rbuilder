@@ -19,15 +19,16 @@ use alloy_chains::ChainKind;
 use alloy_primitives::{utils::parse_ether, Address, B256};
 use ethereum_consensus::{builder::compute_builder_domain, crypto::SecretKey, networks::Network};
 use eyre::{eyre, Context};
+use itertools::chain;
 use jsonrpsee::RpcModule;
 use lazy_static::lazy_static;
 use reth::{
-    args::utils::genesis_value_parser,
-    primitives::{Chain, ChainSpec, NamedChain, StaticFileSegment},
-    tasks::pool::BlockingTaskPool,
+    args::utils::chain_value_parser, primitives::StaticFileSegment, tasks::pool::BlockingTaskPool,
 };
+use reth_chainspec::{Chain, ChainSpec, NamedChain};
 use reth_db::DatabaseEnv;
 use reth_primitives::format_ether;
+use reth_provider::StaticFileProviderFactory;
 use serde::Deserialize;
 use serde_with::{serde_as, OneOrMany};
 use sqlx::PgPool;
@@ -239,7 +240,7 @@ impl BaseConfig {
     }
 
     pub fn chain_spec(&self) -> eyre::Result<Arc<ChainSpec>> {
-        genesis_value_parser(&self.chain)
+        chain_value_parser(&self.chain)
     }
 
     pub fn sbundle_mergeabe_signers(&self) -> Vec<Address> {
@@ -640,7 +641,7 @@ mod test {
 
         let db = init_db(data_dir.db_path().as_path(), Default::default()).unwrap();
         let provider_factory =
-            ProviderFactory::new(db, SEPOLIA.clone(), data_dir.static_files_path()).unwrap();
+            ProviderFactory::new(db, SEPOLIA.clone(), data_dir.static_files_path());
         init_genesis(provider_factory).unwrap();
 
         // Create longer-lived PathBuf values

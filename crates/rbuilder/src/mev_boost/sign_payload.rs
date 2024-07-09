@@ -8,9 +8,10 @@ use alloy_primitives::{B256, U256};
 use ethereum_consensus::{crypto::SecretKey, signing::sign_with_domain};
 use primitive_types::H384;
 use reth::{
-    primitives::{BlobTransactionSidecar, ChainSpec, SealedBlock},
+    primitives::{BlobTransactionSidecar, SealedBlock},
     rpc::types::beacon::events::PayloadAttributesData,
 };
+use reth_chainspec::{ChainSpec, EthereumHardforks};
 
 #[derive(Debug, Clone)]
 pub struct BLSBlockSigner {

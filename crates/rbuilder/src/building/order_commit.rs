@@ -21,8 +21,8 @@ use reth::{
     providers::StateProviderBox,
     revm::database::StateProviderDatabase,
 };
-use reth_interfaces::provider::ProviderError;
 use reth_payload_builder::database::CachedReads;
+use reth_provider::ProviderError;
 use revm::{
     db::{states::bundle_state::BundleRetention, BundleState},
     inspector_handle_register,

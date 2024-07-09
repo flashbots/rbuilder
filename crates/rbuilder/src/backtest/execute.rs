@@ -10,7 +10,8 @@ use crate::{
 };
 use ahash::HashSet;
 use alloy_primitives::{Address, U256};
-use reth::{primitives::ChainSpec, providers::ProviderFactory};
+use reth::providers::ProviderFactory;
+use reth_chainspec::ChainSpec;
 use reth_db::{database::Database, DatabaseEnv};
 use reth_payload_builder::database::CachedReads;
 use serde::{Deserialize, Serialize};

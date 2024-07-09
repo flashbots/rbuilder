@@ -24,8 +24,8 @@ use reth::{
     primitives::{
         constants::BEACON_NONCE, eip4844::calculate_excess_blob_gas, proofs,
         revm::config::revm_spec, revm_primitives::InvalidTransaction, Address,
-        BlobTransactionSidecar, Block, ChainSpec, Head, Header, Receipt, Receipts, SealedBlock,
-        Withdrawals, B256, EMPTY_OMMER_ROOT_HASH, U256,
+        BlobTransactionSidecar, Block, Head, Header, Receipt, Receipts, SealedBlock, Withdrawals,
+        B256, EMPTY_OMMER_ROOT_HASH, U256,
     },
     providers::{BundleStateWithReceipts, ProviderFactory},
     rpc::types::beacon::events::PayloadAttributesEvent,
@@ -34,9 +34,10 @@ use reth::{
 use reth_basic_payload_builder::{
     commit_withdrawals, pre_block_beacon_root_contract_call, WithdrawalsOutcome,
 };
-use reth_interfaces::provider::ProviderError;
+use reth_chainspec::{ChainSpec, EthereumHardforks};
 use reth_node_api::PayloadBuilderAttributes;
 use reth_payload_builder::{database::CachedReads, EthPayloadBuilderAttributes};
+use reth_provider::ProviderError;
 use revm::{
     db::states::bundle_state::BundleRetention::{self, PlainState},
     primitives::{BlobExcessGasAndPrice, BlockEnv, CfgEnvWithHandlerCfg, SpecId},
@@ -638,6 +639,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             parent_beacon_block_root: ctx.attributes.parent_beacon_block_root,
             blob_gas_used,
             excess_blob_gas,
+            requests_root: None,
         };
 
         let block = Block {
@@ -645,6 +647,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             body: self.executed_tx.into_iter().map(|t| t.tx.into()).collect(),
             ommers: vec![],
             withdrawals,
+            requests: None,
         };
 
         Ok(FinalizeResult {

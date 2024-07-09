@@ -14,9 +14,8 @@ use alloy_primitives::U256;
 use alloy_provider::RootProvider;
 use alloy_transport::BoxTransport;
 
-use reth::primitives::{
-    revm::config::revm_spec_by_timestamp_after_merge, revm_primitives::CfgEnv, ChainSpec,
-};
+use reth::primitives::{revm::config::revm_spec_by_timestamp_after_merge, revm_primitives::CfgEnv};
+use reth_chainspec::ChainSpec;
 use revm::primitives::CfgEnvWithHandlerCfg;
 use std::cmp::{max, min};
 

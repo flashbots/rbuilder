@@ -3,8 +3,8 @@ use alloy_primitives::{keccak256, utils::parse_ether, Address, BlockHash, Bytes,
 use lazy_static::lazy_static;
 use reth::{
     primitives::{
-        Account, BlockBody, Bytecode, ChainSpec, Header, SealedBlock, TransactionKind,
-        TransactionSignedEcRecovered, TxEip1559, MAINNET,
+        Account, BlockBody, Bytecode, Header, SealedBlock, TransactionSignedEcRecovered, TxEip1559,
+        TxKind, MAINNET,
     },
     providers::{test_utils::create_test_provider_factory, ProviderFactory},
     rpc::types::{
@@ -13,6 +13,7 @@ use reth::{
         Withdrawal,
     },
 };
+use reth_chainspec::ChainSpec;
 use reth_db::{
     cursor::DbCursorRW, tables, test_utils::TempDatabase, transaction::DbTxMut, DatabaseEnv,
 };
@@ -173,7 +174,7 @@ impl TestChainState {
             gas_limit: args.gas_limit,
             max_fee_per_gas: args.max_fee_per_gas,
             max_priority_fee_per_gas: args.max_priority_fee,
-            to: TransactionKind::Call(
+            to: TxKind::Call(
                 self.named_address(args.to.ok_or_else(|| eyre::eyre!("missing to address"))?)?,
             ),
             value: U256::from(args.value),
@@ -309,6 +310,7 @@ impl TestBlockContextBuilder {
                 excess_blob_gas: None,
                 parent_beacon_block_root: None,
                 extra_data: Default::default(),
+                requests_root: None,
             },
             self.builder_signer.clone(),
             self.chain_spec,

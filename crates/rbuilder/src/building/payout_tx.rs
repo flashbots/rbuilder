@@ -3,10 +3,11 @@ use crate::utils::Signer;
 use super::{BlockBuildingContext, BlockState};
 use alloy_primitives::{Address, U256};
 use reth::primitives::{
-    revm::env::tx_env_with_recovered, ChainSpec, Transaction, TransactionKind,
-    TransactionSignedEcRecovered, TxEip1559, KECCAK_EMPTY,
+    revm::env::tx_env_with_recovered, Transaction, TransactionSignedEcRecovered, TxEip1559, TxKind,
+    KECCAK_EMPTY,
 };
-use reth_interfaces::provider::ProviderError;
+use reth_chainspec::ChainSpec;
+use reth_provider::ProviderError;
 use revm::primitives::{EVMError, Env, ExecutionResult};
 
 pub fn create_payout_tx(
@@ -24,7 +25,7 @@ pub fn create_payout_tx(
         gas_limit,
         max_fee_per_gas: basefee.to(),
         max_priority_fee_per_gas: 0,
-        to: TransactionKind::Call(to),
+        to: TxKind::Call(to),
         value: U256::from(value),
         ..Default::default()
     });

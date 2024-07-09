@@ -52,7 +52,7 @@ impl Signer {
 mod test {
     use super::*;
     use alloy_primitives::{address, fixed_bytes};
-    use reth::primitives::{TransactionKind, TxEip1559};
+    use reth::primitives::{TxEip1559, TxKind};
 
     #[test]
     fn test_sign_transaction() {
@@ -68,7 +68,7 @@ mod test {
             gas_limit: 21000,
             max_fee_per_gas: 1000,
             max_priority_fee_per_gas: 20000,
-            to: TransactionKind::Call(address),
+            to: TxKind::Call(address),
             value: U256::from(3000u128),
             ..Default::default()
         });

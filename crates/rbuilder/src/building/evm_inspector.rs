@@ -1,10 +1,11 @@
 use ahash::HashMap;
 use alloy_primitives::{Address, B256, U256};
-use reth::{primitives::TransactionSignedEcRecovered, revm::access_list::AccessListInspector};
+use reth::primitives::TransactionSignedEcRecovered;
 use revm::{
     interpreter::{opcode, Interpreter},
     Database, EvmContext, Inspector,
 };
+use revm_inspectors::access_list::AccessListInspector;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct SlotKey {
