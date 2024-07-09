@@ -1,6 +1,6 @@
 use crate::{
     backtest::{
-        fetch::datasource::{BlockRef, Datasource},
+        fetch::datasource::{BlockRef, DataSource},
         OrdersWithTimestamp,
     },
     primitives::{
@@ -95,8 +95,8 @@ pub struct MempoolDumpsterDatasource {
 }
 
 #[async_trait]
-impl Datasource for MempoolDumpsterDatasource {
-    async fn get_data(&self, block: BlockRef) -> eyre::Result<Vec<OrdersWithTimestamp>> {
+impl DataSource for MempoolDumpsterDatasource {
+    async fn get_orders(&self, block: BlockRef) -> eyre::Result<Vec<OrdersWithTimestamp>> {
         let (from, to) = {
             let block_time = OffsetDateTime::from_unix_timestamp(block.block_timestamp as i64)?;
             (
@@ -119,7 +119,7 @@ impl Datasource for MempoolDumpsterDatasource {
         Ok(mempool_txs)
     }
 
-    fn clone_box(&self) -> Box<dyn Datasource> {
+    fn clone_box(&self) -> Box<dyn DataSource> {
         Box::new(self.clone())
     }
 }

@@ -1,6 +1,6 @@
 use crate::{
     backtest::{
-        fetch::datasource::{BlockRef, Datasource},
+        fetch::datasource::{BlockRef, DataSource},
         OrdersWithTimestamp,
     },
     primitives::{
@@ -248,8 +248,8 @@ impl RelayDB {
 }
 
 #[async_trait]
-impl Datasource for RelayDB {
-    async fn get_data(&self, block: BlockRef) -> eyre::Result<Vec<OrdersWithTimestamp>> {
+impl DataSource for RelayDB {
+    async fn get_orders(&self, block: BlockRef) -> eyre::Result<Vec<OrdersWithTimestamp>> {
         let bundles = self
             .get_simulated_bundles_for_block(block.block_number)
             .await
@@ -278,7 +278,7 @@ impl Datasource for RelayDB {
             .collect())
     }
 
-    fn clone_box(&self) -> Box<dyn Datasource> {
+    fn clone_box(&self) -> Box<dyn DataSource> {
         Box::new(self.clone())
     }
 }
