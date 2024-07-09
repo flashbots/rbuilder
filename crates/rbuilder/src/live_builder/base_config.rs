@@ -126,6 +126,7 @@ pub struct BaseConfig {
     /// List of `builders` to be used in backtest run
     pub backtest_builders: Vec<String>,
     pub backtest_results_store_path: PathBuf,
+    pub backtest_protect_bundle_signers: Vec<Address>,
 
     // See [`SubmissionConfig`]
     slot_delta_to_start_submits_ms: Option<i64>,
@@ -542,6 +543,7 @@ impl Default for BaseConfig {
             backtest_fetch_eth_rpc_parallel: 1,
             backtest_fetch_output_file: "/tmp/rbuilder-backtest.sqlite".parse().unwrap(),
             backtest_results_store_path: "/tmp/rbuilder-backtest-results.sqlite".parse().unwrap(),
+            backtest_protect_bundle_signers: vec![],
             backtest_builders: Vec::new(),
             live_builders: vec!["mgp-ordering".to_string(), "mp-ordering".to_string()],
             optimistic_prevalidate_optimistic_blocks: false,
