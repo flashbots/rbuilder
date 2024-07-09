@@ -1,3 +1,4 @@
+use crate::utils::Signer;
 use crate::{
     backtest::BlockData,
     building::{
@@ -56,6 +57,7 @@ pub fn backtest_prepare_ctx_for_block<DB: Database + Clone>(
     chain_spec: Arc<ChainSpec>,
     build_block_lag_ms: i64,
     blocklist: HashSet<Address>,
+    builder_signer: Signer,
 ) -> eyre::Result<BacktestBlockInput> {
     let orders = block_data
         .available_orders
@@ -69,8 +71,13 @@ pub fn backtest_prepare_ctx_for_block<DB: Database + Clone>(
             Some(order.order.clone())
         })
         .collect::<Vec<_>>();
-    let ctx =
-        BlockBuildingContext::from_block_data(&block_data, chain_spec.clone(), blocklist, None);
+    let ctx = BlockBuildingContext::from_block_data(
+        &block_data,
+        chain_spec.clone(),
+        blocklist,
+        None,
+        builder_signer,
+    );
     let (sim_orders, sim_errors) =
         simulate_all_orders_with_sim_tree(provider_factory.clone(), &ctx, &orders, false)?;
     Ok(BacktestBlockInput {
@@ -101,6 +108,7 @@ pub fn backtest_simulate_block<ConfigType: LiveBuilderConfig>(
         chain_spec.clone(),
         build_block_lag_ms,
         blocklist,
+        config.base_config().coinbase_signer()?,
     )?;
 
     let filtered_orders_blocklist_count = sim_errors

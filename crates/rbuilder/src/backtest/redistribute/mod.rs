@@ -18,8 +18,7 @@ pub fn calc_redistributions<ConfigType: LiveBuilderConfig>(
     provider_factory: ProviderFactory<Arc<DatabaseEnv>>,
     config: &ConfigType,
     mut block_data: BlockData,
-) -> eyre::Result<Vec<(Address, U256)>>
-{
+) -> eyre::Result<Vec<(Address, U256)>> {
     let built_block_data = if let Some(block_data) = block_data.built_block_data.clone() {
         block_data
     } else {

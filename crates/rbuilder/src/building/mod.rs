@@ -25,7 +25,7 @@ use reth::{
         constants::BEACON_NONCE, eip4844::calculate_excess_blob_gas, proofs,
         revm::config::revm_spec, revm_primitives::InvalidTransaction, Address,
         BlobTransactionSidecar, Block, ChainSpec, Head, Header, Receipt, Receipts, SealedBlock,
-        Withdrawals, B256, EMPTY_OMMER_ROOT_HASH, U256,
+        Withdrawals, EMPTY_OMMER_ROOT_HASH, U256,
     },
     providers::{BundleStateWithReceipts, ProviderFactory},
     rpc::types::beacon::events::PayloadAttributesEvent,
@@ -149,10 +149,8 @@ impl BlockBuildingContext {
         chain_spec: Arc<ChainSpec>,
         blocklist: HashSet<Address>,
         spec_id: Option<SpecId>,
+        builder_signer: Signer,
     ) -> BlockBuildingContext {
-        let builder_signer =
-            Signer::try_from_secret(B256::random()).expect("failed to create signer");
-
         let blob_excess_gas_and_price = if chain_spec
             .is_cancun_active_at_timestamp(block_data.onchain_block.header.timestamp)
         {
