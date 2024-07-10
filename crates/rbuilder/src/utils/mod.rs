@@ -14,10 +14,10 @@ use alloy_primitives::U256;
 use alloy_provider::RootProvider;
 use alloy_transport::BoxTransport;
 
-use reth::primitives::{
-    revm::config::revm_spec_by_timestamp_after_merge, revm_primitives::CfgEnv, ChainSpec,
-};
+use reth_chainspec::ChainSpec;
+use reth_evm_ethereum::revm_spec_by_timestamp_after_merge;
 use revm::primitives::CfgEnvWithHandlerCfg;
+use revm_primitives::CfgEnv;
 use std::cmp::{max, min};
 
 pub use noncer::{NonceCache, NonceCacheRef};

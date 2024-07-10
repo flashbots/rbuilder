@@ -2,12 +2,11 @@ use crate::utils::Signer;
 
 use super::{BlockBuildingContext, BlockState};
 use alloy_primitives::{Address, U256};
-use reth::primitives::{
-    revm::env::tx_env_with_recovered, ChainSpec, Transaction, TransactionKind,
-    TransactionSignedEcRecovered, TxEip1559, KECCAK_EMPTY,
-};
-use reth_interfaces::provider::ProviderError;
-use revm::primitives::{EVMError, Env, ExecutionResult};
+use reth::primitives::{Transaction, TransactionSignedEcRecovered, TxEip1559, KECCAK_EMPTY};
+use reth_chainspec::ChainSpec;
+use reth_errors::ProviderError;
+use reth_primitives::{transaction::FillTxEnv, TxKind as TransactionKind};
+use revm::primitives::{EVMError, Env, ExecutionResult, TxEnv};
 
 pub fn create_payout_tx(
     chain_spec: &ChainSpec,
@@ -68,10 +67,14 @@ pub fn insert_test_payout_tx(
         0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF,
     )?;
 
+    let mut tx_env = TxEnv::default();
+    let tx_signed = tx.clone().into_signed();
+    tx_signed.fill_tx_env(&mut tx_env, tx_signed.recover_signer().unwrap());
+
     let env = Env {
         cfg: cfg.cfg_env.clone(),
         block: ctx.block_env.clone(),
-        tx: tx_env_with_recovered(&tx),
+        tx: tx_env,
     };
 
     let mut db = state.new_db_ref();

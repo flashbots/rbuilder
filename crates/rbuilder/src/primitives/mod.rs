@@ -7,13 +7,13 @@ pub mod serialize;
 mod test_data_generator;
 
 use crate::building::evm_inspector::UsedStateTrace;
+use alloy_eips::eip4844::{Blob, Bytes48};
 use alloy_primitives::{Bytes, TxHash};
 use derivative::Derivative;
-use ethereum_consensus::deneb::polynomial_commitments::BYTES_PER_COMMITMENT;
 use integer_encoding::VarInt;
 use reth::primitives::{
     keccak256,
-    kzg::{Blob, Bytes48, BYTES_PER_BLOB, BYTES_PER_PROOF},
+    kzg::{BYTES_PER_BLOB, BYTES_PER_COMMITMENT, BYTES_PER_PROOF},
     Address, BlobTransactionSidecar, PooledTransactionsElement, TransactionSigned,
     TransactionSignedEcRecovered, B256,
 };

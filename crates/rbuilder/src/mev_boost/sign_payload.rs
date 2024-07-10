@@ -18,9 +18,10 @@ use ethereum_consensus::{
 };
 use primitive_types::H384;
 use reth::{
-    primitives::{BlobTransactionSidecar, ChainSpec, SealedBlock},
+    primitives::{BlobTransactionSidecar, SealedBlock},
     rpc::types::beacon::events::PayloadAttributesData,
 };
+use reth_chainspec::{ChainSpec, EthereumHardforks};
 use serde_with::{serde_as, DisplayFromStr};
 use std::sync::Arc;
 
