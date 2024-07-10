@@ -1,11 +1,11 @@
-pub mod datasource;
+pub mod data_source;
 pub mod flashbots_db;
 pub mod mempool;
 pub mod mev_boost;
 
 use crate::{
     backtest::{
-        fetch::datasource::{BlockRef, DataSource},
+        fetch::data_source::{BlockRef, DataSource},
         BlockData,
     },
     mev_boost::BuilderBlockReceived,
