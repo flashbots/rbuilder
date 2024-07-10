@@ -328,10 +328,7 @@ impl BaseConfig {
 
     pub fn bls_signer(&self) -> eyre::Result<BLSBlockSigner> {
         let chain_spec = self.chain_spec()?;
-        let signing_domain = get_signing_domain(
-            chain_spec.chain,
-            self.beacon_clients().first().unwrap().clone(),
-        )?;
+        let signing_domain = get_signing_domain(chain_spec.chain, self.beacon_clients())?;
         let secret_key = self.relay_secret_key.value()?;
         let secret_key = SecretKey::try_from(secret_key)
             .map_err(|e| eyre::eyre!("Failed to parse relay key: {:?}", e.to_string()))?;
@@ -341,10 +338,7 @@ impl BaseConfig {
 
     pub fn bls_optimistic_signer(&self) -> eyre::Result<BLSBlockSigner> {
         let chain_spec = self.chain_spec()?;
-        let signing_domain = get_signing_domain(
-            chain_spec.chain,
-            self.beacon_clients().first().unwrap().clone(),
-        )?;
+        let signing_domain = get_signing_domain(chain_spec.chain, self.beacon_clients())?;
         let secret_key = self.optimistic_relay_secret_key.value()?;
         let secret_key = SecretKey::try_from(secret_key).map_err(|e| {
             eyre::eyre!("Failed to parse optimistic relay key: {:?}", e.to_string())
@@ -608,7 +602,7 @@ pub fn coinbase_signer_from_secret_key(secret_key: &str) -> eyre::Result<Signer>
     Ok(Signer::try_from_secret(secret_key)?)
 }
 
-fn get_signing_domain(chain: Chain, client: Client) -> eyre::Result<B256> {
+fn get_signing_domain(chain: Chain, beacon_clients: Vec<Client>) -> eyre::Result<B256> {
     let cl_context = match chain.kind() {
         ChainKind::Named(NamedChain::Mainnet) => ContextEth::for_mainnet(),
         ChainKind::Named(NamedChain::Sepolia) => ContextEth::for_sepolia(),
@@ -616,6 +610,10 @@ fn get_signing_domain(chain: Chain, client: Client) -> eyre::Result<B256> {
         ChainKind::Named(NamedChain::Holesky) => ContextEth::for_holesky(),
         _ => {
             let rt = Runtime::new()?;
+            let client = beacon_clients
+                .first()
+                .ok_or_else(|| eyre::eyre!("No beacon clients provided"))?;
+
             let spec = rt.block_on(client.get_spec())?;
 
             let genesis_fork_version = spec
@@ -684,7 +682,7 @@ mod test {
         ];
 
         for (chain, domain) in cases.iter() {
-            let found = get_signing_domain(Chain::from_named(*chain), Client::default()).unwrap();
+            let found = get_signing_domain(Chain::from_named(*chain), vec![]).unwrap();
             assert_eq!(found, *domain);
         }
     }
@@ -693,7 +691,7 @@ mod test {
     #[test]
     fn test_signing_domain_custom_chain() {
         let client = Client::new(Url::parse("http://localhost:8000").unwrap());
-        let found = get_signing_domain(Chain::from_id(12345), client).unwrap();
+        let found = get_signing_domain(Chain::from_id(12345), vec![client]).unwrap();
 
         assert_eq!(
             found,
