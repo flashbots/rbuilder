@@ -5,7 +5,7 @@ pub mod mev_boost;
 
 use crate::{
     backtest::{
-        fetch::datasource::{BlockRef, Datasource},
+        fetch::datasource::{BlockRef, DataSource},
         BlockData,
     },
     mev_boost::BuilderBlockReceived,
@@ -32,7 +32,7 @@ use crate::{
 pub struct HistoricalDataFetcher {
     eth_provider: BoxedProvider,
     eth_rpc_parallel: usize,
-    data_sources: Vec<Box<dyn Datasource>>,
+    data_sources: Vec<Box<dyn DataSource>>,
     payload_delivered_fetcher: PayloadDeliveredFetcher,
 }
 
@@ -43,7 +43,7 @@ impl HistoricalDataFetcher {
         mempool_datadir: PathBuf,
         flashbots_db: Option<PgPool>,
     ) -> Self {
-        let mut data_sources: Vec<Box<dyn Datasource>> = vec![Box::new(
+        let mut data_sources: Vec<Box<dyn DataSource>> = vec![Box::new(
             mempool::MempoolDumpsterDatasource::new(mempool_datadir).unwrap(),
         )];
 
@@ -59,7 +59,7 @@ impl HistoricalDataFetcher {
         }
     }
 
-    pub fn add_datasource(&mut self, datasource: Box<dyn Datasource>) {
+    pub fn add_datasource(&mut self, datasource: Box<dyn DataSource>) {
         self.data_sources.push(datasource);
     }
 
@@ -195,7 +195,7 @@ impl HistoricalDataFetcher {
         let block_ref = BlockRef::new(block_number, block_timestamp);
 
         for datasource in &self.data_sources {
-            let mut datasource_orders = datasource.get_data(block_ref).await?;
+            let mut datasource_orders = datasource.get_orders(block_ref).await?;
             orders.append(&mut datasource_orders);
         }
 

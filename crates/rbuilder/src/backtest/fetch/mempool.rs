@@ -1,6 +1,6 @@
 use crate::{
     backtest::{
-        fetch::datasource::{BlockRef, Datasource},
+        fetch::datasource::{BlockRef, DataSource},
         OrdersWithTimestamp,
     },
     primitives::{
@@ -98,8 +98,8 @@ pub struct MempoolDumpsterDatasource {
 }
 
 #[async_trait]
-impl Datasource for MempoolDumpsterDatasource {
-    async fn get_data(&self, block: BlockRef) -> eyre::Result<Vec<OrdersWithTimestamp>> {
+impl DataSource for MempoolDumpsterDatasource {
+    async fn get_orders(&self, block: BlockRef) -> eyre::Result<Vec<OrdersWithTimestamp>> {
         let (from, to) = {
             let block_time = OffsetDateTime::from_unix_timestamp(block.block_timestamp as i64)?;
             (
@@ -122,7 +122,7 @@ impl Datasource for MempoolDumpsterDatasource {
         Ok(mempool_txs)
     }
 
-    fn clone_box(&self) -> Box<dyn Datasource> {
+    fn clone_box(&self) -> Box<dyn DataSource> {
         Box::new(self.clone())
     }
 }
@@ -142,17 +142,13 @@ impl MempoolDumpsterDatasource {
 #[cfg(test)]
 mod test {
     use super::*;
+    use test_utils::ignore_if_env_not_set;
     use time::macros::datetime;
 
+    #[ignore_if_env_not_set("MEMPOOL_DATADIR")]
     #[tokio::test]
     async fn test_get_mempool_transactions() {
-        let data_dir = match std::env::var("MEMPOOL_DATADIR") {
-            Ok(dir) => dir,
-            Err(_) => {
-                println!("MEMPOOL_DATADIR not set, skipping test");
-                return;
-            }
-        };
+        let data_dir = std::env::var("MEMPOOL_DATADIR").expect("MEMPOOL_DATADIR not set");
 
         let source = MempoolDumpsterDatasource::new(data_dir).unwrap();
         let block = BlockRef {
@@ -160,7 +156,7 @@ mod test {
             block_timestamp: datetime!(2023-09-04 23:59:00 UTC).unix_timestamp() as u64,
         };
 
-        let txs = source.get_data(block).await.unwrap();
+        let txs = source.get_orders(block).await.unwrap();
         assert_eq!(txs.len(), 1732);
     }
 }

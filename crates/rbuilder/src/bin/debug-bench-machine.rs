@@ -10,10 +10,11 @@ use rbuilder::{
     roothash::RootHashMode,
     utils::{default_cfg_env, Signer},
 };
-use reth::providers::BlockReader;
 use reth::{
-    payload::PayloadId, primitives::revm_primitives::BlobExcessGasAndPrice,
-    providers::BlockNumReader, revm::primitives::BlockEnv,
+    payload::PayloadId,
+    primitives::revm_primitives::BlobExcessGasAndPrice,
+    providers::{BlockNumReader, BlockReader},
+    revm::primitives::BlockEnv,
 };
 use reth_payload_builder::{database::CachedReads, EthPayloadBuilderAttributes};
 use revm::primitives::SpecId;

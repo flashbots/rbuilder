@@ -1,16 +1,16 @@
 use crate::backtest::OrdersWithTimestamp;
 use async_trait::async_trait;
 
-/// Datasource trait
+/// DataSource trait
 ///
 /// This trait is used to fetch data from a datasource
 #[async_trait]
-pub trait Datasource: std::fmt::Debug {
-    async fn get_data(&self, block: BlockRef) -> eyre::Result<Vec<OrdersWithTimestamp>>;
-    fn clone_box(&self) -> Box<dyn Datasource>;
+pub trait DataSource: std::fmt::Debug {
+    async fn get_orders(&self, block: BlockRef) -> eyre::Result<Vec<OrdersWithTimestamp>>;
+    fn clone_box(&self) -> Box<dyn DataSource>;
 }
 
-impl Clone for Box<dyn Datasource> {
+impl Clone for Box<dyn DataSource> {
     fn clone(&self) -> Self {
         self.clone_box()
     }
