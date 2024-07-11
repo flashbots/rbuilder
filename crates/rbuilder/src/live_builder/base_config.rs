@@ -29,7 +29,7 @@ use reth::{
 use reth_db::DatabaseEnv;
 use reth_primitives::format_ether;
 use serde::Deserialize;
-use serde_with::{serde_as, OneOrMany};
+use serde_with::{serde_as, DisplayFromStr, OneOrMany};
 use sqlx::PgPool;
 use std::{
     env::var,
@@ -66,7 +66,7 @@ pub struct BaseConfig {
 
     pub el_node_ipc_path: PathBuf,
     ///Name kept singular for backwards compatibility
-    #[serde_as(deserialize_as = "OneOrMany<_>")]
+    #[serde(deserialize_with = "deserialize_cl_url")]
     pub cl_node_url: Vec<String>,
     pub jsonrpc_server_port: u16,
     pub jsonrpc_server_ip: Option<String>,
@@ -129,6 +129,25 @@ pub struct BaseConfig {
 
 lazy_static! {
     pub static ref DEFAULT_IP: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
+}
+
+fn deserialize_cl_url<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[serde_as]
+    #[derive(Deserialize)]
+    struct Helper(#[serde_as(deserialize_as = "OneOrMany<DisplayFromStr>")] Vec<String>);
+
+    let helper = Helper::deserialize(deserializer)?;
+    if helper.0.len() == 1 && helper.0[0].starts_with("env:") {
+        // Parse from environment variable
+        let env_var = helper.0[0].trim_start_matches("env:");
+        if let Ok(urls) = var(env_var) {
+            return Ok(urls.split(',').map(String::from).collect());
+        }
+    }
+    Ok(helper.0)
 }
 
 fn parse_ip(ip: &Option<String>) -> Ipv4Addr {

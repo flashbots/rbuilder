@@ -8,7 +8,9 @@ reth_datadir = "/mnt/data/reth"
 
 coinbase_secret_key = "env:COINBASE_SECRET_KEY"
 
-cl_node_url = ["http://localhost:3500"]
+#cl_node_url can be a single value, array of values, or passed by an environment variables with values separated with a comma
+#cl_node_url = "http://localhost:3500"
+cl_node_url = ["env:CL_NODE_URL"]
 jsonrpc_server_port = 8645
 jsonrpc_server_ip = "0.0.0.0"
 el_node_ipc_path = "/tmp/reth.ipc"
