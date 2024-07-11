@@ -25,11 +25,11 @@ use ethereum_consensus::{
 use eyre::{eyre, Context};
 use jsonrpsee::RpcModule;
 use lazy_static::lazy_static;
-use reth::{primitives::StaticFileSegment, tasks::pool::BlockingTaskPool};
+use reth::tasks::pool::BlockingTaskPool;
 use reth_chainspec::{Chain, ChainSpec, NamedChain};
 use reth_db::DatabaseEnv;
 use reth_node_core::args::utils::chain_value_parser;
-use reth_primitives::format_ether;
+use reth_primitives::{format_ether, StaticFileSegment};
 use reth_provider::StaticFileProviderFactory;
 use serde::{Deserialize, Deserializer};
 use serde_with::{serde_as, DeserializeAs, OneOrMany};

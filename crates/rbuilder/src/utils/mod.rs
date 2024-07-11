@@ -16,8 +16,7 @@ use alloy_transport::BoxTransport;
 
 use reth_chainspec::ChainSpec;
 use reth_evm_ethereum::revm_spec_by_timestamp_after_merge;
-use revm::primitives::CfgEnvWithHandlerCfg;
-use revm_primitives::CfgEnv;
+use revm_primitives::{CfgEnv, CfgEnvWithHandlerCfg};
 use std::cmp::{max, min};
 
 pub use noncer::{NonceCache, NonceCacheRef};
@@ -75,8 +74,8 @@ pub fn get_percent(value: U256, pecent: usize) -> U256 {
     (value * U256::from(pecent)) / U256::from(100)
 }
 
-pub fn a2r_withdrawal(w: alloy_rpc_types::Withdrawal) -> reth::primitives::Withdrawal {
-    reth::primitives::Withdrawal {
+pub fn a2r_withdrawal(w: alloy_rpc_types::Withdrawal) -> reth_primitives::Withdrawal {
+    reth_primitives::Withdrawal {
         index: w.index,
         validator_index: w.validator_index,
         address: w.address,

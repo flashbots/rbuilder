@@ -11,13 +11,13 @@ use alloy_eips::eip4844::{Blob, Bytes48};
 use alloy_primitives::{Bytes, TxHash};
 use derivative::Derivative;
 use integer_encoding::VarInt;
-use reth::primitives::{
+use reth_primitives::{
     keccak256,
     kzg::{BYTES_PER_BLOB, BYTES_PER_COMMITMENT, BYTES_PER_PROOF},
     Address, BlobTransactionSidecar, PooledTransactionsElement, TransactionSigned,
     TransactionSignedEcRecovered, B256,
 };
-use revm::primitives::U256;
+use revm_primitives::U256;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{cmp::Ordering, collections::HashMap, fmt::Display, str::FromStr, sync::Arc};
@@ -883,7 +883,7 @@ fn can_execute_with_block_base_fee<Transaction: AsRef<TransactionSigned>>(
 mod tests {
     use super::*;
     use alloy_primitives::fixed_bytes;
-    use reth::primitives::{Transaction, TransactionSigned, TxLegacy};
+    use reth_primitives::{Transaction, TransactionSigned, TxLegacy};
     use uuid::uuid;
 
     #[test]

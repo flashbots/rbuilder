@@ -1,6 +1,6 @@
 use ahash::HashMap;
 use alloy_primitives::{Address, B256, U256};
-use reth::primitives::TransactionSignedEcRecovered;
+use reth_primitives::TransactionSignedEcRecovered;
 use revm::{
     interpreter::{opcode, Interpreter},
     Database, EvmContext, Inspector,

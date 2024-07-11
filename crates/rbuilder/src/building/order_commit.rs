@@ -12,17 +12,15 @@ use crate::{
 
 use alloy_primitives::{Address, B256, U256};
 
-use reth::{
-    primitives::{
-        constants::eip4844::{DATA_GAS_PER_BLOB, MAX_DATA_GAS_PER_BLOCK},
-        Receipt, KECCAK_EMPTY,
-    },
-    providers::StateProviderBox,
-    revm::database::StateProviderDatabase,
-};
+use reth::revm::database::StateProviderDatabase;
 use reth_errors::ProviderError;
 use reth_payload_builder::database::CachedReads;
-use reth_primitives::transaction::FillTxEnv;
+use reth_primitives::{
+    constants::eip4844::{DATA_GAS_PER_BLOB, MAX_DATA_GAS_PER_BLOCK},
+    transaction::FillTxEnv,
+    Receipt, KECCAK_EMPTY,
+};
+use reth_provider::StateProviderBox;
 use revm::{
     db::{states::bundle_state::BundleRetention, BundleState},
     inspector_handle_register,

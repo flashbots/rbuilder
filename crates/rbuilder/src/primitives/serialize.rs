@@ -5,7 +5,7 @@ use super::{
     TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior,
 };
 use alloy_primitives::Address;
-use reth::primitives::{Bytes, B256, U64};
+use reth_primitives::{Bytes, B256, U64};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DefaultOnNull};
 use thiserror::Error;

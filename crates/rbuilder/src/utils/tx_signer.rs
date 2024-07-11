@@ -1,5 +1,5 @@
 use alloy_primitives::{Address, B256, U256};
-use reth::primitives::{
+use reth_primitives::{
     public_key_to_address, Signature, Transaction, TransactionSigned, TransactionSignedEcRecovered,
 };
 use secp256k1::{Message, SecretKey, SECP256K1};
@@ -55,7 +55,7 @@ impl Signer {
 mod test {
     use super::*;
     use alloy_primitives::{address, fixed_bytes};
-    use reth::primitives::{TxEip1559, TxKind as TransactionKind};
+    use reth_primitives::{TxEip1559, TxKind as TransactionKind};
 
     #[test]
     fn test_sign_transaction() {

@@ -18,7 +18,7 @@ use reth_db::{
     cursor::DbCursorRW, tables, test_utils::TempDatabase, transaction::DbTxMut, DatabaseEnv,
 };
 use reth_provider::test_utils::create_test_provider_factory;
-use revm::primitives::SpecId;
+use revm_primitives::SpecId;
 use std::sync::Arc;
 
 use crate::{building::BlockBuildingContext, utils::Signer};

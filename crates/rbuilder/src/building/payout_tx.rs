@@ -2,11 +2,13 @@ use crate::utils::Signer;
 
 use super::{BlockBuildingContext, BlockState};
 use alloy_primitives::{Address, U256};
-use reth::primitives::{Transaction, TransactionSignedEcRecovered, TxEip1559, KECCAK_EMPTY};
 use reth_chainspec::ChainSpec;
 use reth_errors::ProviderError;
-use reth_primitives::{transaction::FillTxEnv, TxKind as TransactionKind};
-use revm::primitives::{EVMError, Env, ExecutionResult, TxEnv};
+use reth_primitives::{
+    transaction::FillTxEnv, Transaction, TransactionSignedEcRecovered, TxEip1559,
+    TxKind as TransactionKind, KECCAK_EMPTY,
+};
+use revm_primitives::{EVMError, Env, ExecutionResult, TxEnv};
 
 pub fn create_payout_tx(
     chain_spec: &ChainSpec,

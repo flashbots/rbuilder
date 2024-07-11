@@ -17,8 +17,8 @@ use crate::{
 };
 use ahash::HashMap;
 use alloy_primitives::{utils::format_ether, U256};
-use reth::primitives::SealedBlock;
 use reth_chainspec::ChainSpec;
+use reth_primitives::SealedBlock;
 use std::{sync::Arc, time::Duration};
 use tokio::time::{sleep, Instant};
 use tokio_util::sync::CancellationToken;
