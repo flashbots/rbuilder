@@ -4,6 +4,8 @@ use reth::primitives::{
 };
 use secp256k1::{Message, SecretKey, SECP256K1};
 
+/// Simple struct to sign txs/message.
+/// Mainly used to sign payout txs from the builder and to create test data.
 #[derive(Debug, Clone)]
 pub struct Signer {
     pub address: Address,

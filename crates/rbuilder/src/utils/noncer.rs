@@ -5,6 +5,11 @@ use reth_db::database::Database;
 use reth_interfaces::provider::ProviderResult;
 use std::sync::{Arc, Mutex};
 
+/// Struct to get nonces for Address caching the results.
+/// Usage:
+/// - Create a NonceCache
+/// - For every context where nonce is needed call NonceCache::get_ref and call NonceCacheRef::nonce all the times you need.
+/// Neither NonceCache or NonceCacheRef are clonable, the clone of shared info happens on get_ref where we clone the internal cache.
 #[derive(Debug)]
 pub struct NonceCache<DB> {
     provider_factory: ProviderFactory<DB>,
