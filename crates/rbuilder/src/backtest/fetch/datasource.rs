@@ -16,6 +16,8 @@ impl Clone for Box<dyn DataSource> {
     }
 }
 
+/// Some DataSources need also the block_timestamp to be able to get the orders
+/// so we use a BlockRef on [`DataSource::get_orders`] instead of just a block_number
 #[derive(Debug, Copy, Clone)]
 pub struct BlockRef {
     pub block_number: u64,

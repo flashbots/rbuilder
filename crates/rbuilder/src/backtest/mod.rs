@@ -59,16 +59,22 @@ pub struct OrdersWithTimestamp {
     pub sim_value: Option<SimValue>,
 }
 
+/// Historic data for a block.
+/// Used for backtesting.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlockData {
     pub block_number: u64,
+    /// Info for landed block
     pub winning_bid_trace: BuilderBlockReceived,
-    // pub onchain_block: Block,
+    /// landed block
     pub onchain_block: alloy_rpc_types::Block,
+    /// Orders we had at the moment of the block building.
+    /// This might be an approximation depending on DataSources used
     pub available_orders: Vec<OrdersWithTimestamp>,
 }
 
 impl BlockData {
+    /// Filters orders that arrived after we started building the block.
     pub fn filter_orders_by_block_lag(&mut self, build_block_lag_ms: i64) {
         self.available_orders.retain(|orders| {
             orders.timestamp_ms as i64

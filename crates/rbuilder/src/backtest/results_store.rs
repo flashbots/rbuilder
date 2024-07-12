@@ -6,6 +6,8 @@ use std::path::Path;
 
 const VERSION: i64 = 2;
 
+/// Storage of simulations (mainly BlockBacktestValue) to be able to compare different versions of our code
+/// Store via BacktestResultsStorage::store_backtest_results and load via BacktestResultsStorage::load_latest_backtest_result to compare.
 #[derive(Debug)]
 pub struct BacktestResultsStorage {
     conn: SqliteConnection,
@@ -82,7 +84,7 @@ impl BacktestResultsStorage {
                 rbuilder_version TEXT NOT NULL,
                 backtest_result TEXT NOT NULL
             );
-            
+
             CREATE TABLE IF NOT EXISTS version (
                 version INTEGER NOT NULL
             );
