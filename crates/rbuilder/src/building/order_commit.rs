@@ -411,8 +411,17 @@ impl<'a, 'b, 'c, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, Tracer> 
             .with_env(Box::new(env))
             .with_db(db.as_mut())
             .with_external_context(&mut rbuilder_inspector)
-            .append_handler_register(inspector_handle_register)
-            .build();
+            .append_handler_register(inspector_handle_register);
+
+        if let Some(balances_to_increment) = &ctx.backtest_balances_to_spoof {
+            evm = evm.modify_db(|db| {
+                for (addr, balance) in balances_to_increment {
+                    let _ = db.increment_balances([(*addr, *balance)]);
+                }
+            });
+        }
+
+        let mut evm = evm.build();
         let res = match evm.transact() {
             Ok(res) => res,
             Err(err) => match err {
