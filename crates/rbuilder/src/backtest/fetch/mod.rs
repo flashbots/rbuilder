@@ -1,8 +1,16 @@
+pub mod datasource;
 pub mod flashbots_db;
 pub mod mempool;
 pub mod mev_boost;
 
-use crate::{backtest::BlockData, mev_boost::BuilderBlockReceived, utils::timestamp_as_u64};
+use crate::{
+    backtest::{
+        fetch::datasource::{BlockRef, DataSource},
+        BlockData,
+    },
+    mev_boost::BuilderBlockReceived,
+    utils::timestamp_as_u64,
+};
 
 use alloy_provider::Provider;
 use alloy_rpc_types::{Block, BlockId, BlockNumberOrTag};
@@ -29,9 +37,7 @@ use crate::{
 pub struct HistoricalDataFetcher {
     eth_provider: BoxedProvider,
     eth_rpc_parallel: usize,
-    mempool_datadir: PathBuf,
-    // If none, skip bundles
-    flashbots_db: Option<PgPool>,
+    data_sources: Vec<Box<dyn DataSource>>,
     payload_delivered_fetcher: PayloadDeliveredFetcher,
 }
 
@@ -42,13 +48,24 @@ impl HistoricalDataFetcher {
         mempool_datadir: PathBuf,
         flashbots_db: Option<PgPool>,
     ) -> Self {
+        let mut data_sources: Vec<Box<dyn DataSource>> = vec![Box::new(
+            mempool::MempoolDumpsterDatasource::new(mempool_datadir),
+        )];
+
+        if let Some(db_pool) = flashbots_db {
+            data_sources.push(Box::new(RelayDB::new(db_pool)));
+        }
+
         Self {
             eth_provider,
             eth_rpc_parallel,
-            mempool_datadir,
-            flashbots_db,
+            data_sources,
             payload_delivered_fetcher: PayloadDeliveredFetcher::default(),
         }
+    }
+
+    pub fn add_datasource(&mut self, datasource: Box<dyn DataSource>) {
+        self.data_sources.push(datasource);
     }
 
     async fn get_payload_delivered_bid_trace(
@@ -78,68 +95,6 @@ impl HistoricalDataFetcher {
             .wrap_err_with(|| format!("Failed to fetch block {}", block_number))?
             .ok_or_else(|| eyre::eyre!("Block {} not found", block_number))?;
         Ok(block)
-    }
-
-    async fn fetch_mempool_txs(
-        &self,
-        block_number: u64,
-        block_timestamp: u64,
-    ) -> eyre::Result<Vec<OrdersWithTimestamp>> {
-        let (from, to) = {
-            let block_time = OffsetDateTime::from_unix_timestamp(block_timestamp as i64)?;
-            (
-                block_time - Duration::minutes(3),
-                // we look ahead by 5 seconds in case block bid was delayed relative to the timestamp
-                block_time + Duration::seconds(5),
-            )
-        };
-        let mempool_txs = mempool::get_mempool_transactions(&self.mempool_datadir, from, to)
-            .wrap_err_with(|| {
-                format!(
-                    "Failed to fetch mempool transactions for block {}",
-                    block_number
-                )
-            })?;
-        trace!(
-            "Fetched unfiltered mempool transactions, count: {}",
-            mempool_txs.len()
-        );
-        Ok(mempool_txs)
-    }
-
-    async fn fetch_bundles(
-        &self,
-        block_number: u64,
-        block_timestamp: u64,
-    ) -> eyre::Result<Vec<OrdersWithTimestamp>> {
-        let db = if let Some(db) = &self.flashbots_db {
-            RelayDB::new(db.clone())
-        } else {
-            info!("Flashbots db not set, skipping bundles");
-            return Ok(Vec::new());
-        };
-
-        let bundles = db
-            .get_simulated_bundles_for_block(block_number)
-            .await
-            .with_context(|| format!("Failed to fetch bundles for block {}", block_number))?;
-
-        let block_timestamp = OffsetDateTime::from_unix_timestamp(block_timestamp as i64)?;
-        let share_bundles = db
-            .get_simulated_share_bundles_for_block(block_number, block_timestamp)
-            .await
-            .with_context(|| format!("Failed to fetch share bundles for block {}", block_number))?;
-
-        trace!(
-            "Fetched bundles from flashbots db, bundles: {}, sbundles: {}",
-            bundles.len(),
-            share_bundles.len()
-        );
-
-        Ok(bundles
-            .into_iter()
-            .chain(share_bundles.into_iter())
-            .collect())
     }
 
     fn filter_orders_by_base_fee(
@@ -244,14 +199,14 @@ impl HistoricalDataFetcher {
         let onchain_block = self.get_onchain_block(block_number).await?;
 
         let block_timestamp: u64 = timestamp_as_u64(&onchain_block);
-        let mut orders = {
-            let mut orders = self
-                .fetch_mempool_txs(block_number, block_timestamp)
-                .await?;
-            let bundles = self.fetch_bundles(block_number, block_timestamp).await?;
-            orders.extend(bundles);
-            orders
-        };
+
+        let mut orders: Vec<OrdersWithTimestamp> = vec![];
+        let block_ref = BlockRef::new(block_number, block_timestamp);
+
+        for datasource in &self.data_sources {
+            let mut datasource_orders = datasource.get_orders(block_ref).await?;
+            orders.append(&mut datasource_orders);
+        }
 
         info!("Fetched orders, unfiltered: {}", orders.len());
 

@@ -36,7 +36,12 @@ alloy-json-rpc.workspace = true
 alloy-transport-http.workspace = true
 alloy-network.workspace = true
 alloy-transport.workspace = true
+alloy-node-bindings.workspace = true
+alloy-consensus.workspace = true
 alloy-serde.workspace = true
+alloy-signer-local.workspace = true
+
+test_utils = { path = "src/test_utils" }
 
 reqwest = { version = "0.11.20", features = ["blocking"] }
 serde_with = { version = "3.8.1", features = ["time_0_3"] }
@@ -100,6 +105,7 @@ governor = "0.6.3"
 derivative = "2.2.0"
 mockall = "0.12.1"
 shellexpand = "3.1.0"
+async-trait = "0.1.80"
 
 [build-dependencies]
 built = { version = "0.7.1", features = ["git2", "chrono"] }
