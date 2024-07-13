@@ -1,8 +1,8 @@
+pub mod csv;
 pub mod datasource;
 pub mod flashbots_db;
 pub mod mempool;
 pub mod mev_boost;
-pub mod csv;
 
 use crate::{
     backtest::{
