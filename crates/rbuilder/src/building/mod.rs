@@ -73,6 +73,9 @@ pub struct BlockBuildingContext {
     pub excess_blob_gas: Option<u64>,
     /// Version of the EVM that we are going to use
     pub spec_id: SpecId,
+    // An optional Vec of a tuple of addresses and balances to spoof during simulation
+    // [!SAFETY!] Only use in backtesting
+    pub backtest_balances_to_spoof: Option<Vec<(Address, u128)>>,
 }
 
 impl BlockBuildingContext {
@@ -138,6 +141,7 @@ impl BlockBuildingContext {
             extra_data,
             excess_blob_gas,
             spec_id,
+            backtest_balances_to_spoof: None,
         }
     }
 
@@ -235,6 +239,7 @@ impl BlockBuildingContext {
                 .excess_blob_gas
                 .map(|b| b as u64),
             spec_id,
+            backtest_balances_to_spoof: None,
         }
     }
 
@@ -250,6 +255,10 @@ impl BlockBuildingContext {
 
     pub fn block(&self) -> u64 {
         self.block_env.number.to()
+    }
+
+    pub fn set_backtest_balances_to_spoof(&mut self, balances: Vec<(Address, u128)>) {
+        self.backtest_balances_to_spoof = Some(balances);
     }
 }
 
