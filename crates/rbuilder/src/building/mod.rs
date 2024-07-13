@@ -256,6 +256,10 @@ impl BlockBuildingContext {
     pub fn block(&self) -> u64 {
         self.block_env.number.to()
     }
+
+    pub fn set_backtest_balances_to_spoof(&mut self, balances: Vec<(Address, u128)>) {
+        self.backtest_balances_to_spoof = Some(balances);
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
