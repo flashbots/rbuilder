@@ -141,7 +141,9 @@ impl HistoricalDataFetcher {
                                 res_onchain_nonce = Some(*onchain_nonce);
                             }
                         }
-                        if res_onchain_nonce.is_none() {
+                        let res_onchain_nonce = if let Some(res_onchain_nonce) = res_onchain_nonce {
+                            res_onchain_nonce
+                        } else {
                             let address = nonce.address;
                             let onchain_nonce = self
                                 .eth_provider
@@ -153,15 +155,15 @@ impl HistoricalDataFetcher {
                             if let Ok(mut nonce_cache) = nonce_cache.write() {
                                 nonce_cache.entry(address).or_insert(onchain_nonce);
                             }
-                            res_onchain_nonce = Some(onchain_nonce);
-                        }
+                            onchain_nonce
+                        };
 
-                        if res_onchain_nonce.unwrap() > nonce.nonce && !nonce.optional {
+                        if res_onchain_nonce > nonce.nonce && !nonce.optional {
                             trace!(
                                 "Order nonce too low, order: {:?}, nonce: {}, onchain tx count: {}",
                                 id,
                                 nonce.nonce,
-                                res_onchain_nonce.unwrap(),
+                                res_onchain_nonce,
                             );
                             return Ok(());
                         } else {
