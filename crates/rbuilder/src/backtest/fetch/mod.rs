@@ -28,6 +28,12 @@ use crate::{
     utils::BoxedProvider,
 };
 
+/// Struct that brings block information ([BlockData]) from several [DataSource]s
+/// Filters txs already landed (onchain nonce > tx nonce)
+/// Mainly used by [`backtest-fetch`]
+/// Usage:
+/// 1 - [HistoricalDataFetcher::new] + (optional) [HistoricalDataFetcher::add_datasource]
+/// 2 - call [HistoricalDataFetcher::fetch_historical_data] for all the needed blocks
 #[derive(Debug, Clone)]
 pub struct HistoricalDataFetcher {
     eth_provider: BoxedProvider,
@@ -107,6 +113,8 @@ impl HistoricalDataFetcher {
         })
     }
 
+    /// Filters out orders with non-optional txs already landed (onchain nonce > tx nonce)
+    /// Also filters out empty orders (eg: all optional already landed txs)
     async fn filter_order_by_nonces(
         &self,
         orders: Vec<OrdersWithTimestamp>,

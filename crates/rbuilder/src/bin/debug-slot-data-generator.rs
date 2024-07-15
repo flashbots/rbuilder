@@ -1,3 +1,5 @@
+//! This simple app shows how to get the slots from the CL client via a MevBoostSlotDataGenerator
+
 use clap::Parser;
 use payload_events::MevBoostSlotDataGenerator;
 use rbuilder::{

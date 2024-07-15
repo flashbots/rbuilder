@@ -1,3 +1,5 @@
+//! App to benchmark/test the tx block execution.
+//! It loads the last landed block and re-executes all the txs in it.
 use alloy_primitives::{B256, U256};
 use clap::Parser;
 use itertools::Itertools;
@@ -80,6 +82,7 @@ async fn main() -> eyre::Result<()> {
         spec_id: SpecId::LATEST,
     };
 
+    // Get the landed orders (all Order::Tx) from the block
     let orders = block_data
         .body
         .iter()
