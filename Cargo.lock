@@ -1186,6 +1186,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c3c1a368f70d6cf7302d78f8f7093da241fb8e8807c05cc9e51a125895a6d5b"
 
 [[package]]
+name = "beacon-api-client"
+version = "0.1.0"
+source = "git+https://github.com/ralexstokes/ethereum-consensus/?rev=0e8809c1eda3f54a78991d7a5987ff42c9195d42#0e8809c1eda3f54a78991d7a5987ff42c9195d42"
+dependencies = [
+ "clap",
+ "ethereum-consensus",
+ "http 0.2.12",
+ "itertools 0.10.5",
+ "mev-share-sse",
+ "reqwest 0.11.26",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "bech32"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5855,8 +5874,7 @@ dependencies = [
 [[package]]
 name = "mev-share-sse"
 version = "0.1.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba263a1c478aade75b60835fbeb6f57c0280fb0953742c3d84de45ea51139ae4"
+source = "git+https://github.com/paradigmxyz/mev-share-rs?rev=9eb2b0138ab3202b9eb3af4b19c7b3bf40b0faa8#9eb2b0138ab3202b9eb3af4b19c7b3bf40b0faa8"
 dependencies = [
  "async-sse",
  "bytes",
@@ -7665,6 +7683,7 @@ dependencies = [
  "alloy-transport-http",
  "async-trait",
  "atoi",
+ "beacon-api-client",
  "bigdecimal 0.4.3",
  "built",
  "clap",
