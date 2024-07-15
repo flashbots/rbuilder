@@ -66,7 +66,7 @@ async fn main() -> eyre::Result<()> {
                 config.base_config().backtest_fetch_eth_rpc_parallel,
                 backtest_fetch_mempool_data_dir,
                 db,
-            );
+            )?;
 
             let blocks_to_fetch: Box<dyn Iterator<Item = u64>> = if cli.range {
                 let from_block = cli.blocks.first().copied().unwrap_or(0);
