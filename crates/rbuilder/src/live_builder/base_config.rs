@@ -327,7 +327,7 @@ impl BaseConfig {
 
     pub fn bls_signer(&self) -> eyre::Result<BLSBlockSigner> {
         let chain_spec = self.chain_spec()?;
-        let signing_domain = get_signing_domain(chain_spec.chain, self.beacon_clients())?;
+        let signing_domain = get_signing_domain(chain_spec.chain, self.beacon_clients()?)?;
         let secret_key = self.relay_secret_key.value()?;
         let secret_key = SecretKey::try_from(secret_key)
             .map_err(|e| eyre::eyre!("Failed to parse relay key: {:?}", e.to_string()))?;
@@ -337,7 +337,7 @@ impl BaseConfig {
 
     pub fn bls_optimistic_signer(&self) -> eyre::Result<BLSBlockSigner> {
         let chain_spec = self.chain_spec()?;
-        let signing_domain = get_signing_domain(chain_spec.chain, self.beacon_clients())?;
+        let signing_domain = get_signing_domain(chain_spec.chain, self.beacon_clients()?)?;
         let secret_key = self.optimistic_relay_secret_key.value()?;
         let secret_key = SecretKey::try_from(secret_key).map_err(|e| {
             eyre::eyre!("Failed to parse optimistic relay key: {:?}", e.to_string())
