@@ -8,6 +8,7 @@ use std::{path::PathBuf, sync::Arc, thread::sleep, time::Duration};
 use alloy_primitives::U256;
 use jsonrpsee::RpcModule;
 use rbuilder::{
+    beacon_api_client::Client,
     building::{
         builders::{
             finalize_block_execution, Block, BlockBuildingAlgorithm, BlockBuildingAlgorithmInput,
@@ -17,8 +18,8 @@ use rbuilder::{
     },
     live_builder::{
         base_config::{
-            DEFAULT_CL_NODE_URL, DEFAULT_EL_NODE_IPC_PATH, DEFAULT_ERROR_STORAGE_PATH,
-            DEFAULT_INCOMING_BUNDLES_PORT, DEFAULT_IP, DEFAULT_RETH_DB_PATH,
+            DEFAULT_EL_NODE_IPC_PATH, DEFAULT_ERROR_STORAGE_PATH, DEFAULT_INCOMING_BUNDLES_PORT,
+            DEFAULT_IP, DEFAULT_RETH_DB_PATH,
         },
         bidding::{DummyBiddingService, SlotBidder},
         config::create_provider_factory,
@@ -67,7 +68,7 @@ async fn main() -> eyre::Result<()> {
     )?;
 
     let builder = LiveBuilder::<Arc<DatabaseEnv>, TraceBlockSinkFactory> {
-        cl_urls: vec![DEFAULT_CL_NODE_URL.to_string()],
+        cls: vec![Client::default()],
         relays: vec![relay],
         watchdog_timeout: Duration::from_secs(10000),
         error_storage_path: DEFAULT_ERROR_STORAGE_PATH.parse().unwrap(),

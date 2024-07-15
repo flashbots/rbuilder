@@ -9,6 +9,7 @@ pub mod simulation;
 mod watchdog;
 
 use crate::{
+    beacon_api_client::Client,
     building::{
         builders::{BlockBuildingAlgorithm, BuilderSinkFactory},
         BlockBuildingContext,
@@ -54,7 +55,7 @@ const GET_BLOCK_HEADER_PERIOD: time::Duration = time::Duration::milliseconds(250
 /// Create and run()
 #[derive(Debug)]
 pub struct LiveBuilder<DB, BuilderSinkFactoryType: BuilderSinkFactory> {
-    pub cl_urls: Vec<String>,
+    pub cls: Vec<Client>,
     pub relays: Vec<MevBoostRelay>,
     pub watchdog_timeout: Duration,
     pub error_storage_path: PathBuf,
@@ -115,7 +116,7 @@ where
 
         let mut payload_events_channel = {
             let payload_event = MevBoostSlotDataGenerator::new(
-                self.cl_urls,
+                self.cls,
                 self.relays.clone(),
                 self.blocklist.clone(),
                 self.global_cancellation.clone(),

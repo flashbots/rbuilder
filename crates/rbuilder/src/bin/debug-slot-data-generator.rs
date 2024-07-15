@@ -41,7 +41,7 @@ pub async fn main() -> eyre::Result<()> {
     let relays = config.base_config().relays()?;
 
     let (handle, mut slots) = MevBoostSlotDataGenerator::new(
-        config.base_config().cl_node_url.clone(),
+        config.base_config().beacon_clients()?,
         relays,
         Default::default(),
         cancel,
