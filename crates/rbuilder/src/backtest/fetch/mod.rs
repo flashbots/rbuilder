@@ -1,11 +1,11 @@
-pub mod datasource;
+pub mod data_source;
 pub mod flashbots_db;
 pub mod mempool;
 pub mod mev_boost;
 
 use crate::{
     backtest::{
-        fetch::datasource::{BlockRef, DataSource},
+        fetch::data_source::{BlockRef, DataSource},
         BlockData,
     },
     mev_boost::BuilderBlockReceived,
@@ -52,21 +52,21 @@ impl HistoricalDataFetcher {
         eth_rpc_parallel: usize,
         mempool_datadir: PathBuf,
         flashbots_db: Option<PgPool>,
-    ) -> Self {
+    ) -> eyre::Result<Self> {
         let mut data_sources: Vec<Box<dyn DataSource>> = vec![Box::new(
-            mempool::MempoolDumpsterDatasource::new(mempool_datadir),
+            mempool::MempoolDumpsterDatasource::new(mempool_datadir)?,
         )];
 
         if let Some(db_pool) = flashbots_db {
             data_sources.push(Box::new(RelayDB::new(db_pool)));
         }
 
-        Self {
+        Ok(Self {
             eth_provider,
             eth_rpc_parallel,
             data_sources,
             payload_delivered_fetcher: PayloadDeliveredFetcher::default(),
-        }
+        })
     }
 
     pub fn add_datasource(&mut self, datasource: Box<dyn DataSource>) {
