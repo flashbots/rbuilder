@@ -211,7 +211,7 @@ impl BaseConfig {
         let sink_factory = RelaySubmitSinkFactory::new(self.submission_config()?, relays.clone());
 
         Ok(LiveBuilder::<Arc<DatabaseEnv>, RelaySubmitSinkFactory> {
-            cls: self.beacon_clients(),
+            cls: self.beacon_clients()?,
             relays,
             watchdog_timeout: self.watchdog_timeout(),
             error_storage_path: self.error_storage_path.clone(),
@@ -246,12 +246,12 @@ impl BaseConfig {
         genesis_value_parser(&self.chain)
     }
 
-    pub fn beacon_clients(&self) -> Vec<Client> {
+    pub fn beacon_clients(&self) -> eyre::Result<Vec<Client>> {
         self.cl_node_url
             .iter()
             .map(|url| {
-                let url = Url::parse(url).unwrap();
-                Client::new(url)
+                let url = Url::parse(url)?;
+                Ok(Client::new(url))
             })
             .collect()
     }

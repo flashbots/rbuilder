@@ -1,3 +1,6 @@
+//! Application to fetch orders from different sources (eg: mempool dumpster, external bundles db) and store them on a SQLite DB
+//! to be used later (eg: backtest-build-block,backtest-build-range)
+
 use alloy_primitives::utils::format_ether;
 use clap::Parser;
 use rbuilder::{
@@ -58,11 +61,6 @@ async fn main() -> eyre::Result<()> {
             // create paths for backtest_fetch_mempool_data_dir (i.e "~/.rbuilder/mempool-data" and ".../transactions")
             let backtest_fetch_mempool_data_dir =
                 config.base_config().backtest_fetch_mempool_data_dir()?;
-            fs::create_dir_all(&backtest_fetch_mempool_data_dir)?;
-            let mut backtest_fetch_mempool_data_dir_txs =
-                config.base_config().backtest_fetch_mempool_data_dir()?;
-            backtest_fetch_mempool_data_dir_txs.push("transactions");
-            fs::create_dir_all(&backtest_fetch_mempool_data_dir_txs)?;
 
             let db = config.base_config().flashbots_db().await?;
             let provider = config.base_config().eth_rpc_provider()?;
@@ -71,7 +69,7 @@ async fn main() -> eyre::Result<()> {
                 config.base_config().backtest_fetch_eth_rpc_parallel,
                 backtest_fetch_mempool_data_dir,
                 db,
-            );
+            )?;
 
             let blocks_to_fetch: Box<dyn Iterator<Item = u64>> = if cli.range {
                 let from_block = cli.blocks.first().copied().unwrap_or(0);

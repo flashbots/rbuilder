@@ -1,3 +1,8 @@
+//! Application test the orders input + simulation.
+//! For each blocks it subscribes an [`OrderReplacementManager`].
+//! Since simulation needs to pull orders, the [`OrderReplacementManager`] is adapted with an [`OrderSender2OrderSink`] generating an [`OrdersForBlock`] for
+//! the simulation stage to pull.
+
 use alloy_primitives::utils::format_ether;
 use clap::Parser;
 use jsonrpsee::RpcModule;
@@ -48,7 +53,7 @@ pub async fn main() -> eyre::Result<()> {
     let relays = config.base_config().relays()?;
 
     let (_new_slots, mut slots) = MevBoostSlotDataGenerator::new(
-        config.base_config().beacon_clients(),
+        config.base_config().beacon_clients()?,
         relays,
         Default::default(),
         CancellationToken::new(),
@@ -94,6 +99,7 @@ pub async fn main() -> eyre::Result<()> {
             .data
             .parent_block_number
             + 1;
+        // orders sent to the sink will can be polled on orders_for_block
         let (orders_for_block, sink) = OrdersForBlock::new_with_sink();
         // add OrderReplacementManager to manage replacements and cancellations
         let order_replacement_manager = OrderReplacementManager::new(Box::new(sink));

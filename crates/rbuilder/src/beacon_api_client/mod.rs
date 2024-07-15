@@ -5,6 +5,8 @@ use serde::Deserialize;
 use std::{collections::HashMap, fmt::Debug};
 use url::Url;
 
+pub const DEFAULT_CL_NODE_URL: &str = "http://localhost:8000";
+
 #[derive(Deserialize, Clone)]
 #[serde(try_from = "String")]
 pub struct Client {
@@ -20,7 +22,7 @@ impl Debug for Client {
 impl Default for Client {
     fn default() -> Self {
         Self {
-            inner: bClient::new(Url::parse("http://localhost:8000").unwrap()),
+            inner: bClient::new(Url::parse(DEFAULT_CL_NODE_URL).unwrap()),
         }
     }
 }
@@ -67,7 +69,7 @@ mod tests {
     #[ignore]
     #[tokio::test]
     async fn test_get_spec() {
-        let client = Client::new(Url::parse("http://localhost:8000").unwrap());
+        let client = Client::default();
         let spec = client.get_spec().await.unwrap();
 
         // validate that the spec contains the genesis fork version
@@ -77,7 +79,7 @@ mod tests {
     #[ignore]
     #[tokio::test]
     async fn test_get_events() {
-        let client = Client::new(Url::parse("http://localhost:8000").unwrap());
+        let client = Client::default();
         let mut stream = client.get_events::<PayloadAttributesTopic>().await.unwrap();
 
         // validate that the stream is not empty

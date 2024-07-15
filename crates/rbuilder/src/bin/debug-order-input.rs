@@ -1,3 +1,6 @@
+//! Application test the orders input.
+//! For each blocks it subscribes a ReplaceableOrderPrinter to the OrderPool
+
 use clap::Parser;
 use ethers::{
     middleware::Middleware,

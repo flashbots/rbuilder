@@ -23,6 +23,7 @@ pub struct BacktestBuilderOutput {
     pub our_bid_value: U256,
 }
 
+/// Result of a backtest simulation usually stored for later comparison
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BlockBacktestValue {
     pub block_number: u64,
