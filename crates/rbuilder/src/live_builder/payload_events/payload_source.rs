@@ -1,5 +1,5 @@
+use crate::beacon_api_client::{Client, PayloadAttributesTopic};
 use futures::future::join_all;
-use mev_share_sse::EventClient;
 use reth::rpc::types::beacon::events::PayloadAttributesEvent;
 
 use tokio::{
@@ -27,15 +27,10 @@ pub struct CLPayloadSource {
 }
 
 impl CLPayloadSource {
-    pub fn new(cl_url: String, cancellation: CancellationToken) -> Self {
-        let payloads_url = format!("{}/eth/v1/events?topics=payload_attributes", cl_url);
+    pub fn new(cl: Client, cancellation: CancellationToken) -> Self {
         let (sender, receiver) = mpsc::unbounded_channel();
         let join_handle = tokio::spawn(async move {
-            let client = EventClient::default();
-            if let Ok(mut subscription) = client
-                .subscribe::<PayloadAttributesEvent>(&payloads_url)
-                .await
-            {
+            if let Ok(mut subscription) = cl.get_events::<PayloadAttributesTopic>().await {
                 loop {
                     tokio::select! {
                         _ = cancellation.cancelled() =>{
@@ -45,19 +40,19 @@ impl CLPayloadSource {
                             let event_res = match opt_event {
                                     Some(event_res) => event_res,
                                     None => {
-                                        warn!(cl_url, "CL SSE channel closed");
+                                        warn!("CL SSE channel closed");
                                         return;
                                     }
                             };
                             match event_res {
                                 Ok(event) => {
                                     if sender.send(event).is_err() {
-                                        error!(cl_url, "Error while sending payload event,CLPayloadSource closed");
+                                        error!("Error while sending payload event,CLPayloadSource closed");
                                         return;
                                     }
                                 }
                                 Err(err) => {
-                                    error!(cl_url, "Error while receiving CL SEE event: {:?}, ignoring", err);
+                                    error!("Error while receiving CL SEE event: {:?}, ignoring", err);
                                 }
                             }
                         }
@@ -130,7 +125,7 @@ impl PayloadSourceReconnector {
 
     /// reconnect_wait is the time it waits before reconnecting to avoid 100% CPU reconnection loop and killing the CL machine.
     pub fn new(
-        cl_url: String,
+        cl: Client,
         recv_timeout: std::time::Duration,
         reconnect_wait: std::time::Duration,
         cancellation: CancellationToken,
@@ -138,12 +133,12 @@ impl PayloadSourceReconnector {
         let (sender, receiver) = mpsc::unbounded_channel();
         let join_handle = tokio::spawn(async move {
             loop {
-                info!(cl_url, "PayloadSourceReconnector connecting");
-                let mut source = CLPayloadSource::new(cl_url.clone(), cancellation.clone());
+                info!("PayloadSourceReconnector connecting");
+                let mut source = CLPayloadSource::new(cl.clone(), cancellation.clone());
                 if !Self::poll_payloads(&mut source, &sender, recv_timeout, &cancellation).await {
                     return;
                 }
-                info!(cl_url, "PayloadSourceReconnector waiting to reconnect");
+                info!("PayloadSourceReconnector waiting to reconnect");
                 let timeout_res = timeout(reconnect_wait, cancellation.cancelled()).await;
                 if timeout_res.is_ok() {
                     return; // cancelled
@@ -172,24 +167,20 @@ pub struct PayloadSourceMuxer {
 
 impl PayloadSourceMuxer {
     pub fn new(
-        cl_urls: &[String],
+        cls: &[Client],
         recv_timeout: std::time::Duration,
         reconnect_wait: std::time::Duration,
         cancellation: CancellationToken,
     ) -> Self {
         let (sender, receiver) = mpsc::unbounded_channel();
-        let mut join_handles = Vec::new();
-        for cl_url in cl_urls {
+        let mut join_handles: Vec<JoinHandle<()>> = Vec::new();
+        for cl in cls {
             let sender = sender.clone();
             let cancellation = cancellation.clone();
-            let cl_url = cl_url.clone();
+            let cl = cl.clone();
             let join_handle = tokio::spawn(async move {
-                let mut source = PayloadSourceReconnector::new(
-                    cl_url,
-                    recv_timeout,
-                    reconnect_wait,
-                    cancellation,
-                );
+                let mut source =
+                    PayloadSourceReconnector::new(cl, recv_timeout, reconnect_wait, cancellation);
                 while let Some(payload) = source.recv().await {
                     if sender.send(payload).is_err() {
                         error!("PayloadSourceMuxer send error");

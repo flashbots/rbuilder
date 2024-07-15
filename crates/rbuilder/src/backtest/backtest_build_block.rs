@@ -1,3 +1,10 @@
+//! Backtest app to build a single block in a similar way as we do in live.
+//! It gets the orders from a HistoricalDataStorage, simulates the orders and the run the building algorithms.
+//! It outputs the best algorithm (most profit) so we can check for improvements in our [crate::building::builders::BlockBuildingAlgorithm]s
+//! BlockBuildingAlgorithm are defined on the config file but selected on the command line via "--builders"
+//! Sample call:
+//! backtest-build-block --config /home/happy_programmer/config.toml --builders mgp-ordering --builders mp-ordering 19380913 --show-orders --show-missing
+
 use ahash::HashMap;
 use alloy_primitives::utils::format_ether;
 
@@ -51,36 +58,14 @@ pub async fn run_backtest_build_block<ConfigType: LiveBuilderConfig>() -> eyre::
     let config: ConfigType = load_config_toml_and_env(cli.config)?;
     config.base_config().setup_tracing_subsriber()?;
 
-    let mut historical_data_storage =
-        HistoricalDataStorage::new_from_path(&config.base_config().backtest_fetch_output_file)
-            .await?;
-
-    let mut block_data = historical_data_storage.read_block_data(cli.block).await?;
-
-    if !cli.only_order_ids.is_empty() {
-        block_data.filter_orders_by_ids(&cli.only_order_ids);
-    }
-    if cli.block_building_time_ms != 0 {
-        block_data.filter_orders_by_block_lag(cli.block_building_time_ms);
-    }
-
-    if cli.show_missing {
-        show_missing_txs(&block_data);
-    }
-
-    println!(
-        "Block: {} {:?}",
-        block_data.block_number,
-        block_data.onchain_block.header.hash.unwrap_or_default()
-    );
-    println!(
-        "bid value: {}",
-        format_ether(block_data.winning_bid_trace.value)
-    );
-    println!(
-        "builder pubkey: {:?}",
-        block_data.winning_bid_trace.builder_pubkey
-    );
+    let block_data = read_block_data(
+        &config.base_config().backtest_fetch_output_file,
+        cli.block,
+        cli.only_order_ids,
+        cli.block_building_time_ms,
+        cli.show_missing,
+    )
+    .await?;
 
     let (orders, order_and_timestamp): (Vec<Order>, HashMap<OrderId, u64>) = block_data
         .available_orders
@@ -177,6 +162,49 @@ pub async fn run_backtest_build_block<ConfigType: LiveBuilderConfig>() -> eyre::
     }
 
     Ok(())
+}
+
+/// Reads from HistoricalDataStorage the BlockData for block.
+/// only_order_ids: if not empty returns only the given order ids.
+/// block_building_time_ms: If not 0, time it took to build the block. It allows us to filter out orders that arrived after we started building the block (filter_late_orders).
+/// show_missing: show on-chain orders that weren't available to us at building time.
+async fn read_block_data(
+    backtest_fetch_output_file: &PathBuf,
+    block: u64,
+    only_order_ids: Vec<String>,
+    block_building_time_ms: i64,
+    show_missing: bool,
+) -> eyre::Result<BlockData> {
+    let mut historical_data_storage =
+        HistoricalDataStorage::new_from_path(backtest_fetch_output_file).await?;
+
+    let mut block_data = historical_data_storage.read_block_data(block).await?;
+
+    if !only_order_ids.is_empty() {
+        block_data.filter_orders_by_ids(&only_order_ids);
+    }
+    if block_building_time_ms != 0 {
+        block_data.filter_late_orders(block_building_time_ms);
+    }
+
+    if show_missing {
+        show_missing_txs(&block_data);
+    }
+
+    println!(
+        "Block: {} {:?}",
+        block_data.block_number,
+        block_data.onchain_block.header.hash.unwrap_or_default()
+    );
+    println!(
+        "bid value: {}",
+        format_ether(block_data.winning_bid_trace.value)
+    );
+    println!(
+        "builder pubkey: {:?}",
+        block_data.winning_bid_trace.builder_pubkey
+    );
+    Ok(block_data)
 }
 
 /// Convert a timestamp in milliseconds to the slot time relative to the given block timestamp.
