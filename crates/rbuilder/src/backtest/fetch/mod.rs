@@ -19,7 +19,11 @@ use eyre::WrapErr;
 use flashbots_db::RelayDB;
 use futures::TryStreamExt;
 use sqlx::PgPool;
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::{Arc, RwLock},
+};
 use tokio::sync::Mutex;
 use tracing::{info, trace};
 
@@ -127,7 +131,7 @@ impl HistoricalDataFetcher {
 
         let parent_block = block_number - 1;
 
-        let nonce_cache = Arc::new(Mutex::new(HashMap::new()));
+        let nonce_cache = Arc::new(RwLock::new(HashMap::new()));
         let retain = Arc::new(Mutex::new(vec![false; nonces_to_check.len()]));
 
         let retain_clone = retain.clone();
@@ -138,29 +142,35 @@ impl HistoricalDataFetcher {
                 async move {
                     let mut all_nonces_failed = true;
                     for nonce in nonces {
-                        let onchain_nonce = {
-                            let mut nonce_cache = nonce_cache.lock().await;
+                        let mut res_onchain_nonce: Option<u64> = None;
+                        if let Ok(nonce_cache) = nonce_cache.read() {
                             if let Some(onchain_nonce) = nonce_cache.get(&nonce.address) {
-                                *onchain_nonce
-                            } else {
-                                let address =
-                                    alloy_primitives::Address::from_slice(&nonce.address.0 .0);
-                                let onchain_nonce = self
-                                    .eth_provider
-                                    .get_transaction_count(address)
-                                    .block_id(BlockId::Number(parent_block.into()))
-                                    .await
-                                    .wrap_err("Failed to fetch onchain tx count")?;
-                                nonce_cache.insert(nonce.address, onchain_nonce);
-                                onchain_nonce
+                                res_onchain_nonce = Some(*onchain_nonce);
                             }
+                        }
+                        let res_onchain_nonce = if let Some(res_onchain_nonce) = res_onchain_nonce {
+                            res_onchain_nonce
+                        } else {
+                            let address = nonce.address;
+                            let onchain_nonce = self
+                                .eth_provider
+                                .get_transaction_count(address)
+                                .block_id(BlockId::Number(parent_block.into()))
+                                .await
+                                .wrap_err("Failed to fetch onchain tx count")?;
+
+                            if let Ok(mut nonce_cache) = nonce_cache.write() {
+                                nonce_cache.entry(address).or_insert(onchain_nonce);
+                            }
+                            onchain_nonce
                         };
-                        if onchain_nonce > nonce.nonce && !nonce.optional {
+
+                        if res_onchain_nonce > nonce.nonce && !nonce.optional {
                             trace!(
                                 "Order nonce too low, order: {:?}, nonce: {}, onchain tx count: {}",
                                 id,
                                 nonce.nonce,
-                                onchain_nonce,
+                                res_onchain_nonce,
                             );
                             return Ok(());
                         } else {
