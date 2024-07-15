@@ -52,7 +52,7 @@ test_utils = { path = "src/test_utils" }
 reqwest = { version = "0.11.20", features = ["blocking"] }
 serde_with = { version = "3.8.1", features = ["time_0_3"] }
 primitive-types = "0.12.1"
-url = "2.4.1"
+url = "2.5.2"
 sqlx = { version = "0.7.1", features = [
     "runtime-tokio-native-tls",
     "postgres",
