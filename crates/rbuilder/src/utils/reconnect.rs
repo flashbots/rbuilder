@@ -13,9 +13,9 @@ fn backoff() -> Backoff {
     Backoff::new(u32::MAX, Duration::from_secs(1), Duration::from_secs(12))
 }
 
-/// Helper func for the typical scenario where we connect to something, process data, connection fails and we continuously try to reconnect.
+/// Helper function for the typical scenario where we connect to something, process data, connection fails and we continuously try to reconnect.
 /// connect is continuously called until it returns Ok and then run is called.
-/// run's result decides if we end of go back to reconnecting
+/// run's result decides if we end or go back to reconnecting.
 pub fn run_loop_with_reconnect<
     Connection,
     ConnectErr: std::error::Error,

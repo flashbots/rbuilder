@@ -75,7 +75,7 @@ pub struct BlockData {
 
 impl BlockData {
     /// Filters orders that arrived after we started building the block.
-    pub fn filter_orders_by_block_lag(&mut self, build_block_lag_ms: i64) {
+    pub fn filter_late_orders(&mut self, build_block_lag_ms: i64) {
         self.available_orders.retain(|orders| {
             orders.timestamp_ms as i64
                 <= self.winning_bid_trace.timestamp_ms as i64 - build_block_lag_ms

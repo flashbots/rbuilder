@@ -1,6 +1,6 @@
 //! Backtest app to build a single block in a similar way as we do in live.
 //! It gets the orders from a HistoricalDataStorage, simulates the orders and the run the building algorithms.
-//! It outputs the best algorithm (best profit) so we can check for improvements in our [crate::building::builders::BlockBuildingAlgorithm]s
+//! It outputs the best algorithm (most profit) so we can check for improvements in our [crate::building::builders::BlockBuildingAlgorithm]s
 //! BlockBuildingAlgorithm are defined on the config file but selected on the command line via "--builders"
 //! Sample call:
 //! backtest-build-block --config /home/happy_programmer/config.toml --builders mgp-ordering --builders mp-ordering 19380913 --show-orders --show-missing
@@ -164,14 +164,14 @@ pub async fn run_backtest_build_block<ConfigType: LiveBuilderConfig>() -> eyre::
     Ok(())
 }
 
-/// Reads from HistoricalDataStorage the BlockData for block
-/// filter_order_ids: if not empty filters only the given order ids
-/// block_building_time_ms: if not 0 it filter orders that arrived after we started building the block (filter_orders_by_block_lag).
-/// show_missing: show landed that we didn't have
+/// Reads from HistoricalDataStorage the BlockData for block.
+/// only_order_ids: if not empty returns only the given order ids.
+/// block_building_time_ms: If not 0, time it took to build the block. It allows us to filter out orders that arrived after we started building the block (filter_late_orders).
+/// show_missing: show on-chain orders that weren't available to us at building time.
 async fn read_block_data(
     backtest_fetch_output_file: &PathBuf,
     block: u64,
-    filter_order_ids: Vec<String>,
+    only_order_ids: Vec<String>,
     block_building_time_ms: i64,
     show_missing: bool,
 ) -> eyre::Result<BlockData> {
@@ -180,11 +180,11 @@ async fn read_block_data(
 
     let mut block_data = historical_data_storage.read_block_data(block).await?;
 
-    if !filter_order_ids.is_empty() {
-        block_data.filter_orders_by_ids(&filter_order_ids);
+    if !only_order_ids.is_empty() {
+        block_data.filter_orders_by_ids(&only_order_ids);
     }
     if block_building_time_ms != 0 {
-        block_data.filter_orders_by_block_lag(block_building_time_ms);
+        block_data.filter_late_orders(block_building_time_ms);
     }
 
     if show_missing {
