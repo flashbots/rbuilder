@@ -44,7 +44,6 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use tokio::runtime::Runtime;
 use tracing::{info, warn};
 use url::Url;
 
@@ -609,12 +608,13 @@ fn get_signing_domain(chain: Chain, beacon_clients: Vec<Client>) -> eyre::Result
         ChainKind::Named(NamedChain::Goerli) => ContextEth::for_goerli(),
         ChainKind::Named(NamedChain::Holesky) => ContextEth::for_holesky(),
         _ => {
-            let rt = Runtime::new()?;
             let client = beacon_clients
                 .first()
                 .ok_or_else(|| eyre::eyre!("No beacon clients provided"))?;
 
-            let spec = rt.block_on(client.get_spec())?;
+            let spec = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(client.get_spec())
+            })?;
 
             let genesis_fork_version = spec
                 .get("GENESIS_FORK_VERSION")
