@@ -1,6 +1,6 @@
 use crate::{
     backtest::{
-        fetch::datasource::{BlockRef, DataSource},
+        fetch::data_source::{BlockRef, DataSource},
         OrdersWithTimestamp,
     },
     primitives::{

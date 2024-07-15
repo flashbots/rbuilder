@@ -2,7 +2,7 @@
 //! It downloads all the needed parquet files and keeps them cached for future use.
 use crate::{
     backtest::{
-        fetch::datasource::{BlockRef, DataSource},
+        fetch::data_source::{BlockRef, DataSource},
         OrdersWithTimestamp,
     },
     primitives::{
@@ -14,7 +14,10 @@ use async_trait::async_trait;
 use eyre::WrapErr;
 use mempool_dumpster::TransactionRangeError;
 use sqlx::types::chrono::DateTime;
-use std::path::{Path, PathBuf};
+use std::{
+    fs::create_dir_all,
+    path::{Path, PathBuf},
+};
 use time::{Duration, OffsetDateTime};
 use tracing::{error, trace};
 
@@ -134,8 +137,14 @@ impl DataSource for MempoolDumpsterDatasource {
 }
 
 impl MempoolDumpsterDatasource {
-    pub fn new(path: impl Into<PathBuf>) -> Self {
-        Self { path: path.into() }
+    pub fn new(path: impl Into<PathBuf>) -> Result<Self, std::io::Error> {
+        let path: PathBuf = path.into();
+
+        // create the directory if it doesn't exist
+        create_dir_all(&path)?;
+        create_dir_all(path.join("transactions"))?;
+
+        Ok(Self { path })
     }
 }
 
@@ -146,17 +155,17 @@ mod test {
     use time::macros::datetime;
 
     #[ignore_if_env_not_set("MEMPOOL_DATADIR")]
-    #[test]
-    fn test_get_mempool_transactions() {
+    #[tokio::test]
+    async fn test_get_mempool_transactions() {
         let data_dir = std::env::var("MEMPOOL_DATADIR").expect("MEMPOOL_DATADIR not set");
 
-        let from = datetime!(2023-09-04 23:59:00 UTC);
-        let to = datetime!(2023-09-05 00:01:00 UTC);
+        let source = MempoolDumpsterDatasource::new(data_dir).unwrap();
+        let block = BlockRef {
+            block_number: 18048817,
+            block_timestamp: datetime!(2023-09-04 23:59:00 UTC).unix_timestamp() as u64,
+        };
 
-        let txs = get_mempool_transactions(data_dir.as_ref(), from, to).unwrap();
-        assert_eq!(txs.len(), 1938);
-        dbg!(txs.len());
-        dbg!(&txs[0]);
-        dbg!(&txs[txs.len() - 1]);
+        let txs = source.get_orders(block).await.unwrap();
+        assert_eq!(txs.len(), 1732);
     }
 }
