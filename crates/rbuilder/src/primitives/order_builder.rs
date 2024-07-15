@@ -6,6 +6,7 @@ use super::{
     TxRevertBehavior,
 };
 
+/// Helper object to build Orders for testing.
 #[derive(Debug)]
 pub enum OrderBuilder {
     MempoolTx(Option<TransactionSignedEcRecoveredWithBlobs>),

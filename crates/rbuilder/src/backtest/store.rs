@@ -25,6 +25,9 @@ use std::{
 /// Since we don't have backwards compatibility every time this is increased we must re-create the DB (manually delete the sqlite)
 const VERSION: i64 = 9;
 
+/// Storage of BlockData.
+/// It allows us have cached locally (using a SQLite DB) all the info we need for backtesting so we don't have to
+/// go to the mempool dumpster (or any other source) every time we simulate a block.
 pub struct HistoricalDataStorage {
     conn: SqliteConnection,
 }
