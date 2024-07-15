@@ -617,6 +617,7 @@ mod test {
             max_priority_fee_per_gas: Some(22),
             max_fee_per_blob_gas: None,
             other: Default::default(),
+            authorization_list: None,
         }
     }
 }
