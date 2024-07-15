@@ -1,6 +1,7 @@
 //! Config should always be deserializable, default values should be used
 //!
 use crate::{
+    beacon_api_client::Client,
     flashbots::BlocksProcessorClient,
     live_builder::{
         bidding::DummyBiddingService,
@@ -41,6 +42,7 @@ use std::{
     time::Duration,
 };
 use tracing::{info, warn};
+use url::Url;
 
 /// From experience (Vitaly's) all generated blocks before slot_time-8sec end loosing (due to last moment orders?)
 const DEFAULT_SLOT_DELTA_TO_START_SUBMITS: time::Duration = time::Duration::milliseconds(-8000);
@@ -207,7 +209,7 @@ impl BaseConfig {
         let sink_factory = RelaySubmitSinkFactory::new(self.submission_config()?, relays.clone());
 
         Ok(LiveBuilder::<Arc<DatabaseEnv>, RelaySubmitSinkFactory> {
-            cl_urls: self.cl_node_url.clone(),
+            cls: self.beacon_clients()?,
             relays,
             watchdog_timeout: self.watchdog_timeout(),
             error_storage_path: self.error_storage_path.clone(),
@@ -240,6 +242,16 @@ impl BaseConfig {
 
     pub fn chain_spec(&self) -> eyre::Result<Arc<ChainSpec>> {
         genesis_value_parser(&self.chain)
+    }
+
+    pub fn beacon_clients(&self) -> eyre::Result<Vec<Client>> {
+        self.cl_node_url
+            .iter()
+            .map(|url| {
+                let url = Url::parse(url)?;
+                Ok(Client::new(url))
+            })
+            .collect()
     }
 
     pub fn sbundle_mergeabe_signers(&self) -> Vec<Address> {

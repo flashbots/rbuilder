@@ -1,3 +1,5 @@
+//! This simple app shows how to get the slots from the CL client via a MevBoostSlotDataGenerator
+
 use clap::Parser;
 use payload_events::MevBoostSlotDataGenerator;
 use rbuilder::{
@@ -39,7 +41,7 @@ pub async fn main() -> eyre::Result<()> {
     let relays = config.base_config().relays()?;
 
     let (handle, mut slots) = MevBoostSlotDataGenerator::new(
-        config.base_config().cl_node_url.clone(),
+        config.base_config().beacon_clients()?,
         relays,
         Default::default(),
         cancel,

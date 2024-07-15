@@ -240,7 +240,7 @@ pub fn finalize_block_execution(
 ) -> Result<bool, InsertPayoutTxErr> {
     let (bid_value, true_value) = if let Some(payout_tx_gas) = payout_tx_gas {
         let available_value = partial_block.get_proposer_payout_tx_value(payout_tx_gas, ctx)?;
-        let value = match bidder.seal_instruction(available_value) {
+        let value = match bidder.seal_instruction(available_value, ctx.timestamp()) {
             SealInstruction::Value(value) => value,
             SealInstruction::Skip => return Ok(false),
         };

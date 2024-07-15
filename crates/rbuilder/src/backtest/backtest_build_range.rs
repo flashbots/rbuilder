@@ -1,3 +1,17 @@
+//! Backtest app to build a multiple blocks in a similar way as we do in live.
+//! It gets the orders from a HistoricalDataStorage, simulates the orders and the run the building algorithms.
+//! For each simulated block we count how for many block we generated more profit ("won" blocks) than the landed block and we report:
+//! - Win %: % of blocks "won"
+//! - Total profits: for the blocks we "won" we consider profit = our_true_block_value - landed_bid and we add all this profit.
+//!   This represents how much extra profit we did compared to the landed blocks.
+//! Optionally (via --store-backtest) it can store the simulated results on a SQLite db (config.backtest_results_store_path)
+//! Optionally (via --compare-backtest) it can compare the simulations against previously stored simulations (via --store-backtest)
+//!
+//! Sample call (numbers are from_block , to_block (included)):
+//! - simple backtest: backtest-build-range --config /home/happy_programmer/config.toml 19380913 193809100
+//! - backtest storing simulations : backtest-build-range --config /home/happy_programmer/config.toml --store-backtest 19380913 193809100
+//! - backtest comparing simulations : backtest-build-range --config /home/happy_programmer/config.toml --compare-backtest 19380913 193809100
+
 use crate::{
     backtest::{
         execute::{backtest_simulate_block, BlockBacktestValue},
@@ -136,6 +150,7 @@ pub async fn run_backtest_build_range<ConfigType: LiveBuilderConfig + Send + Syn
         } else {
             break;
         };
+        // process the read blocks to get the BlockBacktestValues
         let input = blocks
             .into_iter()
             .map(|block_data| {
@@ -176,6 +191,8 @@ pub async fn run_backtest_build_range<ConfigType: LiveBuilderConfig + Send + Syn
                 },
             )
             .collect::<Vec<_>>();
+
+        // Compare the BlockBacktestValues with the landed block and optionally compare or store
         for o in output {
             if let Some(csv_output) = &mut csv_output {
                 csv_output.write_block_data(&o)?;
@@ -376,6 +393,9 @@ impl CSVResultWriter {
     }
 }
 
+/// Spawns a task that reads BlockData from the HistoricalDataStorage in blocks of current_num_threads.
+/// The results can the be polled from the returned mpsc::Receiver
+/// This allows us to process a batch while the next if being fetched.
 fn spawn_block_fetcher(
     mut historical_data_storage: HistoricalDataStorage,
     blocks: Vec<u64>,

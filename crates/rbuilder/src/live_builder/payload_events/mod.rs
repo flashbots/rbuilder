@@ -6,6 +6,7 @@ pub mod payload_source;
 pub mod relay_epoch_cache;
 
 use crate::{
+    beacon_api_client::Client,
     live_builder::payload_events::{
         payload_source::PayloadSourceMuxer,
         relay_epoch_cache::{RelaysForSlotData, SlotData},
@@ -67,7 +68,7 @@ impl MevBoostSlotData {
 }
 
 pub struct MevBoostSlotDataGenerator {
-    cl_urls: Vec<String>,
+    cls: Vec<Client>,
     relays: Vec<MevBoostRelay>,
     blocklist: HashSet<Address>,
 
@@ -76,13 +77,13 @@ pub struct MevBoostSlotDataGenerator {
 
 impl MevBoostSlotDataGenerator {
     pub fn new(
-        cl_urls: Vec<String>,
+        cls: Vec<Client>,
         relays: Vec<MevBoostRelay>,
         blocklist: HashSet<Address>,
         global_cancellation: CancellationToken,
     ) -> Self {
         Self {
-            cl_urls,
+            cls,
             relays,
             blocklist,
             global_cancellation,
@@ -95,7 +96,7 @@ impl MevBoostSlotDataGenerator {
         let (send, receive) = mpsc::unbounded_channel();
         let handle = tokio::spawn(async move {
             let mut source = PayloadSourceMuxer::new(
-                &self.cl_urls,
+                &self.cls,
                 NEW_PAYLOAD_RECV_TIMEOUT,
                 CONSENSUS_CLIENT_RECONNECT_WAIT,
                 self.global_cancellation.clone(),
