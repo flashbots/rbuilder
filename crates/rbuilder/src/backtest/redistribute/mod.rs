@@ -36,7 +36,10 @@ pub fn calc_redistributions<ConfigType: LiveBuilderConfig>(
     };
 
     block_data.filter_orders_by_end_timestamp(built_block_data.orders_closed_at);
-    // @TODO filter cancellations properly
+    // @TODO filter cancellations properly, for this we need actual cancellations in the backtest data
+
+    // filter bundled made of mempool txs
+    block_data.filter_bundles_from_mempool();
 
     let orders_by_id = block_data
         .available_orders

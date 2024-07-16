@@ -19,7 +19,7 @@ use crate::{
     },
     live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig},
 };
-use alloy_primitives::{utils::format_ether, U256, Address};
+use alloy_primitives::{utils::format_ether, Address, U256};
 use clap::Parser;
 use rayon::prelude::*;
 use std::{
