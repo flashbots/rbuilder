@@ -271,7 +271,8 @@ mod test {
 
         assert!(config
             .base_config
-            .cl_node_url
+            .resolve_cl_node_urls()
+            .unwrap()
             .contains(&"http://localhost:3500".to_string()));
     }
 

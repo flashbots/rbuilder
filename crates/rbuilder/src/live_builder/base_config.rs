@@ -28,8 +28,8 @@ use reth::{
 };
 use reth_db::DatabaseEnv;
 use reth_primitives::format_ether;
-use serde::Deserialize;
-use serde_with::{serde_as, DisplayFromStr, OneOrMany};
+use serde::{Deserialize, Deserializer};
+use serde_with::{serde_as, DeserializeAs, OneOrMany};
 use sqlx::PgPool;
 use std::{
     env::var,
@@ -45,6 +45,9 @@ use tracing::{info, warn};
 /// From experience (Vitaly's) all generated blocks before slot_time-8sec end loosing (due to last moment orders?)
 const DEFAULT_SLOT_DELTA_TO_START_SUBMITS: time::Duration = time::Duration::milliseconds(-8000);
 
+/// Prefix for env variables in config
+const ENV_PREFIX: &str = "env:";
+
 /// Base config to be used by all builders.
 /// It allows us to create a base LiveBuilder with no algorithms or custom bidding.
 /// The final configuration should usually include one of this and use it to create the base LiveBuilder to then upgrade it as needed.
@@ -55,19 +58,19 @@ pub struct BaseConfig {
     pub telemetry_port: u16,
     pub telemetry_ip: Option<String>,
     pub log_json: bool,
-    log_level: EnvOrInplaceValue,
+    log_level: EnvOrValue<String>,
     pub log_color: bool,
 
     pub error_storage_path: PathBuf,
 
-    coinbase_secret_key: EnvOrInplaceValue,
+    coinbase_secret_key: EnvOrValue<String>,
 
-    pub flashbots_db: Option<EnvOrInplaceValue>,
+    pub flashbots_db: Option<EnvOrValue<String>>,
 
     pub el_node_ipc_path: PathBuf,
     ///Name kept singular for backwards compatibility
-    #[serde(deserialize_with = "deserialize_cl_url")]
-    pub cl_node_url: Vec<String>,
+    #[serde_as(deserialize_as = "OneOrMany<EnvOrValue<String>>")]
+    pub cl_node_url: Vec<EnvOrValue<String>>,
     pub jsonrpc_server_port: u16,
     pub jsonrpc_server_ip: Option<String>,
 
@@ -89,9 +92,9 @@ pub struct BaseConfig {
     #[serde_as(deserialize_as = "OneOrMany<_>")]
     pub dry_run_validation_url: Vec<String>,
     /// Secret key that will be used to sign normal submissions to the relay.
-    relay_secret_key: EnvOrInplaceValue,
+    relay_secret_key: EnvOrValue<String>,
     /// Secret key that will be used to sign optimistic submissions to the relay.
-    optimistic_relay_secret_key: EnvOrInplaceValue,
+    optimistic_relay_secret_key: EnvOrValue<String>,
     /// When enabled builer will make optimistic submissions to optimistic relays
     /// influenced by `optimistic_max_bid_value_eth` and `optimistic_prevalidate_optimistic_blocks`
     pub optimistic_enabled: bool,
@@ -115,7 +118,7 @@ pub struct BaseConfig {
     pub live_builders: Vec<String>,
 
     // backtest config
-    backtest_fetch_mempool_data_dir: EnvOrInplaceValue,
+    backtest_fetch_mempool_data_dir: EnvOrValue<String>,
     pub backtest_fetch_eth_rpc_url: String,
     pub backtest_fetch_eth_rpc_parallel: usize,
     pub backtest_fetch_output_file: PathBuf,
@@ -129,25 +132,6 @@ pub struct BaseConfig {
 
 lazy_static! {
     pub static ref DEFAULT_IP: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
-}
-
-fn deserialize_cl_url<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    #[serde_as]
-    #[derive(Deserialize)]
-    struct Helper(#[serde_as(deserialize_as = "OneOrMany<DisplayFromStr>")] Vec<String>);
-
-    let helper = Helper::deserialize(deserializer)?;
-    if helper.0.len() == 1 && helper.0[0].starts_with("env:") {
-        // Parse from environment variable
-        let env_var = helper.0[0].trim_start_matches("env:");
-        if let Ok(urls) = var(env_var) {
-            return Ok(urls.split(',').map(String::from).collect());
-        }
-    }
-    Ok(helper.0)
 }
 
 fn parse_ip(ip: &Option<String>) -> Ipv4Addr {
@@ -226,7 +210,7 @@ impl BaseConfig {
         let sink_factory = RelaySubmitSinkFactory::new(self.submission_config()?, relays.clone());
 
         Ok(LiveBuilder::<Arc<DatabaseEnv>, RelaySubmitSinkFactory> {
-            cl_urls: self.cl_node_url.clone(),
+            cl_urls: resolve_env_or_values(&self.cl_node_url)?,
             relays,
             watchdog_timeout: self.watchdog_timeout(),
             error_storage_path: self.error_storage_path.clone(),
@@ -457,28 +441,67 @@ impl BaseConfig {
             .map(time::Duration::milliseconds)
             .unwrap_or(DEFAULT_SLOT_DELTA_TO_START_SUBMITS)
     }
+
+    pub fn resolve_cl_node_urls(&self) -> eyre::Result<Vec<String>> {
+        resolve_env_or_values(&self.cl_node_url)
+    }
 }
 
-/// Load value from env variable or use inplace value
-/// To load value from env use the following syntax `env:ENV_VARIABLE_NAME`
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
-pub struct EnvOrInplaceValue(String);
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnvOrValue<T>(String, std::marker::PhantomData<T>);
 
-impl EnvOrInplaceValue {
-    pub fn value(&self) -> eyre::Result<String> {
+impl<T: FromStr> EnvOrValue<T> {
+    pub fn value(&self) -> eyre::Result<T> {
         let value = &self.0;
-        if value.starts_with("env:") {
-            let var_name = value.trim_start_matches("env:");
-            var(var_name).context(format!("Env variable: {} not set", var_name))
+        if value.starts_with(ENV_PREFIX) {
+            let var_name = value.trim_start_matches(ENV_PREFIX);
+            let env_value =
+                var(var_name).with_context(|| format!("Env variable: {} not set", var_name))?;
+            T::from_str(&env_value).map_err(|_| {
+                eyre!(
+                    "Failed to parse env variable {} value: {}",
+                    var_name,
+                    env_value
+                )
+            })
         } else {
-            Ok(value.to_string())
+            T::from_str(value).map_err(|_| eyre!("Failed to parse value: {}", value))
         }
     }
 }
 
-impl From<&str> for EnvOrInplaceValue {
+impl<T> From<&str> for EnvOrValue<T> {
     fn from(s: &str) -> Self {
-        Self(s.to_string())
+        Self(s.to_string(), std::marker::PhantomData)
+    }
+}
+
+impl<'de, T: FromStr> Deserialize<'de> for EnvOrValue<T> {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Ok(Self(s, std::marker::PhantomData))
+    }
+}
+
+// Helper function to resolve Vec<EnvOrValue<T>> to Vec<T>
+pub fn resolve_env_or_values<T: FromStr>(values: &[EnvOrValue<T>]) -> eyre::Result<Vec<T>> {
+    values.iter().map(|v| v.value()).collect()
+}
+
+impl<'de, T> DeserializeAs<'de, EnvOrValue<T>> for EnvOrValue<T>
+where
+    T: FromStr,
+    String: Deserialize<'de>,
+{
+    fn deserialize_as<D>(deserializer: D) -> Result<EnvOrValue<T>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Ok(EnvOrValue(s, std::marker::PhantomData))
     }
 }
 
@@ -496,11 +519,11 @@ pub struct RelayConfig {
     #[serde(default)]
     pub optimistic: bool,
     #[serde(default)]
-    pub authorization_header: Option<EnvOrInplaceValue>,
+    pub authorization_header: Option<EnvOrValue<String>>,
     #[serde(default)]
-    pub builder_id_header: Option<EnvOrInplaceValue>,
+    pub builder_id_header: Option<EnvOrValue<String>>,
     #[serde(default)]
-    pub api_token_header: Option<EnvOrInplaceValue>,
+    pub api_token_header: Option<EnvOrValue<String>>,
     #[serde(default)]
     pub interval_between_submissions_ms: Option<u64>,
 }
@@ -528,7 +551,7 @@ impl Default for BaseConfig {
             flashbots_db: None,
             blocks_processor_url: None,
             el_node_ipc_path: "/tmp/reth.ipc".parse().unwrap(),
-            cl_node_url: vec!["http://127.0.0.1:3500".to_string()],
+            cl_node_url: vec![EnvOrValue::from("http://127.0.0.1:3500")],
             jsonrpc_server_port: DEFAULT_INCOMING_BUNDLES_PORT,
             jsonrpc_server_ip: None,
             ignore_cancellable_orders: true,
