@@ -15,7 +15,6 @@ use crate::{
 use alloy_provider::Provider;
 use alloy_rpc_types::{Block, BlockId, BlockNumberOrTag};
 
-use alloy_primitives::B256;
 use eyre::WrapErr;
 use flashbots_db::RelayDB;
 use futures::TryStreamExt;
@@ -28,7 +27,6 @@ use std::{
 use tokio::sync::Mutex;
 use tracing::{info, trace};
 
-use crate::backtest::BuiltBlockData;
 use crate::{
     backtest::{fetch::mev_boost::PayloadDeliveredFetcher, OrdersWithTimestamp},
     utils::BoxedProvider,
@@ -102,24 +100,6 @@ impl HistoricalDataFetcher {
             .wrap_err_with(|| format!("Failed to fetch block {}", block_number))?
             .ok_or_else(|| eyre::eyre!("Block {} not found", block_number))?;
         Ok(block)
-    }
-
-    async fn fetch_built_block_data(
-        &self,
-        block_hash: B256,
-    ) -> eyre::Result<Option<BuiltBlockData>> {
-        let db = if let Some(db) = &self.flashbots_db {
-            RelayDB::new(db.clone())
-        } else {
-            info!("Flashbots db not set, skipping built block data");
-            return Ok(None);
-        };
-
-        let built_block_data = db.get_built_block_data(block_hash).await.with_context(|| {
-            format!("Failed to fetch built block data for block {}", block_hash)
-        })?;
-
-        Ok(built_block_data)
     }
 
     fn filter_orders_by_base_fee(
@@ -251,9 +231,16 @@ impl HistoricalDataFetcher {
         );
         available_orders.sort_by_key(|o| o.timestamp_ms);
 
-        let built_block_data = self
-            .fetch_built_block_data(onchain_block.header.hash.unwrap_or_default())
-            .await?;
+        let mut built_block_data = None;
+        for datasource in &self.data_sources {
+            let datasource_built_block_data = datasource
+                .get_built_block_data(onchain_block.header.hash.unwrap_or_default())
+                .await?;
+            if datasource_built_block_data.is_some() {
+                built_block_data = datasource_built_block_data;
+                break;
+            }
+        }
 
         Ok(BlockData {
             block_number,

@@ -1,4 +1,5 @@
-use crate::backtest::OrdersWithTimestamp;
+use crate::backtest::{BuiltBlockData, OrdersWithTimestamp};
+use alloy_primitives::B256;
 use async_trait::async_trait;
 
 /// DataSource trait
@@ -7,6 +8,9 @@ use async_trait::async_trait;
 #[async_trait]
 pub trait DataSource: std::fmt::Debug {
     async fn get_orders(&self, block: BlockRef) -> eyre::Result<Vec<OrdersWithTimestamp>>;
+
+    async fn get_built_block_data(&self, block_hash: B256) -> eyre::Result<Option<BuiltBlockData>>;
+
     fn clone_box(&self) -> Box<dyn DataSource>;
 }
 

@@ -359,6 +359,17 @@ impl DataSource for RelayDB {
             .collect())
     }
 
+    async fn get_built_block_data(&self, block_hash: B256) -> eyre::Result<Option<BuiltBlockData>> {
+        let built_block_data = self
+            .get_built_block_data(block_hash)
+            .await
+            .with_context(|| {
+                format!("Failed to fetch built block data for block {}", block_hash)
+            })?;
+
+        Ok(built_block_data)
+    }
+
     fn clone_box(&self) -> Box<dyn DataSource> {
         Box::new(self.clone())
     }
