@@ -199,6 +199,7 @@ pub struct BundleOk {
     pub paid_kickbacks: Vec<(Address, U256)>,
     /// Only for sbundles we accumulate ShareBundleInner::original_order_id that executed ok.
     /// Its original use is for only one level or orders with original_order_id but if nesting happens the parent order original_order_id goes before its children (pre-order DFS)
+    /// Fully dropped orders (TxRevertBehavior::AllowedExcluded allows it!) are not included.
     pub original_order_ids: Vec<OrderId>,
 }
 
@@ -817,7 +818,10 @@ impl<'a, 'b, 'c, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, Tracer> 
                     match inner_res {
                         Ok(res) => {
                             if let Some(original_order_id) = inner_bundle.original_order_id {
-                                insert.original_order_ids.push(original_order_id);
+                                if !res.bundle_ok.txs.is_empty() {
+                                    // We only consider this order executed if something was so we exclude 100% dropped bundles.
+                                    insert.original_order_ids.push(original_order_id);
+                                }
                             }
                             if res.coinbase_diff_before_payouts > res.total_payouts_promissed
                                 && !refundable_elements.contains_key(&idx)

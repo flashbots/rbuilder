@@ -321,6 +321,7 @@ pub struct ExecutionResult {
     pub order: Order,
     pub txs: Vec<TransactionSignedEcRecoveredWithBlobs>,
     /// Patch to get the executed OrderIds for merged sbundles (see: [`BundleOk::original_order_ids`],[`ShareBundleMerger`] )
+    /// Fully dropped orders (TxRevertBehavior::AllowedExcluded allows it!) are not included.
     pub original_order_ids: Vec<OrderId>,
     pub receipts: Vec<Receipt>,
     pub nonces_updated: Vec<(Address, u64)>,
