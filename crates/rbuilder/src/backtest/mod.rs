@@ -20,7 +20,7 @@ use crate::{
         AccountNonce, Order, SimValue,
     },
 };
-use alloy_primitives::{TxHash, I256};
+use alloy_primitives::{TxHash, I256, Address};
 use alloy_rpc_types::{BlockTransactions, Transaction};
 pub use fetch::HistoricalDataFetcher;
 pub use results_store::{BacktestResultsStorage, StoredBacktestResult};
@@ -105,6 +105,18 @@ impl BlockData {
         let final_timestamp_ms = offset_datetime_to_timestamp_ms(final_timestamp);
         self.available_orders
             .retain(|orders| orders.timestamp_ms <= final_timestamp_ms);
+    }
+
+    pub fn filter_out_ignored_signers(&mut self, ignored_signers: &[Address]) {
+        self.available_orders.retain(|orders| {
+            let order = &orders.order;
+            let signer = if let Some(signer) = order.signer() {
+                signer
+            } else {
+              return true;
+            };
+            !ignored_signers.contains(&signer)
+        });
     }
 
     /// Returns tx's hashes on onchain_block not found on any available_orders, except for the validator payment tx.
