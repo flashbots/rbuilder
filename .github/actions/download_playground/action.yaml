@@ -26,5 +26,6 @@ runs:
     - name: Install reth & lighthouse
       shell: bash
       run: |
+        cd ..
         ./suave-playground download-artifacts
         echo "$PWD" >> $GITHUB_PATH/output
