@@ -27,5 +27,5 @@ runs:
       shell: bash
       run: |
         cd ..
-        ./suave-playground download-artifacts
+        suave-playground download-artifacts
         echo "$PWD" >> $GITHUB_PATH/output
