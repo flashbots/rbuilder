@@ -60,9 +60,21 @@ jobs:
           ls /tmp/playground
           ls /tmp/playground/logs
 
+      - name: Tar the report
+        if: ${{ always() }}
+        run: |
+          tar -zcvf /tmp/playground.tar.gz /tmp/playground/
+
       - name: Upload playground artifacts
         uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
           name: playground
           path: /tmp/playground/*
+
+      - name: Upload playground artifacts
+        uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: playground-2
+          path: /tmp/playground.tar.gz
