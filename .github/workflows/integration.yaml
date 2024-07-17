@@ -11,7 +11,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  lint_and_test:
+  integration:
     name: Lint and test
     runs-on: warp-ubuntu-latest-x64-16x
     strategy:
