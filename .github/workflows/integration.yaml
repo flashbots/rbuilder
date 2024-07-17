@@ -9,6 +9,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  PLAYGROUND_DIR: /tmp/playground
 
 jobs:
   integration:
@@ -54,28 +55,16 @@ jobs:
       - name: Run integration tests
         run: cargo test --package rbuilder --lib -- integration::tests::test_simple_example --exact
 
-      - name: Check contents suave-playground
-        if: ${{ failure() }}
-        run: |
-          pwd
-          ls ./
-          ls /tmp/playground
-          ls /tmp/playground/logs
-
-      - name: More stuff
-        if: ${{ failure() }}
-        run: |
-          ls /tmp
-          cat /tmp/rbuilder.toml
-
-      - name: Move logs to playground logs
+      - name: Move test integration logs to playground logs to archive
+        # This steps fails if the test fails early and the playground logs dir has not been created
         if: ${{ failure() }}
         run: |
           mv integration_logs /tmp/playground/logs
 
-      - name: Upload playground artifacts
+      - name: Archive playground logs
         uses: actions/upload-artifact@v4
         if: ${{ failure() }}
         with:
           name: playground-logs
           path: /tmp/playground/logs
+          retention-days: 5

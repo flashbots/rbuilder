@@ -28,6 +28,7 @@ use config::CONFIG;
 pub enum FakeMevBoostRelayError {
     SpawnError,
     BinaryNotFound,
+    IntegrationPathNotFound,
 }
 
 pub struct FakeMevBoostRelay {}
@@ -59,7 +60,8 @@ impl FakeMevBoostRelay {
     }
 
     fn try_spawn(self) -> Result<Option<FakeMevBoostRelayInstance>, FakeMevBoostRelayError> {
-        let playground_dir = std::env::var("PLAYGROUND_DIR").unwrap();
+        let playground_dir = std::env::var("PLAYGROUND_DIR")
+            .map_err(|_| FakeMevBoostRelayError::IntegrationPathNotFound)?;
 
         // append to the config template the paths to the playground
         let mut config = CONFIG.to_string();
