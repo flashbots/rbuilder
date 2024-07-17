@@ -9,6 +9,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  PLAYGROUND_DIR: /tmp/playground
 
 jobs:
   integration:
@@ -57,8 +58,15 @@ jobs:
       - name: Check contents suave-playground
         if: ${{ always() }}
         run: |
+          pwd
+          ls ./
           ls /tmp/playground
           ls /tmp/playground/logs
+
+      - name: More stuff
+        if: ${{ always() }}
+        run: |
+          cat /tmp/rbuilder.toml
 
       - name: Upload playground artifacts
         uses: actions/upload-artifact@v4
