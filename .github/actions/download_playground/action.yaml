@@ -28,4 +28,4 @@ runs:
       run: |
         cd ..
         suave-playground download-artifacts
-        echo "$PWD" >> $GITHUB_PATH/output
+        echo "$PWD/output" >> $GITHUB_PATH
