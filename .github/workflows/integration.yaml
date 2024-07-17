@@ -66,3 +66,10 @@ jobs:
         with:
           name: playground
           path: /tmp/playground/logs
+
+      - name: Upload integration logs
+        uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: integration
+          path: ./integration_logs
