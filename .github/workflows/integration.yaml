@@ -56,7 +56,9 @@ jobs:
 
       - name: Check contents suave-playground
         if: ${{ always() }}
-        run: ls /tmp/playground
+        run: |
+          ls /tmp/playground
+          ls /tmp/playground/logs
 
       - name: Upload playground artifacts
         uses: actions/upload-artifact@v4
