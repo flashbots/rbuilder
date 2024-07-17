@@ -1,6 +1,6 @@
 use crate::{
     beacon_api_client::{Client, PayloadAttributesTopic},
-    mev_boost::{ProposerPayloadDelivered, RelayClient, RelayError},
+    mev_boost::{ProposerPayloadDelivered, RelayClient},
 };
 use alloy_network::EthereumWallet;
 use alloy_primitives::{address, Address};
@@ -8,7 +8,6 @@ use alloy_signer_local::PrivateKeySigner;
 use futures::StreamExt;
 use primitive_types::H384;
 use reth::rpc::types::beacon::events::PayloadAttributesEvent;
-use serde::{Deserialize, Serialize};
 use std::{
     fs::{File, OpenOptions},
     io,
@@ -18,10 +17,8 @@ use std::{
     str::FromStr,
     time::SystemTime,
 };
-use time::{format_description, format_description::well_known, OffsetDateTime};
+use time::{format_description, OffsetDateTime};
 use url::Url;
-
-use crate::integration::config::CONFIG;
 
 #[derive(Debug)]
 pub enum FakeMevBoostRelayError {
@@ -30,12 +27,8 @@ pub enum FakeMevBoostRelayError {
     IntegrationPathNotFound,
 }
 
-pub struct FakeMevBoostRelay {}
-
-impl Default for FakeMevBoostRelay {
-    fn default() -> Self {
-        Self::new()
-    }
+pub struct FakeMevBoostRelay {
+    builder: Child,
 }
 
 fn open_log_file(path: PathBuf) -> File {
@@ -50,20 +43,12 @@ fn open_log_file(path: PathBuf) -> File {
 }
 
 impl FakeMevBoostRelay {
-    pub fn new() -> Self {
-        Self {}
-    }
-
-    pub fn spawn(self) -> Option<FakeMevBoostRelayInstance> {
-        self.try_spawn().unwrap()
-    }
-
-    fn try_spawn(self) -> Result<Option<FakeMevBoostRelayInstance>, FakeMevBoostRelayError> {
+    pub fn new() -> Result<Self, FakeMevBoostRelayError> {
         let playground_dir = std::env::var("PLAYGROUND_DIR")
             .map_err(|_| FakeMevBoostRelayError::IntegrationPathNotFound)?;
 
         // append to the config template the paths to the playground
-        let mut config = CONFIG.to_string();
+        let mut config = CONFIG_TEMPLATE.to_string();
         config.insert_str(
             0,
             format!("chain = \"{}/genesis.json\"\n", playground_dir).as_str(),
@@ -98,42 +83,17 @@ impl FakeMevBoostRelay {
         cmd.stdout(log.try_clone().unwrap())
             .stderr(log.try_clone().unwrap());
 
-        match cmd.spawn() {
-            Ok(child) => Ok(Some(FakeMevBoostRelayInstance { child })),
+        let builder = match cmd.spawn() {
+            Ok(child) => Ok(child),
             Err(e) => match e.kind() {
                 io::ErrorKind::NotFound => Err(FakeMevBoostRelayError::BinaryNotFound),
                 _ => Err(FakeMevBoostRelayError::SpawnError),
             },
-        }
+        }?;
+
+        Ok(Self { builder })
     }
-}
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct PayloadDelivered {
-    slot: String,
-    block_number: String,
-    builder_pubkey: String,
-}
-
-#[derive(Debug)]
-pub enum PayloadDeliveredError {
-    Empty,
-    IncorrectBuilder(H384),
-    RelayError(RelayError),
-}
-
-#[derive(Debug)]
-pub struct FakeMevBoostRelayInstance {
-    child: Child,
-}
-
-impl Drop for FakeMevBoostRelayInstance {
-    fn drop(&mut self) {
-        self.child.kill().expect("could not kill mev-boost-server");
-    }
-}
-
-impl FakeMevBoostRelayInstance {
     pub async fn wait_for_next_slot(
         &self,
     ) -> Result<PayloadAttributesEvent, Box<dyn std::error::Error>> {
@@ -178,16 +138,79 @@ impl FakeMevBoostRelayInstance {
         let payload = client
             .proposer_payload_delivered_block_number(block_number)
             .await
-            .map_err(|err| PayloadDeliveredError::RelayError(err))?
+            .map_err(|_err| PayloadDeliveredError::RelayError)?
             .ok_or(PayloadDeliveredError::Empty)?;
 
         let builder_pubkey = H384::from_str("0xa1885d66bef164889a2e35845c3b626545d7b0e513efe335e97c3a45e534013fa3bc38c3b7e6143695aecc4872ac52c4").unwrap();
         if payload.builder_pubkey == builder_pubkey {
             Ok(payload)
         } else {
-            Err(PayloadDeliveredError::IncorrectBuilder(
-                payload.builder_pubkey,
-            ))
+            Err(PayloadDeliveredError::IncorrectBuilder)
         }
     }
 }
+
+#[derive(Debug)]
+pub enum PayloadDeliveredError {
+    Empty,
+    IncorrectBuilder,
+    RelayError,
+}
+
+impl Drop for FakeMevBoostRelay {
+    fn drop(&mut self) {
+        self.builder
+            .kill()
+            .expect("could not kill mev-boost-server");
+    }
+}
+
+const CONFIG_TEMPLATE: &str = r#"
+log_json = false
+log_level = "info,rbuilder=debug"
+telemetry_port = 6060
+telemetry_ip = "0.0.0.0"
+
+relay_secret_key = "5eae315483f028b5cdd5d1090ff0c7618b18737ea9bf3c35047189db22835c48"
+coinbase_secret_key = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+
+cl_node_url = ["http://localhost:3500"]
+jsonrpc_server_port = 8645
+jsonrpc_server_ip = "0.0.0.0"
+el_node_ipc_path = "/tmp/reth.ipc"
+extra_data = "⚡🤖"
+
+dry_run = false
+dry_run_validation_url = "http://localhost:8545"
+
+blocks_processor_url = "http://block_processor.internal"
+ignore_cancellable_orders = true
+
+sbundle_mergeabe_signers = []
+# slot_delta_to_start_submits_ms is usually negative since we start bidding BEFORE the slot start
+#slot_delta_to_start_submits_ms = -5000
+live_builders = ["mp-ordering"]
+
+[[relays]]
+name = "custom"
+url = "http://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@localhost:5555"
+priority = 0
+use_ssz_for_submit = false
+use_gzip_for_submit = false
+
+[[builders]]
+name = "mgp-ordering"
+algo = "ordering-builder"
+discard_txs = true
+sorting = "mev-gas-price"
+failed_order_retries = 1
+drop_failed_orders = true
+
+[[builders]]
+name = "mp-ordering"
+algo = "ordering-builder"
+discard_txs = true
+sorting = "max-profit"
+failed_order_retries = 1
+drop_failed_orders = true
+"#;

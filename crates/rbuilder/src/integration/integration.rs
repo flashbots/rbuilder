@@ -13,7 +13,7 @@ mod tests {
     #[ignore_if_env_not_set("PLAYGROUND_DIR")]
     #[tokio::test]
     async fn test_simple_example() {
-        let srv = FakeMevBoostRelay::new().spawn().unwrap();
+        let srv = FakeMevBoostRelay::new().unwrap();
         srv.wait_for_next_slot().await.unwrap();
 
         // send a transfer to the builder
