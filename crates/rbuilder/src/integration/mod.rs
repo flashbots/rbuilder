@@ -18,7 +18,7 @@ use std::{
     str::FromStr,
     time::SystemTime,
 };
-use time::{format_description::well_known, OffsetDateTime};
+use time::{format_description, format_description::well_known, OffsetDateTime};
 use url::Url;
 
 mod config;
@@ -81,10 +81,13 @@ impl FakeMevBoostRelay {
         bin_path.push("../../target/debug/rbuilder");
 
         let dt: OffsetDateTime = SystemTime::now().into();
-        let name = dt.format(&well_known::Rfc2822).unwrap();
+
+        let format =
+            format_description::parse("[year]_[month]_[day]_[hour]_[minute]_[second]").unwrap();
+        let name = dt.format(&format).unwrap();
 
         let mut log_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        log_path.push(format!("../../integration_logs/{:?}.log", name));
+        log_path.push(format!("../../integration_logs/{}.log", name));
 
         let log = open_log_file(log_path);
 
