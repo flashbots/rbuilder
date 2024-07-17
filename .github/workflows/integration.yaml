@@ -54,9 +54,13 @@ jobs:
       - name: Run integration tests
         run: cargo test --package rbuilder --lib -- integration::tests::test_simple_example --exact
 
+      - name: Check contents suave-playground
+        if: ${{ always() }}
+        run: ls /tmp/playground
+
       - name: Upload playground artifacts
         uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
           name: playground
-          path: /tmp/playground
+          path: /tmp/playground/*
