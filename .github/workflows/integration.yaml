@@ -65,6 +65,7 @@ jobs:
       - name: More stuff
         if: ${{ failure() }}
         run: |
+          ls /tmp
           cat /tmp/rbuilder.toml
 
       - name: Move logs to playground logs
