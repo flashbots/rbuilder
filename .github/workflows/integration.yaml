@@ -9,7 +9,6 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  PLAYGROUND_DIR: /tmp/playground
 
 jobs:
   integration:
