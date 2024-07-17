@@ -1,0 +1,61 @@
+name: Checks
+
+on:
+  workflow_dispatch:
+  pull_request:
+  merge_group:
+  push:
+    branches: [develop]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint_and_test:
+    name: Lint and test
+    runs-on: warp-ubuntu-latest-x64-16x
+    strategy:
+      matrix:
+        toolchain:
+          - stable
+          #- beta
+          #- nightly
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Download suave playground
+        uses: ./.github/actions/download_playground
+
+      - name: Install Foundry toolchain
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+
+      - name: Install native dependencies
+        run: sudo apt-get install -y libsqlite3-dev
+
+      - name: Build the rbuilder
+        run: cargo build
+
+      - name: Check reth
+        run: |
+          which reth
+          reth --version
+
+      - name: Check lighthouse
+        run: |
+          which lighthouse
+          lighthouse --version
+
+      - name: Run the playground
+        run: suave-playground --output /tmp/playground &
+
+      - name: Run integration tests
+        run: cargo test --package rbuilder --lib -- integration::tests::test_simple_example --exact
+
+      - name: Upload playground artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: playground
+          path: /tmp/playground
