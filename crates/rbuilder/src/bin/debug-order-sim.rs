@@ -99,9 +99,9 @@ pub async fn main() -> eyre::Result<()> {
             .data
             .parent_block_number
             + 1;
-        // orders sent to the sink will be polled on orders_for_block
+        // Orders sent to the sink will be polled on orders_for_block.
         let (orders_for_block, sink) = OrdersForBlock::new_with_sink();
-        // add OrderReplacementManager to manage replacements and cancellations
+        // Add OrderReplacementManager to manage replacements and cancellations.
         let order_replacement_manager = OrderReplacementManager::new(Box::new(sink));
         let _block_sub = order_pool_subscriber
             .add_sink_auto_remove(block_number, Box::new(order_replacement_manager));
