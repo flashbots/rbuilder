@@ -194,6 +194,8 @@ pub async fn start_orderpool_jobs<DB: Database + Clone + 'static>(
     .await?;
 
     let handle = tokio::spawn(async move {
+        info!("OrderPoolJobs: started");
+
         // @Maybe we should add sleep here because each new order will trigger locking
         let mut new_commands = Vec::new();
         let mut order_receiver = order_receiver;
