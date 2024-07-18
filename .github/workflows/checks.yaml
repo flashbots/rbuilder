@@ -81,7 +81,7 @@ jobs:
 
       - name: Run integration tests
         run: cargo test --package rbuilder --lib -- integration
-        end:
+        env:
           PLAYGROUND_DIR: /tmp/playground
 
       - name: Move test integration logs to playground logs to archive
