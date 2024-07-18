@@ -8,8 +8,8 @@ use crate::{
         BlockState, ExecutionError, ExecutionResult, OrderErr, PartialBlock,
     },
     primitives::{
-        order_builder::OrderBuilder, BundleReplacementData, Refund, RefundConfig, SimulatedOrder,
-        TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior,
+        order_builder::OrderBuilder, BundleReplacementData, OrderId, Refund, RefundConfig,
+        SimulatedOrder, TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior,
     },
 };
 use alloy_primitives::{Address, TxHash};
@@ -90,6 +90,11 @@ impl TestSetup {
     pub fn set_inner_bundle_refund_config(&mut self, refund_config: Vec<RefundConfig>) {
         self.order_builder
             .set_inner_bundle_refund_config(refund_config)
+    }
+
+    pub fn set_inner_bundle_original_order_id(&mut self, original_order_id: OrderId) {
+        self.order_builder
+            .set_inner_bundle_original_order_id(original_order_id)
     }
 
     /// Adds a tx that does nothing
