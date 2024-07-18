@@ -69,19 +69,8 @@ jobs:
     env:
       PLAYGROUND_DIR: /tmp/playground
     steps:
-      - name: Checkout sources
-        uses: actions/checkout@v4
-
       - name: Download suave playground
         uses: ./.github/actions/download_playground
-
-      - name: Install Foundry toolchain
-        uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: nightly
-
-      - name: Install native dependencies
-        run: sudo apt-get install -y libsqlite3-dev
 
       - name: Build the rbuilder
         run: cargo build
