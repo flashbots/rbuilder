@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::integration::playground::FakeMevBoostRelay;
+    use crate::integration::playground::Playground;
 
     use alloy_network::TransactionBuilder;
     use alloy_primitives::U256;
@@ -10,10 +10,10 @@ mod tests {
     use test_utils::ignore_if_env_not_set;
     use url::Url;
 
-    #[ignore_if_env_not_set("PLAYGROUND_DIR")]
+    #[ignore_if_env_not_set("PLAYGROUND_DIR")] // TODO: Change with a custom macro (i.e ignore_if_not_playground)
     #[tokio::test]
     async fn test_simple_example() {
-        let srv = FakeMevBoostRelay::new().unwrap();
+        let srv = Playground::new().unwrap();
         srv.wait_for_next_slot().await.unwrap();
 
         // send a transfer to the builder

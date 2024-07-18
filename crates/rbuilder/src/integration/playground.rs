@@ -21,13 +21,13 @@ use time::{format_description, OffsetDateTime};
 use url::Url;
 
 #[derive(Debug)]
-pub enum FakeMevBoostRelayError {
+pub enum PlaygroundError {
     SpawnError,
     BinaryNotFound,
     IntegrationPathNotFound,
 }
 
-pub struct FakeMevBoostRelay {
+pub struct Playground {
     builder: Child,
 }
 
@@ -42,10 +42,10 @@ fn open_log_file(path: PathBuf) -> File {
         .unwrap()
 }
 
-impl FakeMevBoostRelay {
-    pub fn new() -> Result<Self, FakeMevBoostRelayError> {
+impl Playground {
+    pub fn new() -> Result<Self, PlaygroundError> {
         let playground_dir = std::env::var("PLAYGROUND_DIR")
-            .map_err(|_| FakeMevBoostRelayError::IntegrationPathNotFound)?;
+            .map_err(|_| PlaygroundError::IntegrationPathNotFound)?;
 
         // append to the config template the paths to the playground
         let mut config = CONFIG_TEMPLATE.to_string();
@@ -86,8 +86,8 @@ impl FakeMevBoostRelay {
         let builder = match cmd.spawn() {
             Ok(child) => Ok(child),
             Err(e) => match e.kind() {
-                io::ErrorKind::NotFound => Err(FakeMevBoostRelayError::BinaryNotFound),
-                _ => Err(FakeMevBoostRelayError::SpawnError),
+                io::ErrorKind::NotFound => Err(PlaygroundError::BinaryNotFound),
+                _ => Err(PlaygroundError::SpawnError),
             },
         }?;
 
@@ -157,7 +157,7 @@ pub enum PayloadDeliveredError {
     RelayError,
 }
 
-impl Drop for FakeMevBoostRelay {
+impl Drop for Playground {
     fn drop(&mut self) {
         self.builder
             .kill()
