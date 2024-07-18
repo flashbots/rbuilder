@@ -185,7 +185,7 @@ impl BlocksProcessorClient {
                 if let Order::ShareBundle(sbundle) = &exec_result.order {
                     // don't like having special cases (merged vs not merged), can we improve this?
                     let filtered_sbundles = if sbundle.is_merged_order() {
-                        // We include only original orders that are contained con original_order_ids.
+                        // We include only original orders that are contained in original_order_ids.
                         // If not contained in original_order_ids then the sub sbundle failed or was an empty execution.
                         sbundle
                             .original_orders
