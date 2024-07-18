@@ -2,13 +2,14 @@ pub mod setup;
 
 use alloy_primitives::{Address, U256};
 use itertools::Itertools;
+use reth_primitives::B256;
 use std::collections::HashSet;
 use uuid::Uuid;
 
 use crate::{
     building::{testing::bundle_tests::setup::NonceValue, BuiltBlockTrace, BundleErr, OrderErr},
     primitives::{
-        Bundle, BundleReplacementData, BundleReplacementKey, Order, Refund, RefundConfig,
+        Bundle, BundleReplacementData, BundleReplacementKey, Order, OrderId, Refund, RefundConfig,
         TxRevertBehavior,
     },
     utils::{constants::BASE_TX_GAS, int_percentage},
@@ -737,5 +738,35 @@ fn test_mergeable_multibackrun() -> eyre::Result<()> {
             U256::from(expected_kickback)
         )]
     );
+    Ok(())
+}
+
+#[test]
+/// Test the proper propagation of original_order_id on execution
+fn test_original_order_id() -> eyre::Result<()> {
+    let target_block = 11;
+    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().number(target_block))?;
+    let original_order_id = OrderId::ShareBundle(B256::with_last_byte(123));
+    // Simple good tx with bundle order it should report the order id
+    test_setup.begin_share_bundle_order(target_block, target_block);
+    test_setup.start_inner_bundle(true);
+    test_setup.set_inner_bundle_original_order_id(original_order_id);
+    test_setup.add_dummy_tx_0_1_no_rev()?;
+    test_setup.finish_inner_bundle();
+    let result = test_setup.commit_order_ok();
+    assert_eq!(result.original_order_ids, vec![original_order_id]);
+
+    // Reverting tx will leave an empty execution so order id should not pass
+    test_setup.begin_share_bundle_order(target_block, target_block);
+    test_setup.start_inner_bundle(true);
+    test_setup.set_inner_bundle_original_order_id(original_order_id);
+    test_setup.add_revert(
+        NamedAddr::User(0), /*don't care*/
+        TxRevertBehavior::AllowedExcluded,
+    )?;
+    test_setup.finish_inner_bundle();
+    let result = test_setup.commit_order_ok();
+    assert_eq!(result.original_order_ids, Vec::new());
+
     Ok(())
 }

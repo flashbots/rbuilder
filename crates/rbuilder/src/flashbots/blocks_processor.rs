@@ -181,19 +181,36 @@ impl BlocksProcessorClient {
         built_block_trace
             .included_orders
             .iter()
-            .flat_map(|sim| {
-                if let Order::ShareBundle(_) = &sim.order {
-                    // get original orders (in case of order merging)
-                    sim.order
-                        .original_orders()
-                        .iter()
-                        .filter_map(|sub_order| {
-                            if let Order::ShareBundle(sbundle) = sub_order {
-                                Some(sbundle)
-                            } else {
-                                None
-                            }
-                        })
+            .flat_map(|exec_result| {
+                if let Order::ShareBundle(sbundle) = &exec_result.order {
+                    // don't like having special cases (merged vs not merged), can we improve this?
+                    let filtered_sbundles = if sbundle.is_merged_order() {
+                        // We include only original orders that are contained in original_order_ids.
+                        // If not contained in original_order_ids then the sub sbundle failed or was an empty execution.
+                        sbundle
+                            .original_orders
+                            .iter()
+                            .filter_map(|sub_order| {
+                                if let Order::ShareBundle(sbundle) = sub_order {
+                                    if exec_result.original_order_ids.contains(&sub_order.id()) {
+                                        Some(sbundle)
+                                    } else {
+                                        None
+                                    }
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect()
+                    } else if exec_result.txs.is_empty() {
+                        // non merged empty execution sbundle
+                        vec![]
+                    } else {
+                        // non merged non empty execution sbundle
+                        vec![sbundle]
+                    };
+                    filtered_sbundles
+                        .into_iter()
                         .map(|sbundle| UsedSbundle {
                             bundle: RawShareBundle::encode_no_blobs(sbundle.clone()),
                             success: true,
