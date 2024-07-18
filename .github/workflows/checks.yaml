@@ -9,7 +9,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUN_TEST_FAKE_MEV_BOOST_RELAY: 1
+  PLAYGROUND_DIR: /tmp/playground
 
 jobs:
   lint_and_test:
@@ -24,9 +24,6 @@ jobs:
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
-
-      - name: Download fake mevboost relay
-        uses: ./.github/actions/download_fake_relay
 
       # https://github.com/dtolnay/rust-toolchain
       - name: Setup rust toolchain
