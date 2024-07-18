@@ -36,7 +36,18 @@ alloy-json-rpc.workspace = true
 alloy-transport-http.workspace = true
 alloy-network.workspace = true
 alloy-transport.workspace = true
+alloy-rpc-types-beacon.workspace = true
+alloy-rpc-types-engine.workspace = true
+alloy-rpc-types-eth.workspace = true
+alloy-node-bindings.workspace = true
+alloy-consensus.workspace = true
 alloy-serde.workspace = true
+alloy-signer-local.workspace = true
+
+ethereum_ssz_derive.workspace = true
+ethereum_ssz.workspace = true
+
+test_utils = { path = "src/test_utils" }
 
 reqwest = { version = "0.11.20", features = ["blocking"] }
 serde_with = { version = "3.8.1", features = ["time_0_3"] }
@@ -71,9 +82,11 @@ secp256k1 = { version = "0.27.0", features = [
 ] }
 rayon = "1.8.0"
 flate2 = "1.0.27"
-mev-share-sse = "0.1.5"
+# Version required by ethereum-consensus beacon-api-client
+mev-share-sse = { git = "https://github.com/paradigmxyz/mev-share-rs", rev = "9eb2b0138ab3202b9eb3af4b19c7b3bf40b0faa8", default-features = false }
 jsonrpsee = { version = "0.20.3", features = ["full"] }
 ssz_rs = { git = "https://github.com/ralexstokes/ssz-rs.git", version = "0.9.0" }
+beacon-api-client = { git = "https://github.com/ralexstokes/ethereum-consensus/", rev = "0e8809c1eda3f54a78991d7a5987ff42c9195d42" }
 ethereum-consensus = { git = "https://github.com/ralexstokes/ethereum-consensus/", rev = "0e8809c1eda3f54a78991d7a5987ff42c9195d42" }
 ssz_rs_derive = { git = "https://github.com/ralexstokes/ssz-rs.git", version = "0.9.0" }
 tokio-util = "0.7.11"
@@ -100,6 +113,7 @@ governor = "0.6.3"
 derivative = "2.2.0"
 mockall = "0.12.1"
 shellexpand = "3.1.0"
+async-trait = "0.1.80"
 
 [build-dependencies]
 built = { version = "0.7.1", features = ["git2", "chrono"] }

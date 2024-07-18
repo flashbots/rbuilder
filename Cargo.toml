@@ -1,5 +1,8 @@
 [workspace]
-members = ["crates/rbuilder"]
+members = [
+    "crates/rbuilder",
+    "crates/rbuilder/src/test_utils"
+]
 resolver = "2"
 
 # Like release, but with full debug symbols. Useful for e.g. `perf`.
@@ -42,6 +45,9 @@ revm-primitives = { version = "3.1.0", features = [
 ], default-features = false }
 revm-inspectors = { git = "https://github.com/paradigmxyz/evm-inspectors", rev = "dc614ee" }
 
+ethereum_ssz_derive = "0.5"
+ethereum_ssz = "0.5"
+
 alloy-primitives = "0.7.2"
 alloy-rlp = "0.3.4"
 alloy-chains = { version = "0.1.15", feature = ["serde", "rlp", "arbitrary"] }
@@ -51,4 +57,14 @@ alloy-json-rpc = { git = "https://github.com/alloy-rs/alloy", version = "0.1" }
 alloy-transport-http = { git = "https://github.com/alloy-rs/alloy", version = "0.1" }
 alloy-network = { git = "https://github.com/alloy-rs/alloy", version = "0.1" }
 alloy-transport = { git = "https://github.com/alloy-rs/alloy", version = "0.1" }
+alloy-node-bindings = { git = "https://github.com/alloy-rs/alloy", version = "0.1" }
+alloy-consensus = { git = "https://github.com/alloy-rs/alloy", version = "0.1", features = ["kzg"] }
 alloy-serde = { git = "https://github.com/alloy-rs/alloy", version = "0.1" }
+alloy-rpc-types-beacon = { git = "https://github.com/alloy-rs/alloy", version = "0.1", features = [
+    "ssz",
+] }
+alloy-rpc-types-engine = { git = "https://github.com/alloy-rs/alloy", version = "0.1", features = [
+    "ssz",
+] }
+alloy-rpc-types-eth = { git = "https://github.com/alloy-rs/alloy", version = "0.1" }
+alloy-signer-local = { git = "https://github.com/alloy-rs/alloy", version = "0.1" }

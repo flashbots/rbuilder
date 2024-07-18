@@ -1,14 +1,16 @@
-use std::time::Duration;
+//! This simple app shows how to run a simulation on a TestChainState without the need of any external CL or EL
+//! This could evolve into just a test case
 
 use rbuilder::{
     building::testing::test_chain_state::{BlockArgs, NamedAddr, TestChainState, TxArgs},
     live_builder::{
         order_input::{order_sink::OrderPoolCommand, orderpool::OrdersForBlock},
-        simulation::OrderSimulationPool,
+        simulation::{OrderSimulationPool, SimulatedOrderCommand},
     },
     primitives::{MempoolTx, Order, TransactionSignedEcRecoveredWithBlobs},
     utils::ProviderFactoryReopener,
 };
+use reth_primitives::U256;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
@@ -23,6 +25,7 @@ pub async fn main() -> eyre::Result<()> {
 
     let test_context = TestChainState::new(BlockArgs::default().number(11))?;
 
+    // Create simulation core
     let cancel = CancellationToken::new();
     let provider_factory_reopener = ProviderFactoryReopener::new_from_existing_for_testing(
         test_context.provider_factory().clone(),
@@ -39,18 +42,27 @@ pub async fn main() -> eyre::Result<()> {
         cancel.clone(),
     );
 
-    tokio::spawn(async move {
-        while let Some(command) = sim_results.orders.recv().await {
-            println!("{:?}", command);
-        }
-    });
-
-    let tx_args = TxArgs::new_send_to_coinbase(NamedAddr::User(1), 0, 5);
+    // Create a simple tx that sends to coinbase 5 wei.
+    let coinbase_profit = 5;
+    // max_priority_fee will be 0
+    let tx_args = TxArgs::new_send_to_coinbase(NamedAddr::User(1), 0, coinbase_profit);
     let tx = test_context.sign_tx(tx_args)?;
     let tx = TransactionSignedEcRecoveredWithBlobs::new_no_blobs(tx).unwrap();
     order_sender.send(OrderPoolCommand::Insert(Order::Tx(MempoolTx::new(tx))))?;
-
-    tokio::time::sleep(Duration::from_secs(5)).await;
+    // We expect to receive the simulation giving a profit of coinbase_profit since that's what we sent directly to coinbase.
+    // and we are not paying any priority fee
+    if let Some(command) = sim_results.orders.recv().await {
+        match command {
+            SimulatedOrderCommand::Simulation(sim_order) => {
+                println!("Got the sim order!! SimValue = {:?}", sim_order.sim_value);
+                assert_eq!(
+                    sim_order.sim_value.coinbase_profit,
+                    U256::from(coinbase_profit)
+                );
+            }
+            SimulatedOrderCommand::Cancellation(_) => panic!("Cancellation not expected"),
+        };
+    }
 
     Ok(())
 }

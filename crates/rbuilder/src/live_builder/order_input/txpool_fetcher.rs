@@ -66,6 +66,7 @@ pub async fn subscribe_to_txpool_with_blobs(
                     continue;
                 }
             };
+
             let tx = MempoolTx::new(tx_with_blobs);
             let order = Order::Tx(tx);
             let parse_duration = start.elapsed();
@@ -115,4 +116,106 @@ async fn get_tx_with_blobs(
     Ok(Some(
         TransactionSignedEcRecoveredWithBlobs::decode_enveloped_with_real_blobs(raw_tx)?,
     ))
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use alloy_consensus::{SidecarBuilder, SimpleCoder};
+    use alloy_network::{EthereumWallet, TransactionBuilder};
+    use alloy_node_bindings::Anvil;
+    use alloy_primitives::U256;
+    use alloy_provider::{Provider, ProviderBuilder};
+    use alloy_rpc_types::TransactionRequest;
+    use alloy_signer_local::PrivateKeySigner;
+    use std::{net::Ipv4Addr, path::PathBuf};
+    use tokio::time::Duration;
+
+    fn default_config() -> OrderInputConfig {
+        OrderInputConfig {
+            ipc_path: PathBuf::from("/tmp/anvil.ipc"),
+            results_channel_timeout: Duration::new(5, 0),
+            ignore_cancellable_orders: false,
+            ignore_blobs: false,
+            input_channel_buffer_size: 10,
+            serve_max_connections: 4096,
+            server_ip: Ipv4Addr::new(127, 0, 0, 1),
+            server_port: 0,
+        }
+    }
+
+    #[tokio::test]
+    /// Test that the fetcher can retrieve transactions (both normal and blob) from the txpool
+    async fn test_fetcher_retrieves_transactions() {
+        let anvil = Anvil::new()
+            .args(["--ipc", "/tmp/anvil.ipc"])
+            .try_spawn()
+            .unwrap();
+
+        let (sender, mut receiver) = mpsc::channel(10);
+        subscribe_to_txpool_with_blobs(default_config(), sender, CancellationToken::new())
+            .await
+            .unwrap();
+
+        let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
+        let wallet = EthereumWallet::from(signer);
+
+        let provider = ProviderBuilder::new()
+            .with_recommended_fillers()
+            .wallet(wallet)
+            .on_http(anvil.endpoint().parse().unwrap());
+
+        let alice = anvil.addresses()[0];
+
+        let sidecar: SidecarBuilder<SimpleCoder> =
+            SidecarBuilder::from_slice("Blobs are fun!".as_bytes());
+        let sidecar = sidecar.build().unwrap();
+
+        let gas_price = provider.get_gas_price().await.unwrap();
+        let eip1559_est = provider.estimate_eip1559_fees(None).await.unwrap();
+
+        let tx = TransactionRequest::default()
+            .with_to(alice)
+            .with_nonce(0)
+            .with_max_fee_per_blob_gas(gas_price)
+            .with_max_fee_per_gas(eip1559_est.max_fee_per_gas)
+            .with_max_priority_fee_per_gas(eip1559_est.max_priority_fee_per_gas)
+            .with_blob_sidecar(sidecar);
+
+        let pending_tx = provider.send_transaction(tx).await.unwrap();
+        let recv_tx = receiver.recv().await.unwrap();
+
+        let tx_with_blobs = match recv_tx {
+            ReplaceableOrderPoolCommand::Order(Order::Tx(MempoolTx { tx_with_blobs })) => {
+                Some(tx_with_blobs)
+            }
+            _ => None,
+        }
+        .unwrap();
+
+        assert_eq!(tx_with_blobs.tx.hash(), *pending_tx.tx_hash());
+        assert_eq!(tx_with_blobs.blobs_sidecar.blobs.len(), 1);
+
+        // send another tx without blobs
+        let tx = TransactionRequest::default()
+            .with_to(alice)
+            .with_nonce(1)
+            .with_value(U256::from(1))
+            .with_max_fee_per_gas(eip1559_est.max_fee_per_gas)
+            .with_max_priority_fee_per_gas(eip1559_est.max_priority_fee_per_gas);
+
+        let pending_tx = provider.send_transaction(tx).await.unwrap();
+        let recv_tx = receiver.recv().await.unwrap();
+
+        let tx_without_blobs = match recv_tx {
+            ReplaceableOrderPoolCommand::Order(Order::Tx(MempoolTx { tx_with_blobs })) => {
+                Some(tx_with_blobs)
+            }
+            _ => None,
+        }
+        .unwrap();
+
+        assert_eq!(tx_without_blobs.tx.hash(), *pending_tx.tx_hash());
+        assert_eq!(tx_without_blobs.blobs_sidecar.blobs.len(), 0);
+    }
 }
