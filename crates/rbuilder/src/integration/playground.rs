@@ -44,6 +44,7 @@ fn open_log_file(path: PathBuf) -> File {
 
 impl Playground {
     pub fn new() -> Result<Self, PlaygroundError> {
+        // TODO: Fix unwraps
         let playground_dir = std::env::var("PLAYGROUND_DIR")
             .map_err(|_| PlaygroundError::IntegrationPathNotFound)?;
 
@@ -110,6 +111,7 @@ impl Playground {
     }
 
     pub fn prefunded_keys(&self, indx: usize) -> EthereumWallet {
+        // TODO: Return the full list of keys that we can use
         let signer: PrivateKeySigner =
             "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
                 .parse()

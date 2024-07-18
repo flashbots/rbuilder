@@ -54,7 +54,7 @@ jobs:
         run: sudo apt-get install -y libsqlite3-dev
 
       # lint and test
-      # - run: make lint
+      # - run: make lint FIX THIS
       - run: make test
   integration:
     name: Integration tests
@@ -82,7 +82,7 @@ jobs:
         run: suave-playground --output /tmp/playground &
 
       - name: Run integration tests
-        run: cargo test --package rbuilder --lib -- integration::tests::test_simple_example --exact
+        run: cargo test --package rbuilder --lib -- integration
 
       - name: Move test integration logs to playground logs to archive
         # This steps fails if the test fails early and the playground logs dir has not been created
