@@ -1,6 +1,6 @@
 //! Backtest app to build a multiple blocks in a similar way as we do in live.
 //! It gets the orders from a HistoricalDataStorage, simulates the orders and the run the building algorithms.
-//! We count for how many blocks we generated more profit ("won" blocks) than the landed block and we report:
+//! We count the amount of blocks that generated more profit than the landed block ("won" blocks) and we report:
 //! - Win %: % of blocks "won"
 //! - Total profits: the sum of the profit (= our_true_block_value - landed_bid) for the blocks we won.
 //!   This represents how much extra profit we did compared to the landed blocks.
