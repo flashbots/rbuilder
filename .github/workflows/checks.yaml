@@ -69,6 +69,9 @@ jobs:
     env:
       PLAYGROUND_DIR: /tmp/playground
     steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
       - name: Download suave playground
         uses: ./.github/actions/download_playground
 
