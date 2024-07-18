@@ -1,7 +1,7 @@
 //! This simple app shows how to run a custom block builder.
-//! It uses no bidding strategy, just bids all available profit.
-//! It does not sends blocks to any relay, just logs the generated blocks.
-//! The algorithm is really dummy it just adds some txs it receives and generates a single block.
+//! It uses no bidding strategy, it just bids all available profit.
+//! It does not sends blocks to any relay, it just logs the generated blocks.
+//! The algorithm is really dummy, it just adds some txs it receives and generates a single block.
 //! This is NOT intended to be run in production so it has no nice configuration, poor error checking and some hardcoded values.
 use std::{path::PathBuf, sync::Arc, thread::sleep, time::Duration};
 

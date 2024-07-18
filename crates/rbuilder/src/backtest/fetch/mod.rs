@@ -117,8 +117,9 @@ impl HistoricalDataFetcher {
         })
     }
 
-    /// Filters out orders with non-optional txs already landed (onchain nonce > tx nonce)
-    /// Also filters out empty orders (eg: all optional already landed txs)
+    /// Filters out orders with non-optional sub txs (we can't skip them) already landed (onchain nonce > tx nonce, can't be re-executed!)
+    /// since they will fail.
+    /// Also filters orders the will not fail but will execute nothing (eg: all optional already landed txs -> all txs will be skipped)
     async fn filter_order_by_nonces(
         &self,
         orders: Vec<OrdersWithTimestamp>,

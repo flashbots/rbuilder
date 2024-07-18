@@ -1,5 +1,5 @@
 //! Backtest app to build a single block in a similar way as we do in live.
-//! It gets the orders from a HistoricalDataStorage, simulates the orders and the run the building algorithms.
+//! It gets the orders from a HistoricalDataStorage, simulates the orders and then runs the building algorithms.
 //! It outputs the best algorithm (most profit) so we can check for improvements in our [crate::building::builders::BlockBuildingAlgorithm]s
 //! BlockBuildingAlgorithm are defined on the config file but selected on the command line via "--builders"
 //! Sample call:

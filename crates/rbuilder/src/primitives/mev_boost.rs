@@ -6,7 +6,7 @@ use url::Url;
 pub type MevBoostRelayID = String;
 
 /// Wrapper over RelayClient that allows to submit blocks and
-/// hides the particular configuration (eg:ssz,gip,optimistic)
+/// hides the particular configuration (eg: ssz, gip, optimistic)
 #[derive(Debug, Clone)]
 pub struct MevBoostRelay {
     pub id: MevBoostRelayID,

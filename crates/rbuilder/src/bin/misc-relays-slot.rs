@@ -1,5 +1,5 @@
 //! Helper app to get information from a landed block from the relays.
-//! Take no configuration since it uses a hardcoded list of well known relays ([`rbuilder::mev_boost::RELAYS`])
+//! Takes no configuration since it uses a hardcoded list of relays ([`rbuilder::mev_boost::RELAYS`])
 use alloy_primitives::utils::format_ether;
 use clap::Parser;
 use rbuilder::backtest::fetch::mev_boost::PayloadDeliveredFetcher;

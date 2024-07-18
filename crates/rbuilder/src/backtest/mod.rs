@@ -64,12 +64,13 @@ pub struct OrdersWithTimestamp {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlockData {
     pub block_number: u64,
-    /// Info for landed block
+    /// Extra info for landed block (not contained on onchain_block).
+    /// We get this from the relays (API /relay/v1/data/bidtraces/builder_blocks_received).
     pub winning_bid_trace: BuilderBlockReceived,
-    /// landed block
+    /// Landed block.
     pub onchain_block: alloy_rpc_types::Block,
-    /// Orders we had at the moment of the block building.
-    /// This might be an approximation depending on DataSources used
+    /// Orders we had at the moment of building the block.
+    /// This might be an approximation depending on DataSources used.
     pub available_orders: Vec<OrdersWithTimestamp>,
 }
 
