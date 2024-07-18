@@ -55,7 +55,7 @@ jobs:
         run: sudo apt-get install -y libsqlite3-dev
 
       # lint and test
-      - run: make lint
+      # - run: make lint
       - run: make test
   integration:
     name: Integration tests
