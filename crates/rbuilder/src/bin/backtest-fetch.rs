@@ -1,5 +1,5 @@
 //! Application to fetch orders from different sources (eg: mempool dumpster, external bundles db) and store them on a SQLite DB
-//! to be used later (eg: backtest-build-block,backtest-build-range)
+//! to be used later (eg: backtest-build-block, backtest-build-range)
 
 use alloy_primitives::utils::format_ether;
 use clap::Parser;
