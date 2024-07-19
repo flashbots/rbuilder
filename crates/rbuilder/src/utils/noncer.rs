@@ -5,7 +5,7 @@ use reth_db::database::Database;
 use reth_interfaces::provider::ProviderResult;
 use std::sync::{Arc, Mutex};
 
-/// Struct to get nonces for Addresses caching the results.
+/// Struct to get nonces for Addresses, caching the results.
 /// NonceCache contains the data (but doesn't allow you to query it) and NonceCacheRef is a reference that allows you to query it.
 /// Usage:
 /// - Create a NonceCache

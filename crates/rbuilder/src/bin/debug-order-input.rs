@@ -1,5 +1,5 @@
-//! Application test the orders input.
-//! For each blocks it subscribes a ReplaceableOrderPrinter to the OrderPool
+//! Application to test the orders input.
+//! For each block it subscribes a ReplaceableOrderPrinter to the OrderPool.
 
 use clap::Parser;
 use ethers::{

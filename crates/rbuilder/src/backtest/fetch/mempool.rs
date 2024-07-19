@@ -1,4 +1,4 @@
-//! Implementation of [`DataSource`] to bring mempool txs from flashbots' mempool dumpster
+//! Implementation of [`DataSource`] to bring mempool txs from flashbots' mempool dumpster.
 //! It downloads all the needed parquet files and keeps them cached for future use.
 use crate::{
     backtest::{
@@ -23,7 +23,7 @@ use tracing::{error, trace};
 
 /// Gets all the OrdersWithTimestamp in the given interval.
 /// Simulation info is set to None.
-/// It checks for pre-downloaded parquet files on data_dir and downloads only the missing onces.
+/// It checks for pre-downloaded parquet files on data_dir and downloads only the missing ones.
 pub fn get_mempool_transactions(
     data_dir: &Path,
     from: OffsetDateTime,
@@ -63,7 +63,7 @@ fn path_transactions(data_dir: &Path, day: &str) -> PathBuf {
     data_dir.join(format!("transactions/{}.parquet", day))
 }
 
-/// Downloads to data_dir missing files for the given interval
+/// Downloads missing files to data_dir for the given interval
 /// Since parquet files are 1 day long it checks all needed days.
 fn check_and_download_transaction_files(
     from_millis: i64,
