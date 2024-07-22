@@ -4369,7 +4369,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "socket2 0.4.10",
+ "socket2 0.5.6",
  "tokio",
  "tower-service",
  "tracing",
@@ -7867,7 +7867,7 @@ dependencies = [
  "tracing-subscriber",
  "tungstenite 0.23.0",
  "url",
- "uuid 1.7.0",
+ "uuid 1.10.0",
  "warp",
  "zip",
 ]
@@ -10655,7 +10655,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "url",
- "uuid 1.7.0",
+ "uuid 1.10.0",
 ]
 
 [[package]]
@@ -10739,7 +10739,7 @@ dependencies = [
  "thiserror",
  "time",
  "tracing",
- "uuid 1.7.0",
+ "uuid 1.10.0",
  "whoami",
 ]
 
@@ -10782,7 +10782,7 @@ dependencies = [
  "thiserror",
  "time",
  "tracing",
- "uuid 1.7.0",
+ "uuid 1.10.0",
  "whoami",
 ]
 
@@ -10809,7 +10809,7 @@ dependencies = [
  "tracing",
  "url",
  "urlencoding",
- "uuid 1.7.0",
+ "uuid 1.10.0",
 ]
 
 [[package]]
@@ -11592,7 +11592,7 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
- "uuid 1.7.0",
+ "uuid 1.10.0",
 ]
 
 [[package]]
@@ -12083,9 +12083,9 @@ dependencies = [
 
 [[package]]
 name = "uuid"
-version = "1.7.0"
+version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f00cc9702ca12d3c81455259621e676d0f7251cec66a21e98fe2e9a37db93b2a"
+checksum = "81dfa00651efa65069b0b6b651f4aaa31ba9e3c3ce0137aaad053604ee7e0314"
 dependencies = [
  "getrandom 0.2.12",
  "serde",
