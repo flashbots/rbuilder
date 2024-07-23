@@ -49,6 +49,10 @@ fmt: ## Format the code
 	cargo fix --allow-staged
 	cargo clippy --fix --allow-staged
 
+.PHONY: audit
+audit:
+	cargo audit
+
 .PHONY: bench
 bench: ## Run benchmarks
 	cargo bench --bench bench_main
