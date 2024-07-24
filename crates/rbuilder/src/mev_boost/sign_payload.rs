@@ -19,6 +19,7 @@ use ethereum_consensus::{
 use primitive_types::H384;
 use reth::rpc::types::beacon::events::PayloadAttributesData;
 use reth_chainspec::{ChainSpec, EthereumHardforks};
+use reth_primitives::{BlobTransactionSidecar, SealedBlock};
 use serde_with::{serde_as, DisplayFromStr};
 use std::sync::Arc;
 
@@ -210,22 +211,9 @@ fn flatten_marshal<Source, Dest>(
 fn marshal_txs_blobs_sidecars(
     txs_blobs_sidecars: &[Arc<BlobTransactionSidecar>],
 ) -> Result<BlobsBundleV1, Error> {
-    let rpc_commitments = flatten_marshal(
-        txs_blobs_sidecars,
-        |t| &t.commitments,
-        |c| Bytes48::try_from(c.as_ref()).map_err(|_| Error::WrongKzgCommitmentSize),
-    )?;
-    let rpc_proofs = flatten_marshal(
-        txs_blobs_sidecars,
-        |t| &t.proofs,
-        |p| Bytes48::try_from(p.as_ref()).map_err(|_| Error::WrongProofSize),
-    )?;
-
-    let rpc_blobs = flatten_marshal(
-        txs_blobs_sidecars,
-        |t| &t.blobs,
-        |blob| Blob::try_from(blob.as_ref()).map_err(|_| Error::BlobTooBig),
-    )?;
+    let rpc_commitments = flatten_marshal(txs_blobs_sidecars, |t| &t.commitments, |c| Ok(*c))?;
+    let rpc_proofs = flatten_marshal(txs_blobs_sidecars, |t| &t.proofs, |p| Ok(*p))?;
+    let rpc_blobs = flatten_marshal(txs_blobs_sidecars, |t| &t.blobs, |blob| Ok(*blob))?;
 
     Ok(BlobsBundleV1 {
         commitments: rpc_commitments,

@@ -493,6 +493,14 @@ impl TransactionSignedEcRecoveredWithBlobs {
                 pooled_tx.into_ecrecovered_transaction(signer),
             )
             .ok_or(RawTxWithBlobsConvertError::UnexpectedError),
+            PooledTransactionsElement::Eip7702 {
+                transaction: _,
+                signature: _,
+                hash: _,
+            } => TransactionSignedEcRecoveredWithBlobs::new_no_blobs(
+                pooled_tx.into_ecrecovered_transaction(signer),
+            )
+            .ok_or(RawTxWithBlobsConvertError::UnexpectedError),
             PooledTransactionsElement::BlobTransaction(blob_tx) => {
                 let (tx, sidecar) = blob_tx.into_parts();
                 Ok(TransactionSignedEcRecoveredWithBlobs {
