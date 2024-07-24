@@ -121,6 +121,15 @@ pub struct Bundle {
 }
 
 impl Bundle {
+    /// Returns the signer of the tx with the given hash.
+    /// This is used to figure out who to sponsor the tx.
+    pub fn get_tx_signer_by_hash(&self, hash: B256) -> Option<Address> {
+        self.txs
+            .iter()
+            .find(|tx| tx.hash() == hash)
+            .map(|tx| tx.signer())
+    }
+
     pub fn can_execute_with_block_base_fee(&self, block_base_fee: u128) -> bool {
         can_execute_with_block_base_fee(self.list_txs(), block_base_fee)
     }
@@ -591,6 +600,26 @@ pub enum OrderReplacementKey {
 }
 
 impl Order {
+    /// Returns the signer of the tx with the given hash.
+    /// This is used to figure out who to sponsor the tx.
+    pub fn get_tx_signer_by_hash(&self, hash: B256) -> Option<Address> {
+        match self {
+            Order::Bundle(bundle) => bundle.get_tx_signer_by_hash(hash),
+            Order::Tx(tx) => {
+                if tx.tx_with_blobs.hash() == hash {
+                    Some(tx.tx_with_blobs.signer())
+                } else {
+                    None
+                }
+            }
+            Order::ShareBundle(bundle) => bundle
+                .flatten_txs()
+                .into_iter()
+                .find(|(tx, _)| tx.hash() == hash)
+                .map(|(tx, _)| tx.signer()),
+        }
+    }
+
     /// Partial execution is valid as long as some tx is left.
     pub fn can_execute_with_block_base_fee(&self, block_base_fee: u128) -> bool {
         match self {
