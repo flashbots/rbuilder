@@ -33,7 +33,7 @@ docker-image: ## Build a rbuilder Docker image
 
 .PHONY: lint
 lint: ## Run the linters
-	cargo fmt -- --check
+	cargo +nightly fmt -- --check
 	cargo clippy -- -D warnings
 
 .PHONY: test
@@ -45,7 +45,7 @@ lt: lint test ## Run "lint" and "test"
 
 .PHONY: fmt
 fmt: ## Format the code
-	cargo fmt
+	cargo +nightly fmt
 	cargo fix --allow-staged
 	cargo clippy --fix --allow-staged
 
