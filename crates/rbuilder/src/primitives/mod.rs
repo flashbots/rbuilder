@@ -242,7 +242,8 @@ impl ShareBundleBody {
 /// Mev share contains 2 types of txs:
 /// - User txs: simple txs sent to us to be protected and to give kickbacks to the user.
 /// - Searcher txs: Txs added by a searcher to extract MEV from the user txs.
-///   Refund points to the user txs on the body and has the kickback percentage for it.
+///
+/// Refund points to the user txs on the body and has the kickback percentage for it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Refund {
