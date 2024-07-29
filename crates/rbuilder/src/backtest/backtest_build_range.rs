@@ -4,8 +4,8 @@
 //! - Win %: % of blocks "won"
 //! - Total profits: the sum of the profit (= our_true_block_value - landed_bid) for the blocks we won.
 //!   This represents how much extra profit we did compared to the landed blocks.
-//! Optionally (via --store-backtest) it can store the simulated results on a SQLite db (config.backtest_results_store_path)
-//! Optionally (via --compare-backtest) it can compare the simulations against previously stored simulations (via --store-backtest)
+//!   Optionally (via --store-backtest) it can store the simulated results on a SQLite db (config.backtest_results_store_path)
+//!   Optionally (via --compare-backtest) it can compare the simulations against previously stored simulations (via --store-backtest)
 //!
 //! Sample call (numbers are from_block , to_block (inclusive)):
 //! - simple backtest: backtest-build-range --config /home/happy_programmer/config.toml 19380913 193809100
