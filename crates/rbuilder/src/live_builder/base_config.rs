@@ -455,7 +455,7 @@ impl BaseConfig {
     }
 
     pub fn resolve_cl_node_urls(&self) -> eyre::Result<Vec<String>> {
-        resolve_env_or_values(&self.cl_node_url)
+        resolve_env_or_values::<String>(&self.cl_node_url)
     }
 }
 
@@ -463,21 +463,13 @@ impl BaseConfig {
 pub struct EnvOrValue<T>(String, std::marker::PhantomData<T>);
 
 impl<T: FromStr> EnvOrValue<T> {
-    pub fn value(&self) -> eyre::Result<T> {
+    pub fn value(&self) -> eyre::Result<String> {
         let value = &self.0;
         if value.starts_with(ENV_PREFIX) {
             let var_name = value.trim_start_matches(ENV_PREFIX);
-            let env_value =
-                var(var_name).with_context(|| format!("Env variable: {} not set", var_name))?;
-            T::from_str(&env_value).map_err(|_| {
-                eyre!(
-                    "Failed to parse env variable {} value: {}",
-                    var_name,
-                    env_value
-                )
-            })
+            var(var_name).map_err(|_| eyre::eyre!("Env variable: {} not set", var_name))
         } else {
-            T::from_str(value).map_err(|_| eyre!("Failed to parse value: {}", value))
+            Ok(value.to_string())
         }
     }
 }
@@ -500,7 +492,30 @@ impl<'de, T: FromStr> Deserialize<'de> for EnvOrValue<T> {
 
 // Helper function to resolve Vec<EnvOrValue<T>> to Vec<T>
 pub fn resolve_env_or_values<T: FromStr>(values: &[EnvOrValue<T>]) -> eyre::Result<Vec<T>> {
-    values.iter().map(|v| v.value()).collect()
+    values
+        .iter()
+        .try_fold(Vec::new(), |mut acc, v| -> eyre::Result<Vec<T>> {
+            let value = v.value()?;
+            if v.0.starts_with(ENV_PREFIX) {
+                // If it's an environment variable, split by comma
+                let parsed: eyre::Result<Vec<T>> = value
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(|s| {
+                        T::from_str(s).map_err(|_| eyre::eyre!("Failed to parse value: {}", s))
+                    })
+                    .collect();
+                acc.extend(parsed?);
+            } else {
+                // If it's not an environment variable, just return the single value
+                acc.push(
+                    T::from_str(&value)
+                        .map_err(|_| eyre::eyre!("Failed to parse value: {}", value))?,
+                );
+            }
+            Ok(acc)
+        })
 }
 
 impl<'de, T> DeserializeAs<'de, EnvOrValue<T>> for EnvOrValue<T>
