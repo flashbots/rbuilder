@@ -59,10 +59,10 @@ struct BuiltBlockInfo {
 /// 0. We divide relays into optimistic and non-optimistic (defined in config file)
 /// 1. If we are in dry run mode we validate the payload and skip submission to the relays
 /// 2. We schedule submissions with non-optimistic key for all non-optimistic relays.
-/// 3.1 If "optimistic_enabled" is false or bid_value >= "optimistic_max_bid_value" we schedule submissions with non-optimistic key
-/// 3.2 If "optimistic_prevalidate_optimistic_blocks" is false we schedule submissions with optimistic key
-/// 3.3 If "optimistic_prevalidate_optimistic_blocks" is true we validate block using validation API and then schedule submissions with optimistic key
-/// returns the best bid made
+///    3.1 If "optimistic_enabled" is false or bid_value >= "optimistic_max_bid_value" we schedule submissions with non-optimistic key
+///    3.2 If "optimistic_prevalidate_optimistic_blocks" is false we schedule submissions with optimistic key
+///    3.3 If "optimistic_prevalidate_optimistic_blocks" is true we validate block using validation API and then schedule submissions with optimistic key
+///    returns the best bid made
 #[allow(clippy::too_many_arguments)]
 async fn run_submit_to_relays_job(
     best_bid: BestBlockCell,
