@@ -12,21 +12,19 @@ use crate::{
 
 use alloy_primitives::{Address, B256, U256};
 
-use reth::{
-    primitives::{
-        constants::eip4844::{DATA_GAS_PER_BLOB, MAX_DATA_GAS_PER_BLOCK},
-        revm::env::tx_env_with_recovered,
-        Receipt, KECCAK_EMPTY,
-    },
-    providers::StateProviderBox,
-    revm::database::StateProviderDatabase,
-};
-use reth_interfaces::provider::ProviderError;
+use reth::revm::database::StateProviderDatabase;
+use reth_errors::ProviderError;
 use reth_payload_builder::database::CachedReads;
+use reth_primitives::{
+    constants::eip4844::{DATA_GAS_PER_BLOB, MAX_DATA_GAS_PER_BLOCK},
+    transaction::FillTxEnv,
+    Receipt, KECCAK_EMPTY,
+};
+use reth_provider::StateProviderBox;
 use revm::{
     db::{states::bundle_state::BundleRetention, BundleState},
     inspector_handle_register,
-    primitives::{db::WrapDatabaseRef, EVMError, Env, ExecutionResult, InvalidTransaction},
+    primitives::{db::WrapDatabaseRef, EVMError, Env, ExecutionResult, InvalidTransaction, TxEnv},
     Database, DatabaseCommit, State,
 };
 
@@ -199,6 +197,7 @@ pub struct BundleOk {
     pub paid_kickbacks: Vec<(Address, U256)>,
     /// Only for sbundles we accumulate ShareBundleInner::original_order_id that executed ok.
     /// Its original use is for only one level or orders with original_order_id but if nesting happens the parent order original_order_id goes before its children (pre-order DFS)
+    /// Fully dropped orders (TxRevertBehavior::AllowedExcluded allows it!) are not included.
     pub original_order_ids: Vec<OrderId>,
 }
 
@@ -397,10 +396,14 @@ impl<'a, 'b, 'c, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, Tracer> 
             None => return Ok(Err(TransactionErr::GasLeft)),
         }
 
+        let mut tx_env = TxEnv::default();
+        let tx_signed = tx_with_blobs.tx.clone().into_signed();
+        tx_signed.fill_tx_env(&mut tx_env, tx_signed.recover_signer().unwrap());
+
         let env = Env {
             cfg: ctx.initialized_cfg.cfg_env.clone(),
             block: ctx.block_env.clone(),
-            tx: tx_env_with_recovered(tx),
+            tx: tx_env,
         };
 
         let used_state_tracer = self.tracer.as_mut().and_then(|t| t.get_used_state_tracer());
@@ -419,9 +422,10 @@ impl<'a, 'b, 'c, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, Tracer> 
                 EVMError::Transaction(tx_err) => {
                     return Ok(Err(TransactionErr::InvalidTransaction(tx_err)))
                 }
-                EVMError::Database(_) | EVMError::Header(_) | EVMError::Custom(_) => {
-                    return Err(err.into())
-                }
+                EVMError::Database(_)
+                | EVMError::Header(_)
+                | EVMError::Custom(_)
+                | EVMError::Precompile(_) => return Err(err.into()),
             },
         };
         let mut db_context = evm.into_context();
@@ -817,7 +821,10 @@ impl<'a, 'b, 'c, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, Tracer> 
                     match inner_res {
                         Ok(res) => {
                             if let Some(original_order_id) = inner_bundle.original_order_id {
-                                insert.original_order_ids.push(original_order_id);
+                                if !res.bundle_ok.txs.is_empty() {
+                                    // We only consider this order executed if something was so we exclude 100% dropped bundles.
+                                    insert.original_order_ids.push(original_order_id);
+                                }
                             }
                             if res.coinbase_diff_before_payouts > res.total_payouts_promissed
                                 && !refundable_elements.contains_key(&idx)

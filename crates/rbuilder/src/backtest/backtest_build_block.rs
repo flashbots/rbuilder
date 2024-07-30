@@ -1,5 +1,5 @@
 //! Backtest app to build a single block in a similar way as we do in live.
-//! It gets the orders from a HistoricalDataStorage, simulates the orders and the run the building algorithms.
+//! It gets the orders from a HistoricalDataStorage, simulates the orders and then runs the building algorithms.
 //! It outputs the best algorithm (most profit) so we can check for improvements in our [crate::building::builders::BlockBuildingAlgorithm]s
 //! BlockBuildingAlgorithm are defined on the config file but selected on the command line via "--builders"
 //! Sample call:
@@ -8,6 +8,7 @@
 use ahash::HashMap;
 use alloy_primitives::utils::format_ether;
 
+use crate::backtest::OrdersWithTimestamp;
 use crate::{
     backtest::{
         execute::{backtest_prepare_ctx_for_block, BacktestBlockInput},
@@ -76,7 +77,7 @@ pub async fn run_backtest_build_block<ConfigType: LiveBuilderConfig>() -> eyre::
     println!("Available orders: {}", orders.len());
 
     if cli.show_orders {
-        print_order_and_timestamp(&order_and_timestamp, &block_data);
+        print_order_and_timestamp(&block_data.available_orders, &block_data);
     }
 
     let provider_factory = config
@@ -213,15 +214,22 @@ fn timestamp_ms_to_slot_time(timestamp_ms: u64, block_timestamp: u64) -> i64 {
 }
 
 /// Print the available orders sorted by timestamp.
-fn print_order_and_timestamp(order_and_timestamp: &HashMap<OrderId, u64>, block_data: &BlockData) {
-    let mut order_by_ts = order_and_timestamp.clone().into_iter().collect::<Vec<_>>();
-    order_by_ts.sort_by_key(|(_, ts)| *ts);
-    for (id, ts) in order_by_ts {
+fn print_order_and_timestamp(orders_with_ts: &[OrdersWithTimestamp], block_data: &BlockData) {
+    let mut order_by_ts = orders_with_ts.to_vec();
+    order_by_ts.sort_by_key(|owt| owt.timestamp_ms);
+    for owt in order_by_ts {
+        let id = owt.order.id();
         println!(
             "{:>74} ts: {}",
             id.to_string(),
-            timestamp_ms_to_slot_time(ts, timestamp_as_u64(&block_data.onchain_block))
+            timestamp_ms_to_slot_time(
+                owt.timestamp_ms,
+                timestamp_as_u64(&block_data.onchain_block)
+            )
         );
+        for (tx, optional) in owt.order.list_txs() {
+            println!("    {:?} {:?}", tx.tx.hash, optional);
+        }
     }
 }
 

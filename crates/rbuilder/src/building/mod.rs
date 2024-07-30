@@ -11,6 +11,7 @@ pub mod sim;
 pub mod testing;
 pub mod tracers;
 pub use block_orders::BlockOrders;
+use reth_primitives::proofs::calculate_requests_root;
 
 use crate::{
     primitives::{Order, OrderId, SimValue, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs},
@@ -23,18 +24,20 @@ use reth::{
     payload::PayloadId,
     primitives::{
         constants::BEACON_NONCE, eip4844::calculate_excess_blob_gas, proofs,
-        revm::config::revm_spec, revm_primitives::InvalidTransaction, Address,
-        BlobTransactionSidecar, Block, ChainSpec, Head, Header, Receipt, Receipts, SealedBlock,
-        Withdrawals, B256, EMPTY_OMMER_ROOT_HASH, U256,
+        revm_primitives::InvalidTransaction, Address, BlobTransactionSidecar, Block, Head, Header,
+        Receipt, Receipts, SealedBlock, Withdrawals, B256, EMPTY_OMMER_ROOT_HASH, U256,
     },
-    providers::{BundleStateWithReceipts, ProviderFactory},
+    providers::{ExecutionOutcome, ProviderFactory},
     rpc::types::beacon::events::PayloadAttributesEvent,
     tasks::pool::BlockingTaskPool,
 };
-use reth_basic_payload_builder::{
-    commit_withdrawals, pre_block_beacon_root_contract_call, WithdrawalsOutcome,
+use reth_basic_payload_builder::{commit_withdrawals, WithdrawalsOutcome};
+use reth_chainspec::{ChainSpec, EthereumHardforks};
+use reth_errors::ProviderError;
+use reth_evm::system_calls::{
+    post_block_withdrawal_requests_contract_call, pre_block_beacon_root_contract_call,
 };
-use reth_interfaces::provider::ProviderError;
+use reth_evm_ethereum::{eip6110::parse_deposits_from_receipts, revm_spec, EthEvmConfig};
 use reth_node_api::PayloadBuilderAttributes;
 use reth_payload_builder::{database::CachedReads, EthPayloadBuilderAttributes};
 use revm::{
@@ -126,7 +129,7 @@ impl BlockBuildingContext {
                 U256::ZERO,
                 parent.timestamp,
             );
-            revm_spec(&chain_spec, head)
+            revm_spec(&chain_spec, &head)
         });
         BlockBuildingContext {
             block_env,
@@ -208,7 +211,7 @@ impl BlockBuildingContext {
             // this will break for one block after the fork
             revm_spec(
                 &chain_spec,
-                Head::new(
+                &Head::new(
                     block_data.block_number,
                     block_data.onchain_block.header.parent_hash,
                     block_data.onchain_block.header.difficulty,
@@ -321,6 +324,7 @@ pub struct ExecutionResult {
     pub order: Order,
     pub txs: Vec<TransactionSignedEcRecoveredWithBlobs>,
     /// Patch to get the executed OrderIds for merged sbundles (see: [`BundleOk::original_order_ids`],[`ShareBundleMerger`] )
+    /// Fully dropped orders (TxRevertBehavior::AllowedExcluded allows it!) are not included.
     pub original_order_ids: Vec<OrderId>,
     pub receipts: Vec<Receipt>,
     pub nonces_updated: Vec<(Address, u64)>,
@@ -558,30 +562,53 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             (withdrawals_root, withdrawals)
         };
 
-        let (cached_reads, bundle) = state.into_parts();
+        let (cached_reads, bundle) = state.clone().into_parts();
 
-        let bundle = BundleStateWithReceipts::new(
+        let (requests, requests_root) = if ctx
+            .chain_spec
+            .is_prague_active_at_timestamp(ctx.attributes.timestamp())
+        {
+            let deposit_requests =
+                parse_deposits_from_receipts(&ctx.chain_spec, self.receipts.iter())?;
+            let mut db = state.new_db_ref();
+
+            let withdrawal_requests = post_block_withdrawal_requests_contract_call(
+                &EthEvmConfig::default(),
+                db.as_mut(),
+                &ctx.initialized_cfg,
+                &ctx.block_env,
+            )?;
+
+            let requests = [deposit_requests, withdrawal_requests].concat();
+            let requests_root = calculate_requests_root(&requests);
+            (Some(requests.into()), Some(requests_root))
+        } else {
+            (None, None)
+        };
+
+        let execution_outcome = ExecutionOutcome::new(
             bundle,
-            Receipts::from_vec(vec![self
+            Receipts::from(vec![self
                 .receipts
                 .into_iter()
                 .map(Option::Some)
                 .collect::<Vec<_>>()]),
             ctx.block_env.number.to::<u64>(),
+            vec![requests.clone().unwrap_or_default()],
         );
         let block_number = ctx.block_env.number.to::<u64>();
 
-        let receipts_root = bundle
+        let receipts_root = execution_outcome
             .receipts_root_slow(block_number)
             .expect("Number is in range");
-        let logs_bloom = bundle
+        let logs_bloom = execution_outcome
             .block_logs_bloom(block_number)
             .expect("Number is in range");
 
         let state_root = calculate_state_root(
             provider_factory,
             ctx.attributes.parent,
-            &bundle,
+            &execution_outcome,
             root_hash_mode,
             root_hash_task_pool,
         )?;
@@ -638,6 +665,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             parent_beacon_block_root: ctx.attributes.parent_beacon_block_root,
             blob_gas_used,
             excess_blob_gas,
+            requests_root,
         };
 
         let block = Block {
@@ -645,6 +673,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             body: self.executed_tx.into_iter().map(|t| t.tx.into()).collect(),
             ommers: vec![],
             withdrawals,
+            requests,
         };
 
         Ok(FinalizeResult {
@@ -662,11 +691,13 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         let mut db = state.new_db_ref();
         pre_block_beacon_root_contract_call(
             db.as_mut(),
+            &EthEvmConfig::default(),
             &ctx.chain_spec,
-            ctx.block_env.number.to(),
             &ctx.initialized_cfg,
             &ctx.block_env,
-            &ctx.attributes,
+            ctx.block_env.number.to(),
+            ctx.attributes.timestamp(),
+            ctx.attributes.parent_beacon_block_root(),
         )?;
         db.as_mut().merge_transitions(BundleRetention::Reverts);
         Ok(())

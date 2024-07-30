@@ -1,3 +1,4 @@
+//! This app is intended to be used for testing against a fake-relay (https://github.com/ZanCorDX/fake-relay) without needing to have the builder or relay running.
 use rbuilder::mev_boost::{rpc::TestDataGenerator, RelayClient, SubmitBlockRequest};
 use std::str::FromStr;
 use url::Url;

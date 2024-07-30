@@ -5,7 +5,8 @@ use primitive_types::H384;
 use rbuilder::mev_boost::{
     rpc::TestDataGenerator, sign_block_for_relay, BLSBlockSigner, DenebSubmitBlockRequest,
 };
-use reth::primitives::{BlobTransactionSidecar, SealedBlock, SEPOLIA};
+use reth::primitives::{BlobTransactionSidecar, SealedBlock};
+use reth_chainspec::SEPOLIA;
 use reth_primitives::SealedHeader;
 use std::{fs, path::PathBuf, sync::Arc};
 

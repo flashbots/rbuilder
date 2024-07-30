@@ -16,8 +16,9 @@ use crate::{
 };
 use ahash::HashMap;
 use multi_share_bundle_merger::MultiShareBundleMerger;
-use reth::{primitives::Address, providers::StateProviderBox};
-use reth_interfaces::provider::ProviderResult;
+use reth_errors::ProviderResult;
+use reth_primitives::Address;
+use reth_provider::StateProviderBox;
 
 use prioritized_order_store::PrioritizedOrderStore;
 pub use test_data_generator::TestDataGenerator;

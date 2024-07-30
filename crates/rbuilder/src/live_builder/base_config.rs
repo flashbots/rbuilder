@@ -25,15 +25,14 @@ use ethereum_consensus::{
 use eyre::{eyre, Context};
 use jsonrpsee::RpcModule;
 use lazy_static::lazy_static;
-use reth::{
-    args::utils::genesis_value_parser,
-    primitives::{Chain, ChainSpec, NamedChain, StaticFileSegment},
-    tasks::pool::BlockingTaskPool,
-};
+use reth::tasks::pool::BlockingTaskPool;
+use reth_chainspec::{Chain, ChainSpec, NamedChain};
 use reth_db::DatabaseEnv;
-use reth_primitives::format_ether;
-use serde::Deserialize;
-use serde_with::{serde_as, OneOrMany};
+use reth_node_core::args::utils::chain_value_parser;
+use reth_primitives::{format_ether, StaticFileSegment};
+use reth_provider::StaticFileProviderFactory;
+use serde::{Deserialize, Deserializer};
+use serde_with::{serde_as, DeserializeAs, OneOrMany};
 use sqlx::PgPool;
 use std::{
     env::var,
@@ -50,6 +49,9 @@ use url::Url;
 /// From experience (Vitaly's) all generated blocks before slot_time-8sec end loosing (due to last moment orders?)
 const DEFAULT_SLOT_DELTA_TO_START_SUBMITS: time::Duration = time::Duration::milliseconds(-8000);
 
+/// Prefix for env variables in config
+const ENV_PREFIX: &str = "env:";
+
 /// Base config to be used by all builders.
 /// It allows us to create a base LiveBuilder with no algorithms or custom bidding.
 /// The final configuration should usually include one of this and use it to create the base LiveBuilder to then upgrade it as needed.
@@ -60,19 +62,19 @@ pub struct BaseConfig {
     pub telemetry_port: u16,
     pub telemetry_ip: Option<String>,
     pub log_json: bool,
-    log_level: EnvOrInplaceValue,
+    log_level: EnvOrValue<String>,
     pub log_color: bool,
 
     pub error_storage_path: PathBuf,
 
-    coinbase_secret_key: EnvOrInplaceValue,
+    coinbase_secret_key: EnvOrValue<String>,
 
-    pub flashbots_db: Option<EnvOrInplaceValue>,
+    pub flashbots_db: Option<EnvOrValue<String>>,
 
     pub el_node_ipc_path: PathBuf,
     ///Name kept singular for backwards compatibility
-    #[serde_as(deserialize_as = "OneOrMany<_>")]
-    pub cl_node_url: Vec<String>,
+    #[serde_as(deserialize_as = "OneOrMany<EnvOrValue<String>>")]
+    pub cl_node_url: Vec<EnvOrValue<String>>,
     pub jsonrpc_server_port: u16,
     pub jsonrpc_server_ip: Option<String>,
 
@@ -93,9 +95,9 @@ pub struct BaseConfig {
     #[serde_as(deserialize_as = "OneOrMany<_>")]
     pub dry_run_validation_url: Vec<String>,
     /// Secret key that will be used to sign normal submissions to the relay.
-    relay_secret_key: EnvOrInplaceValue,
+    relay_secret_key: EnvOrValue<String>,
     /// Secret key that will be used to sign optimistic submissions to the relay.
-    optimistic_relay_secret_key: EnvOrInplaceValue,
+    optimistic_relay_secret_key: EnvOrValue<String>,
     /// When enabled builer will make optimistic submissions to optimistic relays
     /// influenced by `optimistic_max_bid_value_eth` and `optimistic_prevalidate_optimistic_blocks`
     pub optimistic_enabled: bool,
@@ -119,7 +121,7 @@ pub struct BaseConfig {
     pub live_builders: Vec<String>,
 
     // backtest config
-    backtest_fetch_mempool_data_dir: EnvOrInplaceValue,
+    backtest_fetch_mempool_data_dir: EnvOrValue<String>,
     pub backtest_fetch_eth_rpc_url: String,
     pub backtest_fetch_eth_rpc_parallel: usize,
     pub backtest_fetch_output_file: PathBuf,
@@ -243,14 +245,14 @@ impl BaseConfig {
     }
 
     pub fn chain_spec(&self) -> eyre::Result<Arc<ChainSpec>> {
-        genesis_value_parser(&self.chain)
+        chain_value_parser(&self.chain)
     }
 
     pub fn beacon_clients(&self) -> eyre::Result<Vec<Client>> {
         self.cl_node_url
             .iter()
             .map(|url| {
-                let url = Url::parse(url)?;
+                let url = Url::parse(&url.value()?)?;
                 Ok(Client::new(url))
             })
             .collect()
@@ -450,28 +452,82 @@ impl BaseConfig {
             .map(time::Duration::milliseconds)
             .unwrap_or(DEFAULT_SLOT_DELTA_TO_START_SUBMITS)
     }
+
+    pub fn resolve_cl_node_urls(&self) -> eyre::Result<Vec<String>> {
+        resolve_env_or_values::<String>(&self.cl_node_url)
+    }
 }
 
-/// Load value from env variable or use inplace value
-/// To load value from env use the following syntax `env:ENV_VARIABLE_NAME`
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
-pub struct EnvOrInplaceValue(String);
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnvOrValue<T>(String, std::marker::PhantomData<T>);
 
-impl EnvOrInplaceValue {
+impl<T: FromStr> EnvOrValue<T> {
     pub fn value(&self) -> eyre::Result<String> {
         let value = &self.0;
-        if value.starts_with("env:") {
-            let var_name = value.trim_start_matches("env:");
-            var(var_name).context(format!("Env variable: {} not set", var_name))
+        if value.starts_with(ENV_PREFIX) {
+            let var_name = value.trim_start_matches(ENV_PREFIX);
+            var(var_name).map_err(|_| eyre::eyre!("Env variable: {} not set", var_name))
         } else {
             Ok(value.to_string())
         }
     }
 }
 
-impl From<&str> for EnvOrInplaceValue {
+impl<T> From<&str> for EnvOrValue<T> {
     fn from(s: &str) -> Self {
-        Self(s.to_string())
+        Self(s.to_string(), std::marker::PhantomData)
+    }
+}
+
+impl<'de, T: FromStr> Deserialize<'de> for EnvOrValue<T> {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Ok(Self(s, std::marker::PhantomData))
+    }
+}
+
+// Helper function to resolve Vec<EnvOrValue<T>> to Vec<T>
+pub fn resolve_env_or_values<T: FromStr>(values: &[EnvOrValue<T>]) -> eyre::Result<Vec<T>> {
+    values
+        .iter()
+        .try_fold(Vec::new(), |mut acc, v| -> eyre::Result<Vec<T>> {
+            let value = v.value()?;
+            if v.0.starts_with(ENV_PREFIX) {
+                // If it's an environment variable, split by comma
+                let parsed: eyre::Result<Vec<T>> = value
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(|s| {
+                        T::from_str(s).map_err(|_| eyre::eyre!("Failed to parse value: {}", s))
+                    })
+                    .collect();
+                acc.extend(parsed?);
+            } else {
+                // If it's not an environment variable, just return the single value
+                acc.push(
+                    T::from_str(&value)
+                        .map_err(|_| eyre::eyre!("Failed to parse value: {}", value))?,
+                );
+            }
+            Ok(acc)
+        })
+}
+
+impl<'de, T> DeserializeAs<'de, EnvOrValue<T>> for EnvOrValue<T>
+where
+    T: FromStr,
+    String: Deserialize<'de>,
+{
+    fn deserialize_as<D>(deserializer: D) -> Result<EnvOrValue<T>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Ok(EnvOrValue(s, std::marker::PhantomData))
     }
 }
 
@@ -489,11 +545,11 @@ pub struct RelayConfig {
     #[serde(default)]
     pub optimistic: bool,
     #[serde(default)]
-    pub authorization_header: Option<EnvOrInplaceValue>,
+    pub authorization_header: Option<EnvOrValue<String>>,
     #[serde(default)]
-    pub builder_id_header: Option<EnvOrInplaceValue>,
+    pub builder_id_header: Option<EnvOrValue<String>>,
     #[serde(default)]
-    pub api_token_header: Option<EnvOrInplaceValue>,
+    pub api_token_header: Option<EnvOrValue<String>>,
     #[serde(default)]
     pub interval_between_submissions_ms: Option<u64>,
 }
@@ -521,7 +577,7 @@ impl Default for BaseConfig {
             flashbots_db: None,
             blocks_processor_url: None,
             el_node_ipc_path: "/tmp/reth.ipc".parse().unwrap(),
-            cl_node_url: vec!["http://127.0.0.1:3500".to_string()],
+            cl_node_url: vec![EnvOrValue::from("http://127.0.0.1:3500")],
             jsonrpc_server_port: DEFAULT_INCOMING_BUNDLES_PORT,
             jsonrpc_server_ip: None,
             ignore_cancellable_orders: true,
@@ -590,9 +646,53 @@ pub fn create_provider_factory(
     Ok(provider_factory_reopener)
 }
 
+/// Open reth db in read/write mode
+pub fn create_provider_factory_rw(
+    reth_datadir: Option<&Path>,
+    reth_db_path: Option<&Path>,
+    reth_static_files_path: Option<&Path>,
+    chain_spec: Arc<ChainSpec>,
+) -> eyre::Result<ProviderFactoryReopener<Arc<DatabaseEnv>>> {
+    let reth_db_path = match (reth_db_path, reth_datadir) {
+        (Some(reth_db_path), _) => PathBuf::from(reth_db_path),
+        (None, Some(reth_datadir)) => reth_datadir.join("db"),
+        (None, None) => eyre::bail!("Either reth_db_path or reth_datadir must be provided"),
+    };
+
+    let db = open_reth_db_rw(&reth_db_path)?;
+
+    let reth_static_files_path = match (reth_static_files_path, reth_datadir) {
+        (Some(reth_static_files_path), _) => PathBuf::from(reth_static_files_path),
+        (None, Some(reth_datadir)) => reth_datadir.join("static_files"),
+        (None, None) => {
+            eyre::bail!("Either reth_static_files_path or reth_datadir must be provided")
+        }
+    };
+
+    let provider_factory_reopener =
+        ProviderFactoryReopener::new(db, chain_spec, reth_static_files_path)?;
+
+    if provider_factory_reopener
+        .provider_factory_unchecked()
+        .static_file_provider()
+        .get_highest_static_file_block(StaticFileSegment::Headers)
+        .is_none()
+    {
+        eyre::bail!("No headers in static files. Check your static files path configuration.");
+    }
+
+    Ok(provider_factory_reopener)
+}
+
 fn open_reth_db(reth_db_path: &Path) -> eyre::Result<Arc<DatabaseEnv>> {
     Ok(Arc::new(
         reth_db::open_db_read_only(reth_db_path, Default::default()).context("DB open error")?,
+    ))
+}
+
+fn open_reth_db_rw(reth_db_path: &Path) -> eyre::Result<Arc<DatabaseEnv>> {
+    Ok(Arc::new(
+        reth_db::open_db(reth_db_path, Default::default()).context("DB open error")?,
     ))
 }
 
@@ -642,13 +742,12 @@ fn get_signing_domain(chain: Chain, beacon_clients: Vec<Client>) -> eyre::Result
 mod test {
     use super::*;
     use alloy_primitives::fixed_bytes;
+    use reth::args::DatadirArgs;
+    use reth_chainspec::{Chain, SEPOLIA};
     use reth_db::init_db;
-    use reth_node_core::{
-        dirs::{DataDirPath, MaybePlatformPath},
-        init::init_genesis,
-    };
-    use reth_primitives::{Chain, SEPOLIA};
-    use reth_provider::ProviderFactory;
+    use reth_db_common::init::init_genesis;
+    use reth_node_core::dirs::{DataDirPath, MaybePlatformPath};
+    use reth_provider::{providers::StaticFileProvider, ProviderFactory};
     use tempfile::TempDir;
     use url::Url;
 
@@ -705,44 +804,49 @@ mod test {
         let tempdir = TempDir::with_prefix_in("rbuilder-", "/tmp").unwrap();
 
         let data_dir = MaybePlatformPath::<DataDirPath>::from(tempdir.into_path());
-        let data_dir = data_dir.unwrap_or_chain_default(Chain::mainnet());
+        let data_dir = data_dir.unwrap_or_chain_default(Chain::mainnet(), DatadirArgs::default());
 
-        let db = init_db(data_dir.db_path().as_path(), Default::default()).unwrap();
-        let provider_factory =
-            ProviderFactory::new(db, SEPOLIA.clone(), data_dir.static_files_path()).unwrap();
+        let db = init_db(data_dir.data_dir(), Default::default()).unwrap();
+        let provider_factory = ProviderFactory::new(
+            db,
+            SEPOLIA.clone(),
+            StaticFileProvider::read_write(data_dir.static_files().as_path()).unwrap(),
+        );
         init_genesis(provider_factory).unwrap();
 
         // Create longer-lived PathBuf values
-        let data_dir_path = data_dir.data_dir_path().to_path_buf();
-        let db_path = data_dir.db_path().to_path_buf();
-        let static_files_path = data_dir.static_files_path().to_path_buf();
+        let data_dir_path = data_dir.data_dir();
+        let db_path = data_dir.db();
+        let static_files_path = data_dir.static_files();
 
         let test_cases = [
             // use main dir to resolve reth_db and static_files
-            (Some(data_dir_path.as_path()), None, None, true),
+            (Some(data_dir_path), None, None, true),
             // use main dir to resolve reth_db and provide static_files
             (
-                Some(data_dir_path.as_path()),
+                Some(data_dir_path),
                 None,
-                Some(static_files_path.as_path()),
+                Some(static_files_path.clone()),
                 true,
             ),
             // provide both reth_db and static_files
             (
                 None,
                 Some(db_path.as_path()),
-                Some(static_files_path.as_path()),
+                Some(static_files_path.clone()),
                 true,
             ),
             // fail to provide main dir to resolve empty static_files
             (None, Some(db_path.as_path()), None, false),
             // fail to provide main dir to resolve empty reth_db
-            (None, None, Some(static_files_path.as_path()), false),
+            (None, None, Some(static_files_path), false),
         ];
 
-        for (reth_db, reth_db_path, reth_static_files_path, should_succeed) in test_cases.iter() {
-            let result = create_provider_factory(
-                reth_db.as_deref(),
+        for (reth_datadir_path, reth_db_path, reth_static_files_path, should_succeed) in
+            test_cases.iter()
+        {
+            let result = create_provider_factory_rw(
+                reth_datadir_path.as_deref(),
                 reth_db_path.as_deref(),
                 reth_static_files_path.as_deref(),
                 Default::default(),

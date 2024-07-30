@@ -1,5 +1,5 @@
 use alloy_primitives::{Address, B256, U256};
-use reth::primitives::{
+use reth_primitives::{
     public_key_to_address, Signature, Transaction, TransactionSigned, TransactionSignedEcRecovered,
 };
 use secp256k1::{Message, SecretKey, SECP256K1};
@@ -22,7 +22,8 @@ impl Signer {
     }
 
     pub fn sign_message(&self, message: B256) -> Result<Signature, secp256k1::Error> {
-        let s = SECP256K1.sign_ecdsa_recoverable(&Message::from_slice(&message[..])?, &self.secret);
+        let s = SECP256K1
+            .sign_ecdsa_recoverable(&Message::from_digest_slice(&message[..])?, &self.secret);
         let (rec_id, data) = s.serialize_compact();
 
         let signature = Signature {
@@ -54,7 +55,7 @@ impl Signer {
 mod test {
     use super::*;
     use alloy_primitives::{address, fixed_bytes};
-    use reth::primitives::{TransactionKind, TxEip1559};
+    use reth_primitives::{TxEip1559, TxKind as TransactionKind};
 
     #[test]
     fn test_sign_transaction() {

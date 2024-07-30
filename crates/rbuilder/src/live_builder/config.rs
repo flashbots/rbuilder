@@ -13,12 +13,12 @@ use crate::{
 };
 use alloy_primitives::{Address, B256};
 use eyre::Context;
-use reth::{
-    primitives::{ChainSpec, StaticFileSegment},
-    tasks::pool::BlockingTaskPool,
-};
+use reth::tasks::pool::BlockingTaskPool;
+use reth_chainspec::ChainSpec;
 use reth_db::DatabaseEnv;
 use reth_payload_builder::database::CachedReads;
+use reth_primitives::StaticFileSegment;
+use reth_provider::StaticFileProviderFactory;
 use serde::Deserialize;
 use serde_with::serde_as;
 use std::{
@@ -256,6 +256,8 @@ mod test {
             "0xb785cd753d62bb25c0afaf75fd40dd94bf295051fdadc972ec857ad6b29cfa72",
         );
 
+        env::set_var("CL_NODE_URL", "http://localhost:3500");
+
         let config: Config = load_config_toml_and_env(p).expect("Config load");
 
         assert_eq!(
@@ -266,6 +268,12 @@ mod test {
                 .address,
             address!("75618c70B1BBF111F6660B0E3760387fb494102B")
         );
+
+        assert!(config
+            .base_config
+            .resolve_cl_node_urls()
+            .unwrap()
+            .contains(&"http://localhost:3500".to_string()));
     }
 
     #[test]
