@@ -141,7 +141,7 @@ impl Playground {
             .proposer_payload_delivered_block_number(block_number)
             .await
             .map_err(|_err| PayloadDeliveredError::RelayError)?
-            .ok_or(PayloadDeliveredError::Empty)?;
+            .ok_or(PayloadDeliveredError::ProposalNotFound)?;
 
         let builder_pubkey = H384::from_str("0xa1885d66bef164889a2e35845c3b626545d7b0e513efe335e97c3a45e534013fa3bc38c3b7e6143695aecc4872ac52c4").unwrap();
         if payload.builder_pubkey == builder_pubkey {
@@ -154,7 +154,7 @@ impl Playground {
 
 #[derive(Debug)]
 pub enum PayloadDeliveredError {
-    Empty,
+    ProposalNotFound,
     IncorrectBuilder,
     RelayError,
 }
