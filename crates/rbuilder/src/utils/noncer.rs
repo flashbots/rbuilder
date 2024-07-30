@@ -2,7 +2,7 @@ use ahash::HashMap;
 use alloy_primitives::{Address, B256};
 use reth::providers::{ProviderFactory, StateProviderBox};
 use reth_db::database::Database;
-use reth_interfaces::provider::ProviderResult;
+use reth_errors::ProviderResult;
 use std::sync::{Arc, Mutex};
 
 /// Struct to get nonces for Addresses, caching the results.

@@ -6,7 +6,7 @@ use crate::primitives::{
 use alloy_primitives::Address;
 use jsonrpsee::types::ErrorObject;
 use jsonrpsee::{server::Server, RpcModule};
-use reth::primitives::Bytes;
+use reth_primitives::Bytes;
 use serde::Deserialize;
 use std::{
     net::{SocketAddr, SocketAddrV4},

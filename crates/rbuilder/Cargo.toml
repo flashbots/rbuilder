@@ -15,7 +15,8 @@ eyre = "0.6.8"
 ethers = { version = "2.0", features = ["ipc"] }
 reth.workspace = true
 reth-db.workspace = true
-reth-interfaces.workspace = true
+reth-db-common.workspace = true
+reth-errors.workspace = true
 reth-libmdbx.workspace = true
 reth-payload-builder.workspace = true
 reth-basic-payload-builder.workspace = true
@@ -25,7 +26,12 @@ reth-node-api.workspace = true
 reth-node-core.workspace = true
 reth-primitives.workspace = true
 reth-provider.workspace = true
+reth-chainspec.workspace = true
+reth-evm.workspace = true
+reth-evm-ethereum.workspace = true
 revm.workspace = true
+revm-primitives.workspace = true
+revm-inspectors.workspace = true
 
 alloy-primitives.workspace = true
 alloy-rlp.workspace = true
@@ -43,6 +49,7 @@ alloy-node-bindings.workspace = true
 alloy-consensus.workspace = true
 alloy-serde.workspace = true
 alloy-signer-local.workspace = true
+alloy-eips.workspace = true
 
 ethereum_ssz_derive.workspace = true
 ethereum_ssz.workspace = true
@@ -75,7 +82,7 @@ itertools = "0.11.0"
 tokio-stream = "0.1.14"
 clap = { version = "4.4.3", features = ["derive", "env"] }
 priority-queue = "2.0.3"
-secp256k1 = { version = "0.27.0", features = [
+secp256k1 = { version = "0.29", features = [
     "global-context",
     "rand-std",
     "recovery",
@@ -86,8 +93,8 @@ flate2 = "1.0.27"
 mev-share-sse = { git = "https://github.com/paradigmxyz/mev-share-rs", rev = "9eb2b0138ab3202b9eb3af4b19c7b3bf40b0faa8", default-features = false }
 jsonrpsee = { version = "0.20.3", features = ["full"] }
 ssz_rs = { git = "https://github.com/ralexstokes/ssz-rs.git", version = "0.9.0" }
-beacon-api-client = { git = "https://github.com/ralexstokes/ethereum-consensus/", rev = "0e8809c1eda3f54a78991d7a5987ff42c9195d42" }
-ethereum-consensus = { git = "https://github.com/ralexstokes/ethereum-consensus/", rev = "0e8809c1eda3f54a78991d7a5987ff42c9195d42" }
+beacon-api-client = { git = "https://github.com/ralexstokes/ethereum-consensus/", rev = "cf3c404043230559660810bc0c9d6d5a8498d819" }
+ethereum-consensus = { git = "https://github.com/ralexstokes/ethereum-consensus/", rev = "cf3c404043230559660810bc0c9d6d5a8498d819" }
 ssz_rs_derive = { git = "https://github.com/ralexstokes/ssz-rs.git", version = "0.9.0" }
 tokio-util = "0.7.11"
 uuid = { version = "1.6.1", features = ["serde", "v5", "v4"] }

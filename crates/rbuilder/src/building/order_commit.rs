@@ -12,21 +12,19 @@ use crate::{
 
 use alloy_primitives::{Address, B256, U256};
 
-use reth::{
-    primitives::{
-        constants::eip4844::{DATA_GAS_PER_BLOB, MAX_DATA_GAS_PER_BLOCK},
-        revm::env::tx_env_with_recovered,
-        Receipt, KECCAK_EMPTY,
-    },
-    providers::StateProviderBox,
-    revm::database::StateProviderDatabase,
-};
-use reth_interfaces::provider::ProviderError;
+use reth::revm::database::StateProviderDatabase;
+use reth_errors::ProviderError;
 use reth_payload_builder::database::CachedReads;
+use reth_primitives::{
+    constants::eip4844::{DATA_GAS_PER_BLOB, MAX_DATA_GAS_PER_BLOCK},
+    transaction::FillTxEnv,
+    Receipt, KECCAK_EMPTY,
+};
+use reth_provider::StateProviderBox;
 use revm::{
     db::{states::bundle_state::BundleRetention, BundleState},
     inspector_handle_register,
-    primitives::{db::WrapDatabaseRef, EVMError, Env, ExecutionResult, InvalidTransaction},
+    primitives::{db::WrapDatabaseRef, EVMError, Env, ExecutionResult, InvalidTransaction, TxEnv},
     Database, DatabaseCommit, State,
 };
 
@@ -398,10 +396,14 @@ impl<'a, 'b, 'c, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, Tracer> 
             None => return Ok(Err(TransactionErr::GasLeft)),
         }
 
+        let mut tx_env = TxEnv::default();
+        let tx_signed = tx_with_blobs.tx.clone().into_signed();
+        tx_signed.fill_tx_env(&mut tx_env, tx_signed.recover_signer().unwrap());
+
         let env = Env {
             cfg: ctx.initialized_cfg.cfg_env.clone(),
             block: ctx.block_env.clone(),
-            tx: tx_env_with_recovered(tx),
+            tx: tx_env,
         };
 
         let used_state_tracer = self.tracer.as_mut().and_then(|t| t.get_used_state_tracer());
@@ -420,9 +422,10 @@ impl<'a, 'b, 'c, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, Tracer> 
                 EVMError::Transaction(tx_err) => {
                     return Ok(Err(TransactionErr::InvalidTransaction(tx_err)))
                 }
-                EVMError::Database(_) | EVMError::Header(_) | EVMError::Custom(_) => {
-                    return Err(err.into())
-                }
+                EVMError::Database(_)
+                | EVMError::Header(_)
+                | EVMError::Custom(_)
+                | EVMError::Precompile(_) => return Err(err.into()),
             },
         };
         let mut db_context = evm.into_context();

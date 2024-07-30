@@ -25,13 +25,12 @@ use ethereum_consensus::{
 use eyre::{eyre, Context};
 use jsonrpsee::RpcModule;
 use lazy_static::lazy_static;
-use reth::{
-    args::utils::genesis_value_parser,
-    primitives::{Chain, ChainSpec, NamedChain, StaticFileSegment},
-    tasks::pool::BlockingTaskPool,
-};
+use reth::tasks::pool::BlockingTaskPool;
+use reth_chainspec::{Chain, ChainSpec, NamedChain};
 use reth_db::DatabaseEnv;
-use reth_primitives::format_ether;
+use reth_node_core::args::utils::chain_value_parser;
+use reth_primitives::{format_ether, StaticFileSegment};
+use reth_provider::StaticFileProviderFactory;
 use serde::{Deserialize, Deserializer};
 use serde_with::{serde_as, DeserializeAs, OneOrMany};
 use sqlx::PgPool;
@@ -246,7 +245,7 @@ impl BaseConfig {
     }
 
     pub fn chain_spec(&self) -> eyre::Result<Arc<ChainSpec>> {
-        genesis_value_parser(&self.chain)
+        chain_value_parser(&self.chain)
     }
 
     pub fn beacon_clients(&self) -> eyre::Result<Vec<Client>> {
@@ -647,9 +646,53 @@ pub fn create_provider_factory(
     Ok(provider_factory_reopener)
 }
 
+/// Open reth db in read/write mode
+pub fn create_provider_factory_rw(
+    reth_datadir: Option<&Path>,
+    reth_db_path: Option<&Path>,
+    reth_static_files_path: Option<&Path>,
+    chain_spec: Arc<ChainSpec>,
+) -> eyre::Result<ProviderFactoryReopener<Arc<DatabaseEnv>>> {
+    let reth_db_path = match (reth_db_path, reth_datadir) {
+        (Some(reth_db_path), _) => PathBuf::from(reth_db_path),
+        (None, Some(reth_datadir)) => reth_datadir.join("db"),
+        (None, None) => eyre::bail!("Either reth_db_path or reth_datadir must be provided"),
+    };
+
+    let db = open_reth_db_rw(&reth_db_path)?;
+
+    let reth_static_files_path = match (reth_static_files_path, reth_datadir) {
+        (Some(reth_static_files_path), _) => PathBuf::from(reth_static_files_path),
+        (None, Some(reth_datadir)) => reth_datadir.join("static_files"),
+        (None, None) => {
+            eyre::bail!("Either reth_static_files_path or reth_datadir must be provided")
+        }
+    };
+
+    let provider_factory_reopener =
+        ProviderFactoryReopener::new(db, chain_spec, reth_static_files_path)?;
+
+    if provider_factory_reopener
+        .provider_factory_unchecked()
+        .static_file_provider()
+        .get_highest_static_file_block(StaticFileSegment::Headers)
+        .is_none()
+    {
+        eyre::bail!("No headers in static files. Check your static files path configuration.");
+    }
+
+    Ok(provider_factory_reopener)
+}
+
 fn open_reth_db(reth_db_path: &Path) -> eyre::Result<Arc<DatabaseEnv>> {
     Ok(Arc::new(
         reth_db::open_db_read_only(reth_db_path, Default::default()).context("DB open error")?,
+    ))
+}
+
+fn open_reth_db_rw(reth_db_path: &Path) -> eyre::Result<Arc<DatabaseEnv>> {
+    Ok(Arc::new(
+        reth_db::open_db(reth_db_path, Default::default()).context("DB open error")?,
     ))
 }
 
@@ -699,13 +742,12 @@ fn get_signing_domain(chain: Chain, beacon_clients: Vec<Client>) -> eyre::Result
 mod test {
     use super::*;
     use alloy_primitives::fixed_bytes;
+    use reth::args::DatadirArgs;
+    use reth_chainspec::{Chain, SEPOLIA};
     use reth_db::init_db;
-    use reth_node_core::{
-        dirs::{DataDirPath, MaybePlatformPath},
-        init::init_genesis,
-    };
-    use reth_primitives::{Chain, SEPOLIA};
-    use reth_provider::ProviderFactory;
+    use reth_db_common::init::init_genesis;
+    use reth_node_core::dirs::{DataDirPath, MaybePlatformPath};
+    use reth_provider::{providers::StaticFileProvider, ProviderFactory};
     use tempfile::TempDir;
     use url::Url;
 
@@ -762,44 +804,49 @@ mod test {
         let tempdir = TempDir::with_prefix_in("rbuilder-", "/tmp").unwrap();
 
         let data_dir = MaybePlatformPath::<DataDirPath>::from(tempdir.into_path());
-        let data_dir = data_dir.unwrap_or_chain_default(Chain::mainnet());
+        let data_dir = data_dir.unwrap_or_chain_default(Chain::mainnet(), DatadirArgs::default());
 
-        let db = init_db(data_dir.db_path().as_path(), Default::default()).unwrap();
-        let provider_factory =
-            ProviderFactory::new(db, SEPOLIA.clone(), data_dir.static_files_path()).unwrap();
+        let db = init_db(data_dir.data_dir(), Default::default()).unwrap();
+        let provider_factory = ProviderFactory::new(
+            db,
+            SEPOLIA.clone(),
+            StaticFileProvider::read_write(data_dir.static_files().as_path()).unwrap(),
+        );
         init_genesis(provider_factory).unwrap();
 
         // Create longer-lived PathBuf values
-        let data_dir_path = data_dir.data_dir_path().to_path_buf();
-        let db_path = data_dir.db_path().to_path_buf();
-        let static_files_path = data_dir.static_files_path().to_path_buf();
+        let data_dir_path = data_dir.data_dir();
+        let db_path = data_dir.db();
+        let static_files_path = data_dir.static_files();
 
         let test_cases = [
             // use main dir to resolve reth_db and static_files
-            (Some(data_dir_path.as_path()), None, None, true),
+            (Some(data_dir_path), None, None, true),
             // use main dir to resolve reth_db and provide static_files
             (
-                Some(data_dir_path.as_path()),
+                Some(data_dir_path),
                 None,
-                Some(static_files_path.as_path()),
+                Some(static_files_path.clone()),
                 true,
             ),
             // provide both reth_db and static_files
             (
                 None,
                 Some(db_path.as_path()),
-                Some(static_files_path.as_path()),
+                Some(static_files_path.clone()),
                 true,
             ),
             // fail to provide main dir to resolve empty static_files
             (None, Some(db_path.as_path()), None, false),
             // fail to provide main dir to resolve empty reth_db
-            (None, None, Some(static_files_path.as_path()), false),
+            (None, None, Some(static_files_path), false),
         ];
 
-        for (reth_db, reth_db_path, reth_static_files_path, should_succeed) in test_cases.iter() {
-            let result = create_provider_factory(
-                reth_db.as_deref(),
+        for (reth_datadir_path, reth_db_path, reth_static_files_path, should_succeed) in
+            test_cases.iter()
+        {
+            let result = create_provider_factory_rw(
+                reth_datadir_path.as_deref(),
                 reth_db_path.as_deref(),
                 reth_static_files_path.as_deref(),
                 Default::default(),

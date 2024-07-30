@@ -1,6 +1,6 @@
 use alloy_primitives::B256;
 use reth::{
-    providers::{providers::ConsistentDbView, BundleStateWithReceipts, ProviderFactory},
+    providers::{providers::ConsistentDbView, ExecutionOutcome, ProviderFactory},
     tasks::pool::BlockingTaskPool,
 };
 use reth_db::database::Database;
@@ -23,7 +23,7 @@ pub enum RootHashMode {
 pub fn calculate_state_root<DB: Database + Clone + 'static>(
     provider_factory: ProviderFactory<DB>,
     parent_hash: B256,
-    bundle: &BundleStateWithReceipts,
+    outcome: &ExecutionOutcome,
     mode: RootHashMode,
     blocking_task_pool: BlockingTaskPool,
 ) -> Result<B256, AsyncStateRootError> {
@@ -36,7 +36,7 @@ pub fn calculate_state_root<DB: Database + Clone + 'static>(
         }
     };
 
-    let hashed_post_state = bundle.hash_state_slow();
+    let hashed_post_state = outcome.hash_state_slow();
 
     let async_root_calculator =
         AsyncStateRoot::new(consistent_db_view, blocking_task_pool, hashed_post_state);

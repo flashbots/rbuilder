@@ -1,10 +1,11 @@
 use ahash::HashMap;
 use alloy_primitives::{Address, B256, U256};
-use reth::{primitives::TransactionSignedEcRecovered, revm::access_list::AccessListInspector};
+use reth_primitives::TransactionSignedEcRecovered;
 use revm::{
     interpreter::{opcode, Interpreter},
     Database, EvmContext, Inspector,
 };
+use revm_inspectors::access_list::AccessListInspector;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct SlotKey {
@@ -62,7 +63,7 @@ where
             if let Ok(value) = interpreter.stack.peek(0) {
                 let value = B256::from(value.to_be_bytes());
                 let key = SlotKey {
-                    address: interpreter.contract.address,
+                    address: interpreter.contract.caller,
                     key: slot,
                 };
                 self.used_state_trace.read_set.entry(key).or_insert(value);
@@ -82,7 +83,7 @@ where
                 {
                     let value = B256::from(value.to_be_bytes());
                     let key = SlotKey {
-                        address: interpreter.contract.address,
+                        address: interpreter.contract.caller,
                         key: B256::from(slot.to_be_bytes()),
                     };
                     self.used_state_trace.write_set.insert(key, value);

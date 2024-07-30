@@ -1,9 +1,8 @@
-use reth::{
-    primitives::ChainSpec,
-    providers::{BlockHashReader, ChainSpecProvider, ProviderFactory},
-};
+use reth::providers::{BlockHashReader, ChainSpecProvider, ProviderFactory};
+use reth_chainspec::ChainSpec;
 use reth_db::database::Database;
-use reth_interfaces::RethResult;
+use reth_errors::RethResult;
+use reth_provider::{providers::StaticFileProvider, StaticFileProviderFactory};
 use std::{
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -25,8 +24,11 @@ pub struct ProviderFactoryReopener<DB> {
 
 impl<DB: Database + Clone> ProviderFactoryReopener<DB> {
     pub fn new(db: DB, chain_spec: Arc<ChainSpec>, static_files_path: PathBuf) -> RethResult<Self> {
-        let provider_factory =
-            ProviderFactory::new(db, chain_spec.clone(), static_files_path.clone())?;
+        let provider_factory = ProviderFactory::new(
+            db,
+            chain_spec.clone(),
+            StaticFileProvider::read_only(static_files_path.as_path()).unwrap(),
+        );
 
         Ok(Self {
             provider_factory: Arc::new(Mutex::new(provider_factory)),
@@ -71,8 +73,8 @@ impl<DB: Database + Clone> ProviderFactoryReopener<DB> {
                     *provider_factory = ProviderFactory::new(
                         provider_factory.db_ref().clone(),
                         self.chain_spec.clone(),
-                        self.static_files_path.clone(),
-                    )?;
+                        StaticFileProvider::read_only(self.static_files_path.as_path()).unwrap(),
+                    );
                 }
             }
 

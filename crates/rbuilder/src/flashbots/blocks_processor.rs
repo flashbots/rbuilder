@@ -10,7 +10,7 @@ use crate::{
 use alloy_json_rpc::RpcError;
 use alloy_primitives::{BlockHash, U256};
 use alloy_provider::Provider;
-use reth::primitives::SealedBlock;
+use reth_primitives::SealedBlock;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use std::sync::Arc;

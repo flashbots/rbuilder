@@ -13,12 +13,12 @@ use crate::{
 };
 use alloy_primitives::{Address, B256};
 use eyre::Context;
-use reth::{
-    primitives::{ChainSpec, StaticFileSegment},
-    tasks::pool::BlockingTaskPool,
-};
+use reth::tasks::pool::BlockingTaskPool;
+use reth_chainspec::ChainSpec;
 use reth_db::DatabaseEnv;
 use reth_payload_builder::database::CachedReads;
+use reth_primitives::StaticFileSegment;
+use reth_provider::StaticFileProviderFactory;
 use serde::Deserialize;
 use serde_with::serde_as;
 use std::{

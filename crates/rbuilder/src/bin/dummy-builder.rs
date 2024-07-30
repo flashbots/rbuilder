@@ -35,7 +35,8 @@ use rbuilder::{
     roothash::RootHashMode,
     utils::Signer,
 };
-use reth::{primitives::MAINNET, providers::ProviderFactory, tasks::pool::BlockingTaskPool};
+use reth::{providers::ProviderFactory, tasks::pool::BlockingTaskPool};
+use reth_chainspec::MAINNET;
 use reth_db::{database::Database, DatabaseEnv};
 use tokio::{signal::ctrl_c, sync::broadcast};
 use tokio_util::sync::CancellationToken;
