@@ -70,14 +70,16 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@v4
 
-      - name: Download suave playground
-        uses: ./.github/actions/download_playground
+      - name: Download builder playground
+        uses: flashbots/flashbots-toolchain@v0.1
+        with:
+          builder-playground: latest
 
       - name: Build the rbuilder
         run: cargo build
 
       - name: Run the playground
-        run: suave-playground --output /tmp/playground &
+        run: builder-playground --output /tmp/playground &
 
       - name: Run integration tests
         run: cargo test --package rbuilder --lib -- integration
