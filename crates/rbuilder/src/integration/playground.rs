@@ -24,6 +24,7 @@ use url::Url;
 pub enum PlaygroundError {
     SpawnError,
     BinaryNotFound,
+    SetupError,
     IntegrationPathNotFound,
 }
 
@@ -31,15 +32,11 @@ pub struct Playground {
     builder: Child,
 }
 
-fn open_log_file(path: PathBuf) -> File {
+fn open_log_file(path: PathBuf) -> io::Result<File> {
     let prefix = path.parent().unwrap();
     std::fs::create_dir_all(prefix).unwrap();
 
-    OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open(path)
-        .unwrap()
+    OpenOptions::new().append(true).create(true).open(path)
 }
 
 impl Playground {
@@ -60,8 +57,10 @@ impl Playground {
         );
 
         // write the config into /tmp/rbuilder.toml
-        let mut file = File::create("/tmp/rbuilder.toml").unwrap();
-        file.write_all(config.as_bytes()).unwrap();
+        let mut file =
+            File::create("/tmp/rbuilder.toml").map_err(|_| PlaygroundError::SetupError)?;
+        file.write_all(config.as_bytes())
+            .map_err(|_| PlaygroundError::SetupError)?;
 
         // load the binary from the cargo_dir
         let mut bin_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -69,20 +68,23 @@ impl Playground {
 
         let dt: OffsetDateTime = SystemTime::now().into();
 
-        let format =
-            format_description::parse("[year]_[month]_[day]_[hour]_[minute]_[second]").unwrap();
-        let name = dt.format(&format).unwrap();
+        let format = format_description::parse("[year]_[month]_[day]_[hour]_[minute]_[second]")
+            .map_err(|_| PlaygroundError::SetupError)?;
+        let name = dt
+            .format(&format)
+            .map_err(|_| PlaygroundError::SetupError)?;
 
         let mut log_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         log_path.push(format!("../../integration_logs/{}.log", name));
 
-        let log = open_log_file(log_path);
+        let log = open_log_file(log_path).map_err(|_| PlaygroundError::SetupError)?;
+        let stdout = log.try_clone().map_err(|_| PlaygroundError::SetupError)?;
+        let stderr = log.try_clone().map_err(|_| PlaygroundError::SetupError)?;
 
         let mut cmd = Command::new(bin_path.clone());
 
         cmd.arg("run").arg("/tmp/rbuilder.toml");
-        cmd.stdout(log.try_clone().unwrap())
-            .stderr(log.try_clone().unwrap());
+        cmd.stdout(stdout).stderr(stderr);
 
         let builder = match cmd.spawn() {
             Ok(child) => Ok(child),
