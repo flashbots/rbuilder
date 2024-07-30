@@ -3,7 +3,10 @@ use super::{
     OrderErr, PartialBlockFork,
 };
 use crate::{
-    building::{BlockBuildingContext, BlockState, CriticalCommitOrderError},
+    building::{
+        BlockBuildingContext, BlockState, BundleErr, CriticalCommitOrderError, InvalidTransaction,
+        TransactionErr,
+    },
     primitives::{Order, OrderId, SimValue, SimulatedOrder},
     utils::{NonceCache, NonceCacheRef},
 };
@@ -404,9 +407,37 @@ pub fn simulate_order(
     let mut tracer = AccumulatorSimulationTracer::new();
     let mut fork = PartialBlockFork::new(state).with_tracer(&mut tracer);
     let rollback_point = fork.rollback_point();
+    let order_copy = order.clone();
     let sim_res = simulate_order_using_fork(parent_orders, order, ctx, &mut fork);
     fork.rollback(rollback_point);
     let sim_res = sim_res?;
+    if let OrderSimResult::Failed(err) = &sim_res {
+        let err_copy = err.clone();
+        tracing::trace!("Order simulation failed: {}", err);
+        match err {
+            OrderErr::Bundle(BundleErr::InvalidTransaction(_, transaction_err))
+            | OrderErr::Transaction(transaction_err) => { // TODO: add share bundle case
+                if let TransactionErr::InvalidTransaction(invalid_transaction) = transaction_err {
+                    if let InvalidTransaction::LackOfFundForMaxFee { fee, balance } =
+                        invalid_transaction
+                    {
+                        let balance_needed = **fee - **balance;
+
+                        tracing::trace!("Order failed due to lack of funds for max fee. Attempting to sponsor. Fee: {}, Balance: {}, Sponsor fee: {}", fee, balance, balance_needed);
+
+                        let nonce = state.nonce(ctx.builder_signer.as_ref().unwrap().address)?;
+
+                        let signer = get_tx_signer(order_copy, err_copy);
+
+                        // TODO: actually sponsor the tx
+                        // I had thought about doing so with create_payout_tx - not sure what the right way to do it is
+                        // We also need an update to OrderSimResult to include sponsorship payment info ("e.g. this tx needs to be sponsored for x amount of ETH")
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
     Ok(OrderSimResultWithGas {
         result: sim_res,
         gas_used: tracer.used_gas,
@@ -465,5 +496,33 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
             ))
         }
         Err(err) => Ok(OrderSimResult::Failed(err)),
+    }
+}
+
+fn get_tx_signer(order: Order, order_err: OrderErr) -> Option<Address> {
+    match order_err {
+        OrderErr::Bundle(bundle_err) => {
+            if let BundleErr::InvalidTransaction(tx_hash, _) = bundle_err {
+                Some(order.get_tx_signer_by_hash(tx_hash).unwrap())
+            } else {
+                tracing::trace!("error get_tx_signer: expected invalid transaction and found something that wasn't an invalid transaction");
+                None
+            }
+        }
+        OrderErr::Transaction(_) => match order.clone() {
+            Order::Tx(tx) => Some(tx.tx_with_blobs.signer()),
+            _ => {
+                tracing::trace!(
+                    "error get_tx_signer: expected tx and found something that wasn't a tx"
+                );
+                None
+            }
+        },
+        OrderErr::NegativeProfit(_) => {
+            tracing::trace!(
+                "error get_tx_signer: expected tx and found something that wasn't a tx"
+            );
+            None
+        }
     }
 }
