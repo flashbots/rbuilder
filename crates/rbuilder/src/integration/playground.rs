@@ -110,14 +110,13 @@ impl Playground {
         "http://localhost:8545"
     }
 
-    pub fn prefunded_keys(&self, indx: usize) -> EthereumWallet {
+    pub fn prefunded_key(&self) -> EthereumWallet {
         // TODO: Return the full list of keys that we can use
         let signer: PrivateKeySigner =
             "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
                 .parse()
                 .unwrap();
-        let wallet = EthereumWallet::from(signer);
-        vec![wallet][indx].clone()
+        EthereumWallet::from(signer)
     }
 
     pub fn builder_address(&self) -> Address {

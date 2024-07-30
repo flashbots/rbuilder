@@ -19,7 +19,7 @@ mod tests {
         // send a transfer to the builder
         let provider = ProviderBuilder::new()
             .with_recommended_fillers()
-            .wallet(srv.prefunded_keys(0))
+            .wallet(srv.prefunded_key())
             .on_http(Url::parse(srv.el_url()).unwrap());
 
         let gas_price = provider.get_gas_price().await.unwrap();
