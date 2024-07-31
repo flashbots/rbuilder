@@ -540,7 +540,7 @@ impl<'a, 'b, 'c, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, Tracer> 
                 ctx,
                 insert.cumulative_gas_used,
                 gas_reserved,
-                cumulative_blob_gas_used,
+                insert.cumulative_blob_gas_used,
             )?;
             match result {
                 Ok(res) => {
@@ -666,7 +666,7 @@ impl<'a, 'b, 'c, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, Tracer> 
                 ctx,
                 insert.cumulative_gas_used,
                 gas_reserved,
-                cumulative_blob_gas_used,
+                insert.cumulative_blob_gas_used,
             )?;
             match res {
                 Ok(res) => {
@@ -681,6 +681,7 @@ impl<'a, 'b, 'c, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, Tracer> 
 
                     insert.gas_used += res.gas_used;
                     insert.cumulative_gas_used = res.cumulative_gas_used;
+                    insert.cumulative_blob_gas_used = res.cumulative_blob_gas_used;
                     insert.txs.push(res.tx);
                     update_nonce_list(&mut insert.nonces_updated, res.nonce_updated);
                     insert.receipts.push(res.receipt);
@@ -761,7 +762,7 @@ impl<'a, 'b, 'c, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, Tracer> 
                         ctx,
                         insert.cumulative_gas_used,
                         gas_reserved,
-                        cumulative_blob_gas_used,
+                        insert.cumulative_blob_gas_used,
                     )?;
                     match result {
                         Ok(res) => {
@@ -815,7 +816,7 @@ impl<'a, 'b, 'c, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, Tracer> 
                         ctx,
                         insert.cumulative_gas_used,
                         gas_reserved,
-                        cumulative_blob_gas_used,
+                        insert.cumulative_blob_gas_used,
                         allow_tx_skip,
                     )?;
                     match inner_res {

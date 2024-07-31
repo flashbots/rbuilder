@@ -1,14 +1,18 @@
 // store orders in the sqlite database
 
+use crate::backtest::BuiltBlockData;
+use crate::primitives::OrderId;
+use crate::utils::timestamp_ms_to_offset_datetime;
 use crate::{
     backtest::{BlockData, OrdersWithTimestamp, RawOrdersWithTimestamp},
     mev_boost::BuilderBlockReceived,
     primitives::serialize::{RawOrder, TxEncoding},
 };
 use ahash::{HashMap, HashSet};
+use alloy_primitives::utils::{ParseUnits, Unit};
 use alloy_primitives::{
     utils::{format_ether, parse_ether},
-    Address, B256, U256,
+    Address, B256, I256, U256,
 };
 use lz4_flex::{block::DecompressError, compress_prepend_size, decompress_size_prepended};
 use rayon::prelude::*;
@@ -16,6 +20,7 @@ use sqlx::{
     sqlite::{SqliteConnectOptions, SqliteRow},
     ConnectOptions, Connection, Executor, Row, SqliteConnection,
 };
+use std::str::FromStr;
 use std::{
     ffi::OsString,
     path::{Path, PathBuf},
@@ -23,7 +28,7 @@ use std::{
 
 /// Version of the data/format on the DB.
 /// Since we don't have backwards compatibility every time this is increased we must re-create the DB (manually delete the sqlite)
-const VERSION: i64 = 9;
+const VERSION: i64 = 10;
 
 /// Storage of BlockData.
 /// It allows us to locally cache (using a SQLite DB) all the info we need for backtesting so we don't have to
@@ -126,6 +131,19 @@ impl HistoricalDataStorage {
                 onchain_block BLOB NOT NULL
             );
 
+
+            CREATE TABLE IF NOT EXISTS built_block_included_orders (
+                block_number INTEGER NOT NULL,
+                order_id TEXT NOL NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS built_block_data (
+                block_number INTEGER NOT NULL,
+                orders_closed_at_ts_ms INTEGER NOT NULL,
+                sealed_at_ts_ms INTEGER NOT NULL,
+                profit TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS version (
                 version INTEGER NOT NULL
             );
@@ -174,6 +192,20 @@ impl HistoricalDataStorage {
                 sqlx::query(
                     r#"
                 DELETE FROM blocks_data WHERE block_number = ?;
+                "#,
+                ).bind(block_data.block_number as i64)
+                    .execute(conn.as_mut())
+                    .await?;
+                sqlx::query(
+                    r#"
+                DELETE FROM built_block_included_orders WHERE block_number = ?;
+                "#,
+                ).bind(block_data.block_number as i64)
+                    .execute(conn.as_mut())
+                    .await?;
+                sqlx::query(
+                    r#"
+                DELETE FROM built_block_data WHERE block_number = ?;
                 "#,
                 ).bind(block_data.block_number as i64)
                     .execute(conn.as_mut())
@@ -227,6 +259,36 @@ impl HistoricalDataStorage {
                     .await?;
             }
 
+            if let Some(built_block_data) = block_data.built_block_data {
+                for order_id in built_block_data.included_orders {
+                    let order_id = order_id.to_string();
+                    sqlx::query(
+                        r#"
+                    INSERT INTO built_block_included_orders (block_number, order_id)
+                    VALUES (?, ?)
+                    "#,
+                    ).bind(block_data.block_number as i64)
+                        .bind(order_id)
+                        .execute(conn.as_mut())
+                        .await?;
+                }
+
+                let orders_closed_at_ts_ms = built_block_data.orders_closed_at.unix_timestamp_nanos() as i64 / 1_000_000;
+                let sealed_at_ts_ms = built_block_data.sealed_at.unix_timestamp_nanos() as i64 / 1_000_000;
+
+                sqlx::query(
+                    r#"
+                INSERT INTO built_block_data (block_number, orders_closed_at_ts_ms, sealed_at_ts_ms, profit)
+                VALUES (?, ?, ?, ?)
+                "#,
+                ).bind(block_data.block_number as i64)
+                    .bind(orders_closed_at_ts_ms)
+                    .bind(sealed_at_ts_ms)
+                    .bind(format_ether(built_block_data.profit))
+                    .execute(conn.as_mut())
+                    .await?;
+            }
+
 
             Ok::<_, eyre::Error>(())
         })).await?;
@@ -259,7 +321,33 @@ impl HistoricalDataStorage {
         .fetch_all(&mut self.conn)
         .await?;
 
-        group_rows_into_block_data(vec![block_data], orders).map(|mut v| v.remove(0))
+        let built_block_data = sqlx::query(
+            r#"
+        SELECT block_number, orders_closed_at_ts_ms, sealed_at_ts_ms, profit FROM built_block_data
+        WHERE block_number = ?
+        "#,
+        )
+        .bind(block_number as i64)
+        .fetch_all(&mut self.conn)
+        .await?;
+
+        let built_block_included_orders = sqlx::query(
+            r#"
+        SELECT block_number, order_id FROM built_block_included_orders
+        WHERE block_number = ?
+        "#,
+        )
+        .bind(block_number as i64)
+        .fetch_all(&mut self.conn)
+        .await?;
+
+        group_rows_into_block_data(
+            vec![block_data],
+            orders,
+            built_block_data,
+            built_block_included_orders,
+        )
+        .map(|mut v| v.remove(0))
     }
 
     /// Retunrs BlockData for the given block, if some blocks are missing error is not returned.
@@ -290,7 +378,34 @@ impl HistoricalDataStorage {
         .fetch_all(&mut self.conn)
         .await?;
 
-        let mut res = group_rows_into_block_data(block_data, orders)?;
+        let built_block_data = sqlx::query(
+            r#"
+        SELECT block_number, orders_closed_at_ts_ms, sealed_at_ts_ms, profit FROM built_block_data
+        WHERE block_number between ? and ?
+        "#,
+        )
+        .bind(min_block)
+        .bind(max_block)
+        .fetch_all(&mut self.conn)
+        .await?;
+
+        let built_block_included_orders = sqlx::query(
+            r#"
+        SELECT block_number, order_id FROM built_block_included_orders
+        WHERE block_number between ? and ?
+        "#,
+        )
+        .bind(min_block)
+        .bind(max_block)
+        .fetch_all(&mut self.conn)
+        .await?;
+
+        let mut res = group_rows_into_block_data(
+            block_data,
+            orders,
+            built_block_data,
+            built_block_included_orders,
+        )?;
         let blocks = blocks.iter().collect::<HashSet<_>>();
         res.retain(|block| blocks.contains(&block.block_number));
         Ok(res)
@@ -322,8 +437,8 @@ impl HistoricalDataStorage {
             ORDER BY blocks.block_number ASC
         "#,
         )
-        .fetch_all(&mut self.conn)
-        .await?;
+            .fetch_all(&mut self.conn)
+            .await?;
 
         blocks
             .into_iter()
@@ -397,6 +512,8 @@ fn decompress_data(data: &[u8]) -> Result<Vec<u8>, DecompressError> {
 fn group_rows_into_block_data(
     blocks_data: Vec<SqliteRow>,
     orders: Vec<SqliteRow>,
+    built_block_data: Vec<SqliteRow>,
+    built_block_included_orders: Vec<SqliteRow>,
 ) -> eyre::Result<Vec<BlockData>> {
     let mut block_data_by_block = blocks_data
         .into_par_iter()
@@ -415,12 +532,59 @@ fn group_rows_into_block_data(
                     winning_bid_trace,
                     onchain_block,
                     available_orders: Vec::new(),
+                    built_block_data: None,
                 },
             ))
         })
         .collect::<Result<Vec<_>, _>>()?
         .into_iter()
         .collect::<HashMap<_, _>>();
+
+    let mut built_blocks_data = built_block_data
+        .into_par_iter()
+        .map(|built_block_data| -> eyre::Result<(u64, BuiltBlockData)> {
+            let block_number = built_block_data.try_get::<i64, _>("block_number")? as u64;
+            let orders_closed_at_ts_ms =
+                built_block_data.try_get::<i64, _>("orders_closed_at_ts_ms")?;
+            let sealed_at_ts_ms = built_block_data.try_get::<i64, _>("sealed_at_ts_ms")?;
+            let profit = built_block_data.try_get::<String, _>("profit")?;
+            let profit = match ParseUnits::parse_units(&profit, Unit::ETHER)? {
+                ParseUnits::U256(u) => I256::try_from(u)?,
+                ParseUnits::I256(i) => i,
+            };
+
+            Ok((
+                block_number,
+                BuiltBlockData {
+                    included_orders: vec![],
+                    orders_closed_at: timestamp_ms_to_offset_datetime(
+                        orders_closed_at_ts_ms as u64,
+                    ),
+                    sealed_at: timestamp_ms_to_offset_datetime(sealed_at_ts_ms as u64),
+                    profit,
+                },
+            ))
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .collect::<HashMap<_, _>>();
+
+    for row in built_block_included_orders {
+        let block_number = row.try_get::<i64, _>("block_number")? as u64;
+        let order_id = row.try_get::<String, _>("order_id")?;
+        let order_id = OrderId::from_str(&order_id)?;
+
+        built_blocks_data
+            .get_mut(&block_number)
+            .ok_or_else(|| eyre::eyre!("Block data {} not found", block_number))?
+            .included_orders
+            .push(order_id);
+    }
+    for (block_number, built_block_data) in built_blocks_data {
+        if let Some(block_data) = block_data_by_block.get_mut(&block_number) {
+            block_data.built_block_data = Some(built_block_data);
+        }
+    }
 
     let orders_by_blocks = orders
         .into_par_iter()
@@ -461,6 +625,7 @@ mod test {
     use alloy_rpc_types::{Block, BlockTransactions, Header, Signature, Transaction};
     use alloy_serde::OtherFields;
     use reth_primitives::{U256, U64};
+    use time::OffsetDateTime;
     #[tokio::test]
     async fn test_create_tables() {
         let mut storage = HistoricalDataStorage::new_from_memory().await.unwrap();
@@ -523,11 +688,19 @@ mod test {
             optimistic_submission: false,
         };
         let onchain_block = create_test_block();
+        let built_block_data = BuiltBlockData {
+            included_orders: vec![OrderId::ShareBundle(B256::random())],
+            orders_closed_at: OffsetDateTime::from_unix_timestamp_nanos(1719845355111000000)
+                .unwrap(),
+            sealed_at: OffsetDateTime::from_unix_timestamp_nanos(1719845355123000000).unwrap(),
+            profit: I256::try_from(42).unwrap(),
+        };
         let block_data = BlockData {
             block_number: 12,
             winning_bid_trace,
             onchain_block,
             available_orders: orders,
+            built_block_data: Some(built_block_data),
         };
 
         let mut storage = HistoricalDataStorage::new_from_memory().await.unwrap();

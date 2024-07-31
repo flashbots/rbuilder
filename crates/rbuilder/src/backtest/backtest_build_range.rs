@@ -19,7 +19,7 @@ use crate::{
     },
     live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig},
 };
-use alloy_primitives::{utils::format_ether, U256};
+use alloy_primitives::{utils::format_ether, Address, U256};
 use clap::Parser;
 use rayon::prelude::*;
 use std::{
@@ -57,6 +57,8 @@ struct Cli {
     compare_backtest: bool,
     #[clap(long, help = "Path to csv file to write output to")]
     csv: Option<PathBuf>,
+    #[clap(long, help = "Ignored signers")]
+    ignored_signers: Vec<Address>,
     #[clap(help = "Blocks")]
     blocks: Vec<u64>,
 }
@@ -138,6 +140,7 @@ pub async fn run_backtest_build_range<ConfigType: LiveBuilderConfig + Send + Syn
     let mut read_blocks = spawn_block_fetcher(
         historical_data_storage,
         blocks.clone(),
+        cli.ignored_signers,
         cancel_token.clone(),
     );
 
@@ -399,6 +402,7 @@ impl CSVResultWriter {
 fn spawn_block_fetcher(
     mut historical_data_storage: HistoricalDataStorage,
     blocks: Vec<u64>,
+    ingored_signers: Vec<Address>,
     cancellation_token: CancellationToken,
 ) -> mpsc::Receiver<Vec<BlockData>> {
     let (sender, receiver) = mpsc::channel(10);
@@ -408,13 +412,16 @@ fn spawn_block_fetcher(
             if cancellation_token.is_cancelled() {
                 return;
             }
-            let blocks = match historical_data_storage.read_blocks(blocks).await {
+            let mut blocks = match historical_data_storage.read_blocks(blocks).await {
                 Ok(res) => res,
                 Err(err) => {
                     warn!("Failed to read blocks from storage: {:?}", err);
                     return;
                 }
             };
+            for block in &mut blocks {
+                block.filter_out_ignored_signers(&ingored_signers);
+            }
             match sender.send(blocks).await {
                 Ok(_) => {}
                 Err(err) => {
