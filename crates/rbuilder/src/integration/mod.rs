@@ -1,2 +1,2 @@
-mod playground;
+pub mod playground;
 mod simple;
