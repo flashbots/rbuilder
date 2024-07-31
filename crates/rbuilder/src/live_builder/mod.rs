@@ -40,7 +40,7 @@ use std::{cmp::min, path::PathBuf, sync::Arc, time::Duration};
 use time::OffsetDateTime;
 use tokio::task::spawn_blocking;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, info_span, warn};
 
 /// Time the proposer have to propose a block from the beginning of the slot (https://www.paradigm.xyz/2023/04/mev-boost-ethereum-consensus Slot anatomy)
 const SLOT_PROPOSAL_DURATION: std::time::Duration = Duration::from_secs(4);
@@ -239,6 +239,9 @@ where
                 self.extra_data.clone(),
                 None,
             );
+
+            let span = info_span!("new_slot");
+            let _guard = span.enter();
 
             builder_pool.start_block_building(
                 payload,

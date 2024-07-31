@@ -11,6 +11,9 @@ use tracing_subscriber::{
     EnvFilter, Layer, Registry,
 };
 
+use opentelemetry::trace::TracerProvider as _;
+use opentelemetry_sdk::trace::TracerProvider;
+
 type BoxedLayer = Box<dyn Layer<Registry> + Send + Sync>;
 type FilteredLayer = Filtered<BoxedLayer, EnvFilter, Registry>;
 
@@ -68,6 +71,35 @@ pub fn reset_log_config() -> eyre::Result<()> {
 /// Sets up the tracing subscriber with the provided filter
 /// To reload env filter, use `set_env_filter` and `reset_env_filter` functions
 pub fn setup_reloadable_tracing_subscriber(config: LoggerConfig) -> eyre::Result<()> {
+    /*
+    // open telemetry subscriber
+    let provider = TracerProvider::builder()
+        .with_simple_exporter(opentelemetry_stdout::SpanExporter::default())
+        .build();
+    let tracer = provider.tracer("randy");
+
+    let telemetry_layer = tracing_opentelemetry::layer().with_tracer(tracer);
+    */
+
+    /*
+    // oltp exporter
+    let tracer = opentelemetry_otlp::new_pipeline()
+        .tracing()
+        .with_exporter(opentelemetry_otlp::new_exporter().tonic())
+        .install_batch(opentelemetry_sdk::runtime::Tokio)
+        .expect("Couldn't create OTLP tracer");
+    */
+    let otlp_exporter = opentelemetry_otlp::new_exporter().tonic();
+    let tracer = opentelemetry_otlp::new_pipeline()
+        .tracing()
+        .with_exporter(otlp_exporter)
+        .install_batch(opentelemetry_sdk::runtime::Tokio)
+        .unwrap()
+        .tracer("trace_demo");
+
+    // let telemetry_layer = tracing_opentelemetry::layer().with_tracer(tracer);
+    let otel_layer = tracing_opentelemetry::OpenTelemetryLayer::new(tracer);
+
     {
         let mut default_config = DEFAULT_CONFIG.lock().unwrap();
         *default_config = config.clone();
@@ -81,7 +113,10 @@ pub fn setup_reloadable_tracing_subscriber(config: LoggerConfig) -> eyre::Result
         let mut handle = RELOAD_HANDLE.lock().unwrap();
         *handle = Some(reload_handle);
     }
-    tracing_subscriber::registry().with(reload_layer).init();
+    tracing_subscriber::registry()
+        .with(reload_layer)
+        .with(otel_layer)
+        .init();
 
     Ok(())
 }

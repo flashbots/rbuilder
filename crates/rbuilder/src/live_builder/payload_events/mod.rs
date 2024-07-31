@@ -21,7 +21,7 @@ use reth::{
 use std::{collections::VecDeque, time::Duration};
 use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, info_span, warn};
 
 const RECENTLY_SENT_EVENTS_BUFF: usize = 10;
 const NEW_PAYLOAD_RECV_TIMEOUT: Duration = SLOT_DURATION.saturating_mul(2);

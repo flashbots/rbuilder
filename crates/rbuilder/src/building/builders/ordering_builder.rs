@@ -73,6 +73,9 @@ pub fn run_ordering_builder<DB: Database + Clone + 'static, SinkType: BlockBuild
     input: LiveBuilderInput<DB, SinkType>,
     config: &OrderingBuilderConfig,
 ) {
+    let span = tracing::info_span!("running_builder");
+    let _guard = span.enter();
+
     let block_number = input.ctx.block_env.number.to::<u64>();
     //
     let mut order_intake_consumer = OrderIntakeConsumer::new(
@@ -250,6 +253,9 @@ impl<DB: Database + Clone + 'static> OrderingBuilderContext<DB> {
         mut block_orders: BlockOrders,
         use_suggested_fee_recipient_as_coinbase: bool,
     ) -> eyre::Result<Option<Block>> {
+        let span = tracing::info_span!("build_block");
+        let _guard = span.enter();
+
         let use_suggested_fee_recipient_as_coinbase = use_suggested_fee_recipient_as_coinbase
             && self.slot_bidder.is_pay_to_coinbase_allowed();
 

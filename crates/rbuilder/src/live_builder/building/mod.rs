@@ -132,6 +132,9 @@ where
         for builder in self.builders.iter() {
             let builder_name = builder.name();
             debug!(block = block_number, builder_name, "Spawning builder job");
+
+            let span = tracing::info_span!("builder_job", block = block_number, builder_name);
+
             let input = BlockBuildingAlgorithmInput::<DB, BuilderSinkFactoryType::SinkType> {
                 provider_factory: provider_factory.clone(),
                 ctx: ctx.clone(),
@@ -142,6 +145,8 @@ where
             };
             let builder = builder.clone();
             tokio::task::spawn_blocking(move || {
+                let _guard = span.enter();
+
                 builder.build_blocks(input);
                 debug!(block = block_number, builder_name, "Stopped builder job");
             });
