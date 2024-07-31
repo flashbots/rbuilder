@@ -402,7 +402,7 @@ impl CSVResultWriter {
 fn spawn_block_fetcher(
     mut historical_data_storage: HistoricalDataStorage,
     blocks: Vec<u64>,
-    ingored_signers: Vec<Address>,
+    ignored_signers: Vec<Address>,
     cancellation_token: CancellationToken,
 ) -> mpsc::Receiver<Vec<BlockData>> {
     let (sender, receiver) = mpsc::channel(10);
@@ -420,7 +420,7 @@ fn spawn_block_fetcher(
                 }
             };
             for block in &mut blocks {
-                block.filter_out_ignored_signers(&ingored_signers);
+                block.filter_out_ignored_signers(&ignored_signers);
             }
             match sender.send(blocks).await {
                 Ok(_) => {}
