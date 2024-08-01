@@ -28,7 +28,7 @@ pub struct PayloadDeliveredFetcher {
     relays: HashMap<MevBoostRelayID, RelayClient>,
 }
 
-/// Uses well-known relays ([RELAYS])
+/// Uses some predefined relays ([RELAYS])
 impl Default for PayloadDeliveredFetcher {
     fn default() -> Self {
         let relays = RELAYS

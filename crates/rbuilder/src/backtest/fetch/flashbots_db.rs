@@ -14,7 +14,7 @@ use bigdecimal::{
     BigDecimal,
 };
 use eyre::WrapErr;
-use reth::primitives::{Bytes, B256, U256, U64};
+use reth_primitives::{Bytes, B256, U256, U64};
 use sqlx::postgres::PgPool;
 use std::{ops::Mul, str::FromStr};
 use time::OffsetDateTime;

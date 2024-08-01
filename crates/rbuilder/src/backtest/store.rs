@@ -26,7 +26,7 @@ use std::{
 const VERSION: i64 = 9;
 
 /// Storage of BlockData.
-/// It allows us have cached locally (using a SQLite DB) all the info we need for backtesting so we don't have to
+/// It allows us to locally cache (using a SQLite DB) all the info we need for backtesting so we don't have to
 /// go to the mempool dumpster (or any other source) every time we simulate a block.
 pub struct HistoricalDataStorage {
     conn: SqliteConnection,
@@ -460,7 +460,7 @@ mod test {
     use alloy_primitives::{hex, Address, Bloom, Bytes, B256};
     use alloy_rpc_types::{Block, BlockTransactions, Header, Signature, Transaction};
     use alloy_serde::OtherFields;
-    use reth::primitives::{U256, U64};
+    use reth_primitives::{U256, U64};
     #[tokio::test]
     async fn test_create_tables() {
         let mut storage = HistoricalDataStorage::new_from_memory().await.unwrap();

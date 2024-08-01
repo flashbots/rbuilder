@@ -1,6 +1,5 @@
-use super::{CapellaSubmitBlockRequest, DenebSubmitBlockRequest, Error, SubmitBlockRequest};
+use super::{CapellaSubmitBlockRequest, DenebSubmitBlockRequest, SubmitBlockRequest};
 use crate::utils::u256decimal_serde_helper;
-use alloy_consensus::{Blob, Bytes48};
 use alloy_primitives::{Address, BlockHash, FixedBytes, B256, U256};
 use alloy_rpc_types_beacon::{
     relay::{BidTrace, SignedBidSubmissionV2, SignedBidSubmissionV3},
@@ -17,10 +16,9 @@ use ethereum_consensus::{
     ssz::prelude::*,
 };
 use primitive_types::H384;
-use reth::{
-    primitives::{BlobTransactionSidecar, ChainSpec, SealedBlock},
-    rpc::types::beacon::events::PayloadAttributesData,
-};
+use reth::rpc::types::beacon::events::PayloadAttributesData;
+use reth_chainspec::{ChainSpec, EthereumHardforks};
+use reth_primitives::{BlobTransactionSidecar, SealedBlock};
 use serde_with::{serde_as, DisplayFromStr};
 use std::sync::Arc;
 
@@ -37,9 +35,9 @@ impl BLSBlockSigner {
 
     pub fn sign_payload(&self, bid_trace: &BidTrace) -> eyre::Result<Vec<u8>> {
         // We use RPCBidTrace not because of it's RPC nature but because it's also Merkleized
-        let mut bid_trace = marshal_bid_trace(bid_trace);
+        let bid_trace = marshal_bid_trace(bid_trace);
 
-        let signature = sign_with_domain(&mut bid_trace, &self.sec, *self.domain)?;
+        let signature = sign_with_domain(&bid_trace, &self.sec, *self.domain)?;
         Ok(signature.to_vec())
     }
 
@@ -177,7 +175,7 @@ pub fn sign_block_for_relay(
                 .expect("deneb block does not have excess blob gas"),
         };
 
-        let blobs_bundle = marshal_txs_blobs_sidecars(blobs_bundle)?;
+        let blobs_bundle = marshal_txs_blobs_sidecars(blobs_bundle);
 
         SubmitBlockRequest::Deneb(DenebSubmitBlockRequest(SignedBidSubmissionV3 {
             message,
@@ -197,43 +195,24 @@ pub fn sign_block_for_relay(
     Ok(submit_block_request)
 }
 
-///For all txts sidecars takes one of the vectors via vec_getter and transforms all the elements via data_converter.
-fn flatten_marshal<Source, Dest>(
+fn flatten_marshal<Source>(
     txs_blobs_sidecars: &[Arc<BlobTransactionSidecar>],
-    vec_getter: impl Fn(&Arc<BlobTransactionSidecar>) -> &Vec<Source>,
-    data_converter: impl Fn(&Source) -> Result<Dest, Error>,
-) -> Result<Vec<Dest>, Error> {
+    vec_getter: impl Fn(&Arc<BlobTransactionSidecar>) -> Vec<Source>,
+) -> Vec<Source> {
     let flatten_data = txs_blobs_sidecars.iter().flat_map(vec_getter);
-    flatten_data
-        .map(data_converter)
-        .collect::<Result<Vec<Dest>, Error>>()
+    flatten_data.collect::<Vec<Source>>()
 }
 
-fn marshal_txs_blobs_sidecars(
-    txs_blobs_sidecars: &[Arc<BlobTransactionSidecar>],
-) -> Result<BlobsBundleV1, Error> {
-    let rpc_commitments = flatten_marshal(
-        txs_blobs_sidecars,
-        |t| &t.commitments,
-        |c| Bytes48::try_from(c.as_ref()).map_err(|_| Error::WrongKzgCommitmentSize),
-    )?;
-    let rpc_proofs = flatten_marshal(
-        txs_blobs_sidecars,
-        |t| &t.proofs,
-        |p| Bytes48::try_from(p.as_ref()).map_err(|_| Error::WrongProofSize),
-    )?;
+fn marshal_txs_blobs_sidecars(txs_blobs_sidecars: &[Arc<BlobTransactionSidecar>]) -> BlobsBundleV1 {
+    let rpc_commitments = flatten_marshal(txs_blobs_sidecars, |t| t.commitments.clone());
+    let rpc_proofs = flatten_marshal(txs_blobs_sidecars, |t| t.proofs.clone());
+    let rpc_blobs = flatten_marshal(txs_blobs_sidecars, |t| t.blobs.clone());
 
-    let rpc_blobs = flatten_marshal(
-        txs_blobs_sidecars,
-        |t| &t.blobs,
-        |blob| Blob::try_from(blob.as_ref()).map_err(|_| Error::BlobTooBig),
-    )?;
-
-    Ok(BlobsBundleV1 {
+    BlobsBundleV1 {
         commitments: rpc_commitments,
         proofs: rpc_proofs,
         blobs: rpc_blobs,
-    })
+    }
 }
 
 #[cfg(test)]

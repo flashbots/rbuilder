@@ -4,8 +4,9 @@ use crate::primitives::{
     Bundle, BundleReplacementKey, MempoolTx, Order,
 };
 use alloy_primitives::Address;
+use jsonrpsee::types::ErrorObject;
 use jsonrpsee::{server::Server, RpcModule};
-use reth::primitives::Bytes;
+use reth_primitives::Bytes;
 use serde::Deserialize;
 use std::{
     net::{SocketAddr, SocketAddrV4},
@@ -87,7 +88,7 @@ pub async fn start_server_accepting_bundles(
                 Err(err) => {
                     warn!(?err, "Failed to parse transaction");
                     // @Metric
-                    return;
+                    return Err(err);
                 }
             };
             let raw_tx_order = RawTx { tx: raw_tx };
@@ -97,13 +98,15 @@ pub async fn start_server_accepting_bundles(
                 Err(err) => {
                     warn!(?err, "Failed to verify transaction");
                     // @Metric
-                    return;
+                    return Err(ErrorObject::owned(-32602, "failed to verify transaction", None::<()>));
                 }
             };
+            let hash = tx.tx_with_blobs.hash();
             let order = Order::Tx(tx);
             let parse_duration = start.elapsed();
             trace!(order = ?order.id(), parse_duration_mus = parse_duration.as_micros(), "Received mempool tx from API");
             send_order(order, &results, timeout).await;
+            Ok(hash)
         }
     })?;
 

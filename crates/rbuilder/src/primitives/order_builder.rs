@@ -1,7 +1,7 @@
 use std::mem;
 
 use super::{
-    Bundle, BundleReplacementData, MempoolTx, Order, Refund, RefundConfig, ShareBundle,
+    Bundle, BundleReplacementData, MempoolTx, Order, OrderId, Refund, RefundConfig, ShareBundle,
     ShareBundleBody, ShareBundleInner, ShareBundleTx, TransactionSignedEcRecoveredWithBlobs,
     TxRevertBehavior,
 };
@@ -132,6 +132,15 @@ impl OrderBuilder {
             _ => panic!("Only ShareBundle can have refund config"),
         }
     }
+
+    pub fn set_inner_bundle_original_order_id(&mut self, original_order_id: OrderId) {
+        match self {
+            OrderBuilder::ShareBundle(builder) => {
+                builder.set_inner_bundle_original_order_id(original_order_id);
+            }
+            _ => panic!("Only ShareBundle can have refund config"),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -202,17 +211,13 @@ pub struct ShareBundleBuilder {
 
 impl ShareBundleBuilder {
     fn new(block: u64, max_block: u64) -> Self {
-        Self {
+        let mut res = Self {
             block,
             max_block,
-            inner_bundle_stack: vec![ShareBundleInner {
-                body: vec![],
-                refund: vec![],
-                refund_config: vec![],
-                can_skip: false,
-                original_order_id: None,
-            }],
-        }
+            inner_bundle_stack: Vec::new(),
+        };
+        res.start_inner_bundle(false);
+        res
     }
 
     fn build(mut self) -> ShareBundle {
@@ -249,6 +254,11 @@ impl ShareBundleBuilder {
     fn set_inner_bundle_refund_config(&mut self, refund_config: Vec<RefundConfig>) {
         let last = self.inner_bundle_stack.last_mut().unwrap();
         last.refund_config = refund_config;
+    }
+
+    fn set_inner_bundle_original_order_id(&mut self, original_order_id: OrderId) {
+        let last = self.inner_bundle_stack.last_mut().unwrap();
+        last.original_order_id = Some(original_order_id);
     }
 
     fn finish_inner_bundle(&mut self) {

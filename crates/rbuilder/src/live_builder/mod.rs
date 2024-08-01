@@ -32,9 +32,10 @@ use eyre::Context;
 use jsonrpsee::RpcModule;
 use payload_events::MevBoostSlotDataGenerator;
 use reth::{
-    primitives::{ChainSpec, Header},
+    primitives::Header,
     providers::{HeaderProvider, ProviderFactory},
 };
+use reth_chainspec::ChainSpec;
 use reth_db::database::Database;
 use std::{cmp::min, path::PathBuf, sync::Arc, time::Duration};
 use time::OffsetDateTime;

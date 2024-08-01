@@ -3,20 +3,22 @@ use alloy_primitives::{keccak256, utils::parse_ether, Address, BlockHash, Bytes,
 use lazy_static::lazy_static;
 use reth::{
     primitives::{
-        Account, BlockBody, Bytecode, ChainSpec, Header, SealedBlock, TransactionKind,
-        TransactionSignedEcRecovered, TxEip1559, MAINNET,
+        Account, BlockBody, Bytecode, Header, SealedBlock, TransactionSignedEcRecovered, TxEip1559,
+        TxKind as TransactionKind,
     },
-    providers::{test_utils::create_test_provider_factory, ProviderFactory},
+    providers::ProviderFactory,
     rpc::types::{
         beacon::events::{PayloadAttributesData, PayloadAttributesEvent},
         engine::PayloadAttributes,
         Withdrawal,
     },
 };
+use reth_chainspec::{ChainSpec, MAINNET};
 use reth_db::{
     cursor::DbCursorRW, tables, test_utils::TempDatabase, transaction::DbTxMut, DatabaseEnv,
 };
-use revm::primitives::SpecId;
+use reth_provider::test_utils::create_test_provider_factory;
+use revm_primitives::SpecId;
 use std::sync::Arc;
 
 use crate::{building::BlockBuildingContext, utils::Signer};
@@ -97,7 +99,6 @@ impl TestChainState {
                 SealedBlock::new(genesis_header.clone(), BlockBody::default())
                     .try_seal_with_senders()
                     .unwrap(),
-                None,
             )?;
 
             {
@@ -309,6 +310,7 @@ impl TestBlockContextBuilder {
                 excess_blob_gas: None,
                 parent_beacon_block_root: None,
                 extra_data: Default::default(),
+                requests_root: Default::default(),
             },
             self.builder_signer.clone(),
             self.chain_spec,

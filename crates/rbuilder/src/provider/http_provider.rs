@@ -3,7 +3,7 @@ use alloy_provider::{Provider, ProviderBuilder, RootProvider};
 use alloy_rpc_types::{BlockId, BlockNumberOrTag};
 use alloy_transport_http::Http;
 use reqwest::Client;
-use reth_interfaces::provider::ProviderResult;
+use reth_errors::ProviderResult;
 use reth_primitives::{
     trie::AccountProof, Account, Address, BlockNumber, Bytecode, StorageKey, StorageValue, B256,
 };

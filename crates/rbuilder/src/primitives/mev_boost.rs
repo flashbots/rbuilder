@@ -6,14 +6,14 @@ use url::Url;
 pub type MevBoostRelayID = String;
 
 /// Wrapper over RelayClient that allows to submit blocks and
-/// hides the particular configuration (eg:ssz,gip,optimistic)
+/// hides the particular configuration (eg: ssz, gip, optimistic).
 #[derive(Debug, Clone)]
 pub struct MevBoostRelay {
     pub id: MevBoostRelayID,
     pub client: RelayClient,
-    /// The lower priority -> more important
+    /// Lower priority -> more important.
     pub priority: usize,
-    /// true->ssz false->json
+    /// true -> ssz; false -> json.
     pub use_ssz_for_submit: bool,
     pub use_gzip_for_submit: bool,
     pub optimistic: bool,

@@ -1,4 +1,4 @@
-use reth_interfaces::provider::ProviderResult;
+use reth_errors::ProviderResult;
 use reth_primitives::BlockNumber;
 use reth_provider::StateProviderBox;
 

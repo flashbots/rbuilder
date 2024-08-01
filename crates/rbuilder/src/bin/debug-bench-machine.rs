@@ -14,12 +14,10 @@ use rbuilder::{
 };
 use reth::{
     payload::PayloadId,
-    primitives::revm_primitives::BlobExcessGasAndPrice,
     providers::{BlockNumReader, BlockReader},
-    revm::primitives::BlockEnv,
 };
 use reth_payload_builder::{database::CachedReads, EthPayloadBuilderAttributes};
-use revm::primitives::SpecId;
+use revm_primitives::{BlobExcessGasAndPrice, BlockEnv, SpecId};
 use std::{path::PathBuf, time::Instant};
 
 #[derive(Parser, Debug)]

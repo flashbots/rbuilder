@@ -1,7 +1,8 @@
 use super::{BundleErr, ExecutionError, ExecutionResult, OrderErr};
-use crate::primitives::{Order, OrderReplacementKey};
+use crate::primitives::{Order, OrderId, OrderReplacementKey};
 use ahash::{HashMap, HashSet};
-use alloy_primitives::{Address, U256};
+use alloy_primitives::{Address, TxHash, U256};
+use std::collections::hash_map;
 use std::time::Duration;
 use time::OffsetDateTime;
 
@@ -37,8 +38,10 @@ pub enum BuiltBlockTraceError {
     DifferentTxsAndReceipts,
     #[error("Included order had tx from or to blocked address")]
     BlockedAddress,
-    #[error("Bundle tx reverted that is not revertable")]
-    BundleTxReverted,
+    #[error(
+        "Bundle tx reverted that is not revertable, order: {order_id:?}, tx_hash: {tx_hash:?}"
+    )]
+    BundleTxReverted { order_id: OrderId, tx_hash: TxHash },
 }
 
 impl BuiltBlockTrace {
@@ -95,6 +98,8 @@ impl BuiltBlockTrace {
         blocklist: &HashSet<Address>,
     ) -> Result<(), BuiltBlockTraceError> {
         let mut replacement_data_count: HashSet<_> = HashSet::default();
+        let mut bundle_txs_scratchpad = HashMap::default();
+        let mut executed_tx_hashes_scratchpad = Vec::new();
 
         for res in &self.included_orders {
             for order in res.order.original_orders() {
@@ -110,7 +115,10 @@ impl BuiltBlockTrace {
                 return Err(BuiltBlockTraceError::DifferentTxsAndReceipts);
             }
 
-            let mut executed_tx_hashes = Vec::with_capacity(res.txs.len());
+            let executed_tx_hashes = {
+                executed_tx_hashes_scratchpad.clear();
+                &mut executed_tx_hashes_scratchpad
+            };
             for (tx, receipt) in res.txs.iter().zip(res.receipts.iter()) {
                 let tx = &tx.tx;
                 executed_tx_hashes.push((tx.hash(), receipt.success));
@@ -121,16 +129,34 @@ impl BuiltBlockTrace {
                 }
             }
 
-            let bundle_txs = res
-                .order
-                .list_txs()
-                .into_iter()
-                .map(|(tx, can_revert)| (tx.hash(), can_revert))
-                .collect::<HashMap<_, _>>();
+            let bundle_txs = {
+                // we can have the same tx in the list_txs() multiple times(share bundle merging)
+                // sometimes that tx is marked as revertible and sometimes not
+                // if tx is marked as revertible in one sub-bundle but not another we consider that tx as revertible
+                bundle_txs_scratchpad.clear();
+                for (tx, can_revert) in res.order.list_txs() {
+                    let hash = tx.hash();
+                    match bundle_txs_scratchpad.entry(hash) {
+                        hash_map::Entry::Vacant(entry) => {
+                            entry.insert(can_revert);
+                        }
+                        hash_map::Entry::Occupied(mut entry) => {
+                            let can_revert_stored = entry.get();
+                            if !can_revert_stored && can_revert {
+                                entry.insert(can_revert);
+                            }
+                        }
+                    }
+                }
+                &bundle_txs_scratchpad
+            };
             for (executed_hash, success) in executed_tx_hashes {
-                if let Some(can_revert) = bundle_txs.get(&executed_hash) {
-                    if !success && !can_revert {
-                        return Err(BuiltBlockTraceError::BundleTxReverted);
+                if let Some(can_revert) = bundle_txs.get(executed_hash) {
+                    if !*success && !can_revert {
+                        return Err(BuiltBlockTraceError::BundleTxReverted {
+                            order_id: res.order.id(),
+                            tx_hash: *executed_hash,
+                        });
                     }
                 }
             }

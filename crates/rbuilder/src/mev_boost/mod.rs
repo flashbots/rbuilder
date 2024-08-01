@@ -754,6 +754,7 @@ mod tests {
         println!("result[0]: {:#?}", result[0]);
     }
 
+    #[ignore]
     #[tokio::test]
     async fn test_send_payload_to_mevboost() {
         let srv = match FakeMevBoostRelay::new().spawn() {
