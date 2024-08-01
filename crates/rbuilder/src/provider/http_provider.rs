@@ -4,13 +4,12 @@ use alloy_rpc_types::{BlockId, BlockNumberOrTag};
 use alloy_transport_http::Http;
 use reqwest::Client;
 use reth_errors::ProviderResult;
-use reth_primitives::{
-    trie::AccountProof, Account, Address, BlockNumber, Bytecode, StorageKey, StorageValue, B256,
-};
+use reth_primitives::{Account, Address, BlockNumber, Bytecode, StorageKey, StorageValue, B256};
 use reth_provider::{
-    AccountReader, BlockHashReader, StateProvider, StateProviderBox, StateRootProvider,
+    AccountReader, BlockHashReader, StateProofProvider, StateProvider, StateProviderBox,
+    StateRootProvider,
 };
-use reth_trie::updates::TrieUpdates;
+use reth_trie::{updates::TrieUpdates, AccountProof, HashedPostState};
 use revm::db::BundleState;
 use tokio::runtime::Runtime;
 
@@ -96,21 +95,6 @@ impl StateProvider for HttpProviderState {
 
         Ok(Some(Bytecode::new_raw(res)))
     }
-
-    /// Get account and storage proofs.
-    fn proof(&self, address: Address, keys: &[B256]) -> ProviderResult<AccountProof> {
-        let keys: Vec<B256> = keys.to_vec();
-
-        let res = Runtime::new()
-            .unwrap()
-            .block_on(
-                self.provider
-                    .get_proof(address, keys, BlockId::hash(self.hash)),
-            )
-            .unwrap();
-
-        unimplemented!("todo");
-    }
 }
 
 impl BlockHashReader for HttpProviderState {
@@ -185,16 +169,30 @@ impl AccountReader for HttpProviderState {
 }
 
 impl StateRootProvider for HttpProviderState {
-    fn state_root(&self, _bundle_state: &BundleState) -> ProviderResult<B256> {
+    /// Returns the state root of the `HashedPostState` on top of the current state.
+    fn hashed_state_root(&self, hashed_state: &HashedPostState) -> ProviderResult<B256> {
         unimplemented!("todo");
     }
 
-    /// Returns the state root of the BundleState on top of the current state with trie
+    /// Returns the state root of the `HashedPostState` on top of the current state with trie
     /// updates to be committed to the database.
-    fn state_root_with_updates(
+    fn hashed_state_root_with_updates(
         &self,
-        _bundle_state: &BundleState,
+        hashed_state: &HashedPostState,
     ) -> ProviderResult<(B256, TrieUpdates)> {
+        unimplemented!("todo");
+    }
+}
+
+impl StateProofProvider for HttpProviderState {
+    /// Get account and storage proofs of target keys in the `HashedPostState`
+    /// on top of the current state.
+    fn hashed_proof(
+        &self,
+        hashed_state: &HashedPostState,
+        address: Address,
+        slots: &[B256],
+    ) -> ProviderResult<AccountProof> {
         unimplemented!("todo");
     }
 }
