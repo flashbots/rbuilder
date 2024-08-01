@@ -10,7 +10,6 @@ use reth_provider::{
     StateRootProvider,
 };
 use reth_trie::{updates::TrieUpdates, AccountProof, HashedPostState};
-use revm::db::BundleState;
 use tokio::runtime::Runtime;
 
 struct HttpProvider {

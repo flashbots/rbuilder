@@ -1,7 +1,6 @@
 use ahash::HashMap;
 use alloy_primitives::{Address, B256};
-use reth::providers::{ProviderFactory, StateProviderBox};
-use reth_db::database::Database;
+use reth::providers::StateProviderBox;
 use reth_errors::ProviderResult;
 use std::sync::{Arc, Mutex};
 
