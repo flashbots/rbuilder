@@ -229,6 +229,7 @@ impl<TestedSinkType: SimulatedOrderSink> TestContext<TestedSinkType> {
     /// - concatenated_sbundle is composed of all the ShareBundleInner of the sbundles in that order and made skippable.
     /// - the concatenated_sbundle has no refunds.
     /// - SimValue of concatenated_order is the same as the first of sbundles (current expected behavior of merging)
+    ///
     /// self is not used buf simplifies the call since the static func would need the types specified.
     pub fn assert_concatenated_sbundles_ok(
         &self,

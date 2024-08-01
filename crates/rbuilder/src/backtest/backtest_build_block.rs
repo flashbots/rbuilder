@@ -95,6 +95,7 @@ pub async fn run_backtest_build_block<ConfigType: LiveBuilderConfig>() -> eyre::
         chain_spec.clone(),
         cli.block_building_time_ms,
         config.base_config().blocklist()?,
+        config.base_config().coinbase_signer()?,
     )?;
 
     if cli.show_sim {
