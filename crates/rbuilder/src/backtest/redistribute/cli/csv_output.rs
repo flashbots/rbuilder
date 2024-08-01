@@ -24,10 +24,12 @@ impl CSVResultWriter {
             .create(true)
             .truncate(true)
             .open(path)?;
-        Ok(Self { file })
+        let mut result = Self { file };
+        result.write_header()?;
+        Ok(result)
     }
 
-    pub fn write_header(&mut self) -> io::Result<()> {
+    fn write_header(&mut self) -> io::Result<()> {
         writeln!(self.file, "block_number,block_hash,address,amount")?;
         self.file.flush()
     }

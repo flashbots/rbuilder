@@ -1,14 +1,18 @@
 mod csv_output;
 
 use crate::backtest::redistribute::calc_redistributions;
+use crate::backtest::BlockData;
 use crate::live_builder::base_config::load_config_toml_and_env;
 use crate::live_builder::cli::LiveBuilderConfig;
 use crate::{backtest::HistoricalDataStorage, live_builder::config::Config};
 use alloy_primitives::utils::format_ether;
 use clap::Parser;
 use csv_output::{CSVOutputRow, CSVResultWriter};
+use reth_db::DatabaseEnv;
+use reth_provider::ProviderFactory;
 use std::io;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tracing::info;
 
 #[derive(Parser, Debug)]
@@ -46,6 +50,14 @@ pub async fn run_backtest_redistribute<ConfigType: LiveBuilderConfig>() -> eyre:
     let mut historical_data_storage =
         HistoricalDataStorage::new_from_path(&config.base_config.backtest_fetch_output_file)
             .await?;
+    let provider_factory = config
+        .base_config
+        .provider_factory()?
+        .provider_factory_unchecked();
+    let mut csv_writer = cli
+        .csv
+        .map(|path| -> io::Result<_> { CSVResultWriter::new(path) })
+        .transpose()?;
 
     match cli.command {
         Commands::Block { block_number } => {
@@ -53,80 +65,59 @@ pub async fn run_backtest_redistribute<ConfigType: LiveBuilderConfig>() -> eyre:
                 .read_block_data(block_number)
                 .await?;
 
-            let block_number = block_data.block_number;
-            let block_hash = block_data.onchain_block.header.hash.unwrap_or_default();
-
-            let provider_factory = config
-                .base_config
-                .provider_factory()?
-                .provider_factory_unchecked();
-
-            let redistribution_values =
-                calc_redistributions(provider_factory, &config, block_data)?;
-
-            if let Some(csv_path) = cli.csv {
-                let mut csv_writer = CSVResultWriter::new(csv_path)?;
-                csv_writer.write_header()?;
-                let values = redistribution_values
-                    .into_iter()
-                    .map(|(address, value)| CSVOutputRow {
-                        block_number,
-                        block_hash,
-                        address,
-                        amount: value,
-                    })
-                    .collect();
-                csv_writer.write_data(values)?;
-            } else {
-                for (address, value) in redistribution_values {
-                    println!("{}: {}", address, format_ether(value));
-                }
-            }
+            process_redisribution(
+                block_data,
+                csv_writer.as_mut(),
+                provider_factory.clone(),
+                &config,
+            )?;
         }
         Commands::Range {
             start_block,
             end_block,
         } => {
-            let provider_factory = config
-                .base_config
-                .provider_factory()?
-                .provider_factory_unchecked();
-            let mut csv_writer = cli
-                .csv
-                .map(|path| -> io::Result<_> {
-                    let mut writer = CSVResultWriter::new(path)?;
-                    writer.write_header()?;
-                    Ok(writer)
-                })
-                .transpose()?;
-
             let blocks = (start_block..=end_block).collect::<Vec<_>>();
             let blocks_data = historical_data_storage.read_blocks(&blocks).await?;
 
             for block_data in blocks_data {
-                let block_number = block_data.block_number;
-                let block_hash = block_data.onchain_block.header.hash.unwrap_or_default();
-                info!(block_number, "Calculating redistribution for a block");
-                let redistribution_values =
-                    calc_redistributions(provider_factory.clone(), &config, block_data)?;
-
-                if let Some(csv_writer) = &mut csv_writer {
-                    let values = redistribution_values
-                        .into_iter()
-                        .map(|(address, value)| CSVOutputRow {
-                            block_number,
-                            block_hash,
-                            address,
-                            amount: value,
-                        })
-                        .collect();
-                    csv_writer.write_data(values)?;
-                } else {
-                    for (address, value) in redistribution_values {
-                        println!("{}: {}", address, format_ether(value));
-                    }
-                }
+                process_redisribution(
+                    block_data,
+                    csv_writer.as_mut(),
+                    provider_factory.clone(),
+                    &config,
+                )?;
             }
+        }
+    }
+
+    Ok(())
+}
+
+fn process_redisribution<ConfigType: LiveBuilderConfig>(
+    block_data: BlockData,
+    csv_writer: Option<&mut CSVResultWriter>,
+    provider_factory: ProviderFactory<Arc<DatabaseEnv>>,
+    config: &ConfigType,
+) -> eyre::Result<()> {
+    let block_number = block_data.block_number;
+    let block_hash = block_data.onchain_block.header.hash.unwrap_or_default();
+    info!(block_number, "Calculating redistribution for a block");
+    let redistribution_values = calc_redistributions(provider_factory.clone(), config, block_data)?;
+
+    if let Some(csv_writer) = csv_writer {
+        let values = redistribution_values
+            .into_iter()
+            .map(|(address, value)| CSVOutputRow {
+                block_number,
+                block_hash,
+                address,
+                amount: value,
+            })
+            .collect();
+        csv_writer.write_data(values)?;
+    } else {
+        for (address, value) in redistribution_values {
+            println!("{}: {}", address, format_ether(value));
         }
     }
 
