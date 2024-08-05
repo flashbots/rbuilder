@@ -60,6 +60,16 @@ rbuilder has a solid initial benchmarking setup (based on [Criterion.rs](https:/
 - Benchmarks are located in [`crates/rbuilder/benches`](./crates/rbuilder/benches/). We'd love to add more meaningful benchmarks there!
 - Let us know about further improvement ideas and additional relevant benchmarks.
 
+### End-to-end local testing
+
+You can use [builder-playground](https://github.com/flashbots/builder-playground) to deploy a fully functional local setup for the builder (proposer+validador+el+relay) to test the rbuilder.
+
+To do so, deploy the `builder-playground` and set the correct locations for the `reth` data directory and the execution node genesis file in the config.toml:
+
+```
+chain = "$HOME/.playground/devnet/genesis.json"
+reth_datadir = "$HOME/.playground/devnet/data_reth"
+```
 
 ---
 
