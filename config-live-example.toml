@@ -21,7 +21,7 @@ blocklist_file_path = "./blocklist.json"
 dry_run = true
 dry_run_validation_url = "http://localhost:8545"
 
-blocks_processor_url = "http://block_processor.internal"
+blocks_processor_url = ""
 ignore_cancellable_orders = true
 
 sbundle_mergeabe_signers = []
@@ -51,4 +51,3 @@ discard_txs = true
 sorting = "max-profit"
 failed_order_retries = 1
 drop_failed_orders = true
-
