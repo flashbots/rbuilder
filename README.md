@@ -64,11 +64,10 @@ rbuilder has a solid initial benchmarking setup (based on [Criterion.rs](https:/
 
 You can use [builder-playground](https://github.com/flashbots/builder-playground) to deploy a fully functional local setup for the builder (proposer+validador+el+relay) to test the rbuilder.
 
-To do so, deploy the `builder-playground` and set the correct locations for the `reth` data directory and the execution node genesis file in the config.toml:
+To do so, deploy the `builder-playground` and set the location of your home directory in the _HOME_ placeholder in the `config-playground.toml` file. Then, run the rbuilder:
 
 ```
-chain = "<HOME>/.playground/devnet/genesis.json"
-reth_datadir = "<HOME>/.playground/devnet/data_reth"
+$ cargo run --bin rbuilder run config-playground.toml
 ```
 
 ---
