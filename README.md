@@ -67,8 +67,8 @@ You can use [builder-playground](https://github.com/flashbots/builder-playground
 To do so, deploy the `builder-playground` and set the correct locations for the `reth` data directory and the execution node genesis file in the config.toml:
 
 ```
-chain = "$HOME/.playground/devnet/genesis.json"
-reth_datadir = "$HOME/.playground/devnet/data_reth"
+chain = "<HOME>/.playground/devnet/genesis.json"
+reth_datadir = "<HOME>/.playground/devnet/data_reth"
 ```
 
 ---
