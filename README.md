@@ -60,6 +60,15 @@ rbuilder has a solid initial benchmarking setup (based on [Criterion.rs](https:/
 - Benchmarks are located in [`crates/rbuilder/benches`](./crates/rbuilder/benches/). We'd love to add more meaningful benchmarks there!
 - Let us know about further improvement ideas and additional relevant benchmarks.
 
+### End-to-end local testing
+
+You can use [builder-playground](https://github.com/flashbots/builder-playground) to deploy a fully functional local setup for the builder (proposer+validador+el+relay) to test the rbuilder.
+
+To do so, deploy the `builder-playground` and set the location of your home directory in the _HOME_ placeholder in the `config-playground.toml` file. Then, run the rbuilder:
+
+```
+$ cargo run --bin rbuilder run config-playground.toml
+```
 
 ---
 

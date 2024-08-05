@@ -5,6 +5,7 @@
 /target
 /scripts/benchmark-results.*
 /test/
+/integration_logs
 
 # editors
 .code

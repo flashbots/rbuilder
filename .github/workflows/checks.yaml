@@ -9,7 +9,6 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUN_TEST_FAKE_MEV_BOOST_RELAY: 1
 
 jobs:
   lint_and_test:
@@ -24,9 +23,6 @@ jobs:
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
-
-      - name: Download fake mevboost relay
-        uses: ./.github/actions/download_fake_relay
 
       # https://github.com/dtolnay/rust-toolchain
       - name: Setup rust toolchain
@@ -58,5 +54,48 @@ jobs:
         run: sudo apt-get install -y libsqlite3-dev
 
       # lint and test
-      - run: make lint
+      # - run: make lint FIX THIS
       - run: make test
+  integration:
+    name: Integration tests
+    runs-on: warp-ubuntu-latest-x64-16x
+    needs: lint_and_test
+    strategy:
+      matrix:
+        toolchain:
+          - stable
+          #- beta
+          #- nightly
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Download builder playground
+        uses: flashbots/flashbots-toolchain@v0.1
+        with:
+          builder-playground: latest
+
+      - name: Build the rbuilder
+        run: cargo build
+
+      - name: Run the playground
+        run: builder-playground --output /tmp/playground &
+
+      - name: Run integration tests
+        run: cargo test --package rbuilder --lib -- integration
+        env:
+          PLAYGROUND_DIR: /tmp/playground
+
+      - name: Move test integration logs to playground logs to archive
+        # This steps fails if the test fails early and the playground logs dir has not been created
+        if: ${{ failure() }}
+        run: |
+          mv integration_logs /tmp/playground/logs
+
+      - name: Archive playground logs
+        uses: actions/upload-artifact@v4
+        if: ${{ failure() }}
+        with:
+          name: playground-logs
+          path: /tmp/playground/logs
+          retention-days: 5
