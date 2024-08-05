@@ -62,12 +62,21 @@ rbuilder has a solid initial benchmarking setup (based on [Criterion.rs](https:/
 
 ### End-to-end local testing
 
-You can use [builder-playground](https://github.com/flashbots/builder-playground) to deploy a fully functional local setup for the builder (proposer+validador+el+relay) to test the rbuilder.
+You can use [builder-playground](https://github.com/flashbots/builder-playground) to deploy a fully functional local setup for the builder ([Lighthouse](https://github.com/sigp/lighthouse) consensus client (proposer + validator) + [Reth](https://github.com/paradigmxyz/reth/) execution client + [MEV-Boost-Relay](https://github.com/flashbots/mev-boost-relay))) to test rbuilder.
 
-To do so, deploy the `builder-playground` and set the location of your home directory in the _HOME_ placeholder in the `config-playground.toml` file. Then, run the rbuilder:
+To do so:
+1. Start [builder-playground](https://github.com/flashbots/builder-playground)
+2. Edit `config-playground.toml` to set the location of your home directory (replace the _HOME_ placeholder)
+3. Then, run the rbuilder:
 
 ```
-$ cargo run --bin rbuilder run config-playground.toml
+cargo run --bin rbuilder run config-playground.toml
+```
+
+You can query the local relay for proposed blocks like this:
+
+```bash
+curl http://localhost:5555/relay/v1/data/bidtraces/proposer_payload_delivered
 ```
 
 ---
