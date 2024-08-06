@@ -43,7 +43,7 @@ pub fn get_mempool_transactions(
             let order: Order = RawOrder::Tx(RawTx {
                 tx: tx.raw_tx.into(),
             })
-            .decode(TxEncoding::NoBlobData)
+            .decode(TxEncoding::WithBlobData)
             .map_err(|err| error!("Failed to parse raw tx: {:?}", err))
             .ok()?;
             let timestamp_ms = tx
