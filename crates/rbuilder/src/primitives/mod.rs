@@ -179,7 +179,7 @@ impl Bundle {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TxRevertBehavior {
     /// Tx in a bundle can't revert.
     NotAllowed,

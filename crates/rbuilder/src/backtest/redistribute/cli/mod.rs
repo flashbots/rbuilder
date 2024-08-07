@@ -93,7 +93,7 @@ pub async fn run_backtest_redistribute<ConfigType: LiveBuilderConfig>() -> eyre:
     Ok(())
 }
 
-fn process_redisribution<ConfigType: LiveBuilderConfig>(
+fn process_redisribution<ConfigType: LiveBuilderConfig + Send + Sync>(
     block_data: BlockData,
     csv_writer: Option<&mut CSVResultWriter>,
     provider_factory: ProviderFactory<Arc<DatabaseEnv>>,

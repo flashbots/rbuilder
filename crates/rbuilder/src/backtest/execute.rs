@@ -72,12 +72,14 @@ pub fn backtest_prepare_ctx_for_block<DB: Database + Clone>(
             Some(order.order.clone())
         })
         .collect::<Vec<_>>();
-    let ctx = BlockBuildingContext::from_block_data(
-        &block_data,
+    let ctx = BlockBuildingContext::from_onchain_block(
+        block_data.onchain_block,
         chain_spec.clone(),
-        blocklist,
         None,
-        builder_signer,
+        blocklist,
+        builder_signer.address,
+        block_data.winning_bid_trace.proposer_fee_recipient,
+        Some(builder_signer),
     );
     let (sim_orders, sim_errors) =
         simulate_all_orders_with_sim_tree(provider_factory.clone(), &ctx, &orders, false)?;

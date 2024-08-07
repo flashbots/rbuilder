@@ -50,7 +50,7 @@ use thiserror::Error;
 use time::OffsetDateTime;
 
 use self::tracers::SimulationTracer;
-use crate::{backtest::BlockData, roothash::RootHashMode, utils::default_cfg_env};
+use crate::{roothash::RootHashMode, utils::default_cfg_env};
 pub use block_orders::*;
 pub use built_block_trace::*;
 #[cfg(test)]
@@ -147,48 +147,45 @@ impl BlockBuildingContext {
     /// `from_block_data` is used to create `BlockBuildingContext` from onchain block for backtest purposes
     /// spec_id None: we use the SpecId for the block.
     /// Note: We calculate SpecId based on the current block instead of the parent block so this will break for the blocks +-1 relative to the fork
-    pub fn from_block_data(
-        block_data: &BlockData,
+    pub fn from_onchain_block(
+        onchain_block: alloy_rpc_types::Block,
         chain_spec: Arc<ChainSpec>,
-        blocklist: HashSet<Address>,
         spec_id: Option<SpecId>,
-        builder_signer: Signer,
+        blocklist: HashSet<Address>,
+        coinbase: Address,
+        suggested_fee_recipient: Address,
+        builder_signer: Option<Signer>,
     ) -> BlockBuildingContext {
-        let blob_excess_gas_and_price = if chain_spec
-            .is_cancun_active_at_timestamp(block_data.onchain_block.header.timestamp)
-        {
-            Some(BlobExcessGasAndPrice::new(
-                block_data
-                    .onchain_block
-                    .header
-                    .excess_blob_gas
-                    .unwrap_or_default() as u64,
-            ))
-        } else {
-            None
-        };
+        let block_number = onchain_block.header.number.unwrap_or(1);
+
+        let blob_excess_gas_and_price =
+            if chain_spec.is_cancun_active_at_timestamp(onchain_block.header.timestamp) {
+                Some(BlobExcessGasAndPrice::new(
+                    onchain_block.header.excess_blob_gas.unwrap_or_default() as u64,
+                ))
+            } else {
+                None
+            };
         let block_env = BlockEnv {
-            number: U256::from(block_data.block_number),
-            coinbase: builder_signer.address,
-            timestamp: U256::from(block_data.onchain_block.header.timestamp),
-            difficulty: block_data.onchain_block.header.difficulty,
-            prevrandao: block_data.onchain_block.header.mix_hash,
+            number: U256::from(block_number),
+            coinbase,
+            timestamp: U256::from(onchain_block.header.timestamp),
+            difficulty: onchain_block.header.difficulty,
+            prevrandao: onchain_block.header.mix_hash,
             basefee: U256::from(
-                block_data
-                    .onchain_block
+                onchain_block
                     .header
                     .base_fee_per_gas
                     .expect("Failed to get basefee"),
             ), // TODO: improve
-            gas_limit: U256::from(block_data.onchain_block.header.gas_limit),
+            gas_limit: U256::from(onchain_block.header.gas_limit),
             blob_excess_gas_and_price,
         };
 
-        let cfg = default_cfg_env(&chain_spec, timestamp_as_u64(&block_data.onchain_block));
+        let cfg = default_cfg_env(&chain_spec, timestamp_as_u64(&onchain_block));
 
         let withdrawals = Withdrawals::new(
-            block_data
-                .onchain_block
+            onchain_block
                 .withdrawals
                 .clone()
                 .map(|w| w.into_iter().map(a2r_withdrawal).collect::<Vec<_>>())
@@ -197,12 +194,12 @@ impl BlockBuildingContext {
 
         let attributes = EthPayloadBuilderAttributes {
             id: PayloadId::new([0u8; 8]),
-            parent: block_data.onchain_block.header.parent_hash,
-            timestamp: timestamp_as_u64(&block_data.onchain_block),
-            suggested_fee_recipient: block_data.winning_bid_trace.proposer_fee_recipient,
-            prev_randao: block_data.onchain_block.header.mix_hash.unwrap_or_default(),
+            parent: onchain_block.header.parent_hash,
+            timestamp: timestamp_as_u64(&onchain_block),
+            suggested_fee_recipient,
+            prev_randao: onchain_block.header.mix_hash.unwrap_or_default(),
             withdrawals,
-            parent_beacon_block_root: block_data.onchain_block.header.parent_beacon_block_root,
+            parent_beacon_block_root: onchain_block.header.parent_beacon_block_root,
         };
         let spec_id = spec_id.unwrap_or_else(|| {
             // we use current block data instead of the parent block data to determine fork
@@ -210,15 +207,11 @@ impl BlockBuildingContext {
             revm_spec(
                 &chain_spec,
                 &Head::new(
-                    block_data.block_number,
-                    block_data.onchain_block.header.parent_hash,
-                    block_data.onchain_block.header.difficulty,
-                    block_data
-                        .onchain_block
-                        .header
-                        .total_difficulty
-                        .unwrap_or_default(),
-                    block_data.onchain_block.header.timestamp,
+                    block_number,
+                    onchain_block.header.parent_hash,
+                    onchain_block.header.difficulty,
+                    onchain_block.header.total_difficulty.unwrap_or_default(),
+                    onchain_block.header.timestamp,
                 ),
             )
         });
@@ -227,14 +220,10 @@ impl BlockBuildingContext {
             initialized_cfg: cfg,
             attributes,
             chain_spec,
-            builder_signer: Some(builder_signer),
+            builder_signer,
             blocklist,
             extra_data: Vec::new(),
-            excess_blob_gas: block_data
-                .onchain_block
-                .header
-                .excess_blob_gas
-                .map(|b| b as u64),
+            excess_blob_gas: onchain_block.header.excess_blob_gas.map(|b| b as u64),
             spec_id,
         }
     }

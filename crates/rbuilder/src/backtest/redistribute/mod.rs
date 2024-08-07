@@ -1,24 +1,35 @@
 mod cli;
+mod redistribution_algo;
 
 use crate::backtest::execute::backtest_simulate_block;
+use crate::backtest::redistribute::redistribution_algo::{
+    calculate_redistribution, IncludedOrderData, RedistributionCalculator,
+    RedistributionIdentityData,
+};
+use crate::backtest::restore_landed_orders::{
+    restore_landed_orders, sim_historical_block, ExecutedBlockTx, SimplifiedOrder,
+};
 use crate::backtest::BlockData;
 use crate::live_builder::cli::LiveBuilderConfig;
 use crate::primitives::{Order, OrderId};
+use crate::utils::signed_uint_delta;
 use ahash::{HashMap, HashSet};
 use alloy_primitives::utils::format_ether;
 use alloy_primitives::{Address, U256};
+pub use cli::run_backtest_redistribute;
+use rayon::prelude::*;
 use reth_db::DatabaseEnv;
 use reth_provider::ProviderFactory;
 use std::sync::Arc;
-use tracing::{info, warn};
+use std::time::Instant;
+use tracing::{debug, info, info_span, trace, warn};
 
-pub use cli::run_backtest_redistribute;
-
-pub fn calc_redistributions<ConfigType: LiveBuilderConfig>(
+pub fn calc_redistributions<ConfigType: LiveBuilderConfig + Send + Sync>(
     provider_factory: ProviderFactory<Arc<DatabaseEnv>>,
     config: &ConfigType,
     mut block_data: BlockData,
 ) -> eyre::Result<Vec<(Address, U256)>> {
+    let _block_span = info_span!("block", block = block_data.block_number).entered();
     let built_block_data = if let Some(block_data) = block_data.built_block_data.clone() {
         block_data
     } else {
@@ -37,8 +48,7 @@ pub fn calc_redistributions<ConfigType: LiveBuilderConfig>(
 
     block_data.filter_orders_by_end_timestamp(built_block_data.orders_closed_at);
     // @TODO filter cancellations properly, for this we need actual cancellations in the backtest data
-
-    // filter bundled made of mempool txs
+    // filter bundles made out of mempool txs
     block_data.filter_bundles_from_mempool();
 
     let orders_by_id = block_data
@@ -47,96 +57,160 @@ pub fn calc_redistributions<ConfigType: LiveBuilderConfig>(
         .map(|order| (order.order.id(), order.clone()))
         .collect::<HashMap<_, _>>();
 
-    let mut included_redistribution_addresses = HashSet::default();
-    for order in &built_block_data.included_orders {
-        if let Some(order) = orders_by_id.get(order) {
-            let redistribution_address =
-                order_redistribution_address(&order.order, &protect_signers);
-            match redistribution_address {
-                Some(address) => {
-                    included_redistribution_addresses.insert(address);
+    let mut orders_by_address: HashMap<Address, Vec<OrderId>> = HashMap::default();
+    let mut available_landed_orders: HashSet<OrderId> = HashSet::default();
+
+    // detect landed orders in the onchain block
+    let restored_landed_orders = {
+        let mut simplified_orders = Vec::new();
+
+        for included_order in &built_block_data.included_orders {
+            match orders_by_id.get(included_order) {
+                Some(order) => {
+                    let address = match order_redistribution_address(&order.order, &protect_signers)
+                    {
+                        Some(address) => address,
+                        None => {
+                            warn!(order = ?order, "Order redistribution address not found");
+                            continue;
+                        }
+                    };
+                    orders_by_address
+                        .entry(address)
+                        .or_default()
+                        .push(order.order.id());
+                    available_landed_orders.insert(order.order.id());
+                    simplified_orders.push(SimplifiedOrder::new_from_order(&order.order));
                 }
                 None => {
-                    warn!(?order, "Included order missing redistribution address");
+                    warn!(order = ?included_order, "Included order not found in available orders");
                 }
             }
-        } else {
-            warn!(?order, "Included order not found in available orders");
         }
-    }
 
-    let mut orders_by_address = HashMap::default();
-    for order in &block_data.available_orders {
-        if let Some(address) = order_redistribution_address(&order.order, &protect_signers) {
-            orders_by_address
-                .entry(address)
-                .or_insert_with(Vec::new)
-                .push(order.order.id());
+        // we include mempool txs into the set of simplified orders
+        // so we correctly subtract contributions of mempool txs
+        for available_order in &block_data.available_orders {
+            if available_order.order.is_tx() {
+                simplified_orders.push(SimplifiedOrder::new_from_order(&available_order.order));
+            }
         }
-    }
 
-    // calculate profit without any address exclusion
-    let original_profit = calc_profit(provider_factory.clone(), config, &block_data, &[])?;
+        let block_txs = sim_historical_block(
+            provider_factory.clone(),
+            config.base_config().chain_spec()?,
+            block_data.onchain_block.clone(),
+        )?
+        .into_iter()
+        .map(|executed_tx| {
+            ExecutedBlockTx::new(
+                executed_tx.tx.hash,
+                executed_tx.coinbase_profit,
+                executed_tx.receipt.success,
+            )
+        })
+        .collect::<Vec<_>>();
 
-    info!(
-        simulated_value = format_ether(original_profit),
-        real_bid_value = format_ether(block_data.winning_bid_trace.value),
-        "Simulated value of the block"
+        restore_landed_orders(block_txs, simplified_orders)
+    };
+
+    let start = Instant::now();
+    let profit_without_exclusion = calc_profit(provider_factory.clone(), config, &block_data, &[])?;
+
+    let profit_after_address_exclusion = orders_by_address
+        .clone()
+        .into_par_iter()
+        .map(|(address, orders)| {
+            (
+                address,
+                calc_profit(provider_factory.clone(), config, &block_data, &orders),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    debug!(
+        elapsed_ms = start.elapsed().as_millis(),
+        "Calculated address contribution"
     );
 
-    let mut included_addresses_contributions = Vec::new();
+    // sort for deterministic output
+    let mut orders_by_address = orders_by_address.into_iter().collect::<Vec<_>>();
+    orders_by_address.sort_by_key(|(a, _)| *a);
+    for (_, orders) in &mut orders_by_address {
+        orders.sort();
+    }
 
-    for (address, order_ids) in orders_by_address.iter() {
-        if !included_redistribution_addresses.contains(address) {
-            continue;
-        }
+    // prepare input for the redistribution algo
+    let mut redistribution_calc = RedistributionCalculator {
+        landed_block_profit: block_profit,
+        identity_data: vec![],
+    };
 
-        let profit_after_exclusion =
-            calc_profit(provider_factory.clone(), config, &block_data, order_ids)?;
-
-        let excess_value = if profit_after_exclusion < original_profit {
-            original_profit - profit_after_exclusion
-        } else {
-            // contribution of this address is 0
-            continue;
+    for (address, orders) in orders_by_address {
+        let _span_guard = info_span!("redistribution", ?address).entered();
+        let profit_after_exclusion = match profit_after_address_exclusion.get(&address) {
+            Some(Ok(profit)) => *profit,
+            Some(Err(err)) => {
+                warn!(?err, "Profit after exclusion calculation failed");
+                continue;
+            }
+            None => {
+                warn!("Profit after exclusion not found");
+                continue;
+            }
         };
+        let value_delta_after_exclusion =
+            signed_uint_delta(profit_without_exclusion, profit_after_exclusion);
 
+        let mut included_orders = Vec::new();
+        for order in orders {
+            let _span_guard = info_span!("order", ?order).entered();
+            let landed_order_data = match restored_landed_orders.get(&order) {
+                Some(landed_order_data) => landed_order_data.clone(),
+                None => {
+                    warn!("Landed order data not found");
+                    continue;
+                }
+            };
+            trace!(err = ?landed_order_data.error, unique_coinbase_profit = format_ether(landed_order_data.unique_coinbase_profit), "Landed order");
+            if landed_order_data.error.is_some() {
+                warn!(err = ?landed_order_data.error, "Landed order identification failed")
+            }
+            included_orders.push(IncludedOrderData {
+                id: order,
+                landed_order_data,
+            });
+        }
+
+        redistribution_calc
+            .identity_data
+            .push(RedistributionIdentityData {
+                address,
+                value_delta_after_exclusion,
+                included_orders,
+            });
+    }
+
+    let result = calculate_redistribution(redistribution_calc);
+    info!(
+        landed_block_profit = format_ether(result.landed_block_profit),
+        total_value_redistributed = format_ether(result.total_value_redistributed),
+        "Redistribution calculated"
+    );
+    let mut output = Vec::new();
+    for identity in result.value_by_identity {
+        let _id_span = info_span!("identity", address = ?identity.address).entered();
         info!(
-            ?address,
-            excess_value = format_ether(excess_value),
-            "Contribution of the address"
+            value = format_ether(identity.value_received),
+            "Redistribution value"
         );
-
-        included_addresses_contributions.push((*address, excess_value));
-    }
-
-    let total_contributions = included_addresses_contributions
-        .iter()
-        .map(|(_, v)| v)
-        .sum::<U256>();
-
-    let mut profit_shared_with_address = Vec::new();
-
-    for (address, contribution) in included_addresses_contributions {
-        let share = (contribution * block_profit) / total_contributions;
-        profit_shared_with_address.push((address, share));
-    }
-
-    for (_, profit_share) in &profit_shared_with_address {
-        if profit_share > &block_profit {
-            eyre::bail!("Profit share exceeds block profit");
+        for (order, contribution) in identity.order_contributions {
+            info!(order = ?order, contribution = format_ether(contribution), "Order contribution");
+        }
+        if !identity.value_received.is_zero() {
+            output.push((identity.address, identity.value_received));
         }
     }
-
-    let total_profits_shared = profit_shared_with_address
-        .iter()
-        .map(|(_, v)| v)
-        .sum::<U256>();
-    if total_profits_shared > block_profit {
-        eyre::bail!("Total profits shared exceeds block profit");
-    }
-
-    Ok(profit_shared_with_address)
+    Ok(output)
 }
 
 /// calculate block profit excluding some orders
