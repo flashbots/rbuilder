@@ -101,6 +101,12 @@ impl MevBoostSlotDataGenerator {
 
     /// Spawns the reader task.
     /// It reads from a PayloadSourceMuxer, replaces the fee_recipient/gas_limit with the info from the relays and filters duplicates.
+    /// Why it replaces the fee_recipient?
+    ///     MEV-boost was built as a hack on top of eth 2.0.
+    ///     Usually (non MEV-boost) the CL only cares about notifying slots to the EL for the slots it should build (once every 2 months!).
+    ///     When MEV-boost is used we tell the CL “--always-build-payload” (we are building blocks for ANY validator now!) and the CL does
+    ///     it but, even with the event being created for every slot, the fee_recipient we get from MEV-Boost might be different so should always be used instead.
+    ///     Note that on MEV-boost the validator may change the fee_recipient the registering to the Relays.
     pub fn spawn(self) -> (JoinHandle<()>, mpsc::UnboundedReceiver<MevBoostSlotData>) {
         let relays = RelaysForSlotData::new(&self.relays);
 
