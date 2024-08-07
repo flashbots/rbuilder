@@ -19,6 +19,8 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info};
 
+/// Performs maintenance operations on every new header by calling OrderPool::head_updated.
+/// Also calls some metrics.
 pub async fn spawn_clean_orderpool_job<DB: Database + Clone + 'static>(
     config: OrderInputConfig,
     provider_factory: ProviderFactoryReopener<DB>,

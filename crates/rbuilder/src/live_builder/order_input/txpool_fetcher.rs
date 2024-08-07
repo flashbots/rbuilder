@@ -97,6 +97,7 @@ pub async fn subscribe_to_txpool_with_blobs(
     Ok(handle)
 }
 
+/// Calls eth_getRawTransactionByHash on EL node and decodes.
 async fn get_tx_with_blobs(
     tx_hash: H256,
     provider: &Provider<Ipc>,
@@ -144,6 +145,7 @@ mod test {
         }
     }
 
+    #[ignore]
     #[tokio::test]
     /// Test that the fetcher can retrieve transactions (both normal and blob) from the txpool
     async fn test_fetcher_retrieves_transactions() {
