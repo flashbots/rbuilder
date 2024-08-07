@@ -22,6 +22,7 @@ use reth_primitives::{BlobTransactionSidecar, SealedBlock};
 use serde_with::{serde_as, DisplayFromStr};
 use std::sync::Arc;
 
+/// Object to sign blocks to be sent to relays.
 #[derive(Debug, Clone)]
 pub struct BLSBlockSigner {
     sec: SecretKey,
