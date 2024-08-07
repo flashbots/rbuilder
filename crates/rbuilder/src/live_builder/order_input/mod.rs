@@ -164,6 +164,7 @@ impl ReplaceableOrderPoolCommand {
 /// - Mempool
 /// - RPC
 /// - Clean up task to remove old stuff.
+///
 /// @Pending reengineering to modularize rpc, extra_rpc here is a patch to upgrade the created rpc server.
 pub async fn start_orderpool_jobs<DB: Database + Clone + 'static>(
     config: OrderInputConfig,
