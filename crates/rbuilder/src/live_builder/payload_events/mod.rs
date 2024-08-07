@@ -30,11 +30,14 @@ const NEW_PAYLOAD_RECV_TIMEOUT: Duration = SLOT_DURATION.saturating_mul(2);
 /// One slot (12secs) is enough so we don't saturate any resource and we don't miss to many slots.
 const CONSENSUS_CLIENT_RECONNECT_WAIT: Duration = SLOT_DURATION;
 
+/// Data about a slot received from relays.
+/// Contains the important information needed to build and submit the block.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MevBoostSlotData {
+    /// The .data.payload_attributes.suggested_fee_recipient is replaced
     pub payload_attributes_event: PayloadAttributesEvent,
     pub suggested_gas_limit: u64,
-    /// List of relays that have this slot registered
+    /// List of relays that have this slot registered.
     pub relays: Vec<MevBoostRelayID>,
     pub slot_data: SlotData,
 }
@@ -67,6 +70,12 @@ impl MevBoostSlotData {
     }
 }
 
+/// Main high level source of MevBoostSlotData to build blocks.
+/// Usage:
+/// - Create one via MevBoostSlotDataGenerator::new.
+/// - Call MevBoostSlotDataGenerator::spawn.
+/// - Poll new slots via the returned UnboundedReceiver on spawn.
+/// - If join with spawned task is needed await on the JoinHandle returned by spawn.
 pub struct MevBoostSlotDataGenerator {
     cls: Vec<Client>,
     relays: Vec<MevBoostRelay>,
@@ -90,6 +99,8 @@ impl MevBoostSlotDataGenerator {
         }
     }
 
+    /// Spawns the reader task.
+    /// It reads from a PayloadSourceMuxer, replaces the fee_recipient/gas_limit with the info from the relays and filters duplicates.
     pub fn spawn(self) -> (JoinHandle<()>, mpsc::UnboundedReceiver<MevBoostSlotData>) {
         let relays = RelaysForSlotData::new(&self.relays);
 
