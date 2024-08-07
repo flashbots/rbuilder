@@ -19,6 +19,7 @@ use bigdecimal::{
 use eyre::WrapErr;
 use reth_primitives::{Bytes, B256, U256, U64};
 use sqlx::postgres::PgPool;
+use std::collections::HashSet;
 use std::{ops::Mul, str::FromStr};
 use time::{OffsetDateTime, PrimitiveDateTime};
 use tracing::trace;
@@ -160,7 +161,7 @@ impl RelayDB {
         let from_time = block_timestamp - time::Duration::seconds(26 * 12);
         let to_time = block_timestamp;
 
-        let bundles = sqlx::query_as::<
+        let simulated_bundles = sqlx::query_as::<
             _,
             (
                 OffsetDateTime,
@@ -180,22 +181,51 @@ impl RelayDB {
         .fetch_all(&self.pool)
         .await?;
 
+        // We pull sbundles that builder actually used for the given block because db overwrite may
+        // change block range and timestamp where bundle can be applied after the fact and we miss them.
+        let used_bundles = sqlx::query_as::<
+            _,
+            (
+                PrimitiveDateTime,
+                Vec<u8>,
+                sqlx::types::JsonValue,
+                Option<sqlx::types::BigDecimal>,
+                Option<i64>,
+            ),
+        >(
+            "WITH used_sbundles AS (
+                SELECT DISTINCT ON (sbu.hash) sbu.hash, bb.orders_closed_at as received_at
+                FROM sbundle_builder_used sbu JOIN built_blocks bb ON sbu.block_id = bb.block_id
+                WHERE bb.block_number = $1
+                ORDER BY sbu.hash, bb.orders_closed_at ASC
+            ) SELECT us.received_at, s.hash, s.body, s.sim_profit, s.sim_gas_used
+            FROM used_sbundles us JOIN sbundle s ON us.hash = s.hash",
+        )
+        .bind(block as i64)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let bundles = simulated_bundles.into_iter().map(|v| (v, false)).chain(
+            used_bundles
+                .into_iter()
+                .map(|v| ((v.0.assume_utc(), v.1, v.2, v.3, v.4), true)),
+        );
+
         let bundles = bundles
-            .into_iter()
             .map(
-                |(
-                    received_at,
-                    hash,
-                    body,
-                    coinbase_diff,
-                    total_gas_used,
-                )|
+                |((received_at, hash, body, coinbase_diff, total_gas_used), used_sbundle)|
                  -> eyre::Result<(u64, RawShareBundle, Option<SimValue>, B256)> {
                     let hash = (hash.len() == 32).then(|| B256::from_slice(&hash)).ok_or_else(|| eyre::eyre!("Invalid hash length"))?;
-                    let bundle = serde_json::from_value::<RawShareBundle>(body)
+                    let mut bundle = serde_json::from_value::<RawShareBundle>(body)
                         .wrap_err_with(|| {
                             format!("Failed to parse share bundle {:?}", hash)
                         })?;
+                    // if it was used by the live builder we are sure that it has correct block range
+                    // so we modify it here to correct db overwrites
+                    if used_sbundle {
+                        bundle.inclusion.block = U64::from(block);
+                        bundle.inclusion.max_block = None;
+                    }
 
                     let sim_value = coinbase_diff.zip(total_gas_used).and_then(|(cb, gas)| {
                         let coinbase_profit = sql_eth_decimal_to_wei(cb)?;
@@ -220,8 +250,12 @@ impl RelayDB {
             .collect::<Result<Vec<_>, _>>()?;
 
         let mut result = Vec::with_capacity(bundles.len());
+        let mut inserted_bundles: HashSet<B256> = HashSet::default();
 
         for (timestamp_ms, bundle, sim_value, hash) in bundles {
+            if inserted_bundles.contains(&hash) {
+                continue;
+            }
             let from = bundle.inclusion.block.to::<u64>();
             let to = bundle
                 .inclusion
@@ -243,7 +277,8 @@ impl RelayDB {
                 timestamp_ms,
                 order,
                 sim_value,
-            })
+            });
+            inserted_bundles.insert(hash);
         }
 
         Ok(result)
