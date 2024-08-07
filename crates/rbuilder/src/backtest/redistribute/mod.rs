@@ -1,6 +1,7 @@
 mod cli;
+mod redistribution_algo;
 
-use crate::backtest::execute::backtest_simulate_block;
+use crate::backtest::execute::{backtest_prepare_ctx_for_block, backtest_simulate_block, BacktestBlockInput};
 use crate::backtest::BlockData;
 use crate::live_builder::cli::LiveBuilderConfig;
 use crate::primitives::{Order, OrderId};
@@ -10,9 +11,11 @@ use alloy_primitives::{Address, U256};
 use reth_db::DatabaseEnv;
 use reth_provider::ProviderFactory;
 use std::sync::Arc;
+use reth_chainspec::ChainSpec;
 use tracing::{info, warn};
 
 pub use cli::run_backtest_redistribute;
+use crate::utils::Signer;
 
 pub fn calc_redistributions<ConfigType: LiveBuilderConfig>(
     provider_factory: ProviderFactory<Arc<DatabaseEnv>>,
