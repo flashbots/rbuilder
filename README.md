@@ -16,6 +16,8 @@ It is designed to provide a delightful developer experience, enabling community 
 
 ## Running rbuilder
 
+**Warning**: Even if they are rare, before running a builder you should be aware of [`reorg losses`](./REORG_LOSSES.md).
+
 rbuilder can be run in two modes:
 - **Backtesting**: build blocks on historical data. rbuilder leverages the mempool-dumpster's
 open database of transactions to let anyone easily backtest block building on previous blocks.
