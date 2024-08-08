@@ -15,10 +15,10 @@ pub struct SlotKey {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct UsedStateTrace {
-    /// read set contains first read
-    pub read_set: HashMap<SlotKey, B256>,
-    /// write set contains last write
-    pub write_set: HashMap<SlotKey, B256>,
+    /// read slot values contains first read
+    pub read_slot_values: HashMap<SlotKey, B256>,
+    /// write slot values contains last write
+    pub written_slot_values: HashMap<SlotKey, B256>,
 }
 
 #[derive(Debug)]
@@ -37,14 +37,14 @@ impl<'a> UsedStateEVMInspector<'a> {
     }
 
     fn use_tx_nonce(&mut self, tx: &TransactionSignedEcRecovered) {
-        self.used_state_trace.read_set.insert(
+        self.used_state_trace.read_slot_values.insert(
             SlotKey {
                 address: tx.signer(),
                 key: Default::default(),
             },
             U256::from(tx.nonce()).into(),
         );
-        self.used_state_trace.write_set.insert(
+        self.used_state_trace.written_slot_values.insert(
             SlotKey {
                 address: tx.signer(),
                 key: Default::default(),
@@ -66,7 +66,10 @@ where
                     address: interpreter.contract.caller,
                     key: slot,
                 };
-                self.used_state_trace.read_set.entry(key).or_insert(value);
+                self.used_state_trace
+                    .read_slot_values
+                    .entry(key)
+                    .or_insert(value);
             }
         }
 
@@ -86,7 +89,7 @@ where
                         address: interpreter.contract.caller,
                         key: B256::from(slot.to_be_bytes()),
                     };
-                    self.used_state_trace.write_set.insert(key, value);
+                    self.used_state_trace.written_slot_values.insert(key, value);
                 }
             }
             _ => (),
