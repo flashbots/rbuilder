@@ -16,8 +16,6 @@ It is designed to provide a delightful developer experience, enabling community 
 
 ## Running rbuilder
 
-**Warning**: Even if they are rare, before running a builder you should be aware of [`reorg losses`](./REORG_LOSSES.md).
-
 rbuilder can be run in two modes:
 - **Backtesting**: build blocks on historical data. rbuilder leverages the mempool-dumpster's
 open database of transactions to let anyone easily backtest block building on previous blocks.
@@ -52,6 +50,8 @@ Additionally, you can:
 Running:
 1. Prepare config file based on the `config-live-example.toml`
 2. Run `rbuilder run PATH_TO_CONFIG_FILE`
+
+**Warning**: Even if they are rare, before running a builder you should be aware of [`reorg losses`](./docs/REORG_LOSSES.md).
 
 ### Benchmarking
 
@@ -110,7 +110,7 @@ We plan to cut a stable release at least once a month, but this may vary dependi
 
 ## Contributing
 
-We welcome contributions to rbuilder! Our contributor guidelines can be found in [`CONTRIBUTING.md`](./CONTRIBUTING.md).
+We welcome contributions to rbuilder! Our contributor guidelines can be found in [`CONTRIBUTING.md`](./docs/CONTRIBUTING.md).
 
 
 Start by cloning the repo, and running a few common commands:
@@ -134,7 +134,7 @@ make bench-report-open
 
 ## Security
 
-See [`SECURITY.md`](./SECURITY.md)
+See [`SECURITY.md`](./docs/SECURITY.md)
 
 ---
 
