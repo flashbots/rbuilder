@@ -54,8 +54,9 @@ jobs:
         run: sudo apt-get install -y libsqlite3-dev
 
       # lint and test
-      # - run: make lint FIX THIS
+      - run: make lint
       - run: make test
+
   integration:
     name: Integration tests
     runs-on: warp-ubuntu-latest-x64-16x
@@ -74,6 +75,21 @@ jobs:
         uses: flashbots/flashbots-toolchain@v0.1
         with:
           builder-playground: latest
+
+      # https://github.com/swatinem/rust-cache
+      - name: Run Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      # https://github.com/Mozilla-Actions/sccache-action
+      - name: Run sccache-action
+        uses: mozilla-actions/sccache-action@v0.0.5
+
+      - name: Set sccache env vars
+        run: |
+          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
+          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
 
       - name: Build the rbuilder
         run: cargo build
