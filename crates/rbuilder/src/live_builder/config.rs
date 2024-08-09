@@ -17,7 +17,7 @@ use reth::{
     primitives::{ChainSpec, StaticFileSegment},
     tasks::pool::BlockingTaskPool,
 };
-use reth_db::DatabaseEnv;
+use reth_db::{database::Database, DatabaseEnv};
 use reth_payload_builder::database::CachedReads;
 use serde::Deserialize;
 use serde_with::serde_as;
@@ -78,10 +78,10 @@ impl LiveBuilderConfig for Config {
         rbuilder_version()
     }
 
-    fn build_backtest_block(
+    fn build_backtest_block<DB: Database + Clone + 'static>(
         &self,
         building_algorithm_name: &str,
-        input: BacktestSimulateBlockInput<'_, Arc<DatabaseEnv>>,
+        input: BacktestSimulateBlockInput<'_, DB>,
     ) -> eyre::Result<(Block, CachedReads)> {
         let builder_cfg = self.builder(building_algorithm_name)?;
         match builder_cfg.builder {

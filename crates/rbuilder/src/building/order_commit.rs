@@ -406,20 +406,12 @@ impl<'a, 'b, 'c, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, Tracer> 
         let used_state_tracer = self.tracer.as_mut().and_then(|t| t.get_used_state_tracer());
         let mut rbuilder_inspector = RBuilderEVMInspector::new(tx, used_state_tracer);
 
-        let mut evm = revm::Evm::builder()
+        let evm = revm::Evm::builder()
             .with_spec_id(ctx.spec_id)
             .with_env(Box::new(env))
             .with_db(db.as_mut())
             .with_external_context(&mut rbuilder_inspector)
             .append_handler_register(inspector_handle_register);
-
-        if let Some(balances_to_increment) = &ctx.backtest_balances_to_spoof {
-            evm = evm.modify_db(|db| {
-                for (addr, balance) in balances_to_increment {
-                    let _ = db.increment_balances([(*addr, *balance)]);
-                }
-            });
-        }
 
         let mut evm = evm.build();
         let res = match evm.transact() {

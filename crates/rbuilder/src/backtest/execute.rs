@@ -11,7 +11,7 @@ use crate::{
 use ahash::HashSet;
 use alloy_primitives::{Address, U256};
 use reth::{primitives::ChainSpec, providers::ProviderFactory};
-use reth_db::{database::Database, DatabaseEnv};
+use reth_db::database::Database;
 use reth_payload_builder::database::CachedReads;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -80,9 +80,9 @@ pub fn backtest_prepare_ctx_for_block<DB: Database + Clone>(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn backtest_simulate_block<ConfigType: LiveBuilderConfig>(
+pub fn backtest_simulate_block<DB: Database + Clone + 'static, ConfigType: LiveBuilderConfig>(
     block_data: BlockData,
-    provider_factory: ProviderFactory<Arc<DatabaseEnv>>,
+    provider_factory: ProviderFactory<DB>,
     chain_spec: Arc<ChainSpec>,
     build_block_lag_ms: i64,
     builders_names: Vec<String>,
