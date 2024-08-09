@@ -129,7 +129,7 @@ pub async fn start_server_accepting_bundles(
     }))
 }
 
-/// Parses a mev share bundle packet forwards it to the results.
+/// Parses a mev share bundle packet and forwards it to the results.
 /// Here we can have NewShareBundle or CancelShareBundle (identified using a "cancel" field (a little ugly)).
 async fn handle_mev_send_bundle(
     results: mpsc::Sender<ReplaceableOrderPoolCommand>,
