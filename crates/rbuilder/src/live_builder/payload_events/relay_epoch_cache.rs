@@ -87,7 +87,7 @@ impl RelaysForSlotData {
     }
 
     /// Asks all relays in parallel for ValidatorSlotData.
-    /// Under unconsistencies, the first one (the on with the highest priority as sorted on new) wins and any relay giving a different data
+    /// Under unconsistencies, the first one (the one with the highest priority as sorted on new) wins and any relay giving a different data
     /// is not included on the result.
     pub async fn slot_data(&mut self, slot: u64) -> Option<(SlotData, Vec<MevBoostRelayID>)> {
         // ask all relays concurrently about the slot
