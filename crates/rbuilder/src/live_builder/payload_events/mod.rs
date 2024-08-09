@@ -37,7 +37,7 @@ pub struct MevBoostSlotData {
     /// The .data.payload_attributes.suggested_fee_recipient is replaced
     pub payload_attributes_event: PayloadAttributesEvent,
     pub suggested_gas_limit: u64,
-    /// List of relays that have this slot registered.
+    /// List of relays agreeing to the slot_data. It may not contain all the relays (eg: errors, forks, validators registering only to some relays)
     pub relays: Vec<MevBoostRelayID>,
     pub slot_data: SlotData,
 }
