@@ -510,7 +510,7 @@ impl RelayClient {
         Ok(builder.send().await.map_err(RelayError::RequestError)?)
     }
 
-    /// Submits the block (call_relay_submit_block) and process some special errors.
+    /// Submits the block (call_relay_submit_block) and processes some special errors.
     pub async fn submit_block(
         &self,
         data: &SubmitBlockRequest,
