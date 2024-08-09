@@ -145,7 +145,6 @@ mod test {
         }
     }
 
-    #[ignore]
     #[tokio::test]
     /// Test that the fetcher can retrieve transactions (both normal and blob) from the txpool
     async fn test_fetcher_retrieves_transactions() {
