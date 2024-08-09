@@ -12,7 +12,7 @@ use tracing::{info_span, trace, warn};
 /// Info about a slot obtained from a relay.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct SlotData {
-    /// fee recipient the validator choose.
+    /// fee recipient the validator chose.
     pub fee_recipient: Address,
     pub gas_limit: u64,
     /// Selected registered validator for the slot key.
