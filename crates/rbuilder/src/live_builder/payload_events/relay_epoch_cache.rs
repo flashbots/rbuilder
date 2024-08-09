@@ -66,7 +66,7 @@ impl RelayEpochCache {
 /// Helper to get SlotData from all relays.
 #[derive(Debug)]
 pub struct RelaysForSlotData {
-    /// Sorted by priority so when we use them on slot_data the on with the highest priority wins.
+    /// Sorted by priority so when we use them on slot_data the one with the highest priority wins.
     relay: Vec<(MevBoostRelayID, RelayEpochCache)>,
 }
 
