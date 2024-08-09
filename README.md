@@ -51,6 +51,8 @@ Running:
 1. Prepare config file based on the `config-live-example.toml`
 2. Run `rbuilder run PATH_TO_CONFIG_FILE`
 
+**Warning**: Even if they are rare, before running a builder you should be aware of [`reorg losses`](./docs/REORG_LOSSES.md).
+
 ### Benchmarking
 
 rbuilder has a solid initial benchmarking setup (based on [Criterion.rs](https://github.com/bheisler/criterion.rs)).
