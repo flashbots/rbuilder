@@ -110,7 +110,7 @@ We plan to cut a stable release at least once a month, but this may vary dependi
 
 ## Contributing
 
-We welcome contributions to rbuilder! Our contributor guidelines can be found in [`CONTRIBUTING.md`](./docs/CONTRIBUTING.md).
+We welcome contributions to rbuilder! Our contributor guidelines can be found in [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
 
 Start by cloning the repo, and running a few common commands:
@@ -134,7 +134,7 @@ make bench-report-open
 
 ## Security
 
-See [`SECURITY.md`](./docs/SECURITY.md)
+See [`SECURITY.md`](./SECURITY.md)
 
 ---
 
