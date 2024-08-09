@@ -7,6 +7,7 @@ use crate::{
     },
     live_builder::cli::LiveBuilderConfig,
     primitives::SimulatedOrder,
+    provider::StateProviderFactory,
     utils::clean_extradata,
 };
 use ahash::HashSet;
@@ -52,9 +53,9 @@ pub struct BacktestBlockInput {
     pub sim_errors: Vec<OrderErr>,
 }
 
-pub fn backtest_prepare_ctx_for_block<DB: Database + Clone>(
+pub fn backtest_prepare_ctx_for_block<Provider: StateProviderFactory + Clone>(
     block_data: BlockData,
-    provider_factory: ProviderFactory<DB>,
+    provider_factory: Provider,
     chain_spec: Arc<ChainSpec>,
     build_block_lag_ms: i64,
     blocklist: HashSet<Address>,

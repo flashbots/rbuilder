@@ -13,13 +13,13 @@ use crate::{
         ExecutionError, PartialBlock, Sorting,
     },
     primitives::{AccountNonce, OrderId},
+    provider::StateProviderFactory,
     telemetry,
     utils::is_provider_factory_health_error,
 };
 use ahash::{HashMap, HashSet};
 use alloy_primitives::{utils::format_ether, Address};
-use reth::providers::{BlockNumReader, ProviderFactory};
-use reth_db::database::Database;
+use reth::providers::BlockNumReader;
 use reth_provider::StateProvider;
 
 use crate::{
@@ -69,8 +69,11 @@ impl OrderingBuilderConfig {
     }
 }
 
-pub fn run_ordering_builder<DB: Database + Clone + 'static, SinkType: BlockBuildingSink>(
-    input: LiveBuilderInput<DB, SinkType>,
+pub fn run_ordering_builder<
+    Provider: StateProviderFactory + Clone + 'static,
+    SinkType: BlockBuildingSink,
+>(
+    input: LiveBuilderInput<Provider, SinkType>,
     config: &OrderingBuilderConfig,
 ) {
     let block_number = input.ctx.block_env.number.to::<u64>();
@@ -152,9 +155,9 @@ pub fn run_ordering_builder<DB: Database + Clone + 'static, SinkType: BlockBuild
     }
 }
 
-pub fn backtest_simulate_block<DB: Database + Clone + 'static>(
+pub fn backtest_simulate_block<Provider: StateProviderFactory + Clone + 'static>(
     ordering_config: OrderingBuilderConfig,
-    input: BacktestSimulateBlockInput<'_, DB>,
+    input: BacktestSimulateBlockInput<'_, Provider>,
 ) -> eyre::Result<(Block, CachedReads)> {
     let use_suggested_fee_recipient_as_coinbase = ordering_config.coinbase_payment;
     let state_provider = input
@@ -183,8 +186,8 @@ pub fn backtest_simulate_block<DB: Database + Clone + 'static>(
 }
 
 #[derive(Debug)]
-pub struct OrderingBuilderContext<DB> {
-    provider_factory: ProviderFactory<DB>,
+pub struct OrderingBuilderContext<Provider> {
+    provider_factory: Provider,
     root_hash_task_pool: BlockingTaskPool,
     builder_name: String,
     ctx: BlockBuildingContext,
@@ -200,9 +203,9 @@ pub struct OrderingBuilderContext<DB> {
     order_attempts: HashMap<OrderId, usize>,
 }
 
-impl<DB: Database + Clone + 'static> OrderingBuilderContext<DB> {
+impl<Provider: StateProviderFactory + Clone + 'static> OrderingBuilderContext<Provider> {
     pub fn new(
-        provider_factory: ProviderFactory<DB>,
+        provider_factory: Provider,
         slot_bidder: Arc<dyn SlotBidder>,
         root_hash_task_pool: BlockingTaskPool,
         builder_name: String,
@@ -479,14 +482,14 @@ impl OrderingBuildingAlgorithm {
     }
 }
 
-impl<DB: Database + Clone + 'static, SinkType: BlockBuildingSink>
-    BlockBuildingAlgorithm<DB, SinkType> for OrderingBuildingAlgorithm
+impl<Provider: StateProviderFactory + Clone + 'static, SinkType: BlockBuildingSink>
+    BlockBuildingAlgorithm<Provider, SinkType> for OrderingBuildingAlgorithm
 {
     fn name(&self) -> String {
         self.name.clone()
     }
 
-    fn build_blocks(&self, input: BlockBuildingAlgorithmInput<DB, SinkType>) {
+    fn build_blocks(&self, input: BlockBuildingAlgorithmInput<Provider, SinkType>) {
         let live_input = LiveBuilderInput {
             provider_factory: input.provider_factory,
             root_hash_task_pool: self.root_hash_task_pool.clone(),

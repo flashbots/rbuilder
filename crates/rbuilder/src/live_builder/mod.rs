@@ -20,8 +20,9 @@ use crate::{
         watchdog::spawn_watchdog_thread,
     },
     primitives::mev_boost::MevBoostRelay,
+    provider::StateProviderFactory,
     telemetry::inc_active_slots,
-    utils::{error_storage::spawn_error_storage_writer, ProviderFactoryReopener, Signer},
+    utils::{error_storage::spawn_error_storage_writer, Signer},
 };
 use ahash::HashSet;
 use alloy_primitives::{Address, B256};
@@ -55,7 +56,7 @@ const GET_BLOCK_HEADER_PERIOD: time::Duration = time::Duration::milliseconds(250
 /// # Usage
 /// Create and run()
 #[derive(Debug)]
-pub struct LiveBuilder<DB, BuilderSinkFactoryType: BuilderSinkFactory> {
+pub struct LiveBuilder<Provider, BuilderSinkFactoryType: BuilderSinkFactory> {
     pub cls: Vec<Client>,
     pub relays: Vec<MevBoostRelay>,
     pub watchdog_timeout: Duration,
@@ -64,7 +65,7 @@ pub struct LiveBuilder<DB, BuilderSinkFactoryType: BuilderSinkFactory> {
     pub order_input_config: OrderInputConfig,
 
     pub chain_chain_spec: Arc<ChainSpec>,
-    pub provider_factory: ProviderFactoryReopener<DB>,
+    pub provider_factory: Provider,
 
     pub coinbase_signer: Signer,
     pub extra_data: Vec<u8>,
@@ -75,12 +76,14 @@ pub struct LiveBuilder<DB, BuilderSinkFactoryType: BuilderSinkFactory> {
     pub bidding_service: Box<dyn BiddingService>,
 
     pub sink_factory: BuilderSinkFactoryType,
-    pub builders: Vec<Arc<dyn BlockBuildingAlgorithm<DB, BuilderSinkFactoryType::SinkType>>>,
+    pub builders: Vec<Arc<dyn BlockBuildingAlgorithm<Provider, BuilderSinkFactoryType::SinkType>>>,
     pub extra_rpc: RpcModule<()>,
 }
 
-impl<DB: Database + Clone + 'static, BuilderSinkFactoryType: BuilderSinkFactory>
-    LiveBuilder<DB, BuilderSinkFactoryType>
+impl<
+        Provider: StateProviderFactory + Clone + 'static,
+        BuilderSinkFactoryType: BuilderSinkFactory,
+    > LiveBuilder<Provider, BuilderSinkFactoryType>
 where
     <BuilderSinkFactoryType as BuilderSinkFactory>::SinkType: 'static,
 {
@@ -97,7 +100,7 @@ where
 
     pub fn with_builders(
         self,
-        builders: Vec<Arc<dyn BlockBuildingAlgorithm<DB, BuilderSinkFactoryType::SinkType>>>,
+        builders: Vec<Arc<dyn BlockBuildingAlgorithm<Provider, BuilderSinkFactoryType::SinkType>>>,
     ) -> Self {
         Self { builders, ..self }
     }
@@ -187,6 +190,8 @@ where
             };
 
             let parent_header = {
+                Header::default()
+                /*
                 // @Nicer
                 let parent_block = payload.parent_block_hash();
                 let timestamp = payload.timestamp();
@@ -198,9 +203,11 @@ where
                         continue;
                     }
                 }
+                */
             };
 
             {
+                /*
                 let provider_factory = self.provider_factory.clone();
                 let block = payload.block();
                 match spawn_blocking(move || {
@@ -219,6 +226,7 @@ where
                         continue;
                     }
                 }
+                */
             }
 
             debug!(
