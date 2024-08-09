@@ -36,20 +36,6 @@ pub struct OrderPoolSubscriber {
     orderpool: Arc<Mutex<OrderPool>>,
 }
 
-/// OrderPoolSubscriptionId that removes on drop
-/// Call add_sink to get flow and remove_sink to stop it
-/// For easy auto remove we have add_sink_auto_remove
-pub struct AutoRemovingOrderPoolSubscriptionId {
-    orderpool: Arc<Mutex<OrderPool>>,
-    id: OrderPoolSubscriptionId,
-}
-
-impl Drop for AutoRemovingOrderPoolSubscriptionId {
-    fn drop(&mut self) {
-        self.orderpool.lock().unwrap().remove_sink(&self.id);
-    }
-}
-
 impl OrderPoolSubscriber {
     pub fn add_sink(
         &self,
@@ -79,16 +65,39 @@ impl OrderPoolSubscriber {
     }
 }
 
+/// OrderPoolSubscriptionId that removes on drop.
+/// Call add_sink to get flow and remove_sink to stop it
+/// For easy auto remove we have add_sink_auto_remove
+pub struct AutoRemovingOrderPoolSubscriptionId {
+    orderpool: Arc<Mutex<OrderPool>>,
+    id: OrderPoolSubscriptionId,
+}
+
+impl Drop for AutoRemovingOrderPoolSubscriptionId {
+    fn drop(&mut self) {
+        self.orderpool.lock().unwrap().remove_sink(&self.id);
+    }
+}
+
+/// All the info needed to start all the order related jobs (mempool, rcp, clean)
 #[derive(Debug, Clone)]
 pub struct OrderInputConfig {
-    // if none - cancellations are disabled
+    /// if true - cancellations are disabled.
     ignore_cancellable_orders: bool,
+    /// if true -- txs with blobs are ignored
     ignore_blobs: bool,
+    /// Path to reth ipc
     ipc_path: PathBuf,
+    /// Input RPC port
     server_port: u16,
+    /// Input RPC ip
     server_ip: Ipv4Addr,
+    /// Input RPC max connections
     serve_max_connections: u32,
+    /// All order sources send new ReplaceableOrderPoolCommands through an mpsc::Sender bounded channel.
+    /// Timeout to wait when sending to that channel (after that the ReplaceableOrderPoolCommand is lost).
     results_channel_timeout: Duration,
+    /// Size of the bounded channel.
     input_channel_buffer_size: usize,
 }
 pub const DEFAULT_SERVE_MAX_CONNECTIONS: u32 = 4096;
@@ -131,7 +140,7 @@ impl OrderInputConfig {
     }
 }
 
-/// Commands we can get from RPC
+/// Commands we can get from RPC or mempool fetcher.
 #[derive(Debug, Clone)]
 pub enum ReplaceableOrderPoolCommand {
     /// New or update order
@@ -151,7 +160,12 @@ impl ReplaceableOrderPoolCommand {
     }
 }
 
-/// @Pending reengineering to modularize rpc, block_subsidy_selector here is a patch
+/// Starts all the tokio tasks to handle order flow:
+/// - Mempool
+/// - RPC
+/// - Clean up task to remove old stuff.
+///
+/// @Pending reengineering to modularize rpc, extra_rpc here is a patch to upgrade the created rpc server.
 pub async fn start_orderpool_jobs<DB: Database + Clone + 'static>(
     config: OrderInputConfig,
     provider_factory: ProviderFactoryReopener<DB>,

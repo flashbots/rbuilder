@@ -18,6 +18,9 @@ use std::{
 use tokio_util::sync::CancellationToken;
 use tracing::error;
 
+/// Function that continuously looks for a SimulationContext on ctx and when it finds one it polls its "request for simulation" channel (SimulationContext::requests).
+/// When the channel closes it goes back to waiting for a new SimulationContext.
+/// It's blocking so it's expected to run in its own thread.
 pub fn run_sim_worker<DB: Database + Clone + Send + 'static>(
     worker_id: usize,
     ctx: Arc<Mutex<CurrentSimulationContexts>>,

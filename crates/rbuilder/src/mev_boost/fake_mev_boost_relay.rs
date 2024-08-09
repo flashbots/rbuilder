@@ -10,6 +10,11 @@ pub enum FakeMevBoostRelayError {
     BinaryNotFound,
 }
 
+/// Helper struct to run a fake relay for testing.
+/// It mainly runs a process and not much more.
+/// Usage:
+/// - FakeMevBoostRelay::new().spawn();
+/// - Auto kill the child process when the returned FakeMevBoostRelayInstance gets dropped.
 pub struct FakeMevBoostRelay {
     path: Option<PathBuf>,
 }
