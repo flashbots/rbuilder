@@ -52,8 +52,8 @@ jobs:
           if echo "$CHANGED_FILES" | grep -q "^\.github/workflows/"; then
             echo -e "\n## :x: Error\nWorkflow file change detected. Failing the workflow for security reasons." >> $GITHUB_STEP_SUMMARY
 
-            curl --silent -d 'text=A workflow file change was included in <https://github.com/flashbots/rbuilder/pull/'"$PR_NUMBER"'|PR '"$PR_NUMBER"'>.' \
-                -d "channel=$SLACK_CHANNEL" -H "Authorization: Bearer $SLACK_TOKEN" -X POST https://slack.com/api/chat.postMessage > /dev/null 2>&1
+            curl --silent --data '{"text":"A workflow file change was included in <https://github.com/flashbots/rbuilder/pull/'"$PR_NUMBER"'|PR '"$PR_NUMBER"'>."}' \
+                -H "Content-type: application/json" -X POST $SLACK_WEBHOOK > /dev/null 2>&1
 
             exit 1
           else
