@@ -12,7 +12,7 @@ use crate::{
             payload_source::PayloadSourceMuxer,
             relay_epoch_cache::{RelaysForSlotData, SlotData},
         },
-        BlocksSource,
+        SlotSource,
     },
     primitives::mev_boost::{MevBoostRelay, MevBoostRelayID},
 };
@@ -184,8 +184,8 @@ impl MevBoostSlotDataGenerator {
     }
 }
 
-impl BlocksSource for MevBoostSlotDataGenerator {
-    fn recv_block_params(self) -> mpsc::UnboundedReceiver<MevBoostSlotData> {
+impl SlotSource for MevBoostSlotDataGenerator {
+    fn req_slot_channel(self) -> mpsc::UnboundedReceiver<MevBoostSlotData> {
         let (_handle, chan) = self.spawn();
         chan
     }

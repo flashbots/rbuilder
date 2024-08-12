@@ -48,8 +48,9 @@ const BLOCK_HEADER_DEAD_LINE_DELTA: time::Duration = time::Duration::millisecond
 /// Polling period while trying to get a block header
 const GET_BLOCK_HEADER_PERIOD: time::Duration = time::Duration::milliseconds(250);
 
-pub trait BlocksSource {
-    fn recv_block_params(self) -> mpsc::UnboundedReceiver<MevBoostSlotData>;
+/// Trait used to trigger a new block building process in the slot.
+pub trait SlotSource {
+    fn req_slot_channel(self) -> mpsc::UnboundedReceiver<MevBoostSlotData>;
 }
 
 /// Main builder struct.
@@ -57,11 +58,8 @@ pub trait BlocksSource {
 /// # Usage
 /// Create and run()
 #[derive(Debug)]
-pub struct LiveBuilder<
-    DB,
-    BuilderSinkFactoryType: BuilderSinkFactory,
-    BlocksSourceType: BlocksSource,
-> {
+pub struct LiveBuilder<DB, BuilderSinkFactoryType: BuilderSinkFactory, BlocksSourceType: SlotSource>
+{
     pub watchdog_timeout: Duration,
     pub error_storage_path: PathBuf,
     pub simulation_threads: usize,
@@ -87,7 +85,7 @@ pub struct LiveBuilder<
 impl<
         DB: Database + Clone + 'static,
         BuilderSinkFactoryType: BuilderSinkFactory,
-        BuilderSourceType: BlocksSource,
+        BuilderSourceType: SlotSource,
     > LiveBuilder<DB, BuilderSinkFactoryType, BuilderSourceType>
 where
     <BuilderSinkFactoryType as BuilderSinkFactory>::SinkType: 'static,
@@ -122,7 +120,7 @@ where
             .with_context(|| "Error spawning error storage writer")?;
 
         let mut inner_jobs_handles = Vec::new();
-        let mut payload_events_channel = self.blocks_source.recv_block_params();
+        let mut payload_events_channel = self.blocks_source.req_slot_channel();
 
         let orderpool_subscriber = {
             let (handle, sub) = start_orderpool_jobs(
