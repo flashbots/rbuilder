@@ -33,7 +33,7 @@ reth-trie-parallel = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.
 reth-basic-payload-builder = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.3" }
 reth-node-core = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.3" }
 reth-primitives = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.3" }
-reth-provider = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.3", features = ["test-utils"] }
+reth-provider = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.4", features = ["test-utils"] }
 reth-chainspec = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.3" }
 reth-evm = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.3" }
 reth-evm-ethereum = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.3" }
