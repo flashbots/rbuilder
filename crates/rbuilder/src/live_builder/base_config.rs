@@ -617,7 +617,18 @@ pub fn create_provider_factory(
     reth_static_files_path: Option<&Path>,
     chain_spec: Arc<ChainSpec>,
 ) -> eyre::Result<ProviderFactoryReopener<Arc<DatabaseEnv>>> {
-    let reth_db_path = match (reth_db_path, reth_datadir) {
+    // shellexpand the reth datadir
+    let reth_datadir = if let Some(reth_datadir) = reth_datadir {
+        let reth_datadir = reth_datadir
+            .to_str()
+            .ok_or_else(|| eyre::eyre!("Invalid UTF-8 in path"))?;
+
+        Some(PathBuf::from(shellexpand::full(reth_datadir)?.into_owned()))
+    } else {
+        None
+    };
+
+    let reth_db_path = match (reth_db_path, reth_datadir.clone()) {
         (Some(reth_db_path), _) => PathBuf::from(reth_db_path),
         (None, Some(reth_datadir)) => reth_datadir.join("db"),
         (None, None) => eyre::bail!("Either reth_db_path or reth_datadir must be provided"),
