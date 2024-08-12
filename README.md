@@ -68,8 +68,7 @@ You can use [builder-playground](https://github.com/flashbots/builder-playground
 
 To do so:
 1. Start [builder-playground](https://github.com/flashbots/builder-playground)
-2. Edit `config-playground.toml` to set the location of your home directory (replace the _HOME_ placeholder)
-3. Then, run the rbuilder:
+2. Then, run the rbuilder:
 
 ```
 cargo run --bin rbuilder run config-playground.toml
