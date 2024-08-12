@@ -36,7 +36,7 @@ reth-primitives = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.3" 
 reth-provider = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.3", features = ["test-utils"] }
 reth-chainspec = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.3" }
 reth-evm = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.3" }
-reth-evm-ethereum = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.3" }
+reth-evm-ethereum = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.4" }
 
 # version is copied from reth  "v1.0.3" dependencies
 revm = { version = "12.1.0", features = [
