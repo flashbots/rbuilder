@@ -8,7 +8,7 @@ use crate::{
         },
         Sorting,
     },
-    live_builder::cli::LiveBuilderConfig,
+    live_builder::{cli::LiveBuilderConfig, payload_events::MevBoostSlotDataGenerator},
     utils::{build_info::rbuilder_version, ProviderFactoryReopener, Signer},
 };
 use alloy_primitives::{Address, B256};
@@ -62,7 +62,11 @@ impl LiveBuilderConfig for Config {
         &self,
         cancellation_token: tokio_util::sync::CancellationToken,
     ) -> eyre::Result<
-        super::LiveBuilder<Arc<DatabaseEnv>, super::building::relay_submit::RelaySubmitSinkFactory>,
+        super::LiveBuilder<
+            Arc<DatabaseEnv>,
+            super::building::relay_submit::RelaySubmitSinkFactory,
+            MevBoostSlotDataGenerator,
+        >,
     > {
         let live_builder = self.base_config.create_builder(cancellation_token).await?;
         let root_hash_task_pool = self.base_config.root_hash_task_pool()?;
