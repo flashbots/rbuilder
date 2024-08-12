@@ -3,15 +3,12 @@ use governor::{DefaultDirectRateLimiter, Quota, RateLimiter};
 use std::{sync::Arc, time::Duration};
 use url::Url;
 
-/// Usually human readable id for relays. Not used on anything on any protocol just to identify the relays.
 pub type MevBoostRelayID = String;
 
 /// Wrapper over RelayClient that allows to submit blocks and
 /// hides the particular configuration (eg: ssz, gip, optimistic).
-/// Sometimes the client is used externally.
 #[derive(Debug, Clone)]
 pub struct MevBoostRelay {
-    /// Id for UI
     pub id: MevBoostRelayID,
     pub client: RelayClient,
     /// Lower priority -> more important.
@@ -19,12 +16,16 @@ pub struct MevBoostRelay {
     /// true -> ssz; false -> json.
     pub use_ssz_for_submit: bool,
     pub use_gzip_for_submit: bool,
-    /// Relay accepts optimistic submissions.
     pub optimistic: bool,
     pub submission_rate_limiter: Option<Arc<DefaultDirectRateLimiter>>,
 }
 
 impl MevBoostRelay {
+
+    pub fn get_client(&self) -> &RelayClient {
+        &self.client
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn try_from_name_or_url(
         id: &str,

@@ -86,7 +86,7 @@ async fn run_submit_to_relays_job(
     let (normal_relays, optimistic_relays) = {
         let mut normal_relays = Vec::new();
         let mut optimistic_relays = Vec::new();
-        for relay in relays {
+        for relay in relays.clone() {
             if relay.optimistic {
                 optimistic_relays.push(relay);
             } else {
@@ -135,7 +135,10 @@ async fn run_submit_to_relays_job(
             .count();
         let submission_optimistic =
             config.optimistic_enabled && block.trace.bid_value < config.optimistic_max_bid_value;
-        let best_bid_value = slot_bidder.best_bid_value().unwrap_or_default();
+
+
+       let best_bid_value = slot_bidder.best_bid_value(&relays, block.sealed_block.number).unwrap_or_default();
+
         let submission_span = info_span!(
             "bid",
             bid_value = format_ether(block.trace.bid_value),
@@ -483,6 +486,8 @@ impl BuilderSinkFactory for RelaySubmitSinkFactory {
                     .clone()
             })
             .collect();
+
+        // add
         tokio::spawn(run_submit_to_relays_job_and_metrics(
             best_bid.clone(),
             slot_data,

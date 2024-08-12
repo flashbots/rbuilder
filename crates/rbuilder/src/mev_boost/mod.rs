@@ -109,16 +109,13 @@ impl FromStr for KnownRelay {
     }
 }
 
-/// Client to access part of relay APIs. See:
-/// https://ethereum.github.io/builder-specs/#/Builder
-/// https://flashbots.github.io/relay-specs/
 #[derive(Debug, Clone)]
 pub struct RelayClient {
-    url: Url,
-    client: reqwest::Client,
-    authorization_header: Option<String>,
-    builder_id_header: Option<String>,
-    api_token_header: Option<String>,
+    pub url: Url,
+    pub client: reqwest::Client,
+    pub authorization_header: Option<String>,
+    pub builder_id_header: Option<String>,
+    pub api_token_header: Option<String>,
 }
 
 impl RelayClient {
@@ -251,7 +248,6 @@ pub enum RelayResponse<T> {
     Error(RelayErrorResponse),
 }
 
-/// Info about a registered validator selected as proposer for a slot.
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Hash)]
 pub struct ValidatorSlotData {
@@ -428,8 +424,6 @@ impl RelayClient {
         }
     }
 
-    /// Calls /relay/v1/builder/validators to get "validator registrations for validators scheduled to propose in the current and next epoch."
-    /// The result will contain the validators for each slot.
     pub async fn get_current_epoch_validators(&self) -> Result<Vec<ValidatorSlotData>, RelayError> {
         let url = {
             let mut url = self.url.clone();
@@ -456,6 +450,7 @@ impl RelayClient {
     }
 
     /// Mainly takes care of ssz/json raw/gzip
+    #[allow(clippy::too_many_arguments)]
     async fn call_relay_submit_block(
         &self,
         data: &SubmitBlockRequest,
@@ -490,7 +485,7 @@ impl RelayClient {
         self.add_auth_headers(&mut headers)
             .map_err(|_| SubmitBlockErr::InvalidHeader)?;
 
-        // GZIP
+        //GZIP
         if gzip {
             headers.insert(
                 CONTENT_ENCODING,
@@ -510,7 +505,7 @@ impl RelayClient {
         Ok(builder.send().await.map_err(RelayError::RequestError)?)
     }
 
-    /// Submits the block (call_relay_submit_block) and processes some special errors.
+    #[allow(clippy::too_many_arguments)]
     pub async fn submit_block(
         &self,
         data: &SubmitBlockRequest,

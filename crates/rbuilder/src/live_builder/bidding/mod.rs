@@ -1,6 +1,9 @@
-use std::sync::Arc;
+pub mod private_bid;
 
+use std::sync::Arc;
 use alloy_primitives::U256;
+
+use crate::primitives::mev_boost::MevBoostRelay;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SealInstruction {
@@ -24,7 +27,7 @@ pub trait SlotBidder: Send + Sync + std::fmt::Debug {
     ) -> SealInstruction;
 
     /// Returns best bid value available on the relays.
-    fn best_bid_value(&self) -> Option<U256>;
+    fn best_bid_value(&self, relays: &Vec<MevBoostRelay>, block_number: u64) -> Option<U256>;
 }
 
 impl SlotBidder for () {
@@ -40,7 +43,7 @@ impl SlotBidder for () {
         SealInstruction::Value(unsealed_block_profit)
     }
 
-    fn best_bid_value(&self) -> Option<U256> {
+    fn best_bid_value(&self, _relays: &Vec<MevBoostRelay>, _block_number: u64) -> Option<U256> {
         None
     }
 }
