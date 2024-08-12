@@ -185,7 +185,7 @@ impl MevBoostSlotDataGenerator {
 }
 
 impl SlotSource for MevBoostSlotDataGenerator {
-    fn req_slot_channel(self) -> mpsc::UnboundedReceiver<MevBoostSlotData> {
+    fn recv_slot_channel(self) -> mpsc::UnboundedReceiver<MevBoostSlotData> {
         let (_handle, chan) = self.spawn();
         chan
     }

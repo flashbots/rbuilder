@@ -50,7 +50,7 @@ const GET_BLOCK_HEADER_PERIOD: time::Duration = time::Duration::milliseconds(250
 
 /// Trait used to trigger a new block building process in the slot.
 pub trait SlotSource {
-    fn req_slot_channel(self) -> mpsc::UnboundedReceiver<MevBoostSlotData>;
+    fn recv_slot_channel(self) -> mpsc::UnboundedReceiver<MevBoostSlotData>;
 }
 
 /// Main builder struct.
@@ -120,7 +120,7 @@ where
             .with_context(|| "Error spawning error storage writer")?;
 
         let mut inner_jobs_handles = Vec::new();
-        let mut payload_events_channel = self.blocks_source.req_slot_channel();
+        let mut payload_events_channel = self.blocks_source.recv_slot_channel();
 
         let orderpool_subscriber = {
             let (handle, sub) = start_orderpool_jobs(
