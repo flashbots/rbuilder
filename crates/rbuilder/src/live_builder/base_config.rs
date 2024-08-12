@@ -7,6 +7,7 @@ use crate::{
         bidding::DummyBiddingService,
         building::{relay_submit::RelaySubmitSinkFactory, SubmissionConfig},
         order_input::OrderInputConfig,
+        payload_events::MevBoostSlotDataGenerator,
         LiveBuilder,
     },
     mev_boost::BLSBlockSigner,
@@ -190,7 +191,11 @@ impl BaseConfig {
         &self,
         cancellation_token: tokio_util::sync::CancellationToken,
     ) -> eyre::Result<
-        super::LiveBuilder<Arc<DatabaseEnv>, super::building::relay_submit::RelaySubmitSinkFactory>,
+        super::LiveBuilder<
+            Arc<DatabaseEnv>,
+            super::building::relay_submit::RelaySubmitSinkFactory,
+            MevBoostSlotDataGenerator,
+        >,
     > {
         let submission_config = self.submission_config()?;
         info!(
@@ -213,28 +218,35 @@ impl BaseConfig {
         let relays = self.relays()?;
         let sink_factory = RelaySubmitSinkFactory::new(self.submission_config()?, relays.clone());
 
-        Ok(LiveBuilder::<Arc<DatabaseEnv>, RelaySubmitSinkFactory> {
-            cls: self.beacon_clients()?,
+        let payload_event = MevBoostSlotDataGenerator::new(
+            self.beacon_clients()?,
             relays,
-            watchdog_timeout: self.watchdog_timeout(),
-            error_storage_path: self.error_storage_path.clone(),
-            simulation_threads: self.simulation_threads,
-            order_input_config: OrderInputConfig::from_config(self),
+            self.blocklist()?,
+            cancellation_token.clone(),
+        );
 
-            chain_chain_spec: self.chain_spec()?,
-            provider_factory,
+        Ok(
+            LiveBuilder::<Arc<DatabaseEnv>, RelaySubmitSinkFactory, MevBoostSlotDataGenerator> {
+                watchdog_timeout: self.watchdog_timeout(),
+                error_storage_path: self.error_storage_path.clone(),
+                simulation_threads: self.simulation_threads,
+                order_input_config: OrderInputConfig::from_config(self),
+                blocks_source: payload_event,
+                chain_chain_spec: self.chain_spec()?,
+                provider_factory,
 
-            coinbase_signer: self.coinbase_signer()?,
-            extra_data: self.extra_data()?,
-            blocklist: self.blocklist()?,
+                coinbase_signer: self.coinbase_signer()?,
+                extra_data: self.extra_data()?,
+                blocklist: self.blocklist()?,
 
-            global_cancellation: cancellation_token,
+                global_cancellation: cancellation_token,
 
-            bidding_service: Box::new(DummyBiddingService {}),
-            extra_rpc: RpcModule::new(()),
-            sink_factory,
-            builders: Vec::new(),
-        })
+                bidding_service: Box::new(DummyBiddingService {}),
+                extra_rpc: RpcModule::new(()),
+                sink_factory,
+                builders: Vec::new(),
+            },
+        )
     }
 
     pub fn jsonrpc_server_ip(&self) -> Ipv4Addr {

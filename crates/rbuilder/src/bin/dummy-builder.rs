@@ -27,7 +27,7 @@ use rbuilder::{
             OrderInputConfig, DEFAULT_INPUT_CHANNEL_BUFFER_SIZE, DEFAULT_RESULTS_CHANNEL_TIMEOUT,
             DEFAULT_SERVE_MAX_CONNECTIONS,
         },
-        payload_events::MevBoostSlotData,
+        payload_events::{MevBoostSlotData, MevBoostSlotDataGenerator},
         simulation::SimulatedOrderCommand,
         LiveBuilder,
     },
@@ -68,12 +68,18 @@ async fn main() -> eyre::Result<()> {
         None,
     )?;
 
-    let builder = LiveBuilder::<Arc<DatabaseEnv>, TraceBlockSinkFactory> {
-        cls: vec![Client::default()],
-        relays: vec![relay],
+    let payload_event = MevBoostSlotDataGenerator::new(
+        vec![Client::default()],
+        vec![relay],
+        Default::default(),
+        cancel.clone(),
+    );
+
+    let builder = LiveBuilder::<Arc<DatabaseEnv>, TraceBlockSinkFactory, MevBoostSlotDataGenerator> {
         watchdog_timeout: Duration::from_secs(10000),
         error_storage_path: DEFAULT_ERROR_STORAGE_PATH.parse().unwrap(),
         simulation_threads: 1,
+        blocks_source: payload_event,
         order_input_config: OrderInputConfig::new(
             false,
             true,
