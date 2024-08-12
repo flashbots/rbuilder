@@ -10,7 +10,7 @@ use crate::{
         LiveBuilder,
     },
     mev_boost::BLSBlockSigner,
-    primitives::mev_boost::MevBoostRelay,
+    primitives::mev_boost::{MevBoostRelay, RelayConfig},
     telemetry::{setup_reloadable_tracing_subscriber, LoggerConfig},
     utils::{http_provider, BoxedProvider, ProviderFactoryReopener, Signer},
     validation_api_client::ValidationAPIClient,
@@ -270,41 +270,7 @@ impl BaseConfig {
     pub fn relays(&self) -> eyre::Result<Vec<MevBoostRelay>> {
         let mut results = Vec::new();
         for relay in &self.relays {
-            let authorization_header =
-                if let Some(authorization_header) = &relay.authorization_header {
-                    Some(authorization_header.value()?)
-                } else {
-                    None
-                };
-
-            let builder_id_header = if let Some(builder_id_header) = &relay.builder_id_header {
-                Some(builder_id_header.value()?)
-            } else {
-                None
-            };
-
-            let api_token_header = if let Some(api_token_header) = &relay.api_token_header {
-                Some(api_token_header.value()?)
-            } else {
-                None
-            };
-
-            let interval_between_submissions = relay
-                .interval_between_submissions_ms
-                .map(Duration::from_millis);
-
-            results.push(MevBoostRelay::try_from_name_or_url(
-                &relay.name,
-                &relay.url,
-                relay.priority,
-                relay.use_ssz_for_submit,
-                relay.use_gzip_for_submit,
-                relay.optimistic,
-                authorization_header,
-                builder_id_header,
-                api_token_header,
-                interval_between_submissions,
-            )?);
+            results.push(MevBoostRelay::from_config(relay)?);
         }
         Ok(results)
     }
@@ -530,29 +496,6 @@ where
         let s = String::deserialize(deserializer)?;
         Ok(EnvOrValue(s, std::marker::PhantomData))
     }
-}
-
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct RelayConfig {
-    pub name: String,
-    pub url: String,
-    pub priority: usize,
-    // true->ssz false->json
-    #[serde(default)]
-    pub use_ssz_for_submit: bool,
-    #[serde(default)]
-    pub use_gzip_for_submit: bool,
-    #[serde(default)]
-    pub optimistic: bool,
-    #[serde(default)]
-    pub authorization_header: Option<EnvOrValue<String>>,
-    #[serde(default)]
-    pub builder_id_header: Option<EnvOrValue<String>>,
-    #[serde(default)]
-    pub api_token_header: Option<EnvOrValue<String>>,
-    #[serde(default)]
-    pub interval_between_submissions_ms: Option<u64>,
 }
 
 pub const DEFAULT_ERROR_STORAGE_PATH: &str = "/tmp/rbuilder-error.sqlite";
