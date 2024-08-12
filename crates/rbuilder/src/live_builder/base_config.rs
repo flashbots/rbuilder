@@ -316,6 +316,7 @@ impl BaseConfig {
             self.reth_db_path.as_deref(),
             self.reth_static_files_path.as_deref(),
             self.chain_spec()?,
+            false,
         )
     }
 
@@ -616,6 +617,7 @@ pub fn create_provider_factory(
     reth_db_path: Option<&Path>,
     reth_static_files_path: Option<&Path>,
     chain_spec: Arc<ChainSpec>,
+    rw: bool,
 ) -> eyre::Result<ProviderFactoryReopener<Arc<DatabaseEnv>>> {
     let reth_db_path = match (reth_db_path, reth_datadir) {
         (Some(reth_db_path), _) => PathBuf::from(reth_db_path),
@@ -623,45 +625,11 @@ pub fn create_provider_factory(
         (None, None) => eyre::bail!("Either reth_db_path or reth_datadir must be provided"),
     };
 
-    let db = open_reth_db(&reth_db_path)?;
-
-    let reth_static_files_path = match (reth_static_files_path, reth_datadir) {
-        (Some(reth_static_files_path), _) => PathBuf::from(reth_static_files_path),
-        (None, Some(reth_datadir)) => reth_datadir.join("static_files"),
-        (None, None) => {
-            eyre::bail!("Either reth_static_files_path or reth_datadir must be provided")
-        }
-    };
-
-    let provider_factory_reopener =
-        ProviderFactoryReopener::new(db, chain_spec, reth_static_files_path)?;
-
-    if provider_factory_reopener
-        .provider_factory_unchecked()
-        .static_file_provider()
-        .get_highest_static_file_block(StaticFileSegment::Headers)
-        .is_none()
-    {
-        eyre::bail!("No headers in static files. Check your static files path configuration.");
-    }
-
-    Ok(provider_factory_reopener)
-}
-
-/// Open reth db in read/write mode
-pub fn create_provider_factory_rw(
-    reth_datadir: Option<&Path>,
-    reth_db_path: Option<&Path>,
-    reth_static_files_path: Option<&Path>,
-    chain_spec: Arc<ChainSpec>,
-) -> eyre::Result<ProviderFactoryReopener<Arc<DatabaseEnv>>> {
-    let reth_db_path = match (reth_db_path, reth_datadir) {
-        (Some(reth_db_path), _) => PathBuf::from(reth_db_path),
-        (None, Some(reth_datadir)) => reth_datadir.join("db"),
-        (None, None) => eyre::bail!("Either reth_db_path or reth_datadir must be provided"),
-    };
-
-    let db = open_reth_db_rw(&reth_db_path)?;
+    let db = if rw {
+        open_reth_db_rw(&reth_db_path)
+    } else {
+        open_reth_db(&reth_db_path)
+    }?;
 
     let reth_static_files_path = match (reth_static_files_path, reth_datadir) {
         (Some(reth_static_files_path), _) => PathBuf::from(reth_static_files_path),
@@ -847,11 +815,12 @@ mod test {
         for (reth_datadir_path, reth_db_path, reth_static_files_path, should_succeed) in
             test_cases.iter()
         {
-            let result = create_provider_factory_rw(
+            let result = create_provider_factory(
                 reth_datadir_path.as_deref(),
                 reth_db_path.as_deref(),
                 reth_static_files_path.as_deref(),
                 Default::default(),
+                true,
             );
 
             if *should_succeed {
