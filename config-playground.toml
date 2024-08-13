@@ -17,12 +17,14 @@ extra_data = "⚡🤖"
 dry_run = false
 dry_run_validation_url = "http://localhost:8545"
 
-blocks_processor_url = "http://block_processor.internal"
+# blocks_processor_url can be an API service to record bids and transactions. It is not required.
+# blocks_processor_url = "http://block_processor.internal"
+
 ignore_cancellable_orders = true
 
 sbundle_mergeabe_signers = []
 # slot_delta_to_start_submits_ms is usually negative since we start bidding BEFORE the slot start
-#slot_delta_to_start_submits_ms = -5000
+# slot_delta_to_start_submits_ms = -5000
 live_builders = ["mp-ordering"]
 
 [[relays]]
