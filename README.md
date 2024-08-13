@@ -66,9 +66,15 @@ rbuilder has a solid initial benchmarking setup (based on [Criterion.rs](https:/
 
 You can use [builder-playground](https://github.com/flashbots/builder-playground) to deploy a fully functional local setup for the builder ([Lighthouse](https://github.com/sigp/lighthouse) consensus client (proposer + validator) + [Reth](https://github.com/paradigmxyz/reth/) execution client + [MEV-Boost-Relay](https://github.com/flashbots/mev-boost-relay))) to test rbuilder.
 
-To do so:
-1. Start [builder-playground](https://github.com/flashbots/builder-playground)
-2. Then, run the rbuilder:
+First, start [builder-playground](https://github.com/flashbots/builder-playground):
+
+```
+git clone git@github.com:flashbots/builder-playground.git
+cd builder-playground
+go run main.go
+```
+
+Then, run `rbuilder` using the `config-playground.toml` config file:
 
 ```
 cargo run --bin rbuilder run config-playground.toml
