@@ -21,6 +21,8 @@ struct Cli {
     config: PathBuf,
     #[clap(long, help = "CSV output path")]
     csv: Option<PathBuf>,
+    #[clap(long, help = "distribute to mempool txs", default_value = "false")]
+    distribute_to_mempool_txs: bool,
     #[clap(subcommand)]
     command: Commands,
 }
@@ -70,6 +72,7 @@ pub async fn run_backtest_redistribute<ConfigType: LiveBuilderConfig>() -> eyre:
                 csv_writer.as_mut(),
                 provider_factory.clone(),
                 &config,
+                cli.distribute_to_mempool_txs,
             )?;
         }
         Commands::Range {
@@ -85,6 +88,7 @@ pub async fn run_backtest_redistribute<ConfigType: LiveBuilderConfig>() -> eyre:
                     csv_writer.as_mut(),
                     provider_factory.clone(),
                     &config,
+                    cli.distribute_to_mempool_txs,
                 )?;
             }
         }
@@ -93,16 +97,22 @@ pub async fn run_backtest_redistribute<ConfigType: LiveBuilderConfig>() -> eyre:
     Ok(())
 }
 
-fn process_redisribution<ConfigType: LiveBuilderConfig>(
+fn process_redisribution<ConfigType: LiveBuilderConfig + Send + Sync>(
     block_data: BlockData,
     csv_writer: Option<&mut CSVResultWriter>,
     provider_factory: ProviderFactory<Arc<DatabaseEnv>>,
     config: &ConfigType,
+    distribute_to_mempool_txs: bool,
 ) -> eyre::Result<()> {
     let block_number = block_data.block_number;
     let block_hash = block_data.onchain_block.header.hash.unwrap_or_default();
     info!(block_number, "Calculating redistribution for a block");
-    let redistribution_values = calc_redistributions(provider_factory.clone(), config, block_data)?;
+    let redistribution_values = calc_redistributions(
+        provider_factory.clone(),
+        config,
+        block_data,
+        distribute_to_mempool_txs,
+    )?;
 
     if let Some(csv_writer) = csv_writer {
         let values = redistribution_values

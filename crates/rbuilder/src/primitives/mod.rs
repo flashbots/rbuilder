@@ -179,7 +179,7 @@ impl Bundle {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TxRevertBehavior {
     /// Tx in a bundle can't revert.
     NotAllowed,
@@ -791,6 +791,14 @@ impl OrderId {
                 out[0..16].copy_from_slice(uuid.as_bytes());
                 B256::new(out)
             }
+        }
+    }
+
+    /// Returns tx hash if the order is mempool tx
+    pub fn tx_hash(&self) -> Option<B256> {
+        match self {
+            Self::Tx(hash) => Some(*hash),
+            _ => None,
         }
     }
 }

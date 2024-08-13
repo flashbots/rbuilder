@@ -4,6 +4,7 @@ pub mod execute;
 pub mod fetch;
 
 pub mod redistribute;
+pub mod restore_landed_orders;
 mod results_store;
 mod store;
 

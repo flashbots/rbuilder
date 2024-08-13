@@ -8,6 +8,9 @@
 use ahash::HashMap;
 use alloy_primitives::utils::format_ether;
 
+use crate::backtest::restore_landed_orders::{
+    restore_landed_orders, sim_historical_block, ExecutedBlockTx, ExecutedTxs, SimplifiedOrder,
+};
 use crate::backtest::OrdersWithTimestamp;
 use crate::{
     backtest::{
@@ -37,6 +40,8 @@ struct Cli {
     show_orders: bool,
     #[clap(long, help = "Show order data and top of block simulation results")]
     show_sim: bool,
+    #[clap(long, help = "Show landed block txs values")]
+    sim_landed_block: bool,
     #[clap(long, help = "Show missing block txs")]
     show_missing: bool,
     #[clap(long, help = "don't build block")]
@@ -86,6 +91,15 @@ pub async fn run_backtest_build_block<ConfigType: LiveBuilderConfig>() -> eyre::
         .provider_factory_unchecked();
     let chain_spec = config.base_config().chain_spec()?;
     let sbundle_mergeabe_signers = config.base_config().sbundle_mergeabe_signers();
+
+    if cli.sim_landed_block {
+        let tx_sim_results = sim_historical_block(
+            provider_factory.clone(),
+            chain_spec.clone(),
+            block_data.onchain_block.clone(),
+        )?;
+        print_onchain_block_data(tx_sim_results, &orders, &block_data);
+    }
 
     let BacktestBlockInput {
         ctx, sim_orders, ..
@@ -293,4 +307,72 @@ fn print_simulated_orders(
         );
     }
     println!();
+}
+
+fn print_onchain_block_data(
+    tx_sim_results: Vec<ExecutedTxs>,
+    orders: &[Order],
+    block_data: &BlockData,
+) {
+    let mut executed_orders = Vec::new();
+
+    println!("Onchain block txs:");
+    for tx in tx_sim_results {
+        println!(
+            "{:>74} revert: {:>5} profit: {}",
+            tx.tx.hash(),
+            !tx.receipt.success,
+            format_ether(tx.coinbase_profit)
+        );
+        executed_orders.push(ExecutedBlockTx::new(
+            tx.tx.hash,
+            tx.coinbase_profit,
+            tx.receipt.success,
+        ))
+    }
+
+    // restored orders
+    let mut simplified_orders = Vec::new();
+    for order in orders {
+        if block_data
+            .built_block_data
+            .as_ref()
+            .map(|bd| bd.included_orders.contains(&order.id()))
+            .unwrap_or(true)
+        {
+            simplified_orders.push(SimplifiedOrder::new_from_order(order));
+        }
+    }
+    let restored_orders = restore_landed_orders(executed_orders, simplified_orders);
+
+    for (id, order) in &restored_orders {
+        println!(
+            "{:>74} total_profit: {}, unique_profit: {}, error: {:?}",
+            id,
+            format_ether(order.total_coinbase_profit),
+            format_ether(order.unique_coinbase_profit),
+            order.error
+        );
+    }
+
+    if let Some(built_block) = &block_data.built_block_data {
+        println!();
+        println!("Included orders:");
+        for included_order in &built_block.included_orders {
+            if let Some(order) = restored_orders.get(included_order) {
+                println!(
+                    "{:>74} total_profit: {}, unique_profit: {}, error: {:?}",
+                    order.order,
+                    format_ether(order.total_coinbase_profit),
+                    format_ether(order.unique_coinbase_profit),
+                    order.error
+                );
+                for (other, tx) in &order.overlapping_txs {
+                    println!("    overlap with: {:>74} tx {:?}", other, tx);
+                }
+            } else {
+                println!("{:>74} included order not found: ", included_order);
+            }
+        }
+    }
 }
