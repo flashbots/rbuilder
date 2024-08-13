@@ -38,10 +38,10 @@ pub async fn main() -> eyre::Result<()> {
 
     spawn_telemetry_server(config.base_config().telemetry_address(), rbuilder_version()).await?;
 
-    let relays = config.base_config().relays()?;
+    let relays = config.l1_config.relays()?;
 
     let (handle, mut slots) = MevBoostSlotDataGenerator::new(
-        config.base_config().beacon_clients()?,
+        config.l1_config.beacon_clients()?,
         relays,
         Default::default(),
         cancel,

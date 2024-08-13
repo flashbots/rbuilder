@@ -1,6 +1,9 @@
 //! Config should always be deserializable, default values should be used
 //!
+//!
+use super::{base_config::BaseConfig, building::relay_submit::RelaySubmitSinkFactory};
 use crate::{
+    beacon_api_client::Client,
     building::{
         builders::{
             ordering_builder::{OrderingBuilderConfig, OrderingBuildingAlgorithm},
@@ -8,26 +11,44 @@ use crate::{
         },
         Sorting,
     },
-    live_builder::{cli::LiveBuilderConfig, payload_events::MevBoostSlotDataGenerator},
+    flashbots::BlocksProcessorClient,
+    live_builder::{
+        base_config::EnvOrValue, building::SubmissionConfig, cli::LiveBuilderConfig,
+        payload_events::MevBoostSlotDataGenerator,
+    },
+    mev_boost::BLSBlockSigner,
+    primitives::mev_boost::{MevBoostRelay, RelayConfig},
     utils::{build_info::rbuilder_version, ProviderFactoryReopener, Signer},
+    validation_api_client::ValidationAPIClient,
 };
-use alloy_primitives::{Address, B256};
+use alloy_chains::ChainKind;
+use alloy_primitives::{
+    utils::{format_ether, parse_ether},
+    Address, FixedBytes, B256,
+};
+use ethereum_consensus::{
+    builder::compute_builder_domain, crypto::SecretKey, primitives::Version,
+    state_transition::Context as ContextEth,
+};
 use eyre::Context;
 use reth::tasks::pool::BlockingTaskPool;
-use reth_chainspec::ChainSpec;
+use reth_chainspec::{Chain, ChainSpec, NamedChain};
 use reth_db::DatabaseEnv;
 use reth_payload_builder::database::CachedReads;
 use reth_primitives::StaticFileSegment;
 use reth_provider::StaticFileProviderFactory;
 use serde::Deserialize;
-use serde_with::serde_as;
+use serde_with::{serde_as, OneOrMany};
 use std::{
     path::{Path, PathBuf},
     str::FromStr,
     sync::Arc,
 };
+use tracing::info;
+use url::Url;
 
-use super::base_config::BaseConfig;
+/// From experience (Vitaly's) all generated blocks before slot_time-8sec end loosing (due to last moment orders?)
+const DEFAULT_SLOT_DELTA_TO_START_SUBMITS: time::Duration = time::Duration::milliseconds(-8000);
 
 /// This example has a single building algorithm cfg but the idea of this enum is to have several builders
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -49,8 +70,163 @@ pub struct BuilderConfig {
 pub struct Config {
     #[serde(flatten)]
     pub base_config: BaseConfig,
+
+    #[serde(flatten)]
+    pub l1_config: L1Config,
+
     /// selected builder configurations
     pub builders: Vec<BuilderConfig>,
+}
+
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields)]
+pub struct L1Config {
+    // Relay Submission configuration
+    pub relays: Vec<RelayConfig>,
+    pub dry_run: bool,
+    #[serde_as(deserialize_as = "OneOrMany<_>")]
+    pub dry_run_validation_url: Vec<String>,
+    /// Secret key that will be used to sign normal submissions to the relay.
+    relay_secret_key: EnvOrValue<String>,
+    /// Secret key that will be used to sign optimistic submissions to the relay.
+    optimistic_relay_secret_key: EnvOrValue<String>,
+    /// When enabled builer will make optimistic submissions to optimistic relays
+    /// influenced by `optimistic_max_bid_value_eth` and `optimistic_prevalidate_optimistic_blocks`
+    pub optimistic_enabled: bool,
+    /// Bids above this value will always be submitted in non-optimistic mode.
+    pub optimistic_max_bid_value_eth: String,
+    /// If true all optimistic submissions will be validated on nodes specified in `dry_run_validation_url`
+    pub optimistic_prevalidate_optimistic_blocks: bool,
+    pub blocks_processor_url: Option<String>,
+
+    // See [`SubmissionConfig`]
+    slot_delta_to_start_submits_ms: Option<i64>,
+
+    ///Name kept singular for backwards compatibility
+    #[serde_as(deserialize_as = "OneOrMany<EnvOrValue<String>>")]
+    pub cl_node_url: Vec<EnvOrValue<String>>,
+}
+
+impl Default for L1Config {
+    fn default() -> Self {
+        Self {
+            relays: vec![],
+            dry_run: false,
+            dry_run_validation_url: vec![],
+            relay_secret_key: "".into(),
+            optimistic_relay_secret_key: "".into(),
+            optimistic_enabled: false,
+            optimistic_max_bid_value_eth: "0.0".to_string(),
+            optimistic_prevalidate_optimistic_blocks: false,
+            blocks_processor_url: None,
+            slot_delta_to_start_submits_ms: None,
+            cl_node_url: vec![EnvOrValue::from("http://127.0.0.1:3500")],
+        }
+    }
+}
+
+impl L1Config {
+    pub fn resolve_cl_node_urls(&self) -> eyre::Result<Vec<String>> {
+        crate::live_builder::base_config::resolve_env_or_values::<String>(&self.cl_node_url)
+    }
+
+    pub fn beacon_clients(&self) -> eyre::Result<Vec<Client>> {
+        self.cl_node_url
+            .iter()
+            .map(|url| {
+                let url = Url::parse(&url.value()?)?;
+                Ok(Client::new(url))
+            })
+            .collect()
+    }
+
+    pub fn relays(&self) -> eyre::Result<Vec<MevBoostRelay>> {
+        let mut results = Vec::new();
+        for relay in &self.relays {
+            results.push(MevBoostRelay::from_config(relay)?);
+        }
+        Ok(results)
+    }
+
+    pub fn bls_signer(&self, chain_spec: &ChainSpec) -> eyre::Result<BLSBlockSigner> {
+        let signing_domain = get_signing_domain(chain_spec.chain, self.beacon_clients()?)?;
+        let secret_key = self.relay_secret_key.value()?;
+        let secret_key = SecretKey::try_from(secret_key)
+            .map_err(|e| eyre::eyre!("Failed to parse relay key: {:?}", e.to_string()))?;
+
+        BLSBlockSigner::new(secret_key, signing_domain)
+    }
+
+    pub fn bls_optimistic_signer(&self, chain_spec: &ChainSpec) -> eyre::Result<BLSBlockSigner> {
+        let signing_domain = get_signing_domain(chain_spec.chain, self.beacon_clients()?)?;
+        let secret_key = self.optimistic_relay_secret_key.value()?;
+        let secret_key = SecretKey::try_from(secret_key).map_err(|e| {
+            eyre::eyre!("Failed to parse optimistic relay key: {:?}", e.to_string())
+        })?;
+
+        BLSBlockSigner::new(secret_key, signing_domain)
+    }
+
+    pub fn slot_delta_to_start_submits(&self) -> time::Duration {
+        self.slot_delta_to_start_submits_ms
+            .map(time::Duration::milliseconds)
+            .unwrap_or(DEFAULT_SLOT_DELTA_TO_START_SUBMITS)
+    }
+
+    pub fn submission_config(&self, chain_spec: Arc<ChainSpec>) -> eyre::Result<SubmissionConfig> {
+        if (self.dry_run || self.optimistic_prevalidate_optimistic_blocks)
+            && self.dry_run_validation_url.is_empty()
+        {
+            eyre::bail!(
+                "Dry run or optimistic prevalidation enabled but no validation urls provided"
+            );
+        }
+        let validation_api = {
+            let urls = self
+                .dry_run_validation_url
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>();
+
+            ValidationAPIClient::new(urls.as_slice())?
+        };
+
+        let optimistic_signer = match self.bls_optimistic_signer(&chain_spec) {
+            Ok(signer) => signer,
+            Err(err) => {
+                if self.optimistic_enabled {
+                    eyre::bail!(
+                        "Optimistic mode enabled but no valid optimistic signer: {}",
+                        err
+                    );
+                } else {
+                    // we don't care about the actual value
+                    self.bls_signer(&chain_spec)?
+                }
+            }
+        };
+
+        let signer = self.bls_signer(&chain_spec)?;
+
+        Ok(SubmissionConfig {
+            chain_spec: chain_spec,
+            signer: signer,
+            dry_run: self.dry_run,
+            validation_api,
+            optimistic_enabled: self.optimistic_enabled,
+            optimistic_signer,
+            optimistic_max_bid_value: parse_ether(&self.optimistic_max_bid_value_eth)?,
+            optimistic_prevalidate_optimistic_blocks: self.optimistic_prevalidate_optimistic_blocks,
+            blocks_processor: if let Some(url) = &self.blocks_processor_url {
+                let client = BlocksProcessorClient::try_from(url)?;
+                Some(client)
+            } else {
+                None
+            },
+            slot_delta_to_start_submits: self.slot_delta_to_start_submits(),
+        })
+    }
 }
 
 impl LiveBuilderConfig for Config {
@@ -68,7 +244,38 @@ impl LiveBuilderConfig for Config {
             MevBoostSlotDataGenerator,
         >,
     > {
-        let live_builder = self.base_config.create_builder(cancellation_token).await?;
+        let submission_config = self
+            .l1_config
+            .submission_config(self.base_config.chain_spec()?)?;
+        info!(
+            "Builder mev boost normal relay pubkey: {:?}",
+            submission_config.signer.pub_key()
+        );
+        info!(
+            "Builder mev boost optimistic relay pubkey: {:?}",
+            submission_config.optimistic_signer.pub_key()
+        );
+        info!(
+            "Optimistic mode, enabled: {}, prevalidate: {}, max_value: {}",
+            submission_config.optimistic_enabled,
+            submission_config.optimistic_prevalidate_optimistic_blocks,
+            format_ether(submission_config.optimistic_max_bid_value),
+        );
+
+        let relays = self.l1_config.relays()?;
+        let sink_factory = RelaySubmitSinkFactory::new(submission_config, relays.clone());
+
+        let payload_event = MevBoostSlotDataGenerator::new(
+            self.l1_config.beacon_clients()?,
+            relays,
+            self.base_config.blocklist()?,
+            cancellation_token.clone(),
+        );
+
+        let live_builder = self
+            .base_config
+            .create_builder(cancellation_token, sink_factory, payload_event)
+            .await?;
         let root_hash_task_pool = self.base_config.root_hash_task_pool()?;
         let builders = create_builders(
             self.live_builders()?,
@@ -118,6 +325,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             base_config: Default::default(),
+            l1_config: Default::default(),
             builders: vec![
                 BuilderConfig {
                     name: "mgp-ordering".to_string(),
@@ -223,13 +431,50 @@ fn create_builder(
     }
 }
 
+fn get_signing_domain(chain: Chain, beacon_clients: Vec<Client>) -> eyre::Result<B256> {
+    let cl_context = match chain.kind() {
+        ChainKind::Named(NamedChain::Mainnet) => ContextEth::for_mainnet(),
+        ChainKind::Named(NamedChain::Sepolia) => ContextEth::for_sepolia(),
+        ChainKind::Named(NamedChain::Goerli) => ContextEth::for_goerli(),
+        ChainKind::Named(NamedChain::Holesky) => ContextEth::for_holesky(),
+        _ => {
+            let client = beacon_clients
+                .first()
+                .ok_or_else(|| eyre::eyre!("No beacon clients provided"))?;
+
+            let spec = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(client.get_spec())
+            })?;
+
+            let genesis_fork_version = spec
+                .get("GENESIS_FORK_VERSION")
+                .ok_or_else(|| eyre::eyre!("GENESIS_FORK_VERSION not found in spec"))?;
+
+            let version: FixedBytes<4> = FixedBytes::from_str(genesis_fork_version)
+                .map_err(|e| eyre::eyre!("Failed to parse genesis fork version: {:?}", e))?;
+
+            let version = Version::from(version);
+
+            // use the mainnet one and update the genesis fork version since it is the
+            // only thing required by 'compute_builder_domain'. We do this because
+            // there is no default in Context.
+            let mut network = ContextEth::for_mainnet();
+            network.genesis_fork_version = version;
+
+            network
+        }
+    };
+
+    Ok(B256::from(&compute_builder_domain(&cl_context)?))
+}
+
 #[cfg(test)]
 mod test {
-    use crate::live_builder::base_config::load_config_toml_and_env;
-
     use super::*;
-    use alloy_primitives::address;
+    use crate::live_builder::base_config::load_config_toml_and_env;
+    use alloy_primitives::{address, fixed_bytes};
     use std::env;
+    use url::Url;
 
     #[test]
     fn test_default_config() {
@@ -274,7 +519,7 @@ mod test {
         );
 
         assert!(config
-            .base_config
+            .l1_config
             .resolve_cl_node_urls()
             .unwrap()
             .contains(&"http://localhost:3500".to_string()));
@@ -286,5 +531,44 @@ mod test {
         p.push("../../config-backtest-example.toml");
 
         load_config_toml_and_env::<Config>(p).expect("Config load");
+    }
+
+    #[test]
+    fn test_signing_domain_known_chains() {
+        let cases = [
+            (
+                NamedChain::Mainnet,
+                fixed_bytes!("00000001f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a9"),
+            ),
+            (
+                NamedChain::Sepolia,
+                fixed_bytes!("00000001d3010778cd08ee514b08fe67b6c503b510987a4ce43f42306d97c67c"),
+            ),
+            (
+                NamedChain::Goerli,
+                fixed_bytes!("00000001e4be9393b074ca1f3e4aabd585ca4bea101170ccfaf71b89ce5c5c38"),
+            ),
+            (
+                NamedChain::Holesky,
+                fixed_bytes!("000000015b83a23759c560b2d0c64576e1dcfc34ea94c4988f3e0d9f77f05387"),
+            ),
+        ];
+
+        for (chain, domain) in cases.iter() {
+            let found = get_signing_domain(Chain::from_named(*chain), vec![]).unwrap();
+            assert_eq!(found, *domain);
+        }
+    }
+
+    #[ignore]
+    #[test]
+    fn test_signing_domain_custom_chain() {
+        let client = Client::new(Url::parse("http://localhost:8000").unwrap());
+        let found = get_signing_domain(Chain::from_id(12345), vec![client]).unwrap();
+
+        assert_eq!(
+            found,
+            fixed_bytes!("00000001aaf2630a2874a74199f4b5d11a7d6377f363a236271bff4bf8eb4ab3")
+        );
     }
 }
