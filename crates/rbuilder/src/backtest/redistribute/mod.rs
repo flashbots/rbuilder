@@ -13,7 +13,7 @@ use crate::backtest::BlockData;
 use crate::live_builder::cli::LiveBuilderConfig;
 use crate::primitives::{Order, OrderId};
 use crate::utils::signed_uint_delta;
-use ahash::{HashMap, HashSet};
+use ahash::HashMap;
 use alloy_primitives::utils::format_ether;
 use alloy_primitives::{Address, U256};
 pub use cli::run_backtest_redistribute;
@@ -28,6 +28,7 @@ pub fn calc_redistributions<ConfigType: LiveBuilderConfig + Send + Sync>(
     provider_factory: ProviderFactory<Arc<DatabaseEnv>>,
     config: &ConfigType,
     mut block_data: BlockData,
+    distribute_to_mempool_txs: bool,
 ) -> eyre::Result<Vec<(Address, U256)>> {
     let _block_span = info_span!("block", block = block_data.block_number).entered();
     let built_block_data = if let Some(block_data) = block_data.built_block_data.clone() {
@@ -58,12 +59,30 @@ pub fn calc_redistributions<ConfigType: LiveBuilderConfig + Send + Sync>(
         .collect::<HashMap<_, _>>();
 
     let mut landed_orders_by_address: HashMap<Address, Vec<OrderId>> = HashMap::default();
-    let mut available_landed_orders: HashSet<OrderId> = HashSet::default();
     let mut all_orders_by_address: HashMap<Address, Vec<OrderId>> = HashMap::default();
 
     // detect landed orders in the onchain block
     let restored_landed_orders = {
+        let block_txs = sim_historical_block(
+            provider_factory.clone(),
+            config.base_config().chain_spec()?,
+            block_data.onchain_block.clone(),
+        )?
+        .into_iter()
+        .map(|executed_tx| {
+            ExecutedBlockTx::new(
+                executed_tx.tx.hash,
+                executed_tx.coinbase_profit,
+                executed_tx.receipt.success,
+            )
+        })
+        .collect::<Vec<_>>();
+
         for o in &block_data.available_orders {
+            if o.order.is_tx() && !distribute_to_mempool_txs {
+                continue;
+            }
+
             let address = match order_redistribution_address(&o.order, &protect_signers) {
                 Some(address) => address,
                 None => {
@@ -71,6 +90,15 @@ pub fn calc_redistributions<ConfigType: LiveBuilderConfig + Send + Sync>(
                     continue;
                 }
             };
+            if o.order.is_tx() && distribute_to_mempool_txs {
+                let tx_hash = o.order.id().tx_hash().expect("order is tx");
+                if block_txs.iter().any(|tx| tx.hash == tx_hash) {
+                    landed_orders_by_address
+                        .entry(address)
+                        .or_default()
+                        .push(o.order.id());
+                }
+            }
             all_orders_by_address
                 .entry(address)
                 .or_default()
@@ -94,7 +122,6 @@ pub fn calc_redistributions<ConfigType: LiveBuilderConfig + Send + Sync>(
                         .entry(address)
                         .or_default()
                         .push(order.order.id());
-                    available_landed_orders.insert(order.order.id());
                     simplified_orders.push(SimplifiedOrder::new_from_order(&order.order));
                 }
                 None => {
@@ -110,21 +137,6 @@ pub fn calc_redistributions<ConfigType: LiveBuilderConfig + Send + Sync>(
                 simplified_orders.push(SimplifiedOrder::new_from_order(&available_order.order));
             }
         }
-
-        let block_txs = sim_historical_block(
-            provider_factory.clone(),
-            config.base_config().chain_spec()?,
-            block_data.onchain_block.clone(),
-        )?
-        .into_iter()
-        .map(|executed_tx| {
-            ExecutedBlockTx::new(
-                executed_tx.tx.hash,
-                executed_tx.coinbase_profit,
-                executed_tx.receipt.success,
-            )
-        })
-        .collect::<Vec<_>>();
 
         restore_landed_orders(block_txs, simplified_orders)
     };
@@ -268,7 +280,16 @@ fn calc_profit<ConfigType: LiveBuilderConfig>(
 }
 
 fn order_redistribution_address(order: &Order, protect_signers: &[Address]) -> Option<Address> {
-    let signer = order.signer()?;
+    let signer = match order.signer() {
+        Some(signer) => signer,
+        None => {
+            return if order.is_tx() {
+                Some(order.list_txs().first()?.0.tx.signer())
+            } else {
+                None
+            }
+        }
+    };
 
     if !protect_signers.contains(&signer) {
         return Some(signer);

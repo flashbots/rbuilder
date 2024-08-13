@@ -793,6 +793,14 @@ impl OrderId {
             }
         }
     }
+
+    /// Returns tx hash if the order is mempool tx
+    pub fn tx_hash(&self) -> Option<B256> {
+        match self {
+            Self::Tx(hash) => Some(*hash),
+            _ => None,
+        }
+    }
 }
 
 impl FromStr for OrderId {
