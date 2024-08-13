@@ -1,16 +1,13 @@
-# Please see the documentation for all configuration options:
+# Dependabot is currently disabled.
+#
+# See the dependabot documentation for all configuration options:
 # https://help.github.com/github/administering-a-repository/configuration-options-for-dependency-updates
 
 version: 2
-updates:
-  - package-ecosystem: "cargo"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    commit-message:
-      prefix: "chore(deps)"
-    # ignore:
-    #     # These are peer deps of Cargo and should not be automatically bumped
-    #     - dependency-name: "semver"
-    #     - dependency-name: "crates-io"
-    # rebase-strategy: "disabled"
+# updates:
+#   - package-ecosystem: "cargo"
+#     directory: "/"
+#     schedule:
+#       interval: "weekly"
+#     commit-message:
+#       prefix: "chore(deps)"
