@@ -145,6 +145,9 @@ pub fn calc_redistributions<ConfigType: LiveBuilderConfig + Send + Sync>(
     let profit_without_exclusion = calc_profit(provider_factory.clone(), config, &block_data, &[])?;
 
     let profit_after_address_exclusion = all_orders_by_address
+        .into_iter()
+        .filter(|(address, _)| landed_orders_by_address.contains_key(address))
+        .collect::<Vec<_>>()
         .into_par_iter()
         .map(|(address, orders)| {
             (
