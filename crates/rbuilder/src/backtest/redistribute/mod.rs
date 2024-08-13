@@ -57,11 +57,26 @@ pub fn calc_redistributions<ConfigType: LiveBuilderConfig + Send + Sync>(
         .map(|order| (order.order.id(), order.clone()))
         .collect::<HashMap<_, _>>();
 
-    let mut orders_by_address: HashMap<Address, Vec<OrderId>> = HashMap::default();
+    let mut landed_orders_by_address: HashMap<Address, Vec<OrderId>> = HashMap::default();
     let mut available_landed_orders: HashSet<OrderId> = HashSet::default();
+    let mut all_orders_by_address: HashMap<Address, Vec<OrderId>> = HashMap::default();
 
     // detect landed orders in the onchain block
     let restored_landed_orders = {
+        for o in &block_data.available_orders {
+            let address = match order_redistribution_address(&o.order, &protect_signers) {
+                Some(address) => address,
+                None => {
+                    warn!(order = ?o.order.id(), "Order redistribution address not found");
+                    continue;
+                }
+            };
+            all_orders_by_address
+                .entry(address)
+                .or_default()
+                .push(o.order.id());
+        }
+
         let mut simplified_orders = Vec::new();
 
         for included_order in &built_block_data.included_orders {
@@ -75,7 +90,7 @@ pub fn calc_redistributions<ConfigType: LiveBuilderConfig + Send + Sync>(
                             continue;
                         }
                     };
-                    orders_by_address
+                    landed_orders_by_address
                         .entry(address)
                         .or_default()
                         .push(order.order.id());
@@ -117,8 +132,7 @@ pub fn calc_redistributions<ConfigType: LiveBuilderConfig + Send + Sync>(
     let start = Instant::now();
     let profit_without_exclusion = calc_profit(provider_factory.clone(), config, &block_data, &[])?;
 
-    let profit_after_address_exclusion = orders_by_address
-        .clone()
+    let profit_after_address_exclusion = all_orders_by_address
         .into_par_iter()
         .map(|(address, orders)| {
             (
@@ -133,7 +147,7 @@ pub fn calc_redistributions<ConfigType: LiveBuilderConfig + Send + Sync>(
     );
 
     // sort for deterministic output
-    let mut orders_by_address = orders_by_address.into_iter().collect::<Vec<_>>();
+    let mut orders_by_address = landed_orders_by_address.into_iter().collect::<Vec<_>>();
     orders_by_address.sort_by_key(|(a, _)| *a);
     for (_, orders) in &mut orders_by_address {
         orders.sort();
@@ -160,6 +174,11 @@ pub fn calc_redistributions<ConfigType: LiveBuilderConfig + Send + Sync>(
         };
         let value_delta_after_exclusion =
             signed_uint_delta(profit_without_exclusion, profit_after_exclusion);
+
+        trace!(
+            delta = format_ether(value_delta_after_exclusion),
+            "Value delta after identity exclusion."
+        );
 
         let mut included_orders = Vec::new();
         for order in orders {

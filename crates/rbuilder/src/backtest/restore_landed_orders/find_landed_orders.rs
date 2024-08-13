@@ -358,7 +358,11 @@ fn find_order_chunk(
             return Err(OrderIdentificationError::TxReverted(*tx));
         }
         if idx < last_tx_idx {
-            return Err(OrderIdentificationError::TxIsIncorrectPosition);
+            if revert != &TxRevertBehavior::AllowedExcluded {
+                return Err(OrderIdentificationError::TxIsIncorrectPosition);
+            } else {
+                continue;
+            }
         }
         last_tx_idx = idx;
         txs.push(*tx);
@@ -861,5 +865,38 @@ mod tests {
 
         let got = SimplifiedOrder::new_from_order(&bundle);
         assert_eq!(got, expected);
+    }
+
+    #[test]
+    fn test_out_of_order_droppable_txs() {
+        // bundle_1: tx1_1 (optional), tx1_2 (optional), tx1_3
+        // included txs: tx1_2, tx1_1, tx1_3
+        let executed_block = vec![
+            ExecutedBlockTx::new(hash(0x12), i256(0x12), true),
+            ExecutedBlockTx::new(hash(0x11), i256(0x11), true),
+            ExecutedBlockTx::new(hash(0x13), i256(0x13), true),
+        ];
+
+        let orders = vec![SimplifiedOrder::new(
+            order_id(0xb1),
+            vec![OrderChunk::new(
+                vec![
+                    (hash(0x11), TxRevertBehavior::AllowedExcluded),
+                    (hash(0x12), TxRevertBehavior::AllowedExcluded),
+                    (hash(0x13), TxRevertBehavior::NotAllowed),
+                ],
+                false,
+                0,
+            )],
+        )];
+
+        let results = vec![LandedOrderData::new(
+            order_id(0xb1),
+            i256(0x11 + 0x13),
+            i256(0x11 + 0x13),
+            None,
+            vec![],
+        )];
+        assert_result(executed_block, orders, results);
     }
 }
