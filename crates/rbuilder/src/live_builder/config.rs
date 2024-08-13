@@ -210,8 +210,8 @@ impl L1Config {
         let signer = self.bls_signer(&chain_spec)?;
 
         Ok(SubmissionConfig {
-            chain_spec: chain_spec,
-            signer: signer,
+            chain_spec,
+            signer,
             dry_run: self.dry_run,
             validation_api,
             optimistic_enabled: self.optimistic_enabled,
