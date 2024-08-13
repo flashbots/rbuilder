@@ -21,7 +21,7 @@ use rbuilder::{
             DEFAULT_EL_NODE_IPC_PATH, DEFAULT_ERROR_STORAGE_PATH, DEFAULT_INCOMING_BUNDLES_PORT,
             DEFAULT_IP, DEFAULT_RETH_DB_PATH,
         },
-        bidding::{DummyBiddingService, SlotBidder},
+         bidding::{private_bid::DynamicOverbidSlotBidderBuilderServer, DummyBiddingService, SlotBidder},
         config::create_provider_factory,
         order_input::{
             OrderInputConfig, DEFAULT_INPUT_CHANNEL_BUFFER_SIZE, DEFAULT_RESULTS_CHANNEL_TIMEOUT,
@@ -54,7 +54,7 @@ async fn main() -> eyre::Result<()> {
     writer.init();
     let chain_spec = MAINNET.clone();
     let cancel = CancellationToken::new();
-    let bidding_service = Box::new(DummyBiddingService {});
+    let bidding_service = Box::new(DynamicOverbidSlotBidderBuilderServer::default());
     let relay = MevBoostRelay::try_from_name_or_url(
         "flashbots",
         "https://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@boost-relay.flashbots.net",

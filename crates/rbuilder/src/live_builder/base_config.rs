@@ -4,7 +4,7 @@ use crate::{
     beacon_api_client::Client,
     flashbots::BlocksProcessorClient,
     live_builder::{
-        bidding::DummyBiddingService,
+         bidding::{private_bid::DynamicOverbidSlotBidderBuilderServer, DummyBiddingService},
         building::{relay_submit::RelaySubmitSinkFactory, SubmissionConfig},
         order_input::OrderInputConfig,
         LiveBuilder,
@@ -229,8 +229,7 @@ impl BaseConfig {
             blocklist: self.blocklist()?,
 
             global_cancellation: cancellation_token,
-
-            bidding_service: Box::new(DummyBiddingService {}),
+            bidding_service: Box::new(DynamicOverbidSlotBidderBuilderServer::default()),
             extra_rpc: RpcModule::new(()),
             sink_factory,
             builders: Vec::new(),

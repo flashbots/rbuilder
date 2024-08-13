@@ -46,7 +46,7 @@ pub struct SubmissionConfig {
 }
 
 /// run_submit_to_relays_job waits at least MIN_TIME_BETWEEN_BLOCK_CHECK between new block polls to avoid 100% CPU
-const MIN_TIME_BETWEEN_BLOCK_CHECK: Duration = Duration::from_millis(5);
+const MIN_TIME_BETWEEN_BLOCK_CHECK: Duration = Duration::from_millis(10);
 
 /// Values from [`BuiltBlockTrace`]
 struct BuiltBlockInfo {
@@ -137,8 +137,8 @@ async fn run_submit_to_relays_job(
             config.optimistic_enabled && block.trace.bid_value < config.optimistic_max_bid_value;
 
 
-       let best_bid_value = slot_bidder.best_bid_value(&relays, block.sealed_block.number).unwrap_or_default();
-
+        let best_bid_value = slot_bidder.best_bid_value(&relays, block.sealed_block.number).unwrap_or_default();
+        //let best_bid_value = U256::default();
         let submission_span = info_span!(
             "bid",
             bid_value = format_ether(block.trace.bid_value),
