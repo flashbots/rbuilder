@@ -141,7 +141,7 @@ impl L1Config {
             .collect()
     }
 
-    pub fn relays(&self) -> eyre::Result<Vec<MevBoostRelay>> {
+    pub fn create_relays(&self) -> eyre::Result<Vec<MevBoostRelay>> {
         let mut results = Vec::new();
         for relay in &self.relays {
             results.push(MevBoostRelay::from_config(relay)?);
@@ -149,7 +149,7 @@ impl L1Config {
         Ok(results)
     }
 
-    pub fn bls_signer(&self, chain_spec: &ChainSpec) -> eyre::Result<BLSBlockSigner> {
+    fn bls_signer(&self, chain_spec: &ChainSpec) -> eyre::Result<BLSBlockSigner> {
         let signing_domain = get_signing_domain(chain_spec.chain, self.beacon_clients()?)?;
         let secret_key = self.relay_secret_key.value()?;
         let secret_key = SecretKey::try_from(secret_key)
@@ -158,7 +158,7 @@ impl L1Config {
         BLSBlockSigner::new(secret_key, signing_domain)
     }
 
-    pub fn bls_optimistic_signer(&self, chain_spec: &ChainSpec) -> eyre::Result<BLSBlockSigner> {
+    fn bls_optimistic_signer(&self, chain_spec: &ChainSpec) -> eyre::Result<BLSBlockSigner> {
         let signing_domain = get_signing_domain(chain_spec.chain, self.beacon_clients()?)?;
         let secret_key = self.optimistic_relay_secret_key.value()?;
         let secret_key = SecretKey::try_from(secret_key).map_err(|e| {
@@ -174,7 +174,7 @@ impl L1Config {
             .unwrap_or(DEFAULT_SLOT_DELTA_TO_START_SUBMITS)
     }
 
-    pub fn submission_config(&self, chain_spec: Arc<ChainSpec>) -> eyre::Result<SubmissionConfig> {
+    fn submission_config(&self, chain_spec: Arc<ChainSpec>) -> eyre::Result<SubmissionConfig> {
         if (self.dry_run || self.optimistic_prevalidate_optimistic_blocks)
             && self.dry_run_validation_url.is_empty()
         {
@@ -227,6 +227,32 @@ impl L1Config {
             slot_delta_to_start_submits: self.slot_delta_to_start_submits(),
         })
     }
+
+    /// Creates the RelaySubmitSinkFactory and also returns the asociated relays.
+    pub fn create_relays_sink_factory(
+        &self,
+        chain_spec: Arc<ChainSpec>,
+    ) -> eyre::Result<(RelaySubmitSinkFactory, Vec<MevBoostRelay>)> {
+        let submission_config = self.submission_config(chain_spec)?;
+        info!(
+            "Builder mev boost normal relay pubkey: {:?}",
+            submission_config.signer.pub_key()
+        );
+        info!(
+            "Builder mev boost optimistic relay pubkey: {:?}",
+            submission_config.optimistic_signer.pub_key()
+        );
+        info!(
+            "Optimistic mode, enabled: {}, prevalidate: {}, max_value: {}",
+            submission_config.optimistic_enabled,
+            submission_config.optimistic_prevalidate_optimistic_blocks,
+            format_ether(submission_config.optimistic_max_bid_value),
+        );
+
+        let relays = self.create_relays()?;
+        let sink_factory = RelaySubmitSinkFactory::new(submission_config, relays.clone());
+        Ok((sink_factory, relays))
+    }
 }
 
 impl LiveBuilderConfig for Config {
@@ -244,27 +270,9 @@ impl LiveBuilderConfig for Config {
             MevBoostSlotDataGenerator,
         >,
     > {
-        let submission_config = self
+        let (sink_factory, relays) = self
             .l1_config
-            .submission_config(self.base_config.chain_spec()?)?;
-        info!(
-            "Builder mev boost normal relay pubkey: {:?}",
-            submission_config.signer.pub_key()
-        );
-        info!(
-            "Builder mev boost optimistic relay pubkey: {:?}",
-            submission_config.optimistic_signer.pub_key()
-        );
-        info!(
-            "Optimistic mode, enabled: {}, prevalidate: {}, max_value: {}",
-            submission_config.optimistic_enabled,
-            submission_config.optimistic_prevalidate_optimistic_blocks,
-            format_ether(submission_config.optimistic_max_bid_value),
-        );
-
-        let relays = self.l1_config.relays()?;
-        let sink_factory = RelaySubmitSinkFactory::new(submission_config, relays.clone());
-
+            .create_relays_sink_factory(self.base_config.chain_spec()?)?;
         let payload_event = MevBoostSlotDataGenerator::new(
             self.l1_config.beacon_clients()?,
             relays,
