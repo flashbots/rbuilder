@@ -528,7 +528,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
     #[allow(clippy::too_many_arguments)]
     pub fn finalize<DB: reth_db::database::Database + Clone + 'static>(
         self,
-        mut state: BlockState,
+        state: &mut BlockState,
         ctx: &BlockBuildingContext,
         provider_factory: ProviderFactory<DB>,
         root_hash_mode: RootHashMode,
@@ -549,7 +549,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             (withdrawals_root, withdrawals)
         };
 
-        let (cached_reads, bundle) = state.clone().into_parts();
+        let (cached_reads, bundle) = state.clone_bundle_and_cache();
 
         let (requests, requests_root) = if ctx
             .chain_spec

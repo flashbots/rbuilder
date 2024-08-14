@@ -200,7 +200,7 @@ impl DummyBuildingAlgorithm {
     ) -> eyre::Result<Option<Block>> {
         let mut partial_block = PartialBlock::new(false, None);
         let state_provider = provider_factory.history_by_block_hash(ctx.attributes.parent)?;
-        let mut state = BlockState::new(&state_provider);
+        let mut state = BlockState::new(state_provider);
 
         partial_block.pre_block_call(ctx, &mut state)?;
         for order in orders {
@@ -221,7 +221,7 @@ impl DummyBuildingAlgorithm {
             return Ok(None);
         }
         let finalized_block = partial_block.finalize(
-            state,
+            &mut state,
             ctx,
             provider_factory.clone(),
             RootHashMode::CorrectRoot,

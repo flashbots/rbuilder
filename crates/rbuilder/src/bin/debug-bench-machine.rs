@@ -98,7 +98,7 @@ async fn main() -> eyre::Result<()> {
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    let state_provider = factory.history_by_block_number(block_data.number - 1)?;
+    let mut state_provider = factory.history_by_block_number(block_data.number - 1)?;
     let (sim_orders, _) = simulate_all_orders_with_sim_tree(factory.clone(), &ctx, &orders, false)?;
 
     tracing::info!(
@@ -113,7 +113,7 @@ async fn main() -> eyre::Result<()> {
     for _ in 0..cli.iters {
         let mut partial_block = PartialBlock::new(true, None);
         let mut block_state =
-            BlockState::new(&state_provider).with_cached_reads(cached_reads.unwrap_or_default());
+            BlockState::new(state_provider).with_cached_reads(cached_reads.unwrap_or_default());
         let build_time = Instant::now();
         partial_block.pre_block_call(&ctx, &mut block_state)?;
         for order in &sim_orders {
@@ -123,7 +123,7 @@ async fn main() -> eyre::Result<()> {
 
         let finalize_time = Instant::now();
         let finalized_block = partial_block.finalize(
-            block_state,
+            &mut block_state,
             &ctx,
             factory.clone(),
             RootHashMode::IgnoreParentHash,
@@ -135,6 +135,7 @@ async fn main() -> eyre::Result<()> {
 
         build_times_mus.push(build_time.as_micros());
         finalize_time_mus.push(finalize_time.as_micros());
+        state_provider = block_state.into_provider();
     }
     report_time_data("build", &build_times_mus);
     report_time_data("finalize", &finalize_time_mus);

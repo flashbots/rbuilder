@@ -32,20 +32,27 @@ use crate::building::evm_inspector::{RBuilderEVMInspector, UsedStateTrace};
 use std::collections::HashMap;
 use thiserror::Error;
 
-#[derive(Clone)]
-pub struct BlockState<'a> {
-    provider: &'a StateProviderBox,
+pub struct BlockState {
+    provider: StateProviderBox,
     cached_reads: CachedReads,
     bundle_state: Option<BundleState>,
 }
 
-impl<'a> BlockState<'a> {
-    pub fn new(provider: &'a StateProviderBox) -> Self {
+impl BlockState {
+    pub fn new(provider: StateProviderBox) -> Self {
         Self {
             provider,
             cached_reads: CachedReads::default(),
             bundle_state: Some(BundleState::default()),
         }
+    }
+
+    pub fn state_provider(&self) -> &StateProviderBox {
+        &self.provider
+    }
+
+    pub fn into_provider(self) -> StateProviderBox {
+        self.provider
     }
 
     pub fn with_cached_reads(mut self, cached_reads: CachedReads) -> Self {
@@ -58,12 +65,19 @@ impl<'a> BlockState<'a> {
         self
     }
 
-    pub fn into_parts(self) -> (CachedReads, BundleState) {
-        (self.cached_reads, self.bundle_state.unwrap())
+    pub fn into_parts(self) -> (CachedReads, BundleState, StateProviderBox) {
+        (self.cached_reads, self.bundle_state.unwrap(), self.provider)
+    }
+
+    pub fn clone_bundle_and_cache(&self) -> (CachedReads, BundleState) {
+        (
+            self.cached_reads.clone(),
+            self.bundle_state.clone().unwrap(),
+        )
     }
 
     pub fn new_db_ref(&mut self) -> BlockStateDBRef<impl Database<Error = ProviderError> + '_> {
-        let state_provider = StateProviderDatabase::new(self.provider);
+        let state_provider = StateProviderDatabase::new(&self.provider);
         let cachedb = WrapDatabaseRef(self.cached_reads.as_db(state_provider));
         let bundle_state = self.bundle_state.take().unwrap();
         let db = State::builder()
@@ -272,10 +286,10 @@ pub enum OrderErr {
     NegativeProfit(U256),
 }
 
-pub struct PartialBlockFork<'a, 'b, 'c, Tracer: SimulationTracer> {
+pub struct PartialBlockFork<'a, 'b, Tracer: SimulationTracer> {
     pub rollbacks: usize,
-    pub state: &'b mut BlockState<'a>,
-    pub tracer: Option<&'c mut Tracer>,
+    pub state: &'a mut BlockState,
+    pub tracer: Option<&'b mut Tracer>,
 }
 
 pub struct PartialBlockRollobackPoint {
@@ -305,11 +319,11 @@ pub enum CriticalCommitOrderError {
     EVM(#[from] EVMError<ProviderError>),
 }
 
-impl<'a, 'b, 'c, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, Tracer> {
+impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
     pub fn with_tracer<NewTracer: SimulationTracer>(
         self,
-        tracer: &'c mut NewTracer,
-    ) -> PartialBlockFork<'a, 'b, 'c, NewTracer> {
+        tracer: &'b mut NewTracer,
+    ) -> PartialBlockFork<'a, 'b, NewTracer> {
         PartialBlockFork {
             rollbacks: self.rollbacks,
             state: self.state,
@@ -1093,8 +1107,8 @@ impl<'a, 'b, 'c, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, Tracer> 
     }
 }
 
-impl<'a, 'b, 'c> PartialBlockFork<'a, 'b, 'c, ()> {
-    pub fn new(state: &'b mut BlockState<'a>) -> Self {
+impl<'a, 'b> PartialBlockFork<'a, 'b, ()> {
+    pub fn new(state: &'a mut BlockState) -> Self {
         Self {
             rollbacks: 0,
             state,
