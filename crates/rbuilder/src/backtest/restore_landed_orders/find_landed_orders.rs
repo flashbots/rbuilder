@@ -275,13 +275,7 @@ pub fn restore_landed_orders(
             Err(e) => {
                 result.insert(
                     order.id,
-                    LandedOrderData {
-                        order: order.id,
-                        total_coinbase_profit: I256::ZERO,
-                        unique_coinbase_profit: I256::ZERO,
-                        error: Some(e),
-                        overlapping_txs: Vec::new(),
-                    },
+                    LandedOrderData::new(order.id, I256::ZERO, I256::ZERO, Some(e), Vec::new()),
                 );
             }
         }
@@ -291,13 +285,13 @@ pub fn restore_landed_orders(
         let profit = executed_block_data.tx_coinbase_profit(tx).unwrap();
         for (order, kickback) in &orders {
             let order = *order;
-            let entry = result.entry(order).or_insert(LandedOrderData {
+            let entry = result.entry(order).or_insert(LandedOrderData::new(
                 order,
-                total_coinbase_profit: I256::ZERO,
-                unique_coinbase_profit: I256::ZERO,
-                error: None,
-                overlapping_txs: Vec::new(),
-            });
+                I256::ZERO,
+                I256::ZERO,
+                None,
+                Vec::new(),
+            ));
             let profit = if *kickback == 0 {
                 profit
             } else {

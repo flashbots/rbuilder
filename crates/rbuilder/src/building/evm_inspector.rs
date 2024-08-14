@@ -63,7 +63,7 @@ where
             if let Ok(value) = interpreter.stack.peek(0) {
                 let value = B256::from(value.to_be_bytes());
                 let key = SlotKey {
-                    address: interpreter.contract.caller,
+                    address: interpreter.contract.target_address,
                     key: slot,
                 };
                 self.used_state_trace
@@ -84,12 +84,21 @@ where
                 if let (Ok(slot), Ok(value)) =
                     (interpreter.stack().peek(0), interpreter.stack().peek(1))
                 {
-                    let value = B256::from(value.to_be_bytes());
+                    let written_value = B256::from(value.to_be_bytes());
                     let key = SlotKey {
-                        address: interpreter.contract.caller,
+                        address: interpreter.contract.target_address,
                         key: B256::from(slot.to_be_bytes()),
                     };
-                    self.used_state_trace.written_slot_values.insert(key, value);
+                    // if we write the same value that we read as the first read we don't have a write
+                    if let Some(read_value) = self.used_state_trace.read_slot_values.get(&key) {
+                        if read_value == &written_value {
+                            self.used_state_trace.written_slot_values.remove(&key);
+                            return;
+                        }
+                    }
+                    self.used_state_trace
+                        .written_slot_values
+                        .insert(key, written_value);
                 }
             }
             _ => (),

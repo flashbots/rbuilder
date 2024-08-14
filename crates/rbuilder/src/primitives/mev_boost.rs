@@ -133,7 +133,7 @@ mod test {
         std::env::set_var("YYY", "BBB");
         std::env::set_var("ZZZ", "CCC");
 
-        let config: RelayConfig = toml::from_str(&example).unwrap();
+        let config: RelayConfig = toml::from_str(example).unwrap();
         assert_eq!(config.name, "relay1");
         assert_eq!(config.url, "url");
         assert_eq!(config.priority, 0);

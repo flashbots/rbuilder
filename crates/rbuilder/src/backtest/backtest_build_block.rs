@@ -316,14 +316,34 @@ fn print_onchain_block_data(
 ) {
     let mut executed_orders = Vec::new();
 
+    let txs_to_idx: HashMap<_, _> = tx_sim_results
+        .iter()
+        .enumerate()
+        .map(|(idx, tx)| (tx.tx.hash(), idx))
+        .collect();
+
     println!("Onchain block txs:");
-    for tx in tx_sim_results {
+    for (idx, tx) in tx_sim_results.into_iter().enumerate() {
         println!(
-            "{:>74} revert: {:>5} profit: {}",
+            "{:>4}, {:>74} revert: {:>5} profit: {}",
+            idx,
             tx.tx.hash(),
             !tx.receipt.success,
             format_ether(tx.coinbase_profit)
         );
+        if !tx.conflicting_txs.is_empty() {
+            println!("   conflicts: ");
+        }
+        for (tx, slots) in &tx.conflicting_txs {
+            for slot in slots {
+                println!(
+                    "   {:>4} address: {:?>24}, key: {:?}",
+                    txs_to_idx.get(tx).unwrap(),
+                    slot.address,
+                    slot.key
+                );
+            }
+        }
         executed_orders.push(ExecutedBlockTx::new(
             tx.tx.hash,
             tx.coinbase_profit,
