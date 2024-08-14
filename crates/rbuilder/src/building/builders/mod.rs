@@ -1,5 +1,6 @@
 //! builders is a subprocess that builds a block
 pub mod ordering_builder;
+pub mod unsealed_block;
 
 use crate::{
     building::{
@@ -30,14 +31,6 @@ use std::{
 use tokio::sync::{broadcast, broadcast::error::TryRecvError};
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
-
-/// Block under construction. It still needs to be finished by setting the payout tx and computing some extra stuff (eg: root hash).
-/// Txs can still be added before finishing it.
-struct UnsealedBlock {
-    /// Balance of fee recipient before we stared building.
-    /// Used to compute
-    fee_recipient_balance_start: U256,
-}
 
 /// Block we built
 #[derive(Debug, Clone)]
