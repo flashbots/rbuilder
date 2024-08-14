@@ -471,7 +471,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         }))
     }
 
-    /// Gets the block profit excluding the expected payout base gas that  we'll pay.
+    /// Gets the block profit excluding the expected payout base gas that we'll pay.
     pub fn get_proposer_payout_tx_value(
         &self,
         gas_limit: u64,
