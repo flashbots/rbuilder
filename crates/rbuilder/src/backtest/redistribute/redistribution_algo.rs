@@ -154,13 +154,13 @@ mod tests {
                     value_delta_after_exclusion: i256(10),
                     included_orders: vec![IncludedOrderData {
                         id: order_id(0x11),
-                        landed_order_data: LandedOrderData {
-                            order: order_id(0x11),
-                            unique_coinbase_profit: i256(10),
-                            total_coinbase_profit: i256(10),
-                            error: None,
-                            overlapping_txs: vec![],
-                        },
+                        landed_order_data: LandedOrderData::new(
+                            order_id(0x11),
+                            i256(10),
+                            i256(10),
+                            None,
+                            vec![],
+                        ),
                     }],
                 },
                 // identity value after exclusion is negative
@@ -169,13 +169,13 @@ mod tests {
                     value_delta_after_exclusion: i256(-10),
                     included_orders: vec![IncludedOrderData {
                         id: order_id(0x21),
-                        landed_order_data: LandedOrderData {
-                            order: order_id(0x21),
-                            unique_coinbase_profit: i256(-10),
-                            total_coinbase_profit: i256(-10),
-                            error: None,
-                            overlapping_txs: vec![],
-                        },
+                        landed_order_data: LandedOrderData::new(
+                            order_id(0x21),
+                            i256(-10),
+                            i256(-10),
+                            None,
+                            vec![],
+                        ),
                     }],
                 },
                 // identity has no landed bundles
@@ -191,23 +191,23 @@ mod tests {
                     included_orders: vec![
                         IncludedOrderData {
                             id: order_id(0x41),
-                            landed_order_data: LandedOrderData {
-                                order: order_id(0x41),
-                                unique_coinbase_profit: i256(20),
-                                total_coinbase_profit: i256(10), // make sure that this is not used
-                                error: None,
-                                overlapping_txs: vec![],
-                            },
+                            landed_order_data: LandedOrderData::new(
+                                order_id(0x41),
+                                i256(10), // make sure that this is not used
+                                i256(20),
+                                None,
+                                vec![],
+                            ),
                         },
                         IncludedOrderData {
                             id: order_id(0x42),
-                            landed_order_data: LandedOrderData {
-                                order: order_id(0x41),
-                                unique_coinbase_profit: i256(-10),
-                                total_coinbase_profit: i256(-10),
-                                error: None,
-                                overlapping_txs: vec![],
-                            },
+                            landed_order_data: LandedOrderData::new(
+                                order_id(0x41),
+                                i256(-10),
+                                i256(-10),
+                                None,
+                                vec![],
+                            ),
                         },
                     ],
                 },
@@ -218,23 +218,23 @@ mod tests {
                     included_orders: vec![
                         IncludedOrderData {
                             id: order_id(0x51),
-                            landed_order_data: LandedOrderData {
-                                order: order_id(0x51),
-                                unique_coinbase_profit: i256(30),
-                                total_coinbase_profit: i256(30),
-                                error: None,
-                                overlapping_txs: vec![],
-                            },
+                            landed_order_data: LandedOrderData::new(
+                                order_id(0x51),
+                                i256(30),
+                                i256(30),
+                                None,
+                                vec![],
+                            ),
                         },
                         IncludedOrderData {
                             id: order_id(0x52),
-                            landed_order_data: LandedOrderData {
-                                order: order_id(0x52),
-                                unique_coinbase_profit: i256(50),
-                                total_coinbase_profit: i256(50),
-                                error: None,
-                                overlapping_txs: vec![],
-                            },
+                            landed_order_data: LandedOrderData::new(
+                                order_id(0x52),
+                                i256(50),
+                                i256(50),
+                                None,
+                                vec![],
+                            ),
                         },
                     ],
                 },
