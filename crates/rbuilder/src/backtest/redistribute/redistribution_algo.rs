@@ -193,8 +193,8 @@ mod tests {
                             id: order_id(0x41),
                             landed_order_data: LandedOrderData::new(
                                 order_id(0x41),
-                                i256(20),
                                 i256(10), // make sure that this is not used
+                                i256(20),
                                 None,
                                 vec![],
                             ),
