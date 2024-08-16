@@ -241,6 +241,10 @@ impl BlockBuildingContext {
     pub fn block(&self) -> u64 {
         self.block_env.number.to()
     }
+
+    pub fn coinbase_is_suggested_fee_recipient(&self) -> bool {
+        self.block_env.coinbase == self.attributes.suggested_fee_recipient
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -292,13 +296,19 @@ impl std::fmt::Display for Sorting {
 
 #[derive(Debug, Clone)]
 pub struct PartialBlock<Tracer: SimulationTracer> {
+    /// Value used as allow_tx_skip on calls to [`PartialBlockFork`]
     pub discard_txs: bool,
+    /// If some [`enforce_inplace_sim_result`] is called after each tx to check the profit.
     pub enforce_sorting: Option<Sorting>,
     pub gas_used: u64,
+    /// Reserved gas for later use (usually final payout tx). When simulating we subtract this from the block gas limit.
     pub gas_reserved: u64,
     pub blob_gas_used: u64,
+    /// Updated after each order.
     pub coinbase_profit: U256,
+    /// Txs belonging to successfully executed orders.
     pub executed_tx: Vec<TransactionSignedEcRecoveredWithBlobs>,
+    /// Receipts belonging to successfully executed orders.
     pub receipts: Vec<Receipt>,
     pub tracer: Tracer,
 }
