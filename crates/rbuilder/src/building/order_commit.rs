@@ -20,7 +20,7 @@ use reth_primitives::{
     transaction::FillTxEnv,
     Receipt, KECCAK_EMPTY,
 };
-use reth_provider::StateProviderBox;
+use reth_provider::{StateProvider, StateProviderBox};
 use revm::{
     db::{states::bundle_state::BundleRetention, BundleState},
     inspector_handle_register,
@@ -29,17 +29,22 @@ use revm::{
 };
 
 use crate::building::evm_inspector::{RBuilderEVMInspector, UsedStateTrace};
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 
+#[derive(Clone)]
 pub struct BlockState {
-    provider: StateProviderBox,
+    provider: Arc<dyn StateProvider>,
     cached_reads: CachedReads,
     bundle_state: Option<BundleState>,
 }
 
 impl BlockState {
     pub fn new(provider: StateProviderBox) -> Self {
+        Self::new_arc(Arc::from(provider))
+    }
+
+    pub fn new_arc(provider: Arc<dyn StateProvider>) -> Self {
         Self {
             provider,
             cached_reads: CachedReads::default(),
@@ -47,11 +52,11 @@ impl BlockState {
         }
     }
 
-    pub fn state_provider(&self) -> &StateProviderBox {
+    pub fn state_provider(&self) -> &dyn StateProvider {
         &self.provider
     }
 
-    pub fn into_provider(self) -> StateProviderBox {
+    pub fn into_provider(self) -> Arc<dyn StateProvider> {
         self.provider
     }
 
@@ -65,7 +70,7 @@ impl BlockState {
         self
     }
 
-    pub fn into_parts(self) -> (CachedReads, BundleState, StateProviderBox) {
+    pub fn into_parts(self) -> (CachedReads, BundleState, Arc<dyn StateProvider>) {
         (self.cached_reads, self.bundle_state.unwrap(), self.provider)
     }
 
