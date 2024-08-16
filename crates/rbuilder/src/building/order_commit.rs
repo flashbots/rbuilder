@@ -319,6 +319,10 @@ pub enum CriticalCommitOrderError {
     EVM(#[from] EVMError<ProviderError>),
 }
 
+/// For all funcs allow_tx_skip means:
+/// If a tx inside a bundle or sbundle fails with TransactionErr (don't confuse this with reverting which is TransactionOk with !.receipt.success)
+/// and it's configured as allowed to revert (for bundles tx in reverting_tx_hashes, for sbundles: TxRevertBehavior != NotAllowed) we continue the
+/// the execution of the bundle/sbundle.
 impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
     pub fn with_tracer<NewTracer: SimulationTracer>(
         self,
