@@ -73,7 +73,7 @@ pub fn run_sim_worker<DB: Database + Clone + Send + 'static>(
                 }
             };
             let start_time = Instant::now();
-            let mut block_state = BlockState::new(&state_provider).with_cached_reads(cached_reads);
+            let mut block_state = BlockState::new(state_provider).with_cached_reads(cached_reads);
             let sim_result = simulate_order(
                 task.parents.clone(),
                 task.order,
@@ -111,7 +111,7 @@ pub fn run_sim_worker<DB: Database + Clone + Send + 'static>(
                     break;
                 }
             }
-            (cached_reads, _) = block_state.into_parts();
+            (cached_reads, _, _) = block_state.into_parts();
 
             last_sim_finished = Instant::now();
             let sim_thread_work_time = sim_start.elapsed();

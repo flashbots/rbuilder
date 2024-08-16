@@ -279,11 +279,11 @@ impl<DB: Database + Clone + 'static> OrderingBuilderContext<DB> {
         let fee_recipient_balance_before = state_provider
             .account_balance(ctx.attributes.suggested_fee_recipient)?
             .unwrap_or_default();
-        let (mut built_block_trace, state, partial_block) = {
+        let (mut built_block_trace, mut state, partial_block) = {
             let mut partial_block =
                 PartialBlock::new(self.config.discard_txs, self.config.sorting.into())
                     .with_tracer(GasUsedSimulationTracer::default());
-            let mut state = BlockState::new(&state_provider)
+            let mut state = BlockState::new(state_provider)
                 .with_cached_reads(self.cached_reads.take().unwrap_or_default());
             partial_block.pre_block_call(ctx, &mut state)?;
             let mut built_block_trace = BuiltBlockTrace::new();
@@ -363,7 +363,8 @@ impl<DB: Database + Clone + 'static> OrderingBuilderContext<DB> {
                 );
             }
 
-            let fee_recipient_balance_after = state_provider
+            let fee_recipient_balance_after = state
+                .state_provider()
                 .account_balance(ctx.attributes.suggested_fee_recipient)?
                 .unwrap_or_default();
 
@@ -403,7 +404,7 @@ impl<DB: Database + Clone + 'static> OrderingBuilderContext<DB> {
 
         let sim_gas_used = partial_block.tracer.used_gas;
         let finalized_block = partial_block.finalize(
-            state,
+            &mut state,
             ctx,
             self.provider_factory.clone(),
             self.root_hash_mode,

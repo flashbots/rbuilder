@@ -21,18 +21,19 @@ pub enum Conflict {
 }
 
 pub fn find_conflict_slow(
-    state_provder: &StateProviderBox,
+    mut state_provider: StateProviderBox,
     ctx: &BlockBuildingContext,
     orders: &[Order],
 ) -> eyre::Result<HashMap<(OrderId, OrderId), Conflict>> {
     let profits_alone = {
         let mut profits_alone = HashMap::new();
         for order in orders {
-            let mut state = BlockState::new(state_provder);
+            let mut state = BlockState::new(state_provider);
             let mut fork = PartialBlockFork::new(&mut state);
             if let Ok(res) = fork.commit_order(order, ctx, 0, 0, 0, true)? {
                 profits_alone.insert(order.id(), res.coinbase_profit);
             };
+            state_provider = state.into_provider();
         }
         profits_alone
     };
@@ -65,7 +66,7 @@ pub fn find_conflict_slow(
             continue;
         }
 
-        let mut state = BlockState::new(state_provder);
+        let mut state = BlockState::new(state_provider);
         let mut fork = PartialBlockFork::new(&mut state);
         let mut gas_used = 0;
         let mut blob_gas_used = 0;
@@ -96,6 +97,7 @@ pub fn find_conflict_slow(
                 results.insert(pair, Conflict::Fatal);
             }
         };
+        state_provider = state.into_provider();
     }
 
     Ok(results)
