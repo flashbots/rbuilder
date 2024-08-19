@@ -26,7 +26,7 @@ reth-db = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.3" }
 reth-db-common = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.3" }
 reth-errors = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.3" }
 reth-libmdbx = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.3" }
-reth-payload-builder = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.3" }
+reth-payload-builder = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.5" }
 reth-node-api = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.3" }
 reth-trie = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.3" }
 reth-trie-parallel = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.3" }
