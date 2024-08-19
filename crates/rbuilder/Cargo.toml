@@ -126,7 +126,7 @@ async-trait = "0.1.80"
 built = { version = "0.7.1", features = ["git2", "chrono"] }
 
 [dev-dependencies]
-tempfile = "3.8"
+tempfile = "3.12"
 criterion = { version = "0.5.1", features = ["html_reports"] }
 
 [[bench]]
