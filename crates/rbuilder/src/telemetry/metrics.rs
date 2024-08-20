@@ -493,7 +493,7 @@ pub(super) fn register_custom_metrics() {
         .register(Box::new(PROVIDER_REOPEN_COUNTER.clone()))
         .unwrap();
     REGISTRY
-        .register(Box::new(PROVIDER_BAD_REOPEN_COUNTER).clone())
+        .register(Box::new(PROVIDER_BAD_REOPEN_COUNTER.clone()))
         .unwrap();
     REGISTRY
         .register(Box::new(TXFETCHER_TRANSACTION_COUNTER.clone()))
