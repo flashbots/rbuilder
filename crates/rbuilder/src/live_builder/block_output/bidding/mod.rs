@@ -45,7 +45,7 @@ impl SlotBidder for () {
     }
 }
 
-pub trait BiddingService: std::fmt::Debug {
+pub trait BiddingService: std::fmt::Debug + Send + Sync {
     fn create_slot_bidder(
         &mut self,
         block: u64,

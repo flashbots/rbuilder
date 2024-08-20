@@ -1,12 +1,10 @@
-pub mod relay_submit;
-
 use std::{sync::Arc, time::Duration};
-
-pub use relay_submit::SubmissionConfig;
 
 use crate::{
     building::{
-        builders::{BlockBuildingAlgorithm, BlockBuildingAlgorithmInput, BuilderSinkFactory},
+        builders::{
+            BlockBuildingAlgorithm, BlockBuildingAlgorithmInput, UnfinishedBlockBuildingSinkFactory,
+        },
         BlockBuildingContext,
     },
     live_builder::{payload_events::MevBoostSlotData, simulation::SlotOrderSimResults},
@@ -18,7 +16,6 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, trace};
 
 use super::{
-    bidding::BiddingService,
     order_input::{
         self, order_replacement_manager::OrderReplacementManager, orderpool::OrdersForBlock,
     },
@@ -27,25 +24,19 @@ use super::{
 };
 
 #[derive(Debug)]
-pub struct BlockBuildingPool<DB, BuilderSinkFactoryType: BuilderSinkFactory> {
+pub struct BlockBuildingPool<DB> {
     provider_factory: ProviderFactoryReopener<DB>,
-    builders: Vec<Arc<dyn BlockBuildingAlgorithm<DB, BuilderSinkFactoryType::SinkType>>>,
-    sink_factory: BuilderSinkFactoryType,
-    bidding_service: Box<dyn BiddingService>,
+    builders: Vec<Arc<dyn BlockBuildingAlgorithm<DB>>>,
+    sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
     orderpool_subscriber: order_input::OrderPoolSubscriber,
     order_simulation_pool: OrderSimulationPool<DB>,
 }
 
-impl<DB: Database + Clone + 'static, BuilderSinkFactoryType: BuilderSinkFactory>
-    BlockBuildingPool<DB, BuilderSinkFactoryType>
-where
-    <BuilderSinkFactoryType as BuilderSinkFactory>::SinkType: 'static,
-{
+impl<DB: Database + Clone + 'static> BlockBuildingPool<DB> {
     pub fn new(
         provider_factory: ProviderFactoryReopener<DB>,
-        builders: Vec<Arc<dyn BlockBuildingAlgorithm<DB, BuilderSinkFactoryType::SinkType>>>,
-        sink_factory: BuilderSinkFactoryType,
-        bidding_service: Box<dyn BiddingService>,
+        builders: Vec<Arc<dyn BlockBuildingAlgorithm<DB>>>,
+        sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
         orderpool_subscriber: order_input::OrderPoolSubscriber,
         order_simulation_pool: OrderSimulationPool<DB>,
     ) -> Self {
@@ -53,7 +44,6 @@ where
             provider_factory,
             builders,
             sink_factory,
-            bidding_service,
             orderpool_subscriber,
             order_simulation_pool,
         }
@@ -105,16 +95,7 @@ where
         input: SlotOrderSimResults,
         cancel: CancellationToken,
     ) {
-        // @Todo keep handles
-        let slot_bidder = self.bidding_service.create_slot_bidder(
-            slot_data.block(),
-            slot_data.slot(),
-            slot_data.timestamp().unix_timestamp() as u64,
-        );
-
-        let builder_sink =
-            self.sink_factory
-                .create_builder_sink(slot_data, slot_bidder.clone(), cancel.clone());
+        let builder_sink = self.sink_factory.create_sink(slot_data, cancel.clone());
         let (broadcast_input, _) = broadcast::channel(10_000);
 
         let block_number = ctx.block_env.number.to::<u64>();
@@ -132,12 +113,11 @@ where
         for builder in self.builders.iter() {
             let builder_name = builder.name();
             debug!(block = block_number, builder_name, "Spawning builder job");
-            let input = BlockBuildingAlgorithmInput::<DB, BuilderSinkFactoryType::SinkType> {
+            let input = BlockBuildingAlgorithmInput::<DB> {
                 provider_factory: provider_factory.clone(),
                 ctx: ctx.clone(),
                 input: broadcast_input.subscribe(),
                 sink: builder_sink.clone(),
-                slot_bidder: slot_bidder.clone(),
                 cancel: cancel.clone(),
             };
             let builder = builder.clone();
