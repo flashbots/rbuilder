@@ -43,9 +43,8 @@ use reth_db::{database::Database, DatabaseEnv};
 use tokio::{signal::ctrl_c, sync::broadcast};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, level_filters::LevelFilter};
-use url::Url;
 
-const RETH_DB_PATH: &str = "/mnt/md0/rethdata";
+const RETH_DB_PATH: &str = DEFAULT_RETH_DB_PATH;
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
@@ -65,7 +64,7 @@ async fn main() -> eyre::Result<()> {
     let relay = MevBoostRelay::from_config(&relay_config)?;
 
     let payload_event = MevBoostSlotDataGenerator::new(
-        vec![Client::new(Url::parse("http://localhost:3500").unwrap())],
+        vec![Client::default()],
         vec![relay],
         Default::default(),
         cancel.clone(),
