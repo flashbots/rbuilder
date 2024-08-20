@@ -33,7 +33,7 @@ use ethereum_consensus::{
 use eyre::Context;
 use reth::tasks::pool::BlockingTaskPool;
 use reth_chainspec::{Chain, ChainSpec, NamedChain};
-use reth_db::DatabaseEnv;
+use reth_db::{Database, DatabaseEnv};
 use reth_payload_builder::database::CachedReads;
 use reth_primitives::StaticFileSegment;
 use reth_provider::StaticFileProviderFactory;
@@ -297,10 +297,10 @@ impl LiveBuilderConfig for Config {
         rbuilder_version()
     }
 
-    fn build_backtest_block(
+    fn build_backtest_block<DB: Database + Clone + 'static>(
         &self,
         building_algorithm_name: &str,
-        input: BacktestSimulateBlockInput<'_, Arc<DatabaseEnv>>,
+        input: BacktestSimulateBlockInput<'_, DB>,
     ) -> eyre::Result<(Block, CachedReads)> {
         let builder_cfg = self.builder(building_algorithm_name)?;
         match builder_cfg.builder {

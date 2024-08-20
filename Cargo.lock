@@ -8046,6 +8046,7 @@ dependencies = [
  "flume",
  "futures",
  "governor",
+ "hex",
  "humantime",
  "hyper 1.4.1",
  "integer-encoding",

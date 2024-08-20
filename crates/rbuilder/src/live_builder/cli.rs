@@ -1,7 +1,7 @@
 use std::{path::PathBuf, sync::Arc};
 
 use clap::Parser;
-use reth_db::DatabaseEnv;
+use reth_db::{Database, DatabaseEnv};
 use reth_payload_builder::database::CachedReads;
 use tokio::signal::ctrl_c;
 use tokio_util::sync::CancellationToken;
@@ -50,10 +50,10 @@ pub trait LiveBuilderConfig: std::fmt::Debug + serde::de::DeserializeOwned {
 
     /// Patch until we have a unified way of backtesting using the exact algorithms we use on the LiveBuilder.
     /// building_algorithm_name will come from the specific configuration.
-    fn build_backtest_block(
+    fn build_backtest_block<DB: Database + Clone + 'static>(
         &self,
         building_algorithm_name: &str,
-        input: BacktestSimulateBlockInput<'_, Arc<DatabaseEnv>>,
+        input: BacktestSimulateBlockInput<'_, DB>,
     ) -> eyre::Result<(Block, CachedReads)>;
 }
 

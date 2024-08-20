@@ -1,5 +1,6 @@
 mod backtest_build_block;
 mod backtest_build_range;
+mod backtest_synthetic_bundles;
 pub mod execute;
 pub mod fetch;
 
@@ -10,6 +11,7 @@ mod store;
 
 pub use backtest_build_block::run_backtest_build_block;
 pub use backtest_build_range::run_backtest_build_range;
+pub use backtest_synthetic_bundles::run_backtest_with_synthetic_bundles;
 use std::collections::HashSet;
 
 use crate::primitives::{OrderId, OrderReplacementKey};
