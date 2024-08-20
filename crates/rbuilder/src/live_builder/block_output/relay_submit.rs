@@ -32,6 +32,8 @@ use super::{
     bid_value_source::{best_bid_sync_source::BestBidSyncSource, interfaces::BidValueSource},
 };
 
+use super::bidding::SlotBidder;
+
 const SIM_ERROR_CATEGORY: &str = "submit_block_simulation";
 const VALIDATION_ERROR_CATEGORY: &str = "validate_block_simulation";
 

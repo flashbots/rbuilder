@@ -41,23 +41,9 @@ use reth_chainspec::MAINNET;
 use reth_db::{database::Database, DatabaseEnv};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, level_filters::LevelFilter};
+use url::Url;
 
-// state diff stream imports
-use futures::StreamExt;
-use jsonrpsee::core::server::SubscriptionMessage;
-use jsonrpsee::server::{RpcModule, Server};
-use jsonrpsee::PendingSubscriptionSink;
-use tokio::sync::broadcast;
-use tokio_stream::wrappers::BroadcastStream;
-use tokio::{signal::ctrl_c};
-use serde_json::json;
-use tracing::warn;
-use alloy_primitives::{B256};
-use alloy_rpc_types_eth::state::{StateOverride, AccountOverride};
-use std::collections::HashMap;
-use uuid::Uuid;
-
-const RETH_DB_PATH: &str = DEFAULT_RETH_DB_PATH;
+const RETH_DB_PATH: &str = "/mnt/md0/rethdata";
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
@@ -77,7 +63,7 @@ async fn main() -> eyre::Result<()> {
     let relay = MevBoostRelay::from_config(&relay_config)?;
 
     let payload_event = MevBoostSlotDataGenerator::new(
-        vec![Client::default()],
+        vec![Client::new(Url::parse("http://localhost:3500").unwrap())],
         vec![relay],
         Default::default(),
         cancel.clone(),
