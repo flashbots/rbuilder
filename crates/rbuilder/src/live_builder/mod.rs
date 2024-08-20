@@ -9,7 +9,6 @@ pub mod simulation;
 mod watchdog;
 
 use crate::{
-    beacon_api_client::Client,
     building::{
         builders::{BlockBuildingAlgorithm, BuilderSinkFactory},
         BlockBuildingContext,
@@ -30,7 +29,7 @@ use bidding::BiddingService;
 use building::BlockBuildingPool;
 use eyre::Context;
 use jsonrpsee::RpcModule;
-use payload_events::MevBoostSlotDataGenerator;
+use payload_events::MevBoostSlotData;
 use reth::{
     primitives::Header,
     providers::{HeaderProvider, ProviderFactory},
@@ -39,7 +38,7 @@ use reth_chainspec::ChainSpec;
 use reth_db::database::Database;
 use std::{cmp::min, path::PathBuf, sync::Arc, time::Duration};
 use time::OffsetDateTime;
-use tokio::task::spawn_blocking;
+use tokio::{sync::mpsc, task::spawn_blocking};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
@@ -51,18 +50,26 @@ const BLOCK_HEADER_DEAD_LINE_DELTA: time::Duration = time::Duration::millisecond
 /// Polling period while trying to get a block header
 const GET_BLOCK_HEADER_PERIOD: time::Duration = time::Duration::milliseconds(250);
 
+/// Trait used to trigger a new block building process in the slot.
+pub trait SlotSource {
+    fn recv_slot_channel(self) -> mpsc::UnboundedReceiver<MevBoostSlotData>;
+}
+
 /// Main builder struct.
 /// Connects to the CL, get the new slots and builds blocks for each slot.
 /// # Usage
 /// Create and run()
 #[derive(Debug)]
-pub struct LiveBuilder<Provider, BuilderSinkFactoryType: BuilderSinkFactory> {
-    pub cls: Vec<Client>,
-    pub relays: Vec<MevBoostRelay>,
+pub struct LiveBuilder<
+    Provider,
+    BuilderSinkFactoryType: BuilderSinkFactory,
+    BlocksSourceType: SlotSource,
+> {
     pub watchdog_timeout: Duration,
     pub error_storage_path: PathBuf,
     pub simulation_threads: usize,
     pub order_input_config: OrderInputConfig,
+    pub blocks_source: BlocksSourceType,
 
     pub chain_chain_spec: Arc<ChainSpec>,
     pub provider_factory: Provider,
@@ -83,7 +90,8 @@ pub struct LiveBuilder<Provider, BuilderSinkFactoryType: BuilderSinkFactory> {
 impl<
         Provider: StateProviderFactory + Clone + 'static,
         BuilderSinkFactoryType: BuilderSinkFactory,
-    > LiveBuilder<Provider, BuilderSinkFactoryType>
+        BuilderSourceType: SlotSource,
+    > LiveBuilder<DB, BuilderSinkFactoryType, BuilderSourceType>
 where
     <BuilderSinkFactoryType as BuilderSinkFactory>::SinkType: 'static,
 {
@@ -117,18 +125,7 @@ where
             .with_context(|| "Error spawning error storage writer")?;
 
         let mut inner_jobs_handles = Vec::new();
-
-        let mut payload_events_channel = {
-            let payload_event = MevBoostSlotDataGenerator::new(
-                self.cls,
-                self.relays.clone(),
-                self.blocklist.clone(),
-                self.global_cancellation.clone(),
-            );
-            let (handle, chan) = payload_event.spawn();
-            inner_jobs_handles.push(handle);
-            chan
-        };
+        let mut payload_events_channel = self.blocks_source.recv_slot_channel();
 
         let orderpool_subscriber = {
             let (handle, sub) = start_orderpool_jobs(

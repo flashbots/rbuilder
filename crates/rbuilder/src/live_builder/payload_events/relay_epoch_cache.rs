@@ -9,13 +9,18 @@ use primitive_types::H384;
 use tokio_stream::StreamExt;
 use tracing::{info_span, trace, warn};
 
+/// Info about a slot obtained from a relay.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct SlotData {
+    /// fee recipient the validator chose.
     pub fee_recipient: Address,
     pub gas_limit: u64,
+    /// Selected registered validator for the slot key.
     pub pubkey: H384,
 }
 
+/// Gets ValidatorSlotData for a single slot via get_slot_data.
+/// Since the low level API used (/relay/v1/builder/validators) brings current and next epoch validator data it caches the results.
 #[derive(Debug)]
 struct RelayEpochCache {
     relay: MevBoostRelay,
@@ -47,6 +52,8 @@ impl RelayEpochCache {
         Ok(())
     }
 
+    /// Might fail (None) if the slot is in the past or far in the future.
+    /// Ideally, it's called just for the next slot.
     async fn get_slot_data(&mut self, slot: u64) -> Result<Option<ValidatorSlotData>, RelayError> {
         if slot < self.min_slot || slot > self.max_slot {
             self.update_epoch_data().await?;
@@ -56,8 +63,10 @@ impl RelayEpochCache {
     }
 }
 
+/// Helper to get SlotData from all relays.
 #[derive(Debug)]
 pub struct RelaysForSlotData {
+    /// Sorted by priority so when we use them on slot_data the one with the highest priority wins.
     relay: Vec<(MevBoostRelayID, RelayEpochCache)>,
 }
 
@@ -77,6 +86,9 @@ impl RelaysForSlotData {
         }
     }
 
+    /// Asks all relays in parallel for ValidatorSlotData.
+    /// Under unconsistencies, the first one (the one with the highest priority as sorted on new) wins and any relay giving a different data
+    /// is not included on the result.
     pub async fn slot_data(&mut self, slot: u64) -> Option<(SlotData, Vec<MevBoostRelayID>)> {
         // ask all relays concurrently about the slot
         let relay_res = self

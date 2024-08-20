@@ -8,8 +8,8 @@ reth_datadir = "/mnt/data/reth"
 
 coinbase_secret_key = "env:COINBASE_SECRET_KEY"
 
-#cl_node_url can be a single value, array of values, or passed by an environment variables with values separated with a comma
-#cl_node_url = "http://localhost:3500"
+# cl_node_url can be a single value, array of values, or passed by an environment variables with values separated with a comma
+# cl_node_url = "http://localhost:3500"
 cl_node_url = ["env:CL_NODE_URL"]
 jsonrpc_server_port = 8645
 jsonrpc_server_ip = "0.0.0.0"
@@ -21,12 +21,14 @@ blocklist_file_path = "./blocklist.json"
 dry_run = true
 dry_run_validation_url = "http://localhost:8545"
 
-blocks_processor_url = "http://block_processor.internal"
+# blocks_processor_url can be an API service to record bids and transactions. It is not required.
+# blocks_processor_url = "http://block_processor.internal"
+
 ignore_cancellable_orders = true
 
 sbundle_mergeabe_signers = []
 # slot_delta_to_start_submits_ms is usually negative since we start bidding BEFORE the slot start
-#slot_delta_to_start_submits_ms = -5000
+# slot_delta_to_start_submits_ms = -5000
 live_builders = ["mp-ordering", "mgp-ordering", "merging"]
 
 [[relays]]
@@ -51,4 +53,3 @@ discard_txs = true
 sorting = "max-profit"
 failed_order_retries = 1
 drop_failed_orders = true
-

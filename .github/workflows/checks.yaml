@@ -9,7 +9,6 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUN_TEST_FAKE_MEV_BOOST_RELAY: 1
 
 jobs:
   lint_and_test:
@@ -24,9 +23,6 @@ jobs:
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
-
-      - name: Download fake mevboost relay
-        uses: ./.github/actions/download_fake_relay
 
       # https://github.com/dtolnay/rust-toolchain
       - name: Setup rust toolchain
@@ -60,3 +56,62 @@ jobs:
       # lint and test
       - run: make lint
       - run: make test
+
+  integration:
+    name: Integration tests
+    runs-on: warp-ubuntu-latest-x64-16x
+    needs: lint_and_test
+    strategy:
+      matrix:
+        toolchain:
+          - stable
+          #- beta
+          #- nightly
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Download builder playground
+        uses: flashbots/flashbots-toolchain@v0.1
+        with:
+          builder-playground: latest
+
+      # https://github.com/swatinem/rust-cache
+      - name: Run Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      # https://github.com/Mozilla-Actions/sccache-action
+      - name: Run sccache-action
+        uses: mozilla-actions/sccache-action@v0.0.5
+
+      - name: Set sccache env vars
+        run: |
+          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
+          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+
+      - name: Build the rbuilder
+        run: cargo build
+
+      - name: Run the playground
+        run: builder-playground --output /tmp/playground &
+
+      - name: Run integration tests
+        run: cargo test --package rbuilder --lib -- integration
+        env:
+          PLAYGROUND_DIR: /tmp/playground
+
+      - name: Move test integration logs to playground logs to archive
+        # This steps fails if the test fails early and the playground logs dir has not been created
+        if: ${{ failure() }}
+        run: |
+          mv integration_logs /tmp/playground/logs
+
+      - name: Archive playground logs
+        uses: actions/upload-artifact@v4
+        if: ${{ failure() }}
+        with:
+          name: playground-logs
+          path: /tmp/playground/logs
+          retention-days: 5

@@ -9,8 +9,11 @@ pub mod reconnect;
 mod test_data_generator;
 mod tx_signer;
 
+#[cfg(test)]
+pub mod test_utils;
+
 use alloy_network::Ethereum;
-use alloy_primitives::U256;
+use alloy_primitives::{Sign, I256, U256};
 use alloy_provider::RootProvider;
 use alloy_transport::BoxTransport;
 
@@ -24,6 +27,7 @@ pub use provider_factory_reopen::{
     check_provider_factory_health, is_provider_factory_health_error, ProviderFactoryReopener,
 };
 pub use test_data_generator::TestDataGenerator;
+use time::OffsetDateTime;
 pub use tx_signer::Signer;
 
 /// de/serializes U256 as decimal value (U256 serde default is hexa). Needed to interact with some JSONs (eg:ProposerPayloadDelivered in relay provider API)
@@ -70,8 +74,8 @@ pub fn set_test_debug_tracing_subscriber() {
         .unwrap_or_default();
 }
 
-pub fn get_percent(value: U256, pecent: usize) -> U256 {
-    (value * U256::from(pecent)) / U256::from(100)
+pub fn get_percent(value: U256, percent: usize) -> U256 {
+    (value * U256::from(percent)) / U256::from(100)
 }
 
 pub fn a2r_withdrawal(w: alloy_rpc_types::Withdrawal) -> reth_primitives::Withdrawal {
@@ -177,6 +181,23 @@ pub fn as_hash_set<T: Eq + std::hash::Hash + Copy>(slice: &[T]) -> ahash::HashSe
         set.insert(*t);
     }
     set
+}
+
+pub fn offset_datetime_to_timestamp_ms(date: OffsetDateTime) -> u64 {
+    (date.unix_timestamp_nanos() / 1_000_000) as u64
+}
+
+pub fn timestamp_ms_to_offset_datetime(timestamp: u64) -> OffsetDateTime {
+    OffsetDateTime::from_unix_timestamp_nanos((timestamp * 1_000_000) as i128)
+        .expect("failed to convert timestamp")
+}
+
+/// returns signer result of a - b
+/// panics on overflows
+pub fn signed_uint_delta(a: U256, b: U256) -> I256 {
+    let a = I256::checked_from_sign_and_abs(Sign::Positive, a).expect("A is too big");
+    let b = I256::checked_from_sign_and_abs(Sign::Positive, b).expect("B is too big");
+    a.checked_sub(b).expect("Subtraction overflow")
 }
 
 #[cfg(test)]

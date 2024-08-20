@@ -27,11 +27,14 @@ use rbuilder::{
             OrderInputConfig, DEFAULT_INPUT_CHANNEL_BUFFER_SIZE, DEFAULT_RESULTS_CHANNEL_TIMEOUT,
             DEFAULT_SERVE_MAX_CONNECTIONS,
         },
-        payload_events::MevBoostSlotData,
+        payload_events::{MevBoostSlotData, MevBoostSlotDataGenerator},
         simulation::SimulatedOrderCommand,
         LiveBuilder,
     },
-    primitives::{mev_boost::MevBoostRelay, SimulatedOrder},
+    primitives::{
+        mev_boost::{MevBoostRelay, RelayConfig},
+        SimulatedOrder,
+    },
     roothash::RootHashMode,
     utils::Signer,
 };
@@ -55,25 +58,25 @@ async fn main() -> eyre::Result<()> {
     let chain_spec = MAINNET.clone();
     let cancel = CancellationToken::new();
     let bidding_service = Box::new(DummyBiddingService {});
-    let relay = MevBoostRelay::try_from_name_or_url(
-        "flashbots",
-        "https://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@boost-relay.flashbots.net",
-        0,
-        false,
-        false,
-        false,
-        None,
-        None,
-        None,
-        None,
-    )?;
 
-    let builder = LiveBuilder::<Arc<DatabaseEnv>, TraceBlockSinkFactory> {
-        cls: vec![Client::default()],
-        relays: vec![relay],
+    let relay_config = RelayConfig::default().
+        with_url("https://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@boost-relay.flashbots.net").
+        with_name("flashbots");
+
+    let relay = MevBoostRelay::from_config(&relay_config)?;
+
+    let payload_event = MevBoostSlotDataGenerator::new(
+        vec![Client::default()],
+        vec![relay],
+        Default::default(),
+        cancel.clone(),
+    );
+
+    let builder = LiveBuilder::<Arc<DatabaseEnv>, TraceBlockSinkFactory, MevBoostSlotDataGenerator> {
         watchdog_timeout: Duration::from_secs(10000),
         error_storage_path: DEFAULT_ERROR_STORAGE_PATH.parse().unwrap(),
         simulation_threads: 1,
+        blocks_source: payload_event,
         order_input_config: OrderInputConfig::new(
             false,
             true,
@@ -197,7 +200,7 @@ impl DummyBuildingAlgorithm {
     ) -> eyre::Result<Option<Block>> {
         let mut partial_block = PartialBlock::new(false, None);
         let state_provider = provider_factory.history_by_block_hash(ctx.attributes.parent)?;
-        let mut state = BlockState::new(&state_provider);
+        let mut state = BlockState::new(state_provider);
 
         partial_block.pre_block_call(ctx, &mut state)?;
         for order in orders {
@@ -218,7 +221,7 @@ impl DummyBuildingAlgorithm {
             return Ok(None);
         }
         let finalized_block = partial_block.finalize(
-            state,
+            &mut state,
             ctx,
             provider_factory.clone(),
             RootHashMode::CorrectRoot,

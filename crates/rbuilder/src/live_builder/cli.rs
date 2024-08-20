@@ -8,7 +8,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     building::builders::{BacktestSimulateBlockInput, Block},
-    live_builder::base_config::load_config_toml_and_env,
+    live_builder::{
+        base_config::load_config_toml_and_env, payload_events::MevBoostSlotDataGenerator,
+    },
     telemetry::spawn_telemetry_server,
     utils::{build_info::Version, ProviderFactoryReopener},
 };
@@ -42,7 +44,7 @@ pub trait LiveBuilderConfig: std::fmt::Debug + serde::de::DeserializeOwned {
         cancellation_token: CancellationToken,
     ) -> impl std::future::Future<
         Output = eyre::Result<
-            LiveBuilder<ProviderFactoryReopener<Arc<DatabaseEnv>>, RelaySubmitSinkFactory>,
+            LiveBuilder<Arc<DatabaseEnv>, RelaySubmitSinkFactory, MevBoostSlotDataGenerator>,
         >,
     > + Send;
 

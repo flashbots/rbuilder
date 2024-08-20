@@ -231,11 +231,23 @@ impl HistoricalDataFetcher {
         );
         available_orders.sort_by_key(|o| o.timestamp_ms);
 
+        let mut built_block_data = None;
+        for datasource in &self.data_sources {
+            let datasource_built_block_data = datasource
+                .get_built_block_data(onchain_block.header.hash.unwrap_or_default())
+                .await?;
+            if datasource_built_block_data.is_some() {
+                built_block_data = datasource_built_block_data;
+                break;
+            }
+        }
+
         Ok(BlockData {
             block_number,
             winning_bid_trace,
             onchain_block,
             available_orders,
+            built_block_data,
         })
     }
 }

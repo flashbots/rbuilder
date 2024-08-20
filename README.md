@@ -51,6 +51,8 @@ Running:
 1. Prepare config file based on the `config-live-example.toml`
 2. Run `rbuilder run PATH_TO_CONFIG_FILE`
 
+**Warning**: Even if they are rare, before running a builder you should be aware of [`reorg losses`](./docs/REORG_LOSSES.md).
+
 ### Benchmarking
 
 rbuilder has a solid initial benchmarking setup (based on [Criterion.rs](https://github.com/bheisler/criterion.rs)).
@@ -60,6 +62,29 @@ rbuilder has a solid initial benchmarking setup (based on [Criterion.rs](https:/
 - Benchmarks are located in [`crates/rbuilder/benches`](./crates/rbuilder/benches/). We'd love to add more meaningful benchmarks there!
 - Let us know about further improvement ideas and additional relevant benchmarks.
 
+### End-to-end local testing
+
+You can use [builder-playground](https://github.com/flashbots/builder-playground) to deploy a fully functional local setup for the builder ([Lighthouse](https://github.com/sigp/lighthouse) consensus client (proposer + validator) + [Reth](https://github.com/paradigmxyz/reth/) execution client + [MEV-Boost-Relay](https://github.com/flashbots/mev-boost-relay))) to test rbuilder.
+
+First, start [builder-playground](https://github.com/flashbots/builder-playground):
+
+```
+git clone git@github.com:flashbots/builder-playground.git
+cd builder-playground
+go run main.go
+```
+
+Then, run `rbuilder` using the `config-playground.toml` config file:
+
+```
+cargo run --bin rbuilder run config-playground.toml
+```
+
+You can query the local relay for proposed blocks like this:
+
+```bash
+curl http://localhost:5555/relay/v1/data/bidtraces/proposer_payload_delivered
+```
 
 ---
 

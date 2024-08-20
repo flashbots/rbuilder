@@ -15,9 +15,11 @@ use reth::providers::ProviderFactory;
 use reth_db::database::Database;
 use reth_errors::ProviderError;
 use reth_payload_builder::database::CachedReads;
+use reth_provider::StateProvider;
 use std::{
     cmp::{max, min, Ordering},
     collections::hash_map::Entry,
+    sync::Arc,
     time::{Duration, Instant},
 };
 use tracing::{error, trace};
@@ -324,7 +326,8 @@ pub fn simulate_all_orders_with_sim_tree<Provider: StateProviderFactory + Clone>
     }
 
     let mut sim_errors = Vec::new();
-    let state_for_sim = factory.history_by_block_hash(ctx.attributes.parent)?;
+    let mut state_for_sim =
+        Arc::<dyn StateProvider>::from(factory.history_by_block_hash(ctx.attributes.parent)?);
     let mut cache_reads = Some(CachedReads::default());
     loop {
         // mix new orders into the sim_tree
@@ -346,7 +349,7 @@ pub fn simulate_all_orders_with_sim_tree<Provider: StateProviderFactory + Clone>
         let mut sim_results = Vec::new();
         for sim_task in sim_tasks {
             let start_time = Instant::now();
-            let mut block_state = BlockState::new(&state_for_sim)
+            let mut block_state = BlockState::new_arc(state_for_sim)
                 .with_cached_reads(cache_reads.take().unwrap_or_default());
             let sim_result = simulate_order(
                 sim_task.parents.clone(),
@@ -354,7 +357,8 @@ pub fn simulate_all_orders_with_sim_tree<Provider: StateProviderFactory + Clone>
                 ctx,
                 &mut block_state,
             )?;
-            let (new_cache_reads, _) = block_state.into_parts();
+            let (new_cache_reads, _, provider) = block_state.into_parts();
+            state_for_sim = provider;
             cache_reads = Some(new_cache_reads);
             match sim_result.result {
                 OrderSimResult::Failed(err) => {
@@ -419,7 +423,7 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
     parent_orders: Vec<Order>,
     order: Order,
     ctx: &BlockBuildingContext,
-    fork: &mut PartialBlockFork<'_, '_, '_, Tracer>,
+    fork: &mut PartialBlockFork<'_, '_, Tracer>,
 ) -> Result<OrderSimResult, CriticalCommitOrderError> {
     // simulate parents
     let mut prev_order = None;

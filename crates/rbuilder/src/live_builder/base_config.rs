@@ -1,39 +1,24 @@
 //! Config should always be deserializable, default values should be used
 //!
 use crate::{
-    beacon_api_client::Client,
-    flashbots::BlocksProcessorClient,
-    live_builder::{
-        bidding::DummyBiddingService,
-        building::{relay_submit::RelaySubmitSinkFactory, SubmissionConfig},
-        order_input::OrderInputConfig,
-        LiveBuilder,
-    },
-    mev_boost::BLSBlockSigner,
-    primitives::mev_boost::MevBoostRelay,
-    provider::StateProviderFactory,
+    building::builders::BuilderSinkFactory,
+    live_builder::{bidding::DummyBiddingService, order_input::OrderInputConfig, LiveBuilder},
     telemetry::{setup_reloadable_tracing_subscriber, LoggerConfig},
     utils::{http_provider, BoxedProvider, ProviderFactoryReopener, Signer},
-    validation_api_client::ValidationAPIClient,
 };
 use ahash::HashSet;
-use alloy_chains::ChainKind;
-use alloy_primitives::{utils::parse_ether, Address, FixedBytes, B256};
-use ethereum_consensus::{
-    builder::compute_builder_domain, crypto::SecretKey, primitives::Version,
-    state_transition::Context as ContextEth,
-};
+use alloy_primitives::{Address, B256};
 use eyre::{eyre, Context};
 use jsonrpsee::RpcModule;
 use lazy_static::lazy_static;
 use reth::tasks::pool::BlockingTaskPool;
-use reth_chainspec::{Chain, ChainSpec, NamedChain};
+use reth_chainspec::ChainSpec;
 use reth_db::DatabaseEnv;
 use reth_node_core::args::utils::chain_value_parser;
-use reth_primitives::{format_ether, StaticFileSegment};
+use reth_primitives::StaticFileSegment;
 use reth_provider::StaticFileProviderFactory;
 use serde::{Deserialize, Deserializer};
-use serde_with::{serde_as, DeserializeAs, OneOrMany};
+use serde_with::{serde_as, DeserializeAs};
 use sqlx::PgPool;
 use std::{
     env::var,
@@ -44,11 +29,9 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use tracing::{info, warn};
-use url::Url;
+use tracing::warn;
 
-/// From experience (Vitaly's) all generated blocks before slot_time-8sec end loosing (due to last moment orders?)
-const DEFAULT_SLOT_DELTA_TO_START_SUBMITS: time::Duration = time::Duration::milliseconds(-8000);
+use super::SlotSource;
 
 /// Prefix for env variables in config
 const ENV_PREFIX: &str = "env:";
@@ -73,9 +56,6 @@ pub struct BaseConfig {
     pub flashbots_db: Option<EnvOrValue<String>>,
 
     pub el_node_ipc_path: PathBuf,
-    ///Name kept singular for backwards compatibility
-    #[serde_as(deserialize_as = "OneOrMany<EnvOrValue<String>>")]
-    pub cl_node_url: Vec<EnvOrValue<String>>,
     pub jsonrpc_server_port: u16,
     pub jsonrpc_server_ip: Option<String>,
 
@@ -89,24 +69,6 @@ pub struct BaseConfig {
 
     pub blocklist_file_path: Option<PathBuf>,
     pub extra_data: String,
-
-    // Relay Submission configuration
-    pub relays: Vec<RelayConfig>,
-    pub dry_run: bool,
-    #[serde_as(deserialize_as = "OneOrMany<_>")]
-    pub dry_run_validation_url: Vec<String>,
-    /// Secret key that will be used to sign normal submissions to the relay.
-    relay_secret_key: EnvOrValue<String>,
-    /// Secret key that will be used to sign optimistic submissions to the relay.
-    optimistic_relay_secret_key: EnvOrValue<String>,
-    /// When enabled builer will make optimistic submissions to optimistic relays
-    /// influenced by `optimistic_max_bid_value_eth` and `optimistic_prevalidate_optimistic_blocks`
-    pub optimistic_enabled: bool,
-    /// Bids above this value will always be submitted in non-optimistic mode.
-    pub optimistic_max_bid_value_eth: String,
-    /// If true all optimistic submissions will be validated on nodes specified in `dry_run_validation_url`
-    pub optimistic_prevalidate_optimistic_blocks: bool,
-    pub blocks_processor_url: Option<String>,
 
     /// mev-share bundles coming from this address are treated in a special way(see [`ShareBundleMerger`])
     pub sbundle_mergeabe_signers: Option<Vec<Address>>,
@@ -129,9 +91,7 @@ pub struct BaseConfig {
     /// List of `builders` to be used in backtest run
     pub backtest_builders: Vec<String>,
     pub backtest_results_store_path: PathBuf,
-
-    // See [`SubmissionConfig`]
-    slot_delta_to_start_submits_ms: Option<i64>,
+    pub backtest_protect_bundle_signers: Vec<Address>,
 }
 
 lazy_static! {
@@ -186,58 +146,40 @@ impl BaseConfig {
     }
 
     /// WARN: opens reth db
-    pub async fn create_builder<Provider>(
+    pub async fn create_builder<BuilderSinkFactoryType, SlotSourceType>(
         &self,
         cancellation_token: tokio_util::sync::CancellationToken,
-    ) -> eyre::Result<
-        super::LiveBuilder<Provider, super::building::relay_submit::RelaySubmitSinkFactory>,
-    >
+        sink_factory: BuilderSinkFactoryType,
+        slot_source: SlotSourceType,
+    ) -> eyre::Result<super::LiveBuilder<Arc<DatabaseEnv>, BuilderSinkFactoryType, SlotSourceType>>
     where
-        Provider: StateProviderFactory,
+        BuilderSinkFactoryType: BuilderSinkFactory,
+        SlotSourceType: SlotSource,
     {
-        let submission_config = self.submission_config()?;
-        info!(
-            "Builder mev boost normal relay pubkey: {:?}",
-            submission_config.signer.pub_key()
-        );
-        info!(
-            "Builder mev boost optimistic relay pubkey: {:?}",
-            submission_config.optimistic_signer.pub_key()
-        );
-        info!(
-            "Optimistic mode, enabled: {}, prevalidate: {}, max_value: {}",
-            submission_config.optimistic_enabled,
-            submission_config.optimistic_prevalidate_optimistic_blocks,
-            format_ether(submission_config.optimistic_max_bid_value),
-        );
-
         let provider_factory = self.provider_factory()?;
 
-        let relays = self.relays()?;
-        let sink_factory = RelaySubmitSinkFactory::new(self.submission_config()?, relays.clone());
+        Ok(
+            LiveBuilder::<Arc<DatabaseEnv>, BuilderSinkFactoryType, SlotSourceType> {
+                watchdog_timeout: self.watchdog_timeout(),
+                error_storage_path: self.error_storage_path.clone(),
+                simulation_threads: self.simulation_threads,
+                order_input_config: OrderInputConfig::from_config(self),
+                blocks_source: slot_source,
+                chain_chain_spec: self.chain_spec()?,
+                provider_factory,
 
-        Ok(LiveBuilder::<Arc<DatabaseEnv>, RelaySubmitSinkFactory> {
-            cls: self.beacon_clients()?,
-            relays,
-            watchdog_timeout: self.watchdog_timeout(),
-            error_storage_path: self.error_storage_path.clone(),
-            simulation_threads: self.simulation_threads,
-            order_input_config: OrderInputConfig::from_config(self),
+                coinbase_signer: self.coinbase_signer()?,
+                extra_data: self.extra_data()?,
+                blocklist: self.blocklist()?,
 
-            chain_chain_spec: self.chain_spec()?,
-            provider_factory,
+                global_cancellation: cancellation_token,
 
-            coinbase_signer: self.coinbase_signer()?,
-            extra_data: self.extra_data()?,
-            blocklist: self.blocklist()?,
-
-            global_cancellation: cancellation_token,
-
-            bidding_service: Box::new(DummyBiddingService {}),
-            extra_rpc: RpcModule::new(()),
-            sink_factory,
-            builders: Vec::new(),
-        })
+                bidding_service: Box::new(DummyBiddingService {}),
+                extra_rpc: RpcModule::new(()),
+                sink_factory,
+                builders: Vec::new(),
+            },
+        )
     }
 
     pub fn jsonrpc_server_ip(&self) -> Ipv4Addr {
@@ -252,64 +194,12 @@ impl BaseConfig {
         chain_value_parser(&self.chain)
     }
 
-    pub fn beacon_clients(&self) -> eyre::Result<Vec<Client>> {
-        self.cl_node_url
-            .iter()
-            .map(|url| {
-                let url = Url::parse(&url.value()?)?;
-                Ok(Client::new(url))
-            })
-            .collect()
-    }
-
     pub fn sbundle_mergeabe_signers(&self) -> Vec<Address> {
         if self.sbundle_mergeabe_signers.is_none() {
             warn!("Defaulting sbundle_mergeabe_signers to empty. We may not comply with order flow rules.");
         }
 
         self.sbundle_mergeabe_signers.clone().unwrap_or_default()
-    }
-
-    pub fn relays(&self) -> eyre::Result<Vec<MevBoostRelay>> {
-        let mut results = Vec::new();
-        for relay in &self.relays {
-            let authorization_header =
-                if let Some(authorization_header) = &relay.authorization_header {
-                    Some(authorization_header.value()?)
-                } else {
-                    None
-                };
-
-            let builder_id_header = if let Some(builder_id_header) = &relay.builder_id_header {
-                Some(builder_id_header.value()?)
-            } else {
-                None
-            };
-
-            let api_token_header = if let Some(api_token_header) = &relay.api_token_header {
-                Some(api_token_header.value()?)
-            } else {
-                None
-            };
-
-            let interval_between_submissions = relay
-                .interval_between_submissions_ms
-                .map(Duration::from_millis);
-
-            results.push(MevBoostRelay::try_from_name_or_url(
-                &relay.name,
-                &relay.url,
-                relay.priority,
-                relay.use_ssz_for_submit,
-                relay.use_gzip_for_submit,
-                relay.optimistic,
-                authorization_header,
-                builder_id_header,
-                api_token_header,
-                interval_between_submissions,
-            )?);
-        }
-        Ok(results)
     }
 
     /// Open reth db and DB should be opened once per process but it can be cloned and moved to different threads.
@@ -319,6 +209,7 @@ impl BaseConfig {
             self.reth_db_path.as_deref(),
             self.reth_static_files_path.as_deref(),
             self.chain_spec()?,
+            false,
         )
     }
 
@@ -329,27 +220,6 @@ impl BaseConfig {
                 .num_threads(self.root_hash_task_pool_threads)
                 .build()?,
         ))
-    }
-
-    pub fn bls_signer(&self) -> eyre::Result<BLSBlockSigner> {
-        let chain_spec = self.chain_spec()?;
-        let signing_domain = get_signing_domain(chain_spec.chain, self.beacon_clients()?)?;
-        let secret_key = self.relay_secret_key.value()?;
-        let secret_key = SecretKey::try_from(secret_key)
-            .map_err(|e| eyre::eyre!("Failed to parse relay key: {:?}", e.to_string()))?;
-
-        BLSBlockSigner::new(secret_key, signing_domain)
-    }
-
-    pub fn bls_optimistic_signer(&self) -> eyre::Result<BLSBlockSigner> {
-        let chain_spec = self.chain_spec()?;
-        let signing_domain = get_signing_domain(chain_spec.chain, self.beacon_clients()?)?;
-        let secret_key = self.optimistic_relay_secret_key.value()?;
-        let secret_key = SecretKey::try_from(secret_key).map_err(|e| {
-            eyre::eyre!("Failed to parse optimistic relay key: {:?}", e.to_string())
-        })?;
-
-        BLSBlockSigner::new(secret_key, signing_domain)
     }
 
     pub fn coinbase_signer(&self) -> eyre::Result<Signer> {
@@ -392,73 +262,11 @@ impl BaseConfig {
         Duration::from_secs(self.watchdog_timeout_sec)
     }
 
-    pub fn submission_config(&self) -> eyre::Result<SubmissionConfig> {
-        if (self.dry_run || self.optimistic_prevalidate_optimistic_blocks)
-            && self.dry_run_validation_url.is_empty()
-        {
-            eyre::bail!(
-                "Dry run or optimistic prevalidation enabled but no validation urls provided"
-            );
-        }
-        let validation_api = {
-            let urls = self
-                .dry_run_validation_url
-                .iter()
-                .map(|s| s.as_str())
-                .collect::<Vec<_>>();
-
-            ValidationAPIClient::new(urls.as_slice())?
-        };
-
-        let optimistic_signer = match self.bls_optimistic_signer() {
-            Ok(signer) => signer,
-            Err(err) => {
-                if self.optimistic_enabled {
-                    eyre::bail!(
-                        "Optimistic mode enabled but no valid optimistic signer: {}",
-                        err
-                    );
-                } else {
-                    // we don't care about the actual value
-                    self.bls_signer()?
-                }
-            }
-        };
-
-        Ok(SubmissionConfig {
-            chain_spec: self.chain_spec()?,
-            signer: self.bls_signer()?,
-            dry_run: self.dry_run,
-            validation_api,
-            optimistic_enabled: self.optimistic_enabled,
-            optimistic_signer,
-            optimistic_max_bid_value: parse_ether(&self.optimistic_max_bid_value_eth)?,
-            optimistic_prevalidate_optimistic_blocks: self.optimistic_prevalidate_optimistic_blocks,
-            blocks_processor: if let Some(url) = &self.blocks_processor_url {
-                let client = BlocksProcessorClient::try_from(url)?;
-                Some(client)
-            } else {
-                None
-            },
-            slot_delta_to_start_submits: self.slot_delta_to_start_submits(),
-        })
-    }
-
     pub fn backtest_fetch_mempool_data_dir(&self) -> eyre::Result<PathBuf> {
         let path = self.backtest_fetch_mempool_data_dir.value()?;
         let path_expanded = shellexpand::tilde(&path).to_string();
 
         Ok(path_expanded.parse()?)
-    }
-
-    pub fn slot_delta_to_start_submits(&self) -> time::Duration {
-        self.slot_delta_to_start_submits_ms
-            .map(time::Duration::milliseconds)
-            .unwrap_or(DEFAULT_SLOT_DELTA_TO_START_SUBMITS)
-    }
-
-    pub fn resolve_cl_node_urls(&self) -> eyre::Result<Vec<String>> {
-        resolve_env_or_values::<String>(&self.cl_node_url)
     }
 }
 
@@ -535,29 +343,6 @@ where
     }
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct RelayConfig {
-    pub name: String,
-    pub url: String,
-    pub priority: usize,
-    // true->ssz false->json
-    #[serde(default)]
-    pub use_ssz_for_submit: bool,
-    #[serde(default)]
-    pub use_gzip_for_submit: bool,
-    #[serde(default)]
-    pub optimistic: bool,
-    #[serde(default)]
-    pub authorization_header: Option<EnvOrValue<String>>,
-    #[serde(default)]
-    pub builder_id_header: Option<EnvOrValue<String>>,
-    #[serde(default)]
-    pub api_token_header: Option<EnvOrValue<String>>,
-    #[serde(default)]
-    pub interval_between_submissions_ms: Option<u64>,
-}
-
 pub const DEFAULT_ERROR_STORAGE_PATH: &str = "/tmp/rbuilder-error.sqlite";
 pub const DEFAULT_CL_NODE_URL: &str = "http://127.0.0.1:3500";
 pub const DEFAULT_EL_NODE_IPC_PATH: &str = "/tmp/reth.ipc";
@@ -574,14 +359,8 @@ impl Default for BaseConfig {
             log_color: false,
             error_storage_path: DEFAULT_ERROR_STORAGE_PATH.parse().unwrap(),
             coinbase_secret_key: "".into(),
-            relay_secret_key: "".into(),
-            optimistic_relay_secret_key: "".into(),
-            optimistic_enabled: false,
-            optimistic_max_bid_value_eth: "0.0".to_string(),
             flashbots_db: None,
-            blocks_processor_url: None,
             el_node_ipc_path: "/tmp/reth.ipc".parse().unwrap(),
-            cl_node_url: vec![EnvOrValue::from("http://127.0.0.1:3500")],
             jsonrpc_server_port: DEFAULT_INCOMING_BUNDLES_PORT,
             jsonrpc_server_ip: None,
             ignore_cancellable_orders: true,
@@ -592,9 +371,6 @@ impl Default for BaseConfig {
             reth_static_files_path: None,
             blocklist_file_path: None,
             extra_data: "extra_data_change_me".to_string(),
-            relays: vec![],
-            dry_run: false,
-            dry_run_validation_url: vec![],
             root_hash_task_pool_threads: 1,
             watchdog_timeout_sec: 60 * 3,
             backtest_fetch_mempool_data_dir: "/mnt/data/mempool".into(),
@@ -602,12 +378,11 @@ impl Default for BaseConfig {
             backtest_fetch_eth_rpc_parallel: 1,
             backtest_fetch_output_file: "/tmp/rbuilder-backtest.sqlite".parse().unwrap(),
             backtest_results_store_path: "/tmp/rbuilder-backtest-results.sqlite".parse().unwrap(),
+            backtest_protect_bundle_signers: vec![],
             backtest_builders: Vec::new(),
             live_builders: vec!["mgp-ordering".to_string(), "mp-ordering".to_string()],
-            optimistic_prevalidate_optimistic_blocks: false,
             simulation_threads: 1,
             sbundle_mergeabe_signers: None,
-            slot_delta_to_start_submits_ms: None,
         }
     }
 }
@@ -618,52 +393,30 @@ pub fn create_provider_factory(
     reth_db_path: Option<&Path>,
     reth_static_files_path: Option<&Path>,
     chain_spec: Arc<ChainSpec>,
+    rw: bool,
 ) -> eyre::Result<ProviderFactoryReopener<Arc<DatabaseEnv>>> {
-    let reth_db_path = match (reth_db_path, reth_datadir) {
+    // shellexpand the reth datadir
+    let reth_datadir = if let Some(reth_datadir) = reth_datadir {
+        let reth_datadir = reth_datadir
+            .to_str()
+            .ok_or_else(|| eyre::eyre!("Invalid UTF-8 in path"))?;
+
+        Some(PathBuf::from(shellexpand::full(reth_datadir)?.into_owned()))
+    } else {
+        None
+    };
+
+    let reth_db_path = match (reth_db_path, reth_datadir.clone()) {
         (Some(reth_db_path), _) => PathBuf::from(reth_db_path),
         (None, Some(reth_datadir)) => reth_datadir.join("db"),
         (None, None) => eyre::bail!("Either reth_db_path or reth_datadir must be provided"),
     };
 
-    let db = open_reth_db(&reth_db_path)?;
-
-    let reth_static_files_path = match (reth_static_files_path, reth_datadir) {
-        (Some(reth_static_files_path), _) => PathBuf::from(reth_static_files_path),
-        (None, Some(reth_datadir)) => reth_datadir.join("static_files"),
-        (None, None) => {
-            eyre::bail!("Either reth_static_files_path or reth_datadir must be provided")
-        }
-    };
-
-    let provider_factory_reopener =
-        ProviderFactoryReopener::new(db, chain_spec, reth_static_files_path)?;
-
-    if provider_factory_reopener
-        .provider_factory_unchecked()
-        .static_file_provider()
-        .get_highest_static_file_block(StaticFileSegment::Headers)
-        .is_none()
-    {
-        eyre::bail!("No headers in static files. Check your static files path configuration.");
-    }
-
-    Ok(provider_factory_reopener)
-}
-
-/// Open reth db in read/write mode
-pub fn create_provider_factory_rw(
-    reth_datadir: Option<&Path>,
-    reth_db_path: Option<&Path>,
-    reth_static_files_path: Option<&Path>,
-    chain_spec: Arc<ChainSpec>,
-) -> eyre::Result<ProviderFactoryReopener<Arc<DatabaseEnv>>> {
-    let reth_db_path = match (reth_db_path, reth_datadir) {
-        (Some(reth_db_path), _) => PathBuf::from(reth_db_path),
-        (None, Some(reth_datadir)) => reth_datadir.join("db"),
-        (None, None) => eyre::bail!("Either reth_db_path or reth_datadir must be provided"),
-    };
-
-    let db = open_reth_db_rw(&reth_db_path)?;
+    let db = if rw {
+        open_reth_db_rw(&reth_db_path)
+    } else {
+        open_reth_db(&reth_db_path)
+    }?;
 
     let reth_static_files_path = match (reth_static_files_path, reth_datadir) {
         (Some(reth_static_files_path), _) => PathBuf::from(reth_static_files_path),
@@ -705,47 +458,9 @@ pub fn coinbase_signer_from_secret_key(secret_key: &str) -> eyre::Result<Signer>
     Ok(Signer::try_from_secret(secret_key)?)
 }
 
-fn get_signing_domain(chain: Chain, beacon_clients: Vec<Client>) -> eyre::Result<B256> {
-    let cl_context = match chain.kind() {
-        ChainKind::Named(NamedChain::Mainnet) => ContextEth::for_mainnet(),
-        ChainKind::Named(NamedChain::Sepolia) => ContextEth::for_sepolia(),
-        ChainKind::Named(NamedChain::Goerli) => ContextEth::for_goerli(),
-        ChainKind::Named(NamedChain::Holesky) => ContextEth::for_holesky(),
-        _ => {
-            let client = beacon_clients
-                .first()
-                .ok_or_else(|| eyre::eyre!("No beacon clients provided"))?;
-
-            let spec = tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(client.get_spec())
-            })?;
-
-            let genesis_fork_version = spec
-                .get("GENESIS_FORK_VERSION")
-                .ok_or_else(|| eyre::eyre!("GENESIS_FORK_VERSION not found in spec"))?;
-
-            let version: FixedBytes<4> = FixedBytes::from_str(genesis_fork_version)
-                .map_err(|e| eyre::eyre!("Failed to parse genesis fork version: {:?}", e))?;
-
-            let version = Version::from(version);
-
-            // use the mainnet one and update the genesis fork version since it is the
-            // only thing required by 'compute_builder_domain'. We do this because
-            // there is no default in Context.
-            let mut network = ContextEth::for_mainnet();
-            network.genesis_fork_version = version;
-
-            network
-        }
-    };
-
-    Ok(B256::from(&compute_builder_domain(&cl_context)?))
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
-    use alloy_primitives::fixed_bytes;
     use reth::args::DatadirArgs;
     use reth_chainspec::{Chain, SEPOLIA};
     use reth_db::init_db;
@@ -753,7 +468,6 @@ mod test {
     use reth_node_core::dirs::{DataDirPath, MaybePlatformPath};
     use reth_provider::{providers::StaticFileProvider, ProviderFactory};
     use tempfile::TempDir;
-    use url::Url;
 
     #[test]
     fn test_default_config() {
@@ -761,45 +475,6 @@ mod test {
         let config_default = BaseConfig::default();
 
         assert_eq!(config, config_default);
-    }
-
-    #[test]
-    fn test_signing_domain_known_chains() {
-        let cases = [
-            (
-                NamedChain::Mainnet,
-                fixed_bytes!("00000001f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a9"),
-            ),
-            (
-                NamedChain::Sepolia,
-                fixed_bytes!("00000001d3010778cd08ee514b08fe67b6c503b510987a4ce43f42306d97c67c"),
-            ),
-            (
-                NamedChain::Goerli,
-                fixed_bytes!("00000001e4be9393b074ca1f3e4aabd585ca4bea101170ccfaf71b89ce5c5c38"),
-            ),
-            (
-                NamedChain::Holesky,
-                fixed_bytes!("000000015b83a23759c560b2d0c64576e1dcfc34ea94c4988f3e0d9f77f05387"),
-            ),
-        ];
-
-        for (chain, domain) in cases.iter() {
-            let found = get_signing_domain(Chain::from_named(*chain), vec![]).unwrap();
-            assert_eq!(found, *domain);
-        }
-    }
-
-    #[ignore]
-    #[test]
-    fn test_signing_domain_custom_chain() {
-        let client = Client::new(Url::parse("http://localhost:8000").unwrap());
-        let found = get_signing_domain(Chain::from_id(12345), vec![client]).unwrap();
-
-        assert_eq!(
-            found,
-            fixed_bytes!("00000001aaf2630a2874a74199f4b5d11a7d6377f363a236271bff4bf8eb4ab3")
-        );
     }
 
     #[test]
@@ -849,11 +524,12 @@ mod test {
         for (reth_datadir_path, reth_db_path, reth_static_files_path, should_succeed) in
             test_cases.iter()
         {
-            let result = create_provider_factory_rw(
+            let result = create_provider_factory(
                 reth_datadir_path.as_deref(),
                 reth_db_path.as_deref(),
                 reth_static_files_path.as_deref(),
                 Default::default(),
+                true,
             );
 
             if *should_succeed {

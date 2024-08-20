@@ -97,6 +97,7 @@ pub async fn subscribe_to_txpool_with_blobs(
     Ok(handle)
 }
 
+/// Calls eth_getRawTransactionByHash on EL node and decodes.
 async fn get_tx_with_blobs(
     tx_hash: H256,
     provider: &Provider<Ipc>,

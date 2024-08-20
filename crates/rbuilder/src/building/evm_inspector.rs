@@ -15,10 +15,10 @@ pub struct SlotKey {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct UsedStateTrace {
-    /// read set contains first read
-    pub read_set: HashMap<SlotKey, B256>,
-    /// write set contains last write
-    pub write_set: HashMap<SlotKey, B256>,
+    /// read slot values contains first read
+    pub read_slot_values: HashMap<SlotKey, B256>,
+    /// write slot values contains last write
+    pub written_slot_values: HashMap<SlotKey, B256>,
 }
 
 #[derive(Debug)]
@@ -37,14 +37,14 @@ impl<'a> UsedStateEVMInspector<'a> {
     }
 
     fn use_tx_nonce(&mut self, tx: &TransactionSignedEcRecovered) {
-        self.used_state_trace.read_set.insert(
+        self.used_state_trace.read_slot_values.insert(
             SlotKey {
                 address: tx.signer(),
                 key: Default::default(),
             },
             U256::from(tx.nonce()).into(),
         );
-        self.used_state_trace.write_set.insert(
+        self.used_state_trace.written_slot_values.insert(
             SlotKey {
                 address: tx.signer(),
                 key: Default::default(),
@@ -63,10 +63,13 @@ where
             if let Ok(value) = interpreter.stack.peek(0) {
                 let value = B256::from(value.to_be_bytes());
                 let key = SlotKey {
-                    address: interpreter.contract.caller,
+                    address: interpreter.contract.target_address,
                     key: slot,
                 };
-                self.used_state_trace.read_set.entry(key).or_insert(value);
+                self.used_state_trace
+                    .read_slot_values
+                    .entry(key)
+                    .or_insert(value);
             }
         }
 
@@ -81,12 +84,21 @@ where
                 if let (Ok(slot), Ok(value)) =
                     (interpreter.stack().peek(0), interpreter.stack().peek(1))
                 {
-                    let value = B256::from(value.to_be_bytes());
+                    let written_value = B256::from(value.to_be_bytes());
                     let key = SlotKey {
-                        address: interpreter.contract.caller,
+                        address: interpreter.contract.target_address,
                         key: B256::from(slot.to_be_bytes()),
                     };
-                    self.used_state_trace.write_set.insert(key, value);
+                    // if we write the same value that we read as the first read we don't have a write
+                    if let Some(read_value) = self.used_state_trace.read_slot_values.get(&key) {
+                        if read_value == &written_value {
+                            self.used_state_trace.written_slot_values.remove(&key);
+                            return;
+                        }
+                    }
+                    self.used_state_trace
+                        .written_slot_values
+                        .insert(key, written_value);
                 }
             }
             _ => (),

@@ -10,6 +10,11 @@ pub enum FakeMevBoostRelayError {
     BinaryNotFound,
 }
 
+/// Helper struct to run a fake relay for testing.
+/// It mainly runs a process and not much more.
+/// Usage:
+/// - FakeMevBoostRelay::new().spawn();
+/// - Auto kill the child process when the returned FakeMevBoostRelayInstance gets dropped.
 pub struct FakeMevBoostRelay {
     path: Option<PathBuf>,
 }
@@ -83,6 +88,7 @@ impl Drop for FakeMevBoostRelayInstance {
 mod test {
     use super::*;
 
+    #[ignore]
     #[test]
     fn test_spawn_fake_mev_boost_server() {
         let srv = FakeMevBoostRelay::new().spawn();

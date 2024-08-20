@@ -1,5 +1,6 @@
 //! Implementation of [`DataSource`] to bring mempool txs from flashbots' mempool dumpster.
 //! It downloads all the needed parquet files and keeps them cached for future use.
+use crate::backtest::BuiltBlockData;
 use crate::{
     backtest::{
         fetch::data_source::{BlockRef, DataSource},
@@ -10,6 +11,7 @@ use crate::{
         Order,
     },
 };
+use alloy_primitives::B256;
 use async_trait::async_trait;
 use eyre::WrapErr;
 use mempool_dumpster::TransactionRangeError;
@@ -41,7 +43,7 @@ pub fn get_mempool_transactions(
             let order: Order = RawOrder::Tx(RawTx {
                 tx: tx.raw_tx.into(),
             })
-            .decode(TxEncoding::NoBlobData)
+            .decode(TxEncoding::WithBlobData)
             .map_err(|err| error!("Failed to parse raw tx: {:?}", err))
             .ok()?;
             let timestamp_ms = tx
@@ -129,6 +131,13 @@ impl DataSource for MempoolDumpsterDatasource {
         );
         // TODO: Filter to only include tnxs from block?
         Ok(mempool_txs)
+    }
+
+    async fn get_built_block_data(
+        &self,
+        _block_hash: B256,
+    ) -> eyre::Result<Option<BuiltBlockData>> {
+        Ok(None)
     }
 
     fn clone_box(&self) -> Box<dyn DataSource> {

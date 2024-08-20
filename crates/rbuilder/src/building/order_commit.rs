@@ -20,7 +20,7 @@ use reth_primitives::{
     transaction::FillTxEnv,
     Receipt, KECCAK_EMPTY,
 };
-use reth_provider::StateProviderBox;
+use reth_provider::{StateProvider, StateProviderBox};
 use revm::{
     db::{states::bundle_state::BundleRetention, BundleState},
     inspector_handle_register,
@@ -29,23 +29,35 @@ use revm::{
 };
 
 use crate::building::evm_inspector::{RBuilderEVMInspector, UsedStateTrace};
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 
 #[derive(Clone)]
-pub struct BlockState<'a> {
-    provider: &'a StateProviderBox,
+pub struct BlockState {
+    provider: Arc<dyn StateProvider>,
     cached_reads: CachedReads,
     bundle_state: Option<BundleState>,
 }
 
-impl<'a> BlockState<'a> {
-    pub fn new(provider: &'a StateProviderBox) -> Self {
+impl BlockState {
+    pub fn new(provider: StateProviderBox) -> Self {
+        Self::new_arc(Arc::from(provider))
+    }
+
+    pub fn new_arc(provider: Arc<dyn StateProvider>) -> Self {
         Self {
             provider,
             cached_reads: CachedReads::default(),
             bundle_state: Some(BundleState::default()),
         }
+    }
+
+    pub fn state_provider(&self) -> &dyn StateProvider {
+        &self.provider
+    }
+
+    pub fn into_provider(self) -> Arc<dyn StateProvider> {
+        self.provider
     }
 
     pub fn with_cached_reads(mut self, cached_reads: CachedReads) -> Self {
@@ -58,12 +70,19 @@ impl<'a> BlockState<'a> {
         self
     }
 
-    pub fn into_parts(self) -> (CachedReads, BundleState) {
-        (self.cached_reads, self.bundle_state.unwrap())
+    pub fn into_parts(self) -> (CachedReads, BundleState, Arc<dyn StateProvider>) {
+        (self.cached_reads, self.bundle_state.unwrap(), self.provider)
+    }
+
+    pub fn clone_bundle_and_cache(&self) -> (CachedReads, BundleState) {
+        (
+            self.cached_reads.clone(),
+            self.bundle_state.clone().unwrap(),
+        )
     }
 
     pub fn new_db_ref(&mut self) -> BlockStateDBRef<impl Database<Error = ProviderError> + '_> {
-        let state_provider = StateProviderDatabase::new(self.provider);
+        let state_provider = StateProviderDatabase::new(&self.provider);
         let cachedb = WrapDatabaseRef(self.cached_reads.as_db(state_provider));
         let bundle_state = self.bundle_state.take().unwrap();
         let db = State::builder()
@@ -272,10 +291,10 @@ pub enum OrderErr {
     NegativeProfit(U256),
 }
 
-pub struct PartialBlockFork<'a, 'b, 'c, Tracer: SimulationTracer> {
+pub struct PartialBlockFork<'a, 'b, Tracer: SimulationTracer> {
     pub rollbacks: usize,
-    pub state: &'b mut BlockState<'a>,
-    pub tracer: Option<&'c mut Tracer>,
+    pub state: &'a mut BlockState,
+    pub tracer: Option<&'b mut Tracer>,
 }
 
 pub struct PartialBlockRollobackPoint {
@@ -305,11 +324,15 @@ pub enum CriticalCommitOrderError {
     EVM(#[from] EVMError<ProviderError>),
 }
 
-impl<'a, 'b, 'c, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, Tracer> {
+/// For all funcs allow_tx_skip means:
+/// If a tx inside a bundle or sbundle fails with TransactionErr (don't confuse this with reverting which is TransactionOk with !.receipt.success)
+/// and it's configured as allowed to revert (for bundles tx in reverting_tx_hashes, for sbundles: TxRevertBehavior != NotAllowed) we continue the
+/// the execution of the bundle/sbundle.
+impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
     pub fn with_tracer<NewTracer: SimulationTracer>(
         self,
-        tracer: &'c mut NewTracer,
-    ) -> PartialBlockFork<'a, 'b, 'c, NewTracer> {
+        tracer: &'b mut NewTracer,
+    ) -> PartialBlockFork<'a, 'b, NewTracer> {
         PartialBlockFork {
             rollbacks: self.rollbacks,
             state: self.state,
@@ -540,7 +563,7 @@ impl<'a, 'b, 'c, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, Tracer> 
                 ctx,
                 insert.cumulative_gas_used,
                 gas_reserved,
-                cumulative_blob_gas_used,
+                insert.cumulative_blob_gas_used,
             )?;
             match result {
                 Ok(res) => {
@@ -666,7 +689,7 @@ impl<'a, 'b, 'c, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, Tracer> 
                 ctx,
                 insert.cumulative_gas_used,
                 gas_reserved,
-                cumulative_blob_gas_used,
+                insert.cumulative_blob_gas_used,
             )?;
             match res {
                 Ok(res) => {
@@ -681,6 +704,7 @@ impl<'a, 'b, 'c, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, Tracer> 
 
                     insert.gas_used += res.gas_used;
                     insert.cumulative_gas_used = res.cumulative_gas_used;
+                    insert.cumulative_blob_gas_used = res.cumulative_blob_gas_used;
                     insert.txs.push(res.tx);
                     update_nonce_list(&mut insert.nonces_updated, res.nonce_updated);
                     insert.receipts.push(res.receipt);
@@ -761,7 +785,7 @@ impl<'a, 'b, 'c, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, Tracer> 
                         ctx,
                         insert.cumulative_gas_used,
                         gas_reserved,
-                        cumulative_blob_gas_used,
+                        insert.cumulative_blob_gas_used,
                     )?;
                     match result {
                         Ok(res) => {
@@ -815,7 +839,7 @@ impl<'a, 'b, 'c, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, Tracer> 
                         ctx,
                         insert.cumulative_gas_used,
                         gas_reserved,
-                        cumulative_blob_gas_used,
+                        insert.cumulative_blob_gas_used,
                         allow_tx_skip,
                     )?;
                     match inner_res {
@@ -1092,8 +1116,8 @@ impl<'a, 'b, 'c, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, Tracer> 
     }
 }
 
-impl<'a, 'b, 'c> PartialBlockFork<'a, 'b, 'c, ()> {
-    pub fn new(state: &'b mut BlockState<'a>) -> Self {
+impl<'a, 'b> PartialBlockFork<'a, 'b, ()> {
+    pub fn new(state: &'a mut BlockState) -> Self {
         Self {
             rollbacks: 0,
             state,

@@ -71,7 +71,7 @@ impl CLPayloadSource {
     }
 }
 
-/// Adds reconnection to a PayloadSource.
+/// Adds reconnection to a CLPayloadSource.
 /// Recreates the PayloadSource if:
 /// - PayloadSource::recv returns None
 /// - PayloadSource::recv does not deliver a new PayloadAttributesEvent in some time (recv_timeout)
@@ -156,7 +156,7 @@ impl PayloadSourceReconnector {
     }
 }
 
-/// Multiplexes PayloadSources to have redundancy in case a CL client dies.
+/// Multiplexes PayloadSourceReconnector to have redundancy in case a CL client dies.
 /// It does NOT care about the order of the slots it just notifies the new slots in the received order so it
 /// could go "back in time" if we have 2 PayloadSources and one of them is way behind the other.
 pub struct PayloadSourceMuxer {
