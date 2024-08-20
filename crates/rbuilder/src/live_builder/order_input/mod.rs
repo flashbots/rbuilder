@@ -138,6 +138,19 @@ impl OrderInputConfig {
             input_channel_buffer_size: 10_000,
         }
     }
+
+    pub fn default_e2e() -> Self {
+        Self {
+            ipc_path: PathBuf::from("/tmp/anvil.ipc"),
+            results_channel_timeout: Duration::new(5, 0),
+            ignore_cancellable_orders: false,
+            ignore_blobs: false,
+            input_channel_buffer_size: 10,
+            serve_max_connections: 4096,
+            server_ip: Ipv4Addr::new(127, 0, 0, 1),
+            server_port: 0,
+        }
+    }
 }
 
 /// Commands we can get from RPC or mempool fetcher.
