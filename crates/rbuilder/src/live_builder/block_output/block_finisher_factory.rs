@@ -38,11 +38,11 @@ impl UnfinishedBlockBuildingSinkFactory for BlockFinisherFactory {
         slot_data: MevBoostSlotData,
         cancel: CancellationToken,
     ) -> Arc<dyn UnfinishedBlockBuildingSink> {
-        let slot_bidder: Arc<dyn SlotBidder> = Arc::from(self.bidding_service.create_slot_bidder(
+        let slot_bidder: Arc<dyn SlotBidder> = self.bidding_service.create_slot_bidder(
             slot_data.block(),
             slot_data.slot(),
             slot_data.timestamp().unix_timestamp() as u64,
-        ));
+        );
         let finished_block_sink = self.block_sink_factory.create_builder_sink(
             slot_data,
             slot_bidder.clone(),
