@@ -1,4 +1,7 @@
-use std::time::{Duration, Instant};
+use std::{
+    cmp::max,
+    time::{Duration, Instant},
+};
 
 use alloy_primitives::U256;
 use reth::tasks::pool::BlockingTaskPool;
@@ -216,19 +219,6 @@ impl<DB: Database + Clone + 'static> BlockBuildingHelperFromDB<DB> {
         );
     }
 
-    /// Delta from self creation.
-    fn _fee_recipient_balance_diff(&self) -> Result<U256, BlockBuildingHelperError> {
-        let fee_recipient_balance_after = self
-            .block_state
-            .state_provider()
-            .account_balance(self.building_ctx.attributes.suggested_fee_recipient)?
-            .unwrap_or_default();
-
-        Ok(fee_recipient_balance_after
-            .checked_sub(self._fee_recipient_balance_start)
-            .unwrap_or_default())
-    }
-
     /// Inserts payout tx if necessary and updates built_block_trace.
     fn finalize_block_execution(
         &mut self,
@@ -252,7 +242,15 @@ impl<DB: Database + Clone + 'static> BlockBuildingHelperFromDB<DB> {
                 self.partial_block.coinbase_profit,
             )
         };
-        self.built_block_trace.bid_value = bid_value;
+        // Since some extra money might arrived directly the suggested_fee_recipient (when suggested_fee_recipient != coinbase)
+        // we check the fee_recipient delta and make our bid include that! This is supposed to be what the relay will check.
+        let fee_recipient_balance_after = self
+            .block_state
+            .balance(self.building_ctx.attributes.suggested_fee_recipient)?;
+        let fee_recipient_balance_diff = fee_recipient_balance_after
+            .checked_sub(self._fee_recipient_balance_start)
+            .unwrap_or_default();
+        self.built_block_trace.bid_value = max(bid_value, fee_recipient_balance_diff);
         self.built_block_trace.true_bid_value = true_value;
         Ok(())
     }
