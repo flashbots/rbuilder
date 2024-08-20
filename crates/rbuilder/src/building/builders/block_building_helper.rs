@@ -125,6 +125,7 @@ impl<DB: Database + Clone + 'static> BlockBuildingHelperFromDB<DB> {
     /// - Query fee_recipient_balance_start.
     /// - pre_block_call.
     /// - Estimate payout tx cost.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         provider_factory: ProviderFactory<DB>,
         root_hash_task_pool: BlockingTaskPool,
@@ -296,11 +297,11 @@ impl<DB: Database + Clone + 'static> BlockBuildingHelper for BlockBuildingHelper
 
     fn true_block_value(&self) -> Result<U256, BlockBuildingHelperError> {
         if let Some(payout_tx_gas) = self.payout_tx_gas {
-            return Ok(self
+            Ok(self
                 .partial_block
-                .get_proposer_payout_tx_value(payout_tx_gas, &self.building_ctx)?);
+                .get_proposer_payout_tx_value(payout_tx_gas, &self.building_ctx)?)
         } else {
-            return Ok(self.partial_block.coinbase_profit);
+            Ok(self.partial_block.coinbase_profit)
         }
     }
 
