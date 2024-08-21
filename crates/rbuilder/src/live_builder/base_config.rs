@@ -1,8 +1,8 @@
 //! Config should always be deserializable, default values should be used
 //!
 use crate::{
-    building::builders::BuilderSinkFactory,
-    live_builder::{bidding::DummyBiddingService, order_input::OrderInputConfig, LiveBuilder},
+    building::builders::UnfinishedBlockBuildingSinkFactory,
+    live_builder::{order_input::OrderInputConfig, LiveBuilder},
     telemetry::{setup_reloadable_tracing_subscriber, LoggerConfig},
     utils::{http_provider, BoxedProvider, ProviderFactoryReopener, Signer},
 };
@@ -146,40 +146,36 @@ impl BaseConfig {
     }
 
     /// WARN: opens reth db
-    pub async fn create_builder<BuilderSinkFactoryType, SlotSourceType>(
+    pub async fn create_builder<SlotSourceType>(
         &self,
         cancellation_token: tokio_util::sync::CancellationToken,
-        sink_factory: BuilderSinkFactoryType,
+        sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
         slot_source: SlotSourceType,
-    ) -> eyre::Result<super::LiveBuilder<Arc<DatabaseEnv>, BuilderSinkFactoryType, SlotSourceType>>
+    ) -> eyre::Result<super::LiveBuilder<Arc<DatabaseEnv>, SlotSourceType>>
     where
-        BuilderSinkFactoryType: BuilderSinkFactory,
         SlotSourceType: SlotSource,
     {
         let provider_factory = self.provider_factory()?;
 
-        Ok(
-            LiveBuilder::<Arc<DatabaseEnv>, BuilderSinkFactoryType, SlotSourceType> {
-                watchdog_timeout: self.watchdog_timeout(),
-                error_storage_path: self.error_storage_path.clone(),
-                simulation_threads: self.simulation_threads,
-                order_input_config: OrderInputConfig::from_config(self),
-                blocks_source: slot_source,
-                chain_chain_spec: self.chain_spec()?,
-                provider_factory,
+        Ok(LiveBuilder::<Arc<DatabaseEnv>, SlotSourceType> {
+            watchdog_timeout: self.watchdog_timeout(),
+            error_storage_path: self.error_storage_path.clone(),
+            simulation_threads: self.simulation_threads,
+            order_input_config: OrderInputConfig::from_config(self),
+            blocks_source: slot_source,
+            chain_chain_spec: self.chain_spec()?,
+            provider_factory,
 
-                coinbase_signer: self.coinbase_signer()?,
-                extra_data: self.extra_data()?,
-                blocklist: self.blocklist()?,
+            coinbase_signer: self.coinbase_signer()?,
+            extra_data: self.extra_data()?,
+            blocklist: self.blocklist()?,
 
-                global_cancellation: cancellation_token,
+            global_cancellation: cancellation_token,
 
-                bidding_service: Box::new(DummyBiddingService {}),
-                extra_rpc: RpcModule::new(()),
-                sink_factory,
-                builders: Vec::new(),
-            },
-        )
+            extra_rpc: RpcModule::new(()),
+            sink_factory,
+            builders: Vec::new(),
+        })
     }
 
     pub fn jsonrpc_server_ip(&self) -> Ipv4Addr {

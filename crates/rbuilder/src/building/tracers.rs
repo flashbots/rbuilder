@@ -13,7 +13,7 @@ pub trait SimulationTracer {
 
 impl SimulationTracer for () {}
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct GasUsedSimulationTracer {
     pub used_gas: u64,
 }

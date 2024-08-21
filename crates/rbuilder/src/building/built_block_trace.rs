@@ -62,11 +62,7 @@ impl BuiltBlockTrace {
     /// Sets:
     /// orders_sealed_at to the current time
     /// orders_closed_at to the given time
-    pub fn update_orders_timestamps_after_block_sealed(
-        &mut self,
-        orders_closed_at: OffsetDateTime,
-    ) {
-        self.orders_closed_at = orders_closed_at;
+    pub fn update_orders_sealed_at(&mut self) {
         self.orders_sealed_at = OffsetDateTime::now_utc();
     }
 
