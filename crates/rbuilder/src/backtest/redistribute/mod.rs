@@ -784,9 +784,10 @@ fn calc_profit_after_exclusion<ConfigType: LiveBuilderConfig>(
 
     let base_config = config.base_config();
 
-    // we set built_block_lag_ms here because we already prefiltered all the orders
+    // we set built_block_lag_ms to 0 here because we already prefiltered all the orders
     // in built_block_data, so we essentially just disable filtering in the `backtest_simulate_block`
-    let built_block_lag_ms = -12000;
+    // but we still filter by the relay timestamp
+    let built_block_lag_ms = 0;
 
     let result = backtest_simulate_block(
         block_data_with_excluded,
