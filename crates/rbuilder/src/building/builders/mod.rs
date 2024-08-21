@@ -232,7 +232,7 @@ pub struct BacktestSimulateBlockInput<'a, DB> {
 
 /// Handles error from block filling stage.
 /// Answers if block filling should continue.
-fn handle_building_error(err: eyre::Report) -> bool {
+pub fn handle_building_error(err: eyre::Report) -> bool {
     // @Types
     let err_str = err.to_string();
     if !err_str.contains("Profit too low") {
