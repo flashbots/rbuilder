@@ -193,7 +193,7 @@ impl BaseConfig {
 
             extra_rpc: RpcModule::new(()),
             sink_factory,
-            builders: Vec::new(),
+            builder: None,
         })
     }
 

@@ -98,7 +98,7 @@ async fn main() -> eyre::Result<()> {
         global_cancellation: cancel.clone(),
         extra_rpc: RpcModule::new(()),
         sink_factory: Box::new(TraceBlockSinkFactory {}),
-        builders: vec![Arc::new(DummyBuildingAlgorithm::new(10))],
+        builder: Some(Arc::new(DummyBuildingAlgorithm::new(10))),
     };
 
     let ctrlc = tokio::spawn(async move {
