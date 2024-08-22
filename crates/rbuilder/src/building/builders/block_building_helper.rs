@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 use alloy_primitives::U256;
 use reth::tasks::pool::BlockingTaskPool;
 use reth_db::database::Database;
+use revm::db::BundleState;
 use reth_payload_builder::database::CachedReads;
 use reth_primitives::format_ether;
 use reth_provider::{BlockNumReader, ProviderFactory};
@@ -69,6 +70,9 @@ pub trait BlockBuildingHelper {
 
     /// BlockBuildingContext used for building.
     fn building_context(&self) -> &BlockBuildingContext;
+
+    /// Get the block state.
+    fn get_block_state(&self) -> &BundleState;
 }
 
 /// Implementation of BlockBuildingHelper based on a ProviderFactory<DB>
@@ -381,5 +385,10 @@ impl<DB: Database + Clone + 'static> BlockBuildingHelper for BlockBuildingHelper
 
     fn building_context(&self) -> &BlockBuildingContext {
         &self.building_ctx
+    }
+
+    /// Get the block state.
+    fn get_block_state(&self) -> &BundleState {
+        self.block_state.get_bundle_state()
     }
 }
