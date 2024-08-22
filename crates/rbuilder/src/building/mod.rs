@@ -559,8 +559,6 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             (withdrawals_root, withdrawals)
         };
 
-        let (cached_reads, bundle) = state.clone_bundle_and_cache();
-
         let (requests, requests_root) = if ctx
             .chain_spec
             .is_prague_active_at_timestamp(ctx.attributes.timestamp())
@@ -583,6 +581,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             (None, None)
         };
 
+        let (cached_reads, bundle) = state.clone_bundle_and_cache();
         let execution_outcome = ExecutionOutcome::new(
             bundle,
             Receipts::from(vec![self
