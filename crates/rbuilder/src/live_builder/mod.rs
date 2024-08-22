@@ -134,16 +134,6 @@ impl<DB: Database + Clone + 'static, BuilderSourceType: SlotSource>
             )
         };
 
-        /*
-        let mut builder_pool = BlockBuildingPool::new(
-            self.provider_factory.clone(),
-            self.builders,
-            self.sink_factory,
-            orderpool_subscriber,
-            order_simulation_pool,
-        );
-        */
-
         let watchdog_sender = spawn_watchdog_thread(self.watchdog_timeout)?;
         let mut sink_factory = self.sink_factory;
 
