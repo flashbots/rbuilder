@@ -6,6 +6,7 @@ use std::{
 use alloy_primitives::U256;
 use reth::tasks::pool::BlockingTaskPool;
 use reth_db::database::Database;
+use revm::db::BundleState;
 use reth_payload_builder::database::CachedReads;
 use reth_primitives::format_ether;
 use reth_provider::{BlockNumReader, ProviderFactory};
