@@ -11,6 +11,7 @@ use crate::{
     live_builder::{
         base_config::load_config_toml_and_env, payload_events::MevBoostSlotDataGenerator,
     },
+    provider::StateProviderFactory,
     telemetry::spawn_telemetry_server,
     utils::{build_info::Version, ProviderFactoryReopener},
 };
@@ -50,7 +51,7 @@ pub trait LiveBuilderConfig: std::fmt::Debug + serde::de::DeserializeOwned {
 
     /// Patch until we have a unified way of backtesting using the exact algorithms we use on the LiveBuilder.
     /// building_algorithm_name will come from the specific configuration.
-    fn build_backtest_block<Provider>(
+    fn build_backtest_block<Provider: StateProviderFactory + Clone + 'static>(
         &self,
         building_algorithm_name: &str,
         input: BacktestSimulateBlockInput<'_, Provider>,

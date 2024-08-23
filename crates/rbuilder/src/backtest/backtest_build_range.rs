@@ -110,10 +110,7 @@ pub async fn run_backtest_build_range<ConfigType: LiveBuilderConfig + Send + Syn
         result
     };
 
-    let provider_factory = config
-        .base_config()
-        .provider_factory()?
-        .provider_factory_unchecked();
+    let provider_factory = config.base_config().provider_factory()?;
     let chain_spec = config.base_config().chain_spec()?;
 
     let mut profits = Vec::new();

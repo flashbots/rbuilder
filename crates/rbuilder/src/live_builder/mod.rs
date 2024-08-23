@@ -28,12 +28,8 @@ use building::BlockBuildingPool;
 use eyre::Context;
 use jsonrpsee::RpcModule;
 use payload_events::MevBoostSlotData;
-use reth::{
-    primitives::Header,
-    providers::{HeaderProvider, ProviderFactory},
-};
+use reth::primitives::Header;
 use reth_chainspec::ChainSpec;
-use reth_db::database::Database;
 use std::{cmp::min, path::PathBuf, sync::Arc, time::Duration};
 use time::OffsetDateTime;
 use tokio::sync::mpsc;
@@ -163,20 +159,16 @@ impl<Provider: StateProviderFactory + Clone + 'static, BuilderSourceType: SlotSo
             };
 
             let parent_header = {
-                Header::default()
-                /*
                 // @Nicer
                 let parent_block = payload.parent_block_hash();
                 let timestamp = payload.timestamp();
-                let provider_factory = self.provider_factory.provider_factory_unchecked();
-                match wait_for_block_header(parent_block, timestamp, &provider_factory).await {
+                match wait_for_block_header(parent_block, timestamp, &self.provider_factory).await {
                     Ok(header) => header,
                     Err(err) => {
                         warn!("Failed to get parent header for new slot: {:?}", err);
                         continue;
                     }
                 }
-                */
             };
 
             {
@@ -244,10 +236,10 @@ impl<Provider: StateProviderFactory + Clone + 'static, BuilderSourceType: SlotSo
 }
 
 /// May fail if we wait too much (see [BLOCK_HEADER_DEAD_LINE_DELTA])
-async fn wait_for_block_header<DB: Database>(
+async fn wait_for_block_header<Provider: StateProviderFactory>(
     block: B256,
     slot_time: OffsetDateTime,
-    provider_factory: &ProviderFactory<DB>,
+    provider_factory: &Provider,
 ) -> eyre::Result<Header> {
     let dead_line = slot_time + BLOCK_HEADER_DEAD_LINE_DELTA;
     while OffsetDateTime::now_utc() < dead_line {

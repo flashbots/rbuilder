@@ -316,7 +316,7 @@ impl LiveBuilderConfig for Config {
         rbuilder_version()
     }
 
-    fn build_backtest_block<Provider: StateProviderFactory>(
+    fn build_backtest_block<Provider: StateProviderFactory + Clone + 'static>(
         // This part I am unsure how to fix...
         &self,
         building_algorithm_name: &str,
@@ -431,7 +431,7 @@ pub fn coinbase_signer_from_secret_key(secret_key: &str) -> eyre::Result<Signer>
     Ok(Signer::try_from_secret(secret_key)?)
 }
 
-fn create_builders<Provider: StateProviderFactory>(
+fn create_builders<Provider: StateProviderFactory + Clone + 'static>(
     configs: Vec<BuilderConfig>,
     root_hash_task_pool: BlockingTaskPool,
     sbundle_mergeabe_signers: Vec<Address>,
@@ -442,7 +442,7 @@ fn create_builders<Provider: StateProviderFactory>(
         .collect()
 }
 
-fn create_builder<Provider: StateProviderFactory>(
+fn create_builder<Provider: StateProviderFactory + Clone + 'static>(
     cfg: BuilderConfig,
     root_hash_task_pool: &BlockingTaskPool,
     sbundle_mergeabe_signers: &[Address],

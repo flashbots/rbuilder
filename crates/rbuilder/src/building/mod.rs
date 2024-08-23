@@ -16,7 +16,6 @@ use reth_primitives::proofs::calculate_requests_root;
 
 use crate::{
     primitives::{Order, OrderId, SimValue, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs},
-    roothash::calculate_state_root,
     utils::{a2r_withdrawal, calc_gas_limit, timestamp_as_u64, Signer},
 };
 use ahash::HashSet;
@@ -542,8 +541,8 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         state: &mut BlockState,
         ctx: &BlockBuildingContext,
         provider_factory: Provider,
-        root_hash_mode: RootHashMode,
-        root_hash_task_pool: BlockingTaskPool,
+        _root_hash_mode: RootHashMode,
+        _root_hash_task_pool: BlockingTaskPool,
     ) -> eyre::Result<FinalizeResult> {
         let (withdrawals_root, withdrawals) = {
             let mut db = state.new_db_ref();
@@ -602,13 +601,17 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             .block_logs_bloom(block_number)
             .expect("Number is in range");
 
+        let state_root = provider_factory.state_root(ctx.attributes.parent, &execution_outcome)?;
+
+        /*
         let state_root = calculate_state_root(
-            provider_factory,
-            ctx.attributes.parent,
-            &execution_outcome,
-            root_hash_mode,
-            root_hash_task_pool,
-        )?;
+                provider_factory,
+                ctx.attributes.parent,
+                &execution_outcome,
+                root_hash_mode,
+                root_hash_task_pool,
+            )?;
+        */
 
         // create the block header
         let transactions_root = proofs::calculate_transaction_root(&self.executed_tx);

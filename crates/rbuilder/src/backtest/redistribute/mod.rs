@@ -1,29 +1,34 @@
 mod cli;
 mod redistribution_algo;
 
-use crate::backtest::execute::backtest_simulate_block;
-use crate::backtest::redistribute::redistribution_algo::{
-    IncludedOrderData, RedistributionCalculator, RedistributionIdentityData, RedistributionResult,
+use crate::{
+    backtest::{
+        execute::backtest_simulate_block,
+        redistribute::redistribution_algo::{
+            IncludedOrderData, RedistributionCalculator, RedistributionIdentityData,
+            RedistributionResult,
+        },
+        restore_landed_orders::{
+            restore_landed_orders, sim_historical_block, ExecutedBlockTx, LandedOrderData,
+            SimplifiedOrder,
+        },
+        BlockData, BuiltBlockData, OrdersWithTimestamp,
+    },
+    live_builder::cli::LiveBuilderConfig,
+    primitives::{Order, OrderId},
+    provider::StateProviderFactory,
+    utils::{signed_uint_delta, u256decimal_serde_helper},
 };
-use crate::backtest::restore_landed_orders::{
-    restore_landed_orders, sim_historical_block, ExecutedBlockTx, LandedOrderData, SimplifiedOrder,
-};
-use crate::backtest::{BlockData, BuiltBlockData, OrdersWithTimestamp};
-use crate::live_builder::cli::LiveBuilderConfig;
-use crate::primitives::{Order, OrderId};
-use crate::utils::signed_uint_delta;
-use crate::utils::u256decimal_serde_helper;
 use ahash::{HashMap, HashSet};
-use alloy_primitives::utils::format_ether;
-use alloy_primitives::{Address, B256, I256, U256};
+use alloy_primitives::{utils::format_ether, Address, B256, I256, U256};
 pub use cli::run_backtest_redistribute;
 use jsonrpsee::core::Serialize;
 use rayon::prelude::*;
 use reth_chainspec::ChainSpec;
-use reth_db::DatabaseEnv;
-use reth_provider::ProviderFactory;
-use std::cmp::{max, min};
-use std::sync::Arc;
+use std::{
+    cmp::{max, min},
+    sync::Arc,
+};
 use tracing::{info, info_span, trace, warn};
 
 #[derive(Debug, Clone, Serialize)]
@@ -87,8 +92,11 @@ pub struct RedistributionBlockOutput {
     pub joint_contribution: Vec<JointContributionData>,
 }
 
-pub fn calc_redistributions<ConfigType: LiveBuilderConfig + Send + Sync>(
-    provider_factory: ProviderFactory<Arc<DatabaseEnv>>,
+pub fn calc_redistributions<
+    ConfigType: LiveBuilderConfig + Send + Sync,
+    Provider: StateProviderFactory + Clone + 'static,
+>(
+    provider_factory: Provider,
     config: &ConfigType,
     block_data: BlockData,
     distribute_to_mempool_txs: bool,
@@ -233,8 +241,8 @@ fn get_available_orders(
     included_orders_available
 }
 
-fn restore_available_landed_orders(
-    provider_factory: ProviderFactory<Arc<DatabaseEnv>>,
+fn restore_available_landed_orders<Provider: StateProviderFactory + Clone>(
+    provider_factory: Provider,
     chain_spec: Arc<ChainSpec>,
     block_data: &BlockData,
     included_orders_available: &[OrdersWithTimestamp],
@@ -361,8 +369,11 @@ impl ResultsWithoutExclusion {
     }
 }
 
-fn calculate_backtest_without_exclusion<ConfigType: LiveBuilderConfig>(
-    provider_factory: ProviderFactory<Arc<DatabaseEnv>>,
+fn calculate_backtest_without_exclusion<
+    ConfigType: LiveBuilderConfig,
+    Provider: StateProviderFactory + Clone + 'static,
+>(
+    provider_factory: Provider,
     config: &ConfigType,
     block_data: BlockData,
 ) -> eyre::Result<ResultsWithoutExclusion> {
@@ -420,8 +431,11 @@ impl ExclusionResults {
     }
 }
 
-fn calculate_backtest_identity_and_order_exclusion<ConfigType: LiveBuilderConfig + Sync>(
-    provider_factory: ProviderFactory<Arc<DatabaseEnv>>,
+fn calculate_backtest_identity_and_order_exclusion<
+    ConfigType: LiveBuilderConfig + Sync,
+    Provider: StateProviderFactory + Clone + 'static,
+>(
+    provider_factory: Provider,
     config: &ConfigType,
     block_data: BlockData,
     available_orders: &AvailableOrders,
@@ -471,8 +485,11 @@ fn calculate_backtest_identity_and_order_exclusion<ConfigType: LiveBuilderConfig
     })
 }
 
-fn calc_joint_exclusion_results<ConfigType: LiveBuilderConfig + Sync>(
-    provider_factory: ProviderFactory<Arc<DatabaseEnv>>,
+fn calc_joint_exclusion_results<
+    ConfigType: LiveBuilderConfig + Sync,
+    Provider: StateProviderFactory + Clone + 'static,
+>(
+    provider_factory: Provider,
     config: &ConfigType,
     block_data: BlockData,
     available_orders: &AvailableOrders,
@@ -758,8 +775,11 @@ struct ExclusionResult {
 }
 
 /// calculate block profit excluding some orders
-fn calc_profit_after_exclusion<ConfigType: LiveBuilderConfig>(
-    provider_factory: ProviderFactory<Arc<DatabaseEnv>>,
+fn calc_profit_after_exclusion<
+    ConfigType: LiveBuilderConfig,
+    Provider: StateProviderFactory + Clone + 'static,
+>(
+    provider_factory: Provider,
     config: &ConfigType,
     block_data: &BlockData,
     exclusion_input: ExclusionInput,

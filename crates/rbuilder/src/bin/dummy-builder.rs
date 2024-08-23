@@ -34,12 +34,13 @@ use rbuilder::{
         mev_boost::{MevBoostRelay, RelayConfig},
         SimulatedOrder,
     },
+    provider::StateProviderFactory,
     roothash::RootHashMode,
-    utils::Signer,
+    utils::{ProviderFactoryReopener, Signer},
 };
-use reth::{providers::ProviderFactory, tasks::pool::BlockingTaskPool};
+use reth::tasks::pool::BlockingTaskPool;
 use reth_chainspec::MAINNET;
-use reth_db::{database::Database, DatabaseEnv};
+use reth_db::DatabaseEnv;
 use tokio::{signal::ctrl_c, sync::broadcast};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, level_filters::LevelFilter};
@@ -70,36 +71,37 @@ async fn main() -> eyre::Result<()> {
         cancel.clone(),
     );
 
-    let builder = LiveBuilder::<Arc<DatabaseEnv>, MevBoostSlotDataGenerator> {
-        watchdog_timeout: Duration::from_secs(10000),
-        error_storage_path: DEFAULT_ERROR_STORAGE_PATH.parse().unwrap(),
-        simulation_threads: 1,
-        blocks_source: payload_event,
-        order_input_config: OrderInputConfig::new(
-            false,
-            true,
-            DEFAULT_EL_NODE_IPC_PATH.parse().unwrap(),
-            DEFAULT_INCOMING_BUNDLES_PORT,
-            *DEFAULT_IP,
-            DEFAULT_SERVE_MAX_CONNECTIONS,
-            DEFAULT_RESULTS_CHANNEL_TIMEOUT,
-            DEFAULT_INPUT_CHANNEL_BUFFER_SIZE,
-        ),
-        chain_chain_spec: chain_spec.clone(),
-        provider_factory: create_provider_factory(
-            Some(&RETH_DB_PATH.parse::<PathBuf>().unwrap()),
-            None,
-            None,
-            chain_spec.clone(),
-        )?,
-        coinbase_signer: Signer::random(),
-        extra_data: Vec::new(),
-        blocklist: Default::default(),
-        global_cancellation: cancel.clone(),
-        extra_rpc: RpcModule::new(()),
-        sink_factory: Box::new(TraceBlockSinkFactory {}),
-        builders: vec![Arc::new(DummyBuildingAlgorithm::new(10))],
-    };
+    let builder =
+        LiveBuilder::<ProviderFactoryReopener<Arc<DatabaseEnv>>, MevBoostSlotDataGenerator> {
+            watchdog_timeout: Duration::from_secs(10000),
+            error_storage_path: DEFAULT_ERROR_STORAGE_PATH.parse().unwrap(),
+            simulation_threads: 1,
+            blocks_source: payload_event,
+            order_input_config: OrderInputConfig::new(
+                false,
+                true,
+                DEFAULT_EL_NODE_IPC_PATH.parse().unwrap(),
+                DEFAULT_INCOMING_BUNDLES_PORT,
+                *DEFAULT_IP,
+                DEFAULT_SERVE_MAX_CONNECTIONS,
+                DEFAULT_RESULTS_CHANNEL_TIMEOUT,
+                DEFAULT_INPUT_CHANNEL_BUFFER_SIZE,
+            ),
+            chain_chain_spec: chain_spec.clone(),
+            provider_factory: create_provider_factory(
+                Some(&RETH_DB_PATH.parse::<PathBuf>().unwrap()),
+                None,
+                None,
+                chain_spec.clone(),
+            )?,
+            coinbase_signer: Signer::random(),
+            extra_data: Vec::new(),
+            blocklist: Default::default(),
+            global_cancellation: cancel.clone(),
+            extra_rpc: RpcModule::new(()),
+            sink_factory: Box::new(TraceBlockSinkFactory {}),
+            builders: vec![Arc::new(DummyBuildingAlgorithm::new(10))],
+        };
 
     let ctrlc = tokio::spawn(async move {
         ctrl_c().await.unwrap_or_default();
@@ -190,10 +192,10 @@ impl DummyBuildingAlgorithm {
         }
     }
 
-    fn build_block<DB: Database + Clone + 'static>(
+    fn build_block<Provider: StateProviderFactory + Clone + 'static>(
         &self,
         orders: Vec<SimulatedOrder>,
-        provider_factory: ProviderFactory<DB>,
+        provider_factory: Provider,
         ctx: &BlockBuildingContext,
     ) -> eyre::Result<Box<dyn BlockBuildingHelper>> {
         let mut block_building_helper = BlockBuildingHelperFromDB::new(
@@ -216,12 +218,14 @@ impl DummyBuildingAlgorithm {
     }
 }
 
-impl<DB: Database + Clone + 'static> BlockBuildingAlgorithm<DB> for DummyBuildingAlgorithm {
+impl<Provider: StateProviderFactory + Clone + 'static> BlockBuildingAlgorithm<Provider>
+    for DummyBuildingAlgorithm
+{
     fn name(&self) -> String {
         BUILDER_NAME.to_string()
     }
 
-    fn build_blocks(&self, input: BlockBuildingAlgorithmInput<DB>) {
+    fn build_blocks(&self, input: BlockBuildingAlgorithmInput<Provider>) {
         if let Some(orders) = self.wait_for_orders(&input.cancel, input.input) {
             let block = self
                 .build_block(orders, input.provider_factory, &input.ctx)

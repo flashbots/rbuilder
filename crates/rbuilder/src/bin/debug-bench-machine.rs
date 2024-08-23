@@ -9,13 +9,11 @@ use rbuilder::{
     },
     live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig, config::Config},
     primitives::{MempoolTx, Order, TransactionSignedEcRecoveredWithBlobs},
+    provider::StateProviderFactory,
     roothash::RootHashMode,
     utils::{default_cfg_env, Signer},
 };
-use reth::{
-    payload::PayloadId,
-    providers::{BlockNumReader, BlockReader},
-};
+use reth::payload::PayloadId;
 use reth_payload_builder::{database::CachedReads, EthPayloadBuilderAttributes};
 use reth_provider::StateProvider;
 use revm_primitives::{BlobExcessGasAndPrice, BlockEnv, SpecId};
@@ -38,10 +36,7 @@ async fn main() -> eyre::Result<()> {
 
     let chain = config.base_config().chain_spec()?;
 
-    let factory = config
-        .base_config()
-        .provider_factory()?
-        .provider_factory_unchecked();
+    let factory = config.base_config().provider_factory()?;
 
     let last_block = factory.last_block_number()?;
     let block_data = factory

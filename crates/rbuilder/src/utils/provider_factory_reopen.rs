@@ -2,12 +2,15 @@ use crate::{
     provider::StateProviderFactory,
     telemetry::{inc_provider_bad_reopen_counter, inc_provider_reopen_counter},
 };
-use reth::providers::{BlockHashReader, ChainSpecProvider, ProviderFactory};
+use reth::providers::{BlockHashReader, ChainSpecProvider, ExecutionOutcome, ProviderFactory};
 use reth_chainspec::ChainSpec;
 use reth_db::database::Database;
 use reth_errors::{ProviderResult, RethResult};
-use reth_primitives::BlockNumber;
-use reth_provider::{providers::StaticFileProvider, StateProviderBox, StaticFileProviderFactory};
+use reth_primitives::{Block, BlockHash, BlockNumber, Header, B256};
+use reth_provider::{
+    providers::StaticFileProvider, BlockNumReader, BlockReader, HeaderProvider, StateProviderBox,
+    StaticFileProviderFactory,
+};
 use std::{
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -137,23 +140,43 @@ pub fn check_provider_factory_health<DB: Database>(
 impl<DB: 'static + Database + Clone> StateProviderFactory for ProviderFactoryReopener<DB> {
     fn history_by_block_number(
         &self,
-        _block_number: BlockNumber,
+        block_number: BlockNumber,
     ) -> ProviderResult<StateProviderBox> {
-        unimplemented!("TODO");
+        self.provider_factory_unchecked()
+            .history_by_block_number(block_number)
     }
 
     fn history_by_block_hash(
         &self,
-        _block_hash: revm_primitives::B256,
+        block_hash: revm_primitives::B256,
     ) -> ProviderResult<StateProviderBox> {
-        unimplemented!("TODO");
+        self.provider_factory_unchecked()
+            .history_by_block_hash(block_hash)
     }
 
     fn last_block_number(&self) -> ProviderResult<BlockNumber> {
-        unimplemented!("TODO");
+        self.provider_factory_unchecked().last_block_number()
     }
 
     fn latest(&self) -> ProviderResult<StateProviderBox> {
+        self.provider_factory_unchecked().latest()
+    }
+
+    fn block_by_number(&self, num: u64) -> ProviderResult<Option<Block>> {
+        self.provider_factory_unchecked().block_by_number(num)
+    }
+
+    /// Get header by block hash
+    fn header(&self, block_hash: &BlockHash) -> ProviderResult<Option<Header>> {
+        self.provider_factory_unchecked().header(block_hash)
+    }
+
+    fn state_root(
+        &self,
+        _parent_hash: B256,
+        _output: &ExecutionOutcome,
+    ) -> Result<B256, eyre::Error> {
+        println!("F");
         unimplemented!("TODO");
     }
 }
