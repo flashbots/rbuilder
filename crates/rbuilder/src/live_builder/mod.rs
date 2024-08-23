@@ -54,7 +54,7 @@ const GET_BLOCK_HEADER_PERIOD: time::Duration = time::Duration::milliseconds(250
 
 /// Trait used to trigger a new block building process in the slot.
 pub trait SlotSource {
-    fn recv_slot_channel(self) -> mpsc::UnboundedReceiver<MevBoostSlotData>;
+    fn recv_slot_channel(&self) -> mpsc::UnboundedReceiver<MevBoostSlotData>;
 }
 
 /// Main builder struct.
@@ -94,25 +94,28 @@ impl<DB: Database + Clone + 'static, BuilderSourceType: SlotSource>
         Self { builder, ..self }
     }
 
-    pub async fn run(self) -> eyre::Result<()> {
+    pub async fn run(mut self) -> eyre::Result<()> {
         info!("Builder block list size: {}", self.blocklist.len(),);
         info!(
             "Builder coinbase address: {:?}",
             self.coinbase_signer.address
         );
 
-        spawn_error_storage_writer(self.error_storage_path, self.global_cancellation.clone())
-            .await
-            .with_context(|| "Error spawning error storage writer")?;
+        spawn_error_storage_writer(
+            self.error_storage_path.clone(),
+            self.global_cancellation.clone(),
+        )
+        .await
+        .with_context(|| "Error spawning error storage writer")?;
 
         let mut inner_jobs_handles = Vec::new();
         let mut payload_events_channel = self.blocks_source.recv_slot_channel();
 
         let orderpool_subscriber = {
             let (handle, sub) = start_orderpool_jobs(
-                self.order_input_config,
+                self.order_input_config.clone(),
                 self.provider_factory.clone(),
-                self.extra_rpc,
+                self.extra_rpc.clone(),
                 self.global_cancellation.clone(),
             )
             .await?;
@@ -213,46 +216,6 @@ impl<DB: Database + Clone + 'static, BuilderSourceType: SlotSource>
                 None,
             );
 
-            /*
-            // This was done before in block building pool
-            {
-                let max_time_to_build = time_until_slot_end.try_into().unwrap_or_default();
-                let block_cancellation = self.global_cancellation.clone().child_token();
-
-                let cancel = block_cancellation.clone();
-                tokio::spawn(async move {
-                    tokio::time::sleep(max_time_to_build).await;
-                    cancel.cancel();
-                });
-
-                let (orders_for_block, sink) = OrdersForBlock::new_with_sink();
-                // add OrderReplacementManager to manage replacements and cancellations
-                let order_replacement_manager = OrderReplacementManager::new(Box::new(sink));
-                // sink removal is automatic via OrderSink::is_alive false
-                let _block_sub = orderpool_subscriber.add_sink(
-                    block_ctx.block_env.number.to(),
-                    Box::new(order_replacement_manager),
-                );
-
-                let simulations_for_block = order_simulation_pool.spawn_simulation_job(
-                    block_ctx.clone(),
-                    orders_for_block,
-                    block_cancellation.clone(),
-                );
-
-                let builder_sink = sink_factory.create_sink(payload, block_cancellation.clone());
-
-                let input = BlockBuildingAlgorithmInput::<DB> {
-                    provider_factory: self.provider_factory.provider_factory_unchecked(),
-                    ctx: block_ctx,
-                    sink: builder_sink,
-                    input: simulations_for_block.subscribe(),
-                    cancel: block_cancellation,
-                };
-
-                self.builder.build_blocks(input);
-            }
-            */
             let max_time_to_build = time_until_slot_end.try_into().unwrap_or_default();
 
             self.build_block(
@@ -278,7 +241,7 @@ impl<DB: Database + Clone + 'static, BuilderSourceType: SlotSource>
     }
 
     fn build_block(
-        &self,
+        &mut self,
         max_time_to_build: Duration,
         block_ctx: BlockBuildingContext,
         payload: MevBoostSlotData,
@@ -309,7 +272,9 @@ impl<DB: Database + Clone + 'static, BuilderSourceType: SlotSource>
             block_cancellation.clone(),
         );
 
-        let builder_sink = sink_factory.create_sink(payload, block_cancellation.clone());
+        let builder_sink = self
+            .sink_factory
+            .create_sink(payload, block_cancellation.clone());
 
         let input = BlockBuildingAlgorithmInput::<DB> {
             provider_factory: self.provider_factory.provider_factory_unchecked(),

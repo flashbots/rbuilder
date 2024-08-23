@@ -110,16 +110,20 @@ impl MevBoostSlotDataGenerator {
     ///     When MEV-boost is used, we tell the CL “--always-build-payload” (we are building blocks for ANY validator now!). The CL does
     ///     it, but even with the event being created for every slot, the fee_recipient we get from MEV-Boost might be different so we should always replace it.
     ///     Note that with MEV-boost the validator may change the fee_recipient when registering to the Relays.
-    pub fn spawn(self) -> (JoinHandle<()>, mpsc::UnboundedReceiver<MevBoostSlotData>) {
+    pub fn spawn(&self) -> (JoinHandle<()>, mpsc::UnboundedReceiver<MevBoostSlotData>) {
         let relays = RelaysForSlotData::new(&self.relays);
 
         let (send, receive) = mpsc::unbounded_channel();
+
+        let cls = self.cls.clone();
+        let global_cancellation = self.global_cancellation.clone();
+        let blocklist = self.blocklist.clone();
         let handle = tokio::spawn(async move {
             let mut source = PayloadSourceMuxer::new(
-                &self.cls,
+                &cls,
                 NEW_PAYLOAD_RECV_TIMEOUT,
                 CONSENSUS_CLIENT_RECONNECT_WAIT,
-                self.global_cancellation.clone(),
+                global_cancellation.clone(),
             );
 
             info!("MevBoostSlotDataGenerator: started");
@@ -127,7 +131,7 @@ impl MevBoostSlotDataGenerator {
             let mut recently_sent_data = VecDeque::with_capacity(RECENTLY_SENT_EVENTS_BUFF);
 
             while let Some(event) = source.recv().await {
-                if self.global_cancellation.is_cancelled() {
+                if global_cancellation.is_cancelled() {
                     return;
                 }
 
@@ -151,9 +155,7 @@ impl MevBoostSlotDataGenerator {
                     slot_data,
                 };
 
-                if let Err(err) =
-                    check_slot_data_for_blocklist(&mev_boost_slot_data, &self.blocklist)
-                {
+                if let Err(err) = check_slot_data_for_blocklist(&mev_boost_slot_data, &blocklist) {
                     warn!("Slot data failed blocklist check: {:?}", err);
                     continue;
                 }
@@ -174,7 +176,7 @@ impl MevBoostSlotDataGenerator {
                 }
             }
             // cancelling here because its a critical job
-            self.global_cancellation.cancel();
+            global_cancellation.cancel();
 
             source.join().await;
             info!("MevBoostSlotDataGenerator: finished");
@@ -185,7 +187,7 @@ impl MevBoostSlotDataGenerator {
 }
 
 impl SlotSource for MevBoostSlotDataGenerator {
-    fn recv_slot_channel(self) -> mpsc::UnboundedReceiver<MevBoostSlotData> {
+    fn recv_slot_channel(&self) -> mpsc::UnboundedReceiver<MevBoostSlotData> {
         let (_handle, chan) = self.spawn();
         chan
     }
