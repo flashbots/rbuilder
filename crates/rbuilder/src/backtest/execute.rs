@@ -1,3 +1,4 @@
+use crate::primitives::OrderId;
 use crate::utils::Signer;
 use crate::{
     backtest::BlockData,
@@ -24,6 +25,10 @@ pub struct BacktestBuilderOutput {
     pub orders_included: usize,
     pub builder_name: String,
     pub our_bid_value: U256,
+    #[serde(default)]
+    pub included_orders: Vec<OrderId>,
+    #[serde(default)]
+    pub included_order_profits: Vec<U256>,
 }
 
 /// Result of a backtest simulation usually stored for later comparison
@@ -165,6 +170,18 @@ pub fn backtest_simulate_block<ConfigType: LiveBuilderConfig>(
             orders_included: block.trace.included_orders.len(),
             builder_name: building_algorithm_name,
             our_bid_value: block.trace.bid_value,
+            included_orders: block
+                .trace
+                .included_orders
+                .iter()
+                .map(|o| o.order.id())
+                .collect(),
+            included_order_profits: block
+                .trace
+                .included_orders
+                .iter()
+                .map(|o| o.coinbase_profit)
+                .collect(),
         });
     }
 

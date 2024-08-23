@@ -1,4 +1,7 @@
-use crate::provider::StateProviderFactory;
+use crate::{
+    provider::StateProviderFactory,
+    telemetry::{inc_provider_bad_reopen_counter, inc_provider_reopen_counter},
+};
 use reth::providers::{BlockHashReader, ChainSpecProvider, ProviderFactory};
 use reth_chainspec::ChainSpec;
 use reth_db::database::Database;
@@ -72,6 +75,8 @@ impl<DB: Database + Clone> ProviderFactoryReopener<DB> {
                 Ok(()) => {}
                 Err(err) => {
                     debug!(?err, "Provider factory is inconsistent, reopening");
+                    inc_provider_reopen_counter();
+
                     *provider_factory = ProviderFactory::new(
                         provider_factory.db_ref().clone(),
                         self.chain_spec.clone(),
@@ -83,6 +88,8 @@ impl<DB: Database + Clone> ProviderFactoryReopener<DB> {
             match check_provider_factory_health(current_block_number, &provider_factory) {
                 Ok(()) => {}
                 Err(err) => {
+                    inc_provider_bad_reopen_counter();
+
                     eyre::bail!(
                         "Provider factory is inconsistent after reopening: {:?}",
                         err

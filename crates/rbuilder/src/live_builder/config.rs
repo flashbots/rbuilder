@@ -1,19 +1,31 @@
 //! Config should always be deserializable, default values should be used
 //!
 //!
-use super::{base_config::BaseConfig, building::relay_submit::RelaySubmitSinkFactory};
+use super::{
+    base_config::BaseConfig,
+    block_output::{
+        bidding::BiddingService,
+        relay_submit::{RelaySubmitSinkFactory, SubmissionConfig},
+    },
+};
 use crate::{
     beacon_api_client::Client,
     building::{
         builders::{
             ordering_builder::{OrderingBuilderConfig, OrderingBuildingAlgorithm},
-            BacktestSimulateBlockInput, BestBlockCell, Block, BlockBuildingAlgorithm,
+            BacktestSimulateBlockInput, Block, BlockBuildingAlgorithm,
+            UnfinishedBlockBuildingSinkFactory,
         },
         Sorting,
     },
     flashbots::BlocksProcessorClient,
     live_builder::{
-        base_config::EnvOrValue, building::SubmissionConfig, cli::LiveBuilderConfig,
+        base_config::EnvOrValue,
+        block_output::{
+            bidding::DummyBiddingService, block_finisher_factory::BlockFinisherFactory,
+            relay_submit::BuilderSinkFactory,
+        },
+        cli::LiveBuilderConfig,
         payload_events::MevBoostSlotDataGenerator,
     },
     mev_boost::BLSBlockSigner,
@@ -232,7 +244,11 @@ impl L1Config {
     pub fn create_relays_sink_factory(
         &self,
         chain_spec: Arc<ChainSpec>,
-    ) -> eyre::Result<(RelaySubmitSinkFactory, Vec<MevBoostRelay>)> {
+        bidding_service: Box<dyn BiddingService>,
+    ) -> eyre::Result<(
+        Box<dyn UnfinishedBlockBuildingSinkFactory>,
+        Vec<MevBoostRelay>,
+    )> {
         let submission_config = self.submission_config(chain_spec)?;
         info!(
             "Builder mev boost normal relay pubkey: {:?}",
@@ -250,8 +266,14 @@ impl L1Config {
         );
 
         let relays = self.create_relays()?;
-        let sink_factory = RelaySubmitSinkFactory::new(submission_config, relays.clone());
-        Ok((sink_factory, relays))
+        let sink_factory: Box<dyn BuilderSinkFactory> = Box::new(RelaySubmitSinkFactory::new(
+            submission_config,
+            relays.clone(),
+        ));
+        Ok((
+            Box::new(BlockFinisherFactory::new(bidding_service, sink_factory)),
+            relays,
+        ))
     }
 }
 
@@ -263,23 +285,17 @@ impl LiveBuilderConfig for Config {
     async fn create_builder(
         &self,
         cancellation_token: tokio_util::sync::CancellationToken,
-    ) -> eyre::Result<
-        super::LiveBuilder<
-            Arc<DatabaseEnv>,
-            super::building::relay_submit::RelaySubmitSinkFactory,
-            MevBoostSlotDataGenerator,
-        >,
-    > {
-        let (sink_factory, relays) = self
-            .l1_config
-            .create_relays_sink_factory(self.base_config.chain_spec()?)?;
+    ) -> eyre::Result<super::LiveBuilder<Arc<DatabaseEnv>, MevBoostSlotDataGenerator>> {
+        let (sink_factory, relays) = self.l1_config.create_relays_sink_factory(
+            self.base_config.chain_spec()?,
+            Box::new(DummyBiddingService {}),
+        )?;
         let payload_event = MevBoostSlotDataGenerator::new(
             self.l1_config.beacon_clients()?,
             relays,
             self.base_config.blocklist()?,
             cancellation_token.clone(),
         );
-
         let live_builder = self
             .base_config
             .create_builder(cancellation_token, sink_factory, payload_event)
@@ -415,7 +431,7 @@ fn create_builders(
     configs: Vec<BuilderConfig>,
     root_hash_task_pool: BlockingTaskPool,
     sbundle_mergeabe_signers: Vec<Address>,
-) -> Vec<Arc<dyn BlockBuildingAlgorithm<Arc<DatabaseEnv>, BestBlockCell>>> {
+) -> Vec<Arc<dyn BlockBuildingAlgorithm<Arc<DatabaseEnv>>>> {
     configs
         .into_iter()
         .map(|cfg| create_builder(cfg, &root_hash_task_pool, &sbundle_mergeabe_signers))
@@ -426,7 +442,7 @@ fn create_builder(
     cfg: BuilderConfig,
     root_hash_task_pool: &BlockingTaskPool,
     sbundle_mergeabe_signers: &[Address],
-) -> Arc<dyn BlockBuildingAlgorithm<Arc<DatabaseEnv>, BestBlockCell>> {
+) -> Arc<dyn BlockBuildingAlgorithm<Arc<DatabaseEnv>>> {
     match cfg.builder {
         SpecificBuilderConfig::OrderingBuilder(order_cfg) => {
             Arc::new(OrderingBuildingAlgorithm::new(

@@ -1,5 +1,5 @@
 pub mod base_config;
-pub mod bidding;
+pub mod block_output;
 pub mod building;
 pub mod cli;
 pub mod config;
@@ -10,7 +10,7 @@ mod watchdog;
 
 use crate::{
     building::{
-        builders::{BlockBuildingAlgorithm, BuilderSinkFactory},
+        builders::{BlockBuildingAlgorithm, UnfinishedBlockBuildingSinkFactory},
         BlockBuildingContext,
     },
     live_builder::{
@@ -25,7 +25,6 @@ use crate::{
 };
 use ahash::HashSet;
 use alloy_primitives::{Address, B256};
-use bidding::BiddingService;
 use building::BlockBuildingPool;
 use eyre::Context;
 use jsonrpsee::RpcModule;
@@ -60,11 +59,7 @@ pub trait SlotSource {
 /// # Usage
 /// Create and run()
 #[derive(Debug)]
-pub struct LiveBuilder<
-    Provider,
-    BuilderSinkFactoryType: BuilderSinkFactory,
-    BlocksSourceType: SlotSource,
-> {
+pub struct LiveBuilder<DB, BlocksSourceType: SlotSource> {
     pub watchdog_timeout: Duration,
     pub error_storage_path: PathBuf,
     pub simulation_threads: usize,
@@ -80,36 +75,19 @@ pub struct LiveBuilder<
 
     pub global_cancellation: CancellationToken,
 
-    pub bidding_service: Box<dyn BiddingService>,
-
-    pub sink_factory: BuilderSinkFactoryType,
-    pub builders: Vec<Arc<dyn BlockBuildingAlgorithm<Provider, BuilderSinkFactoryType::SinkType>>>,
+    pub sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
+    pub builders: Vec<Arc<dyn BlockBuildingAlgorithm<DB>>>,
     pub extra_rpc: RpcModule<()>,
 }
 
-impl<
-        Provider: StateProviderFactory + Clone + 'static,
-        BuilderSinkFactoryType: BuilderSinkFactory,
-        BuilderSourceType: SlotSource,
-    > LiveBuilder<DB, BuilderSinkFactoryType, BuilderSourceType>
-where
-    <BuilderSinkFactoryType as BuilderSinkFactory>::SinkType: 'static,
+impl<DB: Database + Clone + 'static, BuilderSourceType: SlotSource>
+    LiveBuilder<DB, BuilderSourceType>
 {
-    pub fn with_bidding_service(self, bidding_service: Box<dyn BiddingService>) -> Self {
-        Self {
-            bidding_service,
-            ..self
-        }
-    }
-
     pub fn with_extra_rpc(self, extra_rpc: RpcModule<()>) -> Self {
         Self { extra_rpc, ..self }
     }
 
-    pub fn with_builders(
-        self,
-        builders: Vec<Arc<dyn BlockBuildingAlgorithm<Provider, BuilderSinkFactoryType::SinkType>>>,
-    ) -> Self {
+    pub fn with_builders(self, builders: Vec<Arc<dyn BlockBuildingAlgorithm<DB>>>) -> Self {
         Self { builders, ..self }
     }
 
@@ -151,7 +129,6 @@ where
             self.provider_factory.clone(),
             self.builders,
             self.sink_factory,
-            self.bidding_service,
             orderpool_subscriber,
             order_simulation_pool,
         );

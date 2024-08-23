@@ -1,7 +1,7 @@
 use crate::{
-    building::builders::{BestBlockCell, BuilderSinkFactory},
+    building::builders::Block,
     flashbots::BlocksProcessorClient,
-    live_builder::{bidding::SlotBidder, payload_events::MevBoostSlotData},
+    live_builder::payload_events::MevBoostSlotData,
     mev_boost::{
         sign_block_for_relay, BLSBlockSigner, RelayError, SubmitBlockErr, SubmitBlockRequest,
     },
@@ -19,13 +19,73 @@ use ahash::HashMap;
 use alloy_primitives::{utils::format_ether, U256};
 use reth_chainspec::ChainSpec;
 use reth_primitives::SealedBlock;
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 use tokio::time::{sleep, Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info_span, trace, warn, Instrument};
 
+use super::bidding::SlotBidder;
+
 const SIM_ERROR_CATEGORY: &str = "submit_block_simulation";
 const VALIDATION_ERROR_CATEGORY: &str = "validate_block_simulation";
+
+/// Contains the best block so far.
+/// Building updates via compare_and_update while relay submitter polls via take_best_block
+#[derive(Debug, Clone)]
+pub struct BestBlockCell {
+    val: Arc<Mutex<Option<Block>>>,
+}
+
+impl Default for BestBlockCell {
+    fn default() -> Self {
+        Self {
+            val: Arc::new(Mutex::new(None)),
+        }
+    }
+}
+
+impl BlockBuildingSink for BestBlockCell {
+    fn new_block(&self, block: Block) {
+        self.compare_and_update(block);
+    }
+}
+
+impl BestBlockCell {
+    pub fn compare_and_update(&self, block: Block) {
+        let mut best_block = self.val.lock().unwrap();
+        let old_value = best_block
+            .as_ref()
+            .map(|b| b.trace.bid_value)
+            .unwrap_or_default();
+        if block.trace.bid_value > old_value {
+            *best_block = Some(block);
+        }
+    }
+
+    pub fn take_best_block(&self) -> Option<Block> {
+        self.val.lock().unwrap().take()
+    }
+}
+
+/// Final destination of blocks (eg: submit to the relays).
+pub trait BlockBuildingSink: std::fmt::Debug + Send + Sync {
+    fn new_block(&self, block: Block);
+}
+
+/// Factory used to create BlockBuildingSink..
+pub trait BuilderSinkFactory: std::fmt::Debug + Send + Sync {
+    /// # Arguments
+    /// slot_bidder: Not always needed but simplifies the design.
+    fn create_builder_sink(
+        &self,
+        slot_data: MevBoostSlotData,
+        slot_bidder: Arc<dyn SlotBidder>,
+        cancel: CancellationToken,
+    ) -> Box<dyn BlockBuildingSink>;
+}
 
 #[derive(Debug, Clone)]
 pub struct SubmissionConfig {
@@ -444,6 +504,7 @@ async fn submit_bid_to_the_relay(
 }
 
 /// Real life BuilderSinkFactory that send the blocks to the Relay
+#[derive(Debug)]
 pub struct RelaySubmitSinkFactory {
     submission_config: SubmissionConfig,
     relays: HashMap<MevBoostRelayID, MevBoostRelay>,
@@ -463,14 +524,12 @@ impl RelaySubmitSinkFactory {
 }
 
 impl BuilderSinkFactory for RelaySubmitSinkFactory {
-    type SinkType = BestBlockCell;
-
     fn create_builder_sink(
         &self,
         slot_data: MevBoostSlotData,
         slot_bidder: Arc<dyn SlotBidder>,
         cancel: CancellationToken,
-    ) -> BestBlockCell {
+    ) -> Box<dyn BlockBuildingSink> {
         let best_bid = BestBlockCell::default();
 
         let relays = slot_data
@@ -491,6 +550,6 @@ impl BuilderSinkFactory for RelaySubmitSinkFactory {
             cancel,
             slot_bidder,
         ));
-        best_bid
+        Box::new(best_bid)
     }
 }

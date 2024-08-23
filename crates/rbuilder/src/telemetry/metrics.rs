@@ -169,6 +169,12 @@ lazy_static! {
     )
     .unwrap();
 
+    pub static ref PROVIDER_REOPEN_COUNTER: IntCounter = IntCounter::new(
+        "provider_reopen_counter", "Counter of provider reopens").unwrap();
+
+    pub static ref PROVIDER_BAD_REOPEN_COUNTER: IntCounter = IntCounter::new(
+        "provider_bad_reopen_counter", "Counter of provider reopens").unwrap();
+
     pub static ref TXFETCHER_TRANSACTION_COUNTER: IntCounter = IntCounter::new(
         "txfetcher_transaction_counter", "Counter of transactions fetched by txfetcher service").unwrap();
 
@@ -343,6 +349,14 @@ pub fn add_txfetcher_time_to_query(duration: Duration) {
     TXFETCHER_TRANSACTION_COUNTER.inc();
 }
 
+pub fn inc_provider_reopen_counter() {
+    PROVIDER_REOPEN_COUNTER.inc();
+}
+
+pub fn inc_provider_bad_reopen_counter() {
+    PROVIDER_BAD_REOPEN_COUNTER.inc();
+}
+
 pub fn add_sim_thread_utilisation_timings(
     work_time: Duration,
     wait_time: Duration,
@@ -474,6 +488,12 @@ pub(super) fn register_custom_metrics() {
     REGISTRY.register(Box::new(SUBSIDY_VALUE.clone())).unwrap();
     REGISTRY
         .register(Box::new(TOTAL_LANDED_SUBSIDIES_SUM.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(PROVIDER_REOPEN_COUNTER.clone()))
+        .unwrap();
+    REGISTRY
+        .register(Box::new(PROVIDER_BAD_REOPEN_COUNTER.clone()))
         .unwrap();
     REGISTRY
         .register(Box::new(TXFETCHER_TRANSACTION_COUNTER.clone()))

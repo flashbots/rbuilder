@@ -14,29 +14,23 @@ use crate::{
         BlockBuildingContext, BlockOrders, ExecutionError, Sorting,
     },
     primitives::{AccountNonce, OrderId},
-    utils::is_provider_factory_health_error,
 };
 use ahash::{HashMap, HashSet};
 use alloy_primitives::Address;
-use reth::providers::{BlockNumReader, ProviderFactory};
+use reth::providers::ProviderFactory;
 use reth_db::database::Database;
+use tokio_util::sync::CancellationToken;
 
-use crate::{
-    live_builder::bidding::SlotBidder, roothash::RootHashMode, utils::check_provider_factory_health,
-};
+use crate::{roothash::RootHashMode, utils::check_provider_factory_health};
 use reth::tasks::pool::BlockingTaskPool;
 use reth_payload_builder::database::CachedReads;
 use serde::Deserialize;
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
-use time::OffsetDateTime;
-use tracing::{debug, error, info_span, trace, warn};
+use std::time::{Duration, Instant};
+use tracing::{error, info_span, trace};
 
 use super::{
+    block_building_helper::BlockBuildingHelperFromDB, handle_building_error,
     BacktestSimulateBlockInput, Block, BlockBuildingAlgorithm, BlockBuildingAlgorithmInput,
-    BlockBuildingSink,
 };
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -67,15 +61,10 @@ impl OrderingBuilderConfig {
     }
 }
 
-pub fn run_ordering_builder<
-    Provider: StateProviderFactory + Clone + 'static,
-    SinkType: BlockBuildingSink,
->(
-    input: LiveBuilderInput<Provider, SinkType>,
+pub fn run_ordering_builder<DB: Database + Clone + 'static>(
+    input: LiveBuilderInput<DB>,
     config: &OrderingBuilderConfig,
 ) {
-    let block_number = input.ctx.block_env.number.to::<u64>();
-    //
     let mut order_intake_consumer = OrderIntakeConsumer::new(
         input.provider_factory.clone(),
         input.input,
@@ -86,7 +75,6 @@ pub fn run_ordering_builder<
 
     let mut builder = OrderingBuilderContext::new(
         input.provider_factory.clone(),
-        input.slot_bidder,
         input.root_hash_task_pool,
         input.builder_name,
         input.ctx,
@@ -114,35 +102,21 @@ pub fn run_ordering_builder<
         }
 
         let orders = order_intake_consumer.current_block_orders();
-        match builder.build_block(orders, use_suggested_fee_recipient_as_coinbase) {
-            Ok(Some(block)) => {
-                if block.trace.got_no_signer_error {
+        match builder.build_block(
+            orders,
+            use_suggested_fee_recipient_as_coinbase
+                && input.sink.can_use_suggested_fee_recipient_as_coinbase(),
+            input.cancel.clone(),
+        ) {
+            Ok(block) => {
+                if block.built_block_trace().got_no_signer_error {
                     use_suggested_fee_recipient_as_coinbase = false;
                 }
                 input.sink.new_block(block);
             }
-            Ok(None) => {}
             Err(err) => {
-                // @Types
-                let err_str = err.to_string();
-                if err_str.contains("failed to initialize consistent view") {
-                    let last_block_number = input
-                        .provider_factory
-                        .last_block_number()
-                        .unwrap_or_default();
-                    debug!(
-                        block_number,
-                        last_block_number, "Can't build on this head, cancelling slot"
-                    );
-                    input.cancel.cancel();
+                if !handle_building_error(err) {
                     break 'building;
-                } else if !err_str.contains("Profit too low") {
-                    if is_provider_factory_health_error(&err) {
-                        error!(?err, "Cancelling building due to provider factory error");
-                        break 'building;
-                    } else {
-                        warn!(?err, "Error filling orders");
-                    }
                 }
             }
         }
@@ -169,7 +143,6 @@ pub fn backtest_simulate_block<Provider: StateProviderFactory + Clone + 'static>
     )?;
     let mut builder = OrderingBuilderContext::new(
         input.provider_factory.clone(),
-        Arc::new(()),
         BlockingTaskPool::build()?,
         input.builder_name,
         input.ctx.clone(),
@@ -177,10 +150,22 @@ pub fn backtest_simulate_block<Provider: StateProviderFactory + Clone + 'static>
     )
     .with_skip_root_hash()
     .with_cached_reads(input.cached_reads.unwrap_or_default());
-    let block = builder
-        .build_block(block_orders, use_suggested_fee_recipient_as_coinbase)?
-        .ok_or_else(|| eyre::eyre!("No block built"))?;
-    Ok((block, builder.take_cached_reads().unwrap_or_default()))
+    let block_builder = builder.build_block(
+        block_orders,
+        use_suggested_fee_recipient_as_coinbase,
+        CancellationToken::new(),
+    )?;
+
+    let payout_tx_value = if use_suggested_fee_recipient_as_coinbase {
+        None
+    } else {
+        Some(block_builder.true_block_value()?)
+    };
+    let finalize_block_result = block_builder.finalize_block(payout_tx_value)?;
+    Ok((
+        finalize_block_result.block,
+        finalize_block_result.cached_reads,
+    ))
 }
 
 #[derive(Debug)]
@@ -191,7 +176,6 @@ pub struct OrderingBuilderContext<Provider> {
     ctx: BlockBuildingContext,
     config: OrderingBuilderConfig,
     root_hash_mode: RootHashMode,
-    slot_bidder: Arc<dyn SlotBidder>,
 
     // caches
     cached_reads: Option<CachedReads>,
@@ -203,8 +187,7 @@ pub struct OrderingBuilderContext<Provider> {
 
 impl<Provider: StateProviderFactory + Clone + 'static> OrderingBuilderContext<Provider> {
     pub fn new(
-        provider_factory: Provider,
-        slot_bidder: Arc<dyn SlotBidder>,
+        provider_factory: ProviderFactory<DB>,
         root_hash_task_pool: BlockingTaskPool,
         builder_name: String,
         ctx: BlockBuildingContext,
@@ -217,7 +200,6 @@ impl<Provider: StateProviderFactory + Clone + 'static> OrderingBuilderContext<Pr
             ctx,
             config,
             root_hash_mode: RootHashMode::CorrectRoot,
-            slot_bidder,
             cached_reads: None,
             failed_orders: HashSet::default(),
             order_attempts: HashMap::default(),
@@ -250,10 +232,8 @@ impl<Provider: StateProviderFactory + Clone + 'static> OrderingBuilderContext<Pr
         &mut self,
         block_orders: BlockOrders,
         use_suggested_fee_recipient_as_coinbase: bool,
-    ) -> eyre::Result<Option<Block>> {
-        let use_suggested_fee_recipient_as_coinbase = use_suggested_fee_recipient_as_coinbase
-            && self.slot_bidder.is_pay_to_coinbase_allowed();
-
+        cancel_block: CancellationToken,
+    ) -> eyre::Result<Box<dyn BlockBuildingHelper>> {
         let build_attempt_id: u32 = rand::random();
         let span = info_span!("build_run", build_attempt_id);
         let _guard = span.enter();
@@ -261,7 +241,6 @@ impl<Provider: StateProviderFactory + Clone + 'static> OrderingBuilderContext<Pr
         check_provider_factory_health(self.ctx.block(), &self.provider_factory)?;
 
         let build_start = Instant::now();
-        let orders_closed_at = OffsetDateTime::now_utc();
 
         // Create a new ctx to remove builder_signer if necessary
         let mut new_ctx = self.ctx.clone();
@@ -271,31 +250,27 @@ impl<Provider: StateProviderFactory + Clone + 'static> OrderingBuilderContext<Pr
         self.failed_orders.clear();
         self.order_attempts.clear();
 
-        let mut block_building_helper = BlockBuildingHelper::new(
+        let mut block_building_helper = BlockBuildingHelperFromDB::new(
             self.provider_factory.clone(),
+            self.root_hash_task_pool.clone(),
+            self.root_hash_mode,
             new_ctx,
             self.cached_reads.take(),
             self.builder_name.clone(),
             self.config.discard_txs,
             self.config.sorting.into(),
+            cancel_block,
         )?;
 
         self.fill_orders(&mut block_building_helper, block_orders, build_start)?;
         block_building_helper.set_trace_fill_time(build_start.elapsed());
-
-        let finalize_block_result = block_building_helper.finalize_block(
-            self.slot_bidder.as_ref(),
-            orders_closed_at,
-            self.root_hash_task_pool.clone(),
-            self.root_hash_mode,
-        )?;
-        self.cached_reads = Some(finalize_block_result.cached_reads);
-        Ok(finalize_block_result.block)
+        self.cached_reads = Some(block_building_helper.clone_cached_reads());
+        Ok(Box::new(block_building_helper))
     }
 
     fn fill_orders(
         &mut self,
-        block_building_helper: &mut BlockBuildingHelper<DB>,
+        block_building_helper: &mut dyn BlockBuildingHelper,
         mut block_orders: BlockOrders,
         build_start: Instant,
     ) -> eyre::Result<()> {
@@ -384,14 +359,12 @@ impl OrderingBuildingAlgorithm {
     }
 }
 
-impl<Provider: StateProviderFactory + Clone + 'static, SinkType: BlockBuildingSink>
-    BlockBuildingAlgorithm<Provider, SinkType> for OrderingBuildingAlgorithm
-{
+impl<DB: Database + Clone + 'static> BlockBuildingAlgorithm<DB> for OrderingBuildingAlgorithm {
     fn name(&self) -> String {
         self.name.clone()
     }
 
-    fn build_blocks(&self, input: BlockBuildingAlgorithmInput<Provider, SinkType>) {
+    fn build_blocks(&self, input: BlockBuildingAlgorithmInput<DB>) {
         let live_input = LiveBuilderInput {
             provider_factory: input.provider_factory,
             root_hash_task_pool: self.root_hash_task_pool.clone(),
@@ -399,7 +372,6 @@ impl<Provider: StateProviderFactory + Clone + 'static, SinkType: BlockBuildingSi
             input: input.input,
             sink: input.sink,
             builder_name: self.name.clone(),
-            slot_bidder: input.slot_bidder,
             cancel: input.cancel,
             sbundle_mergeabe_signers: self.sbundle_mergeabe_signers.clone(),
         };
