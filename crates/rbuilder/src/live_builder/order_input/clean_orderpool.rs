@@ -4,10 +4,7 @@ use crate::{
     telemetry::{set_current_block, set_ordepool_count},
     utils::ProviderFactoryReopener,
 };
-use ethers::{
-    middleware::Middleware,
-    providers::{Ipc, Provider},
-};
+use alloy_provider::{IpcConnect, Provider, ProviderBuilder};
 use futures::StreamExt;
 use reth_db::database::Database;
 use std::{
@@ -27,19 +24,16 @@ pub async fn spawn_clean_orderpool_job<DB: Database + Clone + 'static>(
     orderpool: Arc<Mutex<OrderPool>>,
     global_cancellation: CancellationToken,
 ) -> eyre::Result<JoinHandle<()>> {
-    let ipc = Ipc::connect(config.ipc_path).await?;
-    let provider = Provider::new(ipc);
-    {
-        // quickly check that we can subscribe, before moving provider into the task
-        let sub = provider.subscribe_blocks().await?;
-        sub.unsubscribe().await.unwrap_or_default();
-    }
+    let ipc = IpcConnect::new(config.ipc_path);
+    let provider = ProviderBuilder::new().on_ipc(ipc).await?;
 
     let handle = tokio::spawn(async move {
         info!("Clean orderpool job: started");
 
         let new_block_stream = match provider.subscribe_blocks().await {
-            Ok(stream) => stream.take_until(global_cancellation.cancelled()),
+            Ok(subscription) => subscription
+                .into_stream()
+                .take_until(global_cancellation.cancelled()),
             Err(err) => {
                 error!("Failed to subscribe to a new block stream: {:?}", err);
                 global_cancellation.cancel();
@@ -51,7 +45,7 @@ pub async fn spawn_clean_orderpool_job<DB: Database + Clone + 'static>(
         while let Some(block) = new_block_stream.next().await {
             let provider_factory = provider_factory.provider_factory_unchecked();
 
-            let block_number = block.number.unwrap_or_default().as_u64();
+            let block_number = block.header.number.unwrap_or_default();
             set_current_block(block_number);
             let state = match provider_factory.latest() {
                 Ok(state) => state,

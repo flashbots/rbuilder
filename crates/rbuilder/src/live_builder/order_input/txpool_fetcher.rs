@@ -3,13 +3,10 @@ use crate::{
     primitives::{MempoolTx, Order, TransactionSignedEcRecoveredWithBlobs},
     telemetry::add_txfetcher_time_to_query,
 };
-use alloy_primitives::{hex, Bytes};
-use ethers::{
-    middleware::Middleware,
-    providers::{Ipc, Provider},
-};
+use alloy_primitives::{hex, Bytes, FixedBytes};
+use alloy_provider::{IpcConnect, Provider, ProviderBuilder, RootProvider};
+use alloy_pubsub::PubSubFrontend;
 use futures::StreamExt;
-use primitive_types::H256;
 use std::{pin::pin, time::Instant};
 use tokio::{
     sync::{mpsc, mpsc::error::SendTimeoutError},
@@ -27,14 +24,14 @@ pub async fn subscribe_to_txpool_with_blobs(
     results: mpsc::Sender<ReplaceableOrderPoolCommand>,
     global_cancel: CancellationToken,
 ) -> eyre::Result<JoinHandle<()>> {
-    let ipc = Ipc::connect(config.ipc_path).await?;
+    let ipc = IpcConnect::new(config.ipc_path);
+    let provider = ProviderBuilder::new().on_ipc(ipc).await?;
 
     let handle = tokio::spawn(async move {
         info!("Subscribe to txpool with blobs: started");
 
-        let provider = Provider::new(ipc);
-        let stream = match provider.subscribe_pending_txs().await {
-            Ok(stream) => stream,
+        let stream = match provider.subscribe_pending_transactions().await {
+            Ok(stream) => stream.into_stream().take_until(global_cancel.cancelled()),
             Err(err) => {
                 error!(?err, "Failed to subscribe to ipc txpool stream");
                 // Closing builder because this job is critical so maybe restart will help
@@ -42,17 +39,9 @@ pub async fn subscribe_to_txpool_with_blobs(
                 return;
             }
         };
-        let mut stream = pin!(stream.take_until(global_cancel.cancelled()));
+        let mut stream = pin!(stream);
 
-        loop {
-            let tx_hash = match stream.next().await {
-                Some(tx_hash) => tx_hash,
-                None => {
-                    // stream is closed, cancelling token because builder can't work without this stream
-                    global_cancel.cancel();
-                    break;
-                }
-            };
+        while let Some(tx_hash) = stream.next().await {
             let start = Instant::now();
 
             let tx_with_blobs = match get_tx_with_blobs(tx_hash, &provider).await {
@@ -90,6 +79,7 @@ pub async fn subscribe_to_txpool_with_blobs(
             }
         }
 
+        // stream is closed, cancelling token because builder can't work without this stream
         global_cancel.cancel();
         info!("Subscribe to txpool: finished");
     });
@@ -99,10 +89,11 @@ pub async fn subscribe_to_txpool_with_blobs(
 
 /// Calls eth_getRawTransactionByHash on EL node and decodes.
 async fn get_tx_with_blobs(
-    tx_hash: H256,
-    provider: &Provider<Ipc>,
+    tx_hash: FixedBytes<32>,
+    provider: &RootProvider<PubSubFrontend>,
 ) -> eyre::Result<Option<TransactionSignedEcRecoveredWithBlobs>> {
     let raw_tx: Option<String> = provider
+        .client()
         .request("eth_getRawTransactionByHash", vec![tx_hash])
         .await?;
 
