@@ -567,7 +567,17 @@ fn calc_joint_exclusion_results<ConfigType: LiveBuilderConfig + Sync>(
             .orders_id_to_address
             .get(order)
             .expect("order address not found");
-        for new_failed_order in &exclusion_result.new_orders_failed {
+        let candidate_conflicting_bundles = exclusion_result
+            .new_orders_failed
+            .iter()
+            .chain(
+                exclusion_result
+                    .orders_profit_changed
+                    .iter()
+                    .map(|(o, _)| o),
+            )
+            .filter(|o| !matches!(o, OrderId::Tx(_)));
+        for new_failed_order in candidate_conflicting_bundles {
             // we only consider landed <-> landed order conflicts
             if !available_orders
                 .included_orders_available
