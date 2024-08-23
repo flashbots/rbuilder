@@ -33,8 +33,8 @@ pub struct Block {
 }
 
 #[derive(Debug)]
-pub struct LiveBuilderInput<DB: Database> {
-    pub provider_factory: ProviderFactory<DB>,
+pub struct LiveBuilderInput<Provider: StateProviderFactory> {
+    pub provider_factory: Provider,
     pub root_hash_task_pool: BlockingTaskPool,
     pub ctx: BlockBuildingContext,
     pub input: broadcast::Receiver<SimulatedOrderCommand>,
@@ -191,8 +191,8 @@ pub trait UnfinishedBlockBuildingSink: std::fmt::Debug + Send + Sync {
 }
 
 #[derive(Debug)]
-pub struct BlockBuildingAlgorithmInput<DB: Database> {
-    pub provider_factory: ProviderFactory<DB>,
+pub struct BlockBuildingAlgorithmInput<Provider: StateProviderFactory> {
+    pub provider_factory: Provider,
     pub ctx: BlockBuildingContext,
     pub input: broadcast::Receiver<SimulatedOrderCommand>,
     /// output for the blocks
@@ -203,9 +203,11 @@ pub struct BlockBuildingAlgorithmInput<DB: Database> {
 /// Algorithm to build blocks
 /// build_blocks should send block to input.sink until  input.cancel is cancelled.
 /// slot_bidder should be used to decide how much to bid.
-pub trait BlockBuildingAlgorithm<DB: Database>: std::fmt::Debug + Send + Sync {
+pub trait BlockBuildingAlgorithm<Provider: StateProviderFactory>:
+    std::fmt::Debug + Send + Sync
+{
     fn name(&self) -> String;
-    fn build_blocks(&self, input: BlockBuildingAlgorithmInput<DB>);
+    fn build_blocks(&self, input: BlockBuildingAlgorithmInput<Provider>);
 }
 
 /// Factory used to create UnfinishedBlockBuildingSink for builders.

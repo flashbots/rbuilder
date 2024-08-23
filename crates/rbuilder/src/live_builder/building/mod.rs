@@ -23,18 +23,18 @@ use super::{
 };
 
 #[derive(Debug)]
-pub struct BlockBuildingPool<DB> {
-    provider_factory: ProviderFactoryReopener<DB>,
-    builders: Vec<Arc<dyn BlockBuildingAlgorithm<DB>>>,
+pub struct BlockBuildingPool<Provider> {
+    provider_factory: Provider,
+    builders: Vec<Arc<dyn BlockBuildingAlgorithm<Provider>>>,
     sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
     orderpool_subscriber: order_input::OrderPoolSubscriber,
     order_simulation_pool: OrderSimulationPool<Provider>,
 }
 
-impl<DB: Database + Clone + 'static> BlockBuildingPool<DB> {
+impl<Provider: StateProviderFactory + Clone + 'static> BlockBuildingPool<Provider> {
     pub fn new(
-        provider_factory: ProviderFactoryReopener<DB>,
-        builders: Vec<Arc<dyn BlockBuildingAlgorithm<DB>>>,
+        provider_factory: Provider,
+        builders: Vec<Arc<dyn BlockBuildingAlgorithm<Provider>>>,
         sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
         orderpool_subscriber: order_input::OrderPoolSubscriber,
         order_simulation_pool: OrderSimulationPool<Provider>,
@@ -112,7 +112,7 @@ impl<DB: Database + Clone + 'static> BlockBuildingPool<DB> {
         for builder in self.builders.iter() {
             let builder_name = builder.name();
             debug!(block = block_number, builder_name, "Spawning builder job");
-            let input = BlockBuildingAlgorithmInput::<DB> {
+            let input = BlockBuildingAlgorithmInput::<Provider> {
                 provider_factory: provider_factory.clone(),
                 ctx: ctx.clone(),
                 input: broadcast_input.subscribe(),

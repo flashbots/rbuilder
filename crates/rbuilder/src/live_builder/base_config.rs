@@ -151,7 +151,7 @@ impl BaseConfig {
         cancellation_token: tokio_util::sync::CancellationToken,
         sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
         slot_source: SlotSourceType,
-    ) -> eyre::Result<super::LiveBuilder<Arc<DatabaseEnv>, SlotSourceType>>
+    ) -> eyre::Result<super::LiveBuilder<ProviderFactoryReopener<Arc<DatabaseEnv>>, SlotSourceType>>
     where
         SlotSourceType: SlotSource,
     {
@@ -172,29 +172,31 @@ impl BaseConfig {
         sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
         slot_source: SlotSourceType,
         provider_factory: ProviderFactoryReopener<Arc<DatabaseEnv>>,
-    ) -> eyre::Result<super::LiveBuilder<Arc<DatabaseEnv>, SlotSourceType>>
+    ) -> eyre::Result<super::LiveBuilder<ProviderFactoryReopener<Arc<DatabaseEnv>>, SlotSourceType>>
     where
         SlotSourceType: SlotSource,
     {
-        Ok(LiveBuilder::<Arc<DatabaseEnv>, SlotSourceType> {
-            watchdog_timeout: self.watchdog_timeout(),
-            error_storage_path: self.error_storage_path.clone(),
-            simulation_threads: self.simulation_threads,
-            order_input_config: OrderInputConfig::from_config(self),
-            blocks_source: slot_source,
-            chain_chain_spec: self.chain_spec()?,
-            provider_factory,
+        Ok(
+            LiveBuilder::<ProviderFactoryReopener<Arc<DatabaseEnv>>, SlotSourceType> {
+                watchdog_timeout: self.watchdog_timeout(),
+                error_storage_path: self.error_storage_path.clone(),
+                simulation_threads: self.simulation_threads,
+                order_input_config: OrderInputConfig::from_config(self),
+                blocks_source: slot_source,
+                chain_chain_spec: self.chain_spec()?,
+                provider_factory,
 
-            coinbase_signer: self.coinbase_signer()?,
-            extra_data: self.extra_data()?,
-            blocklist: self.blocklist()?,
+                coinbase_signer: self.coinbase_signer()?,
+                extra_data: self.extra_data()?,
+                blocklist: self.blocklist()?,
 
-            global_cancellation: cancellation_token,
+                global_cancellation: cancellation_token,
 
-            extra_rpc: RpcModule::new(()),
-            sink_factory,
-            builders: Vec::new(),
-        })
+                extra_rpc: RpcModule::new(()),
+                sink_factory,
+                builders: Vec::new(),
+            },
+        )
     }
 
     pub fn jsonrpc_server_ip(&self) -> Ipv4Addr {

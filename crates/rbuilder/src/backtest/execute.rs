@@ -1,5 +1,3 @@
-use crate::primitives::OrderId;
-use crate::utils::Signer;
 use crate::{
     backtest::BlockData,
     building::{
@@ -7,15 +5,15 @@ use crate::{
         BlockBuildingContext, BundleErr, OrderErr, TransactionErr,
     },
     live_builder::cli::LiveBuilderConfig,
-    primitives::SimulatedOrder,
+    primitives::{OrderId, SimulatedOrder},
     provider::StateProviderFactory,
-    utils::clean_extradata,
+    utils::{clean_extradata, Signer},
 };
 use ahash::HashSet;
 use alloy_primitives::{Address, U256};
 use reth::providers::ProviderFactory;
 use reth_chainspec::ChainSpec;
-use reth_db::{database::Database, DatabaseEnv};
+use reth_db::DatabaseEnv;
 use reth_payload_builder::database::CachedReads;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;

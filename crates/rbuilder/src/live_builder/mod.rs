@@ -18,7 +18,6 @@ use crate::{
         simulation::OrderSimulationPool,
         watchdog::spawn_watchdog_thread,
     },
-    primitives::mev_boost::MevBoostRelay,
     provider::StateProviderFactory,
     telemetry::inc_active_slots,
     utils::{error_storage::spawn_error_storage_writer, Signer},
@@ -37,9 +36,9 @@ use reth_chainspec::ChainSpec;
 use reth_db::database::Database;
 use std::{cmp::min, path::PathBuf, sync::Arc, time::Duration};
 use time::OffsetDateTime;
-use tokio::{sync::mpsc, task::spawn_blocking};
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 /// Time the proposer have to propose a block from the beginning of the slot (https://www.paradigm.xyz/2023/04/mev-boost-ethereum-consensus Slot anatomy)
 const SLOT_PROPOSAL_DURATION: std::time::Duration = Duration::from_secs(4);
@@ -59,7 +58,7 @@ pub trait SlotSource {
 /// # Usage
 /// Create and run()
 #[derive(Debug)]
-pub struct LiveBuilder<DB, BlocksSourceType: SlotSource> {
+pub struct LiveBuilder<Provider, BlocksSourceType: SlotSource> {
     pub watchdog_timeout: Duration,
     pub error_storage_path: PathBuf,
     pub simulation_threads: usize,
@@ -76,18 +75,18 @@ pub struct LiveBuilder<DB, BlocksSourceType: SlotSource> {
     pub global_cancellation: CancellationToken,
 
     pub sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
-    pub builders: Vec<Arc<dyn BlockBuildingAlgorithm<DB>>>,
+    pub builders: Vec<Arc<dyn BlockBuildingAlgorithm<Provider>>>,
     pub extra_rpc: RpcModule<()>,
 }
 
-impl<DB: Database + Clone + 'static, BuilderSourceType: SlotSource>
-    LiveBuilder<DB, BuilderSourceType>
+impl<Provider: StateProviderFactory + Clone + 'static, BuilderSourceType: SlotSource>
+    LiveBuilder<Provider, BuilderSourceType>
 {
     pub fn with_extra_rpc(self, extra_rpc: RpcModule<()>) -> Self {
         Self { extra_rpc, ..self }
     }
 
-    pub fn with_builders(self, builders: Vec<Arc<dyn BlockBuildingAlgorithm<DB>>>) -> Self {
+    pub fn with_builders(self, builders: Vec<Arc<dyn BlockBuildingAlgorithm<Provider>>>) -> Self {
         Self { builders, ..self }
     }
 

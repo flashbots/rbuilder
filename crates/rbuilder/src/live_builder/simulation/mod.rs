@@ -7,18 +7,13 @@ use crate::{
         BlockBuildingContext,
     },
     live_builder::order_input::orderpool::OrdersForBlock,
-    primitives::{Order, OrderId, SimulatedOrder},
+    primitives::{OrderId, SimulatedOrder},
     provider::StateProviderFactory,
     utils::gen_uid,
 };
-use ahash::{HashMap, HashSet};
-use alloy_primitives::utils::format_ether;
-use reth_db::database::Database;
+use ahash::HashMap;
 use simulation_job::SimulationJob;
-use std::{
-    fmt,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 use tracing::{info_span, Instrument};
@@ -70,7 +65,7 @@ pub enum SimulatedOrderCommand {
     Cancellation(OrderId),
 }
 
-impl<DB: Database + Clone + Send + 'static> OrderSimulationPool<DB> {
+impl<Provider: StateProviderFactory + Clone + Send + 'static> OrderSimulationPool<Provider> {
     pub fn new(
         provider_factory: Provider,
         num_workers: usize,
@@ -172,6 +167,7 @@ mod tests {
         building::testing::test_chain_state::{BlockArgs, NamedAddr, TestChainState, TxArgs},
         live_builder::order_input::order_sink::OrderPoolCommand,
         primitives::{MempoolTx, Order, TransactionSignedEcRecoveredWithBlobs},
+        utils::ProviderFactoryReopener,
     };
     use reth_primitives::U256;
 

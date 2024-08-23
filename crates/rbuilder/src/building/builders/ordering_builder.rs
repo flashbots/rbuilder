@@ -14,11 +14,10 @@ use crate::{
         BlockBuildingContext, BlockOrders, ExecutionError, Sorting,
     },
     primitives::{AccountNonce, OrderId},
+    provider::StateProviderFactory,
 };
 use ahash::{HashMap, HashSet};
 use alloy_primitives::Address;
-use reth::providers::ProviderFactory;
-use reth_db::database::Database;
 use tokio_util::sync::CancellationToken;
 
 use crate::{roothash::RootHashMode, utils::check_provider_factory_health};
@@ -61,8 +60,8 @@ impl OrderingBuilderConfig {
     }
 }
 
-pub fn run_ordering_builder<DB: Database + Clone + 'static>(
-    input: LiveBuilderInput<DB>,
+pub fn run_ordering_builder<Provider: StateProviderFactory + Clone + 'static>(
+    input: LiveBuilderInput<Provider>,
     config: &OrderingBuilderConfig,
 ) {
     let mut order_intake_consumer = OrderIntakeConsumer::new(
@@ -187,7 +186,7 @@ pub struct OrderingBuilderContext<Provider> {
 
 impl<Provider: StateProviderFactory + Clone + 'static> OrderingBuilderContext<Provider> {
     pub fn new(
-        provider_factory: ProviderFactory<DB>,
+        provider_factory: Provider,
         root_hash_task_pool: BlockingTaskPool,
         builder_name: String,
         ctx: BlockBuildingContext,
@@ -359,12 +358,14 @@ impl OrderingBuildingAlgorithm {
     }
 }
 
-impl<DB: Database + Clone + 'static> BlockBuildingAlgorithm<DB> for OrderingBuildingAlgorithm {
+impl<Provider: StateProviderFactory + Clone + 'static> BlockBuildingAlgorithm<Provider>
+    for OrderingBuildingAlgorithm
+{
     fn name(&self) -> String {
         self.name.clone()
     }
 
-    fn build_blocks(&self, input: BlockBuildingAlgorithmInput<DB>) {
+    fn build_blocks(&self, input: BlockBuildingAlgorithmInput<Provider>) {
         let live_input = LiveBuilderInput {
             provider_factory: input.provider_factory,
             root_hash_task_pool: self.root_hash_task_pool.clone(),

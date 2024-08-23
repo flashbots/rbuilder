@@ -43,7 +43,9 @@ pub trait LiveBuilderConfig: std::fmt::Debug + serde::de::DeserializeOwned {
         &self,
         cancellation_token: CancellationToken,
     ) -> impl std::future::Future<
-        Output = eyre::Result<LiveBuilder<Arc<DatabaseEnv>, MevBoostSlotDataGenerator>>,
+        Output = eyre::Result<
+            LiveBuilder<ProviderFactoryReopener<Arc<DatabaseEnv>>, MevBoostSlotDataGenerator>,
+        >,
     > + Send;
 
     /// Patch until we have a unified way of backtesting using the exact algorithms we use on the LiveBuilder.

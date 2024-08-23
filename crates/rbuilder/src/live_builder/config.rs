@@ -30,6 +30,7 @@ use crate::{
     },
     mev_boost::BLSBlockSigner,
     primitives::mev_boost::{MevBoostRelay, RelayConfig},
+    provider::StateProviderFactory,
     utils::{build_info::rbuilder_version, ProviderFactoryReopener, Signer},
     validation_api_client::ValidationAPIClient,
 };
@@ -285,7 +286,9 @@ impl LiveBuilderConfig for Config {
     async fn create_builder(
         &self,
         cancellation_token: tokio_util::sync::CancellationToken,
-    ) -> eyre::Result<super::LiveBuilder<Arc<DatabaseEnv>, MevBoostSlotDataGenerator>> {
+    ) -> eyre::Result<
+        super::LiveBuilder<ProviderFactoryReopener<Arc<DatabaseEnv>>, MevBoostSlotDataGenerator>,
+    > {
         let (sink_factory, relays) = self.l1_config.create_relays_sink_factory(
             self.base_config.chain_spec()?,
             Box::new(DummyBiddingService {}),
@@ -427,22 +430,22 @@ pub fn coinbase_signer_from_secret_key(secret_key: &str) -> eyre::Result<Signer>
     Ok(Signer::try_from_secret(secret_key)?)
 }
 
-fn create_builders(
+fn create_builders<Provider: StateProviderFactory>(
     configs: Vec<BuilderConfig>,
     root_hash_task_pool: BlockingTaskPool,
     sbundle_mergeabe_signers: Vec<Address>,
-) -> Vec<Arc<dyn BlockBuildingAlgorithm<Arc<DatabaseEnv>>>> {
+) -> Vec<Arc<dyn BlockBuildingAlgorithm<Provider>>> {
     configs
         .into_iter()
         .map(|cfg| create_builder(cfg, &root_hash_task_pool, &sbundle_mergeabe_signers))
         .collect()
 }
 
-fn create_builder(
+fn create_builder<Provider: StateProviderFactory>(
     cfg: BuilderConfig,
     root_hash_task_pool: &BlockingTaskPool,
     sbundle_mergeabe_signers: &[Address],
-) -> Arc<dyn BlockBuildingAlgorithm<Arc<DatabaseEnv>>> {
+) -> Arc<dyn BlockBuildingAlgorithm<Provider>> {
     match cfg.builder {
         SpecificBuilderConfig::OrderingBuilder(order_cfg) => {
             Arc::new(OrderingBuildingAlgorithm::new(
