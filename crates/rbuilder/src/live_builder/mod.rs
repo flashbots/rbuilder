@@ -94,10 +94,7 @@ impl<DB: Database + Clone + 'static, BuilderSourceType: SlotSource>
     }
 
     pub fn with_builder(self, builder: Arc<dyn BlockBuildingAlgorithm<DB>>) -> Self {
-        Self {
-            builder: builder,
-            ..self
-        }
+        Self { builder, ..self }
     }
 
     pub async fn run(self) -> eyre::Result<()> {
