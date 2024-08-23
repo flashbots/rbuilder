@@ -82,7 +82,7 @@ pub struct LiveBuilder<DB, BlocksSourceType: SlotSource> {
     pub global_cancellation: CancellationToken,
 
     pub sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
-    pub builder: Option<Arc<dyn BlockBuildingAlgorithm<DB>>>, // doing the Option because there is a fuunction that creates the live_builder without the builder.
+    pub builder: Arc<dyn BlockBuildingAlgorithm<DB>>, // doing the Option because there is a fuunction that creates the live_builder without the builder.
     pub extra_rpc: RpcModule<()>,
 }
 
@@ -95,7 +95,7 @@ impl<DB: Database + Clone + 'static, BuilderSourceType: SlotSource>
 
     pub fn with_builder(self, builder: Arc<dyn BlockBuildingAlgorithm<DB>>) -> Self {
         Self {
-            builder: Some(builder),
+            builder: builder,
             ..self
         }
     }
@@ -257,10 +257,7 @@ impl<DB: Database + Clone + 'static, BuilderSourceType: SlotSource>
                 };
 
                 tokio::spawn(multiplex_job(simulations_for_block.orders, broadcast_input));
-
-                if let Some(builder) = self.builder.as_ref() {
-                    builder.build_blocks(input);
-                }
+                self.builder.build_blocks(input);
             }
 
             watchdog_sender.try_send(()).unwrap_or_default();
@@ -311,4 +308,17 @@ async fn wait_for_block_header<DB: Database>(
         }
     }
     Err(eyre::eyre!("Block header not found"))
+}
+
+#[derive(Debug)]
+pub struct NullBlockBuildingAlgorithm {}
+
+impl<DB: Database + std::fmt::Debug + Clone + 'static> BlockBuildingAlgorithm<DB>
+    for NullBlockBuildingAlgorithm
+{
+    fn name(&self) -> String {
+        "NullBlockBuildingAlgorithm".to_string()
+    }
+
+    fn build_blocks(&self, _input: BlockBuildingAlgorithmInput<DB>) {}
 }

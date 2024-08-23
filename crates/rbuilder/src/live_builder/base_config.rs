@@ -2,7 +2,7 @@
 //!
 use crate::{
     building::builders::UnfinishedBlockBuildingSinkFactory,
-    live_builder::{order_input::OrderInputConfig, LiveBuilder},
+    live_builder::{order_input::OrderInputConfig, LiveBuilder, NullBlockBuildingAlgorithm},
     telemetry::{setup_reloadable_tracing_subscriber, LoggerConfig},
     utils::{http_provider, BoxedProvider, ProviderFactoryReopener, Signer},
 };
@@ -193,7 +193,7 @@ impl BaseConfig {
 
             extra_rpc: RpcModule::new(()),
             sink_factory,
-            builder: None,
+            builder: Arc::new(NullBlockBuildingAlgorithm {}),
         })
     }
 
