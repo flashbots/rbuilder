@@ -958,11 +958,11 @@ fn order_redistribution_address(order: &Order, protect_signers: &[Address]) -> O
         }
         Order::ShareBundle(bundle) => {
             // if it is a share bundle we take either
-            // 1. last address from the refund config
+            // 1. first address from the refund config
             // 2. origin of the first tx
 
-            if let Some(last_refund_config) = bundle.inner_bundle.refund_config.last() {
-                return Some(last_refund_config.address);
+            if let Some(first_refund) = bundle.inner_bundle.refund_config.first() {
+                return Some(first_refund.address);
             }
 
             let txs = bundle.list_txs();
