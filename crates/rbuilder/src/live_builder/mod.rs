@@ -40,12 +40,9 @@ use reth_chainspec::ChainSpec;
 use reth_db::database::Database;
 use std::{cmp::min, path::PathBuf, sync::Arc, time::Duration};
 use time::OffsetDateTime;
-use tokio::{
-    sync::{broadcast, mpsc},
-    task::spawn_blocking,
-};
+use tokio::{sync::mpsc, task::spawn_blocking};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, warn};
 
 /// Time the proposer have to propose a block from the beginning of the slot (https://www.paradigm.xyz/2023/04/mev-boost-ethereum-consensus Slot anatomy)
 const SLOT_PROPOSAL_DURATION: std::time::Duration = Duration::from_secs(4);
@@ -242,18 +239,16 @@ impl<DB: Database + Clone + 'static, BuilderSourceType: SlotSource>
                     block_cancellation.clone(),
                 );
 
-                let (broadcast_input, _) = broadcast::channel(10_000);
                 let builder_sink = sink_factory.create_sink(payload, block_cancellation.clone());
 
                 let input = BlockBuildingAlgorithmInput::<DB> {
                     provider_factory: self.provider_factory.provider_factory_unchecked(),
                     ctx: block_ctx,
                     sink: builder_sink,
-                    input: broadcast_input.subscribe(),
+                    input: simulations_for_block.subscribe(),
                     cancel: block_cancellation,
                 };
 
-                tokio::spawn(multiplex_job(simulations_for_block.orders, broadcast_input));
                 self.builder.build_blocks(input);
             }
 
@@ -270,17 +265,6 @@ impl<DB: Database + Clone + 'static, BuilderSourceType: SlotSource>
         }
         Ok(())
     }
-}
-
-async fn multiplex_job<T>(mut input: mpsc::Receiver<T>, sender: broadcast::Sender<T>) {
-    // we don't worry about waiting for input forever because it will be closed by producer job
-    while let Some(input) = input.recv().await {
-        // we don't create new subscribers to the broadcast so here we can be sure that err means end of receivers
-        if sender.send(input).is_err() {
-            return;
-        }
-    }
-    trace!("Cancelling multiplex job");
 }
 
 /// May fail if we wait too much (see [BLOCK_HEADER_DEAD_LINE_DELTA])

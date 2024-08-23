@@ -8,7 +8,7 @@ use crate::{
 use ahash::HashSet;
 use alloy_primitives::utils::format_ether;
 use reth_db::database::Database;
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, trace, warn};
 
@@ -34,7 +34,7 @@ pub struct SimulationJob<DB> {
     /// Here we receive the results we asked to sim_req_sender
     sim_results_receiver: mpsc::Receiver<SimulatedResult>,
     /// Output of the simulations
-    slot_sim_results_sender: mpsc::Sender<SimulatedOrderCommand>,
+    slot_sim_results_sender: broadcast::Sender<SimulatedOrderCommand>,
     sim_tree: SimTree<DB>,
 
     orders_received: OrderCounter,
@@ -51,7 +51,7 @@ impl<DB: Database + Clone + Send + 'static> SimulationJob<DB> {
         new_order_sub: mpsc::UnboundedReceiver<OrderPoolCommand>,
         sim_req_sender: flume::Sender<SimulationRequest>,
         sim_results_receiver: mpsc::Receiver<SimulatedResult>,
-        slot_sim_results_sender: mpsc::Sender<SimulatedOrderCommand>,
+        slot_sim_results_sender: broadcast::Sender<SimulatedOrderCommand>,
         sim_tree: SimTree<DB>,
     ) -> Self {
         Self {
@@ -176,7 +176,6 @@ impl<DB: Database + Clone + Send + 'static> SimulationJob<DB> {
                     .send(SimulatedOrderCommand::Simulation(
                         sim_result.simulated_order.clone(),
                     ))
-                    .await
                     .is_err()
                 {
                     return false; //receiver closed :(
@@ -199,7 +198,6 @@ impl<DB: Database + Clone + Send + 'static> SimulationJob<DB> {
     async fn send_cancel(&mut self, id: &OrderId) -> bool {
         self.slot_sim_results_sender
             .send(SimulatedOrderCommand::Cancellation(*id))
-            .await
             .is_ok()
     }
 
