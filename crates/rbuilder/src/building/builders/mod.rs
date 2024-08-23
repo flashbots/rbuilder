@@ -245,3 +245,17 @@ pub fn handle_building_error(err: eyre::Report) -> bool {
     }
     true
 }
+
+/// BlockBuildingAlgorithm doing nothing at all.
+#[derive(Debug)]
+pub struct NullBlockBuildingAlgorithm {}
+
+impl<DB: Database + std::fmt::Debug + Clone + 'static> BlockBuildingAlgorithm<DB>
+    for NullBlockBuildingAlgorithm
+{
+    fn name(&self) -> String {
+        "NullBlockBuildingAlgorithm".to_string()
+    }
+
+    fn build_blocks(&self, _input: BlockBuildingAlgorithmInput<DB>) {}
+}

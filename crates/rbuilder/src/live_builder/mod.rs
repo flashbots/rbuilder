@@ -31,6 +31,7 @@ use ahash::HashSet;
 use alloy_primitives::{Address, B256};
 use eyre::Context;
 use jsonrpsee::RpcModule;
+use order_input::OrderPoolSubscriber;
 use payload_events::MevBoostSlotData;
 use reth::{
     primitives::Header,
@@ -132,7 +133,13 @@ impl<DB: Database + Clone + 'static, BuilderSourceType: SlotSource>
         };
 
         let watchdog_sender = spawn_watchdog_thread(self.watchdog_timeout)?;
-        let mut sink_factory = self.sink_factory;
+
+        let mut block_build_starter = BlockBuildStarter {
+            provider_factory: self.provider_factory.clone(),
+            global_cancellation: self.global_cancellation.clone(),
+            sink_factory: self.sink_factory,
+            builder: self.builder,
+        };
 
         while let Some(payload) = payload_events_channel.recv().await {
             if self.blocklist.contains(&payload.fee_recipient()) {
@@ -216,46 +223,13 @@ impl<DB: Database + Clone + 'static, BuilderSourceType: SlotSource>
                 None,
             );
 
-            // This was done before in block building pool
-            {
-                let max_time_to_build = time_until_slot_end.try_into().unwrap_or_default();
-                let block_cancellation = self.global_cancellation.clone().child_token();
-
-                let cancel = block_cancellation.clone();
-                tokio::spawn(async move {
-                    tokio::time::sleep(max_time_to_build).await;
-                    cancel.cancel();
-                });
-
-                let (orders_for_block, sink) = OrdersForBlock::new_with_sink();
-                // add OrderReplacementManager to manage replacements and cancellations
-                let order_replacement_manager = OrderReplacementManager::new(Box::new(sink));
-                // sink removal is automatic via OrderSink::is_alive false
-                let _block_sub = orderpool_subscriber.add_sink(
-                    block_ctx.block_env.number.to(),
-                    Box::new(order_replacement_manager),
-                );
-
-                let simulations_for_block = order_simulation_pool.spawn_simulation_job(
-                    block_ctx.clone(),
-                    orders_for_block,
-                    block_cancellation.clone(),
-                );
-
-                let (broadcast_input, _) = broadcast::channel(10_000);
-                let builder_sink = sink_factory.create_sink(payload, block_cancellation.clone());
-
-                let input = BlockBuildingAlgorithmInput::<DB> {
-                    provider_factory: self.provider_factory.provider_factory_unchecked(),
-                    ctx: block_ctx,
-                    sink: builder_sink,
-                    input: broadcast_input.subscribe(),
-                    cancel: block_cancellation,
-                };
-
-                tokio::spawn(multiplex_job(simulations_for_block.orders, broadcast_input));
-                self.builder.build_blocks(input);
-            }
+            block_build_starter.start_block_building(
+                time_until_slot_end.try_into().unwrap_or_default(),
+                block_ctx,
+                payload,
+                &orderpool_subscriber,
+                &order_simulation_pool,
+            );
 
             watchdog_sender.try_send(()).unwrap_or_default();
         }
@@ -269,6 +243,70 @@ impl<DB: Database + Clone + 'static, BuilderSourceType: SlotSource>
                 .unwrap_or_default();
         }
         Ok(())
+    }
+}
+
+/// This struct contains stuff needed to start block building.
+/// It allows to call a funcion since on LiveBuilder we can't since its parts are consumed all over the code.
+struct BlockBuildStarter<DB> {
+    provider_factory: ProviderFactoryReopener<DB>,
+    global_cancellation: CancellationToken,
+    sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
+    builder: Arc<dyn BlockBuildingAlgorithm<DB>>, // doing the Option because there is a fuunction that
+}
+
+impl<DB: Database + Clone + 'static> BlockBuildStarter<DB> {
+    fn start_block_building(
+        &mut self,
+        max_time_to_build: Duration,
+        block_ctx: BlockBuildingContext,
+        payload: MevBoostSlotData,
+        orderpool_subscriber: &OrderPoolSubscriber,
+        order_simulation_pool: &OrderSimulationPool<DB>,
+    ) {
+        let block_cancellation = self.global_cancellation.clone().child_token();
+
+        let cancel = block_cancellation.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(max_time_to_build).await;
+            cancel.cancel();
+        });
+
+        let (orders_for_block, sink) = OrdersForBlock::new_with_sink();
+        // add OrderReplacementManager to manage replacements and cancellations
+        let order_replacement_manager = OrderReplacementManager::new(Box::new(sink));
+        // sink removal is automatic via OrderSink::is_alive false
+        let _block_sub = orderpool_subscriber.add_sink(
+            block_ctx.block_env.number.to(),
+            Box::new(order_replacement_manager),
+        );
+
+        let simulations_for_block = order_simulation_pool.spawn_simulation_job(
+            block_ctx.clone(),
+            orders_for_block,
+            block_cancellation.clone(),
+        );
+
+        let (broadcast_input, _) = broadcast::channel(10_000);
+        let builder_sink = self
+            .sink_factory
+            .create_sink(payload, block_cancellation.clone());
+
+        let input = BlockBuildingAlgorithmInput::<DB> {
+            provider_factory: self.provider_factory.provider_factory_unchecked(),
+            ctx: block_ctx,
+            sink: builder_sink,
+            input: broadcast_input.subscribe(),
+            cancel: block_cancellation,
+        };
+
+        tokio::spawn(multiplex_job(simulations_for_block.orders, broadcast_input));
+
+        let builder = self.builder.clone();
+        // builder can block
+        tokio::task::spawn_blocking(move || {
+            builder.build_blocks(input);
+        });
     }
 }
 
@@ -305,17 +343,4 @@ async fn wait_for_block_header<DB: Database>(
         }
     }
     Err(eyre::eyre!("Block header not found"))
-}
-
-#[derive(Debug)]
-pub struct NullBlockBuildingAlgorithm {}
-
-impl<DB: Database + std::fmt::Debug + Clone + 'static> BlockBuildingAlgorithm<DB>
-    for NullBlockBuildingAlgorithm
-{
-    fn name(&self) -> String {
-        "NullBlockBuildingAlgorithm".to_string()
-    }
-
-    fn build_blocks(&self, _input: BlockBuildingAlgorithmInput<DB>) {}
 }
