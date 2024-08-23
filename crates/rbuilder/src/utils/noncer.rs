@@ -4,6 +4,8 @@ use reth::providers::StateProviderBox;
 use reth_errors::ProviderResult;
 use std::sync::{Arc, Mutex};
 
+use crate::provider::StateProviderFactory;
+
 /// Struct to get nonces for Addresses, caching the results.
 /// NonceCache contains the data (but doesn't allow you to query it) and NonceCacheRef is a reference that allows you to query it.
 /// Usage:
@@ -19,7 +21,7 @@ pub struct NonceCache<Provider> {
     block: B256,
 }
 
-impl<Provider> NonceCache<Provider> {
+impl<Provider: StateProviderFactory> NonceCache<Provider> {
     pub fn new(provider_factory: Provider, block: B256) -> Self {
         Self {
             provider_factory,

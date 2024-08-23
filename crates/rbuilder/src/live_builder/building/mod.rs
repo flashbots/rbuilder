@@ -12,7 +12,7 @@ use crate::{
 };
 use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, trace};
+use tracing::{debug, trace};
 
 use super::{
     order_input::{
@@ -98,22 +98,12 @@ impl<Provider: StateProviderFactory + Clone + 'static> BlockBuildingPool<Provide
         let (broadcast_input, _) = broadcast::channel(10_000);
 
         let block_number = ctx.block_env.number.to::<u64>();
-        let provider_factory = match self
-            .provider_factory
-            .check_consistency_and_reopen_if_needed(block_number)
-        {
-            Ok(provider_factory) => provider_factory,
-            Err(err) => {
-                error!(?err, "Error while reopening provider factory");
-                return;
-            }
-        };
 
         for builder in self.builders.iter() {
             let builder_name = builder.name();
             debug!(block = block_number, builder_name, "Spawning builder job");
             let input = BlockBuildingAlgorithmInput::<Provider> {
-                provider_factory: provider_factory.clone(),
+                provider_factory: self.provider_factory.clone(),
                 ctx: ctx.clone(),
                 input: broadcast_input.subscribe(),
                 sink: builder_sink.clone(),

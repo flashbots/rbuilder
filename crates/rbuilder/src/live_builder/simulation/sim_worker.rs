@@ -44,16 +44,6 @@ pub fn run_sim_worker<Provider: StateProviderFactory + Clone + Send + 'static>(
             }
         };
 
-        let provider_factory = match provider_factory.check_consistency_and_reopen_if_needed(
-            current_sim_context.block_ctx.block_env.number.to(),
-        ) {
-            Ok(provider_factory) => provider_factory,
-            Err(err) => {
-                error!(?err, "Error while reopening provider factory");
-                continue;
-            }
-        };
-
         let mut cached_reads = CachedReads::default();
         let mut last_sim_finished = Instant::now();
         while let Ok(task) = current_sim_context.requests.recv() {

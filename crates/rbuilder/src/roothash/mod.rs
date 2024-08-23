@@ -3,6 +3,7 @@ use reth::{
     providers::{providers::ConsistentDbView, ExecutionOutcome, ProviderFactory},
     tasks::pool::BlockingTaskPool,
 };
+use reth_db::database::Database;
 use reth_trie_parallel::async_root::{AsyncStateRoot, AsyncStateRootError};
 
 #[derive(Debug, Clone, Copy)]

@@ -137,8 +137,19 @@ pub fn check_provider_factory_health<DB: Database>(
 impl<DB: 'static + Database + Clone> StateProviderFactory for ProviderFactoryReopener<DB> {
     fn history_by_block_number(
         &self,
-        block_number: BlockNumber,
+        _block_number: BlockNumber,
     ) -> ProviderResult<StateProviderBox> {
+        unimplemented!("TODO");
+    }
+
+    fn history_by_block_hash(
+        &self,
+        _block_hash: revm_primitives::B256,
+    ) -> ProviderResult<StateProviderBox> {
+        unimplemented!("TODO");
+    }
+
+    fn last_block_number(&self) -> ProviderResult<BlockNumber> {
         unimplemented!("TODO");
     }
 

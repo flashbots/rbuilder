@@ -107,7 +107,8 @@ impl<Provider: StateProviderFactory + Clone + Send + 'static> OrderSimulationPoo
     ) -> SlotOrderSimResults {
         let (slot_sim_results_sender, slot_sim_results_receiver) = mpsc::channel(10_000);
 
-        let provider = self.provider_factory.provider_factory_unchecked();
+        // let provider = self.provider_factory.provider_factory_unchecked();
+        let provider = self.provider_factory.clone();
 
         let current_contexts = Arc::clone(&self.current_contexts);
         let block_context: BlockContextId = gen_uid();

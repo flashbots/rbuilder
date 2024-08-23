@@ -316,10 +316,11 @@ impl LiveBuilderConfig for Config {
         rbuilder_version()
     }
 
-    fn build_backtest_block(
+    fn build_backtest_block<Provider: StateProviderFactory>(
+        // This part I am unsure how to fix...
         &self,
         building_algorithm_name: &str,
-        input: BacktestSimulateBlockInput<'_, Arc<DatabaseEnv>>,
+        input: BacktestSimulateBlockInput<'_, Provider>,
     ) -> eyre::Result<(Block, CachedReads)> {
         let builder_cfg = self.builder(building_algorithm_name)?;
         match builder_cfg.builder {

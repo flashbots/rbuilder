@@ -10,6 +10,7 @@ pub mod payout_tx;
 pub mod sim;
 pub mod testing;
 pub mod tracers;
+use crate::provider::StateProviderFactory;
 pub use block_orders::BlockOrders;
 use reth_primitives::proofs::calculate_requests_root;
 
@@ -27,7 +28,7 @@ use reth::{
         revm_primitives::InvalidTransaction, Address, BlobTransactionSidecar, Block, Head, Header,
         Receipt, Receipts, SealedBlock, Withdrawals, EMPTY_OMMER_ROOT_HASH, U256,
     },
-    providers::{ExecutionOutcome, ProviderFactory},
+    providers::ExecutionOutcome,
     rpc::types::beacon::events::PayloadAttributesEvent,
     tasks::pool::BlockingTaskPool,
 };
@@ -536,11 +537,11 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn finalize<DB: reth_db::database::Database + Clone + 'static>(
+    pub fn finalize<Provider: StateProviderFactory + 'static>(
         self,
         state: &mut BlockState,
         ctx: &BlockBuildingContext,
-        provider_factory: ProviderFactory<DB>,
+        provider_factory: Provider,
         root_hash_mode: RootHashMode,
         root_hash_task_pool: BlockingTaskPool,
     ) -> eyre::Result<FinalizeResult> {

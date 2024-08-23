@@ -20,7 +20,7 @@ use ahash::{HashMap, HashSet};
 use alloy_primitives::Address;
 use tokio_util::sync::CancellationToken;
 
-use crate::{roothash::RootHashMode, utils::check_provider_factory_health};
+use crate::roothash::RootHashMode;
 use reth::tasks::pool::BlockingTaskPool;
 use reth_payload_builder::database::CachedReads;
 use serde::Deserialize;
@@ -237,7 +237,7 @@ impl<Provider: StateProviderFactory + Clone + 'static> OrderingBuilderContext<Pr
         let span = info_span!("build_run", build_attempt_id);
         let _guard = span.enter();
 
-        check_provider_factory_health(self.ctx.block(), &self.provider_factory)?;
+        // check_provider_factory_health(self.ctx.block(), &self.provider_factory)?;
 
         let build_start = Instant::now();
 
