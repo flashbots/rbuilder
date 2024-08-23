@@ -1,8 +1,12 @@
 use crate::{
     provider::StateProviderFactory,
+    roothash::{calculate_state_root, RootHashMode},
     telemetry::{inc_provider_bad_reopen_counter, inc_provider_reopen_counter},
 };
-use reth::providers::{BlockHashReader, ChainSpecProvider, ExecutionOutcome, ProviderFactory};
+use reth::{
+    providers::{BlockHashReader, ChainSpecProvider, ExecutionOutcome, ProviderFactory},
+    tasks::pool::BlockingTaskPool,
+};
 use reth_chainspec::ChainSpec;
 use reth_db::database::Database;
 use reth_errors::{ProviderResult, RethResult};
@@ -173,10 +177,19 @@ impl<DB: 'static + Database + Clone> StateProviderFactory for ProviderFactoryReo
 
     fn state_root(
         &self,
-        _parent_hash: B256,
-        _output: &ExecutionOutcome,
+        parent_hash: B256,
+        output: &ExecutionOutcome,
     ) -> Result<B256, eyre::Error> {
-        println!("F");
-        unimplemented!("TODO");
+        let pool =
+            BlockingTaskPool::new(BlockingTaskPool::builder().num_threads(10).build().unwrap());
+
+        calculate_state_root(
+            self.provider_factory_unchecked(),
+            parent_hash,
+            output,
+            RootHashMode::CorrectRoot,
+            pool,
+        )
+        .map_err(|_e| eyre::eyre!("Failed to calculate state root"))
     }
 }
