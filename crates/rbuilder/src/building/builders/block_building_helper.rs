@@ -83,7 +83,12 @@ pub trait BlockBuildingHelper: Send + Sync {
 =======
     /// Updates the cached reads for the block state.
     fn update_cached_reads(&mut self, cached_reads: CachedReads);
+<<<<<<< HEAD
 >>>>>>> 10495ea (feat: Allow for changing cached reads inside of BlockBuildingHelperFromDB (#189))
+=======
+    /// Get the bundle state.
+    fn get_bundle_state(&self) -> &BundleState;
+>>>>>>> 0d8a830 (basic jsonrpc ws pubsub state diff stream!)
 }
 
 /// Implementation of BlockBuildingHelper based on a ProviderFactory<DB>
@@ -416,5 +421,8 @@ impl<DB: Database + Clone + 'static> BlockBuildingHelper for BlockBuildingHelper
 }
     fn update_cached_reads(&mut self, cached_reads: CachedReads) {
         self.block_state = self.block_state.clone().with_cached_reads(cached_reads);
+    /// Get the block state.
+    fn get_bundle_state(&self) -> &BundleState {
+        self.block_state.get_bundle_state()
     }
 }

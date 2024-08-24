@@ -43,7 +43,27 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, level_filters::LevelFilter};
 use url::Url;
 
+<<<<<<< HEAD
 const RETH_DB_PATH: &str = "/mnt/md0/rethdata";
+=======
+// state diff stream imports
+use futures::future::{self, Either};
+use futures::StreamExt;
+use jsonrpsee::core::server::SubscriptionMessage;
+use jsonrpsee::server::{RpcModule, Server};
+use jsonrpsee::PendingSubscriptionSink;
+use tokio::sync::broadcast;
+use tokio_stream::wrappers::BroadcastStream;
+use tokio::{signal::ctrl_c};
+use serde_json::json;
+use tracing::warn;
+use alloy_primitives::{B256};
+use alloy_rpc_types_eth::state::{StateOverride, AccountOverride};
+use std::collections::HashMap;
+use uuid::Uuid;
+
+const RETH_DB_PATH: &str = DEFAULT_RETH_DB_PATH;
+>>>>>>> 0d8a830 (basic jsonrpc ws pubsub state diff stream!)
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
@@ -139,7 +159,11 @@ impl TraceBlockSinkFactory {
             .register_subscription("eth_subscribeStateDiffs", "eth_stateDiffSubscription", "eth_unsubscribeStateDiffs", |_params, pending, ctx| async move {
                 let rx = ctx.subscribe();
                 let stream = BroadcastStream::new(rx);
+<<<<<<< HEAD
                 Self::pipe_from_stream(pending, stream).await?;
+=======
+                Self::pipe_from_stream_with_bounded_buffer(pending, stream).await?;
+>>>>>>> 0d8a830 (basic jsonrpc ws pubsub state diff stream!)
                 Ok(())
             })
             .unwrap();
@@ -163,6 +187,7 @@ impl TraceBlockSinkFactory {
     }
 
     // Method to handle sending messages from the broadcast stream to subscribers
+<<<<<<< HEAD
     async fn pipe_from_stream(
         pending: PendingSubscriptionSink,
         mut stream: BroadcastStream<String>,
@@ -197,6 +222,48 @@ impl TraceBlockSinkFactory {
                     if sink.send(msg).await.is_err() {
                         break Ok(());
                     }
+=======
+    async fn pipe_from_stream_with_bounded_buffer(
+        pending: PendingSubscriptionSink,
+        stream: BroadcastStream<String>,
+    ) -> Result<(), anyhow::Error> {
+        // Accept the pending subscription
+        let sink = pending.accept().await?;
+        // Get a future that resolves when the subscription is closed
+        let closed = sink.closed();
+    
+        // Pin the futures to the stack
+        futures::pin_mut!(closed, stream);
+    
+        loop {
+            // Wait for either the subscription to close or a new item from the stream
+            match future::select(closed, stream.next()).await {
+                Either::Left((closed_result, remaining_stream)) => {
+                    info!("WebSocket connection closed. Closed result: {:?}, Remaining stream: {:?}", closed_result, remaining_stream);
+                    break Ok(());
+                }
+                Either::Right((Some(Ok(item)), c)) => {
+                    // Convert the item to a SubscriptionMessage
+                    let notif = SubscriptionMessage::from_json(&item)?;
+    
+                    // Try to send the notification to the subscriber
+                    // If sending fails (e.g., subscriber disconnected), exit the loop
+                    if sink.send(notif).await.is_err() {
+                        info!("WebSocket connection closed (send error)");
+                        break Ok(());
+                    }
+    
+                    // Update the closed future
+                    closed = c;
+                }
+                Either::Right((Some(Err(e)), _)) => {
+                    warn!("Error in WebSocket stream: {:?}", e);
+                    break Err(e.into());
+                }
+                Either::Right((None, _)) => {
+                    info!("WebSocket stream closed");
+                    break Ok(());
+>>>>>>> 0d8a830 (basic jsonrpc ws pubsub state diff stream!)
                 }
             }
         }
@@ -223,6 +290,10 @@ impl UnfinishedBlockBuildingSink for TracingBlockSink {
     // After each block is built, we send the block number, timestamp, block uuid and the pending state to the client
     fn new_block(&self, block: Box<dyn BlockBuildingHelper>) {
         let building_context = block.building_context();
+<<<<<<< HEAD
+=======
+        let block_trace = block.built_block_trace();
+>>>>>>> 0d8a830 (basic jsonrpc ws pubsub state diff stream!)
         let bundle_state = block.get_bundle_state().state();
 
         // Create a new StateOverride object to store the changes
@@ -258,8 +329,8 @@ impl UnfinishedBlockBuildingSink for TracingBlockSink {
         }
 
         info!(
-            order_count =? block.built_block_trace().included_orders.len(),
-            "Block generated. Throwing it away!"
+            order_count = block_trace.included_orders.len(),
+            "Block generated and broadcasted"
         );
     }
 
