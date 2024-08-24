@@ -6,7 +6,7 @@ use reqwest::Client;
 use reth_errors::ProviderResult;
 use reth_primitives::{
     Account, Address, Block, BlockHash, BlockNumber, Bytecode, Header, StorageKey, StorageValue,
-    B256, U256,
+    B256,
 };
 use reth_provider::{
     AccountReader, BlockHashReader, ExecutionOutcome, ProviderError, StateProofProvider,
@@ -15,7 +15,8 @@ use reth_provider::{
 use reth_trie::{updates::TrieUpdates, AccountProof, HashedPostState};
 use tokio::runtime::Runtime;
 
-struct HttpProvider {
+#[derive(Clone)]
+pub struct HttpProvider {
     provider: RootProvider<Http<Client>>,
 }
 
@@ -84,7 +85,7 @@ impl StateProviderFactory for HttpProvider {
 
     /// Get header by block hash
     fn header(&self, block_hash: &BlockHash) -> ProviderResult<Option<Header>> {
-        let res = Runtime::new()
+        let _res = Runtime::new()
             .unwrap()
             .block_on(async {
                 self.provider
@@ -94,7 +95,7 @@ impl StateProviderFactory for HttpProvider {
             .unwrap()
             .expect("a block");
 
-        Ok(None)
+        unimplemented!("TODO")
     }
 
     fn last_block_number(&self) -> ProviderResult<BlockNumber> {

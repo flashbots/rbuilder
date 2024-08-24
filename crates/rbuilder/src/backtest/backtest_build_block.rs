@@ -20,6 +20,7 @@ use crate::{
     building::builders::BacktestSimulateBlockInput,
     live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig},
     primitives::{Order, OrderId, SimulatedOrder},
+    provider::http_provider::HttpProvider,
     utils::timestamp_as_u64,
 };
 use clap::Parser;
@@ -85,7 +86,10 @@ pub async fn run_backtest_build_block<ConfigType: LiveBuilderConfig>() -> eyre::
         print_order_and_timestamp(&block_data.available_orders, &block_data);
     }
 
-    let provider_factory = config.base_config().provider_factory()?;
+    // let provider_factory = config.base_config().provider_factory()?;
+    let provider_factory =
+        HttpProvider::new_with_url(config.base_config().backtest_fetch_eth_rpc_url.as_str());
+
     let chain_spec = config.base_config().chain_spec()?;
     let sbundle_mergeabe_signers = config.base_config().sbundle_mergeabe_signers();
 

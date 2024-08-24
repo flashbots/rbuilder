@@ -3,7 +3,7 @@ log_level = "info,rbuilder=debug"
 chain = "mainnet"
 reth_datadir = "/mnt/data/reth"
 
-backtest_fetch_eth_rpc_url = "http://127.0.0.1:8545"
+backtest_fetch_eth_rpc_url = "https://mainnet.infura.io/v3/30b3c7d4ea5d4711b91d52e01e956de5"
 backtest_fetch_eth_rpc_parallel = 400
 backtest_fetch_output_file = "~/.rbuilder/backtest/main.sqlite"
 backtest_fetch_mempool_data_dir = "~/.rbuilder/mempool-data"
