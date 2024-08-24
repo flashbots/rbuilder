@@ -29,7 +29,6 @@ use reth::{
     },
     providers::ExecutionOutcome,
     rpc::types::beacon::events::PayloadAttributesEvent,
-    tasks::pool::BlockingTaskPool,
 };
 use reth_basic_payload_builder::{commit_withdrawals, WithdrawalsOutcome};
 use reth_chainspec::{ChainSpec, EthereumHardforks};
@@ -542,7 +541,6 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         ctx: &BlockBuildingContext,
         provider_factory: Provider,
         _root_hash_mode: RootHashMode,
-        _root_hash_task_pool: BlockingTaskPool,
     ) -> eyre::Result<FinalizeResult> {
         let (withdrawals_root, withdrawals) = {
             let mut db = state.new_db_ref();
@@ -602,16 +600,6 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             .expect("Number is in range");
 
         let state_root = provider_factory.state_root(ctx.attributes.parent, &execution_outcome)?;
-
-        /*
-        let state_root = calculate_state_root(
-                provider_factory,
-                ctx.attributes.parent,
-                &execution_outcome,
-                root_hash_mode,
-                root_hash_task_pool,
-            )?;
-        */
 
         // create the block header
         let transactions_root = proofs::calculate_transaction_root(&self.executed_tx);

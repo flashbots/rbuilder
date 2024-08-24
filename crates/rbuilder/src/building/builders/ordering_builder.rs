@@ -21,7 +21,6 @@ use alloy_primitives::Address;
 use tokio_util::sync::CancellationToken;
 
 use crate::roothash::RootHashMode;
-use reth::tasks::pool::BlockingTaskPool;
 use reth_payload_builder::database::CachedReads;
 use serde::Deserialize;
 use std::time::{Duration, Instant};
@@ -74,7 +73,6 @@ pub fn run_ordering_builder<Provider: StateProviderFactory + Clone + 'static>(
 
     let mut builder = OrderingBuilderContext::new(
         input.provider_factory.clone(),
-        input.root_hash_task_pool,
         input.builder_name,
         input.ctx,
         config.clone(),
@@ -142,7 +140,6 @@ pub fn backtest_simulate_block<Provider: StateProviderFactory + Clone + 'static>
     )?;
     let mut builder = OrderingBuilderContext::new(
         input.provider_factory.clone(),
-        BlockingTaskPool::build()?,
         input.builder_name,
         input.ctx.clone(),
         ordering_config,
@@ -170,7 +167,6 @@ pub fn backtest_simulate_block<Provider: StateProviderFactory + Clone + 'static>
 #[derive(Debug)]
 pub struct OrderingBuilderContext<Provider> {
     provider_factory: Provider,
-    root_hash_task_pool: BlockingTaskPool,
     builder_name: String,
     ctx: BlockBuildingContext,
     config: OrderingBuilderConfig,
@@ -187,14 +183,12 @@ pub struct OrderingBuilderContext<Provider> {
 impl<Provider: StateProviderFactory + Clone + 'static> OrderingBuilderContext<Provider> {
     pub fn new(
         provider_factory: Provider,
-        root_hash_task_pool: BlockingTaskPool,
         builder_name: String,
         ctx: BlockBuildingContext,
         config: OrderingBuilderConfig,
     ) -> Self {
         Self {
             provider_factory,
-            root_hash_task_pool,
             builder_name,
             ctx,
             config,
@@ -251,7 +245,6 @@ impl<Provider: StateProviderFactory + Clone + 'static> OrderingBuilderContext<Pr
 
         let mut block_building_helper = BlockBuildingHelperFromDB::new(
             self.provider_factory.clone(),
-            self.root_hash_task_pool.clone(),
             self.root_hash_mode,
             new_ctx,
             self.cached_reads.take(),
@@ -336,7 +329,6 @@ impl<Provider: StateProviderFactory + Clone + 'static> OrderingBuilderContext<Pr
 
 #[derive(Debug)]
 pub struct OrderingBuildingAlgorithm {
-    root_hash_task_pool: BlockingTaskPool,
     sbundle_mergeabe_signers: Vec<Address>,
     config: OrderingBuilderConfig,
     name: String,
@@ -344,13 +336,11 @@ pub struct OrderingBuildingAlgorithm {
 
 impl OrderingBuildingAlgorithm {
     pub fn new(
-        root_hash_task_pool: BlockingTaskPool,
         sbundle_mergeabe_signers: Vec<Address>,
         config: OrderingBuilderConfig,
         name: String,
     ) -> Self {
         Self {
-            root_hash_task_pool,
             sbundle_mergeabe_signers,
             config,
             name,
@@ -368,7 +358,6 @@ impl<Provider: StateProviderFactory + Clone + 'static> BlockBuildingAlgorithm<Pr
     fn build_blocks(&self, input: BlockBuildingAlgorithmInput<Provider>) {
         let live_input = LiveBuilderInput {
             provider_factory: input.provider_factory,
-            root_hash_task_pool: self.root_hash_task_pool.clone(),
             ctx: input.ctx.clone(),
             input: input.input,
             sink: input.sink,

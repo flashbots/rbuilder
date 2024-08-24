@@ -32,14 +32,27 @@ pub struct ProviderFactoryReopener<DB> {
     static_files_path: PathBuf,
     /// Patch to disable checking on test mode. Is ugly but ProviderFactoryReopener should die shortly (5/24/2024).
     testing_mode: bool,
+    root_hash_task_pool: BlockingTaskPool,
 }
 
 impl<DB: Database + Clone> ProviderFactoryReopener<DB> {
-    pub fn new(db: DB, chain_spec: Arc<ChainSpec>, static_files_path: PathBuf) -> RethResult<Self> {
+    pub fn new(
+        db: DB,
+        chain_spec: Arc<ChainSpec>,
+        static_files_path: PathBuf,
+        task_pool_threads: usize,
+    ) -> RethResult<Self> {
         let provider_factory = ProviderFactory::new(
             db,
             chain_spec.clone(),
             StaticFileProvider::read_only(static_files_path.as_path()).unwrap(),
+        );
+
+        let pool = BlockingTaskPool::new(
+            BlockingTaskPool::builder()
+                .num_threads(task_pool_threads)
+                .build()
+                .unwrap(),
         );
 
         Ok(Self {
@@ -47,6 +60,7 @@ impl<DB: Database + Clone> ProviderFactoryReopener<DB> {
             chain_spec,
             static_files_path,
             testing_mode: false,
+            root_hash_task_pool: pool,
         })
     }
 
@@ -55,11 +69,16 @@ impl<DB: Database + Clone> ProviderFactoryReopener<DB> {
     ) -> RethResult<Self> {
         let chain_spec = provider_factory.chain_spec();
         let static_files_path = provider_factory.static_file_provider().path().to_path_buf();
+
+        let pool =
+            BlockingTaskPool::new(BlockingTaskPool::builder().num_threads(10).build().unwrap());
+
         Ok(Self {
             provider_factory: Arc::new(Mutex::new(provider_factory)),
             chain_spec,
             static_files_path,
             testing_mode: true,
+            root_hash_task_pool: pool,
         })
     }
 
@@ -180,15 +199,12 @@ impl<DB: 'static + Database + Clone> StateProviderFactory for ProviderFactoryReo
         parent_hash: B256,
         output: &ExecutionOutcome,
     ) -> Result<B256, eyre::Error> {
-        let pool =
-            BlockingTaskPool::new(BlockingTaskPool::builder().num_threads(10).build().unwrap());
-
         calculate_state_root(
             self.provider_factory_unchecked(),
             parent_hash,
             output,
             RootHashMode::CorrectRoot,
-            pool,
+            self.root_hash_task_pool.clone(),
         )
         .map_err(|_e| eyre::eyre!("Failed to calculate state root"))
     }

@@ -4,7 +4,6 @@ use std::{
 };
 
 use alloy_primitives::U256;
-use reth::tasks::pool::BlockingTaskPool;
 use reth_payload_builder::database::CachedReads;
 use reth_primitives::format_ether;
 use time::OffsetDateTime;
@@ -91,7 +90,6 @@ pub struct BlockBuildingHelperFromDB<Provider> {
     built_block_trace: BuiltBlockTrace,
     /// Needed to get the initial state and the final root hash calculation.
     provider_factory: Provider,
-    root_hash_task_pool: BlockingTaskPool,
     root_hash_mode: RootHashMode,
     /// Token to cancel in case of fatal error (if we believe that it's impossible to build for this block).
     cancel_on_fatal_error: CancellationToken,
@@ -130,7 +128,6 @@ impl<Provider: StateProviderFactory + Clone + 'static> BlockBuildingHelperFromDB
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         provider_factory: Provider,
-        root_hash_task_pool: BlockingTaskPool,
         root_hash_mode: RootHashMode,
         building_ctx: BlockBuildingContext,
         cached_reads: Option<CachedReads>,
@@ -173,7 +170,6 @@ impl<Provider: StateProviderFactory + Clone + 'static> BlockBuildingHelperFromDB
             building_ctx,
             built_block_trace: BuiltBlockTrace::new(),
             provider_factory,
-            root_hash_task_pool,
             root_hash_mode,
             cancel_on_fatal_error,
         })
@@ -325,7 +321,6 @@ impl<Provider: StateProviderFactory + Clone + 'static> BlockBuildingHelper
             &self.building_ctx,
             self.provider_factory.clone(),
             self.root_hash_mode,
-            self.root_hash_task_pool,
         ) {
             Ok(finalized_block) => finalized_block,
             Err(err) => {

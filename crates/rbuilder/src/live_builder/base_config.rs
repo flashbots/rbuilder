@@ -227,6 +227,7 @@ impl BaseConfig {
             self.reth_static_files_path.as_deref(),
             self.chain_spec()?,
             false,
+            self.root_hash_task_pool_threads,
         )
     }
 
@@ -411,6 +412,7 @@ pub fn create_provider_factory(
     reth_static_files_path: Option<&Path>,
     chain_spec: Arc<ChainSpec>,
     rw: bool,
+    task_pool_threads: usize,
 ) -> eyre::Result<ProviderFactoryReopener<Arc<DatabaseEnv>>> {
     // shellexpand the reth datadir
     let reth_datadir = if let Some(reth_datadir) = reth_datadir {
@@ -444,7 +446,7 @@ pub fn create_provider_factory(
     };
 
     let provider_factory_reopener =
-        ProviderFactoryReopener::new(db, chain_spec, reth_static_files_path)?;
+        ProviderFactoryReopener::new(db, chain_spec, reth_static_files_path, task_pool_threads)?;
 
     if provider_factory_reopener
         .provider_factory_unchecked()
@@ -547,6 +549,7 @@ mod test {
                 reth_static_files_path.as_deref(),
                 Default::default(),
                 true,
+                1,
             );
 
             if *should_succeed {

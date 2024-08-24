@@ -18,10 +18,9 @@ use rbuilder::{
     },
     live_builder::{
         base_config::{
-            DEFAULT_EL_NODE_IPC_PATH, DEFAULT_ERROR_STORAGE_PATH, DEFAULT_INCOMING_BUNDLES_PORT,
-            DEFAULT_IP, DEFAULT_RETH_DB_PATH,
+            create_provider_factory, DEFAULT_EL_NODE_IPC_PATH, DEFAULT_ERROR_STORAGE_PATH,
+            DEFAULT_INCOMING_BUNDLES_PORT, DEFAULT_IP, DEFAULT_RETH_DB_PATH,
         },
-        config::create_provider_factory,
         order_input::{
             OrderInputConfig, DEFAULT_INPUT_CHANNEL_BUFFER_SIZE, DEFAULT_RESULTS_CHANNEL_TIMEOUT,
             DEFAULT_SERVE_MAX_CONNECTIONS,
@@ -38,7 +37,6 @@ use rbuilder::{
     roothash::RootHashMode,
     utils::{ProviderFactoryReopener, Signer},
 };
-use reth::tasks::pool::BlockingTaskPool;
 use reth_chainspec::MAINNET;
 use reth_db::DatabaseEnv;
 use tokio::{signal::ctrl_c, sync::broadcast};
@@ -93,6 +91,8 @@ async fn main() -> eyre::Result<()> {
                 None,
                 None,
                 chain_spec.clone(),
+                true,
+                1,
             )?,
             coinbase_signer: Signer::random(),
             extra_data: Vec::new(),
@@ -156,19 +156,13 @@ impl UnfinishedBlockBuildingSink for TracingBlockSink {
 struct DummyBuildingAlgorithm {
     /// Amnount of used orders to build a block
     orders_to_use: usize,
-    root_hash_task_pool: BlockingTaskPool,
 }
 
 const ORDER_POLLING_PERIOD: Duration = Duration::from_millis(10);
 const BUILDER_NAME: &str = "DUMMY";
 impl DummyBuildingAlgorithm {
     pub fn new(orders_to_use: usize) -> Self {
-        Self {
-            orders_to_use,
-            root_hash_task_pool: BlockingTaskPool::new(
-                BlockingTaskPool::builder().num_threads(1).build().unwrap(),
-            ),
-        }
+        Self { orders_to_use }
     }
 
     fn wait_for_orders(
@@ -200,7 +194,6 @@ impl DummyBuildingAlgorithm {
     ) -> eyre::Result<Box<dyn BlockBuildingHelper>> {
         let mut block_building_helper = BlockBuildingHelperFromDB::new(
             provider_factory.clone(),
-            self.root_hash_task_pool.clone(),
             RootHashMode::CorrectRoot,
             ctx.clone(),
             None,

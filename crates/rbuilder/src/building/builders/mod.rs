@@ -12,10 +12,7 @@ use crate::{
 use ahash::HashSet;
 use alloy_primitives::{Address, B256};
 use block_building_helper::BlockBuildingHelper;
-use reth::{
-    primitives::{BlobTransactionSidecar, SealedBlock},
-    tasks::pool::BlockingTaskPool,
-};
+use reth::primitives::{BlobTransactionSidecar, SealedBlock};
 use reth_payload_builder::database::CachedReads;
 use std::sync::Arc;
 use tokio::sync::{broadcast, broadcast::error::TryRecvError};
@@ -35,7 +32,6 @@ pub struct Block {
 #[derive(Debug)]
 pub struct LiveBuilderInput<Provider: StateProviderFactory> {
     pub provider_factory: Provider,
-    pub root_hash_task_pool: BlockingTaskPool,
     pub ctx: BlockBuildingContext,
     pub input: broadcast::Receiver<SimulatedOrderCommand>,
     pub sink: Arc<dyn UnfinishedBlockBuildingSink>,
