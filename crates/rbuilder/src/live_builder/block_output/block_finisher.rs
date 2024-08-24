@@ -32,7 +32,7 @@ impl BlockFinisher {
     ) -> Result<(), BlockBuildingHelperError> {
 
         println!("hello");
-        trace!("Block state: {:?}", block.get_block_state());
+        trace!("Block state: {:?}", block.get_bundle_state());
 
         let payout_tx_value = if block.can_add_payout_tx() {
             let available_value = block.true_block_value()?;

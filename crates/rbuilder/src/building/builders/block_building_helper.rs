@@ -71,8 +71,8 @@ pub trait BlockBuildingHelper {
     /// BlockBuildingContext used for building.
     fn building_context(&self) -> &BlockBuildingContext;
 
-    /// Get the block state.
-    fn get_block_state(&self) -> &BundleState;
+    /// Get the bundle state.
+    fn get_bundle_state(&self) -> &BundleState;
 }
 
 /// Implementation of BlockBuildingHelper based on a ProviderFactory<DB>
@@ -388,7 +388,7 @@ impl<DB: Database + Clone + 'static> BlockBuildingHelper for BlockBuildingHelper
     }
 
     /// Get the block state.
-    fn get_block_state(&self) -> &BundleState {
+    fn get_bundle_state(&self) -> &BundleState {
         self.block_state.get_bundle_state()
     }
 }

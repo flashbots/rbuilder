@@ -5,7 +5,7 @@ use serde::Deserialize;
 use std::{collections::HashMap, fmt::Debug};
 use url::Url;
 
-pub const DEFAULT_CL_NODE_URL: &str = "http://localhost:8000";
+pub const DEFAULT_CL_NODE_URL: &str = "http://localhost:3500";
 
 #[derive(Deserialize, Clone)]
 #[serde(try_from = "String")]

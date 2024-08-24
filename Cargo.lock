@@ -8026,6 +8026,7 @@ dependencies = [
  "alloy-signer-local",
  "alloy-transport 0.2.0 (git+https://github.com/alloy-rs/alloy)",
  "alloy-transport-http 0.2.0 (git+https://github.com/alloy-rs/alloy)",
+ "anyhow",
  "async-trait",
  "atoi",
  "beacon-api-client",

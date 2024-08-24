@@ -5,7 +5,6 @@
 //! This is NOT intended to be run in production so it has no nice configuration, poor error checking and some hardcoded values.
 use std::{path::PathBuf, sync::Arc, thread::sleep, time::Duration};
 
-use jsonrpsee::RpcModule;
 use rbuilder::{
     beacon_api_client::Client,
     building::{
@@ -40,9 +39,24 @@ use rbuilder::{
 use reth::{providers::ProviderFactory, tasks::pool::BlockingTaskPool};
 use reth_chainspec::MAINNET;
 use reth_db::{database::Database, DatabaseEnv};
-use tokio::{signal::ctrl_c, sync::broadcast};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, level_filters::LevelFilter};
+
+// state diff stream imports
+use futures::future::{self, Either};
+use futures::StreamExt;
+use jsonrpsee::core::server::SubscriptionMessage;
+use jsonrpsee::server::{RpcModule, Server};
+use jsonrpsee::PendingSubscriptionSink;
+use tokio::sync::broadcast;
+use tokio_stream::wrappers::BroadcastStream;
+use tokio::{signal::ctrl_c};
+use serde_json::json;
+use tracing::warn;
+use alloy_primitives::{B256};
+use alloy_rpc_types_eth::state::{StateOverride, AccountOverride};
+use std::collections::HashMap;
+use uuid::Uuid;
 
 const RETH_DB_PATH: &str = DEFAULT_RETH_DB_PATH;
 
@@ -69,6 +83,9 @@ async fn main() -> eyre::Result<()> {
         Default::default(),
         cancel.clone(),
     );
+
+    // we create a sink factory which will contain our jsonrpc server
+    let sink_factory = TraceBlockSinkFactory::new().await?;
 
     let builder = LiveBuilder::<Arc<DatabaseEnv>, MevBoostSlotDataGenerator> {
         watchdog_timeout: Duration::from_secs(10000),
@@ -97,7 +114,7 @@ async fn main() -> eyre::Result<()> {
         blocklist: Default::default(),
         global_cancellation: cancel.clone(),
         extra_rpc: RpcModule::new(()),
-        sink_factory: Box::new(TraceBlockSinkFactory {}),
+        sink_factory: Box::new(sink_factory), // pointer to sink factory
         builders: vec![Arc::new(DummyBuildingAlgorithm::new(10))],
     };
 
@@ -112,10 +129,100 @@ async fn main() -> eyre::Result<()> {
 }
 
 /////////////////////////
-/// BLOCK SINK
+/// BLOCK SINK (we have created our jsonrpc server here)
 /////////////////////////
 #[derive(Debug)]
-struct TraceBlockSinkFactory {}
+struct TraceBlockSinkFactory {
+    tx: broadcast::Sender<String>,
+}
+
+impl TraceBlockSinkFactory {
+    pub async fn new() -> eyre::Result<Self> {
+        // Create a new JSON-RPC server
+        let server = Server::builder()
+            .set_message_buffer_capacity(5)
+            .build("127.0.0.1:8547")
+            .await?;
+        
+        // Create a broadcast channel
+        let (tx, _rx) = broadcast::channel::<String>(16);
+        
+        let mut module = RpcModule::new(tx.clone());
+
+        // Register a subscription method named "eth_stateDiffSubscription"
+        module
+            .register_subscription("eth_subscribeStateDiffs", "eth_stateDiffSubscription", "eth_unsubscribeStateDiffs", |_params, pending, ctx| async move {
+                let rx = ctx.subscribe();
+                let stream = BroadcastStream::new(rx);
+                Self::pipe_from_stream_with_bounded_buffer(pending, stream).await?;
+                Ok(())
+            })
+            .unwrap();
+        
+        // Get the server's local address
+        let addr = server.local_addr()?;
+        // Start the server with the configured module
+        let handle = server.start(module);
+
+        // We may use the `ServerHandle` to shut it down or manage it ourselves later
+        tokio::spawn(handle.stopped());
+
+        // Log that the subscription server has started
+        info!("Block subscription server started on {}", addr);
+
+        // Log when a new WebSocket connection is received
+        info!("New WebSocket connection received");
+
+        // Return the TraceBlockSinkFactory instance
+        Ok(Self { tx })
+    }
+
+    // Method to handle sending messages from the broadcast stream to subscribers
+    async fn pipe_from_stream_with_bounded_buffer(
+        pending: PendingSubscriptionSink,
+        stream: BroadcastStream<String>,
+    ) -> Result<(), anyhow::Error> {
+        // Accept the pending subscription
+        let sink = pending.accept().await?;
+        // Get a future that resolves when the subscription is closed
+        let closed = sink.closed();
+    
+        // Pin the futures to the stack
+        futures::pin_mut!(closed, stream);
+    
+        loop {
+            // Wait for either the subscription to close or a new item from the stream
+            match future::select(closed, stream.next()).await {
+                Either::Left((closed_result, remaining_stream)) => {
+                    info!("WebSocket connection closed. Closed result: {:?}, Remaining stream: {:?}", closed_result, remaining_stream);
+                    break Ok(());
+                }
+                Either::Right((Some(Ok(item)), c)) => {
+                    // Convert the item to a SubscriptionMessage
+                    let notif = SubscriptionMessage::from_json(&item)?;
+    
+                    // Try to send the notification to the subscriber
+                    // If sending fails (e.g., subscriber disconnected), exit the loop
+                    if sink.send(notif).await.is_err() {
+                        info!("WebSocket connection closed (send error)");
+                        break Ok(());
+                    }
+    
+                    // Update the closed future
+                    closed = c;
+                }
+                Either::Right((Some(Err(e)), _)) => {
+                    warn!("Error in WebSocket stream: {:?}", e);
+                    break Err(e.into());
+                }
+                Either::Right((None, _)) => {
+                    info!("WebSocket stream closed");
+                    break Ok(());
+                }
+            }
+        }
+    }
+}
 
 impl UnfinishedBlockBuildingSinkFactory for TraceBlockSinkFactory {
     fn create_sink(
@@ -123,18 +230,58 @@ impl UnfinishedBlockBuildingSinkFactory for TraceBlockSinkFactory {
         _slot_data: MevBoostSlotData,
         _cancel: CancellationToken,
     ) -> Arc<dyn rbuilder::building::builders::UnfinishedBlockBuildingSink> {
-        Arc::new(TracingBlockSink {})
+        Arc::new(TracingBlockSink { tx: self.tx.clone() })
     }
 }
 
 #[derive(Clone, Debug)]
-struct TracingBlockSink {}
+struct TracingBlockSink {
+    tx: broadcast::Sender<String>,
+}
 
 impl UnfinishedBlockBuildingSink for TracingBlockSink {
+    // This method is called when a new block has been built
+    // After each block is built, we send the block number, timestamp, block uuid and the pending state to the client
     fn new_block(&self, block: Box<dyn BlockBuildingHelper>) {
+        let building_context = block.building_context();
+        let block_trace = block.built_block_trace();
+        let bundle_state = block.get_bundle_state().state();
+
+        // Create a new StateOverride object to store the changes
+        let mut pending_state = StateOverride::new();
+
+        // Iterate through each address and account in the bundle state
+        for (address, account) in bundle_state.iter() {
+            let mut account_override = AccountOverride::default();
+            
+            let mut state_diff = HashMap::new();
+            for (storage_key, storage_slot) in &account.storage {
+                let key = B256::from(*storage_key);
+                let value = B256::from(storage_slot.present_value);
+                state_diff.insert(key, value);
+            }
+            
+            if !state_diff.is_empty() {
+                account_override.state_diff = Some(state_diff);
+                pending_state.insert(*address, account_override);
+            }
+            
+        }
+
+        let block_data = json!({
+            "blockNumber": building_context.block_env.number,
+            "blockTimestamp": building_context.block_env.timestamp,
+            "blockUuid": Uuid::new_v4().to_string(),
+            "pendingState": pending_state
+        });
+
+        if let Err(e) = self.tx.send(serde_json::to_string(&block_data).unwrap()) {
+            warn!("Failed to send block data: {:?}", e);
+        }
+
         info!(
-            order_count =? block.built_block_trace().included_orders.len(),
-            "Block generated. Throwing it away!"
+            order_count = block_trace.included_orders.len(),
+            "Block generated and broadcasted"
         );
     }
 
@@ -226,6 +373,7 @@ impl<DB: Database + Clone + 'static> BlockBuildingAlgorithm<DB> for DummyBuildin
             let block = self
                 .build_block(orders, input.provider_factory, &input.ctx)
                 .unwrap();
+
             input.sink.new_block(block);
         }
     }
