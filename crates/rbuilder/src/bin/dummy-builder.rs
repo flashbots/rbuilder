@@ -43,7 +43,6 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, level_filters::LevelFilter};
 
 // state diff stream imports
-use futures::future::{self, Either};
 use futures::StreamExt;
 use jsonrpsee::core::server::SubscriptionMessage;
 use jsonrpsee::server::{RpcModule, Server};
@@ -154,7 +153,7 @@ impl TraceBlockSinkFactory {
             .register_subscription("eth_subscribeStateDiffs", "eth_stateDiffSubscription", "eth_unsubscribeStateDiffs", |_params, pending, ctx| async move {
                 let rx = ctx.subscribe();
                 let stream = BroadcastStream::new(rx);
-                Self::pipe_from_stream_with_bounded_buffer(pending, stream).await?;
+                Self::pipe_from_stream(pending, stream).await?;
                 Ok(())
             })
             .unwrap();
@@ -178,46 +177,40 @@ impl TraceBlockSinkFactory {
     }
 
     // Method to handle sending messages from the broadcast stream to subscribers
-    async fn pipe_from_stream_with_bounded_buffer(
+    async fn pipe_from_stream(
         pending: PendingSubscriptionSink,
-        stream: BroadcastStream<String>,
-    ) -> Result<(), anyhow::Error> {
-        // Accept the pending subscription
-        let sink = pending.accept().await?;
-        // Get a future that resolves when the subscription is closed
-        let closed = sink.closed();
-    
-        // Pin the futures to the stack
-        futures::pin_mut!(closed, stream);
-    
+        mut stream: BroadcastStream<String>,
+    ) -> Result<(), jsonrpsee::core::Error> {
+        let sink = match pending.accept().await {
+            Ok(sink) => sink,
+            Err(e) => {
+                warn!("Failed to accept subscription: {:?}", e);
+                return Ok(());
+            }
+        };
+
         loop {
-            // Wait for either the subscription to close or a new item from the stream
-            match future::select(closed, stream.next()).await {
-                Either::Left((closed_result, remaining_stream)) => {
-                    info!("WebSocket connection closed. Closed result: {:?}, Remaining stream: {:?}", closed_result, remaining_stream);
-                    break Ok(());
-                }
-                Either::Right((Some(Ok(item)), c)) => {
-                    // Convert the item to a SubscriptionMessage
-                    let notif = SubscriptionMessage::from_json(&item)?;
-    
-                    // Try to send the notification to the subscriber
-                    // If sending fails (e.g., subscriber disconnected), exit the loop
-                    if sink.send(notif).await.is_err() {
-                        info!("WebSocket connection closed (send error)");
+            tokio::select! {
+                _ = sink.closed() => {
+                    // connection dropped
+                    break Ok(())
+                },
+                maybe_item = stream.next() => {
+                    let item = match maybe_item {
+                        Some(Ok(item)) => item,
+                        Some(Err(e)) => {
+                            warn!("Error in WebSocket stream: {:?}", e);
+                            break Ok(());
+                        },
+                        None => {
+                            // stream ended
+                            break Ok(())
+                        },
+                    };
+                    let msg = SubscriptionMessage::from_json(&item)?;
+                    if sink.send(msg).await.is_err() {
                         break Ok(());
                     }
-    
-                    // Update the closed future
-                    closed = c;
-                }
-                Either::Right((Some(Err(e)), _)) => {
-                    warn!("Error in WebSocket stream: {:?}", e);
-                    break Err(e.into());
-                }
-                Either::Right((None, _)) => {
-                    info!("WebSocket stream closed");
-                    break Ok(());
                 }
             }
         }
