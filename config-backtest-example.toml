@@ -2,8 +2,10 @@ log_level = "info,rbuilder=debug"
 
 chain = "mainnet"
 reth_datadir = "/mnt/data/reth"
+relay_secret_key = "5eae315483f028b5cdd5d1090ff0c7618b18737ea9bf3c35047189db22835c48"
+coinbase_secret_key = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 
-backtest_fetch_eth_rpc_url = "https://mainnet.infura.io/v3/30b3c7d4ea5d4711b91d52e01e956de5"
+backtest_fetch_eth_rpc_url = "http://localhost:8545"
 backtest_fetch_eth_rpc_parallel = 400
 backtest_fetch_output_file = "~/.rbuilder/backtest/main.sqlite"
 backtest_fetch_mempool_data_dir = "~/.rbuilder/mempool-data"

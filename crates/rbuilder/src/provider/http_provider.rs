@@ -13,7 +13,7 @@ use reth_provider::{
     StateProvider, StateProviderBox, StateRootProvider,
 };
 use reth_trie::{updates::TrieUpdates, AccountProof, HashedPostState};
-use tokio::runtime::Runtime;
+use tokio::runtime::Handle;
 
 #[derive(Clone)]
 pub struct HttpProvider {
@@ -33,15 +33,14 @@ impl StateProviderFactory for HttpProvider {
         &self,
         block_number: BlockNumber,
     ) -> ProviderResult<StateProviderBox> {
-        let res = Runtime::new()
-            .unwrap()
-            .block_on(async {
-                self.provider
-                    .get_block_by_number(BlockNumberOrTag::Number(block_number), false)
-                    .await
-            })
-            .unwrap()
-            .expect("a block");
+        let handle = Handle::current();
+        let res = futures::executor::block_on(async {
+            self.provider
+                .get_block_by_number(BlockNumberOrTag::Number(block_number), false)
+                .await
+        })
+        .unwrap()
+        .expect("a block");
 
         Ok(HttpProviderState::new(
             self.provider.clone(),
@@ -50,15 +49,14 @@ impl StateProviderFactory for HttpProvider {
     }
 
     fn latest(&self) -> ProviderResult<StateProviderBox> {
-        let res = Runtime::new()
-            .unwrap()
-            .block_on(async {
-                self.provider
-                    .get_block(BlockId::latest(), BlockTransactionsKind::Hashes)
-                    .await
-            })
-            .unwrap()
-            .expect("a block");
+        let handle = Handle::current();
+        let res = futures::executor::block_on(async {
+            self.provider
+                .get_block(BlockId::latest(), BlockTransactionsKind::Hashes)
+                .await
+        })
+        .unwrap()
+        .expect("a block");
 
         Ok(HttpProviderState::new(
             self.provider.clone(),
@@ -67,15 +65,14 @@ impl StateProviderFactory for HttpProvider {
     }
 
     fn history_by_block_hash(&self, block_hash: B256) -> ProviderResult<StateProviderBox> {
-        let res = Runtime::new()
-            .unwrap()
-            .block_on(async {
-                self.provider
-                    .get_block_by_hash(block_hash, BlockTransactionsKind::Hashes)
-                    .await
-            })
-            .unwrap()
-            .expect("a block");
+        let handle = Handle::current();
+        let res = futures::executor::block_on(async {
+            self.provider
+                .get_block_by_hash(block_hash, BlockTransactionsKind::Hashes)
+                .await
+        })
+        .unwrap()
+        .expect("a block");
 
         Ok(HttpProviderState::new(
             self.provider.clone(),
@@ -85,15 +82,14 @@ impl StateProviderFactory for HttpProvider {
 
     /// Get header by block hash
     fn header(&self, block_hash: &BlockHash) -> ProviderResult<Option<Header>> {
-        let _res = Runtime::new()
-            .unwrap()
-            .block_on(async {
-                self.provider
-                    .get_block_by_hash(*block_hash, BlockTransactionsKind::Hashes)
-                    .await
-            })
-            .unwrap()
-            .expect("a block");
+        let handle = Handle::current();
+        let _res = futures::executor::block_on(async {
+            self.provider
+                .get_block_by_hash(*block_hash, BlockTransactionsKind::Hashes)
+                .await
+        })
+        .unwrap()
+        .expect("a block");
 
         unimplemented!("TODO")
     }
@@ -135,15 +131,16 @@ impl StateProvider for HttpProviderState {
     ) -> ProviderResult<Option<StorageValue>> {
         let block_id = BlockId::hash(self.hash);
 
-        let res = Runtime::new()
-            .unwrap()
-            .block_on(async {
-                self.provider
-                    .get_storage_at(address, storage_key.into())
-                    .block_id(block_id)
-                    .await
-            })
-            .unwrap();
+        let handle = Handle::current();
+        println!("[DEBUG] storage fetch: {:?} {:?}", address, storage_key);
+
+        let res = futures::executor::block_on(async {
+            self.provider
+                .get_storage_at(address, storage_key.into())
+                .block_id(block_id)
+                .await
+        })
+        .unwrap();
 
         Ok(Some(res.into()))
     }
@@ -153,10 +150,13 @@ impl StateProvider for HttpProviderState {
         let address = Address::from_word(code_hash);
         let block_id = BlockId::hash(self.hash);
 
-        let res = Runtime::new()
-            .unwrap()
-            .block_on(async { self.provider.get_code_at(address).block_id(block_id).await })
-            .unwrap();
+        let handle = Handle::current();
+        let res = futures::executor::block_on(async {
+            self.provider.get_code_at(address).block_id(block_id).await
+        })
+        .unwrap();
+
+        println!("[DEBUG] bytecode fetch: {:?} {:?}", address, res.clone());
 
         Ok(Some(Bytecode::new_raw(res)))
     }
@@ -166,14 +166,13 @@ impl BlockHashReader for HttpProviderState {
     /// Get the hash of the block with the given number. Returns `None` if no block with this number
     /// exists.
     fn block_hash(&self, number: BlockNumber) -> ProviderResult<Option<B256>> {
-        let res = Runtime::new()
-            .unwrap()
-            .block_on(
-                self.provider
-                    .get_block_by_number(BlockNumberOrTag::Number(number), false),
-            )
-            .unwrap()
-            .unwrap();
+        let handle = Handle::current();
+        let res = futures::executor::block_on(
+            self.provider
+                .get_block_by_number(BlockNumberOrTag::Number(number), false),
+        )
+        .unwrap()
+        .unwrap();
 
         Ok(res.header.hash)
     }
@@ -185,15 +184,14 @@ impl BlockHashReader for HttpProviderState {
     ) -> ProviderResult<Vec<B256>> {
         let mut res = vec![];
 
+        let handle = Handle::current();
         for i in start..end {
-            let block: alloy_rpc_types::Block = Runtime::new()
-                .unwrap()
-                .block_on(
-                    self.provider
-                        .get_block_by_number(BlockNumberOrTag::Number(i), false),
-                )
-                .unwrap()
-                .unwrap();
+            let block: alloy_rpc_types::Block = futures::executor::block_on(
+                self.provider
+                    .get_block_by_number(BlockNumberOrTag::Number(i), false),
+            )
+            .unwrap()
+            .unwrap();
 
             res.push(block.header.hash.unwrap());
         }
@@ -206,13 +204,62 @@ impl AccountReader for HttpProviderState {
     fn basic_account(&self, address: Address) -> ProviderResult<Option<Account>> {
         let block_id = BlockId::hash(self.hash);
 
-        let res: Result<Account, ProviderError> = Runtime::new().unwrap().block_on(async {
+        //let handle = Handle::current();
+        // let _ = handle.enter();
+
+        // let rt = tokio::runtime::Runtime::new().unwrap();
+        // rt.block_on(async {});
+
+        let res: Result<Account, ProviderError> = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                println!(
+                    "[DEBUG] basic account fetch: {:?} {:?}",
+                    address,
+                    block_id.clone()
+                );
+
+                let balance = self
+                    .provider
+                    .get_balance(address)
+                    .block_id(block_id)
+                    .await
+                    .unwrap();
+
+                println!("balance: {:?}", balance);
+
+                let nonce = self
+                    .provider
+                    .get_transaction_count(address)
+                    .block_id(block_id)
+                    .await
+                    .unwrap();
+
+                println!("nonce: {:?}", nonce);
+
+                Ok(Account {
+                    balance,
+                    nonce,
+                    bytecode_hash: Some(address.into_word()),
+                })
+            })
+        });
+
+        /*
+        let res: Result<Account, ProviderError> = futures::executor::block_on(async {
+            println!(
+                "[DEBUG] basic account fetch: {:?} {:?}",
+                address,
+                block_id.clone()
+            );
+
             let balance = self
                 .provider
                 .get_balance(address)
                 .block_id(block_id)
                 .await
                 .unwrap();
+
+            println!("balance: {:?}", balance);
 
             let nonce = self
                 .provider
@@ -221,14 +268,25 @@ impl AccountReader for HttpProviderState {
                 .await
                 .unwrap();
 
+            println!("nonce: {:?}", nonce);
+
             Ok(Account {
                 balance,
                 nonce,
                 bytecode_hash: Some(address.into_word()),
             })
         });
+        */
 
         let res = res.unwrap();
+
+        println!(
+            "[DEBUG] basic account fetch: {:?} {:?} {:?}",
+            address,
+            res.nonce.clone(),
+            res.balance.clone(),
+        );
+
         Ok(Some(res))
     }
 }

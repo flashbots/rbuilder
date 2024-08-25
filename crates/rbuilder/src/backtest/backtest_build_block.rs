@@ -81,7 +81,7 @@ pub async fn run_backtest_build_block<ConfigType: LiveBuilderConfig>() -> eyre::
         .unzip();
 
     println!("Available orders: {}", orders.len());
-
+    println!("A");
     if cli.show_orders {
         print_order_and_timestamp(&block_data.available_orders, &block_data);
     }
@@ -92,7 +92,7 @@ pub async fn run_backtest_build_block<ConfigType: LiveBuilderConfig>() -> eyre::
 
     let chain_spec = config.base_config().chain_spec()?;
     let sbundle_mergeabe_signers = config.base_config().sbundle_mergeabe_signers();
-
+    println!("B");
     if cli.sim_landed_block {
         let tx_sim_results = sim_historical_block(
             provider_factory.clone(),
@@ -101,7 +101,7 @@ pub async fn run_backtest_build_block<ConfigType: LiveBuilderConfig>() -> eyre::
         )?;
         print_onchain_block_data(tx_sim_results, &orders, &block_data);
     }
-
+    println!("B1");
     let BacktestBlockInput {
         ctx, sim_orders, ..
     } = backtest_prepare_ctx_for_block(
@@ -112,16 +112,20 @@ pub async fn run_backtest_build_block<ConfigType: LiveBuilderConfig>() -> eyre::
         config.base_config().blocklist()?,
         config.base_config().coinbase_signer()?,
     )?;
-
+    println!("C");
     if cli.show_sim {
         print_simulated_orders(&sim_orders, &order_and_timestamp, &block_data);
     }
+
+    println!("D");
 
     if !cli.no_block_building {
         let winning_builder = cli
             .builders
             .iter()
             .filter_map(|builder_name: &String| {
+                println!("E");
+
                 let input = BacktestSimulateBlockInput {
                     ctx: ctx.clone(),
                     builder_name: builder_name.clone(),
