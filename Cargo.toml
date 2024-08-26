@@ -22,7 +22,7 @@ edition = "2021"
 
 [workspace.dependencies]
 reth = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.3" }
-reth-db = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.3" }
+reth-db = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.5" }
 reth-db-common = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.3" }
 reth-errors = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.3" }
 reth-libmdbx = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.3" }
