@@ -1,6 +1,6 @@
 //! Implementation of [`DataSource`] to bring mempool txs from flashbots' mempool dumpster.
 //! It downloads all the needed parquet files and keeps them cached for future use.
-use crate::backtest::BuiltBlockData;
+use crate::backtest::fetch::data_source::DatasourceData;
 use crate::{
     backtest::{
         fetch::data_source::{BlockRef, DataSource},
@@ -11,7 +11,6 @@ use crate::{
         Order,
     },
 };
-use alloy_primitives::B256;
 use async_trait::async_trait;
 use eyre::WrapErr;
 use mempool_dumpster::TransactionRangeError;
@@ -110,7 +109,7 @@ pub struct MempoolDumpsterDatasource {
 /// It's just a wrapper on get_mempool_transactions
 #[async_trait]
 impl DataSource for MempoolDumpsterDatasource {
-    async fn get_orders(&self, block: BlockRef) -> eyre::Result<Vec<OrdersWithTimestamp>> {
+    async fn get_data(&self, block: BlockRef) -> eyre::Result<DatasourceData> {
         let (from, to) = {
             let block_time = OffsetDateTime::from_unix_timestamp(block.block_timestamp as i64)?;
             (
@@ -130,14 +129,11 @@ impl DataSource for MempoolDumpsterDatasource {
             mempool_txs.len()
         );
         // TODO: Filter to only include tnxs from block?
-        Ok(mempool_txs)
-    }
 
-    async fn get_built_block_data(
-        &self,
-        _block_hash: B256,
-    ) -> eyre::Result<Option<BuiltBlockData>> {
-        Ok(None)
+        Ok(DatasourceData {
+            orders: mempool_txs,
+            built_block_data: None,
+        })
     }
 
     fn clone_box(&self) -> Box<dyn DataSource> {
@@ -172,9 +168,10 @@ mod test {
         let block = BlockRef {
             block_number: 18048817,
             block_timestamp: datetime!(2023-09-04 23:59:00 UTC).unix_timestamp() as u64,
+            landed_block_hash: None,
         };
 
-        let txs = source.get_orders(block).await.unwrap();
+        let txs = source.get_data(block).await.unwrap().orders;
         assert_eq!(txs.len(), 1732);
     }
 }

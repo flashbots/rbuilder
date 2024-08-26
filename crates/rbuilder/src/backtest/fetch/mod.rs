@@ -36,7 +36,10 @@ use crate::{
 /// Filters txs already landed (onchain nonce > tx nonce)
 /// Mainly used by [`backtest-fetch`]
 /// Usage:
-/// 1 - [HistoricalDataFetcher::new] + (optional) [HistoricalDataFetcher::add_datasource]
+/// 1 - [HistoricalDataFetcher::new]
+/// + (optional) [HistoricalDataFetcher::with_default_datasource]
+/// + (optional) [HistoricalDataFetcher::with_datasource]
+///
 /// 2 - call [HistoricalDataFetcher::fetch_historical_data] for all the needed blocks
 #[derive(Debug, Clone)]
 pub struct HistoricalDataFetcher {
@@ -47,30 +50,37 @@ pub struct HistoricalDataFetcher {
 }
 
 impl HistoricalDataFetcher {
-    pub fn new(
-        eth_provider: BoxedProvider,
-        eth_rpc_parallel: usize,
+    pub fn new(eth_provider: BoxedProvider, eth_rpc_parallel: usize) -> Self {
+        Self {
+            eth_provider,
+            eth_rpc_parallel,
+            data_sources: vec![],
+            payload_delivered_fetcher: PayloadDeliveredFetcher::default(),
+        }
+    }
+
+    pub fn with_default_datasource(
+        mut self,
         mempool_datadir: PathBuf,
         flashbots_db: Option<PgPool>,
     ) -> eyre::Result<Self> {
-        let mut data_sources: Vec<Box<dyn DataSource>> = vec![Box::new(
-            mempool::MempoolDumpsterDatasource::new(mempool_datadir)?,
-        )];
+        let mempool = Box::new(mempool::MempoolDumpsterDatasource::new(mempool_datadir)?);
+        self.data_sources.push(mempool);
 
         if let Some(db_pool) = flashbots_db {
-            data_sources.push(Box::new(RelayDB::new(db_pool)));
+            let datasource = Box::new(RelayDB::new(db_pool));
+            self.data_sources.push(datasource);
         }
-
-        Ok(Self {
-            eth_provider,
-            eth_rpc_parallel,
-            data_sources,
-            payload_delivered_fetcher: PayloadDeliveredFetcher::default(),
-        })
+        Ok(self)
     }
 
-    pub fn add_datasource(&mut self, datasource: Box<dyn DataSource>) {
-        self.data_sources.push(datasource);
+    pub fn with_datasource(self, datasource: Box<dyn DataSource>) -> Self {
+        let mut data_sources = self.data_sources;
+        data_sources.push(datasource);
+        Self {
+            data_sources,
+            ..self
+        }
     }
 
     async fn get_payload_delivered_bid_trace(
@@ -211,11 +221,15 @@ impl HistoricalDataFetcher {
         let block_timestamp: u64 = timestamp_as_u64(&onchain_block);
 
         let mut orders: Vec<OrdersWithTimestamp> = vec![];
-        let block_ref = BlockRef::new(block_number, block_timestamp);
+        let mut built_block_data = None;
+        let block_ref = BlockRef::new(block_number, block_timestamp, onchain_block.header.hash);
 
         for datasource in &self.data_sources {
-            let mut datasource_orders = datasource.get_orders(block_ref).await?;
-            orders.append(&mut datasource_orders);
+            let mut data = datasource.get_data(block_ref).await?;
+            orders.append(&mut data.orders);
+            if built_block_data.is_none() && data.built_block_data.is_some() {
+                built_block_data = data.built_block_data;
+            }
         }
 
         info!("Fetched orders, unfiltered: {}", orders.len());
@@ -230,17 +244,6 @@ impl HistoricalDataFetcher {
             available_orders.len()
         );
         available_orders.sort_by_key(|o| o.timestamp_ms);
-
-        let mut built_block_data = None;
-        for datasource in &self.data_sources {
-            let datasource_built_block_data = datasource
-                .get_built_block_data(onchain_block.header.hash.unwrap_or_default())
-                .await?;
-            if datasource_built_block_data.is_some() {
-                built_block_data = datasource_built_block_data;
-                break;
-            }
-        }
 
         Ok(BlockData {
             block_number,
