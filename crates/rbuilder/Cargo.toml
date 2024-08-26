@@ -88,7 +88,7 @@ secp256k1 = { version = "0.29", features = [
     "recovery",
 ] }
 rayon = "1.8.0"
-flate2 = "1.0.27"
+flate2 = "1.0.33"
 # Version required by ethereum-consensus beacon-api-client
 mev-share-sse = { git = "https://github.com/paradigmxyz/mev-share-rs", rev = "9eb2b0138ab3202b9eb3af4b19c7b3bf40b0faa8", default-features = false }
 jsonrpsee = { version = "0.20.3", features = ["full"] }
