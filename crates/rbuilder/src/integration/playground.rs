@@ -108,6 +108,10 @@ impl Playground {
         Ok(event)
     }
 
+    pub fn rbuilder_rpc_url(&self) -> &str {
+        "http://localhost:8645"
+    }
+
     pub fn el_url(&self) -> &str {
         "http://localhost:8545"
     }
