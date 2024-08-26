@@ -243,7 +243,14 @@ fn print_order_and_timestamp(orders_with_ts: &[OrdersWithTimestamp], block_data:
             )
         );
         for (tx, optional) in owt.order.list_txs() {
-            println!("    {:?} {:?}", tx.tx.hash, optional);
+            let tx = &tx.tx;
+            println!("    {:?} {:?}", tx.hash, optional);
+            println!(
+                "        from: {:?} to: {:?} nonce: {}",
+                tx.signer(),
+                tx.to(),
+                tx.nonce()
+            )
         }
     }
 }
