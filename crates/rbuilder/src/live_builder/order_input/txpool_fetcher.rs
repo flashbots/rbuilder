@@ -92,6 +92,8 @@ async fn get_tx_with_blobs(
     tx_hash: FixedBytes<32>,
     provider: &RootProvider<PubSubFrontend>,
 ) -> eyre::Result<Option<TransactionSignedEcRecoveredWithBlobs>> {
+    // TODO: Use https://github.com/alloy-rs/alloy/pull/1168 when it gets cut
+    // in a release
     let raw_tx: Option<String> = provider
         .client()
         .request("eth_getRawTransactionByHash", vec![tx_hash])
