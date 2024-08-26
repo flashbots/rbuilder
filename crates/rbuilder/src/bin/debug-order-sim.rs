@@ -133,8 +133,9 @@ pub async fn main() -> eyre::Result<()> {
         );
 
         let block_cancel = CancellationToken::new();
-        let mut sim_results =
-            sim_pool.spawn_simulation_job(block_ctx, orders_for_block, block_cancel.clone());
+        let mut sim_results = sim_pool
+            .spawn_simulation_job(block_ctx, orders_for_block, block_cancel.clone())
+            .subscribe();
         loop {
             tokio::select! {
                 new_slot = slots.recv() => {
@@ -147,8 +148,8 @@ pub async fn main() -> eyre::Result<()> {
                         break 'slots;
                     }
                 },
-                sim_command = sim_results.orders.recv() => {
-                    if let Some(sim_command) = sim_command {
+                sim_command = sim_results.recv() => {
+                    if let Ok(sim_command) = sim_command {
                         match sim_command{
                             SimulatedOrderCommand::Simulation(sim) => {
                                 orders_last_slot += 1;

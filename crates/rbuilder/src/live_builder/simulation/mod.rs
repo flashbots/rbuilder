@@ -14,13 +14,22 @@ use ahash::HashMap;
 use reth_db::database::Database;
 use simulation_job::SimulationJob;
 use std::sync::{Arc, Mutex};
-use tokio::{sync::mpsc, task::JoinHandle};
+use tokio::{
+    sync::{broadcast, mpsc},
+    task::JoinHandle,
+};
 use tokio_util::sync::CancellationToken;
 use tracing::{info_span, Instrument};
 
 #[derive(Debug)]
 pub struct SlotOrderSimResults {
-    pub orders: mpsc::Receiver<SimulatedOrderCommand>,
+    orders: broadcast::Sender<SimulatedOrderCommand>,
+}
+
+impl SlotOrderSimResults {
+    pub fn subscribe(&self) -> broadcast::Receiver<SimulatedOrderCommand> {
+        self.orders.subscribe()
+    }
 }
 
 type BlockContextId = u64;
@@ -105,7 +114,7 @@ impl<DB: Database + Clone + Send + 'static> OrderSimulationPool<DB> {
         input: OrdersForBlock,
         block_cancellation: CancellationToken,
     ) -> SlotOrderSimResults {
-        let (slot_sim_results_sender, slot_sim_results_receiver) = mpsc::channel(10_000);
+        let (slot_sim_results_sender, _) = broadcast::channel(10_000);
 
         let provider = self.provider_factory.provider_factory_unchecked();
 
@@ -113,6 +122,7 @@ impl<DB: Database + Clone + Send + 'static> OrderSimulationPool<DB> {
         let block_context: BlockContextId = gen_uid();
         let span = info_span!("sim_ctx", block = ctx.block_env.number.to::<u64>(), parent = ?ctx.attributes.parent);
 
+        let task_slot_sim_sender = slot_sim_results_sender.clone();
         let handle = tokio::spawn(
             async move {
                 let sim_tree = SimTree::new(provider, ctx.attributes.parent);
@@ -133,7 +143,7 @@ impl<DB: Database + Clone + Send + 'static> OrderSimulationPool<DB> {
                     new_order_sub,
                     sim_req_sender,
                     sim_results_receiver,
-                    slot_sim_results_sender,
+                    task_slot_sim_sender,
                     sim_tree,
                 );
 
@@ -155,7 +165,7 @@ impl<DB: Database + Clone + Send + 'static> OrderSimulationPool<DB> {
         }
 
         SlotOrderSimResults {
-            orders: slot_sim_results_receiver,
+            orders: slot_sim_results_sender,
         }
     }
 }
@@ -187,7 +197,7 @@ mod tests {
             new_order_sub: order_receiver,
         };
 
-        let mut sim_results = sim_pool.spawn_simulation_job(
+        let sim_results = sim_pool.spawn_simulation_job(
             test_context.block_building_context().clone(),
             orders_for_block,
             cancel.clone(),
@@ -205,7 +215,7 @@ mod tests {
 
         // We expect to receive the simulation giving a profit of coinbase_profit since that's what we sent directly to coinbase.
         // and we are not paying any priority fee
-        if let Some(command) = sim_results.orders.recv().await {
+        if let Ok(command) = sim_results.subscribe().recv().await {
             match command {
                 SimulatedOrderCommand::Simulation(sim_order) => {
                     assert_eq!(

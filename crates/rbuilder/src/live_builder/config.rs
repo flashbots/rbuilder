@@ -27,6 +27,7 @@ use crate::{
         },
         cli::LiveBuilderConfig,
         payload_events::MevBoostSlotDataGenerator,
+        BlockBuildingPool,
     },
     mev_boost::BLSBlockSigner,
     primitives::mev_boost::{MevBoostRelay, RelayConfig},
@@ -306,7 +307,8 @@ impl LiveBuilderConfig for Config {
             root_hash_task_pool,
             self.base_config.sbundle_mergeabe_signers(),
         );
-        Ok(live_builder.with_builders(builders))
+        let builder = BlockBuildingPool::new(builders);
+        Ok(live_builder.with_builder(Arc::new(builder)))
     }
 
     fn version_for_telemetry(&self) -> crate::utils::build_info::Version {
