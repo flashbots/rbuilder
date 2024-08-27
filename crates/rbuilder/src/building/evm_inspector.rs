@@ -36,6 +36,9 @@ impl<'a> UsedStateEVMInspector<'a> {
         }
     }
 
+    /// This method is used to mark nonce change as a slot read / write.
+    /// Txs with the same nonce are in conflict and origin address is EOA that does not have storage.
+    /// We convert nonce change to the slot 0 read and write of the signer
     fn use_tx_nonce(&mut self, tx: &TransactionSignedEcRecovered) {
         self.used_state_trace.read_slot_values.insert(
             SlotKey {
