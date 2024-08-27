@@ -25,8 +25,6 @@ pub use cli::run_backtest_redistribute;
 use jsonrpsee::core::Serialize;
 use rayon::prelude::*;
 use reth_chainspec::ChainSpec;
-use reth_db::DatabaseEnv;
-use reth_provider::ProviderFactory;
 use std::{
     cmp::{max, min},
     sync::Arc,
