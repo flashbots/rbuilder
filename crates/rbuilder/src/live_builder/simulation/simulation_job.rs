@@ -43,6 +43,17 @@ pub struct SimulationJob<Provider> {
     /// Orders we got via new_order_sub and are still being processed (they could be inside the SimTree or in the sim queue)
     /// and were not cancelled.
     in_flight_orders: HashSet<OrderId>,
+
+    /// Orders for which we sent downstream SimulatedOrderCommand::Simulation but not SimulatedOrderCommand::Cancellation.
+    /// We store them to avoid generating SimulatedOrderCommand::Cancellation for failed orders since they never generated
+    /// a pairing SimulatedOrderCommand::Simulation.
+    /// It also allows us to avoid sending several SimulatedOrderCommand::Simulation in pathological cases like:
+    /// OrderASentForSim -> inserted in in_flight_orders.
+    /// OrderACancelled -> removed from in_flight_orders but can't cancel the simulation!
+    /// OrderASentForSim -> inserted in in_flight_orders.
+    /// Got first sim result -> add to not_cancelled_simulated_orders.
+    /// Got second sim result -> We DON'T send since we see on not_cancelled_simulated_orders that we already did it!
+    not_cancelled_sent_simulated_orders: HashSet<OrderId>,
 }
 
 impl<Provider: StateProviderFactory + Clone + Send + 'static> SimulationJob<Provider> {
@@ -64,6 +75,7 @@ impl<Provider: StateProviderFactory + Clone + Send + 'static> SimulationJob<Prov
             orders_received: OrderCounter::default(),
             orders_simulated_ok: OrderCounter::default(),
             in_flight_orders: Default::default(),
+            not_cancelled_sent_simulated_orders: Default::default(),
         }
     }
 
@@ -171,13 +183,17 @@ impl<Provider: StateProviderFactory + Clone + Send + 'static> SimulationJob<Prov
                 .remove(&sim_result.simulated_order.id())
             {
                 valid_simulated_orders.push(sim_result.clone());
+                // Only send if it's the first time.
                 if self
-                    .slot_sim_results_sender
-                    .send(SimulatedOrderCommand::Simulation(
-                        sim_result.simulated_order.clone(),
-                    ))
-                    .await
-                    .is_err()
+                    .not_cancelled_sent_simulated_orders
+                    .insert(sim_result.simulated_order.id())
+                    && self
+                        .slot_sim_results_sender
+                        .send(SimulatedOrderCommand::Simulation(
+                            sim_result.simulated_order.clone(),
+                        ))
+                        .await
+                        .is_err()
                 {
                     return false; //receiver closed :(
                 }
@@ -197,10 +213,15 @@ impl<Provider: StateProviderFactory + Clone + Send + 'static> SimulationJob<Prov
 
     /// return if everything went OK
     async fn send_cancel(&mut self, id: &OrderId) -> bool {
-        self.slot_sim_results_sender
-            .send(SimulatedOrderCommand::Cancellation(*id))
-            .await
-            .is_ok()
+        // Only send cancel if we sent this id.
+        if self.not_cancelled_sent_simulated_orders.remove(id) {
+            self.slot_sim_results_sender
+                .send(SimulatedOrderCommand::Cancellation(*id))
+                .await
+                .is_ok()
+        } else {
+            true
+        }
     }
 
     /// return if everything went OK

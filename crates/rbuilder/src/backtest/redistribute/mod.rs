@@ -25,11 +25,13 @@ pub use cli::run_backtest_redistribute;
 use jsonrpsee::core::Serialize;
 use rayon::prelude::*;
 use reth_chainspec::ChainSpec;
+use reth_db::DatabaseEnv;
+use reth_provider::ProviderFactory;
 use std::{
     cmp::{max, min},
     sync::Arc,
 };
-use tracing::{info, info_span, trace, warn};
+use tracing::{debug, info, info_span, trace, warn};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -287,6 +289,62 @@ struct AvailableOrders {
     included_orders_available: Vec<OrdersWithTimestamp>,
     included_orders_by_address: Vec<(Address, Vec<OrderId>)>,
     all_orders_by_address: HashMap<Address, Vec<OrderId>>,
+    orders_id_to_address: HashMap<OrderId, Address>,
+    all_orders_by_id: HashMap<OrderId, Order>,
+}
+
+impl AvailableOrders {
+    /// When calculating exclusion values for individual orders we want to exclude
+    /// other conflicting orders from the same identity
+    /// * we exclude orders itself
+    /// * other orders from the same identity with conflicting nonces
+    /// * other orders from the same identity with the same replacement uuid
+    fn calc_individual_included_orders_exclusion(&self) -> HashMap<OrderId, Vec<OrderId>> {
+        let get_nonces_and_replacement = |id| {
+            let order = self
+                .all_orders_by_id
+                .get(id)
+                .expect("order not found it all orders set");
+            let mandatory_nonces: HashSet<Address> = order
+                .nonces()
+                .iter()
+                .filter_map(|n| {
+                    if n.optional {
+                        return None;
+                    }
+                    Some(n.address)
+                })
+                .collect();
+            (mandatory_nonces, order.replacement_key())
+        };
+
+        let mut result = HashMap::default();
+        for (address, included_orders) in &self.included_orders_by_address {
+            for included in included_orders {
+                let mut order_exclusion = vec![*included];
+
+                let (nonces, replacement) = get_nonces_and_replacement(included);
+
+                for other_order in self
+                    .all_orders_by_address
+                    .get(address)
+                    .expect("all orders by address not found")
+                {
+                    let (other_nonces, other_replacement) = get_nonces_and_replacement(other_order);
+                    for nonce in &nonces {
+                        if other_nonces.contains(nonce) {
+                            order_exclusion.push(*other_order);
+                        }
+                    }
+                    if replacement.is_some() && other_replacement == replacement {
+                        order_exclusion.push(*other_order);
+                    }
+                }
+                result.insert(*included, order_exclusion);
+            }
+        }
+        result
+    }
 }
 
 fn split_orders_by_identities(
@@ -297,18 +355,21 @@ fn split_orders_by_identities(
 ) -> AvailableOrders {
     let mut all_orders_by_address: HashMap<Address, Vec<OrderId>> = HashMap::default();
     let mut included_orders_by_address: HashMap<Address, Vec<OrderId>> = HashMap::default();
+    let mut orders_id_to_address = HashMap::default();
 
     for order in &included_orders_available {
+        let order_id = order.order.id();
         let address = match order_redistribution_address(&order.order, protect_signers) {
             Some(address) => address,
             None => {
-                warn!(order = ?order.order.id(), "Included order redistribution address not found");
+                warn!(order = ?order_id, "Included order redistribution address not found");
                 continue;
             }
         };
-        info!(identity = ?address, order = ?order.order.id(),"Available landed order");
+        info!(identity = ?address, order = ?order_id,"Available landed order");
         let orders = included_orders_by_address.entry(address).or_default();
-        orders.push(order.order.id());
+        orders.push(order_id);
+        orders_id_to_address.insert(order_id, address);
     }
 
     for order in &block_data.available_orders {
@@ -335,6 +396,7 @@ fn split_orders_by_identities(
         }
         let orders = all_orders_by_address.entry(address).or_default();
         orders.push(id);
+        orders_id_to_address.insert(id, address);
     }
 
     let mut included_orders_by_address: Vec<(Address, Vec<OrderId>)> =
@@ -348,6 +410,12 @@ fn split_orders_by_identities(
         included_orders_available,
         included_orders_by_address,
         all_orders_by_address,
+        orders_id_to_address,
+        all_orders_by_id: block_data
+            .available_orders
+            .iter()
+            .map(|order| (order.order.id(), order.order.clone()))
+            .collect(),
     }
 }
 
@@ -441,21 +509,34 @@ fn calculate_backtest_identity_and_order_exclusion<
     available_orders: &AvailableOrders,
     results_without_exclusion: &ResultsWithoutExclusion,
 ) -> eyre::Result<ExclusionResults> {
-    let result_after_landed_orders_exclusion: HashMap<OrderId, ExclusionResult> = available_orders
-        .included_orders_available
-        .to_vec()
-        .into_par_iter()
-        .map(|order| {
+    let included_orders_exclusion = {
+        let mut result = Vec::new();
+        let mut included_orders_exclusions =
+            available_orders.calc_individual_included_orders_exclusion();
+        for order in &available_orders.included_orders_available {
             let id = order.order.id();
-            calc_profit_after_exclusion(
-                provider_factory.clone(),
-                config,
-                &block_data,
-                results_without_exclusion.exclusion_input(vec![id]),
-            )
-            .map(|ok| (id, ok))
-        })
-        .collect::<Result<_, _>>()?;
+            let exclusions = included_orders_exclusions
+                .remove(&id)
+                .expect("included order exclusion not found");
+            result.push((id, exclusions))
+        }
+        result
+    };
+
+    let result_after_landed_orders_exclusion: HashMap<OrderId, ExclusionResult> =
+        included_orders_exclusion
+            .into_par_iter()
+            .map(|(id, exclusions)| {
+                trace!(order = ?id, excluding = ?exclusions, "Excluding orders for landed order");
+                calc_profit_after_exclusion(
+                    provider_factory.clone(),
+                    config,
+                    &block_data,
+                    results_without_exclusion.exclusion_input(exclusions),
+                )
+                .map(|ok| (id, ok))
+            })
+            .collect::<Result<_, _>>()?;
 
     let result_after_identity_exclusion: HashMap<Address, ExclusionResult> = available_orders
         .included_orders_by_address
@@ -467,7 +548,7 @@ fn calculate_backtest_identity_and_order_exclusion<
                 .get(&address)
                 .expect("all orders by address not found")
                 .clone();
-            trace!(identity = ?address, excluding = ?orders, "Excluding orders");
+            trace!(identity = ?address, excluding = ?orders, "Excluding orders for identity");
             calc_profit_after_exclusion(
                 provider_factory.clone(),
                 config,
@@ -498,23 +579,36 @@ fn calc_joint_exclusion_results<
 ) -> eyre::Result<ExclusionResults> {
     // calculate identities that are possibly connected
     let mut joint_contribution_todo: Vec<(Address, Address)> = Vec::new();
-    let landed_order_id_to_address: HashMap<OrderId, Address> = available_orders
-        .included_orders_by_address
-        .iter()
-        .flat_map(|(address, orders)| orders.iter().map(move |order| (*order, *address)))
-        .collect();
     // here we link identities if excluding order by one identity
     // leads to exclusion of order from another identitiy
     for (order, exclusion_result) in &exclusion_results.landed_orders {
-        let address1 = *landed_order_id_to_address
+        let address1 = *available_orders
+            .orders_id_to_address
             .get(order)
             .expect("order address not found");
-        for new_failed_order in &exclusion_result.new_orders_failed {
-            let address2 = if let Some(addr) = landed_order_id_to_address.get(new_failed_order) {
-                *addr
-            } else {
+        let candidate_conflicting_bundles = exclusion_result
+            .new_orders_failed
+            .iter()
+            .chain(
+                exclusion_result
+                    .orders_profit_changed
+                    .iter()
+                    .map(|(o, _)| o),
+            )
+            .filter(|o| !matches!(o, OrderId::Tx(_)));
+        for new_failed_order in candidate_conflicting_bundles {
+            // we only consider landed <-> landed order conflicts
+            if !available_orders
+                .included_orders_available
+                .iter()
+                .any(|o| o.order.id() == *new_failed_order)
+            {
                 continue;
-            };
+            }
+            let address2 = *available_orders
+                .orders_id_to_address
+                .get(new_failed_order)
+                .expect("order address not found");
             if address1 != address2 {
                 joint_contribution_todo.push((min(address1, address2), max(address1, address2)));
                 warn!(address1 = ?address1, order1 = ?order, address2 = ?address2, order2 = ?new_failed_order, "Possible identity conflict");
@@ -585,7 +679,7 @@ fn apply_redistribution_formula(
                 warn!(identity = ?address, order = ?id, err = ?error, "Landed order is not properly recovered");
                 continue;
             }
-            info!(identity = ?address, order = ?id, "Landed order is properly recovered");
+            debug!(identity = ?address, order = ?id, "Landed order is properly recovered");
 
             let realized_value = restored_landed_order.unique_coinbase_profit;
             if !realized_value.is_positive() {
@@ -593,7 +687,7 @@ fn apply_redistribution_formula(
                 continue;
             }
             let realized_value = realized_value.into_sign_and_abs().1;
-            info!(identity = ?address, order = ?id, realized_value = format_ether(realized_value), "Order unique coinbase profit");
+            debug!(identity = ?address, order = ?id, realized_value = format_ether(realized_value), "Order unique coinbase profit");
             included_orders.push(IncludedOrderData {
                 id: *id,
                 realized_value,
@@ -607,7 +701,7 @@ fn apply_redistribution_formula(
             continue;
         }
         let block_value_delta = block_value_delta.into_sign_and_abs().1;
-        info!(identity = ?address, block_value_delta = format_ether(block_value_delta), "Identity block value delta");
+        debug!(identity = ?address, block_value_delta = format_ether(block_value_delta), "Identity block value delta");
         identity_data.push(RedistributionIdentityData {
             address: *address,
             block_value_delta,
@@ -682,6 +776,17 @@ fn collect_redistribution_result(
             let restored_order_data = restored_landed_orders
                 .get(&id)
                 .expect("restored landed order is not found");
+            let realized_value = restored_order_data
+                .unique_coinbase_profit
+                .try_into()
+                .unwrap_or_default();
+            info!(identity = ?address,
+                order = ?id,
+                block_value_delta = format_ether(block_value_delta),
+                redistribution_value_received = format_ether(redistribution_value_received),
+                realized_value = format_ether(realized_value),
+                "Included order data"
+            );
             result.landed_orders.push(OrderData {
                 id,
                 identity: address,
@@ -691,19 +796,22 @@ fn collect_redistribution_result(
                     result_after_order_exclusion,
                     &results_without_exclusion.orders_included,
                 ),
-                realized_value: restored_order_data
-                    .unique_coinbase_profit
-                    .try_into()
-                    .unwrap_or_default(),
+                realized_value,
             })
         }
         let result_after_identity_exclusion = exclusion_results.identity_exclusion(&address);
         let block_value_delta = result_after_identity_exclusion.block_value_delta;
+        let redistribution_value_received = redistribution_identity_data
+            .map(|d| d.redistribution_value)
+            .unwrap_or_default();
+        info!(identity = ?address,
+                block_value_delta = format_ether(block_value_delta),
+                redistribution_value_received = format_ether(redistribution_value_received),
+                "Identity data"
+        );
         result.identities.push(IdentityData {
             address,
-            redistribution_value_received: redistribution_identity_data
-                .map(|d| d.redistribution_value)
-                .unwrap_or_default(),
+            redistribution_value_received,
             block_value_delta,
             inclusion_changes: calc_inclusion_change(
                 result_after_identity_exclusion,
@@ -882,11 +990,11 @@ fn order_redistribution_address(order: &Order, protect_signers: &[Address]) -> O
         }
         Order::ShareBundle(bundle) => {
             // if it is a share bundle we take either
-            // 1. last address from the refund config
+            // 1. first address from the refund config
             // 2. origin of the first tx
 
-            if let Some(last_refund_config) = bundle.inner_bundle.refund_config.last() {
-                return Some(last_refund_config.address);
+            if let Some(first_refund) = bundle.inner_bundle.refund_config.first() {
+                return Some(first_refund.address);
             }
 
             let txs = bundle.list_txs();

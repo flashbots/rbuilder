@@ -4,10 +4,7 @@ use crate::{
     provider::StateProviderFactory,
     telemetry::{set_current_block, set_ordepool_count},
 };
-use ethers::{
-    middleware::Middleware,
-    providers::{Ipc, Provider},
-};
+use alloy_provider::{IpcConnect, Provider, ProviderBuilder};
 use futures::StreamExt;
 use std::{
     pin::pin,
@@ -26,19 +23,16 @@ pub async fn spawn_clean_orderpool_job<SProvider: StateProviderFactory + Clone +
     orderpool: Arc<Mutex<OrderPool>>,
     global_cancellation: CancellationToken,
 ) -> eyre::Result<JoinHandle<()>> {
-    let ipc = Ipc::connect(config.ipc_path).await?;
-    let provider = Provider::new(ipc);
-    {
-        // quickly check that we can subscribe, before moving provider into the task
-        let sub = provider.subscribe_blocks().await?;
-        sub.unsubscribe().await.unwrap_or_default();
-    }
+    let ipc = IpcConnect::new(config.ipc_path);
+    let provider = ProviderBuilder::new().on_ipc(ipc).await?;
 
     let handle = tokio::spawn(async move {
         info!("Clean orderpool job: started");
 
         let new_block_stream = match provider.subscribe_blocks().await {
-            Ok(stream) => stream.take_until(global_cancellation.cancelled()),
+            Ok(subscription) => subscription
+                .into_stream()
+                .take_until(global_cancellation.cancelled()),
             Err(err) => {
                 error!("Failed to subscribe to a new block stream: {:?}", err);
                 global_cancellation.cancel();
@@ -48,7 +42,7 @@ pub async fn spawn_clean_orderpool_job<SProvider: StateProviderFactory + Clone +
         let mut new_block_stream = pin!(new_block_stream);
 
         while let Some(block) = new_block_stream.next().await {
-            let block_number = block.number.unwrap_or_default().as_u64();
+            let block_number = block.header.number.unwrap_or_default();
             set_current_block(block_number);
             let state = match provider_factory.latest() {
                 Ok(state) => state,
