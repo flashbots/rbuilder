@@ -2,7 +2,7 @@ use crate::backtest::BuiltBlockData;
 use crate::primitives::OrderId;
 use crate::{
     backtest::{
-        fetch::data_source::{BlockRef, DataSource},
+        fetch::data_source::{BlockRef, DataSource, DatasourceData},
         OrdersWithTimestamp,
     },
     primitives::{
@@ -365,7 +365,7 @@ impl RelayDB {
 
 #[async_trait]
 impl DataSource for RelayDB {
-    async fn get_orders(&self, block: BlockRef) -> eyre::Result<Vec<OrdersWithTimestamp>> {
+    async fn get_data(&self, block: BlockRef) -> eyre::Result<DatasourceData> {
         let bundles = self
             .get_simulated_bundles_for_block(block.block_number)
             .await
@@ -388,21 +388,23 @@ impl DataSource for RelayDB {
             share_bundles.len()
         );
 
-        Ok(bundles
-            .into_iter()
-            .chain(share_bundles.into_iter())
-            .collect())
-    }
+        let built_block_data = if let Some(block_hash) = block.landed_block_hash {
+            self.get_built_block_data(block_hash)
+                .await
+                .with_context(|| {
+                    format!("Failed to fetch built block data for block {}", block_hash)
+                })?
+        } else {
+            None
+        };
 
-    async fn get_built_block_data(&self, block_hash: B256) -> eyre::Result<Option<BuiltBlockData>> {
-        let built_block_data = self
-            .get_built_block_data(block_hash)
-            .await
-            .with_context(|| {
-                format!("Failed to fetch built block data for block {}", block_hash)
-            })?;
-
-        Ok(built_block_data)
+        Ok(DatasourceData {
+            orders: bundles
+                .into_iter()
+                .chain(share_bundles.into_iter())
+                .collect(),
+            built_block_data,
+        })
     }
 
     fn clone_box(&self) -> Box<dyn DataSource> {
