@@ -122,21 +122,6 @@ mod test {
     use alloy_provider::{Provider, ProviderBuilder};
     use alloy_rpc_types::TransactionRequest;
     use alloy_signer_local::PrivateKeySigner;
-    use std::{net::Ipv4Addr, path::PathBuf};
-    use tokio::time::Duration;
-
-    fn default_config() -> OrderInputConfig {
-        OrderInputConfig {
-            ipc_path: PathBuf::from("/tmp/anvil.ipc"),
-            results_channel_timeout: Duration::new(5, 0),
-            ignore_cancellable_orders: false,
-            ignore_blobs: false,
-            input_channel_buffer_size: 10,
-            serve_max_connections: 4096,
-            server_ip: Ipv4Addr::new(127, 0, 0, 1),
-            server_port: 0,
-        }
-    }
 
     #[tokio::test]
     /// Test that the fetcher can retrieve transactions (both normal and blob) from the txpool
@@ -147,9 +132,13 @@ mod test {
             .unwrap();
 
         let (sender, mut receiver) = mpsc::channel(10);
-        subscribe_to_txpool_with_blobs(default_config(), sender, CancellationToken::new())
-            .await
-            .unwrap();
+        subscribe_to_txpool_with_blobs(
+            OrderInputConfig::default_e2e(),
+            sender,
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
 
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let wallet = EthereumWallet::from(signer);

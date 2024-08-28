@@ -47,6 +47,11 @@ jobs:
           echo "BASE_SHA_SHORT=${BASE_SHA_SHORT}" >> $fn_vars
           cat $fn_vars
 
+      - name: Install Foundry toolchain
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+
       # RUN BENCHMARKS
       - run: make bench-in-ci
 
