@@ -8,10 +8,10 @@ use crate::{
     },
     live_builder::order_input::orderpool::OrdersForBlock,
     primitives::{OrderId, SimulatedOrder},
-    utils::{gen_uid, ProviderFactoryReopener},
+    provider::StateProviderFactory,
+    utils::gen_uid,
 };
 use ahash::HashMap;
-use reth_db::database::Database;
 use simulation_job::SimulationJob;
 use std::sync::{Arc, Mutex};
 use tokio::{sync::mpsc, task::JoinHandle};
@@ -49,8 +49,8 @@ pub struct CurrentSimulationContexts {
 /// 4 IMPORTANT: When done with the simulations signal the provided block_cancellation.
 
 #[derive(Debug)]
-pub struct OrderSimulationPool<DB> {
-    provider_factory: ProviderFactoryReopener<DB>,
+pub struct OrderSimulationPool<Provider> {
+    provider_factory: Provider,
     running_tasks: Arc<Mutex<Vec<JoinHandle<()>>>>,
     current_contexts: Arc<Mutex<CurrentSimulationContexts>>,
     worker_threads: Vec<std::thread::JoinHandle<()>>,
@@ -65,9 +65,9 @@ pub enum SimulatedOrderCommand {
     Cancellation(OrderId),
 }
 
-impl<DB: Database + Clone + Send + 'static> OrderSimulationPool<DB> {
+impl<Provider: StateProviderFactory + Clone + Send + 'static> OrderSimulationPool<Provider> {
     pub fn new(
-        provider_factory: ProviderFactoryReopener<DB>,
+        provider_factory: Provider,
         num_workers: usize,
         global_cancellation: CancellationToken,
     ) -> Self {
@@ -107,7 +107,8 @@ impl<DB: Database + Clone + Send + 'static> OrderSimulationPool<DB> {
     ) -> SlotOrderSimResults {
         let (slot_sim_results_sender, slot_sim_results_receiver) = mpsc::channel(10_000);
 
-        let provider = self.provider_factory.provider_factory_unchecked();
+        // let provider = self.provider_factory.provider_factory_unchecked();
+        let provider = self.provider_factory.clone();
 
         let current_contexts = Arc::clone(&self.current_contexts);
         let block_context: BlockContextId = gen_uid();
@@ -167,6 +168,7 @@ mod tests {
         building::testing::test_chain_state::{BlockArgs, NamedAddr, TestChainState, TxArgs},
         live_builder::order_input::order_sink::OrderPoolCommand,
         primitives::{MempoolTx, Order, TransactionSignedEcRecoveredWithBlobs},
+        utils::ProviderFactoryReopener,
     };
     use reth_primitives::U256;
 

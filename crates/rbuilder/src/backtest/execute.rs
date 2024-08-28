@@ -1,5 +1,3 @@
-use crate::primitives::OrderId;
-use crate::utils::Signer;
 use crate::{
     backtest::BlockData,
     building::{
@@ -7,14 +5,13 @@ use crate::{
         BlockBuildingContext, BundleErr, OrderErr, TransactionErr,
     },
     live_builder::cli::LiveBuilderConfig,
-    primitives::SimulatedOrder,
-    utils::clean_extradata,
+    primitives::{OrderId, SimulatedOrder},
+    provider::StateProviderFactory,
+    utils::{clean_extradata, Signer},
 };
 use ahash::HashSet;
 use alloy_primitives::{Address, U256};
-use reth::providers::ProviderFactory;
 use reth_chainspec::ChainSpec;
-use reth_db::{database::Database, DatabaseEnv};
 use reth_payload_builder::database::CachedReads;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -57,9 +54,9 @@ pub struct BacktestBlockInput {
     pub sim_errors: Vec<OrderErr>,
 }
 
-pub fn backtest_prepare_ctx_for_block<DB: Database + Clone>(
+pub fn backtest_prepare_ctx_for_block<Provider: StateProviderFactory + Clone>(
     block_data: BlockData,
-    provider_factory: ProviderFactory<DB>,
+    provider_factory: Provider,
     chain_spec: Arc<ChainSpec>,
     build_block_lag_ms: i64,
     blocklist: HashSet<Address>,
@@ -96,9 +93,12 @@ pub fn backtest_prepare_ctx_for_block<DB: Database + Clone>(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn backtest_simulate_block<ConfigType: LiveBuilderConfig>(
+pub fn backtest_simulate_block<
+    ConfigType: LiveBuilderConfig,
+    Provider: StateProviderFactory + Clone + 'static,
+>(
     block_data: BlockData,
-    provider_factory: ProviderFactory<Arc<DatabaseEnv>>,
+    provider_factory: Provider,
     chain_spec: Arc<ChainSpec>,
     build_block_lag_ms: i64,
     builders_names: Vec<String>,

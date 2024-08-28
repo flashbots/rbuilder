@@ -10,12 +10,12 @@ pub mod payout_tx;
 pub mod sim;
 pub mod testing;
 pub mod tracers;
+use crate::provider::StateProviderFactory;
 pub use block_orders::BlockOrders;
 use reth_primitives::proofs::calculate_requests_root;
 
 use crate::{
     primitives::{Order, OrderId, SimValue, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs},
-    roothash::calculate_state_root,
     utils::{a2r_withdrawal, calc_gas_limit, timestamp_as_u64, Signer},
 };
 use ahash::HashSet;
@@ -27,9 +27,8 @@ use reth::{
         revm_primitives::InvalidTransaction, Address, BlobTransactionSidecar, Block, Head, Header,
         Receipt, Receipts, SealedBlock, Withdrawals, EMPTY_OMMER_ROOT_HASH, U256,
     },
-    providers::{ExecutionOutcome, ProviderFactory},
+    providers::ExecutionOutcome,
     rpc::types::beacon::events::PayloadAttributesEvent,
-    tasks::pool::BlockingTaskPool,
 };
 use reth_basic_payload_builder::{commit_withdrawals, WithdrawalsOutcome};
 use reth_chainspec::{ChainSpec, EthereumHardforks};
@@ -536,13 +535,12 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn finalize<DB: reth_db::database::Database + Clone + 'static>(
+    pub fn finalize<Provider: StateProviderFactory + 'static>(
         self,
         state: &mut BlockState,
         ctx: &BlockBuildingContext,
-        provider_factory: ProviderFactory<DB>,
-        root_hash_mode: RootHashMode,
-        root_hash_task_pool: BlockingTaskPool,
+        provider_factory: Provider,
+        _root_hash_mode: RootHashMode,
     ) -> eyre::Result<FinalizeResult> {
         let (withdrawals_root, withdrawals) = {
             let mut db = state.new_db_ref();
@@ -601,13 +599,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             .block_logs_bloom(block_number)
             .expect("Number is in range");
 
-        let state_root = calculate_state_root(
-            provider_factory,
-            ctx.attributes.parent,
-            &execution_outcome,
-            root_hash_mode,
-            root_hash_task_pool,
-        )?;
+        let state_root = provider_factory.state_root(ctx.attributes.parent, &execution_outcome)?;
 
         // create the block header
         let transactions_root = proofs::calculate_transaction_root(&self.executed_tx);

@@ -4,11 +4,8 @@ use std::{
 };
 
 use alloy_primitives::U256;
-use reth::tasks::pool::BlockingTaskPool;
-use reth_db::database::Database;
 use reth_payload_builder::database::CachedReads;
 use reth_primitives::format_ether;
-use reth_provider::{BlockNumReader, ProviderFactory};
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, trace};
@@ -21,6 +18,7 @@ use crate::{
         Sorting,
     },
     primitives::SimulatedOrder,
+    provider::StateProviderFactory,
     roothash::RootHashMode,
     telemetry,
 };
@@ -74,9 +72,9 @@ pub trait BlockBuildingHelper {
     fn building_context(&self) -> &BlockBuildingContext;
 }
 
-/// Implementation of BlockBuildingHelper based on a ProviderFactory<DB>
+/// Implementation of BlockBuildingHelper based on a Provider
 #[derive(Clone)]
-pub struct BlockBuildingHelperFromDB<DB> {
+pub struct BlockBuildingHelperFromDB<Provider> {
     /// Balance of fee recipient before we stared building.
     _fee_recipient_balance_start: U256,
     /// Accumulated changes for the block (due to commit_order calls).
@@ -91,8 +89,7 @@ pub struct BlockBuildingHelperFromDB<DB> {
     building_ctx: BlockBuildingContext,
     built_block_trace: BuiltBlockTrace,
     /// Needed to get the initial state and the final root hash calculation.
-    provider_factory: ProviderFactory<DB>,
-    root_hash_task_pool: BlockingTaskPool,
+    provider_factory: Provider,
     root_hash_mode: RootHashMode,
     /// Token to cancel in case of fatal error (if we believe that it's impossible to build for this block).
     cancel_on_fatal_error: CancellationToken,
@@ -122,7 +119,7 @@ pub struct FinalizeBlockResult {
     pub cached_reads: CachedReads,
 }
 
-impl<DB: Database + Clone + 'static> BlockBuildingHelperFromDB<DB> {
+impl<Provider: StateProviderFactory + Clone + 'static> BlockBuildingHelperFromDB<Provider> {
     /// allow_tx_skip: see [`PartialBlockFork`]
     /// Performs initialization:
     /// - Query fee_recipient_balance_start.
@@ -130,8 +127,7 @@ impl<DB: Database + Clone + 'static> BlockBuildingHelperFromDB<DB> {
     /// - Estimate payout tx cost.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        provider_factory: ProviderFactory<DB>,
-        root_hash_task_pool: BlockingTaskPool,
+        provider_factory: Provider,
         root_hash_mode: RootHashMode,
         building_ctx: BlockBuildingContext,
         cached_reads: Option<CachedReads>,
@@ -174,7 +170,6 @@ impl<DB: Database + Clone + 'static> BlockBuildingHelperFromDB<DB> {
             building_ctx,
             built_block_trace: BuiltBlockTrace::new(),
             provider_factory,
-            root_hash_task_pool,
             root_hash_mode,
             cancel_on_fatal_error,
         })
@@ -256,7 +251,9 @@ impl<DB: Database + Clone + 'static> BlockBuildingHelperFromDB<DB> {
     }
 }
 
-impl<DB: Database + Clone + 'static> BlockBuildingHelper for BlockBuildingHelperFromDB<DB> {
+impl<Provider: StateProviderFactory + Clone + 'static> BlockBuildingHelper
+    for BlockBuildingHelperFromDB<Provider>
+{
     /// Forwards to partial_block and updates trace.
     fn commit_order(
         &mut self,
@@ -324,7 +321,6 @@ impl<DB: Database + Clone + 'static> BlockBuildingHelper for BlockBuildingHelper
             &self.building_ctx,
             self.provider_factory.clone(),
             self.root_hash_mode,
-            self.root_hash_task_pool,
         ) {
             Ok(finalized_block) => finalized_block,
             Err(err) => {

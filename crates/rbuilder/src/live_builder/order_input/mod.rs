@@ -14,10 +14,9 @@ use self::{
 };
 use crate::{
     primitives::{serialize::CancelShareBundle, BundleReplacementKey, Order},
-    utils::ProviderFactoryReopener,
+    provider::StateProviderFactory,
 };
 use jsonrpsee::RpcModule;
-use reth_db::database::Database;
 use std::{
     net::Ipv4Addr,
     path::PathBuf,
@@ -179,9 +178,9 @@ impl ReplaceableOrderPoolCommand {
 /// - Clean up task to remove old stuff.
 ///
 /// @Pending reengineering to modularize rpc, extra_rpc here is a patch to upgrade the created rpc server.
-pub async fn start_orderpool_jobs<DB: Database + Clone + 'static>(
+pub async fn start_orderpool_jobs<Provider: StateProviderFactory + Clone + 'static>(
     config: OrderInputConfig,
-    provider_factory: ProviderFactoryReopener<DB>,
+    provider_factory: Provider,
     extra_rpc: RpcModule<()>,
     global_cancel: CancellationToken,
 ) -> eyre::Result<(JoinHandle<()>, OrderPoolSubscriber)> {

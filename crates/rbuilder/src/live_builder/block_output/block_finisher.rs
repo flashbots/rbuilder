@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use tracing::{trace, warn};
+use tracing::trace;
 
 use crate::building::builders::{
     block_building_helper::{BlockBuildingHelper, BlockBuildingHelperError},
@@ -57,7 +57,7 @@ impl BlockFinisher {
 impl UnfinishedBlockBuildingSink for BlockFinisher {
     fn new_block(&self, block: Box<dyn BlockBuildingHelper>) {
         if let Err(err) = self.finish_and_submit(block) {
-            warn!(?err, "Error finishing block");
+            trace!(?err, "Error finishing block");
         }
     }
 

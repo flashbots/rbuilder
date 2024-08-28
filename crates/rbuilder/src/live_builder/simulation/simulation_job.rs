@@ -4,10 +4,10 @@ use crate::{
     building::sim::{SimTree, SimulatedResult, SimulationRequest},
     live_builder::order_input::order_sink::OrderPoolCommand,
     primitives::{Order, OrderId},
+    provider::StateProviderFactory,
 };
 use ahash::HashSet;
 use alloy_primitives::utils::format_ether;
-use reth_db::database::Database;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, trace, warn};
@@ -25,7 +25,7 @@ use super::SimulatedOrderCommand;
 /// If we get a cancellation and the order is in in_flight_orders we just remove it from in_flight_orders.
 /// Only SimulatedOrders still in in_flight_orders are delivered.
 /// @Pending: implement cancellations in the SimTree.
-pub struct SimulationJob<DB> {
+pub struct SimulationJob<Provider> {
     block_cancellation: CancellationToken,
     /// Input orders to be simulated
     new_order_sub: mpsc::UnboundedReceiver<OrderPoolCommand>,
@@ -35,7 +35,7 @@ pub struct SimulationJob<DB> {
     sim_results_receiver: mpsc::Receiver<SimulatedResult>,
     /// Output of the simulations
     slot_sim_results_sender: mpsc::Sender<SimulatedOrderCommand>,
-    sim_tree: SimTree<DB>,
+    sim_tree: SimTree<Provider>,
 
     orders_received: OrderCounter,
     orders_simulated_ok: OrderCounter,
@@ -56,14 +56,14 @@ pub struct SimulationJob<DB> {
     not_cancelled_sent_simulated_orders: HashSet<OrderId>,
 }
 
-impl<DB: Database + Clone + Send + 'static> SimulationJob<DB> {
+impl<Provider: StateProviderFactory + Clone + Send + 'static> SimulationJob<Provider> {
     pub fn new(
         block_cancellation: CancellationToken,
         new_order_sub: mpsc::UnboundedReceiver<OrderPoolCommand>,
         sim_req_sender: flume::Sender<SimulationRequest>,
         sim_results_receiver: mpsc::Receiver<SimulatedResult>,
         slot_sim_results_sender: mpsc::Sender<SimulatedOrderCommand>,
-        sim_tree: SimTree<DB>,
+        sim_tree: SimTree<Provider>,
     ) -> Self {
         Self {
             block_cancellation,

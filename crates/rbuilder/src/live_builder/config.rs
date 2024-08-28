@@ -30,6 +30,7 @@ use crate::{
     },
     mev_boost::BLSBlockSigner,
     primitives::mev_boost::{MevBoostRelay, RelayConfig},
+    provider::StateProviderFactory,
     utils::{build_info::rbuilder_version, ProviderFactoryReopener, Signer},
     validation_api_client::ValidationAPIClient,
 };
@@ -42,20 +43,12 @@ use ethereum_consensus::{
     builder::compute_builder_domain, crypto::SecretKey, primitives::Version,
     state_transition::Context as ContextEth,
 };
-use eyre::Context;
-use reth::tasks::pool::BlockingTaskPool;
 use reth_chainspec::{Chain, ChainSpec, NamedChain};
 use reth_db::DatabaseEnv;
 use reth_payload_builder::database::CachedReads;
-use reth_primitives::StaticFileSegment;
-use reth_provider::StaticFileProviderFactory;
 use serde::Deserialize;
 use serde_with::{serde_as, OneOrMany};
-use std::{
-    path::{Path, PathBuf},
-    str::FromStr,
-    sync::Arc,
-};
+use std::{str::FromStr, sync::Arc};
 use tracing::info;
 use url::Url;
 
@@ -285,7 +278,9 @@ impl LiveBuilderConfig for Config {
     async fn create_builder(
         &self,
         cancellation_token: tokio_util::sync::CancellationToken,
-    ) -> eyre::Result<super::LiveBuilder<Arc<DatabaseEnv>, MevBoostSlotDataGenerator>> {
+    ) -> eyre::Result<
+        super::LiveBuilder<ProviderFactoryReopener<Arc<DatabaseEnv>>, MevBoostSlotDataGenerator>,
+    > {
         let (sink_factory, relays) = self.l1_config.create_relays_sink_factory(
             self.base_config.chain_spec()?,
             Box::new(DummyBiddingService {}),
@@ -300,10 +295,8 @@ impl LiveBuilderConfig for Config {
             .base_config
             .create_builder(cancellation_token, sink_factory, payload_event)
             .await?;
-        let root_hash_task_pool = self.base_config.root_hash_task_pool()?;
         let builders = create_builders(
             self.live_builders()?,
-            root_hash_task_pool,
             self.base_config.sbundle_mergeabe_signers(),
         );
         Ok(live_builder.with_builders(builders))
@@ -313,10 +306,11 @@ impl LiveBuilderConfig for Config {
         rbuilder_version()
     }
 
-    fn build_backtest_block(
+    fn build_backtest_block<Provider: StateProviderFactory + Clone + 'static>(
+        // This part I am unsure how to fix...
         &self,
         building_algorithm_name: &str,
-        input: BacktestSimulateBlockInput<'_, Arc<DatabaseEnv>>,
+        input: BacktestSimulateBlockInput<'_, Provider>,
     ) -> eyre::Result<(Block, CachedReads)> {
         let builder_cfg = self.builder(building_algorithm_name)?;
         match builder_cfg.builder {
@@ -378,80 +372,29 @@ impl Default for Config {
     }
 }
 
-/// Open reth db and DB should be opened once per process but it can be cloned and moved to different threads.
-pub fn create_provider_factory(
-    reth_datadir: Option<&Path>,
-    reth_db_path: Option<&Path>,
-    reth_static_files_path: Option<&Path>,
-    chain_spec: Arc<ChainSpec>,
-) -> eyre::Result<ProviderFactoryReopener<Arc<DatabaseEnv>>> {
-    let reth_db_path = match (reth_db_path, reth_datadir) {
-        (Some(reth_db_path), _) => PathBuf::from(reth_db_path),
-        (None, Some(reth_datadir)) => reth_datadir.join("db"),
-        (None, None) => eyre::bail!("Either reth_db_path or reth_datadir must be provided"),
-    };
-
-    let db = open_reth_db(&reth_db_path)?;
-
-    let reth_static_files_path = match (reth_static_files_path, reth_datadir) {
-        (Some(reth_static_files_path), _) => PathBuf::from(reth_static_files_path),
-        (None, Some(reth_datadir)) => reth_datadir.join("static_files"),
-        (None, None) => {
-            eyre::bail!("Either reth_static_files_path or reth_datadir must be provided")
-        }
-    };
-
-    let provider_factory_reopener =
-        ProviderFactoryReopener::new(db, chain_spec, reth_static_files_path)?;
-
-    if provider_factory_reopener
-        .provider_factory_unchecked()
-        .static_file_provider()
-        .get_highest_static_file_block(StaticFileSegment::Headers)
-        .is_none()
-    {
-        eyre::bail!("No headers in static files. Check your static files path configuration.");
-    }
-
-    Ok(provider_factory_reopener)
-}
-
-fn open_reth_db(reth_db_path: &Path) -> eyre::Result<Arc<DatabaseEnv>> {
-    Ok(Arc::new(
-        reth_db::open_db_read_only(reth_db_path, Default::default()).context("DB open error")?,
-    ))
-}
-
 pub fn coinbase_signer_from_secret_key(secret_key: &str) -> eyre::Result<Signer> {
     let secret_key = B256::from_str(secret_key)?;
     Ok(Signer::try_from_secret(secret_key)?)
 }
 
-fn create_builders(
+fn create_builders<Provider: StateProviderFactory + Clone + 'static>(
     configs: Vec<BuilderConfig>,
-    root_hash_task_pool: BlockingTaskPool,
     sbundle_mergeabe_signers: Vec<Address>,
-) -> Vec<Arc<dyn BlockBuildingAlgorithm<Arc<DatabaseEnv>>>> {
+) -> Vec<Arc<dyn BlockBuildingAlgorithm<Provider>>> {
     configs
         .into_iter()
-        .map(|cfg| create_builder(cfg, &root_hash_task_pool, &sbundle_mergeabe_signers))
+        .map(|cfg| create_builder(cfg, &sbundle_mergeabe_signers))
         .collect()
 }
 
-fn create_builder(
+fn create_builder<Provider: StateProviderFactory + Clone + 'static>(
     cfg: BuilderConfig,
-    root_hash_task_pool: &BlockingTaskPool,
     sbundle_mergeabe_signers: &[Address],
-) -> Arc<dyn BlockBuildingAlgorithm<Arc<DatabaseEnv>>> {
+) -> Arc<dyn BlockBuildingAlgorithm<Provider>> {
     match cfg.builder {
-        SpecificBuilderConfig::OrderingBuilder(order_cfg) => {
-            Arc::new(OrderingBuildingAlgorithm::new(
-                root_hash_task_pool.clone(),
-                sbundle_mergeabe_signers.to_vec(),
-                order_cfg,
-                cfg.name,
-            ))
-        }
+        SpecificBuilderConfig::OrderingBuilder(order_cfg) => Arc::new(
+            OrderingBuildingAlgorithm::new(sbundle_mergeabe_signers.to_vec(), order_cfg, cfg.name),
+        ),
     }
 }
 
@@ -497,7 +440,7 @@ mod test {
     use super::*;
     use crate::live_builder::base_config::load_config_toml_and_env;
     use alloy_primitives::{address, fixed_bytes};
-    use std::env;
+    use std::{env, path::PathBuf};
     use url::Url;
 
     #[test]

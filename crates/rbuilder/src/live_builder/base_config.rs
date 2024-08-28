@@ -151,7 +151,7 @@ impl BaseConfig {
         cancellation_token: tokio_util::sync::CancellationToken,
         sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
         slot_source: SlotSourceType,
-    ) -> eyre::Result<super::LiveBuilder<Arc<DatabaseEnv>, SlotSourceType>>
+    ) -> eyre::Result<super::LiveBuilder<ProviderFactoryReopener<Arc<DatabaseEnv>>, SlotSourceType>>
     where
         SlotSourceType: SlotSource,
     {
@@ -172,29 +172,31 @@ impl BaseConfig {
         sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
         slot_source: SlotSourceType,
         provider_factory: ProviderFactoryReopener<Arc<DatabaseEnv>>,
-    ) -> eyre::Result<super::LiveBuilder<Arc<DatabaseEnv>, SlotSourceType>>
+    ) -> eyre::Result<super::LiveBuilder<ProviderFactoryReopener<Arc<DatabaseEnv>>, SlotSourceType>>
     where
         SlotSourceType: SlotSource,
     {
-        Ok(LiveBuilder::<Arc<DatabaseEnv>, SlotSourceType> {
-            watchdog_timeout: self.watchdog_timeout(),
-            error_storage_path: self.error_storage_path.clone(),
-            simulation_threads: self.simulation_threads,
-            order_input_config: OrderInputConfig::from_config(self),
-            blocks_source: slot_source,
-            chain_chain_spec: self.chain_spec()?,
-            provider_factory,
+        Ok(
+            LiveBuilder::<ProviderFactoryReopener<Arc<DatabaseEnv>>, SlotSourceType> {
+                watchdog_timeout: self.watchdog_timeout(),
+                error_storage_path: self.error_storage_path.clone(),
+                simulation_threads: self.simulation_threads,
+                order_input_config: OrderInputConfig::from_config(self),
+                blocks_source: slot_source,
+                chain_chain_spec: self.chain_spec()?,
+                provider_factory,
 
-            coinbase_signer: self.coinbase_signer()?,
-            extra_data: self.extra_data()?,
-            blocklist: self.blocklist()?,
+                coinbase_signer: self.coinbase_signer()?,
+                extra_data: self.extra_data()?,
+                blocklist: self.blocklist()?,
 
-            global_cancellation: cancellation_token,
+                global_cancellation: cancellation_token,
 
-            extra_rpc: RpcModule::new(()),
-            sink_factory,
-            builders: Vec::new(),
-        })
+                extra_rpc: RpcModule::new(()),
+                sink_factory,
+                builders: Vec::new(),
+            },
+        )
     }
 
     pub fn jsonrpc_server_ip(&self) -> Ipv4Addr {
@@ -225,6 +227,7 @@ impl BaseConfig {
             self.reth_static_files_path.as_deref(),
             self.chain_spec()?,
             false,
+            self.root_hash_task_pool_threads,
         )
     }
 
@@ -409,6 +412,7 @@ pub fn create_provider_factory(
     reth_static_files_path: Option<&Path>,
     chain_spec: Arc<ChainSpec>,
     rw: bool,
+    task_pool_threads: usize,
 ) -> eyre::Result<ProviderFactoryReopener<Arc<DatabaseEnv>>> {
     // shellexpand the reth datadir
     let reth_datadir = if let Some(reth_datadir) = reth_datadir {
@@ -442,7 +446,7 @@ pub fn create_provider_factory(
     };
 
     let provider_factory_reopener =
-        ProviderFactoryReopener::new(db, chain_spec, reth_static_files_path)?;
+        ProviderFactoryReopener::new(db, chain_spec, reth_static_files_path, task_pool_threads)?;
 
     if provider_factory_reopener
         .provider_factory_unchecked()
@@ -545,6 +549,7 @@ mod test {
                 reth_static_files_path.as_deref(),
                 Default::default(),
                 true,
+                1,
             );
 
             if *should_succeed {

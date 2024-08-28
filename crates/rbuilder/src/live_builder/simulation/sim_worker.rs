@@ -4,11 +4,10 @@ use crate::{
         simulate_order, BlockState,
     },
     live_builder::simulation::CurrentSimulationContexts,
+    provider::StateProviderFactory,
     telemetry,
     telemetry::add_sim_thread_utilisation_timings,
-    utils::ProviderFactoryReopener,
 };
-use reth_db::database::Database;
 use reth_payload_builder::database::CachedReads;
 use std::{
     sync::{Arc, Mutex},
@@ -21,10 +20,10 @@ use tracing::error;
 /// Function that continuously looks for a SimulationContext on ctx and when it finds one it polls its "request for simulation" channel (SimulationContext::requests).
 /// When the channel closes it goes back to waiting for a new SimulationContext.
 /// It's blocking so it's expected to run in its own thread.
-pub fn run_sim_worker<DB: Database + Clone + Send + 'static>(
+pub fn run_sim_worker<Provider: StateProviderFactory + Clone + Send + 'static>(
     worker_id: usize,
     ctx: Arc<Mutex<CurrentSimulationContexts>>,
-    provider_factory: ProviderFactoryReopener<DB>,
+    provider_factory: Provider,
     global_cancellation: CancellationToken,
 ) {
     loop {
@@ -42,16 +41,6 @@ pub fn run_sim_worker<DB: Database + Clone + Send + 'static>(
             } else {
                 // contexts are created for a duration of the slot so this is not a problem
                 sleep(Duration::from_millis(50));
-            }
-        };
-
-        let provider_factory = match provider_factory.check_consistency_and_reopen_if_needed(
-            current_sim_context.block_ctx.block_env.number.to(),
-        ) {
-            Ok(provider_factory) => provider_factory,
-            Err(err) => {
-                error!(?err, "Error while reopening provider factory");
-                continue;
             }
         };
 

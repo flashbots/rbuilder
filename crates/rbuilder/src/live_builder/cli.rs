@@ -11,8 +11,9 @@ use crate::{
     live_builder::{
         base_config::load_config_toml_and_env, payload_events::MevBoostSlotDataGenerator,
     },
+    provider::StateProviderFactory,
     telemetry::spawn_telemetry_server,
-    utils::build_info::Version,
+    utils::{build_info::Version, ProviderFactoryReopener},
 };
 
 use super::{base_config::BaseConfig, LiveBuilder};
@@ -43,15 +44,17 @@ pub trait LiveBuilderConfig: std::fmt::Debug + serde::de::DeserializeOwned {
         &self,
         cancellation_token: CancellationToken,
     ) -> impl std::future::Future<
-        Output = eyre::Result<LiveBuilder<Arc<DatabaseEnv>, MevBoostSlotDataGenerator>>,
+        Output = eyre::Result<
+            LiveBuilder<ProviderFactoryReopener<Arc<DatabaseEnv>>, MevBoostSlotDataGenerator>,
+        >,
     > + Send;
 
     /// Patch until we have a unified way of backtesting using the exact algorithms we use on the LiveBuilder.
     /// building_algorithm_name will come from the specific configuration.
-    fn build_backtest_block(
+    fn build_backtest_block<Provider: StateProviderFactory + Clone + 'static>(
         &self,
         building_algorithm_name: &str,
-        input: BacktestSimulateBlockInput<'_, Arc<DatabaseEnv>>,
+        input: BacktestSimulateBlockInput<'_, Provider>,
     ) -> eyre::Result<(Block, CachedReads)>;
 }
 

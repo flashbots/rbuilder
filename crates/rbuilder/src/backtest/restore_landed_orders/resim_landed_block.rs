@@ -1,18 +1,22 @@
-use crate::building::evm_inspector::SlotKey;
-use crate::building::tracers::AccumulatorSimulationTracer;
-use crate::building::{BlockBuildingContext, BlockState, PartialBlock, PartialBlockFork};
-use crate::primitives::serialize::{RawTx, TxEncoding};
-use crate::primitives::TransactionSignedEcRecoveredWithBlobs;
-use crate::utils::signed_uint_delta;
+use crate::{
+    building::{
+        evm_inspector::SlotKey, tracers::AccumulatorSimulationTracer, BlockBuildingContext,
+        BlockState, PartialBlock, PartialBlockFork,
+    },
+    primitives::{
+        serialize::{RawTx, TxEncoding},
+        TransactionSignedEcRecoveredWithBlobs,
+    },
+    provider::StateProviderFactory,
+    utils::signed_uint_delta,
+};
 use ahash::{HashMap, HashSet};
 use alloy_consensus::TxEnvelope;
 use alloy_eips::eip2718::Encodable2718;
 use alloy_primitives::{Address, B256, I256};
 use eyre::Context;
 use reth_chainspec::ChainSpec;
-use reth_db::DatabaseEnv;
 use reth_primitives::{Receipt, TransactionSignedEcRecovered};
-use reth_provider::ProviderFactory;
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -23,8 +27,8 @@ pub struct ExecutedTxs {
     pub conflicting_txs: Vec<(B256, Vec<SlotKey>)>,
 }
 
-pub fn sim_historical_block(
-    provider_factory: ProviderFactory<Arc<DatabaseEnv>>,
+pub fn sim_historical_block<Provider: StateProviderFactory>(
+    provider_factory: Provider,
     chain_spec: Arc<ChainSpec>,
     onchain_block: alloy_rpc_types::Block,
 ) -> eyre::Result<Vec<ExecutedTxs>> {
