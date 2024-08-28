@@ -15,7 +15,8 @@ use std::{
     path::PathBuf,
     process::{Child, Command},
     str::FromStr,
-    time::SystemTime,
+    thread,
+    time::{Instant, SystemTime},
 };
 use time::{format_description, OffsetDateTime};
 use url::Url;
@@ -26,6 +27,7 @@ pub enum PlaygroundError {
     BinaryNotFound,
     SetupError,
     IntegrationPathNotFound,
+    Timeout,
 }
 
 pub struct Playground {
@@ -77,7 +79,7 @@ impl Playground {
         let mut log_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         log_path.push(format!("../../integration_logs/{}.log", name));
 
-        let log = open_log_file(log_path).map_err(|_| PlaygroundError::SetupError)?;
+        let log = open_log_file(log_path.clone()).map_err(|_| PlaygroundError::SetupError)?;
         let stdout = log.try_clone().map_err(|_| PlaygroundError::SetupError)?;
         let stderr = log.try_clone().map_err(|_| PlaygroundError::SetupError)?;
 
@@ -93,6 +95,26 @@ impl Playground {
                 _ => Err(PlaygroundError::SpawnError),
             },
         }?;
+
+        let start = Instant::now();
+        loop {
+            if start.elapsed().as_secs() > 10 {
+                return Err(PlaygroundError::Timeout);
+            }
+
+            // from the log file, check if the server has started
+            // by checking if the string "RPC server job: started" is present
+            let mut file = File::open(&log_path).map_err(|_| PlaygroundError::SetupError)?;
+            let mut contents = String::new();
+            file.read_to_string(&mut contents)
+                .map_err(|_| PlaygroundError::SetupError)?;
+
+            if contents.contains("RPC server job: started") {
+                break;
+            }
+
+            thread::sleep(std::time::Duration::from_millis(100));
+        }
 
         Ok(Self { builder })
     }
