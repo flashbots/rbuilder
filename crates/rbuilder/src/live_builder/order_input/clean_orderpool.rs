@@ -4,7 +4,7 @@ use crate::{
     provider::StateProviderFactory,
     telemetry::{set_current_block, set_ordepool_count},
 };
-use alloy_provider::{IpcConnect, Provider, ProviderBuilder};
+use alloy_provider::{IpcConnect, Provider as JsonRPCProvider, ProviderBuilder};
 use futures::StreamExt;
 use std::{
     pin::pin,
@@ -17,9 +17,9 @@ use tracing::{debug, error, info};
 
 /// Performs maintenance operations on every new header by calling OrderPool::head_updated.
 /// Also calls some functions to generate metrics.
-pub async fn spawn_clean_orderpool_job<SProvider: StateProviderFactory + Clone + 'static>(
+pub async fn spawn_clean_orderpool_job<Provider: StateProviderFactory + Clone + 'static>(
     config: OrderInputConfig,
-    provider_factory: SProvider,
+    provider_factory: Provider,
     orderpool: Arc<Mutex<OrderPool>>,
     global_cancellation: CancellationToken,
 ) -> eyre::Result<JoinHandle<()>> {
