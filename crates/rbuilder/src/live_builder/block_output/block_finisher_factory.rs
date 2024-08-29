@@ -10,7 +10,7 @@ use crate::{
 use super::{
     bidding::{BiddingService, SlotBidder},
     block_finisher::BlockFinisher,
-    relay_submit::BuilderSinkFactory,
+    relay_submit::{BuilderSinkFactory, NullBestBidSource},
 };
 
 #[derive(Debug)]
@@ -45,7 +45,7 @@ impl UnfinishedBlockBuildingSinkFactory for BlockFinisherFactory {
         );
         let finished_block_sink = self.block_sink_factory.create_builder_sink(
             slot_data,
-            slot_bidder.clone(),
+            Arc::new(NullBestBidSource {}),
             cancel.clone(),
         );
 

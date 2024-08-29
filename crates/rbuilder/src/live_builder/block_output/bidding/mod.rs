@@ -22,9 +22,6 @@ pub trait SlotBidder: Send + Sync + std::fmt::Debug {
         unsealed_block_profit: U256,
         slot_timestamp: time::OffsetDateTime,
     ) -> SealInstruction;
-
-    /// Returns best bid value available on the relays.
-    fn best_bid_value(&self) -> Option<U256>;
 }
 
 impl SlotBidder for () {
@@ -38,10 +35,6 @@ impl SlotBidder for () {
         _slot_timestamp: time::OffsetDateTime,
     ) -> SealInstruction {
         SealInstruction::Value(unsealed_block_profit)
-    }
-
-    fn best_bid_value(&self) -> Option<U256> {
-        None
     }
 }
 

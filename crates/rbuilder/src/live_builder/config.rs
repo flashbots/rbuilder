@@ -3,10 +3,7 @@
 //!
 use super::{
     base_config::BaseConfig,
-    block_output::{
-        bidding::BiddingService,
-        relay_submit::{RelaySubmitSinkFactory, SubmissionConfig},
-    },
+    block_output::relay_submit::{RelaySubmitSinkFactory, SubmissionConfig},
 };
 use crate::{
     beacon_api_client::Client,
@@ -14,7 +11,6 @@ use crate::{
         builders::{
             ordering_builder::{OrderingBuilderConfig, OrderingBuildingAlgorithm},
             BacktestSimulateBlockInput, Block, BlockBuildingAlgorithm,
-            UnfinishedBlockBuildingSinkFactory,
         },
         Sorting,
     },
@@ -240,15 +236,11 @@ impl L1Config {
         })
     }
 
-    /// Creates the RelaySubmitSinkFactory and also returns the asociated relays.
-    pub fn create_relays_sink_factory(
+    /// Creates the RelaySubmitSinkFactory and also returns the associated relays.
+    pub fn create_relays_sealed_sink_factory(
         &self,
         chain_spec: Arc<ChainSpec>,
-        bidding_service: Box<dyn BiddingService>,
-    ) -> eyre::Result<(
-        Box<dyn UnfinishedBlockBuildingSinkFactory>,
-        Vec<MevBoostRelay>,
-    )> {
+    ) -> eyre::Result<(Box<dyn BuilderSinkFactory>, Vec<MevBoostRelay>)> {
         let submission_config = self.submission_config(chain_spec)?;
         info!(
             "Builder mev boost normal relay pubkey: {:?}",
@@ -270,10 +262,7 @@ impl L1Config {
             submission_config,
             relays.clone(),
         ));
-        Ok((
-            Box::new(BlockFinisherFactory::new(bidding_service, sink_factory)),
-            relays,
-        ))
+        Ok((sink_factory, relays))
     }
 }
 
@@ -286,10 +275,14 @@ impl LiveBuilderConfig for Config {
         &self,
         cancellation_token: tokio_util::sync::CancellationToken,
     ) -> eyre::Result<super::LiveBuilder<Arc<DatabaseEnv>, MevBoostSlotDataGenerator>> {
-        let (sink_factory, relays) = self.l1_config.create_relays_sink_factory(
-            self.base_config.chain_spec()?,
+        let (sink_sealed_factory, relays) = self
+            .l1_config
+            .create_relays_sealed_sink_factory(self.base_config.chain_spec()?)?;
+        let sink_factory = Box::new(BlockFinisherFactory::new(
             Box::new(DummyBiddingService {}),
-        )?;
+            sink_sealed_factory,
+        ));
+
         let payload_event = MevBoostSlotDataGenerator::new(
             self.l1_config.beacon_clients()?,
             relays,

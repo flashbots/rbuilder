@@ -17,6 +17,7 @@ use crate::{
 };
 use ahash::HashMap;
 use alloy_primitives::{utils::format_ether, U256};
+use mockall::automock;
 use reth_chainspec::ChainSpec;
 use reth_primitives::SealedBlock;
 use std::{
@@ -26,8 +27,6 @@ use std::{
 use tokio::time::{sleep, Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info_span, trace, warn, Instrument};
-
-use super::bidding::SlotBidder;
 
 const SIM_ERROR_CATEGORY: &str = "submit_block_simulation";
 const VALIDATION_ERROR_CATEGORY: &str = "validate_block_simulation";
@@ -71,8 +70,23 @@ impl BestBlockCell {
 }
 
 /// Final destination of blocks (eg: submit to the relays).
+#[automock]
 pub trait BlockBuildingSink: std::fmt::Debug + Send + Sync {
     fn new_block(&self, block: Block);
+}
+
+/// trait to get the best bid from the competition.
+/// Used only by BuilderSinkFactory.
+pub trait BestBidSource: Send + Sync {
+    fn best_bid_value(&self) -> Option<U256>;
+}
+
+pub struct NullBestBidSource {}
+
+impl BestBidSource for NullBestBidSource {
+    fn best_bid_value(&self) -> Option<U256> {
+        None
+    }
 }
 
 /// Factory used to create BlockBuildingSink..
@@ -82,7 +96,7 @@ pub trait BuilderSinkFactory: std::fmt::Debug + Send + Sync {
     fn create_builder_sink(
         &self,
         slot_data: MevBoostSlotData,
-        slot_bidder: Arc<dyn SlotBidder>,
+        bid_source: Arc<dyn BestBidSource>,
         cancel: CancellationToken,
     ) -> Box<dyn BlockBuildingSink>;
 }
@@ -131,7 +145,7 @@ async fn run_submit_to_relays_job(
     relays: Vec<MevBoostRelay>,
     config: SubmissionConfig,
     cancel: CancellationToken,
-    slot_bidder: Arc<dyn SlotBidder>,
+    bid_source: Arc<dyn BestBidSource>,
 ) -> Option<BuiltBlockInfo> {
     let mut res = None;
     // first, sleep to slot time - slot_delta_to_start_submits
@@ -195,7 +209,7 @@ async fn run_submit_to_relays_job(
             .count();
         let submission_optimistic =
             config.optimistic_enabled && block.trace.bid_value < config.optimistic_max_bid_value;
-        let best_bid_value = slot_bidder.best_bid_value().unwrap_or_default();
+        let best_bid_value = bid_source.best_bid_value().unwrap_or_default();
         let submission_span = info_span!(
             "bid",
             bid_value = format_ether(block.trace.bid_value),
@@ -387,7 +401,7 @@ pub async fn run_submit_to_relays_job_and_metrics(
     relays: Vec<MevBoostRelay>,
     config: SubmissionConfig,
     cancel: CancellationToken,
-    slot_bidder: Arc<dyn SlotBidder>,
+    bid_source: Arc<dyn BestBidSource>,
 ) {
     let best_bid = run_submit_to_relays_job(
         best_bid.clone(),
@@ -395,7 +409,7 @@ pub async fn run_submit_to_relays_job_and_metrics(
         relays,
         config,
         cancel,
-        slot_bidder,
+        bid_source,
     )
     .await;
     if let Some(best_bid) = best_bid {
@@ -527,7 +541,7 @@ impl BuilderSinkFactory for RelaySubmitSinkFactory {
     fn create_builder_sink(
         &self,
         slot_data: MevBoostSlotData,
-        slot_bidder: Arc<dyn SlotBidder>,
+        bid_source: Arc<dyn BestBidSource>,
         cancel: CancellationToken,
     ) -> Box<dyn BlockBuildingSink> {
         let best_bid = BestBlockCell::default();
@@ -548,7 +562,7 @@ impl BuilderSinkFactory for RelaySubmitSinkFactory {
             relays,
             self.submission_config.clone(),
             cancel,
-            slot_bidder,
+            bid_source,
         ));
         Box::new(best_bid)
     }

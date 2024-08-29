@@ -1,5 +1,6 @@
 //! builders is a subprocess that builds a block
 pub mod block_building_helper;
+pub mod mock_block_building_helper;
 pub mod ordering_builder;
 
 use crate::{
