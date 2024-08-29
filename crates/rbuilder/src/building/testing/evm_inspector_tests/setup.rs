@@ -111,10 +111,8 @@ impl TestSetup {
                 .with_db(db_ref.as_mut())
                 .append_handler_register(inspector_handle_register)
                 .build();
-            let state_and_output = evm
-                .transact()
+            evm.transact()
                 .map_err(|e| eyre::eyre!("execution failure: {:?}", e))?;
-            println!("TransactOutput {:#?}", state_and_output);
         }
 
         Ok(used_state_trace)
