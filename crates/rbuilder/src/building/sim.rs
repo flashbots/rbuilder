@@ -206,7 +206,13 @@ impl<Provider: StateProviderFactory> SimTree<Provider> {
 
     pub fn push_orders(&mut self, orders: Vec<Order>) -> Result<(), ProviderError> {
         let state = self.nonce_cache.get_ref()?;
+        let total = orders.len();
+        println!("Nim orders: {:?}", orders.len());
+        let mut count = 0;
         for order in orders {
+            println!("Nim order: {:?}/{:?}", count, total);
+            count += 1;
+
             self.push_order(order, &state)?;
         }
         Ok(())
@@ -311,23 +317,34 @@ pub fn simulate_all_orders_with_sim_tree<Provider: StateProviderFactory + Clone>
     orders: &[Order],
     randomize_insertion: bool,
 ) -> Result<(Vec<SimulatedOrder>, Vec<OrderErr>), CriticalCommitOrderError> {
+    println!("HERE!");
+
     let mut sim_tree = SimTree::new(factory.clone(), ctx.attributes.parent);
+
+    println!("HERE2!");
 
     let mut orders = orders.to_vec();
     let random_insert_size = max(orders.len() / 20, 1);
     if randomize_insertion {
+        println!("HERE2.1!");
+
         let mut rng = rand::thread_rng();
         // shuffle orders
         orders.shuffle(&mut rng);
     } else {
+        println!("HERE2.2!");
+
         sim_tree.push_orders(orders.clone())?;
     }
+    println!("HERE3!");
 
     let mut sim_errors = Vec::new();
     let mut state_for_sim =
         Arc::<dyn StateProvider>::from(factory.history_by_block_hash(ctx.attributes.parent)?);
     let mut cache_reads = Some(CachedReads::default());
     loop {
+        println!("Simulating orders, orders len: {}", orders.len());
+
         // mix new orders into the sim_tree
         if randomize_insertion && !orders.is_empty() {
             let insert_size = min(random_insert_size, orders.len());
@@ -343,6 +360,8 @@ pub fn simulate_all_orders_with_sim_tree<Provider: StateProviderFactory + Clone>
                 break;
             }
         }
+
+        println!("Simulating orders, sim_tasks len: {}", sim_tasks.len());
 
         let mut sim_results = Vec::new();
         for sim_task in sim_tasks {

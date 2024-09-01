@@ -2,6 +2,8 @@ use reth_errors::ProviderResult;
 use reth_primitives::{Block, BlockHash, BlockNumber, Header, B256};
 use reth_provider::{ExecutionOutcome, StateProviderBox};
 
+pub mod http_provider;
+
 pub trait StateProviderFactory: Send + Sync {
     fn history_by_block_number(
         &self,

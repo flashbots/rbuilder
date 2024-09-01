@@ -676,6 +676,9 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         ctx: &BlockBuildingContext,
         state: &mut BlockState,
     ) -> eyre::Result<()> {
+        println!("SKIP FOR NOW; FIX LATER PRECALL");
+        return Ok(());
+
         let mut db = state.new_db_ref();
         pre_block_beacon_root_contract_call(
             db.as_mut(),
