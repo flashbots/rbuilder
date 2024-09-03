@@ -376,7 +376,7 @@ impl ExecutionError {
                     tx: tx_nonce,
                     ..
                 }),
-            )) => Some((order.list_txs().first()?.0.tx.signer(), *tx_nonce)),
+            )) => Some((order.list_txs().first()?.0.signer(), *tx_nonce)),
             ExecutionError::OrderError(OrderErr::Bundle(BundleErr::InvalidTransaction(
                 hash,
                 TransactionErr::InvalidTransaction(InvalidTransaction::NonceTooHigh {
@@ -387,9 +387,8 @@ impl ExecutionError {
                 let signer = order
                     .list_txs()
                     .iter()
-                    .find(|(tx, _)| &tx.tx.hash == hash)?
+                    .find(|(tx, _)| TransactionSignedEcRecoveredWithBlobs::hash(tx) == *hash)?
                     .0
-                    .tx
                     .signer();
                 Some((signer, *tx_nonce))
             }
@@ -629,11 +628,10 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
 
         // double check blocked txs
         for tx_with_blob in &self.executed_tx {
-            let tx = &tx_with_blob.tx;
-            if ctx.blocklist.contains(&tx.signer()) {
+            if ctx.blocklist.contains(&tx_with_blob.signer()) {
                 return Err(eyre::eyre!("To from blocked address."));
             }
-            if let Some(to) = tx.to() {
+            if let Some(to) = tx_with_blob.to() {
                 if ctx.blocklist.contains(&to) {
                     return Err(eyre::eyre!("Tx to blocked address"));
                 }
@@ -681,7 +679,11 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
 
         let block = Block {
             header,
-            body: self.executed_tx.into_iter().map(|t| t.tx.into()).collect(),
+            body: self
+                .executed_tx
+                .into_iter()
+                .map(|t| t.into_internal_tx_unsecure().into())
+                .collect(),
             ommers: vec![],
             withdrawals,
             requests,

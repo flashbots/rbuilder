@@ -176,7 +176,7 @@ mod test {
         }
         .unwrap();
 
-        assert_eq!(tx_with_blobs.tx.hash(), *pending_tx.tx_hash());
+        assert_eq!(tx_with_blobs.hash(), *pending_tx.tx_hash());
         assert_eq!(tx_with_blobs.blobs_sidecar.blobs.len(), 1);
 
         // send another tx without blobs
@@ -198,7 +198,7 @@ mod test {
         }
         .unwrap();
 
-        assert_eq!(tx_without_blobs.tx.hash(), *pending_tx.tx_hash());
+        assert_eq!(tx_without_blobs.hash(), *pending_tx.tx_hash());
         assert_eq!(tx_without_blobs.blobs_sidecar.blobs.len(), 0);
     }
 }
