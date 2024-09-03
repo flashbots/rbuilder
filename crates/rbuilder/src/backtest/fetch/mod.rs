@@ -222,7 +222,11 @@ impl HistoricalDataFetcher {
 
         let mut orders: Vec<OrdersWithTimestamp> = vec![];
         let mut built_block_data = None;
-        let block_ref = BlockRef::new(block_number, block_timestamp, onchain_block.header.hash);
+        let block_ref = BlockRef::new(
+            block_number,
+            block_timestamp,
+            Some(onchain_block.header.hash),
+        );
 
         for datasource in &self.data_sources {
             let mut data = datasource.get_data(block_ref).await?;

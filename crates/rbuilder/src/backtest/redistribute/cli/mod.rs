@@ -116,7 +116,7 @@ fn process_redisribution<ConfigType: LiveBuilderConfig + Send + Sync>(
     distribute_to_mempool_txs: bool,
 ) -> eyre::Result<()> {
     let block_number = block_data.block_number;
-    let block_hash = block_data.onchain_block.header.hash.unwrap_or_default();
+    let block_hash = block_data.onchain_block.header.hash;
     info!(block_number, "Calculating redistribution for a block");
     let redistribution_values = match calc_redistributions(
         provider_factory.clone(),

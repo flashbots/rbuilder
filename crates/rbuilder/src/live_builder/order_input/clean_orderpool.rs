@@ -45,7 +45,7 @@ pub async fn spawn_clean_orderpool_job<DB: Database + Clone + 'static>(
         while let Some(block) = new_block_stream.next().await {
             let provider_factory = provider_factory.provider_factory_unchecked();
 
-            let block_number = block.header.number.unwrap_or_default();
+            let block_number = block.header.number;
             set_current_block(block_number);
             let state = match provider_factory.latest() {
                 Ok(state) => state,

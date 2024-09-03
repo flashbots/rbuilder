@@ -222,7 +222,7 @@ fn get_available_orders(
     }
     if distribute_to_mempool_txs {
         for tx in block_data.onchain_block.transactions.hashes() {
-            let id = OrderId::Tx(*tx);
+            let id = OrderId::Tx(tx);
             if let Some(order) = orders_by_id.get(&id) {
                 included_orders_available.insert(order.order.id(), order.clone());
             }
@@ -720,7 +720,7 @@ fn collect_redistribution_result(
 ) -> RedistributionBlockOutput {
     let mut result = RedistributionBlockOutput {
         block_number: block_data.block_number,
-        block_hash: block_data.onchain_block.header.hash.unwrap_or_default(),
+        block_hash: block_data.onchain_block.header.hash,
         block_profit: onchain_block_profit,
         identities: Vec::new(),
         landed_orders: Vec::new(),
