@@ -34,7 +34,9 @@ use super::Block;
 /// 2 - Call lots of commit_order.
 /// 3 - Call set_trace_fill_time when you are done calling commit_order (we still have to review this step).
 /// 4 - Call finalize_block.
-pub trait BlockBuildingHelper {
+pub trait BlockBuildingHelper: Send {
+    fn box_clone(&self) -> Box<dyn BlockBuildingHelper>;
+
     /// Tries to add an order to the end of the block.
     /// Block state changes only on Ok(Ok)
     fn commit_order(
@@ -379,5 +381,9 @@ impl<DB: Database + Clone + 'static> BlockBuildingHelper for BlockBuildingHelper
 
     fn building_context(&self) -> &BlockBuildingContext {
         &self.building_ctx
+    }
+
+    fn box_clone(&self) -> Box<dyn BlockBuildingHelper> {
+        Box::new(self.clone())
     }
 }

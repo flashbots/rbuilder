@@ -228,6 +228,21 @@ impl BlockBuildingContext {
         }
     }
 
+    /// Useless BlockBuildingContext for testing in contexts where we can't avoid having a BlockBuildingContext.
+    pub fn dummy_for_testing() -> Self {
+        let mut onchain_block = alloy_rpc_types::Block::default();
+        onchain_block.header.base_fee_per_gas = Some(0);
+        BlockBuildingContext::from_onchain_block(
+            onchain_block,
+            reth_chainspec::MAINNET.clone(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+        )
+    }
+
     pub fn modify_use_suggested_fee_recipient_as_coinbase(&mut self) {
         self.builder_signer = None;
         self.block_env.coinbase = self.attributes.suggested_fee_recipient;
