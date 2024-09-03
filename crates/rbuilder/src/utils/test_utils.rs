@@ -1,7 +1,6 @@
 use crate::primitives::{OrderId, TransactionSignedEcRecoveredWithBlobs};
 use alloy_primitives::{Address, B256, I256, U256};
 use reth_primitives::{TransactionSigned, TransactionSignedEcRecovered};
-use std::sync::Arc;
 
 pub fn order_id(id: u64) -> OrderId {
     OrderId::Tx(hash(id))
