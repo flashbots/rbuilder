@@ -395,11 +395,11 @@ impl ShareBundle {
     }
 }
 
-/// First idea to handle blobs might change.
+/// First idea to handle blobs, might change.
 /// Don't like the fact that blobs_sidecar exists no matter if TransactionSignedEcRecovered contains a non blob tx.
 /// Great effort was put in avoiding simple access to the internal tx so we don't accidentally leak information on logs (particularly the tx sign).
 #[derive(Derivative)]
-#[derivative(Debug, Clone, PartialEq, Eq)]
+#[derivative(Clone, PartialEq, Eq)]
 pub struct TransactionSignedEcRecoveredWithBlobs {
     tx: TransactionSignedEcRecovered,
     /// Will have a non empty BlobTransactionSidecar if TransactionSignedEcRecovered is 4844
@@ -409,15 +409,20 @@ pub struct TransactionSignedEcRecoveredWithBlobs {
     pub metadata: Metadata,
 }
 
-impl AsRef<TransactionSignedEcRecovered> for TransactionSignedEcRecoveredWithBlobs {
-    fn as_ref(&self) -> &TransactionSignedEcRecovered {
+impl AsRef<TransactionSigned> for TransactionSignedEcRecoveredWithBlobs {
+    fn as_ref(&self) -> &TransactionSigned {
         &self.tx
     }
 }
 
-impl AsRef<TransactionSigned> for TransactionSignedEcRecoveredWithBlobs {
-    fn as_ref(&self) -> &TransactionSigned {
-        &self.tx
+/// Custom fmt to avoid leaking information.
+impl std::fmt::Debug for TransactionSignedEcRecoveredWithBlobs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "TransactionSignedEcRecoveredWithBlobs {{ hash: {} }}",
+            self.hash(),
+        )
     }
 }
 
