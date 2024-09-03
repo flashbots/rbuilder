@@ -209,8 +209,7 @@ async fn read_block_data(
 
     println!(
         "Block: {} {:?}",
-        block_data.block_number,
-        block_data.onchain_block.header.hash.unwrap_or_default()
+        block_data.block_number, block_data.onchain_block.header.hash
     );
     println!(
         "bid value: {}",

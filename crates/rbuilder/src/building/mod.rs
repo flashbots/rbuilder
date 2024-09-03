@@ -156,7 +156,7 @@ impl BlockBuildingContext {
         suggested_fee_recipient: Address,
         builder_signer: Option<Signer>,
     ) -> BlockBuildingContext {
-        let block_number = onchain_block.header.number.unwrap_or(1);
+        let block_number = onchain_block.header.number;
 
         let blob_excess_gas_and_price =
             if chain_spec.is_cancun_active_at_timestamp(onchain_block.header.timestamp) {
@@ -691,8 +691,6 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             &ctx.chain_spec,
             &ctx.initialized_cfg,
             &ctx.block_env,
-            ctx.block_env.number.to(),
-            ctx.attributes.timestamp(),
             ctx.attributes.parent_beacon_block_root(),
         )?;
         db.as_mut().merge_transitions(BundleRetention::Reverts);
