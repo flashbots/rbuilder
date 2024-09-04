@@ -247,7 +247,7 @@ fn restore_available_landed_orders(
     .into_iter()
     .map(|executed_tx| {
         ExecutedBlockTx::new(
-            executed_tx.tx.hash,
+            executed_tx.hash(),
             executed_tx.coinbase_profit,
             executed_tx.receipt.success,
         )
@@ -949,7 +949,7 @@ fn order_redistribution_address(order: &Order, protect_signers: &[Address]) -> O
         Some(signer) => signer,
         None => {
             return if order.is_tx() {
-                Some(order.list_txs().first()?.0.tx.signer())
+                Some(order.list_txs().first()?.0.signer())
             } else {
                 None
             }
@@ -964,7 +964,7 @@ fn order_redistribution_address(order: &Order, protect_signers: &[Address]) -> O
         Order::Bundle(bundle) => {
             // if its just a bundle we take origin tx of the first transaction
             let tx = bundle.txs.first()?;
-            Some(tx.tx.signer())
+            Some(tx.signer())
         }
         Order::ShareBundle(bundle) => {
             // if it is a share bundle we take either
@@ -977,7 +977,7 @@ fn order_redistribution_address(order: &Order, protect_signers: &[Address]) -> O
 
             let txs = bundle.list_txs();
             let (first_tx, _) = txs.first()?;
-            Some(first_tx.tx.signer())
+            Some(first_tx.signer())
         }
         Order::Tx(_) => {
             unreachable!("Mempool tx order can't have signer");

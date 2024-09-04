@@ -116,7 +116,6 @@ impl BuiltBlockTrace {
                 &mut executed_tx_hashes_scratchpad
             };
             for (tx, receipt) in res.txs.iter().zip(res.receipts.iter()) {
-                let tx = &tx.tx;
                 executed_tx_hashes.push((tx.hash(), receipt.success));
                 if blocklist.contains(&tx.signer())
                     || tx.to().map(|to| blocklist.contains(&to)).unwrap_or(false)

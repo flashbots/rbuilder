@@ -11,16 +11,22 @@ use alloy_primitives::{Address, B256, I256};
 use eyre::Context;
 use reth_chainspec::ChainSpec;
 use reth_db::DatabaseEnv;
-use reth_primitives::{Receipt, TransactionSignedEcRecovered};
+use reth_primitives::{Receipt, TransactionSignedEcRecovered, TxHash};
 use reth_provider::ProviderFactory;
 use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct ExecutedTxs {
-    pub tx: TransactionSignedEcRecovered,
+    tx: TransactionSignedEcRecovered,
     pub receipt: Receipt,
     pub coinbase_profit: I256,
     pub conflicting_txs: Vec<(B256, Vec<SlotKey>)>,
+}
+
+impl ExecutedTxs {
+    pub fn hash(&self) -> TxHash {
+        self.tx.hash()
+    }
 }
 
 pub fn sim_historical_block(
@@ -98,7 +104,7 @@ pub fn sim_historical_block(
         };
 
         results.push(ExecutedTxs {
-            tx: tx.tx,
+            tx: tx.into_internal_tx_unsecure(),
             receipt: result.receipt,
             coinbase_profit,
             conflicting_txs,
@@ -115,7 +121,7 @@ fn find_suggested_fee_recipient(
     let coinbase = block.header.miner;
     let (last_tx_signer, last_tx_to) = if let Some((signer, to)) = txs
         .last()
-        .map(|tx| (tx.tx.signer(), tx.tx.to().unwrap_or_default()))
+        .map(|tx| (tx.signer(), tx.to().unwrap_or_default()))
     {
         (signer, to)
     } else {

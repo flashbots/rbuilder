@@ -1,7 +1,6 @@
 use crate::primitives::{OrderId, TransactionSignedEcRecoveredWithBlobs};
 use alloy_primitives::{Address, B256, I256, U256};
 use reth_primitives::{TransactionSigned, TransactionSignedEcRecovered};
-use std::sync::Arc;
 
 pub fn order_id(id: u64) -> OrderId {
     OrderId::Tx(hash(id))
@@ -24,8 +23,8 @@ pub fn i256(i: i64) -> I256 {
 }
 
 pub fn tx(tx_hash: u64) -> TransactionSignedEcRecoveredWithBlobs {
-    TransactionSignedEcRecoveredWithBlobs {
-        tx: TransactionSignedEcRecovered::from_signed_transaction(
+    TransactionSignedEcRecoveredWithBlobs::new_for_testing(
+        TransactionSignedEcRecovered::from_signed_transaction(
             TransactionSigned {
                 hash: hash(tx_hash),
                 signature: Default::default(),
@@ -33,7 +32,5 @@ pub fn tx(tx_hash: u64) -> TransactionSignedEcRecoveredWithBlobs {
             },
             Address::default(),
         ),
-        blobs_sidecar: Arc::new(Default::default()),
-        metadata: Default::default(),
-    }
+    )
 }

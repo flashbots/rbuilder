@@ -395,12 +395,13 @@ impl ShareBundle {
     }
 }
 
-/// First idea to handle blobs might change.
+/// First idea to handle blobs, might change.
 /// Don't like the fact that blobs_sidecar exists no matter if TransactionSignedEcRecovered contains a non blob tx.
+/// Great effort was put in avoiding simple access to the internal tx so we don't accidentally leak information on logs (particularly the tx sign).
 #[derive(Derivative)]
-#[derivative(Debug, Clone, PartialEq, Eq)]
+#[derivative(Clone, PartialEq, Eq)]
 pub struct TransactionSignedEcRecoveredWithBlobs {
-    pub tx: TransactionSignedEcRecovered,
+    tx: TransactionSignedEcRecovered,
     /// Will have a non empty BlobTransactionSidecar if TransactionSignedEcRecovered is 4844
     pub blobs_sidecar: Arc<BlobTransactionSidecar>,
 
@@ -408,15 +409,20 @@ pub struct TransactionSignedEcRecoveredWithBlobs {
     pub metadata: Metadata,
 }
 
-impl AsRef<TransactionSignedEcRecovered> for TransactionSignedEcRecoveredWithBlobs {
-    fn as_ref(&self) -> &TransactionSignedEcRecovered {
+impl AsRef<TransactionSigned> for TransactionSignedEcRecoveredWithBlobs {
+    fn as_ref(&self) -> &TransactionSigned {
         &self.tx
     }
 }
 
-impl AsRef<TransactionSigned> for TransactionSignedEcRecoveredWithBlobs {
-    fn as_ref(&self) -> &TransactionSigned {
-        &self.tx
+/// Custom fmt to avoid leaking information.
+impl std::fmt::Debug for TransactionSignedEcRecoveredWithBlobs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "TransactionSignedEcRecoveredWithBlobs {{ hash: {} }}",
+            self.hash(),
+        )
     }
 }
 
@@ -436,11 +442,16 @@ impl TransactionSignedEcRecoveredWithBlobs {
         if tx.transaction.blob_versioned_hashes().is_some() {
             return None;
         }
-        Some(Self {
+        Some(Self::new_for_testing(tx))
+    }
+
+    /// Creates a Self with empty blobs sidecar. No consistency check is performed,
+    pub fn new_for_testing(tx: TransactionSignedEcRecovered) -> Self {
+        Self {
             tx,
-            blobs_sidecar: Arc::new(BlobTransactionSidecar::default()),
+            blobs_sidecar: Default::default(),
             metadata: Default::default(),
-        })
+        }
     }
 
     pub fn hash(&self) -> TxHash {
@@ -451,8 +462,27 @@ impl TransactionSignedEcRecoveredWithBlobs {
         self.tx.signer()
     }
 
+    pub fn to(&self) -> Option<Address> {
+        self.tx.to()
+    }
+
+    pub fn nonce(&self) -> u64 {
+        self.tx.nonce()
+    }
+
+    /// USE CAREFULLY since this exposes the signed tx.
+    pub fn internal_tx_unsecure(&self) -> &TransactionSignedEcRecovered {
+        &self.tx
+    }
+
+    /// USE CAREFULLY since this exposes the signed tx.
+    pub fn into_internal_tx_unsecure(self) -> TransactionSignedEcRecovered {
+        self.tx
+    }
+
     /// Encodes the "raw" canonical format of transaction (NOT the one used in `eth_sendRawTransaction`) BLOB DATA IS NOT ENCODED.
     /// I intensionally omitted the version with blob data since we don't use it and may lead to confusions/bugs.
+    /// USE CAREFULLY since this exposes the signed tx.
     pub fn envelope_encoded_no_blobs(&self) -> Bytes {
         self.tx.envelope_encoded()
     }
