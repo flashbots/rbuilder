@@ -20,20 +20,25 @@ use crate::{
     utils::build_info::Version,
 };
 
-pub async fn spawn(addr: SocketAddr, version: Version) -> eyre::Result<()> {
+pub async fn spawn(
+    addr: SocketAddr,
+    version: Version,
+    enable_dynamic_log: bool,
+) -> eyre::Result<()> {
     set_version(version);
 
     // metrics over /debug/metrics/prometheus
     let metrics_route = warp::path!("debug" / "metrics" / "prometheus").and_then(metrics_handler);
 
-    let log_set_route = warp::path!("debug" / "log" / "set" / String)
-        .and(warp::query::<LogQuery>())
-        .and_then(set_rust_log_handle);
-    let log_reset_route = warp::path!("debug" / "log" / "reset").and_then(reset_log_handle);
-
-    let route = metrics_route.or(log_set_route).or(log_reset_route);
-
-    tokio::spawn(warp::serve(route).run(addr));
+    if enable_dynamic_log {
+        let log_set_route = warp::path!("debug" / "log" / "set" / String)
+            .and(warp::query::<LogQuery>())
+            .and_then(set_rust_log_handle);
+        let log_reset_route = warp::path!("debug" / "log" / "reset").and_then(reset_log_handle);
+        tokio::spawn(warp::serve(metrics_route.or(log_set_route).or(log_reset_route)).run(addr));
+    } else {
+        tokio::spawn(warp::serve(metrics_route).run(addr));
+    }
 
     Ok(())
 }

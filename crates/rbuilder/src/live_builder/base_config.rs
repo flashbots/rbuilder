@@ -50,6 +50,8 @@ pub struct BaseConfig {
     pub log_json: bool,
     log_level: EnvOrValue<String>,
     pub log_color: bool,
+    /// Enables dynamic logging (saving logs to a file)
+    pub log_enable_dynamic: bool,
 
     pub error_storage_path: Option<PathBuf>,
 
@@ -389,6 +391,7 @@ impl Default for BaseConfig {
             log_json: false,
             log_level: "info".into(),
             log_color: false,
+            log_enable_dynamic: false,
             error_storage_path: None,
             coinbase_secret_key: "".into(),
             flashbots_db: None,
