@@ -107,12 +107,7 @@ register_metrics! {
         Opts::new("block_sim_errors", "counter of block simulation errors"),
         &[]
     )
-    .unwrap();
-    pub static BLOCK_API_ERRORS: IntCounterVec = IntCounterVec::new(
-        Opts::new("block_api_errors", "counter of the block processor errors"),
-        &[]
-    )
-    .unwrap();
+    .unwrap();    
     pub static SIMULATED_OK_ORDERS: IntCounter =
         IntCounter::new("simulated_ok_orders", "Simulated succeeded orders").unwrap();
     pub static SIMULATED_FAILED_ORDERS: IntCounter =
@@ -246,10 +241,6 @@ pub fn inc_too_many_req_relay_errors(relay: &MevBoostRelayID) {
 
 pub fn inc_failed_block_simulations() {
     BLOCK_SIM_ERRORS.with_label_values(&[]).inc()
-}
-
-pub fn inc_blocks_api_errors() {
-    BLOCK_API_ERRORS.with_label_values(&[]).inc()
 }
 
 pub fn set_current_block(block: u64) {
