@@ -67,13 +67,13 @@ impl TestSetup {
         Ok(tx)
     }
 
-    pub fn make_test_ephernal_contract_destruct_tx(
+    pub fn make_test_ephemeral_contract_destruct_tx(
         &self,
         refund_addr: Address,
         value: u64,
     ) -> eyre::Result<TransactionSignedEcRecovered> {
         let tx_args =
-            TxArgs::new_test_ephernal_contract_destruct(NamedAddr::User(0), 0, refund_addr)
+            TxArgs::new_test_ephemeral_contract_destruct(NamedAddr::User(0), 0, refund_addr)
                 .value(value);
         let tx = self.test_chain.sign_tx(tx_args)?;
         Ok(tx)

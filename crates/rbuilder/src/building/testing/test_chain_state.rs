@@ -408,14 +408,14 @@ impl TxArgs {
     }
 
     /// This transaction for test purpose only, it deploys a contract and let it selfdestruct within the tx.
-    pub fn new_test_ephernal_contract_destruct(
+    pub fn new_test_ephemeral_contract_destruct(
         from: NamedAddr,
         nonce: u64,
         refund_addr: Address,
     ) -> Self {
         Self::new(from, nonce).to(NamedAddr::MevTest).input(
             [
-                (*TEST_EPHERNAL_CONTRACT_DESTRUCT).into(),
+                (*TEST_EPHEMERAL_CONTRACT_DESTRUCT).into(),
                 B256::left_padding_from(refund_addr.as_slice()).to_vec(),
             ]
             .concat(),
@@ -483,8 +483,8 @@ lazy_static! {
     static ref SEND_TO_COINBASE_SELECTOR: [u8; 4] = selector("sendToCoinbase()");
     static ref REVERT_SELECTOR: [u8; 4] = selector("revert()");
     static ref TEST_READ_BALANCE: [u8; 4] = selector("testReadBalance(address)");
-    static ref TEST_EPHERNAL_CONTRACT_DESTRUCT: [u8; 4] =
-        selector("testEphernalContractDestruct(address)");
+    static ref TEST_EPHEMERAL_CONTRACT_DESTRUCT: [u8; 4] =
+        selector("testEphemeralContractDestruct(address)");
 }
 
 impl TestContracts {

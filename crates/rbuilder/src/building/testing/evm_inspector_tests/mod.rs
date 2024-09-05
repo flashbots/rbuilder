@@ -121,12 +121,12 @@ fn test_read_balance() -> eyre::Result<()> {
 }
 
 #[test]
-fn test_ephernal_contract_destruct() -> eyre::Result<()> {
+fn test_ephemeral_contract_destruct() -> eyre::Result<()> {
     let test_setup = TestSetup::new()?;
 
     let refund_addr = test_setup.named_address(NamedAddr::Dummy)?;
     let tx: reth_primitives::TransactionSignedEcRecovered =
-        test_setup.make_test_ephernal_contract_destruct_tx(refund_addr, 100)?;
+        test_setup.make_test_ephemeral_contract_destruct_tx(refund_addr, 100)?;
     let used_state_trace = test_setup.inspect_tx_without_commit(tx)?;
 
     assert_eq!(used_state_trace.created_contracts.len(), 1);
@@ -135,15 +135,15 @@ fn test_ephernal_contract_destruct() -> eyre::Result<()> {
         used_state_trace.created_contracts[0],
         used_state_trace.destructed_contracts[0]
     );
-    let ephernal_contract_addr = used_state_trace.created_contracts[0];
+    let ephemeral_contract_addr = used_state_trace.created_contracts[0];
     assert_eq!(
         used_state_trace
             .received_amount
-            .get(&ephernal_contract_addr),
+            .get(&ephemeral_contract_addr),
         Some(&U256::from(100))
     );
     assert_eq!(
-        used_state_trace.sent_amount.get(&ephernal_contract_addr),
+        used_state_trace.sent_amount.get(&ephemeral_contract_addr),
         Some(&U256::from(100))
     );
     assert_eq!(

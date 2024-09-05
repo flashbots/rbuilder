@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Unlicense
 pragma solidity ^0.8.13;
 
-contract EphernalContractTest {
+contract EphemeralContractTest {
     function destruct(address payable refundAddr) payable public {
         selfdestruct(refundAddr);
     }
@@ -49,8 +49,8 @@ contract MevTest {
     }
 
     // Deploy a contract and let the contract self-destruct, for testing evm inspector on contract depoly and destruct.
-    function testEphernalContractDestruct(address payable refund) public payable {
-        EphernalContractTest ephernal_contract = new EphernalContractTest();
-        ephernal_contract.destruct{value: msg.value}(refund);
+    function testEphemeralContractDestruct(address payable refund) public payable {
+        EphemeralContractTest ephemeral_contract = new EphemeralContractTest();
+        ephemeral_contract.destruct{value: msg.value}(refund);
     }
 }
