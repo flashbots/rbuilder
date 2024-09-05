@@ -83,6 +83,7 @@ pub async fn run<ConfigType: LiveBuilderConfig>(
     spawn_telemetry_server(
         config.base_config().telemetry_address(),
         config.version_for_telemetry(),
+        config.base_config().log_enable_dynamic,
     )
     .await?;
     let builder = config.create_builder(cancel.clone()).await?;
