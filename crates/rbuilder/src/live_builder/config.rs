@@ -3,7 +3,10 @@
 //!
 use super::{
     base_config::BaseConfig,
-    block_output::relay_submit::{RelaySubmitSinkFactory, SubmissionConfig},
+    block_output::{
+        bid_observer::{BidObserver, NullBidObserver},
+        relay_submit::{RelaySubmitSinkFactory, SubmissionConfig},
+    },
 };
 use crate::{
     beacon_api_client::Client,
@@ -14,7 +17,6 @@ use crate::{
         },
         Sorting,
     },
-    flashbots::BlocksProcessorClient,
     live_builder::{
         base_config::EnvOrValue,
         block_output::{
@@ -106,7 +108,6 @@ pub struct L1Config {
     pub optimistic_max_bid_value_eth: String,
     /// If true all optimistic submissions will be validated on nodes specified in `dry_run_validation_url`
     pub optimistic_prevalidate_optimistic_blocks: bool,
-    pub blocks_processor_url: Option<String>,
 
     // See [`SubmissionConfig`]
     slot_delta_to_start_submits_ms: Option<i64>,
@@ -127,7 +128,6 @@ impl Default for L1Config {
             optimistic_enabled: false,
             optimistic_max_bid_value_eth: "0.0".to_string(),
             optimistic_prevalidate_optimistic_blocks: false,
-            blocks_processor_url: None,
             slot_delta_to_start_submits_ms: None,
             cl_node_url: vec![EnvOrValue::from("http://127.0.0.1:3500")],
         }
@@ -182,7 +182,11 @@ impl L1Config {
             .unwrap_or(DEFAULT_SLOT_DELTA_TO_START_SUBMITS)
     }
 
-    fn submission_config(&self, chain_spec: Arc<ChainSpec>) -> eyre::Result<SubmissionConfig> {
+    fn submission_config(
+        &self,
+        chain_spec: Arc<ChainSpec>,
+        bid_observer: Box<dyn BidObserver + Send + Sync>,
+    ) -> eyre::Result<SubmissionConfig> {
         if (self.dry_run || self.optimistic_prevalidate_optimistic_blocks)
             && self.dry_run_validation_url.is_empty()
         {
@@ -226,13 +230,8 @@ impl L1Config {
             optimistic_signer,
             optimistic_max_bid_value: parse_ether(&self.optimistic_max_bid_value_eth)?,
             optimistic_prevalidate_optimistic_blocks: self.optimistic_prevalidate_optimistic_blocks,
-            blocks_processor: if let Some(url) = &self.blocks_processor_url {
-                let client = BlocksProcessorClient::try_from(url)?;
-                Some(client)
-            } else {
-                None
-            },
             slot_delta_to_start_submits: self.slot_delta_to_start_submits(),
+            bid_observer,
         })
     }
 
@@ -240,8 +239,9 @@ impl L1Config {
     pub fn create_relays_sealed_sink_factory(
         &self,
         chain_spec: Arc<ChainSpec>,
+        bid_observer: Box<dyn BidObserver + Send + Sync>,
     ) -> eyre::Result<(Box<dyn BuilderSinkFactory>, Vec<MevBoostRelay>)> {
-        let submission_config = self.submission_config(chain_spec)?;
+        let submission_config = self.submission_config(chain_spec, bid_observer)?;
         info!(
             "Builder mev boost normal relay pubkey: {:?}",
             submission_config.signer.pub_key()
@@ -275,9 +275,10 @@ impl LiveBuilderConfig for Config {
         &self,
         cancellation_token: tokio_util::sync::CancellationToken,
     ) -> eyre::Result<super::LiveBuilder<Arc<DatabaseEnv>, MevBoostSlotDataGenerator>> {
-        let (sink_sealed_factory, relays) = self
-            .l1_config
-            .create_relays_sealed_sink_factory(self.base_config.chain_spec()?)?;
+        let (sink_sealed_factory, relays) = self.l1_config.create_relays_sealed_sink_factory(
+            self.base_config.chain_spec()?,
+            Box::new(NullBidObserver {}),
+        )?;
         let sink_factory = Box::new(BlockFinisherFactory::new(
             Box::new(DummyBiddingService {}),
             sink_sealed_factory,
