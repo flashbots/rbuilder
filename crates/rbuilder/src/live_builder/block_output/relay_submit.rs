@@ -377,14 +377,16 @@ async fn run_submit_to_relays_job(
             }
         }
 
-        // NOTE: we only notify normal submission here because they have the same contents but different pubkeys
-        config.bid_observer.block_submitted(
-            block.sealed_block,
-            normal_signed_submission,
-            block.trace,
-            builder_name,
-            best_bid_value,
-        );
+        submission_span.in_scope(|| {
+            // NOTE: we only notify normal submission here because they have the same contents but different pubkeys
+            config.bid_observer.block_submitted(
+                block.sealed_block,
+                normal_signed_submission,
+                block.trace,
+                builder_name,
+                best_bid_value,
+            );
+        })
     }
 }
 
