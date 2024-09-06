@@ -155,14 +155,14 @@ impl HistoricalDataFetcher {
                     for nonce in nonces {
                         let mut res_onchain_nonce: Option<u64> = None;
                         if let Ok(nonce_cache) = nonce_cache.read() {
-                            if let Some(onchain_nonce) = nonce_cache.get(&nonce.address) {
+                            if let Some(onchain_nonce) = nonce_cache.get(&nonce.nonce.account) {
                                 res_onchain_nonce = Some(*onchain_nonce);
                             }
                         }
                         let res_onchain_nonce = if let Some(res_onchain_nonce) = res_onchain_nonce {
                             res_onchain_nonce
                         } else {
-                            let address = nonce.address;
+                            let address = nonce.nonce.account;
                             let onchain_nonce = self
                                 .eth_provider
                                 .get_transaction_count(address)
@@ -176,11 +176,11 @@ impl HistoricalDataFetcher {
                             onchain_nonce
                         };
 
-                        if res_onchain_nonce > nonce.nonce && !nonce.optional {
+                        if res_onchain_nonce > nonce.nonce.nonce && !nonce.optional {
                             trace!(
                                 "Order nonce too low, order: {:?}, nonce: {}, onchain tx count: {}",
                                 id,
-                                nonce.nonce,
+                                nonce.nonce.nonce,
                                 res_onchain_nonce,
                             );
                             return Ok(());

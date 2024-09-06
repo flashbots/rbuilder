@@ -149,12 +149,12 @@ impl<DB: Database> SimTree<DB> {
         let mut parent_orders = Vec::new();
 
         for nonce in order.nonces() {
-            let onchain_nonce = nonces.nonce(nonce.address)?;
+            let onchain_nonce = nonces.nonce(nonce.nonce.account)?;
 
-            match onchain_nonce.cmp(&nonce.nonce) {
+            match onchain_nonce.cmp(&nonce.nonce.nonce) {
                 Ordering::Equal => {
                     // nonce, valid
-                    onchain_nonces_incremented.insert(nonce.address);
+                    onchain_nonces_incremented.insert(nonce.nonce.account);
                     continue;
                 }
                 Ordering::Greater => {
@@ -173,16 +173,16 @@ impl<DB: Database> SimTree<DB> {
                     }
                 }
                 Ordering::Less => {
-                    if onchain_nonces_incremented.contains(&nonce.address) {
+                    if onchain_nonces_incremented.contains(&nonce.nonce.account) {
                         // we already considered this account nonce
                         continue;
                     }
                     // mark this nonce as considered
-                    onchain_nonces_incremented.insert(nonce.address);
+                    onchain_nonces_incremented.insert(nonce.nonce.account);
 
                     let nonce_key = NonceKey {
-                        address: nonce.address,
-                        nonce: nonce.nonce,
+                        address: nonce.nonce.account,
+                        nonce: nonce.nonce.nonce,
                     };
 
                     if let Some(sim_id) = self.sims_that_update_one_nonce.get(&nonce_key) {

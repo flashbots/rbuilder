@@ -6,7 +6,7 @@ use priority_queue::PriorityQueue;
 
 use crate::{
     building::Sorting,
-    primitives::{AccountNonce, Nonce, OrderId, SimulatedOrder},
+    primitives::{AccountNonce, BundledTxInfo, OrderId, SimulatedOrder},
 };
 
 use super::SimulatedOrderSink;
@@ -88,8 +88,8 @@ impl PrioritizedOrderStore {
     /// Clean up after some order was removed from main_queue
     fn remove_poped_order(&mut self, id: &OrderId) -> Option<SimulatedOrder> {
         let sim_order = self.orders.remove(id)?;
-        for Nonce { address, .. } in sim_order.order.nonces() {
-            match self.main_queue_nonces.entry(address) {
+        for BundledTxInfo { nonce, .. } in sim_order.order.nonces() {
+            match self.main_queue_nonces.entry(nonce.account) {
                 Entry::Occupied(mut entry) => {
                     entry.get_mut().retain(|id| *id != sim_order.id());
                 }
@@ -125,21 +125,16 @@ impl PrioritizedOrderStore {
                 .expect("order from prio queue not found in block orders");
             let mut valid = true;
             let mut valid_nonces = 0;
-            for Nonce {
-                nonce,
-                address,
-                optional,
-            } in order.nonces()
-            {
+            for BundledTxInfo { nonce, optional } in order.nonces() {
                 let onchain_nonce = self
                     .onchain_nonces
-                    .get(&address)
+                    .get(&nonce.account)
                     .cloned()
                     .unwrap_or_default();
-                if onchain_nonce > nonce && !optional {
+                if onchain_nonce > nonce.nonce && !optional {
                     valid = false;
                     break;
-                } else if onchain_nonce == nonce {
+                } else if onchain_nonce == nonce.nonce {
                     valid_nonces += 1;
                 }
             }
@@ -178,26 +173,18 @@ impl SimulatedOrderSink for PrioritizedOrderStore {
             return;
         }
         let mut pending_nonces = Vec::new();
-        for Nonce {
-            nonce,
-            address,
-            optional,
-        } in sim_order.nonces()
-        {
+        for BundledTxInfo { nonce, optional } in sim_order.nonces() {
             let onchain_nonce = self
                 .onchain_nonces
-                .get(&address)
+                .get(&nonce.account)
                 .cloned()
                 .unwrap_or_default();
-            if onchain_nonce > nonce && !optional {
+            if onchain_nonce > nonce.nonce && !optional {
                 // order can't be included because of nonce
                 return;
             }
-            if onchain_nonce < nonce && !optional {
-                pending_nonces.push(AccountNonce {
-                    account: address,
-                    nonce,
-                });
+            if onchain_nonce < nonce.nonce && !optional {
+                pending_nonces.push(BundledTxInfo { nonce, optional });
             }
         }
         if pending_nonces.is_empty() {
@@ -213,13 +200,13 @@ impl SimulatedOrderSink for PrioritizedOrderStore {
             );
             for nonce in sim_order.nonces() {
                 self.main_queue_nonces
-                    .entry(nonce.address)
+                    .entry(nonce.nonce.account)
                     .or_default()
                     .push(sim_order.id());
             }
         } else {
             for pending_nonce in pending_nonces {
-                let pending = self.pending_orders.entry(pending_nonce).or_default();
+                let pending = self.pending_orders.entry(pending_nonce.nonce).or_default();
                 if !pending.contains(&sim_order.id()) {
                     pending.push(sim_order.id());
                 }

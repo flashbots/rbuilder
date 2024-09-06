@@ -302,7 +302,7 @@ impl AvailableOrders {
                     if n.optional {
                         return None;
                     }
-                    Some(n.address)
+                    Some(n.nonce.account)
                 })
                 .collect();
             (mandatory_nonces, order.replacement_key())

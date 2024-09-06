@@ -156,15 +156,15 @@ impl<DB: Database + Clone> OrderIntakeConsumer<DB> {
         let mut nonces = Vec::new();
         for new_order in new_orders {
             for nonce in new_order.order.nonces() {
-                if self.onchain_nonces_updated.contains(&nonce.address) {
+                if self.onchain_nonces_updated.contains(&nonce.nonce.account) {
                     continue;
                 }
-                let onchain_nonce = nonce_db_ref.nonce(nonce.address)?;
+                let onchain_nonce = nonce_db_ref.nonce(nonce.nonce.account)?;
                 nonces.push(AccountNonce {
-                    account: nonce.address,
+                    account: nonce.nonce.account,
                     nonce: onchain_nonce,
                 });
-                self.onchain_nonces_updated.insert(nonce.address);
+                self.onchain_nonces_updated.insert(nonce.nonce.account);
             }
         }
         self.block_orders.update_onchain_nonces(&nonces);

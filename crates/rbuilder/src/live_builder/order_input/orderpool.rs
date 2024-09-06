@@ -234,11 +234,11 @@ impl OrderPool {
                     continue;
                 }
                 let onchain_nonce = new_state
-                    .account_nonce(nonce.address)
+                    .account_nonce(nonce.nonce.account)
                     .map_err(|e| error!("Failed to get a nonce: {}", e))
                     .unwrap_or_default()
                     .unwrap_or_default();
-                if onchain_nonce > nonce.nonce {
+                if onchain_nonce > nonce.nonce.nonce {
                     return false;
                 }
             }

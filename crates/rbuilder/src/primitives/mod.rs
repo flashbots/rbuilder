@@ -50,6 +50,7 @@ pub struct AccountNonce {
     pub nonce: u64,
     pub account: Address,
 }
+
 impl AccountNonce {
     pub fn with_nonce(self, nonce: u64) -> Self {
         AccountNonce {
@@ -64,14 +65,6 @@ impl AccountNonce {
 pub struct BundledTxInfo {
     pub nonce: AccountNonce,
     /// optional -> can revert and the bundle continues.
-    pub optional: bool,
-}
-
-/// @Pending: Delete and replace all uses by BundledTxInfo.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct Nonce {
-    pub nonce: u64,
-    pub address: Address,
     pub optional: bool,
 }
 
@@ -126,7 +119,7 @@ impl Bundle {
     }
 
     /// BundledTxInfo for all the child txs.
-    pub fn nonces(&self) -> Vec<Nonce> {
+    pub fn nonces(&self) -> Vec<BundledTxInfo> {
         let txs = self
             .txs
             .iter()
@@ -370,7 +363,7 @@ impl ShareBundle {
     }
 
     /// BundledTxInfo for all the child txs
-    pub fn nonces(&self) -> Vec<Nonce> {
+    pub fn nonces(&self) -> Vec<BundledTxInfo> {
         bundle_nonces(self.inner_bundle.list_txs().into_iter())
     }
 
@@ -659,12 +652,14 @@ impl Order {
     }
 
     /// BundledTxInfo for all the child txs
-    pub fn nonces(&self) -> Vec<Nonce> {
+    pub fn nonces(&self) -> Vec<BundledTxInfo> {
         match self {
             Order::Bundle(bundle) => bundle.nonces(),
-            Order::Tx(tx) => vec![Nonce {
-                nonce: tx.tx_with_blobs.tx.nonce(),
-                address: tx.tx_with_blobs.tx.signer(),
+            Order::Tx(tx) => vec![BundledTxInfo {
+                nonce: AccountNonce {
+                    nonce: tx.tx_with_blobs.tx.nonce(),
+                    account: tx.tx_with_blobs.tx.signer(),
+                },
                 optional: false,
             }],
             Order::ShareBundle(bundle) => bundle.nonces(),
@@ -798,7 +793,7 @@ impl SimulatedOrder {
         self.order.id()
     }
 
-    pub fn nonces(&self) -> Vec<Nonce> {
+    pub fn nonces(&self) -> Vec<BundledTxInfo> {
         self.order.nonces()
     }
 }
@@ -887,25 +882,27 @@ impl Ord for OrderId {
 
 fn bundle_nonces<'a>(
     txs: impl Iterator<Item = (&'a TransactionSignedEcRecoveredWithBlobs, bool)>,
-) -> Vec<Nonce> {
-    let mut nonces: HashMap<Address, Nonce> = HashMap::new();
+) -> Vec<BundledTxInfo> {
+    let mut nonces: HashMap<Address, BundledTxInfo> = HashMap::new();
     for (tx, optional) in txs.map(|(tx_with_blob, optional)| (&tx_with_blob.tx, optional)) {
         nonces
             .entry(tx.signer())
             .and_modify(|nonce| {
-                if nonce.nonce > tx.nonce() {
-                    nonce.nonce = tx.nonce();
+                if nonce.nonce.nonce > tx.nonce() {
+                    nonce.nonce.nonce = tx.nonce();
                     nonce.optional = optional;
                 }
             })
-            .or_insert(Nonce {
-                nonce: tx.nonce(),
-                address: tx.signer(),
+            .or_insert(BundledTxInfo {
+                nonce: AccountNonce {
+                    nonce: tx.nonce(),
+                    account: tx.signer(),
+                },
                 optional,
             });
     }
     let mut res = nonces.into_values().collect::<Vec<_>>();
-    res.sort_by_key(|nonce| nonce.address);
+    res.sort_by_key(|nonce| nonce.nonce.account);
     res
 }
 

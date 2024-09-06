@@ -57,17 +57,17 @@ pub fn find_conflict_slow(
         let pair = (order1.id(), order2.id());
         let mut nonce_map = HashMap::new();
         order1.nonces().into_iter().for_each(|nonce| {
-            nonce_map.insert(nonce.address, nonce);
+            nonce_map.insert(nonce.nonce.account, nonce);
         });
         if let Some(nonce) = order2.nonces().into_iter().find(|nonce| {
-            if let Some(nonce_map) = nonce_map.get(&nonce.address) {
+            if let Some(nonce_map) = nonce_map.get(&nonce.nonce.account) {
                 let optional = nonce.optional || nonce_map.optional;
-                !optional && nonce.address == nonce_map.address
+                !optional && nonce.nonce.account == nonce_map.nonce.account
             } else {
                 false
             }
         }) {
-            results.insert(pair, Conflict::Nonce(nonce.address));
+            results.insert(pair, Conflict::Nonce(nonce.nonce.account));
             continue;
         }
 

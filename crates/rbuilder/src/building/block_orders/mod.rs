@@ -199,10 +199,10 @@ pub fn block_orders_from_sim_orders(
     for order in sim_orders {
         for nonce in order.order.nonces() {
             let value = state_provider
-                .account_nonce(nonce.address)?
+                .account_nonce(nonce.nonce.account)?
                 .unwrap_or_default();
             onchain_nonces.push(AccountNonce {
-                account: nonce.address,
+                account: nonce.nonce.account,
                 nonce: value,
             });
         }

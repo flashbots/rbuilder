@@ -192,7 +192,7 @@ impl BlockData {
                 .filter(|tx| {
                     !available_accounts
                         .iter()
-                        .any(|x| x.nonce == tx.nonce && x.address == tx.from)
+                        .any(|x| x.nonce.nonce == tx.nonce && x.nonce.account == tx.from)
                 })
                 .map(|tx| {
                     (
