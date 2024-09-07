@@ -2,9 +2,12 @@ use std::sync::Arc;
 
 use tracing::{trace, warn};
 
-use crate::building::builders::{
-    block_building_helper::{BlockBuildingHelper, BlockBuildingHelperError},
-    UnfinishedBlockBuildingSink,
+use crate::building::{
+    builders::{
+        block_building_helper::{BlockBuildingHelper, BlockBuildingHelperError},
+        UnfinishedBlockBuildingSink,
+    },
+    InsertPayoutTxErr,
 };
 
 use super::{
@@ -52,12 +55,23 @@ impl BlockFinisher {
             .new_block(block.finalize_block(payout_tx_value)?.block);
         Ok(())
     }
+
+    /// Some errors are not worth logging.
+    fn is_important_true_block_value_error(err: &BlockBuildingHelperError) -> bool {
+        match err {
+            // If the block is too bad we get an error, this not very common in production but happens a lot in testing.
+            BlockBuildingHelperError::InsertPayoutTxErr(InsertPayoutTxErr::ProfitTooLow) => false,
+            _ => true,
+        }
+    }
 }
 
 impl UnfinishedBlockBuildingSink for BlockFinisher {
     fn new_block(&self, block: Box<dyn BlockBuildingHelper>) {
         if let Err(err) = self.finish_and_submit(block) {
-            warn!(?err, "Error finishing block");
+            if Self::is_important_true_block_value_error(&err) {
+                warn!(?err, "Error finishing block");
+            }
         }
     }
 
