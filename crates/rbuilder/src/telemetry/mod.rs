@@ -55,8 +55,6 @@ async fn reset_log_handle() -> Result<impl Reply, Rejection> {
 }
 
 pub async fn spawn_telemetry_server(addr: SocketAddr, version: Version) -> eyre::Result<()> {
-    register_custom_metrics();
-
     set_version(version);
 
     // metrics over /debug/metrics/prometheus

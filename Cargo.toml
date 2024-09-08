@@ -1,7 +1,8 @@
 [workspace]
 members = [
     "crates/rbuilder",
-    "crates/rbuilder/src/test_utils"
+    "crates/rbuilder/src/test_utils",
+    "crates/rbuilder/src/telemetry/metrics_macros"
 ]
 resolver = "2"
 
