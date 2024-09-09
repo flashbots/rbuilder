@@ -1,7 +1,6 @@
 pub mod backtest;
 pub mod beacon_api_client;
 pub mod building;
-pub mod flashbots;
 pub mod integration;
 pub mod live_builder;
 pub mod mev_boost;

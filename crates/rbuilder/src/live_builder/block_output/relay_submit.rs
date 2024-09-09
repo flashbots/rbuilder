@@ -1,13 +1,12 @@
 use crate::{
     building::builders::Block,
-    flashbots::BlocksProcessorClient,
     live_builder::payload_events::MevBoostSlotData,
     mev_boost::{
         sign_block_for_relay, BLSBlockSigner, RelayError, SubmitBlockErr, SubmitBlockRequest,
     },
     primitives::mev_boost::{MevBoostRelay, MevBoostRelayID},
     telemetry::{
-        add_relay_submit_time, add_subsidy_value, inc_blocks_api_errors, inc_conn_relay_errors,
+        add_relay_submit_time, add_subsidy_value, inc_conn_relay_errors,
         inc_failed_block_simulations, inc_initiated_submissions, inc_other_relay_errors,
         inc_relay_accepted_submissions, inc_subsidized_blocks, inc_too_many_req_relay_errors,
         measure_block_e2e_latency,
@@ -27,6 +26,8 @@ use std::{
 use tokio::time::{sleep, Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info_span, trace, warn, Instrument};
+
+use super::bid_observer::BidObserver;
 
 const SIM_ERROR_CATEGORY: &str = "submit_block_simulation";
 const VALIDATION_ERROR_CATEGORY: &str = "validate_block_simulation";
@@ -101,7 +102,7 @@ pub trait BuilderSinkFactory: std::fmt::Debug + Send + Sync {
     ) -> Box<dyn BlockBuildingSink>;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct SubmissionConfig {
     pub chain_spec: Arc<ChainSpec>,
     pub signer: BLSBlockSigner,
@@ -114,7 +115,7 @@ pub struct SubmissionConfig {
     pub optimistic_max_bid_value: U256,
     pub optimistic_prevalidate_optimistic_blocks: bool,
 
-    pub blocks_processor: Option<BlocksProcessorClient>,
+    pub bid_observer: Box<dyn BidObserver + Send + Sync>,
     /// Delta relative to slot_time at which we start to submit blocks. Usually negative since we need to start submitting BEFORE the slot time.
     pub slot_delta_to_start_submits: time::Duration,
 }
@@ -143,7 +144,7 @@ async fn run_submit_to_relays_job(
     best_bid: BestBlockCell,
     slot_data: MevBoostSlotData,
     relays: Vec<MevBoostRelay>,
-    config: SubmissionConfig,
+    config: Arc<SubmissionConfig>,
     cancel: CancellationToken,
     bid_source: Arc<dyn BestBidSource>,
 ) -> Option<BuiltBlockInfo> {
@@ -376,22 +377,16 @@ async fn run_submit_to_relays_job(
             }
         }
 
-        if let Some(blocks_processor) = config.blocks_processor.clone() {
-            let cancel = cancel.clone();
-            tokio::spawn(async move {
-                let block_processor_result = tokio::select! {
-                    _ = cancel.cancelled() => {
-                        return;
-                    },
-                    // NOTE: we only store normal submission here because they have the same contents but different pubkeys
-                    res = blocks_processor.submit_built_block(&block.sealed_block, &normal_signed_submission, &block.trace, builder_name, best_bid_value) => res
-                };
-                if let Err(err) = block_processor_result {
-                    inc_blocks_api_errors();
-                    warn!(parent: &submission_span, "Failed to submit block to the blocks api: {}", err);
-                }
-            });
-        }
+        submission_span.in_scope(|| {
+            // NOTE: we only notify normal submission here because they have the same contents but different pubkeys
+            config.bid_observer.block_submitted(
+                block.sealed_block,
+                normal_signed_submission,
+                block.trace,
+                builder_name,
+                best_bid_value,
+            );
+        })
     }
 }
 
@@ -399,7 +394,7 @@ pub async fn run_submit_to_relays_job_and_metrics(
     best_bid: BestBlockCell,
     slot_data: MevBoostSlotData,
     relays: Vec<MevBoostRelay>,
-    config: SubmissionConfig,
+    config: Arc<SubmissionConfig>,
     cancel: CancellationToken,
     bid_source: Arc<dyn BestBidSource>,
 ) {
@@ -520,7 +515,7 @@ async fn submit_bid_to_the_relay(
 /// Real life BuilderSinkFactory that send the blocks to the Relay
 #[derive(Debug)]
 pub struct RelaySubmitSinkFactory {
-    submission_config: SubmissionConfig,
+    submission_config: Arc<SubmissionConfig>,
     relays: HashMap<MevBoostRelayID, MevBoostRelay>,
 }
 
@@ -531,7 +526,7 @@ impl RelaySubmitSinkFactory {
             .map(|relay| (relay.id.clone(), relay))
             .collect();
         Self {
-            submission_config,
+            submission_config: Arc::new(submission_config),
             relays,
         }
     }
