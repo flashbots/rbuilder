@@ -26,7 +26,7 @@ use std::{
 };
 use tokio::time::{sleep, Instant};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info_span, trace, warn, Instrument, Level};
+use tracing::{debug, error, event, info_span, trace, warn, Instrument, Level};
 
 use super::bid_observer::BidObserver;
 
