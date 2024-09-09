@@ -95,23 +95,25 @@ jobs:
         run: cargo build
 
       - name: Run the playground
-        run: builder-playground --output /tmp/playground &
+        run: builder-playground &
 
       - name: Run integration tests
         run: cargo test --package rbuilder --lib -- integration
         env:
-          PLAYGROUND_DIR: /tmp/playground
+          PLAYGROUND: TRUE
 
-      - name: Move test integration logs to playground logs to archive
+      - name: Aggregate playground logs
         # This steps fails if the test fails early and the playground logs dir has not been created
         if: ${{ failure() }}
         run: |
-          mv integration_logs /tmp/playground/logs
+          mkdir /tmp/playground-logs
+          mv $HOME/.playground/devnet/logs /tmp/playground-logs
+          mv integration_logs /tmp/playground-logs
 
       - name: Archive playground logs
         uses: actions/upload-artifact@v4
         if: ${{ failure() }}
         with:
           name: playground-logs
-          path: /tmp/playground/logs
+          path: /tmp/playground-logs
           retention-days: 5

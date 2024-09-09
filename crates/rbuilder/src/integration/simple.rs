@@ -10,7 +10,7 @@ mod tests {
     use test_utils::ignore_if_env_not_set;
     use url::Url;
 
-    #[ignore_if_env_not_set("PLAYGROUND_DIR")] // TODO: Change with a custom macro (i.e ignore_if_not_playground)
+    #[ignore_if_env_not_set("PLAYGROUND")] // TODO: Change with a custom macro (i.e ignore_if_not_playground)
     #[tokio::test]
     async fn test_simple_example() {
         // This test sends a transaction ONLY to the builder and waits for the block to be built with it.
