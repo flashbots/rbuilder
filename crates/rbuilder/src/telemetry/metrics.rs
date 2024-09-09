@@ -107,7 +107,7 @@ register_metrics! {
         Opts::new("block_sim_errors", "counter of block simulation errors"),
         &[]
     )
-    .unwrap();    
+    .unwrap();
     pub static SIMULATED_OK_ORDERS: IntCounter =
         IntCounter::new("simulated_ok_orders", "Simulated succeeded orders").unwrap();
     pub static SIMULATED_FAILED_ORDERS: IntCounter =
