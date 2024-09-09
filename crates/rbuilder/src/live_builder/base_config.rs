@@ -3,6 +3,7 @@
 use crate::{
     building::builders::UnfinishedBlockBuildingSinkFactory,
     live_builder::{order_input::OrderInputConfig, LiveBuilder},
+    privacy::error_redactor::ErrorRedactor,
     telemetry::{setup_reloadable_tracing_subscriber, LoggerConfig},
     utils::{http_provider, BoxedProvider, ProviderFactoryReopener, Signer},
 };
@@ -94,6 +95,9 @@ pub struct BaseConfig {
     pub backtest_builders: Vec<String>,
     pub backtest_results_store_path: PathBuf,
     pub backtest_protect_bundle_signers: Vec<Address>,
+
+    /// if true no possible sensitive information is going to be logged.
+    pub redact_errors: bool,
 }
 
 lazy_static! {
@@ -145,6 +149,14 @@ impl BaseConfig {
 
     pub fn telemetry_address(&self) -> SocketAddr {
         SocketAddr::V4(SocketAddrV4::new(self.telemetry_ip(), self.telemetry_port))
+    }
+
+    pub fn create_error_redactor(&self) -> Arc<ErrorRedactor> {
+        Arc::new(if self.redact_errors {
+            ErrorRedactor::new_secure()
+        } else {
+            ErrorRedactor::new_show_all()
+        })
     }
 
     /// WARN: opens reth db
@@ -400,6 +412,7 @@ impl Default for BaseConfig {
             live_builders: vec!["mgp-ordering".to_string(), "mp-ordering".to_string()],
             simulation_threads: 1,
             sbundle_mergeabe_signers: None,
+            redact_errors: false,
         }
     }
 }

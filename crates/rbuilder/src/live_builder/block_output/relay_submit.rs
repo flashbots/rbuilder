@@ -5,13 +5,14 @@ use crate::{
         sign_block_for_relay, BLSBlockSigner, RelayError, SubmitBlockErr, SubmitBlockRequest,
     },
     primitives::mev_boost::{MevBoostRelay, MevBoostRelayID},
+    privacy::error_redactor::{ErrorRedactor, ValidationErrorRedactor},
     telemetry::{
         add_relay_submit_time, add_subsidy_value, inc_conn_relay_errors,
         inc_failed_block_simulations, inc_initiated_submissions, inc_other_relay_errors,
         inc_relay_accepted_submissions, inc_subsidized_blocks, inc_too_many_req_relay_errors,
         measure_block_e2e_latency,
     },
-    utils::error_storage::store_error_event,
+    utils::{error_storage::store_error_event, tracing::dynamic_event},
     validation_api_client::{ValidationAPIClient, ValidationError},
 };
 use ahash::HashMap;
@@ -147,6 +148,7 @@ async fn run_submit_to_relays_job(
     config: Arc<SubmissionConfig>,
     cancel: CancellationToken,
     bid_source: Arc<dyn BestBidSource>,
+    redactor: Arc<ErrorRedactor>,
 ) -> Option<BuiltBlockInfo> {
     let mut res = None;
     // first, sleep to slot time - slot_delta_to_start_submits
@@ -273,6 +275,7 @@ async fn run_submit_to_relays_job(
                 &config,
                 cancel.clone(),
                 "Dry run",
+                redactor.validation(),
             )
             .instrument(submission_span)
             .await;
@@ -303,6 +306,7 @@ async fn run_submit_to_relays_job(
                     &config,
                     cancel.clone(),
                     "Optimistic check",
+                    redactor.validation(),
                 )
                 .instrument(submission_span.clone())
                 .await
@@ -360,6 +364,7 @@ pub async fn run_submit_to_relays_job_and_metrics(
     config: Arc<SubmissionConfig>,
     cancel: CancellationToken,
     bid_source: Arc<dyn BestBidSource>,
+    redactor: Arc<ErrorRedactor>,
 ) {
     let best_bid = run_submit_to_relays_job(
         best_bid.clone(),
@@ -368,6 +373,7 @@ pub async fn run_submit_to_relays_job_and_metrics(
         config,
         cancel,
         bid_source,
+        redactor,
     )
     .await;
     if let Some(best_bid) = best_bid {
@@ -378,14 +384,13 @@ pub async fn run_submit_to_relays_job_and_metrics(
     }
 }
 
-fn log_validation_error(err: ValidationError, level: Level, validation_use: &str) {
-    //event!(err = ?err, validation_use,level,"Validation failed");
-    //FIX
-    if level == Level::ERROR {
-        error!(err = ?err, validation_use,"Validation failed");
-    } else {
-        warn!(err = ?err, validation_use,"Validation failed");
-    }
+fn log_validation_error(
+    err: ValidationError,
+    level: Level,
+    validation_use: &str,
+    redactor: &dyn ValidationErrorRedactor,
+) {
+    dynamic_event!(level,err = ?redactor.redact(err), validation_use,"Validation failed");
 }
 
 /// Validates the blocks handling any logging.
@@ -397,6 +402,7 @@ async fn validate_block(
     config: &SubmissionConfig,
     cancellation_token: CancellationToken,
     validation_use: &str,
+    redactor: &dyn ValidationErrorRedactor,
 ) -> bool {
     let withdrawals_root = block.withdrawals_root.unwrap_or_default();
     let start = Instant::now();
@@ -424,6 +430,7 @@ async fn validate_block(
                 ValidationError::ValidationFailed(err.clone()),
                 Level::ERROR,
                 validation_use,
+                redactor,
             );
             inc_failed_block_simulations();
             store_error_event(
@@ -434,7 +441,7 @@ async fn validate_block(
             false
         }
         Err(err) => {
-            log_validation_error(err, Level::WARN, validation_use);
+            log_validation_error(err, Level::WARN, validation_use, redactor);
             false
         }
     }
@@ -520,10 +527,15 @@ async fn submit_bid_to_the_relay(
 pub struct RelaySubmitSinkFactory {
     submission_config: Arc<SubmissionConfig>,
     relays: HashMap<MevBoostRelayID, MevBoostRelay>,
+    redactor: Arc<ErrorRedactor>,
 }
 
 impl RelaySubmitSinkFactory {
-    pub fn new(submission_config: SubmissionConfig, relays: Vec<MevBoostRelay>) -> Self {
+    pub fn new(
+        submission_config: SubmissionConfig,
+        relays: Vec<MevBoostRelay>,
+        redactor: Arc<ErrorRedactor>,
+    ) -> Self {
         let relays = relays
             .into_iter()
             .map(|relay| (relay.id.clone(), relay))
@@ -531,6 +543,7 @@ impl RelaySubmitSinkFactory {
         Self {
             submission_config: Arc::new(submission_config),
             relays,
+            redactor,
         }
     }
 }
@@ -561,6 +574,7 @@ impl BuilderSinkFactory for RelaySubmitSinkFactory {
             self.submission_config.clone(),
             cancel,
             bid_source,
+            self.redactor.clone(),
         ));
         Box::new(best_bid)
     }
