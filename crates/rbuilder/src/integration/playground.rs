@@ -197,8 +197,8 @@ impl Drop for Playground {
 const CONFIG_TEMPLATE: &str = r#"
 log_json = false
 log_level = "info,rbuilder=debug"
-telemetry_port = 6060
-telemetry_ip = "0.0.0.0"
+debug_server_port = 6060
+debug_server_ip = "0.0.0.0"
 
 relay_secret_key = "5eae315483f028b5cdd5d1090ff0c7618b18737ea9bf3c35047189db22835c48"
 coinbase_secret_key = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"

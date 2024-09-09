@@ -1,7 +1,9 @@
 log_json = true
 log_level = "info,rbuilder=debug"
-telemetry_port = 6060
-telemetry_ip = "0.0.0.0"
+opaque_server_port = 6061
+opaque_server_ip = "0.0.0.0"
+debug_server_port = 6060
+debug_server_ip = "0.0.0.0"
 
 chain = "mainnet"
 reth_datadir = "/mnt/data/reth"

@@ -11,7 +11,7 @@ use crate::{
     live_builder::{
         base_config::load_config_toml_and_env, payload_events::MevBoostSlotDataGenerator,
     },
-    telemetry::spawn_telemetry_server,
+    telemetry,
     utils::build_info::Version,
 };
 
@@ -80,8 +80,12 @@ pub async fn run<ConfigType: LiveBuilderConfig>(
 
     let cancel = CancellationToken::new();
 
-    spawn_telemetry_server(
-        config.base_config().telemetry_address(),
+    // Spawn opaque server that is safe for tdx builders to expose
+    telemetry::servers::opaque::spawn(config.base_config().opaque_server_address()).await?;
+
+    // Spawn debug server that exposes detailed operational information
+    telemetry::servers::debug::spawn(
+        config.base_config().debug_server_address(),
         config.version_for_telemetry(),
     )
     .await?;
