@@ -5,7 +5,11 @@
 use crossbeam_queue::ArrayQueue;
 use lazy_static::lazy_static;
 use sqlx::{sqlite::SqliteConnectOptions, ConnectOptions, Executor, SqliteConnection};
-use std::{path::Path, time::Duration};
+use std::{
+    path::Path,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info_span, warn};
 
@@ -16,6 +20,9 @@ const MAX_ERRORS_PER_CATEGORY: usize = 100;
 // Maximum size of the payload in bytes (100 mb)
 const MAX_PAYLOAD_SIZE_BYTES: usize = 100_000_000;
 
+// If events don't get processed fst enough we drop them.
+const MAX_PENDING_EVENTS: usize = 500;
+
 #[derive(Debug)]
 struct ErrorEvent {
     category: String,
@@ -24,7 +31,12 @@ struct ErrorEvent {
 }
 
 lazy_static! {
-    static ref EVENT_QUEUE: ArrayQueue<ErrorEvent> = ArrayQueue::new(500);
+    /// Not using null object pattern due to some generic on trait problems.
+    static ref EVENT_QUEUE: Mutex<Option<Arc<ArrayQueue<ErrorEvent>>>> = Mutex::new(None);
+}
+
+fn event_queue() -> Option<Arc<ArrayQueue<ErrorEvent>>> {
+    EVENT_QUEUE.lock().unwrap().clone()
 }
 
 /// Spawn a new error storage writer.
@@ -34,18 +46,23 @@ pub async fn spawn_error_storage_writer(
     global_cancel: CancellationToken,
 ) -> eyre::Result<()> {
     let mut storage = ErrorEventStorage::new_from_path(db_path).await?;
-
+    *EVENT_QUEUE.lock().unwrap() = Some(Arc::new(ArrayQueue::new(MAX_PENDING_EVENTS)));
     tokio::spawn(async move {
         while !global_cancel.is_cancelled() {
-            if let Some(event) = EVENT_QUEUE.pop() {
-                if let Err(err) = storage.write_error_event(&event).await {
-                    warn!(
-                        category = event.category,
-                        "Error writing error event to storage: {:?}", err
-                    );
+            if let Some(event_queue) = event_queue() {
+                if let Some(event) = event_queue.pop() {
+                    if let Err(err) = storage.write_error_event(&event).await {
+                        warn!(
+                            category = event.category,
+                            "Error writing error event to storage: {:?}", err
+                        );
+                    }
+                } else {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
                 }
             } else {
-                tokio::time::sleep(Duration::from_millis(100)).await;
+                error!("error_storage writing task has no event queue");
+                return;
             }
         }
     });
@@ -58,32 +75,34 @@ pub async fn spawn_error_storage_writer(
 /// `error` is a string that describes the error
 /// `payload` is a serializable payload that will be stored with the error as a json
 pub fn store_error_event<T: serde::Serialize>(category: &str, error: &str, payload: T) {
-    let span = info_span!("store_error_event", category, error);
-    let _span_guard = span.enter();
+    if let Some(event_queue) = event_queue() {
+        let span = info_span!("store_error_event", category, error);
+        let _span_guard = span.enter();
 
-    let payload_json = match serde_json::to_string(&payload) {
-        Ok(res) => res,
-        Err(err) => {
-            error!("Error serializing error payload: {:?}", err);
+        let payload_json = match serde_json::to_string(&payload) {
+            Ok(res) => res,
+            Err(err) => {
+                error!("Error serializing error payload: {:?}", err);
+                return;
+            }
+        };
+        if payload_json.as_bytes().len() > MAX_PAYLOAD_SIZE_BYTES {
+            error!(
+                "Error payload is too large, not storing error event. Payload size: {}",
+                payload_json.as_bytes().len()
+            );
             return;
         }
-    };
-    if payload_json.as_bytes().len() > MAX_PAYLOAD_SIZE_BYTES {
-        error!(
-            "Error payload is too large, not storing error event. Payload size: {}",
-            payload_json.as_bytes().len()
-        );
-        return;
-    }
-    if EVENT_QUEUE
-        .push(ErrorEvent {
-            category: category.to_string(),
-            error: error.to_string(),
-            payload: payload_json,
-        })
-        .is_err()
-    {
-        error!("Error storing error event, queue is full.");
+        if event_queue
+            .push(ErrorEvent {
+                category: category.to_string(),
+                error: error.to_string(),
+                payload: payload_json,
+            })
+            .is_err()
+        {
+            error!("Error storing error event, queue is full.");
+        }
     }
 }
 

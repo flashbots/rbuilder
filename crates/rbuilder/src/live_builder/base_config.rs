@@ -51,7 +51,7 @@ pub struct BaseConfig {
     log_level: EnvOrValue<String>,
     pub log_color: bool,
 
-    pub error_storage_path: PathBuf,
+    pub error_storage_path: Option<PathBuf>,
 
     coinbase_secret_key: EnvOrValue<String>,
 
@@ -374,7 +374,6 @@ where
     }
 }
 
-pub const DEFAULT_ERROR_STORAGE_PATH: &str = "/tmp/rbuilder-error.sqlite";
 pub const DEFAULT_CL_NODE_URL: &str = "http://127.0.0.1:3500";
 pub const DEFAULT_EL_NODE_IPC_PATH: &str = "/tmp/reth.ipc";
 pub const DEFAULT_INCOMING_BUNDLES_PORT: u16 = 8645;
@@ -390,7 +389,7 @@ impl Default for BaseConfig {
             log_json: false,
             log_level: "info".into(),
             log_color: false,
-            error_storage_path: DEFAULT_ERROR_STORAGE_PATH.parse().unwrap(),
+            error_storage_path: None,
             coinbase_secret_key: "".into(),
             flashbots_db: None,
             el_node_ipc_path: "/tmp/reth.ipc".parse().unwrap(),

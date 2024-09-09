@@ -59,7 +59,7 @@ pub trait SlotSource {
 #[derive(Debug)]
 pub struct LiveBuilder<DB, BlocksSourceType: SlotSource> {
     pub watchdog_timeout: Duration,
-    pub error_storage_path: PathBuf,
+    pub error_storage_path: Option<PathBuf>,
     pub simulation_threads: usize,
     pub order_input_config: OrderInputConfig,
     pub blocks_source: BlocksSourceType,
@@ -96,9 +96,11 @@ impl<DB: Database + Clone + 'static, BuilderSourceType: SlotSource>
             self.coinbase_signer.address
         );
 
-        spawn_error_storage_writer(self.error_storage_path, self.global_cancellation.clone())
-            .await
-            .with_context(|| "Error spawning error storage writer")?;
+        if let Some(error_storage_path) = self.error_storage_path {
+            spawn_error_storage_writer(error_storage_path, self.global_cancellation.clone())
+                .await
+                .with_context(|| "Error spawning error storage writer")?;
+        }
 
         let mut inner_jobs_handles = Vec::new();
         let mut payload_events_channel = self.blocks_source.recv_slot_channel();
