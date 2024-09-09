@@ -43,30 +43,13 @@ fn open_log_file(path: PathBuf) -> io::Result<File> {
 
 impl Playground {
     pub fn new() -> Result<Self, PlaygroundError> {
-        // TODO: Fix unwraps
-        let playground_dir = std::env::var("PLAYGROUND_DIR")
-            .map_err(|_| PlaygroundError::IntegrationPathNotFound)?;
-
-        // append to the config template the paths to the playground
-        let mut config = CONFIG_TEMPLATE.to_string();
-        config.insert_str(
-            0,
-            format!("chain = \"{}/genesis.json\"\n", playground_dir).as_str(),
-        );
-        config.insert_str(
-            0,
-            format!("reth_datadir = \"{}/data_reth\"\n", playground_dir).as_str(),
-        );
-
-        // write the config into /tmp/rbuilder.toml
-        let mut file =
-            File::create("/tmp/rbuilder.toml").map_err(|_| PlaygroundError::SetupError)?;
-        file.write_all(config.as_bytes())
-            .map_err(|_| PlaygroundError::SetupError)?;
-
         // load the binary from the cargo_dir
         let mut bin_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         bin_path.push("../../target/debug/rbuilder");
+
+        // Use the config file from the root directory
+        let config_path =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../config-playground.toml");
 
         let dt: OffsetDateTime = SystemTime::now().into();
 
@@ -85,7 +68,7 @@ impl Playground {
 
         let mut cmd = Command::new(bin_path.clone());
 
-        cmd.arg("run").arg("/tmp/rbuilder.toml");
+        cmd.arg("run").arg(config_path);
         cmd.stdout(stdout).stderr(stderr);
 
         let builder = match cmd.spawn() {
@@ -193,53 +176,3 @@ impl Drop for Playground {
             .expect("could not kill mev-boost-server");
     }
 }
-
-const CONFIG_TEMPLATE: &str = r#"
-log_json = false
-log_level = "info,rbuilder=debug"
-telemetry_port = 6060
-telemetry_ip = "0.0.0.0"
-
-relay_secret_key = "5eae315483f028b5cdd5d1090ff0c7618b18737ea9bf3c35047189db22835c48"
-coinbase_secret_key = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-
-cl_node_url = ["http://localhost:3500"]
-jsonrpc_server_port = 8645
-jsonrpc_server_ip = "0.0.0.0"
-el_node_ipc_path = "/tmp/reth.ipc"
-extra_data = "⚡🤖"
-
-dry_run = false
-dry_run_validation_url = "http://localhost:8545"
-
-blocks_processor_url = "http://block_processor.internal"
-ignore_cancellable_orders = true
-
-sbundle_mergeabe_signers = []
-# slot_delta_to_start_submits_ms is usually negative since we start bidding BEFORE the slot start
-#slot_delta_to_start_submits_ms = -5000
-live_builders = ["mp-ordering"]
-
-[[relays]]
-name = "custom"
-url = "http://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@localhost:5555"
-priority = 0
-use_ssz_for_submit = false
-use_gzip_for_submit = false
-
-[[builders]]
-name = "mgp-ordering"
-algo = "ordering-builder"
-discard_txs = true
-sorting = "mev-gas-price"
-failed_order_retries = 1
-drop_failed_orders = true
-
-[[builders]]
-name = "mp-ordering"
-algo = "ordering-builder"
-discard_txs = true
-sorting = "max-profit"
-failed_order_retries = 1
-drop_failed_orders = true
-"#;
