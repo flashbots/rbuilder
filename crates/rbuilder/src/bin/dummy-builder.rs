@@ -18,8 +18,8 @@ use rbuilder::{
     },
     live_builder::{
         base_config::{
-            DEFAULT_EL_NODE_IPC_PATH, DEFAULT_ERROR_STORAGE_PATH, DEFAULT_INCOMING_BUNDLES_PORT,
-            DEFAULT_IP, DEFAULT_RETH_DB_PATH,
+            DEFAULT_EL_NODE_IPC_PATH, DEFAULT_INCOMING_BUNDLES_PORT, DEFAULT_IP,
+            DEFAULT_RETH_DB_PATH,
         },
         config::create_provider_factory,
         order_input::{
@@ -72,7 +72,7 @@ async fn main() -> eyre::Result<()> {
 
     let builder = LiveBuilder::<Arc<DatabaseEnv>, MevBoostSlotDataGenerator> {
         watchdog_timeout: Duration::from_secs(10000),
-        error_storage_path: DEFAULT_ERROR_STORAGE_PATH.parse().unwrap(),
+        error_storage_path: None,
         simulation_threads: 1,
         blocks_source: payload_event,
         order_input_config: OrderInputConfig::new(
