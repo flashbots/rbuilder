@@ -225,12 +225,61 @@ pub enum RelayError {
     ConnectionError,
     #[error("Internal Error")]
     InternalError,
+    /// Patch to allow error redacting propagating a RelayError.
+    /// Sadly it's not possible to regenerate the reqwest::Error to remove the source.
+    #[error("Redacted request error {0}")]
+    RedactedRequestError(RedactedRequestErrorKind),
+}
+
+/// List of things we can check from a reqwest::Error with the available getters.
+#[derive(Debug)]
+pub enum RedactedRequestErrorKind {
+    Builder,
+    Request,
+    Redirect,
+    Status,
+    Body,
+    Decode,
+    Unknown,
+}
+
+impl std::fmt::Display for RedactedRequestErrorKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+pub fn get_reqwest_error_kind(err: &reqwest::Error) -> RedactedRequestErrorKind {
+    if err.is_builder() {
+        RedactedRequestErrorKind::Builder
+    } else if err.is_request() {
+        RedactedRequestErrorKind::Request
+    } else if err.is_redirect() {
+        RedactedRequestErrorKind::Redirect
+    } else if err.is_status() {
+        RedactedRequestErrorKind::Status
+    } else if err.is_body() {
+        RedactedRequestErrorKind::Body
+    } else if err.is_decode() {
+        RedactedRequestErrorKind::Decode
+    } else {
+        RedactedRequestErrorKind::Unknown
+    }
 }
 
 #[derive(Error, Debug, Clone, Serialize, Deserialize)]
 pub struct RelayErrorResponse {
     code: Option<u64>,
     message: String,
+}
+
+impl RelayErrorResponse {
+    pub fn with_message(self, message: String) -> Self {
+        Self {
+            code: self.code,
+            message,
+        }
+    }
 }
 
 impl std::fmt::Display for RelayErrorResponse {

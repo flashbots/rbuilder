@@ -5,7 +5,7 @@ use crate::{
         sign_block_for_relay, BLSBlockSigner, RelayError, SubmitBlockErr, SubmitBlockRequest,
     },
     primitives::mev_boost::{MevBoostRelay, MevBoostRelayID},
-    privacy::error_redactor::{ErrorRedactor, ValidationErrorRedactor},
+    privacy::error_redactor::{ErrorRedactor, RelayErrorRedactor, ValidationErrorRedactor},
     telemetry::{
         add_relay_submit_time, add_subsidy_value, inc_conn_relay_errors,
         inc_failed_block_simulations, inc_initiated_submissions, inc_other_relay_errors,
@@ -289,9 +289,11 @@ async fn run_submit_to_relays_job(
             let relay = relay.clone();
             let cancel = cancel.clone();
             let submission = normal_signed_submission.clone();
+            let redactor = redactor.relay();
             tokio::spawn(
                 async move {
-                    submit_bid_to_the_relay(&relay, cancel.clone(), submission, false).await;
+                    submit_bid_to_the_relay(&relay, cancel.clone(), submission, false, redactor)
+                        .await;
                 }
                 .instrument(span),
             );
@@ -320,9 +322,17 @@ async fn run_submit_to_relays_job(
                     let relay = relay.clone();
                     let cancel = cancel.clone();
                     let submission = optimistic_signed_submission.clone();
+                    let redactor = redactor.relay();
                     tokio::spawn(
                         async move {
-                            submit_bid_to_the_relay(&relay, cancel.clone(), submission, true).await;
+                            submit_bid_to_the_relay(
+                                &relay,
+                                cancel.clone(),
+                                submission,
+                                true,
+                                redactor,
+                            )
+                            .await;
                         }
                         .instrument(span),
                     );
@@ -335,9 +345,17 @@ async fn run_submit_to_relays_job(
                 let relay = relay.clone();
                 let cancel = cancel.clone();
                 let submission = normal_signed_submission.clone();
+                let redactor = redactor.relay();
                 tokio::spawn(
                     async move {
-                        submit_bid_to_the_relay(&relay, cancel.clone(), submission, false).await;
+                        submit_bid_to_the_relay(
+                            &relay,
+                            cancel.clone(),
+                            submission,
+                            false,
+                            redactor,
+                        )
+                        .await;
                     }
                     .instrument(span),
                 );
@@ -388,7 +406,7 @@ fn log_validation_error(
     err: ValidationError,
     level: Level,
     validation_use: &str,
-    redactor: &dyn ValidationErrorRedactor,
+    redactor: Arc<dyn ValidationErrorRedactor>,
 ) {
     dynamic_event!(level,err = ?redactor.redact(err), validation_use,"Validation failed");
 }
@@ -402,7 +420,7 @@ async fn validate_block(
     config: &SubmissionConfig,
     cancellation_token: CancellationToken,
     validation_use: &str,
-    redactor: &dyn ValidationErrorRedactor,
+    redactor: Arc<dyn ValidationErrorRedactor>,
 ) -> bool {
     let withdrawals_root = block.withdrawals_root.unwrap_or_default();
     let start = Instant::now();
@@ -452,6 +470,7 @@ async fn submit_bid_to_the_relay(
     cancel: CancellationToken,
     signed_submit_request: SubmitBlockRequest,
     optimistic: bool,
+    redactor: Arc<dyn RelayErrorRedactor>,
 ) {
     let submit_start = Instant::now();
 
@@ -480,11 +499,11 @@ async fn submit_bid_to_the_relay(
             cancel.cancel();
         }
         Err(SubmitBlockErr::BidBelowFloor | SubmitBlockErr::PayloadAttributesNotKnown) => {
-            trace!(err = ?relay_result.unwrap_err(), "Block not accepted by the relay");
+            trace!(err = ?redactor.redact(relay_result.unwrap_err()), "Block not accepted by the relay");
         }
         Err(SubmitBlockErr::SimError(err)) => {
             inc_failed_block_simulations();
-            error!(err = ?err, "Error block simulation fail, cancelling");
+            error!(err = ?redactor.redact_sim_error(err.clone()), "Error block simulation fail, cancelling");
             store_error_event(SIM_ERROR_CATEGORY, &err.to_string(), &signed_submit_request);
             cancel.cancel();
         }
@@ -494,25 +513,25 @@ async fn submit_bid_to_the_relay(
         }
         Err(SubmitBlockErr::RelayError(RelayError::ConnectionError))
         | Err(SubmitBlockErr::RelayError(RelayError::RequestError(_))) => {
-            trace!(err = ?relay_result.unwrap_err(), "Connection error submitting block to the relay");
+            trace!(err = ?redactor.redact(relay_result.unwrap_err()), "Connection error submitting block to the relay");
             inc_conn_relay_errors(&relay.id);
         }
         Err(SubmitBlockErr::BlockKnown) => {
             trace!("Block already known");
         }
-        Err(SubmitBlockErr::RelayError(err)) => {
-            warn!(err = ?err, "Error submitting block to the relay");
+        Err(SubmitBlockErr::RelayError(_)) => {
+            warn!(err = ?redactor.redact(relay_result.unwrap_err()), "Error submitting block to the relay");
             inc_other_relay_errors(&relay.id);
         }
-        Err(SubmitBlockErr::RPCConversionError(err)) => {
+        Err(SubmitBlockErr::RPCConversionError(_)) => {
             error!(
-                err = ?err,
+                err = ?redactor.redact(relay_result.unwrap_err()),
                 "RPC conversion error (illegal submission?) submitting block to the relay",
             );
         }
-        Err(SubmitBlockErr::RPCSerializationError(err)) => {
+        Err(SubmitBlockErr::RPCSerializationError(_)) => {
             error!(
-                err = ?err,
+                err = ?redactor.redact(relay_result.unwrap_err()),
                 "SubmitBlock serialization error submitting block to the relay",
             );
         }
