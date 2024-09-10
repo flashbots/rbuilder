@@ -21,7 +21,7 @@ use crate::{
         Sorting,
     },
     primitives::SimulatedOrder,
-    roothash::RootHashMode,
+    roothash::RootHashConfig,
     telemetry,
 };
 
@@ -93,7 +93,7 @@ pub struct BlockBuildingHelperFromDB<DB> {
     /// Needed to get the initial state and the final root hash calculation.
     provider_factory: ProviderFactory<DB>,
     root_hash_task_pool: BlockingTaskPool,
-    root_hash_mode: RootHashMode,
+    root_hash_config: RootHashConfig,
     /// Token to cancel in case of fatal error (if we believe that it's impossible to build for this block).
     cancel_on_fatal_error: CancellationToken,
 }
@@ -132,7 +132,7 @@ impl<DB: Database + Clone + 'static> BlockBuildingHelperFromDB<DB> {
     pub fn new(
         provider_factory: ProviderFactory<DB>,
         root_hash_task_pool: BlockingTaskPool,
-        root_hash_mode: RootHashMode,
+        root_hash_config: RootHashConfig,
         building_ctx: BlockBuildingContext,
         cached_reads: Option<CachedReads>,
         builder_name: String,
@@ -175,7 +175,7 @@ impl<DB: Database + Clone + 'static> BlockBuildingHelperFromDB<DB> {
             built_block_trace: BuiltBlockTrace::new(),
             provider_factory,
             root_hash_task_pool,
-            root_hash_mode,
+            root_hash_config,
             cancel_on_fatal_error,
         })
     }
@@ -323,8 +323,10 @@ impl<DB: Database + Clone + 'static> BlockBuildingHelper for BlockBuildingHelper
             &mut self.block_state,
             &self.building_ctx,
             self.provider_factory.clone(),
-            self.root_hash_mode,
+            self.root_hash_config,
             self.root_hash_task_pool,
+            // TODO: add thread local cache here
+            None,
         ) {
             Ok(finalized_block) => finalized_block,
             Err(err) => {

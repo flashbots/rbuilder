@@ -1,31 +1,33 @@
 //! App to benchmark/test the tx block execution.
-//! It loads the last landed block and re-executes all the txs in it.
-use alloy_primitives::{B256, U256};
+//! This only works when reth node is stopped and the chain moved forward form its synced state
+//! It downloads block aftre the last one synced and re-executes all the txs in it.
+use alloy_provider::Provider;
 use clap::Parser;
+use eyre::Context;
 use itertools::Itertools;
 use rbuilder::{
-    building::{
-        sim::simulate_all_orders_with_sim_tree, BlockBuildingContext, BlockState, PartialBlock,
-    },
+    building::{BlockBuildingContext, BlockState, PartialBlock, PartialBlockFork},
     live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig, config::Config},
-    primitives::{MempoolTx, Order, TransactionSignedEcRecoveredWithBlobs},
-    roothash::RootHashMode,
-    utils::{default_cfg_env, Signer},
+    utils::{extract_onchain_block_txs, find_suggested_fee_recipient, http_provider},
 };
-use reth::{
-    payload::PayloadId,
-    providers::{BlockNumReader, BlockReader},
-};
-use reth_payload_builder::{database::CachedReads, EthPayloadBuilderAttributes};
+use reth::providers::BlockNumReader;
+use reth_payload_builder::database::CachedReads;
 use reth_provider::StateProvider;
-use revm_primitives::{BlobExcessGasAndPrice, BlockEnv, SpecId};
 use std::{path::PathBuf, sync::Arc, time::Instant};
+use tracing::info;
 
 #[derive(Parser, Debug)]
 struct Cli {
     #[clap(long, help = "bench iterations", default_value = "20")]
     iters: usize,
-    #[clap(help = "Config file path")]
+    #[clap(
+        long,
+        help = "external block provider",
+        env = "RPC_URL",
+        default_value = "http://127.0.0.1:8545"
+    )]
+    rpc_url: String,
+    #[clap(long, help = "Config file path", env = "RBUILDER_CONFIG")]
     config: PathBuf,
 }
 
@@ -36,7 +38,9 @@ async fn main() -> eyre::Result<()> {
     let config: Config = load_config_toml_and_env(cli.config)?;
     config.base_config().setup_tracing_subsriber()?;
 
-    let chain = config.base_config().chain_spec()?;
+    let rpc = http_provider(cli.rpc_url.parse()?);
+
+    let chain_spec = config.base_config().chain_spec()?;
 
     let factory = config
         .base_config()
@@ -44,103 +48,92 @@ async fn main() -> eyre::Result<()> {
         .provider_factory_unchecked();
 
     let last_block = factory.last_block_number()?;
-    let block_data = factory
-        .block_by_number(last_block)?
-        .ok_or_else(|| eyre::eyre!("Block not found"))?;
 
-    let signer = Signer::try_from_secret(B256::random())?;
+    let onchain_block = rpc
+        .get_block_by_number((last_block + 1).into(), true)
+        .await?
+        .ok_or_else(|| eyre::eyre!("block not found on rpc"))?;
 
-    let cfg_env = default_cfg_env(&chain, block_data.timestamp);
-
-    let ctx = BlockBuildingContext {
-        block_env: BlockEnv {
-            number: U256::from(block_data.number),
-            coinbase: signer.address,
-            timestamp: U256::from(block_data.timestamp),
-            gas_limit: U256::from(block_data.gas_limit),
-            basefee: U256::from(block_data.base_fee_per_gas.unwrap_or_default()),
-            difficulty: Default::default(),
-            prevrandao: Some(block_data.difficulty.into()),
-            blob_excess_gas_and_price: block_data.excess_blob_gas.map(BlobExcessGasAndPrice::new),
-        },
-        initialized_cfg: cfg_env,
-        attributes: EthPayloadBuilderAttributes {
-            id: PayloadId::new([0u8; 8]),
-            parent: block_data.parent_hash,
-            timestamp: block_data.timestamp,
-            suggested_fee_recipient: Default::default(),
-            prev_randao: Default::default(),
-            withdrawals: block_data.withdrawals.clone().unwrap_or_default(),
-            parent_beacon_block_root: block_data.parent_beacon_block_root,
-        },
-        chain_spec: chain.clone(),
-        builder_signer: Some(signer),
-        extra_data: Vec::new(),
-        blocklist: Default::default(),
-        excess_blob_gas: block_data.excess_blob_gas,
-        spec_id: SpecId::LATEST,
-    };
-
-    // Get the landed orders (all Order::Tx) from the block
-    let orders = block_data
-        .body
-        .iter()
-        .map(|tx| {
-            let tx = tx
-                .try_ecrecovered()
-                .ok_or_else(|| eyre::eyre!("Failed to recover tx"))?;
-            let tx = TransactionSignedEcRecoveredWithBlobs {
-                tx,
-                blobs_sidecar: Default::default(),
-                metadata: Default::default(),
-            };
-            let tx = MempoolTx::new(tx);
-            Ok::<_, eyre::Error>(Order::Tx(tx))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-
-    let mut state_provider =
-        Arc::<dyn StateProvider>::from(factory.history_by_block_number(block_data.number - 1)?);
-    let (sim_orders, _) = simulate_all_orders_with_sim_tree(factory.clone(), &ctx, &orders, false)?;
-
-    tracing::info!(
-        "Block: {}, simulated orders: {}",
-        block_data.number,
-        sim_orders.len()
+    let txs = extract_onchain_block_txs(&onchain_block)?;
+    let suggested_fee_recipient = find_suggested_fee_recipient(&onchain_block, &txs);
+    info!(
+        "Block number: {}, txs: {}",
+        onchain_block.header.number,
+        txs.len()
     );
 
-    let mut build_times_mus = Vec::new();
-    let mut finalize_time_mus = Vec::new();
+    let coinbase = onchain_block.header.miner;
+
+    let ctx = BlockBuildingContext::from_onchain_block(
+        onchain_block,
+        chain_spec,
+        None,
+        Default::default(),
+        coinbase,
+        suggested_fee_recipient,
+        None,
+    );
+
+    // let signer = Signer::try_from_secret(B256::random())?;
+
+    let state_provider =
+        Arc::<dyn StateProvider>::from(factory.history_by_block_number(last_block)?);
+
+    let mut build_times_ms = Vec::new();
+    let mut finalize_time_ms = Vec::new();
     let mut cached_reads = Some(CachedReads::default());
     for _ in 0..cli.iters {
-        let mut partial_block = PartialBlock::new(true, None);
-        let mut block_state =
-            BlockState::new_arc(state_provider).with_cached_reads(cached_reads.unwrap_or_default());
-        let build_time = Instant::now();
-        partial_block.pre_block_call(&ctx, &mut block_state)?;
-        for order in &sim_orders {
-            let _ = partial_block.commit_order(order, &ctx, &mut block_state)?;
-        }
-        let build_time = build_time.elapsed();
+        let ctx = ctx.clone();
+        let txs = txs.clone();
+        let state_provider = state_provider.clone();
+        let factory = factory.clone();
+        let config = config.clone();
+        let root_hash_config = config.base_config.live_root_hash_config()?;
+        let (new_cached_reads, build_time, finalize_time) =
+            tokio::task::spawn_blocking(move || -> eyre::Result<_> {
+                let partial_block = PartialBlock::new(true, None);
+                let mut state = BlockState::new_arc(state_provider)
+                    .with_cached_reads(cached_reads.unwrap_or_default());
 
-        let finalize_time = Instant::now();
-        let finalized_block = partial_block.finalize(
-            &mut block_state,
-            &ctx,
-            factory.clone(),
-            RootHashMode::IgnoreParentHash,
-            config.base_config().root_hash_task_pool()?,
-        )?;
-        let finalize_time = finalize_time.elapsed();
+                let build_time = Instant::now();
 
-        cached_reads = Some(finalized_block.cached_reads);
+                let mut cumulative_gas_used = 0;
+                let mut cumulative_blob_gas_used = 0;
+                for (idx, tx) in txs.into_iter().enumerate() {
+                    let result = {
+                        let mut fork = PartialBlockFork::new(&mut state);
+                        fork.commit_tx(&tx, &ctx, cumulative_gas_used, 0, cumulative_blob_gas_used)?
+                            .with_context(|| {
+                                format!("Failed to commit tx: {} {:?}", idx, tx.hash())
+                            })?
+                    };
+                    cumulative_gas_used += result.gas_used;
+                    cumulative_blob_gas_used += result.blob_gas_used;
+                }
 
-        build_times_mus.push(build_time.as_micros());
-        finalize_time_mus.push(finalize_time.as_micros());
-        state_provider = block_state.into_provider();
+                let build_time = build_time.elapsed();
+
+                let finalize_time = Instant::now();
+                let finalized_block = partial_block.finalize(
+                    &mut state,
+                    &ctx,
+                    factory.clone(),
+                    root_hash_config.clone(),
+                    config.base_config().root_hash_task_pool()?,
+                    None,
+                )?;
+                let finalize_time = finalize_time.elapsed();
+
+                Ok((finalized_block.cached_reads, build_time, finalize_time))
+            })
+            .await??;
+
+        cached_reads = Some(new_cached_reads);
+        build_times_ms.push(build_time.as_millis());
+        finalize_time_ms.push(finalize_time.as_millis());
     }
-    report_time_data("build", &build_times_mus);
-    report_time_data("finalize", &finalize_time_mus);
+    report_time_data("build", &build_times_ms);
+    report_time_data("finalize", &finalize_time_ms);
 
     Ok(())
 }

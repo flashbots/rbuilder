@@ -12,8 +12,10 @@ mod tx_signer;
 #[cfg(test)]
 pub mod test_utils;
 
+use alloy_consensus::TxEnvelope;
+use alloy_eips::eip2718::Encodable2718;
 use alloy_network::Ethereum;
-use alloy_primitives::{Sign, I256, U256};
+use alloy_primitives::{Address, Sign, I256, U256};
 use alloy_provider::RootProvider;
 use alloy_transport::BoxTransport;
 
@@ -29,6 +31,11 @@ pub use provider_factory_reopen::{
 pub use test_data_generator::TestDataGenerator;
 use time::OffsetDateTime;
 pub use tx_signer::Signer;
+
+use crate::primitives::{
+    serialize::{RawTx, TxEncoding},
+    TransactionSignedEcRecoveredWithBlobs,
+};
 
 /// de/serializes U256 as decimal value (U256 serde default is hexa). Needed to interact with some JSONs (eg:ProposerPayloadDelivered in relay provider API)
 pub mod u256decimal_serde_helper {
@@ -198,6 +205,40 @@ pub fn signed_uint_delta(a: U256, b: U256) -> I256 {
     let a = I256::checked_from_sign_and_abs(Sign::Positive, a).expect("A is too big");
     let b = I256::checked_from_sign_and_abs(Sign::Positive, b).expect("B is too big");
     a.checked_sub(b).expect("Subtraction overflow")
+}
+
+pub fn find_suggested_fee_recipient(
+    block: &alloy_rpc_types::Block,
+    txs: &[TransactionSignedEcRecoveredWithBlobs],
+) -> Address {
+    let coinbase = block.header.miner;
+    let (last_tx_signer, last_tx_to) = if let Some((signer, to)) = txs
+        .last()
+        .map(|tx| (tx.tx.signer(), tx.tx.to().unwrap_or_default()))
+    {
+        (signer, to)
+    } else {
+        return coinbase;
+    };
+
+    if last_tx_signer == coinbase {
+        last_tx_to
+    } else {
+        coinbase
+    }
+}
+
+pub fn extract_onchain_block_txs(
+    onchain_block: &alloy_rpc_types::Block,
+) -> eyre::Result<Vec<TransactionSignedEcRecoveredWithBlobs>> {
+    let mut result = Vec::new();
+    for tx in onchain_block.transactions.clone().into_transactions() {
+        let tx_envelope: TxEnvelope = tx.try_into()?;
+        let encoded = tx_envelope.encoded_2718();
+        let tx = RawTx { tx: encoded.into() }.decode(TxEncoding::NoBlobData)?;
+        result.push(tx.tx_with_blobs);
+    }
+    Ok(result)
 }
 
 #[cfg(test)]

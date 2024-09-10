@@ -11,11 +11,12 @@ pub mod sim;
 pub mod testing;
 pub mod tracers;
 pub use block_orders::BlockOrders;
+use eth_sparse_mpt::reth_sparse_trie::{RethSparseTrieLocalCache, RethSparseTrieSharedCache};
 use reth_primitives::proofs::calculate_requests_root;
 
 use crate::{
     primitives::{Order, OrderId, SimValue, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs},
-    roothash::calculate_state_root,
+    roothash::{calculate_state_root, RootHashConfig},
     utils::{a2r_withdrawal, calc_gas_limit, timestamp_as_u64, Signer},
 };
 use ahash::HashSet;
@@ -50,7 +51,7 @@ use thiserror::Error;
 use time::OffsetDateTime;
 
 use self::tracers::SimulationTracer;
-use crate::{roothash::RootHashMode, utils::default_cfg_env};
+use crate::utils::default_cfg_env;
 pub use block_orders::*;
 pub use built_block_trace::*;
 #[cfg(test)]
@@ -76,6 +77,7 @@ pub struct BlockBuildingContext {
     pub excess_blob_gas: Option<u64>,
     /// Version of the EVM that we are going to use
     pub spec_id: SpecId,
+    pub shared_sparse_mpt_cache: RethSparseTrieSharedCache,
 }
 
 impl BlockBuildingContext {
@@ -141,6 +143,7 @@ impl BlockBuildingContext {
             extra_data,
             excess_blob_gas,
             spec_id,
+            shared_sparse_mpt_cache: Default::default(),
         }
     }
 
@@ -225,6 +228,7 @@ impl BlockBuildingContext {
             extra_data: Vec::new(),
             excess_blob_gas: onchain_block.header.excess_blob_gas.map(|b| b as u64),
             spec_id,
+            shared_sparse_mpt_cache: Default::default(),
         }
     }
 
@@ -541,8 +545,9 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         state: &mut BlockState,
         ctx: &BlockBuildingContext,
         provider_factory: ProviderFactory<DB>,
-        root_hash_mode: RootHashMode,
+        root_hash_config: RootHashConfig,
         root_hash_task_pool: BlockingTaskPool,
+        root_hash_local_cache: Option<&mut RethSparseTrieLocalCache>,
     ) -> eyre::Result<FinalizeResult> {
         let (withdrawals_root, withdrawals) = {
             let mut db = state.new_db_ref();
@@ -605,8 +610,10 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             provider_factory,
             ctx.attributes.parent,
             &execution_outcome,
-            root_hash_mode,
             root_hash_task_pool,
+            ctx.shared_sparse_mpt_cache.clone(),
+            root_hash_local_cache,
+            root_hash_config,
         )?;
 
         // create the block header

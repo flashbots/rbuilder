@@ -30,6 +30,7 @@ use crate::{
     },
     mev_boost::BLSBlockSigner,
     primitives::mev_boost::{MevBoostRelay, RelayConfig},
+    roothash::RootHashConfig,
     utils::{build_info::rbuilder_version, ProviderFactoryReopener, Signer},
     validation_api_client::ValidationAPIClient,
 };
@@ -300,9 +301,11 @@ impl LiveBuilderConfig for Config {
             .base_config
             .create_builder(cancellation_token, sink_factory, payload_event)
             .await?;
+        let root_hash_config = self.base_config.live_root_hash_config()?;
         let root_hash_task_pool = self.base_config.root_hash_task_pool()?;
         let builders = create_builders(
             self.live_builders()?,
+            root_hash_config,
             root_hash_task_pool,
             self.base_config.sbundle_mergeabe_signers(),
         );
@@ -429,23 +432,33 @@ pub fn coinbase_signer_from_secret_key(secret_key: &str) -> eyre::Result<Signer>
 
 fn create_builders(
     configs: Vec<BuilderConfig>,
+    root_hash_config: RootHashConfig,
     root_hash_task_pool: BlockingTaskPool,
     sbundle_mergeabe_signers: Vec<Address>,
 ) -> Vec<Arc<dyn BlockBuildingAlgorithm<Arc<DatabaseEnv>>>> {
     configs
         .into_iter()
-        .map(|cfg| create_builder(cfg, &root_hash_task_pool, &sbundle_mergeabe_signers))
+        .map(|cfg| {
+            create_builder(
+                cfg,
+                &root_hash_config,
+                &root_hash_task_pool,
+                &sbundle_mergeabe_signers,
+            )
+        })
         .collect()
 }
 
 fn create_builder(
     cfg: BuilderConfig,
+    root_hash_config: &RootHashConfig,
     root_hash_task_pool: &BlockingTaskPool,
     sbundle_mergeabe_signers: &[Address],
 ) -> Arc<dyn BlockBuildingAlgorithm<Arc<DatabaseEnv>>> {
     match cfg.builder {
         SpecificBuilderConfig::OrderingBuilder(order_cfg) => {
             Arc::new(OrderingBuildingAlgorithm::new(
+                root_hash_config.clone(),
                 root_hash_task_pool.clone(),
                 sbundle_mergeabe_signers.to_vec(),
                 order_cfg,
