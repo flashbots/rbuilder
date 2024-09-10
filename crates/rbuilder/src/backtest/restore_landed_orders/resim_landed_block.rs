@@ -1,13 +1,10 @@
 use crate::building::evm_inspector::SlotKey;
 use crate::building::tracers::AccumulatorSimulationTracer;
 use crate::building::{BlockBuildingContext, BlockState, PartialBlock, PartialBlockFork};
-use crate::primitives::serialize::{RawTx, TxEncoding};
-use crate::primitives::TransactionSignedEcRecoveredWithBlobs;
 use crate::utils::signed_uint_delta;
+use crate::utils::{extract_onchain_block_txs, find_suggested_fee_recipient};
 use ahash::{HashMap, HashSet};
-use alloy_consensus::TxEnvelope;
-use alloy_eips::eip2718::Encodable2718;
-use alloy_primitives::{Address, B256, I256};
+use alloy_primitives::{B256, I256};
 use eyre::Context;
 use reth_chainspec::ChainSpec;
 use reth_db::DatabaseEnv;
@@ -112,38 +109,4 @@ pub fn sim_historical_block(
     }
 
     Ok(results)
-}
-
-fn find_suggested_fee_recipient(
-    block: &alloy_rpc_types::Block,
-    txs: &[TransactionSignedEcRecoveredWithBlobs],
-) -> Address {
-    let coinbase = block.header.miner;
-    let (last_tx_signer, last_tx_to) = if let Some((signer, to)) = txs
-        .last()
-        .map(|tx| (tx.signer(), tx.to().unwrap_or_default()))
-    {
-        (signer, to)
-    } else {
-        return coinbase;
-    };
-
-    if last_tx_signer == coinbase {
-        last_tx_to
-    } else {
-        coinbase
-    }
-}
-
-fn extract_onchain_block_txs(
-    onchain_block: &alloy_rpc_types::Block,
-) -> eyre::Result<Vec<TransactionSignedEcRecoveredWithBlobs>> {
-    let mut result = Vec::new();
-    for tx in onchain_block.transactions.clone().into_transactions() {
-        let tx_envelope: TxEnvelope = tx.try_into()?;
-        let encoded = tx_envelope.encoded_2718();
-        let tx = RawTx { tx: encoded.into() }.decode(TxEncoding::NoBlobData)?;
-        result.push(tx.tx_with_blobs);
-    }
-    Ok(result)
 }
