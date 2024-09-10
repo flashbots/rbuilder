@@ -80,11 +80,9 @@ pub async fn run<ConfigType: LiveBuilderConfig>(
 
     let cancel = CancellationToken::new();
 
-    // Spawn restricted server that is safe for tdx builders to expose
-    telemetry::servers::restricted::spawn(
-        config.base_config().restricted_telemetry_server_address(),
-    )
-    .await?;
+    // Spawn redacted server that is safe for tdx builders to expose
+    telemetry::servers::redacted::spawn(config.base_config().redacted_telemetry_server_address())
+        .await?;
 
     // Spawn debug server that exposes detailed operational information
     telemetry::servers::full::spawn(

@@ -45,8 +45,8 @@ const ENV_PREFIX: &str = "env:";
 pub struct BaseConfig {
     pub full_telemetry_server_port: u16,
     pub full_telemetry_server_ip: Option<String>,
-    pub restricted_telemetry_server_port: u16,
-    pub restricted_telemetry_server_ip: Option<String>,
+    pub redacted_telemetry_server_port: u16,
+    pub redacted_telemetry_server_ip: Option<String>,
     pub log_json: bool,
     log_level: EnvOrValue<String>,
     pub log_color: bool,
@@ -143,10 +143,10 @@ impl BaseConfig {
         Ok(())
     }
 
-    pub fn restricted_telemetry_server_address(&self) -> SocketAddr {
+    pub fn redacted_telemetry_server_address(&self) -> SocketAddr {
         SocketAddr::V4(SocketAddrV4::new(
-            self.restricted_telemetry_server_ip(),
-            self.restricted_telemetry_server_port,
+            self.redacted_telemetry_server_ip(),
+            self.redacted_telemetry_server_port,
         ))
     }
 
@@ -213,8 +213,8 @@ impl BaseConfig {
         parse_ip(&self.jsonrpc_server_ip)
     }
 
-    pub fn restricted_telemetry_server_ip(&self) -> Ipv4Addr {
-        parse_ip(&self.restricted_telemetry_server_ip)
+    pub fn redacted_telemetry_server_ip(&self) -> Ipv4Addr {
+        parse_ip(&self.redacted_telemetry_server_ip)
     }
 
     pub fn full_telemetry_server_ip(&self) -> Ipv4Addr {
@@ -384,8 +384,8 @@ impl Default for BaseConfig {
         Self {
             full_telemetry_server_port: 6069,
             full_telemetry_server_ip: None,
-            restricted_telemetry_server_port: 6070,
-            restricted_telemetry_server_ip: None,
+            redacted_telemetry_server_port: 6070,
+            redacted_telemetry_server_ip: None,
             log_json: false,
             log_level: "info".into(),
             log_color: false,

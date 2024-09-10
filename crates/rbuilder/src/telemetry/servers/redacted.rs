@@ -1,4 +1,4 @@
-//! Server that only exposes restricted data, suitable for being exposed by tdx
+//! Server that only exposes redacted data, suitable for being exposed by tdx
 //! builders in real-time.
 //!
 //! Currently exposes just a healthcheck endpoint on /health. Can be extended
