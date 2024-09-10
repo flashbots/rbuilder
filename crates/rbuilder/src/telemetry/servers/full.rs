@@ -5,7 +5,7 @@
 //!
 //! All internals are global variables.
 //!
-//! Debug may expose metrics that could leak information when running tdx.
+//! Full server may expose metrics that could leak information when running tdx.
 
 use serde::Deserialize;
 use std::{net::SocketAddr, path::PathBuf};

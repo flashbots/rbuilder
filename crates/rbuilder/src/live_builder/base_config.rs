@@ -43,10 +43,10 @@ const ENV_PREFIX: &str = "env:";
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct BaseConfig {
-    pub debug_server_port: u16,
-    pub debug_server_ip: Option<String>,
-    pub opaque_server_port: u16,
-    pub opaque_server_ip: Option<String>,
+    pub full_telemetry_server_port: u16,
+    pub full_telemetry_server_ip: Option<String>,
+    pub restricted_telemetry_server_port: u16,
+    pub restricted_telemetry_server_ip: Option<String>,
     pub log_json: bool,
     log_level: EnvOrValue<String>,
     pub log_color: bool,
@@ -143,17 +143,17 @@ impl BaseConfig {
         Ok(())
     }
 
-    pub fn opaque_server_address(&self) -> SocketAddr {
+    pub fn restricted_telemetry_server_address(&self) -> SocketAddr {
         SocketAddr::V4(SocketAddrV4::new(
-            self.opaque_server_ip(),
-            self.opaque_server_port,
+            self.restricted_telemetry_server_ip(),
+            self.restricted_telemetry_server_port,
         ))
     }
 
-    pub fn debug_server_address(&self) -> SocketAddr {
+    pub fn full_telemetry_server_address(&self) -> SocketAddr {
         SocketAddr::V4(SocketAddrV4::new(
-            self.debug_server_ip(),
-            self.debug_server_port,
+            self.full_telemetry_server_ip(),
+            self.full_telemetry_server_port,
         ))
     }
 
@@ -213,12 +213,12 @@ impl BaseConfig {
         parse_ip(&self.jsonrpc_server_ip)
     }
 
-    pub fn opaque_server_ip(&self) -> Ipv4Addr {
-        parse_ip(&self.opaque_server_ip)
+    pub fn restricted_telemetry_server_ip(&self) -> Ipv4Addr {
+        parse_ip(&self.restricted_telemetry_server_ip)
     }
 
-    pub fn debug_server_ip(&self) -> Ipv4Addr {
-        parse_ip(&self.debug_server_ip)
+    pub fn full_telemetry_server_ip(&self) -> Ipv4Addr {
+        parse_ip(&self.full_telemetry_server_ip)
     }
 
     pub fn chain_spec(&self) -> eyre::Result<Arc<ChainSpec>> {
@@ -382,10 +382,10 @@ pub const DEFAULT_RETH_DB_PATH: &str = "/mnt/data/reth";
 impl Default for BaseConfig {
     fn default() -> Self {
         Self {
-            debug_server_port: 6069,
-            debug_server_ip: None,
-            opaque_server_port: 6070,
-            opaque_server_ip: None,
+            full_telemetry_server_port: 6069,
+            full_telemetry_server_ip: None,
+            restricted_telemetry_server_port: 6070,
+            restricted_telemetry_server_ip: None,
             log_json: false,
             log_level: "info".into(),
             log_color: false,
