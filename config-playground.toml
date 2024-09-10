@@ -1,7 +1,9 @@
 log_json = false
 log_level = "info,rbuilder=debug"
-telemetry_port = 6060
-telemetry_ip = "0.0.0.0"
+redacted_telemetry_server_port = 6061
+redacted_telemetry_server_ip = "0.0.0.0"
+full_telemetry_server_port = 6060
+full_telemetry_server_ip = "0.0.0.0"
 
 chain = "$HOME/.playground/devnet/genesis.json"
 reth_datadir = "$HOME/.playground/devnet/data_reth"
