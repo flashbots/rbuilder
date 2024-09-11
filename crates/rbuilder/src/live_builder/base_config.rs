@@ -3,8 +3,6 @@
 use crate::{
     building::builders::UnfinishedBlockBuildingSinkFactory,
     live_builder::{order_input::OrderInputConfig, LiveBuilder},
-    building::builders::UnfinishedBlockBuildingSinkFactory,
-    live_builder::{order_input::OrderInputConfig, LiveBuilder},
     telemetry::{setup_reloadable_tracing_subscriber, LoggerConfig},
     utils::{http_provider, BoxedProvider, ProviderFactoryReopener, Signer},
 };

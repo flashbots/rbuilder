@@ -13,11 +13,7 @@ use rbuilder::{
             block_building_helper::{BlockBuildingHelper, BlockBuildingHelperFromDB},
             BlockBuildingAlgorithm, BlockBuildingAlgorithmInput, OrderConsumer,
             UnfinishedBlockBuildingSink, UnfinishedBlockBuildingSinkFactory,
-            block_building_helper::{BlockBuildingHelper, BlockBuildingHelperFromDB},
-            BlockBuildingAlgorithm, BlockBuildingAlgorithmInput, OrderConsumer,
-            UnfinishedBlockBuildingSink, UnfinishedBlockBuildingSinkFactory,
         },
-        BlockBuildingContext, SimulatedOrderStore,
         BlockBuildingContext, SimulatedOrderStore,
     },
     live_builder::{
