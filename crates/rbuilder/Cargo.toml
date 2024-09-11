@@ -134,3 +134,6 @@ criterion = { version = "0.5.1", features = ["html_reports", "async_tokio"] }
 [[bench]]
 name = "bench_main"
 harness = false
+
+[features]
+tdx = []

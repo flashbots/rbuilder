@@ -3,7 +3,6 @@
 use crate::{
     building::builders::UnfinishedBlockBuildingSinkFactory,
     live_builder::{order_input::OrderInputConfig, LiveBuilder},
-    privacy::error_redactor::ErrorRedactor,
     telemetry::{setup_reloadable_tracing_subscriber, LoggerConfig},
     utils::{http_provider, BoxedProvider, ProviderFactoryReopener, Signer},
 };
@@ -149,14 +148,6 @@ impl BaseConfig {
 
     pub fn telemetry_address(&self) -> SocketAddr {
         SocketAddr::V4(SocketAddrV4::new(self.telemetry_ip(), self.telemetry_port))
-    }
-
-    pub fn create_error_redactor(&self) -> Arc<ErrorRedactor> {
-        Arc::new(if self.redact_errors {
-            ErrorRedactor::new_secure()
-        } else {
-            ErrorRedactor::new_show_all()
-        })
     }
 
     /// WARN: opens reth db

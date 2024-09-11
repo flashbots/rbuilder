@@ -28,7 +28,6 @@ use crate::{
     },
     mev_boost::BLSBlockSigner,
     primitives::mev_boost::{MevBoostRelay, RelayConfig},
-    privacy::error_redactor::ErrorRedactor,
     utils::{build_info::rbuilder_version, ProviderFactoryReopener, Signer},
     validation_api_client::ValidationAPIClient,
 };
@@ -241,7 +240,6 @@ impl L1Config {
         &self,
         chain_spec: Arc<ChainSpec>,
         bid_observer: Box<dyn BidObserver + Send + Sync>,
-        redactor: Arc<ErrorRedactor>,
     ) -> eyre::Result<(Box<dyn BuilderSinkFactory>, Vec<MevBoostRelay>)> {
         let submission_config = self.submission_config(chain_spec, bid_observer)?;
         info!(
@@ -263,7 +261,6 @@ impl L1Config {
         let sink_factory: Box<dyn BuilderSinkFactory> = Box::new(RelaySubmitSinkFactory::new(
             submission_config,
             relays.clone(),
-            redactor,
         ));
         Ok((sink_factory, relays))
     }
@@ -278,11 +275,9 @@ impl LiveBuilderConfig for Config {
         &self,
         cancellation_token: tokio_util::sync::CancellationToken,
     ) -> eyre::Result<super::LiveBuilder<Arc<DatabaseEnv>, MevBoostSlotDataGenerator>> {
-        let error_redactor = self.base_config().create_error_redactor();
         let (sink_sealed_factory, relays) = self.l1_config.create_relays_sealed_sink_factory(
             self.base_config.chain_spec()?,
             Box::new(NullBidObserver {}),
-            error_redactor,
         )?;
         let sink_factory = Box::new(BlockFinisherFactory::new(
             Box::new(DummyBiddingService {}),

@@ -5,7 +5,6 @@ use crate::{
         sign_block_for_relay, BLSBlockSigner, RelayError, SubmitBlockErr, SubmitBlockRequest,
     },
     primitives::mev_boost::{MevBoostRelay, MevBoostRelayID},
-    privacy::error_redactor::{ErrorRedactor, RelayErrorRedactor, ValidationErrorRedactor},
     telemetry::{
         add_relay_submit_time, add_subsidy_value, inc_conn_relay_errors,
         inc_failed_block_simulations, inc_initiated_submissions, inc_other_relay_errors,
@@ -148,7 +147,6 @@ async fn run_submit_to_relays_job(
     config: Arc<SubmissionConfig>,
     cancel: CancellationToken,
     bid_source: Arc<dyn BestBidSource>,
-    redactor: Arc<ErrorRedactor>,
 ) -> Option<BuiltBlockInfo> {
     let mut res = None;
     // first, sleep to slot time - slot_delta_to_start_submits
@@ -275,7 +273,6 @@ async fn run_submit_to_relays_job(
                 &config,
                 cancel.clone(),
                 "Dry run",
-                redactor.validation(),
             )
             .instrument(submission_span)
             .await;
@@ -289,11 +286,9 @@ async fn run_submit_to_relays_job(
             let relay = relay.clone();
             let cancel = cancel.clone();
             let submission = normal_signed_submission.clone();
-            let redactor = redactor.relay();
             tokio::spawn(
                 async move {
-                    submit_bid_to_the_relay(&relay, cancel.clone(), submission, false, redactor)
-                        .await;
+                    submit_bid_to_the_relay(&relay, cancel.clone(), submission, false).await;
                 }
                 .instrument(span),
             );
@@ -308,7 +303,6 @@ async fn run_submit_to_relays_job(
                     &config,
                     cancel.clone(),
                     "Optimistic check",
-                    redactor.validation(),
                 )
                 .instrument(submission_span.clone())
                 .await
@@ -322,17 +316,9 @@ async fn run_submit_to_relays_job(
                     let relay = relay.clone();
                     let cancel = cancel.clone();
                     let submission = optimistic_signed_submission.clone();
-                    let redactor = redactor.relay();
                     tokio::spawn(
                         async move {
-                            submit_bid_to_the_relay(
-                                &relay,
-                                cancel.clone(),
-                                submission,
-                                true,
-                                redactor,
-                            )
-                            .await;
+                            submit_bid_to_the_relay(&relay, cancel.clone(), submission, true).await;
                         }
                         .instrument(span),
                     );
@@ -345,17 +331,9 @@ async fn run_submit_to_relays_job(
                 let relay = relay.clone();
                 let cancel = cancel.clone();
                 let submission = normal_signed_submission.clone();
-                let redactor = redactor.relay();
                 tokio::spawn(
                     async move {
-                        submit_bid_to_the_relay(
-                            &relay,
-                            cancel.clone(),
-                            submission,
-                            false,
-                            redactor,
-                        )
-                        .await;
+                        submit_bid_to_the_relay(&relay, cancel.clone(), submission, false).await;
                     }
                     .instrument(span),
                 );
@@ -382,7 +360,6 @@ pub async fn run_submit_to_relays_job_and_metrics(
     config: Arc<SubmissionConfig>,
     cancel: CancellationToken,
     bid_source: Arc<dyn BestBidSource>,
-    redactor: Arc<ErrorRedactor>,
 ) {
     let best_bid = run_submit_to_relays_job(
         best_bid.clone(),
@@ -391,7 +368,6 @@ pub async fn run_submit_to_relays_job_and_metrics(
         config,
         cancel,
         bid_source,
-        redactor,
     )
     .await;
     if let Some(best_bid) = best_bid {
@@ -402,13 +378,8 @@ pub async fn run_submit_to_relays_job_and_metrics(
     }
 }
 
-fn log_validation_error(
-    err: ValidationError,
-    level: Level,
-    validation_use: &str,
-    redactor: Arc<dyn ValidationErrorRedactor>,
-) {
-    dynamic_event!(level,err = ?redactor.redact(err), validation_use,"Validation failed");
+fn log_validation_error(err: ValidationError, level: Level, validation_use: &str) {
+    dynamic_event!(level,err = ?err, validation_use,"Validation failed");
 }
 
 /// Validates the blocks handling any logging.
@@ -420,7 +391,6 @@ async fn validate_block(
     config: &SubmissionConfig,
     cancellation_token: CancellationToken,
     validation_use: &str,
-    redactor: Arc<dyn ValidationErrorRedactor>,
 ) -> bool {
     let withdrawals_root = block.withdrawals_root.unwrap_or_default();
     let start = Instant::now();
@@ -448,7 +418,6 @@ async fn validate_block(
                 ValidationError::ValidationFailed(err.clone()),
                 Level::ERROR,
                 validation_use,
-                redactor,
             );
             inc_failed_block_simulations();
             store_error_event(
@@ -459,7 +428,7 @@ async fn validate_block(
             false
         }
         Err(err) => {
-            log_validation_error(err, Level::WARN, validation_use, redactor);
+            log_validation_error(err, Level::WARN, validation_use);
             false
         }
     }
@@ -470,7 +439,6 @@ async fn submit_bid_to_the_relay(
     cancel: CancellationToken,
     signed_submit_request: SubmitBlockRequest,
     optimistic: bool,
-    redactor: Arc<dyn RelayErrorRedactor>,
 ) {
     let submit_start = Instant::now();
 
@@ -499,11 +467,11 @@ async fn submit_bid_to_the_relay(
             cancel.cancel();
         }
         Err(SubmitBlockErr::BidBelowFloor | SubmitBlockErr::PayloadAttributesNotKnown) => {
-            trace!(err = ?redactor.redact(relay_result.unwrap_err()), "Block not accepted by the relay");
+            trace!(err = ?relay_result.unwrap_err(), "Block not accepted by the relay");
         }
         Err(SubmitBlockErr::SimError(err)) => {
             inc_failed_block_simulations();
-            error!(err = ?redactor.redact_sim_error(err.clone()), "Error block simulation fail, cancelling");
+            error!(err = ?err.clone(), "Error block simulation fail, cancelling");
             store_error_event(SIM_ERROR_CATEGORY, &err.to_string(), &signed_submit_request);
             cancel.cancel();
         }
@@ -513,25 +481,25 @@ async fn submit_bid_to_the_relay(
         }
         Err(SubmitBlockErr::RelayError(RelayError::ConnectionError))
         | Err(SubmitBlockErr::RelayError(RelayError::RequestError(_))) => {
-            trace!(err = ?redactor.redact(relay_result.unwrap_err()), "Connection error submitting block to the relay");
+            trace!(err = ?relay_result.unwrap_err(), "Connection error submitting block to the relay");
             inc_conn_relay_errors(&relay.id);
         }
         Err(SubmitBlockErr::BlockKnown) => {
             trace!("Block already known");
         }
         Err(SubmitBlockErr::RelayError(_)) => {
-            warn!(err = ?redactor.redact(relay_result.unwrap_err()), "Error submitting block to the relay");
+            warn!(err = ?relay_result.unwrap_err(), "Error submitting block to the relay");
             inc_other_relay_errors(&relay.id);
         }
         Err(SubmitBlockErr::RPCConversionError(_)) => {
             error!(
-                err = ?redactor.redact(relay_result.unwrap_err()),
+                err = ?relay_result.unwrap_err(),
                 "RPC conversion error (illegal submission?) submitting block to the relay",
             );
         }
         Err(SubmitBlockErr::RPCSerializationError(_)) => {
             error!(
-                err = ?redactor.redact(relay_result.unwrap_err()),
+                err = ?relay_result.unwrap_err(),
                 "SubmitBlock serialization error submitting block to the relay",
             );
         }
@@ -546,15 +514,10 @@ async fn submit_bid_to_the_relay(
 pub struct RelaySubmitSinkFactory {
     submission_config: Arc<SubmissionConfig>,
     relays: HashMap<MevBoostRelayID, MevBoostRelay>,
-    redactor: Arc<ErrorRedactor>,
 }
 
 impl RelaySubmitSinkFactory {
-    pub fn new(
-        submission_config: SubmissionConfig,
-        relays: Vec<MevBoostRelay>,
-        redactor: Arc<ErrorRedactor>,
-    ) -> Self {
+    pub fn new(submission_config: SubmissionConfig, relays: Vec<MevBoostRelay>) -> Self {
         let relays = relays
             .into_iter()
             .map(|relay| (relay.id.clone(), relay))
@@ -562,7 +525,6 @@ impl RelaySubmitSinkFactory {
         Self {
             submission_config: Arc::new(submission_config),
             relays,
-            redactor,
         }
     }
 }
@@ -593,7 +555,6 @@ impl BuilderSinkFactory for RelaySubmitSinkFactory {
             self.submission_config.clone(),
             cancel,
             bid_source,
-            self.redactor.clone(),
         ));
         Box::new(best_bid)
     }

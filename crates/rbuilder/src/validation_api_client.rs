@@ -1,4 +1,5 @@
 use alloy_json_rpc::{ErrorPayload, RpcError};
+use std::fmt::Debug;
 use std::sync::Arc;
 
 use crate::{
@@ -30,7 +31,7 @@ pub struct ValidationAPIClient {
     providers: Vec<Arc<BoxedProvider>>,
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(thiserror::Error)]
 pub enum ValidationError {
     #[error("No validation nodes")]
     NoValidationNodes,
@@ -40,8 +41,16 @@ pub enum ValidationError {
     NoValidResponseFromValidationNodes,
     #[error("Validation failed")]
     ValidationFailed(ErrorPayload),
-    #[error("Local usage error: {0}")]
+
+    #[cfg_attr(not(feature = "tdx"), error("Local usage error: {0}"))]
+    #[cfg_attr(feature = "tdx", error("Local usage error: [REDACTED]"))]
     LocalUsageError(Box<dyn std::error::Error + Send + Sync>),
+}
+
+impl Debug for ValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self)
+    }
 }
 
 impl ValidationAPIClient {

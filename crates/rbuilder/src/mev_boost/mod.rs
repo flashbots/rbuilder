@@ -1,6 +1,7 @@
 pub mod fake_mev_boost_relay;
 pub mod rpc;
 pub mod sign_payload;
+mod error;
 
 use super::utils::u256decimal_serde_helper;
 
@@ -16,10 +17,10 @@ use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use ssz::Encode;
 use std::{io::Write, str::FromStr};
-use thiserror::Error;
 use url::Url;
 
 pub use sign_payload::*;
+pub use error::*;
 
 const JSON_CONTENT_TYPE: &str = "application/json";
 const SSZ_CONTENT_TYPE: &str = "application/octet-stream";
@@ -209,95 +210,11 @@ pub struct ValidatorRegistration {
     pub signature: Bytes,
 }
 
-#[derive(Error, Debug)]
-pub enum RelayError {
-    #[error("Request error: {0}")]
-    RequestError(#[from] reqwest::Error),
-    #[error("Header error")]
-    InvalidHeader,
-    #[error("Relay error: {0}")]
-    RelayError(#[from] RelayErrorResponse),
-    #[error("Unknown relay response, status: {0}, body: {1}")]
-    UnknownRelayError(StatusCode, String),
-    #[error("Too many requests")]
-    TooManyRequests,
-    #[error("Connection error")]
-    ConnectionError,
-    #[error("Internal Error")]
-    InternalError,
-    /// Patch to allow error redacting propagating a RelayError.
-    /// Sadly it's not possible to regenerate the reqwest::Error to remove the source.
-    #[error("Redacted request error {0}")]
-    RedactedRequestError(RedactedRequestErrorKind),
-}
-
-/// List of things we can check from a reqwest::Error with the available getters.
-#[derive(Debug)]
-pub enum RedactedRequestErrorKind {
-    Builder,
-    Request,
-    Redirect,
-    Status,
-    Body,
-    Decode,
-    Unknown,
-}
-
-impl std::fmt::Display for RedactedRequestErrorKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
-pub fn get_reqwest_error_kind(err: &reqwest::Error) -> RedactedRequestErrorKind {
-    if err.is_builder() {
-        RedactedRequestErrorKind::Builder
-    } else if err.is_request() {
-        RedactedRequestErrorKind::Request
-    } else if err.is_redirect() {
-        RedactedRequestErrorKind::Redirect
-    } else if err.is_status() {
-        RedactedRequestErrorKind::Status
-    } else if err.is_body() {
-        RedactedRequestErrorKind::Body
-    } else if err.is_decode() {
-        RedactedRequestErrorKind::Decode
-    } else {
-        RedactedRequestErrorKind::Unknown
-    }
-}
-
-#[derive(Error, Debug, Clone, Serialize, Deserialize)]
-pub struct RelayErrorResponse {
-    code: Option<u64>,
-    message: String,
-}
-
-impl RelayErrorResponse {
-    pub fn with_message(self, message: String) -> Self {
-        Self {
-            code: self.code,
-            message,
-        }
-    }
-}
-
-impl std::fmt::Display for RelayErrorResponse {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Relay error: (code: {}, message: {})",
-            self.code.unwrap_or_default(),
-            self.message
-        )
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum RelayResponse<T> {
     Ok(T),
-    Error(RelayErrorResponse),
+    Error(RedactableRelayErrorResponse),
 }
 
 /// Info about a registered validator selected as proposer for a slot.
@@ -556,7 +473,7 @@ impl RelayClient {
 
         builder = builder.headers(headers).body(Body::from(body_data));
 
-        Ok(builder.send().await.map_err(RelayError::RequestError)?)
+        Ok(builder.send().await.map_err(|e| RelayError::RequestError(e.into()))?)
     }
 
     /// Submits the block (call_relay_submit_block) and processes some special errors.
@@ -576,7 +493,7 @@ impl RelayClient {
             return Err(RelayError::ConnectionError.into());
         }
 
-        let data = resp.bytes().await.map_err(RelayError::RequestError)?;
+        let data = resp.bytes().await.map_err(|e| RelayError::RequestError(e.into()))?;
 
         if status == StatusCode::OK && data.as_ref() == b"" {
             return Ok(());
@@ -621,7 +538,7 @@ impl RelayClient {
                     return Ok(());
                 }
                 let data_string = String::from_utf8_lossy(&data).to_string();
-                Err(RelayError::UnknownRelayError(status, data_string).into())
+                Err(RelayError::UnknownRelayError(status, data_string.into()).into())
             }
         }
     }
