@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::collections::HashMap;
 
-use tracing::{trace, warn};
+use tracing::{trace, info, warn};
 
 use crate::building::builders::{
     block_building_helper::{BlockBuildingHelper, BlockBuildingHelperError},
@@ -69,12 +69,17 @@ impl BlockFinisher {
         };
         self.sink
             .new_block(block.finalize_block(payout_tx_value)?.block);
+        info!("Block submitted");
         Ok(())
     }
 }
 
 impl UnfinishedBlockBuildingSink for BlockFinisher {
     fn new_block(&self, block: Box<dyn BlockBuildingHelper>) {
+<<<<<<< HEAD
+=======
+
+>>>>>>> 9e2093d (port to live builder)
         let building_context = block.building_context();
         let bundle_state = block.get_bundle_state().state();
 

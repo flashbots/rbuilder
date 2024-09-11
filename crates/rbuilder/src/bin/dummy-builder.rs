@@ -291,9 +291,12 @@ impl UnfinishedBlockBuildingSink for TracingBlockSink {
     fn new_block(&self, block: Box<dyn BlockBuildingHelper>) {
         let building_context = block.building_context();
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
         let block_trace = block.built_block_trace();
 >>>>>>> 0d8a830 (basic jsonrpc ws pubsub state diff stream!)
+=======
+>>>>>>> 61ed086 (port to live builder)
         let bundle_state = block.get_bundle_state().state();
 
         // Create a new StateOverride object to store the changes

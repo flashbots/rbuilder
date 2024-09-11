@@ -1,6 +1,6 @@
 use std::sync::Arc;
-
 use tokio_util::sync::CancellationToken;
+use tokio::sync::broadcast;
 
 use tokio::sync::broadcast;
 use jsonrpsee::server::{RpcModule, Server};
@@ -12,6 +12,7 @@ use tracing::{info, warn};
 use crate::{
     building::builders::{UnfinishedBlockBuildingSink, UnfinishedBlockBuildingSinkFactory},
     live_builder::payload_events::MevBoostSlotData,
+    live_builder::streaming::block_subscription_server::start_block_subscription_server,
 };
 
 use super::{
