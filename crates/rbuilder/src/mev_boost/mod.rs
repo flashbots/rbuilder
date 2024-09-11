@@ -1,7 +1,7 @@
+mod error;
 pub mod fake_mev_boost_relay;
 pub mod rpc;
 pub mod sign_payload;
-mod error;
 
 use super::utils::u256decimal_serde_helper;
 
@@ -19,8 +19,8 @@ use ssz::Encode;
 use std::{io::Write, str::FromStr};
 use url::Url;
 
-pub use sign_payload::*;
 pub use error::*;
+pub use sign_payload::*;
 
 const JSON_CONTENT_TYPE: &str = "application/json";
 const SSZ_CONTENT_TYPE: &str = "application/octet-stream";
@@ -473,7 +473,10 @@ impl RelayClient {
 
         builder = builder.headers(headers).body(Body::from(body_data));
 
-        Ok(builder.send().await.map_err(|e| RelayError::RequestError(e.into()))?)
+        Ok(builder
+            .send()
+            .await
+            .map_err(|e| RelayError::RequestError(e.into()))?)
     }
 
     /// Submits the block (call_relay_submit_block) and processes some special errors.
@@ -493,7 +496,10 @@ impl RelayClient {
             return Err(RelayError::ConnectionError.into());
         }
 
-        let data = resp.bytes().await.map_err(|e| RelayError::RequestError(e.into()))?;
+        let data = resp
+            .bytes()
+            .await
+            .map_err(|e| RelayError::RequestError(e.into()))?;
 
         if status == StatusCode::OK && data.as_ref() == b"" {
             return Ok(());
@@ -538,7 +544,7 @@ impl RelayClient {
                     return Ok(());
                 }
                 let data_string = String::from_utf8_lossy(&data).to_string();
-                Err(RelayError::UnknownRelayError(status, data_string.into()).into())
+                Err(RelayError::UnknownRelayError(status, data_string).into())
             }
         }
     }
