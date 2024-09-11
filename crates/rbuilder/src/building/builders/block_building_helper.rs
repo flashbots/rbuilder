@@ -421,8 +421,9 @@ impl<DB: Database + Clone + 'static> BlockBuildingHelper for BlockBuildingHelper
 }
     fn update_cached_reads(&mut self, cached_reads: CachedReads) {
         self.block_state = self.block_state.clone().with_cached_reads(cached_reads);
+        
     /// Get the block state.
     fn get_bundle_state(&self) -> &BundleState {
-        self.block_state.get_bundle_state()
+        &self.block_state.get_bundle_state()
     }
 }
