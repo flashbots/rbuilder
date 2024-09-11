@@ -36,7 +36,7 @@ impl SimplifiedOrder {
                         } else {
                             TxRevertBehavior::NotAllowed
                         };
-                        (tx.tx.hash, revert)
+                        (tx.hash(), revert)
                     })
                     .collect();
                 SimplifiedOrder::new(id, vec![OrderChunk::new(txs, false, 0)])

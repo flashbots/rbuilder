@@ -5,6 +5,7 @@
 //! This is NOT intended to be run in production so it has no nice configuration, poor error checking and some hardcoded values.
 use std::{path::PathBuf, sync::Arc, thread::sleep, time::Duration};
 
+use jsonrpsee::RpcModule;
 use rbuilder::{
     beacon_api_client::Client,
     building::{
@@ -12,13 +13,17 @@ use rbuilder::{
             block_building_helper::{BlockBuildingHelper, BlockBuildingHelperFromDB},
             BlockBuildingAlgorithm, BlockBuildingAlgorithmInput, OrderConsumer,
             UnfinishedBlockBuildingSink, UnfinishedBlockBuildingSinkFactory,
+            block_building_helper::{BlockBuildingHelper, BlockBuildingHelperFromDB},
+            BlockBuildingAlgorithm, BlockBuildingAlgorithmInput, OrderConsumer,
+            UnfinishedBlockBuildingSink, UnfinishedBlockBuildingSinkFactory,
         },
+        BlockBuildingContext, SimulatedOrderStore,
         BlockBuildingContext, SimulatedOrderStore,
     },
     live_builder::{
         base_config::{
-            DEFAULT_EL_NODE_IPC_PATH, DEFAULT_ERROR_STORAGE_PATH, DEFAULT_INCOMING_BUNDLES_PORT,
-            DEFAULT_IP, DEFAULT_RETH_DB_PATH,
+            DEFAULT_EL_NODE_IPC_PATH, DEFAULT_INCOMING_BUNDLES_PORT, DEFAULT_IP,
+            DEFAULT_RETH_DB_PATH,
         },
         config::create_provider_factory,
         order_input::{
@@ -88,7 +93,7 @@ async fn main() -> eyre::Result<()> {
 
     let builder = LiveBuilder::<Arc<DatabaseEnv>, MevBoostSlotDataGenerator> {
         watchdog_timeout: Duration::from_secs(10000),
-        error_storage_path: DEFAULT_ERROR_STORAGE_PATH.parse().unwrap(),
+        error_storage_path: None,
         simulation_threads: 1,
         blocks_source: payload_event,
         order_input_config: OrderInputConfig::new(
@@ -273,9 +278,13 @@ impl UnfinishedBlockBuildingSink for TracingBlockSink {
         }
 
         info!(
-            order_count = block_trace.included_orders.len(),
-            "Block generated and broadcasted"
+            order_count =? block.built_block_trace().included_orders.len(),
+            "Block generated. Throwing it away!"
         );
+    }
+
+    fn can_use_suggested_fee_recipient_as_coinbase(&self) -> bool {
+        false
     }
 
     fn can_use_suggested_fee_recipient_as_coinbase(&self) -> bool {

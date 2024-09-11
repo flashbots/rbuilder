@@ -1,7 +1,9 @@
 log_json = true
 log_level = "info,rbuilder=debug"
-telemetry_port = 6060
-telemetry_ip = "0.0.0.0"
+redacted_telemetry_server_port = 6061
+redacted_telemetry_server_ip = "0.0.0.0"
+full_telemetry_server_port = 6060
+full_telemetry_server_ip = "0.0.0.0"
 
 chain = "mainnet"
 reth_datadir = "/root/.local/share/reth/mainnet"
@@ -21,9 +23,6 @@ blocklist_file_path = "./blocklist.json"
 
 dry_run = true
 dry_run_validation_url = "http://localhost:8545"
-
-# blocks_processor_url can be an API service to record bids and transactions. It is not required.
-# blocks_processor_url = "http://block_processor.internal"
 
 ignore_cancellable_orders = true
 

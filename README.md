@@ -1,6 +1,6 @@
 # rbuilder
 
-[![CI status](https://github.com/flashbots/rbuilder/workflows/Checks/badge.svg)](https://github.com/flashbots/rbuilder/actions/workflows/checks.yaml)
+[![CI status](https://github.com/flashbots/rbuilder/actions/workflows/checks.yaml/badge.svg?branch=develop)](https://github.com/flashbots/rbuilder/actions/workflows/checks.yaml)
 [![Telegram Chat](https://img.shields.io/endpoint?color=neon&logo=telegram&label=Chat&url=https%3A%2F%2Ftg.sumanjay.workers.dev%2Fflashbots_rbuilder)](https://t.me/flashbots_rbuilder)
 [![GitHub Release](https://img.shields.io/github/v/release/flashbots/rbuilder?label=Release)](https://github.com/flashbots/rbuilder/releases)
 

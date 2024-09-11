@@ -543,8 +543,7 @@ impl From<Order> for RawOrder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy_primitives::{address, fixed_bytes, U256};
-    use ethers::utils::keccak256;
+    use alloy_primitives::{address, fixed_bytes, keccak256, U256};
     use uuid::uuid;
 
     #[test]

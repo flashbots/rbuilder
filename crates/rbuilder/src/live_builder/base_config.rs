@@ -3,6 +3,8 @@
 use crate::{
     building::builders::UnfinishedBlockBuildingSinkFactory,
     live_builder::{order_input::OrderInputConfig, LiveBuilder},
+    building::builders::UnfinishedBlockBuildingSinkFactory,
+    live_builder::{order_input::OrderInputConfig, LiveBuilder},
     telemetry::{setup_reloadable_tracing_subscriber, LoggerConfig},
     utils::{http_provider, BoxedProvider, ProviderFactoryReopener, Signer},
 };
@@ -43,13 +45,17 @@ const ENV_PREFIX: &str = "env:";
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct BaseConfig {
-    pub telemetry_port: u16,
-    pub telemetry_ip: Option<String>,
+    pub full_telemetry_server_port: u16,
+    pub full_telemetry_server_ip: Option<String>,
+    pub redacted_telemetry_server_port: u16,
+    pub redacted_telemetry_server_ip: Option<String>,
     pub log_json: bool,
     log_level: EnvOrValue<String>,
     pub log_color: bool,
+    /// Enables dynamic logging (saving logs to a file)
+    pub log_enable_dynamic: bool,
 
-    pub error_storage_path: PathBuf,
+    pub error_storage_path: Option<PathBuf>,
 
     coinbase_secret_key: EnvOrValue<String>,
 
@@ -141,8 +147,18 @@ impl BaseConfig {
         Ok(())
     }
 
-    pub fn telemetry_address(&self) -> SocketAddr {
-        SocketAddr::V4(SocketAddrV4::new(self.telemetry_ip(), self.telemetry_port))
+    pub fn redacted_telemetry_server_address(&self) -> SocketAddr {
+        SocketAddr::V4(SocketAddrV4::new(
+            self.redacted_telemetry_server_ip(),
+            self.redacted_telemetry_server_port,
+        ))
+    }
+
+    pub fn full_telemetry_server_address(&self) -> SocketAddr {
+        SocketAddr::V4(SocketAddrV4::new(
+            self.full_telemetry_server_ip(),
+            self.full_telemetry_server_port,
+        ))
     }
 
     /// WARN: opens reth db
@@ -156,7 +172,26 @@ impl BaseConfig {
         SlotSourceType: SlotSource,
     {
         let provider_factory = self.provider_factory()?;
+        self.create_builder_with_provider_factory(
+            cancellation_token,
+            sink_factory,
+            slot_source,
+            provider_factory,
+        )
+        .await
+    }
 
+    /// WARN: opens reth db
+    pub async fn create_builder_with_provider_factory<SlotSourceType>(
+        &self,
+        cancellation_token: tokio_util::sync::CancellationToken,
+        sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
+        slot_source: SlotSourceType,
+        provider_factory: ProviderFactoryReopener<Arc<DatabaseEnv>>,
+    ) -> eyre::Result<super::LiveBuilder<Arc<DatabaseEnv>, SlotSourceType>>
+    where
+        SlotSourceType: SlotSource,
+    {
         Ok(LiveBuilder::<Arc<DatabaseEnv>, SlotSourceType> {
             watchdog_timeout: self.watchdog_timeout(),
             error_storage_path: self.error_storage_path.clone(),
@@ -182,8 +217,12 @@ impl BaseConfig {
         parse_ip(&self.jsonrpc_server_ip)
     }
 
-    pub fn telemetry_ip(&self) -> Ipv4Addr {
-        parse_ip(&self.telemetry_ip)
+    pub fn redacted_telemetry_server_ip(&self) -> Ipv4Addr {
+        parse_ip(&self.redacted_telemetry_server_ip)
+    }
+
+    pub fn full_telemetry_server_ip(&self) -> Ipv4Addr {
+        parse_ip(&self.full_telemetry_server_ip)
     }
 
     pub fn chain_spec(&self) -> eyre::Result<Arc<ChainSpec>> {
@@ -339,7 +378,6 @@ where
     }
 }
 
-pub const DEFAULT_ERROR_STORAGE_PATH: &str = "/tmp/rbuilder-error.sqlite";
 pub const DEFAULT_CL_NODE_URL: &str = "http://127.0.0.1:3500";
 pub const DEFAULT_EL_NODE_IPC_PATH: &str = "/tmp/reth.ipc";
 pub const DEFAULT_INCOMING_BUNDLES_PORT: u16 = 8645;
@@ -348,12 +386,15 @@ pub const DEFAULT_RETH_DB_PATH: &str = "/root/.local/share/reth/mainnet";
 impl Default for BaseConfig {
     fn default() -> Self {
         Self {
-            telemetry_port: 6069,
-            telemetry_ip: None,
+            full_telemetry_server_port: 6069,
+            full_telemetry_server_ip: None,
+            redacted_telemetry_server_port: 6070,
+            redacted_telemetry_server_ip: None,
             log_json: false,
             log_level: "info".into(),
             log_color: false,
-            error_storage_path: DEFAULT_ERROR_STORAGE_PATH.parse().unwrap(),
+            log_enable_dynamic: false,
+            error_storage_path: None,
             coinbase_secret_key: "".into(),
             flashbots_db: None,
             el_node_ipc_path: "/tmp/reth.ipc".parse().unwrap(),

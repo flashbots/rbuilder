@@ -89,11 +89,7 @@ async fn main() -> eyre::Result<()> {
             let tx = tx
                 .try_ecrecovered()
                 .ok_or_else(|| eyre::eyre!("Failed to recover tx"))?;
-            let tx = TransactionSignedEcRecoveredWithBlobs {
-                tx,
-                blobs_sidecar: Default::default(),
-                metadata: Default::default(),
-            };
+            let tx = TransactionSignedEcRecoveredWithBlobs::new_for_testing(tx);
             let tx = MempoolTx::new(tx);
             Ok::<_, eyre::Error>(Order::Tx(tx))
         })

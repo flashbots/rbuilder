@@ -3,13 +3,10 @@ use crate::{
     primitives::{MempoolTx, Order, TransactionSignedEcRecoveredWithBlobs},
     telemetry::add_txfetcher_time_to_query,
 };
-use alloy_primitives::{hex, Bytes};
-use ethers::{
-    middleware::Middleware,
-    providers::{Ipc, Provider},
-};
+use alloy_primitives::{hex, Bytes, FixedBytes};
+use alloy_provider::{IpcConnect, Provider, ProviderBuilder, RootProvider};
+use alloy_pubsub::PubSubFrontend;
 use futures::StreamExt;
-use primitive_types::H256;
 use std::{pin::pin, time::Instant};
 use tokio::{
     sync::{mpsc, mpsc::error::SendTimeoutError},
@@ -27,14 +24,14 @@ pub async fn subscribe_to_txpool_with_blobs(
     results: mpsc::Sender<ReplaceableOrderPoolCommand>,
     global_cancel: CancellationToken,
 ) -> eyre::Result<JoinHandle<()>> {
-    let ipc = Ipc::connect(config.ipc_path).await?;
+    let ipc = IpcConnect::new(config.ipc_path);
+    let provider = ProviderBuilder::new().on_ipc(ipc).await?;
 
     let handle = tokio::spawn(async move {
         info!("Subscribe to txpool with blobs: started");
 
-        let provider = Provider::new(ipc);
-        let stream = match provider.subscribe_pending_txs().await {
-            Ok(stream) => stream,
+        let stream = match provider.subscribe_pending_transactions().await {
+            Ok(stream) => stream.into_stream().take_until(global_cancel.cancelled()),
             Err(err) => {
                 error!(?err, "Failed to subscribe to ipc txpool stream");
                 // Closing builder because this job is critical so maybe restart will help
@@ -42,17 +39,9 @@ pub async fn subscribe_to_txpool_with_blobs(
                 return;
             }
         };
-        let mut stream = pin!(stream.take_until(global_cancel.cancelled()));
+        let mut stream = pin!(stream);
 
-        loop {
-            let tx_hash = match stream.next().await {
-                Some(tx_hash) => tx_hash,
-                None => {
-                    // stream is closed, cancelling token because builder can't work without this stream
-                    global_cancel.cancel();
-                    break;
-                }
-            };
+        while let Some(tx_hash) = stream.next().await {
             let start = Instant::now();
 
             let tx_with_blobs = match get_tx_with_blobs(tx_hash, &provider).await {
@@ -90,6 +79,7 @@ pub async fn subscribe_to_txpool_with_blobs(
             }
         }
 
+        // stream is closed, cancelling token because builder can't work without this stream
         global_cancel.cancel();
         info!("Subscribe to txpool: finished");
     });
@@ -99,10 +89,13 @@ pub async fn subscribe_to_txpool_with_blobs(
 
 /// Calls eth_getRawTransactionByHash on EL node and decodes.
 async fn get_tx_with_blobs(
-    tx_hash: H256,
-    provider: &Provider<Ipc>,
+    tx_hash: FixedBytes<32>,
+    provider: &RootProvider<PubSubFrontend>,
 ) -> eyre::Result<Option<TransactionSignedEcRecoveredWithBlobs>> {
+    // TODO: Use https://github.com/alloy-rs/alloy/pull/1168 when it gets cut
+    // in a release
     let raw_tx: Option<String> = provider
+        .client()
         .request("eth_getRawTransactionByHash", vec![tx_hash])
         .await?;
 
@@ -129,21 +122,6 @@ mod test {
     use alloy_provider::{Provider, ProviderBuilder};
     use alloy_rpc_types::TransactionRequest;
     use alloy_signer_local::PrivateKeySigner;
-    use std::{net::Ipv4Addr, path::PathBuf};
-    use tokio::time::Duration;
-
-    fn default_config() -> OrderInputConfig {
-        OrderInputConfig {
-            ipc_path: PathBuf::from("/tmp/anvil.ipc"),
-            results_channel_timeout: Duration::new(5, 0),
-            ignore_cancellable_orders: false,
-            ignore_blobs: false,
-            input_channel_buffer_size: 10,
-            serve_max_connections: 4096,
-            server_ip: Ipv4Addr::new(127, 0, 0, 1),
-            server_port: 0,
-        }
-    }
 
     #[tokio::test]
     /// Test that the fetcher can retrieve transactions (both normal and blob) from the txpool
@@ -154,9 +132,13 @@ mod test {
             .unwrap();
 
         let (sender, mut receiver) = mpsc::channel(10);
-        subscribe_to_txpool_with_blobs(default_config(), sender, CancellationToken::new())
-            .await
-            .unwrap();
+        subscribe_to_txpool_with_blobs(
+            OrderInputConfig::default_e2e(),
+            sender,
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
 
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let wallet = EthereumWallet::from(signer);
@@ -194,7 +176,7 @@ mod test {
         }
         .unwrap();
 
-        assert_eq!(tx_with_blobs.tx.hash(), *pending_tx.tx_hash());
+        assert_eq!(tx_with_blobs.hash(), *pending_tx.tx_hash());
         assert_eq!(tx_with_blobs.blobs_sidecar.blobs.len(), 1);
 
         // send another tx without blobs
@@ -216,7 +198,7 @@ mod test {
         }
         .unwrap();
 
-        assert_eq!(tx_without_blobs.tx.hash(), *pending_tx.tx_hash());
+        assert_eq!(tx_without_blobs.hash(), *pending_tx.tx_hash());
         assert_eq!(tx_without_blobs.blobs_sidecar.blobs.len(), 0);
     }
 }

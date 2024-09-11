@@ -400,7 +400,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
         }
 
         let mut db = self.state.new_db_ref();
-        let tx = &tx_with_blobs.tx;
+        let tx = &tx_with_blobs.internal_tx_unsecure();
         if ctx.blocklist.contains(&tx.signer())
             || tx
                 .to()
@@ -424,7 +424,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
         }
 
         let mut tx_env = TxEnv::default();
-        let tx_signed = tx_with_blobs.tx.clone().into_signed();
+        let tx_signed = tx_with_blobs.internal_tx_unsecure().clone().into_signed();
         tx_signed.fill_tx_env(&mut tx_env, tx_signed.recover_signer().unwrap());
 
         let env = Env {
@@ -561,7 +561,6 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
             original_order_ids: Vec::new(),
         };
         for tx_with_blobs in &bundle.txs {
-            let tx = &tx_with_blobs.tx;
             let result = self.commit_tx(
                 tx_with_blobs,
                 ctx,
@@ -571,8 +570,10 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
             )?;
             match result {
                 Ok(res) => {
-                    if !res.receipt.success && !bundle.reverting_tx_hashes.contains(&tx.hash()) {
-                        return Ok(Err(BundleErr::TransactionReverted(tx.hash())));
+                    if !res.receipt.success
+                        && !bundle.reverting_tx_hashes.contains(&tx_with_blobs.hash())
+                    {
+                        return Ok(Err(BundleErr::TransactionReverted(tx_with_blobs.hash())));
                     }
 
                     insert.gas_used += res.gas_used;
@@ -585,10 +586,13 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
                 }
                 Err(err) => {
                     // if optional transaction, skip
-                    if allow_tx_skip && bundle.reverting_tx_hashes.contains(&tx.hash()) {
+                    if allow_tx_skip && bundle.reverting_tx_hashes.contains(&tx_with_blobs.hash()) {
                         continue;
                     } else {
-                        return Ok(Err(BundleErr::InvalidTransaction(tx.hash(), err)));
+                        return Ok(Err(BundleErr::InvalidTransaction(
+                            tx_with_blobs.hash(),
+                            err,
+                        )));
                     }
                 }
             }
@@ -796,9 +800,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
                             if !res.receipt.success {
                                 match sbundle_tx.revert_behavior {
                                     crate::primitives::TxRevertBehavior::NotAllowed => {
-                                        return Ok(Err(BundleErr::TransactionReverted(
-                                            tx.tx.hash(),
-                                        )));
+                                        return Ok(Err(BundleErr::TransactionReverted(tx.hash())));
                                     }
                                     crate::primitives::TxRevertBehavior::AllowedIncluded => {}
                                     crate::primitives::TxRevertBehavior::AllowedExcluded => {
@@ -832,7 +834,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
                             if allow_tx_skip && sbundle_tx.revert_behavior.can_revert() {
                                 continue;
                             } else {
-                                return Ok(Err(BundleErr::InvalidTransaction(tx.tx.hash(), err)));
+                                return Ok(Err(BundleErr::InvalidTransaction(tx.hash(), err)));
                             }
                         }
                     }
