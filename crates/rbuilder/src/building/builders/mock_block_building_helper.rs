@@ -109,5 +109,8 @@ impl BlockBuildingHelper for MockBlockBuildingHelper {
         &self.bundle_state
     fn update_cached_reads(&mut self, _cached_reads: CachedReads) {
         unimplemented!()
+    /// Get the block state.
+    fn get_bundle_state(&self) -> &BundleState {
+        &self.bundle_state
     }
 }

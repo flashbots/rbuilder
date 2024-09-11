@@ -6,7 +6,6 @@ use std::{
 use alloy_primitives::U256;
 use reth::tasks::pool::BlockingTaskPool;
 use reth_db::database::Database;
-use revm::db::BundleState;
 use reth_payload_builder::database::CachedReads;
 use reth_primitives::format_ether;
 use reth_provider::{BlockNumReader, ProviderFactory};
@@ -424,6 +423,6 @@ impl<DB: Database + Clone + 'static> BlockBuildingHelper for BlockBuildingHelper
         
     /// Get the block state.
     fn get_bundle_state(&self) -> &BundleState {
-        &self.block_state.get_bundle_state()
+        self.block_state.get_bundle_state()
     }
 }
