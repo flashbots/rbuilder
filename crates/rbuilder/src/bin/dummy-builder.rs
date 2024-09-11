@@ -237,7 +237,6 @@ impl UnfinishedBlockBuildingSink for TracingBlockSink {
     // After each block is built, we send the block number, timestamp, block uuid and the pending state to the client
     fn new_block(&self, block: Box<dyn BlockBuildingHelper>) {
         let building_context = block.building_context();
-        let block_trace = block.built_block_trace();
         let bundle_state = block.get_bundle_state().state();
 
         // Create a new StateOverride object to store the changes

@@ -14,7 +14,6 @@ use crate::{
         builders::{
             ordering_builder::{OrderingBuilderConfig, OrderingBuildingAlgorithm},
             BacktestSimulateBlockInput, Block, BlockBuildingAlgorithm,
-            UnfinishedBlockBuildingSinkFactory,
         },
         Sorting,
     },
@@ -283,7 +282,7 @@ impl LiveBuilderConfig for Config {
         let sink_factory = Box::new(BlockFinisherFactory::new(
             Box::new(DummyBiddingService {}),
             sink_sealed_factory,
-        ));
+        ).await?);
 
         let payload_event = MevBoostSlotDataGenerator::new(
             self.l1_config.beacon_clients()?,

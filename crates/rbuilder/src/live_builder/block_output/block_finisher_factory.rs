@@ -1,10 +1,11 @@
 use std::sync::Arc;
-
 use tokio_util::sync::CancellationToken;
+use tokio::sync::broadcast;
 
 use crate::{
     building::builders::{UnfinishedBlockBuildingSink, UnfinishedBlockBuildingSinkFactory},
     live_builder::payload_events::MevBoostSlotData,
+    live_builder::streaming::block_subscription_server::start_block_subscription_server,
 };
 
 use super::{
@@ -18,17 +19,20 @@ pub struct BlockFinisherFactory {
     bidding_service: Box<dyn BiddingService>,
     /// Factory for the final destination for blocks.
     block_sink_factory: Box<dyn BuilderSinkFactory>,
+    tx: broadcast::Sender<String>
 }
 
 impl BlockFinisherFactory {
-    pub fn new(
+    pub async fn new(
         bidding_service: Box<dyn BiddingService>,
         block_sink_factory: Box<dyn BuilderSinkFactory>,
-    ) -> Self {
-        Self {
+    ) -> eyre::Result<Self> {
+        let tx = start_block_subscription_server().await?;
+        Ok(Self {
             bidding_service,
             block_sink_factory,
-        }
+            tx,
+        })
     }
 }
 
@@ -49,7 +53,7 @@ impl UnfinishedBlockBuildingSinkFactory for BlockFinisherFactory {
             cancel.clone(),
         );
 
-        let res = BlockFinisher::new(slot_bidder, Arc::from(finished_block_sink));
+        let res = BlockFinisher::new(slot_bidder, Arc::from(finished_block_sink), self.tx.clone());
         Arc::new(res)
     }
 }
