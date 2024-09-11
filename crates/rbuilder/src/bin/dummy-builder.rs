@@ -5,7 +5,6 @@
 //! This is NOT intended to be run in production so it has no nice configuration, poor error checking and some hardcoded values.
 use std::{path::PathBuf, sync::Arc, thread::sleep, time::Duration};
 
-use jsonrpsee::RpcModule;
 use rbuilder::{
     beacon_api_client::Client,
     building::{
@@ -277,10 +276,6 @@ impl UnfinishedBlockBuildingSink for TracingBlockSink {
             order_count =? block.built_block_trace().included_orders.len(),
             "Block generated. Throwing it away!"
         );
-    }
-
-    fn can_use_suggested_fee_recipient_as_coinbase(&self) -> bool {
-        false
     }
 
     fn can_use_suggested_fee_recipient_as_coinbase(&self) -> bool {
