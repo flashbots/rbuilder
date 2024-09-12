@@ -230,7 +230,7 @@ impl BlockBuildingContext {
 
     /// Useless BlockBuildingContext for testing in contexts where we can't avoid having a BlockBuildingContext.
     pub fn dummy_for_testing() -> Self {
-        let mut onchain_block = alloy_rpc_types::Block::default();
+        let mut onchain_block: alloy_rpc_types::Block = Default::default();
         onchain_block.header.base_fee_per_gas = Some(0);
         BlockBuildingContext::from_onchain_block(
             onchain_block,
