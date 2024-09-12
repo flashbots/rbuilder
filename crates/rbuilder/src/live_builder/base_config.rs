@@ -96,7 +96,7 @@ pub struct BaseConfig {
     pub backtest_protect_bundle_signers: Vec<Address>,
 
     /// if true no possible sensitive information is going to be logged.
-    pub redact_errors: bool,
+    pub redact_sensitive: bool,
 }
 
 lazy_static! {
@@ -403,7 +403,7 @@ impl Default for BaseConfig {
             live_builders: vec!["mgp-ordering".to_string(), "mp-ordering".to_string()],
             simulation_threads: 1,
             sbundle_mergeabe_signers: None,
-            redact_errors: false,
+            redact_sensitive: false,
         }
     }
 }

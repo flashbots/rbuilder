@@ -1,6 +1,5 @@
 use alloy_json_rpc::{ErrorPayload, RpcError};
-use std::fmt::Debug;
-use std::sync::Arc;
+use std::{fmt::Debug, sync::Arc};
 
 use crate::{
     mev_boost::SubmitBlockRequest,
@@ -42,8 +41,8 @@ pub enum ValidationError {
     #[error("Validation failed")]
     ValidationFailed(ErrorPayload),
 
-    #[cfg_attr(not(feature = "tdx"), error("Local usage error: {0}"))]
-    #[cfg_attr(feature = "tdx", error("Local usage error: [REDACTED]"))]
+    #[cfg_attr(not(feature = "redact_sensitive"), error("Local usage error: {0}"))]
+    #[cfg_attr(feature = "redact_sensitive", error("Local usage error: [REDACTED]"))]
     LocalUsageError(Box<dyn std::error::Error + Send + Sync>),
 }
 

@@ -13,11 +13,11 @@ pub enum RelayError {
     RelayError(#[from] RedactableRelayErrorResponse),
 
     #[cfg_attr(
-        not(feature = "tdx"),
+        not(feature = "redact_sensitive"),
         error("Unknown relay response, status: {0}, body: {1}")
     )]
     #[cfg_attr(
-        feature = "tdx",
+        feature = "redact_sensitive",
         error("Unknown relay response, status: {0}, body: [REDACTED]")
     )]
     UnknownRelayError(StatusCode, String),
@@ -51,12 +51,12 @@ impl From<reqwest::Error> for RedactableReqwestError {
 }
 
 impl Display for RedactableReqwestError {
-    #[cfg(not(feature = "tdx"))]
+    #[cfg(not(feature = "redact_sensitive"))]
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 
-    #[cfg(feature = "tdx")]
+    #[cfg(feature = "redact_sensitive")]
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         if self.0.is_builder() {
             write!(f, "Redacted Reqwest Error: Builder")
@@ -89,7 +89,7 @@ pub struct RedactableRelayErrorResponse {
 }
 
 impl std::fmt::Display for RedactableRelayErrorResponse {
-    #[cfg(not(feature = "tdx"))]
+    #[cfg(not(feature = "redact_sensitive"))]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -99,7 +99,7 @@ impl std::fmt::Display for RedactableRelayErrorResponse {
         )
     }
 
-    #[cfg(feature = "tdx")]
+    #[cfg(feature = "redact_sensitive")]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,

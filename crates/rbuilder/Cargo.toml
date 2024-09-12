@@ -136,4 +136,4 @@ name = "bench_main"
 harness = false
 
 [features]
-tdx = []
+redact_sensitive = []

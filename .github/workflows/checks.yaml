@@ -14,13 +14,16 @@ jobs:
   lint_and_test:
     name: Lint and test
     runs-on: warp-ubuntu-latest-x64-16x
+    env:
+      # Set features for the Makefile
+      FEATURES: ${{ matrix.features }}
     strategy:
       matrix:
         toolchain:
           - stable
-        flags:
+        features:
           - ""
-          - "--features=tdx"
+          - "redact_sensitive"
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -58,9 +61,7 @@ jobs:
         run: make lint
 
       - name: Test
-        run: make test RUSTFLAGS="${{ matrix.flags }}"
-        env:
-          CARGO_TERM_COLOR: always
+        run: make test
 
   integration:
     name: Integration tests
@@ -70,9 +71,9 @@ jobs:
       matrix:
         toolchain:
           - stable
-        flags:
+        features:
           - ""
-          - "--features=tdx"
+          - "redact_sensitive"
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -98,13 +99,13 @@ jobs:
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
 
       - name: Build the rbuilder
-        run: cargo build ${{ matrix.flags }}
+        run: cargo build --features="${{ matrix.features }}"
 
       - name: Run the playground
         run: builder-playground &
 
       - name: Run integration tests with flags
-        run: cargo test ${{ matrix.flags }} --package rbuilder --lib -- integration
+        run: cargo test --features="${{ matrix.features }}" --package rbuilder --lib -- integration
         env:
           PLAYGROUND: TRUE
 
