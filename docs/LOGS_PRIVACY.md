@@ -15,31 +15,76 @@ While we don't log full orders ourselves, we sometimes interact with external sy
 
 ### Enabling Error Redaction
 
-To enable external error redaction add the following flag to your configuration:
-   ```
-   redact_errors = true
-   ```
+To enable external error redaction, use the `redact_sensitive` feature flag.
 
 ### Example of Error Redaction
 
-Consider this error enum:
+**Never** derive `Display` or `Debug` for errors which may contain sensitive info.
+
+Instead, explicitly implement them using your favourite library, or manually.
 
 ```rust
-pub enum SubmitBlockErr {
-    ...
-    RPCSerializationError(String),
-    ...
+#[derive(Error)]
+pub enum SomeError {
+    #[error("Request error: {0}")]
+    RequestError(#[from] RedactableReqwestError),
+
+    #[cfg_attr(
+        not(feature = "redact_sensitive"),
+        error("Unknown relay response, status: {0}, body: {1}")
+    )]
+    #[cfg_attr(
+        feature = "redact_sensitive",
+        error("Unknown relay response, status: {0}, body: [REDACTED]")
+    )]
+    UnknownRelayError(StatusCode, String),
+
+    #[error("Too many requests")]
+    TooManyRequests,
+    #[error("Connection error")]
+    ConnectionError,
+    #[error("Internal Error")]
+    InternalError,
 }
 
-```
+impl Debug for RelayError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self)
+    }
+}
 
-the redaction match branch for this code is:
+#[derive(Error)]
+pub struct RedactableReqwestError(reqwest::Error);
 
-```rust
-SubmitBlockErr::RPCSerializationError(plain_text) => SubmitBlockErr::RPCSerializationError(REDACTED.to_string())
-```
+impl Display for RedactableReqwestError {
+    #[cfg(not(feature = "redact_sensitive"))]
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
 
-Where
-```rust
-const REDACTED: &str = "[REDACTED]";
+    #[cfg(feature = "redact_sensitive")]
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        if self.0.is_builder() {
+            write!(f, "Redacted Reqwest Error: Builder")
+        } else if self.0.is_request() {
+            write!(f, "Redacted Reqwest Error: Request")
+        } else if self.0.is_redirect() {
+            write!(f, "Redacted Reqwest Error: Redirect")
+        } else if self.0.is_status() {
+            write!(f, "Redacted Reqwest Error: Status")
+        } else if self.0.is_body() {
+            write!(f, "Redacted Reqwest Error: Body")
+        } else if self.0.is_decode() {
+            write!(f, "Redacted Reqwest Error: Decode")
+        } else {
+            write!(f, "Redacted Reqwest Error")
+        }
+    }
+}
+
+impl Debug for RedactableReqwestError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        Display::fmt(self, f)
+    }
+}
 ```
