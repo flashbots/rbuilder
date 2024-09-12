@@ -623,7 +623,6 @@ mod test {
     };
     use alloy_primitives::{hex, Address, Bloom, Bytes, B256};
     use alloy_rpc_types::{Block, BlockTransactions, Header, Signature, Transaction};
-    use alloy_serde::OtherFields;
     use reth_primitives::{U256, U64};
     use time::OffsetDateTime;
     #[tokio::test]
@@ -724,7 +723,7 @@ mod test {
 
     fn create_empty_block_header() -> Header {
         Header {
-            hash: None,
+            hash: B256::default(),
             parent_hash: B256::default(),
             uncles_hash: B256::default(),
             miner: Address::default(),
@@ -733,7 +732,7 @@ mod test {
             receipts_root: B256::default(),
             logs_bloom: Bloom::default(),
             difficulty: U256::default(),
-            number: None,
+            number: 0,
             gas_limit: 0,
             gas_used: 0,
             timestamp: 0,
@@ -759,7 +758,6 @@ mod test {
             transactions: BlockTransactions::Full(vec![create_test_tx()]),
             size: None,
             withdrawals: None,
-            other: OtherFields::default(),
         }
     }
 
@@ -789,7 +787,6 @@ mod test {
             max_fee_per_gas: Some(21),
             max_priority_fee_per_gas: Some(22),
             max_fee_per_blob_gas: None,
-            other: Default::default(),
             authorization_list: None,
         }
     }
