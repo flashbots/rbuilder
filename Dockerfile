@@ -8,6 +8,8 @@
 #
 FROM rust:1.79 as base
 
+ARG FEATURES
+
 RUN cargo install sccache --version ^0.8
 RUN cargo install cargo-chef --version ^0.1
 
@@ -53,7 +55,7 @@ COPY ./crates/ ./crates/
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
-    cargo build --release
+    cargo build --release --features="$FEATURES"
 
 #
 # Runtime container

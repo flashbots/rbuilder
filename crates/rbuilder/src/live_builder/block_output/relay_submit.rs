@@ -11,8 +11,8 @@ use crate::{
         inc_relay_accepted_submissions, inc_subsidized_blocks, inc_too_many_req_relay_errors,
         measure_block_e2e_latency,
     },
-    utils::error_storage::store_error_event,
-    validation_api_client::{ValdationError, ValidationAPIClient},
+    utils::{error_storage::store_error_event, tracing::dynamic_event},
+    validation_api_client::{ValidationAPIClient, ValidationError},
 };
 use ahash::HashMap;
 use alloy_primitives::{utils::format_ether, U256};
@@ -25,7 +25,7 @@ use std::{
 };
 use tokio::time::{sleep, Instant};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info_span, trace, warn, Instrument};
+use tracing::{debug, error, event, info_span, trace, warn, Instrument, Level};
 
 use super::bid_observer::BidObserver;
 
@@ -266,31 +266,16 @@ async fn run_submit_to_relays_job(
         };
 
         if config.dry_run {
-            match validate_block(
+            validate_block(
                 &slot_data,
                 &normal_signed_submission,
                 block.sealed_block.clone(),
                 &config,
                 cancel.clone(),
+                "Dry run",
             )
-            .await
-            {
-                Ok(()) => {
-                    trace!(parent: &submission_span, "Dry run validation passed");
-                }
-                Err(ValdationError::UnableToValidate(err)) => {
-                    warn!(parent: &submission_span, err, "Failed to validate payload");
-                }
-                Err(ValdationError::ValidationFailed(err)) => {
-                    error!(parent: &submission_span, err = ?err, "Dry run validation failed");
-                    inc_failed_block_simulations();
-                    store_error_event(
-                        VALIDATION_ERROR_CATEGORY,
-                        &err.to_string(),
-                        &normal_signed_submission,
-                    );
-                }
-            }
+            .instrument(submission_span)
+            .await;
             continue 'submit;
         }
 
@@ -311,38 +296,16 @@ async fn run_submit_to_relays_job(
 
         if submission_optimistic {
             let can_submit = if config.optimistic_prevalidate_optimistic_blocks {
-                let start = Instant::now();
-                match validate_block(
+                validate_block(
                     &slot_data,
                     &optimistic_signed_submission,
                     block.sealed_block.clone(),
                     &config,
                     cancel.clone(),
+                    "Optimistic check",
                 )
+                .instrument(submission_span.clone())
                 .await
-                {
-                    Ok(()) => {
-                        trace!(parent: &submission_span,
-                            time_ms = start.elapsed().as_millis(),
-                            "Optimistic validation passed"
-                        );
-                        true
-                    }
-                    Err(ValdationError::UnableToValidate(err)) => {
-                        warn!(parent: &submission_span, err = ?err, "Failed to validate optimistic payload");
-                        false
-                    }
-                    Err(ValdationError::ValidationFailed(err)) => {
-                        error!(parent: &submission_span, err = ?err, "Optimistic Payload Validation failed");
-                        inc_failed_block_simulations();
-                        store_error_event(
-                            VALIDATION_ERROR_CATEGORY,
-                            &err.to_string(),
-                            &optimistic_signed_submission,
-                        );
-                        false
-                    }
-                }
             } else {
                 true
             };
@@ -415,16 +378,23 @@ pub async fn run_submit_to_relays_job_and_metrics(
     }
 }
 
+fn log_validation_error(err: ValidationError, level: Level, validation_use: &str) {
+    dynamic_event!(level,err = ?err, validation_use,"Validation failed");
+}
+
+/// Validates the blocks handling any logging.
+/// Answers if the block was validated ok.
 async fn validate_block(
     slot_data: &MevBoostSlotData,
     signed_submit_request: &SubmitBlockRequest,
     block: SealedBlock,
     config: &SubmissionConfig,
     cancellation_token: CancellationToken,
-) -> Result<(), ValdationError> {
+    validation_use: &str,
+) -> bool {
     let withdrawals_root = block.withdrawals_root.unwrap_or_default();
-
-    config
+    let start = Instant::now();
+    match config
         .validation_api
         .validate_block(
             signed_submit_request,
@@ -433,8 +403,35 @@ async fn validate_block(
             block.parent_beacon_block_root,
             cancellation_token,
         )
-        .await?;
-    Ok(())
+        .await
+    {
+        Ok(()) => {
+            trace!(
+                time_ms = start.elapsed().as_millis(),
+                validation_use,
+                "Validation passed"
+            );
+            true
+        }
+        Err(ValidationError::ValidationFailed(err)) => {
+            log_validation_error(
+                ValidationError::ValidationFailed(err.clone()),
+                Level::ERROR,
+                validation_use,
+            );
+            inc_failed_block_simulations();
+            store_error_event(
+                VALIDATION_ERROR_CATEGORY,
+                &err.to_string(),
+                signed_submit_request,
+            );
+            false
+        }
+        Err(err) => {
+            log_validation_error(err, Level::WARN, validation_use);
+            false
+        }
+    }
 }
 
 async fn submit_bid_to_the_relay(
@@ -470,12 +467,22 @@ async fn submit_bid_to_the_relay(
             cancel.cancel();
         }
         Err(SubmitBlockErr::BidBelowFloor | SubmitBlockErr::PayloadAttributesNotKnown) => {
-            trace!(err = ?relay_result.unwrap_err(), "Block not accepted by the relay");
+            trace!(
+                err = ?relay_result.unwrap_err(),
+                "Block not accepted by the relay"
+            );
         }
-        Err(SubmitBlockErr::SimError(err)) => {
+        Err(SubmitBlockErr::SimError(_)) => {
             inc_failed_block_simulations();
-            error!(err = ?err, "Error block simulation fail, cancelling");
-            store_error_event(SIM_ERROR_CATEGORY, &err.to_string(), &signed_submit_request);
+            store_error_event(
+                SIM_ERROR_CATEGORY,
+                relay_result.as_ref().unwrap_err().to_string().as_str(),
+                &signed_submit_request,
+            );
+            error!(
+                err = ?relay_result.unwrap_err(),
+                "Error block simulation fail, cancelling"
+            );
             cancel.cancel();
         }
         Err(SubmitBlockErr::RelayError(RelayError::TooManyRequests)) => {
@@ -490,19 +497,19 @@ async fn submit_bid_to_the_relay(
         Err(SubmitBlockErr::BlockKnown) => {
             trace!("Block already known");
         }
-        Err(SubmitBlockErr::RelayError(err)) => {
-            warn!(err = ?err, "Error submitting block to the relay");
+        Err(SubmitBlockErr::RelayError(_)) => {
+            warn!(err = ?relay_result.unwrap_err(), "Error submitting block to the relay");
             inc_other_relay_errors(&relay.id);
         }
-        Err(SubmitBlockErr::RPCConversionError(err)) => {
+        Err(SubmitBlockErr::RPCConversionError(_)) => {
             error!(
-                err = ?err,
+                err = ?relay_result.unwrap_err(),
                 "RPC conversion error (illegal submission?) submitting block to the relay",
             );
         }
-        Err(SubmitBlockErr::RPCSerializationError(err)) => {
+        Err(SubmitBlockErr::RPCSerializationError(_)) => {
             error!(
-                err = ?err,
+                err = ?relay_result.unwrap_err(),
                 "SubmitBlock serialization error submitting block to the relay",
             );
         }

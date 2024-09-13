@@ -5,6 +5,8 @@
 GIT_VER ?= $(shell git describe --tags --always --dirty="-dev")
 GIT_TAG ?= $(shell git describe --tags --abbrev=0)
 
+FEATURES ?=
+
 ##@ Help
 
 .PHONY: help
@@ -23,22 +25,22 @@ clean: ## Clean up
 
 .PHONY: build
 build: ## Build (debug version)
-	cargo build
+	cargo build --features "$(FEATURES)"
 
 .PHONY: docker-image
 docker-image: ## Build a rbuilder Docker image
-	docker build --platform linux/amd64 . -t rbuilder
+	docker build --platform linux/amd64 --build-arg FEATURES="$(FEATURES)" . -t rbuilder
 
 ##@ Dev
 
 .PHONY: lint
 lint: ## Run the linters
 	cargo fmt -- --check
-	cargo clippy -- -D warnings
+	cargo clippy --features "$(FEATURES)" -- -D warnings
 
 .PHONY: test
 test: ## Run the tests
-	cargo test --verbose
+	cargo test --verbose --features "$(FEATURES)"
 
 .PHONY: lt
 lt: lint test ## Run "lint" and "test"
@@ -47,11 +49,11 @@ lt: lint test ## Run "lint" and "test"
 fmt: ## Format the code
 	cargo fmt
 	cargo fix --allow-staged
-	cargo clippy --fix --allow-staged
+	cargo clippy --features "$(FEATURES)" --fix --allow-staged
 
 .PHONY: bench
 bench: ## Run benchmarks
-	cargo bench --bench bench_main
+	cargo bench --features "$(FEATURES)" --bench bench_main
 #	 cargo bench --bench bench_main -- --verbose
 
 .PHONY: bench-report-open

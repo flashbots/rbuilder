@@ -11,6 +11,7 @@ mod tx_signer;
 
 #[cfg(test)]
 pub mod test_utils;
+pub mod tracing;
 
 use alloy_network::Ethereum;
 use alloy_primitives::{Sign, I256, U256};
