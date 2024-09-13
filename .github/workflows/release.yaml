@@ -3,21 +3,21 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
     inputs:
       build-docker:
-        description: 'Build Docker'
+        description: "Build Docker"
         required: false
         type: boolean
         default: false
       build-binary:
-        description: 'Build Binary'
+        description: "Build Binary"
         required: false
         type: boolean
         default: true
       draft-release:
-        description: 'Draft Release'
+        description: "Draft Release"
         required: false
         type: boolean
         default: false
@@ -77,6 +77,9 @@ jobs:
             runner: warp-ubuntu-latest-arm64-16x
           - target: aarch64-apple-darwin
             runner: warp-macos-14-arm64-6x
+        features:
+          - ""
+          - "redact_sensitive"
 
     steps:
       - name: Checkout sources
@@ -107,12 +110,16 @@ jobs:
 
       - name: Prepare output filename
         run: |
-          OUTPUT_FILENAME="rbuilder-${VERSION}-${{ matrix.configs.target }}.tar.gz"
+          if [ -z "${{ matrix.features }}" ]; then
+            OUTPUT_FILENAME="rbuilder-${VERSION}-${{ matrix.configs.target }}.tar.gz"
+          else
+            OUTPUT_FILENAME="rbuilder-${VERSION}-${{ matrix.configs.target }}-${{ matrix.features }}.tar.gz"
+          fi
           echo "OUTPUT_FILENAME=$OUTPUT_FILENAME" >> $GITHUB_ENV
           echo "Filename: ${OUTPUT_FILENAME}"
 
       - name: Build rbuilder binary
-        run: cargo build --release
+        run: cargo build --release --features=${{ matrix.features }}
 
       - name: Prepare artifacts
         run: |
