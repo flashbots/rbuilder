@@ -45,8 +45,9 @@ async fn txpool_receive_util(count: u32) {
         .with_max_priority_fee_per_gas(eip1559_est.max_priority_fee_per_gas);
 
     tokio::spawn(async move {
-        for _ in 0..count {
-            let _ = provider.send_transaction(tx.clone()).await.unwrap();
+        for i in 0..count {
+            let tx = tx.clone().with_nonce(i.into());
+            let _ = provider.send_transaction(tx).await.unwrap();
         }
     });
 
@@ -63,8 +64,8 @@ fn bench_txpool_receive(c: &mut Criterion) {
     group.bench_function("txn_fetcher_normal_10", |b| {
         b.to_async(&rt).iter(|| txpool_receive_util(10));
     });
-    group.bench_function("txn_fetcher_normal_100", |b| {
-        b.to_async(&rt).iter(|| txpool_receive_util(100));
+    group.bench_function("txn_fetcher_normal_50", |b| {
+        b.to_async(&rt).iter(|| txpool_receive_util(50));
     });
 }
 
