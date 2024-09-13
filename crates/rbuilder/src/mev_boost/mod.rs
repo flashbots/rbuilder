@@ -254,7 +254,7 @@ pub enum Error {
     TooManyProofs,
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(thiserror::Error)]
 pub enum SubmitBlockErr {
     #[error("Relay error: {0}")]
     RelayError(#[from] RelayError),
@@ -271,12 +271,25 @@ pub enum SubmitBlockErr {
     #[error("RPC conversion Error")]
     /// RPC validates the submissions (eg: limit of txs) much more that our model.
     RPCConversionError(Error),
-    #[error("RPC serialization failed {0}")]
+    #[cfg_attr(
+        not(feature = "redact_sensitive"),
+        error("RPC serialization failed: {0}")
+    )]
+    #[cfg_attr(
+        feature = "redact_sensitive",
+        error("RPC serialization failed: [REDACTED]")
+    )]
     RPCSerializationError(String),
     #[error("Invalid header")]
     InvalidHeader,
     #[error("Block known")]
     BlockKnown,
+}
+
+impl std::fmt::Debug for SubmitBlockErr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self)
+    }
 }
 
 // Data API

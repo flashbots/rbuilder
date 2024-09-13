@@ -467,12 +467,22 @@ async fn submit_bid_to_the_relay(
             cancel.cancel();
         }
         Err(SubmitBlockErr::BidBelowFloor | SubmitBlockErr::PayloadAttributesNotKnown) => {
-            trace!(err = ?relay_result.unwrap_err(), "Block not accepted by the relay");
+            trace!(
+                err = ?relay_result.unwrap_err(),
+                "Block not accepted by the relay"
+            );
         }
-        Err(SubmitBlockErr::SimError(err)) => {
+        Err(SubmitBlockErr::SimError(_)) => {
             inc_failed_block_simulations();
-            error!(err = ?err.clone(), "Error block simulation fail, cancelling");
-            store_error_event(SIM_ERROR_CATEGORY, &err.to_string(), &signed_submit_request);
+            store_error_event(
+                SIM_ERROR_CATEGORY,
+                relay_result.as_ref().unwrap_err().to_string().as_str(),
+                &signed_submit_request,
+            );
+            error!(
+                err = ?relay_result.unwrap_err(),
+                "Error block simulation fail, cancelling"
+            );
             cancel.cancel();
         }
         Err(SubmitBlockErr::RelayError(RelayError::TooManyRequests)) => {
