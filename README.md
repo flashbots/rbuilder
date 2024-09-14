@@ -41,7 +41,7 @@ To run rbuilder you need:
 * Relays so submit to (`relays`)
 * Alternatively it can submit to the block validation API if run in the dry run mode (`dry_run`, `dry_run_validation_url`)
 
-A sample configuration for running Lighthouse and triggerging payload events would be:
+A sample configuration for running Lighthouse and triggering payload events would be:
 ```
 ./target/maxperf/lighthouse bn \
     --network mainnet \
