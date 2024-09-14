@@ -35,11 +35,26 @@ For more details on how to use rbuilder for backtesting, see https://github.com/
 To run rbuilder you need:
 * Reth node for state. (`reth_datadir`)
 * Reth node must expose ipc interface for mempool tx subscription (`el_node_ipc_path`).
-* CL node that triggers new payload events (it must be additionally configured to trigger payload event every single time)
+* CL node that triggers new payload events (it must be additionally configured to trigger payload event every single time).
 * Source of bundles that sends `eth_sendBundle`, `mev_sendBundle`, `eth_sendRawTransaction` as JSON rpc calls. (`jsonrpc_server_port`)
   (by default rbuilder will take raw txs from the reth node mempool)
 * Relays so submit to (`relays`)
 * Alternatively it can submit to the block validation API if run in the dry run mode (`dry_run`, `dry_run_validation_url`)
+
+A sample configuration for running Lighthouse and triggering payload events would be:
+```
+./target/maxperf/lighthouse bn \
+    --network mainnet \
+    --execution-endpoint http://localhost:8551 \
+    --execution-jwt /secrets/jwt.hex \
+    --checkpoint-sync-url https://mainnet.checkpoint.sigp.io \
+    --disable-deposit-contract-sync \
+    --http \
+    --http-port 3500 \
+    --always-prepare-payload \
+    --prepare-payload-lookahead 8000 \
+    --suggested-fee-recipient 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045
+```
 
 Additionally, you can:
 * configure block processor API as a sink for submitted blocks (`blocks_processor_url`)
