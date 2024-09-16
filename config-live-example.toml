@@ -9,6 +9,8 @@ chain = "mainnet"
 reth_datadir = "/mnt/data/reth"
 
 coinbase_secret_key = "env:COINBASE_SECRET_KEY"
+relay_secret_key = "env:RELAY_SECRET_KEY"
+optimistic_relay_secret_key = "env:OPTIMISTIC_RELAY_SECRET_KEY"
 
 # cl_node_url can be a single value, array of values, or passed by an environment variables with values separated with a comma
 # cl_node_url = "http://localhost:3500"
