@@ -5,6 +5,9 @@ use super::{
     base_config::BaseConfig,
     block_output::{
         bid_observer::{BidObserver, NullBidObserver},
+        bid_value_source::null_bid_value_source::NullBidValueSource,
+        bidding::true_block_value_bidder::TrueBlockValueBiddingService,
+        block_sealing_bidder_factory::BlockSealingBidderFactory,
         relay_submit::{RelaySubmitSinkFactory, SubmissionConfig},
     },
 };
@@ -18,13 +21,8 @@ use crate::{
         Sorting,
     },
     live_builder::{
-        base_config::EnvOrValue,
-        block_output::{
-            bidding::DummyBiddingService, block_finisher_factory::BlockFinisherFactory,
-            relay_submit::BuilderSinkFactory,
-        },
-        cli::LiveBuilderConfig,
-        payload_events::MevBoostSlotDataGenerator,
+        base_config::EnvOrValue, block_output::relay_submit::BuilderSinkFactory,
+        cli::LiveBuilderConfig, payload_events::MevBoostSlotDataGenerator,
     },
     mev_boost::BLSBlockSigner,
     primitives::mev_boost::{MevBoostRelay, RelayConfig},
@@ -279,9 +277,10 @@ impl LiveBuilderConfig for Config {
             self.base_config.chain_spec()?,
             Box::new(NullBidObserver {}),
         )?;
-        let sink_factory = Box::new(BlockFinisherFactory::new(
-            Box::new(DummyBiddingService {}),
+        let sink_factory = Box::new(BlockSealingBidderFactory::new(
+            Box::new(TrueBlockValueBiddingService {}),
             sink_sealed_factory,
+            Arc::new(NullBidValueSource {}),
         ));
 
         let payload_event = MevBoostSlotDataGenerator::new(
