@@ -13,6 +13,7 @@ It is designed to provide a delightful developer experience, enabling community 
 - **Bundle merging**: bundles that target transactions which have already been included in a pending block can be dropped if they are marked in `reverting_tx_hashes`.
 - **Smart nonce management**: identifies and smartly handles nonce dependencies between bundles and transactions
 - **Using [Reth](https://github.com/paradigmxyz/reth/)**: leverages fast, efficient and user-friendly Ethereum node written in Rust
+- Reproducible builds
 
 ## Running rbuilder
 
@@ -99,6 +100,27 @@ You can query the local relay for proposed blocks like this:
 
 ```bash
 curl http://localhost:5555/relay/v1/data/bidtraces/proposer_payload_delivered
+```
+
+### Reproducible builds
+
+You only need to set the `SOURCE_DATE_EPOCH` environment variable to ensure that the build is reproducible:
+
+```bash
+# Use last commit timestamp as the build date
+$ export SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)
+
+# build #1
+$ rm -rf target/
+$ cargo build --release
+$ sha256sum target/release/rbuilder
+d92ac33b94e16ed4a035b9dd52108fe78bd9bb160a91fced8e439f59b84c3207  target/release/rbuilder
+
+# build #2
+$ rm -rf target/
+$ cargo build --release
+$ sha256sum target/release/rbuilder
+d92ac33b94e16ed4a035b9dd52108fe78bd9bb160a91fced8e439f59b84c3207  target/release/rbuilder
 ```
 
 ---
