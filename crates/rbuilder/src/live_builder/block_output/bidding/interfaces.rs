@@ -102,7 +102,7 @@ pub trait BiddingService: std::fmt::Debug + Send + Sync {
 
 /// Trait to control the must_win_block feature of the BiddingService.
 /// It allows to use BiddingService as a Box (single threaded mutable access) but be able to call must_win_block from another thread.
-pub trait BiddingServiceWinControl {
+pub trait BiddingServiceWinControl: Send + Sync {
     /// If called, any current or future SlotBidder working on that block will bid more aggressively to win the block.
     fn must_win_block(&self, block: u64);
 }
