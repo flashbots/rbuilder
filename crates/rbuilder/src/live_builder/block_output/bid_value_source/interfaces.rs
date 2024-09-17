@@ -1,7 +1,8 @@
 use alloy_primitives::U256;
 use std::sync::Arc;
 
-pub trait BidValueObs: std::fmt::Debug {
+/// Sync + Send to allow to be called from another thread.
+pub trait BidValueObs: std::fmt::Debug + Sync + Send {
     /// @Pending: add source of the bid.
     fn update_new_bid(&self, bid: U256);
 }
