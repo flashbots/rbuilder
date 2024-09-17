@@ -64,10 +64,19 @@ pub struct LandedBlockInfo {
     pub block_timestamp: OffsetDateTime,
 }
 
+/// This information is useful for tuning in real time bidding strategy and keep track of wins and losses.
+/// last_analyzed_block_time_stamp/first_analyzed_block_time_stamp is the interval for the analyzed landed block (from ANYONE).
+///     last_analyzed_block_time_stamp allows the BiddingService to know how up to date is the landed block info.
+pub struct LandedBlockIntervalInfo {
+    pub landed_blocks: Vec<LandedBlockInfo>,
+    pub first_analyzed_block_time_stamp: OffsetDateTime,
+    pub last_analyzed_block_time_stamp: OffsetDateTime,
+}
+
 /// Trait in charge of bidding.
 /// We use one for the whole execution and ask for a [SlotBidder] for each particular slot.
-/// After BiddingService creation the builder will try to feed it all the needed update_new_landed_block_detected from
-/// the DB history.
+/// After BiddingService creation the builder will try to feed it all the needed update_new_landed_block_detected from the DB history.
+/// To avoid exposing how much info the BiddingService uses we don't ask it anything and feed it the max history we are willing to read.
 /// After that the builder will update each block via update_new_landed_block_detected.
 pub trait BiddingService: std::fmt::Debug + Send + Sync {
     fn create_slot_bidder(
@@ -81,14 +90,9 @@ pub trait BiddingService: std::fmt::Debug + Send + Sync {
     fn must_win_block(&self, block: u64);
 
     /// We are notified about some blocks WE landed.
-    /// This information is useful for tuning in real time bidding strategy and keep track of wins and losses.
-    /// last_analyzed_block_time_stamp is the last_analyzed_block_time_stamp for the last landed block (from ANYONE) we analyzed.
-    ///     last_analyzed_block_time_stamp allows the BiddingService to know how up to date is the landed block info.
     fn update_new_landed_blocks_detected(
         &self,
-        landed_blocks: Vec<LandedBlockInfo>,
-        first_analyzed_block_time_stamp: OffsetDateTime,
-        last_analyzed_block_time_stamp: OffsetDateTime,
+        landed_block_interval_info: LandedBlockIntervalInfo,
     );
 
     /// We let the BiddingService know we had some problem reading landed blocks just in case we wants to change his strategy (eg: stop bidding until next update_new_landed_blocks_detected)

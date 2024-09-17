@@ -1,17 +1,18 @@
 use std::sync::Arc;
 
-use alloy_primitives::U256;
-
 use crate::{
     building::builders::{UnfinishedBlockBuildingSink, UnfinishedBlockBuildingSinkFactory},
     live_builder::payload_events::MevBoostSlotData,
 };
+use alloy_primitives::U256;
+use tracing::error;
 
 use super::{
     bid_value_source::interfaces::{BidValueObs, BidValueSource},
     bidding::{
         interfaces::{BiddingService, SlotBidder},
         sequential_sealer_bid_maker::SequentialSealerBidMaker,
+        wallet_balance_watcher::WalletBalanceWatcher,
     },
     relay_submit::{BuilderSinkFactory, NullBestBidSource},
 };
@@ -29,6 +30,23 @@ pub struct BlockSealingBidderFactory {
     block_sink_factory: Box<dyn BuilderSinkFactory>,
     /// SlotBidder are subscribed to the proper block in the bid_value_source.
     competition_bid_value_source: Arc<dyn BidValueSource + Send + Sync>,
+    wallet_balance_watcher: WalletBalanceWatcher,
+}
+
+impl BlockSealingBidderFactory {
+    pub fn new(
+        bidding_service: Box<dyn BiddingService>,
+        block_sink_factory: Box<dyn BuilderSinkFactory>,
+        competition_bid_value_source: Arc<dyn BidValueSource + Send + Sync>,
+        wallet_balance_watcher: WalletBalanceWatcher,
+    ) -> Self {
+        Self {
+            bidding_service,
+            block_sink_factory,
+            competition_bid_value_source,
+            wallet_balance_watcher,
+        }
+    }
 }
 
 /// Struct to solve trait upcasting not supported in rust stable.
@@ -49,6 +67,20 @@ impl UnfinishedBlockBuildingSinkFactory for BlockSealingBidderFactory {
         slot_data: MevBoostSlotData,
         cancel: tokio_util::sync::CancellationToken,
     ) -> std::sync::Arc<dyn crate::building::builders::UnfinishedBlockBuildingSink> {
+        match self
+            .wallet_balance_watcher
+            .update_to_block(slot_data.block())
+        {
+            Ok(landed_blocks) => self
+                .bidding_service
+                .update_new_landed_blocks_detected(landed_blocks),
+            Err(error) => {
+                error!(error=?error, "Error updating wallet state");
+                self.bidding_service
+                    .update_failed_reading_new_landed_blocks()
+            }
+        }
+
         let finished_block_sink = self.block_sink_factory.create_builder_sink(
             slot_data.clone(),
             Arc::new(NullBestBidSource {}),
@@ -80,20 +112,6 @@ struct BlockSealingBidder {
     /// Used to unsubscribe on drop.
     competition_bid_value_source: Arc<dyn BidValueSource + Send + Sync>,
     bidder: Arc<dyn SlotBidder>,
-}
-
-impl BlockSealingBidderFactory {
-    pub fn new(
-        bidding_service: Box<dyn BiddingService>,
-        block_sink_factory: Box<dyn BuilderSinkFactory>,
-        competition_bid_value_source: Arc<dyn BidValueSource + Send + Sync>,
-    ) -> Self {
-        Self {
-            bidding_service,
-            block_sink_factory,
-            competition_bid_value_source,
-        }
-    }
 }
 
 impl BlockSealingBidder {

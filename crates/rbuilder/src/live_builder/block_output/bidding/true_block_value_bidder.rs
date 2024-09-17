@@ -1,11 +1,10 @@
-use super::interfaces::{Bid, BidMaker, BiddingService, LandedBlockInfo, SlotBidder};
+use super::interfaces::{Bid, BidMaker, BiddingService, LandedBlockIntervalInfo, SlotBidder};
 use crate::{
     building::builders::{block_building_helper::BlockBuildingHelper, UnfinishedBlockBuildingSink},
     live_builder::block_output::bid_value_source::interfaces::BidValueObs,
 };
 use alloy_primitives::U256;
 use std::sync::Arc;
-use time::OffsetDateTime;
 
 /// Bidding service giving a TrueBlockValueBidder
 #[derive(Debug)]
@@ -28,9 +27,7 @@ impl BiddingService for TrueBlockValueBiddingService {
 
     fn update_new_landed_blocks_detected(
         &self,
-        _landed_blocks: Vec<LandedBlockInfo>,
-        _first_analyzed_block_time_stamp: OffsetDateTime,
-        _last_analyzed_block_time_stamp: OffsetDateTime,
+        _landed_block_interval_info: LandedBlockIntervalInfo,
     ) {
         // No special behavior for landed blocks in this simple implementation.
     }
