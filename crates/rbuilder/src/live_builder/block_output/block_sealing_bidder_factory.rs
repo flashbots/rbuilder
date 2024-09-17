@@ -14,7 +14,7 @@ use super::{
         sequential_sealer_bid_maker::SequentialSealerBidMaker,
         wallet_balance_watcher::WalletBalanceWatcher,
     },
-    relay_submit::{BuilderSinkFactory, NullBestBidSource},
+    relay_submit::BuilderSinkFactory,
 };
 
 /// UnfinishedBlockBuildingSinkFactory to bid blocks against the competition.
@@ -83,7 +83,7 @@ impl UnfinishedBlockBuildingSinkFactory for BlockSealingBidderFactory {
 
         let finished_block_sink = self.block_sink_factory.create_builder_sink(
             slot_data.clone(),
-            Arc::new(NullBestBidSource {}),
+            self.competition_bid_value_source.clone(),
             cancel.clone(),
         );
         let sealer = SequentialSealerBidMaker::new(Arc::from(finished_block_sink), cancel.clone());

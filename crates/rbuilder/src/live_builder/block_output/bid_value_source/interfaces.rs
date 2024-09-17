@@ -1,6 +1,5 @@
-use std::sync::Arc;
-
 use alloy_primitives::U256;
+use std::sync::Arc;
 
 pub trait BidValueObs: std::fmt::Debug {
     /// @Pending: add source of the bid.
