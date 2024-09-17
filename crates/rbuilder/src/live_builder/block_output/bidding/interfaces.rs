@@ -86,8 +86,9 @@ pub trait BiddingService: std::fmt::Debug + Send + Sync {
         slot_end_timestamp: u64,
         bid_maker: Box<dyn BidMaker + Send + Sync>,
     ) -> Arc<dyn SlotBidder>;
-    /// If called, any current or future SlotBidder working on that block will bid more aggressively to win the block.
-    fn must_win_block(&self, block: u64);
+
+    /// Access to BiddingServiceWinControl::must_win_block.
+    fn win_control(&self) -> Arc<dyn BiddingServiceWinControl>;
 
     /// We are notified about some blocks WE landed.
     fn update_new_landed_blocks_detected(
@@ -97,4 +98,11 @@ pub trait BiddingService: std::fmt::Debug + Send + Sync {
 
     /// We let the BiddingService know we had some problem reading landed blocks just in case we wants to change his strategy (eg: stop bidding until next update_new_landed_blocks_detected)
     fn update_failed_reading_new_landed_blocks(&self);
+}
+
+/// Trait to control the must_win_block feature of the BiddingService.
+/// It allows to use BiddingService as a Box (single threaded mutable access) but be able to call must_win_block from another thread.
+pub trait BiddingServiceWinControl {
+    /// If called, any current or future SlotBidder working on that block will bid more aggressively to win the block.
+    fn must_win_block(&self, block: u64);
 }

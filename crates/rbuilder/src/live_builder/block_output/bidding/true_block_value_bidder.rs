@@ -1,4 +1,6 @@
-use super::interfaces::{Bid, BidMaker, BiddingService, LandedBlockIntervalInfo, SlotBidder};
+use super::interfaces::{
+    Bid, BidMaker, BiddingService, BiddingServiceWinControl, LandedBlockIntervalInfo, SlotBidder,
+};
 use crate::{
     building::builders::{block_building_helper::BlockBuildingHelper, UnfinishedBlockBuildingSink},
     live_builder::block_output::bid_value_source::interfaces::BidValueObs,
@@ -21,8 +23,9 @@ impl BiddingService for TrueBlockValueBiddingService {
         Arc::new(TrueBlockValueBidder { bid_maker })
     }
 
-    fn must_win_block(&self, _block: u64) {
-        // No special behavior for must-win blocks in this simple implementation.
+    /// Dummy win control.
+    fn win_control(&self) -> Arc<dyn BiddingServiceWinControl> {
+        Arc::new(TrueBlockValueBiddingServiceWinControl {})
     }
 
     fn update_new_landed_blocks_detected(
@@ -65,4 +68,10 @@ impl UnfinishedBlockBuildingSink for TrueBlockValueBidder {
 
 impl BidValueObs for TrueBlockValueBidder {
     fn update_new_bid(&self, _bid: U256) {}
+}
+
+struct TrueBlockValueBiddingServiceWinControl {}
+
+impl BiddingServiceWinControl for TrueBlockValueBiddingServiceWinControl {
+    fn must_win_block(&self, _block: u64) {}
 }
