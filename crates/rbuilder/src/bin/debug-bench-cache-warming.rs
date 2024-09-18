@@ -87,6 +87,20 @@ async fn main() -> eyre::Result<()> {
     let block_number = last_block;
     let mut results = Vec::new();
 
+    // Run the slow finalize benchmark once
+    let (_, slow_finalize_times_ms) = run_benchmark(
+        cli.iters,
+        &txs,
+        &ctx,
+        &state_provider,
+        &factory,
+        &config,
+        RethSparseTrieSharedCache::default(), // Use a default cache
+        true, // Don't use sparse trie
+    ).await?;
+
+    report_time_data("slow_finalize", &slow_finalize_times_ms);
+
     for percentage in percentages {
         info!("Benchmarking with {}% pre-warmed cache and {} txs", percentage, percentage * txs.len() / 100);
         
@@ -107,17 +121,18 @@ async fn main() -> eyre::Result<()> {
             &factory,
             &config,
             sparse_mpt_cache_pre_warm,
+            false,
         ).await?;
 
         report_time_data(&format!("build"), &build_times_ms);
         report_time_data(&format!("finalize"), &finalize_times_ms);
-
+        
         // Store results for CSV
         results.push((percentage, build_times_ms, finalize_times_ms));
     }
 
-    // Save results to CSV
-    save_results_to_csv(block_number, tx_count, &results)?;
+    // Save results to CSV, now including slow finalize times
+    save_results_to_csv(block_number, tx_count, &results, &slow_finalize_times_ms)?;
 
     Ok(())
 }
@@ -177,6 +192,7 @@ async fn run_benchmark(
     factory: &ProviderFactory<Arc<DatabaseEnv>>,
     config: &Config,
     sparse_mpt_cache_pre_warm: RethSparseTrieSharedCache,
+    dont_use_sparse_trie: bool,
 ) -> eyre::Result<(Vec<u128>, Vec<u128>)> {
     let mut build_times_ms = Vec::new();
     let mut finalize_times_ms = Vec::new();
@@ -188,7 +204,10 @@ async fn run_benchmark(
         let state_provider = state_provider.clone();
         let factory = factory.clone();
         let config = config.clone();
-        let root_hash_config = config.base_config.live_root_hash_config()?;
+        let mut root_hash_config = config.base_config.live_root_hash_config()?;
+        if dont_use_sparse_trie {
+            root_hash_config.use_sparse_trie = false;
+        }
 
         // Clone the pre-warmed cache for the stateroot hash calculation
         let sparse_mpt_cache_pre_warm_clone = sparse_mpt_cache_pre_warm.deep_clone();
@@ -259,7 +278,7 @@ fn report_time_data(action: &str, data: &[u128]) {
     );
 }
 
-fn save_results_to_csv(block_number: u64, tx_count: usize, results: &[(usize, Vec<u128>, Vec<u128>)]) -> eyre::Result<()> {
+fn save_results_to_csv(block_number: u64, tx_count: usize, results: &[(usize, Vec<u128>, Vec<u128>)], slow_finalize_times: &[u128]) -> eyre::Result<()> {
     let file_name = "benchmark_results.csv";
     let file_exists = std::path::Path::new(file_name).exists();
 
@@ -273,16 +292,18 @@ fn save_results_to_csv(block_number: u64, tx_count: usize, results: &[(usize, Ve
 
     if !file_exists {
         // Write header if the file is newly created
-        writeln!(writer, "block_number,tx_count,{}", (10..=100).step_by(10).flat_map(|p| {
-            [format!("{}_build_median", p), 
-             format!("{}_build_mean", p), 
-             format!("{}_build_min", p), 
-             format!("{}_build_max", p),
-             format!("{}_finalize_median", p), 
-             format!("{}_finalize_mean", p), 
-             format!("{}_finalize_min", p), 
-             format!("{}_finalize_max", p)]
-        }).join(","))?;
+        writeln!(writer, "block_number,tx_count,{},slow_finalize_median,slow_finalize_mean,slow_finalize_min,slow_finalize_max", 
+            (10..=100).step_by(10).flat_map(|p| {
+                [format!("{}_build_median", p), 
+                 format!("{}_build_mean", p), 
+                 format!("{}_build_min", p), 
+                 format!("{}_build_max", p),
+                 format!("{}_finalize_median", p), 
+                 format!("{}_finalize_mean", p), 
+                 format!("{}_finalize_min", p), 
+                 format!("{}_finalize_max", p)]
+            }).join(",")
+        )?;
     }
 
     // Write data
@@ -295,6 +316,13 @@ fn save_results_to_csv(block_number: u64, tx_count: usize, results: &[(usize, Ve
             finalize_stats.median, finalize_stats.mean, finalize_stats.min, finalize_stats.max
         )?;
     }
+    
+    // Write slow finalize stats
+    let slow_finalize_stats = calculate_stats(slow_finalize_times);
+    write!(writer, ",{},{},{},{}", 
+        slow_finalize_stats.median, slow_finalize_stats.mean, slow_finalize_stats.min, slow_finalize_stats.max
+    )?;
+    
     writeln!(writer)?;
 
     writer.flush()?;
