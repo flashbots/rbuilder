@@ -2818,7 +2818,7 @@ dependencies = [
 [[package]]
 name = "eth-sparse-mpt"
 version = "0.1.0"
-source = "git+https://github.com/dvush/eth-sparse-mpt?rev=a89e02e#a89e02ebc7d303493fb2d86b6f08677b40b59baf"
+source = "git+https://github.com/dvush/eth-sparse-mpt?rev=ce30293#ce30293eb01ed151c03a8358f3239230cb12c1fd"
 dependencies = [
  "ahash",
  "alloy-chains",
@@ -2878,6 +2878,7 @@ dependencies = [
  "revm-primitives",
  "serde",
  "serde_json",
+ "serde_with",
  "thiserror",
  "triehash",
 ]

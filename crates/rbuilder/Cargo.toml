@@ -122,7 +122,7 @@ mockall = "0.12.1"
 shellexpand = "3.1.0"
 async-trait = "0.1.80"
 
-eth-sparse-mpt = { git = "https://github.com/dvush/eth-sparse-mpt", rev = "a89e02e" }
+eth-sparse-mpt = { git = "https://github.com/dvush/eth-sparse-mpt", rev = "ce30293" }
 
 [build-dependencies]
 built = { version = "0.7.1", features = ["git2", "chrono"] }
