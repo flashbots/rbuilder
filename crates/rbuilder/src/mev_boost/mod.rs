@@ -6,7 +6,9 @@ pub mod sign_payload;
 use super::utils::u256decimal_serde_helper;
 
 use alloy_primitives::{Address, BlockHash, Bytes, U256};
-use alloy_rpc_types_beacon::relay::{BidTrace, SignedBidSubmissionV2, SignedBidSubmissionV3};
+use alloy_rpc_types_beacon::relay::{
+    BidTrace, SignedBidSubmissionV2, SignedBidSubmissionV3, SignedBidSubmissionV4,
+};
 use flate2::{write::GzEncoder, Compression};
 use primitive_types::H384;
 use reqwest::{
@@ -455,6 +457,7 @@ impl RelayClient {
                 match data {
                     SubmitBlockRequest::Capella(data) => data.0.as_ssz_bytes(),
                     SubmitBlockRequest::Deneb(data) => data.0.as_ssz_bytes(),
+                    SubmitBlockRequest::Electra(data) => data.0.as_ssz_bytes(),
                 },
                 SSZ_CONTENT_TYPE,
             )
@@ -583,6 +586,9 @@ impl RelayClient {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ElectraSubmitBlockRequest(SignedBidSubmissionV4);
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DenebSubmitBlockRequest(SignedBidSubmissionV3);
 
 impl DenebSubmitBlockRequest {
@@ -599,6 +605,7 @@ pub struct CapellaSubmitBlockRequest(SignedBidSubmissionV2);
 pub enum SubmitBlockRequest {
     Capella(CapellaSubmitBlockRequest),
     Deneb(DenebSubmitBlockRequest),
+    Electra(ElectraSubmitBlockRequest),
 }
 
 impl SubmitBlockRequest {
@@ -606,6 +613,7 @@ impl SubmitBlockRequest {
         match self {
             SubmitBlockRequest::Capella(req) => req.0.message.clone(),
             SubmitBlockRequest::Deneb(req) => req.0.message.clone(),
+            SubmitBlockRequest::Electra(req) => req.0.message.clone(),
         }
     }
 }

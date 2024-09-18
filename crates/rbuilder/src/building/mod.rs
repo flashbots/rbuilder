@@ -35,7 +35,8 @@ use reth_basic_payload_builder::{commit_withdrawals, WithdrawalsOutcome};
 use reth_chainspec::{ChainSpec, EthereumHardforks};
 use reth_errors::ProviderError;
 use reth_evm::system_calls::{
-    post_block_withdrawal_requests_contract_call, pre_block_beacon_root_contract_call,
+    post_block_consolidation_requests_contract_call, post_block_withdrawal_requests_contract_call,
+    pre_block_beacon_root_contract_call, pre_block_blockhashes_contract_call,
 };
 use reth_evm_ethereum::{eip6110::parse_deposits_from_receipts, revm_spec, EthEvmConfig};
 use reth_node_api::PayloadBuilderAttributes;
@@ -577,18 +578,30 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             .chain_spec
             .is_prague_active_at_timestamp(ctx.attributes.timestamp())
         {
-            let deposit_requests =
-                parse_deposits_from_receipts(&ctx.chain_spec, self.receipts.iter())?;
+            let evm_config = EthEvmConfig::default();
             let mut db = state.new_db_ref();
 
+            let deposit_requests =
+                parse_deposits_from_receipts(&ctx.chain_spec, self.receipts.iter())?;
             let withdrawal_requests = post_block_withdrawal_requests_contract_call(
-                &EthEvmConfig::default(),
+                &evm_config,
+                db.as_mut(),
+                &ctx.initialized_cfg,
+                &ctx.block_env,
+            )?;
+            let consolidation_requests = post_block_consolidation_requests_contract_call(
+                &evm_config,
                 db.as_mut(),
                 &ctx.initialized_cfg,
                 &ctx.block_env,
             )?;
 
-            let requests = [deposit_requests, withdrawal_requests].concat();
+            let requests = [
+                deposit_requests,
+                withdrawal_requests,
+                consolidation_requests,
+            ]
+            .concat();
             let requests_root = calculate_requests_root(&requests);
             (Some(requests.into()), Some(requests_root))
         } else {
@@ -701,14 +714,23 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         ctx: &BlockBuildingContext,
         state: &mut BlockState,
     ) -> eyre::Result<()> {
+        let evm_config = EthEvmConfig::default();
         let mut db = state.new_db_ref();
         pre_block_beacon_root_contract_call(
             db.as_mut(),
-            &EthEvmConfig::default(),
+            &evm_config,
             &ctx.chain_spec,
             &ctx.initialized_cfg,
             &ctx.block_env,
             ctx.attributes.parent_beacon_block_root(),
+        )?;
+        pre_block_blockhashes_contract_call(
+            db.as_mut(),
+            &evm_config,
+            &ctx.chain_spec,
+            &ctx.initialized_cfg,
+            &ctx.block_env,
+            ctx.attributes.parent,
         )?;
         db.as_mut().merge_transitions(BundleRetention::Reverts);
         Ok(())
