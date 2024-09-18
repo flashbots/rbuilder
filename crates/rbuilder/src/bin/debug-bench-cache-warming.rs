@@ -13,7 +13,7 @@ use reth::providers::BlockNumReader;
 use reth_db::DatabaseEnv;
 use reth_payload_builder::database::CachedReads;
 use reth_provider::{ProviderFactory, StateProvider};
-use std::{path::PathBuf, sync::Arc, time::Instant};
+use std::{path::PathBuf, sync::Arc, time::Instant, fs::{File, OpenOptions}, io::{Write, BufWriter}};
 use tracing::{debug, info};
 
 #[derive(Parser, Debug)]
@@ -57,11 +57,12 @@ async fn main() -> eyre::Result<()> {
         .ok_or_else(|| eyre::eyre!("block not found on rpc"))?;
 
     let txs = extract_onchain_block_txs(&onchain_block)?;
+    let tx_count = txs.len();  // Store the transaction count
     let suggested_fee_recipient = find_suggested_fee_recipient(&onchain_block, &txs);
     info!(
         "Block number: {}, txs: {}",
         onchain_block.header.number,
-        txs.len()
+        tx_count
     );
 
     let coinbase = onchain_block.header.miner;
@@ -82,6 +83,9 @@ async fn main() -> eyre::Result<()> {
         Arc::<dyn StateProvider>::from(factory.history_by_block_number(last_block)?);
 
     let percentages = vec![10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+
+    let block_number = last_block;
+    let mut results = Vec::new();
 
     for percentage in percentages {
         info!("Benchmarking with {}% pre-warmed cache and {} txs", percentage, percentage * txs.len() / 100);
@@ -107,7 +111,13 @@ async fn main() -> eyre::Result<()> {
 
         report_time_data(&format!("build"), &build_times_ms);
         report_time_data(&format!("finalize"), &finalize_times_ms);
+
+        // Store results for CSV
+        results.push((percentage, build_times_ms, finalize_times_ms));
     }
+
+    // Save results to CSV
+    save_results_to_csv(block_number, tx_count, &results)?;
 
     Ok(())
 }
@@ -247,4 +257,70 @@ fn report_time_data(action: &str, data: &[u128]) {
         max,
         min,
     );
+}
+
+fn save_results_to_csv(block_number: u64, tx_count: usize, results: &[(usize, Vec<u128>, Vec<u128>)]) -> eyre::Result<()> {
+    let file_name = "benchmark_results.csv";
+    let file_exists = std::path::Path::new(file_name).exists();
+
+    let file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .append(true)
+        .open(file_name)?;
+
+    let mut writer = BufWriter::new(file);
+
+    if !file_exists {
+        // Write header if the file is newly created
+        writeln!(writer, "block_number,tx_count,{}", (10..=100).step_by(10).flat_map(|p| {
+            [format!("{}_build_median", p), 
+             format!("{}_build_mean", p), 
+             format!("{}_build_min", p), 
+             format!("{}_build_max", p),
+             format!("{}_finalize_median", p), 
+             format!("{}_finalize_mean", p), 
+             format!("{}_finalize_min", p), 
+             format!("{}_finalize_max", p)]
+        }).join(","))?;
+    }
+
+    // Write data
+    write!(writer, "{},{}", block_number+1, tx_count)?;
+    for (percentage, build_times, finalize_times) in results {
+        let build_stats = calculate_stats(build_times);
+        let finalize_stats = calculate_stats(finalize_times);
+        write!(writer, ",{},{},{},{},{},{},{},{}", 
+            build_stats.median, build_stats.mean, build_stats.min, build_stats.max,
+            finalize_stats.median, finalize_stats.mean, finalize_stats.min, finalize_stats.max
+        )?;
+    }
+    writeln!(writer)?;
+
+    writer.flush()?;
+    Ok(())
+}
+
+struct Stats {
+    median: f64,
+    mean: f64,
+    min: u128,
+    max: u128,
+}
+
+fn calculate_stats(data: &[u128]) -> Stats {
+    let mut sorted_data = data.to_vec();
+    sorted_data.sort_unstable();
+
+    let median = if data.len() % 2 == 0 {
+        (sorted_data[data.len() / 2 - 1] + sorted_data[data.len() / 2]) as f64 / 2.0
+    } else {
+        sorted_data[data.len() / 2] as f64
+    };
+
+    let mean = data.iter().sum::<u128>() as f64 / data.len() as f64;
+    let min = *data.iter().min().unwrap();
+    let max = *data.iter().max().unwrap();
+
+    Stats { median, mean, min, max }
 }
