@@ -82,6 +82,11 @@ pub struct BlockBuildingContext {
 
 impl BlockBuildingContext {
     #[allow(clippy::too_many_arguments)]
+
+    pub fn over_ride_shared_sparse_mpt_cache(&mut self, cache: RethSparseTrieSharedCache) {
+        self.shared_sparse_mpt_cache = cache;
+    }
+
     /// spec_id None: we use the proper SpecId for the block timestamp.
     pub fn from_attributes(
         attributes: PayloadAttributesEvent,
