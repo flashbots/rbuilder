@@ -5,7 +5,9 @@ use crate::{
     live_builder::block_output::bid_value_source::interfaces::BidValueObs,
 };
 use alloy_primitives::U256;
+use reth_primitives::BlockNumber;
 use time::OffsetDateTime;
+use tokio_util::sync::CancellationToken;
 
 /// Trait in charge of bidding blocks.
 /// It is created for each block / slot.
@@ -54,23 +56,14 @@ pub trait BidMaker: std::fmt::Debug {
     fn send_bid(&self, bid: Bid);
 }
 
-/// Info about a block WE landed.
+/// Info about a onchain block from reth.
 pub struct LandedBlockInfo {
-    /// Balance from previous block (block_number-1).
-    pub prev_balance: U256,
-    /// Balance for the new block (block_number).
-    pub new_balance: U256,
-    pub block_number: u64,
+    pub block_number: BlockNumber,
     pub block_timestamp: OffsetDateTime,
-}
-
-/// This information is useful for tuning in real time bidding strategy and keep track of wins and losses.
-/// last_analyzed_block_time_stamp/first_analyzed_block_time_stamp is the interval for the analyzed landed block (from ANYONE).
-///     last_analyzed_block_time_stamp allows the BiddingService to know how up to date is the landed block info.
-pub struct LandedBlockIntervalInfo {
-    pub landed_blocks: Vec<LandedBlockInfo>,
-    pub first_analyzed_block_time_stamp: OffsetDateTime,
-    pub last_analyzed_block_time_stamp: OffsetDateTime,
+    pub builder_balance: U256,
+    /// true -> we landed this block.
+    /// If false we could have landed it in coinbase == fee recipient mode but balance wouldn't change so we don't care.
+    pub beneficiary_is_builder: bool,
 }
 
 /// Trait in charge of bidding.
@@ -83,26 +76,26 @@ pub trait BiddingService: std::fmt::Debug + Send + Sync {
         &mut self,
         block: u64,
         slot: u64,
-        slot_end_timestamp: u64,
+        slot_timestamp: OffsetDateTime,
         bid_maker: Box<dyn BidMaker + Send + Sync>,
+        cancel: CancellationToken,
     ) -> Arc<dyn SlotBidder>;
 
     /// Access to BiddingServiceWinControl::must_win_block.
     fn win_control(&self) -> Arc<dyn BiddingServiceWinControl>;
 
-    /// We are notified about some blocks WE landed.
-    fn update_new_landed_blocks_detected(
-        &self,
-        landed_block_interval_info: LandedBlockIntervalInfo,
-    );
+    /// We are notified about some landed blocks.
+    /// They are sorted in ascending order.
+    /// Consecutive calls will have consecutive block numbers.
+    fn update_new_landed_blocks_detected(&mut self, landed_blocks: &[LandedBlockInfo]);
 
     /// We let the BiddingService know we had some problem reading landed blocks just in case we wants to change his strategy (eg: stop bidding until next update_new_landed_blocks_detected)
-    fn update_failed_reading_new_landed_blocks(&self);
+    fn update_failed_reading_new_landed_blocks(&mut self);
 }
 
 /// Trait to control the must_win_block feature of the BiddingService.
 /// It allows to use BiddingService as a Box (single threaded mutable access) but be able to call must_win_block from another thread.
-pub trait BiddingServiceWinControl: Send + Sync {
+pub trait BiddingServiceWinControl: Send + Sync + std::fmt::Debug {
     /// If called, any current or future SlotBidder working on that block will bid more aggressively to win the block.
     fn must_win_block(&self, block: u64);
 }

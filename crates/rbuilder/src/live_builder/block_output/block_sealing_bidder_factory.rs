@@ -69,11 +69,11 @@ impl UnfinishedBlockBuildingSinkFactory for BlockSealingBidderFactory {
     ) -> std::sync::Arc<dyn crate::building::builders::UnfinishedBlockBuildingSink> {
         match self
             .wallet_balance_watcher
-            .update_to_block(slot_data.block())
+            .update_to_block(slot_data.block() - 1)
         {
             Ok(landed_blocks) => self
                 .bidding_service
-                .update_new_landed_blocks_detected(landed_blocks),
+                .update_new_landed_blocks_detected(&landed_blocks),
             Err(error) => {
                 error!(error=?error, "Error updating wallet state");
                 self.bidding_service
@@ -91,8 +91,9 @@ impl UnfinishedBlockBuildingSinkFactory for BlockSealingBidderFactory {
         let slot_bidder: Arc<dyn SlotBidder> = self.bidding_service.create_slot_bidder(
             slot_data.block(),
             slot_data.slot(),
-            slot_data.timestamp().unix_timestamp() as u64,
+            slot_data.timestamp(),
             Box::new(sealer),
+            cancel.clone(),
         );
 
         let res = BlockSealingBidder::new(
@@ -105,6 +106,8 @@ impl UnfinishedBlockBuildingSinkFactory for BlockSealingBidderFactory {
     }
 }
 
+/// Helper object containing the bidder.
+/// It just forwards new blocks and new competitions bids (via SlotBidderToBidValueObs) to the bidder.
 #[derive(Debug)]
 struct BlockSealingBidder {
     /// Bidder we ask how to finish the blocks.

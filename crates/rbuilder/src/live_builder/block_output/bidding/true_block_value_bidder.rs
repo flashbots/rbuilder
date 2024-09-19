@@ -1,5 +1,5 @@
 use super::interfaces::{
-    Bid, BidMaker, BiddingService, BiddingServiceWinControl, LandedBlockIntervalInfo, SlotBidder,
+    Bid, BidMaker, BiddingService, BiddingServiceWinControl, LandedBlockInfo, SlotBidder,
 };
 use crate::{
     building::builders::{block_building_helper::BlockBuildingHelper, UnfinishedBlockBuildingSink},
@@ -7,18 +7,28 @@ use crate::{
 };
 use alloy_primitives::U256;
 use std::sync::Arc;
+use time::OffsetDateTime;
+use tokio_util::sync::CancellationToken;
 
 /// Bidding service giving a TrueBlockValueBidder
 #[derive(Debug)]
 pub struct TrueBlockValueBiddingService {}
+
+impl TrueBlockValueBiddingService {
+    /// _landed_blocks is passed to look like a real BiddingService...
+    pub fn new(_landed_blocks: &[LandedBlockInfo]) -> Self {
+        Self {}
+    }
+}
 
 impl BiddingService for TrueBlockValueBiddingService {
     fn create_slot_bidder(
         &mut self,
         _block: u64,
         _slot: u64,
-        _slot_end_timestamp: u64,
+        _slot_timestamp: OffsetDateTime,
         bid_maker: Box<dyn BidMaker + Send + Sync>,
+        _cancel: CancellationToken,
     ) -> Arc<dyn SlotBidder> {
         Arc::new(TrueBlockValueBidder { bid_maker })
     }
@@ -28,14 +38,11 @@ impl BiddingService for TrueBlockValueBiddingService {
         Arc::new(TrueBlockValueBiddingServiceWinControl {})
     }
 
-    fn update_new_landed_blocks_detected(
-        &self,
-        _landed_block_interval_info: LandedBlockIntervalInfo,
-    ) {
+    fn update_new_landed_blocks_detected(&mut self, _landed_blocks: &[LandedBlockInfo]) {
         // No special behavior for landed blocks in this simple implementation.
     }
 
-    fn update_failed_reading_new_landed_blocks(&self) {
+    fn update_failed_reading_new_landed_blocks(&mut self) {
         // No special behavior for landed blocks in this simple implementation.
     }
 }
@@ -70,6 +77,7 @@ impl BidValueObs for TrueBlockValueBidder {
     fn update_new_bid(&self, _bid: U256) {}
 }
 
+#[derive(Debug)]
 struct TrueBlockValueBiddingServiceWinControl {}
 
 impl BiddingServiceWinControl for TrueBlockValueBiddingServiceWinControl {

@@ -291,8 +291,8 @@ impl LiveBuilderConfig for Config {
             self.base_config.coinbase_signer()?.address,
             WALLET_INIT_HISTORY_SIZE,
         )?;
-        let bidding_service: Box<dyn BiddingService> = Box::new(TrueBlockValueBiddingService {});
-        bidding_service.update_new_landed_blocks_detected(wallet_history);
+        let bidding_service: Box<dyn BiddingService> =
+            Box::new(TrueBlockValueBiddingService::new(&wallet_history));
 
         let sink_factory = Box::new(BlockSealingBidderFactory::new(
             bidding_service,
