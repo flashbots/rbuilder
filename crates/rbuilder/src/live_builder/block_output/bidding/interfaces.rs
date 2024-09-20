@@ -51,7 +51,7 @@ impl Bid {
     }
 }
 
-/// Makes the actual bid (send it to the relay)
+/// Makes the actual bid (seal + send it to the relay).
 pub trait BidMaker: std::fmt::Debug {
     fn send_bid(&self, bid: Bid);
 }
