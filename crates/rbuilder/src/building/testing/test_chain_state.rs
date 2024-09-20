@@ -174,9 +174,10 @@ impl TestChainState {
             gas_limit: args.gas_limit,
             max_fee_per_gas: args.max_fee_per_gas,
             max_priority_fee_per_gas: args.max_priority_fee,
-            to: TransactionKind::Call(
-                self.named_address(args.to.ok_or_else(|| eyre::eyre!("missing to address"))?)?,
-            ),
+            to: match args.to {
+                Some(named_addr) => TransactionKind::Call(self.named_address(named_addr)?),
+                None => TransactionKind::Create,
+            },
             value: U256::from(args.value),
             access_list: Default::default(),
             input: args.input.into(),
@@ -392,6 +393,35 @@ impl TxArgs {
             .value(value)
     }
 
+    /// This transaction for test purpose only, it reads balance of addr and the contract
+    pub fn new_test_read_balance(from: NamedAddr, nonce: u64, addr: Address, value: u64) -> Self {
+        Self::new(from, nonce)
+            .to(NamedAddr::MevTest)
+            .input(
+                [
+                    (*TEST_READ_BALANCE).into(),
+                    B256::left_padding_from(addr.as_slice()).to_vec(),
+                ]
+                .concat(),
+            )
+            .value(value)
+    }
+
+    /// This transaction for test purpose only, it deploys a contract and let it selfdestruct within the tx.
+    pub fn new_test_ephemeral_contract_destruct(
+        from: NamedAddr,
+        nonce: u64,
+        refund_addr: Address,
+    ) -> Self {
+        Self::new(from, nonce).to(NamedAddr::MevTest).input(
+            [
+                (*TEST_EPHEMERAL_CONTRACT_DESTRUCT).into(),
+                B256::left_padding_from(refund_addr.as_slice()).to_vec(),
+            ]
+            .concat(),
+        )
+    }
+
     pub fn to(self, to: NamedAddr) -> Self {
         Self {
             to: Some(to),
@@ -434,9 +464,12 @@ impl TxArgs {
 static TEST_CONTRACTS: &str = include_str!("./contracts.json");
 
 #[derive(Debug, serde::Deserialize)]
-struct TestContracts {
+pub struct TestContracts {
     #[serde(rename = "MevTest")]
     mev_test: Bytes,
+
+    #[serde(rename = "MevTestInitBytecode")]
+    pub mev_test_init_bytecode: Bytes,
 }
 
 fn selector(func_signature: &str) -> [u8; 4] {
@@ -449,10 +482,13 @@ lazy_static! {
     static ref SENT_TO_SELECTOR: [u8; 4] = selector("sendTo(address)");
     static ref SEND_TO_COINBASE_SELECTOR: [u8; 4] = selector("sendToCoinbase()");
     static ref REVERT_SELECTOR: [u8; 4] = selector("revert()");
+    static ref TEST_READ_BALANCE: [u8; 4] = selector("testReadBalance(address)");
+    static ref TEST_EPHEMERAL_CONTRACT_DESTRUCT: [u8; 4] =
+        selector("testEphemeralContractDestruct(address)");
 }
 
 impl TestContracts {
-    fn load() -> Self {
+    pub fn load() -> Self {
         serde_json::from_str(TEST_CONTRACTS).expect("failed to load test contracts")
     }
 
