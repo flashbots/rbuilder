@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: Unlicense
 pragma solidity ^0.8.13;
 
+contract EphemeralContractTest {
+    function destruct(address payable refundAddr) payable public {
+        selfdestruct(refundAddr);
+    }
+}
+
 contract MevTest {
 
     /// Sends all value to coinbase.
@@ -35,5 +41,16 @@ contract MevTest {
     /// Just reverts!
     function revert() public payable {
         revert();
+    }
+
+    /// Return sum of the contract's balance and addr's balanace, for testing evm inspector with selfbalance/balance opcode.
+    function testReadBalance(address payable addr) public payable {
+        address(this).balance + addr.balance;
+    }
+
+    // Deploy a contract and let the contract self-destruct, for testing evm inspector on contract depoly and destruct.
+    function testEphemeralContractDestruct(address payable refund) public payable {
+        EphemeralContractTest ephemeral_contract = new EphemeralContractTest();
+        ephemeral_contract.destruct{value: msg.value}(refund);
     }
 }
