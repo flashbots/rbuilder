@@ -47,8 +47,8 @@ fn test_transfer() -> eyre::Result<()> {
         .get(&sender_nonce_slot_key);
     assert!(nonce_read_value.is_some());
     assert!(nonce_written_value.is_some());
-    let nonce_read_value: U256 = nonce_read_value.unwrap().clone().into();
-    let nonce_written_value: U256 = nonce_written_value.unwrap().clone().into();
+    let nonce_read_value: U256 = (*nonce_read_value.unwrap()).into();
+    let nonce_written_value: U256 = (*nonce_written_value.unwrap()).into();
     assert_eq!(
         nonce_written_value.checked_sub(nonce_read_value),
         Some(U256::from(1))
