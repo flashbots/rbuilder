@@ -14,6 +14,9 @@ pub struct SlotKey {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// UsedStateTrace is an execution trace of the given order
+/// Limitations:
+/// * `written_slot_values`, `received_amount` and `sent_amount` are not correct if transaction reverts
 pub struct UsedStateTrace {
     /// read slot values contains first read
     pub read_slot_values: HashMap<SlotKey, B256>,
@@ -173,6 +176,14 @@ where
     }
 
     fn selfdestruct(&mut self, contract: Address, target: Address, value: U256) {
+        // selfdestruct can be called multiple times during transaction execution
+        if self
+            .used_state_trace
+            .destructed_contracts
+            .contains(&contract)
+        {
+            return;
+        }
         self.used_state_trace.destructed_contracts.push(contract);
         if !value.is_zero() {
             *self
