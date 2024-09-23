@@ -6,7 +6,7 @@ pub mod config;
 pub mod order_input;
 pub mod payload_events;
 pub mod simulation;
-mod watchdog;
+pub mod watchdog;
 
 use crate::{
     building::{
