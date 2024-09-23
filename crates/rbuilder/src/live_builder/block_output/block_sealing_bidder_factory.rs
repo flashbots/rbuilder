@@ -11,7 +11,7 @@ use super::{
     bid_value_source::interfaces::{BidValueObs, BidValueSource},
     bidding::{
         interfaces::{BiddingService, SlotBidder},
-        sequential_sealer_bid_maker::SequentialSealerBidMaker,
+        parallel_sealer_bid_maker::ParallelSealerBidMaker,
         wallet_balance_watcher::WalletBalanceWatcher,
     },
     relay_submit::BuilderSinkFactory,
@@ -31,6 +31,8 @@ pub struct BlockSealingBidderFactory {
     /// SlotBidder are subscribed to the proper block in the bid_value_source.
     competition_bid_value_source: Arc<dyn BidValueSource + Send + Sync>,
     wallet_balance_watcher: WalletBalanceWatcher,
+    /// See [ParallelSealerBidMaker]
+    max_concurrent_seals: usize,
 }
 
 impl BlockSealingBidderFactory {
@@ -39,12 +41,14 @@ impl BlockSealingBidderFactory {
         block_sink_factory: Box<dyn BuilderSinkFactory>,
         competition_bid_value_source: Arc<dyn BidValueSource + Send + Sync>,
         wallet_balance_watcher: WalletBalanceWatcher,
+        max_concurrent_seals: usize,
     ) -> Self {
         Self {
             bidding_service,
             block_sink_factory,
             competition_bid_value_source,
             wallet_balance_watcher,
+            max_concurrent_seals,
         }
     }
 }
@@ -86,7 +90,11 @@ impl UnfinishedBlockBuildingSinkFactory for BlockSealingBidderFactory {
             self.competition_bid_value_source.clone(),
             cancel.clone(),
         );
-        let sealer = SequentialSealerBidMaker::new(Arc::from(finished_block_sink), cancel.clone());
+        let sealer = ParallelSealerBidMaker::new(
+            self.max_concurrent_seals,
+            Arc::from(finished_block_sink),
+            cancel.clone(),
+        );
 
         let slot_bidder: Arc<dyn SlotBidder> = self.bidding_service.create_slot_bidder(
             slot_data.block(),
