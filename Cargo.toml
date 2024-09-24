@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/rbuilder",
+    "crates/op-rbuilder",
     "crates/rbuilder/src/test_utils",
     "crates/rbuilder/src/telemetry/metrics_macros"
 ]
@@ -29,6 +30,7 @@ reth-errors = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
 reth-libmdbx = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
 reth-payload-builder = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
 reth-node-api = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
+reth-node-metrics = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
 reth-trie = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
 reth-trie-parallel = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
 reth-basic-payload-builder = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
@@ -38,6 +40,16 @@ reth-provider = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6", f
 reth-chainspec = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
 reth-evm = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
 reth-evm-ethereum = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
+reth-rpc = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
+reth-discv4 = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
+reth-cli-util = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
+reth-cli-commands = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
+reth-node-builder = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
+reth-node-optimism = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
+reth-beacon-consensus = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
+reth-blockchain-tree = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
+reth-optimism-cli = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
+reth-optimism-rpc = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
 
 # version is copied from reth  "v1.0.6" dependencies
 revm = { version = "14.0.0", features = [
@@ -75,3 +87,7 @@ alloy-rpc-types-engine = { version = "0.3.0", features = [
 ] }
 alloy-rpc-types-eth = { version = "0.3.0" }
 alloy-signer-local = { version = "0.3.0" }
+
+clap = { version = "4.4.3" }
+tracing = { version = "0.1.37" }
+
