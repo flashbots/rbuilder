@@ -3,6 +3,7 @@
 use crate::{
     building::builders::UnfinishedBlockBuildingSinkFactory,
     live_builder::{order_input::OrderInputConfig, LiveBuilder},
+    roothash::RootHashConfig,
     telemetry::{setup_reloadable_tracing_subscriber, LoggerConfig},
     utils::{http_provider, BoxedProvider, ProviderFactoryReopener, Signer},
 };
@@ -80,6 +81,10 @@ pub struct BaseConfig {
     /// Number of threads used for incoming order simulation
     pub simulation_threads: usize,
 
+    /// uses cached sparse trie for root hash
+    pub root_hash_use_sparse_trie: bool,
+    /// compares result of root hash using sparse trie and reference root hash
+    pub root_hash_compare_sparse_trie: bool,
     pub root_hash_task_pool_threads: usize,
 
     pub watchdog_timeout_sec: u64,
@@ -255,6 +260,18 @@ impl BaseConfig {
         ))
     }
 
+    pub fn live_root_hash_config(&self) -> eyre::Result<RootHashConfig> {
+        if self.root_hash_compare_sparse_trie && !self.root_hash_use_sparse_trie {
+            eyre::bail!(
+                "root_hash_compare_sparse_trie can't be set without root_hash_use_sparse_trie"
+            );
+        }
+        Ok(RootHashConfig::live_config(
+            self.root_hash_use_sparse_trie,
+            self.root_hash_compare_sparse_trie,
+        ))
+    }
+
     pub fn coinbase_signer(&self) -> eyre::Result<Signer> {
         coinbase_signer_from_secret_key(&self.coinbase_secret_key.value()?)
     }
@@ -407,6 +424,8 @@ impl Default for BaseConfig {
             blocklist_file_path: None,
             extra_data: "extra_data_change_me".to_string(),
             root_hash_task_pool_threads: 1,
+            root_hash_use_sparse_trie: false,
+            root_hash_compare_sparse_trie: false,
             watchdog_timeout_sec: 60 * 3,
             backtest_fetch_mempool_data_dir: "/mnt/data/mempool".into(),
             backtest_fetch_eth_rpc_url: "http://127.0.0.1:8545".to_string(),
