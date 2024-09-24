@@ -1,8 +1,7 @@
-use reth_primitives::format_ether;
 use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info};
+use tracing::error;
 
 use crate::live_builder::block_output::relay_submit::BlockBuildingSink;
 
@@ -123,11 +122,6 @@ impl ParallelSealerBidMakerProcess {
             let block_number = block.building_context().block();
             // Take sealing "slot"
             *self.seal_control.seals_in_progress.lock().unwrap() += 1;
-            info!(
-                concurrent_sealings = *self.seal_control.seals_in_progress.lock().unwrap(),
-                max_concurrent_sealings = self.max_concurrent_seals,
-                "DX concurrent sealings"
-            );
             let seal_control = self.seal_control.clone();
             let sink = self.sink.clone();
             tokio::task::spawn_blocking(move || {
