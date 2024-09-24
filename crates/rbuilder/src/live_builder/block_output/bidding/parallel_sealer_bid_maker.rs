@@ -17,20 +17,7 @@ pub struct ParallelSealerBidMaker {
 
 impl BidMaker for ParallelSealerBidMaker {
     fn send_bid(&self, bid: Bid) {
-        let payout_tx_value = bid.payout_tx_value();
-        let block = bid.block();
-        info!(
-            bid = if let Some(bid) = payout_tx_value {
-                format_ether(bid)
-            } else {
-                "None".to_string()
-            },
-            can_add_payout_tx = block.can_add_payout_tx(),
-            tbv = format_ether(block.true_block_value().unwrap_or_default()),
-            "DX send_bid"
-        );
-        self.pending_bid.update(Bid::new(block, payout_tx_value));
-        //        self.pending_bid.update(bid);
+        self.pending_bid.update(bid);
     }
 }
 
