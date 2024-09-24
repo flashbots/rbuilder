@@ -232,6 +232,10 @@ impl BlockBuildingContext {
         }
     }
 
+    pub fn over_ride_shared_sparse_mpt_cache(&mut self, cache: SparseTrieSharedCache) {
+        self.shared_sparse_mpt_cache = cache;
+    }
+
     /// Useless BlockBuildingContext for testing in contexts where we can't avoid having a BlockBuildingContext.
     pub fn dummy_for_testing() -> Self {
         let mut onchain_block: alloy_rpc_types::Block = Default::default();
