@@ -2826,6 +2826,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "eth-sparse-mpt"
+version = "0.1.0"
+source = "git+https://github.com/flashbots/eth-sparse-mpt?rev=664759b#664759b53d92e64d9a2e902100691b7ff4945ece"
+dependencies = [
+ "alloy-primitives 0.8.0",
+ "alloy-rlp",
+ "alloy-trie",
+ "hash-db",
+ "rayon",
+ "reth-db-api",
+ "reth-errors",
+ "reth-execution-errors",
+ "reth-provider",
+ "reth-trie",
+ "reth-trie-db",
+ "revm",
+ "revm-primitives",
+ "rustc-hash 2.0.0",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "smallvec",
+ "thiserror",
+ "triehash",
+]
+
+[[package]]
 name = "ethabi"
 version = "18.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7000,6 +7027,7 @@ dependencies = [
  "csv",
  "ctor",
  "derivative",
+ "eth-sparse-mpt",
  "ethereum-consensus",
  "ethereum_ssz",
  "ethereum_ssz_derive",

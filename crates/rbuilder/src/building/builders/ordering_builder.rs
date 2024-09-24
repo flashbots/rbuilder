@@ -21,7 +21,7 @@ use reth::providers::ProviderFactory;
 use reth_db::database::Database;
 use tokio_util::sync::CancellationToken;
 
-use crate::{roothash::RootHashMode, utils::check_provider_factory_health};
+use crate::{roothash::RootHashConfig, utils::check_provider_factory_health};
 use reth::tasks::pool::BlockingTaskPool;
 use reth_payload_builder::database::CachedReads;
 use serde::Deserialize;
@@ -79,6 +79,7 @@ pub fn run_ordering_builder<DB: Database + Clone + 'static>(
         input.builder_name,
         input.ctx,
         config.clone(),
+        input.root_hash_config,
     );
 
     // this is a hack to mark used orders until built block trace is implemented as a sane thing
@@ -147,8 +148,8 @@ pub fn backtest_simulate_block<DB: Database + Clone + 'static>(
         input.builder_name,
         input.ctx.clone(),
         ordering_config,
+        RootHashConfig::skip_root_hash(),
     )
-    .with_skip_root_hash()
     .with_cached_reads(input.cached_reads.unwrap_or_default());
     let block_builder = builder.build_block(
         block_orders,
@@ -175,7 +176,7 @@ pub struct OrderingBuilderContext<DB> {
     builder_name: String,
     ctx: BlockBuildingContext,
     config: OrderingBuilderConfig,
-    root_hash_mode: RootHashMode,
+    root_hash_config: RootHashConfig,
 
     // caches
     cached_reads: Option<CachedReads>,
@@ -192,6 +193,7 @@ impl<DB: Database + Clone + 'static> OrderingBuilderContext<DB> {
         builder_name: String,
         ctx: BlockBuildingContext,
         config: OrderingBuilderConfig,
+        root_hash_config: RootHashConfig,
     ) -> Self {
         Self {
             provider_factory,
@@ -199,18 +201,10 @@ impl<DB: Database + Clone + 'static> OrderingBuilderContext<DB> {
             builder_name,
             ctx,
             config,
-            root_hash_mode: RootHashMode::CorrectRoot,
+            root_hash_config,
             cached_reads: None,
             failed_orders: HashSet::default(),
             order_attempts: HashMap::default(),
-        }
-    }
-
-    /// Should be used only in backtest
-    pub fn with_skip_root_hash(self) -> Self {
-        Self {
-            root_hash_mode: RootHashMode::SkipRootHash,
-            ..self
         }
     }
 
@@ -253,7 +247,7 @@ impl<DB: Database + Clone + 'static> OrderingBuilderContext<DB> {
         let mut block_building_helper = BlockBuildingHelperFromDB::new(
             self.provider_factory.clone(),
             self.root_hash_task_pool.clone(),
-            self.root_hash_mode,
+            self.root_hash_config.clone(),
             new_ctx,
             self.cached_reads.take(),
             self.builder_name.clone(),
@@ -337,6 +331,7 @@ impl<DB: Database + Clone + 'static> OrderingBuilderContext<DB> {
 
 #[derive(Debug)]
 pub struct OrderingBuildingAlgorithm {
+    root_hash_config: RootHashConfig,
     root_hash_task_pool: BlockingTaskPool,
     sbundle_mergeabe_signers: Vec<Address>,
     config: OrderingBuilderConfig,
@@ -345,12 +340,14 @@ pub struct OrderingBuildingAlgorithm {
 
 impl OrderingBuildingAlgorithm {
     pub fn new(
+        root_hash_config: RootHashConfig,
         root_hash_task_pool: BlockingTaskPool,
         sbundle_mergeabe_signers: Vec<Address>,
         config: OrderingBuilderConfig,
         name: String,
     ) -> Self {
         Self {
+            root_hash_config,
             root_hash_task_pool,
             sbundle_mergeabe_signers,
             config,
@@ -367,6 +364,7 @@ impl<DB: Database + Clone + 'static> BlockBuildingAlgorithm<DB> for OrderingBuil
     fn build_blocks(&self, input: BlockBuildingAlgorithmInput<DB>) {
         let live_input = LiveBuilderInput {
             provider_factory: input.provider_factory,
+            root_hash_config: self.root_hash_config.clone(),
             root_hash_task_pool: self.root_hash_task_pool.clone(),
             ctx: input.ctx.clone(),
             input: input.input,
