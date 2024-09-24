@@ -5,6 +5,12 @@ use super::{
     base_config::BaseConfig,
     block_output::{
         bid_observer::{BidObserver, NullBidObserver},
+        bid_value_source::null_bid_value_source::NullBidValueSource,
+        bidding::{
+            interfaces::BiddingService, true_block_value_bidder::TrueBlockValueBiddingService,
+            wallet_balance_watcher::WalletBalanceWatcher,
+        },
+        block_sealing_bidder_factory::BlockSealingBidderFactory,
         relay_submit::{RelaySubmitSinkFactory, SubmissionConfig},
     },
 };
@@ -18,13 +24,8 @@ use crate::{
         Sorting,
     },
     live_builder::{
-        base_config::EnvOrValue,
-        block_output::{
-            bidding::DummyBiddingService, block_finisher_factory::BlockFinisherFactory,
-            relay_submit::BuilderSinkFactory,
-        },
-        cli::LiveBuilderConfig,
-        payload_events::MevBoostSlotDataGenerator,
+        base_config::EnvOrValue, block_output::relay_submit::BuilderSinkFactory,
+        cli::LiveBuilderConfig, payload_events::MevBoostSlotDataGenerator,
     },
     mev_boost::BLSBlockSigner,
     primitives::mev_boost::{MevBoostRelay, RelayConfig},
@@ -54,12 +55,16 @@ use std::{
     path::{Path, PathBuf},
     str::FromStr,
     sync::Arc,
+    time::Duration,
 };
 use tracing::info;
 use url::Url;
 
 /// From experience (Vitaly's) all generated blocks before slot_time-8sec end loosing (due to last moment orders?)
 const DEFAULT_SLOT_DELTA_TO_START_SUBMITS: time::Duration = time::Duration::milliseconds(-8000);
+/// We initialize the wallet with the last full day. This should be enough for any bidder.
+/// On debug I measured this to be < 300ms so it's not big deal.
+pub const WALLET_INIT_HISTORY_SIZE: Duration = Duration::from_secs(60 * 60 * 24);
 
 /// This example has a single building algorithm cfg but the idea of this enum is to have several builders
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -276,14 +281,26 @@ impl LiveBuilderConfig for Config {
         &self,
         cancellation_token: tokio_util::sync::CancellationToken,
     ) -> eyre::Result<super::LiveBuilder<Arc<DatabaseEnv>, MevBoostSlotDataGenerator>> {
+        let provider_factory = self.base_config.provider_factory()?;
         let (sink_sealed_factory, relays) = self.l1_config.create_relays_sealed_sink_factory(
             self.base_config.chain_spec()?,
             Box::new(NullBidObserver {}),
         )?;
-        let sink_factory = Box::new(BlockFinisherFactory::new(
-            Box::new(DummyBiddingService {}),
+
+        let (wallet_balance_watcher, wallet_history) = WalletBalanceWatcher::new(
+            provider_factory.provider_factory_unchecked(),
+            self.base_config.coinbase_signer()?.address,
+            WALLET_INIT_HISTORY_SIZE,
+        )?;
+        let bidding_service: Box<dyn BiddingService> =
+            Box::new(TrueBlockValueBiddingService::new(&wallet_history));
+
+        let sink_factory = Box::new(BlockSealingBidderFactory::new(
+            bidding_service,
             sink_sealed_factory,
-        ).await?);
+            Arc::new(NullBidValueSource {}),
+            wallet_balance_watcher,
+        ));
 
         let payload_event = MevBoostSlotDataGenerator::new(
             self.l1_config.beacon_clients()?,
@@ -293,7 +310,12 @@ impl LiveBuilderConfig for Config {
         );
         let live_builder = self
             .base_config
-            .create_builder(cancellation_token, sink_factory, payload_event)
+            .create_builder_with_provider_factory(
+                cancellation_token,
+                sink_factory,
+                payload_event,
+                provider_factory,
+            )
             .await?;
         let root_hash_config = self.base_config.live_root_hash_config()?;
         let root_hash_task_pool = self.base_config.root_hash_task_pool()?;
