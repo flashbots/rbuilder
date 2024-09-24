@@ -65,6 +65,8 @@ const DEFAULT_SLOT_DELTA_TO_START_SUBMITS: time::Duration = time::Duration::mill
 /// We initialize the wallet with the last full day. This should be enough for any bidder.
 /// On debug I measured this to be < 300ms so it's not big deal.
 pub const WALLET_INIT_HISTORY_SIZE: Duration = Duration::from_secs(60 * 60 * 24);
+/// Number of sealing processes to run in parallel for each builder algorithm.
+pub const SEALING_PROCESSES_PER_BUILDER_ALGORITHM: usize = 2;
 
 /// This example has a single building algorithm cfg but the idea of this enum is to have several builders
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -300,6 +302,7 @@ impl LiveBuilderConfig for Config {
             sink_sealed_factory,
             Arc::new(NullBidValueSource {}),
             wallet_balance_watcher,
+            SEALING_PROCESSES_PER_BUILDER_ALGORITHM * self.builders.len(),
         ));
 
         let payload_event = MevBoostSlotDataGenerator::new(
