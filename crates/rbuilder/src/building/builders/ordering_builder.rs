@@ -18,7 +18,7 @@ use crate::{
 use ahash::{HashMap, HashSet};
 use alloy_primitives::Address;
 use reth::providers::ProviderFactory;
-use reth_db::database::Database;
+use reth_provider::providers::ProviderNodeTypes;
 use tokio_util::sync::CancellationToken;
 
 use crate::{roothash::RootHashMode, utils::check_provider_factory_health};
@@ -61,7 +61,7 @@ impl OrderingBuilderConfig {
     }
 }
 
-pub fn run_ordering_builder<DB: Database + Clone + 'static>(
+pub fn run_ordering_builder<DB: ProviderNodeTypes + Clone + 'static>(
     input: LiveBuilderInput<DB>,
     config: &OrderingBuilderConfig,
 ) {
@@ -127,7 +127,7 @@ pub fn run_ordering_builder<DB: Database + Clone + 'static>(
     }
 }
 
-pub fn backtest_simulate_block<DB: Database + Clone + 'static>(
+pub fn backtest_simulate_block<DB: ProviderNodeTypes + Clone + 'static>(
     ordering_config: OrderingBuilderConfig,
     input: BacktestSimulateBlockInput<'_, DB>,
 ) -> eyre::Result<(Block, CachedReads)> {
@@ -169,7 +169,7 @@ pub fn backtest_simulate_block<DB: Database + Clone + 'static>(
 }
 
 #[derive(Debug)]
-pub struct OrderingBuilderContext<DB> {
+pub struct OrderingBuilderContext<DB: ProviderNodeTypes> {
     provider_factory: ProviderFactory<DB>,
     root_hash_task_pool: BlockingTaskPool,
     builder_name: String,
@@ -185,7 +185,7 @@ pub struct OrderingBuilderContext<DB> {
     order_attempts: HashMap<OrderId, usize>,
 }
 
-impl<DB: Database + Clone + 'static> OrderingBuilderContext<DB> {
+impl<DB: ProviderNodeTypes + Clone + 'static> OrderingBuilderContext<DB> {
     pub fn new(
         provider_factory: ProviderFactory<DB>,
         root_hash_task_pool: BlockingTaskPool,
@@ -359,7 +359,9 @@ impl OrderingBuildingAlgorithm {
     }
 }
 
-impl<DB: Database + Clone + 'static> BlockBuildingAlgorithm<DB> for OrderingBuildingAlgorithm {
+impl<DB: ProviderNodeTypes + Clone + 'static> BlockBuildingAlgorithm<DB>
+    for OrderingBuildingAlgorithm
+{
     fn name(&self) -> String {
         self.name.clone()
     }

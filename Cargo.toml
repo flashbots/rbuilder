@@ -38,6 +38,7 @@ reth-provider = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.7", f
 reth-chainspec = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.7" }
 reth-evm = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.7" }
 reth-evm-ethereum = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.7" }
+reth-node-types = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.7" }
 
 # version is copied from reth  "v1.0.7" dependencies
 revm = { version = "14.0.1", features = [

@@ -7,7 +7,7 @@ use crate::{
 };
 use ahash::HashSet;
 use alloy_primitives::utils::format_ether;
-use reth_db::database::Database;
+use reth_provider::providers::ProviderNodeTypes;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, trace, warn};
@@ -25,7 +25,7 @@ use super::SimulatedOrderCommand;
 /// If we get a cancellation and the order is in in_flight_orders we just remove it from in_flight_orders.
 /// Only SimulatedOrders still in in_flight_orders are delivered.
 /// @Pending: implement cancellations in the SimTree.
-pub struct SimulationJob<DB> {
+pub struct SimulationJob<DB: ProviderNodeTypes> {
     block_cancellation: CancellationToken,
     /// Input orders to be simulated
     new_order_sub: mpsc::UnboundedReceiver<OrderPoolCommand>,
@@ -56,7 +56,7 @@ pub struct SimulationJob<DB> {
     not_cancelled_sent_simulated_orders: HashSet<OrderId>,
 }
 
-impl<DB: Database + Clone + Send + 'static> SimulationJob<DB> {
+impl<DB: ProviderNodeTypes + Clone + Send + 'static> SimulationJob<DB> {
     pub fn new(
         block_cancellation: CancellationToken,
         new_order_sub: mpsc::UnboundedReceiver<OrderPoolCommand>,

@@ -1,8 +1,8 @@
 use ahash::HashMap;
 use alloy_primitives::{Address, B256};
 use reth::providers::{ProviderFactory, StateProviderBox};
-use reth_db::database::Database;
 use reth_errors::ProviderResult;
+use reth_provider::providers::ProviderNodeTypes;
 use std::sync::{Arc, Mutex};
 
 /// Struct to get nonces for Addresses, caching the results.
@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 /// - For every context where the nonce is needed call NonceCache::get_ref and call NonceCacheRef::nonce all the times you need.
 ///   Neither NonceCache or NonceCacheRef are clonable, the clone of shared info happens on get_ref where we clone the internal cache.
 #[derive(Debug)]
-pub struct NonceCache<DB> {
+pub struct NonceCache<DB: ProviderNodeTypes> {
     provider_factory: ProviderFactory<DB>,
     // We have to use Arc<Mutex here because Rc are not Send (so can't be used in futures)
     // and borrows don't work when nonce cache is a field in a struct.
@@ -20,7 +20,7 @@ pub struct NonceCache<DB> {
     block: B256,
 }
 
-impl<DB: Database> NonceCache<DB> {
+impl<DB: ProviderNodeTypes> NonceCache<DB> {
     pub fn new(provider_factory: ProviderFactory<DB>, block: B256) -> Self {
         Self {
             provider_factory,

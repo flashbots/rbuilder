@@ -6,7 +6,7 @@ use crate::{
 };
 use alloy_provider::{IpcConnect, Provider, ProviderBuilder};
 use futures::StreamExt;
-use reth_db::database::Database;
+use reth_provider::providers::ProviderNodeTypes;
 use std::{
     pin::pin,
     sync::{Arc, Mutex},
@@ -18,7 +18,7 @@ use tracing::{debug, error, info};
 
 /// Performs maintenance operations on every new header by calling OrderPool::head_updated.
 /// Also calls some functions to generate metrics.
-pub async fn spawn_clean_orderpool_job<DB: Database + Clone + 'static>(
+pub async fn spawn_clean_orderpool_job<DB: ProviderNodeTypes + Clone + 'static>(
     config: OrderInputConfig,
     provider_factory: ProviderFactoryReopener<DB>,
     orderpool: Arc<Mutex<OrderPool>>,

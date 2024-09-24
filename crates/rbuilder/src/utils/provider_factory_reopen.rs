@@ -1,8 +1,7 @@
 use crate::telemetry::{inc_provider_bad_reopen_counter, inc_provider_reopen_counter};
 use reth::providers::{BlockHashReader, ChainSpecProvider, ProviderFactory};
-use reth_chainspec::ChainSpec;
-use reth_db::database::Database;
 use reth_errors::RethResult;
+use reth_provider::providers::ProviderNodeTypes;
 use reth_provider::{providers::StaticFileProvider, StaticFileProviderFactory};
 use std::{
     path::PathBuf,
@@ -15,20 +14,24 @@ use tracing::debug;
 /// This struct should be used on the level of the whole program and ProviderFactory should be extracted from it
 /// into the methods that has a lifetime of a slot (e.g. building particular block).
 #[derive(Debug, Clone)]
-pub struct ProviderFactoryReopener<DB> {
+pub struct ProviderFactoryReopener<DB: ProviderNodeTypes> {
     provider_factory: Arc<Mutex<ProviderFactory<DB>>>,
-    chain_spec: Arc<ChainSpec>,
+    chain_spec: Arc<DB::ChainSpec>,
     static_files_path: PathBuf,
     /// Patch to disable checking on test mode. Is ugly but ProviderFactoryReopener should die shortly (5/24/2024).
     testing_mode: bool,
 }
 
-impl<DB: Database + Clone> ProviderFactoryReopener<DB> {
-    pub fn new(db: DB, chain_spec: Arc<ChainSpec>, static_files_path: PathBuf) -> RethResult<Self> {
+impl<DB: ProviderNodeTypes> ProviderFactoryReopener<DB> {
+    pub fn new(
+        db: DB::DB,
+        chain_spec: Arc<DB::ChainSpec>,
+        static_files_path: PathBuf,
+    ) -> RethResult<Self> {
         let provider_factory = ProviderFactory::new(
             db,
             chain_spec.clone(),
-            StaticFileProvider::read_only(static_files_path.as_path()).unwrap(),
+            StaticFileProvider::read_only(static_files_path.as_path(), true)?,
         );
 
         Ok(Self {
@@ -76,7 +79,8 @@ impl<DB: Database + Clone> ProviderFactoryReopener<DB> {
                     *provider_factory = ProviderFactory::new(
                         provider_factory.db_ref().clone(),
                         self.chain_spec.clone(),
-                        StaticFileProvider::read_only(self.static_files_path.as_path()).unwrap(),
+                        StaticFileProvider::read_only(self.static_files_path.as_path(), true)
+                            .unwrap(),
                     );
                 }
             }
@@ -106,7 +110,7 @@ pub fn is_provider_factory_health_error(report: &eyre::Error) -> bool {
 
 /// Here we check if we have all the necessary historical block hashes in the database
 /// This was added as a debugging method because static_files storage was not working correctly
-pub fn check_provider_factory_health<DB: Database>(
+pub fn check_provider_factory_health<DB: ProviderNodeTypes>(
     current_block_number: u64,
     provider_factory: &ProviderFactory<DB>,
 ) -> eyre::Result<()> {

@@ -116,6 +116,7 @@ async fn get_tx_with_blobs(
 mod test {
     use super::*;
     use alloy_consensus::{SidecarBuilder, SimpleCoder};
+    use alloy_network::TransactionBuilder4844;
     use alloy_network::{EthereumWallet, TransactionBuilder};
     use alloy_node_bindings::Anvil;
     use alloy_primitives::U256;

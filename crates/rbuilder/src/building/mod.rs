@@ -550,7 +550,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn finalize<DB: reth_db::database::Database + Clone + 'static>(
+    pub fn finalize<DB: reth_provider::providers::ProviderNodeTypes + Clone + 'static>(
         self,
         state: &mut BlockState,
         ctx: &BlockBuildingContext,

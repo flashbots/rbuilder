@@ -11,9 +11,9 @@ use ahash::{HashMap, HashSet};
 use alloy_primitives::{Address, B256};
 use rand::seq::SliceRandom;
 use reth::providers::ProviderFactory;
-use reth_db::database::Database;
 use reth_errors::ProviderError;
 use reth_payload_builder::database::CachedReads;
+use reth_provider::providers::ProviderNodeTypes;
 use reth_provider::StateProvider;
 use std::{
     cmp::{max, min, Ordering},
@@ -68,7 +68,7 @@ pub struct SimulatedResult {
 
 // @Feat replaceable orders
 #[derive(Debug)]
-pub struct SimTree<DB> {
+pub struct SimTree<DB: ProviderNodeTypes> {
     // fields for nonce management
     nonce_cache: NonceCache<DB>,
 
@@ -88,7 +88,7 @@ enum OrderNonceState {
     Ready(Vec<Order>),
 }
 
-impl<DB: Database> SimTree<DB> {
+impl<DB: ProviderNodeTypes> SimTree<DB> {
     pub fn new(provider_factory: ProviderFactory<DB>, parent_block: B256) -> Self {
         let nonce_cache = NonceCache::new(provider_factory, parent_block);
         Self {
@@ -306,7 +306,7 @@ impl<DB: Database> SimTree<DB> {
 /// Non-interactive usage of sim tree that will simply simulate all orders.
 /// `randomize_insertion` is used to debug if sim tree works correctly when orders are inserted in a different order
 /// outputs should be independent of this arg.
-pub fn simulate_all_orders_with_sim_tree<DB: Database + Clone>(
+pub fn simulate_all_orders_with_sim_tree<DB: ProviderNodeTypes + Clone>(
     factory: ProviderFactory<DB>,
     ctx: &BlockBuildingContext,
     orders: &[Order],

@@ -7133,6 +7133,7 @@ dependencies = [
  "reth-libmdbx",
  "reth-node-api",
  "reth-node-core",
+ "reth-node-types",
  "reth-payload-builder",
  "reth-primitives",
  "reth-provider",

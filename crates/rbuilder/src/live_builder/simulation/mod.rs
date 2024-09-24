@@ -11,7 +11,7 @@ use crate::{
     utils::{gen_uid, ProviderFactoryReopener},
 };
 use ahash::HashMap;
-use reth_db::database::Database;
+use reth_provider::providers::ProviderNodeTypes;
 use simulation_job::SimulationJob;
 use std::sync::{Arc, Mutex};
 use tokio::{sync::mpsc, task::JoinHandle};
@@ -49,7 +49,7 @@ pub struct CurrentSimulationContexts {
 /// 4 IMPORTANT: When done with the simulations signal the provided block_cancellation.
 
 #[derive(Debug)]
-pub struct OrderSimulationPool<DB> {
+pub struct OrderSimulationPool<DB: ProviderNodeTypes> {
     provider_factory: ProviderFactoryReopener<DB>,
     running_tasks: Arc<Mutex<Vec<JoinHandle<()>>>>,
     current_contexts: Arc<Mutex<CurrentSimulationContexts>>,
@@ -65,7 +65,7 @@ pub enum SimulatedOrderCommand {
     Cancellation(OrderId),
 }
 
-impl<DB: Database + Clone + Send + 'static> OrderSimulationPool<DB> {
+impl<DB: ProviderNodeTypes + Clone + Send + 'static> OrderSimulationPool<DB> {
     pub fn new(
         provider_factory: ProviderFactoryReopener<DB>,
         num_workers: usize,

@@ -10,7 +10,7 @@ use crate::{
     live_builder::{payload_events::MevBoostSlotData, simulation::SlotOrderSimResults},
     utils::ProviderFactoryReopener,
 };
-use reth_db::database::Database;
+use reth_provider::providers::ProviderNodeTypes;
 use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, trace};
@@ -24,7 +24,7 @@ use super::{
 };
 
 #[derive(Debug)]
-pub struct BlockBuildingPool<DB> {
+pub struct BlockBuildingPool<DB: ProviderNodeTypes> {
     provider_factory: ProviderFactoryReopener<DB>,
     builders: Vec<Arc<dyn BlockBuildingAlgorithm<DB>>>,
     sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
@@ -32,7 +32,7 @@ pub struct BlockBuildingPool<DB> {
     order_simulation_pool: OrderSimulationPool<DB>,
 }
 
-impl<DB: Database + Clone + 'static> BlockBuildingPool<DB> {
+impl<DB: ProviderNodeTypes + Clone + 'static> BlockBuildingPool<DB> {
     pub fn new(
         provider_factory: ProviderFactoryReopener<DB>,
         builders: Vec<Arc<dyn BlockBuildingAlgorithm<DB>>>,

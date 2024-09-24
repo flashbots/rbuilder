@@ -22,7 +22,7 @@ pub fn create_payout_tx(
     let tx = Transaction::Eip1559(TxEip1559 {
         chain_id: chain_spec.chain.id(),
         nonce,
-        gas_limit,
+        gas_limit: gas_limit as u128,
         max_fee_per_gas: basefee.to(),
         max_priority_fee_per_gas: 0,
         to: TransactionKind::Call(to),

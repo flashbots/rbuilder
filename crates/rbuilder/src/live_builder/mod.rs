@@ -32,7 +32,7 @@ use reth::{
     providers::{HeaderProvider, ProviderFactory},
 };
 use reth_chainspec::ChainSpec;
-use reth_db::database::Database;
+use reth_provider::providers::ProviderNodeTypes;
 use std::{cmp::min, path::PathBuf, sync::Arc, time::Duration};
 use time::OffsetDateTime;
 use tokio::{sync::mpsc, task::spawn_blocking};
@@ -57,7 +57,7 @@ pub trait SlotSource {
 /// # Usage
 /// Create and run()
 #[derive(Debug)]
-pub struct LiveBuilder<DB, BlocksSourceType: SlotSource> {
+pub struct LiveBuilder<DB: ProviderNodeTypes, BlocksSourceType: SlotSource> {
     pub watchdog_timeout: Duration,
     pub error_storage_path: Option<PathBuf>,
     pub simulation_threads: usize,
@@ -78,7 +78,7 @@ pub struct LiveBuilder<DB, BlocksSourceType: SlotSource> {
     pub extra_rpc: RpcModule<()>,
 }
 
-impl<DB: Database + Clone + 'static, BuilderSourceType: SlotSource>
+impl<DB: ProviderNodeTypes + Clone + 'static, BuilderSourceType: SlotSource>
     LiveBuilder<DB, BuilderSourceType>
 {
     pub fn with_extra_rpc(self, extra_rpc: RpcModule<()>) -> Self {
@@ -240,7 +240,7 @@ impl<DB: Database + Clone + 'static, BuilderSourceType: SlotSource>
 }
 
 /// May fail if we wait too much (see [BLOCK_HEADER_DEAD_LINE_DELTA])
-async fn wait_for_block_header<DB: Database>(
+async fn wait_for_block_header<DB: ProviderNodeTypes>(
     block: B256,
     slot_time: OffsetDateTime,
     provider_factory: &ProviderFactory<DB>,

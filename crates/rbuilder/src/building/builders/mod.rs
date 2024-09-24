@@ -17,8 +17,8 @@ use reth::{
     providers::ProviderFactory,
     tasks::pool::BlockingTaskPool,
 };
-use reth_db::database::Database;
 use reth_payload_builder::database::CachedReads;
+use reth_provider::providers::ProviderNodeTypes;
 use std::sync::Arc;
 use tokio::sync::{broadcast, broadcast::error::TryRecvError};
 use tokio_util::sync::CancellationToken;
@@ -35,7 +35,7 @@ pub struct Block {
 }
 
 #[derive(Debug)]
-pub struct LiveBuilderInput<DB: Database> {
+pub struct LiveBuilderInput<DB: ProviderNodeTypes> {
     pub provider_factory: ProviderFactory<DB>,
     pub root_hash_task_pool: BlockingTaskPool,
     pub ctx: BlockBuildingContext,
@@ -104,7 +104,7 @@ impl OrderConsumer {
 }
 
 #[derive(Debug)]
-pub struct OrderIntakeConsumer<DB> {
+pub struct OrderIntakeConsumer<DB: ProviderNodeTypes> {
     nonce_cache: NonceCache<DB>,
 
     block_orders: BlockOrders,
@@ -113,7 +113,7 @@ pub struct OrderIntakeConsumer<DB> {
     order_consumer: OrderConsumer,
 }
 
-impl<DB: Database + Clone> OrderIntakeConsumer<DB> {
+impl<DB: ProviderNodeTypes + Clone> OrderIntakeConsumer<DB> {
     /// See [`ShareBundleMerger`] for sbundle_merger_selected_signers
     pub fn new(
         provider_factory: ProviderFactory<DB>,
@@ -193,7 +193,7 @@ pub trait UnfinishedBlockBuildingSink: std::fmt::Debug + Send + Sync {
 }
 
 #[derive(Debug)]
-pub struct BlockBuildingAlgorithmInput<DB: Database> {
+pub struct BlockBuildingAlgorithmInput<DB: ProviderNodeTypes> {
     pub provider_factory: ProviderFactory<DB>,
     pub ctx: BlockBuildingContext,
     pub input: broadcast::Receiver<SimulatedOrderCommand>,
@@ -205,7 +205,7 @@ pub struct BlockBuildingAlgorithmInput<DB: Database> {
 /// Algorithm to build blocks
 /// build_blocks should send block to input.sink until  input.cancel is cancelled.
 /// slot_bidder should be used to decide how much to bid.
-pub trait BlockBuildingAlgorithm<DB: Database>: std::fmt::Debug + Send + Sync {
+pub trait BlockBuildingAlgorithm<DB: ProviderNodeTypes>: std::fmt::Debug + Send + Sync {
     fn name(&self) -> String;
     fn build_blocks(&self, input: BlockBuildingAlgorithmInput<DB>);
 }
@@ -222,7 +222,7 @@ pub trait UnfinishedBlockBuildingSinkFactory: std::fmt::Debug + Send + Sync {
 }
 
 /// Basic configuration to run a single block building with a BlockBuildingAlgorithm
-pub struct BacktestSimulateBlockInput<'a, DB> {
+pub struct BacktestSimulateBlockInput<'a, DB: ProviderNodeTypes> {
     pub ctx: BlockBuildingContext,
     pub builder_name: String,
     pub sbundle_mergeabe_signers: Vec<Address>,

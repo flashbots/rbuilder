@@ -17,7 +17,7 @@ use crate::{
     utils::ProviderFactoryReopener,
 };
 use jsonrpsee::RpcModule;
-use reth_db::database::Database;
+use reth_provider::providers::ProviderNodeTypes;
 use std::{
     net::Ipv4Addr,
     path::PathBuf,
@@ -179,7 +179,7 @@ impl ReplaceableOrderPoolCommand {
 /// - Clean up task to remove old stuff.
 ///
 /// @Pending reengineering to modularize rpc, extra_rpc here is a patch to upgrade the created rpc server.
-pub async fn start_orderpool_jobs<DB: Database + Clone + 'static>(
+pub async fn start_orderpool_jobs<DB: ProviderNodeTypes + Clone + 'static>(
     config: OrderInputConfig,
     provider_factory: ProviderFactoryReopener<DB>,
     extra_rpc: RpcModule<()>,
