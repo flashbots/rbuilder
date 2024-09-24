@@ -3,7 +3,7 @@ use reth_primitives::SealedBlock;
 
 use crate::{building::BuiltBlockTrace, mev_boost::SubmitBlockRequest};
 
-/// Trait that receives every bid made to the relays.
+/// Trait that receives every bid made by us to the relays.
 pub trait BidObserver: std::fmt::Debug {
     /// This callback is executed after the bid was made so it gives away ownership of the data.
     /// This should NOT block since it's executed in the submitting thread.

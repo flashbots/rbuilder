@@ -1,5 +1,5 @@
 pub mod bid_observer;
+pub mod bid_value_source;
 pub mod bidding;
-mod block_finisher;
-pub mod block_finisher_factory;
+pub mod block_sealing_bidder_factory;
 pub mod relay_submit;
