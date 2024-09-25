@@ -259,11 +259,6 @@ impl<DB: Database + Clone + 'static> BlockBuildingHelperFromDB<DB> {
         self.built_block_trace.true_bid_value = true_value;
         Ok(())
     }
-
-    /// Updates the cached reads for the block state.
-    pub fn update_cached_reads(&mut self, cached_reads: CachedReads) {
-        self.block_state = self.block_state.clone().with_cached_reads(cached_reads);
-    }
 }
 
 impl<DB: Database + Clone + 'static> BlockBuildingHelper for BlockBuildingHelperFromDB<DB> {
@@ -396,6 +391,6 @@ impl<DB: Database + Clone + 'static> BlockBuildingHelper for BlockBuildingHelper
     }
 
     fn update_cached_reads(&mut self, cached_reads: CachedReads) {
-        self.update_cached_reads(cached_reads);
+        self.block_state = self.block_state.clone().with_cached_reads(cached_reads);
     }
 }
