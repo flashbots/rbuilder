@@ -1,9 +1,12 @@
-use clap::Parser;
-use reth::cli::Cli;
-use reth_node_builder::EngineNodeLauncher;
-use reth_node_optimism::{args::RollupArgs, node::OptimismAddOns, OptimismNode};
-use reth_optimism_rpc::eth::rpc::SequencerClient;
-use reth_provider::providers::BlockchainProvider2;
+//! The main entry point for `op-rbuilder`.
+//!
+//! `op-rbuilder` is an OP Stack EL client with block building capabilities.
+//!
+//! It is planned to handle `eth_sendBundle` requests, revert protection, and
+//! some other features.
+
+mod eth_bundle_api;
+mod node;
 
 // jemalloc provides better performance
 #[cfg(all(feature = "jemalloc", unix))]
@@ -21,57 +24,5 @@ fn main() {
         std::env::set_var("RUST_BACKTRACE", "1");
     }
 
-    if let Err(err) = Cli::<RollupArgs>::parse().run(|builder, rollup_args| async move {
-        let enable_engine2 = rollup_args.experimental;
-        let sequencer_http_arg = rollup_args.sequencer_http.clone();
-        match enable_engine2 {
-            true => {
-                let handle = builder
-                    .with_types_and_provider::<OptimismNode, BlockchainProvider2<_>>()
-                    .with_components(OptimismNode::components(rollup_args))
-                    .with_add_ons::<OptimismAddOns>()
-                    .extend_rpc_modules(move |ctx| {
-                        // register sequencer tx forwarder
-                        if let Some(sequencer_http) = sequencer_http_arg {
-                            ctx.registry
-                                .eth_api()
-                                .set_sequencer_client(SequencerClient::new(sequencer_http));
-                        }
-
-                        Ok(())
-                    })
-                    .launch_with_fn(|builder| {
-                        let launcher = EngineNodeLauncher::new(
-                            builder.task_executor().clone(),
-                            builder.config().datadir(),
-                        );
-                        builder.launch_with(launcher)
-                    })
-                    .await?;
-
-                handle.node_exit_future.await
-            }
-            false => {
-                let handle = builder
-                    .node(OptimismNode::new(rollup_args.clone()))
-                    .extend_rpc_modules(move |ctx| {
-                        // register sequencer tx forwarder
-                        if let Some(sequencer_http) = sequencer_http_arg {
-                            ctx.registry
-                                .eth_api()
-                                .set_sequencer_client(SequencerClient::new(sequencer_http));
-                        }
-
-                        Ok(())
-                    })
-                    .launch()
-                    .await?;
-
-                handle.node_exit_future.await
-            }
-        }
-    }) {
-        eprintln!("Error: {err:?}");
-        std::process::exit(1);
-    }
+    node::run()
 }

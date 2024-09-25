@@ -41,6 +41,10 @@ reth-chainspec = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
 reth-evm = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
 reth-evm-ethereum = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
 reth-rpc = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
+reth-rpc-types = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
+reth-rpc-api = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
+reth-rpc-api-types = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
+reth-rpc-server-types = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
 reth-discv4 = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
 reth-cli-util = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
 reth-cli-commands = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
@@ -88,6 +92,9 @@ alloy-rpc-types-engine = { version = "0.3.0", features = [
 alloy-rpc-types-eth = { version = "0.3.0" }
 alloy-signer-local = { version = "0.3.0" }
 
+async-trait = { version = "0.1.83" }
 clap = { version = "4.4.3" }
 tracing = { version = "0.1.37" }
+jsonrpsee = { version = "0.24.4" }
+jsonrpsee-types = { version = "0.24.4" }
 
