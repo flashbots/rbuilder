@@ -10,8 +10,9 @@ use tracing::error;
 use super::{
     bid_value_source::interfaces::{BidValueObs, BidValueSource},
     bidding::{
-        interfaces::{BiddingService, SlotBidder},
+        interfaces::{BidMaker, BiddingService, SlotBidder},
         parallel_sealer_bid_maker::ParallelSealerBidMaker,
+        sequential_sealer_bid_maker::SequentialSealerBidMaker,
         wallet_balance_watcher::WalletBalanceWatcher,
     },
     relay_submit::BuilderSinkFactory,
@@ -90,17 +91,24 @@ impl UnfinishedBlockBuildingSinkFactory for BlockSealingBidderFactory {
             self.competition_bid_value_source.clone(),
             cancel.clone(),
         );
-        let sealer = ParallelSealerBidMaker::new(
-            self.max_concurrent_seals,
-            Arc::from(finished_block_sink),
-            cancel.clone(),
-        );
+        let sealer: Box<dyn BidMaker + Send + Sync> = if self.max_concurrent_seals == 1 {
+            Box::new(SequentialSealerBidMaker::new(
+                Arc::from(finished_block_sink),
+                cancel.clone(),
+            ))
+        } else {
+            Box::new(ParallelSealerBidMaker::new(
+                self.max_concurrent_seals,
+                Arc::from(finished_block_sink),
+                cancel.clone(),
+            ))
+        };
 
         let slot_bidder: Arc<dyn SlotBidder> = self.bidding_service.create_slot_bidder(
             slot_data.block(),
             slot_data.slot(),
             slot_data.timestamp(),
-            Box::new(sealer),
+            sealer,
             cancel.clone(),
         );
 

@@ -65,8 +65,8 @@ const DEFAULT_SLOT_DELTA_TO_START_SUBMITS: time::Duration = time::Duration::mill
 /// We initialize the wallet with the last full day. This should be enough for any bidder.
 /// On debug I measured this to be < 300ms so it's not big deal.
 pub const WALLET_INIT_HISTORY_SIZE: Duration = Duration::from_secs(60 * 60 * 24);
-/// Number of sealing processes to run in parallel for each builder algorithm.
-pub const SEALING_PROCESSES_PER_BUILDER_ALGORITHM: usize = 2;
+/// 1 is easier for debugging.
+pub const DEFAULT_MAX_CONCURRENT_SEALS: u64 = 1;
 
 /// This example has a single building algorithm cfg but the idea of this enum is to have several builders
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -117,8 +117,12 @@ pub struct L1Config {
     /// If true all optimistic submissions will be validated on nodes specified in `dry_run_validation_url`
     pub optimistic_prevalidate_optimistic_blocks: bool,
 
-    // See [`SubmissionConfig`]
+    /// See [`SubmissionConfig`]
     slot_delta_to_start_submits_ms: Option<i64>,
+
+    /// How many seals we are going to be doing in parallel.
+    /// Optimal value may change depending on the roothash computation caching strategies.
+    pub max_concurrent_seals: u64,
 
     ///Name kept singular for backwards compatibility
     #[serde_as(deserialize_as = "OneOrMany<EnvOrValue<String>>")]
@@ -138,6 +142,7 @@ impl Default for L1Config {
             optimistic_prevalidate_optimistic_blocks: false,
             slot_delta_to_start_submits_ms: None,
             cl_node_url: vec![EnvOrValue::from("http://127.0.0.1:3500")],
+            max_concurrent_seals: DEFAULT_MAX_CONCURRENT_SEALS,
         }
     }
 }
@@ -302,7 +307,7 @@ impl LiveBuilderConfig for Config {
             sink_sealed_factory,
             Arc::new(NullBidValueSource {}),
             wallet_balance_watcher,
-            SEALING_PROCESSES_PER_BUILDER_ALGORITHM * self.builders.len(),
+            self.l1_config.max_concurrent_seals as usize,
         ));
 
         let payload_event = MevBoostSlotDataGenerator::new(
