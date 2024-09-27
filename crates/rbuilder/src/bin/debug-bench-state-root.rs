@@ -7,7 +7,7 @@ use eth_sparse_mpt::SparseTrieSharedCache;
 use eyre::Context;
 use itertools::Itertools;
 use rbuilder::{
-    building::{BlockBuildingContext, BlockState, PartialBlock, PartialBlockFork}, live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig, config::Config}, primitives::TransactionSignedEcRecoveredWithBlobs, utils::{extract_onchain_block_txs, find_suggested_fee_recipient, http_provider}
+    building::{BlockBuildingContext, BlockState, PartialBlock, PartialBlockFork}, live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig, config::Config}, primitives::TransactionSignedEcRecoveredWithBlobs, roothash::RootHashMode, utils::{extract_onchain_block_txs, find_suggested_fee_recipient, http_provider}
 };
 use reth::providers::BlockNumReader;
 use reth_db::DatabaseEnv;
@@ -87,6 +87,36 @@ async fn main() -> eyre::Result<()> {
     let block_number = last_block;
     let mut results = Vec::new();
 
+    // Run the slow finalize benchmark once
+    let (_, old_root_hash_times_ms) = run_benchmark(
+        cli.iters,
+        &txs,
+        &ctx,
+        &state_provider,
+        &factory,
+        &config,
+        SparseTrieSharedCache::default(), // Use a default cache
+        true, // Don't use sparse trie
+        false, // Don't skip root hash
+    ).await?;
+
+    report_time_data("old_root_hash", &old_root_hash_times_ms);
+
+    // Run the slow finalize benchmark once
+    let (_, finalize_no_root_hash_times_ms) = run_benchmark(
+        cli.iters,
+        &txs,
+        &ctx,
+        &state_provider,
+        &factory,
+        &config,
+        SparseTrieSharedCache::default(), // Use a default cache
+        false, // Don't use sparse trie
+        true, // Don't skip root hash
+    ).await?;
+
+    report_time_data("finalize_no_root_hash", &finalize_no_root_hash_times_ms);
+
     for percentage in percentages {
         info!("Benchmarking with {}% pre-warmed cache and {} txs", percentage, percentage * txs.len() / 100);
         
@@ -107,6 +137,8 @@ async fn main() -> eyre::Result<()> {
             &factory,
             &config,
             sparse_mpt_cache_pre_warm,
+            false,
+            false,
         ).await?;
 
         report_time_data(&format!("build"), &build_times_ms);
@@ -117,7 +149,7 @@ async fn main() -> eyre::Result<()> {
     }
 
     // Save results to CSV
-    save_results_to_csv(block_number, tx_count, &results)?;
+    save_results_to_csv(block_number, tx_count, &results, &old_root_hash_times_ms, &finalize_no_root_hash_times_ms)?;
 
     Ok(())
 }
@@ -176,6 +208,8 @@ async fn run_benchmark(
     factory: &ProviderFactory<Arc<DatabaseEnv>>,
     config: &Config,
     sparse_mpt_cache_pre_warm: SparseTrieSharedCache,
+    dont_use_sparse_trie: bool,
+    skip_root_hash: bool,
 ) -> eyre::Result<(Vec<u128>, Vec<u128>)> {
     let mut build_times_ms = Vec::new();
     let mut finalize_times_ms = Vec::new();
@@ -187,7 +221,15 @@ async fn run_benchmark(
         let state_provider = state_provider.clone();
         let factory = factory.clone();
         let config = config.clone();
-        let root_hash_config = config.base_config.live_root_hash_config()?;
+        let mut root_hash_config = config.base_config.live_root_hash_config()?;
+        
+        if dont_use_sparse_trie {
+            root_hash_config.use_sparse_trie = false;
+        }
+
+        if skip_root_hash {
+            root_hash_config.mode = RootHashMode::SkipRootHash;
+        }
 
         // Clone the pre-warmed cache for the stateroot hash calculation
         let sparse_mpt_cache_pre_warm_clone = sparse_mpt_cache_pre_warm.deep_clone();
@@ -257,8 +299,8 @@ fn report_time_data(action: &str, data: &[u128]) {
     );
 }
 
-fn save_results_to_csv(block_number: u64, tx_count: usize, results: &[(usize, Vec<u128>, Vec<u128>)]) -> eyre::Result<()> {
-    let file_name = "benchmark_results.csv";
+fn save_results_to_csv(block_number: u64, tx_count: usize, results: &[(usize, Vec<u128>, Vec<u128>)], old_root_hash_times_ms: &[u128], finalize_no_root_hash_times_ms: &[u128]) -> eyre::Result<()> {
+    let file_name = "new_benchmark_results.csv";
     let file_exists = std::path::Path::new(file_name).exists();
 
     let file = OpenOptions::new()
@@ -271,7 +313,8 @@ fn save_results_to_csv(block_number: u64, tx_count: usize, results: &[(usize, Ve
 
     if !file_exists {
         // Write header if the file is newly created
-        writeln!(writer, "block_number,tx_count,{}", (10..=100).step_by(10).flat_map(|p| {
+        writeln!(writer, "block_number,tx_count,old_root_hash_median,old_root_hash_mean,old_root_hash_min,old_root_hash_max,finalize_no_root_hash_median,finalize_no_root_hash_mean,finalize_no_root_hash_min,finalize_no_root_hash_max,{}", 
+        (10..=100).step_by(10).flat_map(|p| {
             [format!("{}_build_median", p), 
              format!("{}_build_mean", p), 
              format!("{}_build_min", p), 
@@ -284,7 +327,22 @@ fn save_results_to_csv(block_number: u64, tx_count: usize, results: &[(usize, Ve
     }
 
     // Write data
-    write!(writer, "{},{}", block_number+1, tx_count)?;
+    let old_root_hash_stats = calculate_stats(old_root_hash_times_ms);
+    let finalize_no_root_hash_stats = calculate_stats(finalize_no_root_hash_times_ms);
+
+    write!(writer, "{},{},{},{},{},{},{},{},{},{}", 
+        block_number+1, 
+        tx_count,
+        old_root_hash_stats.median,
+        old_root_hash_stats.mean,
+        old_root_hash_stats.min,
+        old_root_hash_stats.max,
+        finalize_no_root_hash_stats.median,
+        finalize_no_root_hash_stats.mean,
+        finalize_no_root_hash_stats.min,
+        finalize_no_root_hash_stats.max
+    )?;
+
     for (_, build_times, finalize_times) in results {
         let build_stats = calculate_stats(build_times);
         let finalize_stats = calculate_stats(finalize_times);
