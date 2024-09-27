@@ -81,6 +81,9 @@ impl ExtendedOrderId {
 pub struct OrderData {
     pub id: ExtendedOrderId,
     pub identity: Address,
+    /// `sender` is signer of the transaction when order has only 1 tx
+    /// otherwise its a signer of the request (e.g. eth_sendBundle)
+    pub sender: Address,
     #[serde(with = "u256decimal_serde_helper")]
     pub redistribution_value_received: U256,
     pub block_value_delta: I256,
@@ -303,6 +306,7 @@ struct AvailableOrders {
     orders_id_to_address: HashMap<OrderId, Address>,
     all_orders_by_id: HashMap<OrderId, Order>,
     bundle_hash_by_id: HashMap<OrderId, B256>,
+    order_sender_by_id: HashMap<OrderId, Address>,
 }
 
 impl AvailableOrders {
@@ -369,6 +373,7 @@ fn split_orders_by_identities(
     let mut included_orders_by_address: HashMap<Address, Vec<OrderId>> = HashMap::default();
     let mut orders_id_to_address = HashMap::default();
     let mut bundle_hash_by_id = HashMap::default();
+    let mut order_sender_by_id = HashMap::default();
 
     for order in &included_orders_available {
         let order_id = order.order.id();
@@ -390,6 +395,7 @@ fn split_orders_by_identities(
         if let Order::Bundle(bundle) = &order.order {
             bundle_hash_by_id.insert(id, bundle.hash);
         };
+        order_sender_by_id.insert(id, order_sender(&order.order));
         let address = match order_redistribution_address(&order.order, protect_signers) {
             Some(address) => address,
             None => {
@@ -433,6 +439,7 @@ fn split_orders_by_identities(
             .map(|order| (order.order.id(), order.order.clone()))
             .collect(),
         bundle_hash_by_id,
+        order_sender_by_id,
     }
 }
 
@@ -798,6 +805,11 @@ fn collect_redistribution_result(
             result.landed_orders.push(OrderData {
                 id: ExtendedOrderId::new(id, &available_orders.bundle_hash_by_id),
                 identity: address,
+                sender: available_orders
+                    .order_sender_by_id
+                    .get(&id)
+                    .cloned()
+                    .unwrap_or_default(),
                 redistribution_value_received,
                 block_value_delta,
                 inclusion_changes: calc_inclusion_change(
@@ -1022,4 +1034,13 @@ fn order_redistribution_address(order: &Order, protect_signers: &[Address]) -> O
             unreachable!("Mempool tx order can't have signer");
         }
     }
+}
+
+fn order_sender(order: &Order) -> Address {
+    let mut txs = order.list_txs();
+    if txs.len() == 1 {
+        return txs.pop().unwrap().0.signer();
+    }
+
+    order.signer().unwrap_or_default()
 }
