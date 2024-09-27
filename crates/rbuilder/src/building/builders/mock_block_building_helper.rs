@@ -100,4 +100,8 @@ impl BlockBuildingHelper for MockBlockBuildingHelper {
     fn building_context(&self) -> &BlockBuildingContext {
         &self.block_building_context
     }
+
+    fn update_cached_reads(&mut self, _cached_reads: CachedReads) {
+        unimplemented!()
+    }
 }

@@ -74,6 +74,9 @@ pub trait BlockBuildingHelper: Send + Sync {
 
     /// BlockBuildingContext used for building.
     fn building_context(&self) -> &BlockBuildingContext;
+
+    /// Updates the cached reads for the block state.
+    fn update_cached_reads(&mut self, cached_reads: CachedReads);
 }
 
 /// Implementation of BlockBuildingHelper based on a ProviderFactory<DB>
@@ -385,5 +388,9 @@ impl<DB: Database + Clone + 'static> BlockBuildingHelper for BlockBuildingHelper
 
     fn box_clone(&self) -> Box<dyn BlockBuildingHelper> {
         Box::new(self.clone())
+    }
+
+    fn update_cached_reads(&mut self, cached_reads: CachedReads) {
+        self.block_state = self.block_state.clone().with_cached_reads(cached_reads);
     }
 }
