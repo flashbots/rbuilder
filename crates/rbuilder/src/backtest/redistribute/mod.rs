@@ -25,6 +25,7 @@ use reth_provider::ProviderFactory;
 use std::cmp::{max, min};
 use std::sync::Arc;
 use tracing::{debug, info, info_span, trace, warn};
+use revmc_toolbox_load::EvmCompilerFns;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -92,6 +93,7 @@ pub fn calc_redistributions<ConfigType: LiveBuilderConfig + Send + Sync>(
     config: &ConfigType,
     block_data: BlockData,
     distribute_to_mempool_txs: bool,
+    llvm_compiler_fns: Option<EvmCompilerFns>,
 ) -> eyre::Result<RedistributionBlockOutput> {
     let _block_span = info_span!("block", block = block_data.block_number).entered();
     let protect_signers = config.base_config().backtest_protect_bundle_signers.clone();
@@ -106,6 +108,7 @@ pub fn calc_redistributions<ConfigType: LiveBuilderConfig + Send + Sync>(
         config.base_config().chain_spec()?,
         &block_data,
         &included_orders_available,
+        llvm_compiler_fns.clone(),
     )?;
 
     let available_orders = split_orders_by_identities(
@@ -116,7 +119,11 @@ pub fn calc_redistributions<ConfigType: LiveBuilderConfig + Send + Sync>(
     );
 
     let results_without_exclusion =
-        calculate_backtest_without_exclusion(provider_factory.clone(), config, block_data.clone())?;
+        calculate_backtest_without_exclusion(
+            provider_factory.clone(), 
+            config, block_data.clone(), 
+            llvm_compiler_fns.clone()
+        )?;
 
     let exclusion_results = calculate_backtest_identity_and_order_exclusion(
         provider_factory.clone(),
@@ -124,6 +131,7 @@ pub fn calc_redistributions<ConfigType: LiveBuilderConfig + Send + Sync>(
         block_data.clone(),
         &available_orders,
         &results_without_exclusion,
+        llvm_compiler_fns.clone(),
     )?;
 
     let exclusion_results = calc_joint_exclusion_results(
@@ -133,6 +141,7 @@ pub fn calc_redistributions<ConfigType: LiveBuilderConfig + Send + Sync>(
         &available_orders,
         &results_without_exclusion,
         exclusion_results,
+        llvm_compiler_fns.clone(),
     )?;
 
     let calculated_redistribution_result = apply_redistribution_formula(
@@ -238,11 +247,13 @@ fn restore_available_landed_orders(
     chain_spec: Arc<ChainSpec>,
     block_data: &BlockData,
     included_orders_available: &[OrdersWithTimestamp],
+    llvm_compiler_fns: Option<EvmCompilerFns>,
 ) -> eyre::Result<HashMap<OrderId, LandedOrderData>> {
     let block_txs = sim_historical_block(
         provider_factory.clone(),
         chain_spec,
         block_data.onchain_block.clone(),
+        llvm_compiler_fns,
     )?
     .into_iter()
     .map(|executed_tx| {
@@ -431,6 +442,7 @@ fn calculate_backtest_without_exclusion<ConfigType: LiveBuilderConfig>(
     provider_factory: ProviderFactory<Arc<DatabaseEnv>>,
     config: &ConfigType,
     block_data: BlockData,
+    llvm_compiler_fns: Option<EvmCompilerFns>,
 ) -> eyre::Result<ResultsWithoutExclusion> {
     let ExclusionResult {
         profit,
@@ -447,6 +459,7 @@ fn calculate_backtest_without_exclusion<ConfigType: LiveBuilderConfig>(
             orders_excluded_before: vec![],
             profit_before: U256::ZERO,
         },
+        llvm_compiler_fns,
     )?;
     Ok(ResultsWithoutExclusion {
         profit,
@@ -492,6 +505,7 @@ fn calculate_backtest_identity_and_order_exclusion<ConfigType: LiveBuilderConfig
     block_data: BlockData,
     available_orders: &AvailableOrders,
     results_without_exclusion: &ResultsWithoutExclusion,
+    llvm_compiler_fns: Option<EvmCompilerFns>,
 ) -> eyre::Result<ExclusionResults> {
     let included_orders_exclusion = {
         let mut result = Vec::new();
@@ -517,6 +531,7 @@ fn calculate_backtest_identity_and_order_exclusion<ConfigType: LiveBuilderConfig
                     config,
                     &block_data,
                     results_without_exclusion.exclusion_input(exclusions),
+                    llvm_compiler_fns.clone(),
                 )
                 .map(|ok| (id, ok))
             })
@@ -538,6 +553,7 @@ fn calculate_backtest_identity_and_order_exclusion<ConfigType: LiveBuilderConfig
                 config,
                 &block_data,
                 results_without_exclusion.exclusion_input(orders),
+                llvm_compiler_fns.clone(),
             )
             .map(|ok| (address, ok))
         })
@@ -557,6 +573,7 @@ fn calc_joint_exclusion_results<ConfigType: LiveBuilderConfig + Sync>(
     available_orders: &AvailableOrders,
     results_without_exclusion: &ResultsWithoutExclusion,
     mut exclusion_results: ExclusionResults,
+    llvm_compiler_fns: Option<EvmCompilerFns>,
 ) -> eyre::Result<ExclusionResults> {
     // calculate identities that are possibly connected
     let mut joint_contribution_todo: Vec<(Address, Address)> = Vec::new();
@@ -619,6 +636,7 @@ fn calc_joint_exclusion_results<ConfigType: LiveBuilderConfig + Sync>(
                 config,
                 &block_data,
                 results_without_exclusion.exclusion_input(orders),
+                llvm_compiler_fns.clone(),
             )
             .map(|ok| ((address1, address2), ok))
         })
@@ -869,6 +887,7 @@ fn calc_profit_after_exclusion<ConfigType: LiveBuilderConfig>(
     config: &ConfigType,
     block_data: &BlockData,
     exclusion_input: ExclusionInput,
+    llvm_compiler_fns: Option<EvmCompilerFns>,
 ) -> eyre::Result<ExclusionResult> {
     let block_data_with_excluded = {
         let mut block_data = block_data.clone();
@@ -904,6 +923,7 @@ fn calc_profit_after_exclusion<ConfigType: LiveBuilderConfig>(
         config,
         base_config.blocklist()?,
         &base_config.sbundle_mergeabe_signers(),
+        llvm_compiler_fns,
     )?
     .builder_outputs
     .into_iter()

@@ -126,8 +126,15 @@ async-trait = "0.1.80"
 
 eth-sparse-mpt = { git = "https://github.com/flashbots/eth-sparse-mpt", rev = "664759b" }
 
+revmc-toolbox-load = { path = "../../../revmc-toolkit/crates/load" }
+revmc-toolbox-sim = { path = "../../../revmc-toolkit/crates/sim" }
+revmc-toolbox-build = { path = "../../../revmc-toolkit/crates/build" }
+revmc-toolbox-utils = { path = "../../../revmc-toolkit/crates/utils" }
+dotenv = "0.15.0"
+
 [build-dependencies]
 built = { version = "0.7.1", features = ["git2", "chrono"] }
+revmc-build = { git = "https://github.com/paradigmxyz/revmc" }
 
 [dev-dependencies]
 tempfile = "3.8"

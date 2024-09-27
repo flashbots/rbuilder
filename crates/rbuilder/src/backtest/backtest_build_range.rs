@@ -115,6 +115,7 @@ pub async fn run_backtest_build_range<ConfigType: LiveBuilderConfig + Send + Syn
         .provider_factory()?
         .provider_factory_unchecked();
     let chain_spec = config.base_config().chain_spec()?;
+    let llvm_compiler_fns = config.base_config().load_llvm_compiled_fns()?;
 
     let mut profits = Vec::new();
     let mut losses = Vec::new();
@@ -181,6 +182,7 @@ pub async fn run_backtest_build_range<ConfigType: LiveBuilderConfig + Send + Syn
                         &config,
                         blocklist,
                         &config.base_config().sbundle_mergeabe_signers(),
+                        llvm_compiler_fns.clone(),
                     ) {
                         Ok(ok) => Some(ok),
                         Err(err) => {

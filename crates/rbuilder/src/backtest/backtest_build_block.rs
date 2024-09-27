@@ -7,7 +7,6 @@
 
 use ahash::HashMap;
 use alloy_primitives::utils::format_ether;
-
 use crate::backtest::restore_landed_orders::{
     restore_landed_orders, sim_historical_block, ExecutedBlockTx, ExecutedTxs, SimplifiedOrder,
 };
@@ -58,6 +57,16 @@ struct Cli {
     block: u64,
 }
 
+// todo: into utils
+macro_rules! timeit {
+    ($block:expr) => {{
+        let t0 = std::time::Instant::now();
+        let res = $block;
+        let elapsed = t0.elapsed();
+        (res, elapsed)
+    }};
+}
+
 pub async fn run_backtest_build_block<ConfigType: LiveBuilderConfig>() -> eyre::Result<()> {
     let cli = Cli::parse();
 
@@ -91,26 +100,33 @@ pub async fn run_backtest_build_block<ConfigType: LiveBuilderConfig>() -> eyre::
         .provider_factory_unchecked();
     let chain_spec = config.base_config().chain_spec()?;
     let sbundle_mergeabe_signers = config.base_config().sbundle_mergeabe_signers();
+    let llvm_compiler_fns = config.base_config().load_llvm_compiled_fns()?;
 
     if cli.sim_landed_block {
         let tx_sim_results = sim_historical_block(
             provider_factory.clone(),
             chain_spec.clone(),
             block_data.onchain_block.clone(),
+            llvm_compiler_fns.clone(),
         )?;
         print_onchain_block_data(tx_sim_results, &orders, &block_data);
     }
 
-    let BacktestBlockInput {
-        ctx, sim_orders, ..
-    } = backtest_prepare_ctx_for_block(
+    let t0 = std::time::Instant::now();
+
+    let (
+        BacktestBlockInput {ctx, sim_orders, .. }, 
+        elapsed
+    ) = timeit!({backtest_prepare_ctx_for_block(
         block_data.clone(),
         provider_factory.clone(),
         chain_spec.clone(),
         cli.block_building_time_ms,
         config.base_config().blocklist()?,
         config.base_config().coinbase_signer()?,
-    )?;
+        llvm_compiler_fns,
+    )?});
+    println!("Prepared ctx in: {:?}", elapsed);
 
     if cli.show_sim {
         print_simulated_orders(&sim_orders, &order_and_timestamp, &block_data);
