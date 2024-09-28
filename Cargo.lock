@@ -9755,6 +9755,7 @@ dependencies = [
 [[package]]
 name = "revmc-toolkit-build"
 version = "0.1.0"
+source = "git+https://github.com/halo3mic/revmc-toolkit?branch=dev#eb23c23a7498e9cf599fcb3642eb0ce24e66920e"
 dependencies = [
  "eyre",
  "hex",
@@ -9769,6 +9770,7 @@ dependencies = [
 [[package]]
 name = "revmc-toolkit-load"
 version = "0.1.0"
+source = "git+https://github.com/halo3mic/revmc-toolkit?branch=dev#eb23c23a7498e9cf599fcb3642eb0ce24e66920e"
 dependencies = [
  "eyre",
  "libloading",
@@ -9781,6 +9783,7 @@ dependencies = [
 [[package]]
 name = "revmc-toolkit-sim"
 version = "0.1.0"
+source = "git+https://github.com/halo3mic/revmc-toolkit?branch=dev#eb23c23a7498e9cf599fcb3642eb0ce24e66920e"
 dependencies = [
  "cc",
  "clap",
@@ -9819,6 +9822,7 @@ dependencies = [
 [[package]]
 name = "revmc-toolkit-utils"
 version = "0.1.0"
+source = "git+https://github.com/halo3mic/revmc-toolkit?branch=dev#eb23c23a7498e9cf599fcb3642eb0ce24e66920e"
 dependencies = [
  "cc",
  "clap",
