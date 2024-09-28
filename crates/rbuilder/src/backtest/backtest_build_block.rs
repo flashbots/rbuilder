@@ -14,7 +14,7 @@ use crate::backtest::OrdersWithTimestamp;
 use crate::{
     backtest::{
         execute::{backtest_prepare_ctx_for_block, BacktestBlockInput},
-        BlockData, HistoricalDataStorage,
+        BlockData, HistoricalDataStorage, utils,
     },
     building::builders::BacktestSimulateBlockInput,
     live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig},
@@ -55,16 +55,6 @@ struct Cli {
     only_order_ids: Vec<String>,
     #[clap(help = "Block Number")]
     block: u64,
-}
-
-// todo: into utils
-macro_rules! timeit {
-    ($block:expr) => {{
-        let t0 = std::time::Instant::now();
-        let res = $block;
-        let elapsed = t0.elapsed();
-        (res, elapsed)
-    }};
 }
 
 pub async fn run_backtest_build_block<ConfigType: LiveBuilderConfig>() -> eyre::Result<()> {
@@ -112,12 +102,10 @@ pub async fn run_backtest_build_block<ConfigType: LiveBuilderConfig>() -> eyre::
         print_onchain_block_data(tx_sim_results, &orders, &block_data);
     }
 
-    let t0 = std::time::Instant::now();
-
     let (
         BacktestBlockInput {ctx, sim_orders, .. }, 
         elapsed
-    ) = timeit!({backtest_prepare_ctx_for_block(
+    ) = utils::timeit!({backtest_prepare_ctx_for_block(
         block_data.clone(),
         provider_factory.clone(),
         chain_spec.clone(),

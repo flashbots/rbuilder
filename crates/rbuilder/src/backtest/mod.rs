@@ -7,6 +7,7 @@ pub mod redistribute;
 pub mod restore_landed_orders;
 mod results_store;
 mod store;
+mod utils;
 
 pub use backtest_build_block::run_backtest_build_block;
 pub use backtest_build_range::run_backtest_build_range;
