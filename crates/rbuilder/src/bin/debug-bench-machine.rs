@@ -72,6 +72,7 @@ async fn main() -> eyre::Result<()> {
         coinbase,
         suggested_fee_recipient,
         None,
+        None,
     );
 
     // let signer = Signer::try_from_secret(B256::random())?;

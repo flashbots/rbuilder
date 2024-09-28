@@ -38,6 +38,7 @@ use time::OffsetDateTime;
 use tokio::{sync::mpsc, task::spawn_blocking};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
+use revmc_toolkit_load::EvmCompilerFns;
 
 /// Time the proposer have to propose a block from the beginning of the slot (https://www.paradigm.xyz/2023/04/mev-boost-ethereum-consensus Slot anatomy)
 const SLOT_PROPOSAL_DURATION: std::time::Duration = Duration::from_secs(4);
@@ -76,6 +77,8 @@ pub struct LiveBuilder<DB, BlocksSourceType: SlotSource> {
     pub sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
     pub builders: Vec<Arc<dyn BlockBuildingAlgorithm<DB>>>,
     pub extra_rpc: RpcModule<()>,
+
+    pub llvm_compiled_fns: Option<EvmCompilerFns>,
 }
 
 impl<DB: Database + Clone + 'static, BuilderSourceType: SlotSource>
@@ -215,6 +218,7 @@ impl<DB: Database + Clone + 'static, BuilderSourceType: SlotSource>
                 Some(payload.suggested_gas_limit),
                 self.extra_data.clone(),
                 None,
+                self.llvm_compiled_fns.clone(),
             );
 
             builder_pool.start_block_building(

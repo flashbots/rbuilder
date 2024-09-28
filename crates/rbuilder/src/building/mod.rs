@@ -10,6 +10,7 @@ pub mod payout_tx;
 pub mod sim;
 pub mod testing;
 pub mod tracers;
+pub mod revmc_ext_ctx;
 pub use block_orders::BlockOrders;
 use eth_sparse_mpt::SparseTrieSharedCache;
 use reth_primitives::proofs::calculate_requests_root;
@@ -45,6 +46,7 @@ use revm::{
     db::states::bundle_state::BundleRetention::{self, PlainState},
     primitives::{BlobExcessGasAndPrice, BlockEnv, CfgEnvWithHandlerCfg, SpecId},
 };
+use revmc_toolkit_load::EvmCompilerFns;
 use serde::Deserialize;
 use std::{hash::Hash, str::FromStr, sync::Arc};
 use thiserror::Error;
@@ -66,6 +68,7 @@ pub struct BlockBuildingContext {
     pub initialized_cfg: CfgEnvWithHandlerCfg,
     pub attributes: EthPayloadBuilderAttributes,
     pub chain_spec: Arc<ChainSpec>,
+    pub llvm_compiled_fns: Option<EvmCompilerFns>,
     /// Signer to sign builder payoffs (end of block and mev-share).
     /// Is Option to avoid any possible bug (losing money!) with payoffs.
     /// None: coinbase = attributes.suggested_fee_recipient. No payoffs allowed.
@@ -92,6 +95,7 @@ impl BlockBuildingContext {
         prefer_gas_limit: Option<u64>,
         extra_data: Vec<u8>,
         spec_id: Option<SpecId>,
+        llvm_compiled_fns: Option<EvmCompilerFns>,
     ) -> BlockBuildingContext {
         let attributes = EthPayloadBuilderAttributes::try_new(
             attributes.data.parent_block_hash,
@@ -138,6 +142,7 @@ impl BlockBuildingContext {
             initialized_cfg,
             attributes,
             chain_spec,
+            llvm_compiled_fns,
             builder_signer: Some(signer),
             blocklist,
             extra_data,
@@ -158,6 +163,7 @@ impl BlockBuildingContext {
         coinbase: Address,
         suggested_fee_recipient: Address,
         builder_signer: Option<Signer>,
+        llvm_compiled_fns: Option<EvmCompilerFns>,
     ) -> BlockBuildingContext {
         let block_number = onchain_block.header.number;
 
@@ -228,6 +234,7 @@ impl BlockBuildingContext {
             extra_data: Vec::new(),
             excess_blob_gas: onchain_block.header.excess_blob_gas.map(|b| b as u64),
             spec_id,
+            llvm_compiled_fns,
             shared_sparse_mpt_cache: Default::default(),
         }
     }
@@ -244,6 +251,7 @@ impl BlockBuildingContext {
             Default::default(),
             Default::default(),
             Default::default(),
+            None,
         )
     }
 

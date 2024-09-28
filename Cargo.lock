@@ -2554,6 +2554,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aac81fa3e28d21450aa4d2ac065992ba96a1d7303efbce51a95f4fd175b67562"
 
 [[package]]
+name = "dotenv"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77c90badedccf4105eca100756a0b1289e191f6fcbdadd3cee1d2f614f97da8f"
+
+[[package]]
 name = "dotenvy"
 version = "0.15.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4135,6 +4141,31 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "64e9829a50b42bb782c1df523f78d332fe371b10c661e78b7a3c34b0198e9fac"
 
 [[package]]
+name = "inkwell"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "40fb405537710d51f6bdbc8471365ddd4cd6d3a3c3ad6e0c8291691031ba94b2"
+dependencies = [
+ "either",
+ "inkwell_internals",
+ "libc",
+ "llvm-sys",
+ "once_cell",
+ "thiserror",
+]
+
+[[package]]
+name = "inkwell_internals"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9dd28cfd4cfba665d47d31c08a6ba637eed16770abca2eccbbc3ca831fef1e44"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.72",
+]
+
+[[package]]
 name = "inout"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4968,6 +4999,20 @@ name = "linux-raw-sys"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "78b3ae25bc7c8c38cec158d1f2757ee79e9b3740fbc7ccf0e59e4b08d793fa89"
+
+[[package]]
+name = "llvm-sys"
+version = "180.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "778fa5fa02e32728e718f11eec147e6f134137399ab02fd2c13d32476337affa"
+dependencies = [
+ "anyhow",
+ "cc",
+ "lazy_static",
+ "libc",
+ "regex-lite",
+ "semver 1.0.23",
+]
 
 [[package]]
 name = "lock_api"
@@ -7027,6 +7072,7 @@ dependencies = [
  "csv",
  "ctor",
  "derivative",
+ "dotenv",
  "eth-sparse-mpt",
  "ethereum-consensus",
  "ethereum_ssz",
@@ -7076,6 +7122,11 @@ dependencies = [
  "revm",
  "revm-inspectors",
  "revm-primitives",
+ "revmc-build",
+ "revmc-toolkit-build",
+ "revmc-toolkit-load",
+ "revmc-toolkit-sim",
+ "revmc-toolkit-utils",
  "secp256k1",
  "serde",
  "serde_json",
@@ -7192,6 +7243,12 @@ dependencies = [
  "memchr",
  "regex-syntax 0.8.4",
 ]
+
+[[package]]
+name = "regex-lite"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "53a49587ad06b26609c52e423de037e7f57f20d53535d66e08c695f347df952a"
 
 [[package]]
 name = "regex-syntax"
@@ -9584,6 +9641,8 @@ version = "10.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "959ecbc36802de6126852479844737f20194cf8e6718e0c30697d306a2cca916"
 dependencies = [
+ "paste",
+ "phf 0.11.2",
  "revm-primitives",
  "serde",
 ]
@@ -9625,6 +9684,177 @@ dependencies = [
  "hashbrown 0.14.5",
  "hex",
  "serde",
+]
+
+[[package]]
+name = "revmc"
+version = "0.1.0"
+source = "git+https://github.com/paradigmxyz/revmc#9ad12ebe060ab25818ae1bf89febde70e08ca775"
+dependencies = [
+ "alloy-primitives 0.8.0",
+ "bitflags 2.6.0",
+ "bitvec",
+ "either",
+ "revm-interpreter",
+ "revm-primitives",
+ "revmc-backend",
+ "revmc-builtins",
+ "revmc-context",
+ "revmc-llvm",
+ "rustc-hash 2.0.0",
+ "tracing",
+]
+
+[[package]]
+name = "revmc-backend"
+version = "0.1.0"
+source = "git+https://github.com/paradigmxyz/revmc#9ad12ebe060ab25818ae1bf89febde70e08ca775"
+dependencies = [
+ "eyre",
+ "ruint",
+]
+
+[[package]]
+name = "revmc-build"
+version = "0.1.0"
+source = "git+https://github.com/paradigmxyz/revmc#9ad12ebe060ab25818ae1bf89febde70e08ca775"
+
+[[package]]
+name = "revmc-builtins"
+version = "0.1.0"
+source = "git+https://github.com/paradigmxyz/revmc#9ad12ebe060ab25818ae1bf89febde70e08ca775"
+dependencies = [
+ "paste",
+ "revm-interpreter",
+ "revm-primitives",
+ "revmc-backend",
+ "revmc-context",
+ "tracing",
+]
+
+[[package]]
+name = "revmc-context"
+version = "0.1.0"
+source = "git+https://github.com/paradigmxyz/revmc#9ad12ebe060ab25818ae1bf89febde70e08ca775"
+dependencies = [
+ "revm-interpreter",
+ "revm-primitives",
+]
+
+[[package]]
+name = "revmc-llvm"
+version = "0.1.0"
+source = "git+https://github.com/paradigmxyz/revmc#9ad12ebe060ab25818ae1bf89febde70e08ca775"
+dependencies = [
+ "inkwell",
+ "revmc-backend",
+ "rustc-hash 2.0.0",
+ "tracing",
+]
+
+[[package]]
+name = "revmc-toolkit-build"
+version = "0.1.0"
+source = "git+https://github.com/halo3mic/revmc-toolkit?branch=dev#eb23c23a7498e9cf599fcb3642eb0ce24e66920e"
+dependencies = [
+ "eyre",
+ "hex",
+ "rayon",
+ "revm",
+ "revmc",
+ "serde",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
+name = "revmc-toolkit-load"
+version = "0.1.0"
+source = "git+https://github.com/halo3mic/revmc-toolkit?branch=dev#eb23c23a7498e9cf599fcb3642eb0ce24e66920e"
+dependencies = [
+ "eyre",
+ "libloading",
+ "revm",
+ "revmc",
+ "rustc-hash 2.0.0",
+ "tracing",
+]
+
+[[package]]
+name = "revmc-toolkit-sim"
+version = "0.1.0"
+source = "git+https://github.com/halo3mic/revmc-toolkit?branch=dev#eb23c23a7498e9cf599fcb3642eb0ce24e66920e"
+dependencies = [
+ "cc",
+ "clap",
+ "criterion",
+ "csv",
+ "dotenv",
+ "eyre",
+ "hex",
+ "libloading",
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
+ "rayon",
+ "reth-chainspec",
+ "reth-db",
+ "reth-evm",
+ "reth-evm-ethereum",
+ "reth-primitives",
+ "reth-provider",
+ "reth-revm",
+ "reth-rpc-types",
+ "revm",
+ "revm-interpreter",
+ "revmc",
+ "revmc-build",
+ "revmc-builtins",
+ "revmc-context",
+ "revmc-toolkit-build",
+ "revmc-toolkit-load",
+ "revmc-toolkit-utils",
+ "serde",
+ "serde_json",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "revmc-toolkit-utils"
+version = "0.1.0"
+source = "git+https://github.com/halo3mic/revmc-toolkit?branch=dev#eb23c23a7498e9cf599fcb3642eb0ce24e66920e"
+dependencies = [
+ "cc",
+ "clap",
+ "criterion",
+ "csv",
+ "dotenv",
+ "eyre",
+ "hex",
+ "libloading",
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
+ "rayon",
+ "reth-chainspec",
+ "reth-db",
+ "reth-evm",
+ "reth-evm-ethereum",
+ "reth-primitives",
+ "reth-provider",
+ "reth-revm",
+ "reth-rpc-types",
+ "revm",
+ "revm-interpreter",
+ "revmc",
+ "revmc-build",
+ "revmc-builtins",
+ "revmc-context",
+ "revmc-toolkit-build",
+ "revmc-toolkit-load",
+ "serde",
+ "serde_json",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

@@ -31,6 +31,8 @@ use revm::{
 use crate::building::evm_inspector::{RBuilderEVMInspector, UsedStateTrace};
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
+use crate::building::revmc_ext_ctx::RBuilderRevmcInspectorExtCtx;
+use revmc_toolkit_load::{revmc_register_handler, RevmcExtCtx};
 
 #[derive(Clone)]
 pub struct BlockState {
@@ -431,14 +433,23 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
 
         let used_state_tracer = self.tracer.as_mut().and_then(|t| t.get_used_state_tracer());
         let mut rbuilder_inspector = RBuilderEVMInspector::new(tx, used_state_tracer);
+        let rbuilder_inspector_with_revmc = RBuilderRevmcInspectorExtCtx::new(
+            &mut rbuilder_inspector,
+            ctx.llvm_compiled_fns.clone()
+                .map(|fns| RevmcExtCtx::from(fns).with_touch_tracking()),
+        );
 
-        let mut evm = revm::Evm::builder()
+        let mut partial_evm = revm::Evm::builder()
             .with_spec_id(ctx.spec_id)
             .with_env(Box::new(env))
             .with_db(db.as_mut())
-            .with_external_context(&mut rbuilder_inspector)
-            .append_handler_register(inspector_handle_register)
-            .build();
+            .with_external_context(rbuilder_inspector_with_revmc)
+            .append_handler_register(inspector_handle_register);
+        if ctx.llvm_compiled_fns.is_some() {
+            partial_evm = partial_evm.append_handler_register(revmc_register_handler);
+        }
+        let mut evm = partial_evm.build();
+
         let res = match evm.transact() {
             Ok(res) => res,
             Err(err) => match err {
@@ -451,6 +462,8 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
                 | EVMError::Precompile(_) => return Err(err.into()),
             },
         };
+        // todo: does it make sense to log how many touches were non-native?
+
         let mut db_context = evm.into_context();
         let db = &mut db_context.evm.db;
         let access_list = rbuilder_inspector.into_access_list();

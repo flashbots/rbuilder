@@ -9,6 +9,7 @@ use eyre::Context;
 use reth_chainspec::ChainSpec;
 use reth_db::DatabaseEnv;
 use reth_primitives::{Receipt, TransactionSignedEcRecovered, TxHash};
+use revmc_toolkit_load::EvmCompilerFns;
 use reth_provider::ProviderFactory;
 use std::sync::Arc;
 
@@ -30,6 +31,7 @@ pub fn sim_historical_block(
     provider_factory: ProviderFactory<Arc<DatabaseEnv>>,
     chain_spec: Arc<ChainSpec>,
     onchain_block: alloy_rpc_types::Block,
+    llvm_compiler_fns: Option<EvmCompilerFns>,
 ) -> eyre::Result<Vec<ExecutedTxs>> {
     let mut results = Vec::new();
 
@@ -46,6 +48,7 @@ pub fn sim_historical_block(
         coinbase,
         suggested_fee_recipient,
         None,
+        llvm_compiler_fns,
     );
 
     let state_provider = provider_factory.history_by_block_hash(ctx.attributes.parent)?;

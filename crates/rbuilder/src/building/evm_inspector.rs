@@ -40,7 +40,7 @@ enum NextStepAction {
 }
 
 #[derive(Debug)]
-struct UsedStateEVMInspector<'a> {
+pub(crate) struct UsedStateEVMInspector<'a> {
     next_step_action: NextStepAction,
     used_state_trace: &'a mut UsedStateTrace,
 }

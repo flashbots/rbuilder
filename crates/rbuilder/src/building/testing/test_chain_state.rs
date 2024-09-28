@@ -319,6 +319,7 @@ impl TestBlockContextBuilder {
             self.prefer_gas_limit,
             vec![],
             Some(SpecId::SHANGHAI),
+            None,
         );
         if self.use_suggested_fee_recipient_as_coinbase {
             res.modify_use_suggested_fee_recipient_as_coinbase();

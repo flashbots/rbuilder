@@ -16,6 +16,7 @@ use reth::providers::ProviderFactory;
 use reth_chainspec::ChainSpec;
 use reth_db::{database::Database, DatabaseEnv};
 use reth_payload_builder::database::CachedReads;
+use revmc_toolkit_load::EvmCompilerFns;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -64,6 +65,7 @@ pub fn backtest_prepare_ctx_for_block<DB: Database + Clone>(
     build_block_lag_ms: i64,
     blocklist: HashSet<Address>,
     builder_signer: Signer,
+    llvm_compiler_fns: Option<EvmCompilerFns>,
 ) -> eyre::Result<BacktestBlockInput> {
     let orders = block_data
         .available_orders
@@ -85,6 +87,7 @@ pub fn backtest_prepare_ctx_for_block<DB: Database + Clone>(
         builder_signer.address,
         block_data.winning_bid_trace.proposer_fee_recipient,
         Some(builder_signer),
+        llvm_compiler_fns,
     );
     let (sim_orders, sim_errors) =
         simulate_all_orders_with_sim_tree(provider_factory.clone(), &ctx, &orders, false)?;
@@ -105,6 +108,7 @@ pub fn backtest_simulate_block<ConfigType: LiveBuilderConfig>(
     config: &ConfigType,
     blocklist: HashSet<Address>,
     sbundle_mergeabe_signers: &[Address],
+    llvm_compiler_fns: Option<EvmCompilerFns>,
 ) -> eyre::Result<BlockBacktestValue> {
     let BacktestBlockInput {
         ctx,
@@ -117,6 +121,7 @@ pub fn backtest_simulate_block<ConfigType: LiveBuilderConfig>(
         build_block_lag_ms,
         blocklist,
         config.base_config().coinbase_signer()?,
+        llvm_compiler_fns,
     )?;
 
     let filtered_orders_blocklist_count = sim_errors

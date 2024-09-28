@@ -99,6 +99,7 @@ async fn main() -> eyre::Result<()> {
         extra_rpc: RpcModule::new(()),
         sink_factory: Box::new(TraceBlockSinkFactory {}),
         builders: vec![Arc::new(DummyBuildingAlgorithm::new(10))],
+        llvm_compiled_fns: None,
     };
 
     let ctrlc = tokio::spawn(async move {

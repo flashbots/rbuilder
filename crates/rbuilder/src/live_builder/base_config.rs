@@ -9,12 +9,13 @@ use crate::{
 };
 use ahash::HashSet;
 use alloy_primitives::{Address, B256};
-use eyre::{eyre, Context};
+use eyre::{eyre, Context, OptionExt};
 use jsonrpsee::RpcModule;
 use lazy_static::lazy_static;
 use reth::tasks::pool::BlockingTaskPool;
 use reth_chainspec::ChainSpec;
 use reth_db::DatabaseEnv;
+use revmc_toolkit_load::{EvmCompilerFns, EvmCompilerFnLoader};
 use reth_node_core::args::utils::chain_value_parser;
 use reth_primitives::StaticFileSegment;
 use reth_provider::StaticFileProviderFactory;
@@ -101,6 +102,10 @@ pub struct BaseConfig {
     pub backtest_builders: Vec<String>,
     pub backtest_results_store_path: PathBuf,
     pub backtest_protect_bundle_signers: Vec<Address>,
+
+    // llvm compiled fns
+    pub use_llvm_compiled_fns: bool,
+    pub aot_compiled_fns_dir: Option<PathBuf>,
 }
 
 lazy_static! {
@@ -132,6 +137,7 @@ pub fn load_config_toml_and_env<T: serde::de::DeserializeOwned>(
             path.as_ref().to_string_lossy()
         )
     })?;
+    println!("data: {:?}", data);
 
     let config: T = toml::from_str(&data).context("Config file parsing")?;
     Ok(config)
@@ -213,7 +219,18 @@ impl BaseConfig {
             extra_rpc: RpcModule::new(()),
             sink_factory,
             builders: Vec::new(),
+            llvm_compiled_fns: self.load_llvm_compiled_fns()?,
         })
+    }
+
+    pub fn load_llvm_compiled_fns(&self) -> eyre::Result<Option<EvmCompilerFns>> {
+        // todo: consider whitelist/blacklist?
+        if !self.use_llvm_compiled_fns {
+            return Ok(None);
+        } 
+        let dir_path = self.aot_compiled_fns_dir.as_ref()
+            .ok_or_eyre("no llvm dir specified")?;
+        EvmCompilerFnLoader::new(dir_path).load_all().map(|fns| Some(fns.into()))
     }
 
     pub fn jsonrpc_server_ip(&self) -> Ipv4Addr {
@@ -437,6 +454,8 @@ impl Default for BaseConfig {
             live_builders: vec!["mgp-ordering".to_string(), "mp-ordering".to_string()],
             simulation_threads: 1,
             sbundle_mergeabe_signers: None,
+            use_llvm_compiled_fns: false,
+            aot_compiled_fns_dir: None,
         }
     }
 }

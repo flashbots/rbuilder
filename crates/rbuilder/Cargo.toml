@@ -126,8 +126,15 @@ async-trait = "0.1.80"
 
 eth-sparse-mpt = { git = "https://github.com/flashbots/eth-sparse-mpt", rev = "664759b" }
 
+revmc-toolkit-load = { git = "https://github.com/halo3mic/revmc-toolkit", branch = "dev" }
+revmc-toolkit-sim = { git = "https://github.com/halo3mic/revmc-toolkit", branch = "dev" }
+revmc-toolkit-build = { git = "https://github.com/halo3mic/revmc-toolkit", branch = "dev" }
+revmc-toolkit-utils = { git = "https://github.com/halo3mic/revmc-toolkit", branch = "dev" }
+dotenv = "0.15.0"
+
 [build-dependencies]
 built = { version = "0.7.1", features = ["git2", "chrono"] }
+revmc-build = { git = "https://github.com/paradigmxyz/revmc" }
 
 [dev-dependencies]
 tempfile = "3.8"

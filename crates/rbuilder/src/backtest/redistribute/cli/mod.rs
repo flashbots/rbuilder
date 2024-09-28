@@ -6,6 +6,7 @@ use crate::live_builder::base_config::load_config_toml_and_env;
 use crate::live_builder::cli::LiveBuilderConfig;
 use crate::{backtest::HistoricalDataStorage, live_builder::config::Config};
 use alloy_primitives::utils::format_ether;
+use revmc_toolkit_load::EvmCompilerFns;
 use clap::Parser;
 use csv_output::{CSVOutputRow, CSVResultWriter};
 use reth_db::DatabaseEnv;
@@ -58,6 +59,7 @@ pub async fn run_backtest_redistribute<ConfigType: LiveBuilderConfig>() -> eyre:
         .base_config
         .provider_factory()?
         .provider_factory_unchecked();
+    let llvm_compiler_fns = config.base_config.load_llvm_compiled_fns()?;
     let mut csv_writer = cli
         .csv
         .map(|path| -> io::Result<_> { CSVResultWriter::new(path) })
@@ -77,6 +79,7 @@ pub async fn run_backtest_redistribute<ConfigType: LiveBuilderConfig>() -> eyre:
                 provider_factory.clone(),
                 &config,
                 cli.distribute_to_mempool_txs,
+                llvm_compiler_fns,
             )?;
         }
         Commands::Range {
@@ -94,6 +97,7 @@ pub async fn run_backtest_redistribute<ConfigType: LiveBuilderConfig>() -> eyre:
                     provider_factory.clone(),
                     &config,
                     cli.distribute_to_mempool_txs,
+                    llvm_compiler_fns.clone(),
                 )?;
             }
         }
@@ -114,6 +118,7 @@ fn process_redisribution<ConfigType: LiveBuilderConfig + Send + Sync>(
     provider_factory: ProviderFactory<Arc<DatabaseEnv>>,
     config: &ConfigType,
     distribute_to_mempool_txs: bool,
+    llvm_compiler_fns: Option<EvmCompilerFns>,
 ) -> eyre::Result<()> {
     let block_number = block_data.block_number;
     let block_hash = block_data.onchain_block.header.hash;
@@ -123,6 +128,7 @@ fn process_redisribution<ConfigType: LiveBuilderConfig + Send + Sync>(
         config,
         block_data,
         distribute_to_mempool_txs,
+        llvm_compiler_fns,
     ) {
         Ok(ok) => ok,
         Err(err) => {
