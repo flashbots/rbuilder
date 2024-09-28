@@ -15,7 +15,7 @@ use lazy_static::lazy_static;
 use reth::tasks::pool::BlockingTaskPool;
 use reth_chainspec::ChainSpec;
 use reth_db::DatabaseEnv;
-use revmc_toolbox_load::{EvmCompilerFns, EvmCompilerFnLoader};
+use revmc_toolkit_load::{EvmCompilerFns, EvmCompilerFnLoader};
 use reth_node_core::args::utils::chain_value_parser;
 use reth_primitives::StaticFileSegment;
 use reth_provider::StaticFileProviderFactory;

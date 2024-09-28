@@ -38,7 +38,7 @@ use time::OffsetDateTime;
 use tokio::{sync::mpsc, task::spawn_blocking};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
-use revmc_toolbox_load::EvmCompilerFns;
+use revmc_toolkit_load::EvmCompilerFns;
 
 /// Time the proposer have to propose a block from the beginning of the slot (https://www.paradigm.xyz/2023/04/mev-boost-ethereum-consensus Slot anatomy)
 const SLOT_PROPOSAL_DURATION: std::time::Duration = Duration::from_secs(4);

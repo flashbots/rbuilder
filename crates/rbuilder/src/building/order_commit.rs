@@ -32,7 +32,7 @@ use crate::building::evm_inspector::{RBuilderEVMInspector, UsedStateTrace};
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use crate::building::revmc_ext_ctx::RBuilderRevmcInspectorExtCtx;
-use revmc_toolbox_load::{revmc_register_handler, RevmcExtCtx};
+use revmc_toolkit_load::{revmc_register_handler, RevmcExtCtx};
 
 #[derive(Clone)]
 pub struct BlockState {

@@ -25,7 +25,7 @@ use reth_provider::ProviderFactory;
 use std::cmp::{max, min};
 use std::sync::Arc;
 use tracing::{debug, info, info_span, trace, warn};
-use revmc_toolbox_load::EvmCompilerFns;
+use revmc_toolkit_load::EvmCompilerFns;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
