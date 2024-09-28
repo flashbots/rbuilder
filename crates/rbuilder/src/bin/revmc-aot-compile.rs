@@ -1,21 +1,20 @@
-
-
-use clap::Parser;
+use rbuilder::live_builder::{base_config, config::Config as ConfigType};
+use revmc_toolbox_utils::{evm as evm_utils, build as build_utils};
 use revmc_toolbox_sim::gas_guzzlers::GasGuzzlerConfig;
-use revmc_toolbox_build::{compile_contracts_aot, CompilerOptions, OptimizationLevelDeseralizable};
-use revm::primitives::SpecId;
+use revmc_toolbox_build::CompilerOptions;
 use std::{path::PathBuf, str::FromStr};
+use revm::primitives::SpecId;
 use eyre::{OptionExt, Result};
-use std::sync::Arc;
-use revmc_toolbox_utils::evm as evm_utils;
 use tracing::debug;
+use clap::Parser;
 
-// todo: compiler opt to file
-
+// todo: compiler config in file instead?
 #[derive(Parser, Debug)]
 struct Cli {
     #[clap(flatten)]
     compiler_opt: CompilerOptionsCli,
+    #[clap(long, help = "Config file path", env = "RBUILDER_CONFIG")]
+    config_path: PathBuf,
     #[clap(subcommand)]
     commands: Commands,
 }
@@ -23,7 +22,7 @@ struct Cli {
 #[derive(Parser, Debug)]
 enum Commands {
     #[clap(about = "Fetches contracts specified in config file.")]
-    FromConfig,
+    FromConfig { build_file_path: PathBuf },
     #[clap(about = "Fetches contracts based on their historical gas usage.")]
     GasGuzzlers(GasGuzzlerConfigCli),
 }
@@ -55,7 +54,6 @@ struct CompilerOptionsCli {
     #[clap(long, value_parser, help = "Spec id")]
     spec_id: Option<u8>,
 }
-
 
 macro_rules! set_if_some {
     ($src:ident, $dst:ident, { $( $field:ident ),+ }) => {
@@ -102,7 +100,6 @@ impl TryFrom<CompilerOptionsCli> for CompilerOptions {
     }
 }
 
-
 #[derive(Parser, Debug)]
 struct GasGuzzlerConfigCli {
     #[clap(long, help = "Start block")]
@@ -130,45 +127,49 @@ impl From<GasGuzzlerConfigCli> for GasGuzzlerConfig {
     }
 }
 
+fn main() {
+    if let Err(e) = run() {
+        eprintln!("Error: {}", e);
+        std::process::exit(1);
+    }
+}
 
-fn main() -> Result<()> {
-    let Cli { compiler_opt, commands } = Cli::parse();
+fn run() -> Result<()> {
+    let Cli { compiler_opt, config_path, commands } = Cli::parse();
+    let provider_factory = new_provider_factory(config_path)?;
 
-    let bytecodes = match commands {
-        Commands::FromConfig => {
-            debug!("Fetching contracts from config");
-            unimplemented!() // TODO
+    match commands {
+        Commands::FromConfig { build_file_path } => {
+            debug!("Fetching contracts from config at {:?}", build_file_path);
+            let _: () = build_utils::compile_aot_from_file_path(
+                &provider_factory.latest()?, 
+                &build_file_path
+            )?.into_iter().collect::<Result<_>>()?;
         }
         Commands::GasGuzzlers(gas_guzzlers_config) => {
             debug!("Searching for gas guzzlers");
-            println!("Gas guzzlers: {:?}", gas_guzzlers_config);
-            let provider_factory = new_provider_factory()?;
             let head_size = gas_guzzlers_config.head_size;
-            // todo: improve this to eliminate contracts that dont have conistent gas usage
-            GasGuzzlerConfig::from(gas_guzzlers_config)
+            let bytecodes = GasGuzzlerConfig::from(gas_guzzlers_config)
                 .find_gas_guzzlers(provider_factory)?
                 .contract_to_bytecode()?
-                .into_top_guzzlers(head_size)
+                .into_top_guzzlers(head_size);
+            let compiler_opt = CompilerOptions::try_from(compiler_opt)?;
+            debug!("Compiling contracts to {:?}",  compiler_opt.out_dir);
+            let _: () = build_utils::compile_aot_from_codes(
+                bytecodes, 
+                Some(compiler_opt)
+            )?.into_iter().collect::<Result<_>>()?;
         }
         // todo: add remove command
         // todo: add command that lists top gas guzzler addresses
-    };
-    let bytecodes = bytecodes.into_iter().map(|c| c.into()).collect();
-    let compiler_opt = CompilerOptions::try_from(compiler_opt)?;
-    let out_dir = compiler_opt.out_dir.clone();
-    debug!("Compiling contracts");
-    compile_contracts_aot(bytecodes, Some(compiler_opt))?
-        .into_iter().collect::<Result<_>>()?;
-    debug!("Compiled contracts have been written to {out_dir:?}");
+    }
          
     Ok(())
 }
 
-fn new_provider_factory() -> Result<Arc<evm_utils::ProviderFactory<evm_utils::DatabaseEnv>>> {
-    // todo: source this from toml config file instead (like the rest of the program)
-    dotenv::dotenv()?;
-    let dir_path = std::env::var("RETH_DB_PATH")
-        .expect("RETH_DB_PATH env var not set");
-    let dir_path = PathBuf::from_str(&dir_path)?;
-    evm_utils::make_provider_factory(&dir_path).map(Arc::new)
+fn new_provider_factory(config_path: PathBuf) -> Result<evm_utils::ProviderFactory<evm_utils::DatabaseEnv>> {
+    let config: ConfigType = base_config::load_config_toml_and_env(config_path)?;
+    // todo: get provider_factory straight from the config with create_provider_factory
+    let reth_path = config.base_config.reth_db_path.expect("RETH_DB_PATH field not set");
+    evm_utils::make_provider_factory(&reth_path)
 }

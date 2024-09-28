@@ -224,12 +224,12 @@ impl BaseConfig {
     }
 
     pub fn load_llvm_compiled_fns(&self) -> eyre::Result<Option<EvmCompilerFns>> {
+        // todo: consider whitelist/blacklist?
         if !self.use_llvm_compiled_fns {
             return Ok(None);
         } 
-        // todo: implement config file for whitelists/blacklists and filter with EvmCompilerFnLoader::load_selected
         let dir_path = self.aot_compiled_fns_dir.as_ref()
-            .ok_or_eyre("no llvm dir specified")?; // todo: resort to default
+            .ok_or_eyre("no llvm dir specified")?;
         EvmCompilerFnLoader::new(dir_path).load_all().map(|fns| Some(fns.into()))
     }
 
