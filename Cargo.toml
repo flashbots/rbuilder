@@ -75,8 +75,3 @@ alloy-rpc-types-engine = { version = "0.3.0", features = [
 ] }
 alloy-rpc-types-eth = { version = "0.3.0" }
 alloy-signer-local = { version = "0.3.0" }
-
-[patch.crates-io]
-alloy-eips = { git = "https://github.com/alloy-rs/alloy", branch = "rkrasiuk/bid-submission-v4" }
-alloy-rpc-types-beacon = { git = "https://github.com/alloy-rs/alloy", branch = "rkrasiuk/bid-submission-v4" }
-alloy-rpc-types-engine = { git = "https://github.com/alloy-rs/alloy", branch = "rkrasiuk/bid-submission-v4" }
