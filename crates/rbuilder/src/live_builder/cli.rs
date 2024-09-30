@@ -29,7 +29,7 @@ enum Cli {
 
 #[derive(Parser, Debug)]
 struct RunCmd {
-    #[clap(help = "Config file path")]
+    #[clap(env = "RBUILDER_CONFIG", help = "Config file path")]
     config: PathBuf,
 }
 
