@@ -17,14 +17,15 @@ use ahash::{HashMap, HashSet};
 use alloy_primitives::utils::format_ether;
 use alloy_primitives::{Address, B256, I256, U256};
 pub use cli::run_backtest_redistribute;
-use jsonrpsee::core::Serialize;
 use rayon::prelude::*;
 use reth_chainspec::ChainSpec;
 use reth_db::DatabaseEnv;
 use reth_provider::ProviderFactory;
+use serde::{Deserialize, Serialize};
 use std::cmp::{max, min};
 use std::sync::Arc;
 use tracing::{debug, info, info_span, trace, warn};
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -39,7 +40,7 @@ pub struct IdentityData {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrderInclusionChange {
-    id: OrderId,
+    id: ExtendedOrderId,
     change: InclusionChange,
     #[serde(with = "u256decimal_serde_helper")]
     profit_before: U256,
@@ -55,11 +56,34 @@ pub enum InclusionChange {
     ProfitChanged,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ExtendedOrderId {
+    Tx(B256),
+    Bundle { uuid: Uuid, hash: B256 },
+    ShareBundle(B256),
+}
+
+impl ExtendedOrderId {
+    fn new(order_id: OrderId, bundle_hashes: &HashMap<OrderId, B256>) -> Self {
+        match order_id {
+            OrderId::Tx(hash) => ExtendedOrderId::Tx(hash),
+            OrderId::Bundle(uuid) => {
+                let hash = bundle_hashes.get(&order_id).cloned().unwrap_or_default();
+                ExtendedOrderId::Bundle { uuid, hash }
+            }
+            OrderId::ShareBundle(hash) => ExtendedOrderId::ShareBundle(hash),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrderData {
-    pub id: OrderId,
+    pub id: ExtendedOrderId,
     pub identity: Address,
+    /// `sender` is signer of the transaction when order has only 1 tx
+    /// otherwise its a signer of the request (e.g. eth_sendBundle)
+    pub sender: Address,
     #[serde(with = "u256decimal_serde_helper")]
     pub redistribution_value_received: U256,
     pub block_value_delta: I256,
@@ -281,6 +305,8 @@ struct AvailableOrders {
     all_orders_by_address: HashMap<Address, Vec<OrderId>>,
     orders_id_to_address: HashMap<OrderId, Address>,
     all_orders_by_id: HashMap<OrderId, Order>,
+    bundle_hash_by_id: HashMap<OrderId, B256>,
+    order_sender_by_id: HashMap<OrderId, Address>,
 }
 
 impl AvailableOrders {
@@ -346,6 +372,8 @@ fn split_orders_by_identities(
     let mut all_orders_by_address: HashMap<Address, Vec<OrderId>> = HashMap::default();
     let mut included_orders_by_address: HashMap<Address, Vec<OrderId>> = HashMap::default();
     let mut orders_id_to_address = HashMap::default();
+    let mut bundle_hash_by_id = HashMap::default();
+    let mut order_sender_by_id = HashMap::default();
 
     for order in &included_orders_available {
         let order_id = order.order.id();
@@ -364,6 +392,10 @@ fn split_orders_by_identities(
 
     for order in &block_data.available_orders {
         let id = order.order.id();
+        if let Order::Bundle(bundle) = &order.order {
+            bundle_hash_by_id.insert(id, bundle.hash);
+        };
+        order_sender_by_id.insert(id, order_sender(&order.order));
         let address = match order_redistribution_address(&order.order, protect_signers) {
             Some(address) => address,
             None => {
@@ -406,6 +438,8 @@ fn split_orders_by_identities(
             .iter()
             .map(|order| (order.order.id(), order.order.clone()))
             .collect(),
+        bundle_hash_by_id,
+        order_sender_by_id,
     }
 }
 
@@ -769,11 +803,17 @@ fn collect_redistribution_result(
                 "Included order data"
             );
             result.landed_orders.push(OrderData {
-                id,
+                id: ExtendedOrderId::new(id, &available_orders.bundle_hash_by_id),
                 identity: address,
+                sender: available_orders
+                    .order_sender_by_id
+                    .get(&id)
+                    .cloned()
+                    .unwrap_or_default(),
                 redistribution_value_received,
                 block_value_delta,
                 inclusion_changes: calc_inclusion_change(
+                    &available_orders.bundle_hash_by_id,
                     result_after_order_exclusion,
                     &results_without_exclusion.orders_included,
                 ),
@@ -795,6 +835,7 @@ fn collect_redistribution_result(
             redistribution_value_received,
             block_value_delta,
             inclusion_changes: calc_inclusion_change(
+                &available_orders.bundle_hash_by_id,
                 result_after_identity_exclusion,
                 &results_without_exclusion.orders_included,
             ),
@@ -804,17 +845,21 @@ fn collect_redistribution_result(
 }
 
 fn calc_inclusion_change(
+    bundle_hash_by_id: &HashMap<OrderId, B256>,
     exclusion_result: &ExclusionResult,
     included_before: &[(OrderId, U256)],
 ) -> Vec<OrderInclusionChange> {
     let mut result = Vec::new();
     for (id, profit_after) in &exclusion_result.new_orders_included {
-        result.push(OrderInclusionChange {
-            id: *id,
-            change: InclusionChange::Included,
-            profit_before: U256::ZERO,
-            profit_after: *profit_after,
-        })
+        result.push((
+            *id,
+            OrderInclusionChange {
+                id: ExtendedOrderId::new(*id, bundle_hash_by_id),
+                change: InclusionChange::Included,
+                profit_before: U256::ZERO,
+                profit_after: *profit_after,
+            },
+        ));
     }
     for id in &exclusion_result.new_orders_failed {
         let profit_before = included_before
@@ -822,12 +867,15 @@ fn calc_inclusion_change(
             .find(|(i, _)| i == id)
             .map(|(_, p)| *p)
             .unwrap_or_default();
-        result.push(OrderInclusionChange {
-            id: *id,
-            change: InclusionChange::Excluded,
-            profit_before,
-            profit_after: U256::ZERO,
-        })
+        result.push((
+            *id,
+            OrderInclusionChange {
+                id: ExtendedOrderId::new(*id, bundle_hash_by_id),
+                change: InclusionChange::Excluded,
+                profit_before,
+                profit_after: U256::ZERO,
+            },
+        ));
     }
     for (id, profit_after) in &exclusion_result.orders_profit_changed {
         let profit_before = included_before
@@ -835,15 +883,18 @@ fn calc_inclusion_change(
             .find(|(i, _)| i == id)
             .map(|(_, p)| *p)
             .unwrap_or_default();
-        result.push(OrderInclusionChange {
-            id: *id,
-            change: InclusionChange::ProfitChanged,
-            profit_before,
-            profit_after: *profit_after,
-        })
+        result.push((
+            *id,
+            OrderInclusionChange {
+                id: ExtendedOrderId::new(*id, bundle_hash_by_id),
+                change: InclusionChange::ProfitChanged,
+                profit_before,
+                profit_after: *profit_after,
+            },
+        ))
     }
-    result.sort_by_key(|k| k.id);
-    result
+    result.sort_by_key(|(id, _)| *id);
+    result.into_iter().map(|(_, v)| v).collect()
 }
 
 #[derive(Debug)]
@@ -983,4 +1034,13 @@ fn order_redistribution_address(order: &Order, protect_signers: &[Address]) -> O
             unreachable!("Mempool tx order can't have signer");
         }
     }
+}
+
+fn order_sender(order: &Order) -> Address {
+    let mut txs = order.list_txs();
+    if txs.len() == 1 {
+        return txs.pop().unwrap().0.signer();
+    }
+
+    order.signer().unwrap_or_default()
 }
