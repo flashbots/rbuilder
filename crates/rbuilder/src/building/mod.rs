@@ -16,7 +16,7 @@ use reth_primitives::proofs::calculate_requests_root;
 
 use crate::{
     primitives::{Order, OrderId, SimValue, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs},
-    roothash::{calculate_state_root, RootHashConfig},
+    roothash::{calculate_state_root, RootHashConfig, RootHashError},
     utils::{a2r_withdrawal, calc_gas_limit, timestamp_as_u64, Signer},
 };
 use ahash::HashSet;
@@ -409,6 +409,24 @@ pub struct FinalizeResult {
     pub txs_blob_sidecars: Vec<Arc<BlobTransactionSidecar>>,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum FinalizeError {
+    #[error("Root hash error: {0:?}")]
+    RootHash(#[from] RootHashError),
+    #[error("Other error: {0:?}")]
+    Other(#[from] eyre::Report),
+}
+
+impl FinalizeError {
+    /// see `RootHashError::is_consistent_db_view_err`
+    pub fn is_consistent_db_view_err(&self) -> bool {
+        match self {
+            FinalizeError::RootHash(root_hash) => root_hash.is_consistent_db_view_err(),
+            FinalizeError::Other(_) => false,
+        }
+    }
+}
+
 impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
     pub fn with_tracer<NewTracer: SimulationTracer>(
         self,
@@ -562,7 +580,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         provider_factory: ProviderFactory<DB>,
         root_hash_config: RootHashConfig,
         root_hash_task_pool: BlockingTaskPool,
-    ) -> eyre::Result<FinalizeResult> {
+    ) -> Result<FinalizeResult, FinalizeError> {
         let (withdrawals_root, withdrawals) = {
             let mut db = state.new_db_ref();
             let WithdrawalsOutcome {
@@ -573,7 +591,8 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
                 &ctx.chain_spec,
                 ctx.attributes.timestamp,
                 ctx.attributes.withdrawals.clone(),
-            )?;
+            )
+            .map_err(|err| FinalizeError::Other(err.into()))?;
             db.as_mut().merge_transitions(PlainState);
             (withdrawals_root, withdrawals)
         };
@@ -586,19 +605,22 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             let mut db = state.new_db_ref();
 
             let deposit_requests =
-                parse_deposits_from_receipts(&ctx.chain_spec, self.receipts.iter())?;
+                parse_deposits_from_receipts(&ctx.chain_spec, self.receipts.iter())
+                    .map_err(|err| FinalizeError::Other(err.into()))?;
             let withdrawal_requests = post_block_withdrawal_requests_contract_call(
                 &evm_config,
                 db.as_mut(),
                 &ctx.initialized_cfg,
                 &ctx.block_env,
-            )?;
+            )
+            .map_err(|err| FinalizeError::Other(err.into()))?;
             let consolidation_requests = post_block_consolidation_requests_contract_call(
                 &evm_config,
                 db.as_mut(),
                 &ctx.initialized_cfg,
                 &ctx.block_env,
-            )?;
+            )
+            .map_err(|err| FinalizeError::Other(err.into()))?;
 
             let requests = [
                 deposit_requests,
@@ -647,11 +669,13 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         // double check blocked txs
         for tx_with_blob in &self.executed_tx {
             if ctx.blocklist.contains(&tx_with_blob.signer()) {
-                return Err(eyre::eyre!("To from blocked address."));
+                return Err(FinalizeError::Other(eyre::eyre!(
+                    "To from blocked address."
+                )));
             }
             if let Some(to) = tx_with_blob.to() {
                 if ctx.blocklist.contains(&to) {
-                    return Err(eyre::eyre!("Tx to blocked address"));
+                    return Err(FinalizeError::Other(eyre::eyre!("Tx to blocked address")));
                 }
             }
         }
