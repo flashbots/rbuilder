@@ -17,8 +17,8 @@ use crate::{
     building::{
         estimate_payout_gas_limit, tracers::GasUsedSimulationTracer, BlockBuildingContext,
         BlockState, BuiltBlockTrace, BuiltBlockTraceError, CriticalCommitOrderError,
-        EstimatePayoutGasErr, ExecutionError, ExecutionResult, FinalizeResult, PartialBlock,
-        Sorting,
+        EstimatePayoutGasErr, ExecutionError, ExecutionResult, FinalizeError, FinalizeResult,
+        PartialBlock, Sorting,
     },
     primitives::SimulatedOrder,
     roothash::RootHashConfig,
@@ -115,10 +115,25 @@ pub enum BlockBuildingHelperError {
     InsertPayoutTxErr(#[from] crate::building::InsertPayoutTxErr),
     #[error("Bundle consistency check failed: {0}")]
     BundleConsistencyCheckFailed(#[from] BuiltBlockTraceError),
-    #[error("Error finalizing block (eg:root hash): {0}")]
-    FinalizeError(#[from] eyre::Report),
+    #[error("Error finalizing block: {0}")]
+    FinalizeError(#[from] FinalizeError),
     #[error("Payout tx not allowed for block")]
     PayoutTxNotAllowed,
+}
+
+impl BlockBuildingHelperError {
+    /// Non critial error can happen during normal operations of the builder  
+    pub fn is_critical(&self) -> bool {
+        match self {
+            BlockBuildingHelperError::FinalizeError(finalize) => {
+                !finalize.is_consistent_db_view_err()
+            }
+            BlockBuildingHelperError::InsertPayoutTxErr(
+                crate::building::InsertPayoutTxErr::ProfitTooLow,
+            ) => false,
+            _ => true,
+        }
+    }
 }
 
 pub struct FinalizeBlockResult {
@@ -333,10 +348,7 @@ impl<DB: Database + Clone + 'static> BlockBuildingHelper for BlockBuildingHelper
         ) {
             Ok(finalized_block) => finalized_block,
             Err(err) => {
-                if err
-                    .to_string()
-                    .contains("failed to initialize consistent view")
-                {
+                if err.is_consistent_db_view_err() {
                     let last_block_number = self
                         .provider_factory
                         .last_block_number()
