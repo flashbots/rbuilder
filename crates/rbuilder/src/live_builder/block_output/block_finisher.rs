@@ -109,7 +109,6 @@ impl UnfinishedBlockBuildingSink for BlockFinisher {
             "blockTimestamp": building_context.block_env.timestamp,
             "blockUuid": Uuid::new_v4().to_string(),
             "pendingState": pending_state
-            "blockOrders": block.built_block_trace().included_orders.len()
         });
 
         if let Err(e) = self.tx.send(serde_json::to_string(&block_data).unwrap()) {
