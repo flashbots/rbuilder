@@ -1,12 +1,14 @@
 use alloy_primitives::B256;
 use eth_sparse_mpt::reth_sparse_trie::{
-    calculate_root_hash_with_sparse_trie, SparseTrieError, SparseTrieSharedCache,
+    calculate_root_hash_with_sparse_trie, trie_fetcher::FetchNodeError, SparseTrieError,
+    SparseTrieSharedCache,
 };
 use reth::{
     providers::{providers::ConsistentDbView, ExecutionOutcome, ProviderFactory},
     tasks::pool::BlockingTaskPool,
 };
 use reth_db::database::Database;
+use reth_errors::ProviderError;
 use reth_trie_parallel::async_root::{AsyncStateRoot, AsyncStateRootError};
 use tracing::trace;
 
@@ -31,6 +33,22 @@ pub enum RootHashError {
     SparseStateRoot(#[from] SparseTrieError),
     #[error("State root verification error")]
     Verification,
+}
+
+impl RootHashError {
+    /// Error of this type means that db does not have trie for the required block
+    /// This often happens when building for block after it was proposed.
+    pub fn is_consistent_db_view_err(&self) -> bool {
+        let provider_error = match self {
+            RootHashError::AsyncStateRoot(AsyncStateRootError::Provider(p)) => p,
+            RootHashError::SparseStateRoot(SparseTrieError::FetchNode(
+                FetchNodeError::Provider(p),
+            )) => p,
+            _ => return false,
+        };
+
+        matches!(provider_error, ProviderError::ConsistentView(_))
+    }
 }
 
 #[derive(Debug, Clone)]
