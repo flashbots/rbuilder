@@ -29,6 +29,8 @@ ignore_cancellable_orders = true
 
 max_concurrent_seals = 4
 
+# genesis_fork_version = "0x00112233"
+
 sbundle_mergeabe_signers = []
 # slot_delta_to_start_submits_ms is usually negative since we start bidding BEFORE the slot start
 # slot_delta_to_start_submits_ms = -5000

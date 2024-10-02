@@ -127,6 +127,9 @@ pub struct L1Config {
     ///Name kept singular for backwards compatibility
     #[serde_as(deserialize_as = "OneOrMany<EnvOrValue<String>>")]
     pub cl_node_url: Vec<EnvOrValue<String>>,
+
+    /// Genesis fork version for the chain. If not provided it will be fetched from the beacon client.
+    pub genesis_fork_version: Option<String>,
 }
 
 impl Default for L1Config {
@@ -143,6 +146,7 @@ impl Default for L1Config {
             slot_delta_to_start_submits_ms: None,
             cl_node_url: vec![EnvOrValue::from("http://127.0.0.1:3500")],
             max_concurrent_seals: DEFAULT_MAX_CONCURRENT_SEALS,
+            genesis_fork_version: None,
         }
     }
 }
@@ -171,7 +175,11 @@ impl L1Config {
     }
 
     fn bls_signer(&self, chain_spec: &ChainSpec) -> eyre::Result<BLSBlockSigner> {
-        let signing_domain = get_signing_domain(chain_spec.chain, self.beacon_clients()?)?;
+        let signing_domain = get_signing_domain(
+            chain_spec.chain,
+            self.beacon_clients()?,
+            self.genesis_fork_version.clone(),
+        )?;
         let secret_key = self.relay_secret_key.value()?;
         let secret_key = SecretKey::try_from(secret_key)
             .map_err(|e| eyre::eyre!("Failed to parse relay key: {:?}", e.to_string()))?;
@@ -180,7 +188,11 @@ impl L1Config {
     }
 
     fn bls_optimistic_signer(&self, chain_spec: &ChainSpec) -> eyre::Result<BLSBlockSigner> {
-        let signing_domain = get_signing_domain(chain_spec.chain, self.beacon_clients()?)?;
+        let signing_domain = get_signing_domain(
+            chain_spec.chain,
+            self.beacon_clients()?,
+            self.genesis_fork_version.clone(),
+        )?;
         let secret_key = self.optimistic_relay_secret_key.value()?;
         let secret_key = SecretKey::try_from(secret_key).map_err(|e| {
             eyre::eyre!("Failed to parse optimistic relay key: {:?}", e.to_string())
@@ -492,26 +504,34 @@ fn create_builder(
     }
 }
 
-fn get_signing_domain(chain: Chain, beacon_clients: Vec<Client>) -> eyre::Result<B256> {
+fn get_signing_domain(
+    chain: Chain,
+    beacon_clients: Vec<Client>,
+    genesis_fork_version: Option<String>,
+) -> eyre::Result<B256> {
     let cl_context = match chain.kind() {
         ChainKind::Named(NamedChain::Mainnet) => ContextEth::for_mainnet(),
         ChainKind::Named(NamedChain::Sepolia) => ContextEth::for_sepolia(),
         ChainKind::Named(NamedChain::Goerli) => ContextEth::for_goerli(),
         ChainKind::Named(NamedChain::Holesky) => ContextEth::for_holesky(),
         _ => {
-            let client = beacon_clients
-                .first()
-                .ok_or_else(|| eyre::eyre!("No beacon clients provided"))?;
+            let genesis_fork_version = if let Some(genesis_fork_version) = genesis_fork_version {
+                genesis_fork_version
+            } else {
+                let client = beacon_clients
+                    .first()
+                    .ok_or_else(|| eyre::eyre!("No beacon clients provided"))?;
 
-            let spec = tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(client.get_spec())
-            })?;
+                let spec = tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(client.get_spec())
+                })?;
 
-            let genesis_fork_version = spec
-                .get("GENESIS_FORK_VERSION")
-                .ok_or_else(|| eyre::eyre!("GENESIS_FORK_VERSION not found in spec"))?;
+                spec.get("GENESIS_FORK_VERSION")
+                    .ok_or_else(|| eyre::eyre!("GENESIS_FORK_VERSION not found in spec"))?
+                    .clone()
+            };
 
-            let version: FixedBytes<4> = FixedBytes::from_str(genesis_fork_version)
+            let version: FixedBytes<4> = FixedBytes::from_str(&genesis_fork_version)
                 .map_err(|e| eyre::eyre!("Failed to parse genesis fork version: {:?}", e))?;
 
             let version = Version::from(version);
@@ -616,16 +636,32 @@ mod test {
         ];
 
         for (chain, domain) in cases.iter() {
-            let found = get_signing_domain(Chain::from_named(*chain), vec![]).unwrap();
+            let found = get_signing_domain(Chain::from_named(*chain), vec![], None).unwrap();
             assert_eq!(found, *domain);
         }
+    }
+
+    #[test]
+    fn test_signing_domain_with_genesis_fork() {
+        let client = Client::new(Url::parse("http://localhost:8000").unwrap());
+        let found = get_signing_domain(
+            Chain::from_id(12345),
+            vec![client],
+            Some("0x00112233".to_string()),
+        )
+        .unwrap();
+
+        assert_eq!(
+            found,
+            fixed_bytes!("0000000157eb3d0fd9a819dee70b5403ce939a22b4f25ec3fc841a16cc4eab3e")
+        );
     }
 
     #[ignore]
     #[test]
     fn test_signing_domain_custom_chain() {
         let client = Client::new(Url::parse("http://localhost:8000").unwrap());
-        let found = get_signing_domain(Chain::from_id(12345), vec![client]).unwrap();
+        let found = get_signing_domain(Chain::from_id(12345), vec![client], None).unwrap();
 
         assert_eq!(
             found,
