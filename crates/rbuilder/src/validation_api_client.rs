@@ -101,7 +101,7 @@ impl ValidationAPIClient {
                 tokio::select! {
                     _ = cancellation_token.cancelled() => {
                     }
-                    result = provider.raw_request::<_, ()>(std::borrow::Cow::Borrowed(method), vec![request]) => {
+                    result = provider.raw_request::<_, serde_json::Value>(std::borrow::Cow::Borrowed(method), vec![request]) => {
                         _ = result_sender.send((i, result)).await;
                     }
                 }
@@ -113,7 +113,7 @@ impl ValidationAPIClient {
             let span = info_span!("block_validation", validation_node_idx = idx);
             let _span_guard = span.enter();
             match result {
-                Ok(()) => {
+                Ok(_) => {
                     // this means that block passed validation
                     add_block_validation_time(start.elapsed());
                     return Ok(());
