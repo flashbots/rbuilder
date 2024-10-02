@@ -2827,7 +2827,7 @@ dependencies = [
 [[package]]
 name = "eth-sparse-mpt"
 version = "0.1.0"
-source = "git+https://github.com/flashbots/eth-sparse-mpt?rev=664759b#664759b53d92e64d9a2e902100691b7ff4945ece"
+source = "git+https://github.com/flashbots/eth-sparse-mpt?rev=5e2713b#5e2713b36206b7a8af4614a69920d6e0bf9826e9"
 dependencies = [
  "alloy-primitives 0.8.0",
  "alloy-rlp",

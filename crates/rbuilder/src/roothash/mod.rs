@@ -1,3 +1,5 @@
+mod prefetcher;
+
 use alloy_primitives::B256;
 use eth_sparse_mpt::reth_sparse_trie::{
     calculate_root_hash_with_sparse_trie, trie_fetcher::FetchNodeError, SparseTrieError,
@@ -11,6 +13,8 @@ use reth_db::database::Database;
 use reth_errors::ProviderError;
 use reth_trie_parallel::async_root::{AsyncStateRoot, AsyncStateRootError};
 use tracing::trace;
+
+pub use prefetcher::run_trie_prefetcher;
 
 #[derive(Debug, Clone, Copy)]
 pub enum RootHashMode {

@@ -63,6 +63,7 @@ pub struct LiveBuilder<DB, BlocksSourceType: SlotSource> {
     pub simulation_threads: usize,
     pub order_input_config: OrderInputConfig,
     pub blocks_source: BlocksSourceType,
+    pub run_sparse_trie_prefetcher: bool,
 
     pub chain_chain_spec: Arc<ChainSpec>,
     pub provider_factory: ProviderFactoryReopener<DB>,
@@ -131,6 +132,7 @@ impl<DB: Database + Clone + 'static, BuilderSourceType: SlotSource>
             self.sink_factory,
             orderpool_subscriber,
             order_simulation_pool,
+            self.run_sparse_trie_prefetcher,
         );
 
         let watchdog_sender = spawn_watchdog_thread(self.watchdog_timeout)?;
