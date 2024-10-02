@@ -47,8 +47,6 @@ use reth::tasks::pool::BlockingTaskPool;
 use reth_chainspec::{Chain, ChainSpec, NamedChain};
 use reth_db::DatabaseEnv;
 use reth_payload_builder::database::CachedReads;
-use reth_primitives::StaticFileSegment;
-use reth_provider::StaticFileProviderFactory;
 use serde::Deserialize;
 use serde_with::{serde_as, OneOrMany};
 use std::{
@@ -442,15 +440,6 @@ pub fn create_provider_factory(
 
     let provider_factory_reopener =
         ProviderFactoryReopener::new(db, chain_spec, reth_static_files_path)?;
-
-    if provider_factory_reopener
-        .provider_factory_unchecked()
-        .static_file_provider()
-        .get_highest_static_file_block(StaticFileSegment::Headers)
-        .is_none()
-    {
-        eyre::bail!("No headers in static files. Check your static files path configuration.");
-    }
 
     Ok(provider_factory_reopener)
 }

@@ -44,6 +44,7 @@ impl<DB: Database + Clone> ProviderFactoryReopener<DB> {
     ) -> RethResult<Self> {
         let chain_spec = provider_factory.chain_spec();
         let static_files_path = provider_factory.static_file_provider().path().to_path_buf();
+
         Ok(Self {
             provider_factory: Arc::new(Mutex::new(provider_factory)),
             chain_spec,
