@@ -112,6 +112,9 @@ pub async fn start_server_accepting_bundles(
         }
     })?;
 
+    // TODO: add a method to accept bottom of block bundles 
+    // send_order
+
     module.merge(extra_rpc)?;
     let handle = server.start(module);
 
