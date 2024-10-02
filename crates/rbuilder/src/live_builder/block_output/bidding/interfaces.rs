@@ -58,6 +58,7 @@ pub trait BidMaker: std::fmt::Debug {
 }
 
 /// Info about a onchain block from reth.
+#[derive(Eq, PartialEq, Clone, Debug)]
 pub struct LandedBlockInfo {
     pub block_number: BlockNumber,
     pub block_timestamp: OffsetDateTime,
