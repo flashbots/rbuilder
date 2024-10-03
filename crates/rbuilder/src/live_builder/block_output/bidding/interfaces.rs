@@ -5,6 +5,7 @@ use crate::{
     live_builder::block_output::bid_value_source::interfaces::BidValueObs,
 };
 use alloy_primitives::U256;
+use mockall::automock;
 use reth_primitives::BlockNumber;
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
@@ -57,6 +58,7 @@ pub trait BidMaker: std::fmt::Debug {
 }
 
 /// Info about a onchain block from reth.
+#[derive(Eq, PartialEq, Clone, Debug)]
 pub struct LandedBlockInfo {
     pub block_number: BlockNumber,
     pub block_timestamp: OffsetDateTime,
@@ -95,6 +97,7 @@ pub trait BiddingService: std::fmt::Debug + Send + Sync {
 
 /// Trait to control the must_win_block feature of the BiddingService.
 /// It allows to use BiddingService as a Box (single threaded mutable access) but be able to call must_win_block from another thread.
+#[automock]
 pub trait BiddingServiceWinControl: Send + Sync + std::fmt::Debug {
     /// If called, any current or future SlotBidder working on that block will bid more aggressively to win the block.
     fn must_win_block(&self, block: u64);
