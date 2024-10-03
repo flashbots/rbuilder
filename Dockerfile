@@ -75,5 +75,5 @@ COPY ./entrypoint.sh /app/entrypoint.sh
 # Make the entrypoint script executable
 RUN chmod +x /app/entrypoint.sh
 
-EXPOSE 30303 30303/udp 9001 8545 8546
+EXPOSE 30303 30303/udp 9001 8545 8546 8645
 ENTRYPOINT ["/app/entrypoint.sh"]
