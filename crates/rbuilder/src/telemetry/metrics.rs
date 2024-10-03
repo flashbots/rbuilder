@@ -89,7 +89,7 @@ register_metrics! {
     pub static BLOCK_VALIDATION_TIME: HistogramVec = HistogramVec::new(
         HistogramOpts::new("block_validation_time", "Block Validation Times (ms)")
             .buckets(exponential_buckets_range(1.0, 3000.0, 100)),
-        &["builder_name"]
+        &[]
     )
     .unwrap();
     pub static CURRENT_BLOCK: IntGauge =
