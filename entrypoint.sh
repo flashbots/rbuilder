@@ -4,7 +4,7 @@ set -e
 # Run reth in the background if RETH_CMD is set
 if [ -n "$RETH_CMD" ]; then
   echo "Running /app/reth with arguments: $RETH_CMD in the background"
-  $RETH_CMD &
+  /app/$RETH_CMD &
 fi
 
 sleep 5
