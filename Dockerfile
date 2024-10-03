@@ -57,7 +57,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
     cargo build --release --features="$FEATURES"
 
-FROM ethpandaops/reth:main-d6113e1 as reth
+FROM ethpandaops/reth:main as reth
 #
 ## Runtime container with both rbuilder and reth + entrypoint script
 ##
