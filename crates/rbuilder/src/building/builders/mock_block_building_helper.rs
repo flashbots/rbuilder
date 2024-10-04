@@ -1,7 +1,7 @@
 use crate::{
     building::{
         BlockBuildingContext, BuiltBlockTrace, CriticalCommitOrderError, ExecutionError,
-        ExecutionResult,
+        ExecutionResult
     },
     primitives::SimulatedOrder,
 };
@@ -9,10 +9,11 @@ use alloy_primitives::U256;
 use reth_payload_builder::database::CachedReads;
 use reth_primitives::SealedBlock;
 use time::OffsetDateTime;
+use revm::db::BundleState;
 
 use super::{
     block_building_helper::{BlockBuildingHelper, BlockBuildingHelperError, FinalizeBlockResult},
-    Block,
+    Block
 };
 
 /// Extremely dumb object for test. Adding orders (commit_order) is not allowed.
@@ -22,6 +23,7 @@ pub struct MockBlockBuildingHelper {
     built_block_trace: BuiltBlockTrace,
     block_building_context: BlockBuildingContext,
     can_add_payout_tx: bool,
+    bundle_state: BundleState
 }
 
 impl MockBlockBuildingHelper {
@@ -34,6 +36,7 @@ impl MockBlockBuildingHelper {
             built_block_trace,
             block_building_context: BlockBuildingContext::dummy_for_testing(),
             can_add_payout_tx,
+            bundle_state: BundleState::default()
         }
     }
 }
@@ -103,5 +106,9 @@ impl BlockBuildingHelper for MockBlockBuildingHelper {
 
     fn update_cached_reads(&mut self, _cached_reads: CachedReads) {
         unimplemented!()
+    }
+
+    fn get_bundle_state(&self) -> &BundleState {
+        &self.bundle_state
     }
 }

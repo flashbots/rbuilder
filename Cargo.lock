@@ -7015,6 +7015,7 @@ dependencies = [
  "alloy-signer-local",
  "alloy-transport",
  "alloy-transport-http",
+ "anyhow",
  "async-trait",
  "atoi",
  "beacon-api-client",

@@ -320,7 +320,7 @@ impl LiveBuilderConfig for Config {
             Arc::new(NullBidValueSource {}),
             wallet_balance_watcher,
             self.l1_config.max_concurrent_seals as usize,
-        ));
+        ).await);
 
         let payload_event = MevBoostSlotDataGenerator::new(
             self.l1_config.beacon_clients()?,

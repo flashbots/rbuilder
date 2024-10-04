@@ -6,15 +6,18 @@ full_telemetry_server_port = 6060
 full_telemetry_server_ip = "0.0.0.0"
 
 chain = "mainnet"
-reth_datadir = "/mnt/data/reth"
+# reth_datadir = "/mnt/data/reth"
+reth_datadir = "/root/.local/share/reth/mainnet"
 
-coinbase_secret_key = "env:COINBASE_SECRET_KEY"
-relay_secret_key = "env:RELAY_SECRET_KEY"
-optimistic_relay_secret_key = "env:OPTIMISTIC_RELAY_SECRET_KEY"
+# coinbase_secret_key = "env:COINBASE_SECRET_KEY"
+# relay_secret_key = "env:RELAY_SECRET_KEY"
+# optimistic_relay_secret_key = "env:OPTIMISTIC_RELAY_SECRET_KEY"
+coinbase_secret_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+relay_secret_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 # cl_node_url can be a single value, array of values, or passed by an environment variables with values separated with a comma
-# cl_node_url = "http://localhost:3500"
-cl_node_url = ["env:CL_NODE_URL"]
+cl_node_url = "http://localhost:3500"
+# cl_node_url = ["env:CL_NODE_URL"]
 jsonrpc_server_port = 8645
 jsonrpc_server_ip = "0.0.0.0"
 el_node_ipc_path = "/tmp/reth.ipc"
@@ -34,7 +37,7 @@ max_concurrent_seals = 4
 sbundle_mergeabe_signers = []
 # slot_delta_to_start_submits_ms is usually negative since we start bidding BEFORE the slot start
 # slot_delta_to_start_submits_ms = -5000
-live_builders = ["mp-ordering", "mgp-ordering", "merging"]
+live_builders = ["mp-ordering", "mgp-ordering"]
 
 [[relays]]
 name = "flashbots"

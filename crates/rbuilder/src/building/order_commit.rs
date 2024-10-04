@@ -70,6 +70,10 @@ impl BlockState {
         self
     }
 
+    pub fn get_bundle_state(&self) -> &BundleState {
+        self.bundle_state.as_ref().expect("BundleState should be initialized")
+    }
+
     pub fn into_parts(self) -> (CachedReads, BundleState, Arc<dyn StateProvider>) {
         (self.cached_reads, self.bundle_state.unwrap(), self.provider)
     }
