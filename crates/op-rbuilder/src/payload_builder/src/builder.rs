@@ -1,7 +1,10 @@
 //! Optimism payload builder implementation with Flashbots bundle support.
 
-use reth::builder::{
-    components::PayloadServiceBuilder, BuilderContext, FullNodeTypes, PayloadBuilderConfig,
+use reth::{
+    builder::{
+        components::PayloadServiceBuilder, BuilderContext, FullNodeTypes, PayloadBuilderConfig,
+    },
+    rpc::types::mev::EthSendBundle,
 };
 use reth_basic_payload_builder::*;
 use reth_chain_state::{CanonStateSubscriptions, ExecutedBlock};
@@ -23,7 +26,7 @@ use reth_primitives::{
 };
 use reth_provider::StateProviderFactory;
 use reth_revm::database::StateProviderDatabase;
-use reth_transaction_pool::{BestTransactionsAttributes, TransactionPool};
+use reth_transaction_pool::BestTransactionsAttributes;
 use reth_trie::HashedPostState;
 use revm::{
     db::states::bundle_state::BundleRetention,
@@ -32,17 +35,18 @@ use revm::{
 };
 use std::sync::Arc;
 use tracing::{debug, trace, warn};
+use transaction_pool_bundle_ext::TransactionPoolBundleExt;
 
 /// Payload builder for OP Stack, which includes bundle support.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CustomPayloadBuilder<EvmConfig> {
+pub struct OpRbuilderPayloadBuilder<EvmConfig> {
     /// The rollup's compute pending block configuration option.
     compute_pending_block: bool,
     /// The type responsible for creating the evm.
     evm_config: EvmConfig,
 }
 
-impl<EvmConfig> CustomPayloadBuilder<EvmConfig> {
+impl<EvmConfig> OpRbuilderPayloadBuilder<EvmConfig> {
     pub const fn new(evm_config: EvmConfig) -> Self {
         Self {
             compute_pending_block: true,
@@ -67,11 +71,11 @@ impl<EvmConfig> CustomPayloadBuilder<EvmConfig> {
     }
 }
 
-/// Implementation of the [`PayloadBuilder`] trait for [`CustomPayloadBuilder`].
-impl<Pool, Client, EvmConfig> PayloadBuilder<Pool, Client> for CustomPayloadBuilder<EvmConfig>
+/// Implementation of the [`PayloadBuilder`] trait for [`OpRbuilderPayloadBuilder`].
+impl<Pool, Client, EvmConfig> PayloadBuilder<Pool, Client> for OpRbuilderPayloadBuilder<EvmConfig>
 where
     Client: StateProviderFactory,
-    Pool: TransactionPool,
+    Pool: TransactionPoolBundleExt,
     EvmConfig: ConfigureEvm,
 {
     type Attributes = OptimismPayloadBuilderAttributes;
@@ -240,12 +244,10 @@ where
     }
 }
 
-/// Constructs an Ethereum transaction payload from the transactions sent through the
-/// Payload attributes by the sequencer. If the `no_tx_pool` argument is passed in
-/// the payload attributes, the transaction pool will be ignored and the only transactions
-/// included in the payload will be those sent through the attributes.
+/// Constructs an Optimism payload from the transactions sent through the
+/// Payload attributes by the sequencer, and bundles returned by the BundlePool.
 ///
-/// Given build arguments including an Ethereum client, transaction pool,
+/// Given build arguments including an Ethereum client, bundle-enabled transaction pool,
 /// and configuration, this function creates a transaction payload. Returns
 /// a result indicating success with the payload or an error in case of failure.
 #[inline]
@@ -257,7 +259,7 @@ pub(crate) fn try_build_inner<EvmConfig, Pool, Client>(
 where
     EvmConfig: ConfigureEvm,
     Client: StateProviderFactory,
-    Pool: TransactionPool,
+    Pool: TransactionPoolBundleExt,
 {
     let BuildArguments {
         client,
@@ -681,10 +683,10 @@ where
     })
 }
 
-impl<Node, Pool> PayloadServiceBuilder<Node, Pool> for CustomPayloadBuilder<OptimismEvmConfig>
+impl<Node, Pool> PayloadServiceBuilder<Node, Pool> for OpRbuilderPayloadBuilder<OptimismEvmConfig>
 where
     Node: FullNodeTypes<Engine = OptimismEngineTypes>,
-    Pool: TransactionPool + Unpin + 'static,
+    Pool: TransactionPoolBundleExt<Bundle = EthSendBundle> + Unpin + 'static,
 {
     async fn spawn_payload_service(
         self,
@@ -706,7 +708,7 @@ where
             ctx.task_executor().clone(),
             payload_job_config,
             ctx.chain_spec().clone(),
-            CustomPayloadBuilder::new(self.evm_config),
+            OpRbuilderPayloadBuilder::new(self.evm_config),
         );
 
         let (payload_service, payload_builder) =

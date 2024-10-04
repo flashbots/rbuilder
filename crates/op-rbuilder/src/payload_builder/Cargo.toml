@@ -5,6 +5,9 @@ edition = "2021"
 description = "A payload builder for op-rbuilder with bundle support."
 
 [dependencies]
+# workspace
+transaction-pool-bundle-ext = { path = "../../../transaction-pool-bundle-ext" }
+
 # reth
 reth.workspace = true
 reth-chainspec.workspace = true

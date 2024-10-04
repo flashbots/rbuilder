@@ -10,8 +10,14 @@
 #![cfg(feature = "optimism")]
 
 mod eth_bundle_api;
-mod node;
 
+use crate::eth_bundle_api::EthCallBundleMinimalApiServer;
+use clap_builder::Parser;
+use eth_bundle_api::EthBundleMinimalApi;
+use op_rbuilder_node_optimism::{args::OpRbuilderArgs, OpRbuilderNode};
+use reth::cli::Cli;
+use reth_node_optimism::node::OptimismAddOns;
+use reth_optimism_rpc::eth::rpc::SequencerClient;
 use tracing as _;
 
 // jemalloc provides better performance
@@ -26,5 +32,55 @@ fn main() {
         std::env::set_var("RUST_BACKTRACE", "1");
     }
 
-    node::run()
+    hello_op_rbuilder();
+    if let Err(err) = Cli::<OpRbuilderArgs>::parse().run(|builder, op_rbuilder_args| async move {
+        let sequencer_http_arg = op_rbuilder_args.sequencer_http.clone();
+        let handle = builder
+            .with_types::<OpRbuilderNode>()
+            .with_components(OpRbuilderNode::components(op_rbuilder_args))
+            .with_add_ons::<OptimismAddOns>()
+            .extend_rpc_modules(move |ctx| {
+                // register sequencer tx forwarder
+                if let Some(sequencer_http) = sequencer_http_arg {
+                    ctx.registry
+                        .eth_api()
+                        .set_sequencer_client(SequencerClient::new(sequencer_http));
+                }
+
+                // register eth bundle api
+                let ext = EthBundleMinimalApi::new(ctx.registry.pool().clone());
+                ctx.modules.merge_configured(ext.into_rpc())?;
+
+                Ok(())
+            })
+            .launch()
+            .await?;
+
+        handle.node_exit_future.await
+    }) {
+        eprintln!("Error: {err:?}");
+        std::process::exit(1);
+    }
+}
+
+fn hello_op_rbuilder() {
+    println!(
+        r#"
+
+ ░▒▓██████▓▒░░▒▓███████▓▒░       ░▒▓███████▓▒░░▒▓███████▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░▒▓█▓▒░      ░▒▓███████▓▒░░▒▓████████▓▒░▒▓███████▓▒░
+░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░
+░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░
+░▒▓█▓▒░░▒▓█▓▒░▒▓███████▓▒░       ░▒▓███████▓▒░░▒▓███████▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓██████▓▒░ ░▒▓███████▓▒░
+░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░             ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░
+░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░             ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░
+ ░▒▓██████▓▒░░▒▓█▓▒░             ░▒▓█▓▒░░▒▓█▓▒░▒▓███████▓▒░ ░▒▓██████▓▒░░▒▓█▓▒░▒▓████████▓▒░▒▓███████▓▒░░▒▓████████▓▒░▒▓█▓▒░░▒▓█▓▒░
+
+   ______           ________)
+  (, /    )        (, /     /)        /)   /)
+    /---(            /___, // _   _  (/   (/_ ____/_ _
+ ) / ____) (_/_   ) /     (/_(_(_/_)_/ )_/_) (_) (__/_)_
+(_/ (     .-/    (_/
+         (_/
+    "#
+    );
 }

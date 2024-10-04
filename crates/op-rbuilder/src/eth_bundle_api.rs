@@ -1,53 +1,53 @@
 //! An implemention of the reth EthBundleApiServer trait.
+//!
+//! Should be refactored into standalone crate if required by other code.
 
-use reth_primitives::{Bytes, B256};
-use reth_rpc_api::EthBundleApiServer;
-use reth_rpc_types::mev::{
-    CancelBundleRequest, CancelPrivateTransactionRequest, EthBundleHash, EthCallBundle,
-    EthCallBundleResponse, EthSendBundle, PrivateTransactionRequest,
-};
+use jsonrpsee::proc_macros::rpc;
+use reth_rpc_types::mev::{CancelBundleRequest, EthBundleHash, EthSendBundle};
+use transaction_pool_bundle_ext::BundlePoolOperations;
 
 /// [`EthBundleApiServer`] implementation.
-pub struct EthBundleApi;
+pub struct EthBundleMinimalApi<BundlePool> {
+    pool: BundlePool,
+}
+
+impl<BundlePool> EthBundleMinimalApi<BundlePool> {
+    pub fn new(pool: BundlePool) -> Self {
+        Self { pool }
+    }
+}
 
 #[async_trait::async_trait]
-impl EthBundleApiServer for EthBundleApi {
+impl<BundlePool> EthCallBundleMinimalApiServer for EthBundleMinimalApi<BundlePool>
+where
+    BundlePool: BundlePoolOperations<Bundle = EthSendBundle> + 'static,
+{
     async fn send_bundle(
         &self,
-        _bundle: EthSendBundle,
+        bundle: EthSendBundle,
     ) -> jsonrpsee::core::RpcResult<EthBundleHash> {
-        unimplemented!()
-    }
+        // TODO: Handle error
+        self.pool.add_bundle(bundle).unwrap();
 
-    async fn call_bundle(
-        &self,
-        _request: EthCallBundle,
-    ) -> jsonrpsee::core::RpcResult<EthCallBundleResponse> {
-        unimplemented!()
+        // TODO: Hash and return
+        todo!()
     }
 
     async fn cancel_bundle(&self, _request: CancelBundleRequest) -> jsonrpsee::core::RpcResult<()> {
-        unimplemented!()
+        // TODO: Convert request.bundle_hash string into a hash.
+        todo!()
+        // self.pool.cancel_bundle(request.bundle_hash)
     }
+}
 
-    async fn send_private_transaction(
-        &self,
-        _request: PrivateTransactionRequest,
-    ) -> jsonrpsee::core::RpcResult<B256> {
-        unimplemented!()
-    }
+/// A subset of the [EthBundleApi] API interface that only supports `eth_sendBundle` and
+/// `eth_cancelBundle`.
+#[rpc(server, namespace = "eth")]
+pub trait EthCallBundleMinimalApi {
+    #[method(name = "sendBundle")]
+    async fn send_bundle(&self, bundle: EthSendBundle)
+        -> jsonrpsee::core::RpcResult<EthBundleHash>;
 
-    async fn send_private_raw_transaction(
-        &self,
-        _bytes: Bytes,
-    ) -> jsonrpsee::core::RpcResult<B256> {
-        unimplemented!()
-    }
-
-    async fn cancel_private_transaction(
-        &self,
-        _request: CancelPrivateTransactionRequest,
-    ) -> jsonrpsee::core::RpcResult<bool> {
-        unimplemented!()
-    }
+    #[method(name = "cancelBundle")]
+    async fn cancel_bundle(&self, request: CancelBundleRequest) -> jsonrpsee::core::RpcResult<()>;
 }

@@ -4,9 +4,6 @@ use reth_primitives::B256;
 use reth_transaction_pool::TransactionPool;
 use std::fmt::Debug;
 
-/// Extension for [TransactionPool] trait adding support for [BundlePoolOperations].
-pub trait TransactionPoolBundleExt: TransactionPool + BundlePoolOperations {}
-
 /// Bundle-related operations.
 ///
 /// This API is under active development.
@@ -29,3 +26,6 @@ pub trait BundlePoolOperations: Sync + Send {
     /// Get transactions to be included in the head of the next block
     fn get_transactions(&self) -> Result<impl IntoIterator<Item = Self::Transaction>, Self::Error>;
 }
+
+/// Extension for [TransactionPool] trait adding support for [BundlePoolOperations].
+pub trait TransactionPoolBundleExt: TransactionPool + BundlePoolOperations {}

@@ -7,9 +7,9 @@ build = "build.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tokio = "1.38.0"
 serde = "1.0.188"
 serde_json = "1.0.105"
+tokio.workspace = true
 eyre.workspace = true
 thiserror.workspace = true
 reth.workspace = true
