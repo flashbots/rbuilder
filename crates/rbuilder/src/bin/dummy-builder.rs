@@ -45,7 +45,10 @@ use tracing::{info, level_filters::LevelFilter};
 
 // state diff stream imports
 use futures::StreamExt;
-use jsonrpsee::core::server::SubscriptionMessage;
+use jsonrpsee::core::{
+    id_providers::RandomStringIdProvider,
+    server::SubscriptionMessage,
+};
 use jsonrpsee::server::{RpcModule, Server};
 use jsonrpsee::PendingSubscriptionSink;
 use tokio_stream::wrappers::BroadcastStream;
@@ -131,7 +134,7 @@ async fn main() -> eyre::Result<()> {
 /////////////////////////
 #[derive(Debug)]
 struct TraceBlockSinkFactory {
-    tx: broadcast::Sender<String>,
+    tx: broadcast::Sender<serde_json::Value>,
 }
 
 impl TraceBlockSinkFactory {
@@ -139,17 +142,18 @@ impl TraceBlockSinkFactory {
         // Create a new JSON-RPC server
         let server = Server::builder()
             .set_message_buffer_capacity(5)
+            .set_id_provider(RandomStringIdProvider::new(34))
             .build("127.0.0.1:8547")
             .await?;
 
         // Create a broadcast channel
-        let (tx, _rx) = broadcast::channel::<String>(16);
+        let (tx, _rx) = broadcast::channel::<serde_json::Value>(16);
 
         let mut module = RpcModule::new(tx.clone());
 
         // Register a subscription method named "eth_stateDiffSubscription"
         module
-            .register_subscription("eth_subscribeStateDiffs", "eth_stateDiffSubscription", "eth_unsubscribeStateDiffs", |_params, pending, ctx| async move {
+            .register_subscription("eth_subscribe", "eth_subscription", "eth_unsubscribe", |_params, pending, ctx| async move {
                 let rx = ctx.subscribe();
                 let stream = BroadcastStream::new(rx);
                 Self::pipe_from_stream(pending, stream).await?;
@@ -178,7 +182,7 @@ impl TraceBlockSinkFactory {
     // Method to handle sending messages from the broadcast stream to subscribers
     async fn pipe_from_stream(
         pending: PendingSubscriptionSink,
-        mut stream: BroadcastStream<String>,
+        mut stream: BroadcastStream<serde_json::Value>,
     ) -> Result<(), jsonrpsee::core::Error> {
         let sink = match pending.accept().await {
             Ok(sink) => sink,
@@ -228,7 +232,7 @@ impl UnfinishedBlockBuildingSinkFactory for TraceBlockSinkFactory {
 
 #[derive(Clone, Debug)]
 struct TracingBlockSink {
-    tx: broadcast::Sender<String>,
+    tx: broadcast::Sender<serde_json::Value>,
 }
 
 impl UnfinishedBlockBuildingSink for TracingBlockSink {
@@ -262,11 +266,11 @@ impl UnfinishedBlockBuildingSink for TracingBlockSink {
         let block_data = json!({
             "blockNumber": building_context.block_env.number,
             "blockTimestamp": building_context.block_env.timestamp,
-            "blockUuid": Uuid::new_v4().to_string(),
+            "blockUuid": Uuid::new_v4(),
             "pendingState": pending_state
         });
 
-        if let Err(e) = self.tx.send(serde_json::to_string(&block_data).unwrap()) {
+        if let Err(e) = self.tx.send(block_data) {
             warn!("Failed to send block data: {:?}", e);
         }
         info!(

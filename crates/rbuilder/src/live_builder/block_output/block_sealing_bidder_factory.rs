@@ -24,6 +24,8 @@ use super::{
     relay_submit::BuilderSinkFactory,
 };
 
+use serde_json::Value;
+
 /// UnfinishedBlockBuildingSinkFactory to bid blocks against the competition.
 /// Blocks are given to a SlotBidder (created per block).
 /// SlotBidder bids using a SequentialSealerBidMaker (created per block).
@@ -41,7 +43,7 @@ pub struct BlockSealingBidderFactory {
     /// See [ParallelSealerBidMaker]
     max_concurrent_seals: usize,
     /// State Diff WS Server
-    state_diff_server: broadcast::Sender<String>
+    state_diff_server: broadcast::Sender<Value>
 }
 
 impl BlockSealingBidderFactory {
@@ -142,7 +144,7 @@ struct BlockSealingBidder {
     /// Used to unsubscribe on drop.
     competition_bid_value_source: Arc<dyn BidValueSource + Send + Sync>,
     bidder: Arc<dyn SlotBidder>,
-    state_diff_server: broadcast::Sender<String>
+    state_diff_server: broadcast::Sender<Value>
 }
 
 impl BlockSealingBidder {
@@ -150,7 +152,7 @@ impl BlockSealingBidder {
         slot_data: MevBoostSlotData,
         bidder: Arc<dyn SlotBidder>,
         competition_bid_value_source: Arc<dyn BidValueSource + Send + Sync>,
-        state_diff_server: broadcast::Sender<String>
+        state_diff_server: broadcast::Sender<Value>
     ) -> Self {
         let slot_bidder_to_bid_value_obs: Arc<dyn BidValueObs + Send + Sync> =
             Arc::new(SlotBidderToBidValueObs {
@@ -204,11 +206,11 @@ impl UnfinishedBlockBuildingSink for BlockSealingBidder {
         let block_data = json!({
             "blockNumber": building_context.block_env.number,
             "blockTimestamp": building_context.block_env.timestamp,
-            "blockUuid": Uuid::new_v4().to_string(),
+            "blockUuid": Uuid::new_v4(),
             "pendingState": pending_state
         });
 
-        if let Err(_e) = self.state_diff_server.send(serde_json::to_string(&block_data).unwrap()) {
+        if let Err(_e) = self.state_diff_server.send(block_data) {
             warn!("Failed to send block data");
         }
 

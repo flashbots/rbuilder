@@ -396,7 +396,8 @@ where
 pub const DEFAULT_CL_NODE_URL: &str = "http://127.0.0.1:3500";
 pub const DEFAULT_EL_NODE_IPC_PATH: &str = "/tmp/reth.ipc";
 pub const DEFAULT_INCOMING_BUNDLES_PORT: u16 = 8645;
-pub const DEFAULT_RETH_DB_PATH: &str = "/mnt/data/reth";
+// pub const DEFAULT_RETH_DB_PATH: &str = "/mnt/data/reth";
+pub const DEFAULT_RETH_DB_PATH: &str = "/root/.local/share/reth/mainnet";
 
 impl Default for BaseConfig {
     fn default() -> Self {
