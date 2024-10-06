@@ -1,6 +1,5 @@
 use crate::primitives::{
-    serialize::CancelShareBundle, BundleReplacementKey, Order, OrderId, OrderReplacementKey,
-    ShareBundleReplacementKey,
+    serialize::CancelShareBundle, BundleReplacementKey, Order, OrderId,
 };
 use ahash::HashMap;
 use lru::LruCache;
@@ -48,7 +47,7 @@ impl OrdersForBlock {
 struct BundleBlockStore {
     /// Bundles and SharedBundles
     bundles: Vec<Order>,
-    cancelled_sbundles: Vec<ShareBundleReplacementKey>,
+    cancelled_sbundles: Vec<CancelShareBundle>,
 }
 
 #[derive(Debug)]
@@ -144,7 +143,7 @@ impl OrderPool {
             .bundles_by_target_block
             .entry(cancellation.block)
             .or_default();
-        bundles_store.cancelled_sbundles.push(cancellation.key);
+        bundles_store.cancelled_sbundles.push(cancellation.clone());
     }
 
     fn process_remove_bundle(&mut self, key: &BundleReplacementKey) {
@@ -189,24 +188,24 @@ impl OrderPool {
         res
     }
 
-    pub fn dump_existing(
+    fn dump_existing(
         &mut self,
         block_number: u64,
         sink: &mut Box<dyn ReplaceableOrderSink>,
     ) {
         for order in self.mempool_txs.iter().map(|(order, _)| order.clone()) {
-            sink.insert_order(order);
+            sink.process_command(ReplaceableOrderPoolCommand::Order(order));
         }
-        for cancellation_key in self.bundle_cancellations.iter().map(|(key, _)| key) {
-            sink.remove_bundle(OrderReplacementKey::Bundle(*cancellation_key));
+        for key in self.bundle_cancellations.iter().map(|(key, _)| key) {
+            sink.process_command(ReplaceableOrderPoolCommand::CancelBundle(*key));
         }
 
         if let Some(bundle_store) = self.bundles_by_target_block.get(&block_number) {
             for order in bundle_store.bundles.iter().cloned() {
-                sink.insert_order(order);
+                sink.process_command(ReplaceableOrderPoolCommand::Order(order));
             }
-            for order_id in bundle_store.cancelled_sbundles.iter().cloned() {
-                sink.remove_bundle(OrderReplacementKey::ShareBundle(order_id));
+            for order in bundle_store.cancelled_sbundles.iter().cloned() {
+                sink.process_command(ReplaceableOrderPoolCommand::CancelShareBundle(order));
             }
         }
     }

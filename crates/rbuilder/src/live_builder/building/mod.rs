@@ -72,6 +72,7 @@ impl<DB: Database + Clone + 'static> BlockBuildingPool<DB> {
         let _block_sub = self.orderpool_subscriber.add_sink(
             block_ctx.block_env.number.to(),
             Box::new(order_replacement_manager),
+            true,
         );
 
         let simulations_for_block = self.order_simulation_pool.spawn_simulation_job(

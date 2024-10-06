@@ -1,6 +1,5 @@
 use tracing::info;
 
-use crate::primitives::{Order, OrderReplacementKey};
 use core::fmt::Debug;
 
 use super::{ReplaceableOrderPoolCommand};
@@ -14,8 +13,6 @@ use super::{ReplaceableOrderPoolCommand};
 /// so we can identify the newest.
 pub trait ReplaceableOrderSink: Debug + Send {
     fn process_command(&mut self, command: ReplaceableOrderPoolCommand) -> bool;
-    fn insert_order(&mut self, order: Order) -> bool;
-    fn remove_bundle(&mut self, key: OrderReplacementKey) -> bool;
     /// @Pending remove this ugly hack to check if we can stop sending data.
     /// It should be replaced for a better control over object destruction
     fn is_alive(&self) -> bool;
@@ -27,21 +24,33 @@ pub struct ReplaceableOrderPrinter {}
 
 impl ReplaceableOrderSink for ReplaceableOrderPrinter {
     fn process_command(&mut self, command: ReplaceableOrderPoolCommand) -> bool {
-        true
-    }
-
-    fn insert_order(&mut self, order: Order) -> bool {
-        info!(
-            order_id = ?order.id(),
-            order_rep_info = ?order.replacement_key_and_sequence_number(),
-            "New order "
-        );
-        true
-    }
-
-    fn remove_bundle(&mut self, key: OrderReplacementKey) -> bool {
-        info!(key=?key,"Cancelled  bundle");
-        true
+        match command {
+            ReplaceableOrderPoolCommand::Order(order) => {
+                info!(
+                    order_id = ?order.id(),
+                    order_rep_info = ?order.replacement_key_and_sequence_number(),
+                    "New order "
+                );
+                true
+            },
+            ReplaceableOrderPoolCommand::BobOrder((order, uuid)) => {
+                info!(
+                    order_id = ?order.id(),
+                    order_rep_info = ?order.replacement_key_and_sequence_number(),
+                    block_uuid = ?uuid,
+                    "New bob order "
+                );
+                true
+            },
+            ReplaceableOrderPoolCommand::CancelBundle(key) => {
+                info!(key=?key,"Cancelled share bundle");
+                true
+            },
+            ReplaceableOrderPoolCommand::CancelShareBundle(cancel) => {
+                info!(key=?cancel.key,"Cancelled share bundle");
+                true
+            },
+        }
     }
 
     fn is_alive(&self) -> bool {

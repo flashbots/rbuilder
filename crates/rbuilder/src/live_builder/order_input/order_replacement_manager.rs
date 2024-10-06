@@ -28,21 +28,6 @@ impl OrderReplacementManager {
             replacement_states: Default::default(),
         }
     }
-}
-
-impl ReplaceableOrderSink for OrderReplacementManager {
-    fn process_command(&mut self, command: ReplaceableOrderPoolCommand) -> bool {
-        match command.clone() {
-            ReplaceableOrderPoolCommand::Order(o) => self.insert_order(o),
-            ReplaceableOrderPoolCommand::CancelShareBundle(cancel) => {
-                self.remove_bundle(OrderReplacementKey::ShareBundle(cancel.key))
-            },
-            ReplaceableOrderPoolCommand::CancelBundle(key) => {
-                self.remove_bundle(OrderReplacementKey::Bundle(key))
-            },
-            ReplaceableOrderPoolCommand::BobOrder(_) => true,
-        }
-    }
 
     fn insert_order(&mut self, order: Order) -> bool {
         if let Some((rep_key, sequence_number)) = order.replacement_key_and_sequence_number() {
@@ -75,6 +60,22 @@ impl ReplaceableOrderSink for OrderReplacementManager {
                 e.insert(BundleReplacementState::Cancelled);
                 true
             }
+        }
+    }
+}
+
+impl ReplaceableOrderSink for OrderReplacementManager {
+    fn process_command(&mut self, command: ReplaceableOrderPoolCommand) -> bool {
+        // TODO: does this need to be a clone?
+        match command.clone() {
+            ReplaceableOrderPoolCommand::Order(o) => self.insert_order(o),
+            ReplaceableOrderPoolCommand::BobOrder(_) => true,
+            ReplaceableOrderPoolCommand::CancelBundle(key) => {
+                self.remove_bundle(OrderReplacementKey::Bundle(key))
+            },
+            ReplaceableOrderPoolCommand::CancelShareBundle(cancel) => {
+                self.remove_bundle(OrderReplacementKey::ShareBundle(cancel.key))
+            },
         }
     }
 
