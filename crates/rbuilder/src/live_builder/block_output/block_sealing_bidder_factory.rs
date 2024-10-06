@@ -1,17 +1,11 @@
 use std::sync::Arc;
-use tokio::sync::broadcast;
-use serde_json::json;
-use alloy_primitives::{B256,U256};
-use alloy_rpc_types_eth::state::{StateOverride, AccountOverride};
-use std::collections::HashMap;
-use uuid::Uuid;
+use alloy_primitives::{U256};
 
 use crate::{
     building::builders::{UnfinishedBlockBuildingSink, UnfinishedBlockBuildingSinkFactory},
     live_builder::payload_events::MevBoostSlotData,
-    live_builder::streaming::block_subscription_server::start_block_subscription_server
 };
-use tracing::{error, info, warn};
+use tracing::{error};
 
 use super::{
     bid_value_source::interfaces::{BidValueObs, BidValueSource},
@@ -23,10 +17,6 @@ use super::{
     },
     relay_submit::BuilderSinkFactory,
 };
-
-use serde_json::Value;
-
-const STATE_STREAMING_START_DELTA: time::Duration = time::Duration::milliseconds(-2000);
 
 /// UnfinishedBlockBuildingSinkFactory to bid blocks against the competition.
 /// Blocks are given to a SlotBidder (created per block).
@@ -44,8 +34,6 @@ pub struct BlockSealingBidderFactory {
     wallet_balance_watcher: WalletBalanceWatcher,
     /// See [ParallelSealerBidMaker]
     max_concurrent_seals: usize,
-    /// State Diff WS Server
-    state_diff_server: broadcast::Sender<Value>
 }
 
 impl BlockSealingBidderFactory {
@@ -56,14 +44,12 @@ impl BlockSealingBidderFactory {
         wallet_balance_watcher: WalletBalanceWatcher,
         max_concurrent_seals: usize,
     ) -> Self {
-        let state_diff_server = start_block_subscription_server().await.expect("Failed to start block subscription server");
         Self {
             bidding_service,
             block_sink_factory,
             competition_bid_value_source,
             wallet_balance_watcher,
             max_concurrent_seals,
-            state_diff_server
         }
     }
 }
@@ -130,7 +116,6 @@ impl UnfinishedBlockBuildingSinkFactory for BlockSealingBidderFactory {
             slot_data,
             slot_bidder,
             self.competition_bid_value_source.clone(),
-            self.state_diff_server.clone()
         );
 
         Arc::new(res)
@@ -146,8 +131,6 @@ struct BlockSealingBidder {
     /// Used to unsubscribe on drop.
     competition_bid_value_source: Arc<dyn BidValueSource + Send + Sync>,
     bidder: Arc<dyn SlotBidder>,
-    state_diff_server: broadcast::Sender<Value>,
-    slot_timestamp: time::OffsetDateTime
 }
 
 impl BlockSealingBidder {
@@ -155,7 +138,6 @@ impl BlockSealingBidder {
         slot_data: MevBoostSlotData,
         bidder: Arc<dyn SlotBidder>,
         competition_bid_value_source: Arc<dyn BidValueSource + Send + Sync>,
-        state_diff_server: broadcast::Sender<Value>
     ) -> Self {
         let slot_bidder_to_bid_value_obs: Arc<dyn BidValueObs + Send + Sync> =
             Arc::new(SlotBidderToBidValueObs {
@@ -172,27 +154,7 @@ impl BlockSealingBidder {
             bid_value_source_to_unsubscribe: slot_bidder_to_bid_value_obs,
             competition_bid_value_source,
             bidder,
-            slot_timestamp: slot_data.timestamp(),
-            state_diff_server
         }
-    }
-
-    fn should_start_streaming(&self) -> bool {
-        let now = time::OffsetDateTime::now_utc();
-        let ms_into_slot = (now - self.slot_timestamp).whole_milliseconds();
-        let should_start = ms_into_slot >= STATE_STREAMING_START_DELTA.whole_milliseconds();
-
-        if ms_into_slot % 100 == 0 {
-            tracing::info!(
-                slot_timestamp = ?self.slot_timestamp,
-                current_time = ?now,
-                seconds_into_slot = ms_into_slot / 100,
-                should_start,
-                "Current time into slot"
-            );
-        }
-
-        should_start
     }
 }
 
@@ -201,55 +163,6 @@ impl UnfinishedBlockBuildingSink for BlockSealingBidder {
         &self,
         block: Box<dyn crate::building::builders::block_building_helper::BlockBuildingHelper>,
     ) {
-
-        if self.should_start_streaming() {
-            let building_context = block.building_context();
-            let bundle_state = block.get_bundle_state().state();
-
-            // Create a new StateOverride object to store the changes
-            let mut pending_state = StateOverride::new();
-
-            // Iterate through each address and account in the bundle state
-            for (address, account) in bundle_state.iter() {
-                let mut account_override = AccountOverride::default();
-
-                let mut state_diff = HashMap::new();
-                for (storage_key, storage_slot) in &account.storage {
-                    let key = B256::from(*storage_key);
-                    let value = B256::from(storage_slot.present_value);
-                    state_diff.insert(key, value);
-            }
-
-                if !state_diff.is_empty() {
-                    account_override.state_diff = Some(state_diff);
-                    pending_state.insert(*address, account_override);
-                }
-
-            }
-
-            let block_data = json!({
-                "blockNumber": building_context.block_env.number,
-                "blockTimestamp": building_context.block_env.timestamp,
-                "blockUuid": Uuid::new_v4(),
-                "gasRemaing": block.gas_remaining(),
-                "pendingState": pending_state
-            });
-
-            if let Err(_e) = self.state_diff_server.send(block_data) {
-                warn!("Failed to send block data");
-            }
-
-            let now = time::OffsetDateTime::now_utc();
-            let ms_into_slot = (now - self.slot_timestamp).whole_milliseconds();
-
-            info!(
-                seconds_into_slot = ms_into_slot / 100,
-                order_count = block.built_block_trace().included_orders.len(),
-                "Sent block"
-            );
-
-        }
-
         self.bidder.new_block(block);
     }
 

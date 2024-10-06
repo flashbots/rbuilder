@@ -132,7 +132,7 @@ impl<DB: Database + Clone + 'static, BuilderSourceType: SlotSource>
             self.sink_factory,
             orderpool_subscriber,
             order_simulation_pool,
-        );
+        ).await;
 
         let watchdog_sender = spawn_watchdog_thread(self.watchdog_timeout)?;
 
