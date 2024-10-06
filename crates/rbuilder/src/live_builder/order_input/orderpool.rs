@@ -154,6 +154,7 @@ impl OrderPool {
     fn process_command(&mut self, command: ReplaceableOrderPoolCommand) {
         match &command {
             ReplaceableOrderPoolCommand::Order(order) => self.process_order(order),
+            ReplaceableOrderPoolCommand::BobOrder((order, _)) => self.process_order(order),
             ReplaceableOrderPoolCommand::CancelShareBundle(c) => self.process_remove_sbundle(c),
             ReplaceableOrderPoolCommand::CancelBundle(key) => self.process_remove_bundle(key),
         }
@@ -163,16 +164,7 @@ impl OrderPool {
                 return false;
             }
             if target_block.is_none() || target_block == Some(sub.block_number) {
-                let send_ok = match command.clone() {
-                    ReplaceableOrderPoolCommand::Order(o) => sub.sink.insert_order(o),
-                    ReplaceableOrderPoolCommand::CancelShareBundle(cancel) => sub
-                        .sink
-                        .remove_bundle(OrderReplacementKey::ShareBundle(cancel.key)),
-                    ReplaceableOrderPoolCommand::CancelBundle(key) => {
-                        sub.sink.remove_bundle(OrderReplacementKey::Bundle(key))
-                    }
-                };
-                if !send_ok {
+                if !sub.sink.process_command(command.clone()) {
                     return false;
                 }
             }
@@ -185,7 +177,23 @@ impl OrderPool {
         &mut self,
         block_number: u64,
         mut sink: Box<dyn ReplaceableOrderSink>,
+        dump: bool,
     ) -> OrderPoolSubscriptionId {
+        if dump {
+            self.dump_existing(block_number, &mut sink);
+        }
+        let res = OrderPoolSubscriptionId(self.next_sink_id);
+        self.next_sink_id += 1;
+        self.sinks
+            .insert(res.clone(), SinkSubscription { sink, block_number });
+        res
+    }
+
+    pub fn dump_existing(
+        &mut self,
+        block_number: u64,
+        sink: &mut Box<dyn ReplaceableOrderSink>,
+    ) {
         for order in self.mempool_txs.iter().map(|(order, _)| order.clone()) {
             sink.insert_order(order);
         }
@@ -201,12 +209,8 @@ impl OrderPool {
                 sink.remove_bundle(OrderReplacementKey::ShareBundle(order_id));
             }
         }
-        let res = OrderPoolSubscriptionId(self.next_sink_id);
-        self.next_sink_id += 1;
-        self.sinks
-            .insert(res.clone(), SinkSubscription { sink, block_number });
-        res
     }
+
 
     /// Removes the sink. If present returns it
     pub fn remove_sink(

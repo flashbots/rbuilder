@@ -3,6 +3,8 @@ use tracing::info;
 use crate::primitives::{Order, OrderReplacementKey};
 use core::fmt::Debug;
 
+use super::{ReplaceableOrderPoolCommand};
+
 /// Receiver of order commands in a low level order stream (mempool + RPC calls).
 /// Orders are assumed to be immutable so there is no update.
 /// insert_order/remove_order return a bool indicating if the operation was successful.
@@ -11,6 +13,7 @@ use core::fmt::Debug;
 /// Due to source problems insert_order/remove_bundle can arrive out of order so Orders also have a sequence number
 /// so we can identify the newest.
 pub trait ReplaceableOrderSink: Debug + Send {
+    fn process_command(&mut self, command: ReplaceableOrderPoolCommand) -> bool;
     fn insert_order(&mut self, order: Order) -> bool;
     fn remove_bundle(&mut self, key: OrderReplacementKey) -> bool;
     /// @Pending remove this ugly hack to check if we can stop sending data.
@@ -23,6 +26,10 @@ pub trait ReplaceableOrderSink: Debug + Send {
 pub struct ReplaceableOrderPrinter {}
 
 impl ReplaceableOrderSink for ReplaceableOrderPrinter {
+    fn process_command(&mut self, command: ReplaceableOrderPoolCommand) -> bool {
+        true
+    }
+
     fn insert_order(&mut self, order: Order) -> bool {
         info!(
             order_id = ?order.id(),

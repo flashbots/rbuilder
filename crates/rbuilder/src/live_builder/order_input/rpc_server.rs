@@ -112,6 +112,36 @@ pub async fn start_server_accepting_bundles(
         }
     })?;
 
+    let results_clone = results.clone();
+    module.register_async_method("eth_sendEndOfBlockBundle", move |params, _| {
+        let results = results_clone.clone();
+        async move {
+            let start = Instant::now();
+            let mut seq = params.sequence();
+            let raw_bundle: RawBundle = seq.next().unwrap();
+            let uuid: Uuid = seq.next().unwrap();
+
+            let bundle: Bundle = match raw_bundle.decode(TxEncoding::WithBlobData) {
+                Ok(bundle) => bundle,
+                Err(err) => {
+                    warn!(?err, "Failed to parse bundle");
+                    // @Metric
+                    return;
+                }
+            };
+
+            let order = Order::Bundle(bundle);
+            let parse_duration = start.elapsed();
+            let target_block = order.target_block().unwrap_or_default();
+            trace!(order = ?order.id(), parse_duration_mus = parse_duration.as_micros(), target_block, "Received bundle");
+            send_command(
+                ReplaceableOrderPoolCommand::BobOrder((order, uuid)),
+                &results,
+                timeout,
+            ).await;
+        }
+    })?;
+
     module.merge(extra_rpc)?;
     let handle = server.start(module);
 

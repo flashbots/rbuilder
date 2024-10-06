@@ -2,7 +2,11 @@ use ahash::HashMap;
 
 use crate::primitives::{Order, OrderId, OrderReplacementKey};
 
-use super::{order_sink::OrderSink, replaceable_order_sink::ReplaceableOrderSink};
+use super::{
+    order_sink::OrderSink,
+    replaceable_order_sink::ReplaceableOrderSink,
+    ReplaceableOrderPoolCommand,
+};
 
 /// Handles all replacement and cancellation for bundles and sbundles by receiving
 /// low level orderflow data via ReplaceableOrderSink and forwarding to an OrderSink.
@@ -27,6 +31,19 @@ impl OrderReplacementManager {
 }
 
 impl ReplaceableOrderSink for OrderReplacementManager {
+    fn process_command(&mut self, command: ReplaceableOrderPoolCommand) -> bool {
+        match command.clone() {
+            ReplaceableOrderPoolCommand::Order(o) => self.insert_order(o),
+            ReplaceableOrderPoolCommand::CancelShareBundle(cancel) => {
+                self.remove_bundle(OrderReplacementKey::ShareBundle(cancel.key))
+            },
+            ReplaceableOrderPoolCommand::CancelBundle(key) => {
+                self.remove_bundle(OrderReplacementKey::Bundle(key))
+            },
+            ReplaceableOrderPoolCommand::BobOrder(_) => true,
+        }
+    }
+
     fn insert_order(&mut self, order: Order) -> bool {
         if let Some((rep_key, sequence_number)) = order.replacement_key_and_sequence_number() {
             match self.replacement_states.entry(rep_key) {
