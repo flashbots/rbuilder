@@ -191,7 +191,7 @@ pub struct TransactionOk {
     pub receipt: Receipt,
 }
 
-#[derive(Error, Debug, Eq, PartialEq)]
+#[derive(Clone, Error, Debug, Eq, PartialEq)]
 pub enum TransactionErr {
     #[error("Invalid transaction: {0:?}")]
     InvalidTransaction(InvalidTransaction),
@@ -220,7 +220,7 @@ pub struct BundleOk {
     pub original_order_ids: Vec<OrderId>,
 }
 
-#[derive(Error, Debug, Eq, PartialEq)]
+#[derive(Clone, Error, Debug, Eq, PartialEq)]
 pub enum BundleErr {
     #[error("Invalid transaction, hash: {0:?}, err: {1}")]
     InvalidTransaction(B256, TransactionErr),
@@ -281,7 +281,7 @@ pub struct OrderOk {
     pub used_state_trace: Option<UsedStateTrace>,
 }
 
-#[derive(Error, Debug, Eq, PartialEq)]
+#[derive(Clone, Error, Debug, Eq, PartialEq)]
 pub enum OrderErr {
     #[error("Transaction error: {0}")]
     Transaction(#[from] TransactionErr),

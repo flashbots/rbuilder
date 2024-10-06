@@ -33,7 +33,7 @@ pub fn create_payout_tx(
     signer.sign_tx(tx)
 }
 
-#[derive(Debug, thiserror::Error, Eq, PartialEq)]
+#[derive(Clone, Debug, thiserror::Error, Eq, PartialEq)]
 pub enum PayoutTxErr {
     #[error("Reth error: {0}")]
     Reth(#[from] ProviderError),
@@ -97,7 +97,7 @@ pub fn insert_test_payout_tx(
     }
 }
 
-#[derive(Debug, thiserror::Error, Eq, PartialEq)]
+#[derive(Clone, Debug, thiserror::Error, Eq, PartialEq)]
 pub enum EstimatePayoutGasErr {
     #[error("Reth error: {0}")]
     Reth(#[from] ProviderError),
