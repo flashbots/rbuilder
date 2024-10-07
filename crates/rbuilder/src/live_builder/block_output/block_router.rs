@@ -4,11 +4,14 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{info, warn};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, mpsc};
 use uuid::Uuid;
 
 use crate::{
-    building::builders::{UnfinishedBlockBuildingSink},
+    building::builders::{
+        UnfinishedBlockBuildingSink,
+        block_building_helper::{BlockBuildingHelper},
+    },
 };
 
 const STATE_STREAMING_START_DELTA: time::Duration = time::Duration::milliseconds(-2000);
@@ -17,7 +20,8 @@ const STATE_STREAMING_START_DELTA: time::Duration = time::Duration::milliseconds
 pub struct UnfinishedBlockRouter {
     sink: Arc<dyn UnfinishedBlockBuildingSink>,
     state_diff_server: broadcast::Sender<Value>,
-    slot_timestamp: time::OffsetDateTime
+    slot_timestamp: time::OffsetDateTime,
+    sender: mpsc::UnboundedSender<(Box<dyn BlockBuildingHelper>, Uuid)>
 }
 
 impl UnfinishedBlockRouter {
@@ -25,12 +29,15 @@ impl UnfinishedBlockRouter {
         sink: Arc<dyn UnfinishedBlockBuildingSink>,
         state_diff_server: broadcast::Sender<Value>,
         slot_timestamp: time::OffsetDateTime
-    ) -> Self {
-        Self{
+    ) -> (Self, mpsc::UnboundedReceiver<(Box<dyn BlockBuildingHelper>, Uuid)>) {
+        let (sender, receiver) = mpsc::unbounded_channel();
+
+        (Self{
             sink: sink,
             state_diff_server: state_diff_server,
             slot_timestamp: slot_timestamp,
-        }
+            sender: sender,
+        }, receiver)
     }
 
     fn should_start_streaming(&self) -> bool {
@@ -49,6 +56,13 @@ impl UnfinishedBlockRouter {
         }
 
         should_start
+    }
+
+    pub fn new_bob_block(
+        &self,
+        block: Box<dyn crate::building::builders::block_building_helper::BlockBuildingHelper>,
+    ) {
+        self.sink.new_block(block)
     }
 }
 
@@ -82,10 +96,11 @@ impl UnfinishedBlockBuildingSink for UnfinishedBlockRouter {
 
             }
 
+            let uuid = Uuid::new_v4();
             let block_data = json!({
                 "blockNumber": building_context.block_env.number,
                 "blockTimestamp": building_context.block_env.timestamp,
-                "blockUuid": Uuid::new_v4(),
+                "blockUuid": uuid,
                 "gasRemaing": block.gas_remaining(),
                 "pendingState": pending_state
             });
@@ -102,6 +117,8 @@ impl UnfinishedBlockBuildingSink for UnfinishedBlockRouter {
                 order_count = block.built_block_trace().included_orders.len(),
                 "Sent block"
             );
+
+            let _ = self.sender.send((block.box_clone(), uuid));
         }
 
         self.sink.new_block(block);
