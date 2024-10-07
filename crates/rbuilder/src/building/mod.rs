@@ -15,7 +15,7 @@ use eth_sparse_mpt::SparseTrieSharedCache;
 use reth_primitives::proofs::calculate_requests_root;
 
 use crate::{
-    primitives::{Order, OrderId, SimValue, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs},
+    primitives::{Order, OrderId, SimValue, TransactionSignedEcRecoveredWithBlobs},
     roothash::{calculate_state_root, RootHashConfig, RootHashError},
     utils::{a2r_withdrawal, calc_gas_limit, timestamp_as_u64, Signer},
 };
@@ -455,11 +455,12 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
 
     pub fn commit_order(
         &mut self,
-        order: &SimulatedOrder,
+        order: &Order,
         ctx: &BlockBuildingContext,
         state: &mut BlockState,
+        sim_value: Option<&SimValue>,
     ) -> Result<Result<ExecutionResult, ExecutionError>, CriticalCommitOrderError> {
-        if ctx.builder_signer.is_none() && !order.sim_value.paid_kickbacks.is_empty() {
+        if ctx.builder_signer.is_none() && sim_value.map_or(false, |sv| !sv.paid_kickbacks.is_empty()) {
             // Return here to avoid wasting time on a call to fork.commit_order that 99% will fail
             return Ok(Err(ExecutionError::OrderError(OrderErr::Bundle(
                 BundleErr::NoSigner,
@@ -469,7 +470,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         let mut fork = PartialBlockFork::new(state).with_tracer(&mut self.tracer);
         let rollback = fork.rollback_point();
         let exec_result = fork.commit_order(
-            &order.order,
+            order,
             ctx,
             self.gas_used,
             self.gas_reserved,
@@ -490,12 +491,14 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             ok_result.paid_kickbacks.clone(),
         );
         if let Some(enforce_sorting) = self.enforce_sorting {
-            match enforce_inplace_sim_result(enforce_sorting, &order.sim_value, &inplace_sim_result)
-            {
-                Ok(()) => {}
-                Err(err) => {
-                    fork.rollback(rollback);
-                    return Ok(Err(err));
+            if let Some(sv) = sim_value {
+                match enforce_inplace_sim_result(enforce_sorting, sv, &inplace_sim_result)
+                {
+                    Ok(()) => {}
+                    Err(err) => {
+                        fork.rollback(rollback);
+                        return Ok(Err(err));
+                    }
                 }
             }
         }
@@ -509,7 +512,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             coinbase_profit: ok_result.coinbase_profit,
             inplace_sim: inplace_sim_result,
             gas_used: ok_result.gas_used,
-            order: order.order.clone(),
+            order: order.clone(),
             txs: ok_result.txs,
             original_order_ids: ok_result.original_order_ids,
             receipts: ok_result.receipts,

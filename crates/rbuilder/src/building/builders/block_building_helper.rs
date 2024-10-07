@@ -21,7 +21,7 @@ use crate::{
         EstimatePayoutGasErr, ExecutionError, ExecutionResult, FinalizeError, FinalizeResult,
         PartialBlock, Sorting,
     },
-    primitives::SimulatedOrder,
+    primitives::{Order, SimulatedOrder, SimValue},
     roothash::RootHashConfig,
     telemetry,
 };
@@ -43,6 +43,11 @@ pub trait BlockBuildingHelper: Send + Sync {
     fn commit_order(
         &mut self,
         order: &SimulatedOrder,
+    ) -> Result<Result<&ExecutionResult, ExecutionError>, CriticalCommitOrderError>;
+
+    fn commit_raw_order(
+        &mut self,
+        order: &Order,
     ) -> Result<Result<&ExecutionResult, ExecutionError>, CriticalCommitOrderError>;
 
     /// Call set the trace fill_time (we still have to review this)
@@ -280,17 +285,15 @@ impl<DB: Database + Clone + 'static> BlockBuildingHelperFromDB<DB> {
         self.built_block_trace.true_bid_value = true_value;
         Ok(())
     }
-}
 
-impl<DB: Database + Clone + 'static> BlockBuildingHelper for BlockBuildingHelperFromDB<DB> {
-    /// Forwards to partial_block and updates trace.
-    fn commit_order(
+    fn _commit_order(
         &mut self,
-        order: &SimulatedOrder,
+        order: &Order,
+        sim_value: Option<&SimValue>,
     ) -> Result<Result<&ExecutionResult, ExecutionError>, CriticalCommitOrderError> {
         let result =
             self.partial_block
-                .commit_order(order, &self.building_ctx, &mut self.block_state);
+                .commit_order(order, &self.building_ctx, &mut self.block_state, sim_value);
         match result {
             Ok(ok_result) => match ok_result {
                 Ok(res) => {
@@ -306,6 +309,24 @@ impl<DB: Database + Clone + 'static> BlockBuildingHelper for BlockBuildingHelper
             Err(e) => Err(e),
         }
     }
+}
+
+impl<DB: Database + Clone + 'static> BlockBuildingHelper for BlockBuildingHelperFromDB<DB> {
+    /// Forwards to partial_block and updates trace.
+    fn commit_order(
+        &mut self,
+        order: &SimulatedOrder,
+    ) -> Result<Result<&ExecutionResult, ExecutionError>, CriticalCommitOrderError> {
+        self._commit_order(&order.order, Some(&order.sim_value))
+    }
+
+    fn commit_raw_order(
+        &mut self,
+        order: &Order,
+    ) -> Result<Result<&ExecutionResult, ExecutionError>, CriticalCommitOrderError> {
+        self._commit_order(order, None)
+    }
+
 
     fn set_trace_fill_time(&mut self, time: Duration) {
         self.built_block_trace.fill_time = time;

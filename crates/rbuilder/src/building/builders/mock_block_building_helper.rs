@@ -3,7 +3,7 @@ use crate::{
         BlockBuildingContext, BuiltBlockTrace, CriticalCommitOrderError, ExecutionError,
         ExecutionResult
     },
-    primitives::SimulatedOrder,
+    primitives::{Order, SimulatedOrder},
 };
 use alloy_primitives::U256;
 use reth_payload_builder::database::CachedReads;
@@ -49,6 +49,13 @@ impl BlockBuildingHelper for MockBlockBuildingHelper {
     fn commit_order(
         &mut self,
         _order: &SimulatedOrder,
+    ) -> Result<Result<&ExecutionResult, ExecutionError>, CriticalCommitOrderError> {
+        unimplemented!()
+    }
+
+    fn commit_raw_order(
+        &mut self,
+        _order: &Order,
     ) -> Result<Result<&ExecutionResult, ExecutionError>, CriticalCommitOrderError> {
         unimplemented!()
     }
