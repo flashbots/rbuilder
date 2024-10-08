@@ -157,6 +157,7 @@ pub fn calc_redistributions<ConfigType: LiveBuilderConfig + Send + Sync>(
         &available_orders,
         &results_without_exclusion,
         exclusion_results,
+        distribute_to_mempool_txs,
     )?;
 
     let calculated_redistribution_result = apply_redistribution_formula(
@@ -591,6 +592,7 @@ fn calc_joint_exclusion_results<ConfigType: LiveBuilderConfig + Sync>(
     available_orders: &AvailableOrders,
     results_without_exclusion: &ResultsWithoutExclusion,
     mut exclusion_results: ExclusionResults,
+    distribute_to_mempool_txs: bool,
 ) -> eyre::Result<ExclusionResults> {
     // calculate identities that are possibly connected
     let mut joint_contribution_todo: Vec<(Address, Address)> = Vec::new();
@@ -610,7 +612,7 @@ fn calc_joint_exclusion_results<ConfigType: LiveBuilderConfig + Sync>(
                     .iter()
                     .map(|(o, _)| o),
             )
-            .filter(|o| !matches!(o, OrderId::Tx(_)));
+            .filter(|o| distribute_to_mempool_txs || !matches!(o, OrderId::Tx(_)));
         for new_failed_order in candidate_conflicting_bundles {
             // we only consider landed <-> landed order conflicts
             if !available_orders
@@ -670,7 +672,7 @@ fn calc_joint_exclusion_results<ConfigType: LiveBuilderConfig + Sync>(
             .identity_exclusion(address2)
             .block_value_delta;
         if bvd1 + bvd2 > block_value_delta {
-            warn!(address1 = ?address1, address2 = ?address2, "Joint block value delta is smaller than sum of individual block value deltas");
+            warn!(address1 = ?address1, address2 = ?address2, sum = format_ether(bvd1 + bvd2), joint=format_ether(block_value_delta), "Joint block value delta is smaller than sum of individual block value deltas");
         }
     }
 
