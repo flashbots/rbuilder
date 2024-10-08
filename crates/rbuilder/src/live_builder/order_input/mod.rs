@@ -253,7 +253,7 @@ pub async fn start_orderpool_jobs<DB: Database + Clone + 'static>(
                             }
                             o.replacement_key().is_some()
                         },
-                        ReplaceableOrderPoolCommand::BobOrder(_) => true,
+                        ReplaceableOrderPoolCommand::BobOrder(_) => false,
                         ReplaceableOrderPoolCommand::CancelBundle(_)=> true,
                         ReplaceableOrderPoolCommand::CancelShareBundle(_) => true,
                     };

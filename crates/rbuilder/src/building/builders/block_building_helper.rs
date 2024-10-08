@@ -438,6 +438,10 @@ impl<DB: Database + Clone + 'static> BlockBuildingHelper for BlockBuildingHelper
     }
 
     fn gas_remaining(&self) -> u64 {
-        self.partial_block.gas_reserved - self.partial_block.gas_used
+        if self.partial_block.gas_used > self.partial_block.gas_reserved {
+            0
+        } else {
+            self.partial_block.gas_reserved - self.partial_block.gas_used
+        }
     }
 }

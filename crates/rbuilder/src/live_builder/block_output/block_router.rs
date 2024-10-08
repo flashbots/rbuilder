@@ -113,7 +113,7 @@ impl UnfinishedBlockBuildingSink for UnfinishedBlockRouter {
             let ms_into_slot = (now - self.slot_timestamp).whole_milliseconds();
 
             info!(
-                seconds_into_slot = ms_into_slot / 100,
+                seconds_into_slot = (ms_into_slot as f64) / 1000.0,
                 order_count = block.built_block_trace().included_orders.len(),
                 "Sent block"
             );
