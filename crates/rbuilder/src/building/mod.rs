@@ -47,7 +47,12 @@ use revm::{
     primitives::{BlobExcessGasAndPrice, BlockEnv, CfgEnvWithHandlerCfg, SpecId},
 };
 use serde::Deserialize;
-use std::{hash::Hash, str::FromStr, sync::Arc};
+use std::{
+    hash::Hash,
+    str::FromStr,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use thiserror::Error;
 use time::OffsetDateTime;
 
@@ -407,6 +412,7 @@ pub struct FinalizeResult {
     pub cached_reads: CachedReads,
     // sidecars for all txs in SealedBlock
     pub txs_blob_sidecars: Vec<Arc<BlobTransactionSidecar>>,
+    pub root_hash_time: Duration,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -654,6 +660,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             .block_logs_bloom(block_number)
             .expect("Number is in range");
 
+        let start = Instant::now();
         let state_root = calculate_state_root(
             provider_factory,
             ctx.attributes.parent,
@@ -662,6 +669,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             ctx.shared_sparse_mpt_cache.clone(),
             root_hash_config,
         )?;
+        let root_hash_time = start.elapsed();
 
         // create the block header
         let transactions_root = proofs::calculate_transaction_root(&self.executed_tx);
@@ -735,6 +743,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             sealed_block: block.seal_slow(),
             cached_reads,
             txs_blob_sidecars,
+            root_hash_time,
         })
     }
 

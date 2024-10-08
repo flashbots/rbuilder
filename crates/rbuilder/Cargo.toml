@@ -124,7 +124,7 @@ mockall = "0.12.1"
 shellexpand = "3.1.0"
 async-trait = "0.1.80"
 
-eth-sparse-mpt = { git = "https://github.com/flashbots/eth-sparse-mpt", rev = "664759b" }
+eth-sparse-mpt = { git = "https://github.com/flashbots/eth-sparse-mpt", rev = "5d0da73" }
 
 [build-dependencies]
 built = { version = "0.7.1", features = ["git2", "chrono"] }
