@@ -219,6 +219,7 @@ impl<DB: Database + Clone + 'static> BlockBuildingHelperFromDB<DB> {
         telemetry::add_built_block_metrics(
             built_block_trace.fill_time,
             built_block_trace.finalize_time,
+            built_block_trace.root_hash_time,
             txs,
             blobs,
             gas_used,
@@ -367,6 +368,7 @@ impl<DB: Database + Clone + 'static> BlockBuildingHelper for BlockBuildingHelper
             }
         };
         self.built_block_trace.update_orders_sealed_at();
+        self.built_block_trace.root_hash_time = finalized_block.root_hash_time;
 
         self.built_block_trace.finalize_time = start_time.elapsed();
 

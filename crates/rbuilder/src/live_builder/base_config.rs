@@ -213,6 +213,8 @@ impl BaseConfig {
             extra_rpc: RpcModule::new(()),
             sink_factory,
             builders: Vec::new(),
+
+            run_sparse_trie_prefetcher: self.root_hash_use_sparse_trie,
         })
     }
 
