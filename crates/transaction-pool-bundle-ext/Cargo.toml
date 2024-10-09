@@ -11,5 +11,4 @@ reth-rpc-types = { workspace = true }
 reth-transaction-pool = { workspace = true }
 
 tokio = { workspace = true }
-derive_more = { workspace = true }
 

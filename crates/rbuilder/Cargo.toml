@@ -10,6 +10,8 @@ build = "build.rs"
 serde = "1.0.188"
 serde_json = "1.0.105"
 tokio.workspace = true
+tokio-stream = { workspace = true }
+tokio-util = { workspace = true }
 eyre.workspace = true
 thiserror.workspace = true
 reth.workspace = true
@@ -60,7 +62,7 @@ metrics_macros = { path = "src/telemetry/metrics_macros" }
 reqwest = { version = "0.11.20", features = ["blocking"] }
 serde_with = { version = "3.8.1", features = ["time_0_3"] }
 primitive-types = "0.12.1"
-url = "2.4.1"
+url.workspace = true
 sqlx = { version = "0.7.1", features = [
     "runtime-tokio-native-tls",
     "postgres",
@@ -80,7 +82,6 @@ time = { version = "0.3.36", features = ["macros", "formatting", "parsing"] }
 bigdecimal = "0.4.1"
 mempool-dumpster = "0.1.1"
 itertools = "0.11.0"
-tokio-stream = "0.1.14"
 clap = { workspace = true, features = ["derive", "env"] }
 priority-queue = "2.0.3"
 secp256k1 = { version = "0.29", features = [
@@ -97,7 +98,6 @@ ssz_rs = { git = "https://github.com/ralexstokes/ssz-rs.git", version = "0.9.0" 
 beacon-api-client = { git = "https://github.com/ralexstokes/ethereum-consensus/", rev = "cf3c404043230559660810bc0c9d6d5a8498d819" }
 ethereum-consensus = { git = "https://github.com/ralexstokes/ethereum-consensus/", rev = "cf3c404043230559660810bc0c9d6d5a8498d819" }
 ssz_rs_derive = { git = "https://github.com/ralexstokes/ssz-rs.git", version = "0.9.0" }
-tokio-util = "0.7.11"
 uuid = { version = "1.6.1", features = ["serde", "v5", "v4"] }
 prometheus = "0.13.4"
 hyper = { version = "1.3.1", features = ["server", "full"] }
@@ -124,12 +124,19 @@ mockall = "0.12.1"
 shellexpand = "3.1.0"
 async-trait = "0.1.80"
 
+
 [build-dependencies]
 built = { version = "0.7.1", features = ["git2", "chrono"] }
 
 [dev-dependencies]
 tempfile = "3.8"
 criterion = { version = "0.5.1", features = ["html_reports", "async_tokio"] }
+
+[features]
+optimism = [
+    "reth-chainspec/optimism",
+    "reth-provider/optimism",
+]
 
 [[bench]]
 name = "bench_main"

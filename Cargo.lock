@@ -5768,6 +5768,7 @@ dependencies = [
  "clap",
  "eyre",
  "op-rbuilder-payload-builder",
+ "rbuilder-bundle-pool-operations",
  "reth-basic-payload-builder",
  "reth-chainspec",
  "reth-evm",
@@ -5786,8 +5787,6 @@ dependencies = [
 name = "op-rbuilder-payload-builder"
 version = "0.1.0-alpha.0"
 dependencies = [
- "eyre",
- "reth",
  "reth-basic-payload-builder",
  "reth-chain-state",
  "reth-chainspec",
@@ -7149,6 +7148,26 @@ dependencies = [
  "uuid",
  "warp",
  "zip",
+]
+
+[[package]]
+name = "rbuilder-bundle-pool-operations"
+version = "0.1.0"
+dependencies = [
+ "derive_more 1.0.0",
+ "eyre",
+ "rbuilder",
+ "reth-chain-state",
+ "reth-chainspec",
+ "reth-payload-builder",
+ "reth-payload-primitives",
+ "reth-primitives",
+ "reth-rpc-types",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "transaction-pool-bundle-ext",
+ "url",
 ]
 
 [[package]]
@@ -11519,9 +11538,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-stream"
-version = "0.1.15"
+version = "0.1.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "267ac89e0bec6e691e5813911606935d77c476ff49024f98abcea3e7b15e37af"
+checksum = "4f4e6ce100d0eb49a2734f8c0812bcd324cf357d21810932c5df6b96ef2b86f1"
 dependencies = [
  "futures-core",
  "pin-project-lite",
@@ -11559,9 +11578,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-util"
-version = "0.7.11"
+version = "0.7.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9cf6b47b3771c49ac75ad09a6162f53ad4b8088b76ac60e8ec1455b31a189fe1"
+checksum = "61e7c3654c13bcd040d4a03abee2c75b1d14a37b423cf5a813ceae1cc903ec6a"
 dependencies = [
  "bytes",
  "futures-core",
@@ -11814,7 +11833,6 @@ dependencies = [
 name = "transaction-pool-bundle-ext"
 version = "0.1.0"
 dependencies = [
- "derive_more 1.0.0",
  "reth",
  "reth-eth-wire-types",
  "reth-primitives",

@@ -2,11 +2,12 @@
 members = [
     "crates/rbuilder",
     "crates/op-rbuilder",
-    "crates/op-rbuilder/src/payload_builder",
-    "crates/op-rbuilder/src/node",
+    "crates/op-rbuilder/payload_builder",
+    "crates/op-rbuilder/node",
     "crates/rbuilder/src/test_utils",
     "crates/rbuilder/src/telemetry/metrics_macros",
-    "crates/transaction-pool-bundle-ext"
+    "crates/transaction-pool-bundle-ext",
+    "crates/transaction-pool-bundle-ext/bundle_pool_ops/rbuilder"
 ]
 resolver = "2"
 
@@ -170,6 +171,7 @@ reth-db-common = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
 reth-errors = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
 reth-libmdbx = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
 reth-payload-builder = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
+reth-payload-primitives = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
 reth-node-api = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
 reth-trie = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
 reth-trie-parallel = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
@@ -259,5 +261,8 @@ serde = { version = "1.0.210" }
 serde_json = { version = "1.0.128" }
 clap_builder = { version = "4.5.19" }
 derive_more = { version = "1" }
+tokio-stream = "0.1.16"
+tokio-util = "0.7.12"
+url = "2.5.2"
 
 
