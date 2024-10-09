@@ -3,6 +3,7 @@
 //! Inherits Network, Executor, and Consensus Builders from the optimism node,
 //! and overrides the Pool and Payload Builders.
 
+use rbuilder_bundle_pool_operations::BundlePoolOps;
 use reth_basic_payload_builder::{BasicPayloadJobGenerator, BasicPayloadJobGeneratorConfig};
 use reth_chainspec::ChainSpec;
 use reth_evm::ConfigureEvm;
@@ -26,9 +27,7 @@ use reth_transaction_pool::{
     blobstore::DiskFileBlobStore, CoinbaseTipOrdering, EthPooledTransaction,
     TransactionValidationTaskExecutor,
 };
-use transaction_pool_bundle_ext::{
-    bundle_pool_ops::RbuilderBundlePoolOps, BundleSupportedPool, TransactionPoolBundleExt,
-};
+use transaction_pool_bundle_ext::{BundleSupportedPool, TransactionPoolBundleExt};
 
 use crate::args::OpRbuilderArgs;
 
@@ -118,7 +117,7 @@ pub type OpRbuilderTransactionPool<Client, S> = BundleSupportedPool<
     TransactionValidationTaskExecutor<OpTransactionValidator<Client, EthPooledTransaction>>,
     CoinbaseTipOrdering<EthPooledTransaction>,
     S,
-    RbuilderBundlePoolOps,
+    BundlePoolOps,
 >;
 
 impl<Node> PoolBuilder<Node> for OpRbuilderPoolBuilder
@@ -147,8 +146,9 @@ where
                     .require_l1_data_gas_fee(!ctx.config().dev.dev)
             });
 
-        let bundle_ops =
-            RbuilderBundlePoolOps::new().expect("Failed to instantiate RbuilderBundlePoolOps");
+        let bundle_ops = BundlePoolOps::new()
+            .await
+            .expect("Failed to instantiate RbuilderBundlePoolOps");
         let transaction_pool = OpRbuilderTransactionPool::new(
             validator,
             CoinbaseTipOrdering::default(),

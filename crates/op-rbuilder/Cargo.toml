@@ -4,7 +4,7 @@ version = "0.1.0-alpha.0"
 edition = "2021"
 
 [dependencies]
-op-rbuilder-node-optimism = { path = "src/node" }
+op-rbuilder-node-optimism = { path = "./node" }
 transaction-pool-bundle-ext = { path = "../transaction-pool-bundle-ext" }
 
 reth.workspace = true

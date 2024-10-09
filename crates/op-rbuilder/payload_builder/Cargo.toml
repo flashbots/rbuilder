@@ -6,10 +6,9 @@ description = "A payload builder for op-rbuilder with bundle support."
 
 [dependencies]
 # workspace
-transaction-pool-bundle-ext = { path = "../../../transaction-pool-bundle-ext" }
+transaction-pool-bundle-ext = { path = "../../transaction-pool-bundle-ext" }
 
 # reth
-reth.workspace = true
 reth-chainspec.workspace = true
 reth-primitives.workspace = true
 reth-revm.workspace = true
@@ -30,7 +29,6 @@ revm.workspace = true
 
 # misc
 tracing.workspace = true
-eyre.workspace = true
 
 [features]
 optimism = [

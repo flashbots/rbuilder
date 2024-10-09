@@ -1,24 +1,13 @@
 //! Optimism payload builder implementation with Flashbots bundle support.
 
-use reth::{
-    builder::{
-        components::PayloadServiceBuilder, BuilderContext, FullNodeTypes, PayloadBuilderConfig,
-    },
-    rpc::types::mev::EthSendBundle,
-};
 use reth_basic_payload_builder::*;
-use reth_chain_state::{CanonStateSubscriptions, ExecutedBlock};
+use reth_chain_state::ExecutedBlock;
 use reth_chainspec::{EthereumHardforks, OptimismHardfork};
 use reth_evm::{system_calls::pre_block_beacon_root_contract_call, ConfigureEvm};
-use reth_evm_optimism::OptimismEvmConfig;
 use reth_execution_types::ExecutionOutcome;
-use reth_node_optimism::{
-    OptimismBuiltPayload, OptimismEngineTypes, OptimismPayloadBuilderAttributes,
-};
+use reth_node_optimism::{OptimismBuiltPayload, OptimismPayloadBuilderAttributes};
 use reth_optimism_payload_builder::error::OptimismPayloadBuilderError;
-use reth_payload_builder::{
-    error::PayloadBuilderError, PayloadBuilderHandle, PayloadBuilderService,
-};
+use reth_payload_builder::error::PayloadBuilderError;
 use reth_primitives::{
     constants::{BEACON_NONCE, EMPTY_RECEIPTS, EMPTY_TRANSACTIONS},
     eip4844::calculate_excess_blob_gas,
@@ -681,42 +670,4 @@ where
         payload,
         cached_reads,
     })
-}
-
-impl<Node, Pool> PayloadServiceBuilder<Node, Pool> for OpRbuilderPayloadBuilder<OptimismEvmConfig>
-where
-    Node: FullNodeTypes<Engine = OptimismEngineTypes>,
-    Pool: TransactionPoolBundleExt<Bundle = EthSendBundle> + Unpin + 'static,
-{
-    async fn spawn_payload_service(
-        self,
-        ctx: &BuilderContext<Node>,
-        pool: Pool,
-    ) -> eyre::Result<PayloadBuilderHandle<Node::Engine>> {
-        tracing::info!("Spawning a custom payload builder");
-        let conf = ctx.payload_builder_config();
-
-        let payload_job_config = BasicPayloadJobGeneratorConfig::default()
-            .interval(conf.interval())
-            .deadline(conf.deadline())
-            .max_payload_tasks(conf.max_payload_tasks())
-            .extradata(conf.extradata_bytes());
-
-        let payload_generator = BasicPayloadJobGenerator::with_builder(
-            ctx.provider().clone(),
-            pool,
-            ctx.task_executor().clone(),
-            payload_job_config,
-            ctx.chain_spec().clone(),
-            OpRbuilderPayloadBuilder::new(self.evm_config),
-        );
-
-        let (payload_service, payload_builder) =
-            PayloadBuilderService::new(payload_generator, ctx.provider().canonical_state_stream());
-
-        ctx.task_executor()
-            .spawn_critical("custom payload builder service", Box::pin(payload_service));
-
-        Ok(payload_builder)
-    }
 }
