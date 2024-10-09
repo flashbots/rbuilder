@@ -18,6 +18,9 @@ use crate::{
     beacon_api_client::Client,
     building::{
         builders::{
+            merging_builder::{
+                merging_build_backtest, MergingBuilderConfig, MergingBuildingAlgorithm,
+            },
             ordering_builder::{OrderingBuilderConfig, OrderingBuildingAlgorithm},
             BacktestSimulateBlockInput, Block, BlockBuildingAlgorithm,
         },
@@ -68,11 +71,11 @@ pub const WALLET_INIT_HISTORY_SIZE: Duration = Duration::from_secs(60 * 60 * 24)
 /// 1 is easier for debugging.
 pub const DEFAULT_MAX_CONCURRENT_SEALS: u64 = 1;
 
-/// This example has a single building algorithm cfg but the idea of this enum is to have several builders
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(tag = "algo", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum SpecificBuilderConfig {
     OrderingBuilder(OrderingBuilderConfig),
+    MergingBuilder(MergingBuilderConfig),
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -362,6 +365,7 @@ impl LiveBuilderConfig for Config {
             SpecificBuilderConfig::OrderingBuilder(config) => {
                 crate::building::builders::ordering_builder::backtest_simulate_block(config, input)
             }
+            SpecificBuilderConfig::MergingBuilder(config) => merging_build_backtest(input, config),
         }
     }
 }
@@ -466,7 +470,7 @@ pub fn coinbase_signer_from_secret_key(secret_key: &str) -> eyre::Result<Signer>
     Ok(Signer::try_from_secret(secret_key)?)
 }
 
-fn create_builders(
+pub fn create_builders(
     configs: Vec<BuilderConfig>,
     root_hash_config: RootHashConfig,
     root_hash_task_pool: BlockingTaskPool,
@@ -498,6 +502,15 @@ fn create_builder(
                 root_hash_task_pool.clone(),
                 sbundle_mergeabe_signers.to_vec(),
                 order_cfg,
+                cfg.name,
+            ))
+        }
+        SpecificBuilderConfig::MergingBuilder(merge_cfg) => {
+            Arc::new(MergingBuildingAlgorithm::new(
+                root_hash_config.clone(),
+                root_hash_task_pool.clone(),
+                sbundle_mergeabe_signers.to_vec(),
+                merge_cfg,
                 cfg.name,
             ))
         }
