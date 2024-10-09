@@ -10,7 +10,7 @@ use tokio_stream::StreamExt;
 use tracing::{info_span, trace, warn};
 
 /// Info about a slot obtained from a relay.
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
 pub struct SlotData {
     /// fee recipient the validator chose.
     pub fee_recipient: Address,
