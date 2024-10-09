@@ -58,3 +58,10 @@ discard_txs = true
 sorting = "max-profit"
 failed_order_retries = 1
 drop_failed_orders = true
+
+[[builders]]
+name = "merging"
+algo = "merging-builder"
+discard_txs = true
+num_threads = 5
+merge_wait_time_ms = 100
