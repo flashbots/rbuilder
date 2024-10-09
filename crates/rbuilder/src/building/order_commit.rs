@@ -420,8 +420,8 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
         }
 
         let mut tx_env = TxEnv::default();
-        let tx_signed = tx_with_blobs.internal_tx_unsecure().clone().into_signed();
-        tx_signed.fill_tx_env(&mut tx_env, tx_signed.recover_signer().unwrap());
+        let tx_signed = tx_with_blobs.internal_tx_unsecure();
+        tx_signed.fill_tx_env(&mut tx_env, tx_signed.signer());
 
         let env = Env {
             cfg: ctx.initialized_cfg.cfg_env.clone(),
