@@ -3,7 +3,7 @@
 use reth::providers::ChangedAccount;
 use reth_eth_wire_types::HandleMempoolData;
 use reth_primitives::{Address, PooledTransactionsElement, TxHash, B256};
-use reth_rpc_types::BlobTransactionSidecar;
+use reth_rpc_types::{beacon::events::PayloadAttributesEvent, BlobTransactionSidecar};
 use reth_transaction_pool::{
     AllPoolTransactions, AllTransactionsEvents, BestTransactions, BestTransactionsAttributes,
     BlobStore, BlobStoreError, BlockInfo, CanonicalStateUpdate, GetPooledTransactionLimit,
@@ -12,7 +12,10 @@ use reth_transaction_pool::{
     TransactionOrigin, TransactionPool, TransactionPoolExt as TransactionPoolBlockInfoExt,
     TransactionValidator, ValidPoolTransaction,
 };
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::HashSet,
+    sync::Arc,
+};
 use tokio::sync::mpsc::Receiver;
 
 use crate::{traits::BundlePoolOperations, TransactionPoolBundleExt};
@@ -86,28 +89,13 @@ where
 
 /// Houses generic bundle logic.
 #[derive(Debug, Default)]
-struct BundlePool<Ops> {
-    ops: Ops,
+struct BundlePool<B> {
+    pub ops: B,
 }
 
-impl<B> BundlePool<B>
-where
-    B: BundlePoolOperations,
-{
-    pub fn new(ops: B) -> Self {
+impl<B> BundlePool<B> {
+    fn new(ops: B) -> Self {
         Self { ops }
-    }
-
-    fn add_bundle(&self, bundle: B::Bundle) -> Result<(), B::Error> {
-        self.ops.add_bundle(bundle)
-    }
-
-    fn cancel_bundle(&self, hash: &B256) -> Result<(), B::Error> {
-        self.ops.cancel_bundle(hash)
-    }
-
-    fn get_transactions(&self) -> Result<impl IntoIterator<Item = B::Transaction> + '_, B::Error> {
-        self.ops.get_transactions()
     }
 }
 
@@ -348,15 +336,24 @@ where
     type Error = <B as BundlePoolOperations>::Error;
 
     fn add_bundle(&self, bundle: Self::Bundle) -> Result<(), Self::Error> {
-        self.bundle_pool.add_bundle(bundle)
+        self.bundle_pool.ops.add_bundle(bundle)
     }
 
     fn cancel_bundle(&self, hash: &B256) -> Result<(), Self::Error> {
-        self.bundle_pool.cancel_bundle(hash)
+        self.bundle_pool.ops.cancel_bundle(hash)
     }
 
     fn get_transactions(&self) -> Result<impl IntoIterator<Item = Self::Transaction>, Self::Error> {
-        self.bundle_pool.get_transactions()
+        self.bundle_pool.ops.get_transactions()
+    }
+
+    fn notify_payload_attributes_event(
+        &self,
+        payload_attributes: PayloadAttributesEvent,
+    ) -> Result<(), Self::Error> {
+        self.bundle_pool
+            .ops
+            .notify_payload_attributes_event(payload_attributes)
     }
 }
 

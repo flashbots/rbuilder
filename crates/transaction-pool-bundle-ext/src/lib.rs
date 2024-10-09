@@ -9,8 +9,6 @@
 //!   which encapsulates the reth `TransactionPool` and a generic implementation
 //!   of the [`BundlePoolOperations`] trait.
 //!
-//! - A collection of [`BundlePoolOperations`] implementaions, found in [`bundle_pool_ops`].
-//!
 //! ## Usage
 //!
 //! 1. When implementing `PoolBuilder<Node>` on your node, pass a custom `type Pool ...`
@@ -24,7 +22,6 @@
 
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
-pub mod bundle_pool_ops;
 mod bundle_supported_pool;
 mod traits;
 pub use bundle_supported_pool::BundleSupportedPool;

@@ -1,6 +1,7 @@
 //! [`TransactionPoolBundleExt`] implementation generic over any bundle and network type.
 
 use reth_primitives::B256;
+use reth_rpc_types::beacon::events::PayloadAttributesEvent;
 use reth_transaction_pool::TransactionPool;
 use std::fmt::Debug;
 
@@ -25,6 +26,12 @@ pub trait BundlePoolOperations: Sync + Send {
 
     /// Get transactions to be included in the head of the next block
     fn get_transactions(&self) -> Result<impl IntoIterator<Item = Self::Transaction>, Self::Error>;
+
+    /// Notify new payload attributes to use
+    fn notify_payload_attributes_event(
+        &self,
+        payload_attributes: PayloadAttributesEvent,
+    ) -> Result<(), Self::Error>;
 }
 
 /// Extension for [TransactionPool] trait adding support for [BundlePoolOperations].
