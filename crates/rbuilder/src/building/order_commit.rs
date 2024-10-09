@@ -478,6 +478,16 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
             success: res.result.is_success(),
             cumulative_gas_used,
             logs: res.result.logs().to_vec(),
+            // Necessary because rbuilder is one crate that requires deps to have all-or-nothing
+            // features. This can be removed when logic required for op-rbuilder is
+            // moved into a dedicated crate.
+            #[cfg(feature = "optimism")]
+            deposit_nonce: None,
+            // Necessary because rbuilder is one crate that requires deps to have all-or-nothing
+            // features. This can be removed when logic required for op-rbuilder is
+            // moved into a dedicated crate.
+            #[cfg(feature = "optimism")]
+            deposit_receipt_version: None,
         };
 
         Ok(Ok(TransactionOk {
