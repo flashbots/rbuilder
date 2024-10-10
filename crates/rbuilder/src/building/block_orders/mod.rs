@@ -88,7 +88,7 @@ impl SimulatedOrderStore {
 
     /// Allows to get new adds ONLY if no remove_order was received
     pub fn drain_new_orders(&mut self) -> Option<Vec<SimulatedOrder>> {
-        self.new_orders.replace(Vec::new())
+        self.new_orders.take().filter(|v| !v.is_empty())
     }
 }
 
