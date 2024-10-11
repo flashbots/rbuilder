@@ -31,6 +31,7 @@ pub trait BundlePoolOperations: Sync + Send {
     fn notify_payload_attributes_event(
         &self,
         payload_attributes: PayloadAttributesEvent,
+        gas_limit: Option<u64>,
     ) -> Result<(), Self::Error>;
 }
 

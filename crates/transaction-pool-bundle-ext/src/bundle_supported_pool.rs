@@ -350,10 +350,11 @@ where
     fn notify_payload_attributes_event(
         &self,
         payload_attributes: PayloadAttributesEvent,
+        gas_limit: Option<u64>,
     ) -> Result<(), Self::Error> {
         self.bundle_pool
             .ops
-            .notify_payload_attributes_event(payload_attributes)
+            .notify_payload_attributes_event(payload_attributes, gas_limit)
     }
 }
 

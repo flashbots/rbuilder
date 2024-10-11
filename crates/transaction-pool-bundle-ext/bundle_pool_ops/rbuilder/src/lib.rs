@@ -8,15 +8,10 @@ use std::sync::Arc;
 use derive_more::From;
 use rbuilder::{
     building::builders::{UnfinishedBlockBuildingSink, UnfinishedBlockBuildingSinkFactory},
-    live_builder::{
-        payload_events::MevBoostSlotData,
-        SlotSource,
-    },
+    live_builder::{base_config::BaseConfig, payload_events::MevBoostSlotData, SlotSource},
 };
 use reth_primitives::{Bytes, B256};
-use reth_rpc_types::{
-    beacon::events::PayloadAttributesEvent, mev::EthSendBundle,
-};
+use reth_rpc_types::{beacon::events::PayloadAttributesEvent, mev::EthSendBundle};
 use tokio::sync::mpsc::{self, error::SendError};
 use tokio_util::sync::CancellationToken;
 use tracing::error;
@@ -27,13 +22,12 @@ use transaction_pool_bundle_ext::BundlePoolOperations;
 #[allow(unused)]
 #[derive(Debug)]
 pub struct BundlePoolOps {
-    slot_source: OurSlotSource,
+    payload_attributes_tx: mpsc::UnboundedSender<(PayloadAttributesEvent, Option<u64>)>,
 }
 
 #[derive(Debug)]
 struct OurSlotSource {
-    payload_attributes_tx: mpsc::UnboundedSender<PayloadAttributesEvent>,
-    payload_attributes_rx: mpsc::UnboundedReceiver<PayloadAttributesEvent>,
+    payload_attributes_rx: mpsc::UnboundedReceiver<(PayloadAttributesEvent, Option<u64>)>,
 }
 
 impl SlotSource for OurSlotSource {
@@ -44,10 +38,10 @@ impl SlotSource for OurSlotSource {
         // into [`MevBoostSlotData`] for rbuilder, then forwards them.
         tokio::spawn(async move {
             let mut recv = self.payload_attributes_rx;
-            while let Some(payload_event) = recv.recv().await {
+            while let Some((payload_event, gas_limit)) = recv.recv().await {
                 let mev_boost_data = MevBoostSlotData {
                     payload_attributes_event: payload_event,
-                    suggested_gas_limit: 0,
+                    suggested_gas_limit: gas_limit.unwrap_or(0),
                     relays: vec![],
                     slot_data: Default::default(),
                 };
@@ -67,27 +61,31 @@ impl SlotSource for OurSlotSource {
 impl BundlePoolOps {
     pub async fn new() -> Result<Self, Error> {
         // Create the payload source to trigger new block building
-        let _cancellation_token = CancellationToken::new();
+        let cancellation_token = CancellationToken::new();
         let (payload_attributes_tx, payload_attributes_rx) = mpsc::unbounded_channel();
         let slot_source = OurSlotSource {
-            payload_attributes_tx,
             payload_attributes_rx,
         };
 
-        let _sink_factory = SinkFactory {};
+        let sink_factory = SinkFactory {};
 
         // Spawn the builder!
-        // let config = BaseConfig::default();
-        // let builder = config
-        //     .create_builder::<OurSlotSource>(
-        //         cancellation_token,
-        //         Box::new(sink_factory),
-        //         payload_source.into(),
-        //     )
-        //     .await?;
-        // builder.run().await?;
+        let mut config = BaseConfig::default();
+        config.reth_datadir =
+            Some("/Users/liamaharon/Library/Application Support/reth/901/".into());
+        dbg!(&config);
+        let builder = config
+            .create_builder::<OurSlotSource>(
+                cancellation_token,
+                Box::new(sink_factory),
+                slot_source,
+            )
+            .await?;
+        builder.run().await?;
 
-        Ok(BundlePoolOps { slot_source })
+        Ok(BundlePoolOps {
+            payload_attributes_tx,
+        })
     }
 }
 
@@ -115,10 +113,10 @@ impl BundlePoolOperations for BundlePoolOps {
     fn notify_payload_attributes_event(
         &self,
         payload_attributes: PayloadAttributesEvent,
+        gas_limit: Option<u64>,
     ) -> Result<(), Self::Error> {
-        self.slot_source
-            .payload_attributes_tx
-            .send(payload_attributes)?;
+        self.payload_attributes_tx
+            .send((payload_attributes, gas_limit))?;
         Ok(())
     }
 }
@@ -160,5 +158,5 @@ pub enum Error {
     Eyre(eyre::Error),
 
     #[from]
-    SendPayloadAttribs(SendError<PayloadAttributesEvent>),
+    SendPayloadAttributes(SendError<(PayloadAttributesEvent, Option<u64>)>),
 }

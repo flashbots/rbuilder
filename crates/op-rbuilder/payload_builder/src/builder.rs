@@ -15,6 +15,10 @@ use reth_primitives::{
 };
 use reth_provider::StateProviderFactory;
 use reth_revm::database::StateProviderDatabase;
+use reth_rpc_types::{
+    beacon::events::{PayloadAttributesData, PayloadAttributesEvent},
+    engine::PayloadAttributes,
+};
 use reth_transaction_pool::BestTransactionsAttributes;
 use reth_trie::HashedPostState;
 use revm::{
@@ -23,7 +27,7 @@ use revm::{
     DatabaseCommit, State,
 };
 use std::sync::Arc;
-use tracing::{debug, trace, warn};
+use tracing::{debug, error, trace, warn};
 use transaction_pool_bundle_ext::TransactionPoolBundleExt;
 
 /// Payload builder for OP Stack, which includes bundle support.
@@ -74,6 +78,36 @@ where
         &self,
         args: BuildArguments<Pool, Client, OptimismPayloadBuilderAttributes, OptimismBuiltPayload>,
     ) -> Result<BuildOutcome<OptimismBuiltPayload>, PayloadBuilderError> {
+        let parent_block = args.config.parent_block.clone();
+        // Notify our BundleOperations of the new bundle.
+        let eth_payload_attributes = args.config.attributes.payload_attributes.clone();
+        let payload_attributes = PayloadAttributes {
+            timestamp: eth_payload_attributes.timestamp,
+            prev_randao: eth_payload_attributes.prev_randao,
+            withdrawals: Some(eth_payload_attributes.withdrawals.into_inner()),
+            parent_beacon_block_root: eth_payload_attributes.parent_beacon_block_root,
+            suggested_fee_recipient: eth_payload_attributes.suggested_fee_recipient,
+        };
+        let payload_attributes_data = PayloadAttributesData {
+            parent_block_number: parent_block.number,
+            // TODO: Is this parent and proposer stuff right?
+            parent_block_root: parent_block.header.hash(),
+            parent_block_hash: parent_block.hash(),
+            proposal_slot: parent_block.number + 1,
+            proposer_index: 0, // Likely isn't required for core building logic.. We will see :)
+            payload_attributes,
+        };
+        let payload_attributes_event = PayloadAttributesEvent {
+            version: "placeholder".to_string(),
+            data: payload_attributes_data,
+        };
+
+        if let Err(e) = args.pool.notify_payload_attributes_event(
+            payload_attributes_event,
+            args.config.attributes.gas_limit,
+        ) {
+            error!(?e, "Failed to notify payload attributes event!");
+        };
         try_build_inner(self.evm_config.clone(), args, self.compute_pending_block)
     }
 
