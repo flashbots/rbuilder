@@ -57,18 +57,15 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
     cargo build --release --features="$FEATURES"
 
+FROM ethpandaops/reth:main-d6113e1 as reth
 #
-# Runtime container
-#
-FROM gcr.io/distroless/cc-debian12
+## Runtime container with both rbuilder and reth + entrypoint script
+##
+FROM ubuntu:latest AS runtime
 
 WORKDIR /app
 
-# RUN apk add libssl3 ca-certificates
-# RUN apt-get update \
-#     && apt-get install -y libssl3 ca-certificates \
-#     && rm -rf /var/lib/apt/lists/*
-
 COPY --from=builder /app/target/release/rbuilder /app/rbuilder
+COPY --from=reth /usr/local/bin/reth /app/reth
 
-ENTRYPOINT ["/app/rbuilder"]
+EXPOSE 30303 30303/udp 9001 8545 8546
