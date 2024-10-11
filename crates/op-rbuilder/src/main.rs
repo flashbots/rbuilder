@@ -11,6 +11,8 @@
 
 mod eth_bundle_api;
 
+use std::path::Path;
+
 use crate::eth_bundle_api::EthCallBundleMinimalApiServer;
 use clap_builder::Parser;
 use eth_bundle_api::EthBundleMinimalApi;
@@ -33,8 +35,18 @@ fn main() {
     }
 
     hello_op_rbuilder();
+
+    let path = Path::new("/Users/liamaharon/Library/Application Support/reth/901/db/");
+
+    // Succeeds
+    reth_db::open_db_read_only(path, Default::default()).unwrap();
+
     if let Err(err) = Cli::<OpRbuilderArgs>::parse().run(|builder, op_rbuilder_args| async move {
         let sequencer_http_arg = op_rbuilder_args.sequencer_http.clone();
+
+        // Fails
+        // reth_db::open_db_read_only(path, Default::default()).unwrap();
+
         let handle = builder
             .with_types::<OpRbuilderNode>()
             .with_components(OpRbuilderNode::components(op_rbuilder_args))
@@ -56,11 +68,17 @@ fn main() {
             .launch()
             .await?;
 
+        // Fails
+        // reth_db::open_db_read_only(path, Default::default()).unwrap();
+
         handle.node_exit_future.await
     }) {
         eprintln!("Error: {err:?}");
         std::process::exit(1);
     }
+
+    // Succeeds
+    reth_db::open_db_read_only(path, Default::default()).unwrap();
 }
 
 fn hello_op_rbuilder() {

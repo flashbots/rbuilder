@@ -73,15 +73,15 @@ impl BundlePoolOps {
         let mut config = BaseConfig::default();
         config.reth_datadir =
             Some("/Users/liamaharon/Library/Application Support/reth/901/".into());
-        dbg!(&config);
-        let builder = config
-            .create_builder::<OurSlotSource>(
-                cancellation_token,
-                Box::new(sink_factory),
-                slot_source,
-            )
-            .await?;
-        builder.run().await?;
+        // dbg!(&config);
+        // let builder = config
+        //     .create_builder::<OurSlotSource>(
+        //         cancellation_token,
+        //         Box::new(sink_factory),
+        //         slot_source,
+        //     )
+        //     .await?;
+        // builder.run().await?;
 
         Ok(BundlePoolOps {
             payload_attributes_tx,

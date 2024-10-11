@@ -8,6 +8,7 @@ op-rbuilder-node-optimism = { path = "./node" }
 transaction-pool-bundle-ext = { path = "../transaction-pool-bundle-ext" }
 
 reth.workspace = true
+reth-db = { workspace = true }
 reth-rpc-types.workspace = true
 reth-node-optimism.workspace = true
 reth-cli-util.workspace = true

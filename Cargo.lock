@@ -5752,6 +5752,7 @@ dependencies = [
  "op-rbuilder-node-optimism",
  "reth",
  "reth-cli-util",
+ "reth-db",
  "reth-discv4",
  "reth-node-optimism",
  "reth-optimism-rpc",
