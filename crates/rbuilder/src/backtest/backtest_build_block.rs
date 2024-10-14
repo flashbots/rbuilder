@@ -7,8 +7,8 @@
 
 use ahash::HashMap;
 use alloy_primitives::utils::format_ether;
-use secp256k1::{rand::rngs::OsRng, SecretKey};
 use revm_primitives::hex;
+use secp256k1::{rand::rngs::OsRng, SecretKey};
 
 use crate::backtest::restore_landed_orders::{
     restore_landed_orders, sim_historical_block, ExecutedBlockTx, ExecutedTxs, SimplifiedOrder,
@@ -25,8 +25,7 @@ use crate::{
     utils::timestamp_as_u64,
 };
 use clap::Parser;
-use std::env;
-use std::path::PathBuf;
+use std::{env, path::PathBuf};
 
 #[derive(Parser, Debug)]
 struct Cli {
