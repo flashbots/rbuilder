@@ -7,6 +7,8 @@
 
 use ahash::HashMap;
 use alloy_primitives::utils::format_ether;
+use secp256k1::{rand::rngs::OsRng, SecretKey};
+use revm_primitives::hex;
 
 use crate::backtest::restore_landed_orders::{
     restore_landed_orders, sim_historical_block, ExecutedBlockTx, ExecutedTxs, SimplifiedOrder,
@@ -15,8 +17,7 @@ use crate::backtest::OrdersWithTimestamp;
 use crate::{
     backtest::{
         execute::{backtest_prepare_ctx_for_block, BacktestBlockInput},
-        BlockData, HistoricalDataStorage,
-        config::add_env_coinbase_signer,
+        BlockData, HistoricalDataStorage,    
     },
     building::builders::BacktestSimulateBlockInput,
     live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig},
@@ -24,6 +25,7 @@ use crate::{
     utils::timestamp_as_u64,
 };
 use clap::Parser;
+use std::env;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -406,3 +408,17 @@ fn print_onchain_block_data(
         }
     }
 }
+
+// Generate a random private key 
+fn generate_private_key() -> String {
+    let mut rng = OsRng;
+    let secret_key = SecretKey::new(&mut rng); 
+    let hex_secret_key = hex::encode(secret_key.secret_bytes());
+    hex_secret_key
+}
+
+// Add COINBASE_SECRET_KEY as an environment variable during runtime
+pub fn add_env_coinbase_signer() {
+    let private_key = generate_private_key();
+    env::set_var("COINBASE_SECRET_KEY", private_key);
+} 
