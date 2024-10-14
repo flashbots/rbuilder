@@ -7,6 +7,7 @@ backtest_fetch_eth_rpc_url = "http://127.0.0.1:8545"
 backtest_fetch_eth_rpc_parallel = 400
 backtest_fetch_output_file = "~/.rbuilder/backtest/main.sqlite"
 backtest_fetch_mempool_data_dir = "~/.rbuilder/mempool-data"
+coinbase_secret_key = "env:COINBASE_SECRET_KEY"
 
 sbundle_mergeabe_signers = []
 

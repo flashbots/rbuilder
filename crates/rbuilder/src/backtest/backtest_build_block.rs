@@ -16,6 +16,7 @@ use crate::{
     backtest::{
         execute::{backtest_prepare_ctx_for_block, BacktestBlockInput},
         BlockData, HistoricalDataStorage,
+        config::add_env_coinbase_signer,
     },
     building::builders::BacktestSimulateBlockInput,
     live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig},
@@ -99,6 +100,10 @@ pub async fn run_backtest_build_block<ConfigType: LiveBuilderConfig>() -> eyre::
             block_data.onchain_block.clone(),
         )?;
         print_onchain_block_data(tx_sim_results, &orders, &block_data);
+    }
+
+    if let Err(_) = config.base_config().coinbase_signer() {
+        add_env_coinbase_signer(); 
     }
 
     let BacktestBlockInput {

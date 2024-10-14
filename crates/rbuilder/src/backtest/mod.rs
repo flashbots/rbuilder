@@ -1,5 +1,6 @@
 mod backtest_build_block;
 mod backtest_build_range;
+pub mod config; 
 pub mod execute;
 pub mod fetch;
 
