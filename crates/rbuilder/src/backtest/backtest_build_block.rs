@@ -17,7 +17,7 @@ use crate::backtest::OrdersWithTimestamp;
 use crate::{
     backtest::{
         execute::{backtest_prepare_ctx_for_block, BacktestBlockInput},
-        BlockData, HistoricalDataStorage,    
+        BlockData, HistoricalDataStorage,
     },
     building::builders::BacktestSimulateBlockInput,
     live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig},
