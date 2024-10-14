@@ -417,7 +417,7 @@ fn generate_private_key() -> String {
 }
 
 // Add COINBASE_SECRET_KEY as an environment variable during runtime
-pub fn add_env_coinbase_signer() {
+fn add_env_coinbase_signer() {
     let private_key = generate_private_key();
     env::set_var("COINBASE_SECRET_KEY", private_key);
 } 
