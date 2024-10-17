@@ -3,14 +3,7 @@ pub mod groups;
 pub mod merger;
 pub mod merging_pool;
 pub mod order_intake_store;
-use combinator::CombinatorContext;
-pub use groups::*;
-use merger::{MergeTask, MergeTaskCommand, MergingContext};
-use merging_pool::MergingPool;
-use tracing::{error, trace};
-
 use self::order_intake_store::OrderIntakeStore;
-
 use crate::{
     building::builders::{
         handle_building_error, BacktestSimulateBlockInput, Block, BlockBuildingAlgorithm,
@@ -19,14 +12,19 @@ use crate::{
     roothash::RootHashConfig,
 };
 use alloy_primitives::{utils::format_ether, Address};
-use reth_db::database::Database;
-
+use combinator::CombinatorContext;
+pub use groups::*;
+use merger::{MergeTask, MergeTaskCommand, MergingContext};
+use merging_pool::MergingPool;
 use reth::tasks::pool::BlockingTaskPool;
+use reth_db::database::Database;
 use reth_payload_builder::database::CachedReads;
+use reth_provider::{DatabaseProviderFactory, StateProviderFactory};
 use serde::Deserialize;
 use std::time::{Duration, Instant};
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
+use tracing::{error, trace};
 
 /// MergingBuilderConfig configures merging builder.
 /// * `num_threads` - number of threads to use for merging.
@@ -47,16 +45,17 @@ impl MergingBuilderConfig {
     }
 }
 
-pub fn run_merging_builder<DB: Database + Clone + 'static>(
-    input: LiveBuilderInput<DB>,
-    config: &MergingBuilderConfig,
-) {
+pub fn run_merging_builder<P, DB>(input: LiveBuilderInput<P, DB>, config: &MergingBuilderConfig)
+where
+    DB: Database + Clone + 'static,
+    P: DatabaseProviderFactory<DB> + StateProviderFactory + Clone + 'static,
+{
     let block_number = input.ctx.block_env.number.to::<u64>();
     let mut order_intake_consumer =
         OrderIntakeStore::new(input.input, &input.sbundle_mergeabe_signers);
 
     let mut merging_combinator = CombinatorContext::new(
-        input.provider_factory.clone(),
+        input.provider.clone(),
         input.root_hash_task_pool,
         input.ctx.clone(),
         vec![],
@@ -69,7 +68,7 @@ pub fn run_merging_builder<DB: Database + Clone + 'static>(
     );
 
     let mut merging_pool = MergingPool::new(
-        input.provider_factory.clone(),
+        input.provider.clone(),
         input.ctx.clone(),
         config.num_threads,
         input.cancel.clone(),
@@ -164,10 +163,14 @@ pub fn run_merging_builder<DB: Database + Clone + 'static>(
     }
 }
 
-pub fn merging_build_backtest<DB: Database + Clone + 'static>(
-    input: BacktestSimulateBlockInput<'_, DB>,
+pub fn merging_build_backtest<P, DB>(
+    input: BacktestSimulateBlockInput<'_, P>,
     config: MergingBuilderConfig,
-) -> eyre::Result<(Block, CachedReads)> {
+) -> eyre::Result<(Block, CachedReads)>
+where
+    DB: Database + Clone + 'static,
+    P: DatabaseProviderFactory<DB> + StateProviderFactory + Clone + 'static,
+{
     let sorted_orders = {
         let mut orders = input.sim_orders.clone();
         orders.sort_by_key(|o| o.order.id());
@@ -177,7 +180,7 @@ pub fn merging_build_backtest<DB: Database + Clone + 'static>(
     let groups = split_orders_into_groups(sorted_orders);
 
     let mut merging_context = MergingContext::new(
-        input.provider_factory.clone(),
+        input.provider.clone(),
         input.ctx.clone(),
         groups.clone(),
         CancellationToken::new(),
@@ -209,7 +212,7 @@ pub fn merging_build_backtest<DB: Database + Clone + 'static>(
     let cache_reads = merging_context.into_cached_reads();
 
     let mut combinator_context = CombinatorContext::new(
-        input.provider_factory,
+        input.provider,
         BlockingTaskPool::build()?,
         input.ctx.clone(),
         groups.clone(),
@@ -262,14 +265,18 @@ impl MergingBuildingAlgorithm {
     }
 }
 
-impl<DB: Database + Clone + 'static> BlockBuildingAlgorithm<DB> for MergingBuildingAlgorithm {
+impl<P, DB> BlockBuildingAlgorithm<P, DB> for MergingBuildingAlgorithm
+where
+    DB: Database + Clone + 'static,
+    P: DatabaseProviderFactory<DB> + StateProviderFactory + Clone + 'static,
+{
     fn name(&self) -> String {
         self.name.clone()
     }
 
-    fn build_blocks(&self, input: BlockBuildingAlgorithmInput<DB>) {
+    fn build_blocks(&self, input: BlockBuildingAlgorithmInput<P>) {
         let live_input = LiveBuilderInput {
-            provider_factory: input.provider_factory,
+            provider: input.provider,
             root_hash_config: self.root_hash_config.clone(),
             root_hash_task_pool: self.root_hash_task_pool.clone(),
             ctx: input.ctx.clone(),
@@ -278,6 +285,7 @@ impl<DB: Database + Clone + 'static> BlockBuildingAlgorithm<DB> for MergingBuild
             builder_name: self.name.clone(),
             cancel: input.cancel,
             sbundle_mergeabe_signers: self.sbundle_mergeabe_signers.clone(),
+            phantom: Default::default(),
         };
         run_merging_builder(live_input, &self.config);
     }

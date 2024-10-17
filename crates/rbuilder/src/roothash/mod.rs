@@ -6,11 +6,12 @@ use eth_sparse_mpt::reth_sparse_trie::{
     SparseTrieSharedCache,
 };
 use reth::{
-    providers::{providers::ConsistentDbView, ExecutionOutcome, ProviderFactory},
+    providers::{providers::ConsistentDbView, ExecutionOutcome},
     tasks::pool::BlockingTaskPool,
 };
 use reth_db::database::Database;
 use reth_errors::ProviderError;
+use reth_provider::DatabaseProviderFactory;
 use reth_trie_parallel::async_root::{AsyncStateRoot, AsyncStateRootError};
 use tracing::trace;
 
@@ -81,17 +82,21 @@ impl RootHashConfig {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn calculate_state_root<DB: Database + Clone + 'static>(
-    provider_factory: ProviderFactory<DB>,
+pub fn calculate_state_root<P, DB>(
+    provider: P,
     parent_hash: B256,
     outcome: &ExecutionOutcome,
     blocking_task_pool: BlockingTaskPool,
     sparse_trie_shared_cache: SparseTrieSharedCache,
     config: RootHashConfig,
-) -> Result<B256, RootHashError> {
+) -> Result<B256, RootHashError>
+where
+    DB: Database + Clone + 'static,
+    P: DatabaseProviderFactory<DB> + Clone + Sync + Send + 'static,
+{
     let consistent_db_view = match config.mode {
-        RootHashMode::CorrectRoot => ConsistentDbView::new(provider_factory, Some(parent_hash)),
-        RootHashMode::IgnoreParentHash => ConsistentDbView::new_with_latest_tip(provider_factory)
+        RootHashMode::CorrectRoot => ConsistentDbView::new(provider, Some(parent_hash)),
+        RootHashMode::IgnoreParentHash => ConsistentDbView::new_with_latest_tip(provider)
             .map_err(AsyncStateRootError::Provider)?,
         RootHashMode::SkipRootHash => {
             return Ok(B256::ZERO);

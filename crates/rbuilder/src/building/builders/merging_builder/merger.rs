@@ -1,14 +1,12 @@
-use std::sync::Arc;
-
 use crate::building::{BlockBuildingContext, BlockState, PartialBlock};
 use ahash::HashMap;
 use alloy_primitives::{Address, U256};
 use itertools::Itertools;
 use rand::{seq::SliceRandom, SeedableRng};
-use reth::providers::{ProviderFactory, StateProvider};
-use reth_db::database::Database;
+use reth::providers::StateProvider;
 use reth_payload_builder::database::CachedReads;
-
+use reth_provider::StateProviderFactory;
+use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
 use super::OrderGroup;
@@ -34,24 +32,30 @@ pub enum MergeTaskCommand {
 }
 
 #[derive(Debug)]
-pub struct MergingContext<DB> {
-    pub provider_factory: ProviderFactory<DB>,
+pub struct MergingContext<P>
+where
+    P: StateProviderFactory,
+{
+    pub provider: P,
     pub ctx: BlockBuildingContext,
     pub groups: Vec<OrderGroup>,
     pub cancellation_token: CancellationToken,
     pub cache: Option<CachedReads>,
 }
 
-impl<DB: Database + Clone> MergingContext<DB> {
+impl<P> MergingContext<P>
+where
+    P: StateProviderFactory,
+{
     pub fn new(
-        provider_factory: ProviderFactory<DB>,
+        provider: P,
         ctx: BlockBuildingContext,
         groups: Vec<OrderGroup>,
         cancellation_token: CancellationToken,
         cache: Option<CachedReads>,
     ) -> Self {
         MergingContext {
-            provider_factory,
+            provider,
             ctx,
             groups,
             cancellation_token,
@@ -61,7 +65,7 @@ impl<DB: Database + Clone> MergingContext<DB> {
 
     pub fn run_merging_task(&mut self, task: MergeTask) -> eyre::Result<()> {
         let state_provider = self
-            .provider_factory
+            .provider
             .history_by_block_hash(self.ctx.attributes.parent)?;
         let state_provider: Arc<dyn StateProvider> = Arc::from(state_provider);
 

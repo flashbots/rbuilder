@@ -262,6 +262,7 @@ pub struct CancelShareBundle {
     pub key: ShareBundleReplacementKey,
 }
 /// Since we use the same API (mev_sendBundle) to get new bundles and also to cancel them we need this struct
+#[allow(clippy::large_enum_variant)]
 pub enum RawShareBundleDecodeResult {
     NewShareBundle(ShareBundle),
     CancelShareBundle(CancelShareBundle),
