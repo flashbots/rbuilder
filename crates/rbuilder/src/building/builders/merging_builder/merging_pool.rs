@@ -1,7 +1,6 @@
 use crate::building::BlockBuildingContext;
-use reth::providers::ProviderFactory;
-use reth_db::database::Database;
 use reth_payload_builder::database::CachedReads;
+use reth_provider::StateProviderFactory;
 use std::{sync::Arc, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{trace, warn};
@@ -12,8 +11,8 @@ use super::{
 };
 
 /// `MergingPool` is a set of threads that try ordering for the given groups of orders.
-pub struct MergingPool<DB> {
-    provider_factory: ProviderFactory<DB>,
+pub struct MergingPool<P> {
+    provider: P,
     ctx: BlockBuildingContext,
     num_threads: usize,
     global_cancellation_token: CancellationToken,
@@ -23,15 +22,18 @@ pub struct MergingPool<DB> {
     thread_handles: Vec<std::thread::JoinHandle<CachedReads>>,
 }
 
-impl<DB: Database + Clone + 'static> MergingPool<DB> {
+impl<P> MergingPool<P>
+where
+    P: StateProviderFactory + Clone + 'static,
+{
     pub fn new(
-        provider_factory: ProviderFactory<DB>,
+        provider: P,
         ctx: BlockBuildingContext,
         num_threads: usize,
         global_cancellation_token: CancellationToken,
     ) -> Self {
         Self {
-            provider_factory,
+            provider,
             ctx,
             num_threads,
             global_cancellation_token,
@@ -79,7 +81,7 @@ impl<DB: Database + Clone + 'static> MergingPool<DB> {
 
         for idx in 0..self.num_threads {
             let mut merging_context = MergingContext::new(
-                self.provider_factory.clone(),
+                self.provider.clone(),
                 self.ctx.clone(),
                 groups.clone(),
                 self.current_task_cancellaton_token.clone(),
