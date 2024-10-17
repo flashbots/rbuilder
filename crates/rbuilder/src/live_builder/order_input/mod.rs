@@ -12,12 +12,9 @@ use self::{
     orderpool::{OrderPool, OrderPoolSubscriptionId},
     replaceable_order_sink::ReplaceableOrderSink,
 };
-use crate::{
-    primitives::{serialize::CancelShareBundle, BundleReplacementKey, Order},
-    utils::ProviderFactoryReopener,
-};
+use crate::primitives::{serialize::CancelShareBundle, BundleReplacementKey, Order};
 use jsonrpsee::RpcModule;
-use reth_db::database::Database;
+use reth_provider::StateProviderFactory;
 use std::{
     net::Ipv4Addr,
     path::PathBuf,
@@ -179,12 +176,15 @@ impl ReplaceableOrderPoolCommand {
 /// - Clean up task to remove old stuff.
 ///
 /// @Pending reengineering to modularize rpc, extra_rpc here is a patch to upgrade the created rpc server.
-pub async fn start_orderpool_jobs<DB: Database + Clone + 'static>(
+pub async fn start_orderpool_jobs<P>(
     config: OrderInputConfig,
-    provider_factory: ProviderFactoryReopener<DB>,
+    provider_factory: P,
     extra_rpc: RpcModule<()>,
     global_cancel: CancellationToken,
-) -> eyre::Result<(JoinHandle<()>, OrderPoolSubscriber)> {
+) -> eyre::Result<(JoinHandle<()>, OrderPoolSubscriber)>
+where
+    P: StateProviderFactory + 'static,
+{
     if config.ignore_cancellable_orders {
         warn!("ignore_cancellable_orders is set to true, some order input is ignored");
     }

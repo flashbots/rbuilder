@@ -48,10 +48,10 @@ use ethereum_consensus::{
 use eyre::Context;
 use reth::tasks::pool::BlockingTaskPool;
 use reth_chainspec::{Chain, ChainSpec, NamedChain};
-use reth_db::DatabaseEnv;
+use reth_db::{Database, DatabaseEnv};
 use reth_payload_builder::database::CachedReads;
 use reth_primitives::StaticFileSegment;
-use reth_provider::StaticFileProviderFactory;
+use reth_provider::{DatabaseProviderFactory, StateProviderFactory, StaticFileProviderFactory};
 use serde::Deserialize;
 use serde_with::{serde_as, OneOrMany};
 use std::{
@@ -299,11 +299,17 @@ impl LiveBuilderConfig for Config {
         &self.base_config
     }
     /// WARN: opens reth db
-    async fn create_builder(
+    async fn new_builder(
         &self,
         cancellation_token: tokio_util::sync::CancellationToken,
-    ) -> eyre::Result<super::LiveBuilder<Arc<DatabaseEnv>, MevBoostSlotDataGenerator>> {
-        let provider_factory = self.base_config.provider_factory()?;
+    ) -> eyre::Result<
+        super::LiveBuilder<
+            ProviderFactoryReopener<Arc<DatabaseEnv>>,
+            Arc<DatabaseEnv>,
+            MevBoostSlotDataGenerator,
+        >,
+    > {
+        let provider_factory = self.base_config.create_provider_factory()?;
         let (sink_sealed_factory, relays) = self.l1_config.create_relays_sealed_sink_factory(
             self.base_config.chain_spec()?,
             Box::new(NullBidObserver {}),
@@ -355,17 +361,23 @@ impl LiveBuilderConfig for Config {
         rbuilder_version()
     }
 
-    fn build_backtest_block(
+    fn build_backtest_block<P, DB>(
         &self,
         building_algorithm_name: &str,
-        input: BacktestSimulateBlockInput<'_, Arc<DatabaseEnv>>,
-    ) -> eyre::Result<(Block, CachedReads)> {
+        input: BacktestSimulateBlockInput<'_, P>,
+    ) -> eyre::Result<(Block, CachedReads)>
+    where
+        DB: Database + Clone + 'static,
+        P: DatabaseProviderFactory<DB> + StateProviderFactory + Clone + 'static,
+    {
         let builder_cfg = self.builder(building_algorithm_name)?;
         match builder_cfg.builder {
             SpecificBuilderConfig::OrderingBuilder(config) => {
                 crate::building::builders::ordering_builder::backtest_simulate_block(config, input)
             }
-            SpecificBuilderConfig::MergingBuilder(config) => merging_build_backtest(input, config),
+            SpecificBuilderConfig::MergingBuilder(config) => {
+                merging_build_backtest::<P, DB>(input, config)
+            }
         }
     }
 }
@@ -470,12 +482,16 @@ pub fn coinbase_signer_from_secret_key(secret_key: &str) -> eyre::Result<Signer>
     Ok(Signer::try_from_secret(secret_key)?)
 }
 
-pub fn create_builders(
+pub fn create_builders<P, DB>(
     configs: Vec<BuilderConfig>,
     root_hash_config: RootHashConfig,
     root_hash_task_pool: BlockingTaskPool,
     sbundle_mergeabe_signers: Vec<Address>,
-) -> Vec<Arc<dyn BlockBuildingAlgorithm<Arc<DatabaseEnv>>>> {
+) -> Vec<Arc<dyn BlockBuildingAlgorithm<P, DB>>>
+where
+    DB: Database + Clone + 'static,
+    P: DatabaseProviderFactory<DB> + StateProviderFactory + Clone + 'static,
+{
     configs
         .into_iter()
         .map(|cfg| {
@@ -489,12 +505,16 @@ pub fn create_builders(
         .collect()
 }
 
-fn create_builder(
+fn create_builder<P, DB>(
     cfg: BuilderConfig,
     root_hash_config: &RootHashConfig,
     root_hash_task_pool: &BlockingTaskPool,
     sbundle_mergeabe_signers: &[Address],
-) -> Arc<dyn BlockBuildingAlgorithm<Arc<DatabaseEnv>>> {
+) -> Arc<dyn BlockBuildingAlgorithm<P, DB>>
+where
+    DB: Database + Clone + 'static,
+    P: DatabaseProviderFactory<DB> + StateProviderFactory + Clone + 'static,
+{
     match cfg.builder {
         SpecificBuilderConfig::OrderingBuilder(order_cfg) => {
             Arc::new(OrderingBuildingAlgorithm::new(

@@ -42,12 +42,9 @@ async fn main() -> eyre::Result<()> {
 
     let chain_spec = config.base_config().chain_spec()?;
 
-    let factory = config
-        .base_config()
-        .provider_factory()?
-        .provider_factory_unchecked();
+    let provider_factory = config.base_config().create_provider_factory()?;
 
-    let last_block = factory.last_block_number()?;
+    let last_block = provider_factory.last_block_number()?;
 
     let onchain_block = rpc
         .get_block_by_number((last_block + 1).into(), true)
@@ -74,10 +71,11 @@ async fn main() -> eyre::Result<()> {
         None,
     );
 
-    // let signer = Signer::try_from_secret(B256::random())?;
-
-    let state_provider =
-        Arc::<dyn StateProvider>::from(factory.history_by_block_number(last_block)?);
+    let state_provider = Arc::<dyn StateProvider>::from(
+        provider_factory
+            .provider_factory_unchecked()
+            .history_by_block_number(last_block)?,
+    );
 
     let mut build_times_ms = Vec::new();
     let mut finalize_time_ms = Vec::new();
@@ -86,7 +84,7 @@ async fn main() -> eyre::Result<()> {
         let ctx = ctx.clone();
         let txs = txs.clone();
         let state_provider = state_provider.clone();
-        let factory = factory.clone();
+        let factory = provider_factory.clone();
         let config = config.clone();
         let root_hash_config = config.base_config.live_root_hash_config()?;
         let (new_cached_reads, build_time, finalize_time) =

@@ -1,5 +1,3 @@
-use crate::primitives::OrderId;
-use crate::utils::Signer;
 use crate::{
     backtest::BlockData,
     building::{
@@ -7,15 +5,15 @@ use crate::{
         BlockBuildingContext, BundleErr, OrderErr, TransactionErr,
     },
     live_builder::cli::LiveBuilderConfig,
-    primitives::SimulatedOrder,
-    utils::clean_extradata,
+    primitives::{OrderId, SimulatedOrder},
+    utils::{clean_extradata, Signer},
 };
 use ahash::HashSet;
 use alloy_primitives::{Address, U256};
-use reth::providers::ProviderFactory;
 use reth_chainspec::ChainSpec;
-use reth_db::{database::Database, DatabaseEnv};
+use reth_db::Database;
 use reth_payload_builder::database::CachedReads;
+use reth_provider::{DatabaseProviderFactory, HeaderProvider, StateProviderFactory};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -57,14 +55,17 @@ pub struct BacktestBlockInput {
     pub sim_errors: Vec<OrderErr>,
 }
 
-pub fn backtest_prepare_ctx_for_block<DB: Database + Clone>(
+pub fn backtest_prepare_ctx_for_block<P>(
     block_data: BlockData,
-    provider_factory: ProviderFactory<DB>,
+    provider: P,
     chain_spec: Arc<ChainSpec>,
     build_block_lag_ms: i64,
     blocklist: HashSet<Address>,
     builder_signer: Signer,
-) -> eyre::Result<BacktestBlockInput> {
+) -> eyre::Result<BacktestBlockInput>
+where
+    P: StateProviderFactory + Clone + 'static,
+{
     let orders = block_data
         .available_orders
         .iter()
@@ -87,7 +88,7 @@ pub fn backtest_prepare_ctx_for_block<DB: Database + Clone>(
         Some(builder_signer),
     );
     let (sim_orders, sim_errors) =
-        simulate_all_orders_with_sim_tree(provider_factory.clone(), &ctx, &orders, false)?;
+        simulate_all_orders_with_sim_tree(provider.clone(), &ctx, &orders, false)?;
     Ok(BacktestBlockInput {
         ctx,
         sim_orders,
@@ -96,23 +97,28 @@ pub fn backtest_prepare_ctx_for_block<DB: Database + Clone>(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn backtest_simulate_block<ConfigType: LiveBuilderConfig>(
+pub fn backtest_simulate_block<P, DB, ConfigType>(
     block_data: BlockData,
-    provider_factory: ProviderFactory<Arc<DatabaseEnv>>,
+    provider: P,
     chain_spec: Arc<ChainSpec>,
     build_block_lag_ms: i64,
     builders_names: Vec<String>,
     config: &ConfigType,
     blocklist: HashSet<Address>,
     sbundle_mergeabe_signers: &[Address],
-) -> eyre::Result<BlockBacktestValue> {
+) -> eyre::Result<BlockBacktestValue>
+where
+    DB: Database + Clone + 'static,
+    P: DatabaseProviderFactory<DB> + StateProviderFactory + HeaderProvider + Clone + 'static,
+    ConfigType: LiveBuilderConfig,
+{
     let BacktestBlockInput {
         ctx,
         sim_orders,
         sim_errors,
     } = backtest_prepare_ctx_for_block(
         block_data.clone(),
-        provider_factory.clone(),
+        provider.clone(),
         chain_spec.clone(),
         build_block_lag_ms,
         blocklist,
@@ -158,7 +164,7 @@ pub fn backtest_simulate_block<ConfigType: LiveBuilderConfig>(
             builder_name: building_algorithm_name.clone(),
             sbundle_mergeabe_signers: sbundle_mergeabe_signers.to_vec(),
             sim_orders: &sim_orders,
-            provider_factory: provider_factory.clone(),
+            provider: provider.clone(),
             cached_reads,
         };
 
