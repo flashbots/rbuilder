@@ -18,9 +18,6 @@ use crate::{
     beacon_api_client::Client,
     building::{
         builders::{
-            merging_builder::{
-                merging_build_backtest, MergingBuilderConfig, MergingBuildingAlgorithm,
-            },
             ordering_builder::{OrderingBuilderConfig, OrderingBuildingAlgorithm},
             parallel_builder::{parallel_build_backtest,ParallelBuilderConfig, ParallelBuildingAlgorithm},
             BacktestSimulateBlockInput, Block, BlockBuildingAlgorithm,
@@ -77,7 +74,6 @@ pub const DEFAULT_MAX_CONCURRENT_SEALS: u64 = 1;
 pub enum SpecificBuilderConfig {
     ParallelBuilder(ParallelBuilderConfig),
     OrderingBuilder(OrderingBuilderConfig),
-    MergingBuilder(MergingBuilderConfig),
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -367,7 +363,6 @@ impl LiveBuilderConfig for Config {
             SpecificBuilderConfig::OrderingBuilder(config) => {
                 crate::building::builders::ordering_builder::backtest_simulate_block(config, input)
             }
-            SpecificBuilderConfig::MergingBuilder(config) => merging_build_backtest(input, config),
             SpecificBuilderConfig::ParallelBuilder(config) => parallel_build_backtest(input, config),
         }
     }
@@ -505,15 +500,6 @@ fn create_builder(
                 root_hash_task_pool.clone(),
                 sbundle_mergeabe_signers.to_vec(),
                 order_cfg,
-                cfg.name,
-            ))
-        }
-        SpecificBuilderConfig::MergingBuilder(merge_cfg) => {
-            Arc::new(MergingBuildingAlgorithm::new(
-                root_hash_config.clone(),
-                root_hash_task_pool.clone(),
-                sbundle_mergeabe_signers.to_vec(),
-                merge_cfg,
                 cfg.name,
             ))
         }
