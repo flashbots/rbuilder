@@ -48,7 +48,7 @@ use self::{
 pub type GroupId = usize;
 pub type ConflictResolutionResultPerGroup = (GroupId, (ResolutionResult, ConflictGroup));
 
-/// ParallelBuilderConfig configures merging builder.
+/// ParallelBuilderConfig configures parallel builder.
 /// * `num_threads` - number of threads to use for merging.
 /// * `merge_wait_time_ms` - time to wait for merging to finish before consuming new orders.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -148,7 +148,7 @@ impl<DB: Database + Clone + 'static> ParallelBuilder<DB> {
     }
 }
 
-/// Runs the merging builder algorithm to construct blocks from incoming orders.
+/// Runs the parallel builder algorithm to construct blocks from incoming orders.
 ///
 /// This function implements a continuous block building process that:
 /// 1. Consumes orders from an intake store.
@@ -174,7 +174,7 @@ impl<DB: Database + Clone + 'static> ParallelBuilder<DB> {
 ///
 /// # Arguments
 /// * `input`: LiveBuilderInput containing necessary context and resources for block building.
-/// * `config`: Configuration parameters for the merging builder.
+/// * `config`: Configuration parameters for the parallel builder.
 ///
 /// # Type Parameters
 /// * `DB`: The database type, which must implement Database, Clone, and have a static lifetime.

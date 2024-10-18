@@ -47,7 +47,7 @@ impl<DB: Database + Clone + 'static> BlockBuildingResultAssembler<DB> {
     /// # Arguments
     ///
     /// * `input` - The live builder input containing necessary components.
-    /// * `config` - The configuration for the merging builder.
+    /// * `config` - The configuration for the Parallel builder.
     /// * `build_trigger_receiver` - A receiver for build trigger signals.
     /// * `best_results` - A shared map of the best results for each group.
     #[allow(clippy::too_many_arguments)]
@@ -88,7 +88,7 @@ impl<DB: Database + Clone + 'static> BlockBuildingResultAssembler<DB> {
     /// * `cancel_token` - A token to signal cancellation of the process.
     pub fn run(&mut self, cancel_token: CancellationToken) {
         debug!(
-            "Merging builder run id {}: Block building result assembler run started",
+            "Parallel builder run id {}: Block building result assembler run started",
             self.run_id
         );
         // To-do: decide if we want to trigger builds here or just build in a continuous loop
@@ -102,7 +102,7 @@ impl<DB: Database + Clone + 'static> BlockBuildingResultAssembler<DB> {
             }
         }
         debug!(
-            "Merging builder run id {}: Block building result assembler run finished",
+            "Parallel builder run id {}: Block building result assembler run finished",
             self.run_id
         );
     }
@@ -128,7 +128,7 @@ impl<DB: Database + Clone + 'static> BlockBuildingResultAssembler<DB> {
         self.last_version = Some(version);
 
         debug!(
-            "Merging builder run id {}: Attempting to build block with results version {}",
+            "Parallel builder run id {}: Attempting to build block with results version {}",
             self.run_id, version
         );
 
@@ -140,7 +140,7 @@ impl<DB: Database + Clone + 'static> BlockBuildingResultAssembler<DB> {
             Ok(new_block) => {
                 if let Ok(value) = new_block.true_block_value() {
                     debug!(
-                        "Merging builder run id {}: Built new block with results version {:?} and profit: {:?} in {:?} ms",
+                        "Parallel builder run id {}: Built new block with results version {:?} and profit: {:?} in {:?} ms",
                         self.run_id,
                         version,
                         format_ether(value),
@@ -157,7 +157,7 @@ impl<DB: Database + Clone + 'static> BlockBuildingResultAssembler<DB> {
                 }
             }
             Err(e) => {
-                debug!("Merging builder run id {}: Failed to build new block with results version {:?}: {:?}", self.run_id, version, e);
+                debug!("Parallel builder run id {}: Failed to build new block with results version {:?}: {:?}", self.run_id, version, e);
             }
         }
         self.run_id += 1;

@@ -1,7 +1,7 @@
-# Merging Builder
-The merging builder is a block building algorithm that runs key components of building in parallel and attempts to do more sophisticated merging of bundles.
+# Parallel Builder
+The parallel builder is a block building algorithm that runs key components of building in parallel and attempts to do more sophisticated merging of bundles.
 
-It's primary differentiator is that it attempts to identify groups of conflicting orders and resolve them independently of each other and in parallel. By doing so, we can pipeline the stages of orderflow intake, conflict resolution, and building a final block.
+It's primary differentiator is that it identifies groups of conflicting orders and resolves them independently of each other and in parallel. By doing so, we can pipeline the stages of orderflow intake, conflict resolution, and building a final block.
 
 ## Components and Process Flow
 1. The **[OrderIntakeStore](order_intake_store.rs)** consumes orders from the intake store.
@@ -12,16 +12,16 @@ It's primary differentiator is that it attempts to identify groups of conflictin
 6. The **[BlockBuildingResultAssembler](block_building_result_assembler.rs)** constructs blocks from the best results obtained from the `ResultsAggregator`.
 
 ## Usage live
-The merging builder requires extra configuration options to be used live. Here is an example for your config file:
+The parallel builder requires extra configuration options to be used live. Here is an example for your config file:
 
 ```
 [[builders]]
-name = "merging"
-algo = "merging-builder"
+name = "parallel"
+algo = "parallel-builder"
 discard_txs = true
-num_threads = 35
+num_threads = 5
 merge_wait_time_ms = 100
 ```
 
 ## Backtesting
-The merging builder can be backtested. However, it is quite slow due to how it is currently implemented. This isn't reflective of the performance in the live environment and could be improved with more work.
+The parallel builder can be backtested. However, it is quite slow due to how it is currently implemented. This isn't reflective of the latency performance in the live environment and could be improved with more work.
