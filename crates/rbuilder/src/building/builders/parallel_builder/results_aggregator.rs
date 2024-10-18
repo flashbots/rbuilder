@@ -52,6 +52,12 @@ impl BestResults {
     }
 }
 
+impl Default for BestResults {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Collects and manages the best results for each group in a concurrent environment.
 ///
 /// This struct is responsible for receiving group results, updating the best known

@@ -174,6 +174,12 @@ impl SharedSimulationCache {
     }
 }
 
+impl Default for SharedSimulationCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
