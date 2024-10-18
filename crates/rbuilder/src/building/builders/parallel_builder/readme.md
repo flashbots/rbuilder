@@ -19,8 +19,7 @@ The parallel builder requires extra configuration options to be used live. Here 
 name = "parallel"
 algo = "parallel-builder"
 discard_txs = true
-num_threads = 5
-merge_wait_time_ms = 100
+num_threads = 25
 ```
 
 ## Backtesting

@@ -56,7 +56,6 @@ pub type ConflictResolutionResultPerGroup = (GroupId, (ResolutionResult, Conflic
 pub struct ParallelBuilderConfig {
     pub discard_txs: bool,
     pub num_threads: usize,
-    pub merge_wait_time_ms: u64,
     #[serde(default)]
     pub coinbase_payment: bool,
 }
