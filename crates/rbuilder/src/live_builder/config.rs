@@ -22,6 +22,7 @@ use crate::{
                 merging_build_backtest, MergingBuilderConfig, MergingBuildingAlgorithm,
             },
             ordering_builder::{OrderingBuilderConfig, OrderingBuildingAlgorithm},
+            parallel_builder::{parallel_build_backtest,ParallelBuilderConfig, ParallelBuildingAlgorithm},
             BacktestSimulateBlockInput, Block, BlockBuildingAlgorithm,
         },
         Sorting,
@@ -74,6 +75,7 @@ pub const DEFAULT_MAX_CONCURRENT_SEALS: u64 = 1;
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(tag = "algo", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum SpecificBuilderConfig {
+    ParallelBuilder(ParallelBuilderConfig),
     OrderingBuilder(OrderingBuilderConfig),
     MergingBuilder(MergingBuilderConfig),
 }
@@ -366,6 +368,7 @@ impl LiveBuilderConfig for Config {
                 crate::building::builders::ordering_builder::backtest_simulate_block(config, input)
             }
             SpecificBuilderConfig::MergingBuilder(config) => merging_build_backtest(input, config),
+            SpecificBuilderConfig::ParallelBuilder(config) => parallel_build_backtest(input, config),
         }
     }
 }
@@ -511,6 +514,15 @@ fn create_builder(
                 root_hash_task_pool.clone(),
                 sbundle_mergeabe_signers.to_vec(),
                 merge_cfg,
+                cfg.name,
+            ))
+        }
+        SpecificBuilderConfig::ParallelBuilder(parallel_cfg) => {
+            Arc::new(ParallelBuildingAlgorithm::new(
+                root_hash_config.clone(),
+                root_hash_task_pool.clone(),
+                sbundle_mergeabe_signers.to_vec(),
+                parallel_cfg,
                 cfg.name,
             ))
         }
