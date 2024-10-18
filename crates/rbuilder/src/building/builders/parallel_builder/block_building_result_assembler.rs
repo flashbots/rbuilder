@@ -1,5 +1,6 @@
 use super::{
-    results_aggregator::BestResults, ConflictGroup, GroupId, ParallelBuilderConfig, ResolutionResult,
+    results_aggregator::BestResults, ConflictGroup, GroupId, ParallelBuilderConfig,
+    ResolutionResult,
 };
 use ahash::HashMap;
 use alloy_primitives::utils::format_ether;

@@ -16,20 +16,20 @@ use crossbeam::queue::SegQueue;
 use eyre::Result;
 use itertools::Itertools;
 use results_aggregator::BestResults;
+use serde::Deserialize;
 use simulation_cache::SharedSimulationCache;
 use std::sync::mpsc as std_mpsc;
 use std::thread;
 use std::{sync::Arc, time::Instant};
-use tracing::{debug, info};
 use task::*;
-use tracing::error;
-use serde::Deserialize;
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
+use tracing::error;
+use tracing::{debug, info};
 
 use alloy_primitives::Address;
-use reth_db::database::Database;
 use reth::tasks::pool::BlockingTaskPool;
+use reth_db::database::Database;
 use reth_payload_builder::database::CachedReads;
 
 use crate::{

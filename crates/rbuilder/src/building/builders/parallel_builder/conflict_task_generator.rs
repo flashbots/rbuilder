@@ -1,9 +1,9 @@
+use crate::primitives::SimulatedOrder;
 use ahash::HashMap;
 use ahash::HashSet;
 use alloy_primitives::{utils::format_ether, U256};
 use crossbeam_queue::SegQueue;
 use itertools::Itertools;
-use crate::primitives::SimulatedOrder;
 use std::time::Instant;
 use tracing::debug;
 use tracing::warn;

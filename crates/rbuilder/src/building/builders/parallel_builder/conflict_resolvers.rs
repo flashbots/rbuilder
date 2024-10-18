@@ -10,13 +10,11 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 use tracing::trace;
 
+use super::simulation_cache::{CachedSimulationState, SharedSimulationCache};
 use super::{Algorithm, ConflictTask, ResolutionResult};
-use super::simulation_cache::{
-    CachedSimulationState, SharedSimulationCache,
-};
 
-use crate::building::{ExecutionError, ExecutionResult};
 use crate::building::{BlockBuildingContext, BlockState, PartialBlock};
+use crate::building::{ExecutionError, ExecutionResult};
 use crate::primitives::{OrderId, SimulatedOrder};
 
 /// Context for resolving conflicts in merging tasks.
@@ -468,10 +466,14 @@ mod tests {
         Transaction, TransactionSigned, TransactionSignedEcRecovered, TxLegacy,
     };
 
-    use crate::{building::builders::parallel_builder::{ConflictGroup, GroupId, TaskPriority}, primitives::{
-        Bundle, Metadata, Order, SimValue, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs,
-    }};
     use super::*;
+    use crate::{
+        building::builders::parallel_builder::{ConflictGroup, GroupId, TaskPriority},
+        primitives::{
+            Bundle, Metadata, Order, SimValue, SimulatedOrder,
+            TransactionSignedEcRecoveredWithBlobs,
+        },
+    };
 
     struct DataGenerator {
         last_used_id: u64,

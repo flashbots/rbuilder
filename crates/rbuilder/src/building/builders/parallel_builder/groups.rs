@@ -1,10 +1,10 @@
-use ahash::{HashMap, HashSet};
-use alloy_primitives::U256;
-use itertools::Itertools;
 use crate::{
     building::evm_inspector::SlotKey,
     primitives::{OrderId, SimulatedOrder},
 };
+use ahash::{HashMap, HashSet};
+use alloy_primitives::U256;
+use itertools::Itertools;
 
 use std::sync::Arc;
 

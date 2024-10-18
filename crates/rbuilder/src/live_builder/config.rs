@@ -19,7 +19,9 @@ use crate::{
     building::{
         builders::{
             ordering_builder::{OrderingBuilderConfig, OrderingBuildingAlgorithm},
-            parallel_builder::{parallel_build_backtest,ParallelBuilderConfig, ParallelBuildingAlgorithm},
+            parallel_builder::{
+                parallel_build_backtest, ParallelBuilderConfig, ParallelBuildingAlgorithm,
+            },
             BacktestSimulateBlockInput, Block, BlockBuildingAlgorithm,
         },
         Sorting,
@@ -363,7 +365,9 @@ impl LiveBuilderConfig for Config {
             SpecificBuilderConfig::OrderingBuilder(config) => {
                 crate::building::builders::ordering_builder::backtest_simulate_block(config, input)
             }
-            SpecificBuilderConfig::ParallelBuilder(config) => parallel_build_backtest(input, config),
+            SpecificBuilderConfig::ParallelBuilder(config) => {
+                parallel_build_backtest(input, config)
+            }
         }
     }
 }

@@ -10,7 +10,6 @@ use std::time::Instant;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, trace, warn};
 
-use crate::building::BlockBuildingContext;
 use super::conflict_task_generator::get_tasks_for_group;
 use super::ConflictResolutionResultPerGroup;
 use super::TaskPriority;
@@ -18,6 +17,7 @@ use super::{
     conflict_resolvers::ResolverContext, simulation_cache::SharedSimulationCache, ConflictGroup,
     ConflictTask, GroupId, ResolutionResult,
 };
+use crate::building::BlockBuildingContext;
 
 pub type TaskQueue = Arc<SegQueue<ConflictTask>>;
 
