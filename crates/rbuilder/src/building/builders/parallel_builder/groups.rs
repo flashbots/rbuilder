@@ -6,23 +6,24 @@ use ahash::{HashMap, HashSet};
 use alloy_primitives::U256;
 use itertools::Itertools;
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-/// GroupOrdering describes order of certain groups of orders.
-#[derive(Debug, Clone)]
-pub struct GroupOrdering {
+/// ResolutionResult describes order of certain groups of orders.
+#[derive(Debug, Default, Clone)]
+pub struct ResolutionResult {
     /// Total coinbase profit of the given ordering.
     pub total_profit: U256,
-    /// Orders of the group (index of order in the group, profit ot the given order)
-    pub orders: Vec<(usize, U256)>,
+    /// Sequence of orders and their profit in that sequence
+    pub sequence_of_orders: Vec<(usize, U256)>,
 }
 
-/// OrderGroups describes set of conflicting orders.
+/// ConflictGroups describes set of conflicting orders.
 /// It's meant to be shared between thread who merges the group and who uses the best ordering to combine the result.
 #[derive(Debug, Clone)]
-pub struct OrderGroup {
+pub struct ConflictGroup {
+    pub id: usize,
     pub orders: Arc<Vec<SimulatedOrder>>,
-    pub best_ordering: Arc<Mutex<GroupOrdering>>, // idx, profit
+    pub conflicting_group_ids: Arc<HashSet<usize>>,
 }
 
 #[derive(Debug, Default)]
@@ -30,11 +31,12 @@ struct GroupData {
     orders: Vec<SimulatedOrder>,
     reads: Vec<SlotKey>,
     writes: Vec<SlotKey>,
+    conflicting_group_ids: HashSet<usize>,
 }
 
-/// CachedGroups is used to quickly update set of groups when new orders arrive
+/// ConflictFinder is used to quickly find and update groups of orders that conflict with each other.
 #[derive(Debug)]
-pub struct CachedGroups {
+pub struct ConflictFinder {
     group_counter: usize,
     group_reads: HashMap<SlotKey, Vec<usize>>,
     group_writes: HashMap<SlotKey, Vec<usize>>,
@@ -42,9 +44,9 @@ pub struct CachedGroups {
     orders: HashSet<OrderId>,
 }
 
-impl CachedGroups {
+impl ConflictFinder {
     pub fn new() -> Self {
-        CachedGroups {
+        ConflictFinder {
             group_counter: 0,
             group_reads: HashMap::default(),
             group_writes: HashMap::default(),
@@ -90,6 +92,7 @@ impl CachedGroups {
                         orders: vec![order],
                         reads: used_state.read_slot_values.keys().cloned().collect(),
                         writes: used_state.written_slot_values.keys().cloned().collect(),
+                        conflicting_group_ids: HashSet::default(),
                     };
                     for read in &group_data.reads {
                         self.group_reads
@@ -139,6 +142,18 @@ impl CachedGroups {
                         .into_iter()
                         .map(|group_id| (group_id, self.groups.remove(&group_id).unwrap()))
                         .collect::<Vec<_>>();
+
+                    // Collect all conflicting group IDs
+                    let merged_conflicting_ids = conflicting_groups
+                        .iter()
+                        .flat_map(|(gid, gd)| {
+                            gd.conflicting_group_ids
+                                .iter()
+                                .cloned()
+                                .chain(std::iter::once(*gid))
+                        })
+                        .collect::<HashSet<_>>();
+
                     for (group_id, group_data) in &conflicting_groups {
                         for read in &group_data.reads {
                             let group_reads_slot =
@@ -161,15 +176,20 @@ impl CachedGroups {
 
                     let group_id = self.group_counter;
                     self.group_counter += 1;
+
                     let mut group_data = GroupData {
                         orders: vec![order],
                         reads: used_state.read_slot_values.keys().cloned().collect(),
                         writes: used_state.written_slot_values.keys().cloned().collect(),
+                        conflicting_group_ids: merged_conflicting_ids,
                     };
                     for (_, mut group) in conflicting_groups {
                         group_data.orders.append(&mut group.orders);
                         group_data.reads.append(&mut group.reads);
                         group_data.writes.append(&mut group.writes);
+                        group_data
+                            .conflicting_group_ids
+                            .extend(group.conflicting_group_ids);
                     }
                     group_data.reads.sort();
                     group_data.reads.dedup();
@@ -193,46 +213,23 @@ impl CachedGroups {
         }
     }
 
-    pub fn get_order_groups(&self) -> Vec<OrderGroup> {
-        let groups = self
-            .groups
+    pub fn get_order_groups(&self) -> Vec<ConflictGroup> {
+        self.groups
             .iter()
             .sorted_by_key(|(idx, _)| *idx)
-            .map(|(_, group_data)| {
-                if group_data.orders.len() == 1 {
-                    let order_profit = group_data.orders[0].sim_value.coinbase_profit;
-                    OrderGroup {
-                        orders: Arc::new(group_data.orders.clone()),
-                        best_ordering: Arc::new(Mutex::new(GroupOrdering {
-                            total_profit: order_profit,
-                            orders: vec![(0, order_profit)],
-                        })),
-                    }
-                } else {
-                    OrderGroup {
-                        orders: Arc::new(group_data.orders.clone()),
-                        best_ordering: Arc::new(Mutex::new(GroupOrdering {
-                            total_profit: U256::ZERO,
-                            orders: Vec::new(),
-                        })),
-                    }
-                }
+            .map(|(group_id, group_data)| ConflictGroup {
+                id: *group_id,
+                orders: Arc::new(group_data.orders.clone()),
+                conflicting_group_ids: Arc::new(group_data.conflicting_group_ids.clone()),
             })
-            .collect::<Vec<_>>();
-        groups
+            .collect()
     }
 }
 
-impl Default for CachedGroups {
+impl Default for ConflictFinder {
     fn default() -> Self {
         Self::new()
     }
-}
-
-pub fn split_orders_into_groups(orders: Vec<SimulatedOrder>) -> Vec<OrderGroup> {
-    let mut cached_groups = CachedGroups::new();
-    cached_groups.add_orders(orders);
-    cached_groups.get_order_groups()
 }
 
 #[cfg(test)]
@@ -249,7 +246,7 @@ mod tests {
         },
     };
 
-    use super::CachedGroups;
+    use super::ConflictFinder;
 
     struct DataGenerator {
         last_used_id: u64,
@@ -332,7 +329,7 @@ mod tests {
         let oa = data_gen.create_order(None, Some(&slot));
         let ob = data_gen.create_order(None, Some(&slot));
         let oc = data_gen.create_order(Some(&slot), None);
-        let mut cached_groups = CachedGroups::new();
+        let mut cached_groups = ConflictFinder::new();
         cached_groups.add_orders(vec![oa, ob, oc]);
         let groups = cached_groups.get_order_groups();
         assert_eq!(groups.len(), 1);
@@ -344,7 +341,7 @@ mod tests {
         let slot = data_gen.create_slot();
         let oa = data_gen.create_order(Some(&slot), None);
         let ob = data_gen.create_order(Some(&slot), None);
-        let mut cached_groups = CachedGroups::new();
+        let mut cached_groups = ConflictFinder::new();
         cached_groups.add_orders(vec![oa, ob]);
         let groups = cached_groups.get_order_groups();
         assert_eq!(groups.len(), 2);
@@ -356,7 +353,7 @@ mod tests {
         let slot = data_gen.create_slot();
         let oa = data_gen.create_order(None, Some(&slot));
         let ob = data_gen.create_order(None, Some(&slot));
-        let mut cached_groups = CachedGroups::new();
+        let mut cached_groups = ConflictFinder::new();
         cached_groups.add_orders(vec![oa, ob]);
         let groups = cached_groups.get_order_groups();
         assert_eq!(groups.len(), 2);
