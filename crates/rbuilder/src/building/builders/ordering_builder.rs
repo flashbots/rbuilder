@@ -268,8 +268,6 @@ impl<DB: Database + Clone + 'static> OrderingBuilderContext<DB> {
         mut block_orders: BlockOrders,
         build_start: Instant,
     ) -> eyre::Result<()> {
-        // Add this line to print block_env.coinbase
-        println!("block_env.coinbase: {:?}", self.ctx.block_env.coinbase);
 
         let mut order_attempts: HashMap<OrderId, usize> = HashMap::default();
         let mut included_transactions = 0;
@@ -310,10 +308,10 @@ impl<DB: Database + Clone + 'static> OrderingBuilderContext<DB> {
                         .collect();
                     block_orders.update_onchain_nonces(&nonces_updated);
 
-                    // Print the transaction hash(es)
-                    for tx in &res.txs {
-                        println!("Included transaction with hash: {:?}", tx.hash());
-                    }
+                    // // Print the transaction hash(es)
+                    // for tx in &res.txs {
+                    //     println!("Included transaction with hash: {:?}", tx.hash());
+                    // }
 
                     included_transactions += 1;
                 }

@@ -25,8 +25,6 @@ use super::{
 use serde_json::Value;
 use serde::Serialize;
 
-const STATE_STREAMING_START_DELTA: time::Duration = time::Duration::milliseconds(-2000);
-
 /// UnfinishedBlockBuildingSinkFactory to bid blocks against the competition.
 /// Blocks are given to a SlotBidder (created per block).
 /// SlotBidder bids using a SequentialSealerBidMaker (created per block).
@@ -175,24 +173,6 @@ impl BlockSealingBidder {
             state_diff_server
         }
     }
-
-    fn should_start_streaming(&self) -> bool {
-        let now = time::OffsetDateTime::now_utc();
-        let ms_into_slot = (now - self.slot_timestamp).whole_milliseconds();
-        let should_start = ms_into_slot >= STATE_STREAMING_START_DELTA.whole_milliseconds();
-        
-        if ms_into_slot % 100 == 0 {
-            tracing::info!(
-                slot_timestamp = ?self.slot_timestamp,
-                current_time = ?now,
-                seconds_into_slot = ms_into_slot / 100,
-                should_start,
-                "Current time into slot"
-            );
-        }
-        
-        should_start
-    }
 }
 
 use alloy_primitives::{Address, B256};
@@ -214,12 +194,21 @@ struct AccountStateUpdate {
     storage_diff: Option<HashMap<B256, B256>>,
 }
 
+const STATE_STREAMING_START_DELTA: time::Duration = time::Duration::milliseconds(-2000);    
+
 impl UnfinishedBlockBuildingSink for BlockSealingBidder {
     fn new_block(
         &self,
         block: Box<dyn crate::building::builders::block_building_helper::BlockBuildingHelper>,
     ) {
-        if self.should_start_streaming() {
+        let now = time::OffsetDateTime::now_utc();
+        let streaming_start_time = self.slot_timestamp + STATE_STREAMING_START_DELTA;
+
+        // Print the delta between now and slot timestamp
+        let delta = now - self.slot_timestamp;
+        info!("Seconds into slot: {}", delta.as_seconds_f64());
+        
+        if now >= streaming_start_time {
             let building_context = block.building_context();
             let bundle_state = block.get_bundle_state();
 
@@ -249,15 +238,12 @@ impl UnfinishedBlockBuildingSink for BlockSealingBidder {
             // Serialize and send the block_state_update
             match serde_json::to_value(&block_state_update) {
                 Ok(json_data) => {
-                    if let Err(e) = self.state_diff_server.send(json_data) {
-                        warn!("Failed to send block data: {:?}", e);
+                    if let Err(_e) = self.state_diff_server.send(json_data) {
+                        warn!("Failed to send block data");
                     } else {
                         info!(
-                            "Sent BlockStateUpdate: number={}, timestamp={}, uuid={}, state_diff_count={}",
-                            block_state_update.block_number,
-                            block_state_update.block_timestamp,
-                            block_state_update.block_uuid,
-                            block_state_update.state_diff.len()
+                            "Sent BlockStateUpdate: uuid={}",
+                            block_state_update.block_uuid
                         );
                     }
                 },
