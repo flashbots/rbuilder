@@ -7,12 +7,12 @@ full_telemetry_server_ip = "0.0.0.0"
 
 chain = "mainnet"
 # reth_datadir = "/mnt/data/reth"
-reth_datadir = "/root/.local/share/reth/mainnet"
+reth_datadir = "/home/ubuntu/.local/share/reth/mainnet"
 
 # coinbase_secret_key = "env:COINBASE_SECRET_KEY"
 # relay_secret_key = "env:RELAY_SECRET_KEY"
 # optimistic_relay_secret_key = "env:OPTIMISTIC_RELAY_SECRET_KEY"
-coinbase_secret_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+coinbase_secret_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdff"
 relay_secret_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 # cl_node_url can be a single value, array of values, or passed by an environment variables with values separated with a comma
@@ -37,7 +37,7 @@ max_concurrent_seals = 4
 sbundle_mergeabe_signers = []
 # slot_delta_to_start_submits_ms is usually negative since we start bidding BEFORE the slot start
 # slot_delta_to_start_submits_ms = -5000
-live_builders = ["mp-ordering", "mgp-ordering"]
+live_builders = ["mp-ordering"]
 
 [[relays]]
 name = "flashbots"
