@@ -6,6 +6,7 @@ use alloy_primitives::U256;
 
 use crate::{
     building::builders::{UnfinishedBlockBuildingSink, UnfinishedBlockBuildingSinkFactory},
+    building::builders::block_building_helper::BlockBuildingHelper,
     live_builder::payload_events::MevBoostSlotData,
     live_builder::streaming::block_subscription_server::start_block_subscription_server
 };
@@ -24,7 +25,7 @@ use super::{
 
 use serde_json::Value;
 use serde::Serialize;
-
+use std::sync::Mutex;
 /// UnfinishedBlockBuildingSinkFactory to bid blocks against the competition.
 /// Blocks are given to a SlotBidder (created per block).
 /// SlotBidder bids using a SequentialSealerBidMaker (created per block).
@@ -134,9 +135,9 @@ impl UnfinishedBlockBuildingSinkFactory for BlockSealingBidderFactory {
     }
 }
 
+#[derive(Debug)]
 /// Helper object containing the bidder.
 /// It just forwards new blocks and new competitions bids (via SlotBidderToBidValueObs) to the bidder.
-#[derive(Debug)]
 struct BlockSealingBidder {
     /// Bidder we ask how to finish the blocks.
     bid_value_source_to_unsubscribe: Arc<dyn BidValueObs + Send + Sync>,
@@ -144,7 +145,8 @@ struct BlockSealingBidder {
     competition_bid_value_source: Arc<dyn BidValueSource + Send + Sync>,
     bidder: Arc<dyn SlotBidder>,
     state_diff_server: broadcast::Sender<Value>,
-    slot_timestamp: time::OffsetDateTime
+    slot_timestamp: time::OffsetDateTime,
+    best_bid: Mutex<U256>
 }
 
 impl BlockSealingBidder {
@@ -170,10 +172,52 @@ impl BlockSealingBidder {
             competition_bid_value_source,
             bidder,
             slot_timestamp: slot_data.timestamp(),
-            state_diff_server
+            state_diff_server,
+            best_bid: Mutex::new(U256::ZERO),
         }
     }
+
+    fn stream_block_state(&self, block: &dyn BlockBuildingHelper) {
+        let building_context = block.building_context();
+        let bundle_state = block.get_bundle_state();
+
+        let block_state_update = BlockStateUpdate {
+            block_number: building_context.block_env.number.into(),
+            block_timestamp: building_context.block_env.timestamp.into(),
+            block_uuid: Uuid::new_v4(),
+            state_diff: bundle_state.state.iter()
+                .filter_map(|(address, account)| {
+                    if account.info.as_ref().map_or(true, |info| info.is_empty_code_hash()) {
+                        return None;
+                    }
+                    Some((*address, AccountStateUpdate {
+                        storage_diff: Some(account.storage.iter()
+                            .map(|(slot, storage_slot)| (
+                                B256::from(*slot),
+                                B256::from(storage_slot.present_value)
+                            ))
+                            .collect()),
+                    }))
+                })
+                .collect(),
+        };
+
+        match serde_json::to_value(&block_state_update) {
+            Ok(json_data) => {
+                if let Err(_e) = self.state_diff_server.send(json_data) {
+                    warn!("Failed to send block data");
+                } else {
+                    info!(
+                        "Sent BlockStateUpdate: uuid={}",
+                        block_state_update.block_uuid
+                    );
+                }
+            },
+            Err(e) => error!("Failed to serialize block state diff update: {:?}", e),
+    }
+    }
 }
+
 
 use alloy_primitives::{Address, B256};
 
@@ -203,53 +247,27 @@ impl UnfinishedBlockBuildingSink for BlockSealingBidder {
     ) {
         let now = time::OffsetDateTime::now_utc();
         let streaming_start_time = self.slot_timestamp + STATE_STREAMING_START_DELTA;
-
-        // Print the delta between now and slot timestamp
         let delta = now - self.slot_timestamp;
         info!("Seconds into slot: {}", delta.as_seconds_f64());
-        
-        if now >= streaming_start_time {
-            let building_context = block.building_context();
-            let bundle_state = block.get_bundle_state();
 
-            let block_state_update = BlockStateUpdate {
-                block_number: building_context.block_env.number.into(),
-                block_timestamp: building_context.block_env.timestamp.into(),
-                block_uuid: Uuid::new_v4(),
-                state_diff: bundle_state.state.iter()
-                    .filter_map(|(address, account)| {
-                        // Skip accounts with empty code hash (EOAs)
-                        if account.info.as_ref().map_or(true, |info| info.is_empty_code_hash()) {
-                            return None;
-                        }
-                        // Populate storage_diff
-                        Some((*address, AccountStateUpdate {
-                            storage_diff: Some(account.storage.iter()
-                                .map(|(slot, storage_slot)| (
-                                    B256::from(*slot),
-                                    B256::from(storage_slot.present_value)
-                                ))
-                                .collect()),
-                        }))
-                    })
-                    .collect(),
-            };
-
-            // Serialize and send the block_state_update
-            match serde_json::to_value(&block_state_update) {
-                Ok(json_data) => {
-                    if let Err(_e) = self.state_diff_server.send(json_data) {
-                        warn!("Failed to send block data");
-                    } else {
-                        info!(
-                            "Sent BlockStateUpdate: uuid={}",
-                            block_state_update.block_uuid
-                        );
-                    }
-                },
-                Err(e) => error!("Failed to serialize block state diff update: {:?}", e),
+        let true_block_value = block.built_block_trace().bid_value;
+        let should_stream = {
+            info!("True block value: {}", true_block_value);
+            info!("Built block trace: {:?}", block.built_block_trace().included_orders.len());
+            let mut best_bid = self.best_bid.lock().unwrap();
+            if true_block_value > *best_bid {
+                *best_bid = true_block_value;
+                true
+            } else {
+                false
             }
+        };
+        
+        if now >= streaming_start_time && should_stream {
+            info!("STREAMING BLOCK STATE /n");
+            self.stream_block_state(block.as_ref());
         }
+
         self.bidder.new_block(block);
     }
 
