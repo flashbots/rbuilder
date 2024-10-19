@@ -268,7 +268,14 @@ impl<DB: Database + Clone + 'static> OrderingBuilderContext<DB> {
         mut block_orders: BlockOrders,
         build_start: Instant,
     ) -> eyre::Result<()> {
+        // Add this line to print block_env.coinbase
+        println!("block_env.coinbase: {:?}", self.ctx.block_env.coinbase);
+
         let mut order_attempts: HashMap<OrderId, usize> = HashMap::default();
+        let mut included_transactions = 0;
+        // Hard-coded limit for testing
+        let max_transactions = 2; // Change this value as needed
+
         // @Perf when gas left is too low we should break.
         while let Some(sim_order) = block_orders.pop_order() {
             if let Some(deadline) = self.config.build_duration_deadline() {
@@ -276,6 +283,12 @@ impl<DB: Database + Clone + 'static> OrderingBuilderContext<DB> {
                     break;
                 }
             }
+
+            // Add this check to limit the number of transactions
+            if included_transactions >= max_transactions {
+                break;
+            }
+
             let start_time = Instant::now();
             let commit_result = block_building_helper.commit_order(&sim_order)?;
             let order_commit_time = start_time.elapsed();
@@ -296,6 +309,13 @@ impl<DB: Database + Clone + 'static> OrderingBuilderContext<DB> {
                         })
                         .collect();
                     block_orders.update_onchain_nonces(&nonces_updated);
+
+                    // Print the transaction hash(es)
+                    for tx in &res.txs {
+                        println!("Included transaction with hash: {:?}", tx.hash());
+                    }
+
+                    included_transactions += 1;
                 }
                 Err(err) => {
                     if let ExecutionError::LowerInsertedValue { inplace, .. } = &err {
