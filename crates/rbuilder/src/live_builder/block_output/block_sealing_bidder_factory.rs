@@ -9,7 +9,7 @@ use crate::{
     live_builder::payload_events::MevBoostSlotData,
     live_builder::streaming::block_subscription_server::start_block_subscription_server
 };
-use tracing::{error, info, warn, debug};
+use tracing::{error, info, warn};
 
 use super::{
     bid_value_source::interfaces::{BidValueObs, BidValueSource},
@@ -208,9 +208,8 @@ struct BlockStateUpdate {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+
 struct AccountStateUpdate {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    code_hash: Option<B256>,
     #[serde(skip_serializing_if = "Option::is_none")]
     storage_diff: Option<HashMap<B256, B256>>,
 }
@@ -224,80 +223,47 @@ impl UnfinishedBlockBuildingSink for BlockSealingBidder {
             let building_context = block.building_context();
             let bundle_state = block.get_bundle_state();
 
-            let block_number = building_context.block_env.number;
-            let block_timestamp = building_context.block_env.timestamp;
-            let block_uuid = Uuid::new_v4();
+            let block_state_update = BlockStateUpdate {
+                block_number: building_context.block_env.number.into(),
+                block_timestamp: building_context.block_env.timestamp.into(),
+                block_uuid: Uuid::new_v4(),
+                state_diff: bundle_state.state.iter()
+                    .filter_map(|(address, account)| {
+                        // Skip accounts with empty code hash (EOAs)
+                        if account.info.as_ref().map_or(true, |info| info.is_empty_code_hash()) {
+                            return None;
+                        }
+                        // Populate storage_diff
+                        Some((*address, AccountStateUpdate {
+                            storage_diff: Some(account.storage.iter()
+                                .map(|(slot, storage_slot)| (
+                                    B256::from(*slot),
+                                    B256::from(storage_slot.present_value)
+                                ))
+                                .collect()),
+                        }))
+                    })
+                    .collect(),
+            };
 
-            // Initialize the state diff HashMap
-            let mut state_diff: HashMap<Address, AccountStateUpdate> = HashMap::new();
-
-            // Populate state_diff
-            for (address, account) in bundle_state.state.iter() {
-                // Skip accounts with empty code hash
-                if account.info.as_ref().map_or(true, |info| info.is_empty_code_hash()) {
-                    continue;
-                }
-
-                let mut account_update = AccountStateUpdate {
-                    code_hash: account.info.as_ref().map(|info| info.code_hash),
-                    storage_diff: None,
-                };
-
-                // Populate the storage state diff
-                let mut storage_diff = HashMap::new();
-                for (slot, storage_slot) in &account.storage {
-                    storage_diff.insert(
-                        B256::from(*slot),
-                        B256::from(storage_slot.present_value)
-                    );
-                }
-                
-                // Only include the storage diff if it's not empty
-                if !storage_diff.is_empty() {
-                    account_update.storage_diff = Some(storage_diff);
-                }
-
-                // Only include accounts with non-empty updates
-                if account_update.code_hash.is_some() || account_update.storage_diff.is_some() {
-                    state_diff.insert(*address, account_update);
-                }
-            }
-
-            // Only proceed if there are state diffs to stream
-            if !state_diff.is_empty() {
-                let block_state_update = BlockStateUpdate {
-                    block_number: U256::from(block_number),
-                    block_timestamp: U256::from(block_timestamp),
-                    block_uuid,
-                    state_diff: state_diff.clone(),
-                };
-
-                // Serialize the block_state_update to JSON
-                let json_data = match serde_json::to_value(block_state_update) {
-                    Ok(data) => data,
-                    Err(e) => {
-                        error!("Failed to serialize block state diff update: {:?}", e);
-                        return;
+            // Serialize and send the block_state_update
+            match serde_json::to_value(&block_state_update) {
+                Ok(json_data) => {
+                    if let Err(e) = self.state_diff_server.send(json_data) {
+                        warn!("Failed to send block data: {:?}", e);
+                    } else {
+                        info!(
+                            "Sent BlockStateUpdate: number={}, timestamp={}, uuid={}, state_diff_count={}",
+                            block_state_update.block_number,
+                            block_state_update.block_timestamp,
+                            block_state_update.block_uuid,
+                            block_state_update.state_diff.len()
+                        );
                     }
-                };
-
-                // Send the serialized data through the state diff server
-                if let Err(e) = self.state_diff_server.send(json_data) {
-                    warn!("Failed to send block data: {:?}", e);
-                } else {
-                    info!(
-                        "Sent BlockStateUpdate: number={}, timestamp={}, uuid={}, state_diff_count={}",
-                        block_number, block_timestamp, block_uuid, state_diff.len()
-                    );
-                }
-            } else {
-                debug!(
-                    "No state diffs to stream for block: number={}, timestamp={}, uuid={}",
-                    block_number, block_timestamp, block_uuid
-                );
+                },
+                Err(e) => error!("Failed to serialize block state diff update: {:?}", e),
             }
         }
-
         self.bidder.new_block(block);
     }
 
