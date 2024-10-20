@@ -1,11 +1,10 @@
 use alloy_json_rpc::{ErrorPayload, RpcError};
-use std::sync::Arc;
+use std::{fmt::Debug, sync::Arc};
 
 use crate::{
     mev_boost::SubmitBlockRequest,
     telemetry::add_block_validation_time,
     utils::{http_provider, BoxedProvider},
-    validation_api_client::ValdationError::UnableToValidate,
 };
 use alloy_primitives::B256;
 use alloy_provider::Provider;
@@ -31,12 +30,26 @@ pub struct ValidationAPIClient {
     providers: Vec<Arc<BoxedProvider>>,
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum ValdationError {
-    #[error("Unable to validate block: {0}")]
-    UnableToValidate(String),
+#[derive(thiserror::Error)]
+pub enum ValidationError {
+    #[error("No validation nodes")]
+    NoValidationNodes,
+    #[error("Failed to serialize request")]
+    FailedToSerializeRequest,
+    #[error("Failed to validate block, no valid responses from validation nodes")]
+    NoValidResponseFromValidationNodes,
     #[error("Validation failed")]
     ValidationFailed(ErrorPayload),
+
+    #[cfg_attr(not(feature = "redact_sensitive"), error("Local usage error: {0}"))]
+    #[cfg_attr(feature = "redact_sensitive", error("Local usage error: [REDACTED]"))]
+    LocalUsageError(Box<dyn std::error::Error + Send + Sync>),
+}
+
+impl Debug for ValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self)
+    }
 }
 
 impl ValidationAPIClient {
@@ -55,15 +68,16 @@ impl ValidationAPIClient {
         withdrawals_root: B256,
         parent_beacon_block_root: Option<B256>,
         cancellation_token: CancellationToken,
-    ) -> Result<(), ValdationError> {
+    ) -> Result<(), ValidationError> {
         let start = std::time::Instant::now();
         if self.providers.is_empty() {
-            return Err(UnableToValidate("No validation nodes".to_string()));
+            return Err(ValidationError::NoValidationNodes);
         }
 
         let method = match req {
             SubmitBlockRequest::Capella(_) => "flashbots_validateBuilderSubmissionV2",
             SubmitBlockRequest::Deneb(_) => "flashbots_validateBuilderSubmissionV3",
+            SubmitBlockRequest::Electra(_) => "flashbots_validateBuilderSubmissionV4",
         };
         let request = ValidRequest {
             req: req.clone(),
@@ -87,7 +101,7 @@ impl ValidationAPIClient {
                 tokio::select! {
                     _ = cancellation_token.cancelled() => {
                     }
-                    result = provider.raw_request::<_, ()>(std::borrow::Cow::Borrowed(method), vec![request]) => {
+                    result = provider.raw_request::<_, serde_json::Value>(std::borrow::Cow::Borrowed(method), vec![request]) => {
                         _ = result_sender.send((i, result)).await;
                     }
                 }
@@ -99,7 +113,7 @@ impl ValidationAPIClient {
             let span = info_span!("block_validation", validation_node_idx = idx);
             let _span_guard = span.enter();
             match result {
-                Ok(()) => {
+                Ok(_) => {
                     // this means that block passed validation
                     add_block_validation_time(start.elapsed());
                     return Ok(());
@@ -109,7 +123,7 @@ impl ValidationAPIClient {
                         error!(err = ?err, "Validation node returned error");
                         // this should mean that block did not pass validation
                         add_block_validation_time(start.elapsed());
-                        return Err(ValdationError::ValidationFailed(err));
+                        return Err(ValidationError::ValidationFailed(err));
                     } else {
                         warn!(err = ?err, "Unable to validate block");
                     }
@@ -117,7 +131,7 @@ impl ValidationAPIClient {
                 Err(RpcError::SerError(err)) => {
                     error!(err = ?err, "Serialization error");
                     // we will not recover from this error so no point for waiting for other responses
-                    return Err(UnableToValidate("Failed to serialize request".to_string()));
+                    return Err(ValidationError::FailedToSerializeRequest);
                 }
                 Err(RpcError::DeserError { err, text }) => {
                     if !(text.contains("504 Gateway Time-out") || text.contains("502 Bad Gateway"))
@@ -141,15 +155,13 @@ impl ValidationAPIClient {
                 Err(RpcError::LocalUsageError(err)) => {
                     error!(err = ?err, "Local usage error");
                     // we will not recover from this error so no point for waiting for other responses
-                    return Err(UnableToValidate(format!("Local usage error: {:?}", err)));
+                    return Err(ValidationError::LocalUsageError(err));
                 }
             }
         }
 
         // if we did not return by this point we did not validate block
-        Err(UnableToValidate(
-            "Failed to validate block, no valid responses from validation nodes".to_string(),
-        ))
+        Err(ValidationError::NoValidResponseFromValidationNodes)
     }
 }
 

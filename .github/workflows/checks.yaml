@@ -14,12 +14,16 @@ jobs:
   lint_and_test:
     name: Lint and test
     runs-on: warp-ubuntu-latest-x64-16x
+    env:
+      # Set features for the Makefile
+      FEATURES: ${{ matrix.features }}
     strategy:
       matrix:
         toolchain:
           - stable
-          #- beta
-          #- nightly
+        features:
+          - ""
+          - "redact_sensitive"
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -53,9 +57,11 @@ jobs:
       - name: Install native dependencies
         run: sudo apt-get install -y libsqlite3-dev
 
-      # lint and test
-      - run: make lint
-      - run: make test
+      - name: Lint
+        run: make lint
+
+      - name: Test
+        run: make test
 
   integration:
     name: Integration tests
@@ -65,8 +71,9 @@ jobs:
       matrix:
         toolchain:
           - stable
-          #- beta
-          #- nightly
+        features:
+          - ""
+          - "redact_sensitive"
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -92,13 +99,13 @@ jobs:
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
 
       - name: Build the rbuilder
-        run: cargo build
+        run: cargo build --features="${{ matrix.features }}"
 
       - name: Run the playground
         run: builder-playground &
 
-      - name: Run integration tests
-        run: cargo test --package rbuilder --lib -- integration
+      - name: Run integration tests with flags
+        run: cargo test --features="${{ matrix.features }}" --package rbuilder --lib -- integration
         env:
           PLAYGROUND: TRUE
 

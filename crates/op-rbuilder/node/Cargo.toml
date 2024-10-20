@@ -29,8 +29,10 @@ eyre.workspace = true
 
 [features]
 optimism = [
-    "reth-node-optimism/optimism",
-    "reth-chainspec/optimism",
-    "reth-provider/optimism",
-    "reth-evm-optimism/optimism",
+	"reth-node-optimism/optimism",
+	"reth-chainspec/optimism",
+	"reth-provider/optimism",
+	"reth-evm-optimism/optimism",
+	"op-rbuilder-payload-builder/optimism",
+	"rbuilder-bundle-pool-operations/optimism"
 ]

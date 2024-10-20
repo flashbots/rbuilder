@@ -21,3 +21,9 @@ tokio-util = { workspace = true }
 url = { workspace = true }
 tracing = { workspace = true }
 
+[features]
+optimism = [
+	"reth-chainspec/optimism",
+	"reth-primitives/optimism",
+	"rbuilder/optimism"
+]

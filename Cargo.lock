@@ -2826,6 +2826,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "eth-sparse-mpt"
+version = "0.1.0"
+source = "git+https://github.com/flashbots/eth-sparse-mpt?rev=5d0da73#5d0da73e90933a899bad63da18e115fc806adf01"
+dependencies = [
+ "alloy-primitives 0.8.0",
+ "alloy-rlp",
+ "alloy-trie",
+ "hash-db",
+ "rayon",
+ "reth-db-api",
+ "reth-errors",
+ "reth-execution-errors",
+ "reth-provider",
+ "reth-trie",
+ "reth-trie-db",
+ "revm",
+ "revm-primitives",
+ "rustc-hash 2.0.0",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "smallvec",
+ "thiserror",
+ "triehash",
+]
+
+[[package]]
 name = "ethabi"
 version = "18.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7077,6 +7104,7 @@ dependencies = [
  "csv",
  "ctor",
  "derivative",
+ "eth-sparse-mpt",
  "ethereum-consensus",
  "ethereum_ssz",
  "ethereum_ssz_derive",
@@ -7418,6 +7446,8 @@ dependencies = [
  "reth-node-ethereum",
  "reth-node-events",
  "reth-node-metrics",
+ "reth-node-optimism",
+ "reth-optimism-cli",
  "reth-optimism-primitives",
  "reth-optimism-rpc",
  "reth-payload-builder",
@@ -7627,6 +7657,16 @@ dependencies = [
  "reth-trie-common",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "reth-cli"
+version = "1.0.6"
+source = "git+https://github.com/paradigmxyz/reth?tag=v1.0.6#c228fe15808c3acbf18dc3af1a03ef5cbdcda07a"
+dependencies = [
+ "clap",
+ "eyre",
+ "reth-cli-runner",
 ]
 
 [[package]]
@@ -8707,6 +8747,7 @@ dependencies = [
  "reth-network",
  "reth-network-p2p",
  "reth-network-peers",
+ "reth-optimism-chainspec",
  "reth-primitives",
  "reth-provider",
  "reth-prune-types",
@@ -8856,6 +8897,44 @@ dependencies = [
  "reth-ethereum-forks",
  "reth-primitives-traits",
  "serde_json",
+]
+
+[[package]]
+name = "reth-optimism-cli"
+version = "1.0.6"
+source = "git+https://github.com/paradigmxyz/reth?tag=v1.0.6#c228fe15808c3acbf18dc3af1a03ef5cbdcda07a"
+dependencies = [
+ "alloy-primitives 0.8.0",
+ "alloy-rlp",
+ "clap",
+ "eyre",
+ "futures-util",
+ "reth-chainspec",
+ "reth-cli",
+ "reth-cli-commands",
+ "reth-config",
+ "reth-consensus",
+ "reth-db",
+ "reth-db-api",
+ "reth-downloaders",
+ "reth-errors",
+ "reth-evm-optimism",
+ "reth-execution-types",
+ "reth-network-p2p",
+ "reth-node-core",
+ "reth-node-events",
+ "reth-optimism-chainspec",
+ "reth-optimism-primitives",
+ "reth-primitives",
+ "reth-provider",
+ "reth-prune",
+ "reth-stages",
+ "reth-stages-types",
+ "reth-static-file",
+ "reth-static-file-types",
+ "tokio",
+ "tokio-util",
+ "tracing",
 ]
 
 [[package]]

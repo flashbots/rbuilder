@@ -13,6 +13,7 @@ It is designed to provide a delightful developer experience, enabling community 
 - **Bundle merging**: bundles that target transactions which have already been included in a pending block can be dropped if they are marked in `reverting_tx_hashes`.
 - **Smart nonce management**: identifies and smartly handles nonce dependencies between bundles and transactions
 - **Using [Reth](https://github.com/paradigmxyz/reth/)**: leverages fast, efficient and user-friendly Ethereum node written in Rust
+- Reproducible builds
 
 ## Running rbuilder
 
@@ -35,11 +36,26 @@ For more details on how to use rbuilder for backtesting, see https://github.com/
 To run rbuilder you need:
 * Reth node for state. (`reth_datadir`)
 * Reth node must expose ipc interface for mempool tx subscription (`el_node_ipc_path`).
-* CL node that triggers new payload events (it must be additionally configured to trigger payload event every single time)
+* CL node that triggers new payload events (it must be additionally configured to trigger payload event every single time).
 * Source of bundles that sends `eth_sendBundle`, `mev_sendBundle`, `eth_sendRawTransaction` as JSON rpc calls. (`jsonrpc_server_port`)
   (by default rbuilder will take raw txs from the reth node mempool)
 * Relays so submit to (`relays`)
 * Alternatively it can submit to the block validation API if run in the dry run mode (`dry_run`, `dry_run_validation_url`)
+
+A sample configuration for running Lighthouse and triggering payload events would be:
+```
+./target/maxperf/lighthouse bn \
+    --network mainnet \
+    --execution-endpoint http://localhost:8551 \
+    --execution-jwt /secrets/jwt.hex \
+    --checkpoint-sync-url https://mainnet.checkpoint.sigp.io \
+    --disable-deposit-contract-sync \
+    --http \
+    --http-port 3500 \
+    --always-prepare-payload \
+    --prepare-payload-lookahead 8000 \
+    --suggested-fee-recipient 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045
+```
 
 Additionally, you can:
 * configure block processor API as a sink for submitted blocks (`blocks_processor_url`)
@@ -84,6 +100,27 @@ You can query the local relay for proposed blocks like this:
 
 ```bash
 curl http://localhost:5555/relay/v1/data/bidtraces/proposer_payload_delivered
+```
+
+### Reproducible builds
+
+You only need to set the `SOURCE_DATE_EPOCH` environment variable to ensure that the build is reproducible:
+
+```bash
+# Use last commit timestamp as the build date
+$ export SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)
+
+# build #1
+$ rm -rf target/
+$ cargo build --release
+$ sha256sum target/release/rbuilder
+d92ac33b94e16ed4a035b9dd52108fe78bd9bb160a91fced8e439f59b84c3207  target/release/rbuilder
+
+# build #2
+$ rm -rf target/
+$ cargo build --release
+$ sha256sum target/release/rbuilder
+d92ac33b94e16ed4a035b9dd52108fe78bd9bb160a91fced8e439f59b84c3207  target/release/rbuilder
 ```
 
 ---

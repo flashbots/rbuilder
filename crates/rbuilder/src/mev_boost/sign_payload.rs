@@ -1,12 +1,15 @@
-use super::{CapellaSubmitBlockRequest, DenebSubmitBlockRequest, SubmitBlockRequest};
+use super::{
+    CapellaSubmitBlockRequest, DenebSubmitBlockRequest, ElectraSubmitBlockRequest,
+    SubmitBlockRequest,
+};
 use crate::utils::u256decimal_serde_helper;
 use alloy_primitives::{Address, BlockHash, FixedBytes, B256, U256};
 use alloy_rpc_types_beacon::{
-    relay::{BidTrace, SignedBidSubmissionV2, SignedBidSubmissionV3},
+    relay::{BidTrace, SignedBidSubmissionV2, SignedBidSubmissionV3, SignedBidSubmissionV4},
     BlsPublicKey,
 };
 use alloy_rpc_types_engine::{
-    BlobsBundleV1, ExecutionPayloadV1, ExecutionPayloadV2, ExecutionPayloadV3,
+    BlobsBundleV1, ExecutionPayloadV1, ExecutionPayloadV2, ExecutionPayloadV3, ExecutionPayloadV4,
 };
 use alloy_rpc_types_eth::Withdrawal;
 use ethereum_consensus::{
@@ -178,12 +181,45 @@ pub fn sign_block_for_relay(
 
         let blobs_bundle = marshal_txs_blobs_sidecars(blobs_bundle);
 
-        SubmitBlockRequest::Deneb(DenebSubmitBlockRequest(SignedBidSubmissionV3 {
-            message,
-            execution_payload,
-            blobs_bundle: blobs_bundle.clone(),
-            signature,
-        }))
+        if chain_spec.is_prague_active_at_timestamp(sealed_block.timestamp) {
+            let mut deposit_requests = Vec::new();
+            let mut withdrawal_requests = Vec::new();
+            let mut consolidation_requests = Vec::new();
+            for request in sealed_block.requests.iter().flat_map(|r| &r.0) {
+                match request {
+                    alloy_consensus::Request::DepositRequest(r) => {
+                        deposit_requests.push(*r);
+                    }
+                    alloy_consensus::Request::WithdrawalRequest(r) => {
+                        withdrawal_requests.push(*r);
+                    }
+                    alloy_consensus::Request::ConsolidationRequest(r) => {
+                        consolidation_requests.push(*r);
+                    }
+                    _ => {}
+                };
+            }
+
+            let execution_payload = ExecutionPayloadV4 {
+                payload_inner: execution_payload,
+                deposit_requests,
+                withdrawal_requests,
+                consolidation_requests,
+            };
+            SubmitBlockRequest::Electra(ElectraSubmitBlockRequest(SignedBidSubmissionV4 {
+                message,
+                execution_payload,
+                blobs_bundle,
+                signature,
+            }))
+        } else {
+            SubmitBlockRequest::Deneb(DenebSubmitBlockRequest(SignedBidSubmissionV3 {
+                message,
+                execution_payload,
+                blobs_bundle,
+                signature,
+            }))
+        }
     } else {
         let execution_payload = capella_payload;
         SubmitBlockRequest::Capella(CapellaSubmitBlockRequest(SignedBidSubmissionV2 {

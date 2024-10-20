@@ -33,10 +33,13 @@ tracing.workspace = true
 
 [features]
 optimism = [
-    "reth-chainspec/optimism",
-    "reth-primitives/optimism",
-    "reth-provider/optimism",
-    "reth-node-optimism/optimism",
-    "reth-evm-optimism/optimism",
-    "reth-revm/optimism",
+	"reth-chainspec/optimism",
+	"reth-primitives/optimism",
+	"reth-provider/optimism",
+	"reth-node-optimism/optimism",
+	"reth-evm-optimism/optimism",
+	"reth-revm/optimism",
+	"reth-execution-types/optimism",
+	"reth-optimism-payload-builder/optimism",
+	"revm/optimism"
 ]

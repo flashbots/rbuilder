@@ -34,7 +34,7 @@ use rbuilder::{
         mev_boost::{MevBoostRelay, RelayConfig},
         SimulatedOrder,
     },
-    roothash::RootHashMode,
+    roothash::RootHashConfig,
     utils::Signer,
 };
 use reth::{providers::ProviderFactory, tasks::pool::BlockingTaskPool};
@@ -99,6 +99,7 @@ async fn main() -> eyre::Result<()> {
         extra_rpc: RpcModule::new(()),
         sink_factory: Box::new(TraceBlockSinkFactory {}),
         builders: vec![Arc::new(DummyBuildingAlgorithm::new(10))],
+        run_sparse_trie_prefetcher: false,
     };
 
     let ctrlc = tokio::spawn(async move {
@@ -199,7 +200,7 @@ impl DummyBuildingAlgorithm {
         let mut block_building_helper = BlockBuildingHelperFromDB::new(
             provider_factory.clone(),
             self.root_hash_task_pool.clone(),
-            RootHashMode::CorrectRoot,
+            RootHashConfig::live_config(false, false),
             ctx.clone(),
             None,
             BUILDER_NAME.to_string(),

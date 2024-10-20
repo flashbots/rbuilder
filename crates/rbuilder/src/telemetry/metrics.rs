@@ -50,6 +50,12 @@ register_metrics! {
         &["builder_name"]
     )
     .unwrap();
+    pub static BLOCK_ROOT_HASH_TIME: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("block_root_hash_time", "Block Root Hash Time (ms)")
+            .buckets(exponential_buckets_range(1.0, 2000.0, 100)),
+        &["builder_name"]
+    )
+    .unwrap();
     pub static BLOCK_BUILT_TXS: HistogramVec = HistogramVec::new(
         HistogramOpts::new("block_built_txs", "Transactions in the built block")
             .buckets(linear_buckets_range(1.0, 1000.0, 100)),
@@ -89,7 +95,7 @@ register_metrics! {
     pub static BLOCK_VALIDATION_TIME: HistogramVec = HistogramVec::new(
         HistogramOpts::new("block_validation_time", "Block Validation Times (ms)")
             .buckets(exponential_buckets_range(1.0, 3000.0, 100)),
-        &["builder_name"]
+        &[]
     )
     .unwrap();
     pub static CURRENT_BLOCK: IntGauge =
@@ -270,6 +276,7 @@ pub fn set_ordepool_count(txs: usize, bundles: usize) {
 pub fn add_built_block_metrics(
     build_time: Duration,
     finalize_time: Duration,
+    root_hash_time: Duration,
     txs: usize,
     blobs: usize,
     gas_used: u64,
@@ -290,6 +297,9 @@ pub fn add_built_block_metrics(
     BLOCK_FINALIZE_TIME
         .with_label_values(&[builder_name])
         .observe(finalize_time.as_millis() as f64);
+    BLOCK_ROOT_HASH_TIME
+        .with_label_values(&[builder_name])
+        .observe(root_hash_time.as_millis() as f64);
     BLOCK_BUILT_TXS
         .with_label_values(&[builder_name])
         .observe(txs as f64);

@@ -22,6 +22,7 @@ pub struct BuiltBlockTrace {
     pub orders_sealed_at: OffsetDateTime,
     pub fill_time: Duration,
     pub finalize_time: Duration,
+    pub root_hash_time: Duration,
 }
 
 impl Default for BuiltBlockTrace {
@@ -55,6 +56,7 @@ impl BuiltBlockTrace {
             orders_sealed_at: OffsetDateTime::now_utc(),
             fill_time: Duration::from_secs(0),
             finalize_time: Duration::from_secs(0),
+            root_hash_time: Duration::from_secs(0),
         }
     }
 

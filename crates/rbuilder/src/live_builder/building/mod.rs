@@ -8,6 +8,7 @@ use crate::{
         BlockBuildingContext,
     },
     live_builder::{payload_events::MevBoostSlotData, simulation::SlotOrderSimResults},
+    roothash::run_trie_prefetcher,
     utils::ProviderFactoryReopener,
 };
 use reth_db::database::Database;
@@ -30,6 +31,7 @@ pub struct BlockBuildingPool<DB> {
     sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
     orderpool_subscriber: order_input::OrderPoolSubscriber,
     order_simulation_pool: OrderSimulationPool<DB>,
+    run_sparse_trie_prefetcher: bool,
 }
 
 impl<DB: Database + Clone + 'static> BlockBuildingPool<DB> {
@@ -39,6 +41,7 @@ impl<DB: Database + Clone + 'static> BlockBuildingPool<DB> {
         sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
         orderpool_subscriber: order_input::OrderPoolSubscriber,
         order_simulation_pool: OrderSimulationPool<DB>,
+        run_sparse_trie_prefetcher: bool,
     ) -> Self {
         BlockBuildingPool {
             provider_factory,
@@ -46,6 +49,7 @@ impl<DB: Database + Clone + 'static> BlockBuildingPool<DB> {
             sink_factory,
             orderpool_subscriber,
             order_simulation_pool,
+            run_sparse_trie_prefetcher,
         }
     }
 
@@ -124,6 +128,20 @@ impl<DB: Database + Clone + 'static> BlockBuildingPool<DB> {
             tokio::task::spawn_blocking(move || {
                 builder.build_blocks(input);
                 debug!(block = block_number, builder_name, "Stopped builder job");
+            });
+        }
+
+        if self.run_sparse_trie_prefetcher {
+            let input = broadcast_input.subscribe();
+            tokio::task::spawn_blocking(move || {
+                run_trie_prefetcher(
+                    ctx.attributes.parent,
+                    ctx.shared_sparse_mpt_cache,
+                    provider_factory,
+                    input,
+                    cancel.clone(),
+                );
+                debug!(block = block_number, "Stopped trie prefetcher job");
             });
         }
 

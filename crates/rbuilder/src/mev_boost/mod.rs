@@ -1,3 +1,4 @@
+mod error;
 pub mod fake_mev_boost_relay;
 pub mod rpc;
 pub mod sign_payload;
@@ -5,7 +6,9 @@ pub mod sign_payload;
 use super::utils::u256decimal_serde_helper;
 
 use alloy_primitives::{Address, BlockHash, Bytes, U256};
-use alloy_rpc_types_beacon::relay::{BidTrace, SignedBidSubmissionV2, SignedBidSubmissionV3};
+use alloy_rpc_types_beacon::relay::{
+    BidTrace, SignedBidSubmissionV2, SignedBidSubmissionV3, SignedBidSubmissionV4,
+};
 use flate2::{write::GzEncoder, Compression};
 use primitive_types::H384;
 use reqwest::{
@@ -16,9 +19,9 @@ use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use ssz::Encode;
 use std::{io::Write, str::FromStr};
-use thiserror::Error;
 use url::Url;
 
+pub use error::*;
 pub use sign_payload::*;
 
 const JSON_CONTENT_TYPE: &str = "application/json";
@@ -209,46 +212,11 @@ pub struct ValidatorRegistration {
     pub signature: Bytes,
 }
 
-#[derive(Error, Debug)]
-pub enum RelayError {
-    #[error("Request error: {0}")]
-    RequestError(#[from] reqwest::Error),
-    #[error("Header error")]
-    InvalidHeader,
-    #[error("Relay error: {0}")]
-    RelayError(#[from] RelayErrorResponse),
-    #[error("Unknown relay response, status: {0}, body: {1}")]
-    UnknownRelayError(StatusCode, String),
-    #[error("Too many requests")]
-    TooManyRequests,
-    #[error("Connection error")]
-    ConnectionError,
-    #[error("Internal Error")]
-    InternalError,
-}
-
-#[derive(Error, Debug, Clone, Serialize, Deserialize)]
-pub struct RelayErrorResponse {
-    code: Option<u64>,
-    message: String,
-}
-
-impl std::fmt::Display for RelayErrorResponse {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Relay error: (code: {}, message: {})",
-            self.code.unwrap_or_default(),
-            self.message
-        )
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum RelayResponse<T> {
     Ok(T),
-    Error(RelayErrorResponse),
+    Error(RedactableRelayErrorResponse),
 }
 
 /// Info about a registered validator selected as proposer for a slot.
@@ -288,7 +256,7 @@ pub enum Error {
     TooManyProofs,
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(thiserror::Error)]
 pub enum SubmitBlockErr {
     #[error("Relay error: {0}")]
     RelayError(#[from] RelayError),
@@ -305,12 +273,25 @@ pub enum SubmitBlockErr {
     #[error("RPC conversion Error")]
     /// RPC validates the submissions (eg: limit of txs) much more that our model.
     RPCConversionError(Error),
-    #[error("RPC serialization failed {0}")]
+    #[cfg_attr(
+        not(feature = "redact_sensitive"),
+        error("RPC serialization failed: {0}")
+    )]
+    #[cfg_attr(
+        feature = "redact_sensitive",
+        error("RPC serialization failed: [REDACTED]")
+    )]
     RPCSerializationError(String),
     #[error("Invalid header")]
     InvalidHeader,
     #[error("Block known")]
     BlockKnown,
+}
+
+impl std::fmt::Debug for SubmitBlockErr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self)
+    }
 }
 
 // Data API
@@ -476,6 +457,7 @@ impl RelayClient {
                 match data {
                     SubmitBlockRequest::Capella(data) => data.0.as_ssz_bytes(),
                     SubmitBlockRequest::Deneb(data) => data.0.as_ssz_bytes(),
+                    SubmitBlockRequest::Electra(data) => data.0.as_ssz_bytes(),
                 },
                 SSZ_CONTENT_TYPE,
             )
@@ -507,7 +489,10 @@ impl RelayClient {
 
         builder = builder.headers(headers).body(Body::from(body_data));
 
-        Ok(builder.send().await.map_err(RelayError::RequestError)?)
+        Ok(builder
+            .send()
+            .await
+            .map_err(|e| RelayError::RequestError(e.into()))?)
     }
 
     /// Submits the block (call_relay_submit_block) and processes some special errors.
@@ -527,7 +512,10 @@ impl RelayClient {
             return Err(RelayError::ConnectionError.into());
         }
 
-        let data = resp.bytes().await.map_err(RelayError::RequestError)?;
+        let data = resp
+            .bytes()
+            .await
+            .map_err(|e| RelayError::RequestError(e.into()))?;
 
         if status == StatusCode::OK && data.as_ref() == b"" {
             return Ok(());
@@ -598,6 +586,9 @@ impl RelayClient {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ElectraSubmitBlockRequest(SignedBidSubmissionV4);
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DenebSubmitBlockRequest(SignedBidSubmissionV3);
 
 impl DenebSubmitBlockRequest {
@@ -614,6 +605,7 @@ pub struct CapellaSubmitBlockRequest(SignedBidSubmissionV2);
 pub enum SubmitBlockRequest {
     Capella(CapellaSubmitBlockRequest),
     Deneb(DenebSubmitBlockRequest),
+    Electra(ElectraSubmitBlockRequest),
 }
 
 impl SubmitBlockRequest {
@@ -621,6 +613,7 @@ impl SubmitBlockRequest {
         match self {
             SubmitBlockRequest::Capella(req) => req.0.message.clone(),
             SubmitBlockRequest::Deneb(req) => req.0.message.clone(),
+            SubmitBlockRequest::Electra(req) => req.0.message.clone(),
         }
     }
 }
