@@ -59,7 +59,7 @@ ethereum_ssz.workspace = true
 test_utils = { path = "src/test_utils" }
 metrics_macros = { path = "src/telemetry/metrics_macros" }
 
-reqwest = { version = "0.11.20", features = ["blocking"] }
+reqwest = { workspace = true, features = ["blocking"] }
 serde_with = { version = "3.8.1", features = ["time_0_3"] }
 primitive-types = "0.12.1"
 url.workspace = true

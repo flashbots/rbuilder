@@ -32,6 +32,7 @@ reth-chain-state = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6"
 reth-beacon-consensus = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
 reth-db = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
 reth-db-common = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
+reth-db-api = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
 reth-errors = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
 reth-libmdbx = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
 reth-payload-builder = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
@@ -91,7 +92,7 @@ alloy-rlp = "0.3.4"
 alloy-chains = "0.1.23"
 alloy-provider = { version = "0.3.0", features = ["ipc", "pubsub"] }
 alloy-pubsub = { version = "0.3.0" }
-alloy-eips = { version = "0.3.0" }
+alloy-eips = { version = "0.3.6" }
 alloy-rpc-types = { version = "0.3.0" }
 alloy-json-rpc = { version = "0.3.0" }
 alloy-transport-http = { version = "0.3.0" }
@@ -100,7 +101,7 @@ alloy-transport = { version = "0.3.0" }
 alloy-node-bindings = { version = "0.3.0" }
 alloy-consensus = { version = "0.3.0", features = ["kzg"] }
 alloy-serde = { version = "0.3.0" }
-alloy-rpc-types-beacon = { version = "0.3.0", features = [
+alloy-rpc-types-beacon = { version = "0.3.6", features = [
     "ssz",
 ] }
 alloy-rpc-types-engine = { version = "0.3.0", features = [

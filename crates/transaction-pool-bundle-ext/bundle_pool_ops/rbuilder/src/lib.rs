@@ -10,7 +10,10 @@ use rbuilder::{
     building::builders::{UnfinishedBlockBuildingSink, UnfinishedBlockBuildingSinkFactory},
     live_builder::{base_config::BaseConfig, payload_events::MevBoostSlotData, SlotSource},
 };
+use reth_chainspec::EthChainSpec;
+use reth_db_api::Database;
 use reth_primitives::{Bytes, B256};
+use reth_provider::{DatabaseProviderFactory, FullProvider, HeaderProvider, StateProviderFactory};
 use reth_rpc_types::{beacon::events::PayloadAttributesEvent, mev::EthSendBundle};
 use tokio::sync::mpsc::{self, error::SendError};
 use tokio_util::sync::CancellationToken;
@@ -59,7 +62,10 @@ impl SlotSource for OurSlotSource {
 }
 
 impl BundlePoolOps {
-    pub async fn new() -> Result<Self, Error> {
+    pub async fn new<P, DB>(provider: P) -> Result<Self, Error> where
+        DB: Database + Clone + 'static,
+        P: DatabaseProviderFactory<DB> + StateProviderFactory + HeaderProvider + Clone + 'static,
+    {
         // Create the payload source to trigger new block building
         let cancellation_token = CancellationToken::new();
         let (payload_attributes_tx, payload_attributes_rx) = mpsc::unbounded_channel();
@@ -75,13 +81,15 @@ impl BundlePoolOps {
             Some("/Users/liamaharon/Library/Application Support/reth/901/".into());
         dbg!(&config);
         let builder = config
-            .create_builder::<OurSlotSource>(
+            .create_builder_with_provider_factory::<P, DB, OurSlotSource>(
                 cancellation_token,
                 Box::new(sink_factory),
                 slot_source,
+                provider
             )
             .await?;
         builder.run().await?;
+        dbg!("Builder running!!");
 
         Ok(BundlePoolOps {
             payload_attributes_tx,

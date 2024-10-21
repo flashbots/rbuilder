@@ -146,7 +146,7 @@ where
                     .require_l1_data_gas_fee(!ctx.config().dev.dev)
             });
 
-        let bundle_ops = BundlePoolOps::new()
+        let bundle_ops = BundlePoolOps::new(ctx.provider().clone())
             .await
             .expect("Failed to instantiate RbuilderBundlePoolOps");
         let transaction_pool = OpRbuilderTransactionPool::new(
