@@ -7,9 +7,10 @@ use eth_sparse_mpt::{
     reth_sparse_trie::{trie_fetcher::FetchNodeError, SparseTrieError, SparseTrieSharedCache},
     ChangedAccountData,
 };
-use reth::providers::{providers::ConsistentDbView, ProviderFactory};
+use reth::providers::providers::ConsistentDbView;
 use reth_db::database::Database;
 use reth_errors::ProviderError;
+use reth_provider::DatabaseProviderFactory;
 use tokio::sync::broadcast::{self, error::RecvError, error::TryRecvError};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, trace, warn};
@@ -23,14 +24,17 @@ const CONSUME_SIM_ORDERS_BATCH: usize = 128;
 
 /// Runs a process that prefetches pieces of the trie based on the slots used by the order in simulation
 /// Its a blocking call so it should be spawned on the separate thread.
-pub fn run_trie_prefetcher<DB: Database + Clone + 'static>(
+pub fn run_trie_prefetcher<P, DB>(
     parent_hash: B256,
     shared_sparse_mpt_cache: SparseTrieSharedCache,
-    provider_factory: ProviderFactory<DB>,
+    provider: P,
     mut simulated_orders: broadcast::Receiver<SimulatedOrderCommand>,
     cancel: CancellationToken,
-) {
-    let consistent_db_view = ConsistentDbView::new(provider_factory, Some(parent_hash));
+) where
+    P: DatabaseProviderFactory<DB> + Clone + Send + Sync,
+    DB: Database + Clone + 'static,
+{
+    let consistent_db_view = ConsistentDbView::new(provider, Some(parent_hash));
 
     // here we mark data that was fetched for this slot before
     let mut fetched_accounts: HashSet<Address> = HashSet::default();

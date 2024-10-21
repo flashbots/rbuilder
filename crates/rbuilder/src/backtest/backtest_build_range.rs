@@ -24,8 +24,7 @@ use clap::Parser;
 use rayon::prelude::*;
 use std::{
     fs::File,
-    io,
-    io::Write,
+    io::{self, Write},
     path::{Path, PathBuf},
 };
 use time::format_description::well_known::Rfc3339;
@@ -63,8 +62,10 @@ struct Cli {
     blocks: Vec<u64>,
 }
 
-pub async fn run_backtest_build_range<ConfigType: LiveBuilderConfig + Send + Sync>(
-) -> eyre::Result<()> {
+pub async fn run_backtest_build_range<ConfigType>() -> eyre::Result<()>
+where
+    ConfigType: LiveBuilderConfig,
+{
     let cli = Cli::parse();
 
     if cli.store_backtest && cli.compare_backtest {
@@ -110,10 +111,7 @@ pub async fn run_backtest_build_range<ConfigType: LiveBuilderConfig + Send + Syn
         result
     };
 
-    let provider_factory = config
-        .base_config()
-        .provider_factory()?
-        .provider_factory_unchecked();
+    let provider_factory = config.base_config().create_provider_factory()?;
     let chain_spec = config.base_config().chain_spec()?;
 
     let mut profits = Vec::new();

@@ -2,11 +2,10 @@ use super::OrderInputConfig;
 use crate::{
     live_builder::order_input::orderpool::OrderPool,
     telemetry::{set_current_block, set_ordepool_count},
-    utils::ProviderFactoryReopener,
 };
 use alloy_provider::{IpcConnect, Provider, ProviderBuilder};
 use futures::StreamExt;
-use reth_db::database::Database;
+use reth_provider::StateProviderFactory;
 use std::{
     pin::pin,
     sync::{Arc, Mutex},
@@ -18,12 +17,15 @@ use tracing::{debug, error, info};
 
 /// Performs maintenance operations on every new header by calling OrderPool::head_updated.
 /// Also calls some functions to generate metrics.
-pub async fn spawn_clean_orderpool_job<DB: Database + Clone + 'static>(
+pub async fn spawn_clean_orderpool_job<P>(
     config: OrderInputConfig,
-    provider_factory: ProviderFactoryReopener<DB>,
+    provider_factory: P,
     orderpool: Arc<Mutex<OrderPool>>,
     global_cancellation: CancellationToken,
-) -> eyre::Result<JoinHandle<()>> {
+) -> eyre::Result<JoinHandle<()>>
+where
+    P: StateProviderFactory + 'static,
+{
     let ipc = IpcConnect::new(config.ipc_path);
     let provider = ProviderBuilder::new().on_ipc(ipc).await?;
 
@@ -43,8 +45,6 @@ pub async fn spawn_clean_orderpool_job<DB: Database + Clone + 'static>(
         let mut new_block_stream = pin!(new_block_stream);
 
         while let Some(block) = new_block_stream.next().await {
-            let provider_factory = provider_factory.provider_factory_unchecked();
-
             let block_number = block.header.number;
             set_current_block(block_number);
             let state = match provider_factory.latest() {

@@ -1,18 +1,18 @@
 mod csv_output;
 
-use crate::backtest::redistribute::{calc_redistributions, RedistributionBlockOutput};
-use crate::backtest::BlockData;
-use crate::live_builder::base_config::load_config_toml_and_env;
-use crate::live_builder::cli::LiveBuilderConfig;
-use crate::{backtest::HistoricalDataStorage, live_builder::config::Config};
+use crate::{
+    backtest::{
+        redistribute::{calc_redistributions, RedistributionBlockOutput},
+        BlockData, HistoricalDataStorage,
+    },
+    live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig},
+};
 use alloy_primitives::utils::format_ether;
 use clap::Parser;
 use csv_output::{CSVOutputRow, CSVResultWriter};
-use reth_db::DatabaseEnv;
-use reth_provider::ProviderFactory;
-use std::io;
-use std::path::PathBuf;
-use std::sync::Arc;
+use reth_db::Database;
+use reth_provider::{DatabaseProviderFactory, HeaderProvider, StateProviderFactory};
+use std::{io, path::PathBuf};
 use tracing::info;
 
 #[derive(Parser, Debug)]
@@ -45,19 +45,19 @@ enum Commands {
     },
 }
 
-pub async fn run_backtest_redistribute<ConfigType: LiveBuilderConfig>() -> eyre::Result<()> {
+pub async fn run_backtest_redistribute<ConfigType>() -> eyre::Result<()>
+where
+    ConfigType: LiveBuilderConfig,
+{
     let cli = Cli::parse();
 
-    let config: Config = load_config_toml_and_env(cli.config)?;
-    config.base_config.setup_tracing_subsriber()?;
+    let config: ConfigType = load_config_toml_and_env(cli.config)?;
+    config.base_config().setup_tracing_subsriber()?;
 
     let mut historical_data_storage =
-        HistoricalDataStorage::new_from_path(&config.base_config.backtest_fetch_output_file)
+        HistoricalDataStorage::new_from_path(&config.base_config().backtest_fetch_output_file)
             .await?;
-    let provider_factory = config
-        .base_config
-        .provider_factory()?
-        .provider_factory_unchecked();
+    let provider = config.base_config().create_provider_factory()?;
     let mut csv_writer = cli
         .csv
         .map(|path| -> io::Result<_> { CSVResultWriter::new(path) })
@@ -74,7 +74,7 @@ pub async fn run_backtest_redistribute<ConfigType: LiveBuilderConfig>() -> eyre:
                 block_data,
                 csv_writer.as_mut(),
                 json_accum.as_mut(),
-                provider_factory.clone(),
+                provider.clone(),
                 &config,
                 cli.distribute_to_mempool_txs,
             )?;
@@ -91,7 +91,7 @@ pub async fn run_backtest_redistribute<ConfigType: LiveBuilderConfig>() -> eyre:
                     block_data,
                     csv_writer.as_mut(),
                     json_accum.as_mut(),
-                    provider_factory.clone(),
+                    provider.clone(),
                     &config,
                     cli.distribute_to_mempool_txs,
                 )?;
@@ -107,19 +107,24 @@ pub async fn run_backtest_redistribute<ConfigType: LiveBuilderConfig>() -> eyre:
     Ok(())
 }
 
-fn process_redisribution<ConfigType: LiveBuilderConfig + Send + Sync>(
+fn process_redisribution<P, DB, ConfigType>(
     block_data: BlockData,
     csv_writer: Option<&mut CSVResultWriter>,
     json_accum: Option<&mut Vec<RedistributionBlockOutput>>,
-    provider_factory: ProviderFactory<Arc<DatabaseEnv>>,
+    provider: P,
     config: &ConfigType,
     distribute_to_mempool_txs: bool,
-) -> eyre::Result<()> {
+) -> eyre::Result<()>
+where
+    DB: Database + Clone + 'static,
+    P: DatabaseProviderFactory<DB> + StateProviderFactory + HeaderProvider + Clone + 'static,
+    ConfigType: LiveBuilderConfig,
+{
     let block_number = block_data.block_number;
     let block_hash = block_data.onchain_block.header.hash;
     info!(block_number, "Calculating redistribution for a block");
     let redistribution_values = match calc_redistributions(
-        provider_factory.clone(),
+        provider.clone(),
         config,
         block_data,
         distribute_to_mempool_txs,

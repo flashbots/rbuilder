@@ -14,10 +14,12 @@ use jsonrpsee::RpcModule;
 use lazy_static::lazy_static;
 use reth::tasks::pool::BlockingTaskPool;
 use reth_chainspec::ChainSpec;
-use reth_db::DatabaseEnv;
+use reth_db::{Database, DatabaseEnv};
 use reth_node_core::args::utils::chain_value_parser;
 use reth_primitives::StaticFileSegment;
-use reth_provider::StaticFileProviderFactory;
+use reth_provider::{
+    DatabaseProviderFactory, HeaderProvider, StateProviderFactory, StaticFileProviderFactory,
+};
 use serde::{Deserialize, Deserializer};
 use serde_with::{serde_as, DeserializeAs};
 use sqlx::PgPool;
@@ -170,12 +172,18 @@ impl BaseConfig {
         cancellation_token: tokio_util::sync::CancellationToken,
         sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
         slot_source: SlotSourceType,
-    ) -> eyre::Result<super::LiveBuilder<Arc<DatabaseEnv>, SlotSourceType>>
+    ) -> eyre::Result<
+        super::LiveBuilder<
+            ProviderFactoryReopener<Arc<DatabaseEnv>>,
+            Arc<DatabaseEnv>,
+            SlotSourceType,
+        >,
+    >
     where
         SlotSourceType: SlotSource,
     {
-        let provider_factory = self.provider_factory()?;
-        self.create_builder_with_provider_factory(
+        let provider_factory = self.create_provider_factory()?;
+        self.create_builder_with_provider_factory::<ProviderFactoryReopener<Arc<DatabaseEnv>>, Arc<DatabaseEnv>, SlotSourceType>(
             cancellation_token,
             sink_factory,
             slot_source,
@@ -184,25 +192,27 @@ impl BaseConfig {
         .await
     }
 
-    /// WARN: opens reth db
-    pub async fn create_builder_with_provider_factory<SlotSourceType>(
+    /// Allows instantiating a [`LiveBuilder`] with an existing provider factory
+    pub async fn create_builder_with_provider_factory<P, DB, SlotSourceType>(
         &self,
         cancellation_token: tokio_util::sync::CancellationToken,
         sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
         slot_source: SlotSourceType,
-        provider_factory: ProviderFactoryReopener<Arc<DatabaseEnv>>,
-    ) -> eyre::Result<super::LiveBuilder<Arc<DatabaseEnv>, SlotSourceType>>
+        provider: P,
+    ) -> eyre::Result<super::LiveBuilder<P, DB, SlotSourceType>>
     where
+        DB: Database + Clone + 'static,
+        P: DatabaseProviderFactory<DB> + StateProviderFactory + HeaderProvider + Clone,
         SlotSourceType: SlotSource,
     {
-        Ok(LiveBuilder::<Arc<DatabaseEnv>, SlotSourceType> {
+        Ok(LiveBuilder::<P, DB, SlotSourceType> {
             watchdog_timeout: self.watchdog_timeout(),
             error_storage_path: self.error_storage_path.clone(),
             simulation_threads: self.simulation_threads,
             order_input_config: OrderInputConfig::from_config(self),
             blocks_source: slot_source,
             chain_chain_spec: self.chain_spec()?,
-            provider_factory,
+            provider,
 
             coinbase_signer: self.coinbase_signer()?,
             extra_data: self.extra_data()?,
@@ -243,7 +253,9 @@ impl BaseConfig {
     }
 
     /// Open reth db and DB should be opened once per process but it can be cloned and moved to different threads.
-    pub fn provider_factory(&self) -> eyre::Result<ProviderFactoryReopener<Arc<DatabaseEnv>>> {
+    pub fn create_provider_factory(
+        &self,
+    ) -> eyre::Result<ProviderFactoryReopener<Arc<DatabaseEnv>>> {
         create_provider_factory(
             self.reth_datadir.as_deref(),
             self.reth_db_path.as_deref(),

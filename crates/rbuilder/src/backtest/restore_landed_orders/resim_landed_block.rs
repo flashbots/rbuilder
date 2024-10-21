@@ -1,15 +1,16 @@
-use crate::building::evm_inspector::SlotKey;
-use crate::building::tracers::AccumulatorSimulationTracer;
-use crate::building::{BlockBuildingContext, BlockState, PartialBlock, PartialBlockFork};
-use crate::utils::signed_uint_delta;
-use crate::utils::{extract_onchain_block_txs, find_suggested_fee_recipient};
+use crate::{
+    building::{
+        evm_inspector::SlotKey, tracers::AccumulatorSimulationTracer, BlockBuildingContext,
+        BlockState, PartialBlock, PartialBlockFork,
+    },
+    utils::{extract_onchain_block_txs, find_suggested_fee_recipient, signed_uint_delta},
+};
 use ahash::{HashMap, HashSet};
 use alloy_primitives::{B256, I256};
 use eyre::Context;
 use reth_chainspec::ChainSpec;
-use reth_db::DatabaseEnv;
 use reth_primitives::{Receipt, TransactionSignedEcRecovered, TxHash};
-use reth_provider::ProviderFactory;
+use reth_provider::StateProviderFactory;
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -26,11 +27,14 @@ impl ExecutedTxs {
     }
 }
 
-pub fn sim_historical_block(
-    provider_factory: ProviderFactory<Arc<DatabaseEnv>>,
+pub fn sim_historical_block<P>(
+    provider: P,
     chain_spec: Arc<ChainSpec>,
     onchain_block: alloy_rpc_types::Block,
-) -> eyre::Result<Vec<ExecutedTxs>> {
+) -> eyre::Result<Vec<ExecutedTxs>>
+where
+    P: StateProviderFactory,
+{
     let mut results = Vec::new();
 
     let txs = extract_onchain_block_txs(&onchain_block)?;
@@ -48,7 +52,7 @@ pub fn sim_historical_block(
         None,
     );
 
-    let state_provider = provider_factory.history_by_block_hash(ctx.attributes.parent)?;
+    let state_provider = provider.history_by_block_hash(ctx.attributes.parent)?;
     let mut partial_block = PartialBlock::new(true, None);
     let mut state = BlockState::new(state_provider);
 

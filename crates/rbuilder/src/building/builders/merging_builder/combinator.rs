@@ -1,16 +1,16 @@
 use crate::{
     building::{
-        builders::block_building_helper::{BlockBuildingHelper, BlockBuildingHelperFromDB},
+        builders::block_building_helper::{BlockBuildingHelper, BlockBuildingHelperFromProvider},
         BlockBuildingContext,
     },
     roothash::RootHashConfig,
 };
 
-use crate::utils::check_provider_factory_health;
-use reth::{providers::ProviderFactory, tasks::pool::BlockingTaskPool};
-use reth_db::database::Database;
+use reth::tasks::pool::BlockingTaskPool;
+use reth_db::Database;
 use reth_payload_builder::database::CachedReads;
-use std::time::Instant;
+use reth_provider::{DatabaseProviderFactory, StateProviderFactory};
+use std::{marker::PhantomData, time::Instant};
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
 use tracing::{info_span, trace};
@@ -19,8 +19,8 @@ use super::{GroupOrdering, OrderGroup};
 
 /// CombinatorContext is used for merging the best ordering from groups into final block.
 #[derive(Debug)]
-pub struct CombinatorContext<DB> {
-    provider_factory: ProviderFactory<DB>,
+pub struct CombinatorContext<P, DB> {
+    provider: P,
     root_hash_task_pool: BlockingTaskPool,
     ctx: BlockBuildingContext,
     groups: Vec<OrderGroup>,
@@ -30,12 +30,17 @@ pub struct CombinatorContext<DB> {
     coinbase_payment: bool,
     root_hash_config: RootHashConfig,
     builder_name: String,
+    phantom: PhantomData<DB>,
 }
 
-impl<DB: Database + Clone + 'static> CombinatorContext<DB> {
+impl<P, DB> CombinatorContext<P, DB>
+where
+    DB: Database + Clone + 'static,
+    P: DatabaseProviderFactory<DB> + StateProviderFactory + Clone + 'static,
+{
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        provider_factory: ProviderFactory<DB>,
+        provider: P,
         root_hash_task_pool: BlockingTaskPool,
         ctx: BlockBuildingContext,
         groups: Vec<OrderGroup>,
@@ -47,7 +52,7 @@ impl<DB: Database + Clone + 'static> CombinatorContext<DB> {
         builder_name: String,
     ) -> Self {
         CombinatorContext {
-            provider_factory,
+            provider,
             root_hash_task_pool,
             ctx,
             groups,
@@ -57,6 +62,7 @@ impl<DB: Database + Clone + 'static> CombinatorContext<DB> {
             coinbase_payment,
             root_hash_config,
             builder_name,
+            phantom: PhantomData,
         }
     }
 
@@ -85,8 +91,6 @@ impl<DB: Database + Clone + 'static> CombinatorContext<DB> {
         let build_attempt_id: u32 = rand::random();
         let span = info_span!("build_run", build_attempt_id);
         let _guard = span.enter();
-        check_provider_factory_health(self.ctx.block(), &self.provider_factory)?;
-
         let build_start = Instant::now();
 
         let mut best_orderings: Vec<GroupOrdering> = self
@@ -104,8 +108,8 @@ impl<DB: Database + Clone + 'static> CombinatorContext<DB> {
             ctx.modify_use_suggested_fee_recipient_as_coinbase();
         }
 
-        let mut block_building_helper = BlockBuildingHelperFromDB::new(
-            self.provider_factory.clone(),
+        let mut block_building_helper = BlockBuildingHelperFromProvider::new(
+            self.provider.clone(),
             self.root_hash_task_pool.clone(),
             self.root_hash_config.clone(),
             ctx,
