@@ -1,8 +1,11 @@
 use std::{path::PathBuf, sync::Arc};
 
 use clap::Parser;
-use reth_db::DatabaseEnv;
+use reth_db::{Database, DatabaseEnv};
 use reth_payload_builder::database::CachedReads;
+use reth_provider::{DatabaseProviderFactory, StateProviderFactory};
+use serde::de::DeserializeOwned;
+use std::fmt::Debug;
 use tokio::signal::ctrl_c;
 use tokio_util::sync::CancellationToken;
 
@@ -12,7 +15,7 @@ use crate::{
         base_config::load_config_toml_and_env, payload_events::MevBoostSlotDataGenerator,
     },
     telemetry,
-    utils::build_info::Version,
+    utils::{build_info::Version, ProviderFactoryReopener},
 };
 
 use super::{base_config::BaseConfig, LiveBuilder};
@@ -34,33 +37,45 @@ struct RunCmd {
 }
 
 /// Basic stuff needed to call cli::run
-pub trait LiveBuilderConfig: std::fmt::Debug + serde::de::DeserializeOwned {
+pub trait LiveBuilderConfig: Debug + DeserializeOwned + Sync {
     fn base_config(&self) -> &BaseConfig;
     /// Version reported by telemetry
     fn version_for_telemetry(&self) -> Version;
+
+    /// Create a concrete builder
+    ///
     /// Desugared from async to future to keep clippy happy
-    fn create_builder(
+    fn new_builder(
         &self,
         cancellation_token: CancellationToken,
     ) -> impl std::future::Future<
-        Output = eyre::Result<LiveBuilder<Arc<DatabaseEnv>, MevBoostSlotDataGenerator>>,
+        Output = eyre::Result<
+            LiveBuilder<
+                ProviderFactoryReopener<Arc<DatabaseEnv>>,
+                Arc<DatabaseEnv>,
+                MevBoostSlotDataGenerator,
+            >,
+        >,
     > + Send;
 
     /// Patch until we have a unified way of backtesting using the exact algorithms we use on the LiveBuilder.
     /// building_algorithm_name will come from the specific configuration.
-    fn build_backtest_block(
+    fn build_backtest_block<P, DB>(
         &self,
         building_algorithm_name: &str,
-        input: BacktestSimulateBlockInput<'_, Arc<DatabaseEnv>>,
-    ) -> eyre::Result<(Block, CachedReads)>;
+        input: BacktestSimulateBlockInput<'_, P>,
+    ) -> eyre::Result<(Block, CachedReads)>
+    where
+        DB: Database + Clone + 'static,
+        P: DatabaseProviderFactory<DB> + StateProviderFactory + Clone + 'static;
 }
 
 /// print_version_info func that will be called on command Cli::Version
 /// on_run func that will be called on command Cli::Run just before running
-pub async fn run<ConfigType: LiveBuilderConfig>(
-    print_version_info: fn(),
-    on_run: Option<fn()>,
-) -> eyre::Result<()> {
+pub async fn run<ConfigType>(print_version_info: fn(), on_run: Option<fn()>) -> eyre::Result<()>
+where
+    ConfigType: LiveBuilderConfig,
+{
     let cli = Cli::parse();
     let cli = match cli {
         Cli::Run(cli) => cli,
@@ -91,7 +106,7 @@ pub async fn run<ConfigType: LiveBuilderConfig>(
         config.base_config().log_enable_dynamic,
     )
     .await?;
-    let builder = config.create_builder(cancel.clone()).await?;
+    let builder = config.new_builder(cancel.clone()).await?;
 
     let ctrlc = tokio::spawn(async move {
         ctrl_c().await.unwrap_or_default();

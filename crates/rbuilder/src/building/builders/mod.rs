@@ -16,12 +16,12 @@ use alloy_primitives::{Address, B256};
 use block_building_helper::BlockBuildingHelper;
 use reth::{
     primitives::{BlobTransactionSidecar, SealedBlock},
-    providers::ProviderFactory,
     tasks::pool::BlockingTaskPool,
 };
-use reth_db::database::Database;
+use reth_db::Database;
 use reth_payload_builder::database::CachedReads;
-use std::sync::Arc;
+use reth_provider::{DatabaseProviderFactory, StateProviderFactory};
+use std::{fmt::Debug, marker::PhantomData, sync::Arc};
 use tokio::sync::{broadcast, broadcast::error::TryRecvError};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, warn};
@@ -37,8 +37,8 @@ pub struct Block {
 }
 
 #[derive(Debug)]
-pub struct LiveBuilderInput<DB: Database> {
-    pub provider_factory: ProviderFactory<DB>,
+pub struct LiveBuilderInput<P, DB> {
+    pub provider: P,
     pub root_hash_config: RootHashConfig,
     pub root_hash_task_pool: BlockingTaskPool,
     pub ctx: BlockBuildingContext,
@@ -47,6 +47,7 @@ pub struct LiveBuilderInput<DB: Database> {
     pub builder_name: String,
     pub cancel: CancellationToken,
     pub sbundle_mergeabe_signers: Vec<Address>,
+    phantom: PhantomData<DB>,
 }
 
 /// Struct that helps reading new orders/cancelations
@@ -107,8 +108,8 @@ impl OrderConsumer {
 }
 
 #[derive(Debug)]
-pub struct OrderIntakeConsumer<DB> {
-    nonce_cache: NonceCache<DB>,
+pub struct OrderIntakeConsumer<P> {
+    nonce_cache: NonceCache<P>,
 
     block_orders: BlockOrders,
     onchain_nonces_updated: HashSet<Address>,
@@ -116,16 +117,19 @@ pub struct OrderIntakeConsumer<DB> {
     order_consumer: OrderConsumer,
 }
 
-impl<DB: Database + Clone> OrderIntakeConsumer<DB> {
+impl<P> OrderIntakeConsumer<P>
+where
+    P: StateProviderFactory,
+{
     /// See [`ShareBundleMerger`] for sbundle_merger_selected_signers
     pub fn new(
-        provider_factory: ProviderFactory<DB>,
+        provider: P,
         orders: broadcast::Receiver<SimulatedOrderCommand>,
         parent_block: B256,
         sorting: Sorting,
         sbundle_merger_selected_signers: &[Address],
     ) -> Self {
-        let nonce_cache = NonceCache::new(provider_factory, parent_block);
+        let nonce_cache = NonceCache::new(provider, parent_block);
 
         Self {
             nonce_cache,
@@ -196,8 +200,8 @@ pub trait UnfinishedBlockBuildingSink: std::fmt::Debug + Send + Sync {
 }
 
 #[derive(Debug)]
-pub struct BlockBuildingAlgorithmInput<DB: Database> {
-    pub provider_factory: ProviderFactory<DB>,
+pub struct BlockBuildingAlgorithmInput<P> {
+    pub provider: P,
     pub ctx: BlockBuildingContext,
     pub input: broadcast::Receiver<SimulatedOrderCommand>,
     /// output for the blocks
@@ -208,13 +212,17 @@ pub struct BlockBuildingAlgorithmInput<DB: Database> {
 /// Algorithm to build blocks
 /// build_blocks should send block to input.sink until  input.cancel is cancelled.
 /// slot_bidder should be used to decide how much to bid.
-pub trait BlockBuildingAlgorithm<DB: Database>: std::fmt::Debug + Send + Sync {
+pub trait BlockBuildingAlgorithm<P, DB>: Debug + Send + Sync
+where
+    DB: Database + Clone + 'static,
+    P: DatabaseProviderFactory<DB> + StateProviderFactory + Clone + 'static,
+{
     fn name(&self) -> String;
-    fn build_blocks(&self, input: BlockBuildingAlgorithmInput<DB>);
+    fn build_blocks(&self, input: BlockBuildingAlgorithmInput<P>);
 }
 
 /// Factory used to create UnfinishedBlockBuildingSink for builders.
-pub trait UnfinishedBlockBuildingSinkFactory: std::fmt::Debug + Send + Sync {
+pub trait UnfinishedBlockBuildingSinkFactory: Debug + Send + Sync {
     /// Creates an UnfinishedBlockBuildingSink to receive block for slot_data.
     /// cancel: If this is signaled the sink should cancel. If any unrecoverable situation is found signal cancel.
     fn create_sink(
@@ -225,12 +233,12 @@ pub trait UnfinishedBlockBuildingSinkFactory: std::fmt::Debug + Send + Sync {
 }
 
 /// Basic configuration to run a single block building with a BlockBuildingAlgorithm
-pub struct BacktestSimulateBlockInput<'a, DB> {
+pub struct BacktestSimulateBlockInput<'a, P> {
     pub ctx: BlockBuildingContext,
     pub builder_name: String,
     pub sbundle_mergeabe_signers: Vec<Address>,
     pub sim_orders: &'a Vec<SimulatedOrder>,
-    pub provider_factory: ProviderFactory<DB>,
+    pub provider: P,
     pub cached_reads: Option<CachedReads>,
 }
 
