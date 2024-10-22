@@ -77,7 +77,7 @@ impl<DB: Database + Clone> ProviderFactoryReopener<DB> {
     pub fn check_consistency_and_reopen_if_needed(&self) -> eyre::Result<ProviderFactory<DB>> {
         let best_block_number = self
             .provider_factory_unchecked()
-            .best_block_number()
+            .last_block_number()
             .map_err(|err| eyre::eyre!("Error getting best block number: {:?}", err))?;
         let mut provider_factory = self.provider_factory.lock().unwrap();
 
