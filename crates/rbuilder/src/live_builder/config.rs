@@ -118,9 +118,6 @@ pub struct L1Config {
     /// If true all optimistic submissions will be validated on nodes specified in `dry_run_validation_url`
     pub optimistic_prevalidate_optimistic_blocks: bool,
 
-    /// See [`SubmissionConfig`]
-    slot_delta_to_start_submits_ms: Option<i64>,
-
     /// How many seals we are going to be doing in parallel.
     /// Optimal value may change depending on the roothash computation caching strategies.
     pub max_concurrent_seals: u64,
@@ -144,7 +141,6 @@ impl Default for L1Config {
             optimistic_enabled: false,
             optimistic_max_bid_value_eth: "0.0".to_string(),
             optimistic_prevalidate_optimistic_blocks: false,
-            slot_delta_to_start_submits_ms: None,
             cl_node_url: vec![EnvOrValue::from("http://127.0.0.1:3500")],
             max_concurrent_seals: DEFAULT_MAX_CONCURRENT_SEALS,
             genesis_fork_version: None,
