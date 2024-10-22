@@ -63,8 +63,6 @@ use std::{
 use tracing::info;
 use url::Url;
 
-/// From experience (Vitaly's) all generated blocks before slot_time-8sec end loosing (due to last moment orders?)
-const DEFAULT_SLOT_DELTA_TO_START_SUBMITS: time::Duration = time::Duration::milliseconds(-8000);
 /// We initialize the wallet with the last full day. This should be enough for any bidder.
 /// On debug I measured this to be < 300ms so it's not big deal.
 pub const WALLET_INIT_HISTORY_SIZE: Duration = Duration::from_secs(60 * 60 * 24);
@@ -204,12 +202,6 @@ impl L1Config {
         BLSBlockSigner::new(secret_key, signing_domain)
     }
 
-    pub fn slot_delta_to_start_submits(&self) -> time::Duration {
-        self.slot_delta_to_start_submits_ms
-            .map(time::Duration::milliseconds)
-            .unwrap_or(DEFAULT_SLOT_DELTA_TO_START_SUBMITS)
-    }
-
     fn submission_config(
         &self,
         chain_spec: Arc<ChainSpec>,
@@ -258,7 +250,6 @@ impl L1Config {
             optimistic_signer,
             optimistic_max_bid_value: parse_ether(&self.optimistic_max_bid_value_eth)?,
             optimistic_prevalidate_optimistic_blocks: self.optimistic_prevalidate_optimistic_blocks,
-            slot_delta_to_start_submits: self.slot_delta_to_start_submits(),
             bid_observer,
         })
     }

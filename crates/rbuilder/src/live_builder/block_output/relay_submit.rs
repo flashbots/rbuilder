@@ -105,8 +105,6 @@ pub struct SubmissionConfig {
     pub optimistic_prevalidate_optimistic_blocks: bool,
 
     pub bid_observer: Box<dyn BidObserver + Send + Sync>,
-    /// Delta relative to slot_time at which we start to submit blocks. Usually negative since we need to start submitting BEFORE the slot time.
-    pub slot_delta_to_start_submits: time::Duration,
 }
 
 /// run_submit_to_relays_job waits at least MIN_TIME_BETWEEN_BLOCK_CHECK between new block polls to avoid 100% CPU
@@ -143,14 +141,6 @@ async fn run_submit_to_relays_job(
         slot_data.slot(),
     );
     let mut res = None;
-    // first, sleep to slot time - slot_delta_to_start_submits
-    {
-        let submit_start_time = slot_data.timestamp() + config.slot_delta_to_start_submits;
-        let sleep_duration = submit_start_time - time::OffsetDateTime::now_utc();
-        if sleep_duration.is_positive() {
-            sleep(sleep_duration.try_into().unwrap()).await;
-        }
-    }
 
     let (normal_relays, optimistic_relays) = {
         let mut normal_relays = Vec::new();
