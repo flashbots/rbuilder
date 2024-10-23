@@ -30,7 +30,7 @@ use alloy_primitives::Address;
 use reth::tasks::pool::BlockingTaskPool;
 use reth_db::database::Database;
 use reth_payload_builder::database::CachedReads;
-
+use reth_provider::{DatabaseProviderFactory, StateProviderFactory};
 use crate::{
     building::builders::{
         BacktestSimulateBlockInput, Block, BlockBuildingAlgorithm, BlockBuildingAlgorithmInput,
@@ -72,19 +72,23 @@ fn get_shared_data_structures() -> (Arc<BestResults>, TaskQueue) {
     (best_results, task_queue)
 }
 
-struct ParallelBuilder<DB: Database + Clone + 'static> {
+struct ParallelBuilder<P, DB> {
     order_intake_consumer: OrderIntakeStore,
     conflict_finder: ConflictFinder,
     conflict_task_generator: ConflictTaskGenerator,
-    conflict_resolving_pool: ConflictResolvingPool<DB>,
+    conflict_resolving_pool: ConflictResolvingPool<P>,
     results_aggregator: ResultsAggregator,
-    block_building_result_assembler: BlockBuildingResultAssembler<DB>,
+    block_building_result_assembler: BlockBuildingResultAssembler<P, DB>,
 }
 
-impl<DB: Database + Clone + 'static> ParallelBuilder<DB> {
+impl<P, DB> ParallelBuilder<P, DB>
+where
+    DB: Database + Clone + 'static,
+    P: DatabaseProviderFactory<DB> + StateProviderFactory + Clone + 'static,
+{
     /// Creates a ParallelBuilder.
     /// Sets up the various components and communication channels.
-    pub fn new(input: LiveBuilderInput<DB>, config: &ParallelBuilderConfig) -> Self {
+    pub fn new(input: LiveBuilderInput<P, DB>, config: &ParallelBuilderConfig) -> Self {
         let (group_result_sender, group_result_receiver) = get_communication_channels();
         let group_result_sender_for_task_generator = group_result_sender.clone();
 
@@ -105,7 +109,7 @@ impl<DB: Database + Clone + 'static> ParallelBuilder<DB> {
             group_result_sender,
             input.cancel.clone(),
             input.ctx.clone(),
-            input.provider_factory.clone(),
+            input.provider.clone(),
             Arc::clone(&simulation_cache),
         );
 
@@ -116,7 +120,7 @@ impl<DB: Database + Clone + 'static> ParallelBuilder<DB> {
             config,
             input.root_hash_config,
             Arc::clone(&best_results),
-            input.provider_factory.clone(),
+            input.provider.clone(),
             input.root_hash_task_pool.clone(),
             input.ctx.clone(),
             input.cancel.clone(),
@@ -176,10 +180,14 @@ impl<DB: Database + Clone + 'static> ParallelBuilder<DB> {
 ///
 /// # Type Parameters
 /// * `DB`: The database type, which must implement Database, Clone, and have a static lifetime.
-pub fn run_parallel_builder<DB: Database + Clone + 'static>(
-    input: LiveBuilderInput<DB>,
+pub fn run_parallel_builder<P, DB>(
+    input: LiveBuilderInput<P, DB>,
     config: &ParallelBuilderConfig,
-) {
+)
+where
+    DB: Database + Clone + 'static,
+    P: DatabaseProviderFactory<DB> + StateProviderFactory + Clone + 'static,
+{
     let cancel_for_results_aggregator = input.cancel.clone();
     let cancel_for_block_building_result_assembler = input.cancel.clone();
     let cancel_for_process_orders_loop = input.cancel.clone();
@@ -259,10 +267,14 @@ fn run_order_intake(
     }
 }
 
-pub fn parallel_build_backtest<DB: Database + Clone + 'static>(
-    input: BacktestSimulateBlockInput<'_, DB>,
+pub fn parallel_build_backtest<P, DB>(
+    input: BacktestSimulateBlockInput<'_, P>,
     config: ParallelBuilderConfig,
-) -> Result<(Block, CachedReads)> {
+) -> Result<(Block, CachedReads)>
+where
+    DB: Database + Clone + 'static,
+    P: DatabaseProviderFactory<DB> + StateProviderFactory + Clone + 'static,
+{
     let start_time = Instant::now();
 
     // Initialization stage
@@ -292,7 +304,7 @@ pub fn parallel_build_backtest<DB: Database + Clone + 'static>(
         group_result_sender,
         CancellationToken::new(),
         input.ctx.clone(),
-        input.provider_factory.clone(),
+        input.provider.clone(),
         Arc::clone(&simulation_cache),
     );
 
@@ -304,7 +316,7 @@ pub fn parallel_build_backtest<DB: Database + Clone + 'static>(
     let results = conflict_resolving_pool.process_groups_backtest(
         groups,
         &input.ctx,
-        &input.provider_factory,
+        &input.provider,
         Arc::clone(&simulation_cache),
     );
     let processing_duration = processing_start.elapsed();
@@ -315,7 +327,7 @@ pub fn parallel_build_backtest<DB: Database + Clone + 'static>(
         &config,
         RootHashConfig::skip_root_hash(),
         Arc::clone(&best_results),
-        input.provider_factory.clone(),
+        input.provider.clone(),
         BlockingTaskPool::build()?,
         input.ctx.clone(),
         CancellationToken::new(),
@@ -391,14 +403,18 @@ impl ParallelBuildingAlgorithm {
     }
 }
 
-impl<DB: Database + Clone + 'static> BlockBuildingAlgorithm<DB> for ParallelBuildingAlgorithm {
+impl<P, DB> BlockBuildingAlgorithm<P, DB> for ParallelBuildingAlgorithm
+where
+    DB: Database + Clone + 'static,
+    P: DatabaseProviderFactory<DB> + StateProviderFactory + Clone + 'static,
+{
     fn name(&self) -> String {
         self.name.clone()
     }
 
-    fn build_blocks(&self, input: BlockBuildingAlgorithmInput<DB>) {
+    fn build_blocks(&self, input: BlockBuildingAlgorithmInput<P>) {
         let live_input = LiveBuilderInput {
-            provider_factory: input.provider_factory,
+            provider: input.provider,
             root_hash_config: self.root_hash_config.clone(),
             root_hash_task_pool: self.root_hash_task_pool.clone(),
             ctx: input.ctx.clone(),
@@ -407,6 +423,7 @@ impl<DB: Database + Clone + 'static> BlockBuildingAlgorithm<DB> for ParallelBuil
             builder_name: self.name.clone(),
             cancel: input.cancel,
             sbundle_mergeabe_signers: self.sbundle_mergeabe_signers.clone(),
+            phantom: Default::default(),
         };
         run_parallel_builder(live_input, &self.config);
     }

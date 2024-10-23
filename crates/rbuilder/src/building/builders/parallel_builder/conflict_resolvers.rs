@@ -3,8 +3,8 @@ use alloy_primitives::{Address, U256};
 use eyre::Result;
 use itertools::Itertools;
 use rand::{seq::SliceRandom, SeedableRng};
-use reth::providers::{ProviderFactory, StateProvider};
-use reth_db::Database;
+use reth::providers::StateProvider;
+use reth_provider::StateProviderFactory;
 use reth_payload_builder::database::CachedReads;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
@@ -19,15 +19,18 @@ use crate::primitives::{OrderId, SimulatedOrder};
 
 /// Context for resolving conflicts in merging tasks.
 #[derive(Debug)]
-pub struct ResolverContext<DB> {
-    pub provider_factory: ProviderFactory<DB>,
+pub struct ResolverContext<P> {
+    pub provider: P,
     pub ctx: BlockBuildingContext,
     pub cancellation_token: CancellationToken,
     pub cache: Option<CachedReads>,
     pub simulation_cache: Arc<SharedSimulationCache>,
 }
 
-impl<DB: Database + Clone> ResolverContext<DB> {
+impl<P> ResolverContext<P>
+where
+    P: StateProviderFactory + Clone + 'static,
+{
     /// Creates a new `ResolverContext`.
     ///
     /// # Arguments
@@ -38,14 +41,14 @@ impl<DB: Database + Clone> ResolverContext<DB> {
     /// * `cache` - Optional cached reads for optimization.
     /// * `simulation_cache` - Shared cache for simulation results.
     pub fn new(
-        provider_factory: ProviderFactory<DB>,
+        provider: P,
         ctx: BlockBuildingContext,
         cancellation_token: CancellationToken,
         cache: Option<CachedReads>,
         simulation_cache: Arc<SharedSimulationCache>,
     ) -> Self {
         ResolverContext {
-            provider_factory,
+            provider,
             ctx,
             cancellation_token,
             cache,
@@ -69,7 +72,7 @@ impl<DB: Database + Clone> ResolverContext<DB> {
             task.algorithm
         );
         let state_provider = self
-            .provider_factory
+            .provider
             .history_by_block_hash(self.ctx.attributes.parent)?;
         let state_provider: Arc<dyn StateProvider> = Arc::from(state_provider);
 

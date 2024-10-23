@@ -2,8 +2,7 @@ use alloy_primitives::utils::format_ether;
 use crossbeam_queue::SegQueue;
 use eyre::Result;
 use rayon::{ThreadPool, ThreadPoolBuilder};
-use reth::providers::ProviderFactory;
-use reth_db::database::Database;
+use reth_provider::StateProviderFactory;
 use std::sync::mpsc as std_mpsc;
 use std::sync::Arc;
 use std::time::Instant;
@@ -21,24 +20,27 @@ use crate::building::BlockBuildingContext;
 
 pub type TaskQueue = Arc<SegQueue<ConflictTask>>;
 
-pub struct ConflictResolvingPool<DB: Database + Clone + 'static> {
+pub struct ConflictResolvingPool<P> {
     task_queue: TaskQueue,
     thread_pool: ThreadPool,
     group_result_sender: std_mpsc::Sender<ConflictResolutionResultPerGroup>,
     cancellation_token: CancellationToken,
     ctx: BlockBuildingContext,
-    provider_factory: ProviderFactory<DB>,
+    provider: P,
     simulation_cache: Arc<SharedSimulationCache>,
 }
 
-impl<DB: Database + Clone + 'static> ConflictResolvingPool<DB> {
+impl<P> ConflictResolvingPool<P>
+where
+    P: StateProviderFactory + Clone + 'static,
+{
     pub fn new(
         num_threads: usize,
         task_queue: TaskQueue,
         group_result_sender: std_mpsc::Sender<ConflictResolutionResultPerGroup>,
         cancellation_token: CancellationToken,
         ctx: BlockBuildingContext,
-        provider_factory: ProviderFactory<DB>,
+        provider: P,
         simulation_cache: Arc<SharedSimulationCache>,
     ) -> Self {
         let thread_pool = ThreadPoolBuilder::new()
@@ -52,7 +54,7 @@ impl<DB: Database + Clone + 'static> ConflictResolvingPool<DB> {
             group_result_sender,
             cancellation_token,
             ctx,
-            provider_factory,
+            provider,
             simulation_cache,
         }
     }
@@ -60,7 +62,7 @@ impl<DB: Database + Clone + 'static> ConflictResolvingPool<DB> {
     pub fn start(&self) {
         let task_queue = self.task_queue.clone();
         let cancellation_token = self.cancellation_token.clone();
-        let provider_factory = self.provider_factory.clone();
+        let provider = self.provider.clone();
         let group_result_sender = self.group_result_sender.clone();
         let simulation_cache = self.simulation_cache.clone();
         let ctx = self.ctx.clone();
@@ -72,7 +74,7 @@ impl<DB: Database + Clone + 'static> ConflictResolvingPool<DB> {
                     if let Ok((task_id, result)) = Self::process_task(
                         task,
                         &ctx,
-                        &provider_factory,
+                        &provider,
                         cancellation_token.clone(),
                         Arc::clone(&simulation_cache),
                     ) {
@@ -102,12 +104,12 @@ impl<DB: Database + Clone + 'static> ConflictResolvingPool<DB> {
     pub fn process_task(
         task: ConflictTask,
         ctx: &BlockBuildingContext,
-        provider_factory: &ProviderFactory<DB>,
+        provider: &P,
         cancellation_token: CancellationToken,
         simulation_cache: Arc<SharedSimulationCache>,
     ) -> Result<(GroupId, (ResolutionResult, ConflictGroup))> {
         let mut merging_context = ResolverContext::new(
-            provider_factory.clone(),
+            provider.clone(),
             ctx.clone(),
             cancellation_token,
             None,
@@ -142,7 +144,7 @@ impl<DB: Database + Clone + 'static> ConflictResolvingPool<DB> {
         &mut self,
         new_groups: Vec<ConflictGroup>,
         ctx: &BlockBuildingContext,
-        provider_factory: &ProviderFactory<DB>,
+        provider: &P,
         simulation_cache: Arc<SharedSimulationCache>,
     ) -> Vec<(GroupId, (ResolutionResult, ConflictGroup))> {
         let mut results = Vec::new();
@@ -153,7 +155,7 @@ impl<DB: Database + Clone + 'static> ConflictResolvingPool<DB> {
                 let result = Self::process_task(
                     task,
                     ctx,
-                    provider_factory,
+                    provider,
                     CancellationToken::new(),
                     simulation_cache,
                 );

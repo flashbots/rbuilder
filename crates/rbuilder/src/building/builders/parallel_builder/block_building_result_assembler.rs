@@ -4,11 +4,12 @@ use super::{
 };
 use ahash::HashMap;
 use alloy_primitives::utils::format_ether;
-use reth::{providers::ProviderFactory, tasks::pool::BlockingTaskPool};
+use reth::tasks::pool::BlockingTaskPool;
 use reth_db::Database;
 use reth_payload_builder::database::CachedReads;
 use std::sync::Arc;
-use std::time::Instant;
+use reth_provider::{DatabaseProviderFactory, StateProviderFactory};
+use std::{marker::PhantomData, time::Instant};
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
 use tracing::{trace, warn};
@@ -16,7 +17,7 @@ use tracing::{trace, warn};
 use crate::{
     building::{
         builders::{
-            block_building_helper::{BlockBuildingHelper, BlockBuildingHelperFromDB},
+            block_building_helper::{BlockBuildingHelper, BlockBuildingHelperFromProvider},
             UnfinishedBlockBuildingSink,
         },
         BlockBuildingContext,
@@ -25,8 +26,8 @@ use crate::{
 };
 
 /// Assembles block building results from the best orderings of order groups.
-pub struct BlockBuildingResultAssembler<DB> {
-    provider_factory: ProviderFactory<DB>,
+pub struct BlockBuildingResultAssembler<P, DB> {
+    provider: P,
     root_hash_task_pool: BlockingTaskPool,
     ctx: BlockBuildingContext,
     cancellation_token: CancellationToken,
@@ -40,9 +41,14 @@ pub struct BlockBuildingResultAssembler<DB> {
     best_results: Arc<BestResults>,
     run_id: u64,
     last_version: Option<u64>,
+    phantom: PhantomData<DB>,
 }
 
-impl<DB: Database + Clone + 'static> BlockBuildingResultAssembler<DB> {
+impl<P, DB> BlockBuildingResultAssembler<P, DB>
+where
+    DB: Database + Clone + 'static,
+    P: DatabaseProviderFactory<DB> + StateProviderFactory + Clone + 'static,
+{
     /// Creates a new `BlockBuildingResultAssembler`.
     ///
     /// # Arguments
@@ -56,7 +62,7 @@ impl<DB: Database + Clone + 'static> BlockBuildingResultAssembler<DB> {
         config: &ParallelBuilderConfig,
         root_hash_config: RootHashConfig,
         best_results: Arc<BestResults>,
-        provider_factory: ProviderFactory<DB>,
+        provider: P,
         root_hash_task_pool: BlockingTaskPool,
         ctx: BlockBuildingContext,
         cancellation_token: CancellationToken,
@@ -65,7 +71,7 @@ impl<DB: Database + Clone + 'static> BlockBuildingResultAssembler<DB> {
         sink: Option<Arc<dyn UnfinishedBlockBuildingSink>>,
     ) -> Self {
         Self {
-            provider_factory,
+            provider,
             root_hash_task_pool,
             ctx,
             cancellation_token,
@@ -79,6 +85,7 @@ impl<DB: Database + Clone + 'static> BlockBuildingResultAssembler<DB> {
             best_results,
             run_id: 0,
             last_version: None,
+            phantom: PhantomData,
         }
     }
 
@@ -192,8 +199,8 @@ impl<DB: Database + Clone + 'static> BlockBuildingResultAssembler<DB> {
             ctx.modify_use_suggested_fee_recipient_as_coinbase();
         }
 
-        let mut block_building_helper = BlockBuildingHelperFromDB::new(
-            self.provider_factory.clone(),
+        let mut block_building_helper = BlockBuildingHelperFromProvider::new(
+            self.provider.clone(),
             self.root_hash_task_pool.clone(),
             self.root_hash_config.clone(),
             ctx,
@@ -261,8 +268,8 @@ impl<DB: Database + Clone + 'static> BlockBuildingResultAssembler<DB> {
         best_results: HashMap<GroupId, (ResolutionResult, ConflictGroup)>,
         orders_closed_at: OffsetDateTime,
     ) -> eyre::Result<Box<dyn BlockBuildingHelper>> {
-        let mut block_building_helper = BlockBuildingHelperFromDB::new(
-            self.provider_factory.clone(),
+        let mut block_building_helper = BlockBuildingHelperFromProvider::new(
+            self.provider.clone(),
             self.root_hash_task_pool.clone(),
             self.root_hash_config.clone(), // Adjust as needed for backtest
             self.ctx.clone(),
