@@ -154,8 +154,7 @@ pub fn check_provider_factory_health<DB: Database>(
 }
 
 // Implement reth db traits on the ProviderFactoryReopener, allowing generic
-// DB access. Consistency checks are required only if the operations may be
-// performed on historical state.
+// DB access.
 //
 // ProviderFactory only has access to disk state, therefore cannot implement methods
 // that require the blockchain tree (pending state etc.).
@@ -246,15 +245,24 @@ impl<DB: Database + Clone> BlockHashReader for ProviderFactoryReopener<DB> {
 
 impl<DB: Database + Clone> BlockNumReader for ProviderFactoryReopener<DB> {
     fn chain_info(&self) -> ProviderResult<ChainInfo> {
-        self.provider_factory_unchecked().chain_info()
+        let provider = self
+            .check_consistency_and_reopen_if_needed()
+            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
+        provider.chain_info()
     }
 
     fn best_block_number(&self) -> ProviderResult<BlockNumber> {
-        self.provider_factory_unchecked().best_block_number()
+        let provider = self
+            .check_consistency_and_reopen_if_needed()
+            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
+        provider.best_block_number()
     }
 
     fn last_block_number(&self) -> ProviderResult<BlockNumber> {
-        self.provider_factory_unchecked().last_block_number()
+        let provider = self
+            .check_consistency_and_reopen_if_needed()
+            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
+        provider.last_block_number()
     }
 
     fn block_number(&self, hash: B256) -> ProviderResult<Option<BlockNumber>> {
@@ -281,7 +289,10 @@ impl<DB: Database + Clone> BlockIdReader for ProviderFactoryReopener<DB> {
 
 impl<DB: Database + Clone> StateProviderFactory for ProviderFactoryReopener<DB> {
     fn latest(&self) -> ProviderResult<StateProviderBox> {
-        self.provider_factory_unchecked().latest()
+        let provider = self
+            .check_consistency_and_reopen_if_needed()
+            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
+        provider.latest()
     }
 
     fn state_by_block_number_or_tag(
