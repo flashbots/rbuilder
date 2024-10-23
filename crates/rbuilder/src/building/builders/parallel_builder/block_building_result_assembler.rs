@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, trace, warn};
+use tracing::{trace, warn};
 
 use crate::{
     building::{
@@ -128,9 +128,10 @@ impl<DB: Database + Clone + 'static> BlockBuildingResultAssembler<DB> {
         }
         self.last_version = Some(version);
 
-        debug!(
+        trace!(
             "Parallel builder run id {}: Attempting to build block with results version {}",
-            self.run_id, version
+            self.run_id,
+            version
         );
 
         if best_orderings_per_group.is_empty() {
@@ -140,7 +141,7 @@ impl<DB: Database + Clone + 'static> BlockBuildingResultAssembler<DB> {
         match self.build_new_block(&mut best_orderings_per_group, orders_closed_at) {
             Ok(new_block) => {
                 if let Ok(value) = new_block.true_block_value() {
-                    debug!(
+                    trace!(
                         "Parallel builder run id {}: Built new block with results version {:?} and profit: {:?} in {:?} ms",
                         self.run_id,
                         version,

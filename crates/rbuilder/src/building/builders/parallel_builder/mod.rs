@@ -24,7 +24,7 @@ use std::{sync::Arc, time::Instant};
 use task::*;
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, trace};
+use tracing::{error, info, trace};
 
 use alloy_primitives::Address;
 use reth::tasks::pool::BlockingTaskPool;
@@ -247,7 +247,7 @@ fn run_order_intake(
                 let time_start = Instant::now();
                 let len = new_orders.len();
                 conflict_finder.add_orders(new_orders);
-                debug!(
+                trace!(
                     new_orders_count = len,
                     groups_count = conflict_finder.get_order_groups().len(),
                     time_taken_ms = %time_start.elapsed().as_millis(),

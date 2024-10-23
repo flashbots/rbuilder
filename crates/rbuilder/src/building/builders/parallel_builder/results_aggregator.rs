@@ -9,7 +9,7 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, trace};
+use tracing::trace;
 
 pub struct BestResults {
     pub data: DashMap<GroupId, (ResolutionResult, ConflictGroup)>,
@@ -197,9 +197,10 @@ impl ResultsAggregator {
         if best_result_updated {
             self.log_updated_result(group_id, &sequence_of_orders, old_profit, duration);
         } else {
-            debug!(
+            trace!(
                 "Best result not updated for group: {:?}, duration: {:?}",
-                group_id, duration
+                group_id,
+                duration
             );
         }
     }
@@ -212,7 +213,7 @@ impl ResultsAggregator {
         old_profit: U256,
         duration: Duration,
     ) {
-        debug!(
+        trace!(
             group_id = group_id,
             old_profit = format_ether(old_profit),
             new_profit = format_ether(sequence_of_orders.total_profit),
@@ -225,7 +226,7 @@ impl ResultsAggregator {
     }
 
     /// Returns the sum of the total profits of all the best results.
-    /// Helper function that is used for debugging.
+    /// Helper function that is used for traceging.
     fn get_and_display_sum_of_best_results(&self) -> U256 {
         self.best_results
             .data
