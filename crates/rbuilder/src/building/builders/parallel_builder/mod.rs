@@ -26,11 +26,6 @@ use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, trace};
 
-use alloy_primitives::Address;
-use reth::tasks::pool::BlockingTaskPool;
-use reth_db::database::Database;
-use reth_payload_builder::database::CachedReads;
-use reth_provider::{DatabaseProviderFactory, StateProviderFactory};
 use crate::{
     building::builders::{
         BacktestSimulateBlockInput, Block, BlockBuildingAlgorithm, BlockBuildingAlgorithmInput,
@@ -38,6 +33,11 @@ use crate::{
     },
     roothash::RootHashConfig,
 };
+use alloy_primitives::Address;
+use reth::tasks::pool::BlockingTaskPool;
+use reth_db::database::Database;
+use reth_payload_builder::database::CachedReads;
+use reth_provider::{DatabaseProviderFactory, StateProviderFactory};
 
 use self::{
     block_building_result_assembler::BlockBuildingResultAssembler,
@@ -180,10 +180,7 @@ where
 ///
 /// # Type Parameters
 /// * `DB`: The database type, which must implement Database, Clone, and have a static lifetime.
-pub fn run_parallel_builder<P, DB>(
-    input: LiveBuilderInput<P, DB>,
-    config: &ParallelBuilderConfig,
-)
+pub fn run_parallel_builder<P, DB>(input: LiveBuilderInput<P, DB>, config: &ParallelBuilderConfig)
 where
     DB: Database + Clone + 'static,
     P: DatabaseProviderFactory<DB> + StateProviderFactory + Clone + 'static,
