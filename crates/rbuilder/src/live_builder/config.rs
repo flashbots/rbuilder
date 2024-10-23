@@ -48,10 +48,10 @@ use ethereum_consensus::{
 use eyre::Context;
 use reth::tasks::pool::BlockingTaskPool;
 use reth_chainspec::{Chain, ChainSpec, NamedChain};
-use reth_db::DatabaseEnv;
+use reth_db::{Database, DatabaseEnv};
 use reth_payload_builder::database::CachedReads;
 use reth_primitives::StaticFileSegment;
-use reth_provider::StaticFileProviderFactory;
+use reth_provider::{DatabaseProviderFactory, StateProviderFactory, StaticFileProviderFactory};
 use serde::Deserialize;
 use serde_with::{serde_as, OneOrMany};
 use std::{
@@ -63,8 +63,6 @@ use std::{
 use tracing::info;
 use url::Url;
 
-/// From experience (Vitaly's) all generated blocks before slot_time-8sec end loosing (due to last moment orders?)
-const DEFAULT_SLOT_DELTA_TO_START_SUBMITS: time::Duration = time::Duration::milliseconds(-8000);
 /// We initialize the wallet with the last full day. This should be enough for any bidder.
 /// On debug I measured this to be < 300ms so it's not big deal.
 pub const WALLET_INIT_HISTORY_SIZE: Duration = Duration::from_secs(60 * 60 * 24);
@@ -120,9 +118,6 @@ pub struct L1Config {
     /// If true all optimistic submissions will be validated on nodes specified in `dry_run_validation_url`
     pub optimistic_prevalidate_optimistic_blocks: bool,
 
-    /// See [`SubmissionConfig`]
-    slot_delta_to_start_submits_ms: Option<i64>,
-
     /// How many seals we are going to be doing in parallel.
     /// Optimal value may change depending on the roothash computation caching strategies.
     pub max_concurrent_seals: u64,
@@ -146,7 +141,6 @@ impl Default for L1Config {
             optimistic_enabled: false,
             optimistic_max_bid_value_eth: "0.0".to_string(),
             optimistic_prevalidate_optimistic_blocks: false,
-            slot_delta_to_start_submits_ms: None,
             cl_node_url: vec![EnvOrValue::from("http://127.0.0.1:3500")],
             max_concurrent_seals: DEFAULT_MAX_CONCURRENT_SEALS,
             genesis_fork_version: None,
@@ -204,12 +198,6 @@ impl L1Config {
         BLSBlockSigner::new(secret_key, signing_domain)
     }
 
-    pub fn slot_delta_to_start_submits(&self) -> time::Duration {
-        self.slot_delta_to_start_submits_ms
-            .map(time::Duration::milliseconds)
-            .unwrap_or(DEFAULT_SLOT_DELTA_TO_START_SUBMITS)
-    }
-
     fn submission_config(
         &self,
         chain_spec: Arc<ChainSpec>,
@@ -258,7 +246,6 @@ impl L1Config {
             optimistic_signer,
             optimistic_max_bid_value: parse_ether(&self.optimistic_max_bid_value_eth)?,
             optimistic_prevalidate_optimistic_blocks: self.optimistic_prevalidate_optimistic_blocks,
-            slot_delta_to_start_submits: self.slot_delta_to_start_submits(),
             bid_observer,
         })
     }
@@ -299,11 +286,17 @@ impl LiveBuilderConfig for Config {
         &self.base_config
     }
     /// WARN: opens reth db
-    async fn create_builder(
+    async fn new_builder(
         &self,
         cancellation_token: tokio_util::sync::CancellationToken,
-    ) -> eyre::Result<super::LiveBuilder<Arc<DatabaseEnv>, MevBoostSlotDataGenerator>> {
-        let provider_factory = self.base_config.provider_factory()?;
+    ) -> eyre::Result<
+        super::LiveBuilder<
+            ProviderFactoryReopener<Arc<DatabaseEnv>>,
+            Arc<DatabaseEnv>,
+            MevBoostSlotDataGenerator,
+        >,
+    > {
+        let provider_factory = self.base_config.create_provider_factory()?;
         let (sink_sealed_factory, relays) = self.l1_config.create_relays_sealed_sink_factory(
             self.base_config.chain_spec()?,
             Box::new(NullBidObserver {}),
@@ -355,11 +348,15 @@ impl LiveBuilderConfig for Config {
         rbuilder_version()
     }
 
-    fn build_backtest_block(
+    fn build_backtest_block<P, DB>(
         &self,
         building_algorithm_name: &str,
-        input: BacktestSimulateBlockInput<'_, Arc<DatabaseEnv>>,
-    ) -> eyre::Result<(Block, CachedReads)> {
+        input: BacktestSimulateBlockInput<'_, P>,
+    ) -> eyre::Result<(Block, CachedReads)>
+    where
+        DB: Database + Clone + 'static,
+        P: DatabaseProviderFactory<DB> + StateProviderFactory + Clone + 'static,
+    {
         let builder_cfg = self.builder(building_algorithm_name)?;
         match builder_cfg.builder {
             SpecificBuilderConfig::OrderingBuilder(config) => {
@@ -472,12 +469,16 @@ pub fn coinbase_signer_from_secret_key(secret_key: &str) -> eyre::Result<Signer>
     Ok(Signer::try_from_secret(secret_key)?)
 }
 
-pub fn create_builders(
+pub fn create_builders<P, DB>(
     configs: Vec<BuilderConfig>,
     root_hash_config: RootHashConfig,
     root_hash_task_pool: BlockingTaskPool,
     sbundle_mergeabe_signers: Vec<Address>,
-) -> Vec<Arc<dyn BlockBuildingAlgorithm<Arc<DatabaseEnv>>>> {
+) -> Vec<Arc<dyn BlockBuildingAlgorithm<P, DB>>>
+where
+    DB: Database + Clone + 'static,
+    P: DatabaseProviderFactory<DB> + StateProviderFactory + Clone + 'static,
+{
     configs
         .into_iter()
         .map(|cfg| {
@@ -491,12 +492,16 @@ pub fn create_builders(
         .collect()
 }
 
-fn create_builder(
+fn create_builder<P, DB>(
     cfg: BuilderConfig,
     root_hash_config: &RootHashConfig,
     root_hash_task_pool: &BlockingTaskPool,
     sbundle_mergeabe_signers: &[Address],
-) -> Arc<dyn BlockBuildingAlgorithm<Arc<DatabaseEnv>>> {
+) -> Arc<dyn BlockBuildingAlgorithm<P, DB>>
+where
+    DB: Database + Clone + 'static,
+    P: DatabaseProviderFactory<DB> + StateProviderFactory + Clone + 'static,
+{
     match cfg.builder {
         SpecificBuilderConfig::OrderingBuilder(order_cfg) => {
             Arc::new(OrderingBuildingAlgorithm::new(

@@ -10,7 +10,7 @@ use rbuilder::{
     beacon_api_client::Client,
     building::{
         builders::{
-            block_building_helper::{BlockBuildingHelper, BlockBuildingHelperFromDB},
+            block_building_helper::{BlockBuildingHelper, BlockBuildingHelperFromProvider},
             BlockBuildingAlgorithm, BlockBuildingAlgorithmInput, OrderConsumer,
             UnfinishedBlockBuildingSink, UnfinishedBlockBuildingSinkFactory,
         },
@@ -35,11 +35,12 @@ use rbuilder::{
         SimulatedOrder,
     },
     roothash::RootHashConfig,
-    utils::Signer,
+    utils::{ProviderFactoryReopener, Signer},
 };
-use reth::{providers::ProviderFactory, tasks::pool::BlockingTaskPool};
+use reth::tasks::pool::BlockingTaskPool;
 use reth_chainspec::MAINNET;
 use reth_db::{database::Database, DatabaseEnv};
+use reth_provider::{DatabaseProviderFactory, StateProviderFactory};
 use tokio::{signal::ctrl_c, sync::broadcast};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, level_filters::LevelFilter};
@@ -70,7 +71,11 @@ async fn main() -> eyre::Result<()> {
         cancel.clone(),
     );
 
-    let builder = LiveBuilder::<Arc<DatabaseEnv>, MevBoostSlotDataGenerator> {
+    let builder = LiveBuilder::<
+        ProviderFactoryReopener<Arc<DatabaseEnv>>,
+        Arc<DatabaseEnv>,
+        MevBoostSlotDataGenerator,
+    > {
         watchdog_timeout: Duration::from_secs(10000),
         error_storage_path: None,
         simulation_threads: 1,
@@ -86,7 +91,7 @@ async fn main() -> eyre::Result<()> {
             DEFAULT_INPUT_CHANNEL_BUFFER_SIZE,
         ),
         chain_chain_spec: chain_spec.clone(),
-        provider_factory: create_provider_factory(
+        provider: create_provider_factory(
             Some(&RETH_DB_PATH.parse::<PathBuf>().unwrap()),
             None,
             None,
@@ -191,14 +196,18 @@ impl DummyBuildingAlgorithm {
         }
     }
 
-    fn build_block<DB: Database + Clone + 'static>(
+    fn build_block<P, DB>(
         &self,
         orders: Vec<SimulatedOrder>,
-        provider_factory: ProviderFactory<DB>,
+        provider: P,
         ctx: &BlockBuildingContext,
-    ) -> eyre::Result<Box<dyn BlockBuildingHelper>> {
-        let mut block_building_helper = BlockBuildingHelperFromDB::new(
-            provider_factory.clone(),
+    ) -> eyre::Result<Box<dyn BlockBuildingHelper>>
+    where
+        DB: Database + Clone + 'static,
+        P: DatabaseProviderFactory<DB> + StateProviderFactory + Clone + 'static,
+    {
+        let mut block_building_helper = BlockBuildingHelperFromProvider::new(
+            provider.clone(),
             self.root_hash_task_pool.clone(),
             RootHashConfig::live_config(false, false),
             ctx.clone(),
@@ -217,15 +226,19 @@ impl DummyBuildingAlgorithm {
     }
 }
 
-impl<DB: Database + Clone + 'static> BlockBuildingAlgorithm<DB> for DummyBuildingAlgorithm {
+impl<P, DB> BlockBuildingAlgorithm<P, DB> for DummyBuildingAlgorithm
+where
+    DB: Database + Clone + 'static,
+    P: DatabaseProviderFactory<DB> + StateProviderFactory + Clone + 'static,
+{
     fn name(&self) -> String {
         BUILDER_NAME.to_string()
     }
 
-    fn build_blocks(&self, input: BlockBuildingAlgorithmInput<DB>) {
+    fn build_blocks(&self, input: BlockBuildingAlgorithmInput<P>) {
         if let Some(orders) = self.wait_for_orders(&input.cancel, input.input) {
             let block = self
-                .build_block(orders, input.provider_factory, &input.ctx)
+                .build_block(orders, input.provider, &input.ctx)
                 .unwrap();
             input.sink.new_block(block);
         }
