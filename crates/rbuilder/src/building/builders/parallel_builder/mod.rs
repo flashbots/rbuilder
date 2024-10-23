@@ -24,7 +24,7 @@ use std::{sync::Arc, time::Instant};
 use task::*;
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info, trace};
+use tracing::{error, trace};
 
 use alloy_primitives::Address;
 use reth::tasks::pool::BlockingTaskPool;
@@ -350,13 +350,13 @@ pub fn parallel_build_backtest<DB: Database + Clone + 'static>(
     let building_duration = building_start.elapsed();
     let total_duration = start_time.elapsed();
 
-    info!("Initialization time: {:?}", init_duration);
-    info!("Setup time: {:?}", setup_duration);
-    info!("Group processing time: {:?}", processing_duration);
-    info!("Assembler creation time: {:?}", assembler_duration);
-    info!("Best results collection time: {:?}", collection_duration);
-    info!("Block building time: {:?}", building_duration);
-    info!("Total time taken: {:?}", total_duration);
+    trace!("Initialization time: {:?}", init_duration);
+    trace!("Setup time: {:?}", setup_duration);
+    trace!("Group processing time: {:?}", processing_duration);
+    trace!("Assembler creation time: {:?}", assembler_duration);
+    trace!("Best results collection time: {:?}", collection_duration);
+    trace!("Block building time: {:?}", building_duration);
+    trace!("Total time taken: {:?}", total_duration);
 
     Ok((
         finalize_block_result.block,
