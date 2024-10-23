@@ -12,7 +12,7 @@ use crate::{
     primitives::SimulatedOrder,
 };
 
-/// Struct that allow getting the new orders from the order/cancellation stream in the way the merging builder likes it.
+/// Struct that allow getting the new orders from the order/cancellation stream in the way the parallel builder likes it.
 /// Contains the current whole set of orders but also can be queried for deltas on the orders ONLY if the deltas are all additions
 /// Chains MultiShareBundleMerger->SimulatedOrderStore
 /// Usage:

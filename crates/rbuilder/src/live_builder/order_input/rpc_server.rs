@@ -155,7 +155,7 @@ async fn handle_mev_send_bundle(
     };
     match decode_res {
         RawShareBundleDecodeResult::NewShareBundle(bundle) => {
-            let order = Order::ShareBundle(bundle);
+            let order = Order::ShareBundle(*bundle);
             let parse_duration = start.elapsed();
             let target_block = order.target_block().unwrap_or_default();
             trace!(order = ?order.id(), parse_duration_mus = parse_duration.as_micros(), target_block, "Received share bundle");
