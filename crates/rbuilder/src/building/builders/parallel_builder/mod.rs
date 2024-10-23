@@ -24,8 +24,7 @@ use std::{sync::Arc, time::Instant};
 use task::*;
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
-use tracing::{error, trace};
-use tracing::{debug, info};
+use tracing::{debug, error, info, trace};
 
 use alloy_primitives::Address;
 use reth::tasks::pool::BlockingTaskPool;
