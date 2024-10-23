@@ -4,8 +4,8 @@ use ahash::HashSet;
 use alloy_primitives::{utils::format_ether, U256};
 use crossbeam_queue::SegQueue;
 use itertools::Itertools;
+use tracing::trace;
 use std::time::Instant;
-use tracing::debug;
 use tracing::warn;
 
 use super::task::ConflictTask;
@@ -110,7 +110,7 @@ impl ConflictTaskGenerator {
             .cloned()
             .collect();
 
-        debug!("Removing subset groups: {:?}", subset_ids);
+        trace!("Removing subset groups: {:?}", subset_ids);
         for id in subset_ids {
             self.existing_groups.remove(&id);
             self.cancel_tasks_for_group(id);
@@ -161,7 +161,7 @@ impl ConflictTaskGenerator {
         } else {
             TaskPriority::High
         };
-        debug!(
+        trace!(
             "Processing multi order group {group_id} with {} orders, {} profit with priority {:?}",
             new_group.orders.len(),
             format_ether(self.sum_top_n_profits(&new_group.orders, new_group.orders.len())),
@@ -297,7 +297,7 @@ impl ConflictTaskGenerator {
         new_group: &ConflictGroup,
         priority: TaskPriority,
     ) {
-        debug!(
+        trace!(
             "Updating tasks for group {} with priority {:?}",
             group_id,
             priority.display()

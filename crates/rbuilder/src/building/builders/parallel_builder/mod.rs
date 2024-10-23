@@ -24,7 +24,7 @@ use std::{sync::Arc, time::Instant};
 use task::*;
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
-use tracing::error;
+use tracing::{error, trace};
 use tracing::{debug, info};
 
 use alloy_primitives::Address;
@@ -142,7 +142,7 @@ impl<DB: Database + Clone + 'static> ParallelBuilder<DB> {
     /// Initializes the orders in the cached groups.
     fn initialize_orders(&mut self) {
         let initial_orders = self.order_intake_consumer.get_orders();
-        debug!("Initializing with {} orders", initial_orders.len());
+        trace!("Initializing with {} orders", initial_orders.len());
         self.conflict_finder.add_orders(initial_orders);
     }
 }

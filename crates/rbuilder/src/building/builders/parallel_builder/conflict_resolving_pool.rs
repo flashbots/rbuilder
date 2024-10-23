@@ -8,7 +8,7 @@ use std::sync::mpsc as std_mpsc;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio_util::sync::CancellationToken;
-use tracing::{info, trace, warn};
+use tracing::{trace, warn};
 
 use super::conflict_task_generator::get_tasks_for_group;
 use super::ConflictResolutionResultPerGroup;
@@ -119,7 +119,7 @@ impl<DB: Database + Clone + 'static> ConflictResolvingPool<DB> {
 
         match merging_context.run_conflict_task(task) {
             Ok(sequence_of_orders) => {
-                info!(
+                trace!(
                     task_type = ?task_algo,
                     group_id = task_id,
                     profit = format_ether(sequence_of_orders.total_profit),

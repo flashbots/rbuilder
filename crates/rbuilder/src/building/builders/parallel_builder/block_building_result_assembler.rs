@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, trace};
+use tracing::{debug, trace, warn};
 
 use crate::{
     building::{
@@ -88,7 +88,7 @@ impl<DB: Database + Clone + 'static> BlockBuildingResultAssembler<DB> {
     ///
     /// * `cancel_token` - A token to signal cancellation of the process.
     pub fn run(&mut self, cancel_token: CancellationToken) {
-        debug!(
+        trace!(
             "Parallel builder run id {}: Block building result assembler run started",
             self.run_id
         );
@@ -102,7 +102,7 @@ impl<DB: Database + Clone + 'static> BlockBuildingResultAssembler<DB> {
                 self.try_build_block(orders_closed_at);
             }
         }
-        debug!(
+        trace!(
             "Parallel builder run id {}: Block building result assembler run finished",
             self.run_id
         );
@@ -158,7 +158,7 @@ impl<DB: Database + Clone + 'static> BlockBuildingResultAssembler<DB> {
                 }
             }
             Err(e) => {
-                debug!("Parallel builder run id {}: Failed to build new block with results version {:?}: {:?}", self.run_id, version, e);
+                warn!("Parallel builder run id {}: Failed to build new block with results version {:?}: {:?}", self.run_id, version, e);
             }
         }
         self.run_id += 1;
