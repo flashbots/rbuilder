@@ -19,7 +19,7 @@ use crate::{
         watchdog::spawn_watchdog_thread,
     },
     telemetry::inc_active_slots,
-    utils::{error_storage::spawn_error_storage_writer, ProviderFactoryReopener, Signer},
+    utils::{error_storage::spawn_error_storage_writer, Signer},
 };
 use ahash::HashSet;
 use alloy_primitives::{Address, B256};
@@ -27,17 +27,15 @@ use building::BlockBuildingPool;
 use eyre::Context;
 use jsonrpsee::RpcModule;
 use payload_events::MevBoostSlotData;
-use reth::{
-    primitives::Header,
-    providers::{HeaderProvider, ProviderFactory},
-};
+use reth::{primitives::Header, providers::HeaderProvider};
 use reth_chainspec::ChainSpec;
-use reth_db::database::Database;
+use reth_db::Database;
+use reth_provider::{DatabaseProviderFactory, StateProviderFactory};
 use std::{cmp::min, path::PathBuf, sync::Arc, time::Duration};
 use time::OffsetDateTime;
-use tokio::{sync::mpsc, task::spawn_blocking};
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 /// Time the proposer have to propose a block from the beginning of the slot (https://www.paradigm.xyz/2023/04/mev-boost-ethereum-consensus Slot anatomy)
 const SLOT_PROPOSAL_DURATION: std::time::Duration = Duration::from_secs(4);
@@ -57,7 +55,12 @@ pub trait SlotSource {
 /// # Usage
 /// Create and run()
 #[derive(Debug)]
-pub struct LiveBuilder<DB, BlocksSourceType: SlotSource> {
+pub struct LiveBuilder<P, DB, BlocksSourceType>
+where
+    DB: Database + Clone + 'static,
+    P: StateProviderFactory + Clone,
+    BlocksSourceType: SlotSource,
+{
     pub watchdog_timeout: Duration,
     pub error_storage_path: Option<PathBuf>,
     pub simulation_threads: usize,
@@ -66,7 +69,7 @@ pub struct LiveBuilder<DB, BlocksSourceType: SlotSource> {
     pub run_sparse_trie_prefetcher: bool,
 
     pub chain_chain_spec: Arc<ChainSpec>,
-    pub provider_factory: ProviderFactoryReopener<DB>,
+    pub provider: P,
 
     pub coinbase_signer: Signer,
     pub extra_data: Vec<u8>,
@@ -75,18 +78,21 @@ pub struct LiveBuilder<DB, BlocksSourceType: SlotSource> {
     pub global_cancellation: CancellationToken,
 
     pub sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
-    pub builders: Vec<Arc<dyn BlockBuildingAlgorithm<DB>>>,
+    pub builders: Vec<Arc<dyn BlockBuildingAlgorithm<P, DB>>>,
     pub extra_rpc: RpcModule<()>,
 }
 
-impl<DB: Database + Clone + 'static, BuilderSourceType: SlotSource>
-    LiveBuilder<DB, BuilderSourceType>
+impl<P, DB, BlocksSourceType: SlotSource> LiveBuilder<P, DB, BlocksSourceType>
+where
+    DB: Database + Clone + 'static,
+    P: DatabaseProviderFactory<DB> + StateProviderFactory + HeaderProvider + Clone + 'static,
+    BlocksSourceType: SlotSource,
 {
     pub fn with_extra_rpc(self, extra_rpc: RpcModule<()>) -> Self {
         Self { extra_rpc, ..self }
     }
 
-    pub fn with_builders(self, builders: Vec<Arc<dyn BlockBuildingAlgorithm<DB>>>) -> Self {
+    pub fn with_builders(self, builders: Vec<Arc<dyn BlockBuildingAlgorithm<P, DB>>>) -> Self {
         Self { builders, ..self }
     }
 
@@ -109,7 +115,7 @@ impl<DB: Database + Clone + 'static, BuilderSourceType: SlotSource>
         let orderpool_subscriber = {
             let (handle, sub) = start_orderpool_jobs(
                 self.order_input_config,
-                self.provider_factory.clone(),
+                self.provider.clone(),
                 self.extra_rpc,
                 self.global_cancellation.clone(),
             )
@@ -120,14 +126,14 @@ impl<DB: Database + Clone + 'static, BuilderSourceType: SlotSource>
 
         let order_simulation_pool = {
             OrderSimulationPool::new(
-                self.provider_factory.clone(),
+                self.provider.clone(),
                 self.simulation_threads,
                 self.global_cancellation.clone(),
             )
         };
 
         let mut builder_pool = BlockBuildingPool::new(
-            self.provider_factory.clone(),
+            self.provider.clone(),
             self.builders,
             self.sink_factory,
             orderpool_subscriber,
@@ -169,8 +175,7 @@ impl<DB: Database + Clone + 'static, BuilderSourceType: SlotSource>
                 // @Nicer
                 let parent_block = payload.parent_block_hash();
                 let timestamp = payload.timestamp();
-                let provider_factory = self.provider_factory.provider_factory_unchecked();
-                match wait_for_block_header(parent_block, timestamp, &provider_factory).await {
+                match wait_for_block_header(parent_block, timestamp, &self.provider).await {
                     Ok(header) => header,
                     Err(err) => {
                         warn!("Failed to get parent header for new slot: {:?}", err);
@@ -178,27 +183,6 @@ impl<DB: Database + Clone + 'static, BuilderSourceType: SlotSource>
                     }
                 }
             };
-
-            {
-                let provider_factory = self.provider_factory.clone();
-                let block = payload.block();
-                match spawn_blocking(move || {
-                    provider_factory.check_consistency_and_reopen_if_needed(block)
-                })
-                .await
-                {
-                    Ok(Ok(_)) => {}
-                    Ok(Err(err)) => {
-                        error!(?err, "Failed to check historical block hashes");
-                        // This error is unrecoverable so we restart.
-                        break;
-                    }
-                    Err(err) => {
-                        error!(?err, "Failed to join historical block hashes task");
-                        continue;
-                    }
-                }
-            }
 
             debug!(
                 slot = payload.slot(),
@@ -242,14 +226,17 @@ impl<DB: Database + Clone + 'static, BuilderSourceType: SlotSource>
 }
 
 /// May fail if we wait too much (see [BLOCK_HEADER_DEAD_LINE_DELTA])
-async fn wait_for_block_header<DB: Database>(
+async fn wait_for_block_header<P>(
     block: B256,
     slot_time: OffsetDateTime,
-    provider_factory: &ProviderFactory<DB>,
-) -> eyre::Result<Header> {
+    provider: P,
+) -> eyre::Result<Header>
+where
+    P: HeaderProvider,
+{
     let dead_line = slot_time + BLOCK_HEADER_DEAD_LINE_DELTA;
     while OffsetDateTime::now_utc() < dead_line {
-        if let Some(header) = provider_factory.header(&block)? {
+        if let Some(header) = provider.header(&block)? {
             return Ok(header);
         } else {
             let time_to_sleep = min(
