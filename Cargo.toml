@@ -22,6 +22,7 @@ version = "0.1.0"
 edition = "2021"
 
 [workspace.dependencies]
+# Reth dependencies
 reth = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
 reth-db = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
 reth-db-common = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
@@ -39,7 +40,7 @@ reth-chainspec = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
 reth-evm = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
 reth-evm-ethereum = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
 
-# version is copied from reth  "v1.0.6" dependencies
+# Version is copied from reth "v1.0.6" dependencies
 revm = { version = "14.0.0", features = [
     "std",
     "secp256k1",
@@ -53,6 +54,7 @@ revm-primitives = { version = "9.0.0", features = [
 ethereum_ssz_derive = "0.7"
 ethereum_ssz = "0.7"
 
+# Alloy dependencies
 alloy-primitives = { version = "0.8.0", default-features = false }
 alloy-rlp = "0.3.4"
 alloy-chains = "0.1.23"
@@ -75,3 +77,7 @@ alloy-rpc-types-engine = { version = "0.3.0", features = [
 ] }
 alloy-rpc-types-eth = { version = "0.3.0" }
 alloy-signer-local = { version = "0.3.0" }
+
+# Added dependencies for configuration loading
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.5"
