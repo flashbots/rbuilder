@@ -7,7 +7,7 @@ use alloy_primitives::Address;
 use futures::stream::FuturesOrdered;
 use primitive_types::H384;
 use tokio_stream::StreamExt;
-use tracing::{info_span, trace, warn};
+use tracing::{debug, info_span, trace, warn};
 
 /// Info about a slot obtained from a relay.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -110,7 +110,7 @@ impl RelaysForSlotData {
                     res
                 }
                 Ok(None) => {
-                    trace!("Relay does not have slot data");
+                    debug!("Relay does not have slot data");
                     continue;
                 }
                 Err(err) => {

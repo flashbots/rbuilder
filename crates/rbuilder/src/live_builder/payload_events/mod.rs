@@ -135,6 +135,7 @@ impl MevBoostSlotDataGenerator {
                     if let Some(res) = relays.slot_data(event.data.proposal_slot).await {
                         res
                     } else {
+                        debug!("No slot data for {:?}", event);
                         continue;
                     };
 
@@ -173,6 +174,7 @@ impl MevBoostSlotDataGenerator {
                     break;
                 }
             }
+            info!("MevBoostSlotDataGenerator: finishing");
             // cancelling here because its a critical job
             self.global_cancellation.cancel();
 
