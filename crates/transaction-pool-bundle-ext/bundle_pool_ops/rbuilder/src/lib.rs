@@ -7,14 +7,30 @@ use std::{sync::Arc, time::Duration};
 
 use derive_more::From;
 use rbuilder::{
-    building::{builders::{ordering_builder::OrderingBuilderConfig, UnfinishedBlockBuildingSink, UnfinishedBlockBuildingSinkFactory}, Sorting},
-    live_builder::{base_config::{load_config_toml_and_env, BaseConfig}, cli::LiveBuilderConfig, config::{create_builders, BuilderConfig, Config, SpecificBuilderConfig}, payload_events::MevBoostSlotData, SlotSource},
+    building::{
+        builders::{
+            ordering_builder::OrderingBuilderConfig, UnfinishedBlockBuildingSink,
+            UnfinishedBlockBuildingSinkFactory,
+        },
+        Sorting,
+    },
+    live_builder::{
+        base_config::{load_config_toml_and_env, BaseConfig},
+        cli::LiveBuilderConfig,
+        config::{create_builders, BuilderConfig, Config, SpecificBuilderConfig},
+        payload_events::MevBoostSlotData,
+        SlotSource,
+    },
 };
 use reth_db_api::Database;
 use reth_primitives::{Bytes, B256};
 use reth_provider::{DatabaseProviderFactory, HeaderProvider, StateProviderFactory};
 use reth_rpc_types::{beacon::events::PayloadAttributesEvent, mev::EthSendBundle};
-use tokio::{sync::mpsc::{self, error::SendError}, task, time::sleep};
+use tokio::{
+    sync::mpsc::{self, error::SendError},
+    task,
+    time::sleep,
+};
 use tokio_util::sync::CancellationToken;
 use tracing::error;
 use transaction_pool_bundle_ext::BundlePoolOperations;
@@ -61,7 +77,8 @@ impl SlotSource for OurSlotSource {
 }
 
 impl BundlePoolOps {
-    pub async fn new<P, DB>(provider: P) -> Result<Self, Error> where
+    pub async fn new<P, DB>(provider: P) -> Result<Self, Error>
+    where
         DB: Database + Clone + 'static,
         P: DatabaseProviderFactory<DB> + StateProviderFactory + HeaderProvider + Clone + 'static,
     {
@@ -75,43 +92,46 @@ impl BundlePoolOps {
         let sink_factory = SinkFactory {};
 
         // Spawn the builder!
-        let config: Config = load_config_toml_and_env("/Users/liamaharon/grimoire/rbuilder/config-optimism-local.toml")?;
+        let config: Config = load_config_toml_and_env(
+            "/Users/liamaharon/grimoire/rbuilder/config-optimism-local.toml",
+        )?;
 
         // Spawn the task in a separate thread of execution, allowing it to run without blocking.
         let _handle = task::spawn(async move {
             // Wait for 5 seconds without blocking
             sleep(Duration::from_secs(5)).await;
 
-            let builder_strategy =
-                BuilderConfig {
-                    name: "mp-ordering".to_string(),
-                    builder: SpecificBuilderConfig::OrderingBuilder(OrderingBuilderConfig {
-                        discard_txs: true,
-                        sorting: Sorting::MaxProfit,
-                        failed_order_retries: 1,
-                        drop_failed_orders: true,
-                        coinbase_payment: false,
-                        build_duration_deadline_ms: None,
-                    }),
-                };
+            let builder_strategy = BuilderConfig {
+                name: "mp-ordering".to_string(),
+                builder: SpecificBuilderConfig::OrderingBuilder(OrderingBuilderConfig {
+                    discard_txs: true,
+                    sorting: Sorting::MaxProfit,
+                    failed_order_retries: 1,
+                    drop_failed_orders: true,
+                    coinbase_payment: false,
+                    build_duration_deadline_ms: None,
+                }),
+            };
 
-                    let builders = create_builders(
-            vec![builder_strategy],
-            config.base_config.live_root_hash_config().unwrap(),
-            config.base_config.root_hash_task_pool().unwrap(),
-            config.base_config.sbundle_mergeabe_signers(),
-        );
-
+            let builders = create_builders(
+                vec![builder_strategy],
+                config.base_config.live_root_hash_config().unwrap(),
+                config.base_config.root_hash_task_pool().unwrap(),
+                config.base_config.sbundle_mergeabe_signers(),
+            );
 
             // Build and run the process
-            let builder = config.base_config
+            let builder = config
+                .base_config
                 .create_builder_with_provider_factory::<P, DB, OurSlotSource>(
                     cancellation_token,
                     Box::new(sink_factory),
                     slot_source,
                     provider,
                 )
-                .await.unwrap().with_builders(builders);
+                .await
+                .unwrap()
+                .with_builders(builders);
 
             builder.run().await.unwrap();
 
