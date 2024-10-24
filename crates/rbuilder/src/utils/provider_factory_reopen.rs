@@ -77,7 +77,7 @@ impl<DB: Database + Clone> ProviderFactoryReopener<DB> {
     pub fn check_consistency_and_reopen_if_needed(&self) -> eyre::Result<ProviderFactory<DB>> {
         let best_block_number = self
             .provider_factory_unchecked()
-            .best_block_number()
+            .last_block_number()
             .map_err(|err| eyre::eyre!("Error getting best block number: {:?}", err))?;
         let mut provider_factory = self.provider_factory.lock().unwrap();
 
@@ -154,8 +154,7 @@ pub fn check_provider_factory_health<DB: Database>(
 }
 
 // Implement reth db traits on the ProviderFactoryReopener, allowing generic
-// DB access. Consistency checks are required only if the operations may be
-// performed on historical state.
+// DB access.
 //
 // ProviderFactory only has access to disk state, therefore cannot implement methods
 // that require the blockchain tree (pending state etc.).
@@ -281,7 +280,10 @@ impl<DB: Database + Clone> BlockIdReader for ProviderFactoryReopener<DB> {
 
 impl<DB: Database + Clone> StateProviderFactory for ProviderFactoryReopener<DB> {
     fn latest(&self) -> ProviderResult<StateProviderBox> {
-        self.provider_factory_unchecked().latest()
+        let provider = self
+            .check_consistency_and_reopen_if_needed()
+            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
+        provider.latest()
     }
 
     fn state_by_block_number_or_tag(

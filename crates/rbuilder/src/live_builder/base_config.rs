@@ -192,7 +192,7 @@ impl BaseConfig {
         .await
     }
 
-    /// WARN: opens reth db
+    /// Allows instantiating a [`LiveBuilder`] with an existing provider factory
     pub async fn create_builder_with_provider_factory<P, DB, SlotSourceType>(
         &self,
         cancellation_token: tokio_util::sync::CancellationToken,

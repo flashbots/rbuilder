@@ -346,7 +346,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "auto_impl",
- "dashmap 6.0.1",
+ "dashmap 6.1.0",
  "futures",
  "futures-utils-wasm",
  "lru",
@@ -2036,6 +2036,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "crossbeam"
+version = "0.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1137cd7e7fc0fb5d3c5a8678be38ec56e819125d8d7907411fe24ccb943faca8"
+dependencies = [
+ "crossbeam-channel",
+ "crossbeam-deque",
+ "crossbeam-epoch",
+ "crossbeam-queue",
+ "crossbeam-utils",
+]
+
+[[package]]
 name = "crossbeam-channel"
 version = "0.5.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2308,9 +2321,9 @@ dependencies = [
 
 [[package]]
 name = "dashmap"
-version = "6.0.1"
+version = "6.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "804c8821570c3f8b70230c2ba75ffa5c0f9a4189b9a432b6656c536712acae28"
+checksum = "5041cc499144891f3790297212f32a74fb938e5136a14943f338ef9e0ae276cf"
 dependencies = [
  "cfg-if",
  "crossbeam-utils",
@@ -7099,9 +7112,11 @@ dependencies = [
  "built",
  "clap",
  "criterion",
+ "crossbeam",
  "crossbeam-queue",
  "csv",
  "ctor",
+ "dashmap 6.1.0",
  "derivative",
  "eth-sparse-mpt",
  "ethereum-consensus",
@@ -7126,6 +7141,7 @@ dependencies = [
  "mev-share-sse",
  "mockall",
  "once_cell",
+ "parking_lot 0.12.3",
  "primitive-types",
  "priority-queue",
  "prometheus",
@@ -8450,7 +8466,7 @@ source = "git+https://github.com/paradigmxyz/reth?tag=v1.0.6#c228fe15808c3acbf18
 dependencies = [
  "bitflags 2.6.0",
  "byteorder",
- "dashmap 6.0.1",
+ "dashmap 6.1.0",
  "derive_more 1.0.0",
  "indexmap 2.2.6",
  "parking_lot 0.12.3",
@@ -9135,7 +9151,7 @@ source = "git+https://github.com/paradigmxyz/reth?tag=v1.0.6#c228fe15808c3acbf18
 dependencies = [
  "alloy-rpc-types-engine",
  "auto_impl",
- "dashmap 6.0.1",
+ "dashmap 6.1.0",
  "itertools 0.13.0",
  "metrics",
  "once_cell",

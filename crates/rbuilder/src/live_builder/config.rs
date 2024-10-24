@@ -18,10 +18,10 @@ use crate::{
     beacon_api_client::Client,
     building::{
         builders::{
-            merging_builder::{
-                merging_build_backtest, MergingBuilderConfig, MergingBuildingAlgorithm,
-            },
             ordering_builder::{OrderingBuilderConfig, OrderingBuildingAlgorithm},
+            parallel_builder::{
+                parallel_build_backtest, ParallelBuilderConfig, ParallelBuildingAlgorithm,
+            },
             BacktestSimulateBlockInput, Block, BlockBuildingAlgorithm,
         },
         Sorting,
@@ -63,8 +63,6 @@ use std::{
 use tracing::info;
 use url::Url;
 
-/// From experience (Vitaly's) all generated blocks before slot_time-8sec end loosing (due to last moment orders?)
-const DEFAULT_SLOT_DELTA_TO_START_SUBMITS: time::Duration = time::Duration::milliseconds(-8000);
 /// We initialize the wallet with the last full day. This should be enough for any bidder.
 /// On debug I measured this to be < 300ms so it's not big deal.
 pub const WALLET_INIT_HISTORY_SIZE: Duration = Duration::from_secs(60 * 60 * 24);
@@ -74,8 +72,8 @@ pub const DEFAULT_MAX_CONCURRENT_SEALS: u64 = 1;
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(tag = "algo", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum SpecificBuilderConfig {
+    ParallelBuilder(ParallelBuilderConfig),
     OrderingBuilder(OrderingBuilderConfig),
-    MergingBuilder(MergingBuilderConfig),
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -120,9 +118,6 @@ pub struct L1Config {
     /// If true all optimistic submissions will be validated on nodes specified in `dry_run_validation_url`
     pub optimistic_prevalidate_optimistic_blocks: bool,
 
-    /// See [`SubmissionConfig`]
-    slot_delta_to_start_submits_ms: Option<i64>,
-
     /// How many seals we are going to be doing in parallel.
     /// Optimal value may change depending on the roothash computation caching strategies.
     pub max_concurrent_seals: u64,
@@ -146,7 +141,6 @@ impl Default for L1Config {
             optimistic_enabled: false,
             optimistic_max_bid_value_eth: "0.0".to_string(),
             optimistic_prevalidate_optimistic_blocks: false,
-            slot_delta_to_start_submits_ms: None,
             cl_node_url: vec![EnvOrValue::from("http://127.0.0.1:3500")],
             max_concurrent_seals: DEFAULT_MAX_CONCURRENT_SEALS,
             genesis_fork_version: None,
@@ -204,12 +198,6 @@ impl L1Config {
         BLSBlockSigner::new(secret_key, signing_domain)
     }
 
-    pub fn slot_delta_to_start_submits(&self) -> time::Duration {
-        self.slot_delta_to_start_submits_ms
-            .map(time::Duration::milliseconds)
-            .unwrap_or(DEFAULT_SLOT_DELTA_TO_START_SUBMITS)
-    }
-
     fn submission_config(
         &self,
         chain_spec: Arc<ChainSpec>,
@@ -258,7 +246,6 @@ impl L1Config {
             optimistic_signer,
             optimistic_max_bid_value: parse_ether(&self.optimistic_max_bid_value_eth)?,
             optimistic_prevalidate_optimistic_blocks: self.optimistic_prevalidate_optimistic_blocks,
-            slot_delta_to_start_submits: self.slot_delta_to_start_submits(),
             bid_observer,
         })
     }
@@ -375,8 +362,8 @@ impl LiveBuilderConfig for Config {
             SpecificBuilderConfig::OrderingBuilder(config) => {
                 crate::building::builders::ordering_builder::backtest_simulate_block(config, input)
             }
-            SpecificBuilderConfig::MergingBuilder(config) => {
-                merging_build_backtest::<P, DB>(input, config)
+            SpecificBuilderConfig::ParallelBuilder(config) => {
+                parallel_build_backtest::<P, DB>(input, config)
             }
         }
     }
@@ -525,12 +512,12 @@ where
                 cfg.name,
             ))
         }
-        SpecificBuilderConfig::MergingBuilder(merge_cfg) => {
-            Arc::new(MergingBuildingAlgorithm::new(
+        SpecificBuilderConfig::ParallelBuilder(parallel_cfg) => {
+            Arc::new(ParallelBuildingAlgorithm::new(
                 root_hash_config.clone(),
                 root_hash_task_pool.clone(),
                 sbundle_mergeabe_signers.to_vec(),
-                merge_cfg,
+                parallel_cfg,
                 cfg.name,
             ))
         }

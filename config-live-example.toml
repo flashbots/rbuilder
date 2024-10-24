@@ -32,8 +32,6 @@ max_concurrent_seals = 4
 # genesis_fork_version = "0x00112233"
 
 sbundle_mergeabe_signers = []
-# slot_delta_to_start_submits_ms is usually negative since we start bidding BEFORE the slot start
-# slot_delta_to_start_submits_ms = -5000
 live_builders = ["mp-ordering", "mgp-ordering", "merging"]
 
 [[relays]]
@@ -60,8 +58,7 @@ failed_order_retries = 1
 drop_failed_orders = true
 
 [[builders]]
-name = "merging"
-algo = "merging-builder"
+name = "parallel"
+algo = "parallel-builder"
 discard_txs = true
-num_threads = 5
-merge_wait_time_ms = 100
+num_threads = 25

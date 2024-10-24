@@ -25,8 +25,6 @@ dry_run_validation_url = "http://localhost:8545"
 ignore_cancellable_orders = true
 
 sbundle_mergeabe_signers = []
-# slot_delta_to_start_submits_ms is usually negative since we start bidding BEFORE the slot start
-# slot_delta_to_start_submits_ms = -5000
 live_builders = ["mp-ordering"]
 
 [[relays]]
