@@ -3,19 +3,18 @@
 
 // #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use derive_more::From;
 use rbuilder::{
-    building::builders::{UnfinishedBlockBuildingSink, UnfinishedBlockBuildingSinkFactory},
-    live_builder::{base_config::BaseConfig, payload_events::MevBoostSlotData, SlotSource},
+    building::{builders::{ordering_builder::OrderingBuilderConfig, UnfinishedBlockBuildingSink, UnfinishedBlockBuildingSinkFactory}, Sorting},
+    live_builder::{base_config::{load_config_toml_and_env, BaseConfig}, cli::LiveBuilderConfig, config::{create_builders, BuilderConfig, Config, SpecificBuilderConfig}, payload_events::MevBoostSlotData, SlotSource},
 };
-use reth_chainspec::EthChainSpec;
 use reth_db_api::Database;
 use reth_primitives::{Bytes, B256};
-use reth_provider::{DatabaseProviderFactory, FullProvider, HeaderProvider, StateProviderFactory};
+use reth_provider::{DatabaseProviderFactory, HeaderProvider, StateProviderFactory};
 use reth_rpc_types::{beacon::events::PayloadAttributesEvent, mev::EthSendBundle};
-use tokio::sync::mpsc::{self, error::SendError};
+use tokio::{sync::mpsc::{self, error::SendError}, task, time::sleep};
 use tokio_util::sync::CancellationToken;
 use tracing::error;
 use transaction_pool_bundle_ext::BundlePoolOperations;
@@ -76,20 +75,48 @@ impl BundlePoolOps {
         let sink_factory = SinkFactory {};
 
         // Spawn the builder!
-        let mut config = BaseConfig::default();
-        config.reth_datadir =
-            Some("/Users/liamaharon/Library/Application Support/reth/901/".into());
-        dbg!(&config);
-        let builder = config
-            .create_builder_with_provider_factory::<P, DB, OurSlotSource>(
-                cancellation_token,
-                Box::new(sink_factory),
-                slot_source,
-                provider
-            )
-            .await?;
-        builder.run().await?;
-        dbg!("Builder running!!");
+        let config: Config = load_config_toml_and_env("/Users/liamaharon/grimoire/rbuilder/config-optimism-local.toml")?;
+
+        // Spawn the task in a separate thread of execution, allowing it to run without blocking.
+        let _handle = task::spawn(async move {
+            // Wait for 5 seconds without blocking
+            sleep(Duration::from_secs(5)).await;
+
+            let builder_strategy =
+                BuilderConfig {
+                    name: "mp-ordering".to_string(),
+                    builder: SpecificBuilderConfig::OrderingBuilder(OrderingBuilderConfig {
+                        discard_txs: true,
+                        sorting: Sorting::MaxProfit,
+                        failed_order_retries: 1,
+                        drop_failed_orders: true,
+                        coinbase_payment: false,
+                        build_duration_deadline_ms: None,
+                    }),
+                };
+
+                    let builders = create_builders(
+            vec![builder_strategy],
+            config.base_config.live_root_hash_config().unwrap(),
+            config.base_config.root_hash_task_pool().unwrap(),
+            config.base_config.sbundle_mergeabe_signers(),
+        );
+
+
+            // Build and run the process
+            let builder = config.base_config
+                .create_builder_with_provider_factory::<P, DB, OurSlotSource>(
+                    cancellation_token,
+                    Box::new(sink_factory),
+                    slot_source,
+                    provider,
+                )
+                .await.unwrap().with_builders(builders);
+
+            builder.run().await.unwrap();
+
+            Ok::<(), ()>
+        });
 
         Ok(BundlePoolOps {
             payload_attributes_tx,
@@ -151,7 +178,7 @@ impl UnfinishedBlockBuildingSink for Sink {
         block: Box<dyn rbuilder::building::builders::block_building_helper::BlockBuildingHelper>,
     ) {
         dbg!("Made a block!!", block.built_block_trace());
-        todo!()
+        // todo!()
     }
 
     fn can_use_suggested_fee_recipient_as_coinbase(&self) -> bool {
