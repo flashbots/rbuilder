@@ -1,0 +1,26 @@
+[package]
+name = "reth-rbuilder"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rbuilder = { path = "../rbuilder" }
+
+reth.workspace = true
+reth-node-builder.workspace = true
+reth-node-ethereum.workspace = true
+reth-provider.workspace = true
+reth-cli-util.workspace = true
+reth-db-api.workspace = true
+
+tokio.workspace = true
+clap.workspace = true
+eyre.workspace = true
+tracing.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+tikv-jemallocator = { workspace = true, optional = true }
+libc.workspace = true
+
+[features]
+jemalloc = []

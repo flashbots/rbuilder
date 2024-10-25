@@ -1,11 +1,11 @@
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 use alloy_primitives::{Address, BlockNumber, U256};
 use reth::{
     primitives::format_ether,
-    providers::{BlockNumReader, HeaderProvider, ProviderError, ProviderFactory},
+    providers::{HeaderProvider, ProviderError},
 };
-use reth_db::DatabaseEnv;
+use reth_provider::StateProviderFactory;
 use time::{error, OffsetDateTime};
 use tracing::{error, info};
 
@@ -20,8 +20,8 @@ use super::interfaces::LandedBlockInfo;
 /// 1 - Create one and you'll get also the latest history of balance changes.
 /// 2 - After each new landed block is detected (or whenever you want) call update_to_block to get info up to that block.
 #[derive(Debug)]
-pub struct WalletBalanceWatcher {
-    provider_factory: ProviderFactory<Arc<DatabaseEnv>>,
+pub struct WalletBalanceWatcher<P> {
+    provider: P,
     builder_addr: Address,
     /// Last block analyzed. balance is updated up to block_number (included).
     block_number: BlockNumber,
@@ -58,15 +58,18 @@ impl BlockInfo {
     }
 }
 
-impl WalletBalanceWatcher {
+impl<P> WalletBalanceWatcher<P>
+where
+    P: StateProviderFactory + HeaderProvider,
+{
     /// Creates a WalletBalanceWatcher pre-analyzing a window of init_window_size size.
     pub fn new(
-        provider_factory: ProviderFactory<Arc<DatabaseEnv>>,
+        provider: P,
         builder_addr: Address,
         init_window_size: Duration,
     ) -> Result<(Self, Vec<LandedBlockInfo>), WalletError> {
         Self {
-            provider_factory,
+            provider,
             builder_addr,
             block_number: 0,
             balance: U256::ZERO,
@@ -81,7 +84,7 @@ impl WalletBalanceWatcher {
         init_window_size: Duration,
     ) -> Result<(Self, Vec<LandedBlockInfo>), WalletError> {
         let analysis_window_limit = OffsetDateTime::now_utc() - init_window_size;
-        self.block_number = self.provider_factory.last_block_number()?;
+        self.block_number = self.provider.last_block_number()?;
         let mut block_number = self.block_number;
         let last_block_info = self
             .get_block_info(block_number)
@@ -111,12 +114,12 @@ impl WalletBalanceWatcher {
     /// returns the wallet balance for the block and the block's timestamp
     fn get_block_info(&mut self, block: BlockNumber) -> Result<BlockInfo, WalletError> {
         let builder_balance = self
-            .provider_factory
+            .provider
             .history_by_block_number(block)?
             .account_balance(self.builder_addr)?
             .unwrap_or_default();
         let header = self
-            .provider_factory
+            .provider
             .header_by_number(block)?
             .ok_or(WalletError::HeaderNotFound(block))?;
         Ok(BlockInfo {

@@ -31,6 +31,7 @@ use reth::{primitives::Header, providers::HeaderProvider};
 use reth_chainspec::ChainSpec;
 use reth_db::Database;
 use reth_provider::{DatabaseProviderFactory, StateProviderFactory};
+use std::fmt::Debug;
 use std::{cmp::min, path::PathBuf, sync::Arc, time::Duration};
 use time::OffsetDateTime;
 use tokio::sync::mpsc;

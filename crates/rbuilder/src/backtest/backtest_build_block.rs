@@ -65,7 +65,7 @@ where
     let cli = Cli::parse();
 
     let config: ConfigType = load_config_toml_and_env(cli.config)?;
-    config.base_config().setup_tracing_subsriber()?;
+    config.base_config().setup_tracing_subscriber()?;
 
     let block_data = read_block_data(
         &config.base_config().backtest_fetch_output_file,

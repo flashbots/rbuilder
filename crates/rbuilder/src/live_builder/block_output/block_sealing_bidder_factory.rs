@@ -1,10 +1,11 @@
-use std::sync::Arc;
-
 use crate::{
     building::builders::{UnfinishedBlockBuildingSink, UnfinishedBlockBuildingSinkFactory},
     live_builder::payload_events::MevBoostSlotData,
 };
 use alloy_primitives::U256;
+use reth_provider::{HeaderProvider, StateProviderFactory};
+use std::fmt::Debug;
+use std::sync::Arc;
 use tracing::error;
 
 use super::{
@@ -23,25 +24,38 @@ use super::{
 /// SlotBidder bids using a SequentialSealerBidMaker (created per block).
 /// SequentialSealerBidMaker sends the bids to a BlockBuildingSink (created per block).
 /// SlotBidder is subscribed to the BidValueSource.
-#[derive(Debug)]
-pub struct BlockSealingBidderFactory {
+pub struct BlockSealingBidderFactory<P> {
     /// Factory for the SlotBidder for blocks.
     bidding_service: Box<dyn BiddingService>,
     /// Factory for the final destination for blocks.
     block_sink_factory: Box<dyn BuilderSinkFactory>,
     /// SlotBidder are subscribed to the proper block in the bid_value_source.
     competition_bid_value_source: Arc<dyn BidValueSource + Send + Sync>,
-    wallet_balance_watcher: WalletBalanceWatcher,
+    wallet_balance_watcher: WalletBalanceWatcher<P>,
     /// See [ParallelSealerBidMaker]
     max_concurrent_seals: usize,
 }
 
-impl BlockSealingBidderFactory {
+impl<P> Debug for BlockSealingBidderFactory<P> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BlockSealingBidderFactory")
+            .field("bidding_service", &"Box<dyn BiddingService>")
+            .field("block_sink_factory", &"Box<dyn BuilderSinkFactory>")
+            .field(
+                "competition_bid_value_source",
+                &self.competition_bid_value_source,
+            )
+            .field("max_concurrent_seals", &self.max_concurrent_seals)
+            .finish()
+    }
+}
+
+impl<P> BlockSealingBidderFactory<P> {
     pub fn new(
         bidding_service: Box<dyn BiddingService>,
         block_sink_factory: Box<dyn BuilderSinkFactory>,
         competition_bid_value_source: Arc<dyn BidValueSource + Send + Sync>,
-        wallet_balance_watcher: WalletBalanceWatcher,
+        wallet_balance_watcher: WalletBalanceWatcher<P>,
         max_concurrent_seals: usize,
     ) -> Self {
         Self {
@@ -66,7 +80,10 @@ impl BidValueObs for SlotBidderToBidValueObs {
     }
 }
 
-impl UnfinishedBlockBuildingSinkFactory for BlockSealingBidderFactory {
+impl<P> UnfinishedBlockBuildingSinkFactory for BlockSealingBidderFactory<P>
+where
+    P: StateProviderFactory + HeaderProvider,
+{
     fn create_sink(
         &mut self,
         slot_data: MevBoostSlotData,

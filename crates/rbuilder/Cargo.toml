@@ -7,11 +7,11 @@ build = "build.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tokio = "1.38.0"
+tokio.workspace = true
 serde = "1.0.188"
 serde_json = "1.0.105"
 thiserror = "1.0.47"
-eyre = "0.6.8"
+eyre.workspace = true
 reth.workspace = true
 reth-db.workspace = true
 reth-db-common.workspace = true
@@ -70,7 +70,7 @@ sqlx = { version = "0.7.1", features = [
     "time",
     "uuid",
 ] }
-tracing = "0.1.37"
+tracing.workspace = true
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 csv = "1.2.2"
 zip = "0.6.6"
@@ -81,7 +81,7 @@ bigdecimal = "0.4.1"
 mempool-dumpster = "0.1.1"
 itertools = "0.11.0"
 tokio-stream = "0.1.14"
-clap = { version = "4.4.3", features = ["derive", "env"] }
+clap = { workspace = true, features = ["derive", "env"] }
 priority-queue = "2.0.3"
 secp256k1 = { version = "0.29", features = [
     "global-context",
@@ -97,7 +97,7 @@ ssz_rs = { git = "https://github.com/ralexstokes/ssz-rs.git", version = "0.9.0" 
 beacon-api-client = { git = "https://github.com/ralexstokes/ethereum-consensus/", rev = "cf3c404043230559660810bc0c9d6d5a8498d819" }
 ethereum-consensus = { git = "https://github.com/ralexstokes/ethereum-consensus/", rev = "cf3c404043230559660810bc0c9d6d5a8498d819" }
 ssz_rs_derive = { git = "https://github.com/ralexstokes/ssz-rs.git", version = "0.9.0" }
-tokio-util = "0.7.11"
+tokio-util = { workspace = true }
 uuid = { version = "1.6.1", features = ["serde", "v5", "v4"] }
 prometheus = "0.13.4"
 hyper = { version = "1.3.1", features = ["server", "full"] }

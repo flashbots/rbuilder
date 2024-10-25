@@ -1,9 +1,9 @@
-use std::{path::PathBuf, sync::Arc};
+use std::path::PathBuf;
 
 use clap::Parser;
-use reth_db::{Database, DatabaseEnv};
+use reth_db::Database;
 use reth_payload_builder::database::CachedReads;
-use reth_provider::{DatabaseProviderFactory, StateProviderFactory};
+use reth_provider::{DatabaseProviderFactory, HeaderProvider, StateProviderFactory};
 use serde::de::DeserializeOwned;
 use std::fmt::Debug;
 use tokio::signal::ctrl_c;
@@ -15,7 +15,7 @@ use crate::{
         base_config::load_config_toml_and_env, payload_events::MevBoostSlotDataGenerator,
     },
     telemetry,
-    utils::{build_info::Version, ProviderFactoryReopener},
+    utils::build_info::Version,
 };
 
 use super::{base_config::BaseConfig, LiveBuilder};
@@ -45,18 +45,15 @@ pub trait LiveBuilderConfig: Debug + DeserializeOwned + Sync {
     /// Create a concrete builder
     ///
     /// Desugared from async to future to keep clippy happy
-    fn new_builder(
+    fn new_builder<P, DB>(
         &self,
+        provider: P,
         cancellation_token: CancellationToken,
-    ) -> impl std::future::Future<
-        Output = eyre::Result<
-            LiveBuilder<
-                ProviderFactoryReopener<Arc<DatabaseEnv>>,
-                Arc<DatabaseEnv>,
-                MevBoostSlotDataGenerator,
-            >,
-        >,
-    > + Send;
+    ) -> impl std::future::Future<Output = eyre::Result<LiveBuilder<P, DB, MevBoostSlotDataGenerator>>>
+           + Send
+    where
+        DB: Database + Clone + 'static,
+        P: DatabaseProviderFactory<DB> + StateProviderFactory + HeaderProvider + Clone + 'static;
 
     /// Patch until we have a unified way of backtesting using the exact algorithms we use on the LiveBuilder.
     /// building_algorithm_name will come from the specific configuration.
@@ -91,7 +88,7 @@ where
     };
 
     let config: ConfigType = load_config_toml_and_env(cli.config)?;
-    config.base_config().setup_tracing_subsriber()?;
+    config.base_config().setup_tracing_subscriber()?;
 
     let cancel = CancellationToken::new();
 
@@ -106,7 +103,8 @@ where
         config.base_config().log_enable_dynamic,
     )
     .await?;
-    let builder = config.new_builder(cancel.clone()).await?;
+    let provider = config.base_config().create_provider_factory()?;
+    let builder = config.new_builder(provider, cancel.clone()).await?;
 
     let ctrlc = tokio::spawn(async move {
         ctrl_c().await.unwrap_or_default();

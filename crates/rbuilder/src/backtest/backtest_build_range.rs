@@ -74,7 +74,7 @@ where
         ));
     }
     let config: ConfigType = load_config_toml_and_env(cli.config.clone())?;
-    config.base_config().setup_tracing_subsriber()?;
+    config.base_config().setup_tracing_subscriber()?;
 
     let builders_names = config.base_config().backtest_builders.clone();
 

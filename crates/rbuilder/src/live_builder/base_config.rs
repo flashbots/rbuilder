@@ -140,7 +140,7 @@ pub fn load_config_toml_and_env<T: serde::de::DeserializeOwned>(
 }
 
 impl BaseConfig {
-    pub fn setup_tracing_subsriber(&self) -> eyre::Result<()> {
+    pub fn setup_tracing_subscriber(&self) -> eyre::Result<()> {
         let log_level = self.log_level.value()?;
         let config = LoggerConfig {
             env_filter: log_level,

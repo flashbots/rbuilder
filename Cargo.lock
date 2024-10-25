@@ -4817,9 +4817,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.155"
+version = "0.2.161"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97b3888a4aecf77e811145cadf6eef5901f4782c53886191b2f693f24761847c"
+checksum = "8e9489c2807c139ffd9c1794f4af0ebe86a828db53ecdc7fea2111d0fed085d1"
 
 [[package]]
 name = "libgit2-sys"
@@ -8977,6 +8977,25 @@ dependencies = [
  "reth-codecs",
  "serde",
  "thiserror",
+]
+
+[[package]]
+name = "reth-rbuilder"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "eyre",
+ "libc",
+ "rbuilder",
+ "reth",
+ "reth-cli-util",
+ "reth-db-api",
+ "reth-node-builder",
+ "reth-node-ethereum",
+ "reth-provider",
+ "tikv-jemallocator",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

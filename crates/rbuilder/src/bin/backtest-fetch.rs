@@ -54,7 +54,7 @@ async fn main() -> eyre::Result<()> {
     let cli = Cli::parse();
 
     let config: Config = load_config_toml_and_env(cli.config)?;
-    config.base_config().setup_tracing_subsriber()?;
+    config.base_config().setup_tracing_subscriber()?;
 
     match cli.command {
         Commands::Fetch(cli) => {
