@@ -105,7 +105,7 @@ impl TestDataGenerator {
         replacement_data: Option<BundleReplacementData>,
     ) -> Bundle {
         let mut reverting_tx_hashes = Vec::new();
-        let mut txs = Vec::new();
+        let mut txs = Vec::with_capacity(txs_info.len());
         for tx_info in txs_info {
             let tx1 = self.create_tx_with_blobs_nonce(tx_info.nonce.clone());
             if tx_info.optional {

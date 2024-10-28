@@ -293,7 +293,7 @@ where
     })
     .collect::<Vec<_>>();
 
-    let mut simplified_orders = Vec::new();
+    let mut simplified_orders = Vec::with_capacity(included_orders_available.len());
 
     for available_order in included_orders_available {
         simplified_orders.push(SimplifiedOrder::new_from_order(&available_order.order));
@@ -880,7 +880,11 @@ fn calc_inclusion_change(
     exclusion_result: &ExclusionResult,
     included_before: &[(OrderId, U256)],
 ) -> Vec<OrderInclusionChange> {
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity(
+        exclusion_result.new_orders_included.len()
+            + exclusion_result.new_orders_failed.len()
+            + exclusion_result.orders_profit_changed.len(),
+    );
     for (id, profit_after) in &exclusion_result.new_orders_included {
         result.push((
             *id,

@@ -10,12 +10,15 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 use tracing::trace;
 
-use super::simulation_cache::{CachedSimulationState, SharedSimulationCache};
-use super::{Algorithm, ConflictTask, ResolutionResult};
+use super::{
+    simulation_cache::{CachedSimulationState, SharedSimulationCache},
+    Algorithm, ConflictTask, ResolutionResult,
+};
 
-use crate::building::{BlockBuildingContext, BlockState, PartialBlock};
-use crate::building::{ExecutionError, ExecutionResult};
-use crate::primitives::{OrderId, SimulatedOrder};
+use crate::{
+    building::{BlockBuildingContext, BlockState, ExecutionError, ExecutionResult, PartialBlock},
+    primitives::{OrderId, SimulatedOrder},
+};
 
 /// Context for resolving conflicts in merging tasks.
 #[derive(Debug)]
@@ -352,7 +355,7 @@ fn generate_sequences_of_orders_to_try(task: &ConflictTask) -> Vec<Vec<usize>> {
 ///
 /// A vector of randomly generated sequences of order indices.
 fn generate_random_permutations(task: &ConflictTask, seed: u64, count: usize) -> Vec<Vec<usize>> {
-    let mut sequences_of_orders = vec![];
+    let mut sequences_of_orders = Vec::with_capacity(count);
 
     let order_group = &task.group;
     let mut indexes = (0..order_group.orders.len()).collect::<Vec<_>>();

@@ -76,7 +76,7 @@ where
             current_contexts: Arc::new(Mutex::new(CurrentSimulationContexts {
                 contexts: HashMap::default(),
             })),
-            worker_threads: Vec::new(),
+            worker_threads: Vec::with_capacity(num_workers),
         };
         for i in 0..num_workers {
             let ctx = Arc::clone(&result.current_contexts);

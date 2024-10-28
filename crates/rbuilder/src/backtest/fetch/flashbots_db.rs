@@ -1,13 +1,11 @@
-use crate::backtest::BuiltBlockData;
-use crate::primitives::OrderId;
 use crate::{
     backtest::{
         fetch::data_source::{BlockRef, DataSource, DatasourceData},
-        OrdersWithTimestamp,
+        BuiltBlockData, OrdersWithTimestamp,
     },
     primitives::{
         serialize::{RawBundle, RawOrder, RawShareBundle, TxEncoding},
-        Order, SimValue,
+        Order, OrderId, SimValue,
     },
 };
 use alloy_primitives::I256;
@@ -19,8 +17,7 @@ use bigdecimal::{
 use eyre::WrapErr;
 use reth_primitives::{Bytes, B256, U256, U64};
 use sqlx::postgres::PgPool;
-use std::collections::HashSet;
-use std::{ops::Mul, str::FromStr};
+use std::{collections::HashSet, ops::Mul, str::FromStr};
 use time::{OffsetDateTime, PrimitiveDateTime};
 use tracing::trace;
 use uuid::Uuid;
@@ -333,7 +330,8 @@ impl RelayDB {
         .fetch_all(&self.pool)
         .await?;
 
-        let mut included_orders = Vec::new();
+        let mut included_orders =
+            Vec::with_capacity(included_bundles.len() + included_sbundles.len());
         for (bundle_uuid,) in included_bundles {
             let order_id = OrderId::Bundle(bundle_uuid);
             included_orders.push(order_id);

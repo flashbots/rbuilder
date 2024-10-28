@@ -54,7 +54,7 @@ impl Debug for ValidationError {
 
 impl ValidationAPIClient {
     pub fn new(urls: &[&str]) -> eyre::Result<Self> {
-        let mut providers = Vec::new();
+        let mut providers = Vec::with_capacity(urls.len());
         for url in urls {
             providers.push(Arc::new(http_provider(url.parse()?)));
         }
