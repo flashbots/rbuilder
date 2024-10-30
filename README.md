@@ -84,15 +84,22 @@ You can use [builder-playground](https://github.com/flashbots/builder-playground
 
 First, start [builder-playground](https://github.com/flashbots/builder-playground):
 
-```
+```bash
 git clone git@github.com:flashbots/builder-playground.git
 cd builder-playground
 go run main.go
 ```
 
-Then, run `rbuilder` using the `config-playground.toml` config file:
+Next, update `config-playground.toml` with fully-qualified paths for entries containing `$HOME`:
 
+```bash
+# replaces '$HOME' with the actual value of "$HOME"
+sed -i "s|\$HOME|$HOME|g" config-playground.toml
 ```
+
+Then run `rbuilder` using the `config-playground.toml` config file:
+
+```bash
 cargo run --bin rbuilder run config-playground.toml
 ```
 
