@@ -3,31 +3,34 @@
 
 // #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
-use std::{sync::Arc, time::Duration};
+use core::fmt;
+use std::{fmt::Formatter, sync::Arc, time::Duration};
 
 use derive_more::From;
 use rbuilder::{
     building::{
         builders::{
-            ordering_builder::OrderingBuilderConfig, UnfinishedBlockBuildingSink,
-            UnfinishedBlockBuildingSinkFactory,
+            block_building_helper::BlockBuildingHelper, ordering_builder::OrderingBuilderConfig,
+            UnfinishedBlockBuildingSink, UnfinishedBlockBuildingSinkFactory,
         },
         Sorting,
     },
     live_builder::{
-        base_config::{load_config_toml_and_env, BaseConfig},
-        cli::LiveBuilderConfig,
+        base_config::load_config_toml_and_env,
         config::{create_builders, BuilderConfig, Config, SpecificBuilderConfig},
         payload_events::MevBoostSlotData,
         SlotSource,
     },
 };
 use reth_db_api::Database;
-use reth_primitives::{Bytes, B256};
+use reth_primitives::{Bytes, TransactionSigned, B256};
 use reth_provider::{DatabaseProviderFactory, HeaderProvider, StateProviderFactory};
 use reth_rpc_types::{beacon::events::PayloadAttributesEvent, mev::EthSendBundle};
 use tokio::{
-    sync::mpsc::{self, error::SendError},
+    sync::{
+        mpsc::{self, error::SendError},
+        watch,
+    },
     task,
     time::sleep,
 };
@@ -37,11 +40,11 @@ use transaction_pool_bundle_ext::BundlePoolOperations;
 
 /// [`BundlePoolOperations`] implementation which uses components of the
 /// [`rbuilder`] under the hood to handle classic [`EthSendBundle`]s.
-#[allow(unused)]
-#[derive(Debug)]
 pub struct BundlePoolOps {
     // Channel to stream new payload attribute events to rbuilder
     payload_attributes_tx: mpsc::UnboundedSender<(PayloadAttributesEvent, Option<u64>)>,
+    /// Channel containing the latest [`BlockBuildingHelper`] recieved from the rbuilder
+    block_building_helper_rx: watch::Receiver<Option<Box<dyn BlockBuildingHelper>>>,
 }
 
 #[derive(Debug)]
@@ -91,7 +94,10 @@ impl BundlePoolOps {
             payload_attributes_rx,
         };
 
-        let sink_factory = SinkFactory {};
+        let (block_building_helper_tx, block_building_helper_rx) = watch::channel(None);
+        let sink_factory = SinkFactory {
+            block_building_helper_tx,
+        };
 
         // Spawn the builder!
         let config: Config = load_config_toml_and_env(
@@ -141,6 +147,7 @@ impl BundlePoolOps {
         });
 
         Ok(BundlePoolOps {
+            block_building_helper_rx,
             payload_attributes_tx,
         })
     }
@@ -148,7 +155,7 @@ impl BundlePoolOps {
 
 impl BundlePoolOperations for BundlePoolOps {
     /// Signed eth transaction
-    type Transaction = Bytes;
+    type Transaction = TransactionSigned;
     type Bundle = EthSendBundle;
     type Error = Error;
 
@@ -163,8 +170,17 @@ impl BundlePoolOperations for BundlePoolOps {
     }
 
     fn get_transactions(&self) -> Result<impl IntoIterator<Item = Self::Transaction>, Self::Error> {
-        // TODO: Return transactions from live_builder BlockBuilderSink
-        Ok(vec![])
+        match *self.block_building_helper_rx.borrow() {
+            Some(ref block_builder) => {
+                let orders = block_builder.built_block_trace().included_orders.clone();
+                Ok(orders
+                    .iter()
+                    .flat_map(|order| order.txs.iter())
+                    .map(|er| er.clone().into_internal_tx_unsecure().into_signed())
+                    .collect::<Vec<_>>())
+            }
+            None => Ok(vec![]),
+        }
     }
 
     fn notify_payload_attributes_event(
@@ -178,11 +194,27 @@ impl BundlePoolOperations for BundlePoolOps {
     }
 }
 
-#[derive(Debug)]
-struct Sink {}
+struct Sink {
+    /// Channel for rbuilder to notify us of new [`BlockBuildingHelper`]s as it builds blocks
+    block_building_helper_tx: watch::Sender<Option<Box<dyn BlockBuildingHelper>>>,
+}
 
-#[derive(Debug)]
-struct SinkFactory {}
+impl derive_more::Debug for Sink {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Sink").finish()
+    }
+}
+
+struct SinkFactory {
+    /// Channel for rbuilder to notify us of new [`BlockBuildingHelper`]s as it builds blocks
+    block_building_helper_tx: watch::Sender<Option<Box<dyn BlockBuildingHelper>>>,
+}
+
+impl derive_more::Debug for SinkFactory {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SinkFactory").finish()
+    }
+}
 
 impl UnfinishedBlockBuildingSinkFactory for SinkFactory {
     fn create_sink(
@@ -190,17 +222,15 @@ impl UnfinishedBlockBuildingSinkFactory for SinkFactory {
         _slot_data: MevBoostSlotData,
         _cancel: CancellationToken,
     ) -> Arc<dyn UnfinishedBlockBuildingSink> {
-        Arc::new(Sink {})
+        Arc::new(Sink {
+            block_building_helper_tx: self.block_building_helper_tx.clone(),
+        })
     }
 }
 
 impl UnfinishedBlockBuildingSink for Sink {
-    fn new_block(
-        &self,
-        block: Box<dyn rbuilder::building::builders::block_building_helper::BlockBuildingHelper>,
-    ) {
-        dbg!("Made a block!!", block.built_block_trace());
-        // todo!()
+    fn new_block(&self, block: Box<dyn BlockBuildingHelper>) {
+        self.block_building_helper_tx.send(Some(block)).unwrap()
     }
 
     fn can_use_suggested_fee_recipient_as_coinbase(&self) -> bool {
