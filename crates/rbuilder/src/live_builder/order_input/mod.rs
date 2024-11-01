@@ -123,17 +123,20 @@ impl OrderInputConfig {
             input_channel_buffer_size,
         }
     }
-    pub fn from_config(config: &BaseConfig) -> Self {
-        OrderInputConfig {
+
+    pub fn from_config(config: &BaseConfig) -> eyre::Result<Self> {
+        let el_node_ipc_path = expand_path(config.el_node_ipc_path.clone())?;
+
+        Ok(OrderInputConfig {
             ignore_cancellable_orders: config.ignore_cancellable_orders,
             ignore_blobs: config.ignore_blobs,
-            ipc_path: config.el_node_ipc_path.clone(),
+            ipc_path: el_node_ipc_path,
             server_port: config.jsonrpc_server_port,
             server_ip: config.jsonrpc_server_ip(),
             serve_max_connections: 4096,
             results_channel_timeout: Duration::from_millis(50),
             input_channel_buffer_size: 10_000,
-        }
+        })
     }
 
     pub fn default_e2e() -> Self {
@@ -287,4 +290,12 @@ where
     });
 
     Ok((handle, subscriber))
+}
+
+pub fn expand_path(path: PathBuf) -> eyre::Result<PathBuf> {
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| eyre::eyre!("Invalid UTF-8 in path"))?;
+
+    Ok(PathBuf::from(shellexpand::full(path_str)?.into_owned()))
 }

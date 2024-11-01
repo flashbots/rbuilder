@@ -13,7 +13,7 @@ coinbase_secret_key = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf
 cl_node_url = ["http://localhost:3500"]
 jsonrpc_server_port = 8645
 jsonrpc_server_ip = "0.0.0.0"
-el_node_ipc_path = "/tmp/reth.ipc"
+el_node_ipc_path = "$HOME/.playground/devnet/reth.ipc"
 extra_data = "⚡🤖"
 
 dry_run = false
