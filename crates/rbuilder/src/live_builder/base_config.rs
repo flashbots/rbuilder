@@ -209,7 +209,7 @@ impl BaseConfig {
             watchdog_timeout: self.watchdog_timeout(),
             error_storage_path: self.error_storage_path.clone(),
             simulation_threads: self.simulation_threads,
-            order_input_config: OrderInputConfig::from_config(self),
+            order_input_config: OrderInputConfig::from_config(self)?,
             blocks_source: slot_source,
             chain_chain_spec: self.chain_spec()?,
             provider,
