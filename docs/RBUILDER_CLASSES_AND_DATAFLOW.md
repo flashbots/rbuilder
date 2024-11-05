@@ -53,6 +53,9 @@ The main entrypoint `LiveBuilder::run()` initializes several long-lived componen
 
 ```mermaid
   graph TD;
+      MainThread-- polling -->payload_events_channel
+      payload_events_channel
+      MainThread("🔄Main thread")
       RPC
       RPC--eth_sendBundle-->Ch1
       RPC--mev_sendBundle-->Ch1
@@ -63,9 +66,7 @@ The main entrypoint `LiveBuilder::run()` initializes several long-lived componen
       Ch1<-- "🔄polling" -->OrderPool
       BlockBuildingPool("**BlockBuildingPool**")
       OrderSimulationPool("**OrderSimulationPool**")
-      payload_events_channel
-      MainThread("🔄Main thread")
-      MainThread-- polling -->payload_events_channel
+      
       sink_factory
       BlockBuildingPool-- owns -->B1
       BlockBuildingPool-- owns -->BN
