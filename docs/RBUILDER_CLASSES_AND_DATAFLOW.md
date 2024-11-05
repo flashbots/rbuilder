@@ -65,7 +65,7 @@ The main entrypoint `LiveBuilder::run()` initializes several long-lived componen
       OrderSimulationPool("**OrderSimulationPool**")
       payload_events_channel
       MainThread("🔄Main thread")
-      payload_events_channel-- polling -->MainThread
+      MainThread-- polling -->payload_events_channel
       sink_factory
       BlockBuildingPool-- owns -->B1
       BlockBuildingPool-- owns -->BN
