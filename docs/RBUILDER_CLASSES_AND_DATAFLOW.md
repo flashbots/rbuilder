@@ -1,17 +1,17 @@
 # rbuilder Classes and Dataflow
 
-The [`LiveBuilder`](../crates/rbuilder/src/live_builder/mod.rs) struct is the core component of rbuilder.
+The [`LiveBuilder`](../crates/rbuilder/src/live_builder/mod.rs) struct is the main component of rbuilder.
 
 ## Core Components
 
-To create a `LiveBuilder`, you need the following main components:
+To create a `LiveBuilder`, you need the following core components:
 
 1. `blocks_source`: The source of slots to build. Implements the [`SlotSource`](../crates/rbuilder/src/live_builder/mod.rs) trait. This abstraction enables rbuilder to handle block building in various contexts:
    - L1: Consensus client generating slots with potential forks
    - L2: Sequencer generating slots
 
 2. `builders`: A vector of objects implementing the [`BlockBuildingAlgorithm`](../crates/rbuilder/src/building/builders/mod.rs) trait. Each builder:
-   - Takes a base block and a stream of simulated orders
+   - Takes a base block state and a stream of simulated orders
    - Continuously generates new blocks
    - Optimizes to maximize the true block value
 
@@ -30,6 +30,7 @@ The main entrypoint `LiveBuilder::run()` initializes several long-lived componen
 
 - **[OrderPool](../crates/rbuilder/src/live_builder/order_input/orderpool.rs)**:
   - Receives RPC commands (order flow)
+  - Receives mempool txs
   - Stores orders in memory
   - Provides subscription mechanism for block orders
 
@@ -52,7 +53,7 @@ The main entrypoint `LiveBuilder::run()` initializes several long-lived componen
   - Sources slots from `LiveBuilder::blocks_source`
 
 ```mermaid
-  graph TD;
+  graph LR;
       MainThread-- polls -->payload_events_channel
       payload_events_channel
       MainThread("🔄Main thread")
@@ -61,6 +62,7 @@ The main entrypoint `LiveBuilder::run()` initializes several long-lived componen
       RPC--mev_sendBundle-->Ch1
       RPC--eth_cancelBundle-->Ch1
       RPC--eth_sendRawTransaction-->Ch1
+      MemPool("Mempool<br>(reth connection)")--new txs-->Ch1
       Ch1("channel")
       OrderPool("**OrderPool**")
       Ch1<-- "🔄polling" -->OrderPool
@@ -164,7 +166,7 @@ On each block `BlockSealingBidderFactory` creates the following `BlockSealingBid
         SlotBidder-."accesses internal<br>bidding info".->BiddingService
         BidValueSource("🔄**BidValueSource**")--bids from the<br>competition-->SlotBidder
         SlotBidder--"send_bid"-->Sealer("🔄**BidMaker** (Sealer)")
-        Sealer-->BlockBuildingSink("**BlockBuildingSink**<br>🔄Task submitting to the relays")
+        Sealer--"new_block"-->BlockBuildingSink("**BlockBuildingSink**<br>🔄Task submitting to the relays")
       end
 ```
 The [BidMaker](../src/block_descriptor_bidding/traits.rs) is in charge of sealing the block, that is, adding the final payout tx to the validator and computing the root hash. Depending on `BlockSealingBidderFactory`'s configuration, it can use [SequentialSealerBidMaker](../crates/rbuilder/src/live_builder/block_output/bidding/sequential_sealer_bid_maker.rs) or [ParallelSealerBidMaker](../crates/rbuilder/src/live_builder/block_output/bidding/parallel_sealer_bid_maker.rs).
