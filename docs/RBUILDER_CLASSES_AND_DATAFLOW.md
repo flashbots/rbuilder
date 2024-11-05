@@ -53,7 +53,7 @@ The main entrypoint `LiveBuilder::run()` initializes several long-lived componen
 
 ```mermaid
   graph TD;
-      MainThread-- polling -->payload_events_channel
+      MainThread-- polls -->payload_events_channel
       payload_events_channel
       MainThread("🔄Main thread")
       RPC
@@ -61,7 +61,7 @@ The main entrypoint `LiveBuilder::run()` initializes several long-lived componen
       RPC--mev_sendBundle-->Ch1
       RPC--eth_cancelBundle-->Ch1
       RPC--eth_sendRawTransaction-->Ch1
-      Ch1("Ch")
+      Ch1("channel")
       OrderPool("**OrderPool**")
       Ch1<-- "🔄polling" -->OrderPool
       BlockBuildingPool("**BlockBuildingPool**")
@@ -80,4 +80,62 @@ The main entrypoint `LiveBuilder::run()` initializes several long-lived componen
         B1 -.- BN
       end
 ```
+
+## Block building
+The block building process begins with a flow of `ReplaceableOrderPoolCommand`s arriving from the `OrderPool` (subscription via an OrderPoolSubscriber). These operations can be:
+- Add new order (`ReplaceableOrderPoolCommand::Order`)
+- Replace existing order (`ReplaceableOrderPoolCommand::Order` for an already existing uuid)
+- Cancel order (`ReplaceableOrderPoolCommand::CancelBundle`/`ReplaceableOrderPoolCommand::CancelShareBundle`)
+
+Throughout the order pipeline, we consistently use these commands instead of plain `Orders` since the entire pipeline must handle updates and cancellations.
+
+As mentioned before, the `BlockBuildingPool` starts the block building task (`BlockBuildingPool::start_block_building`) which involves the following connections:
+- An [OrderReplacementManager](../crates/rbuilder/src/live_builder/order_input/order_replacement_manager.rs) is created and set as the sink for the block's orderflow (`OrderPoolSubscriber::add_sink`). The `OrderReplacementManager` has 2 main responsibilities:
+
+    - Update/Cancelation handling: The `OrderReplacementManager` transforms all cancels and updates into add/remove operations. From this point downstream, the system is not aware of updates/cancellations.
+    - Sequence correction: Cancels and updates have a sequence number. Due to external simulation timings, these operations might arrive out of order. `OrderReplacementManager` ensures that the operation with the largest sequence number is always the one used.
+- To adapt the push nature of `OrderReplacementManager` to the pull nature of the simulation stage, an [OrdersForBlock](../crates/rbuilder/src/live_builder/order_input/orderpool.rs) is inserted. It simply pushes order operations on a channel for the simulation to poll.
+- A simulation task is spawned via `OrderSimulationPool::spawn_simulation_job` taking the above-mentioned channel as input. Simulations are performed using the threads created on `OrderSimulationPool::new`. The output of the simulations is pushed to a channel (inside `SlotOrderSimResults`) of `SimulatedOrderCommand`. Note that the simulation stage also propagates cancellations.
+
+- A destination for the generated blocks (`UnfinishedBlockBuildingSink`) is created from `BlockBuildingPool::sink_factory` via `UnfinishedBlockBuildingSinkFactory::create_sink`.
+- To multiplex from the single-receiver simulations channel to the multiple destinations (builders), a broadcast channel is created along with a forwarding task.
+- One new task is spawned for each `BlockBuildingAlgorithm` in `BlockBuildingPool::builders`. The same `UnfinishedBlockBuildingSink` created above is used as the sink for all building algorithms.
+- An extra task is spawned to prefetch data to speed up root hash calculations (`run_trie_prefetcher`).
+
+The output of this stage consists of filled blocks (`BlockBuildingHelper`) which can still be upgraded and usually need the final payout transaction to the validator to be added. These blocks also need to be sealed, which mainly involves computing the root hash of the final state—an expensive operation that we only want to perform at the last moment when we know we are going to bid with the block.
+
+Note that at this point we remain network agnostic; the result could be used for either L1 or L2.
+
+
+
+```mermaid
+graph LR
+    OrderPool("**OrderPool**")
+    OrderReplacementManager("**OrderReplacementManager**")
+    OrderPool-- replaceable orders -->OrderReplacementManager
+    OrderChannel("channel")
+    OrderReplacementManager-- orders -->OrderChannel
+    SimulationTask("🔄 Simulation task")
+    SimulationTask-- polls -->OrderChannel
+    OrderSimulationPool("**OrderSimulationPool**<br>Several sim threads 🔄🔄🔄")
+    SimulationTask-- simulation request -->OrderSimulationPool
+    OrderSimulationPool-- simulation result -->SimulationTask
+    SimChannel("channel")
+    SimulationTask-- simulated orders -->SimChannel
+    SimChannel<-- "🔄polling" -->BrSimChannel
+    BrSimChannel("broadcast<br>channel")
+    subgraph builders
+      B1("🔄building task 1")
+      BN("🔄building task N")
+      B1 -.- BN
+    end
+    B1--polls-->BrSimChannel
+    BN--polls-->BrSimChannel
+    run_trie_prefetcher("🔄**run_trie_prefetcher**")
+    run_trie_prefetcher--polls-->BrSimChannel
+```
+
+## Block sealing and bidding
+
+This part is specific for L1 bidding.
 
