@@ -50,3 +50,13 @@ The main entrypoint `LiveBuilder::run()` initializes several long-lived componen
   - Receives block-building opportunities
   - Each received `MevBoostSlotData` triggers a new block-building task via `BlockBuildingPool`
   - Sources slots from `LiveBuilder::blocks_source`
+
+```mermaid
+  graph TD;
+      RPC
+      Ch1("Ch")
+      OrderPool("**OrderPool**")
+      A-->C;
+      B-->D;
+      C-->D;
+```
