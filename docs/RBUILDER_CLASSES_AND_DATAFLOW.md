@@ -82,18 +82,20 @@ The main entrypoint `LiveBuilder::run()` initializes several long-lived componen
 ```
 
 ## Block building
-The block building process begins with a flow of `ReplaceableOrderPoolCommand`s arriving from the `OrderPool` (subscription via an OrderPoolSubscriber). These operations can be:
-- Add new order (`ReplaceableOrderPoolCommand::Order`)
-- Replace existing order (`ReplaceableOrderPoolCommand::Order` for an already existing uuid)
-- Cancel order (`ReplaceableOrderPoolCommand::CancelBundle`/`ReplaceableOrderPoolCommand::CancelShareBundle`)
+Although this stage is referred to as "building," it doesn't completely build the blocks - it only fills them with transactions to extract as much MEV as possible.
+
+The block building process begins with a flow of `ReplaceableOrderPoolCommand`s arriving from the `OrderPool` (subscribed via an OrderPoolSubscriber). These operations can be:
+- Adding a new order (`ReplaceableOrderPoolCommand::Order`)
+- Replacing an existing order (`ReplaceableOrderPoolCommand::Order` for an existing uuid)
+- Canceling an order (`ReplaceableOrderPoolCommand::CancelBundle`/`ReplaceableOrderPoolCommand::CancelShareBundle`)
 
 Throughout the order pipeline, we consistently use these commands instead of plain `Orders` since the entire pipeline must handle updates and cancellations.
 
-As mentioned before, the `BlockBuildingPool` starts the block building task (`BlockBuildingPool::start_block_building`) which involves the following connections:
-- An [OrderReplacementManager](../crates/rbuilder/src/live_builder/order_input/order_replacement_manager.rs) is created and set as the sink for the block's orderflow (`OrderPoolSubscriber::add_sink`). The `OrderReplacementManager` has 2 main responsibilities:
+As mentioned before, the `BlockBuildingPool` initiates the block building task (`BlockBuildingPool::start_block_building`) which involves the following connections:
+- An [OrderReplacementManager](../crates/rbuilder/src/live_builder/order_input/order_replacement_manager.rs) is created and set as the sink for the block's order flow (`OrderPoolSubscriber::add_sink`). The `OrderReplacementManager` has 2 main responsibilities:
 
-    - Update/Cancelation handling: The `OrderReplacementManager` transforms all cancels and updates into add/remove operations. From this point downstream, the system is not aware of updates/cancellations.
-    - Sequence correction: Cancels and updates have a sequence number. Due to external simulation timings, these operations might arrive out of order. `OrderReplacementManager` ensures that the operation with the largest sequence number is always the one used.
+    - Update/Cancellation handling: The `OrderReplacementManager` transforms all cancellations and updates into add/remove operations. From this point downstream, the system is not aware of updates/cancellations.
+    - Sequence correction: Cancellations and updates have a sequence number. Due to external simulation timings, these operations might arrive out of order. `OrderReplacementManager` ensures that the operation with the largest sequence number is always used.
 - To adapt the push nature of `OrderReplacementManager` to the pull nature of the simulation stage, an [OrdersForBlock](../crates/rbuilder/src/live_builder/order_input/orderpool.rs) is inserted. It simply pushes order operations on a channel for the simulation to poll.
 - A simulation task is spawned via `OrderSimulationPool::spawn_simulation_job` taking the above-mentioned channel as input. Simulations are performed using the threads created on `OrderSimulationPool::new`. The output of the simulations is pushed to a channel (inside `SlotOrderSimResults`) of `SimulatedOrderCommand`. Note that the simulation stage also propagates cancellations.
 
@@ -106,36 +108,70 @@ The output of this stage consists of filled blocks (`BlockBuildingHelper`) which
 
 Note that at this point we remain network agnostic; the result could be used for either L1 or L2.
 
-
-
 ```mermaid
 graph LR
+
     OrderPool("**OrderPool**")
     OrderReplacementManager("**OrderReplacementManager**")
-    OrderPool-- replaceable orders -->OrderReplacementManager
     OrderChannel("channel")
-    OrderReplacementManager-- orders -->OrderChannel
     SimulationTask("🔄 Simulation task")
+
+    OrderPool-- replaceable orders -->OrderReplacementManager
+    OrderReplacementManager-- orders -->OrderChannel
     SimulationTask-- polls -->OrderChannel
-    OrderSimulationPool("**OrderSimulationPool**<br>Several sim threads 🔄🔄🔄")
     SimulationTask-- simulation request -->OrderSimulationPool
+    OrderSimulationPool("**OrderSimulationPool**<br>Several sim threads 🔄🔄🔄")
     OrderSimulationPool-- simulation result -->SimulationTask
     SimChannel("channel")
     SimulationTask-- simulated orders -->SimChannel
     SimChannel<-- "🔄polling" -->BrSimChannel
     BrSimChannel("broadcast<br>channel")
-    subgraph builders
-      B1("🔄building task 1")
-      BN("🔄building task N")
-      B1 -.- BN
-    end
+    B1("🔄building task 1")
+    BN("🔄building task N")
+    B1 -.- BN
+
     B1--polls-->BrSimChannel
     BN--polls-->BrSimChannel
     run_trie_prefetcher("🔄**run_trie_prefetcher**")
     run_trie_prefetcher--polls-->BrSimChannel
 ```
 
-## Block sealing and bidding
+## Block sealing and bidding (specific for L1 bidding)
 
-This part is specific for L1 bidding.
+Once the blocks are filled with orders, they are ready to be used as bids.
+The only remaining steps are deciding how much to bid for each block (or sometimes discard them) and then seal them (insert final payout tx and compute the root hash).
+
+Each block has a `true block value`, which is the amount of MEV the block is generating and the maximum bid we can make.
+If we bid 0, then we'll try to make the maximum amount of profit (`true block value`). If we bid `true block value`, we will make no profit at all. We can even bid above `true block value`, in which case we will subsidize the block out of our pocket, losing money.
+
+To achieve this, the provided rbuilder example uses the [BlockSealingBidderFactory](../crates/rbuilder/src/live_builder/block_output/block_sealing_bidder_factory.rs) as its `UnfinishedBlockBuildingSinkFactory`. You can check its creation in `LiveBuilderConfig::new_builder`, but this is just one of many possible ways to create your own `LiveBuilder`.
+
+On creation, the `BlockSealingBidderFactory` receives:
+- [BiddingService](../crates/rbuilder/src/live_builder/block_output/bidding/interfaces.rs) (trait): Factory for each block's [SlotBidder](../crates/rbuilder/src/live_builder/block_output/bidding/interfaces.rs). The `SlotBidder` (trait) is the object in charge of receiving all the blocks and the bid values the competition makes and placing the bids.
+As extra information for the bidding process, the `BiddingService` is constantly fed with landed blocks info which can be used to check things like our inclusion ratio, landed subsidies, etc.
+- [BuilderSinkFactory](../crates/rbuilder/src/live_builder/block_output/relay_submit.rs) (trait): This factory creates the final destination of our bids, the [BlockBuildingSink](../crates/rbuilder/src/live_builder/block_output/relay_submit.rs). Bids end in the form of final [Block](crates/rbuilder/src/building/builders/mod.rs)s which are ready to be submitted to the relays. In our particular case, we use a [RelaySubmitSinkFactory](../crates/rbuilder/src/live_builder/block_output/relay_submit.rs) as our `BuilderSinkFactory`, but we could use any other sink (e.g., some dummy `BuilderSinkFactory` for testing).
+- [BidValueSource](../crates/rbuilder/src/live_builder/block_output/bid_value_source/interfaces.rs) (trait): This object allows us to get a feed of what the competition is bidding, which is important information for placing our own bids. It works via a subscription mechanism through the trait [BidValueObs](../crates/rbuilder/src/live_builder/block_output/bid_value_source/interfaces.rs).
+- [WalletBalanceWatcher](../crates/rbuilder/src/live_builder/block_output/bidding/wallet_balance_watcher.rs): Object to handle landed block information that we need to feed to the `BiddingService`.
+
+On each block `BlockSealingBidderFactory` creates the following `BlockSealingBidder` (some intermediate connecting objects were omitted for simplicity):
+
+```mermaid
+  graph LR;
+      Source("🔄Blocks from<br>previous stage")-->SlotBidder
+      BiddingService("**BiddingService**")
+      subgraph BlockSealingBidder
+        SlotBidder("**SlotBidder**<br>could use a<br>spawned task")
+        SlotBidder-."accesses internal<br>bidding info".->BiddingService
+        BidValueSource("🔄**BidValueSource**")--bids from the<br>competition-->SlotBidder
+        SlotBidder--"send_bid"-->Sealer("🔄**BidMaker** (Sealer)")
+        Sealer-->BlockBuildingSink("**BlockBuildingSink**<br>🔄Task submitting to the relays")
+      end
+```
+The [BidMaker](../src/block_descriptor_bidding/traits.rs) is in charge of sealing the block, that is, adding the final payout tx to the validator and computing the root hash. Depending on `BlockSealingBidderFactory`'s configuration, it can use [SequentialSealerBidMaker](../crates/rbuilder/src/live_builder/block_output/bidding/sequential_sealer_bid_maker.rs) or [ParallelSealerBidMaker](../crates/rbuilder/src/live_builder/block_output/bidding/parallel_sealer_bid_maker.rs).
+
+Some notes on the provided rbuilder example:
+- The provided implementation of `BiddingService` is [TrueBlockValueBiddingService](../crates/rbuilder/src/live_builder/block_output/bidding/true_block_value_bidder.rs). This is a dummy service whose created `SlotBidder`s bid all true block value.
+- No real `BidValueSource` is provided; we use a [NullBidValueSource](../crates/rbuilder/src/live_builder/block_output/bid_value_source/null_bid_value_source.rs) which never notifies anything.
+
+These 2 objects should be implemented to have a real competitive builder.
 
