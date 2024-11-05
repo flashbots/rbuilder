@@ -60,7 +60,7 @@ The main entrypoint `LiveBuilder::run()` initializes several long-lived componen
       RPC--eth_sendRawTransaction-->Ch1
       Ch1("Ch")
       OrderPool("**OrderPool**")
-      Ch1-- polling -->OrderPool
+      Ch1<-- "🔄polling" -->OrderPool
       BlockBuildingPool("**BlockBuildingPool**")
       OrderSimulationPool("**OrderSimulationPool**")
       payload_events_channel
@@ -72,6 +72,7 @@ The main entrypoint `LiveBuilder::run()` initializes several long-lived componen
       BlockBuildingPool-- owns -->sink_factory
       BlockBuildingPool-- owns -->OrderSimulationPool
       BlockBuildingPool-- "ref via **OrderPoolSubscriber**" -->OrderPool
+      MainThread-- triggers building task-->BlockBuildingPool
       subgraph builders
         B1[Builder 1]
         BN[Builder N]
