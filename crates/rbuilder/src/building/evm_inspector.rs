@@ -29,7 +29,6 @@ pub struct UsedStateTrace {
     pub sent_amount: HashMap<Address, U256>,
     pub created_contracts: Vec<Address>,
     pub destructed_contracts: Vec<Address>,
-    // TODO: pub used_nonce: (Address, usize),
 }
 
 #[derive(Debug, Clone, Default)]
