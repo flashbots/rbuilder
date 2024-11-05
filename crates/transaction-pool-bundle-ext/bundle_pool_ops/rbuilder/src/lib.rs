@@ -23,7 +23,7 @@ use rbuilder::{
     },
 };
 use reth_db_api::Database;
-use reth_primitives::{Bytes, TransactionSigned, B256};
+use reth_primitives::{TransactionSigned, B256, U256};
 use reth_provider::{DatabaseProviderFactory, HeaderProvider, StateProviderFactory};
 use reth_rpc_types::{beacon::events::PayloadAttributesEvent, mev::EthSendBundle};
 use tokio::{
@@ -169,15 +169,23 @@ impl BundlePoolOperations for BundlePoolOps {
         todo!()
     }
 
-    fn get_transactions(&self) -> Result<impl IntoIterator<Item = Self::Transaction>, Self::Error> {
+    fn get_transactions(
+        &self,
+        requested_slot: U256,
+    ) -> Result<impl IntoIterator<Item = Self::Transaction>, Self::Error> {
         match *self.block_building_helper_rx.borrow() {
             Some(ref block_builder) => {
+                let rbuilder_slot = block_builder.building_context().block_env.number;
+                if rbuilder_slot != requested_slot {
+                    return Ok(vec![]);
+                }
                 let orders = block_builder.built_block_trace().included_orders.clone();
-                Ok(orders
+                let orders = orders
                     .iter()
                     .flat_map(|order| order.txs.iter())
                     .map(|er| er.clone().into_internal_tx_unsecure().into_signed())
-                    .collect::<Vec<_>>())
+                    .collect::<Vec<_>>();
+                Ok(orders)
             }
             None => Ok(vec![]),
         }

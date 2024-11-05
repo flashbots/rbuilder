@@ -2,7 +2,7 @@
 
 use reth::providers::ChangedAccount;
 use reth_eth_wire_types::HandleMempoolData;
-use reth_primitives::{Address, PooledTransactionsElement, TxHash, B256};
+use reth_primitives::{Address, PooledTransactionsElement, TxHash, B256, U256};
 use reth_rpc_types::{beacon::events::PayloadAttributesEvent, BlobTransactionSidecar};
 use reth_transaction_pool::{
     AllPoolTransactions, AllTransactionsEvents, BestTransactions, BestTransactionsAttributes,
@@ -340,8 +340,11 @@ where
         self.bundle_pool.ops.cancel_bundle(hash)
     }
 
-    fn get_transactions(&self) -> Result<impl IntoIterator<Item = Self::Transaction>, Self::Error> {
-        self.bundle_pool.ops.get_transactions()
+    fn get_transactions(
+        &self,
+        slot: U256,
+    ) -> Result<impl IntoIterator<Item = Self::Transaction>, Self::Error> {
+        self.bundle_pool.ops.get_transactions(slot)
     }
 
     fn notify_payload_attributes_event(

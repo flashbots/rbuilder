@@ -11,7 +11,7 @@ use reth_payload_builder::error::PayloadBuilderError;
 use reth_primitives::{
     constants::{BEACON_NONCE, EMPTY_RECEIPTS, EMPTY_TRANSACTIONS},
     eip4844::calculate_excess_blob_gas,
-    proofs, Block, Header, IntoRecoveredTransaction, Receipt, TxType, EMPTY_OMMER_ROOT_HASH, U256,
+    proofs, Block, Header, Receipt, TransactionSigned, TxType, EMPTY_OMMER_ROOT_HASH, U256,
 };
 use reth_provider::StateProviderFactory;
 use reth_revm::database::StateProviderDatabase;
@@ -19,7 +19,6 @@ use reth_rpc_types::{
     beacon::events::{PayloadAttributesData, PayloadAttributesEvent},
     engine::PayloadAttributes,
 };
-use reth_transaction_pool::BestTransactionsAttributes;
 use reth_trie::HashedPostState;
 use revm::{
     db::states::bundle_state::BundleRetention,
@@ -27,8 +26,8 @@ use revm::{
     DatabaseCommit, State,
 };
 use std::sync::Arc;
-use tracing::{debug, error, trace, warn};
-use transaction_pool_bundle_ext::TransactionPoolBundleExt;
+use tracing::{debug, error, info, trace, warn};
+use transaction_pool_bundle_ext::{BundlePoolOperations, TransactionPoolBundleExt};
 
 /// Payload builder for OP Stack, which includes bundle support.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,8 +67,8 @@ impl<EvmConfig> OpRbuilderPayloadBuilder<EvmConfig> {
 impl<Pool, Client, EvmConfig> PayloadBuilder<Pool, Client> for OpRbuilderPayloadBuilder<EvmConfig>
 where
     Client: StateProviderFactory,
-    Pool: TransactionPoolBundleExt,
     EvmConfig: ConfigureEvm,
+    Pool: TransactionPoolBundleExt + BundlePoolOperations<Transaction = TransactionSigned>,
 {
     type Attributes = OptimismPayloadBuilderAttributes;
     type BuiltPayload = OptimismBuiltPayload;
@@ -282,7 +281,7 @@ pub(crate) fn try_build_inner<EvmConfig, Pool, Client>(
 where
     EvmConfig: ConfigureEvm,
     Client: StateProviderFactory,
-    Pool: TransactionPoolBundleExt,
+    Pool: TransactionPoolBundleExt + BundlePoolOperations<Transaction = TransactionSigned>,
 {
     let BuildArguments {
         client,
@@ -322,13 +321,6 @@ where
 
     let mut executed_txs = Vec::with_capacity(attributes.transactions.len());
     let mut executed_senders = Vec::with_capacity(attributes.transactions.len());
-
-    let mut best_txs = pool.best_transactions_with_attributes(BestTransactionsAttributes::new(
-        base_fee,
-        initialized_block_env
-            .get_blob_gasprice()
-            .map(|gasprice| gasprice as u64),
-    ));
 
     let mut total_fees = U256::ZERO;
 
@@ -471,95 +463,105 @@ where
         executed_txs.push(sequencer_tx.into_signed());
     }
 
-    if !attributes.no_tx_pool {
-        while let Some(pool_tx) = best_txs.next() {
-            // ensure we still have capacity for this transaction
-            if cumulative_gas_used + pool_tx.gas_limit() > block_gas_limit {
-                // we can't fit this transaction into the block, so we need to mark it as
-                // invalid which also removes all dependent transaction from
-                // the iterator before we can continue
-                best_txs.mark_invalid(&pool_tx);
-                continue;
-            }
+    // Apply rbuilder block
+    let mut count = 0;
+    let iter = pool
+        .get_transactions(U256::from(parent_block.number + 1))
+        .unwrap()
+        .into_iter();
+    for pool_tx in iter {
+        // ensure we still have capacity for this transaction
+        if cumulative_gas_used + pool_tx.gas_limit() > block_gas_limit {
+            // we can't fit this transaction into the block, so we need to mark it as
+            // invalid which also removes all dependent transaction from
+            // the iterator before we can continue
+            // TODO: Error, rbuilder should never suggest over gas limit!
+            continue;
+        }
 
-            // A sequencer's block should never contain blob or deposit transactions from the pool.
-            if pool_tx.is_eip4844() || pool_tx.tx_type() == TxType::Deposit as u8 {
-                best_txs.mark_invalid(&pool_tx);
-                continue;
-            }
+        // A sequencer's block should never contain blob or deposit transactions from rbuilder.
+        if pool_tx.is_eip4844() || pool_tx.tx_type() == TxType::Deposit as u8 {
+            // TODO: Error, rbuilder should never suggest over gas limit!
+            continue;
+        }
 
-            // check if the job was cancelled, if so we can exit early
-            if cancel.is_cancelled() {
-                return Ok(BuildOutcome::Cancelled);
-            }
+        // check if the job was cancelled, if so we can exit early
+        if cancel.is_cancelled() {
+            return Ok(BuildOutcome::Cancelled);
+        }
 
-            // convert tx to a signed transaction
-            let tx = pool_tx.to_recovered_transaction();
-            let env = EnvWithHandlerCfg::new_with_cfg_env(
-                initialized_cfg.clone(),
-                initialized_block_env.clone(),
-                evm_config.tx_env(&tx),
-            );
+        // convert tx to a signed transaction
+        let tx = pool_tx.try_into_ecrecovered().map_err(|_| {
+            PayloadBuilderError::other(OptimismPayloadBuilderError::TransactionEcRecoverFailed)
+        })?;
 
-            // Configure the environment for the block.
-            let mut evm = evm_config.evm_with_env(&mut db, env);
+        let env = EnvWithHandlerCfg::new_with_cfg_env(
+            initialized_cfg.clone(),
+            initialized_block_env.clone(),
+            evm_config.tx_env(&tx),
+        );
 
-            let ResultAndState { result, state } = match evm.transact() {
-                Ok(res) => res,
-                Err(err) => {
-                    match err {
-                        EVMError::Transaction(err) => {
-                            if matches!(err, InvalidTransaction::NonceTooLow { .. }) {
-                                // if the nonce is too low, we can skip this transaction
-                                trace!(target: "payload_builder", %err, ?tx, "skipping nonce too low transaction");
-                            } else {
-                                // if the transaction is invalid, we can skip it and all of its
-                                // descendants
-                                trace!(target: "payload_builder", %err, ?tx, "skipping invalid transaction and its descendants");
-                                best_txs.mark_invalid(&pool_tx);
-                            }
+        // Configure the environment for the block.
+        let mut evm = evm_config.evm_with_env(&mut db, env);
 
-                            continue;
+        let ResultAndState { result, state } = match evm.transact() {
+            Ok(res) => res,
+            Err(err) => {
+                match err {
+                    EVMError::Transaction(err) => {
+                        if matches!(err, InvalidTransaction::NonceTooLow { .. }) {
+                            // if the nonce is too low, we can skip this transaction
+                            trace!(target: "payload_builder", %err, ?tx, "skipping nonce too low transaction");
+                        } else {
+                            // if the transaction is invalid, we can skip it and all of its
+                            // descendants
+                            trace!(target: "payload_builder", %err, ?tx, "skipping invalid transaction and its descendants");
+                            // TODO: Handle invalid tx
                         }
-                        err => {
-                            // this is an error that we should treat as fatal for this attempt
-                            return Err(PayloadBuilderError::EvmExecutionError(err));
-                        }
+
+                        continue;
+                    }
+                    err => {
+                        // this is an error that we should treat as fatal for this attempt
+                        return Err(PayloadBuilderError::EvmExecutionError(err));
                     }
                 }
-            };
-            // drop evm so db is released.
-            drop(evm);
-            // commit changes
-            db.commit(state);
+            }
+        };
+        // drop evm so db is released.
+        drop(evm);
+        // commit changes
+        db.commit(state);
 
-            let gas_used = result.gas_used();
+        let gas_used = result.gas_used();
 
-            // add gas used by the transaction to cumulative gas used, before creating the
-            // receipt
-            cumulative_gas_used += gas_used;
+        // add gas used by the transaction to cumulative gas used, before creating the
+        // receipt
+        cumulative_gas_used += gas_used;
 
-            // Push transaction changeset and calculate header bloom filter for receipt.
-            receipts.push(Some(Receipt {
-                tx_type: tx.tx_type(),
-                success: result.is_success(),
-                cumulative_gas_used,
-                logs: result.into_logs().into_iter().map(Into::into).collect(),
-                deposit_nonce: None,
-                deposit_receipt_version: None,
-            }));
+        // Push transaction changeset and calculate header bloom filter for receipt.
+        receipts.push(Some(Receipt {
+            tx_type: tx.tx_type(),
+            success: result.is_success(),
+            cumulative_gas_used,
+            logs: result.into_logs().into_iter().map(Into::into).collect(),
+            deposit_nonce: None,
+            deposit_receipt_version: None,
+        }));
 
-            // update add to total fees
-            let miner_fee = tx
-                .effective_tip_per_gas(Some(base_fee))
-                .expect("fee is always valid; execution succeeded");
-            total_fees += U256::from(miner_fee) * U256::from(gas_used);
+        // update add to total fees
+        let miner_fee = tx
+            .effective_tip_per_gas(Some(base_fee))
+            .expect("fee is always valid; execution succeeded");
+        total_fees += U256::from(miner_fee) * U256::from(gas_used);
 
-            // append sender and transaction to the respective lists
-            executed_senders.push(tx.signer());
-            executed_txs.push(tx.into_signed());
-        }
+        // append sender and transaction to the respective lists
+        executed_senders.push(tx.signer());
+        executed_txs.push(tx.clone().into_signed());
+        count += 1;
     }
+
+    info!("executed {} txns from rbuilder!", count);
 
     // check if we have a better block
     if !is_better_payload(best_payload.as_ref(), total_fees) {

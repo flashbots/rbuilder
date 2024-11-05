@@ -760,15 +760,14 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
     ) -> eyre::Result<()> {
         let evm_config = EthEvmConfig::default();
         let mut db = state.new_db_ref();
-        // TODO: Figure this out
-        // pre_block_beacon_root_contract_call(
-        //     db.as_mut(),
-        //     &evm_config,
-        //     &ctx.chain_spec,
-        //     &ctx.initialized_cfg,
-        //     &ctx.block_env,
-        //     ctx.attributes.parent_beacon_block_root(),
-        // )?;
+        pre_block_beacon_root_contract_call(
+            db.as_mut(),
+            &evm_config,
+            &ctx.chain_spec,
+            &ctx.initialized_cfg,
+            &ctx.block_env,
+            ctx.attributes.parent_beacon_block_root(),
+        )?;
         pre_block_blockhashes_contract_call(
             db.as_mut(),
             &evm_config,

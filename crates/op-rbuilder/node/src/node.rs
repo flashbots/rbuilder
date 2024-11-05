@@ -21,13 +21,16 @@ use reth_node_optimism::{
     OptimismEngineTypes,
 };
 use reth_payload_builder::{PayloadBuilderHandle, PayloadBuilderService};
+use reth_primitives::TransactionSigned;
 use reth_provider::CanonStateSubscriptions;
 use reth_tracing::tracing::{debug, info};
 use reth_transaction_pool::{
     blobstore::DiskFileBlobStore, CoinbaseTipOrdering, EthPooledTransaction,
     TransactionValidationTaskExecutor,
 };
-use transaction_pool_bundle_ext::{BundleSupportedPool, TransactionPoolBundleExt};
+use transaction_pool_bundle_ext::{
+    BundlePoolOperations, BundleSupportedPool, TransactionPoolBundleExt,
+};
 
 use crate::args::OpRbuilderArgs;
 
@@ -227,7 +230,10 @@ impl<EVM> OpRbuilderPayloadServiceBuilder<EVM> {
 impl<Node, EVM, Pool> PayloadServiceBuilder<Node, Pool> for OpRbuilderPayloadServiceBuilder<EVM>
 where
     Node: FullNodeTypes<Engine = OptimismEngineTypes, ChainSpec = ChainSpec>,
-    Pool: TransactionPoolBundleExt + Unpin + 'static,
+    Pool: TransactionPoolBundleExt
+        + BundlePoolOperations<Transaction = TransactionSigned>
+        + Unpin
+        + 'static,
     EVM: ConfigureEvm,
 {
     async fn spawn_payload_service(

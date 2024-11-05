@@ -5815,6 +5815,7 @@ dependencies = [
  "reth-node-builder",
  "reth-node-optimism",
  "reth-payload-builder",
+ "reth-primitives",
  "reth-provider",
  "reth-tracing",
  "reth-transaction-pool",
