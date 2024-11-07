@@ -5,7 +5,7 @@ use crate::{
 use ahash::{HashMap, HashSet};
 use alloy_primitives::U256;
 use itertools::Itertools;
-use revm_primitives::Address;
+use revm_primitives::{Address, B256};
 
 use std::sync::Arc;
 
@@ -89,8 +89,8 @@ fn combine_groups(groups: Vec<GroupData>, removed_group_ids: Vec<usize>) -> Grou
 #[derive(Debug)]
 pub struct ConflictFinder {
     group_counter: usize,
-    group_reads: HashMap<SlotKey, Vec<usize>>,
-    group_writes: HashMap<SlotKey, Vec<usize>>,
+    group_reads: HashMap<Address, HashMap<B256, Vec<usize>>>, // mapping by `SlotKey`, but SlotKey.address and SlotKey.key are split into 2 separate HashMap keys
+    group_writes: HashMap<Address, HashMap<B256, Vec<usize>>>, // same as above
     group_balance_reads: HashMap<Address, Vec<usize>>,
     group_balance_writes: HashMap<Address, Vec<usize>>,
     group_contract_creations: HashMap<Address, Vec<usize>>,
@@ -131,22 +131,30 @@ impl ConflictFinder {
 
             // check for all possible conflict types
             for read_key in used_state.read_slot_values.keys() {
-                if let Some(group) = self.group_writes.get(read_key) {
-                    all_groups_in_conflict.extend_from_slice(group);
+                // reading from slot to which other order is writing to
+                if let Some(inner_mapping) = self.group_writes.get(&read_key.address) {
+                    if let Some(groups) = inner_mapping.get(&read_key.key) {
+                        all_groups_in_conflict.extend_from_slice(groups);
+                    }
                 }
+                // reading from slot on contract that other order is destroying
                 if let Some(group) = self.group_contract_destructions.get(&read_key.address) {
                     all_groups_in_conflict.extend_from_slice(group);
                 }
             }
             for write_key in used_state.written_slot_values.keys() {
-                if let Some(group) = self.group_reads.get(write_key) {
-                    all_groups_in_conflict.extend_from_slice(group);
+                // writing to slot other order is reading from
+                if let Some(inner_mapping) = self.group_reads.get(&write_key.address) {
+                    if let Some(groups) = inner_mapping.get(&write_key.key) {
+                        all_groups_in_conflict.extend_from_slice(groups);
+                    }
                 }
+                // writing to slot on contract that other order is destroying
                 if let Some(group) = self.group_contract_destructions.get(&write_key.address) {
                     all_groups_in_conflict.extend_from_slice(group);
                 }
             }
-            // write_balance of current order vs read_balances of existing groups
+            // writing balance other order is reading
             for write_balance_key in used_state
                 .received_amount
                 .keys()
@@ -156,30 +164,29 @@ impl ConflictFinder {
                     all_groups_in_conflict.extend_from_slice(group);
                 }
             }
-            // read_balance of current order vs write_balances of existing groups
+            // reading balance other order is writing
             for read_balance_key in used_state.read_balances.keys() {
                 if let Some(group) = self.group_balance_writes.get(read_balance_key) {
                     all_groups_in_conflict.extend_from_slice(group);
                 }
             }
             for destruction_address in &used_state.destructed_contracts {
-                // 2 destruction txs for the same contract
+                // trying to destroy contract other order is already destroying
                 if let Some(group) = self.group_contract_destructions.get(destruction_address) {
                     all_groups_in_conflict.extend_from_slice(group);
                 }
-
-                // TODO: in order to implement this logic, we would need to also keep
-                // TODO: self.group_reads_addr and self.group_writes_addr to index slot reads
-                // TODO: and writes by address, not only by slot. Is it worth doing? (*)
-                // if let Some(group) = self.group_reads.get(destruction_address) {
-                //     all_groups_in_conflict.extend_from_slice(group);
-                // }
-                // if let Some(group) = self.group_writes.get(destruction_address) {
-                //     all_groups_in_conflict.extend_from_slice(group);
-                // }
+                // trying to destroy a contract other order is trying to read from
+                if let Some(inner_mapping) = self.group_reads.get(destruction_address) {
+                    let inner_groups = inner_mapping.values().flatten();
+                    all_groups_in_conflict.extend(inner_groups);
+                }
+                // trying to destroy a contract other order is trying to write to
+                if let Some(inner_mapping) = self.group_writes.get(destruction_address) {
+                    let inner_groups = inner_mapping.values().flatten();
+                    all_groups_in_conflict.extend(inner_groups);
+                }
             }
-
-            // 2 creation txs for the same contract
+            // trying to create contract someone else is creating
             for creation_address in &used_state.created_contracts {
                 if let Some(group) = self.group_contract_creations.get(creation_address) {
                     all_groups_in_conflict.extend_from_slice(group);
@@ -250,21 +257,69 @@ impl ConflictFinder {
     }
 
     fn add_group_to_index(&mut self, group_id: usize, is_new_id: bool, group_data: &GroupData) {
-        add_group_to_map(group_id, is_new_id, &group_data.reads, &mut self.group_reads);
-        add_group_to_map(group_id, is_new_id, &group_data.writes, &mut self.group_writes);
-        add_group_to_map(group_id, is_new_id, &group_data.balance_reads, &mut self.group_balance_reads);
-        add_group_to_map(group_id, is_new_id, &group_data.balance_writes, &mut self.group_balance_writes);
-        add_group_to_map(group_id, is_new_id, &group_data.created_contracts, &mut self.group_contract_creations);
-        add_group_to_map(group_id, is_new_id, &group_data.destructed_contracts, &mut self.group_contract_destructions);
+        for read in &group_data.reads {
+            let address_reads = self.group_reads.entry(read.address).or_default();
+            add_group_key_to_map(group_id, is_new_id, &read.key, address_reads);
+        }
+        for write in &group_data.writes {
+            let address_writes = self.group_writes.entry(write.address).or_default();
+            add_group_key_to_map(group_id, is_new_id, &write.key, address_writes);
+        }
+        add_group_to_map(
+            group_id,
+            is_new_id,
+            &group_data.balance_reads,
+            &mut self.group_balance_reads,
+        );
+        add_group_to_map(
+            group_id,
+            is_new_id,
+            &group_data.balance_writes,
+            &mut self.group_balance_writes,
+        );
+        add_group_to_map(
+            group_id,
+            is_new_id,
+            &group_data.created_contracts,
+            &mut self.group_contract_creations,
+        );
+        add_group_to_map(
+            group_id,
+            is_new_id,
+            &group_data.destructed_contracts,
+            &mut self.group_contract_destructions,
+        );
     }
 
     fn remove_group_from_index(&mut self, group_id: usize, group_data: &GroupData) {
-        remove_group_from_map(group_id, &group_data.reads, &mut self.group_reads);
-        remove_group_from_map(group_id, &group_data.writes, &mut self.group_writes);
-        remove_group_from_map(group_id, &group_data.balance_reads, &mut self.group_balance_reads);
-        remove_group_from_map(group_id, &group_data.balance_writes, &mut self.group_balance_writes);
-        remove_group_from_map(group_id, &group_data.created_contracts, &mut self.group_contract_creations);
-        remove_group_from_map(group_id, &group_data.destructed_contracts, &mut self.group_contract_destructions);
+        for read in &group_data.reads {
+            let address_reads = self.group_reads.entry(read.address).or_default();
+            remove_group_key_from_map(group_id, &read.key, address_reads);
+        }
+        for write in &group_data.writes {
+            let address_writes = self.group_writes.entry(write.address).or_default();
+            remove_group_key_from_map(group_id, &write.key, address_writes);
+        }
+        remove_group_from_map(
+            group_id,
+            &group_data.balance_reads,
+            &mut self.group_balance_reads,
+        );
+        remove_group_from_map(
+            group_id,
+            &group_data.balance_writes,
+            &mut self.group_balance_writes,
+        );
+        remove_group_from_map(
+            group_id,
+            &group_data.created_contracts,
+            &mut self.group_contract_creations,
+        );
+        remove_group_from_map(
+            group_id,
+            &group_data.destructed_contracts,
+            &mut self.group_contract_destructions,
+        );
     }
 
     pub fn get_order_groups(&self) -> Vec<ConflictGroup> {
@@ -286,7 +341,6 @@ impl Default for ConflictFinder {
     }
 }
 
-// if the `group_id` is new, we don't check if the map already contains it
 fn add_group_to_map<K: std::cmp::Eq + std::hash::Hash + Clone>(
     group_id: usize,
     is_new_id: bool,
@@ -294,10 +348,20 @@ fn add_group_to_map<K: std::cmp::Eq + std::hash::Hash + Clone>(
     map: &mut HashMap<K, Vec<usize>>,
 ) {
     for key in group_keys {
-        let groups = map.entry(key.clone()).or_default();
-        if is_new_id || !groups.contains(&group_id) {
-            groups.push(group_id);
-        }
+        add_group_key_to_map(group_id, is_new_id, key, map);
+    }
+}
+
+// if the `group_id` is new, we don't check if the map already contains it
+fn add_group_key_to_map<K: std::cmp::Eq + std::hash::Hash + Clone>(
+    group_id: usize,
+    is_new_id: bool,
+    key: &K,
+    map: &mut HashMap<K, Vec<usize>>,
+) {
+    let groups = map.entry(key.clone()).or_default();
+    if is_new_id || !groups.contains(&group_id) {
+        groups.push(group_id);
     }
 }
 
@@ -307,10 +371,18 @@ fn remove_group_from_map<K: std::cmp::Eq + std::hash::Hash + Clone>(
     map: &mut HashMap<K, Vec<usize>>,
 ) {
     for key in group_keys {
-        let groups = map.entry(key.clone()).or_default();
-        if let Some(idx) = groups.iter().position(|el| *el == group_id) {
-            groups.swap_remove(idx);
-        }
+        remove_group_key_from_map(group_id, key, map);
+    }
+}
+
+fn remove_group_key_from_map<K: std::cmp::Eq + std::hash::Hash + Clone>(
+    group_id: usize,
+    key: &K,
+    map: &mut HashMap<K, Vec<usize>>,
+) {
+    let groups = map.entry(key.clone()).or_default();
+    if let Some(idx) = groups.iter().position(|el| *el == group_id) {
+        groups.swap_remove(idx);
     }
 }
 
@@ -511,17 +583,30 @@ mod tests {
         assert_eq!(groups.len(), 1);
     }
 
-    // TODO: decide what to do with this once (*) is decided
-    // #[test]
-    // fn write_and_contract_destruction() {
-    //     let mut data_gen = DataGenerator::new();
-    //     let write_slot = data_gen.create_slot();
-    //     let destruction_addr = write_slot.address;
-    //     let oa = data_gen.create_order(None, Some(&write_slot), None, None, None, None);
-    //     let ob = data_gen.create_order(None, None, None, None, None, Some(&destruction_addr));
-    //     let mut cached_groups = ConflictFinder::new();
-    //     cached_groups.add_orders(vec![oa, ob]);
-    //     let groups = cached_groups.get_order_groups();
-    //     assert_eq!(groups.len(), 1);
-    // }
+    #[test]
+    fn write_and_contract_destruction() {
+        let mut data_gen = DataGenerator::new();
+        let write_slot = data_gen.create_slot();
+        let destruction_addr = write_slot.address;
+        let oa = data_gen.create_order(None, Some(&write_slot), None, None, None, None);
+        let ob = data_gen.create_order(None, None, None, None, None, Some(&destruction_addr));
+        let mut cached_groups = ConflictFinder::new();
+        cached_groups.add_orders(vec![oa, ob]);
+        let groups = cached_groups.get_order_groups();
+        assert_eq!(groups.len(), 1);
+    }
+
+    #[test]
+    fn two_reads_one_destruction() {
+        let mut data_gen = DataGenerator::new();
+        let read_slot = data_gen.create_slot();
+        let destruction_addr = read_slot.address;
+        let oa = data_gen.create_order(Some(&read_slot), None, None, None, None, None);
+        let ob = data_gen.create_order(Some(&read_slot), None, None, None, None, None);
+        let oc = data_gen.create_order(None, None, None, None, None, Some(&destruction_addr));
+        let mut cached_groups = ConflictFinder::new();
+        cached_groups.add_orders(vec![oa, ob, oc]);
+        let groups = cached_groups.get_order_groups();
+        assert_eq!(groups.len(), 1);
+    }
 }
