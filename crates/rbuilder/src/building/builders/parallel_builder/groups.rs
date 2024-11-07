@@ -178,7 +178,7 @@ impl ConflictFinder {
                 //     all_groups_in_conflict.extend_from_slice(group);
                 // }
             }
-            // TODO: not sure it's worth checking for
+
             // 2 creation txs for the same contract
             for creation_address in &used_state.created_contracts {
                 if let Some(group) = self.group_contract_creations.get(creation_address) {
@@ -209,7 +209,7 @@ impl ConflictFinder {
                     // add `new_order_group` to index and `groups` under a new `group_id`
                     let group_id = self.group_counter;
                     self.group_counter += 1;
-                    self.add_group_to_index(group_id, &new_order_group, true);
+                    self.add_group_to_index(group_id, true, &new_order_group);
                     self.groups.insert(group_id, new_order_group);
                 }
                 1 => {
@@ -217,7 +217,7 @@ impl ConflictFinder {
                     let group_id = all_groups_in_conflict[0];
                     let other_group = self.groups.remove(&group_id).expect("group not found");
                     let combined_group = combine_groups(vec![new_order_group, other_group], vec![]);
-                    self.add_group_to_index(group_id, &combined_group, false);
+                    self.add_group_to_index(group_id, false, &combined_group);
                     self.groups.insert(group_id, combined_group);
                 }
                 _ => {
@@ -228,7 +228,7 @@ impl ConflictFinder {
                         .collect::<Vec<_>>();
 
                     for (group_id, group_data) in &conflicting_groups {
-                        self.remove_group_from_index(group_id, group_data);
+                        self.remove_group_from_index(*group_id, group_data);
                     }
 
                     let group_id = self.group_counter;
@@ -242,118 +242,29 @@ impl ConflictFinder {
                         .collect();
                     let combined_group = combine_groups(conflicting_groups, removed_group_ids);
 
-                    self.add_group_to_index(group_id, &combined_group, true);
+                    self.add_group_to_index(group_id, true, &combined_group);
                     self.groups.insert(group_id, combined_group);
                 }
             }
         }
     }
 
-    // if the group_id is new, we don't check the index for existence of `group_id`
-    fn add_group_to_index(&mut self, group_id: usize, group_data: &GroupData, new_group_id: bool) {
-        for read in &group_data.reads {
-            let group_reads_slot = self.group_reads.entry(read.clone()).or_default();
-            if new_group_id || !group_reads_slot.contains(&group_id) {
-                group_reads_slot.push(group_id);
-            }
-        }
-        for write in &group_data.writes {
-            let group_writes_slot = self.group_writes.entry(write.clone()).or_default();
-            if new_group_id || !group_writes_slot.contains(&group_id) {
-                group_writes_slot.push(group_id);
-            }
-        }
-        for balance_read in &group_data.balance_reads {
-            let groups_balance_read_address =
-                self.group_balance_reads.entry(*balance_read).or_default();
-            if new_group_id || !groups_balance_read_address.contains(&group_id) {
-                groups_balance_read_address.push(group_id);
-            }
-        }
-        for balance_write in &group_data.balance_writes {
-            let groups_balance_write_address =
-                self.group_balance_writes.entry(*balance_write).or_default();
-            if new_group_id || !groups_balance_write_address.contains(&group_id) {
-                groups_balance_write_address.push(group_id);
-            }
-        }
-        for created_contract in &group_data.created_contracts {
-            let groups_create_contract_address = self
-                .group_contract_creations
-                .entry(*created_contract)
-                .or_default();
-            if new_group_id || !groups_create_contract_address.contains(&group_id) {
-                groups_create_contract_address.push(group_id);
-            }
-        }
-        for destructed_contract in &group_data.destructed_contracts {
-            let groups_destruct_contract_address = self
-                .group_contract_destructions
-                .entry(*destructed_contract)
-                .or_default();
-            if new_group_id || !groups_destruct_contract_address.contains(&group_id) {
-                groups_destruct_contract_address.push(group_id);
-            }
-        }
+    fn add_group_to_index(&mut self, group_id: usize, is_new_id: bool, group_data: &GroupData) {
+        add_group_to_map(group_id, is_new_id, &group_data.reads, &mut self.group_reads);
+        add_group_to_map(group_id, is_new_id, &group_data.writes, &mut self.group_writes);
+        add_group_to_map(group_id, is_new_id, &group_data.balance_reads, &mut self.group_balance_reads);
+        add_group_to_map(group_id, is_new_id, &group_data.balance_writes, &mut self.group_balance_writes);
+        add_group_to_map(group_id, is_new_id, &group_data.created_contracts, &mut self.group_contract_creations);
+        add_group_to_map(group_id, is_new_id, &group_data.destructed_contracts, &mut self.group_contract_destructions);
     }
 
-    fn remove_group_from_index(&mut self, group_id: &usize, group_data: &GroupData) {
-        for read in &group_data.reads {
-            let group_reads_slot = self.group_reads.entry(read.clone()).or_default();
-            if let Some(idx) = group_reads_slot.iter().position(|el| el == group_id) {
-                group_reads_slot.swap_remove(idx);
-            }
-        }
-        for write in &group_data.writes {
-            let group_writes_slot = self.group_writes.entry(write.clone()).or_default();
-            if let Some(idx) = group_writes_slot.iter().position(|el| el == group_id) {
-                group_writes_slot.swap_remove(idx);
-            }
-        }
-        for balance_read in &group_data.balance_reads {
-            let group_balance_reads_addr =
-                self.group_balance_reads.entry(*balance_read).or_default();
-            if let Some(idx) = group_balance_reads_addr
-                .iter()
-                .position(|el| el == group_id)
-            {
-                group_balance_reads_addr.swap_remove(idx);
-            }
-        }
-        for balance_write in &group_data.balance_writes {
-            let group_balance_writes_addr =
-                self.group_balance_writes.entry(*balance_write).or_default();
-            if let Some(idx) = group_balance_writes_addr
-                .iter()
-                .position(|el| el == group_id)
-            {
-                group_balance_writes_addr.swap_remove(idx);
-            }
-        }
-        for contract_creation in &group_data.created_contracts {
-            let group_contract_creations_addr = self
-                .group_contract_creations
-                .entry(*contract_creation)
-                .or_default();
-            if let Some(idx) = group_contract_creations_addr
-                .iter()
-                .position(|el| el == group_id)
-            {
-                group_contract_creations_addr.swap_remove(idx);
-            }
-        }
-        for contract_destruction in &group_data.destructed_contracts {
-            let group_contract_destructions_addr = self
-                .group_contract_destructions
-                .entry(*contract_destruction)
-                .or_default();
-            if let Some(idx) = group_contract_destructions_addr
-                .iter()
-                .position(|el| el == group_id)
-            {
-                group_contract_destructions_addr.swap_remove(idx);
-            }
-        }
+    fn remove_group_from_index(&mut self, group_id: usize, group_data: &GroupData) {
+        remove_group_from_map(group_id, &group_data.reads, &mut self.group_reads);
+        remove_group_from_map(group_id, &group_data.writes, &mut self.group_writes);
+        remove_group_from_map(group_id, &group_data.balance_reads, &mut self.group_balance_reads);
+        remove_group_from_map(group_id, &group_data.balance_writes, &mut self.group_balance_writes);
+        remove_group_from_map(group_id, &group_data.created_contracts, &mut self.group_contract_creations);
+        remove_group_from_map(group_id, &group_data.destructed_contracts, &mut self.group_contract_destructions);
     }
 
     pub fn get_order_groups(&self) -> Vec<ConflictGroup> {
@@ -372,6 +283,34 @@ impl ConflictFinder {
 impl Default for ConflictFinder {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// if the `group_id` is new, we don't check if the map already contains it
+fn add_group_to_map<K: std::cmp::Eq + std::hash::Hash + Clone>(
+    group_id: usize,
+    is_new_id: bool,
+    group_keys: &Vec<K>,
+    map: &mut HashMap<K, Vec<usize>>,
+) {
+    for key in group_keys {
+        let groups = map.entry(key.clone()).or_default();
+        if is_new_id || !groups.contains(&group_id) {
+            groups.push(group_id);
+        }
+    }
+}
+
+fn remove_group_from_map<K: std::cmp::Eq + std::hash::Hash + Clone>(
+    group_id: usize,
+    group_keys: &Vec<K>,
+    map: &mut HashMap<K, Vec<usize>>,
+) {
+    for key in group_keys {
+        let groups = map.entry(key.clone()).or_default();
+        if let Some(idx) = groups.iter().position(|el| *el == group_id) {
+            groups.swap_remove(idx);
+        }
     }
 }
 
