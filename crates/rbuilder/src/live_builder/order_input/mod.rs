@@ -95,7 +95,7 @@ pub struct OrderInputConfig {
     /// Timeout to wait when sending to that channel (after that the ReplaceableOrderPoolCommand is lost).
     results_channel_timeout: Duration,
     /// Size of the bounded channel.
-    input_channel_buffer_size: usize,
+    pub input_channel_buffer_size: usize,
 }
 pub const DEFAULT_SERVE_MAX_CONNECTIONS: u32 = 4096;
 pub const DEFAULT_RESULTS_CHANNEL_TIMEOUT: Duration = Duration::from_millis(50);
@@ -184,6 +184,8 @@ pub async fn start_orderpool_jobs<P>(
     provider_factory: P,
     extra_rpc: RpcModule<()>,
     global_cancel: CancellationToken,
+    order_sender: mpsc::Sender<ReplaceableOrderPoolCommand>,
+    order_receiver: mpsc::Receiver<ReplaceableOrderPoolCommand>,
 ) -> eyre::Result<(JoinHandle<()>, OrderPoolSubscriber)>
 where
     P: StateProviderFactory + 'static,
@@ -199,8 +201,6 @@ where
     let subscriber = OrderPoolSubscriber {
         orderpool: orderpool.clone(),
     };
-
-    let (order_sender, order_receiver) = mpsc::channel(config.input_channel_buffer_size);
 
     let clean_job = clean_orderpool::spawn_clean_orderpool_job(
         config.clone(),

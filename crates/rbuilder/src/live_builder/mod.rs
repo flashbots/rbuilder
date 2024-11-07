@@ -26,6 +26,7 @@ use alloy_primitives::{Address, B256};
 use building::BlockBuildingPool;
 use eyre::Context;
 use jsonrpsee::RpcModule;
+use order_input::ReplaceableOrderPoolCommand;
 use payload_events::MevBoostSlotData;
 use reth::{primitives::Header, providers::HeaderProvider};
 use reth_chainspec::ChainSpec;
@@ -81,6 +82,10 @@ where
     pub sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
     pub builders: Vec<Arc<dyn BlockBuildingAlgorithm<P, DB>>>,
     pub extra_rpc: RpcModule<()>,
+
+    /// Notify rbuilder of new [`ReplaceableOrderPoolCommand`] flow via this channel.
+    pub orderpool_sender: mpsc::Sender<ReplaceableOrderPoolCommand>,
+    pub orderpool_receiver: mpsc::Receiver<ReplaceableOrderPoolCommand>,
 }
 
 impl<P, DB, BlocksSourceType: SlotSource> LiveBuilder<P, DB, BlocksSourceType>
@@ -119,6 +124,8 @@ where
                 self.provider.clone(),
                 self.extra_rpc,
                 self.global_cancellation.clone(),
+                self.orderpool_sender,
+                self.orderpool_receiver,
             )
             .await?;
             inner_jobs_handles.push(handle);

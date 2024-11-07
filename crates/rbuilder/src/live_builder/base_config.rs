@@ -32,6 +32,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
+use tokio::sync::mpsc;
 use tracing::warn;
 
 use super::SlotSource;
@@ -205,11 +206,14 @@ impl BaseConfig {
         P: DatabaseProviderFactory<DB> + StateProviderFactory + HeaderProvider + Clone,
         SlotSourceType: SlotSource,
     {
+        let order_input_config = OrderInputConfig::from_config(self)?;
+        let (orderpool_sender, orderpool_receiver) =
+            mpsc::channel(order_input_config.input_channel_buffer_size);
         Ok(LiveBuilder::<P, DB, SlotSourceType> {
             watchdog_timeout: self.watchdog_timeout(),
             error_storage_path: self.error_storage_path.clone(),
             simulation_threads: self.simulation_threads,
-            order_input_config: OrderInputConfig::from_config(self)?,
+            order_input_config,
             blocks_source: slot_source,
             chain_chain_spec: self.chain_spec()?,
             provider,
@@ -225,6 +229,9 @@ impl BaseConfig {
             builders: Vec::new(),
 
             run_sparse_trie_prefetcher: self.root_hash_use_sparse_trie,
+
+            orderpool_sender,
+            orderpool_receiver,
         })
     }
 
