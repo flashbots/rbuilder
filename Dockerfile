@@ -41,7 +41,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 #
 FROM base as builder
 WORKDIR /app
-
+# Default binary filename rbuilder
+# Alternatively can be set to "reth-rbuilder" - to have reth included in the binary
+ARG RBUILDER_BIN="rbuilder"
 COPY --from=planner /app/recipe.json recipe.json
 
 RUN --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
@@ -55,20 +57,15 @@ COPY ./crates/ ./crates/
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
-    cargo build --release --features="$FEATURES"
+    cargo build --release --features="$FEATURES" --bin=${RBUILDER_BIN}
 
 #
 # Runtime container
 #
 FROM gcr.io/distroless/cc-debian12
-
 WORKDIR /app
 
-# RUN apk add libssl3 ca-certificates
-# RUN apt-get update \
-#     && apt-get install -y libssl3 ca-certificates \
-#     && rm -rf /var/lib/apt/lists/*
-
-COPY --from=builder /app/target/release/rbuilder /app/rbuilder
+ARG RBUILDER_BIN="rbuilder"
+COPY --from=builder /app/target/release/${RBUILDER_BIN} /app/rbuilder
 
 ENTRYPOINT ["/app/rbuilder"]
