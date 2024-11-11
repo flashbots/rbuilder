@@ -18,14 +18,16 @@ use rbuilder::{
     live_builder::{
         base_config::load_config_toml_and_env,
         config::{create_builders, BuilderConfig, Config, SpecificBuilderConfig},
+        order_input::{rpc_server::RawCancelBundle, ReplaceableOrderPoolCommand},
         payload_events::MevBoostSlotData,
         SlotSource,
     },
+    primitives::{Bundle, BundleReplacementKey, Order},
 };
 use reth_db_api::Database;
-use reth_primitives::{TransactionSigned, B256, U256};
+use reth_primitives::{TransactionSigned, U256};
 use reth_provider::{DatabaseProviderFactory, HeaderProvider, StateProviderFactory};
-use reth_rpc_types::{beacon::events::PayloadAttributesEvent, mev::EthSendBundle};
+use reth_rpc_types::beacon::events::PayloadAttributesEvent;
 use tokio::{
     sync::{
         mpsc::{self, error::SendError},
@@ -41,6 +43,8 @@ use transaction_pool_bundle_ext::BundlePoolOperations;
 /// [`BundlePoolOperations`] implementation which uses components of the
 /// [`rbuilder`] under the hood to handle classic [`EthSendBundle`]s.
 pub struct BundlePoolOps {
+    // Channel to stream new [`OrderPool`] events to the rbuilder
+    orderpool_tx: mpsc::Sender<ReplaceableOrderPoolCommand>,
     // Channel to stream new payload attribute events to rbuilder
     payload_attributes_tx: mpsc::UnboundedSender<(PayloadAttributesEvent, Option<u64>)>,
     /// Channel containing the latest [`BlockBuildingHelper`] recieved from the rbuilder
@@ -104,42 +108,43 @@ impl BundlePoolOps {
             "/Users/liamaharon/grimoire/rbuilder/config-optimism-local.toml",
         )?;
 
-        // Spawn the task in a separate thread of execution, allowing it to run without blocking.
+        let builder_strategy = BuilderConfig {
+            name: "mp-ordering".to_string(),
+            builder: SpecificBuilderConfig::OrderingBuilder(OrderingBuilderConfig {
+                discard_txs: true,
+                sorting: Sorting::MaxProfit,
+                failed_order_retries: 1,
+                drop_failed_orders: true,
+                coinbase_payment: false,
+                build_duration_deadline_ms: None,
+            }),
+        };
+
+        let builders = create_builders(
+            vec![builder_strategy],
+            config.base_config.live_root_hash_config().unwrap(),
+            config.base_config.root_hash_task_pool().unwrap(),
+            config.base_config.sbundle_mergeabe_signers(),
+        );
+
+        // Build and run the process
+        let builder = config
+            .base_config
+            .create_builder_with_provider_factory::<P, DB, OurSlotSource>(
+                cancellation_token,
+                Box::new(sink_factory),
+                slot_source,
+                provider,
+            )
+            .await
+            .unwrap()
+            .with_builders(builders);
+        let orderpool_tx = builder.orderpool_sender.clone();
+
+        // Spawn in separate thread
         let _handle = task::spawn(async move {
             // Wait for 5 seconds for reth to init
             sleep(Duration::from_secs(5)).await;
-
-            let builder_strategy = BuilderConfig {
-                name: "mp-ordering".to_string(),
-                builder: SpecificBuilderConfig::OrderingBuilder(OrderingBuilderConfig {
-                    discard_txs: true,
-                    sorting: Sorting::MaxProfit,
-                    failed_order_retries: 1,
-                    drop_failed_orders: true,
-                    coinbase_payment: false,
-                    build_duration_deadline_ms: None,
-                }),
-            };
-
-            let builders = create_builders(
-                vec![builder_strategy],
-                config.base_config.live_root_hash_config().unwrap(),
-                config.base_config.root_hash_task_pool().unwrap(),
-                config.base_config.sbundle_mergeabe_signers(),
-            );
-
-            // Build and run the process
-            let builder = config
-                .base_config
-                .create_builder_with_provider_factory::<P, DB, OurSlotSource>(
-                    cancellation_token,
-                    Box::new(sink_factory),
-                    slot_source,
-                    provider,
-                )
-                .await
-                .unwrap()
-                .with_builders(builders);
 
             builder.run().await.unwrap();
 
@@ -149,6 +154,7 @@ impl BundlePoolOps {
         Ok(BundlePoolOps {
             block_building_helper_rx,
             payload_attributes_tx,
+            orderpool_tx,
         })
     }
 }
@@ -156,17 +162,29 @@ impl BundlePoolOps {
 impl BundlePoolOperations for BundlePoolOps {
     /// Signed eth transaction
     type Transaction = TransactionSigned;
-    type Bundle = EthSendBundle;
+    type Bundle = Bundle;
+    type CancelBundleReq = RawCancelBundle;
     type Error = Error;
 
-    fn add_bundle(&self, _bundle: Self::Bundle) -> Result<(), Self::Error> {
-        // TODO: Add bundle to live_builder OrderPool
-        todo!()
+    async fn add_bundle(&self, bundle: Self::Bundle) -> Result<(), Self::Error> {
+        self.orderpool_tx
+            .send(ReplaceableOrderPoolCommand::Order(Order::Bundle(bundle)))
+            .await?;
+        Ok(())
     }
 
-    fn cancel_bundle(&self, _hash: &B256) -> Result<(), Self::Error> {
-        // TODO: Cancel bundle from live_builder OrderPool
-        todo!()
+    async fn cancel_bundle(
+        &self,
+        cancel_bundle_request: Self::CancelBundleReq,
+    ) -> Result<(), Self::Error> {
+        let key = BundleReplacementKey::new(
+            cancel_bundle_request.replacement_uuid,
+            cancel_bundle_request.signing_address,
+        );
+        self.orderpool_tx
+            .send(ReplaceableOrderPoolCommand::CancelBundle(key))
+            .await?;
+        Ok(())
     }
 
     fn get_transactions(
@@ -254,4 +272,7 @@ pub enum Error {
 
     #[from]
     SendPayloadAttributes(SendError<(PayloadAttributesEvent, Option<u64>)>),
+
+    #[from]
+    SendReplaceableOrderPoolCommand(SendError<ReplaceableOrderPoolCommand>),
 }

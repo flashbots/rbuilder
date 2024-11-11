@@ -151,24 +151,6 @@ where
             .try_into()
             .unwrap_or(chain_spec.max_gas_limit);
 
-        // apply eip-4788 pre block contract call
-        pre_block_beacon_root_contract_call(
-            &mut db,
-            &self.evm_config,
-            &chain_spec,
-            &initialized_cfg,
-            &initialized_block_env,
-            attributes.payload_attributes.parent_beacon_block_root,
-        )
-        .map_err(|err| {
-            warn!(target: "payload_builder",
-                parent_hash=%parent_block.hash(),
-                %err,
-                "failed to apply beacon root contract call for empty payload"
-            );
-            PayloadBuilderError::Internal(err.into())
-        })?;
-
         let WithdrawalsOutcome {
             withdrawals_root,
             withdrawals,

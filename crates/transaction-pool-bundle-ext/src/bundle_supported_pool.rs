@@ -2,7 +2,7 @@
 
 use reth::providers::ChangedAccount;
 use reth_eth_wire_types::HandleMempoolData;
-use reth_primitives::{Address, PooledTransactionsElement, TxHash, B256, U256};
+use reth_primitives::{Address, PooledTransactionsElement, TxHash, U256};
 use reth_rpc_types::{beacon::events::PayloadAttributesEvent, BlobTransactionSidecar};
 use reth_transaction_pool::{
     AllPoolTransactions, AllTransactionsEvents, BestTransactions, BestTransactionsAttributes,
@@ -12,7 +12,7 @@ use reth_transaction_pool::{
     TransactionOrigin, TransactionPool, TransactionPoolExt as TransactionPoolBlockInfoExt,
     TransactionValidator, ValidPoolTransaction,
 };
-use std::{collections::HashSet, sync::Arc};
+use std::{collections::HashSet, future::Future, sync::Arc};
 use tokio::sync::mpsc::Receiver;
 
 use crate::{traits::BundlePoolOperations, TransactionPoolBundleExt};
@@ -329,15 +329,22 @@ where
     B: BundlePoolOperations,
 {
     type Bundle = <B as BundlePoolOperations>::Bundle;
+    type CancelBundleReq = <B as BundlePoolOperations>::CancelBundleReq;
     type Transaction = <B as BundlePoolOperations>::Transaction;
     type Error = <B as BundlePoolOperations>::Error;
 
-    fn add_bundle(&self, bundle: Self::Bundle) -> Result<(), Self::Error> {
+    fn add_bundle(
+        &self,
+        bundle: Self::Bundle,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
         self.bundle_pool.ops.add_bundle(bundle)
     }
 
-    fn cancel_bundle(&self, hash: &B256) -> Result<(), Self::Error> {
-        self.bundle_pool.ops.cancel_bundle(hash)
+    fn cancel_bundle(
+        &self,
+        cancel_bundle_req: Self::CancelBundleReq,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
+        self.bundle_pool.ops.cancel_bundle(cancel_bundle_req)
     }
 
     fn get_transactions(

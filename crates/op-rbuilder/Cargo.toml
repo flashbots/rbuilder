@@ -4,6 +4,7 @@ version = "0.1.0-alpha.0"
 edition = "2021"
 
 [dependencies]
+rbuilder = { path = "../rbuilder" }
 op-rbuilder-node-optimism = { path = "./node" }
 transaction-pool-bundle-ext = { path = "../transaction-pool-bundle-ext" }
 
@@ -13,6 +14,7 @@ reth-node-optimism.workspace = true
 reth-cli-util.workspace = true
 reth-optimism-rpc.workspace = true
 
+tokio.workspace = true
 tracing.workspace = true
 jsonrpsee = { workspace = true }
 async-trait = { workspace = true }

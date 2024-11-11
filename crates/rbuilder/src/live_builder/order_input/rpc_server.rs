@@ -53,7 +53,7 @@ pub async fn start_server_accepting_bundles(
                 }
             };
 
-            let bundle: Bundle = match raw_bundle.decode(TxEncoding::WithBlobData) {
+            let bundle: Bundle = match raw_bundle.try_into(TxEncoding::WithBlobData) {
                 Ok(bundle) => bundle,
                 Err(err) => {
                     warn!(?err, "Failed to parse bundle");

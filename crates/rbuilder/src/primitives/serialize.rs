@@ -71,7 +71,7 @@ pub enum RawBundleConvertError {
 }
 
 impl RawBundle {
-    pub fn decode(self, encoding: TxEncoding) -> Result<Bundle, RawBundleConvertError> {
+    pub fn try_into(self, encoding: TxEncoding) -> Result<Bundle, RawBundleConvertError> {
         let txs = self
             .txs
             .into_iter()
@@ -512,7 +512,7 @@ impl RawOrder {
         match self {
             RawOrder::Bundle(bundle) => Ok(Order::Bundle(
                 bundle
-                    .decode(encoding)
+                    .try_into(encoding)
                     .map_err(RawOrderConvertError::FailedToDecodeBundle)?,
             )),
             RawOrder::Tx(tx) => Ok(Order::Tx(
@@ -565,7 +565,7 @@ mod tests {
 
         let bundle = bundle_request
             .clone()
-            .decode(TxEncoding::WithBlobData)
+            .try_into(TxEncoding::WithBlobData)
             .expect("failed to convert bundle request to bundle");
 
         let bundle_roundtrip = RawBundle::encode_no_blobs(bundle.clone());
@@ -629,7 +629,7 @@ mod tests {
                 serde_json::from_str(input).expect("failed to decode bundle");
 
             let bundle = bundle_request
-                .decode(TxEncoding::WithBlobData)
+                .try_into(TxEncoding::WithBlobData)
                 .expect("failed to convert bundle request to bundle");
 
             assert_eq!(
@@ -654,7 +654,7 @@ mod tests {
             serde_json::from_str(bundle_json).expect("failed to decode bundle");
 
         let bundle = bundle_request
-            .decode(TxEncoding::WithBlobData)
+            .try_into(TxEncoding::WithBlobData)
             .expect("failed to convert bundle request to bundle");
 
         assert_eq!(

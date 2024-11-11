@@ -5789,6 +5789,7 @@ dependencies = [
  "clap_builder",
  "jsonrpsee 0.24.4",
  "op-rbuilder-node-optimism",
+ "rbuilder",
  "reth",
  "reth-cli-util",
  "reth-discv4",
@@ -5796,6 +5797,7 @@ dependencies = [
  "reth-optimism-rpc",
  "reth-rpc-types",
  "tikv-jemallocator",
+ "tokio",
  "tracing",
  "transaction-pool-bundle-ext",
 ]
