@@ -130,7 +130,6 @@ where
             parent_block,
             attributes,
             chain_spec,
-            initialized_cfg,
             ..
         } = config;
 

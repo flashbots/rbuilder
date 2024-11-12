@@ -9,7 +9,6 @@ op-rbuilder-node-optimism = { path = "./node" }
 transaction-pool-bundle-ext = { path = "../transaction-pool-bundle-ext" }
 
 reth.workspace = true
-reth-rpc-types.workspace = true
 reth-node-optimism.workspace = true
 reth-cli-util.workspace = true
 reth-optimism-rpc.workspace = true
@@ -46,7 +45,8 @@ optimism = [
 	"reth-node-optimism/optimism",
 	"reth/optimism",
 	"reth-optimism-rpc/optimism",
-	"op-rbuilder-node-optimism/optimism"
+	"op-rbuilder-node-optimism/optimism",
+	"rbuilder/optimism"
 ]
 
 [[bin]]

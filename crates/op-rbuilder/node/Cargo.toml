@@ -35,5 +35,6 @@ optimism = [
 	"reth-provider/optimism",
 	"reth-evm-optimism/optimism",
 	"op-rbuilder-payload-builder/optimism",
-	"rbuilder-bundle-pool-operations/optimism"
+	"rbuilder-bundle-pool-operations/optimism",
+	"reth-primitives/optimism"
 ]
