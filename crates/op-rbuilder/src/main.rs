@@ -1,9 +1,30 @@
 //! The main entry point for `op-rbuilder`.
 //!
-//! `op-rbuilder` is an OP Stack EL client with block building capabilities.
+//! `op-rbuilder` is an OP Stack EL client with block building capabilities, powered by in-process
+//! rbuilder.
 //!
-//! It is planned to handle `eth_sendBundle` requests, revert protection, and
-//! some other features.
+//! The primary difference between `op-rbuilder` and `op-reth` is the `PayloadBuilder` derives
+//! transactions exclusively from rbuilder, rather than directly from its transaction pool.
+//!
+//! ## Usage
+//!
+//! It has a new mandatory cli arg `--rbuilder.config` which must point to an rbuilder config file.
+//!
+//! ## Demo
+//!
+//! Instructions to demo `op-rbuilder` building blocks for an OP L2, and send txns to it with `mev-flood`:
+//!
+//! 1. Clone [flashbots/optimism](https://github.com/flashbots/optimism) and checkout the
+//!    `op-rbuilder` branch.
+//! 2. `rm` any existing `reth` chain db
+//! 3. Run a clean OP stack: `make devnet-clean && make devnet-down && make devnet-up`
+//! 4. Run `op-rbuilder` on port 8547: `cargo run --bin op-rbuilder --features "optimism,jemalloc" -- node
+//!    --chain ../optimism/.devnet/genesis-l2.json --http --http.port 8547 --authrpc.jwtsecret
+//!    ../optimism/ops-bedrock/test-jwt-secret.txt --rbuilder.config config-optimism-local.toml`
+//! 5. Init `mev-flood`: `docker run mevflood init -r http://host.docker.internal:8547 -s local.json`
+//! 6. Run `mev-flood`: `docker run --init -v ${PWD}:/app/cli/deployments mevflood spam -p 3 -t 5 -r http://host.docker.internal:8547 -l local.json`
+//!
+//! Example starting clean OP Stack in one-line: `rm -rf /Users/liamaharon/Library/Application\ Support/reth && cd ../optimism && make devnet-clean && make devnet-down && make devnet-up && cd ../rbuilder && cargo run --bin op-rbuilder --features "optimism,jemalloc" -- node --chain ../optimism/.devnet/genesis-l2.json --http --http.port 8547 --authrpc.jwtsecret ../optimism/ops-bedrock/test-jwt-secret.txt --rbuilder.config config-optimism-local.toml`
 
 #![cfg_attr(all(not(test), feature = "optimism"), warn(unused_crate_dependencies))]
 // The `optimism` feature must be enabled to use this crate.

@@ -242,15 +242,24 @@ impl<DB: Database + Clone> BlockHashReader for ProviderFactoryReopener<DB> {
 
 impl<DB: Database + Clone> BlockNumReader for ProviderFactoryReopener<DB> {
     fn chain_info(&self) -> ProviderResult<ChainInfo> {
-        self.provider_factory_unchecked().chain_info()
+        let provider = self
+            .check_consistency_and_reopen_if_needed()
+            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
+        provider.chain_info()
     }
 
     fn best_block_number(&self) -> ProviderResult<BlockNumber> {
-        self.provider_factory_unchecked().best_block_number()
+        let provider = self
+            .check_consistency_and_reopen_if_needed()
+            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
+        provider.best_block_number()
     }
 
     fn last_block_number(&self) -> ProviderResult<BlockNumber> {
-        self.provider_factory_unchecked().last_block_number()
+        let provider = self
+            .check_consistency_and_reopen_if_needed()
+            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
+        provider.last_block_number()
     }
 
     fn block_number(&self, hash: B256) -> ProviderResult<Option<BlockNumber>> {

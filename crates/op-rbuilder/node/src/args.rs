@@ -4,6 +4,8 @@
 
 //! clap [Args](clap::Args) for optimism rollup configuration
 
+use std::path::PathBuf;
+
 /// Parameters for rollup configuration
 #[derive(Debug, Clone, Default, PartialEq, Eq, clap::Args)]
 #[command(next_help_heading = "Rollup")]
@@ -39,6 +41,10 @@ pub struct OpRbuilderArgs {
     /// Enable the engine2 experimental features on op-reth binary
     #[arg(long = "engine.experimental", default_value = "false")]
     pub experimental: bool,
+
+    /// Enable the engine2 experimental features on op-reth binary
+    #[arg(long = "rbuilder.config")]
+    pub rbuilder_config_path: PathBuf,
 }
 
 #[cfg(test)]

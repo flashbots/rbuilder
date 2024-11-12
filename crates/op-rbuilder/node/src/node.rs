@@ -28,6 +28,7 @@ use reth_transaction_pool::{
     blobstore::DiskFileBlobStore, CoinbaseTipOrdering, EthPooledTransaction,
     TransactionValidationTaskExecutor,
 };
+use std::path::PathBuf;
 use transaction_pool_bundle_ext::{
     BundlePoolOperations, BundleSupportedPool, TransactionPoolBundleExt,
 };
@@ -66,11 +67,12 @@ impl OpRbuilderNode {
             disable_txpool_gossip,
             compute_pending_block,
             discovery_v4,
+            rbuilder_config_path,
             ..
         } = args;
         ComponentsBuilder::default()
             .node_types::<Node>()
-            .pool(OpRbuilderPoolBuilder::default())
+            .pool(OpRbuilderPoolBuilder::new(rbuilder_config_path))
             .payload(OpRbuilderPayloadServiceBuilder::new(
                 compute_pending_block,
                 OptimismEvmConfig::default(),
@@ -112,9 +114,20 @@ impl NodeTypes for OpRbuilderNode {
 }
 
 /// An extended optimism transaction pool with bundle support.
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone)]
 #[non_exhaustive]
-pub struct OpRbuilderPoolBuilder;
+pub struct OpRbuilderPoolBuilder {
+    rbuilder_config_path: PathBuf,
+}
+
+impl OpRbuilderPoolBuilder {
+    /// Creates a new instance of the OP rbuilder pool builder.
+    pub fn new(rbuilder_config_path: PathBuf) -> Self {
+        Self {
+            rbuilder_config_path,
+        }
+    }
+}
 
 pub type OpRbuilderTransactionPool<Client, S> = BundleSupportedPool<
     TransactionValidationTaskExecutor<OpTransactionValidator<Client, EthPooledTransaction>>,
@@ -149,7 +162,7 @@ where
                     .require_l1_data_gas_fee(!ctx.config().dev.dev)
             });
 
-        let bundle_ops = BundlePoolOps::new(ctx.provider().clone())
+        let bundle_ops = BundlePoolOps::new(ctx.provider().clone(), self.rbuilder_config_path)
             .await
             .expect("Failed to instantiate RbuilderBundlePoolOps");
         let transaction_pool = OpRbuilderTransactionPool::new(

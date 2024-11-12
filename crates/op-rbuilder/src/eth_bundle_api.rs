@@ -1,4 +1,4 @@
-//! An implemention of the reth EthBundleApiServer trait.
+//! An implemention of the *internal* eth_sendBundle api used by rbuilder.
 //!
 //! Should be refactored into standalone crate if required by other code.
 
@@ -69,8 +69,7 @@ where
     }
 }
 
-/// A subset of the [EthBundleApi] API interface that only supports `eth_sendBundle` and
-/// `eth_cancelBundle`.
+/// A subset of the *internal* eth_sendBundle api used by rbuilder.
 #[rpc(server, namespace = "eth")]
 pub trait EthCallBundleMinimalApi {
     #[method(name = "sendBundle")]

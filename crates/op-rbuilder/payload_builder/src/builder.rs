@@ -26,7 +26,7 @@ use revm::{
     DatabaseCommit, State,
 };
 use std::sync::Arc;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, trace, warn};
 use transaction_pool_bundle_ext::{BundlePoolOperations, TransactionPoolBundleExt};
 
 /// Payload builder for OP Stack, which includes bundle support.
@@ -89,11 +89,10 @@ where
         };
         let payload_attributes_data = PayloadAttributesData {
             parent_block_number: parent_block.number,
-            // TODO: Is this parent and proposer stuff right?
             parent_block_root: parent_block.header.hash(),
             parent_block_hash: parent_block.hash(),
             proposal_slot: parent_block.number + 1,
-            proposer_index: 0, // Likely isn't required for core building logic.. We will see :)
+            proposer_index: 0, // Shouldn't be required for core building logic
             payload_attributes,
         };
         let payload_attributes_event = PayloadAttributesEvent {
@@ -451,19 +450,19 @@ where
         .unwrap()
         .into_iter();
     for pool_tx in iter {
-        // ensure we still have capacity for this transaction
+        // Ensure we still have capacity for this transaction
         if cumulative_gas_used + pool_tx.gas_limit() > block_gas_limit {
-            // we can't fit this transaction into the block, so we need to mark it as
-            // invalid which also removes all dependent transaction from
-            // the iterator before we can continue
-            // TODO: Error, rbuilder should never suggest over gas limit!
-            continue;
+            let inner =
+                EVMError::Custom("rbuilder suggested transaction over gas limit!".to_string());
+            return Err(PayloadBuilderError::EvmExecutionError(inner));
         }
 
         // A sequencer's block should never contain blob or deposit transactions from rbuilder.
         if pool_tx.is_eip4844() || pool_tx.tx_type() == TxType::Deposit as u8 {
-            // TODO: Error, rbuilder should never suggest over gas limit!
-            continue;
+            error!("rbuilder suggested blob or deposit transaction!");
+            let inner =
+                EVMError::Custom("rbuilder suggested blob or deposit transaction!".to_string());
+            return Err(PayloadBuilderError::EvmExecutionError(inner));
         }
 
         // check if the job was cancelled, if so we can exit early
@@ -492,18 +491,19 @@ where
                     EVMError::Transaction(err) => {
                         if matches!(err, InvalidTransaction::NonceTooLow { .. }) {
                             // if the nonce is too low, we can skip this transaction
-                            trace!(target: "payload_builder", %err, ?tx, "skipping nonce too low transaction");
+                            error!(target: "payload_builder", %err, ?tx, "skipping nonce too low transaction");
                         } else {
                             // if the transaction is invalid, we can skip it and all of its
                             // descendants
-                            trace!(target: "payload_builder", %err, ?tx, "skipping invalid transaction and its descendants");
-                            // TODO: Handle invalid tx
+                            error!(target: "payload_builder", %err, ?tx, "skipping invalid transaction and its descendants");
                         }
 
-                        continue;
+                        let inner = EVMError::Custom("rbuilder transaction errored!".to_string());
+                        return Err(PayloadBuilderError::EvmExecutionError(inner));
                     }
                     err => {
                         // this is an error that we should treat as fatal for this attempt
+                        error!("rbuilder provided where an error occured!");
                         return Err(PayloadBuilderError::EvmExecutionError(err));
                     }
                 }
@@ -542,7 +542,7 @@ where
         count += 1;
     }
 
-    info!("executed {} txns from rbuilder!", count);
+    trace!("Executed {} txns from rbuilder", count);
 
     // check if we have a better block
     if !is_better_payload(best_payload.as_ref(), total_fees) {

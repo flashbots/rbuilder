@@ -1,10 +1,10 @@
 //! Implementation of [`BundlePoolOperations`] for the classic rbuilder that
 //! supports [`EthSendBundle`]s.
 
-// #![cfg_attr(not(test), warn(unused_crate_dependencies))]
+#![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 use core::fmt;
-use std::{fmt::Formatter, sync::Arc, time::Duration};
+use std::{fmt::Formatter, path::Path, sync::Arc, time::Duration};
 
 use derive_more::From;
 use rbuilder::{
@@ -86,7 +86,10 @@ impl SlotSource for OurSlotSource {
 }
 
 impl BundlePoolOps {
-    pub async fn new<P, DB>(provider: P) -> Result<Self, Error>
+    pub async fn new<P, DB>(
+        provider: P,
+        rbuilder_config_path: impl AsRef<Path>,
+    ) -> Result<Self, Error>
     where
         DB: Database + Clone + 'static,
         P: DatabaseProviderFactory<DB> + StateProviderFactory + HeaderProvider + Clone + 'static,
@@ -104,9 +107,7 @@ impl BundlePoolOps {
         };
 
         // Spawn the builder!
-        let config: Config = load_config_toml_and_env(
-            "/Users/liamaharon/grimoire/rbuilder/config-optimism-local.toml",
-        )?;
+        let config: Config = load_config_toml_and_env(rbuilder_config_path)?;
 
         let builder_strategy = BuilderConfig {
             name: "mp-ordering".to_string(),

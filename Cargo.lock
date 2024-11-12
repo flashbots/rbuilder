@@ -7202,11 +7202,7 @@ dependencies = [
  "derive_more 1.0.0",
  "eyre",
  "rbuilder",
- "reth-chain-state",
- "reth-chainspec",
  "reth-db-api",
- "reth-payload-builder",
- "reth-payload-primitives",
  "reth-primitives",
  "reth-provider",
  "reth-rpc-types",
@@ -7214,7 +7210,6 @@ dependencies = [
  "tokio-util",
  "tracing",
  "transaction-pool-bundle-ext",
- "url",
 ]
 
 [[package]]
