@@ -1169,6 +1169,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
+name = "atty"
+version = "0.2.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d9b39be18770d11421cdb1b9947a45dd3f37e93092cbf377614828a319d5fee8"
+dependencies = [
+ "hermit-abi 0.1.19",
+ "libc",
+ "winapi",
+]
+
+[[package]]
 name = "aurora-engine-modexp"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1269,7 +1280,7 @@ name = "beacon-api-client"
 version = "0.1.0"
 source = "git+https://github.com/ralexstokes/ethereum-consensus/?rev=cf3c404043230559660810bc0c9d6d5a8498d819#cf3c404043230559660810bc0c9d6d5a8498d819"
 dependencies = [
- "clap",
+ "clap 4.5.10",
  "ethereum-consensus",
  "http 0.2.12",
  "itertools 0.10.5",
@@ -1768,6 +1779,18 @@ dependencies = [
 
 [[package]]
 name = "clap"
+version = "3.2.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ea181bf566f71cb9a5d17a59e1871af638180a18fb0035c92ae62b705207123"
+dependencies = [
+ "bitflags 1.3.2",
+ "clap_lex 0.2.4",
+ "indexmap 1.9.3",
+ "textwrap",
+]
+
+[[package]]
+name = "clap"
 version = "4.5.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f6b81fb3c84f5563d509c59b5a48d935f689e993afa90fe39047f05adef9142"
@@ -1784,7 +1807,7 @@ checksum = "5ca6706fd5224857d9ac5eb9355f6683563cc0541c7cd9d014043b57cbec78ac"
 dependencies = [
  "anstream",
  "anstyle",
- "clap_lex",
+ "clap_lex 0.7.1",
  "strsim",
 ]
 
@@ -1798,6 +1821,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.72",
+]
+
+[[package]]
+name = "clap_lex"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2850f2f5a82cbf437dd5af4d49848fbdfc27c157c3d010345776f952765261c5"
+dependencies = [
+ "os_str_bytes",
 ]
 
 [[package]]
@@ -1999,6 +2031,32 @@ dependencies = [
 
 [[package]]
 name = "criterion"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7c76e09c1aae2bc52b3d2f29e13c6572553b30c4aa1b8a49fd70de6412654cb"
+dependencies = [
+ "anes",
+ "atty",
+ "cast",
+ "ciborium",
+ "clap 3.2.25",
+ "criterion-plot",
+ "itertools 0.10.5",
+ "lazy_static",
+ "num-traits",
+ "oorandom",
+ "plotters",
+ "rayon",
+ "regex",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "tinytemplate",
+ "walkdir",
+]
+
+[[package]]
+name = "criterion"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2b12d017a929603d80db1831cd3a24082f8137ce19c69e6447f54f5fc8d692f"
@@ -2006,7 +2064,7 @@ dependencies = [
  "anes",
  "cast",
  "ciborium",
- "clap",
+ "clap 4.5.10",
  "criterion-plot",
  "futures",
  "is-terminal",
@@ -2840,12 +2898,15 @@ dependencies = [
 [[package]]
 name = "eth-sparse-mpt"
 version = "0.1.0"
-source = "git+https://github.com/flashbots/eth-sparse-mpt?rev=5d0da73#5d0da73e90933a899bad63da18e115fc806adf01"
 dependencies = [
  "alloy-primitives 0.8.0",
  "alloy-rlp",
  "alloy-trie",
+ "criterion 0.4.0",
+ "eyre",
  "hash-db",
+ "proptest",
+ "rand 0.8.5",
  "rayon",
  "reth-db-api",
  "reth-errors",
@@ -3655,6 +3716,15 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
 name = "hermit-abi"
+version = "0.1.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62b467343b94ba476dcb2500d242dadbb39557df889310ac77c5d99100aaac33"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "hermit-abi"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d231dfb89cfffdbc30e7fc41579ed6066ad03abda9e567ccafae602b97ec5024"
@@ -4229,7 +4299,7 @@ version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f23ff5ef2b80d608d61efee834934d862cd92461afc0560dedf493e4c033738b"
 dependencies = [
- "hermit-abi",
+ "hermit-abi 0.3.9",
  "libc",
  "windows-sys 0.52.0",
 ]
@@ -5129,7 +5199,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b453bd8e35ec92138b093172731fe7920cdf397f2a709e789243147a79772b9d"
 dependencies = [
  "chrono",
- "clap",
+ "clap 4.5.10",
  "csv",
  "eyre",
  "indicatif",
@@ -5278,7 +5348,7 @@ version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4569e456d394deccd22ce1c1913e6ea0e54519f577285001215d33557431afe4"
 dependencies = [
- "hermit-abi",
+ "hermit-abi 0.3.9",
  "libc",
  "wasi 0.11.0+wasi-snapshot-preview1",
  "windows-sys 0.52.0",
@@ -5657,7 +5727,7 @@ version = "1.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4161fcb6d602d4d2081af7c3a45852d875a03dd337a6bfdd6e06407b61342a43"
 dependencies = [
- "hermit-abi",
+ "hermit-abi 0.3.9",
  "libc",
 ]
 
@@ -5879,6 +5949,12 @@ checksum = "19ff2cf528c6c03d9ed653d6c4ce1dc0582dc4af309790ad92f07c1cd551b0be"
 dependencies = [
  "num-traits",
 ]
+
+[[package]]
+name = "os_str_bytes"
+version = "6.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e2355d85b9a3786f481747ced0e0ff2ba35213a1f9bd406ed906554d7af805a1"
 
 [[package]]
 name = "overload"
@@ -7033,8 +7109,8 @@ dependencies = [
  "beacon-api-client",
  "bigdecimal 0.4.5",
  "built",
- "clap",
- "criterion",
+ "clap 4.5.10",
+ "criterion 0.5.1",
  "crossbeam",
  "crossbeam-queue",
  "csv",
@@ -7326,7 +7402,7 @@ dependencies = [
  "alloy-rlp",
  "aquamarine",
  "backon",
- "clap",
+ "clap 4.5.10",
  "discv5",
  "eyre",
  "fdlimit",
@@ -7580,7 +7656,7 @@ source = "git+https://github.com/paradigmxyz/reth?tag=v1.0.6#c228fe15808c3acbf18
 dependencies = [
  "ahash",
  "backon",
- "clap",
+ "clap 4.5.10",
  "comfy-table",
  "crossterm",
  "eyre",
@@ -8629,7 +8705,7 @@ source = "git+https://github.com/paradigmxyz/reth?tag=v1.0.6#c228fe15808c3acbf18
 dependencies = [
  "alloy-genesis",
  "alloy-rpc-types-engine",
- "clap",
+ "clap 4.5.10",
  "const_format",
  "derive_more 1.0.0",
  "dirs-next",
@@ -8983,7 +9059,7 @@ dependencies = [
 name = "reth-rbuilder"
 version = "0.1.0"
 dependencies = [
- "clap",
+ "clap 4.5.10",
  "eyre",
  "libc",
  "rbuilder",
@@ -9380,7 +9456,7 @@ version = "1.0.6"
 source = "git+https://github.com/paradigmxyz/reth?tag=v1.0.6#c228fe15808c3acbf18dc3af1a03ef5cbdcda07a"
 dependencies = [
  "alloy-primitives 0.8.0",
- "clap",
+ "clap 4.5.10",
  "derive_more 1.0.0",
  "serde",
  "strum",
@@ -9446,7 +9522,7 @@ name = "reth-tracing"
 version = "1.0.6"
 source = "git+https://github.com/paradigmxyz/reth?tag=v1.0.6#c228fe15808c3acbf18dc3af1a03ef5cbdcda07a"
 dependencies = [
- "clap",
+ "clap 4.5.10",
  "eyre",
  "rolling-file",
  "tracing",
@@ -11281,6 +11357,12 @@ dependencies = [
  "syn 2.0.72",
  "which",
 ]
+
+[[package]]
+name = "textwrap"
+version = "0.16.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "23d434d3f8967a09480fb04132ebe0a3e088c173e6d0ee7897abbdf4eab0f8b9"
 
 [[package]]
 name = "thiserror"

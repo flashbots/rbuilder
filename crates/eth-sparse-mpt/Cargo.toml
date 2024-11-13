@@ -1,0 +1,49 @@
+[package]
+name = "eth-sparse-mpt"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+thiserror = "1.0.61"
+serde = { version = "1.0.203", features = ["derive"] }
+serde_json = "1.0.117"
+serde_with = "3.9.0"
+rustc-hash = "2.0.0"
+rayon = "1.10.0"
+smallvec = "1.13.2"
+
+# reth
+reth-db-api.workspace = true
+reth-errors.workspace = true
+reth-execution-errors.workspace = true
+reth-trie.workspace = true
+reth-trie-db.workspace = true
+reth-provider.workspace = true
+
+# revm
+revm.workspace = true
+revm-primitives.workspace = true
+
+# alloy
+alloy-primitives.workspace = true
+alloy-rlp.workspace = true
+alloy-trie.workspace = true
+
+# test only dependencies but included here to be accessible from benches/
+hash-db = "0.15.2"
+triehash = "0.8.4"
+
+[dev-dependencies]
+criterion = { version = "0.4", features = ["html_reports"] }
+eyre = "0.6.12"
+rand = { version = "0.8.5", features = ["small_rng"] }
+proptest = "1.5.0"
+
+[[bench]]
+name = "trie_insert_bench"
+harness = false
+
+[[bench]]
+name = "trie_nodes_benches"
+harness = false
+

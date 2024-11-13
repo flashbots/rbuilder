@@ -569,7 +569,7 @@ mod tests {
         let mut data_generator = DataGenerator::new();
 
         let mut group2_conflicts_with_group1 = HashSet::default();
-        group2_conflicts_with_group1.insert(1 as usize);
+        group2_conflicts_with_group1.insert(1_usize);
 
         let group1 = create_conflict_group(
             1,
@@ -602,7 +602,7 @@ mod tests {
         let mut data_generator = DataGenerator::new();
 
         let mut group2_conflicts_with_group1 = HashSet::default();
-        group2_conflicts_with_group1.insert(1 as usize);
+        group2_conflicts_with_group1.insert(1_usize);
 
         let groups = vec![
             create_conflict_group(
