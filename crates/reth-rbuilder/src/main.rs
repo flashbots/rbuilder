@@ -96,10 +96,6 @@ where
         let result = async {
             let config: Config = load_config_toml_and_env(config_path)?;
 
-            // TODO: Check removing this is OK. It seems reth already sets up the global tracing
-            // subscriber, so this fails
-            // config.base_config.setup_tracing_subscriber().expect("Failed to set up rbuilder tracing subscriber");
-
             // Spawn redacted server that is safe for tdx builders to expose
             telemetry::servers::redacted::spawn(
                 config.base_config().redacted_telemetry_server_address(),

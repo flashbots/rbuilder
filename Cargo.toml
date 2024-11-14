@@ -8,7 +8,8 @@ members = [
     "crates/rbuilder/src/test_utils",
     "crates/rbuilder/src/telemetry/metrics_macros",
     "crates/transaction-pool-bundle-ext",
-    "crates/transaction-pool-bundle-ext/bundle_pool_ops/rbuilder"
+    "crates/transaction-pool-bundle-ext/bundle_pool_ops/rbuilder",
+    "crates/eth-sparse-mpt"
 ]
 resolver = "2"
 
@@ -74,6 +75,8 @@ reth-storage-api = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6"
 reth-optimism-rpc = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
 reth-optimism-payload-builder = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
 reth-optimism-chainspec = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
+reth-execution-errors = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
+reth-trie-db = { git = "https://github.com/paradigmxyz/reth", tag = "v1.0.6" }
 
 # version is copied from reth  "v1.0.6" dependencies
 revm = { version = "14.0.0", features = [
@@ -112,6 +115,7 @@ alloy-rpc-types-engine = { version = "0.3.0", features = [
 alloy-rpc-types-eth = { version = "0.3.0" }
 alloy-signer-local = { version = "0.3.0" }
 alloy-genesis = { version = "0.3.0" }
+alloy-trie = { version = "0.5.0" }
 
 async-trait = { version = "0.1.83" }
 clap = { version = "4.4.3" }
@@ -135,3 +139,5 @@ url = "2.5.2"
 libc = { version = "0.2.161" }
 tikv-jemallocator = { version = "0.5.4" }
 
+
+eth-sparse-mpt = { path = "crates/eth-sparse-mpt" }
