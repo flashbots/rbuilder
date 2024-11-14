@@ -6,8 +6,8 @@ Log privacy in rbuilder refers to the level of data exposed in logs via macros l
 
 ### Why is this important?
 
-- A non-landed order, if logged in full, could potentially be executed in a later block, causing losses for the order owner.
-- Even if an order has built-in protections against unexpected executions, the order owner might still incur gas fees.
+-   A non-landed order, if logged in full, could potentially be executed in a later block, causing losses for the order owner.
+-   Even if an order has built-in protections against unexpected executions, the order owner might still incur gas fees.
 
 ## External Error Redaction
 
@@ -15,7 +15,7 @@ While we don't log full orders ourselves, we sometimes interact with external sy
 
 ### Enabling Error Redaction
 
-To enable external error redaction, use the `redact_sensitive` feature flag.
+To enable external error redaction, use the `redact-sensitive` feature flag.
 
 ### Example of Error Redaction
 
@@ -30,11 +30,11 @@ pub enum SomeError {
     RequestError(#[from] RedactableReqwestError),
 
     #[cfg_attr(
-        not(feature = "redact_sensitive"),
+        not(feature = "redact-sensitive"),
         error("Unknown relay response, status: {0}, body: {1}")
     )]
     #[cfg_attr(
-        feature = "redact_sensitive",
+        feature = "redact-sensitive",
         error("Unknown relay response, status: {0}, body: [REDACTED]")
     )]
     UnknownRelayError(StatusCode, String),
@@ -57,12 +57,12 @@ impl Debug for RelayError {
 pub struct RedactableReqwestError(reqwest::Error);
 
 impl Display for RedactableReqwestError {
-    #[cfg(not(feature = "redact_sensitive"))]
+    #[cfg(not(feature = "redact-sensitive"))]
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 
-    #[cfg(feature = "redact_sensitive")]
+    #[cfg(feature = "redact-sensitive")]
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         if self.0.is_builder() {
             write!(f, "Redacted Reqwest Error: Builder")

@@ -49,6 +49,10 @@ optimism = [
 	"rbuilder/optimism"
 ]
 
+redact-sensitive = [
+	"rbuilder/redact-sensitive"
+]
+
 [[bin]]
 name = "op-rbuilder"
 path = "src/main.rs"

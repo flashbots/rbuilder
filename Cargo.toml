@@ -11,6 +11,7 @@ members = [
     "crates/transaction-pool-bundle-ext/bundle_pool_ops/rbuilder",
     "crates/eth-sparse-mpt"
 ]
+default-members = ["crates/rbuilder"]
 resolver = "2"
 
 # Like release, but with full debug symbols. Useful for e.g. `perf`.

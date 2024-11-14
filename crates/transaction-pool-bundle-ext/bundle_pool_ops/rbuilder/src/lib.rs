@@ -265,6 +265,7 @@ impl UnfinishedBlockBuildingSink for Sink {
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 /// [`BundlePoolOperations`] error type.
 #[derive(Debug, From)]
 pub enum Error {

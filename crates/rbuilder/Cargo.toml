@@ -147,7 +147,7 @@ optimism = [
 	"revm-primitives/optimism",
 	"revm/optimism"
 ]
-redact_sensitive = []
+redact-sensitive = []
 
 [[bench]]
 name = "bench_main"
