@@ -1,21 +1,21 @@
-# rbuilder Classes and Dataflow
+# LiveBuilder Dataflow
 
 The [`LiveBuilder`](../crates/rbuilder/src/live_builder/mod.rs) struct is the main component of rbuilder.
 
 ## Core Components
 
-To create a `LiveBuilder`, you need the following core components:
+To create a `LiveBuilder` instance, you need the following core components:
 
-1. `blocks_source`: The source of slots to build. Implements the [`SlotSource`](../crates/rbuilder/src/live_builder/mod.rs) trait. This abstraction enables rbuilder to handle block building in various contexts:
+1. [`blocks_source`](../crates/rbuilder/src/live_builder/mod.rs): The source of slots to build. Implements the [`SlotSource`](../crates/rbuilder/src/live_builder/mod.rs) trait. This abstraction enables rbuilder to handle block building in various contexts:
    - L1: Consensus client generating slots with potential forks
    - L2: Sequencer generating slots
 
-2. `builders`: A vector of objects implementing the [`BlockBuildingAlgorithm`](../crates/rbuilder/src/building/builders/mod.rs) trait. Each builder:
+2. [`builders`](../crates/rbuilder/src/live_builder/mod.rs): A vector of objects implementing the [`BlockBuildingAlgorithm`](../crates/rbuilder/src/building/builders/mod.rs) trait. Each builder:
    - Takes a base block state and a stream of simulated orders
    - Continuously generates new blocks
    - Optimizes to maximize the true block value
 
-3. `sink_factory`: A factory for the destination of built blocks. Implements [`UnfinishedBlockBuildingSinkFactory`](../crates/rbuilder/src/building/builders/mod.rs). This abstraction supports different contexts:
+3. [`sink_factory`](../crates/rbuilder/src/live_builder/mod.rs): A factory for the destination of built blocks. Implements [`UnfinishedBlockBuildingSinkFactory`](../crates/rbuilder/src/building/builders/mod.rs). This abstraction supports different contexts:
    - L1: Requires bidding
    - L2: No bidding needed
    - Testing environments
@@ -24,7 +24,7 @@ To create a `LiveBuilder`, you need the following core components:
 
 The main entrypoint `LiveBuilder::run()` initializes several long-lived components:
 
-- **RPC Module**: 
+- **[RPC Module](../crates/rbuilder/src/live_builder/order_input/rpc_server.rs)**: 
   - Listens for RPC calls (primarily order flow input)
   - Pushes received data to a channel
 
@@ -51,6 +51,9 @@ The main entrypoint `LiveBuilder::run()` initializes several long-lived componen
   - Receives block-building opportunities
   - Each received `MevBoostSlotData` triggers a new block-building task via `BlockBuildingPool`
   - Sources slots from `LiveBuilder::blocks_source`
+
+- **Dataflow Diagram**
+
 
 ```mermaid
   graph LR;
