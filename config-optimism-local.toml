@@ -1,8 +1,8 @@
 log_json = false
 log_level = "info,rbuilder=debug"
-redacted_telemetry_server_port = 6061
+redacted_telemetry_server_port = 6071
 redacted_telemetry_server_ip = "0.0.0.0"
-full_telemetry_server_port = 6060
+full_telemetry_server_port = 6070
 full_telemetry_server_ip = "0.0.0.0"
 
 chain = "$HOME/grimoire/optimism/.devnet/genesis-l2.json"
