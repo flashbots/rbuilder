@@ -57,7 +57,7 @@ COPY ./crates/ ./crates/
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
-    cargo build --release --features="$FEATURES" --bin=${RBUILDER_BIN} --package=${RBUILDER_BIN}
+    cargo build --release --features="$FEATURES" --package=${RBUILDER_BIN}
 
 #
 # Runtime container
