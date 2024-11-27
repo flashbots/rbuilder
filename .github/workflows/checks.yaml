@@ -23,7 +23,7 @@ jobs:
           - stable
         features:
           - ""
-          - "redact_sensitive"
+          - "redact-sensitive"
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -73,7 +73,7 @@ jobs:
           - stable
         features:
           - ""
-          - "redact_sensitive"
+          - "redact-sensitive"
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4

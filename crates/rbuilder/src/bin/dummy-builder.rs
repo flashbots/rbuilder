@@ -41,7 +41,10 @@ use reth::tasks::pool::BlockingTaskPool;
 use reth_chainspec::MAINNET;
 use reth_db::{database::Database, DatabaseEnv};
 use reth_provider::{DatabaseProviderFactory, StateProviderFactory};
-use tokio::{signal::ctrl_c, sync::broadcast};
+use tokio::{
+    signal::ctrl_c,
+    sync::{broadcast, mpsc},
+};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, level_filters::LevelFilter};
 
@@ -71,6 +74,18 @@ async fn main() -> eyre::Result<()> {
         cancel.clone(),
     );
 
+    let order_input_config = OrderInputConfig::new(
+        false,
+        true,
+        DEFAULT_EL_NODE_IPC_PATH.parse().unwrap(),
+        DEFAULT_INCOMING_BUNDLES_PORT,
+        *DEFAULT_IP,
+        DEFAULT_SERVE_MAX_CONNECTIONS,
+        DEFAULT_RESULTS_CHANNEL_TIMEOUT,
+        DEFAULT_INPUT_CHANNEL_BUFFER_SIZE,
+    );
+    let (orderpool_sender, orderpool_receiver) =
+        mpsc::channel(order_input_config.input_channel_buffer_size);
     let builder = LiveBuilder::<
         ProviderFactoryReopener<Arc<DatabaseEnv>>,
         Arc<DatabaseEnv>,
@@ -80,16 +95,7 @@ async fn main() -> eyre::Result<()> {
         error_storage_path: None,
         simulation_threads: 1,
         blocks_source: payload_event,
-        order_input_config: OrderInputConfig::new(
-            false,
-            true,
-            DEFAULT_EL_NODE_IPC_PATH.parse().unwrap(),
-            DEFAULT_INCOMING_BUNDLES_PORT,
-            *DEFAULT_IP,
-            DEFAULT_SERVE_MAX_CONNECTIONS,
-            DEFAULT_RESULTS_CHANNEL_TIMEOUT,
-            DEFAULT_INPUT_CHANNEL_BUFFER_SIZE,
-        ),
+        order_input_config,
         chain_chain_spec: chain_spec.clone(),
         provider: create_provider_factory(
             Some(&RETH_DB_PATH.parse::<PathBuf>().unwrap()),
@@ -105,6 +111,8 @@ async fn main() -> eyre::Result<()> {
         sink_factory: Box::new(TraceBlockSinkFactory {}),
         builders: vec![Arc::new(DummyBuildingAlgorithm::new(10))],
         run_sparse_trie_prefetcher: false,
+        orderpool_sender,
+        orderpool_receiver,
     };
 
     let ctrlc = tokio::spawn(async move {

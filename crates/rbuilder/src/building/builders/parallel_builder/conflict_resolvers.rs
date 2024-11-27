@@ -10,12 +10,15 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 use tracing::trace;
 
-use super::simulation_cache::{CachedSimulationState, SharedSimulationCache};
-use super::{Algorithm, ConflictTask, ResolutionResult};
+use super::{
+    simulation_cache::{CachedSimulationState, SharedSimulationCache},
+    Algorithm, ConflictTask, ResolutionResult,
+};
 
-use crate::building::{BlockBuildingContext, BlockState, PartialBlock};
-use crate::building::{ExecutionError, ExecutionResult};
-use crate::primitives::{OrderId, SimulatedOrder};
+use crate::{
+    building::{BlockBuildingContext, BlockState, ExecutionError, ExecutionResult, PartialBlock},
+    primitives::{OrderId, SimulatedOrder},
+};
 
 /// Context for resolving conflicts in merging tasks.
 #[derive(Debug)]

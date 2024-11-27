@@ -75,6 +75,7 @@ impl CLPayloadSource {
 /// Recreates the PayloadSource if:
 /// - PayloadSource::recv returns None
 /// - PayloadSource::recv does not deliver a new PayloadAttributesEvent in some time (recv_timeout)
+#[derive(Debug)]
 pub struct PayloadSourceReconnector {
     receiver: mpsc::UnboundedReceiver<PayloadAttributesEvent>,
     /// In case we cancel via the CancellationToken this handle allows us to wait for the internal spawned task to end.
@@ -151,7 +152,7 @@ impl PayloadSourceReconnector {
         }
     }
 
-    async fn recv(&mut self) -> Option<PayloadAttributesEvent> {
+    pub async fn recv(&mut self) -> Option<PayloadAttributesEvent> {
         self.receiver.recv().await
     }
 }

@@ -18,9 +18,11 @@ use itertools::Itertools;
 use results_aggregator::BestResults;
 use serde::Deserialize;
 use simulation_cache::SharedSimulationCache;
-use std::sync::mpsc as std_mpsc;
-use std::thread;
-use std::{sync::Arc, time::Instant};
+use std::{
+    sync::{mpsc as std_mpsc, Arc},
+    thread,
+    time::Instant,
+};
 use task::*;
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;

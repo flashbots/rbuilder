@@ -2,8 +2,7 @@ use super::{BundleErr, ExecutionError, ExecutionResult, OrderErr};
 use crate::primitives::{Order, OrderId, OrderReplacementKey};
 use ahash::{HashMap, HashSet};
 use alloy_primitives::{Address, TxHash, U256};
-use std::collections::hash_map;
-use std::time::Duration;
+use std::{collections::hash_map, time::Duration};
 use time::OffsetDateTime;
 
 /// Structs for recording data about a built block, such as what bundles were included, and where txs came from.

@@ -11,7 +11,10 @@ use reth::providers::providers::ConsistentDbView;
 use reth_db::database::Database;
 use reth_errors::ProviderError;
 use reth_provider::DatabaseProviderFactory;
-use tokio::sync::broadcast::{self, error::RecvError, error::TryRecvError};
+use tokio::sync::broadcast::{
+    self,
+    error::{RecvError, TryRecvError},
+};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, trace, warn};
 

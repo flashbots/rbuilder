@@ -18,8 +18,10 @@ use alloy_primitives::{Address, Sign, I256, U256};
 use alloy_provider::RootProvider;
 use alloy_transport::BoxTransport;
 
-use crate::primitives::serialize::{RawTx, TxEncoding};
-use crate::primitives::TransactionSignedEcRecoveredWithBlobs;
+use crate::primitives::{
+    serialize::{RawTx, TxEncoding},
+    TransactionSignedEcRecoveredWithBlobs,
+};
 use alloy_consensus::TxEnvelope;
 use alloy_eips::eip2718::Encodable2718;
 pub use noncer::{NonceCache, NonceCacheRef};

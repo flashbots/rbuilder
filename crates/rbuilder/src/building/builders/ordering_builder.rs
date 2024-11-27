@@ -5,7 +5,6 @@
 //! The described algorithm is ran continuously adding new SimulatedOrders (they arrive on real time!) on each iteration until we run out of time (slot ends).
 //! Sorting criteria are described on [`Sorting`].
 //! For some more details see [`OrderingBuilderConfig`]
-use crate::roothash::RootHashConfig;
 use crate::{
     building::{
         block_orders_from_sim_orders,
@@ -15,6 +14,7 @@ use crate::{
         BlockBuildingContext, BlockOrders, ExecutionError, Sorting,
     },
     primitives::{AccountNonce, OrderId},
+    roothash::RootHashConfig,
 };
 use ahash::{HashMap, HashSet};
 use alloy_primitives::Address;

@@ -1,8 +1,5 @@
 use alloy_primitives::{Address, B256, U256};
-use std::fs::File;
-use std::io;
-use std::io::Write;
-use std::path::Path;
+use std::{fs::File, io, io::Write, path::Path};
 
 #[derive(Debug)]
 pub struct CSVOutputRow {

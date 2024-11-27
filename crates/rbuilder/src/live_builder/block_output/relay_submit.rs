@@ -20,8 +20,7 @@ use mockall::automock;
 use reth_chainspec::ChainSpec;
 use reth_primitives::SealedBlock;
 use std::sync::{Arc, Mutex};
-use tokio::sync::Notify;
-use tokio::time::Instant;
+use tokio::{sync::Notify, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, event, info_span, trace, warn, Instrument, Level};
 

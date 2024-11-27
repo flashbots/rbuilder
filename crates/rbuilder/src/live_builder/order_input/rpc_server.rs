@@ -4,8 +4,7 @@ use crate::primitives::{
     Bundle, BundleReplacementKey, MempoolTx, Order,
 };
 use alloy_primitives::Address;
-use jsonrpsee::types::ErrorObject;
-use jsonrpsee::{server::Server, RpcModule};
+use jsonrpsee::{server::Server, types::ErrorObject, RpcModule};
 use reth_primitives::Bytes;
 use serde::Deserialize;
 use std::{
@@ -54,7 +53,7 @@ pub async fn start_server_accepting_bundles(
                 }
             };
 
-            let bundle: Bundle = match raw_bundle.decode(TxEncoding::WithBlobData) {
+            let bundle: Bundle = match raw_bundle.try_into(TxEncoding::WithBlobData) {
                 Ok(bundle) => bundle,
                 Err(err) => {
                     warn!(?err, "Failed to parse bundle");

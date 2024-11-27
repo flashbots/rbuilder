@@ -363,7 +363,7 @@ impl LiveBuilderConfig for Config {
                 crate::building::builders::ordering_builder::backtest_simulate_block(config, input)
             }
             SpecificBuilderConfig::ParallelBuilder(config) => {
-                parallel_build_backtest(input, config)
+                parallel_build_backtest::<P, DB>(input, config)
             }
         }
     }

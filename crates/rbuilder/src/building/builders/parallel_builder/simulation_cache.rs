@@ -4,8 +4,10 @@ use alloy_primitives::U256;
 use parking_lot::RwLock as PLRwLock;
 use reth_payload_builder::database::CachedReads;
 use revm::db::BundleState;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 
 /// An instance of a simulation result that has been cached.
 #[derive(Debug, Clone)]

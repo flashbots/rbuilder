@@ -109,10 +109,7 @@ register_metrics! {
         &["relay", "kind"]
     )
     .unwrap();
-    pub static BLOCK_SIM_ERRORS: IntCounterVec = IntCounterVec::new(
-        Opts::new("block_sim_errors", "counter of block simulation errors"),
-        &[]
-    )
+    pub static BLOCK_SIM_ERRORS: IntCounter = IntCounter::new("block_sim_errors", "counter of block simulation errors")
     .unwrap();
     pub static SIMULATED_OK_ORDERS: IntCounter =
         IntCounter::new("simulated_ok_orders", "Simulated succeeded orders").unwrap();
@@ -246,7 +243,7 @@ pub fn inc_too_many_req_relay_errors(relay: &MevBoostRelayID) {
 }
 
 pub fn inc_failed_block_simulations() {
-    BLOCK_SIM_ERRORS.with_label_values(&[]).inc()
+    BLOCK_SIM_ERRORS.inc()
 }
 
 pub fn set_current_block(block: u64) {

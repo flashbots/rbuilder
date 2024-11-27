@@ -1,18 +1,15 @@
 use crate::primitives::SimulatedOrder;
-use ahash::HashMap;
-use ahash::HashSet;
+use ahash::{HashMap, HashSet};
 use alloy_primitives::{utils::format_ether, U256};
 use crossbeam_queue::SegQueue;
 use itertools::Itertools;
 use std::time::Instant;
 use tracing::{trace, warn};
 
-use super::task::ConflictTask;
-use super::ConflictGroup;
-use super::ConflictResolutionResultPerGroup;
-use super::GroupId;
-use super::ResolutionResult;
-use super::{Algorithm, TaskPriority, TaskQueue};
+use super::{
+    task::ConflictTask, Algorithm, ConflictGroup, ConflictResolutionResultPerGroup, GroupId,
+    ResolutionResult, TaskPriority, TaskQueue,
+};
 use std::sync::mpsc as std_mpsc;
 
 const THRESHOLD_FOR_SIGNIFICANT_CHANGE: u64 = 20;
@@ -569,7 +566,7 @@ mod tests {
         let mut data_generator = DataGenerator::new();
 
         let mut group2_conflicts_with_group1 = HashSet::default();
-        group2_conflicts_with_group1.insert(1 as usize);
+        group2_conflicts_with_group1.insert(1_usize);
 
         let group1 = create_conflict_group(
             1,
@@ -602,7 +599,7 @@ mod tests {
         let mut data_generator = DataGenerator::new();
 
         let mut group2_conflicts_with_group1 = HashSet::default();
-        group2_conflicts_with_group1.insert(1 as usize);
+        group2_conflicts_with_group1.insert(1_usize);
 
         let groups = vec![
             create_conflict_group(

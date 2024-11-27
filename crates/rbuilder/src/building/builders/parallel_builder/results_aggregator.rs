@@ -1,13 +1,13 @@
 use super::{ConflictGroup, GroupId, ResolutionResult};
-use alloy_primitives::utils::format_ether;
-use alloy_primitives::U256;
+use alloy_primitives::{utils::format_ether, U256};
 use dashmap::DashMap;
-use std::sync::mpsc as std_mpsc;
-use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    Arc,
+use std::{
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        mpsc as std_mpsc, Arc,
+    },
+    time::{Duration, Instant},
 };
-use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::trace;
 

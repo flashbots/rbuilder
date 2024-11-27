@@ -12,14 +12,13 @@ pub use backtest_build_block::run_backtest_build_block;
 pub use backtest_build_range::run_backtest_build_range;
 use std::collections::HashSet;
 
-use crate::primitives::{OrderId, OrderReplacementKey};
-use crate::utils::offset_datetime_to_timestamp_ms;
 use crate::{
     mev_boost::BuilderBlockReceived,
     primitives::{
         serialize::{RawOrder, RawOrderConvertError, TxEncoding},
-        AccountNonce, Order, SimValue,
+        AccountNonce, Order, OrderId, OrderReplacementKey, SimValue,
     },
+    utils::offset_datetime_to_timestamp_ms,
 };
 use alloy_primitives::{Address, TxHash, I256};
 use alloy_rpc_types::{BlockTransactions, Transaction};
