@@ -34,8 +34,7 @@ struct GroupData {
     writes: Vec<SlotKey>,
     balance_reads: Vec<Address>,
     balance_writes: Vec<Address>,
-    created_contracts: Vec<Address>,
-    destructed_contracts: Vec<Address>,
+    code_writes: Vec<Address>,
     conflicting_group_ids: HashSet<usize>,
 }
 
@@ -47,8 +46,7 @@ fn combine_groups(groups: Vec<GroupData>, removed_group_ids: Vec<usize>) -> Grou
     let mut writes = Vec::default();
     let mut balance_reads = Vec::default();
     let mut balance_writes = Vec::default();
-    let mut created_contracts = Vec::default();
-    let mut destructed_contracts = Vec::default();
+    let mut code_writes = Vec::default();
     let mut conflicting_group_ids = removed_group_ids.into_iter().collect::<HashSet<usize>>();
     for group in groups {
         orders.extend(group.orders);
@@ -56,8 +54,7 @@ fn combine_groups(groups: Vec<GroupData>, removed_group_ids: Vec<usize>) -> Grou
         writes.extend(group.writes);
         balance_reads.extend(group.balance_reads);
         balance_writes.extend(group.balance_writes);
-        created_contracts.extend(group.created_contracts);
-        destructed_contracts.extend(group.destructed_contracts);
+        code_writes.extend(group.code_writes);
         conflicting_group_ids.extend(group.conflicting_group_ids);
     }
     reads.sort_unstable();
@@ -68,10 +65,8 @@ fn combine_groups(groups: Vec<GroupData>, removed_group_ids: Vec<usize>) -> Grou
     balance_reads.dedup();
     balance_writes.sort_unstable();
     balance_writes.dedup();
-    created_contracts.sort_unstable();
-    created_contracts.dedup();
-    destructed_contracts.sort_unstable();
-    destructed_contracts.dedup();
+    code_writes.sort_unstable();
+    code_writes.dedup();
 
     GroupData {
         orders,
@@ -79,8 +74,7 @@ fn combine_groups(groups: Vec<GroupData>, removed_group_ids: Vec<usize>) -> Grou
         writes,
         balance_reads,
         balance_writes,
-        created_contracts,
-        destructed_contracts,
+        code_writes,
         conflicting_group_ids,
     }
 }
@@ -93,8 +87,7 @@ pub struct ConflictFinder {
     group_writes: HashMap<Address, HashMap<B256, Vec<usize>>>, // same as above
     group_balance_reads: HashMap<Address, Vec<usize>>,
     group_balance_writes: HashMap<Address, Vec<usize>>,
-    group_contract_creations: HashMap<Address, Vec<usize>>,
-    group_contract_destructions: HashMap<Address, Vec<usize>>,
+    group_code_writes: HashMap<Address, Vec<usize>>,
     groups: HashMap<usize, GroupData>,
     orders: HashSet<OrderId>,
 }
@@ -107,8 +100,7 @@ impl ConflictFinder {
             group_writes: HashMap::default(),
             group_balance_reads: HashMap::default(),
             group_balance_writes: HashMap::default(),
-            group_contract_creations: HashMap::default(),
-            group_contract_destructions: HashMap::default(),
+            group_code_writes: HashMap::default(),
             groups: HashMap::default(),
             orders: HashSet::default(),
         }
@@ -137,8 +129,8 @@ impl ConflictFinder {
                         all_groups_in_conflict.extend_from_slice(groups);
                     }
                 }
-                // reading from slot on contract that other order is destroying
-                if let Some(group) = self.group_contract_destructions.get(&read_key.address) {
+                // reading from slot on contract that other order is creating / destroying
+                if let Some(group) = self.group_code_writes.get(&read_key.address) {
                     all_groups_in_conflict.extend_from_slice(group);
                 }
             }
@@ -149,8 +141,8 @@ impl ConflictFinder {
                         all_groups_in_conflict.extend_from_slice(groups);
                     }
                 }
-                // writing to slot on contract that other order is destroying
-                if let Some(group) = self.group_contract_destructions.get(&write_key.address) {
+                // writing to slot on contract that other order is creating / destroying
+                if let Some(group) = self.group_code_writes.get(&write_key.address) {
                     all_groups_in_conflict.extend_from_slice(group);
                 }
             }
@@ -170,45 +162,56 @@ impl ConflictFinder {
                     all_groups_in_conflict.extend_from_slice(group);
                 }
             }
-            for destruction_address in &used_state.destructed_contracts {
-                // trying to destroy contract other order is already destroying
-                if let Some(group) = self.group_contract_destructions.get(destruction_address) {
+            for contract_addr in used_state
+                .destructed_contracts
+                .iter()
+                .chain(used_state.created_contracts.iter())
+            {
+                // trying to create / destroy a contract on the same addr as other order
+                if let Some(group) = self.group_code_writes.get(contract_addr) {
                     all_groups_in_conflict.extend_from_slice(group);
                 }
-                // trying to destroy a contract other order is trying to read from
-                if let Some(inner_mapping) = self.group_reads.get(destruction_address) {
+                // trying to create / destroy a contract other order is trying to read from
+                if let Some(inner_mapping) = self.group_reads.get(contract_addr) {
                     let inner_groups = inner_mapping.values().flatten();
                     all_groups_in_conflict.extend(inner_groups);
                 }
-                // trying to destroy a contract other order is trying to write to
-                if let Some(inner_mapping) = self.group_writes.get(destruction_address) {
+                // trying to create / destroy a contract other order is trying to write to
+                if let Some(inner_mapping) = self.group_writes.get(contract_addr) {
                     let inner_groups = inner_mapping.values().flatten();
                     all_groups_in_conflict.extend(inner_groups);
-                }
-            }
-            // trying to create contract someone else is creating
-            for creation_address in &used_state.created_contracts {
-                if let Some(group) = self.group_contract_creations.get(creation_address) {
-                    all_groups_in_conflict.extend_from_slice(group);
                 }
             }
             all_groups_in_conflict.sort();
             all_groups_in_conflict.dedup();
 
             // create new group with only the new order in it
-            let new_order_group: GroupData = GroupData {
-                orders: vec![order],
-                reads: used_state.read_slot_values.into_keys().collect(),
-                writes: used_state.written_slot_values.into_keys().collect(),
-                balance_reads: used_state.read_balances.into_keys().collect(),
-                balance_writes: used_state
+            let new_order_group: GroupData = {
+                let mut balance_writes: Vec<Address> = used_state
                     .sent_amount
                     .into_keys()
                     .chain(used_state.received_amount.into_keys())
-                    .collect(),
-                created_contracts: used_state.created_contracts,
-                destructed_contracts: used_state.destructed_contracts,
-                conflicting_group_ids: HashSet::default(),
+                    .collect();
+                balance_writes.sort_unstable();
+                balance_writes.dedup();
+
+                let mut code_writes: Vec<Address> = used_state
+                    .created_contracts
+                    .into_iter()
+                    .chain(used_state.destructed_contracts.into_iter())
+                    .collect();
+                code_writes.sort_unstable();
+                code_writes.dedup();
+
+                GroupData {
+                    orders: vec![order],
+                    reads: used_state.read_slot_values.into_keys().collect(),
+                    writes: used_state.written_slot_values.into_keys().collect(),
+                    balance_reads: used_state.read_balances.into_keys().collect(),
+                    balance_writes,
+                    code_writes,
+                    conflicting_group_ids: HashSet::default(),
+                }
             };
 
             match all_groups_in_conflict.len() {
@@ -280,14 +283,8 @@ impl ConflictFinder {
         add_group_to_map(
             group_id,
             is_new_id,
-            &group_data.created_contracts,
-            &mut self.group_contract_creations,
-        );
-        add_group_to_map(
-            group_id,
-            is_new_id,
-            &group_data.destructed_contracts,
-            &mut self.group_contract_destructions,
+            &group_data.code_writes,
+            &mut self.group_code_writes,
         );
     }
 
@@ -312,13 +309,8 @@ impl ConflictFinder {
         );
         remove_group_from_map(
             group_id,
-            &group_data.created_contracts,
-            &mut self.group_contract_creations,
-        );
-        remove_group_from_map(
-            group_id,
-            &group_data.destructed_contracts,
-            &mut self.group_contract_destructions,
+            &group_data.code_writes,
+            &mut self.group_code_writes,
         );
     }
 
