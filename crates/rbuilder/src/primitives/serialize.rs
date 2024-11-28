@@ -4,8 +4,7 @@ use super::{
     ShareBundleInner, ShareBundleReplacementData, ShareBundleReplacementKey, ShareBundleTx,
     TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior,
 };
-use alloy_primitives::Address;
-use reth_primitives::{Bytes, B256, U64};
+use alloy_primitives::{Address, Bytes, B256, U64};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_with::serde_as;
 use thiserror::Error;
@@ -80,7 +79,7 @@ pub enum RawBundleConvertError {
 }
 
 impl RawBundle {
-    pub fn decode(self, encoding: TxEncoding) -> Result<Bundle, RawBundleConvertError> {
+    pub fn try_into(self, encoding: TxEncoding) -> Result<Bundle, RawBundleConvertError> {
         let txs = self
             .txs
             .into_iter()
@@ -273,7 +272,7 @@ pub struct CancelShareBundle {
 /// Since we use the same API (mev_sendBundle) to get new bundles and also to cancel them we need this struct
 #[allow(clippy::large_enum_variant)]
 pub enum RawShareBundleDecodeResult {
-    NewShareBundle(ShareBundle),
+    NewShareBundle(Box<ShareBundle>),
     CancelShareBundle(CancelShareBundle),
 }
 
@@ -285,7 +284,7 @@ impl RawShareBundle {
     ) -> Result<ShareBundle, RawShareBundleConvertError> {
         let decode_res = self.decode(encoding)?;
         match decode_res {
-            RawShareBundleDecodeResult::NewShareBundle(b) => Ok(b),
+            RawShareBundleDecodeResult::NewShareBundle(b) => Ok(*b),
             RawShareBundleDecodeResult::CancelShareBundle(_) => {
                 Err(RawShareBundleConvertError::FoundCancelExpectingBundle)
             }
@@ -343,7 +342,7 @@ impl RawShareBundle {
 
         bundle.hash_slow();
 
-        Ok(RawShareBundleDecodeResult::NewShareBundle(bundle))
+        Ok(RawShareBundleDecodeResult::NewShareBundle(Box::new(bundle)))
     }
 
     /// See [TransactionSignedEcRecoveredWithBlobs::envelope_encoded_no_blobs]
@@ -521,7 +520,7 @@ impl RawOrder {
         match self {
             RawOrder::Bundle(bundle) => Ok(Order::Bundle(
                 bundle
-                    .decode(encoding)
+                    .try_into(encoding)
                     .map_err(RawOrderConvertError::FailedToDecodeBundle)?,
             )),
             RawOrder::Tx(tx) => Ok(Order::Tx(
@@ -553,6 +552,8 @@ impl From<Order> for RawOrder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloy_consensus::Transaction;
+    use alloy_eips::eip2718::Encodable2718;
     use alloy_primitives::{address, fixed_bytes, keccak256, U256};
     use uuid::uuid;
 
@@ -574,7 +575,7 @@ mod tests {
 
         let bundle = bundle_request
             .clone()
-            .decode(TxEncoding::WithBlobData)
+            .try_into(TxEncoding::WithBlobData)
             .expect("failed to convert bundle request to bundle");
 
         let bundle_roundtrip = RawBundle::encode_no_blobs(bundle.clone());
@@ -638,7 +639,7 @@ mod tests {
                 serde_json::from_str(input).expect("failed to decode bundle");
 
             let bundle = bundle_request
-                .decode(TxEncoding::WithBlobData)
+                .try_into(TxEncoding::WithBlobData)
                 .expect("failed to convert bundle request to bundle");
 
             assert_eq!(
@@ -663,7 +664,7 @@ mod tests {
             serde_json::from_str(bundle_json).expect("failed to decode bundle");
 
         let bundle = bundle_request
-            .decode(TxEncoding::WithBlobData)
+            .try_into(TxEncoding::WithBlobData)
             .expect("failed to convert bundle request to bundle");
 
         assert_eq!(
@@ -686,7 +687,7 @@ mod tests {
             serde_json::from_str(bundle_json).expect("failed to decode bundle");
 
         let bundle = bundle_request
-            .decode(TxEncoding::WithBlobData)
+            .try_into(TxEncoding::WithBlobData)
             .expect("failed to convert bundle request to bundle");
 
         assert_eq!(
@@ -707,7 +708,7 @@ mod tests {
 
         let bundle = bundle_request
             .clone()
-            .decode(TxEncoding::WithBlobData)
+            .try_into(TxEncoding::WithBlobData)
             .expect("failed to convert bundle request to bundle");
 
         let bundle_roundtrip = RawBundle::encode_no_blobs(bundle.clone());
@@ -744,7 +745,11 @@ mod tests {
             .tx;
 
         let raw_tx_roundtrip = RawTx {
-            tx: tx.envelope_encoded(),
+            tx: {
+                let mut buf = Vec::new();
+                tx.as_signed().encode_2718(&mut buf);
+                buf.into()
+            },
         };
         assert_eq!(raw_tx_request, raw_tx_roundtrip);
 

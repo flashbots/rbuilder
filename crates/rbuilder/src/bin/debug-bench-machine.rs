@@ -10,8 +10,7 @@ use rbuilder::{
     live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig, config::Config},
     utils::{extract_onchain_block_txs, find_suggested_fee_recipient, http_provider},
 };
-use reth::providers::BlockNumReader;
-use reth_payload_builder::database::CachedReads;
+use reth::{providers::BlockNumReader, revm::cached::CachedReads};
 use reth_provider::StateProvider;
 use std::{path::PathBuf, sync::Arc, time::Instant};
 use tracing::{debug, info};
@@ -36,18 +35,15 @@ async fn main() -> eyre::Result<()> {
     let cli = Cli::parse();
 
     let config: Config = load_config_toml_and_env(cli.config)?;
-    config.base_config().setup_tracing_subsriber()?;
+    config.base_config().setup_tracing_subscriber()?;
 
     let rpc = http_provider(cli.rpc_url.parse()?);
 
     let chain_spec = config.base_config().chain_spec()?;
 
-    let factory = config
-        .base_config()
-        .provider_factory()?
-        .provider_factory_unchecked();
+    let provider_factory = config.base_config().create_provider_factory()?;
 
-    let last_block = factory.last_block_number()?;
+    let last_block = provider_factory.last_block_number()?;
 
     let onchain_block = rpc
         .get_block_by_number((last_block + 1).into(), true)
@@ -74,10 +70,11 @@ async fn main() -> eyre::Result<()> {
         None,
     );
 
-    // let signer = Signer::try_from_secret(B256::random())?;
-
-    let state_provider =
-        Arc::<dyn StateProvider>::from(factory.history_by_block_number(last_block)?);
+    let state_provider = Arc::<dyn StateProvider>::from(
+        provider_factory
+            .provider_factory_unchecked()
+            .history_by_block_number(last_block)?,
+    );
 
     let mut build_times_ms = Vec::new();
     let mut finalize_time_ms = Vec::new();
@@ -86,7 +83,7 @@ async fn main() -> eyre::Result<()> {
         let ctx = ctx.clone();
         let txs = txs.clone();
         let state_provider = state_provider.clone();
-        let factory = factory.clone();
+        let factory = provider_factory.clone();
         let config = config.clone();
         let root_hash_config = config.base_config.live_root_hash_config()?;
         let (new_cached_reads, build_time, finalize_time) =
@@ -119,7 +116,6 @@ async fn main() -> eyre::Result<()> {
                     &ctx,
                     factory.clone(),
                     root_hash_config.clone(),
-                    config.base_config().root_hash_task_pool()?,
                 )?;
                 let finalize_time = finalize_time.elapsed();
 

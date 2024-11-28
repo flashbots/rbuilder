@@ -6,7 +6,7 @@ use crate::{
     primitives::SimulatedOrder,
 };
 use alloy_primitives::U256;
-use reth_payload_builder::database::CachedReads;
+use reth::revm::cached::CachedReads;
 use reth_primitives::SealedBlock;
 use time::OffsetDateTime;
 
@@ -81,6 +81,7 @@ impl BlockBuildingHelper for MockBlockBuildingHelper {
             sealed_block: SealedBlock::default(),
             txs_blobs_sidecars: Vec::new(),
             builder_name: "BlockBuildingHelper".to_string(),
+            execution_requests: Default::default(),
         };
 
         Ok(FinalizeBlockResult {

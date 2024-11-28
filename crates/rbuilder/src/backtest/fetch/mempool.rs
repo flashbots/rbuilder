@@ -1,9 +1,8 @@
 //! Implementation of [`DataSource`] to bring mempool txs from flashbots' mempool dumpster.
 //! It downloads all the needed parquet files and keeps them cached for future use.
-use crate::backtest::fetch::data_source::DatasourceData;
 use crate::{
     backtest::{
-        fetch::data_source::{BlockRef, DataSource},
+        fetch::data_source::{BlockRef, DataSource, DatasourceData},
         OrdersWithTimestamp,
     },
     primitives::{

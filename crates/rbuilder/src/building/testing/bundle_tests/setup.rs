@@ -13,7 +13,7 @@ use crate::{
     },
 };
 use alloy_primitives::{Address, TxHash};
-use reth_payload_builder::database::CachedReads;
+use reth::revm::cached::CachedReads;
 use revm::db::BundleState;
 
 pub enum NonceValue {

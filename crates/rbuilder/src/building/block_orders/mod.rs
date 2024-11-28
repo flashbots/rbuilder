@@ -15,9 +15,9 @@ use crate::{
     primitives::{AccountNonce, OrderId, SimulatedOrder},
 };
 use ahash::HashMap;
+use alloy_primitives::Address;
 use multi_share_bundle_merger::MultiShareBundleMerger;
 use reth_errors::ProviderResult;
-use reth_primitives::Address;
 use reth_provider::StateProviderBox;
 
 use prioritized_order_store::PrioritizedOrderStore;

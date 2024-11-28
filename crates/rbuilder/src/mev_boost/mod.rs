@@ -274,11 +274,11 @@ pub enum SubmitBlockErr {
     /// RPC validates the submissions (eg: limit of txs) much more that our model.
     RPCConversionError(Error),
     #[cfg_attr(
-        not(feature = "redact_sensitive"),
+        not(feature = "redact-sensitive"),
         error("RPC serialization failed: {0}")
     )]
     #[cfg_attr(
-        feature = "redact_sensitive",
+        feature = "redact-sensitive",
         error("RPC serialization failed: [REDACTED]")
     )]
     RPCSerializationError(String),

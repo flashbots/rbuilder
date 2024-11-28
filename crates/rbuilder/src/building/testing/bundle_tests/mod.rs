@@ -1,8 +1,7 @@
 pub mod setup;
 
-use alloy_primitives::{Address, U256};
+use alloy_primitives::{Address, B256, U256};
 use itertools::Itertools;
-use reth_primitives::B256;
 use std::collections::HashSet;
 use uuid::Uuid;
 

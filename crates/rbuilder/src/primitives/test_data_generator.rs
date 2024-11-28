@@ -1,5 +1,6 @@
+use alloy_consensus::TxLegacy;
 use alloy_primitives::B256;
-use reth_primitives::{Transaction, TransactionSigned, TransactionSignedEcRecovered, TxLegacy};
+use reth_primitives::{Transaction, TransactionSigned, TransactionSignedEcRecovered};
 use uuid::Uuid;
 
 use super::{

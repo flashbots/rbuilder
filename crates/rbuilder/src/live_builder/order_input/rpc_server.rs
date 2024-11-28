@@ -3,10 +3,8 @@ use crate::primitives::{
     serialize::{RawBundle, RawShareBundle, RawShareBundleDecodeResult, RawTx, TxEncoding},
     Bundle, BundleReplacementKey, MempoolTx, Order,
 };
-use alloy_primitives::Address;
-use jsonrpsee::types::ErrorObject;
-use jsonrpsee::{server::Server, RpcModule};
-use reth_primitives::Bytes;
+use alloy_primitives::{Address, Bytes};
+use jsonrpsee::{server::Server, types::ErrorObject, RpcModule};
 use serde::Deserialize;
 use std::{
     net::{SocketAddr, SocketAddrV4},
@@ -54,7 +52,7 @@ pub async fn start_server_accepting_bundles(
                 }
             };
 
-            let bundle: Bundle = match raw_bundle.decode(TxEncoding::WithBlobData) {
+            let bundle: Bundle = match raw_bundle.try_into(TxEncoding::WithBlobData) {
                 Ok(bundle) => bundle,
                 Err(err) => {
                     warn!(?err, "Failed to parse bundle");
@@ -155,7 +153,7 @@ async fn handle_mev_send_bundle(
     };
     match decode_res {
         RawShareBundleDecodeResult::NewShareBundle(bundle) => {
-            let order = Order::ShareBundle(bundle);
+            let order = Order::ShareBundle(*bundle);
             let parse_duration = start.elapsed();
             let target_block = order.target_block().unwrap_or_default();
             trace!(order = ?order.id(), parse_duration_mus = parse_duration.as_micros(), target_block, "Received share bundle");

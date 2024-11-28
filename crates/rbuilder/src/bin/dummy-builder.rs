@@ -10,7 +10,7 @@ use rbuilder::{
     beacon_api_client::Client,
     building::{
         builders::{
-            block_building_helper::{BlockBuildingHelper, BlockBuildingHelperFromDB},
+            block_building_helper::{BlockBuildingHelper, BlockBuildingHelperFromProvider},
             BlockBuildingAlgorithm, BlockBuildingAlgorithmInput, OrderConsumer,
             UnfinishedBlockBuildingSink, UnfinishedBlockBuildingSinkFactory,
         },
@@ -35,12 +35,17 @@ use rbuilder::{
         SimulatedOrder,
     },
     roothash::RootHashConfig,
-    utils::Signer,
+    utils::{ProviderFactoryReopener, Signer},
 };
-use reth::{providers::ProviderFactory, tasks::pool::BlockingTaskPool};
 use reth_chainspec::MAINNET;
 use reth_db::{database::Database, DatabaseEnv};
-use tokio::{signal::ctrl_c, sync::broadcast};
+use reth_node_api::NodeTypesWithDBAdapter;
+use reth_node_ethereum::EthereumNode;
+use reth_provider::{BlockReader, DatabaseProviderFactory, StateProviderFactory};
+use tokio::{
+    signal::ctrl_c,
+    sync::{broadcast, mpsc},
+};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, level_filters::LevelFilter};
 
@@ -70,23 +75,30 @@ async fn main() -> eyre::Result<()> {
         cancel.clone(),
     );
 
-    let builder = LiveBuilder::<Arc<DatabaseEnv>, MevBoostSlotDataGenerator> {
+    let order_input_config = OrderInputConfig::new(
+        false,
+        true,
+        DEFAULT_EL_NODE_IPC_PATH.parse().unwrap(),
+        DEFAULT_INCOMING_BUNDLES_PORT,
+        *DEFAULT_IP,
+        DEFAULT_SERVE_MAX_CONNECTIONS,
+        DEFAULT_RESULTS_CHANNEL_TIMEOUT,
+        DEFAULT_INPUT_CHANNEL_BUFFER_SIZE,
+    );
+    let (orderpool_sender, orderpool_receiver) =
+        mpsc::channel(order_input_config.input_channel_buffer_size);
+    let builder = LiveBuilder::<
+        ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>,
+        Arc<DatabaseEnv>,
+        MevBoostSlotDataGenerator,
+    > {
         watchdog_timeout: Duration::from_secs(10000),
         error_storage_path: None,
         simulation_threads: 1,
         blocks_source: payload_event,
-        order_input_config: OrderInputConfig::new(
-            false,
-            true,
-            DEFAULT_EL_NODE_IPC_PATH.parse().unwrap(),
-            DEFAULT_INCOMING_BUNDLES_PORT,
-            *DEFAULT_IP,
-            DEFAULT_SERVE_MAX_CONNECTIONS,
-            DEFAULT_RESULTS_CHANNEL_TIMEOUT,
-            DEFAULT_INPUT_CHANNEL_BUFFER_SIZE,
-        ),
+        order_input_config,
         chain_chain_spec: chain_spec.clone(),
-        provider_factory: create_provider_factory(
+        provider: create_provider_factory(
             Some(&RETH_DB_PATH.parse::<PathBuf>().unwrap()),
             None,
             None,
@@ -100,6 +112,8 @@ async fn main() -> eyre::Result<()> {
         sink_factory: Box::new(TraceBlockSinkFactory {}),
         builders: vec![Arc::new(DummyBuildingAlgorithm::new(10))],
         run_sparse_trie_prefetcher: false,
+        orderpool_sender,
+        orderpool_receiver,
     };
 
     let ctrlc = tokio::spawn(async move {
@@ -147,7 +161,6 @@ impl UnfinishedBlockBuildingSink for TracingBlockSink {
 ////////////////////////////
 /// BUILDING ALGORITHM
 ////////////////////////////
-
 /// Dummy algorithm that waits for some orders and creates a block inserting them in the order they arrived.
 /// Generates only a single block.
 /// This is a NOT real builder some data is not filled correctly (eg:BuiltBlockTrace)
@@ -155,19 +168,13 @@ impl UnfinishedBlockBuildingSink for TracingBlockSink {
 struct DummyBuildingAlgorithm {
     /// Amnount of used orders to build a block
     orders_to_use: usize,
-    root_hash_task_pool: BlockingTaskPool,
 }
 
 const ORDER_POLLING_PERIOD: Duration = Duration::from_millis(10);
 const BUILDER_NAME: &str = "DUMMY";
 impl DummyBuildingAlgorithm {
     pub fn new(orders_to_use: usize) -> Self {
-        Self {
-            orders_to_use,
-            root_hash_task_pool: BlockingTaskPool::new(
-                BlockingTaskPool::builder().num_threads(1).build().unwrap(),
-            ),
-        }
+        Self { orders_to_use }
     }
 
     fn wait_for_orders(
@@ -191,15 +198,21 @@ impl DummyBuildingAlgorithm {
         }
     }
 
-    fn build_block<DB: Database + Clone + 'static>(
+    fn build_block<P, DB>(
         &self,
         orders: Vec<SimulatedOrder>,
-        provider_factory: ProviderFactory<DB>,
+        provider: P,
         ctx: &BlockBuildingContext,
-    ) -> eyre::Result<Box<dyn BlockBuildingHelper>> {
-        let mut block_building_helper = BlockBuildingHelperFromDB::new(
-            provider_factory.clone(),
-            self.root_hash_task_pool.clone(),
+    ) -> eyre::Result<Box<dyn BlockBuildingHelper>>
+    where
+        DB: Database + Clone + 'static,
+        P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
+            + StateProviderFactory
+            + Clone
+            + 'static,
+    {
+        let mut block_building_helper = BlockBuildingHelperFromProvider::new(
+            provider.clone(),
             RootHashConfig::live_config(false, false),
             ctx.clone(),
             None,
@@ -217,15 +230,22 @@ impl DummyBuildingAlgorithm {
     }
 }
 
-impl<DB: Database + Clone + 'static> BlockBuildingAlgorithm<DB> for DummyBuildingAlgorithm {
+impl<P, DB> BlockBuildingAlgorithm<P, DB> for DummyBuildingAlgorithm
+where
+    DB: Database + Clone + 'static,
+    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
+        + StateProviderFactory
+        + Clone
+        + 'static,
+{
     fn name(&self) -> String {
         BUILDER_NAME.to_string()
     }
 
-    fn build_blocks(&self, input: BlockBuildingAlgorithmInput<DB>) {
+    fn build_blocks(&self, input: BlockBuildingAlgorithmInput<P>) {
         if let Some(orders) = self.wait_for_orders(&input.cancel, input.input) {
             let block = self
-                .build_block(orders, input.provider_factory, &input.ctx)
+                .build_block(orders, input.provider, &input.ctx)
                 .unwrap();
             input.sink.new_block(block);
         }

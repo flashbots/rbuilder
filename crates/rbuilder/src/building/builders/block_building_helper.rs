@@ -1,14 +1,13 @@
 use std::{
     cmp::max,
+    marker::PhantomData,
     time::{Duration, Instant},
 };
 
-use alloy_primitives::U256;
-use reth::tasks::pool::BlockingTaskPool;
-use reth_db::database::Database;
-use reth_payload_builder::database::CachedReads;
-use reth_primitives::format_ether;
-use reth_provider::{BlockNumReader, ProviderFactory};
+use alloy_primitives::{utils::format_ether, U256};
+use reth::revm::cached::CachedReads;
+use reth_db::Database;
+use reth_provider::{BlockReader, DatabaseProviderFactory, StateProviderFactory};
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, trace};
@@ -79,9 +78,16 @@ pub trait BlockBuildingHelper: Send + Sync {
     fn update_cached_reads(&mut self, cached_reads: CachedReads);
 }
 
-/// Implementation of BlockBuildingHelper based on a ProviderFactory<DB>
+/// Implementation of BlockBuildingHelper based on a generic Provider
 #[derive(Clone)]
-pub struct BlockBuildingHelperFromDB<DB> {
+pub struct BlockBuildingHelperFromProvider<P, DB>
+where
+    DB: Database + Clone + 'static,
+    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
+        + StateProviderFactory
+        + Clone
+        + 'static,
+{
     /// Balance of fee recipient before we stared building.
     _fee_recipient_balance_start: U256,
     /// Accumulated changes for the block (due to commit_order calls).
@@ -96,11 +102,11 @@ pub struct BlockBuildingHelperFromDB<DB> {
     building_ctx: BlockBuildingContext,
     built_block_trace: BuiltBlockTrace,
     /// Needed to get the initial state and the final root hash calculation.
-    provider_factory: ProviderFactory<DB>,
-    root_hash_task_pool: BlockingTaskPool,
+    provider: P,
     root_hash_config: RootHashConfig,
     /// Token to cancel in case of fatal error (if we believe that it's impossible to build for this block).
     cancel_on_fatal_error: CancellationToken,
+    phantom: PhantomData<DB>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -122,7 +128,7 @@ pub enum BlockBuildingHelperError {
 }
 
 impl BlockBuildingHelperError {
-    /// Non critial error can happen during normal operations of the builder  
+    /// Non critial error can happen during normal operations of the builder
     pub fn is_critical(&self) -> bool {
         match self {
             BlockBuildingHelperError::FinalizeError(finalize) => {
@@ -142,7 +148,14 @@ pub struct FinalizeBlockResult {
     pub cached_reads: CachedReads,
 }
 
-impl<DB: Database + Clone + 'static> BlockBuildingHelperFromDB<DB> {
+impl<P, DB> BlockBuildingHelperFromProvider<P, DB>
+where
+    DB: Database + Clone + 'static,
+    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
+        + StateProviderFactory
+        + Clone
+        + 'static,
+{
     /// allow_tx_skip: see [`PartialBlockFork`]
     /// Performs initialization:
     /// - Query fee_recipient_balance_start.
@@ -150,8 +163,7 @@ impl<DB: Database + Clone + 'static> BlockBuildingHelperFromDB<DB> {
     /// - Estimate payout tx cost.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        provider_factory: ProviderFactory<DB>,
-        root_hash_task_pool: BlockingTaskPool,
+        provider: P,
         root_hash_config: RootHashConfig,
         building_ctx: BlockBuildingContext,
         cached_reads: Option<CachedReads>,
@@ -161,8 +173,7 @@ impl<DB: Database + Clone + 'static> BlockBuildingHelperFromDB<DB> {
         cancel_on_fatal_error: CancellationToken,
     ) -> Result<Self, BlockBuildingHelperError> {
         // @Maybe an issue - we have 2 db txs here (one for hash and one for finalize)
-        let state_provider =
-            provider_factory.history_by_block_hash(building_ctx.attributes.parent)?;
+        let state_provider = provider.history_by_block_hash(building_ctx.attributes.parent)?;
         let fee_recipient_balance_start = state_provider
             .account_balance(building_ctx.attributes.suggested_fee_recipient)?
             .unwrap_or_default();
@@ -193,10 +204,10 @@ impl<DB: Database + Clone + 'static> BlockBuildingHelperFromDB<DB> {
             builder_name,
             building_ctx,
             built_block_trace: BuiltBlockTrace::new(),
-            provider_factory,
-            root_hash_task_pool,
+            provider,
             root_hash_config,
             cancel_on_fatal_error,
+            phantom: PhantomData,
         })
     }
 
@@ -208,7 +219,7 @@ impl<DB: Database + Clone + 'static> BlockBuildingHelperFromDB<DB> {
         built_block_trace: &BuiltBlockTrace,
         sim_gas_used: u64,
     ) {
-        let txs = finalized_block.sealed_block.body.len();
+        let txs = finalized_block.sealed_block.body.transactions.len();
         let gas_used = finalized_block.sealed_block.gas_used;
         let blobs = finalized_block.txs_blob_sidecars.len();
 
@@ -277,7 +288,14 @@ impl<DB: Database + Clone + 'static> BlockBuildingHelperFromDB<DB> {
     }
 }
 
-impl<DB: Database + Clone + 'static> BlockBuildingHelper for BlockBuildingHelperFromDB<DB> {
+impl<P, DB> BlockBuildingHelper for BlockBuildingHelperFromProvider<P, DB>
+where
+    DB: Database + Clone + 'static,
+    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
+        + StateProviderFactory
+        + Clone
+        + 'static,
+{
     /// Forwards to partial_block and updates trace.
     fn commit_order(
         &mut self,
@@ -343,17 +361,13 @@ impl<DB: Database + Clone + 'static> BlockBuildingHelper for BlockBuildingHelper
         let finalized_block = match self.partial_block.finalize(
             &mut self.block_state,
             &self.building_ctx,
-            self.provider_factory.clone(),
+            self.provider.clone(),
             self.root_hash_config,
-            self.root_hash_task_pool,
         ) {
             Ok(finalized_block) => finalized_block,
             Err(err) => {
                 if err.is_consistent_db_view_err() {
-                    let last_block_number = self
-                        .provider_factory
-                        .last_block_number()
-                        .unwrap_or_default();
+                    let last_block_number = self.provider.last_block_number().unwrap_or_default();
                     debug!(
                         block_number,
                         last_block_number, "Can't build on this head, cancelling slot"
@@ -381,6 +395,7 @@ impl<DB: Database + Clone + 'static> BlockBuildingHelper for BlockBuildingHelper
             sealed_block: finalized_block.sealed_block,
             txs_blobs_sidecars: finalized_block.txs_blob_sidecars,
             builder_name: self.builder_name.clone(),
+            execution_requests: finalized_block.execution_requests,
         };
         Ok(FinalizeBlockResult {
             block,

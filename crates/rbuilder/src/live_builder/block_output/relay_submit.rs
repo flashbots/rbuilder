@@ -20,8 +20,7 @@ use mockall::automock;
 use reth_chainspec::ChainSpec;
 use reth_primitives::SealedBlock;
 use std::sync::{Arc, Mutex};
-use tokio::sync::Notify;
-use tokio::time::Instant;
+use tokio::{sync::Notify, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, event, info_span, trace, warn, Instrument, Level};
 
@@ -197,7 +196,7 @@ async fn run_submit_to_relays_job(
             block = block.sealed_block.number,
             hash = ?block.sealed_block.header.hash(),
             gas = block.sealed_block.gas_used,
-            txs = block.sealed_block.body.len(),
+            txs = block.sealed_block.body.transactions.len(),
             bundles,
             buidler_name = block.builder_name,
             fill_time_ms = block.trace.fill_time.as_millis(),
@@ -214,6 +213,7 @@ async fn run_submit_to_relays_job(
                 &config.signer,
                 &block.sealed_block,
                 &block.txs_blobs_sidecars,
+                &block.execution_requests,
                 &config.chain_spec,
                 &slot_data.payload_attributes_event.data,
                 slot_data.slot_data.pubkey,
@@ -229,6 +229,7 @@ async fn run_submit_to_relays_job(
                 &config.optimistic_signer,
                 &block.sealed_block,
                 &block.txs_blobs_sidecars,
+                &block.execution_requests,
                 &config.chain_spec,
                 &slot_data.payload_attributes_event.data,
                 slot_data.slot_data.pubkey,

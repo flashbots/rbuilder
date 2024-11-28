@@ -27,7 +27,7 @@ pub fn tx(tx_hash: u64) -> TransactionSignedEcRecoveredWithBlobs {
         TransactionSignedEcRecovered::from_signed_transaction(
             TransactionSigned {
                 hash: hash(tx_hash),
-                signature: Default::default(),
+                signature: alloy_primitives::Signature::test_signature(),
                 transaction: Default::default(),
             },
             Address::default(),

@@ -44,7 +44,7 @@ mod tests {
         // wait for the transaction in the el node since rbuilder does not implement
         // the `eth_getTransactionReceipt` method.
         let binding = ProviderBuilder::new().on_http(Url::parse(srv.el_url()).unwrap());
-        let pending_tx = PendingTransactionBuilder::new(&binding, *pending_tx.tx_hash())
+        let pending_tx = PendingTransactionBuilder::new(binding, *pending_tx.tx_hash())
             .with_timeout(Some(std::time::Duration::from_secs(60)));
 
         let receipt = pending_tx.get_receipt().await.unwrap();

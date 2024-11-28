@@ -239,7 +239,7 @@ impl HistoricalDataFetcher {
         info!("Fetched orders, unfiltered: {}", orders.len());
 
         let base_fee_per_gas = onchain_block.header.base_fee_per_gas.unwrap_or_default();
-        self.filter_orders_by_base_fee(base_fee_per_gas, &mut orders);
+        self.filter_orders_by_base_fee(base_fee_per_gas as u128, &mut orders);
         info!("Filtered orders by base fee, left: {}", orders.len());
 
         let mut available_orders = self.filter_order_by_nonces(orders, block_number).await?;

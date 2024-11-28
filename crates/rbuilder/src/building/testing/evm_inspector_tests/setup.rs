@@ -1,4 +1,5 @@
-use reth_primitives::{transaction::FillTxEnv, Address, TransactionSignedEcRecovered};
+use alloy_primitives::Address;
+use reth_primitives::{transaction::FillTxEnv, TransactionSignedEcRecovered};
 use revm::{inspector_handle_register, primitives::Env};
 use revm_primitives::TxEnv;
 

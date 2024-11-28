@@ -12,12 +12,15 @@ use alloy_primitives::{Address, B256};
 use eyre::{eyre, Context};
 use jsonrpsee::RpcModule;
 use lazy_static::lazy_static;
-use reth::tasks::pool::BlockingTaskPool;
+use reth::chainspec::chain_value_parser;
 use reth_chainspec::ChainSpec;
-use reth_db::DatabaseEnv;
-use reth_node_core::args::utils::chain_value_parser;
+use reth_db::{Database, DatabaseEnv};
+use reth_node_api::NodeTypesWithDBAdapter;
+use reth_node_ethereum::EthereumNode;
 use reth_primitives::StaticFileSegment;
-use reth_provider::StaticFileProviderFactory;
+use reth_provider::{
+    DatabaseProviderFactory, HeaderProvider, StateProviderFactory, StaticFileProviderFactory,
+};
 use serde::{Deserialize, Deserializer};
 use serde_with::{serde_as, DeserializeAs};
 use sqlx::PgPool;
@@ -30,6 +33,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
+use tokio::sync::mpsc;
 use tracing::warn;
 
 use super::SlotSource;
@@ -85,7 +89,6 @@ pub struct BaseConfig {
     pub root_hash_use_sparse_trie: bool,
     /// compares result of root hash using sparse trie and reference root hash
     pub root_hash_compare_sparse_trie: bool,
-    pub root_hash_task_pool_threads: usize,
 
     pub watchdog_timeout_sec: u64,
 
@@ -138,7 +141,7 @@ pub fn load_config_toml_and_env<T: serde::de::DeserializeOwned>(
 }
 
 impl BaseConfig {
-    pub fn setup_tracing_subsriber(&self) -> eyre::Result<()> {
+    pub fn setup_tracing_subscriber(&self) -> eyre::Result<()> {
         let log_level = self.log_level.value()?;
         let config = LoggerConfig {
             env_filter: log_level,
@@ -170,12 +173,18 @@ impl BaseConfig {
         cancellation_token: tokio_util::sync::CancellationToken,
         sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
         slot_source: SlotSourceType,
-    ) -> eyre::Result<super::LiveBuilder<Arc<DatabaseEnv>, SlotSourceType>>
+    ) -> eyre::Result<
+        super::LiveBuilder<
+            ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>,
+            Arc<DatabaseEnv>,
+            SlotSourceType,
+        >,
+    >
     where
         SlotSourceType: SlotSource,
     {
-        let provider_factory = self.provider_factory()?;
-        self.create_builder_with_provider_factory(
+        let provider_factory = self.create_provider_factory()?;
+        self.create_builder_with_provider_factory::<ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>, Arc<DatabaseEnv>, SlotSourceType>(
             cancellation_token,
             sink_factory,
             slot_source,
@@ -184,25 +193,30 @@ impl BaseConfig {
         .await
     }
 
-    /// WARN: opens reth db
-    pub async fn create_builder_with_provider_factory<SlotSourceType>(
+    /// Allows instantiating a [`LiveBuilder`] with an existing provider factory
+    pub async fn create_builder_with_provider_factory<P, DB, SlotSourceType>(
         &self,
         cancellation_token: tokio_util::sync::CancellationToken,
         sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
         slot_source: SlotSourceType,
-        provider_factory: ProviderFactoryReopener<Arc<DatabaseEnv>>,
-    ) -> eyre::Result<super::LiveBuilder<Arc<DatabaseEnv>, SlotSourceType>>
+        provider: P,
+    ) -> eyre::Result<super::LiveBuilder<P, DB, SlotSourceType>>
     where
+        DB: Database + Clone + 'static,
+        P: DatabaseProviderFactory<DB = DB> + StateProviderFactory + HeaderProvider + Clone,
         SlotSourceType: SlotSource,
     {
-        Ok(LiveBuilder::<Arc<DatabaseEnv>, SlotSourceType> {
+        let order_input_config = OrderInputConfig::from_config(self)?;
+        let (orderpool_sender, orderpool_receiver) =
+            mpsc::channel(order_input_config.input_channel_buffer_size);
+        Ok(LiveBuilder::<P, DB, SlotSourceType> {
             watchdog_timeout: self.watchdog_timeout(),
             error_storage_path: self.error_storage_path.clone(),
             simulation_threads: self.simulation_threads,
-            order_input_config: OrderInputConfig::from_config(self),
+            order_input_config,
             blocks_source: slot_source,
             chain_chain_spec: self.chain_spec()?,
-            provider_factory,
+            provider,
 
             coinbase_signer: self.coinbase_signer()?,
             extra_data: self.extra_data()?,
@@ -215,6 +229,9 @@ impl BaseConfig {
             builders: Vec::new(),
 
             run_sparse_trie_prefetcher: self.root_hash_use_sparse_trie,
+
+            orderpool_sender,
+            orderpool_receiver,
         })
     }
 
@@ -243,7 +260,10 @@ impl BaseConfig {
     }
 
     /// Open reth db and DB should be opened once per process but it can be cloned and moved to different threads.
-    pub fn provider_factory(&self) -> eyre::Result<ProviderFactoryReopener<Arc<DatabaseEnv>>> {
+    pub fn create_provider_factory(
+        &self,
+    ) -> eyre::Result<ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>>
+    {
         create_provider_factory(
             self.reth_datadir.as_deref(),
             self.reth_db_path.as_deref(),
@@ -251,15 +271,6 @@ impl BaseConfig {
             self.chain_spec()?,
             false,
         )
-    }
-
-    /// Creates threadpool for root hash calculation, should be created once per process.
-    pub fn root_hash_task_pool(&self) -> eyre::Result<BlockingTaskPool> {
-        Ok(BlockingTaskPool::new(
-            BlockingTaskPool::builder()
-                .num_threads(self.root_hash_task_pool_threads)
-                .build()?,
-        ))
     }
 
     pub fn live_root_hash_config(&self) -> eyre::Result<RootHashConfig> {
@@ -425,7 +436,6 @@ impl Default for BaseConfig {
             reth_static_files_path: None,
             blocklist_file_path: None,
             extra_data: "extra_data_change_me".to_string(),
-            root_hash_task_pool_threads: 1,
             root_hash_use_sparse_trie: false,
             root_hash_compare_sparse_trie: false,
             watchdog_timeout_sec: 60 * 3,
@@ -450,7 +460,7 @@ pub fn create_provider_factory(
     reth_static_files_path: Option<&Path>,
     chain_spec: Arc<ChainSpec>,
     rw: bool,
-) -> eyre::Result<ProviderFactoryReopener<Arc<DatabaseEnv>>> {
+) -> eyre::Result<ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>> {
     // shellexpand the reth datadir
     let reth_datadir = if let Some(reth_datadir) = reth_datadir {
         let reth_datadir = reth_datadir
@@ -541,13 +551,13 @@ mod test {
         let data_dir = MaybePlatformPath::<DataDirPath>::from(tempdir.into_path());
         let data_dir = data_dir.unwrap_or_chain_default(Chain::mainnet(), DatadirArgs::default());
 
-        let db = init_db(data_dir.data_dir(), Default::default()).unwrap();
-        let provider_factory = ProviderFactory::new(
+        let db = Arc::new(init_db(data_dir.data_dir(), Default::default()).unwrap());
+        let provider_factory = ProviderFactory::<NodeTypesWithDBAdapter<EthereumNode, _>>::new(
             db,
             SEPOLIA.clone(),
             StaticFileProvider::read_write(data_dir.static_files().as_path()).unwrap(),
         );
-        init_genesis(provider_factory).unwrap();
+        init_genesis(&provider_factory).unwrap();
 
         // Create longer-lived PathBuf values
         let data_dir_path = data_dir.data_dir();

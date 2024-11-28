@@ -1,0 +1,19 @@
+[package]
+name = "transaction-pool-bundle-ext"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+reth = { workspace = true }
+reth-eth-wire-types = { workspace = true }
+reth-primitives = { workspace = true }
+reth-transaction-pool = { workspace = true }
+alloy-primitives = { version = "0.8.9", default-features = false }
+alloy-rpc-types-beacon = { version = "0.5.4", features = [
+    "ssz",
+] }
+alloy-eips = { version = "0.5.4" }
+
+
+tokio = { workspace = true }
+

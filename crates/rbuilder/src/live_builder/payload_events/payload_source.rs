@@ -1,6 +1,6 @@
 use crate::beacon_api_client::{Client, PayloadAttributesTopic};
+use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
 use futures::future::join_all;
-use reth::rpc::types::beacon::events::PayloadAttributesEvent;
 
 use tokio::{
     sync::mpsc::{self, UnboundedSender},
@@ -75,6 +75,7 @@ impl CLPayloadSource {
 /// Recreates the PayloadSource if:
 /// - PayloadSource::recv returns None
 /// - PayloadSource::recv does not deliver a new PayloadAttributesEvent in some time (recv_timeout)
+#[derive(Debug)]
 pub struct PayloadSourceReconnector {
     receiver: mpsc::UnboundedReceiver<PayloadAttributesEvent>,
     /// In case we cancel via the CancellationToken this handle allows us to wait for the internal spawned task to end.
@@ -151,7 +152,7 @@ impl PayloadSourceReconnector {
         }
     }
 
-    async fn recv(&mut self) -> Option<PayloadAttributesEvent> {
+    pub async fn recv(&mut self) -> Option<PayloadAttributesEvent> {
         self.receiver.recv().await
     }
 }

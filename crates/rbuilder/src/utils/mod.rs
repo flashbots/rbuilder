@@ -18,8 +18,10 @@ use alloy_primitives::{Address, Sign, I256, U256};
 use alloy_provider::RootProvider;
 use alloy_transport::BoxTransport;
 
-use crate::primitives::serialize::{RawTx, TxEncoding};
-use crate::primitives::TransactionSignedEcRecoveredWithBlobs;
+use crate::primitives::{
+    serialize::{RawTx, TxEncoding},
+    TransactionSignedEcRecoveredWithBlobs,
+};
 use alloy_consensus::TxEnvelope;
 use alloy_eips::eip2718::Encodable2718;
 pub use noncer::{NonceCache, NonceCacheRef};
@@ -82,8 +84,8 @@ pub fn get_percent(value: U256, percent: usize) -> U256 {
     (value * U256::from(percent)) / U256::from(100)
 }
 
-pub fn a2r_withdrawal(w: alloy_rpc_types::Withdrawal) -> reth_primitives::Withdrawal {
-    reth_primitives::Withdrawal {
+pub fn a2r_withdrawal(w: alloy_rpc_types::Withdrawal) -> alloy_eips::eip4895::Withdrawal {
+    alloy_eips::eip4895::Withdrawal {
         index: w.index,
         validator_index: w.validator_index,
         address: w.address,

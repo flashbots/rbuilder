@@ -1,5 +1,7 @@
-use crate::primitives::{Order, OrderId, ShareBundleBody, ShareBundleInner, TxRevertBehavior};
-use crate::utils::get_percent;
+use crate::{
+    primitives::{Order, OrderId, ShareBundleBody, ShareBundleInner, TxRevertBehavior},
+    utils::get_percent,
+};
 use ahash::HashMap;
 use alloy_primitives::{B256, I256, U256};
 
@@ -408,8 +410,10 @@ fn find_landed_order_data(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::primitives::{Bundle, MempoolTx, Refund, ShareBundle, ShareBundleTx};
-    use crate::utils::test_utils::*;
+    use crate::{
+        primitives::{Bundle, MempoolTx, Refund, ShareBundle, ShareBundleTx},
+        utils::test_utils::*,
+    };
 
     fn assert_result(
         executed_txs: Vec<ExecutedBlockTx>,

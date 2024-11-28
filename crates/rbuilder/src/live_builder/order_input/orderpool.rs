@@ -3,8 +3,9 @@ use crate::primitives::{
     ShareBundleReplacementKey,
 };
 use ahash::HashMap;
+use alloy_eips::merge::SLOT_DURATION;
 use lru::LruCache;
-use reth::{primitives::constants::SLOT_DURATION, providers::StateProviderBox};
+use reth::providers::StateProviderBox;
 use std::{
     collections::VecDeque,
     num::NonZeroUsize,
