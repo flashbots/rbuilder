@@ -66,7 +66,6 @@ jobs:
   integration:
     name: Integration tests
     runs-on: warp-ubuntu-latest-x64-16x
-    needs: lint_and_test
     strategy:
       matrix:
         toolchain:
@@ -78,6 +77,12 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@v4
 
+      # https://github.com/dtolnay/rust-toolchain
+      - name: Setup rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ matrix.toolchain }}   
+          
       - name: Download builder playground
         uses: flashbots/flashbots-toolchain@v0.1
         with:
