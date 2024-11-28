@@ -31,6 +31,16 @@ const GZIP_CONTENT_ENCODING: &str = "gzip";
 const BUILDER_ID_HEADER: &str = "X-Builder-Id";
 const API_TOKEN_HEADER: &str = "X-Api-Token";
 
+/// We don't have nice error codes for relay errors so we have to parse looking for substrings :(
+/// Simulation error base.
+const SIM_FAILED_SUBSTRING: &str = "simulation failed";
+/// Any error containing SIM_FAILED_SUBSTRING and any of SIM_FAILED_NON_CRITICAL_ERRORS is not critical so we should not stop block building.
+const SIM_FAILED_NON_CRITICAL_ERRORS: &[&str] = &[
+    "blacklisted address", // Generated block is good but contains a blacklisted address. This happens if we don't use an OFAC blacklist but the relay does.
+    "unknown ancestor",
+    "missing trie node",
+];
+
 // @Org consolidate with primitives::mev_boost
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -540,8 +550,11 @@ impl RelayClient {
                     }
                     "block already received" => Err(SubmitBlockErr::BlockKnown),
                     _ if msg.contains("read tcp") => Err(RelayError::ConnectionError.into()),
-                    _ if msg.contains("simulation failed") => {
-                        if msg.contains("unknown ancestor") | msg.contains("missing trie node") {
+                    _ if msg.contains(SIM_FAILED_SUBSTRING) => {
+                        if SIM_FAILED_NON_CRITICAL_ERRORS
+                            .iter()
+                            .any(|pat| msg.contains(*pat))
+                        {
                             Err(RelayError::InternalError.into())
                         } else {
                             Err(SubmitBlockErr::SimError(msg.to_string()))
