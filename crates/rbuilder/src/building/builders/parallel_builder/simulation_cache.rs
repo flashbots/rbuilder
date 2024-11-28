@@ -208,7 +208,6 @@ mod tests {
 
         fn create_cached_simulation_state(&mut self) -> CachedSimulationState {
             let mut cached_reads = CachedReads::default();
-            //let mut storage = HashMap::new();
             let mut storage = AlloyHashMap::default();
             storage.insert(U256::from(self.last_used_id), U256::from(self.last_used_id));
             cached_reads.insert_account(Address::random(), AccountInfo::default(), storage);
