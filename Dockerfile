@@ -44,7 +44,6 @@ WORKDIR /app
 # Default binary filename rbuilder
 # Alternatively can be set to "reth-rbuilder" - to have reth included in the binary
 ARG RBUILDER_BIN="rbuilder"
-
 COPY --from=planner /app/recipe.json recipe.json
 
 RUN --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
@@ -67,7 +66,6 @@ FROM gcr.io/distroless/cc-debian12
 WORKDIR /app
 
 ARG RBUILDER_BIN="rbuilder"
-
 COPY --from=builder /app/target/release/${RBUILDER_BIN} /app/rbuilder
 
 ENTRYPOINT ["/app/rbuilder"]
