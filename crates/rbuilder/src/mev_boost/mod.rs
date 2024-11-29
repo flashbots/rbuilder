@@ -278,7 +278,7 @@ pub enum SubmitBlockErr {
     PayloadDelivered,
     #[error("Bid below floor")]
     BidBelowFloor,
-    #[error("Simulation Error")]
+    #[error("Simulation Error: {0}")]
     SimError(String),
     #[error("RPC conversion Error")]
     /// RPC validates the submissions (eg: limit of txs) much more that our model.
