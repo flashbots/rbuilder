@@ -69,6 +69,8 @@ FROM gcr.io/distroless/cc-debian12
 WORKDIR /app
 
 ARG RBUILDER_BIN="rbuilder"
+ARG BUILD_TYPE
+
 COPY --from=builder /app/target/$(if [ "$BUILD_TYPE" = "release" ]; then echo "release"; else echo "debug"; fi)/${RBUILDER_BIN} /app/rbuilder
 
 ENTRYPOINT ["/app/rbuilder"]
