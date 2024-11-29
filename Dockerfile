@@ -9,7 +9,6 @@
 FROM rust:1.82 as base
 
 ARG FEATURES
-ARG BUILD_TYPE=release
 
 RUN cargo install sccache --version ^0.8
 RUN cargo install cargo-chef --version ^0.1
@@ -45,12 +44,11 @@ WORKDIR /app
 # Default binary filename rbuilder
 # Alternatively can be set to "reth-rbuilder" - to have reth included in the binary
 ARG RBUILDER_BIN="rbuilder"
-ARG BUILD_TYPE
 
 COPY --from=planner /app/recipe.json recipe.json
 
 RUN --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
-    cargo chef cook $(if [ "$BUILD_TYPE" = "release" ]; then echo "--release"; fi) --recipe-path recipe.json
+    cargo chef cook --release --recipe-path recipe.json
 
 COPY ./Cargo.lock ./Cargo.lock
 COPY ./Cargo.toml ./Cargo.toml
@@ -60,7 +58,7 @@ COPY ./crates/ ./crates/
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
-    cargo build $(if [ "$BUILD_TYPE" = "release" ]; then echo "--release"; fi) --features="$FEATURES" --package=${RBUILDER_BIN}
+    cargo build --release --features="$FEATURES" --package=${RBUILDER_BIN}
 
 #
 # Runtime container
@@ -69,8 +67,7 @@ FROM gcr.io/distroless/cc-debian12
 WORKDIR /app
 
 ARG RBUILDER_BIN="rbuilder"
-ARG BUILD_TYPE
 
-COPY --from=builder /app/target/${BUILD_TYPE}/${RBUILDER_BIN} /app/rbuilder
+COPY --from=builder /app/target/release/${RBUILDER_BIN} /app/rbuilder
 
 ENTRYPOINT ["/app/rbuilder"]
