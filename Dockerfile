@@ -50,7 +50,7 @@ ARG BUILD_TYPE
 COPY --from=planner /app/recipe.json recipe.json
 
 RUN --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
-    cargo chef cook --${BUILD_TYPE} --recipe-path recipe.json
+    cargo chef cook $(if [ "$BUILD_TYPE" = "release" ]; then echo "--release"; fi) --recipe-path recipe.json
 
 COPY ./Cargo.lock ./Cargo.lock
 COPY ./Cargo.toml ./Cargo.toml
