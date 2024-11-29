@@ -129,27 +129,3 @@ jobs:
           name: playground-logs
           path: /tmp/playground-logs
           retention-days: 5
-
-  build-docker:
-    name: Build Docker image
-    runs-on: warp-ubuntu-latest-x64-16x
-
-    steps:
-      - name: checkout sources
-        uses: actions/checkout@v4
-
-      - name: docker qemu
-        uses: docker/setup-qemu-action@v3
-
-      - name: docker buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: docker build
-        uses: docker/build-push-action@v5
-        with:
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          platforms: linux/amd64
-          context: .
-          push: false
-          build-args: BUILD_TYPE=debug
