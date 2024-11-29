@@ -152,3 +152,4 @@ jobs:
           platforms: linux/amd64
           context: .
           push: false
+          build-args: BUILD_TYPE=debug
