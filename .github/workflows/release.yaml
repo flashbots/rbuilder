@@ -23,10 +23,6 @@ on:
         default: false
 
 jobs:
-  #
-  # extract-version extracts the version from the tag or the branch name,
-  # for reuse in later jobs
-  #
   extract-version:
     name: Extract version
     runs-on: warp-ubuntu-latest-x64-16x
@@ -55,9 +51,6 @@ jobs:
           echo "| \`GITHUB_SHA\`      | \`${GITHUB_SHA}\`      |" >> $GITHUB_STEP_SUMMARY
           echo "| \`VERSION\`         | \`${VERSION}\`         |" >> $GITHUB_STEP_SUMMARY
 
-  #
-  # build-binary builds a release binary for a variety of platforms
-  #
   build-binary:
     name: Build binary
     needs: extract-version
@@ -87,19 +80,16 @@ jobs:
         with:
           fetch-depth: 0 # needed for built.rs to get GIT_HEAD_REF
 
-      # https://github.com/dtolnay/rust-toolchain
       - name: Setup rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           target: ${{ matrix.configs.target }}
 
-      # https://github.com/WarpBuilds/rust-cache
       - name: Run WarpBuilds/rust-cache
         uses: WarpBuilds/rust-cache@v2
         with:
           cache-on-failure: true
 
-      # https://github.com/Mozilla-Actions/sccache-action
       - name: Setup sccache-action
         uses: mozilla-actions/sccache-action@v0.0.5
 
@@ -108,35 +98,22 @@ jobs:
           echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
 
-      - name: Prepare output filename
-        run: |
-          if [ -z "${{ matrix.features }}" ]; then
-            OUTPUT_FILENAME="rbuilder-${VERSION}-${{ matrix.configs.target }}.tar.gz"
-          else
-            OUTPUT_FILENAME="rbuilder-${VERSION}-${{ matrix.configs.target }}-${{ matrix.features }}.tar.gz"
-          fi
-          echo "OUTPUT_FILENAME=$OUTPUT_FILENAME" >> $GITHUB_ENV
-          echo "Filename: ${OUTPUT_FILENAME}"
-
       - name: Build rbuilder binary
-        run: cargo build --release --features=${{ matrix.features }}
+        run: cargo build --release --features=${{ matrix.features }} --target ${{ matrix.configs.target }}
 
-      - name: Prepare artifacts
-        run: |
-          mkdir -p artifacts
-          tar -czf "artifacts/${OUTPUT_FILENAME}" -C target/release rbuilder
-
-      # https://github.com/actions/upload-artifact
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4.3.1
+      - name: Upload rbuilder artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.OUTPUT_FILENAME }}
-          path: artifacts/${{ env.OUTPUT_FILENAME }}
+          name: rbuilder-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
+          path: target/${{ matrix.configs.target }}/release/rbuilder
 
-  #
-  # draft-release runs after building for various targets, collects artifacts and prepares a draft release
-  # (only when running against a tag!)
-  #
+      - name: Upload reth-rbuilder artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: reth-rbuilder-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
+          path: target/${{ matrix.configs.target }}/release/reth-rbuilder
+
+
   draft-release:
     name: Draft release
     if: ${{ github.event.inputs.draft-release == 'true' || github.event_name == 'push'}} # when manually triggered or version tagged
@@ -150,7 +127,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # https://github.com/actions/download-artifact
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
@@ -164,7 +140,6 @@ jobs:
           for file in *; do sha256sum "$file" >> sha256sums.txt; done;
           cat sha256sums.txt
 
-      # https://github.com/softprops/action-gh-release
       - name: Create release draft
         uses: softprops/action-gh-release@v2.0.5
         id: create-release-draft
@@ -181,12 +156,6 @@ jobs:
           echo "### Release Draft: ${{ env.VERSION }}" >> $GITHUB_STEP_SUMMARY
           echo "${{ steps.create-release-draft.outputs.url }}" >> $GITHUB_STEP_SUMMARY
 
-  #
-  # build-docker builds a Docker image and pushes it to the GitHub Container Registry at ghcr.io
-  #
-  # See also
-  # - https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry
-  #
   build-docker:
     if: ${{ github.event.inputs.build-docker == 'true' }}
     name: Build and publish Docker image
