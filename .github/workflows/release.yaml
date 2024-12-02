@@ -56,6 +56,8 @@ jobs:
     needs: extract-version
     if: ${{ github.event.inputs.build-binary == 'true' || github.event_name == 'push'}} # when manually triggered or version tagged
     runs-on: ${{ matrix.configs.runner }}
+    container:
+      image: ubuntu:22.04
     env:
       VERSION: ${{ needs.extract-version.outputs.VERSION }}
     permissions:
@@ -75,31 +77,26 @@ jobs:
           - "redact-sensitive"
 
     steps:
-      - name: Checkout sources
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # needed for built.rs to get GIT_HEAD_REF
-
-      - name: Setup rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          target: ${{ matrix.configs.target }}
-
-      - name: Run WarpBuilds/rust-cache
-        uses: WarpBuilds/rust-cache@v2
-        with:
-          cache-on-failure: true
-
-      - name: Setup sccache-action
-        uses: mozilla-actions/sccache-action@v0.0.5
-
-      - name: Set env vars
+      - name: Install dependencies
         run: |
-          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+          apt-get update
+          apt-get install -y \
+            build-essential \
+            curl \
+            git \
+            libclang-dev \
+            libssl-dev \
+            pkg-config \
+            protobuf-compiler
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+
+      - uses: actions/checkout@v4 # must install git before checkout and set safe.directory after checkout because of container
 
       - name: Build rbuilder binary
-        run: cargo build --release --features=${{ matrix.features }} --target ${{ matrix.configs.target }}
+        run: |
+          git config --global --add safe.directory "$(pwd)"
+          . $HOME/.cargo/env
+          cargo build --release --features=${{ matrix.features }} --target ${{ matrix.configs.target }}
 
       - name: Upload rbuilder artifact
         uses: actions/upload-artifact@v4
@@ -112,7 +109,6 @@ jobs:
         with:
           name: reth-rbuilder-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
           path: target/${{ matrix.configs.target }}/release/reth-rbuilder
-
 
   draft-release:
     name: Draft release
