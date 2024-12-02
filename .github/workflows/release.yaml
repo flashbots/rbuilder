@@ -72,7 +72,7 @@ jobs:
             runner: warp-macos-14-arm64-6x
         features:
           - ""
-          - "redact_sensitive"
+          - "redact-sensitive"
 
     steps:
       - name: Checkout sources
