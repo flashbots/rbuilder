@@ -90,7 +90,7 @@ pub struct BaseConfig {
     /// compares result of root hash using sparse trie and reference root hash
     pub root_hash_compare_sparse_trie: bool,
 
-    pub watchdog_timeout_sec: u64,
+    pub watchdog_timeout_sec: Option<u64>,
 
     /// List of `builders` to be used for live building
     pub live_builders: Vec<String>,
@@ -322,10 +322,10 @@ impl BaseConfig {
     }
 
     pub fn watchdog_timeout(&self) -> Option<Duration> {
-        if self.watchdog_timeout_sec != 0 {
-            Some(Duration::from_secs(self.watchdog_timeout_sec))
-        } else {
-            None
+        match self.watchdog_timeout_sec {
+            Some(0) => None,
+            Some(sec) => Some(Duration::from_secs(sec)),
+            None => None,
         }
     }
 
@@ -442,7 +442,7 @@ impl Default for BaseConfig {
             extra_data: "extra_data_change_me".to_string(),
             root_hash_use_sparse_trie: false,
             root_hash_compare_sparse_trie: false,
-            watchdog_timeout_sec: 60 * 3,
+            watchdog_timeout_sec: None,
             backtest_fetch_mempool_data_dir: "/mnt/data/mempool".into(),
             backtest_fetch_eth_rpc_url: "http://127.0.0.1:8545".to_string(),
             backtest_fetch_eth_rpc_parallel: 1,
