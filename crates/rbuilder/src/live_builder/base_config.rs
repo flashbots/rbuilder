@@ -321,8 +321,12 @@ impl BaseConfig {
         Ok(http_provider(self.backtest_fetch_eth_rpc_url.parse()?))
     }
 
-    pub fn watchdog_timeout(&self) -> Duration {
-        Duration::from_secs(self.watchdog_timeout_sec)
+    pub fn watchdog_timeout(&self) -> Option<Duration> {
+        if self.watchdog_timeout_sec != 0 {
+            Some(Duration::from_secs(self.watchdog_timeout_sec))
+        } else {
+            None
+        }
     }
 
     pub fn backtest_fetch_mempool_data_dir(&self) -> eyre::Result<PathBuf> {

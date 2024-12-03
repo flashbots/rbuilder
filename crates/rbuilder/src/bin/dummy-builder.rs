@@ -92,7 +92,7 @@ async fn main() -> eyre::Result<()> {
         Arc<DatabaseEnv>,
         MevBoostSlotDataGenerator,
     > {
-        watchdog_timeout: Duration::from_secs(10000),
+        watchdog_timeout: Some(Duration::from_secs(10000)),
         error_storage_path: None,
         simulation_threads: 1,
         blocks_source: payload_event,

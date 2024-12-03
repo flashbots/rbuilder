@@ -87,7 +87,7 @@ where
     P: StateProviderFactory + Clone,
     BlocksSourceType: SlotSource,
 {
-    pub watchdog_timeout: Duration,
+    pub watchdog_timeout: Option<Duration>,
     pub error_storage_path: Option<PathBuf>,
     pub simulation_threads: usize,
     pub order_input_config: OrderInputConfig,
@@ -178,7 +178,13 @@ where
             self.run_sparse_trie_prefetcher,
         );
 
-        let watchdog_sender = spawn_watchdog_thread(self.watchdog_timeout)?;
+        let watchdog_sender = match self.watchdog_timeout {
+            Some(duration) => Some(spawn_watchdog_thread(duration)?),
+            None => {
+                info!("Watchdog not enabled");
+                None
+            }
+        };
 
         while let Some(payload) = payload_events_channel.recv().await {
             if self.blocklist.contains(&payload.fee_recipient()) {
@@ -247,7 +253,9 @@ where
                     time_until_slot_end.try_into().unwrap_or_default(),
                 );
 
-                watchdog_sender.try_send(()).unwrap_or_default();
+                if let Some(watchdog_sender) = watchdog_sender.as_ref() {
+                    watchdog_sender.try_send(()).unwrap_or_default();
+                };
             }
         }
 
