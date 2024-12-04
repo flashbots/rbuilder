@@ -43,14 +43,10 @@ jobs:
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             VERSION="${GITHUB_REF#refs/tags/}"
           else
-            SHA_SHORT="$(echo ${GITHUB_SHA} | cut -c1-7)"
-            BRANCH_NAME_SAFE="${GITHUB_REF_NAME//\//-}"  # replaces "/" in branch name with "-"
-            VERSION="${BRANCH_NAME_SAFE}-${SHA_SHORT}"
+            VERSION="$(echo ${GITHUB_SHA} | cut -c1-7)"
           fi
           echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
-          echo "${VERSION}"
 
-          echo "### Version: \`${VERSION}\`" >> $GITHUB_STEP_SUMMARY
           echo "|                     |                        |" >> $GITHUB_STEP_SUMMARY
           echo "| ------------------- | ---------------------- |" >> $GITHUB_STEP_SUMMARY
           echo "| \`GITHUB_REF_TYPE\` | \`${GITHUB_REF_TYPE}\` |" >> $GITHUB_STEP_SUMMARY
