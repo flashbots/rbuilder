@@ -156,7 +156,7 @@ where
         .await;
 
         if let Err(e) = result {
-            error!("Fatal rbuilder error: {}", e);
+            error!("Fatal rbuilder error: {:#}", e);
             process::exit(1);
         }
 
