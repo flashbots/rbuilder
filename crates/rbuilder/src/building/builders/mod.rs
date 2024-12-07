@@ -23,7 +23,7 @@ use reth_provider::{DatabaseProviderFactory, StateProviderFactory};
 use std::{fmt::Debug, marker::PhantomData, sync::Arc};
 use tokio::sync::{broadcast, broadcast::error::TryRecvError};
 use tokio_util::sync::CancellationToken;
-use tracing::{error, warn};
+use tracing::{info, warn};
 
 /// Block we built
 #[derive(Debug, Clone)]
@@ -249,7 +249,7 @@ pub fn handle_building_error(err: eyre::Report) -> bool {
     let err_str = err.to_string();
     if !err_str.contains("Profit too low") {
         if is_provider_factory_health_error(&err) {
-            error!(?err, "Cancelling building due to provider factory error");
+            info!(?err, "Cancelling building due to provider factory error");
             return false;
         } else {
             warn!(?err, "Error filling orders");
