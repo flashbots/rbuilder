@@ -161,7 +161,9 @@ impl BlockOrders {
         &mut self,
         orders: impl IntoIterator<Item = OrderId>,
     ) -> Vec<SimulatedOrder> {
-        self.input_order_store().remove_orders(orders)
+        self.prioritized_order_store
+            .borrow_mut()
+            .remove_orders(orders)
     }
 
     pub fn pop_order(&mut self) -> Option<SimulatedOrder> {
