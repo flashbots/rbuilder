@@ -141,7 +141,9 @@ where
 
     /// Returns true if success, on false builder should stop
     pub fn consume_next_batch(&mut self) -> eyre::Result<bool> {
-        self.order_consumer.consume_next_commands()?;
+        if !self.order_consumer.consume_next_commands()? {
+            return Ok(false);
+        }
         self.update_onchain_nonces()?;
 
         self.order_consumer
