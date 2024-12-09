@@ -19,6 +19,7 @@ use reth::{
     revm::cached::CachedReads,
 };
 use reth_db::Database;
+use reth_errors::ProviderError;
 use reth_provider::{DatabaseProviderFactory, StateProviderFactory};
 use std::{fmt::Debug, marker::PhantomData, sync::Arc};
 use tokio::sync::{broadcast, broadcast::error::TryRecvError};
@@ -144,7 +145,9 @@ where
         if !self.order_consumer.consume_next_commands()? {
             return Ok(false);
         }
-        self.update_onchain_nonces()?;
+        if !self.update_onchain_nonces()? {
+            return Ok(false);
+        }
 
         self.order_consumer
             .apply_new_commands(&mut self.block_orders);
@@ -161,7 +164,11 @@ where
                 SimulatedOrderCommand::Simulation(sim_order) => Some(sim_order),
                 SimulatedOrderCommand::Cancellation(_) => None,
             });
-        let nonce_db_ref = self.nonce_cache.get_ref()?;
+        let nonce_db_ref = match self.nonce_cache.get_ref() {
+            Ok(nonce_db_ref) => nonce_db_ref,
+            Err(ProviderError::BlockHashNotFound(_)) => return Ok(false), // This can happen on reorgs since the block is removed
+            Err(err) => return Err(err.into()),
+        };
         let mut nonces = Vec::new();
         for new_order in new_orders {
             for nonce in new_order.order.nonces() {
