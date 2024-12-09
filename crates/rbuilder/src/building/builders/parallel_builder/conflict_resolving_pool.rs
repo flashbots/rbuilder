@@ -131,8 +131,9 @@ where
             }
             Err(err) => {
                 warn!(
-                    "Error running conflict task for group_idx {}: {:?}",
-                    task_id, err
+                    group_id = task_id,
+                    err = ?err,
+                    "Error running conflict task for group_idx",
                 );
                 Err(err)
             }

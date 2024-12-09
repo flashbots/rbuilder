@@ -106,7 +106,7 @@ impl ConflictTaskGenerator {
             .cloned()
             .collect();
 
-        trace!("Removing subset groups: {:?}", subset_ids);
+        trace!(groups = ?subset_ids,"Removing subset groups");
         for id in subset_ids {
             self.existing_groups.remove(&id);
             self.cancel_tasks_for_group(id);
@@ -158,10 +158,12 @@ impl ConflictTaskGenerator {
             TaskPriority::High
         };
         trace!(
-            "Processing multi order group {group_id} with {} orders, {} profit with priority {:?}",
-            new_group.orders.len(),
-            format_ether(self.sum_top_n_profits(&new_group.orders, new_group.orders.len())),
-            priority.display()
+            group = group_id,
+            order_count = new_group.orders.len(),
+            profit =
+                format_ether(self.sum_top_n_profits(&new_group.orders, new_group.orders.len())),
+            priority = priority.display(),
+            "Processing multi order group"
         );
         if self.existing_groups.contains_key(&group_id) {
             self.update_tasks(group_id, new_group, priority);
@@ -186,8 +188,9 @@ impl ConflictTaskGenerator {
             .send((group_id, (sequence_of_orders, group.clone())))
         {
             warn!(
-                "Failed to send single order result for group {}: {:?}",
-                group_id, e
+                error = ?e,
+                group_id,
+                "Failed to send single order result for group",
             );
         }
     }
@@ -294,9 +297,9 @@ impl ConflictTaskGenerator {
         priority: TaskPriority,
     ) {
         trace!(
-            "Updating tasks for group {} with priority {:?}",
-            group_id,
-            priority.display()
+            group = group_id,
+            priority = priority.display(),
+            "Updating tasks",
         );
         // Cancel existing tasks for this grou
         self.cancel_tasks_for_group(group_id);
