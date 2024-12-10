@@ -26,7 +26,8 @@ use alloy_consensus::TxEnvelope;
 use alloy_eips::eip2718::Encodable2718;
 pub use noncer::{NonceCache, NonceCacheRef};
 pub use provider_factory_reopen::{
-    check_provider_factory_health, is_provider_factory_health_error, ProviderFactoryReopener,
+    check_block_hash_reader_health, is_provider_factory_health_error, HistoricalBlockError,
+    ProviderFactoryReopener,
 };
 use reth_chainspec::ChainSpec;
 use reth_evm_ethereum::revm_spec_by_timestamp_after_merge;

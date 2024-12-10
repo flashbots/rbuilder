@@ -22,6 +22,7 @@ use crate::{
     primitives::SimulatedOrder,
     roothash::RootHashConfig,
     telemetry,
+    utils::{check_block_hash_reader_health, HistoricalBlockError},
 };
 
 use super::Block;
@@ -125,6 +126,8 @@ pub enum BlockBuildingHelperError {
     FinalizeError(#[from] FinalizeError),
     #[error("Payout tx not allowed for block")]
     PayoutTxNotAllowed,
+    #[error("Provider historical block hashes error: {0}")]
+    HistoricalBlockError(#[from] HistoricalBlockError),
 }
 
 impl BlockBuildingHelperError {
@@ -174,6 +177,10 @@ where
     ) -> Result<Self, BlockBuildingHelperError> {
         // @Maybe an issue - we have 2 db txs here (one for hash and one for finalize)
         let state_provider = provider.history_by_block_hash(building_ctx.attributes.parent)?;
+
+        let last_committed_block = building_ctx.block() - 1;
+        check_block_hash_reader_health(last_committed_block, &state_provider)?;
+
         let fee_recipient_balance_start = state_provider
             .account_balance(building_ctx.attributes.suggested_fee_recipient)?
             .unwrap_or_default();
@@ -196,6 +203,7 @@ where
             partial_block.reserve_gas(payout_tx_gas);
             Some(payout_tx_gas)
         };
+
         Ok(Self {
             _fee_recipient_balance_start: fee_recipient_balance_start,
             block_state,
