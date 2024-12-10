@@ -10,7 +10,7 @@ use reth_provider::{BlockReader, DatabaseProviderFactory, StateProviderFactory};
 use std::{marker::PhantomData, sync::Arc, time::Instant};
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
-use tracing::{info_span, trace, warn};
+use tracing::{info_span, trace};
 
 use crate::{
     building::{
