@@ -434,8 +434,13 @@ pub enum RawTxWithBlobsConvertError {
     FailedToDecodeTransaction(Eip2718Error),
     #[error("Invalid transaction signature")]
     InvalidTransactionSignature,
-    #[error("Invalid transaction signature")]
+    #[error("UnexpectedError")]
     UnexpectedError,
+    /// This error is generated when we fail (like FailedToDecodeTransaction) parsing in TxEncoding::WithBlobData mode (Network encoding) but the header looks
+    /// like the beginning of an ethereum mainnet Canonical encoding 4484 tx.
+    /// To avoid consuming resources the generation of this error might not be perfect but helps 99% of the time.
+    #[error("Failed to decode transaction, error: {0}. It probably is a 4484 canonical tx.")]
+    FailedToDecodeTransactionProbablyIs4484Canonical(alloy_rlp::Error),
 }
 
 impl TransactionSignedEcRecoveredWithBlobs {
