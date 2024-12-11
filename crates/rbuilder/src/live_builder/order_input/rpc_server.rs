@@ -1,6 +1,6 @@
 use super::{OrderInputConfig, ReplaceableOrderPoolCommand};
 use crate::primitives::{
-    serialize::{RawBundle, RawShareBundle, RawShareBundleDecodeResult, RawTx, TxEncoding},
+    serialize::{RawBundle, RawBundleConvertError, RawShareBundle, RawShareBundleDecodeResult, RawTx, TxEncoding},
     Bundle, BundleReplacementKey, MempoolTx, Order,
 };
 use alloy_primitives::{Address, Bytes};
@@ -55,7 +55,13 @@ pub async fn start_server_accepting_bundles(
             let bundle: Bundle = match raw_bundle.try_into(TxEncoding::WithBlobData) {
                 Ok(bundle) => bundle,
                 Err(err) => {
-                    warn!(?err, "Failed to decode raw bundle");
+                    if let RawBundleConvertError::IncorrectReplacementData = err {
+                        let raw_input = params.as_str().unwrap_or("null");
+                        warn!(?err,raw_input, "Failed to decode raw bundle IncorrectReplacementData");
+                    } else {
+                        warn!(?err, "Failed to decode raw bundle");
+                    }
+        
                     // @Metric
                     return;
                 }
