@@ -15,9 +15,9 @@ use crate::{
     primitives::{AccountNonce, OrderId, SimulatedOrder},
 };
 use ahash::HashMap;
+use alloy_primitives::Address;
 use multi_share_bundle_merger::MultiShareBundleMerger;
 use reth_errors::ProviderResult;
-use reth_primitives::Address;
 use reth_provider::StateProviderBox;
 
 use prioritized_order_store::PrioritizedOrderStore;
@@ -161,7 +161,9 @@ impl BlockOrders {
         &mut self,
         orders: impl IntoIterator<Item = OrderId>,
     ) -> Vec<SimulatedOrder> {
-        self.input_order_store().remove_orders(orders)
+        self.prioritized_order_store
+            .borrow_mut()
+            .remove_orders(orders)
     }
 
     pub fn pop_order(&mut self) -> Option<SimulatedOrder> {

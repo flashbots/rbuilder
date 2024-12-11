@@ -6,10 +6,10 @@ use crate::{
     utils::{extract_onchain_block_txs, find_suggested_fee_recipient, signed_uint_delta},
 };
 use ahash::{HashMap, HashSet};
-use alloy_primitives::{B256, I256};
+use alloy_primitives::{TxHash, B256, I256};
 use eyre::Context;
 use reth_chainspec::ChainSpec;
-use reth_primitives::{Receipt, TransactionSignedEcRecovered, TxHash};
+use reth_primitives::{Receipt, TransactionSignedEcRecovered};
 use reth_provider::StateProviderFactory;
 use std::sync::Arc;
 

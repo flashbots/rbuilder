@@ -2,6 +2,7 @@ use super::DenebSubmitBlockRequest;
 use alloy_consensus::{Blob, Bytes48};
 use alloy_primitives::{Address, Bloom, Bytes, B256, U256};
 use alloy_rpc_types_beacon::{
+    events::PayloadAttributesData,
     relay::{BidTrace, SignedBidSubmissionV3},
     BlsPublicKey, BlsSignature,
 };
@@ -9,8 +10,7 @@ use alloy_rpc_types_engine::{
     BlobsBundleV1, ExecutionPayloadV1, ExecutionPayloadV2, ExecutionPayloadV3,
 };
 use alloy_rpc_types_eth::Withdrawal;
-use reth::rpc::types::{beacon::events::PayloadAttributesData, engine::PayloadAttributes};
-
+use reth::rpc::types::engine::PayloadAttributes;
 /// TestDataGenerator allows you to create unique test objects with unique content, it tries to use different numbers for every field it sets
 #[derive(Default)]
 pub struct TestDataGenerator {

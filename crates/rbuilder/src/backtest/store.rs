@@ -621,9 +621,8 @@ mod test {
             SimValue,
         },
     };
-    use alloy_primitives::{hex, Address, Bloom, Bytes, B256};
+    use alloy_primitives::{hex, Address, Bloom, Bytes, B256, U256, U64};
     use alloy_rpc_types::{Block, BlockTransactions, Header, Signature, Transaction};
-    use reth_primitives::{U256, U64};
     use time::OffsetDateTime;
     #[tokio::test]
     async fn test_create_tables() {
@@ -745,7 +744,7 @@ mod test {
             excess_blob_gas: None,
             parent_beacon_block_root: None,
             total_difficulty: None,
-            requests_root: None,
+            requests_hash: None,
         }
     }
 

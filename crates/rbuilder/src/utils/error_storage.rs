@@ -4,12 +4,9 @@
 
 use crossbeam_queue::ArrayQueue;
 use lazy_static::lazy_static;
+use parking_lot::Mutex;
 use sqlx::{sqlite::SqliteConnectOptions, ConnectOptions, Executor, SqliteConnection};
-use std::{
-    path::Path,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::{path::Path, sync::Arc, time::Duration};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info_span, warn};
 
@@ -36,7 +33,7 @@ lazy_static! {
 }
 
 fn event_queue() -> Option<Arc<ArrayQueue<ErrorEvent>>> {
-    EVENT_QUEUE.lock().unwrap().clone()
+    EVENT_QUEUE.lock().clone()
 }
 
 /// Spawn a new error storage writer.
@@ -46,7 +43,7 @@ pub async fn spawn_error_storage_writer(
     global_cancel: CancellationToken,
 ) -> eyre::Result<()> {
     let mut storage = ErrorEventStorage::new_from_path(db_path).await?;
-    *EVENT_QUEUE.lock().unwrap() = Some(Arc::new(ArrayQueue::new(MAX_PENDING_EVENTS)));
+    *EVENT_QUEUE.lock() = Some(Arc::new(ArrayQueue::new(MAX_PENDING_EVENTS)));
     tokio::spawn(async move {
         while !global_cancel.is_cancelled() {
             if let Some(event_queue) = event_queue() {

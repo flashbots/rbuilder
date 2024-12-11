@@ -1,0 +1,32 @@
+name: Docker Build
+
+on:
+  workflow_dispatch:
+  pull_request:
+  merge_group:
+  push:
+    branches: [develop]
+
+jobs:
+  build-docker:
+    name: Build Docker image
+    runs-on: warp-ubuntu-latest-x64-16x
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Docker QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Docker Build
+        uses: docker/build-push-action@v5
+        with:
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+          context: .
+          push: false

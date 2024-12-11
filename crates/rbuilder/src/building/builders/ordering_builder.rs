@@ -18,10 +18,9 @@ use crate::{
 };
 use ahash::{HashMap, HashSet};
 use alloy_primitives::Address;
-use reth::tasks::pool::BlockingTaskPool;
+use reth::revm::cached::CachedReads;
 use reth_db::database::Database;
-use reth_payload_builder::database::CachedReads;
-use reth_provider::{DatabaseProviderFactory, StateProviderFactory};
+use reth_provider::{BlockReader, DatabaseProviderFactory, StateProviderFactory};
 use serde::Deserialize;
 use std::{
     marker::PhantomData,
@@ -66,7 +65,10 @@ impl OrderingBuilderConfig {
 pub fn run_ordering_builder<P, DB>(input: LiveBuilderInput<P, DB>, config: &OrderingBuilderConfig)
 where
     DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB> + StateProviderFactory + Clone + 'static,
+    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
+        + StateProviderFactory
+        + Clone
+        + 'static,
 {
     let mut order_intake_consumer = OrderIntakeConsumer::new(
         input.provider.clone(),
@@ -78,7 +80,6 @@ where
 
     let mut builder = OrderingBuilderContext::new(
         input.provider.clone(),
-        input.root_hash_task_pool,
         input.builder_name,
         input.ctx,
         config.clone(),
@@ -137,7 +138,10 @@ pub fn backtest_simulate_block<P, DB>(
 ) -> eyre::Result<(Block, CachedReads)>
 where
     DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB> + StateProviderFactory + Clone + 'static,
+    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
+        + StateProviderFactory
+        + Clone
+        + 'static,
 {
     let use_suggested_fee_recipient_as_coinbase = ordering_config.coinbase_payment;
     let state_provider = input
@@ -151,7 +155,6 @@ where
     )?;
     let mut builder = OrderingBuilderContext::new(
         input.provider.clone(),
-        BlockingTaskPool::build()?,
         input.builder_name,
         input.ctx.clone(),
         ordering_config,
@@ -179,7 +182,6 @@ where
 #[derive(Debug)]
 pub struct OrderingBuilderContext<P, DB> {
     provider: P,
-    root_hash_task_pool: BlockingTaskPool,
     builder_name: String,
     ctx: BlockBuildingContext,
     config: OrderingBuilderConfig,
@@ -198,11 +200,13 @@ pub struct OrderingBuilderContext<P, DB> {
 impl<P, DB> OrderingBuilderContext<P, DB>
 where
     DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB> + StateProviderFactory + Clone + 'static,
+    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
+        + StateProviderFactory
+        + Clone
+        + 'static,
 {
     pub fn new(
         provider: P,
-        root_hash_task_pool: BlockingTaskPool,
         builder_name: String,
         ctx: BlockBuildingContext,
         config: OrderingBuilderConfig,
@@ -210,7 +214,6 @@ where
     ) -> Self {
         Self {
             provider,
-            root_hash_task_pool,
             builder_name,
             ctx,
             config,
@@ -258,7 +261,6 @@ where
 
         let mut block_building_helper = BlockBuildingHelperFromProvider::new(
             self.provider.clone(),
-            self.root_hash_task_pool.clone(),
             self.root_hash_config.clone(),
             new_ctx,
             self.cached_reads.take(),
@@ -344,7 +346,6 @@ where
 #[derive(Debug)]
 pub struct OrderingBuildingAlgorithm {
     root_hash_config: RootHashConfig,
-    root_hash_task_pool: BlockingTaskPool,
     sbundle_mergeabe_signers: Vec<Address>,
     config: OrderingBuilderConfig,
     name: String,
@@ -353,14 +354,12 @@ pub struct OrderingBuildingAlgorithm {
 impl OrderingBuildingAlgorithm {
     pub fn new(
         root_hash_config: RootHashConfig,
-        root_hash_task_pool: BlockingTaskPool,
         sbundle_mergeabe_signers: Vec<Address>,
         config: OrderingBuilderConfig,
         name: String,
     ) -> Self {
         Self {
             root_hash_config,
-            root_hash_task_pool,
             sbundle_mergeabe_signers,
             config,
             name,
@@ -371,7 +370,10 @@ impl OrderingBuildingAlgorithm {
 impl<P, DB> BlockBuildingAlgorithm<P, DB> for OrderingBuildingAlgorithm
 where
     DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB> + StateProviderFactory + Clone + 'static,
+    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
+        + StateProviderFactory
+        + Clone
+        + 'static,
 {
     fn name(&self) -> String {
         self.name.clone()
@@ -381,7 +383,6 @@ where
         let live_input = LiveBuilderInput {
             provider: input.provider,
             root_hash_config: self.root_hash_config.clone(),
-            root_hash_task_pool: self.root_hash_task_pool.clone(),
             ctx: input.ctx.clone(),
             input: input.input,
             sink: input.sink,

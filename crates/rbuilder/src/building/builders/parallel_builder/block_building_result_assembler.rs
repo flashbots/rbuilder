@@ -4,10 +4,9 @@ use super::{
 };
 use ahash::HashMap;
 use alloy_primitives::utils::format_ether;
-use reth::tasks::pool::BlockingTaskPool;
+use reth::revm::cached::CachedReads;
 use reth_db::Database;
-use reth_payload_builder::database::CachedReads;
-use reth_provider::{DatabaseProviderFactory, StateProviderFactory};
+use reth_provider::{BlockReader, DatabaseProviderFactory, StateProviderFactory};
 use std::{marker::PhantomData, sync::Arc, time::Instant};
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
@@ -27,7 +26,6 @@ use crate::{
 /// Assembles block building results from the best orderings of order groups.
 pub struct BlockBuildingResultAssembler<P, DB> {
     provider: P,
-    root_hash_task_pool: BlockingTaskPool,
     ctx: BlockBuildingContext,
     cancellation_token: CancellationToken,
     cached_reads: Option<CachedReads>,
@@ -46,7 +44,10 @@ pub struct BlockBuildingResultAssembler<P, DB> {
 impl<P, DB> BlockBuildingResultAssembler<P, DB>
 where
     DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB> + StateProviderFactory + Clone + 'static,
+    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
+        + StateProviderFactory
+        + Clone
+        + 'static,
 {
     /// Creates a new `BlockBuildingResultAssembler`.
     ///
@@ -62,7 +63,6 @@ where
         root_hash_config: RootHashConfig,
         best_results: Arc<BestResults>,
         provider: P,
-        root_hash_task_pool: BlockingTaskPool,
         ctx: BlockBuildingContext,
         cancellation_token: CancellationToken,
         builder_name: String,
@@ -71,7 +71,6 @@ where
     ) -> Self {
         Self {
             provider,
-            root_hash_task_pool,
             ctx,
             cancellation_token,
             cached_reads: None,
@@ -200,7 +199,6 @@ where
 
         let mut block_building_helper = BlockBuildingHelperFromProvider::new(
             self.provider.clone(),
-            self.root_hash_task_pool.clone(),
             self.root_hash_config.clone(),
             ctx,
             self.cached_reads.clone(),
@@ -269,7 +267,6 @@ where
     ) -> eyre::Result<Box<dyn BlockBuildingHelper>> {
         let mut block_building_helper = BlockBuildingHelperFromProvider::new(
             self.provider.clone(),
-            self.root_hash_task_pool.clone(),
             self.root_hash_config.clone(), // Adjust as needed for backtest
             self.ctx.clone(),
             None, // No cached reads for backtest start

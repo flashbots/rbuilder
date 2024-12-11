@@ -11,7 +11,7 @@ use alloy_primitives::utils::format_ether;
 use clap::Parser;
 use csv_output::{CSVOutputRow, CSVResultWriter};
 use reth_db::Database;
-use reth_provider::{DatabaseProviderFactory, HeaderProvider, StateProviderFactory};
+use reth_provider::{BlockReader, DatabaseProviderFactory, HeaderProvider, StateProviderFactory};
 use std::{io, path::PathBuf};
 use tracing::info;
 
@@ -117,7 +117,11 @@ fn process_redisribution<P, DB, ConfigType>(
 ) -> eyre::Result<()>
 where
     DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB> + StateProviderFactory + HeaderProvider + Clone + 'static,
+    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
+        + StateProviderFactory
+        + HeaderProvider
+        + Clone
+        + 'static,
     ConfigType: LiveBuilderConfig,
 {
     let block_number = block_data.block_number;

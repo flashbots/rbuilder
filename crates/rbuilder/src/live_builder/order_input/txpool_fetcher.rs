@@ -157,13 +157,15 @@ mod test {
         let gas_price = provider.get_gas_price().await.unwrap();
         let eip1559_est = provider.estimate_eip1559_fees(None).await.unwrap();
 
-        let tx = TransactionRequest::default()
-            .with_to(alice)
-            .with_nonce(0)
-            .with_max_fee_per_blob_gas(gas_price)
-            .with_max_fee_per_gas(eip1559_est.max_fee_per_gas)
-            .with_max_priority_fee_per_gas(eip1559_est.max_priority_fee_per_gas)
-            .with_blob_sidecar(sidecar);
+        let tx = TransactionRequest {
+            max_fee_per_blob_gas: Some(gas_price),
+            sidecar: Some(sidecar),
+            ..TransactionRequest::default()
+                .with_to(alice)
+                .with_nonce(0)
+                .with_max_fee_per_gas(eip1559_est.max_fee_per_gas)
+                .with_max_priority_fee_per_gas(eip1559_est.max_priority_fee_per_gas)
+        };
 
         let pending_tx = provider.send_transaction(tx).await.unwrap();
         let recv_tx = receiver.recv().await.unwrap();

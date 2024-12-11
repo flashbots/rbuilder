@@ -12,10 +12,11 @@ use alloy_primitives::{Address, B256};
 use eyre::{eyre, Context};
 use jsonrpsee::RpcModule;
 use lazy_static::lazy_static;
-use reth::tasks::pool::BlockingTaskPool;
+use reth::chainspec::chain_value_parser;
 use reth_chainspec::ChainSpec;
 use reth_db::{Database, DatabaseEnv};
-use reth_node_core::args::utils::chain_value_parser;
+use reth_node_api::NodeTypesWithDBAdapter;
+use reth_node_ethereum::EthereumNode;
 use reth_primitives::StaticFileSegment;
 use reth_provider::{
     DatabaseProviderFactory, HeaderProvider, StateProviderFactory, StaticFileProviderFactory,
@@ -88,9 +89,8 @@ pub struct BaseConfig {
     pub root_hash_use_sparse_trie: bool,
     /// compares result of root hash using sparse trie and reference root hash
     pub root_hash_compare_sparse_trie: bool,
-    pub root_hash_task_pool_threads: usize,
 
-    pub watchdog_timeout_sec: u64,
+    pub watchdog_timeout_sec: Option<u64>,
 
     /// List of `builders` to be used for live building
     pub live_builders: Vec<String>,
@@ -175,7 +175,7 @@ impl BaseConfig {
         slot_source: SlotSourceType,
     ) -> eyre::Result<
         super::LiveBuilder<
-            ProviderFactoryReopener<Arc<DatabaseEnv>>,
+            ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>,
             Arc<DatabaseEnv>,
             SlotSourceType,
         >,
@@ -184,7 +184,7 @@ impl BaseConfig {
         SlotSourceType: SlotSource,
     {
         let provider_factory = self.create_provider_factory()?;
-        self.create_builder_with_provider_factory::<ProviderFactoryReopener<Arc<DatabaseEnv>>, Arc<DatabaseEnv>, SlotSourceType>(
+        self.create_builder_with_provider_factory::<ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>, Arc<DatabaseEnv>, SlotSourceType>(
             cancellation_token,
             sink_factory,
             slot_source,
@@ -203,7 +203,7 @@ impl BaseConfig {
     ) -> eyre::Result<super::LiveBuilder<P, DB, SlotSourceType>>
     where
         DB: Database + Clone + 'static,
-        P: DatabaseProviderFactory<DB> + StateProviderFactory + HeaderProvider + Clone,
+        P: DatabaseProviderFactory<DB = DB> + StateProviderFactory + HeaderProvider + Clone,
         SlotSourceType: SlotSource,
     {
         let order_input_config = OrderInputConfig::from_config(self)?;
@@ -262,7 +262,8 @@ impl BaseConfig {
     /// Open reth db and DB should be opened once per process but it can be cloned and moved to different threads.
     pub fn create_provider_factory(
         &self,
-    ) -> eyre::Result<ProviderFactoryReopener<Arc<DatabaseEnv>>> {
+    ) -> eyre::Result<ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>>
+    {
         create_provider_factory(
             self.reth_datadir.as_deref(),
             self.reth_db_path.as_deref(),
@@ -270,15 +271,6 @@ impl BaseConfig {
             self.chain_spec()?,
             false,
         )
-    }
-
-    /// Creates threadpool for root hash calculation, should be created once per process.
-    pub fn root_hash_task_pool(&self) -> eyre::Result<BlockingTaskPool> {
-        Ok(BlockingTaskPool::new(
-            BlockingTaskPool::builder()
-                .num_threads(self.root_hash_task_pool_threads)
-                .build()?,
-        ))
     }
 
     pub fn live_root_hash_config(&self) -> eyre::Result<RootHashConfig> {
@@ -329,8 +321,12 @@ impl BaseConfig {
         Ok(http_provider(self.backtest_fetch_eth_rpc_url.parse()?))
     }
 
-    pub fn watchdog_timeout(&self) -> Duration {
-        Duration::from_secs(self.watchdog_timeout_sec)
+    pub fn watchdog_timeout(&self) -> Option<Duration> {
+        match self.watchdog_timeout_sec {
+            Some(0) => None,
+            Some(sec) => Some(Duration::from_secs(sec)),
+            None => None,
+        }
     }
 
     pub fn backtest_fetch_mempool_data_dir(&self) -> eyre::Result<PathBuf> {
@@ -444,10 +440,9 @@ impl Default for BaseConfig {
             reth_static_files_path: None,
             blocklist_file_path: None,
             extra_data: "extra_data_change_me".to_string(),
-            root_hash_task_pool_threads: 1,
             root_hash_use_sparse_trie: false,
             root_hash_compare_sparse_trie: false,
-            watchdog_timeout_sec: 60 * 3,
+            watchdog_timeout_sec: None,
             backtest_fetch_mempool_data_dir: "/mnt/data/mempool".into(),
             backtest_fetch_eth_rpc_url: "http://127.0.0.1:8545".to_string(),
             backtest_fetch_eth_rpc_parallel: 1,
@@ -469,7 +464,7 @@ pub fn create_provider_factory(
     reth_static_files_path: Option<&Path>,
     chain_spec: Arc<ChainSpec>,
     rw: bool,
-) -> eyre::Result<ProviderFactoryReopener<Arc<DatabaseEnv>>> {
+) -> eyre::Result<ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>> {
     // shellexpand the reth datadir
     let reth_datadir = if let Some(reth_datadir) = reth_datadir {
         let reth_datadir = reth_datadir
@@ -560,13 +555,13 @@ mod test {
         let data_dir = MaybePlatformPath::<DataDirPath>::from(tempdir.into_path());
         let data_dir = data_dir.unwrap_or_chain_default(Chain::mainnet(), DatadirArgs::default());
 
-        let db = init_db(data_dir.data_dir(), Default::default()).unwrap();
-        let provider_factory = ProviderFactory::new(
+        let db = Arc::new(init_db(data_dir.data_dir(), Default::default()).unwrap());
+        let provider_factory = ProviderFactory::<NodeTypesWithDBAdapter<EthereumNode, _>>::new(
             db,
             SEPOLIA.clone(),
             StaticFileProvider::read_write(data_dir.static_files().as_path()).unwrap(),
         );
-        init_genesis(provider_factory).unwrap();
+        init_genesis(&provider_factory).unwrap();
 
         // Create longer-lived PathBuf values
         let data_dir_path = data_dir.data_dir();

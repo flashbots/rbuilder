@@ -4,8 +4,7 @@ use crate::{
 };
 use alloy_primitives::U256;
 use reth_provider::{HeaderProvider, StateProviderFactory};
-use std::fmt::Debug;
-use std::sync::Arc;
+use std::{fmt::Debug, sync::Arc};
 use tracing::error;
 
 use super::{

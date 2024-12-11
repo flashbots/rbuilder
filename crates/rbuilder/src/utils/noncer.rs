@@ -1,9 +1,10 @@
 use ahash::HashMap;
 use alloy_primitives::{Address, B256};
+use parking_lot::Mutex;
 use reth::providers::StateProviderBox;
 use reth_errors::ProviderResult;
 use reth_provider::StateProviderFactory;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// Struct to get nonces for Addresses, caching the results.
 /// NonceCache contains the data (but doesn't allow you to query it) and NonceCacheRef is a reference that allows you to query it.
@@ -48,7 +49,7 @@ pub struct NonceCacheRef {
 
 impl NonceCacheRef {
     pub fn nonce(&self, address: Address) -> ProviderResult<u64> {
-        let mut cache = self.cache.lock().unwrap();
+        let mut cache = self.cache.lock();
         if let Some(nonce) = cache.get(&address) {
             return Ok(*nonce);
         }

@@ -1,6 +1,4 @@
-use crate::utils::hash_map_with_capacity;
-use crate::utils::HashMap;
-use crate::utils::HashSet;
+use crate::utils::{hash_map_with_capacity, HashMap, HashSet};
 use alloy_primitives::Bytes;
 use alloy_rlp::Decodable;
 use alloy_trie::nodes::{
@@ -11,16 +9,13 @@ use reth_trie::Nibbles;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, Seq};
 use smallvec::SmallVec;
-use std::cmp::max;
-use std::sync::Arc;
+use std::{cmp::max, sync::Arc};
 
 use crate::utils::strip_first_nibble_mut;
 
-use super::get_new_ptr;
-use super::NodeCursor;
 use super::{
-    DiffBranchNode, DiffChildPtr, DiffExtensionNode, DiffLeafNode, DiffTrie, DiffTrieNode,
-    DiffTrieNodeKind,
+    get_new_ptr, DiffBranchNode, DiffChildPtr, DiffExtensionNode, DiffLeafNode, DiffTrie,
+    DiffTrieNode, DiffTrieNodeKind, NodeCursor,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,7 +106,8 @@ impl From<AlloyBranchNode> for FixedBranchNode {
                 let rlp_data = stack_iter
                     .next()
                     .expect("stack must be the same size as mask");
-                children[index as usize] = Some(rlp_data.into());
+                // @Pending: Eval replacing Bytes for ArrayVec to avoid the copy or dig deeper into low-level.
+                children[index as usize] = Some(Bytes::copy_from_slice(rlp_data.as_ref()));
                 child_mask |= 1 << index
             }
         }
@@ -132,7 +128,7 @@ impl From<AlloyExtensionNode> for FixedExtensionNode {
     fn from(alloy_extension_node: AlloyExtensionNode) -> Self {
         Self {
             key: alloy_extension_node.key,
-            child: alloy_extension_node.child.into(),
+            child: Bytes::copy_from_slice(alloy_extension_node.child.as_ref()),
         }
     }
 }
@@ -234,6 +230,7 @@ impl FixedTrie {
                     child_ptr: None,
                 },
                 AlloyTrieNode::Leaf(node) => FixedTrieNode::Leaf(Arc::new(node.into())),
+                AlloyTrieNode::EmptyRoot => FixedTrieNode::Null,
             };
 
             // here we find parent to link with this new node

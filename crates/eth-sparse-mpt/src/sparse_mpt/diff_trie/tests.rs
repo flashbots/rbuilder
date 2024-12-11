@@ -1,13 +1,12 @@
 use super::*;
-use crate::sparse_mpt::*;
-use crate::utils::reference_trie_hash;
-use crate::utils::HashSet;
-use crate::utils::StoredFailureCase;
+use crate::{
+    sparse_mpt::*,
+    utils::{reference_trie_hash, HashSet, StoredFailureCase},
+};
 use alloy_primitives::{Bytes, B256};
 use eyre::Context;
 use proptest::prelude::*;
-use rand::seq::SliceRandom;
-use rand::SeedableRng;
+use rand::{seq::SliceRandom, SeedableRng};
 
 fn convert_input_to_bytes(input: &[(Vec<u8>, Vec<u8>)]) -> Vec<(Bytes, Bytes)> {
     input

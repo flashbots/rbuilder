@@ -31,9 +31,8 @@ use payload_events::MevBoostSlotData;
 use reth::{primitives::Header, providers::HeaderProvider};
 use reth_chainspec::ChainSpec;
 use reth_db::Database;
-use reth_provider::{DatabaseProviderFactory, StateProviderFactory};
-use std::fmt::Debug;
-use std::{cmp::min, path::PathBuf, sync::Arc, time::Duration};
+use reth_provider::{BlockReader, DatabaseProviderFactory, StateProviderFactory};
+use std::{cmp::min, fmt::Debug, path::PathBuf, sync::Arc, time::Duration};
 use time::OffsetDateTime;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -88,7 +87,7 @@ where
     P: StateProviderFactory + Clone,
     BlocksSourceType: SlotSource,
 {
-    pub watchdog_timeout: Duration,
+    pub watchdog_timeout: Option<Duration>,
     pub error_storage_path: Option<PathBuf>,
     pub simulation_threads: usize,
     pub order_input_config: OrderInputConfig,
@@ -116,7 +115,11 @@ where
 impl<P, DB, BlocksSourceType: SlotSource> LiveBuilder<P, DB, BlocksSourceType>
 where
     DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB> + StateProviderFactory + HeaderProvider + Clone + 'static,
+    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
+        + StateProviderFactory
+        + HeaderProvider
+        + Clone
+        + 'static,
     BlocksSourceType: SlotSource,
 {
     pub fn with_extra_rpc(self, extra_rpc: RpcModule<()>) -> Self {
@@ -175,7 +178,13 @@ where
             self.run_sparse_trie_prefetcher,
         );
 
-        let watchdog_sender = spawn_watchdog_thread(self.watchdog_timeout)?;
+        let watchdog_sender = match self.watchdog_timeout {
+            Some(duration) => Some(spawn_watchdog_thread(duration)?),
+            None => {
+                info!("Watchdog not enabled");
+                None
+            }
+        };
 
         while let Some(payload) = payload_events_channel.recv().await {
             if self.blocklist.contains(&payload.fee_recipient()) {
@@ -227,7 +236,7 @@ where
 
             inc_active_slots();
 
-            let block_ctx = BlockBuildingContext::from_attributes(
+            if let Some(block_ctx) = BlockBuildingContext::from_attributes(
                 payload.payload_attributes_event.clone(),
                 &parent_header,
                 self.coinbase_signer.clone(),
@@ -236,16 +245,18 @@ where
                 Some(payload.suggested_gas_limit),
                 self.extra_data.clone(),
                 None,
-            );
+            ) {
+                builder_pool.start_block_building(
+                    payload,
+                    block_ctx,
+                    self.global_cancellation.clone(),
+                    time_until_slot_end.try_into().unwrap_or_default(),
+                );
 
-            builder_pool.start_block_building(
-                payload,
-                block_ctx,
-                self.global_cancellation.clone(),
-                time_until_slot_end.try_into().unwrap_or_default(),
-            );
-
-            watchdog_sender.try_send(()).unwrap_or_default();
+                if let Some(watchdog_sender) = watchdog_sender.as_ref() {
+                    watchdog_sender.try_send(()).unwrap_or_default();
+                };
+            }
         }
 
         info!("Builder shutting down");

@@ -4,10 +4,10 @@ use crate::{
 };
 use alloy_network::EthereumWallet;
 use alloy_primitives::{address, Address};
+use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
 use alloy_signer_local::PrivateKeySigner;
 use futures::StreamExt;
 use primitive_types::H384;
-use reth::rpc::types::beacon::events::PayloadAttributesEvent;
 use std::{
     fs::{File, OpenOptions},
     io,

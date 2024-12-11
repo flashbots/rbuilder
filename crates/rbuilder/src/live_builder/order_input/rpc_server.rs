@@ -3,9 +3,8 @@ use crate::primitives::{
     serialize::{RawBundle, RawShareBundle, RawShareBundleDecodeResult, RawTx, TxEncoding},
     Bundle, BundleReplacementKey, MempoolTx, Order,
 };
-use alloy_primitives::Address;
+use alloy_primitives::{Address, Bytes};
 use jsonrpsee::{server::Server, types::ErrorObject, RpcModule};
-use reth_primitives::Bytes;
 use serde::Deserialize;
 use std::{
     net::{SocketAddr, SocketAddrV4},

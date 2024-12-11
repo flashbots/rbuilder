@@ -1,4 +1,5 @@
-use std::sync::{Arc, Mutex};
+use parking_lot::Mutex;
+use std::sync::Arc;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 use tracing::error;
@@ -38,13 +39,13 @@ impl PendingBid {
     }
     /// Updates bid, replacing  on current (we assume they are always increasing but we don't check it).
     fn update(&self, bid: Bid) {
-        let mut current_bid = self.bid.lock().unwrap();
+        let mut current_bid = self.bid.lock();
         *current_bid = Some(bid);
         self.bid_notify.notify_one();
     }
 
     fn consume_bid(&self) -> Option<Bid> {
-        let mut current_bid = self.bid.lock().unwrap();
+        let mut current_bid = self.bid.lock();
         current_bid.take()
     }
 }
@@ -113,7 +114,7 @@ impl ParallelSealerBidMakerProcess {
 
     /// block.finalize_block + self.sink.new_block inside spawn_blocking.
     async fn check_for_new_bid(&mut self) {
-        if *self.seal_control.seals_in_progress.lock().unwrap() >= self.max_concurrent_seals {
+        if *self.seal_control.seals_in_progress.lock() >= self.max_concurrent_seals {
             return;
         }
         if let Some(bid) = self.pending_bid.consume_bid() {
@@ -121,7 +122,7 @@ impl ParallelSealerBidMakerProcess {
             let block = bid.block();
             let block_number = block.building_context().block();
             // Take sealing "slot"
-            *self.seal_control.seals_in_progress.lock().unwrap() += 1;
+            *self.seal_control.seals_in_progress.lock() += 1;
             let seal_control = self.seal_control.clone();
             let sink = self.sink.clone();
             tokio::task::spawn_blocking(move || {
@@ -134,7 +135,7 @@ impl ParallelSealerBidMakerProcess {
                     ),
                 };
                 // release sealing "slot"
-                *seal_control.seals_in_progress.lock().unwrap() -= 1;
+                *seal_control.seals_in_progress.lock() -= 1;
                 seal_control.notify.notify_one();
             });
         }

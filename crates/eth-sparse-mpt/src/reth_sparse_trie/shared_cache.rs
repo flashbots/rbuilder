@@ -1,10 +1,10 @@
 use std::sync::{Arc, RwLock};
 
-use super::change_set::ETHTrieChangeSet;
-use super::hash::EthSparseTries;
-use super::trie_fetcher::MultiProof;
-use crate::sparse_mpt::{AddNodeError, FixedTrie};
-use crate::utils::HashMap;
+use super::{change_set::ETHTrieChangeSet, hash::EthSparseTries, trie_fetcher::MultiProof};
+use crate::{
+    sparse_mpt::{AddNodeError, FixedTrie},
+    utils::HashMap,
+};
 use alloy_primitives::Bytes;
 use alloy_trie::Nibbles;
 

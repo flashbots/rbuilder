@@ -1,23 +1,19 @@
 use ahash::HashSet;
-use alloy_primitives::{keccak256, utils::parse_ether, Address, BlockHash, Bytes, B256, U256};
+use alloy_consensus::TxEip1559;
+use alloy_primitives::{
+    keccak256, utils::parse_ether, Address, BlockHash, Bytes, TxKind as TransactionKind, B256, B64,
+    U256,
+};
+use alloy_rpc_types_beacon::events::{PayloadAttributesData, PayloadAttributesEvent};
 use lazy_static::lazy_static;
 use reth::{
-    primitives::{
-        Account, BlockBody, Bytecode, Header, SealedBlock, TransactionSignedEcRecovered, TxEip1559,
-        TxKind as TransactionKind,
-    },
+    primitives::{Account, BlockBody, Bytecode, Header, SealedBlock, TransactionSignedEcRecovered},
     providers::ProviderFactory,
-    rpc::types::{
-        beacon::events::{PayloadAttributesData, PayloadAttributesEvent},
-        engine::PayloadAttributes,
-        Withdrawal,
-    },
+    rpc::types::{engine::PayloadAttributes, Withdrawal},
 };
 use reth_chainspec::{ChainSpec, MAINNET};
-use reth_db::{
-    cursor::DbCursorRW, tables, test_utils::TempDatabase, transaction::DbTxMut, DatabaseEnv,
-};
-use reth_provider::test_utils::create_test_provider_factory;
+use reth_db::{cursor::DbCursorRW, tables, transaction::DbTxMut};
+use reth_provider::test_utils::{create_test_provider_factory, MockNodeTypesWithDB};
 use revm_primitives::SpecId;
 use std::sync::Arc;
 
@@ -71,7 +67,7 @@ pub struct TestChainState {
     dummy_test_address: Address, //NamedAddr::Dummy
     blocklisted_address: Signer, //NamedAddr::BlockedAddress
     chain_spec: Arc<ChainSpec>,
-    provider_factory: ProviderFactory<Arc<TempDatabase<DatabaseEnv>>>,
+    provider_factory: ProviderFactory<MockNodeTypesWithDB>,
     block_building_context: BlockBuildingContext,
 }
 impl TestChainState {
@@ -218,7 +214,7 @@ impl TestChainState {
         &self.block_building_context
     }
 
-    pub fn provider_factory(&self) -> &ProviderFactory<Arc<TempDatabase<DatabaseEnv>>> {
+    pub fn provider_factory(&self) -> &ProviderFactory<MockNodeTypesWithDB> {
         &self.provider_factory
     }
 }
@@ -305,13 +301,13 @@ impl TestBlockContextBuilder {
                 gas_used: self.parent_gas_used,
                 timestamp: self.parent_timestamp,
                 mix_hash: Default::default(),
-                nonce: 0,
+                nonce: B64::ZERO,
                 base_fee_per_gas: Some(self.parent_base_fee_per_gas),
                 blob_gas_used: None,
                 excess_blob_gas: None,
                 parent_beacon_block_root: None,
                 extra_data: Default::default(),
-                requests_root: Default::default(),
+                requests_hash: Default::default(),
             },
             self.builder_signer.clone(),
             self.chain_spec,
@@ -319,7 +315,8 @@ impl TestBlockContextBuilder {
             self.prefer_gas_limit,
             vec![],
             Some(SpecId::SHANGHAI),
-        );
+        )
+        .unwrap();
         if self.use_suggested_fee_recipient_as_coinbase {
             res.modify_use_suggested_fee_recipient_as_coinbase();
         }

@@ -1,13 +1,10 @@
 use alloy_primitives::{Address, B256};
-use change_set::prepare_change_set;
-use change_set::prepare_change_set_for_prefetch;
+use change_set::{prepare_change_set, prepare_change_set_for_prefetch};
 use hash::RootHashError;
-use reth_db_api::database::Database;
-use reth_provider::providers::ConsistentDbView;
-use reth_provider::DatabaseProviderFactory;
-use reth_provider::ExecutionOutcome;
-use std::time::Duration;
-use std::time::Instant;
+use reth_provider::{
+    providers::ConsistentDbView, BlockReader, DatabaseProviderFactory, ExecutionOutcome,
+};
+use std::time::{Duration, Instant};
 
 pub mod change_set;
 pub mod hash;
@@ -65,14 +62,13 @@ impl ChangedAccountData {
 }
 
 /// Prefetches data
-pub fn prefetch_tries_for_accounts<'a, DB, Provider>(
-    consistent_db_view: ConsistentDbView<DB, Provider>,
+pub fn prefetch_tries_for_accounts<'a, Provider>(
+    consistent_db_view: ConsistentDbView<Provider>,
     shared_cache: SparseTrieSharedCache,
     changed_data: impl Iterator<Item = &'a ChangedAccountData>,
 ) -> Result<(), SparseTrieError>
 where
-    DB: Database,
-    Provider: DatabaseProviderFactory<DB> + Send + Sync,
+    Provider: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync,
 {
     let change_set = prepare_change_set_for_prefetch(changed_data);
 
@@ -95,14 +91,13 @@ where
 /// Calculate root hash for the given outcome on top of the block defined by consistent_db_view.
 /// * shared_cache should be created once for each parent block and it stores fethed parts of the trie
 /// * It uses rayon for parallelism and the thread pool should be configured from outside.
-pub fn calculate_root_hash_with_sparse_trie<DB, Provider>(
-    consistent_db_view: ConsistentDbView<DB, Provider>,
+pub fn calculate_root_hash_with_sparse_trie<Provider>(
+    consistent_db_view: ConsistentDbView<Provider>,
     outcome: &ExecutionOutcome,
     shared_cache: SparseTrieSharedCache,
 ) -> (Result<B256, SparseTrieError>, SparseTrieMetrics)
 where
-    DB: Database,
-    Provider: DatabaseProviderFactory<DB> + Send + Sync,
+    Provider: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync,
 {
     let mut metrics = SparseTrieMetrics::default();
 

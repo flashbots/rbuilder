@@ -1,7 +1,7 @@
 use std::{cell::RefCell, rc::Rc};
 
 use ahash::HashMap;
-use reth_primitives::Address;
+use alloy_primitives::Address;
 use tracing::error;
 
 use crate::primitives::OrderId;
@@ -102,8 +102,8 @@ mod test {
 
     use super::MultiShareBundleMerger;
 
+    use alloy_primitives::Address;
     use lazy_static::lazy_static;
-    use reth_primitives::Address;
     lazy_static! {
         static ref SIGNER_1: Address = Address::random();
         static ref SIGNER_2: Address = Address::random();

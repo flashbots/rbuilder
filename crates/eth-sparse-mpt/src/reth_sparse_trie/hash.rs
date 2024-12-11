@@ -1,6 +1,8 @@
 use super::change_set::ETHTrieChangeSet;
-use crate::sparse_mpt::{DeletionError, DiffTrie, ErrSparseNodeNotFound};
-use crate::utils::HashMap;
+use crate::{
+    sparse_mpt::{DeletionError, DiffTrie, ErrSparseNodeNotFound},
+    utils::HashMap,
+};
 use alloy_primitives::{Bytes, B256};
 use alloy_rlp::Encodable;
 use rayon::prelude::*;

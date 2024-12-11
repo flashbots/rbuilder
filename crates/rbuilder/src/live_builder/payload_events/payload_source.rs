@@ -1,6 +1,6 @@
 use crate::beacon_api_client::{Client, PayloadAttributesTopic};
+use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
 use futures::future::join_all;
-use reth::rpc::types::beacon::events::PayloadAttributesEvent;
 
 use tokio::{
     sync::mpsc::{self, UnboundedSender},

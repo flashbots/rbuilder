@@ -4,9 +4,8 @@ use crate::{
     building::builders::{block_building_helper::BlockBuildingHelper, UnfinishedBlockBuildingSink},
     live_builder::block_output::bid_value_source::interfaces::BidValueObs,
 };
-use alloy_primitives::U256;
+use alloy_primitives::{BlockNumber, U256};
 use mockall::automock;
-use reth_primitives::BlockNumber;
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
 

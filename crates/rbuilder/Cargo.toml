@@ -33,6 +33,7 @@ reth-evm-ethereum.workspace = true
 revm.workspace = true
 revm-primitives.workspace = true
 revm-inspectors.workspace = true
+reth-node-ethereum.workspace = true
 
 alloy-primitives.workspace = true
 alloy-rlp.workspace = true
@@ -123,7 +124,7 @@ derivative = "2.2.0"
 mockall = "0.12.1"
 shellexpand = "3.1.0"
 async-trait = "0.1.80"
-
+foldhash = "0.1.3"
 eth-sparse-mpt.workspace = true
 crossbeam = "0.8.4"
 parking_lot = "0.12.3"
@@ -138,12 +139,10 @@ criterion = { version = "0.5.1", features = ["html_reports", "async_tokio"] }
 
 [features]
 optimism = [
-	"reth-chainspec/optimism",
-	"reth-provider/optimism",
-	"reth/optimism",
 	"reth-db/optimism",
 	"reth-node-core/optimism",
 	"reth-primitives/optimism",
+	"reth-provider/optimism",
 	"revm-primitives/optimism",
 	"revm/optimism"
 ]

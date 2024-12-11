@@ -14,7 +14,7 @@ pub fn write_share_bundle_tx<Buffer: Write>(
         "TX {} Rev  {:?} val {}\n",
         tx.tx.hash(),
         tx.revert_behavior,
-        tx.tx.tx.value()
+        tx.tx.value()
     ))
 }
 
@@ -45,7 +45,7 @@ pub fn write_order<Buffer: Write>(
         Order::Tx(tx) => buf.write_str(&format!(
             "Tx {} val {}\n",
             tx.tx_with_blobs.hash(),
-            tx.tx_with_blobs.tx.value()
+            tx.tx_with_blobs.value()
         )),
         Order::ShareBundle(sb) => {
             buf.write_str(&format!("ShB {:?}\n", sb.hash))?;

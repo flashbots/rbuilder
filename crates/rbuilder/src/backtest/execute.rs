@@ -10,10 +10,10 @@ use crate::{
 };
 use ahash::HashSet;
 use alloy_primitives::{Address, U256};
+use reth::revm::cached::CachedReads;
 use reth_chainspec::ChainSpec;
 use reth_db::Database;
-use reth_payload_builder::database::CachedReads;
-use reth_provider::{DatabaseProviderFactory, HeaderProvider, StateProviderFactory};
+use reth_provider::{BlockReader, DatabaseProviderFactory, HeaderProvider, StateProviderFactory};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -109,7 +109,11 @@ pub fn backtest_simulate_block<P, DB, ConfigType>(
 ) -> eyre::Result<BlockBacktestValue>
 where
     DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB> + StateProviderFactory + HeaderProvider + Clone + 'static,
+    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
+        + StateProviderFactory
+        + HeaderProvider
+        + Clone
+        + 'static,
     ConfigType: LiveBuilderConfig,
 {
     let BacktestBlockInput {

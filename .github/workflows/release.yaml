@@ -6,27 +6,31 @@ on:
       - "v*"
   workflow_dispatch:
     inputs:
-      build-docker:
-        description: "Build Docker"
-        required: false
-        type: boolean
-        default: false
-      build-binary:
-        description: "Build Binary"
-        required: false
-        type: boolean
-        default: true
       draft-release:
+        default: false
         description: "Draft Release"
         required: false
         type: boolean
+      build-docker:
         default: false
+        description: "Build Docker"
+        required: false
+        type: boolean
+      build-binary:
+        default: true
+        description: "Build Binary"
+        required: false
+        type: boolean
+      features:
+        default: ''
+        description: "Binary Compilation Features"
+        options:
+          - ''
+          - 'redact-sensitive'
+        required: false
+        type: choice
 
 jobs:
-  #
-  # extract-version extracts the version from the tag or the branch name,
-  # for reuse in later jobs
-  #
   extract-version:
     name: Extract version
     runs-on: warp-ubuntu-latest-x64-16x
@@ -39,14 +43,10 @@ jobs:
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             VERSION="${GITHUB_REF#refs/tags/}"
           else
-            SHA_SHORT="$(echo ${GITHUB_SHA} | cut -c1-7)"
-            BRANCH_NAME_SAFE="${GITHUB_REF_NAME//\//-}"  # replaces "/" in branch name with "-"
-            VERSION="${BRANCH_NAME_SAFE}-${SHA_SHORT}"
+            VERSION="$(echo ${GITHUB_SHA} | cut -c1-7)"
           fi
           echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
-          echo "${VERSION}"
 
-          echo "### Version: \`${VERSION}\`" >> $GITHUB_STEP_SUMMARY
           echo "|                     |                        |" >> $GITHUB_STEP_SUMMARY
           echo "| ------------------- | ---------------------- |" >> $GITHUB_STEP_SUMMARY
           echo "| \`GITHUB_REF_TYPE\` | \`${GITHUB_REF_TYPE}\` |" >> $GITHUB_STEP_SUMMARY
@@ -54,17 +54,15 @@ jobs:
           echo "| \`GITHUB_REF\`      | \`${GITHUB_REF}\`      |" >> $GITHUB_STEP_SUMMARY
           echo "| \`GITHUB_SHA\`      | \`${GITHUB_SHA}\`      |" >> $GITHUB_STEP_SUMMARY
           echo "| \`VERSION\`         | \`${VERSION}\`         |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`FEATURES\`        | \`${{ github.event.inputs.features || 'none' }}\` |" >> $GITHUB_STEP_SUMMARY
 
-  #
-  # build-binary builds a release binary for a variety of platforms
-  #
   build-binary:
     name: Build binary
     needs: extract-version
     if: ${{ github.event.inputs.build-binary == 'true' || github.event_name == 'push'}} # when manually triggered or version tagged
     runs-on: ${{ matrix.configs.runner }}
-    env:
-      VERSION: ${{ needs.extract-version.outputs.VERSION }}
+    container:
+      image: ubuntu:22.04
     permissions:
       contents: write
       packages: write
@@ -75,68 +73,46 @@ jobs:
             runner: warp-ubuntu-latest-x64-16x
           - target: aarch64-unknown-linux-gnu
             runner: warp-ubuntu-latest-arm64-16x
-          - target: aarch64-apple-darwin
-            runner: warp-macos-14-arm64-6x
+          # Paused until docker is pre-installed https://github.com/actions/runner-images/blob/main/images/macos/macos-14-arm64-Readme.md
+          # - target: aarch64-apple-darwin
+          #   runner: warp-macos-14-arm64-6x
         features:
-          - ""
-          - "redact_sensitive"
+          - ${{ github.event.inputs.features || '' }}
 
     steps:
-      - name: Checkout sources
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # needed for built.rs to get GIT_HEAD_REF
-
-      # https://github.com/dtolnay/rust-toolchain
-      - name: Setup rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          target: ${{ matrix.configs.target }}
-
-      # https://github.com/WarpBuilds/rust-cache
-      - name: Run WarpBuilds/rust-cache
-        uses: WarpBuilds/rust-cache@v2
-        with:
-          cache-on-failure: true
-
-      # https://github.com/Mozilla-Actions/sccache-action
-      - name: Setup sccache-action
-        uses: mozilla-actions/sccache-action@v0.0.5
-
-      - name: Set env vars
+      - name: Install dependencies
         run: |
-          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+          apt-get update
+          apt-get install -y \
+            build-essential \
+            curl \
+            git \
+            libclang-dev \
+            libssl-dev \
+            pkg-config \
+            protobuf-compiler
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
-      - name: Prepare output filename
-        run: |
-          if [ -z "${{ matrix.features }}" ]; then
-            OUTPUT_FILENAME="rbuilder-${VERSION}-${{ matrix.configs.target }}.tar.gz"
-          else
-            OUTPUT_FILENAME="rbuilder-${VERSION}-${{ matrix.configs.target }}-${{ matrix.features }}.tar.gz"
-          fi
-          echo "OUTPUT_FILENAME=$OUTPUT_FILENAME" >> $GITHUB_ENV
-          echo "Filename: ${OUTPUT_FILENAME}"
+      - uses: actions/checkout@v4 # must install git before checkout and set safe.directory after checkout because of container
 
       - name: Build rbuilder binary
-        run: cargo build --release --features=${{ matrix.features }}
-
-      - name: Prepare artifacts
         run: |
-          mkdir -p artifacts
-          tar -czf "artifacts/${OUTPUT_FILENAME}" -C target/release rbuilder
+          git config --global --add safe.directory "$(pwd)"
+          . $HOME/.cargo/env
+          cargo build --release --features=${{ matrix.features }} --target ${{ matrix.configs.target }}
 
-      # https://github.com/actions/upload-artifact
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4.3.1
+      - name: Upload rbuilder artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.OUTPUT_FILENAME }}
-          path: artifacts/${{ env.OUTPUT_FILENAME }}
+          name: rbuilder-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
+          path: target/${{ matrix.configs.target }}/release/rbuilder
 
-  #
-  # draft-release runs after building for various targets, collects artifacts and prepares a draft release
-  # (only when running against a tag!)
-  #
+      - name: Upload reth-rbuilder artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: reth-rbuilder-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
+          path: target/${{ matrix.configs.target }}/release/reth-rbuilder
+
   draft-release:
     name: Draft release
     if: ${{ github.event.inputs.draft-release == 'true' || github.event_name == 'push'}} # when manually triggered or version tagged
@@ -150,7 +126,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # https://github.com/actions/download-artifact
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
@@ -164,7 +139,6 @@ jobs:
           for file in *; do sha256sum "$file" >> sha256sums.txt; done;
           cat sha256sums.txt
 
-      # https://github.com/softprops/action-gh-release
       - name: Create release draft
         uses: softprops/action-gh-release@v2.0.5
         id: create-release-draft
@@ -181,12 +155,6 @@ jobs:
           echo "### Release Draft: ${{ env.VERSION }}" >> $GITHUB_STEP_SUMMARY
           echo "${{ steps.create-release-draft.outputs.url }}" >> $GITHUB_STEP_SUMMARY
 
-  #
-  # build-docker builds a Docker image and pushes it to the GitHub Container Registry at ghcr.io
-  #
-  # See also
-  # - https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry
-  #
   build-docker:
     if: ${{ github.event.inputs.build-docker == 'true' }}
     name: Build and publish Docker image
@@ -208,7 +176,6 @@ jobs:
       - name: docker buildx
         uses: docker/setup-buildx-action@v3
 
-      # https://github.com/docker/metadata-action
       - name: docker metadata
         uses: docker/metadata-action@v5
         id: meta

@@ -3,8 +3,7 @@ use alloy_primitives::{Address, U256};
 use eyre::Result;
 use itertools::Itertools;
 use rand::{seq::SliceRandom, SeedableRng};
-use reth::providers::StateProvider;
-use reth_payload_builder::database::CachedReads;
+use reth::{providers::StateProvider, revm::cached::CachedReads};
 use reth_provider::StateProviderFactory;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
@@ -465,12 +464,10 @@ mod tests {
     use std::time::Instant;
 
     use ahash::HashSet;
-    use uuid::Uuid;
-
+    use alloy_consensus::TxLegacy;
     use alloy_primitives::{Address, TxHash, B256, U256};
-    use reth::primitives::{
-        Transaction, TransactionSigned, TransactionSignedEcRecovered, TxLegacy,
-    };
+    use reth::primitives::{Transaction, TransactionSigned, TransactionSignedEcRecovered};
+    use uuid::Uuid;
 
     use super::*;
     use crate::{

@@ -7,10 +7,11 @@ use crate::{
     telemetry,
     telemetry::add_sim_thread_utilisation_timings,
 };
-use reth_payload_builder::database::CachedReads;
+use parking_lot::Mutex;
+use reth::revm::cached::CachedReads;
 use reth_provider::StateProviderFactory;
 use std::{
-    sync::{Arc, Mutex},
+    sync::Arc,
     thread::sleep,
     time::{Duration, Instant},
 };
@@ -34,7 +35,7 @@ pub fn run_sim_worker<P>(
         }
         let current_sim_context = loop {
             let next_ctx = {
-                let ctxs = ctx.lock().unwrap();
+                let ctxs = ctx.lock();
                 ctxs.contexts.iter().next().map(|(_, c)| c.clone())
             };
             // @Perf chose random context so its more fair when we have 2 instead of 1

@@ -11,7 +11,7 @@ use crate::{
     roothash::run_trie_prefetcher,
 };
 use reth_db::Database;
-use reth_provider::{DatabaseProviderFactory, StateProviderFactory};
+use reth_provider::{BlockReader, DatabaseProviderFactory, StateProviderFactory};
 use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, trace};
@@ -38,7 +38,10 @@ pub struct BlockBuildingPool<P, DB> {
 impl<P, DB> BlockBuildingPool<P, DB>
 where
     DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB> + StateProviderFactory + Clone + 'static,
+    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
+        + StateProviderFactory
+        + Clone
+        + 'static,
 {
     pub fn new(
         provider: P,

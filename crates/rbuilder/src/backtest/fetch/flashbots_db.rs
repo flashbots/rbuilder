@@ -8,14 +8,13 @@ use crate::{
         Order, OrderId, SimValue,
     },
 };
-use alloy_primitives::I256;
+use alloy_primitives::{Bytes, B256, I256, U256, U64};
 use async_trait::async_trait;
 use bigdecimal::{
     num_bigint::{BigInt, Sign, ToBigInt},
     BigDecimal,
 };
 use eyre::WrapErr;
-use reth_primitives::{Bytes, B256, U256, U64};
 use sqlx::postgres::PgPool;
 use std::{collections::HashSet, ops::Mul, str::FromStr};
 use time::{OffsetDateTime, PrimitiveDateTime};

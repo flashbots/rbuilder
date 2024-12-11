@@ -1,5 +1,4 @@
-use crate::utils::{extract_prefix_and_suffix, strip_first_nibble_mut};
-use crate::utils::{rlp_pointer, HashMap};
+use crate::utils::{extract_prefix_and_suffix, rlp_pointer, strip_first_nibble_mut, HashMap};
 use alloy_primitives::{keccak256, Bytes, B256};
 use reth_trie::Nibbles;
 use serde::{Deserialize, Serialize};
@@ -329,7 +328,7 @@ impl DiffTrie {
                             let mut other_child_path = c.current_path.clone();
                             if let Some(l) = other_child_path.as_mut_vec_unchecked().last_mut() {
                                 *l = other_child_nibble;
-                            };
+                            }
                             return Err(DeletionError::NodeNotFound(ErrSparseNodeNotFound {
                                 path: other_child_path,
                                 ptr: u64::MAX,
@@ -651,21 +650,14 @@ impl DiffTrie {
                     }
                 }
             }
-
-            #[allow(clippy::while_let_loop)]
-            loop {
-                let wait = if let Some(w) = wait_stack.last() {
-                    if result_stack.len() < w.need_elements + w.stack_before {
-                        break;
-                    }
-                    wait_stack.pop().unwrap()
-                } else {
+            while let Some(w) = wait_stack.last() {
+                if result_stack.len() < w.need_elements + w.stack_before {
                     break;
-                };
+                }
+                let wait = wait_stack.pop().unwrap();
                 let node = try_get_node_mut(&mut self.nodes, wait.node, &empty_path)?;
                 let idx = result_stack.len() - wait.need_elements;
                 update_node_with_calculated_dirty_children(node, result_stack.drain(idx..).rev());
-
                 result_stack.push(node.rlp_pointer_slow());
             }
         }

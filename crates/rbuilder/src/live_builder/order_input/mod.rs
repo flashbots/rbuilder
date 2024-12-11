@@ -14,13 +14,9 @@ use self::{
 };
 use crate::primitives::{serialize::CancelShareBundle, BundleReplacementKey, Order};
 use jsonrpsee::RpcModule;
+use parking_lot::Mutex;
 use reth_provider::StateProviderFactory;
-use std::{
-    net::Ipv4Addr,
-    path::PathBuf,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::{net::Ipv4Addr, path::PathBuf, sync::Arc, time::Duration};
 use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, trace, warn};
@@ -39,14 +35,14 @@ impl OrderPoolSubscriber {
         block_number: u64,
         sink: Box<dyn ReplaceableOrderSink>,
     ) -> OrderPoolSubscriptionId {
-        self.orderpool.lock().unwrap().add_sink(block_number, sink)
+        self.orderpool.lock().add_sink(block_number, sink)
     }
 
     pub fn remove_sink(
         &self,
         id: &OrderPoolSubscriptionId,
     ) -> Option<Box<dyn ReplaceableOrderSink>> {
-        self.orderpool.lock().unwrap().remove_sink(id)
+        self.orderpool.lock().remove_sink(id)
     }
 
     /// Returned AutoRemovingOrderPoolSubscriptionId will call remove when dropped
@@ -72,7 +68,7 @@ pub struct AutoRemovingOrderPoolSubscriptionId {
 
 impl Drop for AutoRemovingOrderPoolSubscriptionId {
     fn drop(&mut self) {
-        self.orderpool.lock().unwrap().remove_sink(&self.id);
+        self.orderpool.lock().remove_sink(&self.id);
     }
 }
 
@@ -272,7 +268,7 @@ where
             }
 
             {
-                let mut orderpool = orderpool.lock().unwrap();
+                let mut orderpool = orderpool.lock();
                 orderpool.process_commands(new_commands.clone());
             }
             new_commands.clear();

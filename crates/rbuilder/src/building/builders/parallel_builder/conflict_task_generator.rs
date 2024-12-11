@@ -404,12 +404,10 @@ mod tests {
     use crate::primitives::{
         MempoolTx, Order, SimValue, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs,
     };
-    use std::sync::Arc;
-
+    use alloy_consensus::TxLegacy;
     use alloy_primitives::{Address, TxHash, B256, U256};
-    use reth::primitives::{
-        Transaction, TransactionSigned, TransactionSignedEcRecovered, TxLegacy,
-    };
+    use reth::primitives::{Transaction, TransactionSigned, TransactionSignedEcRecovered};
+    use std::sync::Arc;
 
     use crate::building::evm_inspector::{SlotKey, UsedStateTrace};
     use std::sync::mpsc;

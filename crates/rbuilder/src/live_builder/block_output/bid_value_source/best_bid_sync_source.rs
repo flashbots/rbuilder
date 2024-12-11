@@ -1,6 +1,7 @@
 use super::interfaces::{BidValueObs, BidValueSource};
 use alloy_primitives::U256;
-use std::sync::{Arc, Mutex};
+use parking_lot::Mutex;
+use std::sync::Arc;
 
 /// Simple struct tracking the last best bid and asking it in a sync way via best_bid_value.
 pub struct BestBidSyncSource {
@@ -30,7 +31,7 @@ impl BestBidSyncSource {
     }
 
     pub fn best_bid_value(&self) -> Option<U256> {
-        *self.best_bid_source_inner.best_bid.lock().unwrap()
+        *self.best_bid_source_inner.best_bid.lock()
     }
 }
 
@@ -41,7 +42,7 @@ struct BestBidSyncSourceInner {
 
 impl BidValueObs for BestBidSyncSourceInner {
     fn update_new_bid(&self, bid: U256) {
-        let mut best_bid = self.best_bid.lock().unwrap();
+        let mut best_bid = self.best_bid.lock();
         if best_bid.map_or(true, |old_bid| old_bid < bid) {
             *best_bid = Some(bid);
         }

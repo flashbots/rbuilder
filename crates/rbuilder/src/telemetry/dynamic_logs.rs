@@ -1,11 +1,8 @@
 //! This module provides a functionality to dynamically change the log level
 
 use lazy_static::lazy_static;
-use std::{
-    fs::File,
-    path::PathBuf,
-    sync::{Arc, Mutex},
-};
+use parking_lot::Mutex;
+use std::{fs::File, path::PathBuf, sync::Arc};
 use tracing_subscriber::{
     filter::Filtered, fmt, layer::SubscriberExt, reload, reload::Handle, util::SubscriberInitExt,
     EnvFilter, Layer, Registry,
@@ -41,13 +38,13 @@ impl Default for LoggerConfig {
 }
 
 pub fn default_log_config() -> LoggerConfig {
-    DEFAULT_CONFIG.lock().unwrap().clone()
+    DEFAULT_CONFIG.lock().clone()
 }
 
 /// Reloads the log layer with the provided config
 pub fn set_log_config(config: LoggerConfig) -> eyre::Result<()> {
     let (env, write_layer) = create_filter_and_write_layer(&config)?;
-    let handle = RELOAD_HANDLE.lock().unwrap();
+    let handle = RELOAD_HANDLE.lock();
     handle
         .as_ref()
         .ok_or_else(|| eyre::eyre!("tracing subscriber is not set up"))?
@@ -69,7 +66,7 @@ pub fn reset_log_config() -> eyre::Result<()> {
 /// To reload env filter, use `set_env_filter` and `reset_env_filter` functions
 pub fn setup_reloadable_tracing_subscriber(config: LoggerConfig) -> eyre::Result<()> {
     {
-        let mut default_config = DEFAULT_CONFIG.lock().unwrap();
+        let mut default_config = DEFAULT_CONFIG.lock();
         *default_config = config.clone();
     }
 
@@ -78,7 +75,7 @@ pub fn setup_reloadable_tracing_subscriber(config: LoggerConfig) -> eyre::Result
     let (reload_layer, reload_handle) = reload::Layer::new(layer);
 
     {
-        let mut handle = RELOAD_HANDLE.lock().unwrap();
+        let mut handle = RELOAD_HANDLE.lock();
         *handle = Some(reload_handle);
     }
     tracing_subscriber::registry().with(reload_layer).init();

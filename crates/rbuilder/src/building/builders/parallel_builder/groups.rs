@@ -380,10 +380,9 @@ fn remove_group_key_from_map<K: std::cmp::Eq + std::hash::Hash + Clone>(
 
 #[cfg(test)]
 mod tests {
+    use alloy_consensus::TxLegacy;
     use alloy_primitives::{Address, TxHash, B256, U256};
-    use reth::primitives::{
-        Transaction, TransactionSigned, TransactionSignedEcRecovered, TxLegacy,
-    };
+    use reth::primitives::{Transaction, TransactionSigned, TransactionSignedEcRecovered};
 
     use crate::{
         building::evm_inspector::{SlotKey, UsedStateTrace},

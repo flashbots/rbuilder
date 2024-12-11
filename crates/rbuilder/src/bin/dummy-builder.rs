@@ -37,10 +37,11 @@ use rbuilder::{
     roothash::RootHashConfig,
     utils::{ProviderFactoryReopener, Signer},
 };
-use reth::tasks::pool::BlockingTaskPool;
 use reth_chainspec::MAINNET;
 use reth_db::{database::Database, DatabaseEnv};
-use reth_provider::{DatabaseProviderFactory, StateProviderFactory};
+use reth_node_api::NodeTypesWithDBAdapter;
+use reth_node_ethereum::EthereumNode;
+use reth_provider::{BlockReader, DatabaseProviderFactory, StateProviderFactory};
 use tokio::{
     signal::ctrl_c,
     sync::{broadcast, mpsc},
@@ -87,11 +88,11 @@ async fn main() -> eyre::Result<()> {
     let (orderpool_sender, orderpool_receiver) =
         mpsc::channel(order_input_config.input_channel_buffer_size);
     let builder = LiveBuilder::<
-        ProviderFactoryReopener<Arc<DatabaseEnv>>,
+        ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>,
         Arc<DatabaseEnv>,
         MevBoostSlotDataGenerator,
     > {
-        watchdog_timeout: Duration::from_secs(10000),
+        watchdog_timeout: Some(Duration::from_secs(10000)),
         error_storage_path: None,
         simulation_threads: 1,
         blocks_source: payload_event,
@@ -160,7 +161,6 @@ impl UnfinishedBlockBuildingSink for TracingBlockSink {
 ////////////////////////////
 /// BUILDING ALGORITHM
 ////////////////////////////
-
 /// Dummy algorithm that waits for some orders and creates a block inserting them in the order they arrived.
 /// Generates only a single block.
 /// This is a NOT real builder some data is not filled correctly (eg:BuiltBlockTrace)
@@ -168,19 +168,13 @@ impl UnfinishedBlockBuildingSink for TracingBlockSink {
 struct DummyBuildingAlgorithm {
     /// Amnount of used orders to build a block
     orders_to_use: usize,
-    root_hash_task_pool: BlockingTaskPool,
 }
 
 const ORDER_POLLING_PERIOD: Duration = Duration::from_millis(10);
 const BUILDER_NAME: &str = "DUMMY";
 impl DummyBuildingAlgorithm {
     pub fn new(orders_to_use: usize) -> Self {
-        Self {
-            orders_to_use,
-            root_hash_task_pool: BlockingTaskPool::new(
-                BlockingTaskPool::builder().num_threads(1).build().unwrap(),
-            ),
-        }
+        Self { orders_to_use }
     }
 
     fn wait_for_orders(
@@ -212,11 +206,13 @@ impl DummyBuildingAlgorithm {
     ) -> eyre::Result<Box<dyn BlockBuildingHelper>>
     where
         DB: Database + Clone + 'static,
-        P: DatabaseProviderFactory<DB> + StateProviderFactory + Clone + 'static,
+        P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
+            + StateProviderFactory
+            + Clone
+            + 'static,
     {
         let mut block_building_helper = BlockBuildingHelperFromProvider::new(
             provider.clone(),
-            self.root_hash_task_pool.clone(),
             RootHashConfig::live_config(false, false),
             ctx.clone(),
             None,
@@ -237,7 +233,10 @@ impl DummyBuildingAlgorithm {
 impl<P, DB> BlockBuildingAlgorithm<P, DB> for DummyBuildingAlgorithm
 where
     DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB> + StateProviderFactory + Clone + 'static,
+    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
+        + StateProviderFactory
+        + Clone
+        + 'static,
 {
     fn name(&self) -> String {
         BUILDER_NAME.to_string()

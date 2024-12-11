@@ -5,12 +5,9 @@ use crate::{
 };
 use alloy_provider::{IpcConnect, Provider, ProviderBuilder};
 use futures::StreamExt;
+use parking_lot::Mutex;
 use reth_provider::StateProviderFactory;
-use std::{
-    pin::pin,
-    sync::{Arc, Mutex},
-    time::Instant,
-};
+use std::{pin::pin, sync::Arc, time::Instant};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info};
@@ -56,7 +53,7 @@ where
                 }
             };
 
-            let mut orderpool = orderpool.lock().unwrap();
+            let mut orderpool = orderpool.lock();
             let start = Instant::now();
 
             orderpool.head_updated(block_number, &state);

@@ -1,4 +1,5 @@
 use ahash::HashMap;
+use alloy_consensus::Transaction;
 use alloy_primitives::{Address, B256, U256};
 use reth_primitives::TransactionSignedEcRecovered;
 use revm::{
@@ -62,19 +63,19 @@ impl<'a> UsedStateEVMInspector<'a> {
                 address: tx.signer(),
                 key: Default::default(),
             },
-            U256::from(tx.nonce()).into(),
+            U256::from(tx.as_signed().nonce()).into(),
         );
         self.used_state_trace.written_slot_values.insert(
             SlotKey {
                 address: tx.signer(),
                 key: Default::default(),
             },
-            U256::from(tx.nonce() + 1).into(),
+            U256::from(tx.as_signed().nonce() + 1).into(),
         );
     }
 }
 
-impl<'a, DB> Inspector<DB> for UsedStateEVMInspector<'a>
+impl<DB> Inspector<DB> for UsedStateEVMInspector<'_>
 where
     DB: Database,
 {

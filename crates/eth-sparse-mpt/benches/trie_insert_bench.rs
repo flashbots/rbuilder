@@ -1,12 +1,13 @@
-use alloy_primitives::hex_literal::hex;
-use alloy_primitives::Bytes;
+use alloy_primitives::{hex_literal::hex, Bytes};
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
-use eth_sparse_mpt::reth_sparse_trie::change_set::ETHTrieChangeSet;
-use eth_sparse_mpt::reth_sparse_trie::hash::EthSparseTries;
-use eth_sparse_mpt::reth_sparse_trie::shared_cache::RethSparseTrieShareCacheInternal;
-use eth_sparse_mpt::reth_sparse_trie::SparseTrieSharedCache;
-use eth_sparse_mpt::sparse_mpt::{DiffTrie, FixedTrie};
-use eth_sparse_mpt::utils::{get_test_change_set, get_test_mutliproofs};
+use eth_sparse_mpt::{
+    reth_sparse_trie::{
+        change_set::ETHTrieChangeSet, hash::EthSparseTries,
+        shared_cache::RethSparseTrieShareCacheInternal, SparseTrieSharedCache,
+    },
+    sparse_mpt::{DiffTrie, FixedTrie},
+    utils::{get_test_change_set, get_test_mutliproofs},
+};
 
 fn get_storage_tries(changes: &ETHTrieChangeSet, tries: &EthSparseTries) -> Vec<DiffTrie> {
     let mut storage_tries = Vec::new();

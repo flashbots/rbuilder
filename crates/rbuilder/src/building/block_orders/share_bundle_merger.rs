@@ -216,7 +216,7 @@ impl<SinkType: SimulatedOrderSink> MultiBackrunManager<SinkType> {
 /// - Backruns: It contains a sub bundle with the user txs followed by backrunner sub bundles. (see [`ShareBundleMerger::break_down_backrun_bundle`] for a clearer definition)
 ///   Merging example: SBundle(Bundle(tx)+br1) + SBundle(Bundle(tx)+br2) will become SBundle(Bundle(Bundle(tx)+br1),Bundle(Bundle(tx)+br2)).
 ///   User Bundle may contain more that one tx (for the case approve + swap).
-///   This means what when we insert/remove orders (sbundles) we insert/remove the virtual bundles we generate and and not the original orders.
+///   This means what when we insert/remove orders (sbundles) we insert/remove the virtual bundles we generate and not the original orders.
 ///   We ONLY use this special flow for orders with some particular structure (see [`ShareBundleMerger::break_down_bundle`]).
 ///   SBundle not complying with that will pass through and use the standard handling.
 ///   @Pending evaluate if we can avoid to send changes no every order update and "flush" changes all together (since orders are usually processed on batches)

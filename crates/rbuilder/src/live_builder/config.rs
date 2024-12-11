@@ -46,18 +46,20 @@ use ethereum_consensus::{
     state_transition::Context as ContextEth,
 };
 use eyre::Context;
-use reth::tasks::pool::BlockingTaskPool;
+use reth::revm::cached::CachedReads;
 use reth_chainspec::{Chain, ChainSpec, NamedChain};
 use reth_db::{Database, DatabaseEnv};
-use reth_payload_builder::database::CachedReads;
+use reth_node_api::NodeTypesWithDBAdapter;
+use reth_node_ethereum::EthereumNode;
 use reth_primitives::StaticFileSegment;
 use reth_provider::{
-    DatabaseProviderFactory, HeaderProvider, StateProviderFactory, StaticFileProviderFactory,
+    BlockReader, DatabaseProviderFactory, HeaderProvider, StateProviderFactory,
+    StaticFileProviderFactory,
 };
 use serde::Deserialize;
 use serde_with::{serde_as, OneOrMany};
-use std::fmt::Debug;
 use std::{
+    fmt::Debug,
     path::{Path, PathBuf},
     str::FromStr,
     sync::Arc,
@@ -295,7 +297,11 @@ impl LiveBuilderConfig for Config {
     ) -> eyre::Result<super::LiveBuilder<P, DB, MevBoostSlotDataGenerator>>
     where
         DB: Database + Clone + 'static,
-        P: DatabaseProviderFactory<DB> + StateProviderFactory + HeaderProvider + Clone + 'static,
+        P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
+            + StateProviderFactory
+            + HeaderProvider
+            + Clone
+            + 'static,
     {
         let (sink_sealed_factory, relays) = self.l1_config.create_relays_sealed_sink_factory(
             self.base_config.chain_spec()?,
@@ -334,11 +340,9 @@ impl LiveBuilderConfig for Config {
             )
             .await?;
         let root_hash_config = self.base_config.live_root_hash_config()?;
-        let root_hash_task_pool = self.base_config.root_hash_task_pool()?;
         let builders = create_builders(
             self.live_builders()?,
             root_hash_config,
-            root_hash_task_pool,
             self.base_config.sbundle_mergeabe_signers(),
         );
         Ok(live_builder.with_builders(builders))
@@ -355,7 +359,10 @@ impl LiveBuilderConfig for Config {
     ) -> eyre::Result<(Block, CachedReads)>
     where
         DB: Database + Clone + 'static,
-        P: DatabaseProviderFactory<DB> + StateProviderFactory + Clone + 'static,
+        P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
+            + StateProviderFactory
+            + Clone
+            + 'static,
     {
         let builder_cfg = self.builder(building_algorithm_name)?;
         match builder_cfg.builder {
@@ -426,7 +433,7 @@ pub fn create_provider_factory(
     reth_db_path: Option<&Path>,
     reth_static_files_path: Option<&Path>,
     chain_spec: Arc<ChainSpec>,
-) -> eyre::Result<ProviderFactoryReopener<Arc<DatabaseEnv>>> {
+) -> eyre::Result<ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>> {
     let reth_db_path = match (reth_db_path, reth_datadir) {
         (Some(reth_db_path), _) => PathBuf::from(reth_db_path),
         (None, Some(reth_datadir)) => reth_datadir.join("db"),
@@ -472,41 +479,37 @@ pub fn coinbase_signer_from_secret_key(secret_key: &str) -> eyre::Result<Signer>
 pub fn create_builders<P, DB>(
     configs: Vec<BuilderConfig>,
     root_hash_config: RootHashConfig,
-    root_hash_task_pool: BlockingTaskPool,
     sbundle_mergeabe_signers: Vec<Address>,
 ) -> Vec<Arc<dyn BlockBuildingAlgorithm<P, DB>>>
 where
     DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB> + StateProviderFactory + Clone + 'static,
+    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
+        + StateProviderFactory
+        + Clone
+        + 'static,
 {
     configs
         .into_iter()
-        .map(|cfg| {
-            create_builder(
-                cfg,
-                &root_hash_config,
-                &root_hash_task_pool,
-                &sbundle_mergeabe_signers,
-            )
-        })
+        .map(|cfg| create_builder(cfg, &root_hash_config, &sbundle_mergeabe_signers))
         .collect()
 }
 
 fn create_builder<P, DB>(
     cfg: BuilderConfig,
     root_hash_config: &RootHashConfig,
-    root_hash_task_pool: &BlockingTaskPool,
     sbundle_mergeabe_signers: &[Address],
 ) -> Arc<dyn BlockBuildingAlgorithm<P, DB>>
 where
     DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB> + StateProviderFactory + Clone + 'static,
+    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
+        + StateProviderFactory
+        + Clone
+        + 'static,
 {
     match cfg.builder {
         SpecificBuilderConfig::OrderingBuilder(order_cfg) => {
             Arc::new(OrderingBuildingAlgorithm::new(
                 root_hash_config.clone(),
-                root_hash_task_pool.clone(),
                 sbundle_mergeabe_signers.to_vec(),
                 order_cfg,
                 cfg.name,
@@ -515,7 +518,6 @@ where
         SpecificBuilderConfig::ParallelBuilder(parallel_cfg) => {
             Arc::new(ParallelBuildingAlgorithm::new(
                 root_hash_config.clone(),
-                root_hash_task_pool.clone(),
                 sbundle_mergeabe_signers.to_vec(),
                 parallel_cfg,
                 cfg.name,

@@ -1,8 +1,10 @@
 use alloy_primitives::{keccak256, Bytes, B256, U256};
 use alloy_rlp::Encodable;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use eth_sparse_mpt::sparse_mpt::DiffTrie;
-use eth_sparse_mpt::utils::{HashMap, KeccakHasher};
+use eth_sparse_mpt::{
+    sparse_mpt::DiffTrie,
+    utils::{HashMap, KeccakHasher},
+};
 
 // hashing this trie it roughly equivalent to updating the trie for the block
 const TRIE_SIZE: usize = 3000;

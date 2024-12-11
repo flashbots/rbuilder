@@ -23,4 +23,6 @@ tikv-jemallocator = { workspace = true, optional = true }
 libc.workspace = true
 
 [features]
-jemalloc = []
+jemalloc = [
+	"reth-cli-util/jemalloc"
+]

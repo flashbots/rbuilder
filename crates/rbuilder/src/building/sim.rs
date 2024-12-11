@@ -10,8 +10,8 @@ use crate::{
 use ahash::{HashMap, HashSet};
 use alloy_primitives::{Address, B256};
 use rand::seq::SliceRandom;
+use reth::revm::cached::CachedReads;
 use reth_errors::ProviderError;
-use reth_payload_builder::database::CachedReads;
 use reth_provider::{StateProvider, StateProviderFactory};
 use std::{
     cmp::{max, min, Ordering},
