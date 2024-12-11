@@ -114,7 +114,7 @@ where
         let mut merging_context = ResolverContext::new(
             provider.clone(),
             ctx.clone(),
-            cancellation_token,
+            cancellation_token.clone(),
             None,
             simulation_cache,
         );
@@ -134,11 +134,14 @@ where
                 Ok((task_id, (sequence_of_orders, task_group)))
             }
             Err(err) => {
-                warn!(
-                    group_id = task_id,
-                    err = ?err,
-                    "Error running conflict task for group_idx",
-                );
+                // Fast patch/heuristic to fix excessive tracing. The good solution would be using good errors gut I don't have the time.
+                if !cancellation_token.is_cancelled() {
+                    warn!(
+                        group_id = task_id,
+                        err = ?err,
+                        "Error running conflict task for group_idx",
+                    );
+                }
                 Err(err)
             }
         }
