@@ -131,6 +131,8 @@ where
     }
 
     pub async fn run(self) -> eyre::Result<()> {
+        // We keep the last block to avoid going back in time since we are now very robust about reorgs or this kind of behavior.
+        let mut last_processed_block: Option<u64> = None;
         info!("Builder block list size: {}", self.blocklist.len(),);
         info!(
             "Builder coinbase address: {:?}",
@@ -195,8 +197,13 @@ where
                 );
                 continue;
             }
+            // Allow only increasing blocks
+            if last_processed_block.map_or(false, |last_processed_block| {
+                payload.block() <= last_processed_block
+            }) {
+                continue;
+            }
             // see if we can get parent header in a reasonable time
-
             let time_to_slot = payload.timestamp() - OffsetDateTime::now_utc();
             debug!(
                 slot = payload.slot(),
@@ -235,6 +242,7 @@ where
             );
 
             inc_active_slots();
+            last_processed_block = Some(payload.block());
 
             if let Some(block_ctx) = BlockBuildingContext::from_attributes(
                 payload.payload_attributes_event.clone(),
