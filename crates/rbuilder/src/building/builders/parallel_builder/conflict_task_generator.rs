@@ -181,15 +181,10 @@ impl ConflictTaskGenerator {
             total_profit: group.orders[0].sim_value.coinbase_profit,
             sequence_of_orders: vec![(0, group.orders[0].sim_value.coinbase_profit)],
         };
-        if let Err(e) = self
+        // We ignore the error since it means "receiver disconnected" and we expect the caller will detect the cancellation and stop calling us.
+        let _ = self
             .group_result_sender
-            .send((group_id, (sequence_of_orders, group.clone())))
-        {
-            warn!(
-                "Failed to send single order result for group {}: {:?}",
-                group_id, e
-            );
-        }
+            .send((group_id, (sequence_of_orders, group.clone())));
     }
 
     /// Determines if there are any changes between a new group and an existing group.
