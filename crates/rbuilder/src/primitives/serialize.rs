@@ -68,7 +68,7 @@ impl TxEncoding {
                 }
             }
         }
-        return false;
+        false
     }
 }
 
