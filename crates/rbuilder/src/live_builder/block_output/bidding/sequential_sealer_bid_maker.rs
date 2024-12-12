@@ -90,12 +90,14 @@ impl SequentialSealerBidMakerProcess {
             let payout_tx_val = bid.payout_tx_value();
             let block = bid.block();
             let block_number = block.building_context().block();
+            let builder_name = block.builder_name().to_string();
             match tokio::task::spawn_blocking(move || block.finalize_block(payout_tx_val)).await {
                 Ok(finalize_res) => match finalize_res {
                     Ok(res) => self.sink.new_block(res.block),
                     Err(error) => {
                         if error.is_critical() {
                             error!(
+                                builder_name,
                                 block_number,
                                 ?error,
                                 "Error on finalize_block on SequentialSealerBidMaker"
