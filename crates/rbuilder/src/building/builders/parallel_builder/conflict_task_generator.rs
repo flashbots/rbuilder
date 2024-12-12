@@ -4,7 +4,7 @@ use alloy_primitives::{utils::format_ether, U256};
 use crossbeam_queue::SegQueue;
 use itertools::Itertools;
 use std::time::Instant;
-use tracing::{trace, warn};
+use tracing::trace;
 
 use super::{
     task::ConflictTask, Algorithm, ConflictGroup, ConflictResolutionResultPerGroup, GroupId,
