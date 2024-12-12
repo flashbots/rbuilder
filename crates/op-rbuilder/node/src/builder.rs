@@ -33,37 +33,18 @@ use revm::{
 use std::sync::Arc;
 use tracing::{debug, error, info, trace, warn};
 
+use crate::cell::BlockCell;
+use crate::node::PayloadBuilder;
+
 /// Payload builder for OP Stack, which includes bundle support.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpRbuilderPayloadBuilder<EvmConfig> {
-    /// The rollup's compute pending block configuration option.
-    compute_pending_block: bool,
-    /// The type responsible for creating the evm.
     evm_config: EvmConfig,
 }
 
 impl<EvmConfig> OpRbuilderPayloadBuilder<EvmConfig> {
     pub const fn new(evm_config: EvmConfig) -> Self {
-        Self {
-            compute_pending_block: true,
-            evm_config,
-        }
-    }
-
-    /// Sets the rollup's compute pending block configuration option.
-    pub const fn set_compute_pending_block(mut self, compute_pending_block: bool) -> Self {
-        self.compute_pending_block = compute_pending_block;
-        self
-    }
-
-    /// Enables the rollup's compute pending block configuration option.
-    pub const fn compute_pending_block(self) -> Self {
-        self.set_compute_pending_block(true)
-    }
-
-    /// Returns the rollup's compute pending block configuration option.
-    pub const fn is_compute_pending_block(&self) -> bool {
-        self.compute_pending_block
+        Self { evm_config }
     }
 }
 
@@ -89,19 +70,21 @@ where
 }
 
 /// Implementation of the [`PayloadBuilder`] trait for [`OpRbuilderPayloadBuilder`].
-impl<Pool, Client, EvmConfig> PayloadBuilder<Pool, Client> for OpRbuilderPayloadBuilder<EvmConfig>
+impl<Pool, Client, EvmConfig> crate::node::PayloadBuilder<Pool, Client>
+    for OpRbuilderPayloadBuilder<EvmConfig>
 where
     Client: StateProviderFactory + ChainSpecProvider<ChainSpec = OpChainSpec>,
-    EvmConfig: ConfigureEvm<Header = Header>,
     Pool: TransactionPool,
+    EvmConfig: ConfigureEvm<Header = Header>,
 {
     type Attributes = OpPayloadBuilderAttributes;
     type BuiltPayload = OpBuiltPayload;
 
-    fn try_build(
+    fn build(
         &self,
         args: BuildArguments<Pool, Client, OpPayloadBuilderAttributes, OpBuiltPayload>,
-    ) -> Result<BuildOutcome<OpBuiltPayload>, PayloadBuilderError> {
+        cell: &BlockCell<Self::BuiltPayload>,
+    ) {
         let parent_header = args.config.parent_header.clone();
 
         // Notify our BundleOperations of the new payload attributes event.
@@ -128,33 +111,21 @@ where
 
         let (cfg_env, block_env) = self
             .cfg_and_block_env(&args.config, &args.config.parent_header)
-            .map_err(PayloadBuilderError::other)?;
-        try_build_inner(
-            &self.evm_config,
-            args,
-            cfg_env,
-            block_env,
-            self.compute_pending_block,
-        )
-    }
+            .map_err(PayloadBuilderError::other)
+            .unwrap();
+        let outcome = try_build_inner(&self.evm_config, args, cfg_env, block_env, false).unwrap();
 
-    fn on_missing_payload(
-        &self,
-        _args: BuildArguments<Pool, Client, OpPayloadBuilderAttributes, OpBuiltPayload>,
-    ) -> MissingPayloadBehaviour<Self::BuiltPayload> {
-        // we want to await the job that's already in progress because that should be returned as
-        // is, there's no benefit in racing another job
-        MissingPayloadBehaviour::AwaitInProgress
-    }
+        info!("Block building done");
 
-    // NOTE: this should only be used for testing purposes because this doesn't have access to L1
-    // system txs, hence on_missing_payload we return [MissingPayloadBehaviour::AwaitInProgress].
-    fn build_empty_payload(
-        &self,
-        _client: &Client,
-        _config: PayloadConfig<Self::Attributes>,
-    ) -> Result<OpBuiltPayload, PayloadBuilderError> {
-        Err(PayloadBuilderError::MissingPayload)
+        if let BuildOutcome::Better {
+            payload,
+            cached_reads,
+        } = outcome
+        {
+            cell.set(Some(payload));
+        } else {
+            panic!("Expected Better variant")
+        }
     }
 }
 

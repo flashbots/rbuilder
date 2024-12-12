@@ -72,13 +72,13 @@ fn main() {
                         .with_types_and_provider::<OpRbuilderNode, BlockchainProvider2<_>>()
                         .with_components(OpRbuilderNode::components(op_rbuilder_args))
                         .with_add_ons(OptimismAddOns::new(sequencer_http_arg))
-                        .extend_rpc_modules(move |ctx| {
+                        //.extend_rpc_modules(move |ctx| {
                             // register eth bundle api
-                            let ext = EthBundleMinimalApi::new(ctx.registry.pool().clone());
-                            ctx.modules.merge_configured(ext.into_rpc())?;
+                        //    let ext = EthBundleMinimalApi::new(ctx.registry.pool().clone());
+                        //    ctx.modules.merge_configured(ext.into_rpc())?;
 
-                            Ok(())
-                        })
+                       //     Ok(())
+                       // })
                         .launch_with_fn(|builder| {
                             let launcher = EngineNodeLauncher::new(
                                 builder.task_executor().clone(),
@@ -94,13 +94,15 @@ fn main() {
                 true => {
                     let handle =
                         builder
-                            .node(OpRbuilderNode::new(op_rbuilder_args.clone())).extend_rpc_modules(move |ctx| {
+                            .node(OpRbuilderNode::new(op_rbuilder_args.clone()))
+                            /*.extend_rpc_modules(move |ctx| {
                             // register eth bundle api
                             let ext = EthBundleMinimalApi::new(ctx.registry.pool().clone());
                             ctx.modules.merge_configured(ext.into_rpc())?;
 
                             Ok(())
                             })
+                            */
                             .launch().await?;
                     handle.node_exit_future.await
                 }

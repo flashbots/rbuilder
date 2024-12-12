@@ -3,8 +3,13 @@
 //! Inherits Network, Executor, and Consensus Builders from the optimism node,
 //! and overrides the Pool and Payload Builders.
 
+use alloy_eips::BlockNumberOrTag;
+use alloy_primitives::B256;
 use rbuilder_bundle_pool_operations::BundlePoolOps;
-use reth_basic_payload_builder::{BasicPayloadJobGenerator, BasicPayloadJobGeneratorConfig};
+use reth_basic_payload_builder::{
+    BasicPayloadJobGenerator, BasicPayloadJobGeneratorConfig, BuildArguments, Cancelled,
+    PayloadConfig, ResolveBestPayload,
+};
 use reth_evm::ConfigureEvm;
 use reth_node_api::NodePrimitives;
 use reth_node_builder::{
@@ -16,25 +21,45 @@ use reth_node_builder::{
 use reth_optimism_chainspec::OpChainSpec;
 use reth_optimism_evm::OpEvmConfig;
 use reth_optimism_node::{
-    node::{OpConsensusBuilder, OpExecutorBuilder, OpNetworkBuilder, OpPrimitives, OptimismAddOns},
+    node::{
+        OpConsensusBuilder, OpExecutorBuilder, OpNetworkBuilder, OpPoolBuilder, OpPrimitives,
+        OptimismAddOns,
+    },
     txpool::OpTransactionValidator,
     OpEngineTypes,
 };
-use reth_payload_builder::{PayloadBuilderHandle, PayloadBuilderService};
+use reth_optimism_node::{OpBuiltPayload, OpPayloadBuilderAttributes};
+use reth_payload_builder::{KeepPayloadJobAlive, PayloadJob};
+use reth_payload_builder::{
+    PayloadBuilderError, PayloadBuilderHandle, PayloadBuilderService, PayloadJobGenerator,
+};
+use reth_payload_primitives::{BuiltPayload, PayloadBuilderAttributes, PayloadKind};
+use reth_primitives::SealedHeader;
 use reth_primitives::{Header, TransactionSigned};
+use reth_provider::BlockSource;
+use reth_provider::CanonStateNotification;
 use reth_provider::{BlockReader, CanonStateSubscriptions, DatabaseProviderFactory};
+use reth_provider::{BlockReaderIdExt, StateProviderFactory};
+use reth_revm::cached::CachedReads;
+use reth_tasks::TaskSpawner;
 use reth_tracing::tracing::{debug, info};
+use reth_transaction_pool::TransactionPool;
 use reth_transaction_pool::{
     blobstore::DiskFileBlobStore, CoinbaseTipOrdering, EthPooledTransaction,
     TransactionValidationTaskExecutor,
 };
 use reth_trie_db::MerklePatriciaTrie;
-use std::{path::PathBuf, sync::Arc};
-use transaction_pool_bundle_ext::{
-    BundlePoolOperations, BundleSupportedPool, TransactionPoolBundleExt,
+use std::{
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll},
 };
+use std::{path::PathBuf, sync::Arc};
+use transaction_pool_bundle_ext::{BundlePoolOperations, BundleSupportedPool};
 
 use crate::args::OpRbuilderArgs;
+use crate::builder::OpRbuilderPayloadBuilder;
+use crate::cell::BlockCell;
 
 /// Optimism primitive types.
 #[derive(Debug)]
@@ -63,7 +88,7 @@ impl OpRbuilderNode {
         args: OpRbuilderArgs,
     ) -> ComponentsBuilder<
         Node,
-        OpRbuilderPoolBuilder,
+        OpPoolBuilder,
         OpRbuilderPayloadServiceBuilder,
         OpNetworkBuilder,
         OpExecutorBuilder,
@@ -79,12 +104,11 @@ impl OpRbuilderNode {
             disable_txpool_gossip,
             compute_pending_block,
             discovery_v4,
-            rbuilder_config_path,
             ..
         } = args;
         ComponentsBuilder::default()
             .node_types::<Node>()
-            .pool(OpRbuilderPoolBuilder::new(rbuilder_config_path))
+            .pool(OpPoolBuilder::default())
             .payload(OpRbuilderPayloadServiceBuilder::new(compute_pending_block))
             .network(OpNetworkBuilder {
                 disable_txpool_gossip,
@@ -102,7 +126,7 @@ where
 {
     type ComponentsBuilder = ComponentsBuilder<
         N,
-        OpRbuilderPoolBuilder,
+        OpPoolBuilder,
         OpRbuilderPayloadServiceBuilder,
         OpNetworkBuilder,
         OpExecutorBuilder,
@@ -271,25 +295,20 @@ impl OpRbuilderPayloadServiceBuilder {
             Types: NodeTypesWithEngine<Engine = OpEngineTypes, ChainSpec = OpChainSpec>,
         >,
         <<Node as FullNodeTypes>::Provider as DatabaseProviderFactory>::Provider: BlockReader,
-        Pool: TransactionPoolBundleExt
-            + BundlePoolOperations<Transaction = TransactionSigned>
-            + Unpin
-            + 'static,
-
+        Pool: TransactionPool + Unpin + 'static,
         Evm: ConfigureEvm<Header = Header>,
     {
-        let payload_builder =
-            op_rbuilder_payload_builder::OpRbuilderPayloadBuilder::new(evm_config)
-                .set_compute_pending_block(self.compute_pending_block);
-        let conf = ctx.payload_builder_config();
+        //let payload_builder = OpPayloadBuilder {};
 
-        let payload_job_config = BasicPayloadJobGeneratorConfig::default()
-            .interval(conf.interval())
-            .deadline(conf.deadline())
-            .max_payload_tasks(conf.max_payload_tasks())
-            // no extradata for OP
-            .extradata(Default::default());
+        let payload_builder = OpRbuilderPayloadBuilder::new(evm_config);
 
+        let payload_generator = FbPayloadJobGenerator {
+            client: ctx.provider().clone(),
+            pool,
+            executor: ctx.task_executor().clone(),
+            builder: payload_builder,
+        };
+        /*
         let payload_generator = BasicPayloadJobGenerator::with_builder(
             ctx.provider().clone(),
             pool,
@@ -297,6 +316,7 @@ impl OpRbuilderPayloadServiceBuilder {
             payload_job_config,
             payload_builder,
         );
+        */
         let (payload_service, payload_builder) =
             PayloadBuilderService::new(payload_generator, ctx.provider().canonical_state_stream());
 
@@ -312,10 +332,7 @@ where
     Node:
         FullNodeTypes<Types: NodeTypesWithEngine<Engine = OpEngineTypes, ChainSpec = OpChainSpec>>,
     <<Node as FullNodeTypes>::Provider as DatabaseProviderFactory>::Provider: BlockReader,
-    Pool: TransactionPoolBundleExt
-        + BundlePoolOperations<Transaction = TransactionSigned>
-        + Unpin
-        + 'static,
+    Pool: TransactionPool + Unpin + 'static,
 {
     async fn spawn_payload_service(
         self,
@@ -323,5 +340,249 @@ where
         pool: Pool,
     ) -> eyre::Result<PayloadBuilderHandle<OpEngineTypes>> {
         self.spawn(OpEvmConfig::new(ctx.chain_spec()), ctx, pool)
+    }
+}
+
+struct FbPayloadJobGenerator<Client, Pool, Tasks, Builder> {
+    /// The client that can interact with the chain.
+    client: Client,
+    /// The transaction pool to pull transactions from.
+    pool: Pool,
+    /// The task executor to spawn payload building tasks on.
+    executor: Tasks,
+    /// The type responsible for building payloads.
+    ///
+    /// See [`PayloadBuilder`]
+    builder: Builder,
+}
+
+impl<Client, Pool, Tasks, Builder> PayloadJobGenerator
+    for FbPayloadJobGenerator<Client, Pool, Tasks, Builder>
+where
+    Client: StateProviderFactory + BlockReaderIdExt + Clone + Unpin + 'static,
+    Pool: TransactionPool + Unpin + 'static,
+    Tasks: TaskSpawner + Clone + Unpin + 'static,
+    Builder: PayloadBuilder<Pool, Client> + Unpin + 'static,
+    <Builder as PayloadBuilder<Pool, Client>>::Attributes: Unpin + Clone,
+    <Builder as PayloadBuilder<Pool, Client>>::BuiltPayload: Unpin + Clone,
+{
+    type Job = FbPayloadJob<Client, Pool, Tasks, Builder>;
+
+    fn new_payload_job(
+        &self,
+        attributes: <Self::Job as PayloadJob>::PayloadAttributes,
+    ) -> Result<Self::Job, PayloadBuilderError> {
+        let parent_block = if attributes.parent().is_zero() {
+            // use latest block if parent is zero: genesis block
+            self.client
+                .block_by_number_or_tag(BlockNumberOrTag::Latest)?
+                .ok_or_else(|| PayloadBuilderError::MissingParentBlock(attributes.parent()))?
+                .seal_slow()
+        } else {
+            let block = self
+                .client
+                .find_block_by_hash(attributes.parent(), BlockSource::Any)?
+                .ok_or_else(|| PayloadBuilderError::MissingParentBlock(attributes.parent()))?;
+
+            // we already know the hash, so we can seal it
+            block.seal(attributes.parent())
+        };
+
+        let hash = parent_block.hash();
+        let parent_header = parent_block.header();
+        let header = SealedHeader::new(parent_header.clone(), hash);
+
+        let config = PayloadConfig::new(Arc::new(header), Default::default(), attributes);
+
+        //let until = self.job_deadline(config.attributes.timestamp());
+        //let deadline = Box::pin(tokio::time::sleep_until(until));
+
+        // let cached_reads = self.maybe_pre_cached(hash);
+
+        let mut job = FbPayloadJob {
+            config,
+            client: self.client.clone(),
+            pool: self.pool.clone(),
+            executor: self.executor.clone(),
+            builder: self.builder.clone(),
+            cell: BlockCell::new(),
+            best_payload: None,
+        };
+
+        // start the first job right away
+        job.spawn_build_job();
+
+        Ok(job)
+    }
+}
+
+struct FbPayloadJob<Client, Pool, Tasks, Builder>
+where
+    Builder: PayloadBuilder<Pool, Client>,
+{
+    config: PayloadConfig<Builder::Attributes>,
+    client: Client,
+    pool: Pool,
+    executor: Tasks,
+    builder: Builder,
+    cell: BlockCell<Builder::BuiltPayload>,
+    best_payload: Option<Builder::BuiltPayload>,
+}
+
+impl<Client, Pool, Tasks, Builder> FbPayloadJob<Client, Pool, Tasks, Builder>
+where
+    Client: StateProviderFactory + Clone + Unpin + 'static,
+    Pool: TransactionPool + Unpin + 'static,
+    Tasks: TaskSpawner + Clone + 'static,
+    Builder: PayloadBuilder<Pool, Client> + Unpin + 'static,
+    <Builder as PayloadBuilder<Pool, Client>>::Attributes: Unpin + Clone,
+    <Builder as PayloadBuilder<Pool, Client>>::BuiltPayload: Unpin + Clone,
+{
+    fn spawn_build_job(&mut self) {
+        println!("SPAWN BUILD JOB");
+
+        let builder = self.builder.clone();
+        let cell = self.cell.clone(); // This is safe to clone since it's an Arc inside
+
+        let client = self.client.clone();
+        let pool = self.pool.clone();
+        let payload_config = self.config.clone();
+        let cancel = Cancelled::default(); // not used
+
+        self.executor.spawn_blocking(Box::pin(async move {
+            let args = BuildArguments {
+                client,
+                pool,
+                cached_reads: CachedReads::default(),
+                config: payload_config,
+                cancel,
+                best_payload: None,
+            };
+
+            builder.build(args, &cell); // Builder updates the cell directly
+        }));
+    }
+}
+
+impl<Client, Pool, Tasks, Builder> Future for FbPayloadJob<Client, Pool, Tasks, Builder>
+where
+    Client: StateProviderFactory + Clone + Unpin + Send + Sync + 'static,
+    Pool: TransactionPool + Unpin + Send + Sync + 'static,
+    Tasks: TaskSpawner + Clone + Send + Sync + 'static,
+    Builder: PayloadBuilder<Pool, Client> + Unpin + Send + Sync + 'static,
+    <Builder as PayloadBuilder<Pool, Client>>::Attributes: Unpin + Clone + Send + Sync,
+    <Builder as PayloadBuilder<Pool, Client>>::BuiltPayload: Unpin + Clone + Send + Sync,
+{
+    type Output = Result<(), PayloadBuilderError>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+        match this.cell.poll_updated(cx) {
+            Poll::Ready(maybe_payload) => {
+                this.best_payload = maybe_payload;
+                Poll::Ready(Ok(()))
+            }
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+impl<Client, Pool, Tasks, Builder> PayloadJob for FbPayloadJob<Client, Pool, Tasks, Builder>
+where
+    Client: StateProviderFactory + Clone + Unpin + 'static,
+    Pool: TransactionPool + Unpin + 'static,
+    Tasks: TaskSpawner + Clone + 'static,
+    Builder: PayloadBuilder<Pool, Client> + Unpin + 'static,
+    <Builder as PayloadBuilder<Pool, Client>>::Attributes: Unpin + Clone,
+    <Builder as PayloadBuilder<Pool, Client>>::BuiltPayload: Unpin + Clone,
+{
+    type PayloadAttributes = Builder::Attributes;
+    type ResolvePayloadFuture = ResolvePayload<Self::BuiltPayload>;
+    type BuiltPayload = Builder::BuiltPayload;
+
+    fn best_payload(&self) -> Result<Self::BuiltPayload, PayloadBuilderError> {
+        if let Some(best_payload) = &self.best_payload {
+            return Ok(best_payload.clone());
+        }
+        Err(PayloadBuilderError::MissingPayload)
+    }
+
+    fn payload_attributes(&self) -> Result<Self::PayloadAttributes, PayloadBuilderError> {
+        Ok(self.config.attributes.clone())
+    }
+
+    fn resolve_kind(
+        &mut self,
+        kind: PayloadKind,
+    ) -> (Self::ResolvePayloadFuture, KeepPayloadJobAlive) {
+        info!("resolve kind");
+
+        let resolve_future = ResolvePayload::new(self.cell.clone());
+        (resolve_future, KeepPayloadJobAlive::No)
+    }
+}
+
+// A future that resolves when a payload becomes available in the BlockCell
+pub struct ResolvePayload<T> {
+    cell: BlockCell<T>,
+}
+
+impl<T> ResolvePayload<T> {
+    pub fn new(cell: BlockCell<T>) -> Self {
+        Self { cell }
+    }
+}
+
+impl<T: Clone> Future for ResolvePayload<T> {
+    type Output = Result<T, PayloadBuilderError>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match self.get_mut().cell.poll_updated(cx) {
+            Poll::Ready(Some(payload)) => Poll::Ready(Ok(payload)),
+            Poll::Ready(None) => Poll::Ready(Err(PayloadBuilderError::MissingPayload)),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+/// Pre-filled [`CachedReads`] for a specific block.
+///
+/// This is extracted from the [`CanonStateNotification`] for the tip block.
+#[derive(Debug, Clone)]
+pub struct PrecachedState {
+    /// The block for which the state is pre-cached.
+    pub block: B256,
+    /// Cached state for the block.
+    pub cached: CachedReads,
+}
+
+pub trait PayloadBuilder<Pool, Client>: Send + Sync + Clone {
+    type Attributes: PayloadBuilderAttributes;
+    type BuiltPayload: BuiltPayload;
+
+    fn build(
+        &self,
+        args: BuildArguments<Pool, Client, Self::Attributes, Self::BuiltPayload>,
+        cell: &BlockCell<Self::BuiltPayload>,
+    );
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OpPayloadBuilder {}
+
+impl<Pool, Client> PayloadBuilder<Pool, Client> for OpPayloadBuilder
+where
+    Pool: TransactionPool + Unpin + 'static,
+    Client: StateProviderFactory + Clone + Unpin + 'static,
+{
+    type Attributes = OpPayloadBuilderAttributes;
+    type BuiltPayload = OpBuiltPayload;
+
+    fn build(
+        &self,
+        args: BuildArguments<Pool, Client, Self::Attributes, Self::BuiltPayload>,
+        cell: &BlockCell<Self::BuiltPayload>,
+    ) {
+        // Implementation here
     }
 }
