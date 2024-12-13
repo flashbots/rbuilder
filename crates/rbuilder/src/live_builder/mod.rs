@@ -181,7 +181,10 @@ where
         );
 
         let watchdog_sender = match self.watchdog_timeout {
-            Some(duration) => Some(spawn_watchdog_thread(duration)?),
+            Some(duration) => Some(spawn_watchdog_thread(
+                duration,
+                "block build started".to_string(),
+            )?),
             None => {
                 info!("Watchdog not enabled");
                 None
@@ -203,11 +206,14 @@ where
             }) {
                 continue;
             }
+            let current_time = OffsetDateTime::now_utc();
             // see if we can get parent header in a reasonable time
-            let time_to_slot = payload.timestamp() - OffsetDateTime::now_utc();
+            let time_to_slot = payload.timestamp() - current_time;
             debug!(
                 slot = payload.slot(),
                 block = payload.block(),
+                ?current_time,
+                payload_timestamp = ?payload.timestamp(),
                 ?time_to_slot,
                 "Received payload, time till slot timestamp",
             );
