@@ -130,7 +130,7 @@ where
                 Ok((task_id, (sequence_of_orders, task_group)))
             }
             Err(err) => {
-                // Fast patch/heuristic to fix excessive tracing. 
+                // Fast patch/heuristic to fix excessive tracing.
                 // TODO: Use good errors.
                 if !cancellation_token.is_cancelled() {
                     warn!(
