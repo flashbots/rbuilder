@@ -230,7 +230,7 @@ pub fn find_suggested_fee_recipient(
 pub fn extract_onchain_block_txs(
     onchain_block: &alloy_rpc_types::Block,
 ) -> eyre::Result<Vec<TransactionSignedEcRecoveredWithBlobs>> {
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity(onchain_block.transactions.len());
     for tx in onchain_block.transactions.clone().into_transactions() {
         let tx_envelope: TxEnvelope = tx.try_into()?;
         let encoded = tx_envelope.encoded_2718();

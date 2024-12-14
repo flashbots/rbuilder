@@ -319,7 +319,7 @@ fn print_onchain_block_data(
     orders: &[Order],
     block_data: &BlockData,
 ) {
-    let mut executed_orders = Vec::new();
+    let mut executed_orders = Vec::with_capacity(tx_sim_results.len());
 
     let txs_to_idx: HashMap<_, _> = tx_sim_results
         .iter()

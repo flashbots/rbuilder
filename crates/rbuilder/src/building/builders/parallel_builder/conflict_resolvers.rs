@@ -354,7 +354,7 @@ fn generate_sequences_of_orders_to_try(task: &ConflictTask) -> Vec<Vec<usize>> {
 ///
 /// A vector of randomly generated sequences of order indices.
 fn generate_random_permutations(task: &ConflictTask, seed: u64, count: usize) -> Vec<Vec<usize>> {
-    let mut sequences_of_orders = vec![];
+    let mut sequences_of_orders = Vec::with_capacity(count);
 
     let order_group = &task.group;
     let mut indexes = (0..order_group.orders.len()).collect::<Vec<_>>();

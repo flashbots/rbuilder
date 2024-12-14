@@ -174,7 +174,7 @@ impl PayloadSourceMuxer {
         cancellation: CancellationToken,
     ) -> Self {
         let (sender, receiver) = mpsc::unbounded_channel();
-        let mut join_handles: Vec<JoinHandle<()>> = Vec::new();
+        let mut join_handles: Vec<JoinHandle<()>> = Vec::with_capacity(cls.len());
         for cl in cls {
             let sender = sender.clone();
             let cancellation = cancellation.clone();

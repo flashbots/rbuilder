@@ -111,7 +111,7 @@ impl<TestedSinkType: SimulatedOrderSink> TestContext<TestedSinkType> {
     /// tx is the same in all backruns
     pub fn create_multiple_sbundle_tx_br(&mut self, sbundle_count: usize) -> Vec<ShareBundle> {
         let tx = self.create_share_bundle_tx_bundle(TxRevertBehavior::AllowedExcluded);
-        let mut res = Vec::new();
+        let mut res = Vec::with_capacity(sbundle_count);
         for _ in 0..sbundle_count {
             let body = vec![
                 tx.clone(),

@@ -199,6 +199,7 @@ pub fn block_orders_from_sim_orders(
 ) -> ProviderResult<BlockOrders> {
     let mut onchain_nonces = vec![];
     for order in sim_orders {
+        onchain_nonces.reserve_exact(order.order.nonces().len());
         for nonce in order.order.nonces() {
             let value = state_provider
                 .account_nonce(nonce.address)?

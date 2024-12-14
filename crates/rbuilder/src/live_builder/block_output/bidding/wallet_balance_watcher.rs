@@ -152,7 +152,7 @@ where
             }
             return Ok(Vec::new());
         }
-        let mut res = Vec::new();
+        let mut res = Vec::with_capacity(new_block.saturating_sub(self.block_number) as usize);
         for block_number in self.block_number + 1..=new_block {
             let block_info = self.get_block_info(block_number)?;
             res.push(block_info.as_landed_block_info(&self.builder_addr));

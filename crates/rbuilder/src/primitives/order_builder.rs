@@ -174,7 +174,7 @@ impl BundleBuilder {
 
     fn build(self) -> Bundle {
         let mut reverting_tx_hashes = Vec::new();
-        let mut txs = Vec::new();
+        let mut txs = Vec::with_capacity(self.txs.len());
         for (tx_with_blobs, opt) in self.txs {
             if opt {
                 reverting_tx_hashes.push(tx_with_blobs.tx.hash);

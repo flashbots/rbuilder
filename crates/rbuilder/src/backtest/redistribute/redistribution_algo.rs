@@ -141,10 +141,11 @@ pub fn calculate_redistribution(data: RedistributionCalculator) -> Redistributio
     }
 
     let mut total_value_redistributed = U256::ZERO;
-    let mut redistribution_entity_result = Vec::new();
+    let mut redistribution_entity_result = Vec::with_capacity(n);
     for i in 0..n {
-        let mut order_id_vector = Vec::new();
-        let mut order_contrib_vector = Vec::new();
+        let mut order_id_vector = Vec::with_capacity(data.identity_data[i].included_orders.len());
+        let mut order_contrib_vector =
+            Vec::with_capacity(data.identity_data[i].included_orders.len());
         for landed_order in &data.identity_data[i].included_orders {
             order_id_vector.push(landed_order.id);
             order_contrib_vector.push(landed_order.realized_value);
@@ -230,7 +231,7 @@ fn split_value(value: U256, split_vector: &[U256]) -> Vec<U256> {
     if total_split.is_zero() {
         return split_vector.iter().map(|_| U256::ZERO).collect();
     }
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity(split_vector.len());
     for split in split_vector {
         result.push((value * split) / total_split);
     }
