@@ -1,0 +1,11 @@
+[package]
+name = "sysperf"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+alloy-primitives.workspace = true
+
+rayon = "1.8"
+rand = "0.8"
+num_cpus = "1.16"

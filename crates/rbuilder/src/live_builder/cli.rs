@@ -6,6 +6,7 @@ use reth_db::Database;
 use reth_provider::{BlockReader, DatabaseProviderFactory, HeaderProvider, StateProviderFactory};
 use serde::de::DeserializeOwned;
 use std::fmt::Debug;
+use sysperf::{format_results, run_all_benchmarks};
 use tokio::signal::ctrl_c;
 use tokio_util::sync::CancellationToken;
 
@@ -28,6 +29,11 @@ enum Cli {
     Config(RunCmd),
     #[clap(name = "version", about = "Print version information")]
     Version,
+    #[clap(
+        name = "sysperf",
+        about = "Run system performance benchmarks (CPU, disk, memory)"
+    )]
+    SysPerf,
 }
 
 #[derive(Parser, Debug)]
@@ -90,6 +96,13 @@ where
         }
         Cli::Version => {
             print_version_info();
+            return Ok(());
+        }
+        Cli::SysPerf => {
+            let result =
+                run_all_benchmarks(&PathBuf::from("/tmp/benchmark_test.tmp"), 100, 100, 1000)?;
+
+            println!("{}", format_results(&result));
             return Ok(());
         }
     };
