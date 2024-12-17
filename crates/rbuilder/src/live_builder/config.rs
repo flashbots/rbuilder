@@ -422,6 +422,47 @@ impl Default for Config {
                         build_duration_deadline_ms: None,
                     }),
                 },
+                BuilderConfig {
+                    name: String::from("mp-ordering-deadline"),
+                    builder: SpecificBuilderConfig::OrderingBuilder(OrderingBuilderConfig {
+                        discard_txs: true,
+                        sorting: Sorting::MaxProfit,
+                        failed_order_retries: 1,
+                        drop_failed_orders: true,
+                        coinbase_payment: false,
+                        build_duration_deadline_ms: Some(30),
+                    }),
+                },
+                BuilderConfig {
+                    name: String::from("mp-ordering-cb"),
+                    builder: SpecificBuilderConfig::OrderingBuilder(OrderingBuilderConfig {
+                        discard_txs: true,
+                        sorting: Sorting::MaxProfit,
+                        failed_order_retries: 1,
+                        drop_failed_orders: true,
+                        coinbase_payment: true,
+                        build_duration_deadline_ms: None,
+                    }),
+                },
+                BuilderConfig {
+                    name: String::from("mgp-ordering-default"),
+                    builder: SpecificBuilderConfig::OrderingBuilder(OrderingBuilderConfig {
+                        discard_txs: true,
+                        sorting: Sorting::MevGasPrice,
+                        failed_order_retries: 1,
+                        drop_failed_orders: false,
+                        coinbase_payment: false,
+                        build_duration_deadline_ms: None,
+                    }),
+                },
+                BuilderConfig {
+                    name: String::from("parallel"),
+                    builder: SpecificBuilderConfig::ParallelBuilder(ParallelBuilderConfig {
+                        discard_txs: true,
+                        num_threads: 25,
+                        coinbase_payment: false,
+                    }),
+                },
             ],
         }
     }
