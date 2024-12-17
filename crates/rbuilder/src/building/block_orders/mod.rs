@@ -12,6 +12,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::{
     building::Sorting,
+    live_builder::simulation::SimulatedOrderCommand,
     primitives::{AccountNonce, OrderId, SimulatedOrder},
 };
 use ahash::HashMap;
@@ -37,6 +38,19 @@ pub trait SimulatedOrderSink {
         }
         result
     }
+}
+
+/// Sends command to sink calling the proper function.
+pub fn simulated_order_command_to_sink<SinkType: SimulatedOrderSink>(
+    command: SimulatedOrderCommand,
+    sink: &mut SinkType,
+) {
+    match command {
+        SimulatedOrderCommand::Simulation(sim_order) => sink.insert_order(sim_order),
+        SimulatedOrderCommand::Cancellation(id) => {
+            let _ = sink.remove_order(id);
+        }
+    };
 }
 
 /// Chained composition of [`ShareBundleMerger`] -> [`PrioritizedOrderStore`] allowing merged orders in an prioritized store

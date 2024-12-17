@@ -114,6 +114,7 @@ async fn main() -> eyre::Result<()> {
         run_sparse_trie_prefetcher: false,
         orderpool_sender,
         orderpool_receiver,
+        sbundle_merger_selected_signers: Default::default(),
     };
 
     let ctrlc = tokio::spawn(async move {

@@ -110,6 +110,7 @@ where
     /// Notify rbuilder of new [`ReplaceableOrderPoolCommand`] flow via this channel.
     pub orderpool_sender: mpsc::Sender<ReplaceableOrderPoolCommand>,
     pub orderpool_receiver: mpsc::Receiver<ReplaceableOrderPoolCommand>,
+    pub sbundle_merger_selected_signers: Arc<Vec<Address>>,
 }
 
 impl<P, DB, BlocksSourceType: SlotSource> LiveBuilder<P, DB, BlocksSourceType>
@@ -178,6 +179,7 @@ where
             orderpool_subscriber,
             order_simulation_pool,
             self.run_sparse_trie_prefetcher,
+            self.sbundle_merger_selected_signers.clone(),
         );
 
         let watchdog_sender = match self.watchdog_timeout {

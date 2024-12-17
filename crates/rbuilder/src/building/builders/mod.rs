@@ -26,6 +26,8 @@ use tokio::sync::{broadcast, broadcast::error::TryRecvError};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
+use super::simulated_order_command_to_sink;
+
 /// Block we built
 #[derive(Debug, Clone)]
 pub struct Block {
@@ -98,12 +100,7 @@ impl OrderConsumer {
     // Apply insertions and sbundle cancellations on sink
     pub fn apply_new_commands<SinkType: SimulatedOrderSink>(&mut self, sink: &mut SinkType) {
         for order_command in self.new_commands.drain(..) {
-            match order_command {
-                SimulatedOrderCommand::Simulation(sim_order) => sink.insert_order(sim_order),
-                SimulatedOrderCommand::Cancellation(id) => {
-                    let _ = sink.remove_order(id);
-                }
-            };
+            simulated_order_command_to_sink(order_command, sink);
         }
     }
 }

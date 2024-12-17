@@ -232,6 +232,9 @@ impl BaseConfig {
 
             orderpool_sender,
             orderpool_receiver,
+            sbundle_merger_selected_signers: Arc::new(
+                self.sbundle_mergeabe_signers.clone().unwrap_or_default(),
+            ),
         })
     }
 
