@@ -7,17 +7,12 @@ mod order_dumper;
 #[cfg(test)]
 mod test_context;
 mod test_data_generator;
-
-use std::{cell::RefCell, rc::Rc};
-
 use crate::{
     building::Sorting,
     live_builder::simulation::SimulatedOrderCommand,
     primitives::{AccountNonce, OrderId, SimulatedOrder},
 };
 use ahash::HashMap;
-use alloy_primitives::Address;
-use multi_share_bundle_merger::MultiShareBundleMerger;
 use reth_errors::ProviderResult;
 use reth_provider::StateProviderBox;
 
@@ -53,30 +48,11 @@ pub fn simulated_order_command_to_sink<SinkType: SimulatedOrderSink>(
     };
 }
 
-/// Chained composition of [`ShareBundleMerger`] -> [`PrioritizedOrderStore`] allowing merged orders in an prioritized store
+/// Wrapper on [`PrioritizedOrderStore`] soon will die.
 /// IMPORTANT: Read comments for PrioritizedOrderStore to see how to use (add_order here is insert_order) since nonces are a little tricky
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BlockOrders {
-    prioritized_order_store: Rc<RefCell<PrioritizedOrderStore>>,
-    share_bundle_merger: Box<MultiShareBundleMerger<PrioritizedOrderStore>>,
-}
-
-impl Clone for BlockOrders {
-    /// This cloning is tricky since we don't want to clone the Rcs we want to clone the real objects.
-    fn clone(&self) -> Self {
-        let prioritized_order_store =
-            Rc::new(RefCell::new(self.prioritized_order_store.borrow().clone()));
-
-        let share_bundle_merger = Box::new(
-            self.share_bundle_merger
-                .clone_with_sink(prioritized_order_store.clone()),
-        );
-
-        Self {
-            prioritized_order_store,
-            share_bundle_merger,
-        }
-    }
+    prioritized_order_store: PrioritizedOrderStore,
 }
 
 /// SimulatedOrderSink that stores all orders + all the adds from last drain_new_orders ONLY if we didn't see removes.
@@ -131,31 +107,16 @@ impl BlockOrders {
     pub fn new(
         priority: Sorting,
         initial_onchain_nonces: impl IntoIterator<Item = AccountNonce>,
-        sbundle_merger_selected_signers: &[Address],
     ) -> Self {
         let mut onchain_nonces = HashMap::default();
         for onchain_nonce in initial_onchain_nonces {
             onchain_nonces.insert(onchain_nonce.account, onchain_nonce.nonce);
         }
 
-        let prioritized_order_store = Rc::new(RefCell::new(PrioritizedOrderStore::new(
-            priority,
-            onchain_nonces,
-        )));
-
-        let share_bundle_merger = Box::new(MultiShareBundleMerger::new(
-            sbundle_merger_selected_signers,
-            prioritized_order_store.clone(),
-        ));
-
+        let prioritized_order_store = PrioritizedOrderStore::new(priority, onchain_nonces);
         Self {
             prioritized_order_store,
-            share_bundle_merger,
         }
-    }
-
-    fn input_order_store(&mut self) -> &mut MultiShareBundleMerger<PrioritizedOrderStore> {
-        &mut self.share_bundle_merger
     }
 
     pub fn add_order(&mut self, order: SimulatedOrder) {
@@ -166,41 +127,37 @@ impl BlockOrders {
     /// Use ONLY if you are using BlockOrders as an static priority with no new add_order/remove_order etc.
     /// @Pending For this cases it would probably be better to have a PrioritizedOrderStore instead of a BlockOrders
     pub fn readd_order(&mut self, order: SimulatedOrder) {
-        self.prioritized_order_store
-            .borrow_mut()
-            .insert_order(order);
+        self.prioritized_order_store.insert_order(order);
     }
 
     pub fn remove_orders(
         &mut self,
         orders: impl IntoIterator<Item = OrderId>,
     ) -> Vec<SimulatedOrder> {
-        self.prioritized_order_store
-            .borrow_mut()
-            .remove_orders(orders)
+        self.prioritized_order_store.remove_orders(orders)
     }
 
     pub fn pop_order(&mut self) -> Option<SimulatedOrder> {
-        self.prioritized_order_store.borrow_mut().pop_order()
+        self.prioritized_order_store.pop_order()
     }
 
     pub fn update_onchain_nonces(&mut self, new_nonces: &[AccountNonce]) {
         self.prioritized_order_store
-            .borrow_mut()
             .update_onchain_nonces(new_nonces);
     }
 
     pub fn get_all_orders(&self) -> Vec<SimulatedOrder> {
-        self.prioritized_order_store.borrow().get_all_orders()
+        self.prioritized_order_store.get_all_orders()
     }
 }
+
 impl SimulatedOrderSink for BlockOrders {
     fn insert_order(&mut self, order: SimulatedOrder) {
-        self.input_order_store().insert_order(order);
+        self.prioritized_order_store.insert_order(order);
     }
 
     fn remove_order(&mut self, id: OrderId) -> Option<SimulatedOrder> {
-        self.input_order_store().remove_order(id)
+        self.prioritized_order_store.remove_order(id)
     }
 }
 
@@ -209,7 +166,6 @@ pub fn block_orders_from_sim_orders(
     sim_orders: &[SimulatedOrder],
     sorting: Sorting,
     state_provider: &StateProviderBox,
-    sbundle_merger_selected_signers: &[Address],
 ) -> ProviderResult<BlockOrders> {
     let mut onchain_nonces = vec![];
     for order in sim_orders {
@@ -223,8 +179,7 @@ pub fn block_orders_from_sim_orders(
             });
         }
     }
-    let mut block_orders =
-        BlockOrders::new(sorting, onchain_nonces, sbundle_merger_selected_signers);
+    let mut block_orders = BlockOrders::new(sorting, onchain_nonces);
 
     for order in sim_orders.iter().cloned() {
         block_orders.add_order(order);

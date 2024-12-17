@@ -490,14 +490,13 @@ where
 {
     configs
         .into_iter()
-        .map(|cfg| create_builder(cfg, &root_hash_config, &sbundle_mergeabe_signers))
+        .map(|cfg| create_builder(cfg, &root_hash_config))
         .collect()
 }
 
 fn create_builder<P, DB>(
     cfg: BuilderConfig,
     root_hash_config: &RootHashConfig,
-    sbundle_mergeabe_signers: &[Address],
 ) -> Arc<dyn BlockBuildingAlgorithm<P, DB>>
 where
     DB: Database + Clone + 'static,
@@ -507,22 +506,12 @@ where
         + 'static,
 {
     match cfg.builder {
-        SpecificBuilderConfig::OrderingBuilder(order_cfg) => {
-            Arc::new(OrderingBuildingAlgorithm::new(
-                root_hash_config.clone(),
-                sbundle_mergeabe_signers.to_vec(),
-                order_cfg,
-                cfg.name,
-            ))
-        }
-        SpecificBuilderConfig::ParallelBuilder(parallel_cfg) => {
-            Arc::new(ParallelBuildingAlgorithm::new(
-                root_hash_config.clone(),
-                sbundle_mergeabe_signers.to_vec(),
-                parallel_cfg,
-                cfg.name,
-            ))
-        }
+        SpecificBuilderConfig::OrderingBuilder(order_cfg) => Arc::new(
+            OrderingBuildingAlgorithm::new(root_hash_config.clone(), order_cfg, cfg.name),
+        ),
+        SpecificBuilderConfig::ParallelBuilder(parallel_cfg) => Arc::new(
+            ParallelBuildingAlgorithm::new(root_hash_config.clone(), parallel_cfg, cfg.name),
+        ),
     }
 }
 

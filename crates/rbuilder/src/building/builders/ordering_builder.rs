@@ -17,7 +17,6 @@ use crate::{
     roothash::RootHashConfig,
 };
 use ahash::{HashMap, HashSet};
-use alloy_primitives::Address;
 use reth::revm::cached::CachedReads;
 use reth_db::database::Database;
 use reth_provider::{BlockReader, DatabaseProviderFactory, StateProviderFactory};
@@ -75,7 +74,6 @@ where
         input.input,
         input.ctx.attributes.parent,
         config.sorting,
-        &input.sbundle_mergeabe_signers,
     );
 
     let mut builder = OrderingBuilderContext::new(
@@ -147,12 +145,8 @@ where
     let state_provider = input
         .provider
         .history_by_block_number(input.ctx.block_env.number.to::<u64>() - 1)?;
-    let block_orders = block_orders_from_sim_orders(
-        input.sim_orders,
-        ordering_config.sorting,
-        &state_provider,
-        &input.sbundle_mergeabe_signers,
-    )?;
+    let block_orders =
+        block_orders_from_sim_orders(input.sim_orders, ordering_config.sorting, &state_provider)?;
     let mut builder = OrderingBuilderContext::new(
         input.provider.clone(),
         input.builder_name,
@@ -346,7 +340,6 @@ where
 #[derive(Debug)]
 pub struct OrderingBuildingAlgorithm {
     root_hash_config: RootHashConfig,
-    sbundle_mergeabe_signers: Vec<Address>,
     config: OrderingBuilderConfig,
     name: String,
 }
@@ -354,13 +347,11 @@ pub struct OrderingBuildingAlgorithm {
 impl OrderingBuildingAlgorithm {
     pub fn new(
         root_hash_config: RootHashConfig,
-        sbundle_mergeabe_signers: Vec<Address>,
         config: OrderingBuilderConfig,
         name: String,
     ) -> Self {
         Self {
             root_hash_config,
-            sbundle_mergeabe_signers,
             config,
             name,
         }
@@ -388,7 +379,6 @@ where
             sink: input.sink,
             builder_name: self.name.clone(),
             cancel: input.cancel,
-            sbundle_mergeabe_signers: self.sbundle_mergeabe_signers.clone(),
             phantom: Default::default(),
         };
         run_ordering_builder(live_input, &self.config);

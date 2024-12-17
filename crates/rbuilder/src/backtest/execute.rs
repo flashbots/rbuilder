@@ -166,7 +166,6 @@ where
         let input = BacktestSimulateBlockInput {
             ctx: ctx.clone(),
             builder_name: building_algorithm_name.clone(),
-            sbundle_mergeabe_signers: sbundle_mergeabe_signers.to_vec(),
             sim_orders: &sim_orders,
             provider: provider.clone(),
             cached_reads,

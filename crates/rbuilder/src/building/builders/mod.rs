@@ -49,7 +49,6 @@ pub struct LiveBuilderInput<P, DB> {
     pub sink: Arc<dyn UnfinishedBlockBuildingSink>,
     pub builder_name: String,
     pub cancel: CancellationToken,
-    pub sbundle_mergeabe_signers: Vec<Address>,
     phantom: PhantomData<DB>,
 }
 
@@ -125,13 +124,12 @@ where
         orders: broadcast::Receiver<SimulatedOrderCommand>,
         parent_block: B256,
         sorting: Sorting,
-        sbundle_merger_selected_signers: &[Address],
     ) -> Self {
         let nonce_cache = NonceCache::new(provider, parent_block);
 
         Self {
             nonce_cache,
-            block_orders: BlockOrders::new(sorting, vec![], sbundle_merger_selected_signers),
+            block_orders: BlockOrders::new(sorting, vec![]),
             onchain_nonces_updated: HashSet::default(),
             order_consumer: OrderConsumer::new(orders),
         }
@@ -242,7 +240,6 @@ pub trait UnfinishedBlockBuildingSinkFactory: Debug + Send + Sync {
 pub struct BacktestSimulateBlockInput<'a, P> {
     pub ctx: BlockBuildingContext,
     pub builder_name: String,
-    pub sbundle_mergeabe_signers: Vec<Address>,
     pub sim_orders: &'a Vec<SimulatedOrder>,
     pub provider: P,
     pub cached_reads: Option<CachedReads>,
