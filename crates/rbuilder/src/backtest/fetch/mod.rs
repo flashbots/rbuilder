@@ -13,7 +13,7 @@ use crate::{
 };
 
 use alloy_provider::Provider;
-use alloy_rpc_types::{Block, BlockId, BlockNumberOrTag};
+use alloy_rpc_types::{Block, BlockId, BlockNumberOrTag, BlockTransactionsKind};
 
 use eyre::WrapErr;
 use flashbots_db::RelayDB;
@@ -105,7 +105,10 @@ impl HistoricalDataFetcher {
     async fn get_onchain_block(&self, block_number: u64) -> eyre::Result<Block> {
         let block = self
             .eth_provider
-            .get_block_by_number(BlockNumberOrTag::Number(block_number), true)
+            .get_block_by_number(
+                BlockNumberOrTag::Number(block_number),
+                BlockTransactionsKind::Full,
+            )
             .await
             .wrap_err_with(|| format!("Failed to fetch block {}", block_number))?
             .ok_or_else(|| eyre::eyre!("Block {} not found", block_number))?;

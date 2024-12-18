@@ -22,13 +22,14 @@ use crate::{
     utils::{error_storage::spawn_error_storage_writer, Signer},
 };
 use ahash::HashSet;
+use alloy_consensus::Header;
 use alloy_primitives::{Address, B256};
 use building::BlockBuildingPool;
 use eyre::Context;
 use jsonrpsee::RpcModule;
 use order_input::ReplaceableOrderPoolCommand;
 use payload_events::MevBoostSlotData;
-use reth::{primitives::Header, providers::HeaderProvider};
+use reth::providers::HeaderProvider;
 use reth_chainspec::ChainSpec;
 use reth_db::Database;
 use reth_provider::{BlockReader, DatabaseProviderFactory, StateProviderFactory};

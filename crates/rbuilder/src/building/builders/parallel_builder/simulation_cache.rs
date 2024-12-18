@@ -186,8 +186,8 @@ impl Default for SharedSimulationCache {
 mod tests {
     use super::*;
     use alloy_primitives::{Address, B256, U256};
-    use reth_primitives::revm_primitives::AccountInfo;
     use revm::db::{states::StorageSlot, AccountStatus, BundleAccount};
+    use revm_primitives::AccountInfo;
     use std::collections::HashMap;
     type AlloyHashMap<K, V> = HashMap<K, V, foldhash::fast::RandomState>;
     struct TestDataGenerator {

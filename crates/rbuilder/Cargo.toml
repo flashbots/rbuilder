@@ -44,6 +44,7 @@ alloy-rpc-types.workspace = true
 alloy-json-rpc.workspace = true
 alloy-transport-http.workspace = true
 alloy-network.workspace = true
+alloy-network-primitives.workspace = true
 alloy-transport.workspace = true
 alloy-rpc-types-beacon.workspace = true
 alloy-rpc-types-engine.workspace = true
@@ -140,16 +141,15 @@ criterion = { version = "0.5.1", features = ["html_reports", "async_tokio"] }
 
 [features]
 optimism = [
-	"reth-db/optimism",
-	"reth-node-core/optimism",
-	"reth-primitives/optimism",
-	"reth-provider/optimism",
-	"revm-primitives/optimism",
-	"revm/optimism"
+    "reth-db/optimism",
+    "reth-node-core/optimism",
+    "reth-primitives/optimism",
+    "reth-provider/optimism",
+    "revm-primitives/optimism",
+    "revm/optimism",
 ]
 redact-sensitive = []
 
 [[bench]]
 name = "bench_main"
 harness = false
-

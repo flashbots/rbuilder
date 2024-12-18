@@ -25,7 +25,7 @@ dry_run_validation_url = "http://localhost:8545"
 ignore_cancellable_orders = true
 
 sbundle_mergeabe_signers = []
-live_builders = ["mp-ordering"]
+live_builders = ["mp-ordering", "mgp-ordering", "parallel"]
 
 [[relays]]
 name = "custom"
@@ -33,19 +33,3 @@ url = "http://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e
 priority = 0
 use_ssz_for_submit = false
 use_gzip_for_submit = false
-
-[[builders]]
-name = "mgp-ordering"
-algo = "ordering-builder"
-discard_txs = true
-sorting = "mev-gas-price"
-failed_order_retries = 1
-drop_failed_orders = true
-
-[[builders]]
-name = "mp-ordering"
-algo = "ordering-builder"
-discard_txs = true
-sorting = "max-profit"
-failed_order_retries = 1
-drop_failed_orders = true

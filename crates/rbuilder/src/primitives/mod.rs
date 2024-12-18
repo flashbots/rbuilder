@@ -10,15 +10,14 @@ use crate::building::evm_inspector::UsedStateTrace;
 use alloy_consensus::Transaction as _;
 use alloy_eips::{
     eip2718::{Decodable2718, Eip2718Error, Encodable2718},
-    eip4844::{Blob, Bytes48},
+    eip4844::{Blob, BlobTransactionSidecar, Bytes48},
 };
 use alloy_primitives::{keccak256, Address, Bytes, TxHash, B256, U256};
 use derivative::Derivative;
 use integer_encoding::VarInt;
 use reth_primitives::{
     kzg::{BYTES_PER_BLOB, BYTES_PER_COMMITMENT, BYTES_PER_PROOF},
-    BlobTransactionSidecar, PooledTransactionsElement, TransactionSigned,
-    TransactionSignedEcRecovered,
+    PooledTransactionsElement, TransactionSigned, TransactionSignedEcRecovered,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};

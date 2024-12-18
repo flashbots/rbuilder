@@ -12,12 +12,10 @@ use crate::{
     utils::{is_provider_factory_health_error, NonceCache},
 };
 use ahash::HashSet;
+use alloy_eips::eip4844::BlobTransactionSidecar;
 use alloy_primitives::{Address, Bytes, B256};
 use block_building_helper::BlockBuildingHelper;
-use reth::{
-    primitives::{BlobTransactionSidecar, SealedBlock},
-    revm::cached::CachedReads,
-};
+use reth::{primitives::SealedBlock, revm::cached::CachedReads};
 use reth_db::Database;
 use reth_errors::ProviderError;
 use reth_provider::{DatabaseProviderFactory, StateProviderFactory};

@@ -1,4 +1,5 @@
 use crate::telemetry::{inc_provider_bad_reopen_counter, inc_provider_reopen_counter};
+use alloy_consensus::Header;
 use alloy_eips::{BlockNumHash, BlockNumberOrTag};
 use alloy_primitives::{BlockHash, BlockNumber};
 use parking_lot::{Mutex, RwLock};
@@ -7,7 +8,7 @@ use reth_chainspec::ChainInfo;
 use reth_db::{Database, DatabaseError};
 use reth_errors::{ProviderError, ProviderResult, RethResult};
 use reth_node_api::NodeTypesWithDB;
-use reth_primitives::{Header, SealedHeader};
+use reth_primitives::SealedHeader;
 use reth_provider::{
     providers::{ProviderNodeTypes, StaticFileProvider},
     BlockIdReader, BlockNumReader, DatabaseProvider, DatabaseProviderFactory, DatabaseProviderRO,

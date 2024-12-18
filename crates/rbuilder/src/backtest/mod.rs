@@ -20,6 +20,8 @@ use crate::{
     },
     utils::offset_datetime_to_timestamp_ms,
 };
+use alloy_consensus::Transaction as TransactionTrait;
+use alloy_network_primitives::TransactionResponse;
 use alloy_primitives::{Address, TxHash, I256};
 use alloy_rpc_types::{BlockTransactions, Transaction};
 pub use fetch::HistoricalDataFetcher;
@@ -168,8 +170,8 @@ impl BlockData {
         }
         if let BlockTransactions::Full(txs) = &self.onchain_block.transactions {
             for tx in txs {
-                if !available_txs.contains(&tx.hash) && !self.is_validator_fee_payment(tx) {
-                    result.push(tx.hash);
+                if !available_txs.contains(&tx.tx_hash()) && !self.is_validator_fee_payment(tx) {
+                    result.push(tx.tx_hash());
                 }
             }
         } else {
@@ -191,13 +193,13 @@ impl BlockData {
                 .filter(|tx| {
                     !available_accounts
                         .iter()
-                        .any(|x| x.nonce == tx.nonce && x.address == tx.from)
+                        .any(|x| x.nonce == tx.nonce() && x.address == tx.from)
                 })
                 .map(|tx| {
                     (
-                        tx.hash,
+                        tx.tx_hash(),
                         AccountNonce {
-                            nonce: tx.nonce,
+                            nonce: tx.nonce(),
                             account: tx.from,
                         },
                     )
@@ -209,9 +211,8 @@ impl BlockData {
     }
 
     fn is_validator_fee_payment(&self, tx: &Transaction) -> bool {
-        tx.from == self.onchain_block.header.miner
-            && tx
-                .to
+        tx.from == self.onchain_block.header.beneficiary
+            && TransactionTrait::to(tx)
                 .is_some_and(|to| to == self.winning_bid_trace.proposer_fee_recipient)
     }
 }

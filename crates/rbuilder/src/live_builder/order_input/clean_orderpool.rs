@@ -41,8 +41,8 @@ where
         };
         let mut new_block_stream = pin!(new_block_stream);
 
-        while let Some(block) = new_block_stream.next().await {
-            let block_number = block.header.number;
+        while let Some(header) = new_block_stream.next().await {
+            let block_number = header.number;
             set_current_block(block_number);
             let state = match provider_factory.latest() {
                 Ok(state) => state,

@@ -9,7 +9,7 @@ use reth::providers::{providers::ConsistentDbView, ExecutionOutcome};
 use reth_errors::ProviderError;
 use reth_provider::{BlockReader, DatabaseProviderFactory};
 use reth_trie::TrieInput;
-use reth_trie_parallel::parallel_root::{ParallelStateRoot, ParallelStateRootError};
+use reth_trie_parallel::root::{ParallelStateRoot, ParallelStateRootError};
 use tracing::trace;
 
 pub use prefetcher::run_trie_prefetcher;

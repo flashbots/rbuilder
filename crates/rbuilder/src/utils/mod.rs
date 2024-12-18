@@ -210,7 +210,7 @@ pub fn find_suggested_fee_recipient(
     block: &alloy_rpc_types::Block,
     txs: &[TransactionSignedEcRecoveredWithBlobs],
 ) -> Address {
-    let coinbase = block.header.miner;
+    let coinbase = block.header.beneficiary;
     let (last_tx_signer, last_tx_to) = if let Some((signer, to)) = txs
         .last()
         .map(|tx| (tx.signer(), tx.to().unwrap_or_default()))
@@ -232,7 +232,8 @@ pub fn extract_onchain_block_txs(
 ) -> eyre::Result<Vec<TransactionSignedEcRecoveredWithBlobs>> {
     let mut result = Vec::new();
     for tx in onchain_block.transactions.clone().into_transactions() {
-        let tx_envelope: TxEnvelope = tx.try_into()?;
+        let tx_envelope: TxEnvelope =
+            <alloy_rpc_types_eth::Transaction as Into<TxEnvelope>>::into(tx);
         let encoded = tx_envelope.encoded_2718();
         let tx = RawTx { tx: encoded.into() }.decode(TxEncoding::NoBlobData)?;
         result.push(tx.tx_with_blobs);
