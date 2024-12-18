@@ -6,13 +6,12 @@
 //! See <https://github.com/flashbots/rbuilder/issues/229> for more information.
 
 use clap::{Args, Parser};
-use futures_util::StreamExt;
 use rbuilder::{
     live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig, config::Config},
     telemetry,
 };
-use reth::transaction_pool::TransactionPool;
-use reth::{builder::NodeHandle, chainspec::EthereumChainSpecParser, cli::Cli};
+use reth::rpc::builder::config::RethRpcServerConfig;
+use reth::{chainspec::EthereumChainSpecParser, cli::Cli};
 use reth_db_api::Database;
 use reth_node_builder::{
     engine_tree_config::{
@@ -25,7 +24,6 @@ use reth_provider::{
     providers::{BlockchainProvider, BlockchainProvider2},
     BlockReader, DatabaseProviderFactory, HeaderProvider, StateProviderFactory,
 };
-use reth_transaction_pool::NewTransactionEvent;
 use std::{path::PathBuf, process};
 use tokio::task;
 use tracing::{error, info, warn};
@@ -81,12 +79,17 @@ fn main() {
                     let engine_tree_config = TreeConfig::default()
                         .with_persistence_threshold(extra_args.persistence_threshold)
                         .with_memory_block_buffer_target(extra_args.memory_block_buffer_target);
-                    let NodeHandle{node_exit_future, node} = builder
+                    let handle = builder
                         .with_types_and_provider::<EthereumNode, BlockchainProvider2<_>>()
                         .with_components(EthereumNode::components())
                         .with_add_ons(EthereumAddOns::default())
                         .on_rpc_started(move |ctx, _| {
-                            spawn_rbuilder(ctx.provider().clone(), extra_args.rbuilder_config);
+                            let ipc_path = if ctx.config().rpc.is_ipc_enabled() {
+                                Some(PathBuf::from(ctx.config().rpc.ipc_path()))
+                            } else {
+                                None
+                            };
+                            spawn_rbuilder(ctx.provider().clone(), extra_args.rbuilder_config, ipc_path);
                             Ok(())
                         })
                         .launch_with_fn(|builder| {
@@ -99,17 +102,7 @@ fn main() {
                         })
                         .await?;
 
-                    let mut pending_transactions = node.pool.new_pending_pool_transactions_listener();
-
-                    node.task_executor.spawn(Box::pin(async move {
-                        while let Some(event) = pending_transactions.next().await {
-                            println!("Pending transaction: {:?}", event);
-                            let tx = event.transaction;
-                            panic!("Pending transaction");
-                        }
-                    }));
-
-                    node_exit_future.await
+                        handle.node_exit_future.await
                 }
                 true => {
                     info!(target: "reth::cli", "Running with legacy engine");
@@ -118,7 +111,13 @@ fn main() {
                         .with_components(EthereumNode::components())
                         .with_add_ons::<EthereumAddOns<_>>(Default::default())
                         .on_rpc_started(move |ctx, _| {
-                            spawn_rbuilder(ctx.provider().clone(), extra_args.rbuilder_config);
+                            let ipc_path = if ctx.config().rpc.is_ipc_enabled() {
+                                Some(PathBuf::from(ctx.config().rpc.ipc_path()))
+                            } else {
+                                None
+                            };
+
+                            spawn_rbuilder(ctx.provider().clone(), extra_args.rbuilder_config, ipc_path);
                             Ok(())
                         })
                         .launch().await?;
@@ -135,7 +134,7 @@ fn main() {
 /// Spawns a tokio rbuilder task.
 ///
 /// Takes down the entire process if the rbuilder errors or stops.
-fn spawn_rbuilder<P, DB>(provider: P, config_path: PathBuf)
+fn spawn_rbuilder<P, DB>(provider: P, config_path: PathBuf, ipc_path: Option<PathBuf>)
 where
     DB: Database + Clone + 'static,
     P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
@@ -146,7 +145,10 @@ where
 {
     let _handle = task::spawn(async move {
         let result = async {
-            let config: Config = load_config_toml_and_env(config_path)?;
+            let mut config: Config = load_config_toml_and_env(config_path)?;
+            if let Some(ipc_path) = ipc_path {
+                config.base_config.el_node_ipc_path = ipc_path;
+            }
 
             // Spawn redacted server that is safe for tdx builders to expose
             telemetry::servers::redacted::spawn(
