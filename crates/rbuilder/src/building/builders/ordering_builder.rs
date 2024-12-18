@@ -11,7 +11,7 @@ use crate::{
         builders::{
             block_building_helper::BlockBuildingHelper, LiveBuilderInput, OrderIntakeConsumer,
         },
-        BlockBuildingContext, BlockOrders, ExecutionError, Sorting,
+        BlockBuildingContext, ExecutionError, PrioritizedOrderStore, SimulatedOrderSink, Sorting,
     },
     primitives::{AccountNonce, OrderId},
     roothash::RootHashConfig,
@@ -42,7 +42,7 @@ pub struct OrderingBuilderConfig {
     pub discard_txs: bool,
     pub sorting: Sorting,
     /// Only when a tx fails because the profit was worst than expected: Number of time an order can fail during a single block building iteration.
-    /// When thi happens it gets reinserted in the BlockStore with the new simulated profit (the one that failed).
+    /// When thi happens it gets reinserted in the PrioritizedOrderStore with the new simulated profit (the one that failed).
     pub failed_order_retries: usize,
     /// if a tx fails in a block building iteration it's dropped so next iterations will not use it.
     pub drop_failed_orders: bool,
@@ -235,7 +235,7 @@ where
     /// !use_suggested_fee_recipient_as_coinbase: all the mev profit goes to the builder and at the end of the block we pay to the suggested_fee_recipient.
     pub fn build_block(
         &mut self,
-        block_orders: BlockOrders,
+        block_orders: PrioritizedOrderStore,
         use_suggested_fee_recipient_as_coinbase: bool,
         cancel_block: CancellationToken,
     ) -> eyre::Result<Box<dyn BlockBuildingHelper>> {
@@ -273,7 +273,7 @@ where
     fn fill_orders(
         &mut self,
         block_building_helper: &mut dyn BlockBuildingHelper,
-        mut block_orders: BlockOrders,
+        mut block_orders: PrioritizedOrderStore,
         build_start: Instant,
     ) -> eyre::Result<()> {
         let mut order_attempts: HashMap<OrderId, usize> = HashMap::default();
@@ -312,7 +312,7 @@ where
                         if *order_attempts < self.config.failed_order_retries {
                             let mut new_order = sim_order.clone();
                             new_order.sim_value = inplace.clone();
-                            block_orders.readd_order(new_order);
+                            block_orders.insert_order(new_order);
                             *order_attempts += 1;
                             reinserted = true;
                         }

@@ -16,7 +16,7 @@ use ahash::HashMap;
 use reth_errors::ProviderResult;
 use reth_provider::StateProviderBox;
 
-use prioritized_order_store::PrioritizedOrderStore;
+pub use prioritized_order_store::PrioritizedOrderStore;
 pub use test_data_generator::TestDataGenerator;
 
 /// Generic SimulatedOrder sink to add and remove orders.
@@ -46,13 +46,6 @@ pub fn simulated_order_command_to_sink<SinkType: SimulatedOrderSink>(
             let _ = sink.remove_order(id);
         }
     };
-}
-
-/// Wrapper on [`PrioritizedOrderStore`] soon will die.
-/// IMPORTANT: Read comments for PrioritizedOrderStore to see how to use (add_order here is insert_order) since nonces are a little tricky
-#[derive(Debug, Clone)]
-pub struct BlockOrders {
-    prioritized_order_store: PrioritizedOrderStore,
 }
 
 /// SimulatedOrderSink that stores all orders + all the adds from last drain_new_orders ONLY if we didn't see removes.
@@ -102,71 +95,12 @@ impl SimulatedOrderSink for SimulatedOrderStore {
     }
 }
 
-impl BlockOrders {
-    /// sbundle_merger_selected_signers see [`ShareBundleMerger`]
-    pub fn new(
-        priority: Sorting,
-        initial_onchain_nonces: impl IntoIterator<Item = AccountNonce>,
-    ) -> Self {
-        let mut onchain_nonces = HashMap::default();
-        for onchain_nonce in initial_onchain_nonces {
-            onchain_nonces.insert(onchain_nonce.account, onchain_nonce.nonce);
-        }
-
-        let prioritized_order_store = PrioritizedOrderStore::new(priority, onchain_nonces);
-        Self {
-            prioritized_order_store,
-        }
-    }
-
-    pub fn add_order(&mut self, order: SimulatedOrder) {
-        self.insert_order(order);
-    }
-
-    /// Readds a poped order to the priority queue bypassing other stages
-    /// Use ONLY if you are using BlockOrders as an static priority with no new add_order/remove_order etc.
-    /// @Pending For this cases it would probably be better to have a PrioritizedOrderStore instead of a BlockOrders
-    pub fn readd_order(&mut self, order: SimulatedOrder) {
-        self.prioritized_order_store.insert_order(order);
-    }
-
-    pub fn remove_orders(
-        &mut self,
-        orders: impl IntoIterator<Item = OrderId>,
-    ) -> Vec<SimulatedOrder> {
-        self.prioritized_order_store.remove_orders(orders)
-    }
-
-    pub fn pop_order(&mut self) -> Option<SimulatedOrder> {
-        self.prioritized_order_store.pop_order()
-    }
-
-    pub fn update_onchain_nonces(&mut self, new_nonces: &[AccountNonce]) {
-        self.prioritized_order_store
-            .update_onchain_nonces(new_nonces);
-    }
-
-    pub fn get_all_orders(&self) -> Vec<SimulatedOrder> {
-        self.prioritized_order_store.get_all_orders()
-    }
-}
-
-impl SimulatedOrderSink for BlockOrders {
-    fn insert_order(&mut self, order: SimulatedOrder) {
-        self.prioritized_order_store.insert_order(order);
-    }
-
-    fn remove_order(&mut self, id: OrderId) -> Option<SimulatedOrder> {
-        self.prioritized_order_store.remove_order(id)
-    }
-}
-
 /// Create block orders struct from simulated orders. Used in the backtest, not practical while live.
 pub fn block_orders_from_sim_orders(
     sim_orders: &[SimulatedOrder],
     sorting: Sorting,
     state_provider: &StateProviderBox,
-) -> ProviderResult<BlockOrders> {
+) -> ProviderResult<PrioritizedOrderStore> {
     let mut onchain_nonces = vec![];
     for order in sim_orders {
         for nonce in order.order.nonces() {
@@ -179,10 +113,10 @@ pub fn block_orders_from_sim_orders(
             });
         }
     }
-    let mut block_orders = BlockOrders::new(sorting, onchain_nonces);
+    let mut block_orders = PrioritizedOrderStore::new(sorting, onchain_nonces);
 
     for order in sim_orders.iter().cloned() {
-        block_orders.add_order(order);
+        block_orders.insert_order(order);
     }
 
     Ok(block_orders)
@@ -193,11 +127,11 @@ mod test {
     use crate::primitives::BundledTxInfo;
 
     use super::*;
-    /// Helper struct for common BlockOrders test operations
+    /// Helper struct for common PrioritizedOrderStore test operations
     /// Works hardcoded on Sorting::MaxProfit since it changes nothing on internal logic
     struct TestContext {
         pub data_gen: TestDataGenerator,
-        pub order_pool: BlockOrders,
+        pub order_pool: PrioritizedOrderStore,
     }
 
     impl TestContext {
@@ -209,7 +143,7 @@ mod test {
                 nonce.clone(),
                 TestContext {
                     data_gen,
-                    order_pool: BlockOrders::new(Sorting::MaxProfit, vec![nonce]),
+                    order_pool: PrioritizedOrderStore::new(Sorting::MaxProfit, vec![nonce]),
                 },
             )
         }
@@ -227,7 +161,10 @@ mod test {
                 nonce_2.clone(),
                 TestContext {
                     data_gen,
-                    order_pool: BlockOrders::new(Sorting::MaxProfit, vec![nonce_1, nonce_2]),
+                    order_pool: PrioritizedOrderStore::new(
+                        Sorting::MaxProfit,
+                        vec![nonce_1, nonce_2],
+                    ),
                 },
             )
         }
@@ -240,7 +177,7 @@ mod test {
         ) -> SimulatedOrder {
             let order = self.data_gen.base.create_tx_order(tx_nonce.clone());
             let order = self.data_gen.create_sim_order(order, tx_profit, tx_profit);
-            self.order_pool.add_order(order.clone());
+            self.order_pool.insert_order(order.clone());
             order
         }
 
@@ -251,13 +188,13 @@ mod test {
             bundle_profit: u64,
         ) -> SimulatedOrder {
             let order = self.data_gen.base.create_bundle_multi_tx_order(
-                0, // in the context of BlockOrders we don't care about the block (it's prefiltered)
+                0, // in the context of PrioritizedOrderStore we don't care about the block (it's prefiltered)
                 txs_info, None,
             );
             let order = self
                 .data_gen
                 .create_sim_order(order, bundle_profit, bundle_profit);
-            self.order_pool.add_order(order.clone());
+            self.order_pool.insert_order(order.clone());
             order
         }
 

@@ -5,7 +5,7 @@ pub mod ordering_builder;
 pub mod parallel_builder;
 
 use crate::{
-    building::{BlockBuildingContext, BlockOrders, BuiltBlockTrace, SimulatedOrderSink, Sorting},
+    building::{BlockBuildingContext, BuiltBlockTrace, SimulatedOrderSink, Sorting},
     live_builder::{payload_events::MevBoostSlotData, simulation::SimulatedOrderCommand},
     primitives::{AccountNonce, OrderId, SimulatedOrder},
     roothash::RootHashConfig,
@@ -24,7 +24,7 @@ use tokio::sync::{broadcast, broadcast::error::TryRecvError};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
-use super::simulated_order_command_to_sink;
+use super::{simulated_order_command_to_sink, PrioritizedOrderStore};
 
 /// Block we built
 #[derive(Debug, Clone)]
@@ -106,7 +106,7 @@ impl OrderConsumer {
 pub struct OrderIntakeConsumer<P> {
     nonce_cache: NonceCache<P>,
 
-    block_orders: BlockOrders,
+    block_orders: PrioritizedOrderStore,
     onchain_nonces_updated: HashSet<Address>,
 
     order_consumer: OrderConsumer,
@@ -127,7 +127,7 @@ where
 
         Self {
             nonce_cache,
-            block_orders: BlockOrders::new(sorting, vec![]),
+            block_orders: PrioritizedOrderStore::new(sorting, vec![]),
             onchain_nonces_updated: HashSet::default(),
             order_consumer: OrderConsumer::new(orders),
         }
@@ -180,7 +180,7 @@ where
         Ok(true)
     }
 
-    pub fn current_block_orders(&self) -> BlockOrders {
+    pub fn current_block_orders(&self) -> PrioritizedOrderStore {
         self.block_orders.clone()
     }
 

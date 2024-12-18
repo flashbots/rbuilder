@@ -12,7 +12,6 @@ pub mod testing;
 pub mod tracers;
 use alloy_consensus::{Header, EMPTY_OMMER_ROOT_HASH};
 use alloy_primitives::{Address, Bytes, Sealable, U256};
-pub use block_orders::BlockOrders;
 use eth_sparse_mpt::SparseTrieSharedCache;
 use reth_db::Database;
 use reth_primitives::BlockBody;
