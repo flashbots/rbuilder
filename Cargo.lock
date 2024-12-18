@@ -10107,6 +10107,7 @@ dependencies = [
  "reth-node-builder",
  "reth-node-ethereum",
  "reth-provider",
+ "reth-transaction-pool",
  "tikv-jemallocator",
  "tokio",
  "tracing",

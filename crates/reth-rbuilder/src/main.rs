@@ -25,6 +25,7 @@ use reth_provider::{
     providers::{BlockchainProvider, BlockchainProvider2},
     BlockReader, DatabaseProviderFactory, HeaderProvider, StateProviderFactory,
 };
+use reth_transaction_pool::NewTransactionEvent;
 use std::{path::PathBuf, process};
 use tokio::task;
 use tracing::{error, info, warn};
@@ -103,6 +104,8 @@ fn main() {
                     node.task_executor.spawn(Box::pin(async move {
                         while let Some(event) = pending_transactions.next().await {
                             println!("Pending transaction: {:?}", event);
+                            let tx = event.transaction;
+                            panic!("Pending transaction");
                         }
                     }));
 
