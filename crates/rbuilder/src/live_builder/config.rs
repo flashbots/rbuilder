@@ -39,7 +39,7 @@ use crate::{
 use alloy_chains::ChainKind;
 use alloy_primitives::{
     utils::{format_ether, parse_ether},
-    Address, FixedBytes, B256,
+    FixedBytes, B256,
 };
 use ethereum_consensus::{
     builder::compute_builder_domain, crypto::SecretKey, primitives::Version,
@@ -340,11 +340,7 @@ impl LiveBuilderConfig for Config {
             )
             .await?;
         let root_hash_config = self.base_config.live_root_hash_config()?;
-        let builders = create_builders(
-            self.live_builders()?,
-            root_hash_config,
-            self.base_config.sbundle_mergeabe_signers(),
-        );
+        let builders = create_builders(self.live_builders()?, root_hash_config);
         Ok(live_builder.with_builders(builders))
     }
 
@@ -479,7 +475,6 @@ pub fn coinbase_signer_from_secret_key(secret_key: &str) -> eyre::Result<Signer>
 pub fn create_builders<P, DB>(
     configs: Vec<BuilderConfig>,
     root_hash_config: RootHashConfig,
-    sbundle_mergeabe_signers: Vec<Address>,
 ) -> Vec<Arc<dyn BlockBuildingAlgorithm<P, DB>>>
 where
     DB: Database + Clone + 'static,
