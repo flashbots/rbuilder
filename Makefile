@@ -56,8 +56,7 @@ fmt: ## Format the code
 
 .PHONY: bench
 bench: ## Run benchmarks
-	cargo bench --features "$(FEATURES)" --bench bench_main
-#	 cargo bench --bench bench_main -- --verbose
+	cargo bench --features "$(FEATURES)" --workspace
 
 .PHONY: bench-report-open
 bench-report-open: ## Open last benchmark report in the browser
