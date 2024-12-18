@@ -209,7 +209,7 @@ mod test {
                 nonce.clone(),
                 TestContext {
                     data_gen,
-                    order_pool: BlockOrders::new(Sorting::MaxProfit, vec![nonce], &[]),
+                    order_pool: BlockOrders::new(Sorting::MaxProfit, vec![nonce]),
                 },
             )
         }
@@ -227,7 +227,7 @@ mod test {
                 nonce_2.clone(),
                 TestContext {
                     data_gen,
-                    order_pool: BlockOrders::new(Sorting::MaxProfit, vec![nonce_1, nonce_2], &[]),
+                    order_pool: BlockOrders::new(Sorting::MaxProfit, vec![nonce_1, nonce_2]),
                 },
             )
         }
