@@ -101,8 +101,8 @@ alloy-rlp = "0.3.4"
 alloy-chains = "0.1.33"
 alloy-provider = { version = "0.6.4", features = ["ipc", "pubsub"] }
 alloy-pubsub = { version = "0.6.4" }
-alloy-eips = { version = "0.6.4" }
-alloy-rpc-types = { version = "0.6.4" }
+alloy-eips = { version = "0.8.1" }
+alloy-rpc-types = { version = "0.8.1" }
 alloy-json-rpc = { version = "0.6.4" }
 alloy-transport-http = { version = "0.6.4" }
 alloy-network = { version = "0.6.4" }
@@ -111,10 +111,10 @@ alloy-transport = { version = "0.6.4" }
 alloy-node-bindings = { version = "0.6.4" }
 alloy-consensus = { version = "0.6.4", features = ["kzg"] }
 op-alloy-consensus = { version = "0.6.8", features = ["kzg"] }
-alloy-serde = { version = "0.6.4" }
-alloy-rpc-types-beacon = { version = "0.6.4", features = ["ssz"] }
-alloy-rpc-types-engine = { version = "0.6.4", features = ["ssz"] }
-alloy-rpc-types-eth = { version = "0.6.4" }
+alloy-serde = { version = "0.8.1" }
+alloy-rpc-types-beacon = { version = "0.8.1", features = ["ssz"] }
+alloy-rpc-types-engine = { version = "0.8.1", features = ["ssz"] }
+alloy-rpc-types-eth = { version = "0.8.1" }
 alloy-signer-local = { version = "0.6.4" }
 alloy-genesis = { version = "0.6.4" }
 alloy-trie = { version = "0.7" }

@@ -639,6 +639,9 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
                 )
                 .map_err(|err| FinalizeError::Other(err.into()))?;
 
+            /// TODO: I think this is wrong, need to check but my guess is that
+            /// the Bytes from the system contracts does not contain the requests_typ prefix
+            /// so we probably need to use [Requests::push_request_with_type] instead.
             Some(Requests::new(vec![
                 deposit_requests,
                 withdrawal_requests,

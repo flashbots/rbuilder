@@ -25,6 +25,7 @@ use reth_chainspec::{ChainSpec, EthereumHardforks};
 use reth_primitives::SealedBlock;
 use serde_with::{serde_as, DisplayFromStr};
 use std::sync::Arc;
+use alloy_rpc_types_beacon::requests::ExecutionRequestsV4;
 
 /// Object to sign blocks to be sent to relays.
 #[derive(Debug, Clone)]
@@ -190,13 +191,15 @@ pub fn sign_block_for_relay(
 
         let blobs_bundle = marshal_txs_blobs_sidecars(blobs_bundle);
 
+        let execution_requests = ExecutionRequestsV4::try_from(execution_requests.to_vec().into())?;
         if chain_spec.is_prague_active_at_timestamp(sealed_block.timestamp) {
             SubmitBlockRequest::Electra(ElectraSubmitBlockRequest(SignedBidSubmissionV4 {
                 message,
                 execution_payload,
                 blobs_bundle,
                 signature,
-                execution_requests: execution_requests.to_vec(),
+                execution_requests,
+                target_blobs_per_block: 0, // TODO: remove once on alloy 0.8.2+, EIP-7742 pulled
             }))
         } else {
             SubmitBlockRequest::Deneb(DenebSubmitBlockRequest(SignedBidSubmissionV3 {
