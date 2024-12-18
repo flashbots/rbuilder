@@ -79,3 +79,8 @@ bench-prettify: ## Prettifies the latest Criterion report
 	./scripts/ci/criterion-prettify-report.sh target/criterion target/benchmark-html-dev
 	@echo "\nopen target/benchmark-html-dev/report/index.html"
 
+.PHONY: validate-config
+validate-config: ## Validate the correctness of the configuration files
+	@for CONFIG in $(shell ls config-*.toml); do \
+		cargo run --bin validate-config -- --config $$CONFIG; \
+	done
