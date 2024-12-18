@@ -6,11 +6,13 @@
 //! See <https://github.com/flashbots/rbuilder/issues/229> for more information.
 
 use clap::{Args, Parser};
+use futures_util::StreamExt;
 use rbuilder::{
     live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig, config::Config},
     telemetry,
 };
-use reth::{chainspec::EthereumChainSpecParser, cli::Cli};
+use reth::transaction_pool::TransactionPool;
+use reth::{builder::NodeHandle, chainspec::EthereumChainSpecParser, cli::Cli};
 use reth_db_api::Database;
 use reth_node_builder::{
     engine_tree_config::{
@@ -78,7 +80,7 @@ fn main() {
                     let engine_tree_config = TreeConfig::default()
                         .with_persistence_threshold(extra_args.persistence_threshold)
                         .with_memory_block_buffer_target(extra_args.memory_block_buffer_target);
-                    let handle = builder
+                    let NodeHandle{node_exit_future, node} = builder
                         .with_types_and_provider::<EthereumNode, BlockchainProvider2<_>>()
                         .with_components(EthereumNode::components())
                         .with_add_ons(EthereumAddOns::default())
@@ -95,7 +97,16 @@ fn main() {
                             builder.launch_with(launcher)
                         })
                         .await?;
-                    handle.node_exit_future.await
+
+                    let mut pending_transactions = node.pool.new_pending_pool_transactions_listener();
+
+                    node.task_executor.spawn(Box::pin(async move {
+                        while let Some(event) = pending_transactions.next().await {
+                            println!("Pending transaction: {:?}", event);
+                        }
+                    }));
+
+                    node_exit_future.await
                 }
                 true => {
                     info!(target: "reth::cli", "Running with legacy engine");

@@ -6,6 +6,8 @@ edition.workspace = true
 [dependencies]
 rbuilder = { path = "../rbuilder" }
 
+futures-util = "0.3.31"
+
 reth.workspace = true
 reth-node-builder.workspace = true
 reth-node-ethereum.workspace = true
