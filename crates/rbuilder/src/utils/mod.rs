@@ -9,6 +9,7 @@ pub mod reconnect;
 mod test_data_generator;
 mod tx_signer;
 
+pub mod provider_head_state;
 #[cfg(test)]
 pub mod test_utils;
 pub mod tracing;

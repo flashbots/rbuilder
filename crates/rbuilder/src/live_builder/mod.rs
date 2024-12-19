@@ -19,7 +19,9 @@ use crate::{
         watchdog::spawn_watchdog_thread,
     },
     telemetry::inc_active_slots,
-    utils::{error_storage::spawn_error_storage_writer, Signer},
+    utils::{
+        error_storage::spawn_error_storage_writer, provider_head_state::ProviderHeadState, Signer,
+    },
 };
 use ahash::HashSet;
 use alloy_consensus::Header;
@@ -218,6 +220,8 @@ where
                 ?current_time,
                 payload_timestamp = ?payload.timestamp(),
                 ?time_to_slot,
+                parent_hash = ?payload.parent_block_hash(),
+                provider_head_state = ?ProviderHeadState::new(&self.provider),
                 "Received payload, time till slot timestamp",
             );
 
@@ -225,6 +229,7 @@ where
             if time_until_slot_end.is_negative() {
                 warn!(
                     slot = payload.slot(),
+                    parent_hash = ?payload.parent_block_hash(),
                     "Slot already ended, skipping block building"
                 );
                 continue;
@@ -238,7 +243,7 @@ where
                 {
                     Ok(header) => header,
                     Err(err) => {
-                        warn!("Failed to get parent header for new slot: {:?}", err);
+                        warn!(parent_hash = ?payload.parent_block_hash(),"Failed to get parent header for new slot: {:?}", err);
                         continue;
                     }
                 }
@@ -247,6 +252,7 @@ where
             debug!(
                 slot = payload.slot(),
                 block = payload.block(),
+                parent_hash = ?payload.parent_block_hash(),
                 "Got header for slot"
             );
 
