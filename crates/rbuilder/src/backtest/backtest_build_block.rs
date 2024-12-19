@@ -299,15 +299,11 @@ fn print_simulated_orders(
             timestamp_ms_to_slot_time(order_timestamp, timestamp_as_u64(&block_data.onchain_block));
 
         println!(
-            "{:>74} slot_time_ms: {:>8}, gas: {:>8} profit: {}, parent: {}",
+            "{:>74} slot_time_ms: {:>8}, gas: {:>8} profit: {}",
             order.order.id().to_string(),
             slot_time_ms,
             order.sim_value.gas_used,
             format_ether(order.sim_value.coinbase_profit),
-            order
-                .prev_order
-                .map(|prev_order| prev_order.to_string())
-                .unwrap_or_else(String::new)
         );
     }
     println!();

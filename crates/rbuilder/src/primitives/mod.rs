@@ -799,8 +799,6 @@ impl SimValue {
 pub struct SimulatedOrder {
     pub order: Order,
     pub sim_value: SimValue,
-    /// Not used, we should kill this
-    pub prev_order: Option<OrderId>,
     /// Info about read/write slots during the simulation to help figure out what the Order is doing.
     pub used_state_trace: Option<UsedStateTrace>,
 }

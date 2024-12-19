@@ -477,7 +477,6 @@ mod tests {
                 }),
                 used_state_trace: Some(trace),
                 sim_value,
-                prev_order: None,
             }
         }
     }
