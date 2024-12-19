@@ -31,7 +31,7 @@ max_concurrent_seals = 4
 
 # genesis_fork_version = "0x00112233"
 
-sbundle_mergeabe_signers = []
+sbundle_mergeable_signers = []
 live_builders = ["mp-ordering", "mgp-ordering", "merging"]
 
 [[relays]]

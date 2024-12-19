@@ -34,7 +34,7 @@ use std::{
     time::Duration,
 };
 use tokio::sync::mpsc;
-use tracing::warn;
+use tracing::{error, warn};
 
 use super::SlotSource;
 
@@ -80,6 +80,9 @@ pub struct BaseConfig {
     pub extra_data: String,
 
     /// mev-share bundles coming from this address are treated in a special way(see [`ShareBundleMerger`])
+    pub sbundle_mergeable_signers: Option<Vec<Address>>,
+
+    /// Backwards compatible typo soon to be removed.
     pub sbundle_mergeabe_signers: Option<Vec<Address>>,
 
     /// Number of threads used for incoming order simulation
@@ -232,9 +235,7 @@ impl BaseConfig {
 
             orderpool_sender,
             orderpool_receiver,
-            sbundle_merger_selected_signers: Arc::new(
-                self.sbundle_mergeabe_signers.clone().unwrap_or_default(),
-            ),
+            sbundle_merger_selected_signers: Arc::new(self.sbundle_mergeable_signers()),
         })
     }
 
@@ -254,12 +255,19 @@ impl BaseConfig {
         chain_value_parser(&self.chain)
     }
 
-    pub fn sbundle_mergeabe_signers(&self) -> Vec<Address> {
-        if self.sbundle_mergeabe_signers.is_none() {
-            warn!("Defaulting sbundle_mergeabe_signers to empty. We may not comply with order flow rules.");
+    pub fn sbundle_mergeable_signers(&self) -> Vec<Address> {
+        if let Some(sbundle_mergeable_signers) = &self.sbundle_mergeable_signers {
+            if self.sbundle_mergeabe_signers.is_some() {
+                error!("sbundle_mergeable_signers and sbundle_mergeabe_signers found. Will use bundle_mergeable_signers");
+            }
+            sbundle_mergeable_signers.clone()
+        } else if let Some(sbundle_mergeable_signers) = &self.sbundle_mergeabe_signers {
+            warn!("sbundle_mergeable_signers missing but found sbundle_mergeabe_signers. sbundle_mergeabe_signers will be used but this will be deprecated soon");
+            sbundle_mergeable_signers.clone()
+        } else {
+            warn!("Defaulting sbundle_mergeable_signers to empty. We may not comply with order flow rules.");
+            Vec::default()
         }
-
-        self.sbundle_mergeabe_signers.clone().unwrap_or_default()
     }
 
     /// Open reth db and DB should be opened once per process but it can be cloned and moved to different threads.
@@ -455,6 +463,7 @@ impl Default for BaseConfig {
             backtest_builders: Vec::new(),
             live_builders: vec!["mgp-ordering".to_string(), "mp-ordering".to_string()],
             simulation_threads: 1,
+            sbundle_mergeable_signers: None,
             sbundle_mergeabe_signers: None,
         }
     }

@@ -178,7 +178,7 @@ where
                         builders_names,
                         &config,
                         blocklist,
-                        &config.base_config().sbundle_mergeabe_signers(),
+                        &config.base_config().sbundle_mergeable_signers(),
                     ) {
                         Ok(ok) => Some(ok),
                         Err(err) => {

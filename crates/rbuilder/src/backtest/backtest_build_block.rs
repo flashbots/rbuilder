@@ -108,7 +108,7 @@ where
         chain_spec.clone(),
         cli.block_building_time_ms,
         config.base_config().blocklist()?,
-        &config.base_config().sbundle_mergeabe_signers(),
+        &config.base_config().sbundle_mergeable_signers(),
         config.base_config().coinbase_signer()?,
     )?;
 

@@ -1010,7 +1010,7 @@ where
         base_config.backtest_builders.clone(),
         config,
         base_config.blocklist()?,
-        &base_config.sbundle_mergeabe_signers(),
+        &base_config.sbundle_mergeable_signers(),
     )?
     .builder_outputs
     .into_iter()

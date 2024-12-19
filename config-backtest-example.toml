@@ -8,7 +8,7 @@ backtest_fetch_eth_rpc_parallel = 400
 backtest_fetch_output_file = "~/.rbuilder/backtest/main.sqlite"
 backtest_fetch_mempool_data_dir = "~/.rbuilder/mempool-data"
 
-sbundle_mergeabe_signers = []
+sbundle_mergeable_signers = []
 
 backtest_builders = ["mp-ordering", "mgp-ordering"]
 
