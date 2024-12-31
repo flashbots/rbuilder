@@ -38,6 +38,12 @@ impl BLSBlockSigner {
         Ok(Self { sec, domain })
     }
 
+    pub fn from_string(secret_key: String, domain: B256) -> eyre::Result<Self> {
+        let secret_key = SecretKey::try_from(secret_key)
+            .map_err(|e| eyre::eyre!("Failed to parse key: {:?}", e.to_string()))?;
+        Self::new(secret_key, domain)
+    }
+
     pub fn sign_payload(&self, bid_trace: &BidTrace) -> eyre::Result<Vec<u8>> {
         // We use RPCBidTrace not because of it's RPC nature but because it's also Merkleized
         let bid_trace = marshal_bid_trace(bid_trace);

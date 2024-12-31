@@ -42,8 +42,7 @@ use alloy_primitives::{
     FixedBytes, B256,
 };
 use ethereum_consensus::{
-    builder::compute_builder_domain, crypto::SecretKey, primitives::Version,
-    state_transition::Context as ContextEth,
+    builder::compute_builder_domain, primitives::Version, state_transition::Context as ContextEth,
 };
 use eyre::Context;
 use reth::revm::cached::CachedReads;
@@ -176,33 +175,6 @@ impl L1Config {
         Ok(results)
     }
 
-    fn bls_signer(&self, chain_spec: &ChainSpec) -> eyre::Result<BLSBlockSigner> {
-        let signing_domain = get_signing_domain(
-            chain_spec.chain,
-            self.beacon_clients()?,
-            self.genesis_fork_version.clone(),
-        )?;
-        let secret_key = self.relay_secret_key.value()?;
-        let secret_key = SecretKey::try_from(secret_key)
-            .map_err(|e| eyre::eyre!("Failed to parse relay key: {:?}", e.to_string()))?;
-
-        BLSBlockSigner::new(secret_key, signing_domain)
-    }
-
-    fn bls_optimistic_signer(&self, chain_spec: &ChainSpec) -> eyre::Result<BLSBlockSigner> {
-        let signing_domain = get_signing_domain(
-            chain_spec.chain,
-            self.beacon_clients()?,
-            self.genesis_fork_version.clone(),
-        )?;
-        let secret_key = self.optimistic_relay_secret_key.value()?;
-        let secret_key = SecretKey::try_from(secret_key).map_err(|e| {
-            eyre::eyre!("Failed to parse optimistic relay key: {:?}", e.to_string())
-        })?;
-
-        BLSBlockSigner::new(secret_key, signing_domain)
-    }
-
     fn submission_config(
         &self,
         chain_spec: Arc<ChainSpec>,
@@ -225,22 +197,23 @@ impl L1Config {
             ValidationAPIClient::new(urls.as_slice())?
         };
 
-        let optimistic_signer = match self.bls_optimistic_signer(&chain_spec) {
-            Ok(signer) => signer,
-            Err(err) => {
-                if self.optimistic_enabled {
-                    eyre::bail!(
-                        "Optimistic mode enabled but no valid optimistic signer: {}",
-                        err
-                    );
-                } else {
-                    // we don't care about the actual value
-                    self.bls_signer(&chain_spec)?
-                }
-            }
-        };
+        let signing_domain = get_signing_domain(
+            chain_spec.chain,
+            self.beacon_clients()?,
+            self.genesis_fork_version.clone(),
+        )?;
 
-        let signer = self.bls_signer(&chain_spec)?;
+        let signer = BLSBlockSigner::from_string(self.relay_secret_key.value()?, signing_domain)
+            .map_err(|e| eyre::eyre!("Failed to create normal signer: {:?}", e))?;
+
+        let optimistic_signer = if self.optimistic_enabled {
+            BLSBlockSigner::from_string(self.optimistic_relay_secret_key.value()?, signing_domain)
+                .map_err(|e| eyre::eyre!("Failed to create optimistic signer: {:?}", e))?
+        } else {
+            // Placeholder value since it is required for SubmissionConfig. But after https://github.com/flashbots/rbuilder/pull/323
+            // we can return None
+            signer.clone()
+        };
 
         Ok(SubmissionConfig {
             chain_spec,
