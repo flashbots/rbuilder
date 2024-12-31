@@ -11,7 +11,6 @@ use ahash::HashSet;
 use alloy_primitives::{Address, B256};
 use eyre::{eyre, Context};
 use jsonrpsee::RpcModule;
-use lazy_static::lazy_static;
 use reth::chainspec::chain_value_parser;
 use reth_chainspec::ChainSpec;
 use reth_db::{Database, DatabaseEnv};
@@ -49,9 +48,13 @@ const ENV_PREFIX: &str = "env:";
 #[serde(default, deny_unknown_fields)]
 pub struct BaseConfig {
     pub full_telemetry_server_port: u16,
-    pub full_telemetry_server_ip: Option<String>,
+    #[serde(default = "default_ip")]
+    pub full_telemetry_server_ip: Ipv4Addr,
+
     pub redacted_telemetry_server_port: u16,
-    pub redacted_telemetry_server_ip: Option<String>,
+    #[serde(default = "default_ip")]
+    pub redacted_telemetry_server_ip: Ipv4Addr,
+
     pub log_json: bool,
     log_level: EnvOrValue<String>,
     pub log_color: bool,
@@ -66,7 +69,8 @@ pub struct BaseConfig {
 
     pub el_node_ipc_path: PathBuf,
     pub jsonrpc_server_port: u16,
-    pub jsonrpc_server_ip: Option<String>,
+    #[serde(default = "default_ip")]
+    pub jsonrpc_server_ip: Ipv4Addr,
 
     pub ignore_cancellable_orders: bool,
     pub ignore_blobs: bool,
@@ -109,14 +113,8 @@ pub struct BaseConfig {
     pub backtest_protect_bundle_signers: Vec<Address>,
 }
 
-lazy_static! {
-    pub static ref DEFAULT_IP: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
-}
-
-fn parse_ip(ip: &Option<String>) -> Ipv4Addr {
-    ip.as_ref().map_or(*DEFAULT_IP, |s| {
-        s.parse::<Ipv4Addr>().unwrap_or(*DEFAULT_IP)
-    })
+pub fn default_ip() -> Ipv4Addr {
+    Ipv4Addr::new(0, 0, 0, 0)
 }
 
 /// Loads config from toml file, some values can be loaded from env variables with the following syntax
@@ -158,14 +156,14 @@ impl BaseConfig {
 
     pub fn redacted_telemetry_server_address(&self) -> SocketAddr {
         SocketAddr::V4(SocketAddrV4::new(
-            self.redacted_telemetry_server_ip(),
+            self.redacted_telemetry_server_ip,
             self.redacted_telemetry_server_port,
         ))
     }
 
     pub fn full_telemetry_server_address(&self) -> SocketAddr {
         SocketAddr::V4(SocketAddrV4::new(
-            self.full_telemetry_server_ip(),
+            self.full_telemetry_server_ip,
             self.full_telemetry_server_port,
         ))
     }
@@ -237,18 +235,6 @@ impl BaseConfig {
             orderpool_receiver,
             sbundle_merger_selected_signers: Arc::new(self.sbundle_mergeable_signers()),
         })
-    }
-
-    pub fn jsonrpc_server_ip(&self) -> Ipv4Addr {
-        parse_ip(&self.jsonrpc_server_ip)
-    }
-
-    pub fn redacted_telemetry_server_ip(&self) -> Ipv4Addr {
-        parse_ip(&self.redacted_telemetry_server_ip)
-    }
-
-    pub fn full_telemetry_server_ip(&self) -> Ipv4Addr {
-        parse_ip(&self.full_telemetry_server_ip)
     }
 
     pub fn chain_spec(&self) -> eyre::Result<Arc<ChainSpec>> {
@@ -430,9 +416,9 @@ impl Default for BaseConfig {
     fn default() -> Self {
         Self {
             full_telemetry_server_port: 6069,
-            full_telemetry_server_ip: None,
+            full_telemetry_server_ip: default_ip(),
             redacted_telemetry_server_port: 6070,
-            redacted_telemetry_server_ip: None,
+            redacted_telemetry_server_ip: default_ip(),
             log_json: false,
             log_level: "info".into(),
             log_color: false,
@@ -442,7 +428,7 @@ impl Default for BaseConfig {
             flashbots_db: None,
             el_node_ipc_path: "/tmp/reth.ipc".parse().unwrap(),
             jsonrpc_server_port: DEFAULT_INCOMING_BUNDLES_PORT,
-            jsonrpc_server_ip: None,
+            jsonrpc_server_ip: default_ip(),
             ignore_cancellable_orders: true,
             ignore_blobs: false,
             chain: "mainnet".to_string(),
