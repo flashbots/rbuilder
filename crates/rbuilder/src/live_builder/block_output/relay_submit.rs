@@ -102,12 +102,15 @@ pub struct SubmissionConfig {
     pub dry_run: bool,
     pub validation_api: ValidationAPIClient,
 
-    pub optimistic_enabled: bool,
-    pub optimistic_signer: BLSBlockSigner,
-    pub optimistic_max_bid_value: U256,
-    pub optimistic_prevalidate_optimistic_blocks: bool,
-
+    pub optimisitic_config: Option<OptimisticConfig>,
     pub bid_observer: Box<dyn BidObserver + Send + Sync>,
+}
+
+#[derive(Debug, Clone)]
+pub struct OptimisticConfig {
+    pub signer: BLSBlockSigner,
+    pub max_bid_value: U256,
+    pub prevalidate_optimistic_blocks: bool,
 }
 
 /// Values from [`BuiltBlockTrace`]
@@ -186,8 +189,20 @@ async fn run_submit_to_relays_job(
             .iter()
             .filter(|o| !o.order.is_tx())
             .count();
-        let submission_optimistic =
-            config.optimistic_enabled && block.trace.bid_value < config.optimistic_max_bid_value;
+
+        // Only enable the optimistic config for this block if the bid value is below the max bid value
+        let optimistic_config =
+            config
+                .optimisitic_config
+                .clone()
+                .map_or(None, |optimistic_config| {
+                    if block.trace.bid_value < optimistic_config.max_bid_value {
+                        Some(optimistic_config)
+                    } else {
+                        None
+                    }
+                });
+
         let best_bid_value = best_bid_sync_source.best_bid_value().unwrap_or_default();
         let submission_span = info_span!(
             "bid",
@@ -207,7 +222,7 @@ async fn run_submit_to_relays_job(
             parent: &submission_span,
             "Submitting bid",
         );
-        inc_initiated_submissions(submission_optimistic);
+        inc_initiated_submissions(optimistic_config.is_some());
 
         let (normal_signed_submission, optimistic_signed_submission) = {
             let normal_signed_submission = match sign_block_for_relay(
@@ -226,22 +241,30 @@ async fn run_submit_to_relays_job(
                     continue 'submit;
                 }
             };
-            let optimistic_signed_submission = match sign_block_for_relay(
-                &config.optimistic_signer,
-                &block.sealed_block,
-                &block.txs_blobs_sidecars,
-                &block.execution_requests,
-                &config.chain_spec,
-                &slot_data.payload_attributes_event.data,
-                slot_data.slot_data.pubkey,
-                block.trace.bid_value,
-            ) {
-                Ok(res) => res,
-                Err(err) => {
-                    error!(parent: &submission_span, err = ?err, "Error signing block for relay");
-                    continue 'submit;
+
+            let optimistic_signed_submission = if let Some(optimistic_config) =
+                optimistic_config.clone()
+            {
+                match sign_block_for_relay(
+                    &optimistic_config.signer,
+                    &block.sealed_block,
+                    &block.txs_blobs_sidecars,
+                    &block.execution_requests,
+                    &config.chain_spec,
+                    &slot_data.payload_attributes_event.data,
+                    slot_data.slot_data.pubkey,
+                    block.trace.bid_value,
+                ) {
+                    Ok(res) => Some(res),
+                    Err(err) => {
+                        error!(parent: &submission_span, err = ?err, "Error signing block for relay");
+                        continue 'submit;
+                    }
                 }
+            } else {
+                None
             };
+
             (normal_signed_submission, optimistic_signed_submission)
         };
 
@@ -274,8 +297,10 @@ async fn run_submit_to_relays_job(
             );
         }
 
-        if submission_optimistic {
-            let can_submit = if config.optimistic_prevalidate_optimistic_blocks {
+        if let Some(optimistic_signed_submission) = &optimistic_signed_submission {
+            let optimistic_config = optimistic_config.expect("optimistic config is not None");
+
+            let can_submit = if optimistic_config.prevalidate_optimistic_blocks {
                 validate_block(
                     &slot_data,
                     &optimistic_signed_submission,

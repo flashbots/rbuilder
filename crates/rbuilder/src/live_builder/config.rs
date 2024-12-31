@@ -11,7 +11,7 @@ use super::{
             wallet_balance_watcher::WalletBalanceWatcher,
         },
         block_sealing_bidder_factory::BlockSealingBidderFactory,
-        relay_submit::{RelaySubmitSinkFactory, SubmissionConfig},
+        relay_submit::{OptimisticConfig, RelaySubmitSinkFactory, SubmissionConfig},
     },
 };
 use crate::{
@@ -242,15 +242,22 @@ impl L1Config {
 
         let signer = self.bls_signer(&chain_spec)?;
 
+        let optimistic_config = if self.optimistic_enabled {
+            Some(OptimisticConfig {
+                signer: optimistic_signer,
+                max_bid_value: parse_ether(&self.optimistic_max_bid_value_eth)?,
+                prevalidate_optimistic_blocks: self.optimistic_prevalidate_optimistic_blocks,
+            })
+        } else {
+            None
+        };
+
         Ok(SubmissionConfig {
             chain_spec,
             signer,
             dry_run: self.dry_run,
             validation_api,
-            optimistic_enabled: self.optimistic_enabled,
-            optimistic_signer,
-            optimistic_max_bid_value: parse_ether(&self.optimistic_max_bid_value_eth)?,
-            optimistic_prevalidate_optimistic_blocks: self.optimistic_prevalidate_optimistic_blocks,
+            optimisitic_config: optimistic_config,
             bid_observer,
         })
     }
@@ -266,16 +273,15 @@ impl L1Config {
             "Builder mev boost normal relay pubkey: {:?}",
             submission_config.signer.pub_key()
         );
-        info!(
-            "Builder mev boost optimistic relay pubkey: {:?}",
-            submission_config.optimistic_signer.pub_key()
-        );
-        info!(
-            "Optimistic mode, enabled: {}, prevalidate: {}, max_value: {}",
-            submission_config.optimistic_enabled,
-            submission_config.optimistic_prevalidate_optimistic_blocks,
-            format_ether(submission_config.optimistic_max_bid_value),
-        );
+
+        if let Some(optimitic_config) = submission_config.optimisitic_config.as_ref() {
+            info!(
+                "Optimistic mode enabled, relay pubkey {:?}, prevalidate: {}, max_value: {}",
+                optimitic_config.signer.pub_key(),
+                optimitic_config.prevalidate_optimistic_blocks,
+                format_ether(optimitic_config.max_bid_value),
+            );
+        };
 
         let relays = self.create_relays()?;
         let sink_factory: Box<dyn BuilderSinkFactory> = Box::new(RelaySubmitSinkFactory::new(
