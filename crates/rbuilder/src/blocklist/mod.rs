@@ -4,6 +4,7 @@ use serde::{Deserialize, Deserializer};
 use std::fs::read_to_string;
 use std::path::PathBuf;
 
+#[allow(clippy::len_without_is_empty)]
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct BlockList {
     list: HashSet<Address>,

@@ -308,17 +308,6 @@ impl BaseConfig {
         Ok(extra_data)
     }
 
-<<<<<<< Updated upstream
-    pub fn blocklist(&self) -> eyre::Result<HashSet<Address>> {
-        if let Some(path) = &self.blocklist_file_path {
-            let blocklist_file = read_to_string(path).context("blocklist file")?;
-            let blocklist: Vec<Address> =
-                serde_json::from_str(&blocklist_file).context("blocklist file")?;
-            return Ok(blocklist.into_iter().collect());
-        }
-        Ok(HashSet::default())
-    }
-
     pub async fn flashbots_db(&self) -> eyre::Result<Option<PgPool>> {
         if let Some(url) = &self.flashbots_db {
             let url = url.value()?;
@@ -329,8 +318,6 @@ impl BaseConfig {
         }
     }
 
-=======
->>>>>>> Stashed changes
     pub fn eth_rpc_provider(&self) -> eyre::Result<BoxedProvider> {
         Ok(http_provider(self.backtest_fetch_eth_rpc_url.parse()?))
     }
