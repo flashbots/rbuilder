@@ -191,17 +191,16 @@ async fn run_submit_to_relays_job(
             .count();
 
         // Only enable the optimistic config for this block if the bid value is below the max bid value
-        let optimistic_config =
-            config
-                .optimisitic_config
-                .clone()
-                .map_or(None, |optimistic_config| {
-                    if block.trace.bid_value < optimistic_config.max_bid_value {
-                        Some(optimistic_config)
-                    } else {
-                        None
-                    }
-                });
+        let optimistic_config = config
+            .optimisitic_config
+            .clone()
+            .and_then(|optimistic_config| {
+                if block.trace.bid_value < optimistic_config.max_bid_value {
+                    Some(optimistic_config)
+                } else {
+                    None
+                }
+            });
 
         let best_bid_value = best_bid_sync_source.best_bid_value().unwrap_or_default();
         let submission_span = info_span!(
@@ -303,7 +302,7 @@ async fn run_submit_to_relays_job(
             let can_submit = if optimistic_config.prevalidate_optimistic_blocks {
                 validate_block(
                     &slot_data,
-                    &optimistic_signed_submission,
+                    optimistic_signed_submission,
                     block.sealed_block.clone(),
                     &config,
                     cancel.clone(),
