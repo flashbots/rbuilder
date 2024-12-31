@@ -278,7 +278,7 @@ impl L1Config {
         );
 
         let relays = self.create_relays()?;
-        if !self.dry_run && relays.is_empty() {
+        if relays.is_empty() {
             eyre::bail!("No relays provided");
         }
 
