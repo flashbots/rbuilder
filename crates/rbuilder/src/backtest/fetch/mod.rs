@@ -18,7 +18,6 @@ use alloy_rpc_types::{Block, BlockId, BlockNumberOrTag, BlockTransactionsKind};
 use eyre::WrapErr;
 use flashbots_db::RelayDB;
 use futures::TryStreamExt;
-use sqlx::PgPool;
 use std::{
     collections::HashMap,
     path::PathBuf,
@@ -62,15 +61,13 @@ impl HistoricalDataFetcher {
     pub fn with_default_datasource(
         mut self,
         mempool_datadir: PathBuf,
-        flashbots_db: Option<PgPool>,
+        flashbots_db: Option<RelayDB>,
     ) -> eyre::Result<Self> {
         let mempool = Box::new(mempool::MempoolDumpsterDatasource::new(mempool_datadir)?);
         self.data_sources.push(mempool);
-
-        if let Some(db_pool) = flashbots_db {
-            let datasource = Box::new(RelayDB::new(db_pool));
-            self.data_sources.push(datasource);
-        }
+        if let Some(flashbots_db) = flashbots_db {
+            self.data_sources.push(Box::new(flashbots_db));
+        };
         Ok(self)
     }
 

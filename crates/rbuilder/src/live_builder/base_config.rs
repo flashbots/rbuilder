@@ -23,7 +23,6 @@ use reth_provider::{
 };
 use serde::{Deserialize, Deserializer};
 use serde_with::{serde_as, DeserializeAs};
-use sqlx::PgPool;
 use std::{
     env::var,
     fs::read_to_string,
@@ -316,16 +315,6 @@ impl BaseConfig {
             return Ok(blocklist.into_iter().collect());
         }
         Ok(HashSet::default())
-    }
-
-    pub async fn flashbots_db(&self) -> eyre::Result<Option<PgPool>> {
-        if let Some(url) = &self.flashbots_db {
-            let url = url.value()?;
-            let pool = PgPool::connect(&url).await?;
-            Ok(Some(pool))
-        } else {
-            Ok(None)
-        }
     }
 
     pub fn eth_rpc_provider(&self) -> eyre::Result<BoxedProvider> {
