@@ -1,6 +1,5 @@
 //! order_input handles receiving new orders from the ipc mempool subscription and json rpc server
 //!
-pub mod clean_orderpool;
 pub mod order_replacement_manager;
 pub mod order_sink;
 pub mod orderpool;
