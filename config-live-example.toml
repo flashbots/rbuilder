@@ -20,8 +20,6 @@ jsonrpc_server_ip = "0.0.0.0"
 el_node_ipc_path = "/tmp/reth.ipc"
 extra_data = "⚡🤖"
 
-blocklist_file_path = "./blocklist.json"
-
 dry_run = true
 dry_run_validation_url = "http://localhost:8545"
 
