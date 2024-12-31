@@ -1,6 +1,7 @@
 use crate::mev_boost::{RelayClient, SubmitBlockErr, SubmitBlockRequest};
 use governor::{DefaultDirectRateLimiter, Quota, RateLimiter};
 use serde::{Deserialize, Deserializer};
+use std::ops::BitOr;
 use std::{env, sync::Arc, time::Duration};
 use url::Url;
 
@@ -11,7 +12,8 @@ pub type MevBoostRelayID = String;
 #[serde(deny_unknown_fields)]
 pub struct RelayConfig {
     pub name: String,
-    pub url: String,
+    pub url: Option<String>,
+    #[serde(default)]
     pub priority: usize,
     // true->ssz false->json
     #[serde(default)]
@@ -33,7 +35,7 @@ pub struct RelayConfig {
 impl RelayConfig {
     pub fn with_url(self, url: &str) -> Self {
         Self {
-            url: url.to_string(),
+            url: Some(url.to_string()),
             ..self
         }
     }
@@ -42,6 +44,30 @@ impl RelayConfig {
         Self {
             name: name.to_string(),
             ..self
+        }
+    }
+}
+
+impl BitOr for RelayConfig {
+    type Output = Self;
+
+    fn bitor(self, other: Self) -> Self {
+        if self.name != other.name {
+            return self;
+        }
+        Self {
+            name: self.name,
+            url: other.url.or(self.url),
+            priority: self.priority | other.priority,
+            use_ssz_for_submit: self.use_ssz_for_submit | other.use_ssz_for_submit,
+            use_gzip_for_submit: self.use_gzip_for_submit | other.use_gzip_for_submit,
+            optimistic: self.optimistic | other.optimistic,
+            authorization_header: other.authorization_header.or(self.authorization_header),
+            builder_id_header: other.builder_id_header.or(self.builder_id_header),
+            api_token_header: other.api_token_header.or(self.api_token_header),
+            interval_between_submissions_ms: other
+                .interval_between_submissions_ms
+                .or(self.interval_between_submissions_ms),
         }
     }
 }
@@ -66,8 +92,13 @@ pub struct MevBoostRelay {
 
 impl MevBoostRelay {
     pub fn from_config(config: &RelayConfig) -> eyre::Result<Self> {
+        let url = config
+            .url
+            .as_ref()
+            .ok_or_else(|| eyre::eyre!("url is required"))?;
+
         let client = {
-            let url: Url = config.url.parse()?;
+            let url: Url = url.parse()?;
             RelayClient::from_url(
                 url,
                 config.authorization_header.clone(),
@@ -135,7 +166,7 @@ mod test {
 
         let config: RelayConfig = toml::from_str(example).unwrap();
         assert_eq!(config.name, "relay1");
-        assert_eq!(config.url, "url");
+        assert_eq!(config.url.expect("url expected"), "url");
         assert_eq!(config.priority, 0);
         assert_eq!(config.authorization_header.unwrap(), "AAA");
         assert_eq!(config.builder_id_header.unwrap(), "BBB");

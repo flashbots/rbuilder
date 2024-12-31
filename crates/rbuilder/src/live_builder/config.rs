@@ -46,6 +46,7 @@ use ethereum_consensus::{
     state_transition::Context as ContextEth,
 };
 use eyre::Context;
+use lazy_static::lazy_static;
 use reth::revm::cached::CachedReads;
 use reth_chainspec::{Chain, ChainSpec, NamedChain};
 use reth_db::{Database, DatabaseEnv};
@@ -65,7 +66,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use tracing::info;
+use tracing::{info, warn};
 use url::Url;
 
 /// We initialize the wallet with the last full day. This should be enough for any bidder.
@@ -140,69 +141,7 @@ pub struct L1Config {
 impl Default for L1Config {
     fn default() -> Self {
         Self {
-            relays: vec![
-                RelayConfig {
-                    name: "flashbots".to_string(),
-                    url: "http://k8s-default-boostrel-9f278153f5-947835446.us-east-2.elb.amazonaws.com".to_string(),
-                    use_ssz_for_submit: true,
-                    use_gzip_for_submit: false,
-                    priority: 0,
-                    optimistic: false,
-                    interval_between_submissions_ms: Some(250),
-                    authorization_header: None,
-                    builder_id_header: None,
-                    api_token_header: None,
-                },
-                RelayConfig {
-                    name: "ultrasound-us".to_string(),
-                    url: "https://relay-builders-us.ultrasound.money".to_string(),
-                    use_ssz_for_submit: true,
-                    use_gzip_for_submit: true,
-                    priority: 0,
-                    optimistic: true,
-                    interval_between_submissions_ms: None,
-                    authorization_header: None,
-                    builder_id_header: None,
-                    api_token_header: None,
-                },
-                RelayConfig {
-                    name: "ultrasound-eu".to_string(),
-                    url: "https://relay-builders-eu.ultrasound.money".to_string(),
-                    use_ssz_for_submit: true,
-                    use_gzip_for_submit: true,
-                    priority: 0,
-                    optimistic: true,
-                    interval_between_submissions_ms: None,
-                    authorization_header: None,
-                    builder_id_header: None,
-                    api_token_header: None,
-                },
-                RelayConfig {
-                    name: "agnostic".to_string(),
-                    url: "https://0xa7ab7a996c8584251c8f925da3170bdfd6ebc75d50f5ddc4050a6fdc77f2a3b5fce2cc750d0865e05d7228af97d69561@agnostic-relay.net".to_string(),
-                    use_ssz_for_submit: true,
-                    use_gzip_for_submit: true,
-                    priority: 0,
-                    optimistic: true,
-                    interval_between_submissions_ms: None,
-                    authorization_header: None,
-                    builder_id_header: None,
-                    api_token_header: None,
-                },
-                // Local relay configuration for the playground
-                RelayConfig {
-                    name: "playground".to_string(),
-                    url: "http://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@localhost:5555".to_string(),
-                    priority: 0,
-                    use_ssz_for_submit: false,
-                    use_gzip_for_submit: false,
-                    optimistic: false, 
-                    interval_between_submissions_ms: None,
-                    authorization_header: None,
-                    builder_id_header: None,
-                    api_token_header: None,
-                }
-            ],
+            relays: vec![],
             enabled_relays: vec![],
             dry_run: false,
             dry_run_validation_url: vec![],
@@ -234,18 +173,45 @@ impl L1Config {
     }
 
     pub fn create_relays(&self) -> eyre::Result<Vec<MevBoostRelay>> {
+        let mut relays = DEFAULT_RELAYS.to_vec();
+
+        for relay in self.relays.clone() {
+            if let Some(default) = relays.iter_mut().find(|d| d.name == relay.name) {
+                // If found in defaults, update it with an or operation
+                *default = default.clone() | relay.clone();
+            } else {
+                // If not found in defaults, add as new relay
+                relays.push(relay.clone());
+            }
+
+            // Emit warning if this relay is defined but not enabled
+            if !self.enabled_relays.contains(&relay.name) {
+                warn!(
+                    "Relay '{}' is defined but not enabled in enabled_relays",
+                    relay.name
+                );
+            }
+        }
+
         let mut results = Vec::new();
         for relay_name in &self.enabled_relays {
-            match self.relays.iter().find(|r| r.name == *relay_name) {
-                Some(relay) => {
-                    match MevBoostRelay::from_config(relay) {
-                        Ok(relay) => {
-                            info!("Created relay: {:?} (priority: {})", relay_name, relay.priority);
-                            results.push(relay)
-                        },
-                        Err(e) => return Err(eyre::eyre!("Failed to create relay {}: {:?}", relay_name, e)),
+            match relays.iter().find(|r| r.name == *relay_name) {
+                Some(relay) => match MevBoostRelay::from_config(relay) {
+                    Ok(relay) => {
+                        info!(
+                            "Created relay: {:?} (priority: {})",
+                            relay_name, relay.priority
+                        );
+                        results.push(relay)
                     }
-                }
+                    Err(e) => {
+                        return Err(eyre::eyre!(
+                            "Failed to create relay {}: {:?}",
+                            relay_name,
+                            e
+                        ))
+                    }
+                },
                 None => return Err(eyre::eyre!("Relay {} not found in relays list", relay_name)),
             }
         }
@@ -672,6 +638,72 @@ fn get_signing_domain(
     Ok(B256::from(&compute_builder_domain(&cl_context)?))
 }
 
+lazy_static! {
+    static ref DEFAULT_RELAYS: Vec<RelayConfig> = vec![
+        RelayConfig {
+            name: "flashbots".to_string(),
+            url: Some("http://k8s-default-boostrel-9f278153f5-947835446.us-east-2.elb.amazonaws.com".to_string()),
+            use_ssz_for_submit: true,
+            use_gzip_for_submit: false,
+            priority: 0,
+            optimistic: false,
+            interval_between_submissions_ms: Some(250),
+            authorization_header: None,
+            builder_id_header: None,
+            api_token_header: None,
+        },
+        RelayConfig {
+            name: "ultrasound-us".to_string(),
+            url: Some("https://relay-builders-us.ultrasound.money".to_string()),
+            use_ssz_for_submit: true,
+            use_gzip_for_submit: true,
+            priority: 0,
+            optimistic: true,
+            interval_between_submissions_ms: None,
+            authorization_header: None,
+            builder_id_header: None,
+            api_token_header: None,
+        },
+        RelayConfig {
+            name: "ultrasound-eu".to_string(),
+            url: Some("https://relay-builders-eu.ultrasound.money".to_string()),
+            use_ssz_for_submit: true,
+            use_gzip_for_submit: true,
+            priority: 0,
+            optimistic: true,
+            interval_between_submissions_ms: None,
+            authorization_header: None,
+            builder_id_header: None,
+            api_token_header: None,
+        },
+        RelayConfig {
+            name: "agnostic".to_string(),
+            url:Some("https://0xa7ab7a996c8584251c8f925da3170bdfd6ebc75d50f5ddc4050a6fdc77f2a3b5fce2cc750d0865e05d7228af97d69561@agnostic-relay.net".to_string()),
+            use_ssz_for_submit: true,
+            use_gzip_for_submit: true,
+            priority: 0,
+            optimistic: true,
+            interval_between_submissions_ms: None,
+            authorization_header: None,
+            builder_id_header: None,
+            api_token_header: None,
+        },
+        // Local relay configuration for the playground
+        RelayConfig {
+            name: "playground".to_string(),
+            url:Some("http://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@localhost:5555".to_string()),
+            priority: 0,
+            use_ssz_for_submit: false,
+            use_gzip_for_submit: false,
+            optimistic: false,
+            interval_between_submissions_ms: None,
+            authorization_header: None,
+            builder_id_header: None,
+            api_token_header: None,
+        }
+    ];
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -727,6 +759,33 @@ mod test {
             .resolve_cl_node_urls()
             .unwrap()
             .contains(&"http://localhost:3500".to_string()));
+    }
+
+    #[test]
+    fn test_parse_enabled_relays() {
+        let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        p.push("./src/live_builder/testdata/config_with_relay_override.toml");
+
+        let config: Config = load_config_toml_and_env(p.clone()).expect("Config load");
+
+        let relays = config.l1_config.create_relays().unwrap();
+        assert_eq!(relays.len(), 1);
+        assert_eq!(relays[0].id, "playground");
+        assert_eq!(relays[0].priority, 10);
+    }
+
+    #[test]
+    fn test_parse_empty_relay_url() {
+        let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        p.push("./src/live_builder/testdata/config_with_relay_empty_url.toml");
+
+        let config: Config = load_config_toml_and_env(p).expect("Config load");
+        assert!(config
+            .l1_config
+            .create_relays()
+            .unwrap_err()
+            .to_string()
+            .contains("url is required"));
     }
 
     #[test]
