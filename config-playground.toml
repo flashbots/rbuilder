@@ -27,9 +27,4 @@ ignore_cancellable_orders = true
 sbundle_mergeable_signers = []
 live_builders = ["mp-ordering", "mgp-ordering", "parallel"]
 
-[[relays]]
-name = "custom"
-url = "http://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@localhost:5555"
-priority = 0
-use_ssz_for_submit = false
-use_gzip_for_submit = false
+enabled_relays = ["playground"]

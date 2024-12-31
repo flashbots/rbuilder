@@ -108,6 +108,8 @@ pub struct Config {
 pub struct L1Config {
     // Relay Submission configuration
     pub relays: Vec<RelayConfig>,
+    pub enabled_relays: Vec<String>,
+
     pub dry_run: bool,
     #[serde_as(deserialize_as = "OneOrMany<_>")]
     pub dry_run_validation_url: Vec<String>,
@@ -138,7 +140,70 @@ pub struct L1Config {
 impl Default for L1Config {
     fn default() -> Self {
         Self {
-            relays: vec![],
+            relays: vec![
+                RelayConfig {
+                    name: "flashbots".to_string(),
+                    url: "http://k8s-default-boostrel-9f278153f5-947835446.us-east-2.elb.amazonaws.com".to_string(),
+                    use_ssz_for_submit: true,
+                    use_gzip_for_submit: false,
+                    priority: 0,
+                    optimistic: false,
+                    interval_between_submissions_ms: Some(250),
+                    authorization_header: None,
+                    builder_id_header: None,
+                    api_token_header: None,
+                },
+                RelayConfig {
+                    name: "ultrasound-us".to_string(),
+                    url: "https://relay-builders-us.ultrasound.money".to_string(),
+                    use_ssz_for_submit: true,
+                    use_gzip_for_submit: true,
+                    priority: 0,
+                    optimistic: true,
+                    interval_between_submissions_ms: None,
+                    authorization_header: None,
+                    builder_id_header: None,
+                    api_token_header: None,
+                },
+                RelayConfig {
+                    name: "ultrasound-eu".to_string(),
+                    url: "https://relay-builders-eu.ultrasound.money".to_string(),
+                    use_ssz_for_submit: true,
+                    use_gzip_for_submit: true,
+                    priority: 0,
+                    optimistic: true,
+                    interval_between_submissions_ms: None,
+                    authorization_header: None,
+                    builder_id_header: None,
+                    api_token_header: None,
+                },
+                RelayConfig {
+                    name: "agnostic".to_string(),
+                    url: "https://0xa7ab7a996c8584251c8f925da3170bdfd6ebc75d50f5ddc4050a6fdc77f2a3b5fce2cc750d0865e05d7228af97d69561@agnostic-relay.net".to_string(),
+                    use_ssz_for_submit: true,
+                    use_gzip_for_submit: true,
+                    priority: 0,
+                    optimistic: true,
+                    interval_between_submissions_ms: None,
+                    authorization_header: None,
+                    builder_id_header: None,
+                    api_token_header: None,
+                },
+                // Local relay configuration for the playground
+                RelayConfig {
+                    name: "playground".to_string(),
+                    url: "http://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@localhost:5555".to_string(),
+                    priority: 0,
+                    use_ssz_for_submit: false,
+                    use_gzip_for_submit: false,
+                    optimistic: false, 
+                    interval_between_submissions_ms: None,
+                    authorization_header: None,
+                    builder_id_header: None,
+                    api_token_header: None,
+                }
+            ],
+            enabled_relays: vec![],
             dry_run: false,
             dry_run_validation_url: vec![],
             relay_secret_key: "".into(),
@@ -170,8 +235,19 @@ impl L1Config {
 
     pub fn create_relays(&self) -> eyre::Result<Vec<MevBoostRelay>> {
         let mut results = Vec::new();
-        for relay in &self.relays {
-            results.push(MevBoostRelay::from_config(relay)?);
+        for relay_name in &self.enabled_relays {
+            match self.relays.iter().find(|r| r.name == *relay_name) {
+                Some(relay) => {
+                    match MevBoostRelay::from_config(relay) {
+                        Ok(relay) => {
+                            info!("Created relay: {:?} (priority: {})", relay_name, relay.priority);
+                            results.push(relay)
+                        },
+                        Err(e) => return Err(eyre::eyre!("Failed to create relay {}: {:?}", relay_name, e)),
+                    }
+                }
+                None => return Err(eyre::eyre!("Relay {} not found in relays list", relay_name)),
+            }
         }
         Ok(results)
     }
