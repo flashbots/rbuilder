@@ -2,10 +2,10 @@ pub mod setup;
 
 use alloy_primitives::{Address, B256, U256};
 use itertools::Itertools;
-use std::collections::HashSet;
 use uuid::Uuid;
 
 use crate::{
+    blocklist::BlockList,
     building::{testing::bundle_tests::setup::NonceValue, BuiltBlockTrace, BundleErr, OrderErr},
     primitives::{
         Bundle, BundleReplacementData, BundleReplacementKey, Order, OrderId, Refund, RefundConfig,
@@ -462,7 +462,7 @@ fn test_mev_share_failed_refunds() -> eyre::Result<()> {
 fn test_bundle_consistency_check() -> eyre::Result<()> {
     let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().number(11))?;
 
-    let blocklist = HashSet::default();
+    let blocklist = BlockList::default();
     // check revertible tx detection
     {
         let mut built_block_trace = BuiltBlockTrace::new();
@@ -522,9 +522,7 @@ fn test_bundle_consistency_check() -> eyre::Result<()> {
 
     // check commit of blocklisted tx from
     {
-        let blocklist = vec![test_setup.named_address(NamedAddr::User(0))?]
-            .into_iter()
-            .collect();
+        let blocklist = BlockList::from(vec![test_setup.named_address(NamedAddr::User(0))?]);
         let mut built_block_trace = BuiltBlockTrace::new();
 
         test_setup.begin_bundle_order(11);
@@ -540,9 +538,7 @@ fn test_bundle_consistency_check() -> eyre::Result<()> {
 
     // check commit of blocklisted tx to
     {
-        let blocklist = vec![test_setup.named_address(NamedAddr::User(1))?]
-            .into_iter()
-            .collect();
+        let blocklist = BlockList::from(vec![test_setup.named_address(NamedAddr::User(1))?]);
         let mut built_block_trace = BuiltBlockTrace::new();
 
         test_setup.begin_bundle_order(11);

@@ -327,7 +327,7 @@ impl LiveBuilderConfig for Config {
         let payload_event = MevBoostSlotDataGenerator::new(
             self.l1_config.beacon_clients()?,
             relays,
-            self.base_config.blocklist()?,
+            self.base_config.blocklist_file_path.clone(),
             cancellation_token.clone(),
         );
         let live_builder = self

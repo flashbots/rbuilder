@@ -1,5 +1,6 @@
 use crate::{
     backtest::BlockData,
+    blocklist::BlockList,
     building::{
         builders::BacktestSimulateBlockInput, multi_share_bundle_merger::MultiShareBundleMerger,
         sim::simulate_all_orders_with_sim_tree, BlockBuildingContext, BundleErr, OrderErr,
@@ -9,7 +10,6 @@ use crate::{
     primitives::{OrderId, SimulatedOrder},
     utils::{clean_extradata, Signer},
 };
-use ahash::HashSet;
 use alloy_primitives::{Address, U256};
 use reth::revm::cached::CachedReads;
 use reth_chainspec::ChainSpec;
@@ -61,7 +61,7 @@ pub fn backtest_prepare_ctx_for_block<P>(
     provider: P,
     chain_spec: Arc<ChainSpec>,
     build_block_lag_ms: i64,
-    blocklist: HashSet<Address>,
+    blocklist: BlockList,
     sbundle_mergeabe_signers: &[Address],
     builder_signer: Signer,
 ) -> eyre::Result<BacktestBlockInput>
@@ -114,7 +114,7 @@ pub fn backtest_simulate_block<P, DB, ConfigType>(
     build_block_lag_ms: i64,
     builders_names: Vec<String>,
     config: &ConfigType,
-    blocklist: HashSet<Address>,
+    blocklist: BlockList,
     sbundle_mergeabe_signers: &[Address],
 ) -> eyre::Result<BlockBacktestValue>
 where

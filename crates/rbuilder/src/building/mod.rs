@@ -18,11 +18,11 @@ use reth_primitives::BlockBody;
 use reth_provider::{BlockReader, DatabaseProviderFactory, StateProviderFactory};
 
 use crate::{
+    blocklist::BlockList,
     primitives::{Order, OrderId, SimValue, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs},
     roothash::{calculate_state_root, RootHashConfig, RootHashError},
     utils::{a2r_withdrawal, calc_gas_limit, timestamp_as_u64, Signer},
 };
-use ahash::HashSet;
 use alloy_eips::{
     calc_excess_blob_gas, eip4844::BlobTransactionSidecar, eip4895::Withdrawals, eip7685::Requests,
     merge::BEACON_NONCE,
@@ -78,7 +78,7 @@ pub struct BlockBuildingContext {
     /// None: coinbase = attributes.suggested_fee_recipient. No payoffs allowed.
     /// Some(signer): coinbase = signer.
     pub builder_signer: Option<Signer>,
-    pub blocklist: HashSet<Address>,
+    pub blocklist: BlockList,
     pub extra_data: Vec<u8>,
     /// Excess blob gas calculated from the parent block header
     pub excess_blob_gas: Option<u64>,
@@ -96,7 +96,7 @@ impl BlockBuildingContext {
         parent: &Header,
         signer: Signer,
         chain_spec: Arc<ChainSpec>,
-        blocklist: HashSet<Address>,
+        blocklist: BlockList,
         prefer_gas_limit: Option<u64>,
         extra_data: Vec<u8>,
         spec_id: Option<SpecId>,
@@ -173,7 +173,7 @@ impl BlockBuildingContext {
         onchain_block: alloy_rpc_types::Block,
         chain_spec: Arc<ChainSpec>,
         spec_id: Option<SpecId>,
-        blocklist: HashSet<Address>,
+        blocklist: BlockList,
         coinbase: Address,
         suggested_fee_recipient: Address,
         builder_signer: Option<Signer>,

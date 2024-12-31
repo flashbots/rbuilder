@@ -9,6 +9,7 @@ pub mod simulation;
 pub mod watchdog;
 
 use crate::{
+    blocklist::BlockList,
     building::{
         builders::{BlockBuildingAlgorithm, UnfinishedBlockBuildingSinkFactory},
         BlockBuildingContext,
@@ -23,7 +24,6 @@ use crate::{
         error_storage::spawn_error_storage_writer, provider_head_state::ProviderHeadState, Signer,
     },
 };
-use ahash::HashSet;
 use alloy_consensus::Header;
 use alloy_primitives::{Address, B256};
 use building::BlockBuildingPool;
@@ -102,7 +102,7 @@ where
 
     pub coinbase_signer: Signer,
     pub extra_data: Vec<u8>,
-    pub blocklist: HashSet<Address>,
+    pub blocklist: BlockList,
 
     pub global_cancellation: CancellationToken,
 

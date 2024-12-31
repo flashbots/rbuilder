@@ -1,5 +1,6 @@
 pub mod backtest;
 pub mod beacon_api_client;
+pub mod blocklist;
 pub mod building;
 pub mod integration;
 pub mod live_builder;

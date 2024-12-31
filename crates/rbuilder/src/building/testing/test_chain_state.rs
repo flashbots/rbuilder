@@ -1,4 +1,3 @@
-use ahash::HashSet;
 use alloy_consensus::{Header, TxEip1559};
 use alloy_primitives::{
     keccak256, utils::parse_ether, Address, BlockHash, Bytes, TxKind as TransactionKind, B256, B64,
@@ -17,7 +16,7 @@ use reth_provider::test_utils::{create_test_provider_factory, MockNodeTypesWithD
 use revm_primitives::SpecId;
 use std::sync::Arc;
 
-use crate::{building::BlockBuildingContext, utils::Signer};
+use crate::{blocklist::BlockList, building::BlockBuildingContext, utils::Signer};
 
 #[derive(Debug, Clone, Copy)]
 pub enum NamedAddr {
@@ -233,7 +232,7 @@ struct TestBlockContextBuilder {
     parent_gas_used: u64,
     parent_hash: BlockHash,
     chain_spec: Arc<ChainSpec>,
-    blocklist: HashSet<Address>,
+    blocklist: BlockList,
     prefer_gas_limit: Option<u64>,
     use_suggested_fee_recipient_as_coinbase: bool,
 }
@@ -260,7 +259,7 @@ impl TestBlockContextBuilder {
             parent_gas_used: 15_000_000,
             parent_hash,
             chain_spec,
-            blocklist: vec![blocklisted].into_iter().collect(),
+            blocklist: BlockList::from(vec![blocklisted]),
             prefer_gas_limit: None,
             use_suggested_fee_recipient_as_coinbase: block_args
                 .use_suggested_fee_recipient_as_coinbase,

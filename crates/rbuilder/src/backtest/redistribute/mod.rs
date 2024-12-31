@@ -1009,7 +1009,7 @@ where
         built_block_lag_ms,
         base_config.backtest_builders.clone(),
         config,
-        base_config.blocklist()?,
+        base_config.blocklist_file_path.clone(),
         &base_config.sbundle_mergeable_signers(),
     )?
     .builder_outputs

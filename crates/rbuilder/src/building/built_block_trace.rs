@@ -1,7 +1,8 @@
 use super::{BundleErr, ExecutionError, ExecutionResult, OrderErr};
+use crate::blocklist::BlockList;
 use crate::primitives::{Order, OrderId, OrderReplacementKey};
 use ahash::{HashMap, HashSet};
-use alloy_primitives::{Address, TxHash, U256};
+use alloy_primitives::{TxHash, U256};
 use std::{collections::hash_map, time::Duration};
 use time::OffsetDateTime;
 
@@ -91,7 +92,7 @@ impl BuiltBlockTrace {
 
     pub fn verify_bundle_consistency(
         &self,
-        blocklist: &HashSet<Address>,
+        blocklist: &BlockList,
     ) -> Result<(), BuiltBlockTraceError> {
         let mut replacement_data_count: HashSet<_> = HashSet::default();
         let mut bundle_txs_scratchpad = HashMap::default();

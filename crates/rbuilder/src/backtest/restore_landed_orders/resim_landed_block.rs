@@ -5,7 +5,7 @@ use crate::{
     },
     utils::{extract_onchain_block_txs, find_suggested_fee_recipient, signed_uint_delta},
 };
-use ahash::{HashMap, HashSet};
+use ahash::HashMap;
 use alloy_primitives::{TxHash, B256, I256};
 use eyre::Context;
 use reth_chainspec::ChainSpec;
@@ -46,7 +46,7 @@ where
         onchain_block,
         chain_spec,
         None,
-        HashSet::default(),
+        Default::default(),
         coinbase,
         suggested_fee_recipient,
         None,

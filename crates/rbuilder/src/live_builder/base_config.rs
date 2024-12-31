@@ -1,13 +1,13 @@
 //! Config should always be deserializable, default values should be used
 //!
 use crate::{
+    blocklist::BlockList,
     building::builders::UnfinishedBlockBuildingSinkFactory,
     live_builder::{order_input::OrderInputConfig, LiveBuilder},
     roothash::RootHashConfig,
     telemetry::{setup_reloadable_tracing_subscriber, LoggerConfig},
     utils::{http_provider, BoxedProvider, ProviderFactoryReopener, Signer},
 };
-use ahash::HashSet;
 use alloy_primitives::{Address, B256};
 use eyre::{eyre, Context};
 use jsonrpsee::RpcModule;
@@ -76,7 +76,7 @@ pub struct BaseConfig {
     pub reth_db_path: Option<PathBuf>,
     pub reth_static_files_path: Option<PathBuf>,
 
-    pub blocklist_file_path: Option<PathBuf>,
+    pub blocklist_file_path: BlockList,
     pub extra_data: String,
 
     /// mev-share bundles coming from this address are treated in a special way(see [`ShareBundleMerger`])
@@ -223,7 +223,7 @@ impl BaseConfig {
 
             coinbase_signer: self.coinbase_signer()?,
             extra_data: self.extra_data()?,
-            blocklist: self.blocklist()?,
+            blocklist: self.blocklist_file_path.clone(),
 
             global_cancellation: cancellation_token,
 
@@ -308,6 +308,7 @@ impl BaseConfig {
         Ok(extra_data)
     }
 
+<<<<<<< Updated upstream
     pub fn blocklist(&self) -> eyre::Result<HashSet<Address>> {
         if let Some(path) = &self.blocklist_file_path {
             let blocklist_file = read_to_string(path).context("blocklist file")?;
@@ -328,6 +329,8 @@ impl BaseConfig {
         }
     }
 
+=======
+>>>>>>> Stashed changes
     pub fn eth_rpc_provider(&self) -> eyre::Result<BoxedProvider> {
         Ok(http_provider(self.backtest_fetch_eth_rpc_url.parse()?))
     }
@@ -449,7 +452,7 @@ impl Default for BaseConfig {
             reth_datadir: Some(DEFAULT_RETH_DB_PATH.parse().unwrap()),
             reth_db_path: None,
             reth_static_files_path: None,
-            blocklist_file_path: None,
+            blocklist_file_path: Default::default(),
             extra_data: "extra_data_change_me".to_string(),
             root_hash_use_sparse_trie: false,
             root_hash_compare_sparse_trie: false,

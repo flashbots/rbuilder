@@ -133,7 +133,7 @@ where
         None
     };
 
-    let blocklist = config.base_config().blocklist()?;
+    let blocklist = config.base_config().blocklist_file_path.clone();
 
     let mut read_blocks = spawn_block_fetcher(
         historical_data_storage,

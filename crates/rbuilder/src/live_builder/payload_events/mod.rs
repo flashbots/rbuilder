@@ -7,6 +7,7 @@ pub mod relay_epoch_cache;
 
 use crate::{
     beacon_api_client::Client,
+    blocklist::BlockList,
     live_builder::{
         payload_events::{
             payload_source::PayloadSourceMuxer,
@@ -16,7 +17,6 @@ use crate::{
     },
     primitives::mev_boost::{MevBoostRelay, MevBoostRelayID},
 };
-use ahash::HashSet;
 use alloy_eips::merge::SLOT_DURATION;
 use alloy_primitives::{utils::format_ether, Address, B256, U256};
 use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
@@ -81,7 +81,7 @@ impl MevBoostSlotData {
 pub struct MevBoostSlotDataGenerator {
     cls: Vec<Client>,
     relays: Vec<MevBoostRelay>,
-    blocklist: HashSet<Address>,
+    blocklist: BlockList,
 
     global_cancellation: CancellationToken,
 }
@@ -90,7 +90,7 @@ impl MevBoostSlotDataGenerator {
     pub fn new(
         cls: Vec<Client>,
         relays: Vec<MevBoostRelay>,
-        blocklist: HashSet<Address>,
+        blocklist: BlockList,
         global_cancellation: CancellationToken,
     ) -> Self {
         Self {
@@ -192,7 +192,7 @@ impl SlotSource for MevBoostSlotDataGenerator {
 
 fn check_slot_data_for_blocklist(
     data: &MevBoostSlotData,
-    blocklist: &HashSet<Address>,
+    blocklist: &BlockList,
 ) -> eyre::Result<()> {
     if blocklist.contains(&data.fee_recipient()) {
         return Err(eyre::eyre!(
