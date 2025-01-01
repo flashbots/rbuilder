@@ -77,7 +77,9 @@ pub struct BaseConfig {
     pub reth_static_files_path: Option<PathBuf>,
 
     pub blocklist_file_path: Option<PathBuf>,
-    pub extra_data: String,
+
+    #[serde(deserialize_with = "deserialize_extra_data")]
+    pub extra_data: Vec<u8>,
 
     /// mev-share bundles coming from this address are treated in a special way(see [`ShareBundleMerger`])
     pub sbundle_mergeable_signers: Option<Vec<Address>>,
@@ -222,7 +224,7 @@ impl BaseConfig {
             provider,
 
             coinbase_signer: self.coinbase_signer()?,
-            extra_data: self.extra_data()?,
+            extra_data: self.extra_data.clone(),
             blocklist: self.blocklist()?,
 
             global_cancellation: cancellation_token,
@@ -298,14 +300,6 @@ impl BaseConfig {
 
     pub fn coinbase_signer(&self) -> eyre::Result<Signer> {
         coinbase_signer_from_secret_key(&self.coinbase_secret_key.value()?)
-    }
-
-    pub fn extra_data(&self) -> eyre::Result<Vec<u8>> {
-        let extra_data = self.extra_data.clone().into_bytes();
-        if extra_data.len() > 32 {
-            return Err(eyre::eyre!("Extra data is too long"));
-        }
-        Ok(extra_data)
     }
 
     pub fn blocklist(&self) -> eyre::Result<HashSet<Address>> {
@@ -450,7 +444,7 @@ impl Default for BaseConfig {
             reth_db_path: None,
             reth_static_files_path: None,
             blocklist_file_path: None,
-            extra_data: "extra_data_change_me".to_string(),
+            extra_data: b"extra_data_change_me".to_vec(),
             root_hash_use_sparse_trie: false,
             root_hash_compare_sparse_trie: false,
             watchdog_timeout_sec: None,
@@ -467,6 +461,20 @@ impl Default for BaseConfig {
             sbundle_mergeabe_signers: None,
         }
     }
+}
+
+fn deserialize_extra_data<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    let bytes = s.into_bytes();
+    if bytes.len() > 32 {
+        return Err(serde::de::Error::custom(
+            "Extra data is too long (max 32 bytes)",
+        ));
+    }
+    Ok(bytes)
 }
 
 /// Open reth db and DB should be opened once per process but it can be cloned and moved to different threads.
