@@ -14,17 +14,13 @@ use crate::{
         BlockBuildingContext, ExecutionError, PrioritizedOrderStore, SimulatedOrderSink, Sorting,
     },
     primitives::{AccountNonce, OrderId},
+    provider::StateProviderFactory,
     roothash::RootHashConfig,
 };
 use ahash::{HashMap, HashSet};
 use reth::revm::cached::CachedReads;
-use reth_db::database::Database;
-use reth_provider::{BlockReader, DatabaseProviderFactory, StateProviderFactory};
 use serde::Deserialize;
-use std::{
-    marker::PhantomData,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info_span, trace};
 
@@ -61,13 +57,9 @@ impl OrderingBuilderConfig {
     }
 }
 
-pub fn run_ordering_builder<P, DB>(input: LiveBuilderInput<P, DB>, config: &OrderingBuilderConfig)
+pub fn run_ordering_builder<P>(input: LiveBuilderInput<P>, config: &OrderingBuilderConfig)
 where
-    DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-        + StateProviderFactory
-        + Clone
-        + 'static,
+    P: StateProviderFactory,
 {
     let mut order_intake_consumer = OrderIntakeConsumer::new(
         input.provider.clone(),
@@ -130,16 +122,12 @@ where
     }
 }
 
-pub fn backtest_simulate_block<P, DB>(
+pub fn backtest_simulate_block<P>(
     ordering_config: OrderingBuilderConfig,
     input: BacktestSimulateBlockInput<'_, P>,
 ) -> eyre::Result<(Block, CachedReads)>
 where
-    DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-        + StateProviderFactory
-        + Clone
-        + 'static,
+    P: StateProviderFactory,
 {
     let use_suggested_fee_recipient_as_coinbase = ordering_config.coinbase_payment;
     let state_provider = input
@@ -174,7 +162,7 @@ where
 }
 
 #[derive(Debug)]
-pub struct OrderingBuilderContext<P, DB> {
+pub struct OrderingBuilderContext<P> {
     provider: P,
     builder_name: String,
     ctx: BlockBuildingContext,
@@ -187,17 +175,11 @@ pub struct OrderingBuilderContext<P, DB> {
     // scratchpad
     failed_orders: HashSet<OrderId>,
     order_attempts: HashMap<OrderId, usize>,
-
-    phantom: PhantomData<DB>,
 }
 
-impl<P, DB> OrderingBuilderContext<P, DB>
+impl<P> OrderingBuilderContext<P>
 where
-    DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-        + StateProviderFactory
-        + Clone
-        + 'static,
+    P: StateProviderFactory,
 {
     pub fn new(
         provider: P,
@@ -215,7 +197,6 @@ where
             cached_reads: None,
             failed_orders: HashSet::default(),
             order_attempts: HashMap::default(),
-            phantom: PhantomData,
         }
     }
 
@@ -358,13 +339,9 @@ impl OrderingBuildingAlgorithm {
     }
 }
 
-impl<P, DB> BlockBuildingAlgorithm<P, DB> for OrderingBuildingAlgorithm
+impl<P> BlockBuildingAlgorithm<P> for OrderingBuildingAlgorithm
 where
-    DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-        + StateProviderFactory
-        + Clone
-        + 'static,
+    P: StateProviderFactory,
 {
     fn name(&self) -> String {
         self.name.clone()
@@ -379,7 +356,6 @@ where
             sink: input.sink,
             builder_name: self.name.clone(),
             cancel: input.cancel,
-            phantom: Default::default(),
         };
         run_ordering_builder(live_input, &self.config);
     }

@@ -7842,7 +7842,6 @@ dependencies = [
  "rbuilder",
  "reth-db-api",
  "reth-primitives",
- "reth-provider",
  "tokio",
  "tokio-util",
  "tracing",

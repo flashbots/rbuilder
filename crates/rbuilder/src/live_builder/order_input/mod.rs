@@ -13,9 +13,9 @@ use self::{
     replaceable_order_sink::ReplaceableOrderSink,
 };
 use crate::primitives::{serialize::CancelShareBundle, BundleReplacementKey, Order};
+use crate::provider::StateProviderFactory;
 use jsonrpsee::RpcModule;
 use parking_lot::Mutex;
-use reth_provider::StateProviderFactory;
 use std::{net::Ipv4Addr, path::PathBuf, sync::Arc, time::Duration};
 use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
@@ -184,7 +184,7 @@ pub async fn start_orderpool_jobs<P>(
     order_receiver: mpsc::Receiver<ReplaceableOrderPoolCommand>,
 ) -> eyre::Result<(JoinHandle<()>, OrderPoolSubscriber)>
 where
-    P: StateProviderFactory + 'static,
+    P: StateProviderFactory,
 {
     if config.ignore_cancellable_orders {
         warn!("ignore_cancellable_orders is set to true, some order input is ignored");

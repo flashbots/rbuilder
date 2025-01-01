@@ -7,14 +7,13 @@ use crate::{
     },
     live_builder::cli::LiveBuilderConfig,
     primitives::{OrderId, SimulatedOrder},
+    provider::StateProviderFactory,
     utils::{clean_extradata, Signer},
 };
 use ahash::HashSet;
 use alloy_primitives::{Address, U256};
 use reth::revm::cached::CachedReads;
 use reth_chainspec::ChainSpec;
-use reth_db::Database;
-use reth_provider::{BlockReader, DatabaseProviderFactory, HeaderProvider, StateProviderFactory};
 use serde::{Deserialize, Serialize};
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 
@@ -66,7 +65,7 @@ pub fn backtest_prepare_ctx_for_block<P>(
     builder_signer: Signer,
 ) -> eyre::Result<BacktestBlockInput>
 where
-    P: StateProviderFactory + Clone + 'static,
+    P: StateProviderFactory,
 {
     let orders = block_data
         .available_orders
@@ -107,7 +106,7 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn backtest_simulate_block<P, DB, ConfigType>(
+pub fn backtest_simulate_block<P, ConfigType>(
     block_data: BlockData,
     provider: P,
     chain_spec: Arc<ChainSpec>,
@@ -118,12 +117,7 @@ pub fn backtest_simulate_block<P, DB, ConfigType>(
     sbundle_mergeabe_signers: &[Address],
 ) -> eyre::Result<BlockBacktestValue>
 where
-    DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-        + StateProviderFactory
-        + HeaderProvider
-        + Clone
-        + 'static,
+    P: StateProviderFactory,
     ConfigType: LiveBuilderConfig,
 {
     let BacktestBlockInput {

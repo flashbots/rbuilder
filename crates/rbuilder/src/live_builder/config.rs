@@ -32,6 +32,7 @@ use crate::{
     },
     mev_boost::BLSBlockSigner,
     primitives::mev_boost::{MevBoostRelay, RelayConfig},
+    provider::StateProviderFactory,
     roothash::RootHashConfig,
     utils::{build_info::rbuilder_version, ProviderFactoryReopener, Signer},
     validation_api_client::ValidationAPIClient,
@@ -48,14 +49,11 @@ use ethereum_consensus::{
 use eyre::Context;
 use reth::revm::cached::CachedReads;
 use reth_chainspec::{Chain, ChainSpec, NamedChain};
-use reth_db::{Database, DatabaseEnv};
+use reth_db::DatabaseEnv;
 use reth_node_api::NodeTypesWithDBAdapter;
 use reth_node_ethereum::EthereumNode;
 use reth_primitives::StaticFileSegment;
-use reth_provider::{
-    BlockReader, DatabaseProviderFactory, HeaderProvider, StateProviderFactory,
-    StaticFileProviderFactory,
-};
+use reth_provider::StaticFileProviderFactory;
 use serde::Deserialize;
 use serde_with::{serde_as, OneOrMany};
 use std::{
@@ -290,18 +288,13 @@ impl LiveBuilderConfig for Config {
     fn base_config(&self) -> &BaseConfig {
         &self.base_config
     }
-    async fn new_builder<P, DB>(
+    async fn new_builder<P>(
         &self,
         provider: P,
         cancellation_token: tokio_util::sync::CancellationToken,
-    ) -> eyre::Result<super::LiveBuilder<P, DB, MevBoostSlotDataGenerator>>
+    ) -> eyre::Result<super::LiveBuilder<P, MevBoostSlotDataGenerator>>
     where
-        DB: Database + Clone + 'static,
-        P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-            + StateProviderFactory
-            + HeaderProvider
-            + Clone
-            + 'static,
+        P: StateProviderFactory,
     {
         let (sink_sealed_factory, relays) = self.l1_config.create_relays_sealed_sink_factory(
             self.base_config.chain_spec()?,
@@ -348,17 +341,13 @@ impl LiveBuilderConfig for Config {
         rbuilder_version()
     }
 
-    fn build_backtest_block<P, DB>(
+    fn build_backtest_block<P>(
         &self,
         building_algorithm_name: &str,
         input: BacktestSimulateBlockInput<'_, P>,
     ) -> eyre::Result<(Block, CachedReads)>
     where
-        DB: Database + Clone + 'static,
-        P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-            + StateProviderFactory
-            + Clone
-            + 'static,
+        P: StateProviderFactory,
     {
         let builder_cfg = self.builder(building_algorithm_name)?;
         match builder_cfg.builder {
@@ -366,7 +355,7 @@ impl LiveBuilderConfig for Config {
                 crate::building::builders::ordering_builder::backtest_simulate_block(config, input)
             }
             SpecificBuilderConfig::ParallelBuilder(config) => {
-                parallel_build_backtest::<P, DB>(input, config)
+                parallel_build_backtest::<P>(input, config)
             }
         }
     }
@@ -513,16 +502,12 @@ pub fn coinbase_signer_from_secret_key(secret_key: &str) -> eyre::Result<Signer>
     Ok(Signer::try_from_secret(secret_key)?)
 }
 
-pub fn create_builders<P, DB>(
+pub fn create_builders<P>(
     configs: Vec<BuilderConfig>,
     root_hash_config: RootHashConfig,
-) -> Vec<Arc<dyn BlockBuildingAlgorithm<P, DB>>>
+) -> Vec<Arc<dyn BlockBuildingAlgorithm<P>>>
 where
-    DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-        + StateProviderFactory
-        + Clone
-        + 'static,
+    P: StateProviderFactory,
 {
     configs
         .into_iter()
@@ -530,16 +515,12 @@ where
         .collect()
 }
 
-fn create_builder<P, DB>(
+fn create_builder<P>(
     cfg: BuilderConfig,
     root_hash_config: &RootHashConfig,
-) -> Arc<dyn BlockBuildingAlgorithm<P, DB>>
+) -> Arc<dyn BlockBuildingAlgorithm<P>>
 where
-    DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-        + StateProviderFactory
-        + Clone
-        + 'static,
+    P: StateProviderFactory,
 {
     match cfg.builder {
         SpecificBuilderConfig::OrderingBuilder(order_cfg) => Arc::new(

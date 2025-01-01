@@ -5,9 +5,7 @@ use super::{
 use ahash::HashMap;
 use alloy_primitives::utils::format_ether;
 use reth::revm::cached::CachedReads;
-use reth_db::Database;
-use reth_provider::{BlockReader, DatabaseProviderFactory, StateProviderFactory};
-use std::{marker::PhantomData, sync::Arc, time::Instant};
+use std::{sync::Arc, time::Instant};
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
 use tracing::{info_span, trace};
@@ -20,11 +18,12 @@ use crate::{
         },
         BlockBuildingContext,
     },
+    provider::StateProviderFactory,
     roothash::RootHashConfig,
 };
 
 /// Assembles block building results from the best orderings of order groups.
-pub struct BlockBuildingResultAssembler<P, DB> {
+pub struct BlockBuildingResultAssembler<P> {
     provider: P,
     ctx: BlockBuildingContext,
     cancellation_token: CancellationToken,
@@ -38,16 +37,11 @@ pub struct BlockBuildingResultAssembler<P, DB> {
     best_results: Arc<BestResults>,
     run_id: u64,
     last_version: Option<u64>,
-    phantom: PhantomData<DB>,
 }
 
-impl<P, DB> BlockBuildingResultAssembler<P, DB>
+impl<P> BlockBuildingResultAssembler<P>
 where
-    DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-        + StateProviderFactory
-        + Clone
-        + 'static,
+    P: StateProviderFactory,
 {
     /// Creates a new `BlockBuildingResultAssembler`.
     ///
@@ -83,7 +77,6 @@ where
             best_results,
             run_id: 0,
             last_version: None,
-            phantom: PhantomData,
         }
     }
 

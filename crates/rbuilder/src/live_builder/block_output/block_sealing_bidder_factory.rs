@@ -1,9 +1,9 @@
 use crate::{
     building::builders::{UnfinishedBlockBuildingSink, UnfinishedBlockBuildingSinkFactory},
     live_builder::payload_events::MevBoostSlotData,
+    provider::StateProviderFactory,
 };
 use alloy_primitives::U256;
-use reth_provider::{HeaderProvider, StateProviderFactory};
 use std::{fmt::Debug, sync::Arc};
 use tracing::error;
 
@@ -81,7 +81,7 @@ impl BidValueObs for SlotBidderToBidValueObs {
 
 impl<P> UnfinishedBlockBuildingSinkFactory for BlockSealingBidderFactory<P>
 where
-    P: StateProviderFactory + HeaderProvider,
+    P: StateProviderFactory,
 {
     fn create_sink(
         &mut self,

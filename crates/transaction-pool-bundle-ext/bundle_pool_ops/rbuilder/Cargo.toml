@@ -10,7 +10,6 @@ rbuilder = { path = "../../../rbuilder" }
 alloy-primitives.workspace = true
 alloy-rpc-types-beacon.workspace = true
 reth-primitives = { workspace = true }
-reth-provider = { workspace = true }
 reth-db-api = { workspace = true }
 
 derive_more = { workspace = true }
@@ -24,5 +23,4 @@ optimism = [
 	"rbuilder/optimism",
 	"reth-db-api/optimism",
 	"reth-primitives/optimism",
-	"reth-provider/optimism"
 ]

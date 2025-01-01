@@ -1,8 +1,12 @@
+use crate::live_builder::simulation::SimulatedOrderCommand;
+use crate::provider::StateProviderFactory as StateProviderFactory2;
+use crate::roothash::{calculate_state_root, run_trie_prefetcher, RootHashConfig, RootHashError};
 use crate::telemetry::{inc_provider_bad_reopen_counter, inc_provider_reopen_counter};
 use alloy_consensus::Header;
 use alloy_eips::{BlockNumHash, BlockNumberOrTag};
 use alloy_primitives::{BlockHash, BlockNumber};
 use parking_lot::{Mutex, RwLock};
+use reth::providers::ExecutionOutcome;
 use reth::providers::{BlockHashReader, ChainSpecProvider, ProviderFactory};
 use reth_chainspec::ChainInfo;
 use reth_db::{Database, DatabaseError};
@@ -14,9 +18,11 @@ use reth_provider::{
     BlockIdReader, BlockNumReader, DatabaseProvider, DatabaseProviderFactory, DatabaseProviderRO,
     HeaderProvider, StateProviderBox, StateProviderFactory, StaticFileProviderFactory,
 };
-use revm_primitives::{B256, U256};
+use revm_primitives::B256;
 use std::ops::DerefMut;
 use std::{ops::RangeBounds, path::PathBuf, sync::Arc};
+use tokio::sync::broadcast;
+use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
 /// This struct is used as a workaround for https://github.com/paradigmxyz/reth/issues/7836
@@ -163,157 +169,7 @@ pub fn check_block_hash_reader_health<R: BlockHashReader>(
     Ok(())
 }
 
-// Implement reth db traits on the ProviderFactoryReopener, allowing generic
-// DB access.
-//
-// ProviderFactory only has access to disk state, therefore cannot implement methods
-// that require the blockchain tree (pending state etc.).
-
-impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> DatabaseProviderFactory
-    for ProviderFactoryReopener<N>
-{
-    /// Database this factory produces providers for.
-    type DB = N::DB;
-    /// Provider type returned by the factory.
-    type Provider = DatabaseProviderRO<N::DB, N>;
-    /// Read-write provider type returned by the factory.
-    type ProviderRW = DatabaseProvider<<N::DB as Database>::TXMut, N>;
-
-    /// Create new read-write database provider.
-    fn database_provider_rw(&self) -> ProviderResult<Self::ProviderRW> {
-        unimplemented!("This method is not supported by ProviderFactoryReopener. We don't write.");
-    }
-
-    fn database_provider_ro(&self) -> ProviderResult<Self::Provider> {
-        let provider = self
-            .check_consistency_and_reopen_if_needed()
-            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
-        provider.database_provider_ro()
-    }
-}
-
-impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> HeaderProvider for ProviderFactoryReopener<N> {
-    fn header(&self, block_hash: &BlockHash) -> ProviderResult<Option<Header>> {
-        let provider = self
-            .check_consistency_and_reopen_if_needed()
-            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
-        provider.header(block_hash)
-    }
-
-    fn header_by_number(&self, num: u64) -> ProviderResult<Option<Header>> {
-        let provider = self
-            .check_consistency_and_reopen_if_needed()
-            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
-        provider.header_by_number(num)
-    }
-
-    fn header_td(&self, hash: &BlockHash) -> ProviderResult<Option<U256>> {
-        let provider = self
-            .check_consistency_and_reopen_if_needed()
-            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
-        provider.header_td(hash)
-    }
-
-    fn header_td_by_number(&self, number: BlockNumber) -> ProviderResult<Option<U256>> {
-        let provider = self
-            .check_consistency_and_reopen_if_needed()
-            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
-        provider.header_td_by_number(number)
-    }
-
-    fn headers_range(&self, range: impl RangeBounds<BlockNumber>) -> ProviderResult<Vec<Header>> {
-        let provider = self
-            .check_consistency_and_reopen_if_needed()
-            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
-        provider.headers_range(range)
-    }
-
-    fn sealed_header(&self, number: BlockNumber) -> ProviderResult<Option<SealedHeader>> {
-        let provider = self
-            .check_consistency_and_reopen_if_needed()
-            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
-        provider.sealed_header(number)
-    }
-
-    fn sealed_headers_while(
-        &self,
-        range: impl RangeBounds<BlockNumber>,
-        predicate: impl FnMut(&SealedHeader) -> bool,
-    ) -> ProviderResult<Vec<SealedHeader>> {
-        let provider = self
-            .check_consistency_and_reopen_if_needed()
-            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
-        provider.sealed_headers_while(range, predicate)
-    }
-}
-
-impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> BlockHashReader
-    for ProviderFactoryReopener<N>
-{
-    fn block_hash(&self, number: BlockNumber) -> ProviderResult<Option<B256>> {
-        let provider = self
-            .check_consistency_and_reopen_if_needed()
-            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
-        provider.block_hash(number)
-    }
-
-    fn canonical_hashes_range(
-        &self,
-        start: BlockNumber,
-        end: BlockNumber,
-    ) -> ProviderResult<Vec<B256>> {
-        let provider = self
-            .check_consistency_and_reopen_if_needed()
-            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
-        provider.canonical_hashes_range(start, end)
-    }
-}
-
-impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> BlockNumReader for ProviderFactoryReopener<N> {
-    fn chain_info(&self) -> ProviderResult<ChainInfo> {
-        let provider = self
-            .check_consistency_and_reopen_if_needed()
-            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
-        provider.chain_info()
-    }
-
-    fn best_block_number(&self) -> ProviderResult<BlockNumber> {
-        let provider = self
-            .check_consistency_and_reopen_if_needed()
-            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
-        provider.best_block_number()
-    }
-
-    fn last_block_number(&self) -> ProviderResult<BlockNumber> {
-        let provider = self
-            .check_consistency_and_reopen_if_needed()
-            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
-        provider.last_block_number()
-    }
-
-    fn block_number(&self, hash: B256) -> ProviderResult<Option<BlockNumber>> {
-        let provider = self
-            .check_consistency_and_reopen_if_needed()
-            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
-        provider.block_number(hash)
-    }
-}
-
-impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> BlockIdReader for ProviderFactoryReopener<N> {
-    fn pending_block_num_hash(&self) -> ProviderResult<Option<BlockNumHash>> {
-        unimplemented!("This method is not supported by ProviderFactoryReopener. Please consider using a BlockchainProvider.");
-    }
-
-    fn safe_block_num_hash(&self) -> ProviderResult<Option<BlockNumHash>> {
-        unimplemented!("This method is not supported by ProviderFactoryReopener. Please consider using a BlockchainProvider.");
-    }
-
-    fn finalized_block_num_hash(&self) -> ProviderResult<Option<BlockNumHash>> {
-        unimplemented!("This method is not supported by ProviderFactoryReopener. Please consider using a BlockchainProvider.");
-    }
-}
-
-impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> StateProviderFactory
+impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> StateProviderFactory2
     for ProviderFactoryReopener<N>
 {
     fn latest(&self) -> ProviderResult<StateProviderBox> {
@@ -321,13 +177,6 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> StateProviderFactory
             .check_consistency_and_reopen_if_needed()
             .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
         provider.latest()
-    }
-
-    fn state_by_block_number_or_tag(
-        &self,
-        _number_or_tag: BlockNumberOrTag,
-    ) -> ProviderResult<StateProviderBox> {
-        unimplemented!("This method is not supported by ProviderFactoryReopener. Please consider using a BlockchainProvider.");
     }
 
     fn history_by_block_number(&self, block: BlockNumber) -> ProviderResult<StateProviderBox> {
@@ -344,15 +193,63 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> StateProviderFactory
         provider.history_by_block_hash(block)
     }
 
-    fn state_by_block_hash(&self, _block: BlockHash) -> ProviderResult<StateProviderBox> {
-        unimplemented!("This method is not supported by ProviderFactoryReopener. Please consider using a BlockchainProvider.");
+    fn best_block_number(&self) -> ProviderResult<BlockNumber> {
+        let provider = self
+            .check_consistency_and_reopen_if_needed()
+            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
+        provider.best_block_number()
     }
 
-    fn pending(&self) -> ProviderResult<StateProviderBox> {
-        unimplemented!("This method is not supported by ProviderFactoryReopener. Please consider using a BlockchainProvider.");
+    fn block_hash(&self, number: BlockNumber) -> ProviderResult<Option<B256>> {
+        let provider = self
+            .check_consistency_and_reopen_if_needed()
+            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
+        provider.block_hash(number)
     }
 
-    fn pending_state_by_hash(&self, _block_hash: B256) -> ProviderResult<Option<StateProviderBox>> {
-        unimplemented!("This method is not supported by ProviderFactoryReopener. Please consider using a BlockchainProvider.");
+    fn header(&self, block_hash: &BlockHash) -> ProviderResult<Option<Header>> {
+        let provider = self
+            .check_consistency_and_reopen_if_needed()
+            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
+        provider.header(block_hash)
+    }
+
+    fn header_by_number(&self, num: u64) -> ProviderResult<Option<Header>> {
+        let provider = self
+            .check_consistency_and_reopen_if_needed()
+            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
+        provider.header_by_number(num)
+    }
+
+    fn last_block_number(&self) -> ProviderResult<BlockNumber> {
+        let provider = self
+            .check_consistency_and_reopen_if_needed()
+            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
+        provider.last_block_number()
+    }
+
+    fn run_trie_prefetcher(
+        &self,
+        parent_hash: B256,
+        simulated_orders: broadcast::Receiver<SimulatedOrderCommand>,
+        cancel: CancellationToken,
+    ) {
+        run_trie_prefetcher(
+            parent_hash,
+            Default::default(),
+            self,
+            simulated_orders,
+            cancel,
+        );
+    }
+
+    fn calculate_state_root(
+        &self,
+        parent_hash: B256,
+        outcome: &ExecutionOutcome,
+        config: RootHashConfig,
+    ) -> Result<B256, RootHashError> {
+        // TODO: this part is failing
+        calculate_state_root(self, parent_hash, outcome, Default::default(), config)
     }
 }

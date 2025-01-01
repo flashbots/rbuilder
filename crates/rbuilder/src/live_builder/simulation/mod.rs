@@ -8,11 +8,11 @@ use crate::{
     },
     live_builder::order_input::orderpool::OrdersForBlock,
     primitives::{OrderId, SimulatedOrder},
+    provider::StateProviderFactory,
     utils::{gen_uid, Signer},
 };
 use ahash::HashMap;
 use parking_lot::Mutex;
-use reth_provider::StateProviderFactory;
 use simulation_job::SimulationJob;
 use std::sync::Arc;
 use tokio::{sync::mpsc, task::JoinHandle};
@@ -68,7 +68,7 @@ pub enum SimulatedOrderCommand {
 
 impl<P> OrderSimulationPool<P>
 where
-    P: StateProviderFactory + Clone + 'static,
+    P: StateProviderFactory,
 {
     pub fn new(provider: P, num_workers: usize, global_cancellation: CancellationToken) -> Self {
         let mut result = Self {

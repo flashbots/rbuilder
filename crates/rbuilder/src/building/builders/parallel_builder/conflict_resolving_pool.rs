@@ -2,7 +2,6 @@ use alloy_primitives::utils::format_ether;
 use crossbeam_queue::SegQueue;
 use eyre::Result;
 use rayon::{ThreadPool, ThreadPoolBuilder};
-use reth_provider::StateProviderFactory;
 use std::{
     sync::{mpsc as std_mpsc, Arc},
     time::Instant,
@@ -16,6 +15,7 @@ use super::{
     ConflictTask, GroupId, ResolutionResult, TaskPriority,
 };
 use crate::building::BlockBuildingContext;
+use crate::provider::StateProviderFactory;
 
 pub type TaskQueue = Arc<SegQueue<ConflictTask>>;
 
@@ -31,7 +31,7 @@ pub struct ConflictResolvingPool<P> {
 
 impl<P> ConflictResolvingPool<P>
 where
-    P: StateProviderFactory + Clone + 'static,
+    P: StateProviderFactory,
 {
     pub fn new(
         num_threads: usize,

@@ -1,12 +1,12 @@
 use super::OrderInputConfig;
 use crate::{
     live_builder::order_input::orderpool::OrderPool,
+    provider::StateProviderFactory,
     telemetry::{set_current_block, set_ordepool_count},
 };
 use alloy_provider::{IpcConnect, Provider, ProviderBuilder};
 use futures::StreamExt;
 use parking_lot::Mutex;
-use reth_provider::StateProviderFactory;
 use std::{pin::pin, sync::Arc, time::Instant};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -21,7 +21,7 @@ pub async fn spawn_clean_orderpool_job<P>(
     global_cancellation: CancellationToken,
 ) -> eyre::Result<JoinHandle<()>>
 where
-    P: StateProviderFactory + 'static,
+    P: StateProviderFactory,
 {
     let ipc = IpcConnect::new(config.ipc_path);
     let provider = ProviderBuilder::new().on_ipc(ipc).await?;

@@ -26,11 +26,10 @@ use rbuilder::{
         SlotSource,
     },
     primitives::{Bundle, BundleReplacementKey, Order},
+    provider::StateProviderFactory,
     telemetry,
 };
-use reth_db_api::Database;
 use reth_primitives::TransactionSigned;
-use reth_provider::{BlockReader, DatabaseProviderFactory, HeaderProvider, StateProviderFactory};
 use tokio::{
     sync::{
         mpsc::{self, error::SendError},
@@ -89,17 +88,9 @@ impl SlotSource for OurSlotSource {
 }
 
 impl BundlePoolOps {
-    pub async fn new<P, DB>(
-        provider: P,
-        rbuilder_config_path: impl AsRef<Path>,
-    ) -> Result<Self, Error>
+    pub async fn new<P>(provider: P, rbuilder_config_path: impl AsRef<Path>) -> Result<Self, Error>
     where
-        DB: Database + Clone + 'static,
-        P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-            + StateProviderFactory
-            + HeaderProvider
-            + Clone
-            + 'static,
+        P: StateProviderFactory,
     {
         // Create the payload source to trigger new block building
         let cancellation_token = CancellationToken::new();
@@ -136,7 +127,7 @@ impl BundlePoolOps {
         // Build and run the process
         let builder = config
             .base_config
-            .create_builder_with_provider_factory::<P, DB, OurSlotSource>(
+            .create_builder_with_provider_factory::<P, OurSlotSource>(
                 cancellation_token,
                 Box::new(sink_factory),
                 slot_source,

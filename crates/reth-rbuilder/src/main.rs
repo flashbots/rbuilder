@@ -8,6 +8,7 @@
 use clap::{Args, Parser};
 use rbuilder::{
     live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig, config::Config},
+    provider::StateProviderFactory,
     telemetry,
 };
 use reth::{chainspec::EthereumChainSpecParser, cli::Cli};
@@ -21,7 +22,7 @@ use reth_node_builder::{
 use reth_node_ethereum::{node::EthereumAddOns, EthereumNode};
 use reth_provider::{
     providers::{BlockchainProvider, BlockchainProvider2},
-    BlockReader, DatabaseProviderFactory, HeaderProvider, StateProviderFactory,
+    BlockReader, DatabaseProviderFactory, HeaderProvider,
 };
 use std::{path::PathBuf, process};
 use tokio::task;
@@ -121,14 +122,9 @@ fn main() {
 /// Spawns a tokio rbuilder task.
 ///
 /// Takes down the entire process if the rbuilder errors or stops.
-fn spawn_rbuilder<P, DB>(provider: P, config_path: PathBuf)
+fn spawn_rbuilder<P>(provider: P, config_path: PathBuf)
 where
-    DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-        + StateProviderFactory
-        + HeaderProvider
-        + Clone
-        + 'static,
+    P: StateProviderFactory,
 {
     let _handle = task::spawn(async move {
         let result = async {
