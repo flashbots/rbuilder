@@ -234,10 +234,15 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> StateProviderFactory2
         simulated_orders: broadcast::Receiver<SimulatedOrderCommand>,
         cancel: CancellationToken,
     ) {
+        let provider = self
+            .check_consistency_and_reopen_if_needed()
+            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))
+            .unwrap();
+
         run_trie_prefetcher(
             parent_hash,
             Default::default(),
-            self,
+            provider,
             simulated_orders,
             cancel,
         );
@@ -249,7 +254,11 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> StateProviderFactory2
         outcome: &ExecutionOutcome,
         config: RootHashConfig,
     ) -> Result<B256, RootHashError> {
-        // TODO: this part is failing
-        calculate_state_root(self, parent_hash, outcome, Default::default(), config)
+        let provider = self
+            .check_consistency_and_reopen_if_needed()
+            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))
+            .unwrap();
+
+        calculate_state_root(provider, parent_hash, outcome, Default::default(), config)
     }
 }
