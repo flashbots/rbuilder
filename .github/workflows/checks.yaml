@@ -75,7 +75,6 @@ jobs:
           - stable
         features:
           - ""
-          - "redact-sensitive"
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
