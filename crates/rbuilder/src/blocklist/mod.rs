@@ -1,7 +1,9 @@
 use ahash::{HashSet, HashSetExt};
 use alloy_primitives::Address;
 use serde::{Deserialize, Deserializer};
+use std::convert::TryFrom;
 use std::fs::read_to_string;
+use std::ops::Deref;
 use std::path::PathBuf;
 
 #[allow(clippy::len_without_is_empty)]
@@ -40,9 +42,11 @@ impl BlockList {
     }
 }
 
-impl From<PathBuf> for BlockList {
-    fn from(path: PathBuf) -> Self {
-        Self::from_file(path).unwrap_or_else(|_| Self::new())
+impl TryFrom<PathBuf> for BlockList {
+    type Error = eyre::Report; // Using eyre::Report since from_file returns eyre::Result
+
+    fn try_from(path: PathBuf) -> Result<Self, Self::Error> {
+        Self::from_file(path)
     }
 }
 
@@ -51,6 +55,14 @@ impl From<Vec<Address>> for BlockList {
         Self {
             list: addresses.into_iter().collect(),
         }
+    }
+}
+
+impl Deref for BlockList {
+    type Target = HashSet<Address>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.list
     }
 }
 

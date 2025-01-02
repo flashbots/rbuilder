@@ -128,7 +128,7 @@ impl OrderInputConfig {
             ignore_blobs: config.ignore_blobs,
             ipc_path: el_node_ipc_path,
             server_port: config.jsonrpc_server_port,
-            server_ip: config.jsonrpc_server_ip(),
+            server_ip: config.jsonrpc_server_ip,
             serve_max_connections: 4096,
             results_channel_timeout: Duration::from_millis(50),
             input_channel_buffer_size: 10_000,
