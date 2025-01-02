@@ -5,7 +5,7 @@ use crate::{
     },
     primitives::{
         serialize::{RawBundle, RawOrder, RawShareBundle, TxEncoding},
-        Order, OrderId, SimValue,
+        Order, OrderId,
     },
 };
 use alloy_primitives::{Bytes, B256, I256, U256, U64};
@@ -16,7 +16,7 @@ use bigdecimal::{
 };
 use eyre::WrapErr;
 use sqlx::postgres::PgPool;
-use std::{collections::HashSet, ops::Mul, str::FromStr};
+use std::{collections::HashSet, str::FromStr};
 use time::{OffsetDateTime, PrimitiveDateTime};
 use tracing::trace;
 use uuid::Uuid;
@@ -44,10 +44,10 @@ impl RelayDB {
     ) -> Result<Vec<OrdersWithTimestamp>, eyre::Error> {
         let block = i64::try_from(block)?;
 
-        let bundles = sqlx::query_as::<_, (OffsetDateTime, String, i64, String, String, Option<sqlx::types::BigDecimal>, Option<i64>, Option<String>, Option<Uuid>, Option<i64>)>(
+        let bundles = sqlx::query_as::<_, (OffsetDateTime, String, i64, String, String, Option<String>, Option<Uuid>, Option<i64>)>(
             "SELECT \
                  inserted_at, bundle_hash, param_block_number, param_signed_txs, param_reverting_tx_hashes, \
-                 coinbase_diff, total_gas_used, signing_address, replacement_uuid, param_timestamp \
+                 signing_address, replacement_uuid, param_timestamp \
                  FROM bundles \
                  WHERE is_simulated = true and param_block_number = $1\
                  ORDER BY inserted_at ASC",
@@ -65,8 +65,6 @@ impl RelayDB {
                     block,
                     txs,
                     reverting_tx_hashes,
-                    coinbase_diff,
-                    total_gas_used,
                     signing_address,
                     replacement_uuid,
                     min_timestamp,
@@ -115,17 +113,6 @@ impl RelayDB {
                         replacement_nonce: replacement_uuid.and(Some(0)),
                     };
 
-                    let sim_value = coinbase_diff.zip(total_gas_used).and_then(|(cb, gas)| {
-                        let coinbase_profit = sql_eth_decimal_to_wei(cb)?;
-                        let mev_gas_price = coinbase_profit / U256::try_from(gas).ok()?;
-                        Some(SimValue {
-                            coinbase_profit,
-                            gas_used: gas.try_into().ok()?,
-                            mev_gas_price,
-                            ..Default::default()
-                        })
-                    });
-
                     let order = RawOrder::Bundle(raw_bundle)
                         .decode(TxEncoding::NoBlobData)
                         .wrap_err_with(|| format!("Failed to parse bundle {}", bundle_hash))?;
@@ -134,7 +121,6 @@ impl RelayDB {
                         timestamp_ms: (inserted_at.unix_timestamp_nanos() / 1_000_000)
                             .try_into()?,
                         order,
-                        sim_value,
                     })
                 },
             )
@@ -162,60 +148,44 @@ impl RelayDB {
         let from_time = block_timestamp - time::Duration::seconds(26 * 12);
         let to_time = block_timestamp;
 
-        let simulated_bundles = sqlx::query_as::<
-            _,
-            (
-                OffsetDateTime,
-                Vec<u8>,
-                sqlx::types::JsonValue,
-                Option<sqlx::types::BigDecimal>,
-                Option<i64>,
-            ),
-        >(
-            "SELECT received_at, hash, body, sim_profit, sim_gas_used \
+        let simulated_bundles =
+            sqlx::query_as::<_, (OffsetDateTime, Vec<u8>, sqlx::types::JsonValue)>(
+                "SELECT received_at, hash, body\
                  FROM sbundle \
                  WHERE sim_success = true and cancelled = false and inserted_at between $1 and $2 \
                  ORDER BY inserted_at ASC",
-        )
-        .bind(from_time)
-        .bind(to_time)
-        .fetch_all(&self.pool)
-        .await?;
+            )
+            .bind(from_time)
+            .bind(to_time)
+            .fetch_all(&self.pool)
+            .await?;
 
         // We pull sbundles that builder actually used for the given block because db overwrite may
         // change block range and timestamp where bundle can be applied after the fact and we miss them.
-        let used_bundles = sqlx::query_as::<
-            _,
-            (
-                PrimitiveDateTime,
-                Vec<u8>,
-                sqlx::types::JsonValue,
-                Option<sqlx::types::BigDecimal>,
-                Option<i64>,
-            ),
-        >(
-            "WITH used_sbundles AS (
+        let used_bundles =
+            sqlx::query_as::<_, (PrimitiveDateTime, Vec<u8>, sqlx::types::JsonValue)>(
+                "WITH used_sbundles AS (
                 SELECT DISTINCT ON (sbu.hash) sbu.hash, bb.orders_closed_at as received_at
                 FROM sbundle_builder_used sbu JOIN built_blocks bb ON sbu.block_id = bb.block_id
                 WHERE bb.block_number = $1
                 ORDER BY sbu.hash, bb.orders_closed_at ASC
-            ) SELECT us.received_at, s.hash, s.body, s.sim_profit, s.sim_gas_used
+            ) SELECT us.received_at, s.hash, s.body
             FROM used_sbundles us JOIN sbundle s ON us.hash = s.hash",
-        )
-        .bind(block as i64)
-        .fetch_all(&self.pool)
-        .await?;
+            )
+            .bind(block as i64)
+            .fetch_all(&self.pool)
+            .await?;
 
         let bundles = simulated_bundles.into_iter().map(|v| (v, false)).chain(
             used_bundles
                 .into_iter()
-                .map(|v| ((v.0.assume_utc(), v.1, v.2, v.3, v.4), true)),
+                .map(|v| ((v.0.assume_utc(), v.1, v.2), true)),
         );
 
         let bundles = bundles
             .map(
-                |((received_at, hash, body, coinbase_diff, total_gas_used), used_sbundle)|
-                 -> eyre::Result<(u64, RawShareBundle, Option<SimValue>, B256)> {
+                |((received_at, hash, body), used_sbundle)|
+                 -> eyre::Result<(u64, RawShareBundle, B256)> {
                     let hash = (hash.len() == 32).then(|| B256::from_slice(&hash)).ok_or_else(|| eyre::eyre!("Invalid hash length"))?;
                     let mut bundle = serde_json::from_value::<RawShareBundle>(body)
                         .wrap_err_with(|| {
@@ -228,22 +198,10 @@ impl RelayDB {
                         bundle.inclusion.max_block = None;
                     }
 
-                    let sim_value = coinbase_diff.zip(total_gas_used).and_then(|(cb, gas)| {
-                        let coinbase_profit = sql_eth_decimal_to_wei(cb)?;
-                        let mev_gas_price = coinbase_profit / U256::try_from(gas).ok()?;
-                        Some(SimValue {
-                            coinbase_profit,
-                            gas_used: gas.try_into().ok()?,
-                            mev_gas_price,
-                            ..Default::default()
-                        })
-                    });
-
                     Ok((
                         (received_at.unix_timestamp_nanos() / 1_000_000)
                             .try_into()?,
                         bundle,
-                        sim_value,
                         hash,
                     ))
                 },
@@ -253,7 +211,7 @@ impl RelayDB {
         let mut result = Vec::with_capacity(bundles.len());
         let mut inserted_bundles: HashSet<B256> = HashSet::default();
 
-        for (timestamp_ms, bundle, sim_value, hash) in bundles {
+        for (timestamp_ms, bundle, hash) in bundles {
             if inserted_bundles.contains(&hash) {
                 continue;
             }
@@ -277,7 +235,6 @@ impl RelayDB {
             result.push(OrdersWithTimestamp {
                 timestamp_ms,
                 order,
-                sim_value,
             });
             inserted_bundles.insert(hash);
         }
@@ -429,24 +386,6 @@ fn sql_wei_decimal_to_wei(val: sqlx::types::BigDecimal) -> Option<U256> {
     Some(cb)
 }
 
-fn sql_eth_decimal_to_wei(val: sqlx::types::BigDecimal) -> Option<U256> {
-    let (bi, exp) = val.into_bigint_and_exponent();
-    let (bi_sign, bi_bytes) = bi.to_bytes_be();
-    let bi = BigInt::from_bytes_be(bi_sign, &bi_bytes);
-    let cb = BigDecimal::new(bi, exp);
-
-    let eth = BigDecimal::new(1u64.into(), -18);
-    let cb = cb.mul(eth);
-    let cb = cb.to_bigint()?;
-    let (sign, bytes) = cb.to_bytes_be();
-    if sign == Sign::Minus {
-        return None;
-    }
-    let cb = U256::try_from_be_slice(&bytes)?;
-
-    Some(cb)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -505,26 +444,5 @@ mod tests {
         assert_eq!(bundles.len(), 117);
 
         tracing::trace!("bundles: {:#?}", bundles[bundles.len() - 1]);
-    }
-
-    #[test]
-    fn test_sql_decimal_to_wei() {
-        set_test_debug_tracing_subscriber();
-
-        let val = sqlx::types::BigDecimal::from_str("0.000000000000000001").unwrap();
-        let wei = sql_eth_decimal_to_wei(val);
-        assert_eq!(wei, Some(U256::from(1u64)));
-
-        let val = sqlx::types::BigDecimal::from_str("0.100000000000000001").unwrap();
-        let wei = sql_eth_decimal_to_wei(val);
-        assert_eq!(wei, Some(U256::from(100000000000000001u64)));
-
-        let val = sqlx::types::BigDecimal::from_str("-1").unwrap();
-        let wei = sql_eth_decimal_to_wei(val);
-        assert_eq!(wei, None);
-
-        let val = sqlx::types::BigDecimal::from_str("0.00000000000000000000001").unwrap();
-        let wei = sql_eth_decimal_to_wei(val);
-        assert_eq!(wei, Some(U256::from(0u64)));
     }
 }

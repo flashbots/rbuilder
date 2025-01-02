@@ -53,7 +53,6 @@ pub fn get_mempool_transactions(
             Some(OrdersWithTimestamp {
                 timestamp_ms,
                 order,
-                sim_value: None,
             })
         })
         .collect())

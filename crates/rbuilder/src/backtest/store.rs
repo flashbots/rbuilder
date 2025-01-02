@@ -28,7 +28,7 @@ use std::{
 
 /// Version of the data/format on the DB.
 /// Since we don't have backwards compatibility every time this is increased we must re-create the DB (manually delete the sqlite)
-const VERSION: i64 = 10;
+const VERSION: i64 = 11;
 
 /// Storage of BlockData.
 /// It allows us to locally cache (using a SQLite DB) all the info we need for backtesting so we don't have to
@@ -243,16 +243,12 @@ impl HistoricalDataStorage {
                 let order_json = compress_data(&serde_json::to_vec(&raw_order)?);
                 sqlx::query(
                     r#"
-                INSERT INTO orders (block_number, timestamp_ms, order_type, coinbase_profit, gas_used, order_id, order_data)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO orders (block_number, timestamp_ms, order_type, order_id, order_data)
+                VALUES (?, ?, ?, ?, ?)
                 "#,
                 ).bind(block_data.block_number as i64)
                     .bind(order.timestamp_ms as i64)
                     .bind(order_type(&raw_order.order))
-                    .bind(order.sim_value.clone().map(|v| {
-                        format_ether(v.coinbase_profit)
-                    }))
-                    .bind(order.sim_value.clone().map(|v| v.gas_used as i64))
                     .bind(order_id)
                     .bind(order_json)
                     .execute(conn.as_mut())
@@ -616,10 +612,7 @@ mod test {
     use crate::{
         backtest::RawOrdersWithTimestamp,
         mev_boost::BuilderBlockReceived,
-        primitives::{
-            serialize::{RawBundle, RawTx},
-            SimValue,
-        },
+        primitives::serialize::{RawBundle, RawTx},
     };
     use alloy_consensus::TxEnvelope;
     use alloy_primitives::{hex, Address, PrimitiveSignature, B256, U256, U64};
@@ -642,7 +635,6 @@ mod test {
                 order: RawOrder::Tx(RawTx {
                     tx: tx.clone().into(),
                 }),
-                sim_value: None,
             }
             .decode(TxEncoding::WithBlobData)
             .unwrap(),
@@ -659,12 +651,6 @@ mod test {
                     min_timestamp: None,
                     max_timestamp: Some(100),
                     replacement_nonce: Some(0),
-                }),
-                sim_value: Some(SimValue {
-                    coinbase_profit: U256::from(42u64),
-                    gas_used: 21000,
-                    mev_gas_price: U256::from(44u64),
-                    ..Default::default()
                 }),
             }
             .decode(TxEncoding::WithBlobData)
