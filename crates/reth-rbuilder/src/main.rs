@@ -11,7 +11,6 @@ use rbuilder::{
     provider::StateProviderFactory,
     telemetry,
 };
-use reth::providers::ExecutionOutcome;
 use reth::{chainspec::EthereumChainSpecParser, cli::Cli};
 use reth_db_api::Database;
 use reth_node_builder::{
@@ -21,14 +20,11 @@ use reth_node_builder::{
     EngineNodeLauncher,
 };
 use reth_node_ethereum::{node::EthereumAddOns, EthereumNode};
-use reth_provider::StateProviderBox;
-use reth_provider::StateProviderFactory as A;
 use reth_provider::{
     providers::{BlockchainProvider, BlockchainProvider2},
     BlockReader, DatabaseProviderFactory, HeaderProvider,
 };
 use std::{path::PathBuf, process};
-use tokio::sync::broadcast;
 use tokio::task;
 use tracing::{error, info, warn};
 
@@ -126,9 +122,14 @@ fn main() {
 /// Spawns a tokio rbuilder task.
 ///
 /// Takes down the entire process if the rbuilder errors or stops.
-fn spawn_rbuilder<P>(provider: P, config_path: PathBuf)
+fn spawn_rbuilder<P, DB>(provider: P, config_path: PathBuf)
 where
-    P: reth_provider::StateProviderFactory,
+    DB: Database + Clone + 'static,
+    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
+        + StateProviderFactory
+        + HeaderProvider
+        + Clone
+        + 'static,
 {
     let _handle = task::spawn(async move {
         let result = async {
@@ -148,9 +149,8 @@ where
             )
             .await?;
 
-            // FIX
-            //let builder = config.new_builder(provider, Default::default()).await?;
-            //builder.run().await?;
+            let builder = config.new_builder(provider, Default::default()).await?;
+            builder.run().await?;
 
             Ok::<(), eyre::Error>(())
         }

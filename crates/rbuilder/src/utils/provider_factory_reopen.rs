@@ -1,26 +1,22 @@
 use crate::live_builder::simulation::SimulatedOrderCommand;
-use crate::provider::StateProviderFactory as StateProviderFactory2;
+use crate::provider::StateProviderFactory;
 use crate::roothash::{calculate_state_root, run_trie_prefetcher, RootHashConfig, RootHashError};
 use crate::telemetry::{inc_provider_bad_reopen_counter, inc_provider_reopen_counter};
 use alloy_consensus::Header;
-use alloy_eips::{BlockNumHash, BlockNumberOrTag};
 use alloy_primitives::{BlockHash, BlockNumber};
 use parking_lot::{Mutex, RwLock};
 use reth::providers::ExecutionOutcome;
 use reth::providers::{BlockHashReader, ChainSpecProvider, ProviderFactory};
-use reth_chainspec::ChainInfo;
-use reth_db::{Database, DatabaseError};
+use reth_db::DatabaseError;
 use reth_errors::{ProviderError, ProviderResult, RethResult};
 use reth_node_api::NodeTypesWithDB;
-use reth_primitives::SealedHeader;
 use reth_provider::{
     providers::{ProviderNodeTypes, StaticFileProvider},
-    BlockIdReader, BlockNumReader, DatabaseProvider, DatabaseProviderFactory, DatabaseProviderRO,
-    HeaderProvider, StateProviderBox, StateProviderFactory, StaticFileProviderFactory,
+    BlockNumReader, HeaderProvider, StateProviderBox, StaticFileProviderFactory,
 };
 use revm_primitives::B256;
 use std::ops::DerefMut;
-use std::{ops::RangeBounds, path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use tracing::debug;
@@ -169,7 +165,7 @@ pub fn check_block_hash_reader_health<R: BlockHashReader>(
     Ok(())
 }
 
-impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> StateProviderFactory2
+impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> StateProviderFactory
     for ProviderFactoryReopener<N>
 {
     fn latest(&self) -> ProviderResult<StateProviderBox> {

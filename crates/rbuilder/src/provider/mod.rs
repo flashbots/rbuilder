@@ -5,7 +5,6 @@ use alloy_primitives::{BlockHash, BlockNumber, B256};
 use reth::providers::ExecutionOutcome;
 use reth_errors::ProviderResult;
 use reth_provider::StateProviderBox;
-use reth_provider::StateProviderFactory as A;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 
