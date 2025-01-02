@@ -260,7 +260,7 @@ async fn run_submit_to_relays_job(
                     slot_data.slot_data.pubkey,
                     block.trace.bid_value,
                 ) {
-                    Ok(res) => Some(res),
+                    Ok(res) => Some((res, optimistic_config)),
                     Err(err) => {
                         error!(parent: &submission_span, err = ?err, "Error signing block for relay");
                         continue 'submit;
@@ -302,9 +302,9 @@ async fn run_submit_to_relays_job(
             );
         }
 
-        if let Some(optimistic_signed_submission) = &optimistic_signed_submission {
-            let optimistic_config = optimistic_config.expect("optimistic config is not None");
-
+        if let Some((optimistic_signed_submission, optimistic_config)) =
+            &optimistic_signed_submission
+        {
             let can_submit = if optimistic_config.prevalidate_optimistic_blocks {
                 validate_block(
                     &slot_data,
