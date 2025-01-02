@@ -7840,7 +7840,6 @@ dependencies = [
  "derive_more 1.0.0",
  "eyre",
  "rbuilder",
- "reth-db-api",
  "reth-primitives",
  "tokio",
  "tokio-util",
