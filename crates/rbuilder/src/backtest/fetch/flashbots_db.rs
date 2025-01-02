@@ -30,6 +30,11 @@ impl RelayDB {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
+
+    pub async fn from_url(url: String) -> eyre::Result<Self> {
+        let pool = PgPool::connect(&url).await?;
+        Ok(Self::new(pool))
+    }
 }
 
 impl RelayDB {
