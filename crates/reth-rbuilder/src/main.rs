@@ -124,7 +124,7 @@ fn main() {
 /// Takes down the entire process if the rbuilder errors or stops.
 fn spawn_rbuilder<P>(provider: P, config_path: PathBuf)
 where
-    P: StateProviderFactory,
+    P: reth_provider::StateProviderFactory,
 {
     let _handle = task::spawn(async move {
         let result = async {
@@ -143,9 +143,10 @@ where
                 config.base_config.log_enable_dynamic,
             )
             .await?;
-            let builder = config.new_builder(provider, Default::default()).await?;
 
-            builder.run().await?;
+            // FIX
+            //let builder = config.new_builder(provider, Default::default()).await?;
+            //builder.run().await?;
 
             Ok::<(), eyre::Error>(())
         }
