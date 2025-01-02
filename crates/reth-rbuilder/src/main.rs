@@ -11,6 +11,7 @@ use rbuilder::{
     provider::StateProviderFactory,
     telemetry,
 };
+use reth::providers::ExecutionOutcome;
 use reth::{chainspec::EthereumChainSpecParser, cli::Cli};
 use reth_db_api::Database;
 use reth_node_builder::{
@@ -20,11 +21,14 @@ use reth_node_builder::{
     EngineNodeLauncher,
 };
 use reth_node_ethereum::{node::EthereumAddOns, EthereumNode};
+use reth_provider::StateProviderBox;
+use reth_provider::StateProviderFactory as A;
 use reth_provider::{
     providers::{BlockchainProvider, BlockchainProvider2},
     BlockReader, DatabaseProviderFactory, HeaderProvider,
 };
 use std::{path::PathBuf, process};
+use tokio::sync::broadcast;
 use tokio::task;
 use tracing::{error, info, warn};
 

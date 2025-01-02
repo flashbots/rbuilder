@@ -9,6 +9,8 @@ use reth_provider::StateProviderFactory as A;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 
+pub mod reth_prov;
+
 pub trait StateProviderFactory: Clone + 'static + Send + Sync {
     fn latest(&self) -> ProviderResult<StateProviderBox>;
 
