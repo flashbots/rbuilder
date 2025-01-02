@@ -111,7 +111,7 @@ pub struct SubmissionConfig {
 /// For optimistic relays when bid_value < max_bid_value:
 /// - If prevalidate_optimistic_blocks=true: Validate first, then submit with optimistic key
 /// - If prevalidate_optimistic_blocks=false: Submit directly with optimistic key
-/// Otherwise uses normal submission path.
+///   Otherwise uses normal submission path.
 #[derive(Debug, Clone)]
 pub struct OptimisticConfig {
     pub signer: BLSBlockSigner,
