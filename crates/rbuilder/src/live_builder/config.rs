@@ -183,19 +183,13 @@ impl L1Config {
                 .or_insert(relay);
         }
 
-        // Warn about defined but not enabled relays
-        for relay in &self.relays {
-            if !self.enabled_relays.contains(&relay.name) {
-                warn!(
-                    "Relay '{}' is defined but not enabled in enabled_relays",
-                    relay.name
-                );
-            }
-        }
+        // For backwards compatibility: add all user-configured relays to enabled_relays
+        let mut effective_enabled_relays: Vec<String> = self.enabled_relays.clone();
+        effective_enabled_relays.extend(self.relays.iter().map(|r| r.name.clone()));
 
         // Create enabled relays
         let mut results = Vec::new();
-        for relay_name in &self.enabled_relays {
+        for relay_name in &effective_enabled_relays {
             match relay_configs.get(relay_name) {
                 Some(relay_config) => match MevBoostRelay::from_config(relay_config) {
                     Ok(relay) => {
