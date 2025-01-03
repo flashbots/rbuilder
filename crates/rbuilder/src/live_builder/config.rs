@@ -66,7 +66,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use tracing::{info, warn};
+use tracing::info;
 use url::Url;
 
 /// We initialize the wallet with the last full day. This should be enough for any bidder.
