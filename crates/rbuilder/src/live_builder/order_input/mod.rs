@@ -1,6 +1,5 @@
 //! order_input handles receiving new orders from the ipc mempool subscription and json rpc server
 //!
-pub mod clean_orderpool;
 pub mod order_replacement_manager;
 pub mod order_sink;
 pub mod orderpool;
@@ -13,13 +12,16 @@ use self::{
     replaceable_order_sink::ReplaceableOrderSink,
 };
 use crate::primitives::{serialize::CancelShareBundle, BundleReplacementKey, Order};
+use crate::telemetry::{set_current_block, set_ordepool_count};
+use alloy_consensus::Header;
 use jsonrpsee::RpcModule;
 use parking_lot::Mutex;
 use reth_provider::StateProviderFactory;
+use std::time::Instant;
 use std::{net::Ipv4Addr, path::PathBuf, sync::Arc, time::Duration};
 use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
-use tracing::{info, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use super::base_config::BaseConfig;
 
@@ -128,7 +130,7 @@ impl OrderInputConfig {
             ignore_blobs: config.ignore_blobs,
             ipc_path: el_node_ipc_path,
             server_port: config.jsonrpc_server_port,
-            server_ip: config.jsonrpc_server_ip(),
+            server_ip: config.jsonrpc_server_ip,
             serve_max_connections: 4096,
             results_channel_timeout: Duration::from_millis(50),
             input_channel_buffer_size: 10_000,
@@ -182,6 +184,7 @@ pub async fn start_orderpool_jobs<P>(
     global_cancel: CancellationToken,
     order_sender: mpsc::Sender<ReplaceableOrderPoolCommand>,
     order_receiver: mpsc::Receiver<ReplaceableOrderPoolCommand>,
+    header_receiver: mpsc::Receiver<Header>,
 ) -> eyre::Result<(JoinHandle<()>, OrderPoolSubscriber)>
 where
     P: StateProviderFactory + 'static,
@@ -198,8 +201,8 @@ where
         orderpool: orderpool.clone(),
     };
 
-    let clean_job = clean_orderpool::spawn_clean_orderpool_job(
-        config.clone(),
+    let clean_job = spawn_clean_orderpool_job(
+        header_receiver,
         provider_factory,
         orderpool.clone(),
         global_cancel.clone(),
@@ -224,7 +227,7 @@ where
 
         // @Maybe we should add sleep here because each new order will trigger locking
         let mut new_commands = Vec::new();
-        let mut order_receiver = order_receiver;
+        let mut order_receiver: mpsc::Receiver<ReplaceableOrderPoolCommand> = order_receiver;
 
         loop {
             tokio::select! {
@@ -294,4 +297,55 @@ pub fn expand_path(path: PathBuf) -> eyre::Result<PathBuf> {
         .ok_or_else(|| eyre::eyre!("Invalid UTF-8 in path"))?;
 
     Ok(PathBuf::from(shellexpand::full(path_str)?.into_owned()))
+}
+
+/// Performs maintenance operations on every new header by calling OrderPool::head_updated.
+/// Also calls some functions to generate metrics.
+async fn spawn_clean_orderpool_job<P>(
+    header_receiver: mpsc::Receiver<Header>,
+    provider_factory: P,
+    orderpool: Arc<Mutex<OrderPool>>,
+    global_cancellation: CancellationToken,
+) -> eyre::Result<JoinHandle<()>>
+where
+    P: StateProviderFactory + 'static,
+{
+    let mut header_receiver: mpsc::Receiver<Header> = header_receiver;
+
+    let handle = tokio::spawn(async move {
+        info!("Clean orderpool job: started");
+
+        while let Some(header) = header_receiver.recv().await {
+            let block_number = header.number;
+            set_current_block(block_number);
+            let state = match provider_factory.latest() {
+                Ok(state) => state,
+                Err(err) => {
+                    error!("Failed to get latest state: {}", err);
+                    // @Metric error count
+                    continue;
+                }
+            };
+
+            let mut orderpool = orderpool.lock();
+            let start = Instant::now();
+
+            orderpool.head_updated(block_number, &state);
+
+            let update_time = start.elapsed();
+            let (tx_count, bundle_count) = orderpool.content_count();
+            set_ordepool_count(tx_count, bundle_count);
+            debug!(
+                block_number,
+                tx_count,
+                bundle_count,
+                update_time_ms = update_time.as_millis(),
+                "Cleaned orderpool",
+            );
+        }
+
+        global_cancellation.cancel();
+        info!("Clean orderpool job: finished");
+    });
+    Ok(handle)
 }

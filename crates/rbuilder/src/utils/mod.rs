@@ -1,4 +1,5 @@
 //! a2r prefix = alloy to reth conversion
+pub mod bls;
 pub mod build_info;
 pub mod constants;
 pub mod error_storage;

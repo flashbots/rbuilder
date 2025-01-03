@@ -79,6 +79,10 @@ pub trait SlotSource {
     fn recv_slot_channel(self) -> mpsc::UnboundedReceiver<MevBoostSlotData>;
 }
 
+/// Max headers sent to the cleaning task before the main loop blocks.
+/// Cleaning task is super fast so it should never lag behind block building, even 1 should be enough, 10 is super safe.
+const CLEAN_TASKS_CHANNEL_SIZE: usize = 10;
+
 /// Main builder struct.
 /// Connects to the CL, get the new slots and builds blocks for each slot.
 /// # Usage
@@ -135,8 +139,6 @@ where
     }
 
     pub async fn run(self) -> eyre::Result<()> {
-        // We keep the last block to avoid going back in time since we are now very robust about reorgs or this kind of behavior.
-        let mut last_processed_block: Option<u64> = None;
         info!("Builder block list size: {}", self.blocklist.len(),);
         info!(
             "Builder coinbase address: {:?}",
@@ -153,6 +155,8 @@ where
         let mut inner_jobs_handles = Vec::new();
         let mut payload_events_channel = self.blocks_source.recv_slot_channel();
 
+        let (header_sender, header_receiver) = mpsc::channel(CLEAN_TASKS_CHANNEL_SIZE);
+
         let orderpool_subscriber = {
             let (handle, sub) = start_orderpool_jobs(
                 self.order_input_config,
@@ -161,6 +165,7 @@ where
                 self.global_cancellation.clone(),
                 self.orderpool_sender,
                 self.orderpool_receiver,
+                header_receiver,
             )
             .await?;
             inner_jobs_handles.push(handle);
@@ -203,12 +208,6 @@ where
                     "Fee recipient is in blocklist: {:?}",
                     payload.fee_recipient()
                 );
-                continue;
-            }
-            // Allow only increasing blocks
-            if last_processed_block
-                .is_some_and(|last_processed_block| payload.block() <= last_processed_block)
-            {
                 continue;
             }
             let current_time = OffsetDateTime::now_utc();
@@ -256,8 +255,12 @@ where
                 "Got header for slot"
             );
 
+            // notify the order pool that there is a new header
+            if let Err(err) = header_sender.send(parent_header.clone()).await {
+                warn!("Failed to send header to builder pool: {:?}", err);
+            }
+
             inc_active_slots();
-            last_processed_block = Some(payload.block());
 
             if let Some(block_ctx) = BlockBuildingContext::from_attributes(
                 payload.payload_attributes_event.clone(),

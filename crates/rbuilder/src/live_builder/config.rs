@@ -11,7 +11,7 @@ use super::{
             wallet_balance_watcher::WalletBalanceWatcher,
         },
         block_sealing_bidder_factory::BlockSealingBidderFactory,
-        relay_submit::{RelaySubmitSinkFactory, SubmissionConfig},
+        relay_submit::{OptimisticConfig, RelaySubmitSinkFactory, SubmissionConfig},
     },
 };
 use crate::{
@@ -42,8 +42,7 @@ use alloy_primitives::{
     FixedBytes, B256,
 };
 use ethereum_consensus::{
-    builder::compute_builder_domain, crypto::SecretKey, primitives::Version,
-    state_transition::Context as ContextEth,
+    builder::compute_builder_domain, primitives::Version, state_transition::Context as ContextEth,
 };
 use eyre::Context;
 use lazy_static::lazy_static;
@@ -218,33 +217,6 @@ impl L1Config {
         Ok(results)
     }
 
-    fn bls_signer(&self, chain_spec: &ChainSpec) -> eyre::Result<BLSBlockSigner> {
-        let signing_domain = get_signing_domain(
-            chain_spec.chain,
-            self.beacon_clients()?,
-            self.genesis_fork_version.clone(),
-        )?;
-        let secret_key = self.relay_secret_key.value()?;
-        let secret_key = SecretKey::try_from(secret_key)
-            .map_err(|e| eyre::eyre!("Failed to parse relay key: {:?}", e.to_string()))?;
-
-        BLSBlockSigner::new(secret_key, signing_domain)
-    }
-
-    fn bls_optimistic_signer(&self, chain_spec: &ChainSpec) -> eyre::Result<BLSBlockSigner> {
-        let signing_domain = get_signing_domain(
-            chain_spec.chain,
-            self.beacon_clients()?,
-            self.genesis_fork_version.clone(),
-        )?;
-        let secret_key = self.optimistic_relay_secret_key.value()?;
-        let secret_key = SecretKey::try_from(secret_key).map_err(|e| {
-            eyre::eyre!("Failed to parse optimistic relay key: {:?}", e.to_string())
-        })?;
-
-        BLSBlockSigner::new(secret_key, signing_domain)
-    }
-
     fn submission_config(
         &self,
         chain_spec: Arc<ChainSpec>,
@@ -267,32 +239,40 @@ impl L1Config {
             ValidationAPIClient::new(urls.as_slice())?
         };
 
-        let optimistic_signer = match self.bls_optimistic_signer(&chain_spec) {
-            Ok(signer) => signer,
-            Err(err) => {
-                if self.optimistic_enabled {
-                    eyre::bail!(
-                        "Optimistic mode enabled but no valid optimistic signer: {}",
-                        err
-                    );
-                } else {
-                    // we don't care about the actual value
-                    self.bls_signer(&chain_spec)?
-                }
-            }
+        let signing_domain = get_signing_domain(
+            chain_spec.chain,
+            self.beacon_clients()?,
+            self.genesis_fork_version.clone(),
+        )?;
+
+        let signer = BLSBlockSigner::from_string(self.relay_secret_key.value()?, signing_domain)
+            .map_err(|e| eyre::eyre!("Failed to create normal signer: {:?}", e))?;
+
+        let optimistic_signer = if self.optimistic_enabled {
+            BLSBlockSigner::from_string(self.optimistic_relay_secret_key.value()?, signing_domain)
+                .map_err(|e| eyre::eyre!("Failed to create optimistic signer: {:?}", e))?
+        } else {
+            // Placeholder value since it is required for SubmissionConfig. But after https://github.com/flashbots/rbuilder/pull/323
+            // we can return None
+            signer.clone()
         };
 
-        let signer = self.bls_signer(&chain_spec)?;
+        let optimistic_config = if self.optimistic_enabled {
+            Some(OptimisticConfig {
+                signer: optimistic_signer,
+                max_bid_value: parse_ether(&self.optimistic_max_bid_value_eth)?,
+                prevalidate_optimistic_blocks: self.optimistic_prevalidate_optimistic_blocks,
+            })
+        } else {
+            None
+        };
 
         Ok(SubmissionConfig {
             chain_spec,
             signer,
             dry_run: self.dry_run,
             validation_api,
-            optimistic_enabled: self.optimistic_enabled,
-            optimistic_signer,
-            optimistic_max_bid_value: parse_ether(&self.optimistic_max_bid_value_eth)?,
-            optimistic_prevalidate_optimistic_blocks: self.optimistic_prevalidate_optimistic_blocks,
+            optimistic_config,
             bid_observer,
         })
     }
@@ -308,18 +288,21 @@ impl L1Config {
             "Builder mev boost normal relay pubkey: {:?}",
             submission_config.signer.pub_key()
         );
-        info!(
-            "Builder mev boost optimistic relay pubkey: {:?}",
-            submission_config.optimistic_signer.pub_key()
-        );
-        info!(
-            "Optimistic mode, enabled: {}, prevalidate: {}, max_value: {}",
-            submission_config.optimistic_enabled,
-            submission_config.optimistic_prevalidate_optimistic_blocks,
-            format_ether(submission_config.optimistic_max_bid_value),
-        );
+
+        if let Some(optimitic_config) = submission_config.optimistic_config.as_ref() {
+            info!(
+                "Optimistic mode enabled, relay pubkey {:?}, prevalidate: {}, max_value: {}",
+                optimitic_config.signer.pub_key(),
+                optimitic_config.prevalidate_optimistic_blocks,
+                format_ether(optimitic_config.max_bid_value),
+            );
+        };
 
         let relays = self.create_relays()?;
+        if relays.is_empty() {
+            eyre::bail!("No relays provided");
+        }
+
         let sink_factory: Box<dyn BuilderSinkFactory> = Box::new(RelaySubmitSinkFactory::new(
             submission_config,
             relays.clone(),

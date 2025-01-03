@@ -16,7 +16,7 @@ use crate::{
     mev_boost::BuilderBlockReceived,
     primitives::{
         serialize::{RawOrder, RawOrderConvertError, TxEncoding},
-        AccountNonce, Order, OrderId, OrderReplacementKey, SimValue,
+        AccountNonce, Order, OrderId, OrderReplacementKey,
     },
     utils::offset_datetime_to_timestamp_ms,
 };
@@ -34,8 +34,6 @@ use time::OffsetDateTime;
 pub struct RawOrdersWithTimestamp {
     pub timestamp_ms: u64,
     pub order: RawOrder,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sim_value: Option<SimValue>,
 }
 
 impl From<OrdersWithTimestamp> for RawOrdersWithTimestamp {
@@ -43,7 +41,6 @@ impl From<OrdersWithTimestamp> for RawOrdersWithTimestamp {
         Self {
             timestamp_ms: orders.timestamp_ms,
             order: orders.order.into(),
-            sim_value: orders.sim_value,
         }
     }
 }
@@ -53,7 +50,6 @@ impl RawOrdersWithTimestamp {
         Ok(OrdersWithTimestamp {
             timestamp_ms: self.timestamp_ms,
             order: self.order.decode(encoding)?,
-            sim_value: self.sim_value,
         })
     }
 }
@@ -62,7 +58,6 @@ impl RawOrdersWithTimestamp {
 pub struct OrdersWithTimestamp {
     pub timestamp_ms: u64,
     pub order: Order,
-    pub sim_value: Option<SimValue>,
 }
 
 /// Historic data for a block.

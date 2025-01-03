@@ -18,7 +18,7 @@ use rbuilder::{
     },
     live_builder::{
         base_config::{
-            DEFAULT_EL_NODE_IPC_PATH, DEFAULT_INCOMING_BUNDLES_PORT, DEFAULT_IP,
+            default_ip, DEFAULT_EL_NODE_IPC_PATH, DEFAULT_INCOMING_BUNDLES_PORT,
             DEFAULT_RETH_DB_PATH,
         },
         config::create_provider_factory,
@@ -80,7 +80,7 @@ async fn main() -> eyre::Result<()> {
         true,
         DEFAULT_EL_NODE_IPC_PATH.parse().unwrap(),
         DEFAULT_INCOMING_BUNDLES_PORT,
-        *DEFAULT_IP,
+        default_ip(),
         DEFAULT_SERVE_MAX_CONNECTIONS,
         DEFAULT_RESULTS_CHANNEL_TIMEOUT,
         DEFAULT_INPUT_CHANNEL_BUFFER_SIZE,
