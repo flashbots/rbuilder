@@ -58,6 +58,7 @@ use reth_provider::{
 };
 use serde::Deserialize;
 use serde_with::{serde_as, OneOrMany};
+use std::collections::HashMap;
 use std::{
     fmt::Debug,
     path::{Path, PathBuf},
@@ -172,18 +173,18 @@ impl L1Config {
     }
 
     pub fn create_relays(&self) -> eyre::Result<Vec<MevBoostRelay>> {
-        let mut relays = DEFAULT_RELAYS.to_vec();
+        let mut relay_configs = DEFAULT_RELAYS.clone();
 
+        // Update or add new relay configs from user configuration
         for relay in self.relays.clone() {
-            if let Some(default) = relays.iter_mut().find(|d| d.name == relay.name) {
-                // If found in defaults, update it with an or operation
-                *default = default.clone() | relay.clone();
-            } else {
-                // If not found in defaults, add as new relay
-                relays.push(relay.clone());
-            }
+            relay_configs
+                .entry(relay.name.clone())
+                .and_modify(|default| *default = default.clone() | relay.clone())
+                .or_insert(relay);
+        }
 
-            // Emit warning if this relay is defined but not enabled
+        // Warn about defined but not enabled relays
+        for relay in &self.relays {
             if !self.enabled_relays.contains(&relay.name) {
                 warn!(
                     "Relay '{}' is defined but not enabled in enabled_relays",
@@ -192,28 +193,36 @@ impl L1Config {
             }
         }
 
+        // Create enabled relays
         let mut results = Vec::new();
         for relay_name in &self.enabled_relays {
-            match relays.iter().find(|r| r.name == *relay_name) {
-                Some(relay) => match MevBoostRelay::from_config(relay) {
+            match relay_configs.get(relay_name) {
+                Some(relay_config) => match MevBoostRelay::from_config(relay_config) {
                     Ok(relay) => {
                         info!(
                             "Created relay: {:?} (priority: {})",
                             relay_name, relay.priority
                         );
-                        results.push(relay)
+                        results.push(relay);
                     }
                     Err(e) => {
                         return Err(eyre::eyre!(
                             "Failed to create relay {}: {:?}",
                             relay_name,
                             e
-                        ))
+                        ));
                     }
                 },
-                None => return Err(eyre::eyre!("Relay {} not found in relays list", relay_name)),
+                None => {
+                    return Err(eyre::eyre!("Relay {} not found in relays list", relay_name));
+                }
             }
         }
+
+        if results.is_empty() {
+            return Err(eyre::eyre!("No relays enabled"));
+        }
+
         Ok(results)
     }
 
@@ -622,69 +631,88 @@ fn get_signing_domain(
 }
 
 lazy_static! {
-    static ref DEFAULT_RELAYS: Vec<RelayConfig> = vec![
-        RelayConfig {
-            name: "flashbots".to_string(),
-            url: Some("http://k8s-default-boostrel-9f278153f5-947835446.us-east-2.elb.amazonaws.com".to_string()),
-            use_ssz_for_submit: true,
-            use_gzip_for_submit: false,
-            priority: 0,
-            optimistic: false,
-            interval_between_submissions_ms: Some(250),
-            authorization_header: None,
-            builder_id_header: None,
-            api_token_header: None,
-        },
-        RelayConfig {
-            name: "ultrasound-us".to_string(),
-            url: Some("https://relay-builders-us.ultrasound.money".to_string()),
-            use_ssz_for_submit: true,
-            use_gzip_for_submit: true,
-            priority: 0,
-            optimistic: true,
-            interval_between_submissions_ms: None,
-            authorization_header: None,
-            builder_id_header: None,
-            api_token_header: None,
-        },
-        RelayConfig {
-            name: "ultrasound-eu".to_string(),
-            url: Some("https://relay-builders-eu.ultrasound.money".to_string()),
-            use_ssz_for_submit: true,
-            use_gzip_for_submit: true,
-            priority: 0,
-            optimistic: true,
-            interval_between_submissions_ms: None,
-            authorization_header: None,
-            builder_id_header: None,
-            api_token_header: None,
-        },
-        RelayConfig {
-            name: "agnostic".to_string(),
-            url:Some("https://0xa7ab7a996c8584251c8f925da3170bdfd6ebc75d50f5ddc4050a6fdc77f2a3b5fce2cc750d0865e05d7228af97d69561@agnostic-relay.net".to_string()),
-            use_ssz_for_submit: true,
-            use_gzip_for_submit: true,
-            priority: 0,
-            optimistic: true,
-            interval_between_submissions_ms: None,
-            authorization_header: None,
-            builder_id_header: None,
-            api_token_header: None,
-        },
-        // Local relay configuration for the playground
-        RelayConfig {
-            name: "playground".to_string(),
-            url:Some("http://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@localhost:5555".to_string()),
-            priority: 0,
-            use_ssz_for_submit: false,
-            use_gzip_for_submit: false,
-            optimistic: false,
-            interval_between_submissions_ms: None,
-            authorization_header: None,
-            builder_id_header: None,
-            api_token_header: None,
-        }
-    ];
+    static ref DEFAULT_RELAYS: HashMap<String, RelayConfig> = {
+        let mut map = HashMap::new();
+        map.insert(
+            "flashbots".to_string(),
+            RelayConfig {
+                name: "flashbots".to_string(),
+                url: Some(
+                    "http://k8s-default-boostrel-9f278153f5-947835446.us-east-2.elb.amazonaws.com"
+                        .to_string(),
+                ),
+                use_ssz_for_submit: true,
+                use_gzip_for_submit: false,
+                priority: 0,
+                optimistic: false,
+                interval_between_submissions_ms: Some(250),
+                authorization_header: None,
+                builder_id_header: None,
+                api_token_header: None,
+            },
+        );
+        map.insert(
+            "ultrasound-us".to_string(),
+            RelayConfig {
+                name: "ultrasound-us".to_string(),
+                url: Some("https://relay-builders-us.ultrasound.money".to_string()),
+                use_ssz_for_submit: true,
+                use_gzip_for_submit: true,
+                priority: 0,
+                optimistic: true,
+                interval_between_submissions_ms: None,
+                authorization_header: None,
+                builder_id_header: None,
+                api_token_header: None,
+            },
+        );
+        map.insert(
+            "ultrasound-eu".to_string(),
+            RelayConfig {
+                name: "ultrasound-eu".to_string(),
+                url: Some("https://relay-builders-eu.ultrasound.money".to_string()),
+                use_ssz_for_submit: true,
+                use_gzip_for_submit: true,
+                priority: 0,
+                optimistic: true,
+                interval_between_submissions_ms: None,
+                authorization_header: None,
+                builder_id_header: None,
+                api_token_header: None,
+            },
+        );
+        map.insert(
+            "agnostic".to_string(),
+            RelayConfig {
+                name: "agnostic".to_string(),
+                url: Some("https://0xa7ab7a996c8584251c8f925da3170bdfd6ebc75d50f5ddc4050a6fdc77f2a3b5fce2cc750d0865e05d7228af97d69561@agnostic-relay.net".to_string()),
+                use_ssz_for_submit: true,
+                use_gzip_for_submit: true,
+                priority: 0,
+                optimistic: true,
+                interval_between_submissions_ms: None,
+                authorization_header: None,
+                builder_id_header: None,
+                api_token_header: None,
+            },
+        );
+        map.insert(
+            "playground".to_string(),
+            RelayConfig {
+                name: "playground".to_string(),
+                url: Some("http://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@localhost:5555".to_string()),
+                priority: 0,
+                use_ssz_for_submit: false,
+                use_gzip_for_submit: false,
+                optimistic: false,
+                interval_between_submissions_ms: None,
+                authorization_header: None,
+                builder_id_header: None,
+                api_token_header: None,
+            },
+        );
+        map
+    };
 }
 
 #[cfg(test)]
