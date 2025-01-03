@@ -184,8 +184,10 @@ impl L1Config {
         }
 
         // For backwards compatibility: add all user-configured relays to enabled_relays
-        let mut effective_enabled_relays: Vec<String> = self.enabled_relays.clone();
+        let mut effective_enabled_relays: std::collections::HashSet<String> =
+            self.enabled_relays.iter().cloned().collect();
         effective_enabled_relays.extend(self.relays.iter().map(|r| r.name.clone()));
+        let effective_enabled_relays: Vec<String> = effective_enabled_relays.into_iter().collect();
 
         // Create enabled relays
         let mut results = Vec::new();
