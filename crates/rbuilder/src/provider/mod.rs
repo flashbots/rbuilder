@@ -15,13 +15,6 @@ pub trait StateProviderFactory: Clone + 'static + Send + Sync {
 
     fn history_by_block_number(&self, block: BlockNumber) -> ProviderResult<StateProviderBox>;
 
-    fn run_trie_prefetcher(
-        &self,
-        parent_hash: B256,
-        simulated_orders: broadcast::Receiver<SimulatedOrderCommand>,
-        cancel: CancellationToken,
-    );
-
     fn history_by_block_hash(&self, block: BlockHash) -> ProviderResult<StateProviderBox>;
 
     fn header(&self, block_hash: &BlockHash) -> ProviderResult<Option<Header>>;
@@ -34,9 +27,18 @@ pub trait StateProviderFactory: Clone + 'static + Send + Sync {
 
     fn last_block_number(&self) -> ProviderResult<BlockNumber>;
 
-    fn calculate_state_root(
+    fn root_hasher(&self, parent_hash: B256) -> Box<dyn RootHasher>;
+}
+
+pub trait RootHasher {
+    fn run_prefetcher(
         &self,
-        parent_hash: B256,
+        simulated_orders: broadcast::Receiver<SimulatedOrderCommand>,
+        cancel: CancellationToken,
+    );
+
+    fn state_root(
+        &self,
         outcome: &ExecutionOutcome,
         config: RootHashConfig,
     ) -> Result<B256, RootHashError>;

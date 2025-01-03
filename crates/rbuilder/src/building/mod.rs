@@ -16,7 +16,7 @@ use reth_primitives::BlockBody;
 
 use crate::{
     primitives::{Order, OrderId, SimValue, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs},
-    provider::StateProviderFactory,
+    provider::{RootHasher, StateProviderFactory},
     roothash::{RootHashConfig, RootHashError},
     utils::{a2r_withdrawal, calc_gas_limit, timestamp_as_u64, Signer},
 };
@@ -82,6 +82,7 @@ pub struct BlockBuildingContext {
     pub excess_blob_gas: Option<u64>,
     /// Version of the EVM that we are going to use
     pub spec_id: SpecId,
+    pub root_hasher: RootHasher,
 }
 
 impl BlockBuildingContext {
@@ -680,7 +681,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
 
         // calculate the state root
         let start = Instant::now();
-        let state_root = provider.calculate_state_root(
+        let state_root = ctx.root_hasher.calculate_state_root(
             ctx.attributes.parent,
             &execution_outcome,
             root_hash_config,

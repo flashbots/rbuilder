@@ -9,7 +9,7 @@ use reth_provider::{BlockReader, DatabaseProviderFactory, HeaderProvider};
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 
-use super::StateProviderFactory;
+use super::{RootHasher, StateProviderFactory};
 
 impl<T> StateProviderFactory for T
 where
@@ -51,33 +51,7 @@ where
         self.last_block_number()
     }
 
-    fn run_trie_prefetcher(
-        &self,
-        parent_hash: B256,
-        simulated_orders: broadcast::Receiver<SimulatedOrderCommand>,
-        cancel: CancellationToken,
-    ) {
-        run_trie_prefetcher(
-            parent_hash,
-            Default::default(),
-            self,
-            simulated_orders,
-            cancel,
-        );
-    }
-
-    fn calculate_state_root(
-        &self,
-        parent_hash: B256,
-        outcome: &ExecutionOutcome,
-        config: RootHashConfig,
-    ) -> Result<B256, RootHashError> {
-        calculate_state_root(
-            self.clone(),
-            parent_hash,
-            outcome,
-            Default::default(),
-            config,
-        )
+    fn root_hasher(&self, parent_hash: B256) -> Box<dyn RootHasher> {
+        unimplemented!()
     }
 }

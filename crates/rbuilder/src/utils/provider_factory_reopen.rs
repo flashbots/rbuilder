@@ -1,9 +1,10 @@
 use crate::live_builder::simulation::SimulatedOrderCommand;
-use crate::provider::StateProviderFactory;
+use crate::provider::{RootHasher, StateProviderFactory};
 use crate::roothash::{calculate_state_root, run_trie_prefetcher, RootHashConfig, RootHashError};
 use crate::telemetry::{inc_provider_bad_reopen_counter, inc_provider_reopen_counter};
 use alloy_consensus::Header;
 use alloy_primitives::{BlockHash, BlockNumber};
+use eth_sparse_mpt::reth_sparse_trie::SparseTrieSharedCache;
 use parking_lot::{Mutex, RwLock};
 use reth::providers::ExecutionOutcome;
 use reth::providers::{BlockHashReader, ChainSpecProvider, ProviderFactory};
@@ -14,6 +15,7 @@ use reth_provider::{
     providers::{ProviderNodeTypes, StaticFileProvider},
     BlockNumReader, HeaderProvider, StateProviderBox, StaticFileProviderFactory,
 };
+use reth_provider::{BlockReader, DatabaseProviderFactory};
 use revm_primitives::B256;
 use std::ops::DerefMut;
 use std::{path::PathBuf, sync::Arc};
@@ -224,37 +226,61 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> StateProviderFactory
         provider.last_block_number()
     }
 
-    fn run_trie_prefetcher(
-        &self,
-        parent_hash: B256,
-        simulated_orders: broadcast::Receiver<SimulatedOrderCommand>,
-        cancel: CancellationToken,
-    ) {
+    fn root_hasher(&self, parent_hash: B256) -> Box<dyn RootHasher> {
         let provider = self
             .check_consistency_and_reopen_if_needed()
             .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))
             .unwrap();
 
-        run_trie_prefetcher(
+        Box::new(RootHasherImpl::new(parent_hash, provider))
+    }
+}
+
+struct RootHasherImpl<T> {
+    parent_hash: B256,
+    provider: T,
+    sparse_trie_shared_cache: SparseTrieSharedCache,
+}
+
+impl<T> RootHasherImpl<T> {
+    fn new(parent_hash: B256, provider: T) -> Self {
+        Self {
             parent_hash,
-            Default::default(),
             provider,
+            sparse_trie_shared_cache: Default::default(),
+        }
+    }
+}
+
+impl<T> RootHasher for RootHasherImpl<T>
+where
+    T: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync + Clone + 'static,
+{
+    fn run_prefetcher(
+        &self,
+        simulated_orders: broadcast::Receiver<SimulatedOrderCommand>,
+        cancel: CancellationToken,
+    ) {
+        run_trie_prefetcher(
+            self.parent_hash,
+            self.sparse_trie_shared_cache.clone(),
+            self.provider.clone(),
             simulated_orders,
             cancel,
         );
     }
 
-    fn calculate_state_root(
+    fn state_root(
         &self,
-        parent_hash: B256,
         outcome: &ExecutionOutcome,
         config: RootHashConfig,
     ) -> Result<B256, RootHashError> {
-        let provider = self
-            .check_consistency_and_reopen_if_needed()
-            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))
-            .unwrap();
-
-        calculate_state_root(provider, parent_hash, outcome, Default::default(), config)
+        calculate_state_root(
+            self.provider.clone(),
+            self.parent_hash,
+            outcome,
+            self.sparse_trie_shared_cache.clone(),
+            config,
+        )
     }
 }
