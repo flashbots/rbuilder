@@ -256,7 +256,11 @@ fn get_available_orders(
                 included_orders_available.insert(order.order.id(), order.clone());
             }
             None => {
-                warn!(order = ?id, "Included order not found in available orders");
+                if block_data.filtered_orders.contains(id) {
+                    info!(order = ?id, "Included order was filtered from available orders");
+                } else {
+                    warn!(order = ?id, "Included order not found in available orders");
+                }
             }
         }
     }
