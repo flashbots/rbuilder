@@ -102,7 +102,7 @@ pub struct SubmissionConfig {
     pub dry_run: bool,
     pub validation_api: ValidationAPIClient,
 
-    pub optimisitic_config: Option<OptimisticConfig>,
+    pub optimistic_config: Option<OptimisticConfig>,
     pub bid_observer: Box<dyn BidObserver + Send + Sync>,
 }
 
@@ -198,8 +198,8 @@ async fn run_submit_to_relays_job(
 
         // Only enable the optimistic config for this block if the bid value is below the max bid value
         let optimistic_config = config
-            .optimisitic_config
-            .clone()
+            .optimistic_config
+            .as_ref()
             .and_then(|optimistic_config| {
                 if block.trace.bid_value < optimistic_config.max_bid_value {
                     Some(optimistic_config)
@@ -247,9 +247,7 @@ async fn run_submit_to_relays_job(
                 }
             };
 
-            let optimistic_signed_submission = if let Some(optimistic_config) =
-                optimistic_config.clone()
-            {
+            let optimistic_signed_submission = if let Some(optimistic_config) = optimistic_config {
                 match sign_block_for_relay(
                     &optimistic_config.signer,
                     &block.sealed_block,

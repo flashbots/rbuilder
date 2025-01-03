@@ -257,7 +257,7 @@ impl L1Config {
             signer,
             dry_run: self.dry_run,
             validation_api,
-            optimisitic_config: optimistic_config,
+            optimistic_config,
             bid_observer,
         })
     }
@@ -274,7 +274,7 @@ impl L1Config {
             submission_config.signer.pub_key()
         );
 
-        if let Some(optimitic_config) = submission_config.optimisitic_config.as_ref() {
+        if let Some(optimitic_config) = submission_config.optimistic_config.as_ref() {
             info!(
                 "Optimistic mode enabled, relay pubkey {:?}, prevalidate: {}, max_value: {}",
                 optimitic_config.signer.pub_key(),
