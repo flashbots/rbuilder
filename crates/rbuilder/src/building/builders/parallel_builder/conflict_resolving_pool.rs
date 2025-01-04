@@ -59,49 +59,50 @@ where
     }
 
     pub fn start(&self) {
-        let task_queue = self.task_queue.clone();
-        let cancellation_token = self.cancellation_token.clone();
-        let provider = self.provider.clone();
-        let group_result_sender = self.group_result_sender.clone();
-        let simulation_cache = self.simulation_cache.clone();
-        let ctx = self.ctx.clone();
-
-        self.thread_pool.spawn(move || {
-            while !cancellation_token.is_cancelled() {
-                if let Some(task) = task_queue.pop() {
-                    if cancellation_token.is_cancelled() {
-                        return;
-                    }
-                    let task_start = Instant::now();
-                    if let Ok((task_id, result)) = Self::process_task(
-                        task,
-                        &ctx,
-                        &provider,
-                        cancellation_token.clone(),
-                        Arc::clone(&simulation_cache),
-                    ) {
-                        match group_result_sender.send((task_id, result)) {
-                            Ok(_) => {
-                                trace!(
-                                    task_id = %task_id,
-                                    time_taken_ms = %task_start.elapsed().as_millis(),
-                                    "Conflict resolving: successfully sent group result"
-                                );
-                            }
-                            Err(err) => {
-                                warn!(
-                                    task_id = %task_id,
-                                    error = ?err,
-                                    time_taken_ms = %task_start.elapsed().as_millis(),
-                                    "Conflict resolving: failed to send group result"
-                                );
-                                return;
+        for _ in 0..self.thread_pool.current_num_threads() {
+            let task_queue = self.task_queue.clone();
+            let cancellation_token = self.cancellation_token.clone();
+            let provider = self.provider.clone();
+            let group_result_sender = self.group_result_sender.clone();
+            let simulation_cache = self.simulation_cache.clone();
+            let ctx = self.ctx.clone();
+            self.thread_pool.spawn(move || {
+                while !cancellation_token.is_cancelled() {
+                    if let Some(task) = task_queue.pop() {
+                        if cancellation_token.is_cancelled() {
+                            return;
+                        }
+                        let task_start = Instant::now();
+                        if let Ok((task_id, result)) = Self::process_task(
+                            task,
+                            &ctx,
+                            &provider,
+                            cancellation_token.clone(),
+                            Arc::clone(&simulation_cache),
+                        ) {
+                            match group_result_sender.send((task_id, result)) {
+                                Ok(_) => {
+                                    trace!(
+                                        task_id = %task_id,
+                                        time_taken_ms = %task_start.elapsed().as_millis(),
+                                        "Conflict resolving: successfully sent group result"
+                                    );
+                                }
+                                Err(err) => {
+                                    warn!(
+                                        task_id = %task_id,
+                                        error = ?err,
+                                        time_taken_ms = %task_start.elapsed().as_millis(),
+                                        "Conflict resolving: failed to send group result"
+                                    );
+                                    return;
+                                }
                             }
                         }
                     }
                 }
-            }
-        });
+            });
+        }
     }
 
     fn process_task(
