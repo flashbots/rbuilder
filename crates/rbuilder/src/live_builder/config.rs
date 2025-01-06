@@ -184,11 +184,10 @@ impl L1Config {
         let mut effective_enabled_relays: std::collections::HashSet<String> =
             self.enabled_relays.iter().cloned().collect();
         effective_enabled_relays.extend(self.relays.iter().map(|r| r.name.clone()));
-        let effective_enabled_relays: Vec<String> = effective_enabled_relays.into_iter().collect();
 
         // Create enabled relays
         let mut results = Vec::new();
-        for relay_name in &effective_enabled_relays {
+        for relay_name in effective_enabled_relays.iter() {
             match relay_configs.get(relay_name) {
                 Some(relay_config) => match MevBoostRelay::from_config(relay_config) {
                     Ok(relay) => {
