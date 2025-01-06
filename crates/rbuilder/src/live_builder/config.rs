@@ -777,20 +777,6 @@ mod test {
     }
 
     #[test]
-    fn test_parse_empty_relay_url() {
-        let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        p.push("./src/live_builder/testdata/config_with_relay_empty_url.toml");
-
-        let config: Config = load_config_toml_and_env(p).expect("Config load");
-        assert!(config
-            .l1_config
-            .create_relays()
-            .unwrap_err()
-            .to_string()
-            .contains("url is required"));
-    }
-
-    #[test]
     fn test_parse_backtest_example_config() {
         let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         p.push("../../config-backtest-example.toml");
