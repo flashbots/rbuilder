@@ -2,6 +2,7 @@ use crate::mev_boost::{RelayClient, SubmitBlockErr, SubmitBlockRequest};
 use governor::{DefaultDirectRateLimiter, Quota, RateLimiter};
 use serde::{Deserialize, Deserializer};
 use std::{env, sync::Arc, time::Duration};
+use url::Url;
 
 /// Usually human readable id for relays. Not used on anything on any protocol just to identify the relays.
 pub type MevBoostRelayID = String;
