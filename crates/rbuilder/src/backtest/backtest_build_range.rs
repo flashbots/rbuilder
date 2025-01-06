@@ -138,6 +138,7 @@ where
     let mut read_blocks = spawn_block_fetcher(
         historical_data_storage,
         blocks.clone(),
+        cli.build_block_lag_ms as i64,
         cli.ignored_signers,
         cancel_token.clone(),
     );
@@ -157,7 +158,6 @@ where
             .map(|block_data| {
                 (
                     block_data,
-                    cli.build_block_lag_ms,
                     provider_factory.clone(),
                     chain_spec.clone(),
                     builders_names.clone(),
@@ -168,13 +168,12 @@ where
         let output = input
             .into_par_iter()
             .filter_map(
-                |(block_data, lag, provider_factory, chain_spec, builders_names, blocklist)| {
+                |(block_data, provider_factory, chain_spec, builders_names, blocklist)| {
                     let block_number = block_data.block_number;
                     match backtest_simulate_block(
                         block_data,
                         provider_factory,
                         chain_spec,
-                        lag as i64,
                         builders_names,
                         &config,
                         blocklist,
@@ -400,6 +399,7 @@ impl CSVResultWriter {
 fn spawn_block_fetcher(
     mut historical_data_storage: HistoricalDataStorage,
     blocks: Vec<u64>,
+    build_block_lag_ms: i64,
     ignored_signers: Vec<Address>,
     cancellation_token: CancellationToken,
 ) -> mpsc::Receiver<Vec<BlockData>> {
@@ -419,6 +419,7 @@ fn spawn_block_fetcher(
             };
             for block in &mut blocks {
                 block.filter_out_ignored_signers(&ignored_signers);
+                block.filter_late_orders(build_block_lag_ms);
             }
             match sender.send(blocks).await {
                 Ok(_) => {}

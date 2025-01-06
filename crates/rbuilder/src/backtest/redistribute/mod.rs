@@ -997,16 +997,10 @@ where
 
     let base_config = config.base_config();
 
-    // we set built_block_lag_ms to 0 here because we already prefiltered all the orders
-    // in built_block_data, so we essentially just disable filtering in the `backtest_simulate_block`
-    // but we still filter by the relay timestamp
-    let built_block_lag_ms = 0;
-
     let result = backtest_simulate_block(
         block_data_with_excluded,
         provider.clone(),
         base_config.chain_spec()?,
-        built_block_lag_ms,
         base_config.backtest_builders.clone(),
         config,
         base_config.blocklist()?,
