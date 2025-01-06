@@ -66,7 +66,7 @@ pub struct MevBoostRelay {
 impl MevBoostRelay {
     pub fn from_config(config: &RelayConfig) -> eyre::Result<Self> {
         let client = {
-            let url = config.url.parse()?;
+            let url: Url = config.url.parse()?;
             RelayClient::from_url(
                 url,
                 config.authorization_header.clone(),
