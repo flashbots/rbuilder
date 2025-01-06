@@ -3,7 +3,7 @@ use alloy_primitives::Address;
 use serde::{Deserialize, Deserializer};
 use std::convert::TryFrom;
 use std::fs::read_to_string;
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
 
 #[allow(clippy::len_without_is_empty)]
@@ -26,19 +26,6 @@ impl BlockList {
         Ok(Self {
             list: blocklist.into_iter().collect(),
         })
-    }
-
-    pub fn len(&self) -> usize {
-        self.list.len()
-    }
-
-    pub fn contains(&self, address: &Address) -> bool {
-        self.list.contains(address)
-    }
-
-    #[cfg(test)]
-    fn add(&mut self, address: Address) {
-        self.list.insert(address);
     }
 }
 
@@ -63,6 +50,12 @@ impl Deref for BlockList {
 
     fn deref(&self) -> &Self::Target {
         &self.list
+    }
+}
+
+impl DerefMut for BlockList {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.list
     }
 }
 
@@ -108,18 +101,18 @@ mod test {
         let mut blocklist = BlockList::new();
         let addr0 = Address::random();
 
-        blocklist.add(addr0);
+        blocklist.insert(addr0);
         assert_eq!(blocklist.len(), 1);
         assert_eq!(blocklist.contains(&addr0), true);
 
         // you cannot add twice the same value
-        blocklist.add(addr0);
+        blocklist.insert(addr0);
         assert_eq!(blocklist.len(), 1);
 
         let addr1 = Address::random();
         assert_eq!(blocklist.contains(&addr1), false);
 
-        blocklist.add(addr1);
+        blocklist.insert(addr1);
         assert_eq!(blocklist.len(), 2);
         assert_eq!(blocklist.contains(&addr1), true);
     }
