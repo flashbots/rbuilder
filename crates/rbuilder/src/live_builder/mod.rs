@@ -18,6 +18,7 @@ use crate::{
         simulation::OrderSimulationPool,
         watchdog::spawn_watchdog_thread,
     },
+    primitives::{MempoolTx, Order, TransactionSignedEcRecoveredWithBlobs},
     telemetry::inc_active_slots,
     utils::{
         error_storage::spawn_error_storage_writer, provider_head_state::ProviderHeadState, Signer,
@@ -31,7 +32,13 @@ use eyre::Context;
 use jsonrpsee::RpcModule;
 use order_input::ReplaceableOrderPoolCommand;
 use payload_events::MevBoostSlotData;
-use reth::providers::HeaderProvider;
+use reth::{
+    providers::HeaderProvider,
+    transaction_pool::{
+        BlobStore, EthPooledTransaction, Pool, TransactionListenerKind, TransactionOrdering,
+        TransactionPool, TransactionValidator,
+    },
+};
 use reth_chainspec::ChainSpec;
 use reth_db::Database;
 use reth_provider::{BlockReader, DatabaseProviderFactory, StateProviderFactory};
@@ -39,7 +46,7 @@ use std::{cmp::min, fmt::Debug, path::PathBuf, sync::Arc, time::Duration};
 use time::OffsetDateTime;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 #[derive(Debug, Clone)]
 pub struct TimingsConfig {
@@ -293,6 +300,53 @@ where
                 .map_err(|err| warn!("Job handle await error: {:?}", err))
                 .unwrap_or_default();
         }
+        Ok(())
+    }
+
+    /// Connect the builder to a reth [`TransactionPool`].
+    ///
+    /// This will
+    /// 1. Add pending and queued transactions to the [`OrderPool`]
+    /// 2. Subscribe to the pool directly, so the builder is not reliant on
+    ///    IPC to be notified of new transactions.
+    pub async fn connect_to_transaction_pool<V, T, S>(
+        &self,
+        pool: Pool<V, T, S>,
+    ) -> Result<(), eyre::Error>
+    where
+        V: TransactionValidator<Transaction = EthPooledTransaction>,
+        T: TransactionOrdering<Transaction = <V as TransactionValidator>::Transaction>,
+        S: BlobStore,
+    {
+        // Initialize the [`OrderPool`]
+        for tx in pool
+            .all_transactions()
+            .pending_recovered()
+            .chain(pool.all_transactions().queued_recovered())
+        {
+            // TODO: Replace new_for_testing with whatever is most idiomatic
+            let tx = TransactionSignedEcRecoveredWithBlobs::new_for_testing(tx);
+            let order = Order::Tx(MempoolTx::new(tx));
+            let command = ReplaceableOrderPoolCommand::Order(order);
+            self.orderpool_sender.send(command).await?;
+        }
+
+        // Subscribe to new transactions
+        let mut recv = pool.new_transactions_listener_for(TransactionListenerKind::All);
+        let orderpool_sender = self.orderpool_sender.clone();
+        tokio::spawn(async move {
+            while let Some(e) = recv.recv().await {
+                let tx = e.transaction.transaction.transaction().clone();
+                // TODO: Replace new_for_testing with whatever is most idiomatic
+                let tx = TransactionSignedEcRecoveredWithBlobs::new_for_testing(tx);
+                let order = Order::Tx(MempoolTx::new(tx));
+                let command = ReplaceableOrderPoolCommand::Order(order);
+                if let Err(e) = orderpool_sender.send(command).await {
+                    error!("Error sending order to orderpool: {:#}", e);
+                }
+            }
+        });
+
         Ok(())
     }
 

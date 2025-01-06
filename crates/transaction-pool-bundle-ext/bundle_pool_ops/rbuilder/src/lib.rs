@@ -31,6 +31,9 @@ use rbuilder::{
 use reth_db_api::Database;
 use reth_primitives::TransactionSigned;
 use reth_provider::{BlockReader, DatabaseProviderFactory, HeaderProvider, StateProviderFactory};
+use reth_transaction_pool::{
+    BlobStore, EthPooledTransaction, Pool, TransactionOrdering, TransactionValidator,
+};
 use tokio::{
     sync::{
         mpsc::{self, error::SendError},
@@ -89,8 +92,9 @@ impl SlotSource for OurSlotSource {
 }
 
 impl BundlePoolOps {
-    pub async fn new<P, DB>(
+    pub async fn new<P, DB, V, T, S>(
         provider: P,
+        pool: Pool<V, T, S>,
         rbuilder_config_path: impl AsRef<Path>,
     ) -> Result<Self, Error>
     where
@@ -100,6 +104,9 @@ impl BundlePoolOps {
             + HeaderProvider
             + Clone
             + 'static,
+        V: TransactionValidator<Transaction = EthPooledTransaction> + 'static,
+        T: TransactionOrdering<Transaction = <V as TransactionValidator>::Transaction>,
+        S: BlobStore,
     {
         // Create the payload source to trigger new block building
         let cancellation_token = CancellationToken::new();
@@ -168,6 +175,10 @@ impl BundlePoolOps {
             .await
             .expect("Failed to start full telemetry server");
 
+            builder
+                .connect_to_transaction_pool(pool)
+                .await
+                .expect("Failed to connect to reth pool");
             builder.run().await.unwrap();
 
             Ok::<(), ()>
