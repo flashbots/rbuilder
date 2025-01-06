@@ -70,8 +70,35 @@ pub struct TestChainState {
     provider_factory: ProviderFactory<MockNodeTypesWithDB>,
     block_building_context: BlockBuildingContext,
 }
+pub struct ContractData {
+    address: Address,
+    code: Bytes,
+    code_hash: B256,
+}
+
+impl ContractData {
+    pub fn new(code: &Bytes, address: Address) -> Self {
+        let code_hash = keccak256(code);
+        ContractData {
+            address,
+            code: code.clone(),
+            code_hash,
+        }
+    }
+}
+
 impl TestChainState {
     pub fn new(block_args: BlockArgs) -> eyre::Result<Self> {
+        Self::new_with_balances_and_contracts(block_args, Default::default(), Default::default())
+    }
+
+    /// balances_to_increase this addresses start with that initial balances.
+    /// extra_contracts are deploy along with the default mev_test.
+    pub fn new_with_balances_and_contracts(
+        block_args: BlockArgs,
+        balances_to_increase: Vec<(Address, u128)>,
+        extra_contracts: Vec<ContractData>,
+    ) -> eyre::Result<Self> {
         let blocklisted_address = Signer::random();
         let builder = Signer::random();
         let fee_recipient = Signer::random();
@@ -86,7 +113,10 @@ impl TestChainState {
         let mev_test_address = Address::random();
         let dummy_test_address = Address::random();
         let test_contracts = TestContracts::load();
-        let (mev_test_hash, mev_test_code) = test_contracts.mev_test();
+
+        let mut contracts = extra_contracts;
+        contracts.push(test_contracts.mev_test(mev_test_address));
+
         let genesis_header = chain_spec.sealed_genesis_header();
         let provider_factory = create_test_provider_factory();
         {
@@ -120,22 +150,37 @@ impl TestChainState {
                         },
                     )?;
                 }
+                // Failed to map user_addresses and chain it with balances_to_increase :(
+                for (address, balance) in balances_to_increase {
+                    cursor.upsert(
+                        address,
+                        Account {
+                            nonce: 0,
+                            balance: U256::from(balance),
+                            bytecode_hash: None,
+                        },
+                    )?;
+                }
 
-                cursor.upsert(
-                    mev_test_address,
-                    Account {
-                        nonce: 0,
-                        balance: U256::ZERO,
-                        bytecode_hash: Some(mev_test_hash),
-                    },
-                )?;
+                for contract in &contracts {
+                    cursor.upsert(
+                        contract.address,
+                        Account {
+                            nonce: 0,
+                            balance: U256::ZERO,
+                            bytecode_hash: Some(contract.code_hash),
+                        },
+                    )?;
+                }
             }
             {
                 let mut cursor = provider
                     .tx_ref()
                     .cursor_write::<tables::Bytecodes>()
                     .unwrap();
-                cursor.upsert(mev_test_hash, Bytecode::new_raw(mev_test_code))?;
+                for contract in &contracts {
+                    cursor.upsert(contract.code_hash, Bytecode::new_raw(contract.code.clone()))?;
+                }
             }
             provider.commit()?;
         }
@@ -170,10 +215,9 @@ impl TestChainState {
             gas_limit: args.gas_limit,
             max_fee_per_gas: args.max_fee_per_gas,
             max_priority_fee_per_gas: args.max_priority_fee,
-            to: match args.to {
-                Some(named_addr) => TransactionKind::Call(self.named_address(named_addr)?),
-                None => TransactionKind::Create,
-            },
+            to: TransactionKind::Call(
+                self.named_address(args.to.ok_or_else(|| eyre::eyre!("missing to address"))?)?,
+            ),
             value: U256::from(args.value),
             access_list: Default::default(),
             input: args.input.into(),
@@ -390,35 +434,6 @@ impl TxArgs {
             .value(value)
     }
 
-    /// This transaction for test purpose only, it reads balance of addr and the contract
-    pub fn new_test_read_balance(from: NamedAddr, nonce: u64, addr: Address, value: u64) -> Self {
-        Self::new(from, nonce)
-            .to(NamedAddr::MevTest)
-            .input(
-                [
-                    (*TEST_READ_BALANCE).into(),
-                    B256::left_padding_from(addr.as_slice()).to_vec(),
-                ]
-                .concat(),
-            )
-            .value(value)
-    }
-
-    /// This transaction for test purpose only, it deploys a contract and let it selfdestruct within the tx.
-    pub fn new_test_ephemeral_contract_destruct(
-        from: NamedAddr,
-        nonce: u64,
-        refund_addr: Address,
-    ) -> Self {
-        Self::new(from, nonce).to(NamedAddr::MevTest).input(
-            [
-                (*TEST_EPHEMERAL_CONTRACT_DESTRUCT).into(),
-                B256::left_padding_from(refund_addr.as_slice()).to_vec(),
-            ]
-            .concat(),
-        )
-    }
-
     pub fn to(self, to: NamedAddr) -> Self {
         Self {
             to: Some(to),
@@ -461,12 +476,9 @@ impl TxArgs {
 static TEST_CONTRACTS: &str = include_str!("./contracts.json");
 
 #[derive(Debug, serde::Deserialize)]
-pub struct TestContracts {
+struct TestContracts {
     #[serde(rename = "MevTest")]
     mev_test: Bytes,
-
-    #[serde(rename = "MevTestInitBytecode")]
-    pub mev_test_init_bytecode: Bytes,
 }
 
 fn selector(func_signature: &str) -> [u8; 4] {
@@ -479,18 +491,14 @@ lazy_static! {
     static ref SENT_TO_SELECTOR: [u8; 4] = selector("sendTo(address)");
     static ref SEND_TO_COINBASE_SELECTOR: [u8; 4] = selector("sendToCoinbase()");
     static ref REVERT_SELECTOR: [u8; 4] = selector("revert()");
-    static ref TEST_READ_BALANCE: [u8; 4] = selector("testReadBalance(address)");
-    static ref TEST_EPHEMERAL_CONTRACT_DESTRUCT: [u8; 4] =
-        selector("testEphemeralContractDestruct(address)");
 }
 
 impl TestContracts {
-    pub fn load() -> Self {
+    fn load() -> Self {
         serde_json::from_str(TEST_CONTRACTS).expect("failed to load test contracts")
     }
 
-    fn mev_test(&self) -> (B256, Bytes) {
-        let hash = keccak256(&self.mev_test);
-        (hash, self.mev_test.clone())
+    fn mev_test(&self, address: Address) -> ContractData {
+        ContractData::new(&self.mev_test, address)
     }
 }
