@@ -175,12 +175,9 @@ impl L1Config {
     pub fn create_relays(&self) -> eyre::Result<Vec<MevBoostRelay>> {
         let mut relay_configs = DEFAULT_RELAYS.clone();
 
-        // Update or add new relay configs from user configuration
+        // Update relay configs from user configuration - replace if found
         for relay in self.relays.clone() {
-            relay_configs
-                .entry(relay.name.clone())
-                .and_modify(|default| *default = default.clone() | relay.clone())
-                .or_insert(relay);
+            relay_configs.insert(relay.name.clone(), relay);
         }
 
         // For backwards compatibility: add all user-configured relays to enabled_relays
@@ -633,10 +630,8 @@ lazy_static! {
             "flashbots".to_string(),
             RelayConfig {
                 name: "flashbots".to_string(),
-                url: Some(
-                    "http://k8s-default-boostrel-9f278153f5-947835446.us-east-2.elb.amazonaws.com"
-                        .to_string(),
-                ),
+                url: "http://k8s-default-boostrel-9f278153f5-947835446.us-east-2.elb.amazonaws.com"
+                    .to_string(),
                 use_ssz_for_submit: true,
                 use_gzip_for_submit: false,
                 priority: 0,
@@ -651,7 +646,7 @@ lazy_static! {
             "ultrasound-us".to_string(),
             RelayConfig {
                 name: "ultrasound-us".to_string(),
-                url: Some("https://relay-builders-us.ultrasound.money".to_string()),
+                url: "https://relay-builders-us.ultrasound.money".to_string(),
                 use_ssz_for_submit: true,
                 use_gzip_for_submit: true,
                 priority: 0,
@@ -666,7 +661,7 @@ lazy_static! {
             "ultrasound-eu".to_string(),
             RelayConfig {
                 name: "ultrasound-eu".to_string(),
-                url: Some("https://relay-builders-eu.ultrasound.money".to_string()),
+                url: "https://relay-builders-eu.ultrasound.money".to_string(),
                 use_ssz_for_submit: true,
                 use_gzip_for_submit: true,
                 priority: 0,
@@ -681,7 +676,7 @@ lazy_static! {
             "agnostic".to_string(),
             RelayConfig {
                 name: "agnostic".to_string(),
-                url: Some("https://0xa7ab7a996c8584251c8f925da3170bdfd6ebc75d50f5ddc4050a6fdc77f2a3b5fce2cc750d0865e05d7228af97d69561@agnostic-relay.net".to_string()),
+                url: "https://0xa7ab7a996c8584251c8f925da3170bdfd6ebc75d50f5ddc4050a6fdc77f2a3b5fce2cc750d0865e05d7228af97d69561@agnostic-relay.net".to_string(),
                 use_ssz_for_submit: true,
                 use_gzip_for_submit: true,
                 priority: 0,
@@ -696,7 +691,7 @@ lazy_static! {
             "playground".to_string(),
             RelayConfig {
                 name: "playground".to_string(),
-                url: Some("http://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@localhost:5555".to_string()),
+                url: "http://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@localhost:5555".to_string(),
                 priority: 0,
                 use_ssz_for_submit: false,
                 use_gzip_for_submit: false,
