@@ -35,9 +35,6 @@ struct ExtraCfg {
     sim_landed_block: bool,
     #[clap(long, help = "Show missing block txs")]
     show_missing: bool,
-    #[clap(long, help = "don't build block")]
-    #[clap(help = "Block Number")]
-    block: u64,
     #[clap(long, help = "use only this orders")]
     only_order_ids: Vec<String>,
     #[clap(
@@ -47,6 +44,8 @@ struct ExtraCfg {
         allow_hyphen_values = true
     )]
     block_building_time_ms: i64,
+    #[clap(help = "Block Number")]
+    block: u64,
 }
 
 #[derive(Parser, Debug)]
