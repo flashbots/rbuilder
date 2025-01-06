@@ -275,7 +275,7 @@ where
         }
 
         // Convert the transaction to a [TransactionSignedEcRecovered]. This is
-        // purely for the purposes of utilizing the `evm_config.tx_env`` function.
+        // purely for the purposes of utilizing the `evm_config.tx_env` function.
         // Deposit transactions do not have signatures, so if the tx is a deposit, this
         // will just pull in its `from` address.
         let sequencer_tx = sequencer_tx
@@ -417,7 +417,7 @@ where
                     }
                     err => {
                         // this is an error that we should treat as fatal for this attempt
-                        error!("rbuilder provided where an error occured!");
+                        error!("rbuilder provided where an error occurred!");
                         return Err(PayloadBuilderError::EvmExecutionError(err));
                     }
                 }
