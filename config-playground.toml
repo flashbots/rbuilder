@@ -1,5 +1,6 @@
 
 chain = "$HOME/.playground/devnet/genesis.json"
 reth_datadir = "$HOME/.playground/devnet/data_reth"
+el_node_ipc_path = "$HOME/.playground/devnet/reth.ipc"
 coinbase_secret_key = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 enabled_relays = ["playground"]
