@@ -1,0 +1,69 @@
+[package]
+name = "op-rbuilder-vanilla"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+reth.workspace = true
+reth-optimism-node.workspace = true
+reth-optimism-cli.workspace = true
+reth-optimism-chainspec.workspace = true
+reth-optimism-payload-builder.workspace = true
+reth-optimism-evm.workspace = true
+reth-cli-util.workspace = true
+reth-chainspec.workspace = true
+reth-primitives.workspace = true
+reth-node-api.workspace = true
+reth-basic-payload-builder.workspace = true
+reth-payload-builder.workspace = true
+reth-node-ethereum.workspace = true
+reth-ethereum-payload-builder.workspace = true
+alloy-primitives.workspace = true
+
+alloy-eips.workspace = true
+
+tracing.workspace = true
+futures-util = "0.3.31"
+eyre.workspace = true
+
+tokio.workspace = true
+jsonrpsee = { workspace = true }
+async-trait = { workspace = true }
+clap_builder = { workspace = true }
+clap.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+tikv-jemallocator = { version = "0.6", optional = true }
+
+[dev-dependencies]
+reth-discv4.workspace = true
+
+[features]
+default = ["jemalloc"]
+
+jemalloc = [
+	"dep:tikv-jemallocator",
+	"reth-cli-util/jemalloc",
+	"reth-optimism-cli/jemalloc"
+]
+jemalloc-prof = [
+	"jemalloc",
+	"tikv-jemallocator?/profiling",
+	"reth/jemalloc-prof",
+	"reth-cli-util/jemalloc-prof"
+]
+
+min-error-logs = ["tracing/release_max_level_error"]
+min-warn-logs = ["tracing/release_max_level_warn"]
+min-info-logs = ["tracing/release_max_level_info"]
+min-debug-logs = ["tracing/release_max_level_debug"]
+min-trace-logs = ["tracing/release_max_level_trace"]
+
+optimism = [
+	"reth-optimism-node/optimism",
+	"reth-optimism-cli/optimism"
+]
+
+[[bin]]
+name = "op-rbuilder-vanilla"
+path = "src/main.rs"
