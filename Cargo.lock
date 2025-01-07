@@ -6460,7 +6460,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "op-rbuilder-vanilla"
+name = "op-rbuilder2"
 version = "0.1.0"
 dependencies = [
  "alloy-consensus",
