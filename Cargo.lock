@@ -6458,6 +6458,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "op-rbuilder-vanilla"
+version = "0.1.0"
+dependencies = [
+ "alloy-consensus",
+ "alloy-eips",
+ "alloy-primitives 0.8.12",
+ "async-trait",
+ "clap 4.5.21",
+ "clap_builder",
+ "eyre",
+ "futures-util",
+ "jsonrpsee 0.24.7",
+ "reth",
+ "reth-basic-payload-builder",
+ "reth-chainspec",
+ "reth-cli-util",
+ "reth-discv4",
+ "reth-ethereum-payload-builder",
+ "reth-evm",
+ "reth-node-api",
+ "reth-node-ethereum",
+ "reth-optimism-chainspec",
+ "reth-optimism-cli",
+ "reth-optimism-evm",
+ "reth-optimism-node",
+ "reth-optimism-payload-builder",
+ "reth-payload-builder",
+ "reth-payload-primitives",
+ "reth-primitives",
+ "reth-provider",
+ "tikv-jemallocator",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "opaque-debug"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
