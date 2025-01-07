@@ -90,7 +90,6 @@ where
 
     let provider_factory = config.base_config().create_provider_factory()?;
     let chain_spec = config.base_config().chain_spec()?;
-    let sbundle_mergeabe_signers = config.base_config().sbundle_mergeabe_signers();
 
     if cli.sim_landed_block {
         let tx_sim_results = sim_historical_block(
@@ -109,6 +108,7 @@ where
         chain_spec.clone(),
         cli.block_building_time_ms,
         config.base_config().blocklist()?,
+        &config.base_config().sbundle_mergeable_signers(),
         config.base_config().coinbase_signer()?,
     )?;
 
@@ -124,7 +124,6 @@ where
                 let input = BacktestSimulateBlockInput {
                     ctx: ctx.clone(),
                     builder_name: builder_name.clone(),
-                    sbundle_mergeabe_signers: sbundle_mergeabe_signers.clone(),
                     sim_orders: &sim_orders,
                     provider: provider_factory.clone(),
                     cached_reads: None,
@@ -300,15 +299,11 @@ fn print_simulated_orders(
             timestamp_ms_to_slot_time(order_timestamp, timestamp_as_u64(&block_data.onchain_block));
 
         println!(
-            "{:>74} slot_time_ms: {:>8}, gas: {:>8} profit: {}, parent: {}",
+            "{:>74} slot_time_ms: {:>8}, gas: {:>8} profit: {}",
             order.order.id().to_string(),
             slot_time_ms,
             order.sim_value.gas_used,
             format_ether(order.sim_value.coinbase_profit),
-            order
-                .prev_order
-                .map(|prev_order| prev_order.to_string())
-                .unwrap_or_else(String::new)
         );
     }
     println!();

@@ -34,26 +34,9 @@ max_concurrent_seals = 4
 sbundle_mergeable_signers = []
 live_builders = ["mp-ordering", "mgp-ordering", "merging"]
 
-enabled_relays = ["flashbots"]
+enabled_relays = ["playground"]
 
-[[builders]]
-name = "mgp-ordering"
-algo = "ordering-builder"
-discard_txs = true
-sorting = "mev-gas-price"
-failed_order_retries = 1
-drop_failed_orders = true
-
-[[builders]]
-name = "mp-ordering"
-algo = "ordering-builder"
-discard_txs = true
-sorting = "max-profit"
-failed_order_retries = 1
-drop_failed_orders = true
-
-[[builders]]
-name = "parallel"
-algo = "parallel-builder"
-discard_txs = true
-num_threads = 25
+[[relays]]
+name = "playground"
+url = "http://example.com"
+priority = 10

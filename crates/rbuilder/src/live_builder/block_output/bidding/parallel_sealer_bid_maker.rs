@@ -121,6 +121,7 @@ impl ParallelSealerBidMakerProcess {
             let payout_tx_val = bid.payout_tx_value();
             let block = bid.block();
             let block_number = block.building_context().block();
+            let builder_name = block.builder_name().to_string();
             // Take sealing "slot"
             *self.seal_control.seals_in_progress.lock() += 1;
             let seal_control = self.seal_control.clone();
@@ -129,6 +130,7 @@ impl ParallelSealerBidMakerProcess {
                 match block.finalize_block(payout_tx_val) {
                     Ok(res) => sink.new_block(res.block),
                     Err(error) => error!(
+                        builder_name,
                         block_number,
                         ?error,
                         "Error on finalize_block on ParallelSealerBidMaker"

@@ -1,4 +1,5 @@
 use crate::generator::{BlockCell, PayloadBuilder};
+use alloy_consensus::Header;
 use clap::Parser;
 use generator::EmptyBlockPayloadJobGenerator;
 use reth::{
@@ -20,12 +21,13 @@ use reth_node_api::NodeTypesWithEngine;
 use reth_optimism_chainspec::OpChainSpec;
 use reth_optimism_cli::{chainspec::OpChainSpecParser, Cli};
 use reth_optimism_evm::OpEvmConfig;
+use reth_optimism_node::args::RollupArgs;
+use reth_optimism_node::node::OpAddOns;
 use reth_optimism_node::OpEngineTypes;
-use reth_optimism_node::{args::RollupArgs, node::OptimismAddOns, OptimismNode};
+use reth_optimism_node::OpNode;
 use reth_optimism_node::{OpBuiltPayload, OpPayloadBuilderAttributes};
 use reth_payload_builder::PayloadBuilderError;
 use reth_payload_builder::PayloadBuilderService;
-use reth_primitives::Header;
 use reth_provider::StateProviderFactory;
 
 pub mod generator;
@@ -83,11 +85,11 @@ fn main() {
                         .with_persistence_threshold(rollup_args.persistence_threshold)
                         .with_memory_block_buffer_target(rollup_args.memory_block_buffer_target);
                     let handle = builder
-                        .with_types_and_provider::<OptimismNode, BlockchainProvider2<_>>()
+                        .with_types_and_provider::<OpNode, BlockchainProvider2<_>>()
                         .with_components(
-                            OptimismNode::components(rollup_args).payload(CustomPayloadBuilder::default()),
+                            OpNode::components(rollup_args).payload(CustomPayloadBuilder::default()),
                         )
-                        .with_add_ons(OptimismAddOns::new(sequencer_http_arg))
+                        .with_add_ons(OpAddOns::new(sequencer_http_arg))
                         .launch_with_fn(|builder| {
                             let launcher = EngineNodeLauncher::new(
                                 builder.task_executor().clone(),
@@ -102,7 +104,7 @@ fn main() {
                 },
                 true => {
                     let handle =
-                        builder.node(OptimismNode::new(rollup_args.clone())).launch().await?;
+                        builder.node(OpNode::new(rollup_args.clone())).launch().await?;
 
                     handle.node_exit_future.await
                 },

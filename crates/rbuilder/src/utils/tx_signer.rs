@@ -1,4 +1,4 @@
-use alloy_primitives::{Address, Parity, Signature, B256, U256};
+use alloy_primitives::{Address, PrimitiveSignature as Signature, B256, U256};
 use reth_primitives::{
     public_key_to_address, Transaction, TransactionSigned, TransactionSignedEcRecovered,
 };
@@ -29,7 +29,7 @@ impl Signer {
         let signature = Signature::new(
             U256::try_from_be_slice(&data[..32]).expect("The slice has at most 32 bytes"),
             U256::try_from_be_slice(&data[32..64]).expect("The slice has at most 32 bytes"),
-            Parity::Parity(rec_id.to_i32() != 0),
+            rec_id.to_i32() != 0,
         );
         Ok(signature)
     }

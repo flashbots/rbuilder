@@ -4,7 +4,11 @@ use super::{
     ShareBundleInner, ShareBundleReplacementData, ShareBundleReplacementKey, ShareBundleTx,
     TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior,
 };
+use alloy_consensus::constants::EIP4844_TX_TYPE_ID;
+use alloy_eips::eip2718::Eip2718Error;
 use alloy_primitives::{Address, Bytes, B256, U64};
+use alloy_rlp::{Buf, Header};
+use reth_chainspec::MAINNET;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_with::serde_as;
 use thiserror::Error;
@@ -30,9 +34,41 @@ impl TxEncoding {
                 TransactionSignedEcRecoveredWithBlobs::decode_enveloped_with_fake_blobs(raw_tx)
             }
             TxEncoding::WithBlobData => {
-                TransactionSignedEcRecoveredWithBlobs::decode_enveloped_with_real_blobs(raw_tx)
+                let raw_tx_clone = raw_tx.clone(); // This clone is supposed to be cheap
+                let res =
+                    TransactionSignedEcRecoveredWithBlobs::decode_enveloped_with_real_blobs(raw_tx);
+                if let Err(RawTxWithBlobsConvertError::FailedToDecodeTransaction(
+                    Eip2718Error::RlpError(err),
+                )) = res
+                {
+                    if Self::looks_like_canonical_blob_tx(raw_tx_clone) {
+                        return Err(RawTxWithBlobsConvertError::FailedToDecodeTransactionProbablyIs4484Canonical(
+                            err,
+                        ));
+                    }
+                }
+                res
             }
         }
+    }
+
+    fn looks_like_canonical_blob_tx(raw_tx: Bytes) -> bool {
+        // For full check we could call TransactionSigned::decode_enveloped and fully try to decode it is way more expensive.
+        // We expect EIP4844_TX_TYPE_ID + rlp(chainId = 01,.....)
+        let mut tx_slice = raw_tx.as_ref();
+        if let Some(tx_type) = tx_slice.first() {
+            if *tx_type == EIP4844_TX_TYPE_ID {
+                tx_slice.advance(1);
+                if let Ok(outer_header) = Header::decode(&mut tx_slice) {
+                    if outer_header.list {
+                        if let Some(chain_id) = tx_slice.first() {
+                            return (*chain_id as u64) == MAINNET.chain().id();
+                        }
+                    }
+                }
+            }
+        }
+        false
     }
 }
 
@@ -317,7 +353,7 @@ impl RawShareBundle {
                 None
             };
 
-        if self.metadata.as_ref().map_or(false, |r| r.cancelled) {
+        if self.metadata.as_ref().is_some_and(|r| r.cancelled) {
             return Ok(RawShareBundleDecodeResult::CancelShareBundle(
                 CancelShareBundle {
                     block,
@@ -555,6 +591,7 @@ mod tests {
     use alloy_consensus::Transaction;
     use alloy_eips::eip2718::Encodable2718;
     use alloy_primitives::{address, fixed_bytes, keccak256, U256};
+    use revm_primitives::bytes;
     use uuid::uuid;
 
     #[test]
@@ -949,5 +986,18 @@ mod tests {
         let raw_order: RawOrder =
             serde_json::from_str(raw_tx_json).expect("failed to decode raw order with tx");
         assert!(matches!(raw_order, RawOrder::Tx(_)));
+    }
+
+    /// We decode a 4484 Tx in canonical format using WithBlobData which is for network format.
+    /// We expect the specific error FailedToDecodeTransactionProbablyIs4484Canonical.
+    #[test]
+    fn test_correct_mixed_blob_mode_decoding() {
+        let raw_tx =  bytes!("03f9021b01829f1084db518e44850efef5c902830249f09406a9ab27c7e2255df1815e6cc0168d7755feb19a80b90184648885fb000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000001600000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000066cc9a0eb519e9e1de68f6cf0aa1aa1efe3723d50000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001efcf00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000c0843b9aca00e1a00154404fdaef0e93e6a4df6aa099f66fc4f90267b3ef5bb6ac4d3f77a456ae5180a01367ff3e4598620be9424d5be0deafe5b3d3b7221c5f5c3d9fade0f545b19890a0026cd9941cd2aa4df41d5d36aa2e82a671c3226f2924cb206363a9458f38b8f6");
+        let raw_tx_order = RawTx { tx: raw_tx };
+        let tx_res = raw_tx_order.decode(TxEncoding::WithBlobData);
+        assert!(matches!(
+            tx_res,
+            Err(RawTxWithBlobsConvertError::FailedToDecodeTransactionProbablyIs4484Canonical(_))
+        ));
     }
 }

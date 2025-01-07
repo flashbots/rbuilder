@@ -214,7 +214,6 @@ impl TestSetup {
         let sim_order = SimulatedOrder {
             order: self.order_builder.build_order(),
             sim_value: Default::default(),
-            prev_order: Default::default(),
             used_state_trace: Default::default(),
         };
 

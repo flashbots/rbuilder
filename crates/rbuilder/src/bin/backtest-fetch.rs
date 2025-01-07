@@ -4,7 +4,7 @@
 use alloy_primitives::utils::format_ether;
 use clap::Parser;
 use rbuilder::{
-    backtest::{HistoricalDataFetcher, HistoricalDataStorage},
+    backtest::{fetch::flashbots_db::RelayDB, HistoricalDataFetcher, HistoricalDataStorage},
     live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig, config::Config},
 };
 use std::{ffi::OsString, fs, path::PathBuf};
@@ -62,7 +62,12 @@ async fn main() -> eyre::Result<()> {
             let backtest_fetch_mempool_data_dir =
                 config.base_config().backtest_fetch_mempool_data_dir()?;
 
-            let db = config.base_config().flashbots_db().await?;
+            let db = if let Some(db) = config.base_config().flashbots_db.clone() {
+                Some(RelayDB::from_url(db.value()?).await?)
+            } else {
+                None
+            };
+
             let provider = config.base_config().eth_rpc_provider()?;
             let fetcher = HistoricalDataFetcher::new(
                 provider,

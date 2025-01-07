@@ -3,7 +3,7 @@ use super::{
     SubmitBlockRequest,
 };
 use crate::utils::u256decimal_serde_helper;
-use alloy_eips::eip2718::Encodable2718;
+use alloy_eips::{eip2718::Encodable2718, eip4844::BlobTransactionSidecar};
 use alloy_primitives::{Address, BlockHash, Bytes, FixedBytes, B256, U256};
 use alloy_rpc_types_beacon::{
     events::PayloadAttributesData,
@@ -22,7 +22,7 @@ use ethereum_consensus::{
 };
 use primitive_types::H384;
 use reth_chainspec::{ChainSpec, EthereumHardforks};
-use reth_primitives::{BlobTransactionSidecar, SealedBlock};
+use reth_primitives::SealedBlock;
 use serde_with::{serde_as, DisplayFromStr};
 use std::sync::Arc;
 
@@ -36,6 +36,12 @@ pub struct BLSBlockSigner {
 impl BLSBlockSigner {
     pub fn new(sec: SecretKey, domain: B256) -> eyre::Result<Self> {
         Ok(Self { sec, domain })
+    }
+
+    pub fn from_string(secret_key: String, domain: B256) -> eyre::Result<Self> {
+        let secret_key = SecretKey::try_from(secret_key)
+            .map_err(|e| eyre::eyre!("Failed to parse key: {:?}", e.to_string()))?;
+        Self::new(secret_key, domain)
     }
 
     pub fn sign_payload(&self, bid_trace: &BidTrace) -> eyre::Result<Vec<u8>> {

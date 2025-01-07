@@ -429,14 +429,12 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
     fork: &mut PartialBlockFork<'_, '_, Tracer>,
 ) -> Result<OrderSimResult, CriticalCommitOrderError> {
     // simulate parents
-    let mut prev_order = None;
     let mut gas_used = 0;
     let mut blob_gas_used = 0;
     for parent in parent_orders {
         let result = fork.commit_order(&parent, ctx, gas_used, 0, blob_gas_used, true)?;
         match result {
             Ok(res) => {
-                prev_order = Some(parent.id());
                 gas_used += res.gas_used;
                 blob_gas_used += res.blob_gas_used;
             }
@@ -466,7 +464,6 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
                 SimulatedOrder {
                     order,
                     sim_value,
-                    prev_order,
                     used_state_trace: res.used_state_trace,
                 },
                 new_nonces,

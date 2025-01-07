@@ -8,7 +8,7 @@ use crate::{
     },
     live_builder::order_input::orderpool::OrdersForBlock,
     primitives::{OrderId, SimulatedOrder},
-    utils::gen_uid,
+    utils::{gen_uid, Signer},
 };
 use ahash::HashMap;
 use parking_lot::Mutex;
@@ -106,6 +106,15 @@ where
         block_cancellation: CancellationToken,
     ) -> SlotOrderSimResults {
         let (slot_sim_results_sender, slot_sim_results_receiver) = mpsc::channel(10_000);
+
+        let ctx = {
+            // use random coinbase for simulations to make top of the block simulation bypass harder
+            let mut ctx = ctx;
+            let signer = Signer::random();
+            ctx.block_env.coinbase = signer.address;
+            ctx.builder_signer = Some(signer);
+            ctx
+        };
 
         let provider = self.provider.clone();
         let current_contexts = Arc::clone(&self.current_contexts);

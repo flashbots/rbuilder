@@ -5,25 +5,26 @@ pub mod ordering_builder;
 pub mod parallel_builder;
 
 use crate::{
-    building::{BlockBuildingContext, BlockOrders, BuiltBlockTrace, SimulatedOrderSink, Sorting},
+    building::{BlockBuildingContext, BuiltBlockTrace, SimulatedOrderSink, Sorting},
     live_builder::{payload_events::MevBoostSlotData, simulation::SimulatedOrderCommand},
     primitives::{AccountNonce, OrderId, SimulatedOrder},
     roothash::RootHashConfig,
     utils::{is_provider_factory_health_error, NonceCache},
 };
 use ahash::HashSet;
+use alloy_eips::eip4844::BlobTransactionSidecar;
 use alloy_primitives::{Address, Bytes, B256};
 use block_building_helper::BlockBuildingHelper;
-use reth::{
-    primitives::{BlobTransactionSidecar, SealedBlock},
-    revm::cached::CachedReads,
-};
+use reth::{primitives::SealedBlock, revm::cached::CachedReads};
 use reth_db::Database;
+use reth_errors::ProviderError;
 use reth_provider::{DatabaseProviderFactory, StateProviderFactory};
 use std::{fmt::Debug, marker::PhantomData, sync::Arc};
 use tokio::sync::{broadcast, broadcast::error::TryRecvError};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
+
+use super::{simulated_order_command_to_sink, PrioritizedOrderStore};
 
 /// Block we built
 #[derive(Debug, Clone)]
@@ -46,7 +47,6 @@ pub struct LiveBuilderInput<P, DB> {
     pub sink: Arc<dyn UnfinishedBlockBuildingSink>,
     pub builder_name: String,
     pub cancel: CancellationToken,
-    pub sbundle_mergeabe_signers: Vec<Address>,
     phantom: PhantomData<DB>,
 }
 
@@ -97,12 +97,7 @@ impl OrderConsumer {
     // Apply insertions and sbundle cancellations on sink
     pub fn apply_new_commands<SinkType: SimulatedOrderSink>(&mut self, sink: &mut SinkType) {
         for order_command in self.new_commands.drain(..) {
-            match order_command {
-                SimulatedOrderCommand::Simulation(sim_order) => sink.insert_order(sim_order),
-                SimulatedOrderCommand::Cancellation(id) => {
-                    let _ = sink.remove_order(id);
-                }
-            };
+            simulated_order_command_to_sink(order_command, sink);
         }
     }
 }
@@ -111,7 +106,7 @@ impl OrderConsumer {
 pub struct OrderIntakeConsumer<P> {
     nonce_cache: NonceCache<P>,
 
-    block_orders: BlockOrders,
+    block_orders: PrioritizedOrderStore,
     onchain_nonces_updated: HashSet<Address>,
 
     order_consumer: OrderConsumer,
@@ -127,13 +122,12 @@ where
         orders: broadcast::Receiver<SimulatedOrderCommand>,
         parent_block: B256,
         sorting: Sorting,
-        sbundle_merger_selected_signers: &[Address],
     ) -> Self {
         let nonce_cache = NonceCache::new(provider, parent_block);
 
         Self {
             nonce_cache,
-            block_orders: BlockOrders::new(sorting, vec![], sbundle_merger_selected_signers),
+            block_orders: PrioritizedOrderStore::new(sorting, vec![]),
             onchain_nonces_updated: HashSet::default(),
             order_consumer: OrderConsumer::new(orders),
         }
@@ -144,7 +138,9 @@ where
         if !self.order_consumer.consume_next_commands()? {
             return Ok(false);
         }
-        self.update_onchain_nonces()?;
+        if !self.update_onchain_nonces()? {
+            return Ok(false);
+        }
 
         self.order_consumer
             .apply_new_commands(&mut self.block_orders);
@@ -161,7 +157,11 @@ where
                 SimulatedOrderCommand::Simulation(sim_order) => Some(sim_order),
                 SimulatedOrderCommand::Cancellation(_) => None,
             });
-        let nonce_db_ref = self.nonce_cache.get_ref()?;
+        let nonce_db_ref = match self.nonce_cache.get_ref() {
+            Ok(nonce_db_ref) => nonce_db_ref,
+            Err(ProviderError::BlockHashNotFound(_)) => return Ok(false), // This can happen on reorgs since the block is removed
+            Err(err) => return Err(err.into()),
+        };
         let mut nonces = Vec::new();
         for new_order in new_orders {
             for nonce in new_order.order.nonces() {
@@ -180,7 +180,7 @@ where
         Ok(true)
     }
 
-    pub fn current_block_orders(&self) -> BlockOrders {
+    pub fn current_block_orders(&self) -> PrioritizedOrderStore {
         self.block_orders.clone()
     }
 
@@ -238,7 +238,6 @@ pub trait UnfinishedBlockBuildingSinkFactory: Debug + Send + Sync {
 pub struct BacktestSimulateBlockInput<'a, P> {
     pub ctx: BlockBuildingContext,
     pub builder_name: String,
-    pub sbundle_mergeabe_signers: Vec<Address>,
     pub sim_orders: &'a Vec<SimulatedOrder>,
     pub provider: P,
     pub cached_reads: Option<CachedReads>,

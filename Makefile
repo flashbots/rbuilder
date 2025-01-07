@@ -56,8 +56,7 @@ fmt: ## Format the code
 
 .PHONY: bench
 bench: ## Run benchmarks
-	cargo bench --features "$(FEATURES)" --bench bench_main
-#	 cargo bench --bench bench_main -- --verbose
+	cargo bench --features "$(FEATURES)" --workspace
 
 .PHONY: bench-report-open
 bench-report-open: ## Open last benchmark report in the browser
@@ -79,3 +78,8 @@ bench-prettify: ## Prettifies the latest Criterion report
 	./scripts/ci/criterion-prettify-report.sh target/criterion target/benchmark-html-dev
 	@echo "\nopen target/benchmark-html-dev/report/index.html"
 
+.PHONY: validate-config
+validate-config: ## Validate the correctness of the configuration files
+	@for CONFIG in $(shell ls config-*.toml); do \
+		cargo run --bin validate-config -- --config $$CONFIG; \
+	done

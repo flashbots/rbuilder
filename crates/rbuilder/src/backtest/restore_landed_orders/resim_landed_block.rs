@@ -40,7 +40,7 @@ where
     let txs = extract_onchain_block_txs(&onchain_block)?;
 
     let suggested_fee_recipient = find_suggested_fee_recipient(&onchain_block, &txs);
-    let coinbase = onchain_block.header.miner;
+    let coinbase = onchain_block.header.beneficiary;
 
     let ctx = BlockBuildingContext::from_onchain_block(
         onchain_block,

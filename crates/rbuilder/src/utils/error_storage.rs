@@ -83,10 +83,10 @@ pub fn store_error_event<T: serde::Serialize>(category: &str, error: &str, paylo
                 return;
             }
         };
-        if payload_json.as_bytes().len() > MAX_PAYLOAD_SIZE_BYTES {
+        if payload_json.len() > MAX_PAYLOAD_SIZE_BYTES {
             error!(
                 "Error payload is too large, not storing error event. Payload size: {}",
-                payload_json.as_bytes().len()
+                payload_json.len()
             );
             return;
         }

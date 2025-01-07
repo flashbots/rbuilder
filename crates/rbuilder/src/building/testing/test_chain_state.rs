@@ -1,5 +1,5 @@
 use ahash::HashSet;
-use alloy_consensus::TxEip1559;
+use alloy_consensus::{Header, TxEip1559};
 use alloy_primitives::{
     keccak256, utils::parse_ether, Address, BlockHash, Bytes, TxKind as TransactionKind, B256, B64,
     U256,
@@ -7,7 +7,7 @@ use alloy_primitives::{
 use alloy_rpc_types_beacon::events::{PayloadAttributesData, PayloadAttributesEvent};
 use lazy_static::lazy_static;
 use reth::{
-    primitives::{Account, BlockBody, Bytecode, Header, SealedBlock, TransactionSignedEcRecovered},
+    primitives::{Account, BlockBody, Bytecode, SealedBlock, TransactionSignedEcRecovered},
     providers::ProviderFactory,
     rpc::types::{engine::PayloadAttributes, Withdrawal},
 };

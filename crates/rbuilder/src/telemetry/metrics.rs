@@ -5,6 +5,7 @@
 //!
 //! When metric server is spawned is serves prometheus metrics at: /debug/metrics/prometheus
 
+#![allow(unexpected_cfgs)]
 use crate::{
     building::ExecutionResult, primitives::mev_boost::MevBoostRelayID, utils::build_info::Version,
 };

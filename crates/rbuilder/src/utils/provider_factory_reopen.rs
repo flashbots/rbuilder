@@ -1,4 +1,5 @@
 use crate::telemetry::{inc_provider_bad_reopen_counter, inc_provider_reopen_counter};
+use alloy_consensus::Header;
 use alloy_eips::{BlockNumHash, BlockNumberOrTag};
 use alloy_primitives::{BlockHash, BlockNumber};
 use parking_lot::{Mutex, RwLock};
@@ -7,14 +8,18 @@ use reth_chainspec::ChainInfo;
 use reth_db::{Database, DatabaseError};
 use reth_errors::{ProviderError, ProviderResult, RethResult};
 use reth_node_api::NodeTypesWithDB;
-use reth_primitives::{Header, SealedHeader};
+use reth_primitives::SealedHeader;
 use reth_provider::{
     providers::{ProviderNodeTypes, StaticFileProvider},
     BlockIdReader, BlockNumReader, DatabaseProvider, DatabaseProviderFactory, DatabaseProviderRO,
     HeaderProvider, StateProviderBox, StateProviderFactory, StaticFileProviderFactory,
 };
 use revm_primitives::{B256, U256};
-use std::{ops::RangeBounds, path::PathBuf, sync::Arc};
+use std::{
+    ops::{DerefMut, RangeBounds},
+    path::PathBuf,
+    sync::Arc,
+};
 use tracing::debug;
 
 /// This struct is used as a workaround for https://github.com/paradigmxyz/reth/issues/7836
@@ -87,7 +92,7 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
         // Don't need to check consistency for the block that was just checked.
         let last_consistent_block = *self.last_consistent_block.read();
         if !self.testing_mode && last_consistent_block != Some(best_block_number) {
-            match check_provider_factory_health(best_block_number, &provider_factory) {
+            match check_block_hash_reader_health(best_block_number, provider_factory.deref_mut()) {
                 Ok(()) => {}
                 Err(err) => {
                     debug!(?err, "Provider factory is inconsistent, reopening");
@@ -102,7 +107,7 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
                 }
             }
 
-            match check_provider_factory_health(best_block_number, &provider_factory) {
+            match check_block_hash_reader_health(best_block_number, provider_factory.deref_mut()) {
                 Ok(()) => {}
                 Err(err) => {
                     inc_provider_bad_reopen_counter();
@@ -127,23 +132,34 @@ pub fn is_provider_factory_health_error(report: &eyre::Error) -> bool {
         .contains("Missing historical block hash for block")
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum HistoricalBlockError {
+    #[error("ProviderError while checking block hashes: {0}")]
+    ProviderError(#[from] ProviderError),
+    #[error("Missing historical block hash for block {missing_hash_block}, latest block: {latest_block}")]
+    MissingHash {
+        missing_hash_block: u64,
+        latest_block: u64,
+    },
+}
+
 /// Here we check if we have all the necessary historical block hashes in the database
 /// This was added as a debugging method because static_files storage was not working correctly
-pub fn check_provider_factory_health<N: NodeTypesWithDB + ProviderNodeTypes>(
-    current_block_number: u64,
-    provider_factory: &ProviderFactory<N>,
-) -> eyre::Result<()> {
+/// last_block_number is the number of the latest committed block (i.e. if we build block 1001 it should be 1000)
+pub fn check_block_hash_reader_health<R: BlockHashReader>(
+    last_block_number: u64,
+    reader: &R,
+) -> Result<(), HistoricalBlockError> {
     // evm must have access to block hashes of 256 of the previous blocks
-    let blocks_to_check = current_block_number.min(256);
-    for i in 1..=blocks_to_check {
-        let num = current_block_number - i;
-        let hash = provider_factory.block_hash(num)?;
+    let blocks_to_check = last_block_number.min(256);
+    for i in 0..blocks_to_check {
+        let num = last_block_number - i;
+        let hash = reader.block_hash(num)?;
         if hash.is_none() {
-            eyre::bail!(
-                "Missing historical block hash for block {}, current block: {}",
-                num,
-                current_block_number
-            );
+            return Err(HistoricalBlockError::MissingHash {
+                missing_hash_block: num,
+                latest_block: last_block_number,
+            });
         }
     }
 
