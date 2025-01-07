@@ -6,7 +6,6 @@ use reth_db::Database;
 use reth_provider::{BlockReader, DatabaseProviderFactory, HeaderProvider, StateProviderFactory};
 use serde::de::DeserializeOwned;
 use std::fmt::Debug;
-use sysperf::{format_results, gather_system_info, run_all_benchmarks};
 use tokio::signal::ctrl_c;
 use tokio_util::sync::CancellationToken;
 
@@ -16,7 +15,7 @@ use crate::{
         base_config::load_config_toml_and_env, payload_events::MevBoostSlotDataGenerator,
     },
     telemetry,
-    utils::{bls::generate_random_bls_address, build_info::Version},
+    utils::build_info::Version,
 };
 
 use super::{base_config::BaseConfig, LiveBuilder};
@@ -29,13 +28,6 @@ enum Cli {
     Config(RunCmd),
     #[clap(name = "version", about = "Print version information")]
     Version,
-    #[clap(
-        name = "sysperf",
-        about = "Run system performance benchmarks (CPU, disk, memory)"
-    )]
-    SysPerf,
-    #[clap(name = "gen-bls", about = "Generate a BLS signature")]
-    GenBls,
 }
 
 #[derive(Parser, Debug)]
@@ -98,19 +90,6 @@ where
         }
         Cli::Version => {
             print_version_info();
-            return Ok(());
-        }
-        Cli::SysPerf => {
-            let result =
-                run_all_benchmarks(&PathBuf::from("/tmp/benchmark_test.tmp"), 100, 100, 1000)?;
-
-            let sysinfo = gather_system_info();
-            println!("{}", format_results(&result, &sysinfo));
-            return Ok(());
-        }
-        Cli::GenBls => {
-            let address = generate_random_bls_address();
-            println!("0x{}", address);
             return Ok(());
         }
     };

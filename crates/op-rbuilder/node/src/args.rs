@@ -60,10 +60,6 @@ pub struct OpRbuilderArgs {
     /// Configure the target number of blocks to keep in memory.
     #[arg(long = "engine.memory-block-buffer-target", conflicts_with = "legacy", default_value_t = DEFAULT_MEMORY_BLOCK_BUFFER_TARGET)]
     pub memory_block_buffer_target: u64,
-
-    /// Enable the engine2 experimental features on op-reth binary
-    #[arg(long = "rbuilder.config")]
-    pub rbuilder_config_path: PathBuf,
 }
 
 #[cfg(test)]

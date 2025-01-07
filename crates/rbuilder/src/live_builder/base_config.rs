@@ -11,6 +11,7 @@ use ahash::HashSet;
 use alloy_primitives::{Address, B256};
 use eyre::{eyre, Context};
 use jsonrpsee::RpcModule;
+use lazy_static::lazy_static;
 use reth::chainspec::chain_value_parser;
 use reth_chainspec::ChainSpec;
 use reth_db::{Database, DatabaseEnv};
@@ -22,6 +23,7 @@ use reth_provider::{
 };
 use serde::{Deserialize, Deserializer};
 use serde_with::{serde_as, DeserializeAs};
+use sqlx::PgPool;
 use std::{
     env::var,
     fs::read_to_string,
@@ -32,7 +34,7 @@ use std::{
     time::Duration,
 };
 use tokio::sync::mpsc;
-use tracing::{error, warn};
+use tracing::warn;
 
 use super::SlotSource;
 
@@ -47,13 +49,9 @@ const ENV_PREFIX: &str = "env:";
 #[serde(default, deny_unknown_fields)]
 pub struct BaseConfig {
     pub full_telemetry_server_port: u16,
-    #[serde(default = "default_ip")]
-    pub full_telemetry_server_ip: Ipv4Addr,
-
+    pub full_telemetry_server_ip: Option<String>,
     pub redacted_telemetry_server_port: u16,
-    #[serde(default = "default_ip")]
-    pub redacted_telemetry_server_ip: Ipv4Addr,
-
+    pub redacted_telemetry_server_ip: Option<String>,
     pub log_json: bool,
     log_level: EnvOrValue<String>,
     pub log_color: bool,
@@ -62,14 +60,13 @@ pub struct BaseConfig {
 
     pub error_storage_path: Option<PathBuf>,
 
-    coinbase_secret_key: Option<EnvOrValue<String>>,
+    coinbase_secret_key: EnvOrValue<String>,
 
     pub flashbots_db: Option<EnvOrValue<String>>,
 
-    pub el_node_ipc_path: Option<PathBuf>,
+    pub el_node_ipc_path: PathBuf,
     pub jsonrpc_server_port: u16,
-    #[serde(default = "default_ip")]
-    pub jsonrpc_server_ip: Ipv4Addr,
+    pub jsonrpc_server_ip: Option<String>,
 
     pub ignore_cancellable_orders: bool,
     pub ignore_blobs: bool,
@@ -80,14 +77,9 @@ pub struct BaseConfig {
     pub reth_static_files_path: Option<PathBuf>,
 
     pub blocklist_file_path: Option<PathBuf>,
-
-    #[serde(deserialize_with = "deserialize_extra_data")]
-    pub extra_data: Vec<u8>,
+    pub extra_data: String,
 
     /// mev-share bundles coming from this address are treated in a special way(see [`ShareBundleMerger`])
-    pub sbundle_mergeable_signers: Option<Vec<Address>>,
-
-    /// Backwards compatible typo soon to be removed.
     pub sbundle_mergeabe_signers: Option<Vec<Address>>,
 
     /// Number of threads used for incoming order simulation
@@ -114,8 +106,14 @@ pub struct BaseConfig {
     pub backtest_protect_bundle_signers: Vec<Address>,
 }
 
-pub fn default_ip() -> Ipv4Addr {
-    Ipv4Addr::new(0, 0, 0, 0)
+lazy_static! {
+    pub static ref DEFAULT_IP: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
+}
+
+fn parse_ip(ip: &Option<String>) -> Ipv4Addr {
+    ip.as_ref().map_or(*DEFAULT_IP, |s| {
+        s.parse::<Ipv4Addr>().unwrap_or(*DEFAULT_IP)
+    })
 }
 
 /// Loads config from toml file, some values can be loaded from env variables with the following syntax
@@ -157,16 +155,42 @@ impl BaseConfig {
 
     pub fn redacted_telemetry_server_address(&self) -> SocketAddr {
         SocketAddr::V4(SocketAddrV4::new(
-            self.redacted_telemetry_server_ip,
+            self.redacted_telemetry_server_ip(),
             self.redacted_telemetry_server_port,
         ))
     }
 
     pub fn full_telemetry_server_address(&self) -> SocketAddr {
         SocketAddr::V4(SocketAddrV4::new(
-            self.full_telemetry_server_ip,
+            self.full_telemetry_server_ip(),
             self.full_telemetry_server_port,
         ))
+    }
+
+    /// WARN: opens reth db
+    pub async fn create_builder<SlotSourceType>(
+        &self,
+        cancellation_token: tokio_util::sync::CancellationToken,
+        sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
+        slot_source: SlotSourceType,
+    ) -> eyre::Result<
+        super::LiveBuilder<
+            ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>,
+            Arc<DatabaseEnv>,
+            SlotSourceType,
+        >,
+    >
+    where
+        SlotSourceType: SlotSource,
+    {
+        let provider_factory = self.create_provider_factory()?;
+        self.create_builder_with_provider_factory::<ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>, Arc<DatabaseEnv>, SlotSourceType>(
+            cancellation_token,
+            sink_factory,
+            slot_source,
+            provider_factory,
+        )
+        .await
     }
 
     /// Allows instantiating a [`LiveBuilder`] with an existing provider factory
@@ -195,7 +219,7 @@ impl BaseConfig {
             provider,
 
             coinbase_signer: self.coinbase_signer()?,
-            extra_data: self.extra_data.clone(),
+            extra_data: self.extra_data()?,
             blocklist: self.blocklist()?,
 
             global_cancellation: cancellation_token,
@@ -208,27 +232,31 @@ impl BaseConfig {
 
             orderpool_sender,
             orderpool_receiver,
-            sbundle_merger_selected_signers: Arc::new(self.sbundle_mergeable_signers()),
         })
+    }
+
+    pub fn jsonrpc_server_ip(&self) -> Ipv4Addr {
+        parse_ip(&self.jsonrpc_server_ip)
+    }
+
+    pub fn redacted_telemetry_server_ip(&self) -> Ipv4Addr {
+        parse_ip(&self.redacted_telemetry_server_ip)
+    }
+
+    pub fn full_telemetry_server_ip(&self) -> Ipv4Addr {
+        parse_ip(&self.full_telemetry_server_ip)
     }
 
     pub fn chain_spec(&self) -> eyre::Result<Arc<ChainSpec>> {
         chain_value_parser(&self.chain)
     }
 
-    pub fn sbundle_mergeable_signers(&self) -> Vec<Address> {
-        if let Some(sbundle_mergeable_signers) = &self.sbundle_mergeable_signers {
-            if self.sbundle_mergeabe_signers.is_some() {
-                error!("sbundle_mergeable_signers and sbundle_mergeabe_signers found. Will use bundle_mergeable_signers");
-            }
-            sbundle_mergeable_signers.clone()
-        } else if let Some(sbundle_mergeable_signers) = &self.sbundle_mergeabe_signers {
-            warn!("sbundle_mergeable_signers missing but found sbundle_mergeabe_signers. sbundle_mergeabe_signers will be used but this will be deprecated soon");
-            sbundle_mergeable_signers.clone()
-        } else {
-            warn!("Defaulting sbundle_mergeable_signers to empty. We may not comply with order flow rules.");
-            Vec::default()
+    pub fn sbundle_mergeabe_signers(&self) -> Vec<Address> {
+        if self.sbundle_mergeabe_signers.is_none() {
+            warn!("Defaulting sbundle_mergeabe_signers to empty. We may not comply with order flow rules.");
         }
+
+        self.sbundle_mergeabe_signers.clone().unwrap_or_default()
     }
 
     /// Open reth db and DB should be opened once per process but it can be cloned and moved to different threads.
@@ -258,15 +286,15 @@ impl BaseConfig {
     }
 
     pub fn coinbase_signer(&self) -> eyre::Result<Signer> {
-        if let Some(secret_key) = &self.coinbase_secret_key {
-            return coinbase_signer_from_secret_key(&secret_key.value()?);
+        coinbase_signer_from_secret_key(&self.coinbase_secret_key.value()?)
+    }
+
+    pub fn extra_data(&self) -> eyre::Result<Vec<u8>> {
+        let extra_data = self.extra_data.clone().into_bytes();
+        if extra_data.len() > 32 {
+            return Err(eyre::eyre!("Extra data is too long"));
         }
-        warn!("No coinbase secret key provided. A random key will be generated.");
-        warn!(
-            "Caution: If this node wins any block, you wont be able to access the rewards for it."
-        );
-        let new_signer = Signer::random();
-        Ok(new_signer)
+        Ok(extra_data)
     }
 
     pub fn blocklist(&self) -> eyre::Result<HashSet<Address>> {
@@ -277,6 +305,16 @@ impl BaseConfig {
             return Ok(blocklist.into_iter().collect());
         }
         Ok(HashSet::default())
+    }
+
+    pub async fn flashbots_db(&self) -> eyre::Result<Option<PgPool>> {
+        if let Some(url) = &self.flashbots_db {
+            let url = url.value()?;
+            let pool = PgPool::connect(&url).await?;
+            Ok(Some(pool))
+        } else {
+            Ok(None)
+        }
     }
 
     pub fn eth_rpc_provider(&self) -> eyre::Result<BoxedProvider> {
@@ -381,19 +419,19 @@ impl Default for BaseConfig {
     fn default() -> Self {
         Self {
             full_telemetry_server_port: 6069,
-            full_telemetry_server_ip: default_ip(),
+            full_telemetry_server_ip: None,
             redacted_telemetry_server_port: 6070,
-            redacted_telemetry_server_ip: default_ip(),
+            redacted_telemetry_server_ip: None,
             log_json: false,
             log_level: "info".into(),
             log_color: false,
             log_enable_dynamic: false,
             error_storage_path: None,
-            coinbase_secret_key: None,
+            coinbase_secret_key: "".into(),
             flashbots_db: None,
-            el_node_ipc_path: None,
+            el_node_ipc_path: "/tmp/reth.ipc".parse().unwrap(),
             jsonrpc_server_port: DEFAULT_INCOMING_BUNDLES_PORT,
-            jsonrpc_server_ip: default_ip(),
+            jsonrpc_server_ip: None,
             ignore_cancellable_orders: true,
             ignore_blobs: false,
             chain: "mainnet".to_string(),
@@ -401,7 +439,7 @@ impl Default for BaseConfig {
             reth_db_path: None,
             reth_static_files_path: None,
             blocklist_file_path: None,
-            extra_data: b"extra_data_change_me".to_vec(),
+            extra_data: "extra_data_change_me".to_string(),
             root_hash_use_sparse_trie: false,
             root_hash_compare_sparse_trie: false,
             watchdog_timeout_sec: None,
@@ -414,24 +452,9 @@ impl Default for BaseConfig {
             backtest_builders: Vec::new(),
             live_builders: vec!["mgp-ordering".to_string(), "mp-ordering".to_string()],
             simulation_threads: 1,
-            sbundle_mergeable_signers: None,
             sbundle_mergeabe_signers: None,
         }
     }
-}
-
-fn deserialize_extra_data<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let s = String::deserialize(deserializer)?;
-    let bytes = s.into_bytes();
-    if bytes.len() > 32 {
-        return Err(serde::de::Error::custom(
-            "Extra data is too long (max 32 bytes)",
-        ));
-    }
-    Ok(bytes)
 }
 
 /// Open reth db and DB should be opened once per process but it can be cloned and moved to different threads.

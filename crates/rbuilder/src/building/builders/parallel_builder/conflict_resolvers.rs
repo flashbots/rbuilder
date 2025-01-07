@@ -550,6 +550,7 @@ mod tests {
                 order: Order::Bundle(bundle),
                 used_state_trace: None,
                 sim_value,
+                prev_order: None,
             }
         }
     }

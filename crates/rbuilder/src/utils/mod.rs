@@ -1,5 +1,4 @@
 //! a2r prefix = alloy to reth conversion
-pub mod bls;
 pub mod build_info;
 pub mod constants;
 pub mod error_storage;
@@ -10,7 +9,6 @@ pub mod reconnect;
 mod test_data_generator;
 mod tx_signer;
 
-pub mod provider_head_state;
 #[cfg(test)]
 pub mod test_utils;
 pub mod tracing;
@@ -28,8 +26,7 @@ use alloy_consensus::TxEnvelope;
 use alloy_eips::eip2718::Encodable2718;
 pub use noncer::{NonceCache, NonceCacheRef};
 pub use provider_factory_reopen::{
-    check_block_hash_reader_health, is_provider_factory_health_error, HistoricalBlockError,
-    ProviderFactoryReopener,
+    check_provider_factory_health, is_provider_factory_health_error, ProviderFactoryReopener,
 };
 use reth_chainspec::ChainSpec;
 use reth_evm_ethereum::revm_spec_by_timestamp_after_merge;
@@ -213,7 +210,7 @@ pub fn find_suggested_fee_recipient(
     block: &alloy_rpc_types::Block,
     txs: &[TransactionSignedEcRecoveredWithBlobs],
 ) -> Address {
-    let coinbase = block.header.beneficiary;
+    let coinbase = block.header.miner;
     let (last_tx_signer, last_tx_to) = if let Some((signer, to)) = txs
         .last()
         .map(|tx| (tx.signer(), tx.to().unwrap_or_default()))
@@ -235,8 +232,7 @@ pub fn extract_onchain_block_txs(
 ) -> eyre::Result<Vec<TransactionSignedEcRecoveredWithBlobs>> {
     let mut result = Vec::new();
     for tx in onchain_block.transactions.clone().into_transactions() {
-        let tx_envelope: TxEnvelope =
-            <alloy_rpc_types_eth::Transaction as Into<TxEnvelope>>::into(tx);
+        let tx_envelope: TxEnvelope = tx.try_into()?;
         let encoded = tx_envelope.encoded_2718();
         let tx = RawTx { tx: encoded.into() }.decode(TxEncoding::NoBlobData)?;
         result.push(tx.tx_with_blobs);

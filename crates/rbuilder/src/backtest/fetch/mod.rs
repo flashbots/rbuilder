@@ -13,11 +13,12 @@ use crate::{
 };
 
 use alloy_provider::Provider;
-use alloy_rpc_types::{Block, BlockId, BlockNumberOrTag, BlockTransactionsKind};
+use alloy_rpc_types::{Block, BlockId, BlockNumberOrTag};
 
 use eyre::WrapErr;
 use flashbots_db::RelayDB;
 use futures::TryStreamExt;
+use sqlx::PgPool;
 use std::{
     collections::HashMap,
     path::PathBuf,
@@ -61,13 +62,15 @@ impl HistoricalDataFetcher {
     pub fn with_default_datasource(
         mut self,
         mempool_datadir: PathBuf,
-        flashbots_db: Option<RelayDB>,
+        flashbots_db: Option<PgPool>,
     ) -> eyre::Result<Self> {
         let mempool = Box::new(mempool::MempoolDumpsterDatasource::new(mempool_datadir)?);
         self.data_sources.push(mempool);
-        if let Some(flashbots_db) = flashbots_db {
-            self.data_sources.push(Box::new(flashbots_db));
-        };
+
+        if let Some(db_pool) = flashbots_db {
+            let datasource = Box::new(RelayDB::new(db_pool));
+            self.data_sources.push(datasource);
+        }
         Ok(self)
     }
 
@@ -102,10 +105,7 @@ impl HistoricalDataFetcher {
     async fn get_onchain_block(&self, block_number: u64) -> eyre::Result<Block> {
         let block = self
             .eth_provider
-            .get_block_by_number(
-                BlockNumberOrTag::Number(block_number),
-                BlockTransactionsKind::Full,
-            )
+            .get_block_by_number(BlockNumberOrTag::Number(block_number), true)
             .await
             .wrap_err_with(|| format!("Failed to fetch block {}", block_number))?
             .ok_or_else(|| eyre::eyre!("Block {} not found", block_number))?;

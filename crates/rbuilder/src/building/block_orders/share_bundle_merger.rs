@@ -148,6 +148,7 @@ impl<SinkType: SimulatedOrderSink> MultiBackrunManager<SinkType> {
         Some(SimulatedOrder {
             order: Order::ShareBundle(sbundle),
             sim_value: highest_payback_order.sim_order.sim_value.clone(),
+            prev_order: None,
             used_state_trace: highest_payback_order.sim_order.used_state_trace.clone(),
         })
     }

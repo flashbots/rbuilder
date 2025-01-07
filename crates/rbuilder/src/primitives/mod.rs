@@ -10,14 +10,15 @@ use crate::building::evm_inspector::UsedStateTrace;
 use alloy_consensus::Transaction as _;
 use alloy_eips::{
     eip2718::{Decodable2718, Eip2718Error, Encodable2718},
-    eip4844::{Blob, BlobTransactionSidecar, Bytes48},
+    eip4844::{Blob, Bytes48},
 };
 use alloy_primitives::{keccak256, Address, Bytes, TxHash, B256, U256};
 use derivative::Derivative;
 use integer_encoding::VarInt;
 use reth_primitives::{
     kzg::{BYTES_PER_BLOB, BYTES_PER_COMMITMENT, BYTES_PER_PROOF},
-    PooledTransactionsElement, TransactionSigned, TransactionSignedEcRecovered,
+    BlobTransactionSidecar, PooledTransactionsElement, TransactionSigned,
+    TransactionSignedEcRecovered,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -433,13 +434,8 @@ pub enum RawTxWithBlobsConvertError {
     FailedToDecodeTransaction(Eip2718Error),
     #[error("Invalid transaction signature")]
     InvalidTransactionSignature,
-    #[error("UnexpectedError")]
+    #[error("Invalid transaction signature")]
     UnexpectedError,
-    /// This error is generated when we fail (like FailedToDecodeTransaction) parsing in TxEncoding::WithBlobData mode (Network encoding) but the header looks
-    /// like the beginning of an ethereum mainnet Canonical encoding 4484 tx.
-    /// To avoid consuming resources the generation of this error might not be perfect but helps 99% of the time.
-    #[error("Failed to decode transaction, error: {0}. It probably is a 4484 canonical tx.")]
-    FailedToDecodeTransactionProbablyIs4484Canonical(alloy_rlp::Error),
 }
 
 impl TransactionSignedEcRecoveredWithBlobs {
@@ -799,6 +795,8 @@ impl SimValue {
 pub struct SimulatedOrder {
     pub order: Order,
     pub sim_value: SimValue,
+    /// Not used, we should kill this
+    pub prev_order: Option<OrderId>,
     /// Info about read/write slots during the simulation to help figure out what the Order is doing.
     pub used_state_trace: Option<UsedStateTrace>,
 }

@@ -22,7 +22,7 @@ reth-node-ethereum.workspace = true
 reth-ethereum-payload-builder.workspace = true
 reth-provider.workspace = true
 alloy-primitives.workspace = true
-alloy-consensus.workspace = true
+
 alloy-eips.workspace = true
 
 tracing.workspace = true

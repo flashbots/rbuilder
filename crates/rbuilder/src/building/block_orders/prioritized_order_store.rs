@@ -65,14 +65,7 @@ pub struct PrioritizedOrderStore {
 }
 
 impl PrioritizedOrderStore {
-    pub fn new(
-        priority: Sorting,
-        initial_onchain_nonces: impl IntoIterator<Item = AccountNonce>,
-    ) -> Self {
-        let mut onchain_nonces = HashMap::default();
-        for onchain_nonce in initial_onchain_nonces {
-            onchain_nonces.insert(onchain_nonce.account, onchain_nonce.nonce);
-        }
+    pub fn new(priority: Sorting, onchain_nonces: HashMap<Address, u64>) -> Self {
         Self {
             main_queue: PriorityQueue::new(),
             main_queue_nonces: HashMap::default(),

@@ -18,7 +18,7 @@ use rbuilder::{
     },
     live_builder::{
         base_config::{
-            default_ip, DEFAULT_EL_NODE_IPC_PATH, DEFAULT_INCOMING_BUNDLES_PORT,
+            DEFAULT_EL_NODE_IPC_PATH, DEFAULT_INCOMING_BUNDLES_PORT, DEFAULT_IP,
             DEFAULT_RETH_DB_PATH,
         },
         config::create_provider_factory,
@@ -78,9 +78,9 @@ async fn main() -> eyre::Result<()> {
     let order_input_config = OrderInputConfig::new(
         false,
         true,
-        Some(PathBuf::from(DEFAULT_EL_NODE_IPC_PATH)),
+        DEFAULT_EL_NODE_IPC_PATH.parse().unwrap(),
         DEFAULT_INCOMING_BUNDLES_PORT,
-        default_ip(),
+        *DEFAULT_IP,
         DEFAULT_SERVE_MAX_CONNECTIONS,
         DEFAULT_RESULTS_CHANNEL_TIMEOUT,
         DEFAULT_INPUT_CHANNEL_BUFFER_SIZE,
@@ -114,7 +114,6 @@ async fn main() -> eyre::Result<()> {
         run_sparse_trie_prefetcher: false,
         orderpool_sender,
         orderpool_receiver,
-        sbundle_merger_selected_signers: Default::default(),
     };
 
     let ctrlc = tokio::spawn(async move {

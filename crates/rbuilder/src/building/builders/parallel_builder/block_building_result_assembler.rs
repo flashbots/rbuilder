@@ -10,13 +10,13 @@ use reth_provider::{BlockReader, DatabaseProviderFactory, StateProviderFactory};
 use std::{marker::PhantomData, sync::Arc, time::Instant};
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
-use tracing::{info_span, trace};
+use tracing::{trace, warn};
 
 use crate::{
     building::{
         builders::{
             block_building_helper::{BlockBuildingHelper, BlockBuildingHelperFromProvider},
-            handle_building_error, UnfinishedBlockBuildingSink,
+            UnfinishedBlockBuildingSink,
         },
         BlockBuildingContext,
     },
@@ -104,9 +104,7 @@ where
             }
             if self.best_results.get_number_of_orders() > 0 {
                 let orders_closed_at = OffsetDateTime::now_utc();
-                if !self.try_build_block(orders_closed_at) {
-                    break;
-                }
+                self.try_build_block(orders_closed_at);
             }
         }
         trace!(
@@ -115,12 +113,12 @@ where
         );
     }
 
-    /// Attempts to build a new block if not already building. Returns if block building should continue.
+    /// Attempts to build a new block if not already building.
     ///
     /// # Arguments
     ///
     /// * `orders_closed_at` - The timestamp when orders were closed.
-    fn try_build_block(&mut self, orders_closed_at: OffsetDateTime) -> bool {
+    fn try_build_block(&mut self, orders_closed_at: OffsetDateTime) {
         let time_start = Instant::now();
 
         let current_best_results = self.best_results.clone();
@@ -130,7 +128,7 @@ where
         // Check if version has incremented
         if let Some(last_version) = self.last_version {
             if version == last_version {
-                return true;
+                return;
             }
         }
         self.last_version = Some(version);
@@ -142,18 +140,18 @@ where
         );
 
         if best_orderings_per_group.is_empty() {
-            return true;
+            return;
         }
 
         match self.build_new_block(&mut best_orderings_per_group, orders_closed_at) {
             Ok(new_block) => {
                 if let Ok(value) = new_block.true_block_value() {
                     trace!(
-                        run_id = self.run_id,
-                        version = version,
-                        time_ms = time_start.elapsed().as_millis(),
-                        profit = format_ether(value),
-                        "Parallel builder built new block",
+                        "Parallel builder run id {}: Built new block with results version {:?} and profit: {:?} in {:?} ms",
+                        self.run_id,
+                        version,
+                        format_ether(value),
+                        time_start.elapsed().as_millis()
                     );
 
                     if new_block.built_block_trace().got_no_signer_error {
@@ -165,15 +163,11 @@ where
                     }
                 }
             }
-            Err(err) => {
-                let _span = info_span!("Parallel builder failed to build new block",run_id = self.run_id,version = version,err=?err).entered();
-                if !handle_building_error(err) {
-                    return false;
-                }
+            Err(e) => {
+                warn!("Parallel builder run id {}: Failed to build new block with results version {:?}: {:?}", self.run_id, version, e);
             }
         }
         self.run_id += 1;
-        true
     }
 
     /// Builds a new block using the best results from each group.

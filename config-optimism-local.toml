@@ -21,10 +21,8 @@ dry_run_validation_url = "http://localhost:8545"
 
 ignore_cancellable_orders = true
 
-sbundle_mergeable_signers = []
+sbundle_mergeabe_signers = []
 live_builders = ["mp-ordering"]
-
-enabled_relays = ["custom"]
 
 [[relays]]
 name = "custom"

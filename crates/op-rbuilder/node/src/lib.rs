@@ -12,5 +12,8 @@ use tracing as _;
 /// CLI argument parsing.
 pub mod args;
 
+mod builder;
+mod cell;
+
 pub mod node;
 pub use node::OpRbuilderNode;

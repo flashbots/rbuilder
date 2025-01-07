@@ -35,6 +35,7 @@ use crate::{
     },
     roothash::RootHashConfig,
 };
+use alloy_primitives::Address;
 use reth::revm::cached::CachedReads;
 use reth_db::database::Database;
 use reth_provider::{BlockReader, DatabaseProviderFactory, StateProviderFactory};
@@ -131,7 +132,8 @@ where
             Some(input.sink.clone()),
         );
 
-        let order_intake_consumer = OrderIntakeStore::new(input.input);
+        let order_intake_consumer =
+            OrderIntakeStore::new(input.input, &input.sbundle_mergeabe_signers);
 
         Self {
             order_intake_consumer,
@@ -382,6 +384,7 @@ where
 #[derive(Debug)]
 pub struct ParallelBuildingAlgorithm {
     root_hash_config: RootHashConfig,
+    sbundle_mergeabe_signers: Vec<Address>,
     config: ParallelBuilderConfig,
     name: String,
 }
@@ -389,11 +392,13 @@ pub struct ParallelBuildingAlgorithm {
 impl ParallelBuildingAlgorithm {
     pub fn new(
         root_hash_config: RootHashConfig,
+        sbundle_mergeabe_signers: Vec<Address>,
         config: ParallelBuilderConfig,
         name: String,
     ) -> Self {
         Self {
             root_hash_config,
+            sbundle_mergeabe_signers,
             config,
             name,
         }
@@ -421,6 +426,7 @@ where
             sink: input.sink,
             builder_name: self.name.clone(),
             cancel: input.cancel,
+            sbundle_mergeabe_signers: self.sbundle_mergeabe_signers.clone(),
             phantom: Default::default(),
         };
         run_parallel_builder(live_input, &self.config);

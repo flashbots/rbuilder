@@ -10,8 +10,9 @@ pub mod payout_tx;
 pub mod sim;
 pub mod testing;
 pub mod tracers;
-use alloy_consensus::{Header, EMPTY_OMMER_ROOT_HASH};
+use alloy_consensus::EMPTY_OMMER_ROOT_HASH;
 use alloy_primitives::{Address, Bytes, Sealable, U256};
+pub use block_orders::BlockOrders;
 use eth_sparse_mpt::SparseTrieSharedCache;
 use reth_db::Database;
 use reth_primitives::BlockBody;
@@ -23,15 +24,15 @@ use crate::{
     utils::{a2r_withdrawal, calc_gas_limit, timestamp_as_u64, Signer},
 };
 use ahash::HashSet;
-use alloy_eips::{
-    calc_excess_blob_gas, eip4844::BlobTransactionSidecar, eip4895::Withdrawals, eip7685::Requests,
-    merge::BEACON_NONCE,
-};
+use alloy_eips::{calc_excess_blob_gas, eip7685::Requests, merge::BEACON_NONCE};
 use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
 use jsonrpsee::core::Serialize;
 use reth::{
     payload::PayloadId,
-    primitives::{proofs, Block, Head, Receipt, Receipts, SealedBlock},
+    primitives::{
+        proofs, revm_primitives::InvalidTransaction, BlobTransactionSidecar, Block, Head, Header,
+        Receipt, Receipts, SealedBlock, Withdrawals,
+    },
     providers::ExecutionOutcome,
     revm::cached::CachedReads,
 };
@@ -46,7 +47,6 @@ use revm::{
     db::states::bundle_state::BundleRetention,
     primitives::{BlobExcessGasAndPrice, BlockEnv, CfgEnvWithHandlerCfg, SpecId},
 };
-use revm_primitives::InvalidTransaction;
 use serde::Deserialize;
 use std::{
     hash::Hash,
@@ -193,7 +193,7 @@ impl BlockBuildingContext {
             coinbase,
             timestamp: U256::from(onchain_block.header.timestamp),
             difficulty: onchain_block.header.difficulty,
-            prevrandao: Some(onchain_block.header.mix_hash),
+            prevrandao: onchain_block.header.mix_hash,
             basefee: U256::from(
                 onchain_block
                     .header
@@ -219,7 +219,7 @@ impl BlockBuildingContext {
             parent: onchain_block.header.parent_hash,
             timestamp: timestamp_as_u64(&onchain_block),
             suggested_fee_recipient,
-            prev_randao: onchain_block.header.mix_hash,
+            prev_randao: onchain_block.header.mix_hash.unwrap_or_default(),
             withdrawals,
             parent_beacon_block_root: onchain_block.header.parent_beacon_block_root,
         };

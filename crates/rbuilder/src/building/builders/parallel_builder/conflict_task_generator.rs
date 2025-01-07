@@ -4,7 +4,7 @@ use alloy_primitives::{utils::format_ether, U256};
 use crossbeam_queue::SegQueue;
 use itertools::Itertools;
 use std::time::Instant;
-use tracing::trace;
+use tracing::{trace, warn};
 
 use super::{
     task::ConflictTask, Algorithm, ConflictGroup, ConflictResolutionResultPerGroup, GroupId,
@@ -106,7 +106,7 @@ impl ConflictTaskGenerator {
             .cloned()
             .collect();
 
-        trace!(groups = ?subset_ids,"Removing subset groups");
+        trace!("Removing subset groups: {:?}", subset_ids);
         for id in subset_ids {
             self.existing_groups.remove(&id);
             self.cancel_tasks_for_group(id);
@@ -158,12 +158,10 @@ impl ConflictTaskGenerator {
             TaskPriority::High
         };
         trace!(
-            group = group_id,
-            order_count = new_group.orders.len(),
-            profit =
-                format_ether(self.sum_top_n_profits(&new_group.orders, new_group.orders.len())),
-            priority = priority.display(),
-            "Processing multi order group"
+            "Processing multi order group {group_id} with {} orders, {} profit with priority {:?}",
+            new_group.orders.len(),
+            format_ether(self.sum_top_n_profits(&new_group.orders, new_group.orders.len())),
+            priority.display()
         );
         if self.existing_groups.contains_key(&group_id) {
             self.update_tasks(group_id, new_group, priority);
@@ -183,10 +181,15 @@ impl ConflictTaskGenerator {
             total_profit: group.orders[0].sim_value.coinbase_profit,
             sequence_of_orders: vec![(0, group.orders[0].sim_value.coinbase_profit)],
         };
-        // We ignore the error since it means "receiver disconnected" and we expect the caller will detect the cancellation and stop calling us.
-        let _ = self
+        if let Err(e) = self
             .group_result_sender
-            .send((group_id, (sequence_of_orders, group.clone())));
+            .send((group_id, (sequence_of_orders, group.clone())))
+        {
+            warn!(
+                "Failed to send single order result for group {}: {:?}",
+                group_id, e
+            );
+        }
     }
 
     /// Determines if there are any changes between a new group and an existing group.
@@ -291,9 +294,9 @@ impl ConflictTaskGenerator {
         priority: TaskPriority,
     ) {
         trace!(
-            group = group_id,
-            priority = priority.display(),
-            "Updating tasks",
+            "Updating tasks for group {} with priority {:?}",
+            group_id,
+            priority.display()
         );
         // Cancel existing tasks for this grou
         self.cancel_tasks_for_group(group_id);
@@ -477,6 +480,7 @@ mod tests {
                 }),
                 used_state_trace: Some(trace),
                 sim_value,
+                prev_order: None,
             }
         }
     }

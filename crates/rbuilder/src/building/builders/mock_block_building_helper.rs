@@ -105,8 +105,4 @@ impl BlockBuildingHelper for MockBlockBuildingHelper {
     fn update_cached_reads(&mut self, _cached_reads: CachedReads) {
         unimplemented!()
     }
-
-    fn builder_name(&self) -> &str {
-        "Mock"
-    }
 }
