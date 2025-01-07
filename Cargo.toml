@@ -4,6 +4,7 @@ members = [
     "crates/op-rbuilder",
     "crates/op-rbuilder/payload_builder",
     "crates/op-rbuilder/node",
+    "crates/op-rbuilder2",
     "crates/reth-rbuilder",
     "crates/rbuilder/src/test_utils",
     "crates/rbuilder/src/telemetry/metrics_macros",
@@ -12,7 +13,7 @@ members = [
     "crates/eth-sparse-mpt",
     "crates/sysperf"
 ]
-default-members = ["crates/rbuilder", "crates/reth-rbuilder"]
+default-members = ["crates/rbuilder", "crates/reth-rbuilder", "crates/op-rbuilder2"]
 resolver = "2"
 
 # Like release, but with full debug symbols. Useful for e.g. `perf`.
@@ -82,6 +83,8 @@ reth-storage-api = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.2"
 reth-optimism-rpc = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.2" }
 reth-optimism-payload-builder = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.2" }
 reth-optimism-chainspec = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.2" }
+reth-tasks = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.2" }
+reth-ethereum-payload-builder = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.2" }
 
 # version is copied from reth  "v1.1.2" dependencies
 revm = { version = "18.0.0", features = [
