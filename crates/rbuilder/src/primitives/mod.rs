@@ -446,6 +446,8 @@ pub enum TxWithBlobsCreateError {
     FailedToDecodeTransactionProbablyIs4484Canonical(alloy_rlp::Error),
     #[error("Tried to create an EIP4844 transaction without a blob")]
     Eip4844MissingBlobSidecar,
+    #[error("Tried to create a non-EIP4844 transaction while passing blobs")]
+    BlobsMissingEip4844,
     #[error("BlobStoreError: {0}")]
     BlobStore(BlobStoreError),
 }
@@ -454,14 +456,20 @@ impl TransactionSignedEcRecoveredWithBlobs {
     /// Create new with an optional blob sidecar.
     ///
     /// Warning: It is the caller's responsibility to check if a tx has blobs.
-    /// This fn will return an Err if it is passed an eip4844 without blobs.
+    /// This fn will return an Err if it is passed an eip4844 without blobs,
+    /// or blobs without an eip4844.
     pub fn new(
         tx: TransactionSignedEcRecovered,
         blob_sidecar: Option<BlobTransactionSidecar>,
         metadata: Option<Metadata>,
     ) -> Result<Self, TxWithBlobsCreateError> {
+        // Check for an eip4844 tx passed without blobs
         if tx.transaction.blob_versioned_hashes().is_some() && blob_sidecar.is_none() {
             Err(TxWithBlobsCreateError::Eip4844MissingBlobSidecar)
+        // Check for a non-eip4844 tx passed with blobs
+        } else if blob_sidecar.is_some() && tx.transaction.blob_versioned_hashes().is_none() {
+            Err(TxWithBlobsCreateError::BlobsMissingEip4844)
+        // Groovy!
         } else {
             Ok(Self {
                 tx,
