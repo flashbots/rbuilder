@@ -22,28 +22,6 @@ reth-evm.workspace = true
 reth-optimism-evm.workspace = true
 reth-optimism-chainspec.workspace = true
 reth-optimism-node = { workspace = true }
-reth-payload-primitives.workspace = true
-reth-tasks.workspace = true
-reth-revm.workspace = true
-reth-chain-state.workspace = true
-reth-chainspec.workspace = true
-reth-execution-types.workspace = true
-reth-optimism-consensus.workspace = true
-reth-optimism-payload-builder.workspace = true
-reth-optimism-forks.workspace = true
-reth-trie.workspace = true
-revm.workspace = true
-
-alloy-primitives.workspace = true
-alloy-eips.workspace = true
-alloy-rpc-types-engine.workspace = true
-alloy-rpc-types-beacon.workspace = true
-alloy-consensus.workspace = true
-op-alloy-consensus.workspace = true
-
-tokio.workspace = true
-futures-util = "0.3.31"
-oneshot = "0.1.8"
 
 # async
 tracing.workspace = true

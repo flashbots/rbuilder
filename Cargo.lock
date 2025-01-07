@@ -6264,12 +6264,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "oneshot"
-version = "0.1.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e296cf87e61c9cfc1a61c3c63a0f7f286ed4554e0e22be84e8a38e1d264a2a29"
-
-[[package]]
 name = "oorandom"
 version = "11.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6399,43 +6393,23 @@ dependencies = [
 name = "op-rbuilder-node-optimism"
 version = "0.0.0"
 dependencies = [
- "alloy-consensus",
- "alloy-eips",
- "alloy-primitives 0.8.12",
- "alloy-rpc-types-beacon",
- "alloy-rpc-types-engine",
  "clap 4.5.21",
  "eyre",
- "futures-util",
- "oneshot",
- "op-alloy-consensus",
  "op-rbuilder-payload-builder",
  "rbuilder-bundle-pool-operations",
  "reth-basic-payload-builder",
- "reth-chain-state",
- "reth-chainspec",
  "reth-evm",
- "reth-execution-types",
  "reth-node-api",
  "reth-node-builder",
  "reth-optimism-chainspec",
- "reth-optimism-consensus",
  "reth-optimism-evm",
- "reth-optimism-forks",
  "reth-optimism-node",
- "reth-optimism-payload-builder",
  "reth-payload-builder",
- "reth-payload-primitives",
  "reth-primitives",
  "reth-provider",
- "reth-revm",
- "reth-tasks",
  "reth-tracing",
  "reth-transaction-pool",
- "reth-trie",
  "reth-trie-db",
- "revm",
- "tokio",
  "tracing",
  "transaction-pool-bundle-ext",
 ]
@@ -6465,7 +6439,6 @@ dependencies = [
  "reth-primitives",
  "reth-provider",
  "reth-revm",
- "reth-transaction-pool",
  "reth-trie",
  "revm",
  "tracing",

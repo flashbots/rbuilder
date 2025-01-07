@@ -20,7 +20,6 @@ use reth_payload_primitives::PayloadBuilderAttributes;
 use reth_primitives::{proofs, Block, BlockBody, Header, Receipt, TransactionSigned, TxType};
 use reth_provider::StateProviderFactory;
 use reth_revm::database::StateProviderDatabase;
-use reth_transaction_pool::{BestTransactionsAttributes, TransactionPool};
 use reth_trie::HashedPostState;
 use revm::{
     db::states::bundle_state::BundleRetention,
@@ -31,7 +30,8 @@ use revm::{
     DatabaseCommit, State,
 };
 use std::sync::Arc;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, trace, warn};
+use transaction_pool_bundle_ext::{BundlePoolOperations, TransactionPoolBundleExt};
 
 /// Payload builder for OP Stack, which includes bundle support.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,7 +93,7 @@ impl<Pool, Client, EvmConfig> PayloadBuilder<Pool, Client> for OpRbuilderPayload
 where
     Client: StateProviderFactory + ChainSpecProvider<ChainSpec = OpChainSpec>,
     EvmConfig: ConfigureEvm<Header = Header>,
-    Pool: TransactionPool,
+    Pool: TransactionPoolBundleExt + BundlePoolOperations<Transaction = TransactionSigned>,
 {
     type Attributes = OpPayloadBuilderAttributes;
     type BuiltPayload = OpBuiltPayload;
@@ -124,6 +124,13 @@ where
         let payload_attributes_event = PayloadAttributesEvent {
             version: "placeholder".to_string(),
             data: payload_attributes_data,
+        };
+
+        if let Err(e) = args.pool.notify_payload_attributes_event(
+            payload_attributes_event,
+            args.config.attributes.gas_limit,
+        ) {
+            error!(?e, "Failed to notify payload attributes event!");
         };
 
         let (cfg_env, block_env) = self
@@ -175,10 +182,8 @@ pub(crate) fn try_build_inner<EvmConfig, Pool, Client>(
 where
     Client: StateProviderFactory + ChainSpecProvider<ChainSpec = OpChainSpec>,
     EvmConfig: ConfigureEvm<Header = Header>,
-    Pool: TransactionPool,
+    Pool: TransactionPoolBundleExt + BundlePoolOperations<Transaction = TransactionSigned>,
 {
-    info!("Go for it");
-
     let BuildArguments {
         client,
         pool,
@@ -214,13 +219,6 @@ where
 
     let mut executed_txs = Vec::with_capacity(attributes.transactions.len());
     let mut executed_senders = Vec::with_capacity(attributes.transactions.len());
-
-    let mut best_txs = pool.best_transactions_with_attributes(BestTransactionsAttributes::new(
-        base_fee,
-        initialized_block_env
-            .get_blob_gasprice()
-            .map(|gasprice| gasprice as u64),
-    ));
 
     let mut total_fees = U256::ZERO;
 
@@ -361,11 +359,13 @@ where
 
     // Apply rbuilder block
     let mut count = 0;
-    while let Some(pool_tx) = best_txs.next() {
+    let iter = pool
+        .get_transactions(U256::from(parent_header.number + 1))
+        .unwrap()
+        .into_iter();
+    for pool_tx in iter {
         // Ensure we still have capacity for this transaction
         if cumulative_gas_used + pool_tx.gas_limit() > block_gas_limit {
-            best_txs.mark_invalid(&pool_tx);
-
             let inner =
                 EVMError::Custom("rbuilder suggested transaction over gas limit!".to_string());
             return Err(PayloadBuilderError::EvmExecutionError(inner));
@@ -373,8 +373,6 @@ where
 
         // A sequencer's block should never contain blob or deposit transactions from rbuilder.
         if pool_tx.is_eip4844() || pool_tx.tx_type() == TxType::Deposit as u8 {
-            best_txs.mark_invalid(&pool_tx);
-
             error!("rbuilder suggested blob or deposit transaction!");
             let inner =
                 EVMError::Custom("rbuilder suggested blob or deposit transaction!".to_string());
@@ -387,7 +385,10 @@ where
         }
 
         // convert tx to a signed transaction
-        let tx = pool_tx.to_recovered_transaction();
+        let tx = pool_tx.try_into_ecrecovered().map_err(|_| {
+            PayloadBuilderError::other(OptimismPayloadBuilderError::TransactionEcRecoverFailed)
+        })?;
+
         let env = EnvWithHandlerCfg::new_with_cfg_env(
             initialized_cfg.clone(),
             initialized_block_env.clone(),
@@ -408,7 +409,6 @@ where
                         } else {
                             // if the transaction is invalid, we can skip it and all of its
                             // descendants
-                            best_txs.mark_invalid(&pool_tx);
                             error!(target: "payload_builder", %err, ?tx, "skipping invalid transaction and its descendants");
                         }
 
