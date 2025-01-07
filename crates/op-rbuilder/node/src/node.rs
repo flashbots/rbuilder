@@ -439,6 +439,7 @@ where
     <Builder as PayloadBuilder<Pool, Client>>::BuiltPayload: Unpin + Clone,
 {
     fn spawn_build_job(&mut self) {
+        // this only happens once
         println!("SPAWN BUILD JOB");
 
         let builder = self.builder.clone();
@@ -476,14 +477,8 @@ where
     type Output = Result<(), PayloadBuilderError>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = self.get_mut();
-        match this.cell.poll_updated(cx) {
-            Poll::Ready(maybe_payload) => {
-                this.best_payload = maybe_payload;
-                Poll::Ready(Ok(()))
-            }
-            Poll::Pending => Poll::Pending,
-        }
+        // this should work, then we can add some deadline to stop it completely
+        Poll::Pending
     }
 }
 
@@ -501,6 +496,8 @@ where
     type BuiltPayload = Builder::BuiltPayload;
 
     fn best_payload(&self) -> Result<Self::BuiltPayload, PayloadBuilderError> {
+        panic!("best_payload not implemented");
+
         if let Some(best_payload) = &self.best_payload {
             return Ok(best_payload.clone());
         }
@@ -515,7 +512,7 @@ where
         &mut self,
         kind: PayloadKind,
     ) -> (Self::ResolvePayloadFuture, KeepPayloadJobAlive) {
-        info!("resolve kind");
+        info!("resolve kind {:?}", kind);
 
         let resolve_future = ResolvePayload::new(self.cell.clone());
         (resolve_future, KeepPayloadJobAlive::No)
@@ -537,10 +534,9 @@ impl<T: Clone> Future for ResolvePayload<T> {
     type Output = Result<T, PayloadBuilderError>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.get_mut().cell.poll_updated(cx) {
-            Poll::Ready(Some(payload)) => Poll::Ready(Ok(payload)),
-            Poll::Ready(None) => Poll::Ready(Err(PayloadBuilderError::MissingPayload)),
-            Poll::Pending => Poll::Pending,
+        match self.get_mut().cell.get() {
+            Some(payload) => Poll::Ready(Ok(payload.clone())),
+            None => Poll::Ready(Err(PayloadBuilderError::MissingPayload)),
         }
     }
 }

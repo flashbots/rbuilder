@@ -122,7 +122,7 @@ where
             cached_reads,
         } = outcome
         {
-            cell.set(Some(payload));
+            cell.set(payload);
         } else {
             panic!("Expected Better variant")
         }
