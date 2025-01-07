@@ -292,3 +292,9 @@ impl<T: Clone> BlockCell<T> {
         inner.clone()
     }
 }
+
+impl<T: Clone> Default for BlockCell<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
