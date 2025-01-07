@@ -7752,6 +7752,7 @@ dependencies = [
  "ctor",
  "dashmap 6.1.0",
  "derivative",
+ "derive_more 1.0.0",
  "eth-sparse-mpt",
  "ethereum-consensus",
  "ethereum_ssz",
