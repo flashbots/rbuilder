@@ -2,5 +2,6 @@
 chain = "$HOME/.playground/devnet/genesis.json"
 reth_datadir = "$HOME/.playground/devnet/data_reth"
 relay_secret_key = "5eae315483f028b5cdd5d1090ff0c7618b18737ea9bf3c35047189db22835c48"
+el_node_ipc_path = "$HOME/.playground/devnet/reth.ipc"
 live_builders = ["mp-ordering", "mgp-ordering", "parallel"]
 enabled_relays = ["playground"]
