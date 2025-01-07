@@ -8,6 +8,7 @@ use crate::{
     utils::{http_provider, BoxedProvider, ProviderFactoryReopener, Signer},
 };
 use ahash::HashSet;
+use alloy_consensus::Header;
 use alloy_primitives::{Address, B256};
 use eyre::{eyre, Context};
 use jsonrpsee::RpcModule;
@@ -179,7 +180,7 @@ impl BaseConfig {
     ) -> eyre::Result<super::LiveBuilder<P, DB, SlotSourceType>>
     where
         DB: Database + Clone + 'static,
-        P: DatabaseProviderFactory<DB = DB> + StateProviderFactory + HeaderProvider + Clone,
+        P: DatabaseProviderFactory<DB = DB> + StateProviderFactory + HeaderProvider<Header = Header> + Clone,
         SlotSourceType: SlotSource,
     {
         let order_input_config = OrderInputConfig::from_config(self)?;

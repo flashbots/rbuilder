@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use alloy_consensus::Header;
 use clap::Parser;
 use reth::revm::cached::CachedReads;
 use reth_db::Database;
@@ -63,7 +64,7 @@ pub trait LiveBuilderConfig: Debug + DeserializeOwned + Sync {
         DB: Database + Clone + 'static,
         P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
             + StateProviderFactory
-            + HeaderProvider
+            + HeaderProvider<Header = Header>
             + Clone
             + 'static;
 

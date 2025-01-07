@@ -91,7 +91,7 @@ const CLEAN_TASKS_CHANNEL_SIZE: usize = 10;
 pub struct LiveBuilder<P, DB, BlocksSourceType>
 where
     DB: Database + Clone + 'static,
-    P: StateProviderFactory + Clone,
+    P: StateProviderFactory + Clone + HeaderProvider<Header = Header>,
     BlocksSourceType: SlotSource,
 {
     pub watchdog_timeout: Option<Duration>,
@@ -125,7 +125,7 @@ where
     DB: Database + Clone + 'static,
     P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
         + StateProviderFactory
-        + HeaderProvider
+        + HeaderProvider<Header = Header>
         + Clone
         + 'static,
     BlocksSourceType: SlotSource,
@@ -314,7 +314,7 @@ async fn wait_for_block_header<P>(
     slot_time: OffsetDateTime,
     provider: P,
     timings: &TimingsConfig,
-) -> eyre::Result<Header>
+) -> eyre::Result<P::Header>
 where
     P: HeaderProvider,
 {

@@ -235,7 +235,7 @@ impl OrderPool {
                     continue;
                 }
                 let onchain_nonce = new_state
-                    .account_nonce(nonce.address)
+                    .account_nonce(&nonce.address)
                     .map_err(|e| error!("Failed to get a nonce: {}", e))
                     .unwrap_or_default()
                     .unwrap_or_default();

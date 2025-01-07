@@ -37,6 +37,7 @@ use crate::{
     validation_api_client::ValidationAPIClient,
 };
 use alloy_chains::ChainKind;
+use alloy_consensus::Header;
 use alloy_primitives::{
     utils::{format_ether, parse_ether},
     FixedBytes, B256,
@@ -334,7 +335,7 @@ impl LiveBuilderConfig for Config {
         DB: Database + Clone + 'static,
         P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
             + StateProviderFactory
-            + HeaderProvider
+            + HeaderProvider<Header = Header>
             + Clone
             + 'static,
     {

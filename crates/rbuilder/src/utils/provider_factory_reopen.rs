@@ -196,6 +196,8 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> DatabaseProviderFactory
 }
 
 impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> HeaderProvider for ProviderFactoryReopener<N> {
+    type Header = Header;
+
     fn header(&self, block_hash: &BlockHash) -> ProviderResult<Option<Header>> {
         let provider = self
             .check_consistency_and_reopen_if_needed()
