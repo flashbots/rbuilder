@@ -460,7 +460,7 @@ impl TransactionSignedEcRecoveredWithBlobs {
         blob_sidecar: Option<BlobTransactionSidecar>,
         metadata: Option<Metadata>,
     ) -> Result<Self, TxWithBlobsCreateError> {
-        if tx.transaction.blob_versioned_hashes().is_some() {
+        if tx.transaction.blob_versioned_hashes().is_some() && blob_sidecar.is_none() {
             Err(TxWithBlobsCreateError::Eip4844MissingBlobSidecar)
         } else {
             Ok(Self {
