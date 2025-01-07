@@ -53,7 +53,7 @@ impl NonceCacheRef {
         if let Some(nonce) = cache.get(&address) {
             return Ok(*nonce);
         }
-        let nonce = self.state.account_nonce(address)?.unwrap_or_default();
+        let nonce = self.state.account_nonce(&address)?.unwrap_or_default();
         cache.insert(address, nonce);
         Ok(nonce)
     }
