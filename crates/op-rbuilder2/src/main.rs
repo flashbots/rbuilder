@@ -1,7 +1,6 @@
-use crate::generator::{BlockCell, PayloadBuilder};
-use alloy_consensus::Header;
 use clap::Parser;
 use generator::EmptyBlockPayloadJobGenerator;
+use payload_builder::OpPayloadBuilder;
 use reth::{
     builder::{components::PayloadServiceBuilder, node::FullNodeTypes, BuilderContext},
     payload::PayloadBuilderHandle,
@@ -12,23 +11,17 @@ use reth::{
     builder::{engine_tree_config::TreeConfig, EngineNodeLauncher},
     providers::providers::BlockchainProvider2,
 };
-use reth_basic_payload_builder::BuildArguments;
-use reth_basic_payload_builder::PayloadBuilder as X;
-use reth_basic_payload_builder::{BasicPayloadJobGeneratorConfig, BuildOutcome};
-use reth_chainspec::ChainSpecProvider;
-use reth_evm::ConfigureEvm;
+use reth_basic_payload_builder::BasicPayloadJobGeneratorConfig;
 use reth_node_api::NodeTypesWithEngine;
 use reth_optimism_chainspec::OpChainSpec;
 use reth_optimism_cli::{chainspec::OpChainSpecParser, Cli};
 use reth_optimism_evm::OpEvmConfig;
 use reth_optimism_node::OpEngineTypes;
 use reth_optimism_node::{args::RollupArgs, node::OpAddOns, OpNode};
-use reth_optimism_node::{OpBuiltPayload, OpPayloadBuilderAttributes};
-use reth_payload_builder::PayloadBuilderError;
 use reth_payload_builder::PayloadBuilderService;
-use reth_provider::StateProviderFactory;
 
 pub mod generator;
+pub mod payload_builder;
 
 #[derive(Debug, Clone, Copy, Default)]
 #[non_exhaustive]
@@ -109,45 +102,4 @@ fn main() {
             }
         })
         .unwrap();
-}
-
-#[derive(Clone)]
-struct OpPayloadBuilder<EvmConfig> {
-    inner: reth_optimism_payload_builder::OpPayloadBuilder<EvmConfig>,
-}
-
-impl<EvmConfig> OpPayloadBuilder<EvmConfig> {
-    /// `OpPayloadBuilder` constructor.
-    pub const fn new(evm_config: EvmConfig) -> Self {
-        Self {
-            inner: reth_optimism_payload_builder::OpPayloadBuilder::new(evm_config),
-        }
-    }
-}
-
-impl<EvmConfig, Pool, Client> PayloadBuilder<Pool, Client> for OpPayloadBuilder<EvmConfig>
-where
-    Client: StateProviderFactory + ChainSpecProvider<ChainSpec = OpChainSpec>,
-    Pool: TransactionPool,
-    EvmConfig: ConfigureEvm<Header = Header>,
-{
-    type Attributes = OpPayloadBuilderAttributes;
-    type BuiltPayload = OpBuiltPayload;
-
-    fn try_build(
-        &self,
-        args: BuildArguments<Pool, Client, Self::Attributes, Self::BuiltPayload>,
-        best_payload: BlockCell<Self::BuiltPayload>,
-    ) -> Result<(), PayloadBuilderError> {
-        match self.inner.try_build(args)? {
-            BuildOutcome::Better { payload, .. } => {
-                best_payload.set(payload);
-                Ok(())
-            }
-            _ => {
-                tracing::warn!("No better payload found");
-                Err(PayloadBuilderError::MissingPayload)
-            }
-        }
-    }
 }
