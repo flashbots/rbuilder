@@ -19,7 +19,6 @@ use crate::{
         BlockBuildingContext,
     },
     provider::StateProviderFactory,
-    roothash::RootHashConfig,
 };
 
 /// Assembles block building results from the best orderings of order groups.
@@ -31,7 +30,6 @@ pub struct BlockBuildingResultAssembler<P> {
     discard_txs: bool,
     coinbase_payment: bool,
     can_use_suggested_fee_recipient_as_coinbase: bool,
-    root_hash_config: RootHashConfig,
     builder_name: String,
     sink: Option<Arc<dyn UnfinishedBlockBuildingSink>>,
     best_results: Arc<BestResults>,
@@ -54,7 +52,6 @@ where
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         config: &ParallelBuilderConfig,
-        root_hash_config: RootHashConfig,
         best_results: Arc<BestResults>,
         provider: P,
         ctx: BlockBuildingContext,
@@ -71,7 +68,6 @@ where
             discard_txs: config.discard_txs,
             coinbase_payment: config.coinbase_payment,
             can_use_suggested_fee_recipient_as_coinbase,
-            root_hash_config,
             builder_name,
             sink,
             best_results,
@@ -198,7 +194,6 @@ where
 
         let mut block_building_helper = BlockBuildingHelperFromProvider::new(
             self.provider.clone(),
-            self.root_hash_config.clone(),
             ctx,
             self.cached_reads.clone(),
             self.builder_name.clone(),
@@ -266,7 +261,6 @@ where
     ) -> eyre::Result<Box<dyn BlockBuildingHelper>> {
         let mut block_building_helper = BlockBuildingHelperFromProvider::new(
             self.provider.clone(),
-            self.root_hash_config.clone(), // Adjust as needed for backtest
             self.ctx.clone(),
             None, // No cached reads for backtest start
             String::from("backtest_builder"),

@@ -87,8 +87,6 @@ async fn main() -> eyre::Result<()> {
         let ctx = ctx.clone();
         let txs = txs.clone();
         let state_provider = state_provider.clone();
-        let config = config.clone();
-        let root_hash_config = config.base_config.live_root_hash_config()?;
         let (new_cached_reads, build_time, finalize_time) =
             tokio::task::spawn_blocking(move || -> eyre::Result<_> {
                 let partial_block = PartialBlock::new(true, None);
@@ -114,8 +112,7 @@ async fn main() -> eyre::Result<()> {
                 let build_time = build_time.elapsed();
 
                 let finalize_time = Instant::now();
-                let finalized_block =
-                    partial_block.finalize(&mut state, &ctx, root_hash_config.clone())?;
+                let finalized_block = partial_block.finalize(&mut state, &ctx)?;
                 let finalize_time = finalize_time.elapsed();
 
                 debug!(

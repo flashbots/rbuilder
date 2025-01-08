@@ -34,7 +34,6 @@ use crate::{
         LiveBuilderInput,
     },
     provider::StateProviderFactory,
-    roothash::RootHashConfig,
 };
 use reth::revm::cached::CachedReads;
 
@@ -116,7 +115,6 @@ where
 
         let block_building_result_assembler = BlockBuildingResultAssembler::new(
             config,
-            input.root_hash_config,
             Arc::clone(&best_results),
             input.provider.clone(),
             input.ctx.clone(),
@@ -316,7 +314,6 @@ where
     let assembler_start = Instant::now();
     let block_building_result_assembler = BlockBuildingResultAssembler::new(
         &config,
-        RootHashConfig::skip_root_hash(),
         Arc::clone(&best_results),
         input.provider.clone(),
         input.ctx.clone(),
@@ -368,22 +365,13 @@ where
 
 #[derive(Debug)]
 pub struct ParallelBuildingAlgorithm {
-    root_hash_config: RootHashConfig,
     config: ParallelBuilderConfig,
     name: String,
 }
 
 impl ParallelBuildingAlgorithm {
-    pub fn new(
-        root_hash_config: RootHashConfig,
-        config: ParallelBuilderConfig,
-        name: String,
-    ) -> Self {
-        Self {
-            root_hash_config,
-            config,
-            name,
-        }
+    pub fn new(config: ParallelBuilderConfig, name: String) -> Self {
+        Self { config, name }
     }
 }
 
@@ -398,7 +386,6 @@ where
     fn build_blocks(&self, input: BlockBuildingAlgorithmInput<P>) {
         let live_input = LiveBuilderInput {
             provider: input.provider,
-            root_hash_config: self.root_hash_config.clone(),
             ctx: input.ctx.clone(),
             input: input.input,
             sink: input.sink,

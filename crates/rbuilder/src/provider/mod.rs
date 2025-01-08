@@ -1,5 +1,5 @@
 use crate::live_builder::simulation::SimulatedOrderCommand;
-use crate::roothash::{RootHashConfig, RootHashError};
+use crate::roothash::RootHashError;
 use alloy_consensus::Header;
 use alloy_primitives::{BlockHash, BlockNumber, B256};
 use reth::providers::ExecutionOutcome;
@@ -47,9 +47,5 @@ pub trait RootHasher: std::fmt::Debug + Send + Sync {
     );
 
     /// State root for changes outcome on top of parent block.
-    fn state_root(
-        &self,
-        outcome: &ExecutionOutcome,
-        config: RootHashConfig,
-    ) -> Result<B256, RootHashError>;
+    fn state_root(&self, outcome: &ExecutionOutcome) -> Result<B256, RootHashError>;
 }

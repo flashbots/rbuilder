@@ -17,7 +17,6 @@ use crate::{
     },
     primitives::SimulatedOrder,
     provider::StateProviderFactory,
-    roothash::RootHashConfig,
     telemetry,
     utils::{check_block_hash_reader_health, HistoricalBlockError},
 };
@@ -101,7 +100,6 @@ where
     built_block_trace: BuiltBlockTrace,
     /// Needed to get the initial state and the final root hash calculation.
     provider: P,
-    root_hash_config: RootHashConfig,
     /// Token to cancel in case of fatal error (if we believe that it's impossible to build for this block).
     cancel_on_fatal_error: CancellationToken,
 }
@@ -159,7 +157,6 @@ where
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         provider: P,
-        root_hash_config: RootHashConfig,
         building_ctx: BlockBuildingContext,
         cached_reads: Option<CachedReads>,
         builder_name: String,
@@ -205,7 +202,6 @@ where
             building_ctx,
             built_block_trace: BuiltBlockTrace::new(),
             provider,
-            root_hash_config,
             cancel_on_fatal_error,
         })
     }
@@ -353,11 +349,10 @@ where
 
         let sim_gas_used = self.partial_block.tracer.used_gas;
         let block_number = self.building_context().block();
-        let finalized_block = match self.partial_block.finalize(
-            &mut self.block_state,
-            &self.building_ctx,
-            self.root_hash_config,
-        ) {
+        let finalized_block = match self
+            .partial_block
+            .finalize(&mut self.block_state, &self.building_ctx)
+        {
             Ok(finalized_block) => finalized_block,
             Err(err) => {
                 if err.is_consistent_db_view_err() {

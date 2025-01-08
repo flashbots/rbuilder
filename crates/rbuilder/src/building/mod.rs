@@ -18,7 +18,7 @@ use reth_primitives::BlockBody;
 use crate::{
     primitives::{Order, OrderId, SimValue, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs},
     provider::RootHasher,
-    roothash::{RootHashConfig, RootHashError},
+    roothash::RootHashError,
     utils::{a2r_withdrawal, calc_gas_limit, timestamp_as_u64, Signer},
 };
 use ahash::HashSet;
@@ -603,7 +603,6 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         self,
         state: &mut BlockState,
         ctx: &BlockBuildingContext,
-        root_hash_config: RootHashConfig,
     ) -> Result<FinalizeResult, FinalizeError> {
         let requests = if ctx
             .chain_spec
@@ -684,9 +683,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
 
         // calculate the state root
         let start = Instant::now();
-        let state_root = ctx
-            .root_hasher
-            .state_root(&execution_outcome, root_hash_config)?;
+        let state_root = ctx.root_hasher.state_root(&execution_outcome)?;
         let root_hash_time = start.elapsed();
 
         // create the block header

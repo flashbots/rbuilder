@@ -367,8 +367,7 @@ impl LiveBuilderConfig for Config {
                 provider,
             )
             .await?;
-        let root_hash_config = self.base_config.live_root_hash_config()?;
-        let builders = create_builders(self.live_builders()?, root_hash_config);
+        let builders = create_builders(self.live_builders()?);
         Ok(live_builder.with_builders(builders))
     }
 
@@ -494,6 +493,7 @@ pub fn create_provider_factory(
     reth_db_path: Option<&Path>,
     reth_static_files_path: Option<&Path>,
     chain_spec: Arc<ChainSpec>,
+    root_hash_config: Option<RootHashConfig>,
 ) -> eyre::Result<ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>> {
     let reth_db_path = match (reth_db_path, reth_datadir) {
         (Some(reth_db_path), _) => PathBuf::from(reth_db_path),
@@ -512,7 +512,7 @@ pub fn create_provider_factory(
     };
 
     let provider_factory_reopener =
-        ProviderFactoryReopener::new(db, chain_spec, reth_static_files_path)?;
+        ProviderFactoryReopener::new(db, chain_spec, reth_static_files_path, root_hash_config)?;
 
     if provider_factory_reopener
         .provider_factory_unchecked()
@@ -537,33 +537,24 @@ pub fn coinbase_signer_from_secret_key(secret_key: &str) -> eyre::Result<Signer>
     Ok(Signer::try_from_secret(secret_key)?)
 }
 
-pub fn create_builders<P>(
-    configs: Vec<BuilderConfig>,
-    root_hash_config: RootHashConfig,
-) -> Vec<Arc<dyn BlockBuildingAlgorithm<P>>>
+pub fn create_builders<P>(configs: Vec<BuilderConfig>) -> Vec<Arc<dyn BlockBuildingAlgorithm<P>>>
 where
     P: StateProviderFactory + Clone + 'static,
 {
-    configs
-        .into_iter()
-        .map(|cfg| create_builder(cfg, &root_hash_config))
-        .collect()
+    configs.into_iter().map(|cfg| create_builder(cfg)).collect()
 }
 
-fn create_builder<P>(
-    cfg: BuilderConfig,
-    root_hash_config: &RootHashConfig,
-) -> Arc<dyn BlockBuildingAlgorithm<P>>
+fn create_builder<P>(cfg: BuilderConfig) -> Arc<dyn BlockBuildingAlgorithm<P>>
 where
     P: StateProviderFactory + Clone + 'static,
 {
     match cfg.builder {
-        SpecificBuilderConfig::OrderingBuilder(order_cfg) => Arc::new(
-            OrderingBuildingAlgorithm::new(root_hash_config.clone(), order_cfg, cfg.name),
-        ),
-        SpecificBuilderConfig::ParallelBuilder(parallel_cfg) => Arc::new(
-            ParallelBuildingAlgorithm::new(root_hash_config.clone(), parallel_cfg, cfg.name),
-        ),
+        SpecificBuilderConfig::OrderingBuilder(order_cfg) => {
+            Arc::new(OrderingBuildingAlgorithm::new(order_cfg, cfg.name))
+        }
+        SpecificBuilderConfig::ParallelBuilder(parallel_cfg) => {
+            Arc::new(ParallelBuildingAlgorithm::new(parallel_cfg, cfg.name))
+        }
     }
 }
 

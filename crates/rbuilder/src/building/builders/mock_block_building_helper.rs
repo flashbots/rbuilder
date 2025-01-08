@@ -1,6 +1,6 @@
 use crate::live_builder::simulation::SimulatedOrderCommand;
 use crate::provider::RootHasher;
-use crate::roothash::{RootHashConfig, RootHashError};
+use crate::roothash::RootHashError;
 use crate::{
     building::{
         BlockBuildingContext, BuiltBlockTrace, CriticalCommitOrderError, ExecutionError,
@@ -129,11 +129,7 @@ impl RootHasher for MockRootHasher {
     ) {
     }
 
-    fn state_root(
-        &self,
-        _outcome: &ExecutionOutcome,
-        _config: RootHashConfig,
-    ) -> Result<B256, RootHashError> {
+    fn state_root(&self, _outcome: &ExecutionOutcome) -> Result<B256, RootHashError> {
         Ok(B256::default())
     }
 }

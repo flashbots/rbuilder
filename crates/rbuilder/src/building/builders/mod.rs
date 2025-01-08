@@ -9,7 +9,6 @@ use crate::{
     live_builder::{payload_events::MevBoostSlotData, simulation::SimulatedOrderCommand},
     primitives::{AccountNonce, OrderId, SimulatedOrder},
     provider::StateProviderFactory,
-    roothash::RootHashConfig,
     utils::{is_provider_factory_health_error, NonceCache},
 };
 use ahash::HashSet;
@@ -40,7 +39,6 @@ pub struct Block {
 #[derive(Debug)]
 pub struct LiveBuilderInput<P> {
     pub provider: P,
-    pub root_hash_config: RootHashConfig,
     pub ctx: BlockBuildingContext,
     pub input: broadcast::Receiver<SimulatedOrderCommand>,
     pub sink: Arc<dyn UnfinishedBlockBuildingSink>,

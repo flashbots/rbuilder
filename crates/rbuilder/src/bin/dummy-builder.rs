@@ -35,7 +35,6 @@ use rbuilder::{
         SimulatedOrder,
     },
     provider::StateProviderFactory,
-    roothash::RootHashConfig,
     utils::{ProviderFactoryReopener, Signer},
 };
 use reth_chainspec::MAINNET;
@@ -102,6 +101,7 @@ async fn main() -> eyre::Result<()> {
             None,
             None,
             chain_spec.clone(),
+            None,
         )?,
         coinbase_signer: Signer::random(),
         extra_data: Vec::new(),
@@ -209,7 +209,6 @@ impl DummyBuildingAlgorithm {
     {
         let mut block_building_helper = BlockBuildingHelperFromProvider::new(
             provider.clone(),
-            RootHashConfig::live_config(false, false),
             ctx.clone(),
             None,
             BUILDER_NAME.to_string(),

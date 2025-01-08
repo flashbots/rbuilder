@@ -15,7 +15,6 @@ use crate::{
     },
     primitives::{AccountNonce, OrderId},
     provider::StateProviderFactory,
-    roothash::RootHashConfig,
 };
 use ahash::{HashMap, HashSet};
 use reth::revm::cached::CachedReads;
@@ -73,7 +72,6 @@ where
         input.builder_name,
         input.ctx,
         config.clone(),
-        input.root_hash_config,
     );
 
     // this is a hack to mark used orders until built block trace is implemented as a sane thing
@@ -140,7 +138,6 @@ where
         input.builder_name,
         input.ctx.clone(),
         ordering_config,
-        RootHashConfig::skip_root_hash(),
     )
     .with_cached_reads(input.cached_reads.unwrap_or_default());
     let block_builder = builder.build_block(
@@ -167,7 +164,6 @@ pub struct OrderingBuilderContext<P> {
     builder_name: String,
     ctx: BlockBuildingContext,
     config: OrderingBuilderConfig,
-    root_hash_config: RootHashConfig,
 
     // caches
     cached_reads: Option<CachedReads>,
@@ -186,14 +182,12 @@ where
         builder_name: String,
         ctx: BlockBuildingContext,
         config: OrderingBuilderConfig,
-        root_hash_config: RootHashConfig,
     ) -> Self {
         Self {
             provider,
             builder_name,
             ctx,
             config,
-            root_hash_config,
             cached_reads: None,
             failed_orders: HashSet::default(),
             order_attempts: HashMap::default(),
@@ -236,7 +230,6 @@ where
 
         let mut block_building_helper = BlockBuildingHelperFromProvider::new(
             self.provider.clone(),
-            self.root_hash_config.clone(),
             new_ctx,
             self.cached_reads.take(),
             self.builder_name.clone(),
@@ -320,22 +313,13 @@ where
 
 #[derive(Debug)]
 pub struct OrderingBuildingAlgorithm {
-    root_hash_config: RootHashConfig,
     config: OrderingBuilderConfig,
     name: String,
 }
 
 impl OrderingBuildingAlgorithm {
-    pub fn new(
-        root_hash_config: RootHashConfig,
-        config: OrderingBuilderConfig,
-        name: String,
-    ) -> Self {
-        Self {
-            root_hash_config,
-            config,
-            name,
-        }
+    pub fn new(config: OrderingBuilderConfig, name: String) -> Self {
+        Self { config, name }
     }
 }
 
@@ -350,7 +334,6 @@ where
     fn build_blocks(&self, input: BlockBuildingAlgorithmInput<P>) {
         let live_input = LiveBuilderInput {
             provider: input.provider,
-            root_hash_config: self.root_hash_config.clone(),
             ctx: input.ctx.clone(),
             input: input.input,
             sink: input.sink,

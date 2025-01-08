@@ -1,3 +1,4 @@
+use crate::building::builders::mock_block_building_helper::MockRootHasher;
 use crate::live_builder::simulation::SimulatedOrderCommand;
 use crate::provider::{RootHasher, StateProviderFactory};
 use crate::roothash::{calculate_state_root, run_trie_prefetcher, RootHashConfig, RootHashError};
@@ -36,13 +37,17 @@ pub struct ProviderFactoryReopener<N: NodeTypesWithDB> {
     last_consistent_block: Arc<RwLock<Option<BlockNumber>>>,
     /// Patch to disable checking on test mode. Is ugly but ProviderFactoryReopener should die shortly (5/24/2024).
     testing_mode: bool,
+    /// None ->No root hash (MockRootHasher)
+    root_hash_config: Option<RootHashConfig>,
 }
 
+/// root_hash_config None -> MockRootHasher used
 impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> {
     pub fn new(
         db: N::DB,
         chain_spec: Arc<N::ChainSpec>,
         static_files_path: PathBuf,
+        root_hash_config: Option<RootHashConfig>,
     ) -> RethResult<Self> {
         let provider_factory = ProviderFactory::new(
             db,
@@ -54,18 +59,23 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
             provider_factory: Arc::new(Mutex::new(provider_factory)),
             chain_spec,
             static_files_path,
+            root_hash_config,
             testing_mode: false,
             last_consistent_block: Arc::new(RwLock::new(None)),
         })
     }
 
-    pub fn new_from_existing(provider_factory: ProviderFactory<N>) -> RethResult<Self> {
+    pub fn new_from_existing(
+        provider_factory: ProviderFactory<N>,
+        root_hash_config: Option<RootHashConfig>,
+    ) -> RethResult<Self> {
         let chain_spec = provider_factory.chain_spec();
         let static_files_path = provider_factory.static_file_provider().path().to_path_buf();
         Ok(Self {
             provider_factory: Arc::new(Mutex::new(provider_factory)),
             chain_spec,
             static_files_path,
+            root_hash_config,
             testing_mode: true,
             last_consistent_block: Arc::new(RwLock::new(None)),
         })
@@ -227,12 +237,19 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> StateProviderFactory
     }
 
     fn root_hasher(&self, parent_hash: B256) -> Box<dyn RootHasher> {
-        let provider = self
-            .check_consistency_and_reopen_if_needed()
-            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))
-            .unwrap();
-
-        Box::new(RootHasherImpl::new(parent_hash, provider))
+        if let Some(root_hash_config) = &self.root_hash_config {
+            let provider = self
+                .check_consistency_and_reopen_if_needed()
+                .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))
+                .unwrap();
+            Box::new(RootHasherImpl::new(
+                parent_hash,
+                root_hash_config.clone(),
+                provider,
+            ))
+        } else {
+            Box::new(MockRootHasher {})
+        }
     }
 }
 
@@ -240,13 +257,15 @@ pub struct RootHasherImpl<T> {
     parent_hash: B256,
     provider: T,
     sparse_trie_shared_cache: SparseTrieSharedCache,
+    config: RootHashConfig,
 }
 
 impl<T> RootHasherImpl<T> {
-    pub fn new(parent_hash: B256, provider: T) -> Self {
+    pub fn new(parent_hash: B256, config: RootHashConfig, provider: T) -> Self {
         Self {
             parent_hash,
             provider,
+            config,
             sparse_trie_shared_cache: Default::default(),
         }
     }
@@ -270,17 +289,13 @@ where
         );
     }
 
-    fn state_root(
-        &self,
-        outcome: &ExecutionOutcome,
-        config: RootHashConfig,
-    ) -> Result<B256, RootHashError> {
+    fn state_root(&self, outcome: &ExecutionOutcome) -> Result<B256, RootHashError> {
         calculate_state_root(
             self.provider.clone(),
             self.parent_hash,
             outcome,
             self.sparse_trie_shared_cache.clone(),
-            config,
+            &self.config,
         )
     }
 }

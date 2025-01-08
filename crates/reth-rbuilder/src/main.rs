@@ -8,11 +8,10 @@
 use clap::{Args, Parser};
 use rbuilder::{
     live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig, config::Config},
-    provider::StateProviderFactory,
+    provider::reth_prov::StateProviderFactoryFromRethProvider,
     telemetry,
 };
 use reth::{chainspec::EthereumChainSpecParser, cli::Cli};
-use reth_db_api::Database;
 use reth_node_builder::{
     engine_tree_config::{
         TreeConfig, DEFAULT_MEMORY_BLOCK_BUFFER_TARGET, DEFAULT_PERSISTENCE_THRESHOLD,
@@ -122,11 +121,10 @@ fn main() {
 /// Spawns a tokio rbuilder task.
 ///
 /// Takes down the entire process if the rbuilder errors or stops.
-fn spawn_rbuilder<P, DB>(provider: P, config_path: PathBuf)
+fn spawn_rbuilder<P>(provider: P, config_path: PathBuf)
 where
-    DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-        + StateProviderFactory
+    P: DatabaseProviderFactory<Provider: BlockReader>
+        + reth_provider::StateProviderFactory
         + HeaderProvider
         + Clone
         + 'static,
@@ -149,7 +147,15 @@ where
             )
             .await?;
 
-            let builder = config.new_builder(provider, Default::default()).await?;
+            let builder = config
+                .new_builder(
+                    StateProviderFactoryFromRethProvider::new(
+                        provider,
+                        config.base_config().live_root_hash_config()?,
+                    ),
+                    Default::default(),
+                )
+                .await?;
             builder.run().await?;
 
             Ok::<(), eyre::Error>(())

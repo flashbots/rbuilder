@@ -7842,6 +7842,7 @@ dependencies = [
  "eyre",
  "rbuilder",
  "reth-primitives",
+ "reth-provider",
  "tokio",
  "tokio-util",
  "tracing",
