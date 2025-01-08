@@ -356,7 +356,6 @@ where
         let finalized_block = match self.partial_block.finalize(
             &mut self.block_state,
             &self.building_ctx,
-            self.provider.clone(),
             self.root_hash_config,
         ) {
             Ok(finalized_block) => finalized_block,

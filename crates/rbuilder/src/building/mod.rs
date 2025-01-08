@@ -12,6 +12,7 @@ pub mod testing;
 pub mod tracers;
 use alloy_consensus::{Header, EMPTY_OMMER_ROOT_HASH};
 use alloy_primitives::{Address, Bytes, Sealable, U256};
+use builders::mock_block_building_helper::MockRootHasher;
 use reth_primitives::BlockBody;
 
 use crate::{
@@ -82,6 +83,7 @@ pub struct BlockBuildingContext {
     pub excess_blob_gas: Option<u64>,
     /// Version of the EVM that we are going to use
     pub spec_id: SpecId,
+    pub root_hasher: Arc<dyn RootHasher>,
 }
 
 impl BlockBuildingContext {
@@ -97,6 +99,7 @@ impl BlockBuildingContext {
         prefer_gas_limit: Option<u64>,
         extra_data: Vec<u8>,
         spec_id: Option<SpecId>,
+        root_hasher: Arc<dyn RootHasher>,
     ) -> Option<BlockBuildingContext> {
         let attributes = EthPayloadBuilderAttributes::try_new(
             attributes.data.parent_block_hash,
@@ -159,6 +162,7 @@ impl BlockBuildingContext {
             extra_data,
             excess_blob_gas,
             spec_id,
+            root_hasher,
         })
     }
 
@@ -173,6 +177,7 @@ impl BlockBuildingContext {
         coinbase: Address,
         suggested_fee_recipient: Address,
         builder_signer: Option<Signer>,
+        root_hasher: Arc<dyn RootHasher>,
     ) -> BlockBuildingContext {
         let block_number = onchain_block.header.number;
 
@@ -243,6 +248,7 @@ impl BlockBuildingContext {
             extra_data: Vec::new(),
             excess_blob_gas: onchain_block.header.excess_blob_gas,
             spec_id,
+            root_hasher,
         }
     }
 
@@ -258,6 +264,7 @@ impl BlockBuildingContext {
             Default::default(),
             Default::default(),
             Default::default(),
+            Arc::new(MockRootHasher {}),
         )
     }
 
@@ -591,16 +598,12 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
 
     /// Mostly based on reth's (v1.1.1) default_ethereum_payload_builder.
     #[allow(clippy::too_many_arguments)]
-    pub fn finalize<P>(
+    pub fn finalize(
         self,
         state: &mut BlockState,
         ctx: &BlockBuildingContext,
-        provider: P,
         root_hash_config: RootHashConfig,
-    ) -> Result<FinalizeResult, FinalizeError>
-    where
-        P: StateProviderFactory,
-    {
+    ) -> Result<FinalizeResult, FinalizeError> {
         let requests = if ctx
             .chain_spec
             .is_prague_active_at_timestamp(ctx.attributes.timestamp())
@@ -680,11 +683,9 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
 
         // calculate the state root
         let start = Instant::now();
-        let state_root = ctx.root_hasher.calculate_state_root(
-            ctx.attributes.parent,
-            &execution_outcome,
-            root_hash_config,
-        )?;
+        let state_root = ctx
+            .root_hasher
+            .state_root(&execution_outcome, root_hash_config)?;
         let root_hash_time = start.elapsed();
 
         // create the block header

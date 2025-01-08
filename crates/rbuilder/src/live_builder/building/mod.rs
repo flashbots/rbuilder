@@ -131,9 +131,8 @@ where
         if self.run_sparse_trie_prefetcher {
             let input = broadcast_input.subscribe();
 
-            let provider = self.provider.clone();
             tokio::task::spawn_blocking(move || {
-                provider.run_trie_prefetcher(ctx.attributes.parent, input, cancel.clone());
+                ctx.root_hasher.run_prefetcher(input, cancel);
             });
         }
 

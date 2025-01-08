@@ -236,14 +236,14 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> StateProviderFactory
     }
 }
 
-struct RootHasherImpl<T> {
+pub struct RootHasherImpl<T> {
     parent_hash: B256,
     provider: T,
     sparse_trie_shared_cache: SparseTrieSharedCache,
 }
 
 impl<T> RootHasherImpl<T> {
-    fn new(parent_hash: B256, provider: T) -> Self {
+    pub fn new(parent_hash: B256, provider: T) -> Self {
         Self {
             parent_hash,
             provider,
@@ -282,5 +282,13 @@ where
             self.sparse_trie_shared_cache.clone(),
             config,
         )
+    }
+}
+
+impl<T> std::fmt::Debug for RootHasherImpl<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RootHasherImpl")
+            .field("parent_hash", &self.parent_hash)
+            .finish()
     }
 }

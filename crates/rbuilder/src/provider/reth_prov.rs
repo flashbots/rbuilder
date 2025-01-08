@@ -1,13 +1,9 @@
-use crate::live_builder::simulation::SimulatedOrderCommand;
-use crate::roothash::{calculate_state_root, run_trie_prefetcher, RootHashConfig, RootHashError};
+use crate::utils::RootHasherImpl;
 use alloy_consensus::Header;
 use alloy_primitives::{BlockHash, BlockNumber, B256};
-use reth::providers::ExecutionOutcome;
 use reth_errors::ProviderResult;
 use reth_provider::StateProviderBox;
 use reth_provider::{BlockReader, DatabaseProviderFactory, HeaderProvider};
-use tokio::sync::broadcast;
-use tokio_util::sync::CancellationToken;
 
 use super::{RootHasher, StateProviderFactory};
 
@@ -52,6 +48,6 @@ where
     }
 
     fn root_hasher(&self, parent_hash: B256) -> Box<dyn RootHasher> {
-        unimplemented!()
+        Box::new(RootHasherImpl::new(parent_hash, self.clone()))
     }
 }

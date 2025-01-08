@@ -260,6 +260,8 @@ where
 
             inc_active_slots();
 
+            let root_hasher = Arc::from(self.provider.root_hasher(payload.parent_block_hash()));
+
             if let Some(block_ctx) = BlockBuildingContext::from_attributes(
                 payload.payload_attributes_event.clone(),
                 &parent_header,
@@ -269,6 +271,7 @@ where
                 Some(payload.suggested_gas_limit),
                 self.extra_data.clone(),
                 None,
+                root_hasher,
             ) {
                 builder_pool.start_block_building(
                     payload,

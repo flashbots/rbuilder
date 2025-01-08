@@ -30,7 +30,7 @@ pub trait StateProviderFactory: Clone + 'static + Send + Sync {
     fn root_hasher(&self, parent_hash: B256) -> Box<dyn RootHasher>;
 }
 
-pub trait RootHasher {
+pub trait RootHasher: std::fmt::Debug + Send + Sync {
     fn run_prefetcher(
         &self,
         simulated_orders: broadcast::Receiver<SimulatedOrderCommand>,
