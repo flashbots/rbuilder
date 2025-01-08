@@ -82,7 +82,6 @@ pub struct BlockBuildingContext {
     pub excess_blob_gas: Option<u64>,
     /// Version of the EVM that we are going to use
     pub spec_id: SpecId,
-    pub root_hasher: RootHasher,
 }
 
 impl BlockBuildingContext {
