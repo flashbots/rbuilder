@@ -315,7 +315,7 @@ pub fn simulate_all_orders_with_sim_tree<P>(
     randomize_insertion: bool,
 ) -> Result<(Vec<SimulatedOrder>, Vec<OrderErr>), CriticalCommitOrderError>
 where
-    P: StateProviderFactory,
+    P: StateProviderFactory + Clone,
 {
     let mut sim_tree = SimTree::new(provider.clone(), ctx.attributes.parent);
 

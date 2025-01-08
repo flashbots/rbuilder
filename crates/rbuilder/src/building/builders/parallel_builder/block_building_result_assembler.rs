@@ -41,7 +41,7 @@ pub struct BlockBuildingResultAssembler<P> {
 
 impl<P> BlockBuildingResultAssembler<P>
 where
-    P: StateProviderFactory,
+    P: StateProviderFactory + Clone + 'static,
 {
     /// Creates a new `BlockBuildingResultAssembler`.
     ///

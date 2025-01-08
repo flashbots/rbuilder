@@ -65,7 +65,7 @@ pub fn backtest_prepare_ctx_for_block<P>(
     builder_signer: Signer,
 ) -> eyre::Result<BacktestBlockInput>
 where
-    P: StateProviderFactory,
+    P: StateProviderFactory + Clone + 'static,
 {
     let orders = block_data
         .available_orders
@@ -118,7 +118,7 @@ pub fn backtest_simulate_block<P, ConfigType>(
     sbundle_mergeabe_signers: &[Address],
 ) -> eyre::Result<BlockBacktestValue>
 where
-    P: StateProviderFactory,
+    P: StateProviderFactory + Clone + 'static,
     ConfigType: LiveBuilderConfig,
 {
     let BacktestBlockInput {

@@ -123,7 +123,7 @@ pub fn calc_redistributions<P, ConfigType>(
     distribute_to_mempool_txs: bool,
 ) -> eyre::Result<RedistributionBlockOutput>
 where
-    P: StateProviderFactory,
+    P: StateProviderFactory + Clone + 'static,
     ConfigType: LiveBuilderConfig,
 {
     let _block_span = info_span!("block", block = block_data.block_number).entered();
@@ -274,7 +274,7 @@ fn restore_available_landed_orders<P>(
     included_orders_available: &[OrdersWithTimestamp],
 ) -> eyre::Result<HashMap<OrderId, LandedOrderData>>
 where
-    P: StateProviderFactory,
+    P: StateProviderFactory + Clone + 'static,
 {
     let block_txs = sim_historical_block(
         provider.clone(),
@@ -480,7 +480,7 @@ fn calculate_backtest_without_exclusion<P, ConfigType>(
     block_data: BlockData,
 ) -> eyre::Result<ResultsWithoutExclusion>
 where
-    P: StateProviderFactory,
+    P: StateProviderFactory + Clone + 'static,
     ConfigType: LiveBuilderConfig,
 {
     let ExclusionResult {
@@ -545,7 +545,7 @@ fn calculate_backtest_identity_and_order_exclusion<P, ConfigType>(
     results_without_exclusion: &ResultsWithoutExclusion,
 ) -> eyre::Result<ExclusionResults>
 where
-    P: StateProviderFactory,
+    P: StateProviderFactory + Clone + 'static,
     ConfigType: LiveBuilderConfig,
 {
     let included_orders_exclusion = {
@@ -615,7 +615,7 @@ fn calc_joint_exclusion_results<P, ConfigType>(
     distribute_to_mempool_txs: bool,
 ) -> eyre::Result<ExclusionResults>
 where
-    P: StateProviderFactory,
+    P: StateProviderFactory + Clone + 'static,
     ConfigType: LiveBuilderConfig,
 {
     // calculate identities that are possibly connected
@@ -948,7 +948,7 @@ fn calc_profit_after_exclusion<P, ConfigType>(
     exclusion_input: ExclusionInput,
 ) -> eyre::Result<ExclusionResult>
 where
-    P: StateProviderFactory,
+    P: StateProviderFactory + Clone + 'static,
     ConfigType: LiveBuilderConfig,
 {
     let block_data_with_excluded = {

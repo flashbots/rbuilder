@@ -38,7 +38,7 @@ pub struct BlockBuildingPool<P> {
 
 impl<P> BlockBuildingPool<P>
 where
-    P: StateProviderFactory,
+    P: StateProviderFactory + Clone + 'static,
 {
     pub fn new(
         provider: P,

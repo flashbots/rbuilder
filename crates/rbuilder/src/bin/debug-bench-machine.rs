@@ -87,7 +87,6 @@ async fn main() -> eyre::Result<()> {
         let ctx = ctx.clone();
         let txs = txs.clone();
         let state_provider = state_provider.clone();
-        let factory = provider_factory.clone();
         let config = config.clone();
         let root_hash_config = config.base_config.live_root_hash_config()?;
         let (new_cached_reads, build_time, finalize_time) =

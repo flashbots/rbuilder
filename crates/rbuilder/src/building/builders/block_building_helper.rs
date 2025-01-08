@@ -149,7 +149,7 @@ pub struct FinalizeBlockResult {
 
 impl<P> BlockBuildingHelperFromProvider<P>
 where
-    P: StateProviderFactory,
+    P: StateProviderFactory + Clone + 'static,
 {
     /// allow_tx_skip: see [`PartialBlockFork`]
     /// Performs initialization:
@@ -289,7 +289,7 @@ where
 
 impl<P> BlockBuildingHelper for BlockBuildingHelperFromProvider<P>
 where
-    P: StateProviderFactory,
+    P: StateProviderFactory + Clone + 'static,
 {
     /// Forwards to partial_block and updates trace.
     fn commit_order(

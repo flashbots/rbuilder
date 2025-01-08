@@ -191,7 +191,7 @@ pub async fn start_orderpool_jobs<P>(
     header_receiver: mpsc::Receiver<Header>,
 ) -> eyre::Result<(JoinHandle<()>, OrderPoolSubscriber)>
 where
-    P: StateProviderFactory,
+    P: StateProviderFactory + 'static,
 {
     if config.ignore_cancellable_orders {
         warn!("ignore_cancellable_orders is set to true, some order input is ignored");

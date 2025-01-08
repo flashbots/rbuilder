@@ -68,7 +68,7 @@ pub enum SimulatedOrderCommand {
 
 impl<P> OrderSimulationPool<P>
 where
-    P: StateProviderFactory,
+    P: StateProviderFactory + Clone + 'static,
 {
     pub fn new(provider: P, num_workers: usize, global_cancellation: CancellationToken) -> Self {
         let mut result = Self {

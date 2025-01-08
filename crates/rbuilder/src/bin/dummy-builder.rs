@@ -205,7 +205,7 @@ impl DummyBuildingAlgorithm {
         ctx: &BlockBuildingContext,
     ) -> eyre::Result<Box<dyn BlockBuildingHelper>>
     where
-        P: StateProviderFactory,
+        P: StateProviderFactory + Clone + 'static,
     {
         let mut block_building_helper = BlockBuildingHelperFromProvider::new(
             provider.clone(),
@@ -228,7 +228,7 @@ impl DummyBuildingAlgorithm {
 
 impl<P> BlockBuildingAlgorithm<P> for DummyBuildingAlgorithm
 where
-    P: StateProviderFactory,
+    P: StateProviderFactory + Clone + 'static,
 {
     fn name(&self) -> String {
         BUILDER_NAME.to_string()

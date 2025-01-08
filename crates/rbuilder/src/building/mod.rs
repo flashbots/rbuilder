@@ -17,7 +17,7 @@ use reth_primitives::BlockBody;
 
 use crate::{
     primitives::{Order, OrderId, SimValue, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs},
-    provider::{RootHasher, StateProviderFactory},
+    provider::RootHasher,
     roothash::{RootHashConfig, RootHashError},
     utils::{a2r_withdrawal, calc_gas_limit, timestamp_as_u64, Signer},
 };

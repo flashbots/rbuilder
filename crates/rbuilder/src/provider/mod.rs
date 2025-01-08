@@ -10,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 
 pub mod reth_prov;
 
-pub trait StateProviderFactory: Clone + 'static + Send + Sync {
+pub trait StateProviderFactory: Send + Sync {
     fn latest(&self) -> ProviderResult<StateProviderBox>;
 
     fn history_by_block_number(&self, block: BlockNumber) -> ProviderResult<StateProviderBox>;

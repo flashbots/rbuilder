@@ -115,7 +115,7 @@ fn process_redisribution<P, ConfigType>(
     distribute_to_mempool_txs: bool,
 ) -> eyre::Result<()>
 where
-    P: StateProviderFactory,
+    P: StateProviderFactory + Clone + 'static,
     ConfigType: LiveBuilderConfig,
 {
     let block_number = block_data.block_number;

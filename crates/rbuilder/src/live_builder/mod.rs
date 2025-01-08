@@ -119,7 +119,7 @@ where
 
 impl<P, BlocksSourceType: SlotSource> LiveBuilder<P, BlocksSourceType>
 where
-    P: StateProviderFactory,
+    P: StateProviderFactory + Clone + 'static,
     BlocksSourceType: SlotSource,
 {
     pub fn with_extra_rpc(self, extra_rpc: RpcModule<()>) -> Self {
@@ -230,13 +230,7 @@ where
                 // @Nicer
                 let parent_block = payload.parent_block_hash();
                 let timestamp = payload.timestamp();
-                match wait_for_block_header(
-                    parent_block,
-                    timestamp,
-                    self.provider.clone(),
-                    &timings,
-                )
-                .await
+                match wait_for_block_header(parent_block, timestamp, &self.provider, &timings).await
                 {
                     Ok(header) => header,
                     Err(err) => {
@@ -313,7 +307,7 @@ where
 async fn wait_for_block_header<P>(
     block: B256,
     slot_time: OffsetDateTime,
-    provider: P,
+    provider: &P,
     timings: &TimingsConfig,
 ) -> eyre::Result<Header>
 where

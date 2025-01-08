@@ -31,7 +31,7 @@ pub struct ConflictResolvingPool<P> {
 
 impl<P> ConflictResolvingPool<P>
 where
-    P: StateProviderFactory,
+    P: StateProviderFactory + Clone + 'static,
 {
     pub fn new(
         num_threads: usize,
