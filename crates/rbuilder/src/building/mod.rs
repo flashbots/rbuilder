@@ -35,7 +35,7 @@ use reth::{
     providers::ExecutionOutcome,
     revm::cached::CachedReads,
 };
-use reth_basic_payload_builder::{commit_withdrawals, WithdrawalsOutcome};
+use reth_basic_payload_builder::commit_withdrawals;
 use reth_chainspec::{ChainSpec, EthereumHardforks};
 use reth_errors::ProviderError;
 use reth_evm::{system_calls::SystemCaller, ConfigureEvmEnv, NextBlockEnvAttributes};
@@ -647,12 +647,9 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             None
         };
 
-        let (withdrawals_root, withdrawals) = {
+        let withdrawals_root = {
             let mut db = state.new_db_ref();
-            let WithdrawalsOutcome {
-                withdrawals_root,
-                withdrawals,
-            } = commit_withdrawals(
+            let withdrawals_root = commit_withdrawals(
                 db.as_mut(),
                 &ctx.chain_spec,
                 ctx.attributes.timestamp,
@@ -662,7 +659,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             // merge all transitions into bundle state, this would apply the withdrawal balance changes
             // and 4788 contract call
             db.as_mut().merge_transitions(BundleRetention::Reverts);
-            (withdrawals_root, withdrawals)
+            withdrawals_root
         };
 
         let (cached_reads, bundle) = state.clone_bundle_and_cache();
@@ -753,6 +750,10 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             excess_blob_gas,
             requests_hash,
         };
+
+        let withdrawals = ctx.chain_spec
+            .is_shanghai_active_at_timestamp(ctx.attributes.timestamp)
+            .then(|| ctx.attributes.withdrawals.clone());
 
         // seal the block
         let block = Block {

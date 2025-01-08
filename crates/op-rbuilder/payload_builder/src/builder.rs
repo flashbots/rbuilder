@@ -467,10 +467,7 @@ where
         });
     }
 
-    let WithdrawalsOutcome {
-        withdrawals_root,
-        withdrawals,
-    } = commit_withdrawals(
+    let withdrawals_root = commit_withdrawals(
         &mut db,
         &chain_spec,
         attributes.payload_attributes.timestamp,
@@ -558,6 +555,10 @@ where
         excess_blob_gas,
         requests_hash: None,
     };
+
+    let withdrawals = chain_spec
+        .is_shanghai_active_at_timestamp(attributes.timestamp)
+        .then(|| attributes.withdrawals.clone());
 
     // seal the block
     let block = Block {
