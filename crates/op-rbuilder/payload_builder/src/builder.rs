@@ -19,7 +19,7 @@ use reth_optimism_payload_builder::error::OpPayloadBuilderError;
 use reth_payload_builder::PayloadBuilderError;
 use reth_payload_primitives::PayloadBuilderAttributes;
 use reth_primitives::{
-    proofs, Block, BlockBody, Receipt, Transaction as RethTransaction, TransactionSigned, TxType
+    proofs, Block, BlockBody, Receipt, Transaction as RethTransaction, TransactionSigned, TxType,
 };
 use reth_provider::StateProviderFactory;
 use reth_revm::database::StateProviderDatabase;
@@ -143,8 +143,15 @@ where
             data: payload_attributes_data,
         };
 
+        let (cfg_env, block_env) = self
+            .cfg_and_block_env(&args.config, &args.config.parent_header)
+            .map_err(PayloadBuilderError::other)?;
+
         // gas reserved for builder tx
-        let builder_tx_gas = self.builder_signer().map_or(0, |_| 21000);
+        let builder_tx_gas = self.builder_signer().map_or(0, |_| {
+            let message = format!("Block Number: {}", block_env.number);
+            estimate_gas_for_builder_tx(message.as_bytes().to_vec())
+        });
 
         if let Err(e) = args.pool.notify_payload_attributes_event(
             payload_attributes_event,
@@ -155,10 +162,6 @@ where
         ) {
             error!(?e, "Failed to notify payload attributes event!");
         };
-
-        let (cfg_env, block_env) = self
-            .cfg_and_block_env(&args.config, &args.config.parent_header)
-            .map_err(PayloadBuilderError::other)?;
 
         try_build_inner(
             &self.evm_config,
@@ -384,7 +387,14 @@ where
     }
 
     // reserved gas for builder tx
-    let builder_tx_gas = if _builder_signer.is_some() { 21000 } else { 0 };
+    let message = format!("Block Number: {}", block_number)
+        .as_bytes()
+        .to_vec();
+    let builder_tx_gas = if _builder_signer.is_some() {
+        estimate_gas_for_builder_tx(message.clone())
+    } else {
+        0
+    };
 
     // Apply rbuilder block
     let mut count = 0;
@@ -497,76 +507,76 @@ where
     }
 
     // Add builder tx to the block
-    _builder_signer.map(|signer| {
-        // Create message with block number for the builder to sign
-        let message = format!("Block Number: {}", block_number);
-        let nonce = db
-            .load_cache_account(signer.address)
-            .map(|acc| acc.account_info().unwrap_or_default().nonce)
-            .map_err(|_| {
-                PayloadBuilderError::other(OpPayloadBuilderError::AccountLoadFailed(
-                    signer.address,
-                ))
-            })?;
+    _builder_signer
+        .map(|signer| {
+            // Create message with block number for the builder to sign
+            let nonce = db
+                .load_cache_account(signer.address)
+                .map(|acc| acc.account_info().unwrap_or_default().nonce)
+                .map_err(|_| {
+                    PayloadBuilderError::other(OpPayloadBuilderError::AccountLoadFailed(
+                        signer.address,
+                    ))
+                })?;
 
-        // Create the EIP-1559 transaction
-        let tx = RethTransaction::Eip1559(TxEip1559 {
-            chain_id: chain_spec.chain.id(),
-            nonce,
-            gas_limit: 21_000,
-            max_fee_per_gas: base_fee.into(),
-            max_priority_fee_per_gas: 0,
-            to: TxKind::Call(Address::ZERO),
-            // Include the message as part of the transaction data
-            input: message.as_bytes().to_vec().into(),
-            ..Default::default()
+            // Create the EIP-1559 transaction
+            let tx = RethTransaction::Eip1559(TxEip1559 {
+                chain_id: chain_spec.chain.id(),
+                nonce,
+                gas_limit: builder_tx_gas,
+                max_fee_per_gas: base_fee.into(),
+                max_priority_fee_per_gas: 0,
+                to: TxKind::Call(Address::ZERO),
+                // Include the message as part of the transaction data
+                input: message.into(),
+                ..Default::default()
+            });
+
+            // Sign the transaction
+            let builder_tx = signer.sign_tx(tx).map_err(PayloadBuilderError::other)?;
+
+            let env = EnvWithHandlerCfg::new_with_cfg_env(
+                initialized_cfg.clone(),
+                initialized_block_env.clone(),
+                evm_config.tx_env(builder_tx.as_signed(), builder_tx.signer()),
+            );
+
+            let mut evm = evm_config.evm_with_env(&mut db, env);
+
+            let ResultAndState { result, state } = evm
+                .transact()
+                .map_err(PayloadBuilderError::EvmExecutionError)?;
+
+            // Release the db reference by dropping evm
+            drop(evm);
+            // Commit changes
+            db.commit(state);
+
+            let gas_used = result.gas_used();
+
+            // Add gas used by the transaction to cumulative gas used, before creating the receipt
+            cumulative_gas_used += gas_used;
+
+            // Push transaction changeset and calculate header bloom filter for receipt
+            receipts.push(Some(Receipt {
+                tx_type: builder_tx.tx_type(),
+                success: result.is_success(),
+                cumulative_gas_used,
+                logs: result.into_logs().into_iter().map(Into::into).collect(),
+                deposit_nonce: None,
+                deposit_receipt_version: None,
+            }));
+
+            // Append sender and transaction to the respective lists
+            executed_senders.push(builder_tx.signer());
+            executed_txs.push(builder_tx.into_signed());
+            Ok(())
+        })
+        .transpose()
+        .unwrap_or_else(|err: PayloadBuilderError| {
+            warn!(target: "payload_builder", %err, "Failed to add builder transaction");
+            None
         });
-
-        // Sign the transaction
-        let builder_tx = signer.sign_tx(tx).map_err(|err| {
-            PayloadBuilderError::other(err)
-        })?;
-
-        let env = EnvWithHandlerCfg::new_with_cfg_env(
-            initialized_cfg.clone(),
-            initialized_block_env.clone(),
-            evm_config.tx_env(builder_tx.as_signed(), builder_tx.signer()),
-        );
-
-        let mut evm = evm_config.evm_with_env(&mut db, env);
-
-        let ResultAndState { result, state } = evm.transact().map_err(|err| {
-            PayloadBuilderError::EvmExecutionError(err)
-        })?;
-
-        // Release the db reference by dropping evm
-        drop(evm);
-        // Commit changes
-        db.commit(state);
-
-        let gas_used = result.gas_used();
-
-        // Add gas used by the transaction to cumulative gas used, before creating the receipt
-        cumulative_gas_used += gas_used;
-
-        // Push transaction changeset and calculate header bloom filter for receipt
-        receipts.push(Some(Receipt {
-            tx_type: builder_tx.tx_type(),
-            success: result.is_success(),
-            cumulative_gas_used,
-            logs: result.into_logs().into_iter().map(Into::into).collect(),
-            deposit_nonce: None,
-            deposit_receipt_version: None,
-        }));
-
-        // Append sender and transaction to the respective lists
-        executed_senders.push(builder_tx.signer());
-        executed_txs.push(builder_tx.into_signed());
-        Ok(())
-    }).transpose().unwrap_or_else(|err: PayloadBuilderError| {
-        warn!(target: "payload_builder", %err, "Failed to add builder transaction");
-        None
-    });
 
     let WithdrawalsOutcome {
         withdrawals_root,
@@ -695,4 +705,21 @@ where
         payload,
         cached_reads,
     })
+}
+
+fn estimate_gas_for_builder_tx(input: Vec<u8>) -> u64 {
+    // Count zero and non-zero bytes
+    let (zero_bytes, nonzero_bytes) = input.iter().fold((0, 0), |(zeros, nonzeros), &byte| {
+        if byte == 0 {
+            (zeros + 1, nonzeros)
+        } else {
+            (zeros, nonzeros + 1)
+        }
+    });
+
+    // Calculate gas cost (4 gas per zero byte, 16 gas per non-zero byte)
+    let zero_cost = zero_bytes * 4;
+    let nonzero_cost = nonzero_bytes * 16;
+
+    zero_cost + nonzero_cost + 21_000
 }

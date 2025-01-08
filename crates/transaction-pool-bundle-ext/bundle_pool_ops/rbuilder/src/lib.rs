@@ -88,10 +88,7 @@ impl SlotSource for OurSlotSource {
 }
 
 impl BundlePoolOps {
-    pub async fn new<P, DB>(
-        provider: P,
-        config: Config,
-    ) -> Result<Self, Error>
+    pub async fn new<P, DB>(provider: P, config: Config) -> Result<Self, Error>
     where
         DB: Database + Clone + 'static,
         P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
