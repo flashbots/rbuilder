@@ -1,10 +1,10 @@
 use alloy_primitives::utils::format_ether;
 use crossbeam_queue::SegQueue;
 use eyre::Result;
-use rayon::{ThreadPool, ThreadPoolBuilder};
 use reth_provider::StateProviderFactory;
 use std::{
     sync::{mpsc as std_mpsc, Arc},
+    thread,
     time::Instant,
 };
 use tokio_util::sync::CancellationToken;
@@ -21,12 +21,12 @@ pub type TaskQueue = Arc<SegQueue<ConflictTask>>;
 
 pub struct ConflictResolvingPool<P> {
     task_queue: TaskQueue,
-    thread_pool: ThreadPool,
     group_result_sender: std_mpsc::Sender<ConflictResolutionResultPerGroup>,
     cancellation_token: CancellationToken,
     ctx: BlockBuildingContext,
     provider: P,
     simulation_cache: Arc<SharedSimulationCache>,
+    num_threads: usize,
 }
 
 impl<P> ConflictResolvingPool<P>
@@ -42,31 +42,27 @@ where
         provider: P,
         simulation_cache: Arc<SharedSimulationCache>,
     ) -> Self {
-        let thread_pool = ThreadPoolBuilder::new()
-            .num_threads(num_threads)
-            .build()
-            .expect("Failed to build thread pool");
-
         Self {
             task_queue,
-            thread_pool,
             group_result_sender,
             cancellation_token,
             ctx,
             provider,
             simulation_cache,
+            num_threads,
         }
     }
 
     pub fn start(&self) {
-        for _ in 0..self.thread_pool.current_num_threads() {
+        for _ in 0..self.num_threads {
             let task_queue = self.task_queue.clone();
             let cancellation_token = self.cancellation_token.clone();
             let provider = self.provider.clone();
             let group_result_sender = self.group_result_sender.clone();
             let simulation_cache = self.simulation_cache.clone();
             let ctx = self.ctx.clone();
-            self.thread_pool.spawn(move || {
+
+            thread::spawn(move || {
                 while !cancellation_token.is_cancelled() {
                     if let Some(task) = task_queue.pop() {
                         if cancellation_token.is_cancelled() {
