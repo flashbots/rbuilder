@@ -33,7 +33,7 @@ pub trait StateProviderFactory: Send + Sync {
     fn root_hasher(&self, parent_hash: B256) -> Box<dyn RootHasher>;
 }
 
-/// trait that computes the roothash for a new block asumin a predefine parent block (given in StateProviderFactory::root_hasher)
+/// trait that computes the roothash for a new block assuming a predefine parent block (given in StateProviderFactory::root_hasher)
 /// Ideally, it caches information in each roothash is computes (state_root) so the next one is faster.
 /// Before using all run_prefetcher to allow the RootHasher start a prefetcher task that will pre cache root state trie nodes
 /// based on what it sees on the simulations.
