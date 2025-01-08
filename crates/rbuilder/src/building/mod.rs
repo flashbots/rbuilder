@@ -166,6 +166,7 @@ impl BlockBuildingContext {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     /// `from_block_data` is used to create `BlockBuildingContext` from onchain block for backtest purposes
     /// spec_id None: we use the SpecId for the block.
     /// Note: We calculate SpecId based on the current block instead of the parent block so this will break for the blocks +-1 relative to the fork

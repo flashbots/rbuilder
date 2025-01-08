@@ -274,7 +274,7 @@ impl TestBlockContextBuilder {
             prefer_gas_limit: None,
             use_suggested_fee_recipient_as_coinbase: block_args
                 .use_suggested_fee_recipient_as_coinbase,
-            root_hasher: root_hasher,
+            root_hasher,
         }
     }
 
