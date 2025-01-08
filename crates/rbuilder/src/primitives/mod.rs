@@ -17,7 +17,7 @@ use derivative::Derivative;
 use integer_encoding::VarInt;
 use reth_primitives::{
     kzg::{BYTES_PER_BLOB, BYTES_PER_COMMITMENT, BYTES_PER_PROOF},
-    PooledTransactionsElement, TransactionSigned, TransactionSignedEcRecovered,
+    PooledTransaction, TransactionSigned, TransactionSignedEcRecovered,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -473,11 +473,11 @@ impl TransactionSignedEcRecoveredWithBlobs {
     }
 
     pub fn nonce(&self) -> u64 {
-        self.tx.as_signed().nonce()
+        self.tx.nonce()
     }
 
     pub fn value(&self) -> U256 {
-        self.tx.as_signed().value()
+        self.tx.value()
     }
 
     /// USE CAREFULLY since this exposes the signed tx.
@@ -495,7 +495,7 @@ impl TransactionSignedEcRecoveredWithBlobs {
     /// USE CAREFULLY since this exposes the signed tx.
     pub fn envelope_encoded_no_blobs(&self) -> Bytes {
         let mut buf = Vec::new();
-        self.tx.as_signed().encode_2718(&mut buf);
+        self.tx.encode_2718(&mut buf);
         buf.into()
     }
 
@@ -504,14 +504,14 @@ impl TransactionSignedEcRecoveredWithBlobs {
         raw_tx: Bytes,
     ) -> Result<TransactionSignedEcRecoveredWithBlobs, RawTxWithBlobsConvertError> {
         let raw_tx = &mut raw_tx.as_ref();
-        let pooled_tx: PooledTransactionsElement =
-            PooledTransactionsElement::decode_2718(raw_tx)
+        let pooled_tx: PooledTransaction =
+            PooledTransaction::decode(raw_tx)
                 .map_err(RawTxWithBlobsConvertError::FailedToDecodeTransaction)?;
         let signer = pooled_tx
             .recover_signer()
             .ok_or(RawTxWithBlobsConvertError::InvalidTransactionSignature)?;
         match pooled_tx {
-            PooledTransactionsElement::Legacy {
+            PooledTransaction::Legacy {
                 transaction: _,
                 signature: _,
                 hash: _,
@@ -519,7 +519,7 @@ impl TransactionSignedEcRecoveredWithBlobs {
                 pooled_tx.into_ecrecovered_transaction(signer),
             )
             .ok_or(RawTxWithBlobsConvertError::UnexpectedError),
-            PooledTransactionsElement::Eip2930 {
+            PooledTransaction::Eip2930 {
                 transaction: _,
                 signature: _,
                 hash: _,
@@ -527,7 +527,7 @@ impl TransactionSignedEcRecoveredWithBlobs {
                 pooled_tx.into_ecrecovered_transaction(signer),
             )
             .ok_or(RawTxWithBlobsConvertError::UnexpectedError),
-            PooledTransactionsElement::Eip1559 {
+            PooledTransaction::Eip1559 {
                 transaction: _,
                 signature: _,
                 hash: _,
@@ -535,7 +535,7 @@ impl TransactionSignedEcRecoveredWithBlobs {
                 pooled_tx.into_ecrecovered_transaction(signer),
             )
             .ok_or(RawTxWithBlobsConvertError::UnexpectedError),
-            PooledTransactionsElement::Eip7702 {
+            PooledTransaction::Eip7702 {
                 transaction: _,
                 signature: _,
                 hash: _,
@@ -543,7 +543,7 @@ impl TransactionSignedEcRecoveredWithBlobs {
                 pooled_tx.into_ecrecovered_transaction(signer),
             )
             .ok_or(RawTxWithBlobsConvertError::UnexpectedError),
-            PooledTransactionsElement::BlobTransaction(blob_tx) => {
+            PooledTransaction::BlobTransaction(blob_tx) => {
                 let (tx, sidecar) = blob_tx.into_parts();
                 Ok(TransactionSignedEcRecoveredWithBlobs {
                     tx: tx.with_signer(signer),

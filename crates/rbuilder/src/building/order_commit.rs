@@ -409,7 +409,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
             .checked_sub(U256::from(cumulative_gas_used + gas_reserved))
         {
             Some(gas_left) => {
-                if tx.as_signed().gas_limit() > gas_left.to::<u64>() {
+                if tx.gas_limit() > gas_left.to::<u64>() {
                     return Ok(Err(TransactionErr::GasLeft));
                 }
             }
@@ -494,7 +494,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
             cumulative_blob_gas_used,
             cumulative_gas_used,
             tx: tx_with_blobs.clone(),
-            nonce_updated: (tx.signer(), tx.as_signed().nonce() + 1),
+            nonce_updated: (tx.signer(), tx.nonce() + 1),
             receipt,
         }))
     }

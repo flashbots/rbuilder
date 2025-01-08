@@ -68,8 +68,7 @@ pub fn insert_test_payout_tx(
     )?;
 
     let mut tx_env = TxEnv::default();
-    let tx_signed = tx.clone().into_signed();
-    tx_signed.fill_tx_env(&mut tx_env, tx_signed.recover_signer().unwrap());
+    tx.fill_tx_env(&mut tx_env, tx.signer());
 
     let env = Env {
         cfg: cfg.cfg_env.clone(),

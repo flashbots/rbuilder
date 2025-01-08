@@ -784,7 +784,7 @@ mod tests {
         let raw_tx_roundtrip = RawTx {
             tx: {
                 let mut buf = Vec::new();
-                tx.as_signed().encode_2718(&mut buf);
+                tx.encode_2718(&mut buf);
                 buf.into()
             },
         };
