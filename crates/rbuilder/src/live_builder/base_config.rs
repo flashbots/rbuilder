@@ -12,7 +12,6 @@ use ahash::HashSet;
 use alloy_primitives::{Address, B256};
 use eyre::{eyre, Context};
 use jsonrpsee::RpcModule;
-use lazy_static::lazy_static;
 use reth::chainspec::chain_value_parser;
 use reth_chainspec::ChainSpec;
 use reth_db::DatabaseEnv;
@@ -22,7 +21,6 @@ use reth_primitives::StaticFileSegment;
 use reth_provider::StaticFileProviderFactory;
 use serde::{Deserialize, Deserializer};
 use serde_with::{serde_as, DeserializeAs};
-use sqlx::PgPool;
 use std::{
     env::var,
     fs::read_to_string,
@@ -48,9 +46,13 @@ const ENV_PREFIX: &str = "env:";
 #[serde(default, deny_unknown_fields)]
 pub struct BaseConfig {
     pub full_telemetry_server_port: u16,
-    pub full_telemetry_server_ip: Option<String>,
+    #[serde(default = "default_ip")]
+    pub full_telemetry_server_ip: Ipv4Addr,
+
     pub redacted_telemetry_server_port: u16,
-    pub redacted_telemetry_server_ip: Option<String>,
+    #[serde(default = "default_ip")]
+    pub redacted_telemetry_server_ip: Ipv4Addr,
+
     pub log_json: bool,
     log_level: EnvOrValue<String>,
     pub log_color: bool,
@@ -59,13 +61,14 @@ pub struct BaseConfig {
 
     pub error_storage_path: Option<PathBuf>,
 
-    coinbase_secret_key: EnvOrValue<String>,
+    coinbase_secret_key: Option<EnvOrValue<String>>,
 
     pub flashbots_db: Option<EnvOrValue<String>>,
 
-    pub el_node_ipc_path: PathBuf,
+    pub el_node_ipc_path: Option<PathBuf>,
     pub jsonrpc_server_port: u16,
-    pub jsonrpc_server_ip: Option<String>,
+    #[serde(default = "default_ip")]
+    pub jsonrpc_server_ip: Ipv4Addr,
 
     pub ignore_cancellable_orders: bool,
     pub ignore_blobs: bool,
@@ -76,7 +79,9 @@ pub struct BaseConfig {
     pub reth_static_files_path: Option<PathBuf>,
 
     pub blocklist_file_path: Option<PathBuf>,
-    pub extra_data: String,
+
+    #[serde(deserialize_with = "deserialize_extra_data")]
+    pub extra_data: Vec<u8>,
 
     /// mev-share bundles coming from this address are treated in a special way(see [`ShareBundleMerger`])
     pub sbundle_mergeable_signers: Option<Vec<Address>>,
@@ -108,14 +113,8 @@ pub struct BaseConfig {
     pub backtest_protect_bundle_signers: Vec<Address>,
 }
 
-lazy_static! {
-    pub static ref DEFAULT_IP: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
-}
-
-fn parse_ip(ip: &Option<String>) -> Ipv4Addr {
-    ip.as_ref().map_or(*DEFAULT_IP, |s| {
-        s.parse::<Ipv4Addr>().unwrap_or(*DEFAULT_IP)
-    })
+pub fn default_ip() -> Ipv4Addr {
+    Ipv4Addr::new(0, 0, 0, 0)
 }
 
 /// Loads config from toml file, some values can be loaded from env variables with the following syntax
@@ -157,14 +156,14 @@ impl BaseConfig {
 
     pub fn redacted_telemetry_server_address(&self) -> SocketAddr {
         SocketAddr::V4(SocketAddrV4::new(
-            self.redacted_telemetry_server_ip(),
+            self.redacted_telemetry_server_ip,
             self.redacted_telemetry_server_port,
         ))
     }
 
     pub fn full_telemetry_server_address(&self) -> SocketAddr {
         SocketAddr::V4(SocketAddrV4::new(
-            self.full_telemetry_server_ip(),
+            self.full_telemetry_server_ip,
             self.full_telemetry_server_port,
         ))
     }
@@ -219,7 +218,7 @@ impl BaseConfig {
             provider,
 
             coinbase_signer: self.coinbase_signer()?,
-            extra_data: self.extra_data()?,
+            extra_data: self.extra_data.clone(),
             blocklist: self.blocklist()?,
 
             global_cancellation: cancellation_token,
@@ -234,18 +233,6 @@ impl BaseConfig {
             orderpool_receiver,
             sbundle_merger_selected_signers: Arc::new(self.sbundle_mergeable_signers()),
         })
-    }
-
-    pub fn jsonrpc_server_ip(&self) -> Ipv4Addr {
-        parse_ip(&self.jsonrpc_server_ip)
-    }
-
-    pub fn redacted_telemetry_server_ip(&self) -> Ipv4Addr {
-        parse_ip(&self.redacted_telemetry_server_ip)
-    }
-
-    pub fn full_telemetry_server_ip(&self) -> Ipv4Addr {
-        parse_ip(&self.full_telemetry_server_ip)
     }
 
     pub fn chain_spec(&self) -> eyre::Result<Arc<ChainSpec>> {
@@ -294,15 +281,15 @@ impl BaseConfig {
     }
 
     pub fn coinbase_signer(&self) -> eyre::Result<Signer> {
-        coinbase_signer_from_secret_key(&self.coinbase_secret_key.value()?)
-    }
-
-    pub fn extra_data(&self) -> eyre::Result<Vec<u8>> {
-        let extra_data = self.extra_data.clone().into_bytes();
-        if extra_data.len() > 32 {
-            return Err(eyre::eyre!("Extra data is too long"));
+        if let Some(secret_key) = &self.coinbase_secret_key {
+            return coinbase_signer_from_secret_key(&secret_key.value()?);
         }
-        Ok(extra_data)
+        warn!("No coinbase secret key provided. A random key will be generated.");
+        warn!(
+            "Caution: If this node wins any block, you wont be able to access the rewards for it."
+        );
+        let new_signer = Signer::random();
+        Ok(new_signer)
     }
 
     pub fn blocklist(&self) -> eyre::Result<HashSet<Address>> {
@@ -313,16 +300,6 @@ impl BaseConfig {
             return Ok(blocklist.into_iter().collect());
         }
         Ok(HashSet::default())
-    }
-
-    pub async fn flashbots_db(&self) -> eyre::Result<Option<PgPool>> {
-        if let Some(url) = &self.flashbots_db {
-            let url = url.value()?;
-            let pool = PgPool::connect(&url).await?;
-            Ok(Some(pool))
-        } else {
-            Ok(None)
-        }
     }
 
     pub fn eth_rpc_provider(&self) -> eyre::Result<BoxedProvider> {
@@ -427,19 +404,19 @@ impl Default for BaseConfig {
     fn default() -> Self {
         Self {
             full_telemetry_server_port: 6069,
-            full_telemetry_server_ip: None,
+            full_telemetry_server_ip: default_ip(),
             redacted_telemetry_server_port: 6070,
-            redacted_telemetry_server_ip: None,
+            redacted_telemetry_server_ip: default_ip(),
             log_json: false,
             log_level: "info".into(),
             log_color: false,
             log_enable_dynamic: false,
             error_storage_path: None,
-            coinbase_secret_key: "".into(),
+            coinbase_secret_key: None,
             flashbots_db: None,
-            el_node_ipc_path: "/tmp/reth.ipc".parse().unwrap(),
+            el_node_ipc_path: None,
             jsonrpc_server_port: DEFAULT_INCOMING_BUNDLES_PORT,
-            jsonrpc_server_ip: None,
+            jsonrpc_server_ip: default_ip(),
             ignore_cancellable_orders: true,
             ignore_blobs: false,
             chain: "mainnet".to_string(),
@@ -447,7 +424,7 @@ impl Default for BaseConfig {
             reth_db_path: None,
             reth_static_files_path: None,
             blocklist_file_path: None,
-            extra_data: "extra_data_change_me".to_string(),
+            extra_data: b"extra_data_change_me".to_vec(),
             root_hash_use_sparse_trie: false,
             root_hash_compare_sparse_trie: false,
             watchdog_timeout_sec: None,
@@ -464,6 +441,20 @@ impl Default for BaseConfig {
             sbundle_mergeabe_signers: None,
         }
     }
+}
+
+fn deserialize_extra_data<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    let bytes = s.into_bytes();
+    if bytes.len() > 32 {
+        return Err(serde::de::Error::custom(
+            "Extra data is too long (max 32 bytes)",
+        ));
+    }
+    Ok(bytes)
 }
 
 /// Open reth db and DB should be opened once per process but it can be cloned and moved to different threads.

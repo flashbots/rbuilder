@@ -1,8 +1,8 @@
 use super::{
-    Bundle, BundleReplacementData, BundleReplacementKey, MempoolTx, Order,
-    RawTxWithBlobsConvertError, Refund, RefundConfig, ShareBundle, ShareBundleBody,
-    ShareBundleInner, ShareBundleReplacementData, ShareBundleReplacementKey, ShareBundleTx,
-    TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior,
+    Bundle, BundleReplacementData, BundleReplacementKey, MempoolTx, Order, Refund, RefundConfig,
+    ShareBundle, ShareBundleBody, ShareBundleInner, ShareBundleReplacementData,
+    ShareBundleReplacementKey, ShareBundleTx, TransactionSignedEcRecoveredWithBlobs,
+    TxRevertBehavior, TxWithBlobsCreateError,
 };
 use alloy_consensus::constants::EIP4844_TX_TYPE_ID;
 use alloy_eips::eip2718::Eip2718Error;
@@ -28,7 +28,7 @@ impl TxEncoding {
     pub fn decode(
         &self,
         raw_tx: Bytes,
-    ) -> Result<TransactionSignedEcRecoveredWithBlobs, RawTxWithBlobsConvertError> {
+    ) -> Result<TransactionSignedEcRecoveredWithBlobs, TxWithBlobsCreateError> {
         match self {
             TxEncoding::NoBlobData => {
                 TransactionSignedEcRecoveredWithBlobs::decode_enveloped_with_fake_blobs(raw_tx)
@@ -37,12 +37,12 @@ impl TxEncoding {
                 let raw_tx_clone = raw_tx.clone(); // This clone is supposed to be cheap
                 let res =
                     TransactionSignedEcRecoveredWithBlobs::decode_enveloped_with_real_blobs(raw_tx);
-                if let Err(RawTxWithBlobsConvertError::FailedToDecodeTransaction(
+                if let Err(TxWithBlobsCreateError::FailedToDecodeTransaction(
                     Eip2718Error::RlpError(err),
                 )) = res
                 {
                     if Self::looks_like_canonical_blob_tx(raw_tx_clone) {
-                        return Err(RawTxWithBlobsConvertError::FailedToDecodeTransactionProbablyIs4484Canonical(
+                        return Err(TxWithBlobsCreateError::FailedToDecodeTransactionProbablyIs4484Canonical(
                             err,
                         ));
                     }
@@ -107,7 +107,7 @@ pub struct RawBundle {
 #[derive(Error, Debug)]
 pub enum RawBundleConvertError {
     #[error("Failed to decode transaction, idx: {0}, error: {0}")]
-    FailedToDecodeTransaction(usize, RawTxWithBlobsConvertError),
+    FailedToDecodeTransaction(usize, TxWithBlobsCreateError),
     #[error("Incorrect replacement data")]
     IncorrectReplacementData,
     #[error("Blobs not supported by RawBundle")]
@@ -212,7 +212,7 @@ pub struct RawTx {
 }
 
 impl RawTx {
-    pub fn decode(self, encoding: TxEncoding) -> Result<MempoolTx, RawTxWithBlobsConvertError> {
+    pub fn decode(self, encoding: TxEncoding) -> Result<MempoolTx, TxWithBlobsCreateError> {
         Ok(MempoolTx::new(encoding.decode(self.tx)?))
     }
 
@@ -283,7 +283,7 @@ pub struct RawShareBundleMetadatada {
 #[derive(Error, Debug)]
 pub enum RawShareBundleConvertError {
     #[error("Failed to decode transaction, idx: {0}, error: {0}")]
-    FailedToDecodeTransaction(usize, RawTxWithBlobsConvertError),
+    FailedToDecodeTransaction(usize, TxWithBlobsCreateError),
     #[error("Bundle too deep")]
     BundleTooDeep,
     #[error("Incorrect version")]
@@ -544,7 +544,7 @@ pub enum RawOrderConvertError {
     #[error("Failed to decode bundle, error: {0}")]
     FailedToDecodeBundle(RawBundleConvertError),
     #[error("Failed to decode transaction, error: {0}")]
-    FailedToDecodeTransaction(RawTxWithBlobsConvertError),
+    FailedToDecodeTransaction(TxWithBlobsCreateError),
     #[error("Failed to decode share bundle`, error: {0}")]
     FailedToDecodeShareBundle(RawShareBundleConvertError),
     #[error("Blobs not supported by RawOrder")]
@@ -997,7 +997,7 @@ mod tests {
         let tx_res = raw_tx_order.decode(TxEncoding::WithBlobData);
         assert!(matches!(
             tx_res,
-            Err(RawTxWithBlobsConvertError::FailedToDecodeTransactionProbablyIs4484Canonical(_))
+            Err(TxWithBlobsCreateError::FailedToDecodeTransactionProbablyIs4484Canonical(_))
         ));
     }
 }

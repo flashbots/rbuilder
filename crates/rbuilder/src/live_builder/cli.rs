@@ -15,7 +15,7 @@ use crate::{
     },
     provider::StateProviderFactory,
     telemetry,
-    utils::build_info::Version,
+    utils::{bls::generate_random_bls_address, build_info::Version},
 };
 
 use super::{base_config::BaseConfig, LiveBuilder};
@@ -33,6 +33,8 @@ enum Cli {
         about = "Run system performance benchmarks (CPU, disk, memory)"
     )]
     SysPerf,
+    #[clap(name = "gen-bls", about = "Generate a BLS signature")]
+    GenBls,
 }
 
 #[derive(Parser, Debug)]
@@ -93,6 +95,11 @@ where
 
             let sysinfo = gather_system_info();
             println!("{}", format_results(&result, &sysinfo));
+            return Ok(());
+        }
+        Cli::GenBls => {
+            let address = generate_random_bls_address();
+            println!("0x{}", address);
             return Ok(());
         }
     };

@@ -70,9 +70,9 @@ jobs:
       matrix:
         configs:
           - target: x86_64-unknown-linux-gnu
-            runner: warp-ubuntu-latest-x64-16x
+            runner: warp-ubuntu-latest-x64-32x
           - target: aarch64-unknown-linux-gnu
-            runner: warp-ubuntu-latest-arm64-16x
+            runner: warp-ubuntu-latest-arm64-32x
           # Paused until docker is pre-installed https://github.com/actions/runner-images/blob/main/images/macos/macos-14-arm64-Readme.md
           # - target: aarch64-apple-darwin
           #   runner: warp-macos-14-arm64-6x

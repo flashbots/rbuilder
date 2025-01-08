@@ -1,6 +1,5 @@
 //! order_input handles receiving new orders from the ipc mempool subscription and json rpc server
 //!
-pub mod clean_orderpool;
 pub mod order_replacement_manager;
 pub mod order_sink;
 pub mod orderpool;
@@ -14,12 +13,15 @@ use self::{
 };
 use crate::primitives::{serialize::CancelShareBundle, BundleReplacementKey, Order};
 use crate::provider::StateProviderFactory;
+use crate::telemetry::{set_current_block, set_ordepool_count};
+use alloy_consensus::Header;
 use jsonrpsee::RpcModule;
 use parking_lot::Mutex;
 use std::{net::Ipv4Addr, path::PathBuf, sync::Arc, time::Duration};
+use std::{path::Path, time::Instant};
 use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
-use tracing::{info, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use super::base_config::BaseConfig;
 
@@ -80,7 +82,7 @@ pub struct OrderInputConfig {
     /// if true -- txs with blobs are ignored
     ignore_blobs: bool,
     /// Path to reth ipc
-    ipc_path: PathBuf,
+    ipc_path: Option<PathBuf>,
     /// Input RPC port
     server_port: u16,
     /// Input RPC ip
@@ -101,7 +103,7 @@ impl OrderInputConfig {
     pub fn new(
         ignore_cancellable_orders: bool,
         ignore_blobs: bool,
-        ipc_path: PathBuf,
+        ipc_path: Option<PathBuf>,
         server_port: u16,
         server_ip: Ipv4Addr,
         serve_max_connections: u32,
@@ -121,14 +123,18 @@ impl OrderInputConfig {
     }
 
     pub fn from_config(config: &BaseConfig) -> eyre::Result<Self> {
-        let el_node_ipc_path = expand_path(config.el_node_ipc_path.clone())?;
+        let el_node_ipc_path = config
+            .el_node_ipc_path
+            .as_ref()
+            .map(|p| expand_path(p.as_path()))
+            .transpose()?;
 
         Ok(OrderInputConfig {
             ignore_cancellable_orders: config.ignore_cancellable_orders,
             ignore_blobs: config.ignore_blobs,
             ipc_path: el_node_ipc_path,
             server_port: config.jsonrpc_server_port,
-            server_ip: config.jsonrpc_server_ip(),
+            server_ip: config.jsonrpc_server_ip,
             serve_max_connections: 4096,
             results_channel_timeout: Duration::from_millis(50),
             input_channel_buffer_size: 10_000,
@@ -137,7 +143,7 @@ impl OrderInputConfig {
 
     pub fn default_e2e() -> Self {
         Self {
-            ipc_path: PathBuf::from("/tmp/anvil.ipc"),
+            ipc_path: Some(PathBuf::from("/tmp/anvil.ipc")),
             results_channel_timeout: Duration::new(5, 0),
             ignore_cancellable_orders: false,
             ignore_blobs: false,
@@ -182,6 +188,7 @@ pub async fn start_orderpool_jobs<P>(
     global_cancel: CancellationToken,
     order_sender: mpsc::Sender<ReplaceableOrderPoolCommand>,
     order_receiver: mpsc::Receiver<ReplaceableOrderPoolCommand>,
+    header_receiver: mpsc::Receiver<Header>,
 ) -> eyre::Result<(JoinHandle<()>, OrderPoolSubscriber)>
 where
     P: StateProviderFactory,
@@ -198,8 +205,8 @@ where
         orderpool: orderpool.clone(),
     };
 
-    let clean_job = clean_orderpool::spawn_clean_orderpool_job(
-        config.clone(),
+    let clean_job = spawn_clean_orderpool_job(
+        header_receiver,
         provider_factory,
         orderpool.clone(),
         global_cancel.clone(),
@@ -212,19 +219,28 @@ where
         global_cancel.clone(),
     )
     .await?;
-    let txpool_fetcher = txpool_fetcher::subscribe_to_txpool_with_blobs(
-        config.clone(),
-        order_sender.clone(),
-        global_cancel.clone(),
-    )
-    .await?;
+
+    let mut handles = vec![clean_job, rpc_server];
+
+    if config.ipc_path.is_some() {
+        info!("IPC path configured, starting txpool subscription");
+        let txpool_fetcher = txpool_fetcher::subscribe_to_txpool_with_blobs(
+            config.clone(),
+            order_sender.clone(),
+            global_cancel.clone(),
+        )
+        .await?;
+        handles.push(txpool_fetcher);
+    } else {
+        info!("No IPC path configured, skipping txpool subscription");
+    }
 
     let handle = tokio::spawn(async move {
         info!("OrderPoolJobs: started");
 
         // @Maybe we should add sleep here because each new order will trigger locking
         let mut new_commands = Vec::new();
-        let mut order_receiver = order_receiver;
+        let mut order_receiver: mpsc::Receiver<ReplaceableOrderPoolCommand> = order_receiver;
 
         loop {
             tokio::select! {
@@ -274,7 +290,7 @@ where
             new_commands.clear();
         }
 
-        for handle in [clean_job, rpc_server, txpool_fetcher] {
+        for handle in handles {
             handle
                 .await
                 .map_err(|err| {
@@ -288,10 +304,61 @@ where
     Ok((handle, subscriber))
 }
 
-pub fn expand_path(path: PathBuf) -> eyre::Result<PathBuf> {
+pub fn expand_path(path: &Path) -> eyre::Result<PathBuf> {
     let path_str = path
         .to_str()
         .ok_or_else(|| eyre::eyre!("Invalid UTF-8 in path"))?;
 
     Ok(PathBuf::from(shellexpand::full(path_str)?.into_owned()))
+}
+
+/// Performs maintenance operations on every new header by calling OrderPool::head_updated.
+/// Also calls some functions to generate metrics.
+async fn spawn_clean_orderpool_job<P>(
+    header_receiver: mpsc::Receiver<Header>,
+    provider_factory: P,
+    orderpool: Arc<Mutex<OrderPool>>,
+    global_cancellation: CancellationToken,
+) -> eyre::Result<JoinHandle<()>>
+where
+    P: StateProviderFactory + 'static,
+{
+    let mut header_receiver: mpsc::Receiver<Header> = header_receiver;
+
+    let handle = tokio::spawn(async move {
+        info!("Clean orderpool job: started");
+
+        while let Some(header) = header_receiver.recv().await {
+            let block_number = header.number;
+            set_current_block(block_number);
+            let state = match provider_factory.latest() {
+                Ok(state) => state,
+                Err(err) => {
+                    error!("Failed to get latest state: {}", err);
+                    // @Metric error count
+                    continue;
+                }
+            };
+
+            let mut orderpool = orderpool.lock();
+            let start = Instant::now();
+
+            orderpool.head_updated(block_number, &state);
+
+            let update_time = start.elapsed();
+            let (tx_count, bundle_count) = orderpool.content_count();
+            set_ordepool_count(tx_count, bundle_count);
+            debug!(
+                block_number,
+                tx_count,
+                bundle_count,
+                update_time_ms = update_time.as_millis(),
+                "Cleaned orderpool",
+            );
+        }
+
+        global_cancellation.cancel();
+        info!("Clean orderpool job: finished");
+    });
+    Ok(handle)
 }
