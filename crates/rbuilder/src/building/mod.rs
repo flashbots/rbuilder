@@ -204,7 +204,7 @@ impl BlockBuildingContext {
             blob_excess_gas_and_price,
         };
 
-        let cfg = default_cfg_env(&chain_spec, timestamp_as_u64(&onchain_block));
+        let cfg = default_cfg_env(&chain_spec, timestamp_as_u64(&onchain_block), block_number);
 
         let withdrawals = Withdrawals::new(
             onchain_block
