@@ -90,7 +90,7 @@ impl SlotSource for OurSlotSource {
 impl BundlePoolOps {
     pub async fn new<P>(provider: P, rbuilder_config_path: impl AsRef<Path>) -> Result<Self, Error>
     where
-        P: StateProviderFactory,
+        P: StateProviderFactory + Clone + 'static,
     {
         // Create the payload source to trigger new block building
         let cancellation_token = CancellationToken::new();
