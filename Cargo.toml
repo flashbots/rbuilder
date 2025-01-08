@@ -85,6 +85,8 @@ reth-optimism-payload-builder = { git = "https://github.com/paradigmxyz/reth", t
 reth-optimism-chainspec = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.2" }
 reth-tasks = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.2" }
 reth-ethereum-payload-builder = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.2" }
+reth-payload-builder-primitives = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.2" }
+reth-payload-util = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.2" }
 
 # version is copied from reth  "v1.1.2" dependencies
 revm = { version = "18.0.0", features = [
