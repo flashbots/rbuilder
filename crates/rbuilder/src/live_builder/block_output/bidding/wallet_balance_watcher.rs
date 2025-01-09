@@ -1,14 +1,13 @@
 use std::time::Duration;
 
 use alloy_primitives::{utils::format_ether, Address, BlockNumber, U256};
-use reth::providers::{HeaderProvider, ProviderError};
-use reth_provider::StateProviderFactory;
+use reth::providers::ProviderError;
 use time::{error, OffsetDateTime};
 use tracing::{error, info, warn};
 
-use crate::telemetry::{add_subsidy_value, inc_subsidized_blocks};
-
 use super::interfaces::LandedBlockInfo;
+use crate::provider::StateProviderFactory;
+use crate::telemetry::{add_subsidy_value, inc_subsidized_blocks};
 
 /// Allows to monitor the evolution of our wallet for the landed blocks.
 /// It's useful for bidders to detect profit and subsidies.
@@ -57,7 +56,7 @@ impl BlockInfo {
 
 impl<P> WalletBalanceWatcher<P>
 where
-    P: StateProviderFactory + HeaderProvider,
+    P: StateProviderFactory,
 {
     /// Creates a WalletBalanceWatcher pre-analyzing a window of init_window_size size.
     pub fn new(

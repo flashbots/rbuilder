@@ -25,11 +25,11 @@ use rbuilder::{
         SlotSource,
     },
     primitives::{Bundle, BundleReplacementKey, Order},
+    provider::reth_prov::StateProviderFactoryFromRethProvider,
     telemetry,
 };
-use reth_db_api::Database;
 use reth_primitives::TransactionSigned;
-use reth_provider::{BlockReader, DatabaseProviderFactory, HeaderProvider, StateProviderFactory};
+use reth_provider::{BlockReader, DatabaseProviderFactory, HeaderProvider};
 use tokio::{
     sync::{
         mpsc::{self, error::SendError},
@@ -88,11 +88,10 @@ impl SlotSource for OurSlotSource {
 }
 
 impl BundlePoolOps {
-    pub async fn new<P, DB>(provider: P, config: Config) -> Result<Self, Error>
+    pub async fn new<P>(provider: P, config: Config) -> Result<Self, Error>
     where
-        DB: Database + Clone + 'static,
-        P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-            + StateProviderFactory
+        P: DatabaseProviderFactory<Provider: BlockReader>
+            + reth_provider::StateProviderFactory
             + HeaderProvider
             + Clone
             + 'static,
@@ -121,16 +120,17 @@ impl BundlePoolOps {
                 build_duration_deadline_ms: None,
             }),
         };
-
-        let builders = create_builders(
-            vec![builder_strategy],
-            config.base_config.live_root_hash_config().unwrap(),
+        let provider = StateProviderFactoryFromRethProvider::new(
+            provider,
+            config.base_config().live_root_hash_config()?,
         );
+
+        let builders = create_builders(vec![builder_strategy]);
 
         // Build and run the process
         let builder = config
             .base_config
-            .create_builder_with_provider_factory::<P, DB, OurSlotSource>(
+            .create_builder_with_provider_factory(
                 cancellation_token,
                 Box::new(sink_factory),
                 slot_source,

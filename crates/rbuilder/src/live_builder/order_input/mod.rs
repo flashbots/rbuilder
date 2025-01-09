@@ -11,20 +11,14 @@ use self::{
     orderpool::{OrderPool, OrderPoolSubscriptionId},
     replaceable_order_sink::ReplaceableOrderSink,
 };
-use crate::{
-    primitives::{serialize::CancelShareBundle, BundleReplacementKey, Order},
-    telemetry::{set_current_block, set_ordepool_count},
-};
+use crate::primitives::{serialize::CancelShareBundle, BundleReplacementKey, Order};
+use crate::provider::StateProviderFactory;
+use crate::telemetry::{set_current_block, set_ordepool_count};
 use alloy_consensus::Header;
 use jsonrpsee::RpcModule;
 use parking_lot::Mutex;
-use reth_provider::StateProviderFactory;
-use std::{
-    net::Ipv4Addr,
-    path::{Path, PathBuf},
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{net::Ipv4Addr, path::PathBuf, sync::Arc, time::Duration};
+use std::{path::Path, time::Instant};
 use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, trace, warn};

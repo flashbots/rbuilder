@@ -32,6 +32,7 @@ use crate::{
     },
     mev_boost::BLSBlockSigner,
     primitives::mev_boost::{MevBoostRelay, RelayConfig},
+    provider::StateProviderFactory,
     roothash::RootHashConfig,
     utils::{build_info::rbuilder_version, ProviderFactoryReopener, Signer},
     validation_api_client::ValidationAPIClient,
@@ -46,18 +47,17 @@ use ethereum_consensus::{
     state_transition::Context as ContextEth,
 };
 use eyre::Context;
+use lazy_static::lazy_static;
 use reth::revm::cached::CachedReads;
 use reth_chainspec::{Chain, ChainSpec, NamedChain};
-use reth_db::{Database, DatabaseEnv};
+use reth_db::DatabaseEnv;
 use reth_node_api::NodeTypesWithDBAdapter;
 use reth_node_ethereum::EthereumNode;
 use reth_primitives::StaticFileSegment;
-use reth_provider::{
-    BlockReader, DatabaseProviderFactory, HeaderProvider, StateProviderFactory,
-    StaticFileProviderFactory,
-};
+use reth_provider::StaticFileProviderFactory;
 use serde::Deserialize;
 use serde_with::{serde_as, OneOrMany};
+use std::collections::HashMap;
 use std::{
     fmt::Debug,
     path::{Path, PathBuf},
@@ -108,6 +108,8 @@ pub struct Config {
 pub struct L1Config {
     // Relay Submission configuration
     pub relays: Vec<RelayConfig>,
+    pub enabled_relays: Vec<String>,
+
     pub dry_run: bool,
     #[serde_as(deserialize_as = "OneOrMany<_>")]
     pub dry_run_validation_url: Vec<String>,
@@ -139,6 +141,7 @@ impl Default for L1Config {
     fn default() -> Self {
         Self {
             relays: vec![],
+            enabled_relays: vec![],
             dry_run: false,
             dry_run_validation_url: vec![],
             relay_secret_key: None,
@@ -169,10 +172,48 @@ impl L1Config {
     }
 
     pub fn create_relays(&self) -> eyre::Result<Vec<MevBoostRelay>> {
-        let mut results = Vec::new();
-        for relay in &self.relays {
-            results.push(MevBoostRelay::from_config(relay)?);
+        let mut relay_configs = DEFAULT_RELAYS.clone();
+
+        // Update relay configs from user configuration - replace if found
+        for relay in self.relays.clone() {
+            relay_configs.insert(relay.name.clone(), relay);
         }
+
+        // For backwards compatibility: add all user-configured relays to enabled_relays
+        let mut effective_enabled_relays: std::collections::HashSet<String> =
+            self.enabled_relays.iter().cloned().collect();
+        effective_enabled_relays.extend(self.relays.iter().map(|r| r.name.clone()));
+
+        // Create enabled relays
+        let mut results = Vec::new();
+        for relay_name in effective_enabled_relays.iter() {
+            match relay_configs.get(relay_name) {
+                Some(relay_config) => match MevBoostRelay::from_config(relay_config) {
+                    Ok(relay) => {
+                        info!(
+                            "Created relay: {:?} (priority: {})",
+                            relay_name, relay.priority
+                        );
+                        results.push(relay);
+                    }
+                    Err(e) => {
+                        return Err(eyre::eyre!(
+                            "Failed to create relay {}: {:?}",
+                            relay_name,
+                            e
+                        ));
+                    }
+                },
+                None => {
+                    return Err(eyre::eyre!("Relay {} not found in relays list", relay_name));
+                }
+            }
+        }
+
+        if results.is_empty() {
+            return Err(eyre::eyre!("No relays enabled"));
+        }
+
         Ok(results)
     }
 
@@ -282,18 +323,13 @@ impl LiveBuilderConfig for Config {
     fn base_config(&self) -> &BaseConfig {
         &self.base_config
     }
-    async fn new_builder<P, DB>(
+    async fn new_builder<P>(
         &self,
         provider: P,
         cancellation_token: tokio_util::sync::CancellationToken,
-    ) -> eyre::Result<super::LiveBuilder<P, DB, MevBoostSlotDataGenerator>>
+    ) -> eyre::Result<super::LiveBuilder<P, MevBoostSlotDataGenerator>>
     where
-        DB: Database + Clone + 'static,
-        P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-            + StateProviderFactory
-            + HeaderProvider
-            + Clone
-            + 'static,
+        P: StateProviderFactory + Clone + 'static,
     {
         let (sink_sealed_factory, relays) = self.l1_config.create_relays_sealed_sink_factory(
             self.base_config.chain_spec()?,
@@ -331,8 +367,7 @@ impl LiveBuilderConfig for Config {
                 provider,
             )
             .await?;
-        let root_hash_config = self.base_config.live_root_hash_config()?;
-        let builders = create_builders(self.live_builders()?, root_hash_config);
+        let builders = create_builders(self.live_builders()?);
         Ok(live_builder.with_builders(builders))
     }
 
@@ -340,17 +375,13 @@ impl LiveBuilderConfig for Config {
         rbuilder_version()
     }
 
-    fn build_backtest_block<P, DB>(
+    fn build_backtest_block<P>(
         &self,
         building_algorithm_name: &str,
         input: BacktestSimulateBlockInput<'_, P>,
     ) -> eyre::Result<(Block, CachedReads)>
     where
-        DB: Database + Clone + 'static,
-        P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-            + StateProviderFactory
-            + Clone
-            + 'static,
+        P: StateProviderFactory + Clone + 'static,
     {
         let builder_cfg = self.builder(building_algorithm_name)?;
         match builder_cfg.builder {
@@ -358,7 +389,7 @@ impl LiveBuilderConfig for Config {
                 crate::building::builders::ordering_builder::backtest_simulate_block(config, input)
             }
             SpecificBuilderConfig::ParallelBuilder(config) => {
-                parallel_build_backtest::<P, DB>(input, config)
+                parallel_build_backtest::<P>(input, config)
             }
         }
     }
@@ -462,6 +493,7 @@ pub fn create_provider_factory(
     reth_db_path: Option<&Path>,
     reth_static_files_path: Option<&Path>,
     chain_spec: Arc<ChainSpec>,
+    root_hash_config: Option<RootHashConfig>,
 ) -> eyre::Result<ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>> {
     let reth_db_path = match (reth_db_path, reth_datadir) {
         (Some(reth_db_path), _) => PathBuf::from(reth_db_path),
@@ -480,7 +512,7 @@ pub fn create_provider_factory(
     };
 
     let provider_factory_reopener =
-        ProviderFactoryReopener::new(db, chain_spec, reth_static_files_path)?;
+        ProviderFactoryReopener::new(db, chain_spec, reth_static_files_path, root_hash_config)?;
 
     if provider_factory_reopener
         .provider_factory_unchecked()
@@ -505,41 +537,24 @@ pub fn coinbase_signer_from_secret_key(secret_key: &str) -> eyre::Result<Signer>
     Ok(Signer::try_from_secret(secret_key)?)
 }
 
-pub fn create_builders<P, DB>(
-    configs: Vec<BuilderConfig>,
-    root_hash_config: RootHashConfig,
-) -> Vec<Arc<dyn BlockBuildingAlgorithm<P, DB>>>
+pub fn create_builders<P>(configs: Vec<BuilderConfig>) -> Vec<Arc<dyn BlockBuildingAlgorithm<P>>>
 where
-    DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-        + StateProviderFactory
-        + Clone
-        + 'static,
+    P: StateProviderFactory + Clone + 'static,
 {
-    configs
-        .into_iter()
-        .map(|cfg| create_builder(cfg, &root_hash_config))
-        .collect()
+    configs.into_iter().map(|cfg| create_builder(cfg)).collect()
 }
 
-fn create_builder<P, DB>(
-    cfg: BuilderConfig,
-    root_hash_config: &RootHashConfig,
-) -> Arc<dyn BlockBuildingAlgorithm<P, DB>>
+fn create_builder<P>(cfg: BuilderConfig) -> Arc<dyn BlockBuildingAlgorithm<P>>
 where
-    DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-        + StateProviderFactory
-        + Clone
-        + 'static,
+    P: StateProviderFactory + Clone + 'static,
 {
     match cfg.builder {
-        SpecificBuilderConfig::OrderingBuilder(order_cfg) => Arc::new(
-            OrderingBuildingAlgorithm::new(root_hash_config.clone(), order_cfg, cfg.name),
-        ),
-        SpecificBuilderConfig::ParallelBuilder(parallel_cfg) => Arc::new(
-            ParallelBuildingAlgorithm::new(root_hash_config.clone(), parallel_cfg, cfg.name),
-        ),
+        SpecificBuilderConfig::OrderingBuilder(order_cfg) => {
+            Arc::new(OrderingBuildingAlgorithm::new(order_cfg, cfg.name))
+        }
+        SpecificBuilderConfig::ParallelBuilder(parallel_cfg) => {
+            Arc::new(ParallelBuildingAlgorithm::new(parallel_cfg, cfg.name))
+        }
     }
 }
 
@@ -586,6 +601,89 @@ fn get_signing_domain(
     };
 
     Ok(B256::from(&compute_builder_domain(&cl_context)?))
+}
+
+lazy_static! {
+    static ref DEFAULT_RELAYS: HashMap<String, RelayConfig> = {
+        let mut map = HashMap::new();
+        map.insert(
+            "flashbots".to_string(),
+            RelayConfig {
+                name: "flashbots".to_string(),
+                url: "http://k8s-default-boostrel-9f278153f5-947835446.us-east-2.elb.amazonaws.com"
+                    .to_string(),
+                use_ssz_for_submit: true,
+                use_gzip_for_submit: false,
+                priority: 0,
+                optimistic: false,
+                interval_between_submissions_ms: Some(250),
+                authorization_header: None,
+                builder_id_header: None,
+                api_token_header: None,
+            },
+        );
+        map.insert(
+            "ultrasound-us".to_string(),
+            RelayConfig {
+                name: "ultrasound-us".to_string(),
+                url: "https://relay-builders-us.ultrasound.money".to_string(),
+                use_ssz_for_submit: true,
+                use_gzip_for_submit: true,
+                priority: 0,
+                optimistic: true,
+                interval_between_submissions_ms: None,
+                authorization_header: None,
+                builder_id_header: None,
+                api_token_header: None,
+            },
+        );
+        map.insert(
+            "ultrasound-eu".to_string(),
+            RelayConfig {
+                name: "ultrasound-eu".to_string(),
+                url: "https://relay-builders-eu.ultrasound.money".to_string(),
+                use_ssz_for_submit: true,
+                use_gzip_for_submit: true,
+                priority: 0,
+                optimistic: true,
+                interval_between_submissions_ms: None,
+                authorization_header: None,
+                builder_id_header: None,
+                api_token_header: None,
+            },
+        );
+        map.insert(
+            "agnostic".to_string(),
+            RelayConfig {
+                name: "agnostic".to_string(),
+                url: "https://0xa7ab7a996c8584251c8f925da3170bdfd6ebc75d50f5ddc4050a6fdc77f2a3b5fce2cc750d0865e05d7228af97d69561@agnostic-relay.net".to_string(),
+                use_ssz_for_submit: true,
+                use_gzip_for_submit: true,
+                priority: 0,
+                optimistic: true,
+                interval_between_submissions_ms: None,
+                authorization_header: None,
+                builder_id_header: None,
+                api_token_header: None,
+            },
+        );
+        map.insert(
+            "playground".to_string(),
+            RelayConfig {
+                name: "playground".to_string(),
+                url: "http://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@localhost:5555".to_string(),
+                priority: 0,
+                use_ssz_for_submit: false,
+                use_gzip_for_submit: false,
+                optimistic: false,
+                interval_between_submissions_ms: None,
+                authorization_header: None,
+                builder_id_header: None,
+                api_token_header: None,
+            },
+        );
+        map
+    };
 }
 
 #[cfg(test)]
@@ -643,6 +741,19 @@ mod test {
             .resolve_cl_node_urls()
             .unwrap()
             .contains(&"http://localhost:3500".to_string()));
+    }
+
+    #[test]
+    fn test_parse_enabled_relays() {
+        let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        p.push("./src/live_builder/testdata/config_with_relay_override.toml");
+
+        let config: Config = load_config_toml_and_env(p.clone()).expect("Config load");
+
+        let relays = config.l1_config.create_relays().unwrap();
+        assert_eq!(relays.len(), 1);
+        assert_eq!(relays[0].id, "playground");
+        assert_eq!(relays[0].priority, 10);
     }
 
     #[test]

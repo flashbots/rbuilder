@@ -13,7 +13,7 @@ env:
 jobs:
   lint_and_test:
     name: Lint and test
-    runs-on: warp-ubuntu-latest-x64-16x
+    runs-on: warp-ubuntu-latest-x64-32x
     env:
       # Set features for the Makefile
       FEATURES: ${{ matrix.features }}
@@ -23,7 +23,6 @@ jobs:
           - stable
         features:
           - ""
-          - "redact-sensitive"
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -68,7 +67,7 @@ jobs:
 
   integration:
     name: Integration tests
-    runs-on: warp-ubuntu-latest-x64-16x
+    runs-on: warp-ubuntu-latest-x64-32x
     strategy:
       matrix:
         toolchain:
