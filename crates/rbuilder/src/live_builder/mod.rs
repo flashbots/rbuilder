@@ -18,6 +18,7 @@ use crate::{
         simulation::OrderSimulationPool,
         watchdog::spawn_watchdog_thread,
     },
+    provider::StateProviderFactory,
     telemetry::inc_active_slots,
     utils::{
         error_storage::spawn_error_storage_writer, provider_head_state::ProviderHeadState, Signer,
@@ -31,10 +32,7 @@ use eyre::Context;
 use jsonrpsee::RpcModule;
 use order_input::ReplaceableOrderPoolCommand;
 use payload_events::MevBoostSlotData;
-use reth::providers::HeaderProvider;
 use reth_chainspec::ChainSpec;
-use reth_db::Database;
-use reth_provider::{BlockReader, DatabaseProviderFactory, StateProviderFactory};
 use std::{cmp::min, fmt::Debug, path::PathBuf, sync::Arc, time::Duration};
 use time::OffsetDateTime;
 use tokio::sync::mpsc;
@@ -88,10 +86,9 @@ const CLEAN_TASKS_CHANNEL_SIZE: usize = 10;
 /// # Usage
 /// Create and run()
 #[derive(Debug)]
-pub struct LiveBuilder<P, DB, BlocksSourceType>
+pub struct LiveBuilder<P, BlocksSourceType>
 where
-    DB: Database + Clone + 'static,
-    P: StateProviderFactory + Clone,
+    P: StateProviderFactory,
     BlocksSourceType: SlotSource,
 {
     pub watchdog_timeout: Option<Duration>,
@@ -111,7 +108,7 @@ where
     pub global_cancellation: CancellationToken,
 
     pub sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
-    pub builders: Vec<Arc<dyn BlockBuildingAlgorithm<P, DB>>>,
+    pub builders: Vec<Arc<dyn BlockBuildingAlgorithm<P>>>,
     pub extra_rpc: RpcModule<()>,
 
     /// Notify rbuilder of new [`ReplaceableOrderPoolCommand`] flow via this channel.
@@ -120,21 +117,16 @@ where
     pub sbundle_merger_selected_signers: Arc<Vec<Address>>,
 }
 
-impl<P, DB, BlocksSourceType: SlotSource> LiveBuilder<P, DB, BlocksSourceType>
+impl<P, BlocksSourceType: SlotSource> LiveBuilder<P, BlocksSourceType>
 where
-    DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-        + StateProviderFactory
-        + HeaderProvider
-        + Clone
-        + 'static,
+    P: StateProviderFactory + Clone + 'static,
     BlocksSourceType: SlotSource,
 {
     pub fn with_extra_rpc(self, extra_rpc: RpcModule<()>) -> Self {
         Self { extra_rpc, ..self }
     }
 
-    pub fn with_builders(self, builders: Vec<Arc<dyn BlockBuildingAlgorithm<P, DB>>>) -> Self {
+    pub fn with_builders(self, builders: Vec<Arc<dyn BlockBuildingAlgorithm<P>>>) -> Self {
         Self { builders, ..self }
     }
 
@@ -262,6 +254,8 @@ where
 
             inc_active_slots();
 
+            let root_hasher = Arc::from(self.provider.root_hasher(payload.parent_block_hash()));
+
             if let Some(block_ctx) = BlockBuildingContext::from_attributes(
                 payload.payload_attributes_event.clone(),
                 &parent_header,
@@ -271,6 +265,7 @@ where
                 Some(payload.suggested_gas_limit),
                 self.extra_data.clone(),
                 None,
+                root_hasher,
             ) {
                 builder_pool.start_block_building(
                     payload,
@@ -312,11 +307,11 @@ where
 async fn wait_for_block_header<P>(
     block: B256,
     slot_time: OffsetDateTime,
-    provider: P,
+    provider: &P,
     timings: &TimingsConfig,
 ) -> eyre::Result<Header>
 where
-    P: HeaderProvider,
+    P: StateProviderFactory,
 {
     let deadline = slot_time + timings.block_header_deadline_delta;
     while OffsetDateTime::now_utc() < deadline {

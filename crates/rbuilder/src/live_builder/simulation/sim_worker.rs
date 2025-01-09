@@ -4,12 +4,12 @@ use crate::{
         simulate_order, BlockState,
     },
     live_builder::simulation::CurrentSimulationContexts,
+    provider::StateProviderFactory,
     telemetry,
     telemetry::add_sim_thread_utilisation_timings,
 };
 use parking_lot::Mutex;
 use reth::revm::cached::CachedReads;
-use reth_provider::StateProviderFactory;
 use std::{
     sync::Arc,
     thread::sleep,

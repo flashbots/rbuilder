@@ -1,3 +1,7 @@
+use crate::provider::RootHasher;
+use crate::roothash::RootHashConfig;
+use crate::utils::RootHasherImpl;
+use crate::{building::BlockBuildingContext, utils::Signer};
 use ahash::HashSet;
 use alloy_consensus::{Header, TxEip1559};
 use alloy_primitives::{
@@ -16,8 +20,6 @@ use reth_db::{cursor::DbCursorRW, tables, transaction::DbTxMut};
 use reth_provider::test_utils::{create_test_provider_factory, MockNodeTypesWithDB};
 use revm_primitives::SpecId;
 use std::sync::Arc;
-
-use crate::{building::BlockBuildingContext, utils::Signer};
 
 #[derive(Debug, Clone, Copy)]
 pub enum NamedAddr {
@@ -139,6 +141,13 @@ impl TestChainState {
             }
             provider.commit()?;
         }
+
+        let root_hasher = Arc::from(RootHasherImpl::new(
+            genesis_header.hash(),
+            RootHashConfig::new(true, false),
+            provider_factory.clone(),
+        ));
+
         let ctx = TestBlockContextBuilder::new(
             block_args,
             builder.clone(),
@@ -146,6 +155,7 @@ impl TestChainState {
             chain_spec.clone(),
             blocklisted_address.address,
             genesis_header.hash(),
+            root_hasher,
         )
         .build();
 
@@ -236,6 +246,7 @@ struct TestBlockContextBuilder {
     blocklist: HashSet<Address>,
     prefer_gas_limit: Option<u64>,
     use_suggested_fee_recipient_as_coinbase: bool,
+    root_hasher: Arc<dyn RootHasher>,
 }
 
 impl TestBlockContextBuilder {
@@ -246,6 +257,7 @@ impl TestBlockContextBuilder {
         chain_spec: Arc<ChainSpec>,
         blocklisted: Address,
         parent_hash: BlockHash,
+        root_hasher: Arc<dyn RootHasher>,
     ) -> Self {
         TestBlockContextBuilder {
             parent_gas_limit: 30_000_000,
@@ -264,6 +276,7 @@ impl TestBlockContextBuilder {
             prefer_gas_limit: None,
             use_suggested_fee_recipient_as_coinbase: block_args
                 .use_suggested_fee_recipient_as_coinbase,
+            root_hasher,
         }
     }
 
@@ -315,6 +328,7 @@ impl TestBlockContextBuilder {
             self.prefer_gas_limit,
             vec![],
             Some(SpecId::SHANGHAI),
+            self.root_hasher,
         )
         .unwrap();
         if self.use_suggested_fee_recipient_as_coinbase {
