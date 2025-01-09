@@ -78,7 +78,7 @@ async fn main() -> eyre::Result<()> {
     let order_input_config = OrderInputConfig::new(
         false,
         true,
-        DEFAULT_EL_NODE_IPC_PATH.parse().unwrap(),
+        Some(PathBuf::from(DEFAULT_EL_NODE_IPC_PATH)),
         DEFAULT_INCOMING_BUNDLES_PORT,
         default_ip(),
         DEFAULT_SERVE_MAX_CONNECTIONS,

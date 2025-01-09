@@ -15,8 +15,11 @@ use reth_provider::{
     HeaderProvider, StateProviderBox, StateProviderFactory, StaticFileProviderFactory,
 };
 use revm_primitives::{B256, U256};
-use std::ops::DerefMut;
-use std::{ops::RangeBounds, path::PathBuf, sync::Arc};
+use std::{
+    ops::{DerefMut, RangeBounds},
+    path::PathBuf,
+    sync::Arc,
+};
 use tracing::debug;
 
 /// This struct is used as a workaround for https://github.com/paradigmxyz/reth/issues/7836

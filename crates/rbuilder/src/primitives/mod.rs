@@ -446,6 +446,8 @@ pub enum TxWithBlobsCreateError {
     FailedToDecodeTransactionProbablyIs4484Canonical(alloy_rlp::Error),
     #[error("Tried to create an EIP4844 transaction without a blob")]
     Eip4844MissingBlobSidecar,
+    #[error("Tried to create a non-EIP4844 transaction while passing blobs")]
+    BlobsMissingEip4844,
     #[error("BlobStoreError: {0}")]
     BlobStore(BlobStoreError),
 }
@@ -454,14 +456,20 @@ impl TransactionSignedEcRecoveredWithBlobs {
     /// Create new with an optional blob sidecar.
     ///
     /// Warning: It is the caller's responsibility to check if a tx has blobs.
-    /// This fn will return an Err if it is passed an eip4844 without blobs.
+    /// This fn will return an Err if it is passed an eip4844 without blobs,
+    /// or blobs without an eip4844.
     pub fn new(
         tx: TransactionSignedEcRecovered,
         blob_sidecar: Option<BlobTransactionSidecar>,
         metadata: Option<Metadata>,
     ) -> Result<Self, TxWithBlobsCreateError> {
-        if tx.transaction.blob_versioned_hashes().is_some() {
+        // Check for an eip4844 tx passed without blobs
+        if tx.transaction.blob_versioned_hashes().is_some() && blob_sidecar.is_none() {
             Err(TxWithBlobsCreateError::Eip4844MissingBlobSidecar)
+        // Check for a non-eip4844 tx passed with blobs
+        } else if blob_sidecar.is_some() && tx.transaction.blob_versioned_hashes().is_none() {
+            Err(TxWithBlobsCreateError::BlobsMissingEip4844)
+        // Groovy!
         } else {
             Ok(Self {
                 tx,
@@ -474,6 +482,27 @@ impl TransactionSignedEcRecoveredWithBlobs {
     /// Shorthand for `new(tx, None, None)`
     pub fn new_no_blobs(tx: TransactionSignedEcRecovered) -> Result<Self, TxWithBlobsCreateError> {
         Self::new(tx, None, None)
+    }
+
+    /// Try to create a [`TransactionSignedEcRecoveredWithBlobs`] from a
+    /// [`TransactionSignedEcRecovered`] and reth pool.
+    ///
+    /// The pool is required because [`TransactionSignedEcRecovered`] on its
+    /// own does not contain blob information, it is required to fetch the blob.
+    ///
+    /// Unfortunately we need to pass the entire pool, because the blob store
+    /// is not part of the pool's public api.
+    pub fn try_from_tx_without_blobs_and_pool<V, T, S>(
+        tx: TransactionSignedEcRecovered,
+        pool: Pool<V, T, S>,
+    ) -> Result<Self, TxWithBlobsCreateError>
+    where
+        V: TransactionValidator<Transaction = EthPooledTransaction>,
+        T: TransactionOrdering<Transaction = <V as TransactionValidator>::Transaction>,
+        S: BlobStore,
+    {
+        let blob_sidecar = pool.get_blob(tx.hash)?.map(|b| (*b).clone());
+        Self::new(tx, blob_sidecar, None)
     }
 
     /// Creates a Self with empty blobs sidecar. No consistency check is performed!
