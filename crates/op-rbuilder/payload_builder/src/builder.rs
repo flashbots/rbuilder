@@ -168,8 +168,8 @@ where
             args,
             cfg_env,
             block_env,
-            self.compute_pending_block,
             self.builder_signer(),
+            self.compute_pending_block,
         )
     }
 
@@ -205,8 +205,8 @@ pub(crate) fn try_build_inner<EvmConfig, Pool, Client>(
     args: BuildArguments<Pool, Client, OpPayloadBuilderAttributes, OpBuiltPayload>,
     initialized_cfg: CfgEnvWithHandlerCfg,
     initialized_block_env: BlockEnv,
+    builder_signer: Option<Signer>,
     _compute_pending_block: bool,
-    _builder_signer: Option<Signer>,
 ) -> Result<BuildOutcome<OpBuiltPayload>, PayloadBuilderError>
 where
     Client: StateProviderFactory + ChainSpecProvider<ChainSpec = OpChainSpec>,
@@ -390,7 +390,7 @@ where
     let message = format!("Block Number: {}", block_number)
         .as_bytes()
         .to_vec();
-    let builder_tx_gas = if _builder_signer.is_some() {
+    let builder_tx_gas = if builder_signer.is_some() {
         estimate_gas_for_builder_tx(message.clone())
     } else {
         0
@@ -507,7 +507,7 @@ where
     }
 
     // Add builder tx to the block
-    _builder_signer
+    builder_signer
         .map(|signer| {
             // Create message with block number for the builder to sign
             let nonce = db
