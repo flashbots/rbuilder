@@ -168,31 +168,6 @@ impl BaseConfig {
         ))
     }
 
-    /// WARN: opens reth db
-    pub async fn create_builder<SlotSourceType>(
-        &self,
-        cancellation_token: tokio_util::sync::CancellationToken,
-        sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
-        slot_source: SlotSourceType,
-    ) -> eyre::Result<
-        super::LiveBuilder<
-            ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>,
-            SlotSourceType,
-        >,
-    >
-    where
-        SlotSourceType: SlotSource,
-    {
-        let provider_factory = self.create_provider_factory()?;
-        self.create_builder_with_provider_factory::<ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>, SlotSourceType>(
-            cancellation_token,
-            sink_factory,
-            slot_source,
-            provider_factory,
-        )
-        .await
-    }
-
     /// Allows instantiating a [`LiveBuilder`] with an existing provider factory
     pub async fn create_builder_with_provider_factory<P, SlotSourceType>(
         &self,
