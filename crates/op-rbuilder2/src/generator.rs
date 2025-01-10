@@ -132,6 +132,7 @@ where
             builder: self.builder.clone(),
             config,
             cell: BlockCell::new(),
+            cancel: None,
         };
 
         job.spawn_build_job();
@@ -164,6 +165,8 @@ where
     pub(crate) builder: Builder,
     /// The cell that holds the built payload.
     pub(crate) cell: BlockCell<Builder::BuiltPayload>,
+    /// Cancellation token for the running job
+    pub(crate) cancel: Option<Cancelled>,
 }
 
 impl<Client, Pool, Tasks, Builder> PayloadJob for EmptyBlockPayloadJob<Client, Pool, Tasks, Builder>
@@ -192,6 +195,7 @@ where
         kind: PayloadKind,
     ) -> (Self::ResolvePayloadFuture, KeepPayloadJobAlive) {
         info!("resolve kind {:?}", kind);
+        self.cancel.take();
 
         let resolve_future = ResolvePayload::new(self.cell.clone());
         (resolve_future, KeepPayloadJobAlive::No)
@@ -213,16 +217,18 @@ where
         let client = self.client.clone();
         let pool = self.pool.clone();
         let cancel = Cancelled::default();
+        let _cancel = cancel.clone(); // Clone for the task
         let payload_config = self.config.clone();
         let cell = self.cell.clone();
 
+        self.cancel = Some(cancel);
         self.executor.spawn_blocking(Box::pin(async move {
             let args = BuildArguments {
                 client,
                 pool,
                 cached_reads: Default::default(),
                 config: payload_config,
-                cancel,
+                cancel: _cancel,
                 best_payload: None,
             };
 
