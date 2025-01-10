@@ -22,7 +22,7 @@ use reth_revm::database::StateProviderDatabase;
 use reth_transaction_pool::{BestTransactionsAttributes, TransactionPool};
 use reth_trie::HashedPostState;
 use revm::{
-    db::{states::bundle_state::BundleRetention, State},
+    db::{states::bundle_state::BundleRetention, BundleState, State},
     primitives::{
         BlockEnv, CfgEnvWithHandlerCfg, EVMError, EnvWithHandlerCfg, InvalidTransaction,
         ResultAndState, TxEnv,
@@ -76,7 +76,8 @@ where
     fn build_payload<Client, Pool>(
         &self,
         args: BuildArguments<Pool, Client, OpPayloadBuilderAttributes, OpBuiltPayload>,
-    ) -> Result<BuildOutcome<OpBuiltPayload>, PayloadBuilderError>
+        best_payload: BlockCell<OpBuiltPayload>,
+    ) -> Result<(), PayloadBuilderError>
     where
         Client: StateProviderFactory + ChainSpecProvider<ChainSpec = OpChainSpec>,
         Pool: TransactionPool,
@@ -91,7 +92,7 @@ where
             mut cached_reads,
             config,
             cancel,
-            best_payload,
+            ..
         } = args;
 
         let ctx = OpPayloadBuilderCtx {
@@ -101,32 +102,64 @@ where
             initialized_cfg,
             initialized_block_env,
             cancel,
-            best_payload,
+            best_payload: None, // remove
         };
 
-        let builder = OpBuilder {
-            pool,
-            best: self.best_transactions.clone(),
-        };
+        let best = self.best_transactions.clone();
 
         let state_provider = client.state_by_block_hash(ctx.parent().hash())?;
-        let state = StateProviderDatabase::new(state_provider);
+        let state = StateProviderDatabase::new(&state_provider);
+
+        let mut db = State::builder()
+            .with_database(state)
+            .with_bundle_update()
+            .build();
+
+        // 1. execute the pre steps and seal an early block with that
+        let mut info = execute_pre_steps(&mut db, &ctx)?;
+        let (payload, mut bundle_state) = build_block(db, &ctx, &info)?;
+        best_payload.set(payload);
 
         if ctx.attributes().no_tx_pool {
-            let db = State::builder()
+            // return early since we don't need to build a block with transactions from the pool
+            return Ok(());
+        }
+
+        // Right now it assumes a 1 second block time (TODO)
+        let gas_per_batch = ctx.block_gas_limit() / 4;
+        let mut total_gas_per_batch = gas_per_batch;
+
+        // 2. loop every n time and try to build an increasing block
+        loop {
+            let state = StateProviderDatabase::new(&state_provider);
+
+            let mut db = State::builder()
                 .with_database(state)
                 .with_bundle_update()
+                .with_bundle_prestate(bundle_state)
                 .build();
-            builder.build(db, ctx)
-        } else {
-            // sequencer mode we can reuse cachedreads from previous runs
-            let db = State::builder()
-                .with_database(cached_reads.as_db_mut(state))
-                .with_bundle_update()
-                .build();
-            builder.build(db, ctx)
+
+            let best_txs = best.best_transactions(&pool, ctx.best_transaction_attributes());
+            ctx.execute_best_transactions::<_, Pool>(
+                &mut info,
+                &mut db,
+                best_txs,
+                total_gas_per_batch,
+            )?;
+
+            if ctx.cancel.is_cancelled() {
+                // if the job was cancelled, stop
+                return Ok(());
+            }
+
+            let (payload, new_bundle_state) = build_block(db, &ctx, &info)?;
+            best_payload.set(payload);
+
+            bundle_state = new_bundle_state;
+            total_gas_per_batch += gas_per_batch;
+
+            std::thread::sleep(std::time::Duration::from_millis(250));
         }
-        .map(|out| out.with_cached_reads(cached_reads))
     }
 }
 
@@ -165,237 +198,153 @@ where
         args: BuildArguments<Pool, Client, Self::Attributes, Self::BuiltPayload>,
         best_payload: BlockCell<Self::BuiltPayload>,
     ) -> Result<(), PayloadBuilderError> {
-        match self.build_payload(args)? {
-            BuildOutcome::Better { payload, .. } => {
-                best_payload.set(payload);
-                Ok(())
-            }
-            _ => {
-                tracing::warn!("No better payload found");
-                Err(PayloadBuilderError::MissingPayload)
-            }
-        }
+        self.build_payload(args, best_payload)
     }
 }
 
-/// The type that builds the payload.
-///
-/// Payload building for optimism is composed of several steps.
-/// The first steps are mandatory and defined by the protocol.
-///
-/// 1. first all System calls are applied.
-/// 2. After canyon the forced deployed `create2deployer` must be loaded
-/// 3. all sequencer transactions are executed (part of the payload attributes)
-///
-/// Depending on whether the node acts as a sequencer and is allowed to include additional
-/// transactions (`no_tx_pool == false`):
-/// 4. include additional transactions
-///
-/// And finally
-/// 5. build the block: compute all roots (txs, state)
-#[derive(Debug)]
-pub struct OpBuilder<Pool, Txs> {
-    /// The transaction pool
-    pool: Pool,
-    /// Yields the best transaction to include if transactions from the mempool are allowed.
-    best: Txs,
-}
-
-impl<Pool, Txs> OpBuilder<Pool, Txs>
+pub fn build_block<EvmConfig, DB, P>(
+    mut state: State<DB>,
+    ctx: &OpPayloadBuilderCtx<EvmConfig>,
+    info: &ExecutionInfo,
+) -> Result<(OpBuiltPayload, BundleState), PayloadBuilderError>
 where
-    Pool: TransactionPool,
-    Txs: OpPayloadTransactions,
+    EvmConfig: ConfigureEvm<Header = Header>,
+    DB: Database<Error = ProviderError> + AsRef<P>,
+    P: StateRootProvider,
 {
-    /// Executes the payload and returns the outcome.
-    pub fn execute<EvmConfig, DB>(
-        self,
-        state: &mut State<DB>,
-        ctx: &OpPayloadBuilderCtx<EvmConfig>,
-    ) -> Result<BuildOutcomeKind<ExecutedPayload>, PayloadBuilderError>
-    where
-        EvmConfig: ConfigureEvm<Header = Header>,
-        DB: Database<Error = ProviderError>,
-    {
-        let Self { pool, best } = self;
-        debug!(target: "payload_builder", id=%ctx.payload_id(), parent_header = ?ctx.parent().hash(), parent_number = ctx.parent().number, "building new payload");
+    let withdrawals_outcome = ctx.commit_withdrawals(&mut state)?;
 
-        // 1. apply eip-4788 pre block contract call
-        ctx.apply_pre_beacon_root_contract_call(state)?;
+    let WithdrawalsOutcome {
+        withdrawals,
+        withdrawals_root,
+    } = withdrawals_outcome;
 
-        // 2. ensure create2deployer is force deployed
-        ctx.ensure_create2_deployer(state)?;
+    // merge all transitions into bundle state, this would apply the withdrawal balance changes
+    // and 4788 contract call
+    state.merge_transitions(BundleRetention::Reverts);
 
-        // 3. execute sequencer transactions
-        let mut info = ctx.execute_sequencer_transactions(state)?;
-
-        // 4. if mem pool transactions are requested we execute them
-        if !ctx.attributes().no_tx_pool {
-            let best_txs = best.best_transactions(pool, ctx.best_transaction_attributes());
-            if ctx
-                .execute_best_transactions::<_, Pool>(&mut info, state, best_txs)?
-                .is_some()
-            {
-                return Ok(BuildOutcomeKind::Cancelled);
-            }
-
-            // check if the new payload is even more valuable
-            if !ctx.is_better_payload(info.total_fees) {
-                // can skip building the block
-                return Ok(BuildOutcomeKind::Aborted {
-                    fees: info.total_fees,
-                });
-            }
-        }
-
-        let withdrawals_outcome = ctx.commit_withdrawals(state)?;
-
-        // merge all transitions into bundle state, this would apply the withdrawal balance changes
-        // and 4788 contract call
-        state.merge_transitions(BundleRetention::Reverts);
-
-        Ok(BuildOutcomeKind::Better {
-            payload: ExecutedPayload {
-                info,
-                withdrawals_outcome,
-            },
+    let block_number = ctx.block_number();
+    let execution_outcome = ExecutionOutcome::new(
+        state.take_bundle(),
+        vec![info.receipts.clone()].into(),
+        block_number,
+        Vec::new(),
+    );
+    let receipts_root = execution_outcome
+        .generic_receipts_root_slow(block_number, |receipts| {
+            calculate_receipt_root_no_memo_optimism(
+                receipts,
+                &ctx.chain_spec,
+                ctx.attributes().timestamp(),
+            )
         })
-    }
+        .expect("Number is in range");
+    let logs_bloom = execution_outcome
+        .block_logs_bloom(block_number)
+        .expect("Number is in range");
 
-    /// Builds the payload on top of the state.
-    pub fn build<EvmConfig, DB, P>(
-        self,
-        mut state: State<DB>,
-        ctx: OpPayloadBuilderCtx<EvmConfig>,
-    ) -> Result<BuildOutcomeKind<OpBuiltPayload>, PayloadBuilderError>
-    where
-        EvmConfig: ConfigureEvm<Header = Header>,
-        DB: Database<Error = ProviderError> + AsRef<P>,
-        P: StateRootProvider,
-    {
-        let ExecutedPayload {
-            info,
-            withdrawals_outcome:
-                WithdrawalsOutcome {
-                    withdrawals,
-                    withdrawals_root,
-                },
-        } = match self.execute(&mut state, &ctx)? {
-            BuildOutcomeKind::Better { payload } | BuildOutcomeKind::Freeze(payload) => payload,
-            BuildOutcomeKind::Cancelled => return Ok(BuildOutcomeKind::Cancelled),
-            BuildOutcomeKind::Aborted { fees } => return Ok(BuildOutcomeKind::Aborted { fees }),
-        };
+    // // calculate the state root
+    let hashed_state = HashedPostState::from_bundle_state(&execution_outcome.state().state);
+    let (state_root, trie_output) = {
+        state
+            .database
+            .as_ref()
+            .state_root_with_updates(hashed_state.clone())
+            .inspect_err(|err| {
+                warn!(target: "payload_builder",
+                parent_header=%ctx.parent().hash(),
+                    %err,
+                    "failed to calculate state root for payload"
+                );
+            })?
+    };
 
-        let block_number = ctx.block_number();
-        let execution_outcome = ExecutionOutcome::new(
-            state.take_bundle(),
-            vec![info.receipts.clone()].into(),
-            block_number,
-            Vec::new(),
-        );
-        let receipts_root = execution_outcome
-            .generic_receipts_root_slow(block_number, |receipts| {
-                calculate_receipt_root_no_memo_optimism(
-                    receipts,
-                    &ctx.chain_spec,
-                    ctx.attributes().timestamp(),
-                )
-            })
-            .expect("Number is in range");
-        let logs_bloom = execution_outcome
-            .block_logs_bloom(block_number)
-            .expect("Number is in range");
+    // create the block header
+    let transactions_root = proofs::calculate_transaction_root(&info.executed_transactions);
 
-        // // calculate the state root
-        let hashed_state = HashedPostState::from_bundle_state(&execution_outcome.state().state);
-        let (state_root, trie_output) = {
-            state
-                .database
-                .as_ref()
-                .state_root_with_updates(hashed_state.clone())
-                .inspect_err(|err| {
-                    warn!(target: "payload_builder",
-                    parent_header=%ctx.parent().hash(),
-                        %err,
-                        "failed to calculate state root for payload"
-                    );
-                })?
-        };
+    // OP doesn't support blobs/EIP-4844.
+    // https://specs.optimism.io/protocol/exec-engine.html#ecotone-disable-blob-transactions
+    // Need [Some] or [None] based on hardfork to match block hash.
+    let (excess_blob_gas, blob_gas_used) = ctx.blob_fields();
+    let extra_data = ctx.extra_data()?;
 
-        // create the block header
-        let transactions_root = proofs::calculate_transaction_root(&info.executed_transactions);
+    let header = Header {
+        parent_hash: ctx.parent().hash(),
+        ommers_hash: EMPTY_OMMER_ROOT_HASH,
+        beneficiary: ctx.initialized_block_env.coinbase,
+        state_root,
+        transactions_root,
+        receipts_root,
+        withdrawals_root,
+        logs_bloom,
+        timestamp: ctx.attributes().payload_attributes.timestamp,
+        mix_hash: ctx.attributes().payload_attributes.prev_randao,
+        nonce: BEACON_NONCE.into(),
+        base_fee_per_gas: Some(ctx.base_fee()),
+        number: ctx.parent().number + 1,
+        gas_limit: ctx.block_gas_limit(),
+        difficulty: U256::ZERO,
+        gas_used: info.cumulative_gas_used,
+        extra_data,
+        parent_beacon_block_root: ctx.attributes().payload_attributes.parent_beacon_block_root,
+        blob_gas_used,
+        excess_blob_gas,
+        requests_hash: None,
+    };
 
-        // OP doesn't support blobs/EIP-4844.
-        // https://specs.optimism.io/protocol/exec-engine.html#ecotone-disable-blob-transactions
-        // Need [Some] or [None] based on hardfork to match block hash.
-        let (excess_blob_gas, blob_gas_used) = ctx.blob_fields();
-        let extra_data = ctx.extra_data()?;
+    // seal the block
+    let block = Block {
+        header,
+        body: BlockBody {
+            transactions: info.executed_transactions.clone(),
+            ommers: vec![],
+            withdrawals,
+        },
+    };
 
-        let header = Header {
-            parent_hash: ctx.parent().hash(),
-            ommers_hash: EMPTY_OMMER_ROOT_HASH,
-            beneficiary: ctx.initialized_block_env.coinbase,
-            state_root,
-            transactions_root,
-            receipts_root,
-            withdrawals_root,
-            logs_bloom,
-            timestamp: ctx.attributes().payload_attributes.timestamp,
-            mix_hash: ctx.attributes().payload_attributes.prev_randao,
-            nonce: BEACON_NONCE.into(),
-            base_fee_per_gas: Some(ctx.base_fee()),
-            number: ctx.parent().number + 1,
-            gas_limit: ctx.block_gas_limit(),
-            difficulty: U256::ZERO,
-            gas_used: info.cumulative_gas_used,
-            extra_data,
-            parent_beacon_block_root: ctx.attributes().payload_attributes.parent_beacon_block_root,
-            blob_gas_used,
-            excess_blob_gas,
-            requests_hash: None,
-        };
+    let sealed_block = Arc::new(block.seal_slow());
+    debug!(target: "payload_builder", ?sealed_block, "sealed built block");
 
-        // seal the block
-        let block = Block {
-            header,
-            body: BlockBody {
-                transactions: info.executed_transactions,
-                ommers: vec![],
-                withdrawals,
-            },
-        };
+    // create the executed block data
+    let executed = ExecutedBlock {
+        block: sealed_block.clone(),
+        senders: Arc::new(info.executed_senders.clone()),
+        execution_output: Arc::new(execution_outcome),
+        hashed_state: Arc::new(hashed_state),
+        trie: Arc::new(trie_output),
+    };
 
-        let sealed_block = Arc::new(block.seal_slow());
-        debug!(target: "payload_builder", ?sealed_block, "sealed built block");
-
-        // create the executed block data
-        let executed = ExecutedBlock {
-            block: sealed_block.clone(),
-            senders: Arc::new(info.executed_senders),
-            execution_output: Arc::new(execution_outcome),
-            hashed_state: Arc::new(hashed_state),
-            trie: Arc::new(trie_output),
-        };
-
-        let no_tx_pool = ctx.attributes().no_tx_pool;
-
-        let payload = OpBuiltPayload::new(
+    Ok((
+        OpBuiltPayload::new(
             ctx.payload_id(),
             sealed_block,
             info.total_fees,
             ctx.chain_spec.clone(),
-            ctx.config.attributes,
+            ctx.config.attributes.clone(),
             Some(executed),
-        );
+        ),
+        state.take_bundle(),
+    ))
+}
 
-        if no_tx_pool {
-            // if `no_tx_pool` is set only transactions from the payload attributes will be included
-            // in the payload. In other words, the payload is deterministic and we can
-            // freeze it once we've successfully built it.
-            Ok(BuildOutcomeKind::Freeze(payload))
-        } else {
-            Ok(BuildOutcomeKind::Better { payload })
-        }
-    }
+fn execute_pre_steps<EvmConfig, DB>(
+    state: &mut State<DB>,
+    ctx: &OpPayloadBuilderCtx<EvmConfig>,
+) -> Result<ExecutionInfo, PayloadBuilderError>
+where
+    EvmConfig: ConfigureEvm<Header = Header>,
+    DB: Database<Error = ProviderError>,
+{
+    // 1. apply eip-4788 pre block contract call
+    ctx.apply_pre_beacon_root_contract_call(state)?;
+
+    // 2. ensure create2deployer is force deployed
+    ctx.ensure_create2_deployer(state)?;
+
+    // 3. execute sequencer transactions
+    let info = ctx.execute_sequencer_transactions(state)?;
+
+    Ok(info)
 }
 
 /// A type that returns a the [`PayloadTransactions`] that should be included in the pool.
@@ -763,12 +712,12 @@ where
         info: &mut ExecutionInfo,
         db: &mut State<DB>,
         mut best_txs: impl PayloadTransactions,
+        batch_gas_limit: u64,
     ) -> Result<Option<()>, PayloadBuilderError>
     where
         DB: Database<Error = ProviderError>,
         Pool: TransactionPool,
     {
-        let block_gas_limit = self.block_gas_limit();
         let base_fee = self.base_fee();
 
         let env = EnvWithHandlerCfg::new_with_cfg_env(
@@ -780,7 +729,7 @@ where
 
         while let Some(tx) = best_txs.next(()) {
             // ensure we still have capacity for this transaction
-            if info.cumulative_gas_used + tx.gas_limit() > block_gas_limit {
+            if info.cumulative_gas_used + tx.gas_limit() > batch_gas_limit {
                 // we can't fit this transaction into the block, so we need to mark it as
                 // invalid which also removes all dependent transaction from
                 // the iterator before we can continue
