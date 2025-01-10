@@ -504,7 +504,7 @@ mod tests {
                 nonce: self.create_u64(),
                 ..Default::default()
             };
-            TransactionSignedEcRecovered::from_signed_transaction(
+            TransactionSignedEcRecovered::new_unchecked(
                 TransactionSigned {
                     hash: self.create_hash(),
                     transaction: Transaction::Legacy(tx_legacy),

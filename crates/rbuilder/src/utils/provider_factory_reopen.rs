@@ -1,5 +1,4 @@
 use crate::telemetry::{inc_provider_bad_reopen_counter, inc_provider_reopen_counter};
-use alloy_consensus::Header;
 use alloy_eips::{BlockNumHash, BlockNumberOrTag};
 use alloy_primitives::{BlockHash, BlockNumber};
 use parking_lot::{Mutex, RwLock};
@@ -8,18 +7,13 @@ use reth_chainspec::ChainInfo;
 use reth_db::{Database, DatabaseError};
 use reth_errors::{ProviderError, ProviderResult, RethResult};
 use reth_node_api::NodeTypesWithDB;
-use reth_primitives::SealedHeader;
 use reth_provider::{
     providers::{ProviderNodeTypes, StaticFileProvider},
     BlockIdReader, BlockNumReader, DatabaseProvider, DatabaseProviderFactory, DatabaseProviderRO,
-    HeaderProvider, StateProviderBox, StateProviderFactory, StaticFileProviderFactory,
+    StateProviderBox, StateProviderFactory, StaticFileProviderFactory,
 };
-use revm_primitives::{B256, U256};
-use std::{
-    ops::{DerefMut, RangeBounds},
-    path::PathBuf,
-    sync::Arc,
-};
+use revm_primitives::B256;
+use std::{ops::DerefMut, path::PathBuf, sync::Arc};
 use tracing::debug;
 
 /// This struct is used as a workaround for https://github.com/paradigmxyz/reth/issues/7836
@@ -192,63 +186,6 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> DatabaseProviderFactory
             .check_consistency_and_reopen_if_needed()
             .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
         provider.database_provider_ro()
-    }
-}
-
-impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> HeaderProvider for ProviderFactoryReopener<N> {
-    type Header = Header;
-
-    fn header(&self, block_hash: &BlockHash) -> ProviderResult<Option<Header>> {
-        let provider = self
-            .check_consistency_and_reopen_if_needed()
-            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
-        provider.header(block_hash)
-    }
-
-    fn header_by_number(&self, num: u64) -> ProviderResult<Option<Header>> {
-        let provider = self
-            .check_consistency_and_reopen_if_needed()
-            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
-        provider.header_by_number(num)
-    }
-
-    fn header_td(&self, hash: &BlockHash) -> ProviderResult<Option<U256>> {
-        let provider = self
-            .check_consistency_and_reopen_if_needed()
-            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
-        provider.header_td(hash)
-    }
-
-    fn header_td_by_number(&self, number: BlockNumber) -> ProviderResult<Option<U256>> {
-        let provider = self
-            .check_consistency_and_reopen_if_needed()
-            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
-        provider.header_td_by_number(number)
-    }
-
-    fn headers_range(&self, range: impl RangeBounds<BlockNumber>) -> ProviderResult<Vec<Header>> {
-        let provider = self
-            .check_consistency_and_reopen_if_needed()
-            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
-        provider.headers_range(range)
-    }
-
-    fn sealed_header(&self, number: BlockNumber) -> ProviderResult<Option<SealedHeader>> {
-        let provider = self
-            .check_consistency_and_reopen_if_needed()
-            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
-        provider.sealed_header(number)
-    }
-
-    fn sealed_headers_while(
-        &self,
-        range: impl RangeBounds<BlockNumber>,
-        predicate: impl FnMut(&SealedHeader) -> bool,
-    ) -> ProviderResult<Vec<SealedHeader>> {
-        let provider = self
-            .check_consistency_and_reopen_if_needed()
-            .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
-        provider.sealed_headers_while(range, predicate)
     }
 }
 

@@ -24,12 +24,12 @@ pub fn i256(i: i64) -> I256 {
 
 pub fn tx(tx_hash: u64) -> TransactionSignedEcRecoveredWithBlobs {
     TransactionSignedEcRecoveredWithBlobs::new_for_testing(
-        TransactionSignedEcRecovered::from_signed_transaction(
-            TransactionSigned {
-                hash: hash(tx_hash),
-                signature: alloy_primitives::PrimitiveSignature::test_signature(),
-                transaction: Default::default(),
-            },
+        TransactionSignedEcRecovered::new_unchecked(
+            TransactionSigned::new(
+                Default::default(),
+                alloy_primitives::PrimitiveSignature::test_signature(),
+                hash(tx_hash),
+            ),
             Address::default(),
         ),
     )

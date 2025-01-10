@@ -22,7 +22,7 @@ impl TestDataGenerator {
     }
 
     pub fn create_tx_nonce(&mut self, sender_nonce: AccountNonce) -> TransactionSignedEcRecovered {
-        TransactionSignedEcRecovered::from_signed_transaction(
+        TransactionSignedEcRecovered::new_unchecked(
             TransactionSigned {
                 hash: self.base.create_tx_hash(),
                 transaction: Transaction::Legacy(TxLegacy {

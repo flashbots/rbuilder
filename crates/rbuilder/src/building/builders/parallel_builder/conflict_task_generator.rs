@@ -435,7 +435,7 @@ mod tests {
         }
 
         pub fn create_tx(&mut self) -> TransactionSignedEcRecovered {
-            TransactionSignedEcRecovered::from_signed_transaction(
+            TransactionSignedEcRecovered::new_unchecked(
                 TransactionSigned {
                     hash: self.create_hash(),
                     transaction: Transaction::Legacy(TxLegacy::default()),
