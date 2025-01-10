@@ -139,7 +139,7 @@ where
 
         // {
         //     let multiproof_json = serde_json::to_string_pretty(&multiproof).expect("to json fail");
-        //     let mut file = std::fs::File::create(&format!("/tmp/mutliproof_{}.json", i)).unwrap();
+        //     let mut file = std::fs::File::create(&format!("/tmp/multiproof_{}.json", i)).unwrap();
         //     file.write_all(multiproof_json.as_bytes()).unwrap();
         // }
 
