@@ -89,7 +89,6 @@ where
         let BuildArguments {
             client,
             pool,
-            mut cached_reads,
             config,
             cancel,
             ..
@@ -120,7 +119,14 @@ where
         let (payload, mut bundle_state) = build_block(db, &ctx, &info)?;
         best_payload.set(payload);
 
+        tracing::info!(target: "payload_builder", "Fallback block built");
+
         if ctx.attributes().no_tx_pool {
+            tracing::info!(
+                target: "payload_builder",
+                "No transaction pool, skipping transaction pool processing",
+            );
+
             // return early since we don't need to build a block with transactions from the pool
             return Ok(());
         }
@@ -129,8 +135,16 @@ where
         let gas_per_batch = ctx.block_gas_limit() / 4;
         let mut total_gas_per_batch = gas_per_batch;
 
+        let mut flashblock_count = 0;
+
         // 2. loop every n time and try to build an increasing block
         loop {
+            tracing::info!(
+                target: "payload_builder",
+                "Building flashblock {}",
+                flashblock_count,
+            );
+
             let state = StateProviderDatabase::new(&state_provider);
 
             let mut db = State::builder()
@@ -148,6 +162,10 @@ where
             )?;
 
             if ctx.cancel.is_cancelled() {
+                tracing::info!(
+                    target: "payload_builder",
+                    "Job cancelled, stopping payload building",
+                );
                 // if the job was cancelled, stop
                 return Ok(());
             }
@@ -157,6 +175,7 @@ where
 
             bundle_state = new_bundle_state;
             total_gas_per_batch += gas_per_batch;
+            flashblock_count += 1;
 
             std::thread::sleep(std::time::Duration::from_millis(250));
         }
