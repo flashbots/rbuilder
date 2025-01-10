@@ -136,10 +136,10 @@ pub fn reference_trie_hash(data: &[(Bytes, Bytes)]) -> B256 {
     triehash::trie_root::<KeccakHasher, _, _, _>(data.to_vec())
 }
 
-pub fn get_test_mutliproofs() -> Vec<MultiProof> {
+pub fn get_test_multiproofs() -> Vec<MultiProof> {
     let files = [
-        "./test_data/mutliproof_0.json",
-        "./test_data/mutliproof_1.json",
+        "./test_data/multiproof_0.json",
+        "./test_data/multiproof_1.json",
     ];
     let mut result = Vec::new();
     for file in files {
