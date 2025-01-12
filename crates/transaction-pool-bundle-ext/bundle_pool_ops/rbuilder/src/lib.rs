@@ -4,7 +4,7 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 use core::fmt;
-use std::{fmt::Formatter, path::Path, sync::Arc, time::Duration};
+use std::{fmt::Formatter, sync::Arc, time::Duration};
 
 use alloy_primitives::U256;
 use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
@@ -18,7 +18,6 @@ use rbuilder::{
         Sorting,
     },
     live_builder::{
-        base_config::load_config_toml_and_env,
         cli::LiveBuilderConfig,
         config::{create_builders, BuilderConfig, Config, SpecificBuilderConfig},
         order_input::{rpc_server::RawCancelBundle, ReplaceableOrderPoolCommand},
@@ -95,7 +94,7 @@ impl BundlePoolOps {
     pub async fn new<P, V, T, S>(
         provider: P,
         pool: Pool<V, T, S>,
-        rbuilder_config_path: impl AsRef<Path>,
+        config: Config,
     ) -> Result<Self, Error>
     where
         P: DatabaseProviderFactory<Provider: BlockReader>
@@ -118,9 +117,6 @@ impl BundlePoolOps {
         let sink_factory = SinkFactory {
             block_building_helper_tx,
         };
-
-        // Spawn the builder!
-        let config: Config = load_config_toml_and_env(rbuilder_config_path)?;
 
         let builder_strategy = BuilderConfig {
             name: "mp-ordering".to_string(),
