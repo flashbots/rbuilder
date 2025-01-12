@@ -122,14 +122,13 @@ fn main() {
 /// Spawns a tokio rbuilder task.
 ///
 /// Takes down the entire process if the rbuilder errors or stops.
-fn spawn_rbuilder<P, DB>(
+fn spawn_rbuilder<P>(
     provider: P,
     pool: EthTransactionPool<P, DiskFileBlobStore>,
     config_path: PathBuf,
 ) where
-    DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-        + StateProviderFactory
+    P: DatabaseProviderFactory<Provider: BlockReader>
+        + reth_provider::StateProviderFactory
         + HeaderProvider
         + Clone
         + 'static,
@@ -152,7 +151,6 @@ fn spawn_rbuilder<P, DB>(
             )
             .await?;
 
-            builder.connect_to_transaction_pool(pool).await?;
             let builder = config
                 .new_builder(
                     StateProviderFactoryFromRethProvider::new(
@@ -162,6 +160,7 @@ fn spawn_rbuilder<P, DB>(
                     Default::default(),
                 )
                 .await?;
+            builder.connect_to_transaction_pool(pool).await?;
             builder.run().await?;
 
             Ok::<(), eyre::Error>(())
