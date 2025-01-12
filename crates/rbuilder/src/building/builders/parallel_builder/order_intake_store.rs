@@ -32,7 +32,7 @@ impl OrderIntakeStore {
     }
 
     /// returns the new orders since last call if we ONLY had new orders (no cancellations allowed)
-    pub fn drain_new_orders(&mut self) -> Option<Vec<SimulatedOrder>> {
+    pub fn try_drain_new_orders_if_no_cancellations(&mut self) -> Option<Vec<SimulatedOrder>> {
         self.order_sink.drain_new_orders()
     }
 

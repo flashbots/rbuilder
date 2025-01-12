@@ -8,10 +8,10 @@
 use clap::{Args, Parser};
 use rbuilder::{
     live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig, config::Config},
+    provider::reth_prov::StateProviderFactoryFromRethProvider,
     telemetry,
 };
 use reth::{chainspec::EthereumChainSpecParser, cli::Cli};
-use reth_db_api::Database;
 use reth_node_builder::{
     engine_tree_config::{
         TreeConfig, DEFAULT_MEMORY_BLOCK_BUFFER_TARGET, DEFAULT_PERSISTENCE_THRESHOLD,
@@ -21,7 +21,7 @@ use reth_node_builder::{
 use reth_node_ethereum::{node::EthereumAddOns, EthereumNode};
 use reth_provider::{
     providers::{BlockchainProvider, BlockchainProvider2},
-    BlockReader, DatabaseProviderFactory, HeaderProvider, StateProviderFactory,
+    BlockReader, DatabaseProviderFactory, HeaderProvider,
 };
 use reth_transaction_pool::{blobstore::DiskFileBlobStore, EthTransactionPool};
 use std::{path::PathBuf, process};
@@ -151,9 +151,17 @@ fn spawn_rbuilder<P, DB>(
                 config.base_config.log_enable_dynamic,
             )
             .await?;
-            let builder = config.new_builder(provider, Default::default()).await?;
 
             builder.connect_to_transaction_pool(pool).await?;
+            let builder = config
+                .new_builder(
+                    StateProviderFactoryFromRethProvider::new(
+                        provider,
+                        config.base_config().live_root_hash_config()?,
+                    ),
+                    Default::default(),
+                )
+                .await?;
             builder.run().await?;
 
             Ok::<(), eyre::Error>(())

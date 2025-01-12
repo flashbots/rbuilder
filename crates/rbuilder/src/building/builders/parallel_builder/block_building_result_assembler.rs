@@ -5,9 +5,7 @@ use super::{
 use ahash::HashMap;
 use alloy_primitives::utils::format_ether;
 use reth::revm::cached::CachedReads;
-use reth_db::Database;
-use reth_provider::{BlockReader, DatabaseProviderFactory, StateProviderFactory};
-use std::{marker::PhantomData, sync::Arc, time::Instant};
+use std::{sync::Arc, time::Instant};
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
 use tracing::{info_span, trace};
@@ -20,11 +18,11 @@ use crate::{
         },
         BlockBuildingContext,
     },
-    roothash::RootHashConfig,
+    provider::StateProviderFactory,
 };
 
 /// Assembles block building results from the best orderings of order groups.
-pub struct BlockBuildingResultAssembler<P, DB> {
+pub struct BlockBuildingResultAssembler<P> {
     provider: P,
     ctx: BlockBuildingContext,
     cancellation_token: CancellationToken,
@@ -32,22 +30,16 @@ pub struct BlockBuildingResultAssembler<P, DB> {
     discard_txs: bool,
     coinbase_payment: bool,
     can_use_suggested_fee_recipient_as_coinbase: bool,
-    root_hash_config: RootHashConfig,
     builder_name: String,
     sink: Option<Arc<dyn UnfinishedBlockBuildingSink>>,
     best_results: Arc<BestResults>,
     run_id: u64,
     last_version: Option<u64>,
-    phantom: PhantomData<DB>,
 }
 
-impl<P, DB> BlockBuildingResultAssembler<P, DB>
+impl<P> BlockBuildingResultAssembler<P>
 where
-    DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-        + StateProviderFactory
-        + Clone
-        + 'static,
+    P: StateProviderFactory + Clone + 'static,
 {
     /// Creates a new `BlockBuildingResultAssembler`.
     ///
@@ -60,7 +52,6 @@ where
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         config: &ParallelBuilderConfig,
-        root_hash_config: RootHashConfig,
         best_results: Arc<BestResults>,
         provider: P,
         ctx: BlockBuildingContext,
@@ -77,13 +68,11 @@ where
             discard_txs: config.discard_txs,
             coinbase_payment: config.coinbase_payment,
             can_use_suggested_fee_recipient_as_coinbase,
-            root_hash_config,
             builder_name,
             sink,
             best_results,
             run_id: 0,
             last_version: None,
-            phantom: PhantomData,
         }
     }
 
@@ -205,7 +194,6 @@ where
 
         let mut block_building_helper = BlockBuildingHelperFromProvider::new(
             self.provider.clone(),
-            self.root_hash_config.clone(),
             ctx,
             self.cached_reads.clone(),
             self.builder_name.clone(),
@@ -273,7 +261,6 @@ where
     ) -> eyre::Result<Box<dyn BlockBuildingHelper>> {
         let mut block_building_helper = BlockBuildingHelperFromProvider::new(
             self.provider.clone(),
-            self.root_hash_config.clone(), // Adjust as needed for backtest
             self.ctx.clone(),
             None, // No cached reads for backtest start
             String::from("backtest_builder"),

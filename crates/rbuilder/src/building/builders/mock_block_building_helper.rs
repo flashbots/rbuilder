@@ -1,3 +1,6 @@
+use crate::live_builder::simulation::SimulatedOrderCommand;
+use crate::provider::RootHasher;
+use crate::roothash::RootHashError;
 use crate::{
     building::{
         BlockBuildingContext, BuiltBlockTrace, CriticalCommitOrderError, ExecutionError,
@@ -5,10 +8,14 @@ use crate::{
     },
     primitives::SimulatedOrder,
 };
+use alloy_primitives::B256;
 use alloy_primitives::U256;
+use reth::providers::ExecutionOutcome;
 use reth::revm::cached::CachedReads;
 use reth_primitives::SealedBlock;
 use time::OffsetDateTime;
+use tokio::sync::broadcast;
+use tokio_util::sync::CancellationToken;
 
 use super::{
     block_building_helper::{BlockBuildingHelper, BlockBuildingHelperError, FinalizeBlockResult},
@@ -108,5 +115,21 @@ impl BlockBuildingHelper for MockBlockBuildingHelper {
 
     fn builder_name(&self) -> &str {
         "Mock"
+    }
+}
+
+#[derive(Debug)]
+pub struct MockRootHasher {}
+
+impl RootHasher for MockRootHasher {
+    fn run_prefetcher(
+        &self,
+        _simulated_orders: broadcast::Receiver<SimulatedOrderCommand>,
+        _cancel: CancellationToken,
+    ) {
+    }
+
+    fn state_root(&self, _outcome: &ExecutionOutcome) -> Result<B256, RootHashError> {
+        Ok(B256::default())
     }
 }

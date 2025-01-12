@@ -14,17 +14,12 @@ use crate::{
         BlockBuildingContext, ExecutionError, PrioritizedOrderStore, SimulatedOrderSink, Sorting,
     },
     primitives::{AccountNonce, OrderId},
-    roothash::RootHashConfig,
+    provider::StateProviderFactory,
 };
 use ahash::{HashMap, HashSet};
 use reth::revm::cached::CachedReads;
-use reth_db::database::Database;
-use reth_provider::{BlockReader, DatabaseProviderFactory, StateProviderFactory};
 use serde::Deserialize;
-use std::{
-    marker::PhantomData,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info_span, trace};
 
@@ -61,13 +56,9 @@ impl OrderingBuilderConfig {
     }
 }
 
-pub fn run_ordering_builder<P, DB>(input: LiveBuilderInput<P, DB>, config: &OrderingBuilderConfig)
+pub fn run_ordering_builder<P>(input: LiveBuilderInput<P>, config: &OrderingBuilderConfig)
 where
-    DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-        + StateProviderFactory
-        + Clone
-        + 'static,
+    P: StateProviderFactory + Clone + 'static,
 {
     let mut order_intake_consumer = OrderIntakeConsumer::new(
         input.provider.clone(),
@@ -81,7 +72,6 @@ where
         input.builder_name,
         input.ctx,
         config.clone(),
-        input.root_hash_config,
     );
 
     // this is a hack to mark used orders until built block trace is implemented as a sane thing
@@ -130,16 +120,12 @@ where
     }
 }
 
-pub fn backtest_simulate_block<P, DB>(
+pub fn backtest_simulate_block<P>(
     ordering_config: OrderingBuilderConfig,
     input: BacktestSimulateBlockInput<'_, P>,
 ) -> eyre::Result<(Block, CachedReads)>
 where
-    DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-        + StateProviderFactory
-        + Clone
-        + 'static,
+    P: StateProviderFactory + Clone + 'static,
 {
     let use_suggested_fee_recipient_as_coinbase = ordering_config.coinbase_payment;
     let state_provider = input
@@ -152,7 +138,6 @@ where
         input.builder_name,
         input.ctx.clone(),
         ordering_config,
-        RootHashConfig::skip_root_hash(),
     )
     .with_cached_reads(input.cached_reads.unwrap_or_default());
     let block_builder = builder.build_block(
@@ -174,12 +159,11 @@ where
 }
 
 #[derive(Debug)]
-pub struct OrderingBuilderContext<P, DB> {
+pub struct OrderingBuilderContext<P> {
     provider: P,
     builder_name: String,
     ctx: BlockBuildingContext,
     config: OrderingBuilderConfig,
-    root_hash_config: RootHashConfig,
 
     // caches
     cached_reads: Option<CachedReads>,
@@ -187,35 +171,26 @@ pub struct OrderingBuilderContext<P, DB> {
     // scratchpad
     failed_orders: HashSet<OrderId>,
     order_attempts: HashMap<OrderId, usize>,
-
-    phantom: PhantomData<DB>,
 }
 
-impl<P, DB> OrderingBuilderContext<P, DB>
+impl<P> OrderingBuilderContext<P>
 where
-    DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-        + StateProviderFactory
-        + Clone
-        + 'static,
+    P: StateProviderFactory + Clone + 'static,
 {
     pub fn new(
         provider: P,
         builder_name: String,
         ctx: BlockBuildingContext,
         config: OrderingBuilderConfig,
-        root_hash_config: RootHashConfig,
     ) -> Self {
         Self {
             provider,
             builder_name,
             ctx,
             config,
-            root_hash_config,
             cached_reads: None,
             failed_orders: HashSet::default(),
             order_attempts: HashMap::default(),
-            phantom: PhantomData,
         }
     }
 
@@ -255,7 +230,6 @@ where
 
         let mut block_building_helper = BlockBuildingHelperFromProvider::new(
             self.provider.clone(),
-            self.root_hash_config.clone(),
             new_ctx,
             self.cached_reads.take(),
             self.builder_name.clone(),
@@ -339,32 +313,19 @@ where
 
 #[derive(Debug)]
 pub struct OrderingBuildingAlgorithm {
-    root_hash_config: RootHashConfig,
     config: OrderingBuilderConfig,
     name: String,
 }
 
 impl OrderingBuildingAlgorithm {
-    pub fn new(
-        root_hash_config: RootHashConfig,
-        config: OrderingBuilderConfig,
-        name: String,
-    ) -> Self {
-        Self {
-            root_hash_config,
-            config,
-            name,
-        }
+    pub fn new(config: OrderingBuilderConfig, name: String) -> Self {
+        Self { config, name }
     }
 }
 
-impl<P, DB> BlockBuildingAlgorithm<P, DB> for OrderingBuildingAlgorithm
+impl<P> BlockBuildingAlgorithm<P> for OrderingBuildingAlgorithm
 where
-    DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-        + StateProviderFactory
-        + Clone
-        + 'static,
+    P: StateProviderFactory + Clone + 'static,
 {
     fn name(&self) -> String {
         self.name.clone()
@@ -373,13 +334,11 @@ where
     fn build_blocks(&self, input: BlockBuildingAlgorithmInput<P>) {
         let live_input = LiveBuilderInput {
             provider: input.provider,
-            root_hash_config: self.root_hash_config.clone(),
             ctx: input.ctx.clone(),
             input: input.input,
             sink: input.sink,
             builder_name: self.name.clone(),
             cancel: input.cancel,
-            phantom: Default::default(),
         };
         run_ordering_builder(live_input, &self.config);
     }

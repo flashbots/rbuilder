@@ -5,6 +5,7 @@ use super::{
 use crate::{
     building::{BlockBuildingContext, BlockState, CriticalCommitOrderError},
     primitives::{Order, OrderId, SimValue, SimulatedOrder},
+    provider::StateProviderFactory,
     utils::{NonceCache, NonceCacheRef},
 };
 use ahash::{HashMap, HashSet};
@@ -12,7 +13,7 @@ use alloy_primitives::{Address, B256};
 use rand::seq::SliceRandom;
 use reth::revm::cached::CachedReads;
 use reth_errors::ProviderError;
-use reth_provider::{StateProvider, StateProviderFactory};
+use reth_provider::StateProvider;
 use std::{
     cmp::{max, min, Ordering},
     collections::hash_map::Entry,
@@ -88,7 +89,7 @@ enum OrderNonceState {
 
 impl<P> SimTree<P>
 where
-    P: StateProviderFactory + Clone + 'static,
+    P: StateProviderFactory,
 {
     pub fn new(provider: P, parent_block: B256) -> Self {
         let nonce_cache = NonceCache::new(provider, parent_block);
@@ -314,7 +315,7 @@ pub fn simulate_all_orders_with_sim_tree<P>(
     randomize_insertion: bool,
 ) -> Result<(Vec<SimulatedOrder>, Vec<OrderErr>), CriticalCommitOrderError>
 where
-    P: StateProviderFactory + Clone + 'static,
+    P: StateProviderFactory + Clone,
 {
     let mut sim_tree = SimTree::new(provider.clone(), ctx.attributes.parent);
 

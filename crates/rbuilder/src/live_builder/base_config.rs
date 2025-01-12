@@ -3,6 +3,7 @@
 use crate::{
     building::builders::UnfinishedBlockBuildingSinkFactory,
     live_builder::{order_input::OrderInputConfig, LiveBuilder},
+    provider::StateProviderFactory,
     roothash::RootHashConfig,
     telemetry::{setup_reloadable_tracing_subscriber, LoggerConfig},
     utils::{http_provider, BoxedProvider, ProviderFactoryReopener, Signer},
@@ -13,13 +14,11 @@ use eyre::{eyre, Context};
 use jsonrpsee::RpcModule;
 use reth::chainspec::chain_value_parser;
 use reth_chainspec::ChainSpec;
-use reth_db::{Database, DatabaseEnv};
+use reth_db::DatabaseEnv;
 use reth_node_api::NodeTypesWithDBAdapter;
 use reth_node_ethereum::EthereumNode;
 use reth_primitives::StaticFileSegment;
-use reth_provider::{
-    DatabaseProviderFactory, HeaderProvider, StateProviderFactory, StaticFileProviderFactory,
-};
+use reth_provider::StaticFileProviderFactory;
 use serde::{Deserialize, Deserializer};
 use serde_with::{serde_as, DeserializeAs};
 use std::{
@@ -170,22 +169,21 @@ impl BaseConfig {
     }
 
     /// Allows instantiating a [`LiveBuilder`] with an existing provider factory
-    pub async fn create_builder_with_provider_factory<P, DB, SlotSourceType>(
+    pub async fn create_builder_with_provider_factory<P, SlotSourceType>(
         &self,
         cancellation_token: tokio_util::sync::CancellationToken,
         sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
         slot_source: SlotSourceType,
         provider: P,
-    ) -> eyre::Result<super::LiveBuilder<P, DB, SlotSourceType>>
+    ) -> eyre::Result<super::LiveBuilder<P, SlotSourceType>>
     where
-        DB: Database + Clone + 'static,
-        P: DatabaseProviderFactory<DB = DB> + StateProviderFactory + HeaderProvider + Clone,
+        P: StateProviderFactory,
         SlotSourceType: SlotSource,
     {
         let order_input_config = OrderInputConfig::from_config(self)?;
         let (orderpool_sender, orderpool_receiver) =
             mpsc::channel(order_input_config.input_channel_buffer_size);
-        Ok(LiveBuilder::<P, DB, SlotSourceType> {
+        Ok(LiveBuilder::<P, SlotSourceType> {
             watchdog_timeout: self.watchdog_timeout(),
             error_storage_path: self.error_storage_path.clone(),
             simulation_threads: self.simulation_threads,
@@ -242,6 +240,7 @@ impl BaseConfig {
             self.reth_static_files_path.as_deref(),
             self.chain_spec()?,
             false,
+            Some(self.live_root_hash_config()?),
         )
     }
 
@@ -251,7 +250,7 @@ impl BaseConfig {
                 "root_hash_compare_sparse_trie can't be set without root_hash_use_sparse_trie"
             );
         }
-        Ok(RootHashConfig::live_config(
+        Ok(RootHashConfig::new(
             self.root_hash_use_sparse_trie,
             self.root_hash_compare_sparse_trie,
         ))
@@ -435,12 +434,14 @@ where
 }
 
 /// Open reth db and DB should be opened once per process but it can be cloned and moved to different threads.
+/// root_hash_config None -> MockRootHasher used
 pub fn create_provider_factory(
     reth_datadir: Option<&Path>,
     reth_db_path: Option<&Path>,
     reth_static_files_path: Option<&Path>,
     chain_spec: Arc<ChainSpec>,
     rw: bool,
+    root_hash_config: Option<RootHashConfig>,
 ) -> eyre::Result<ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>> {
     // shellexpand the reth datadir
     let reth_datadir = if let Some(reth_datadir) = reth_datadir {
@@ -474,7 +475,7 @@ pub fn create_provider_factory(
     };
 
     let provider_factory_reopener =
-        ProviderFactoryReopener::new(db, chain_spec, reth_static_files_path)?;
+        ProviderFactoryReopener::new(db, chain_spec, reth_static_files_path, root_hash_config)?;
 
     if provider_factory_reopener
         .provider_factory_unchecked()
@@ -577,6 +578,7 @@ mod test {
                 reth_static_files_path.as_deref(),
                 Default::default(),
                 true,
+                None,
             );
 
             if *should_succeed {
