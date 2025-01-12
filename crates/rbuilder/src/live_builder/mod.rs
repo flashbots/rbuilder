@@ -18,6 +18,7 @@ use crate::{
         simulation::OrderSimulationPool,
         watchdog::spawn_watchdog_thread,
     },
+    primitives::{MempoolTx, Order, TransactionSignedEcRecoveredWithBlobs},
     provider::StateProviderFactory,
     telemetry::inc_active_slots,
     utils::{
@@ -32,17 +33,12 @@ use eyre::Context;
 use jsonrpsee::RpcModule;
 use order_input::ReplaceableOrderPoolCommand;
 use payload_events::MevBoostSlotData;
-use reth::{
-    providers::HeaderProvider,
-    transaction_pool::{
-        BlobStore, EthPooledTransaction, Pool, TransactionListenerKind, TransactionOrdering,
-        TransactionPool, TransactionValidator,
-    },
+use reth::transaction_pool::{
+    BlobStore, EthPooledTransaction, Pool, TransactionListenerKind, TransactionOrdering,
+    TransactionPool, TransactionValidator,
 };
 use reth_chainspec::ChainSpec;
-use reth_db::Database;
 use reth_primitives::TransactionSignedEcRecovered;
-use reth_provider::{BlockReader, DatabaseProviderFactory, StateProviderFactory};
 use std::{cmp::min, fmt::Debug, path::PathBuf, sync::Arc, time::Duration};
 use time::OffsetDateTime;
 use tokio::sync::mpsc;

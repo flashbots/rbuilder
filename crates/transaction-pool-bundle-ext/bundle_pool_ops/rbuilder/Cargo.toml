@@ -12,7 +12,6 @@ alloy-rpc-types-beacon.workspace = true
 reth-primitives = { workspace = true }
 reth-transaction-pool = { workspace = true }
 reth-provider = { workspace = true }
-reth-db-api = { workspace = true }
 
 derive_more = { workspace = true }
 eyre = { workspace = true }

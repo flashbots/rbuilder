@@ -30,7 +30,7 @@ use rbuilder::{
     telemetry,
 };
 use reth_primitives::TransactionSigned;
-use reth_provider::{BlockReader, DatabaseProviderFactory, HeaderProvider, StateProviderFactory};
+use reth_provider::{BlockReader, DatabaseProviderFactory, HeaderProvider};
 use reth_transaction_pool::{
     BlobStore, EthPooledTransaction, Pool, TransactionOrdering, TransactionValidator,
 };
@@ -92,7 +92,7 @@ impl SlotSource for OurSlotSource {
 }
 
 impl BundlePoolOps {
-    pub async fn new<P, DB, V, T, S>(
+    pub async fn new<P, V, T, S>(
         provider: P,
         pool: Pool<V, T, S>,
         rbuilder_config_path: impl AsRef<Path>,
