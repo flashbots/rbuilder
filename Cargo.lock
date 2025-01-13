@@ -356,6 +356,7 @@ dependencies = [
  "alloy-primitives 0.8.12",
  "alloy-pubsub",
  "alloy-rpc-client",
+ "alloy-rpc-types-engine",
  "alloy-rpc-types-eth",
  "alloy-transport",
  "alloy-transport-http",
@@ -6345,6 +6346,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "op-alloy-provider"
+version = "0.6.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e66638261664c35cc218ebc2cfc8a73f4e3740adcfac1d009565055e4b49205"
+dependencies = [
+ "alloy-network",
+ "alloy-primitives 0.8.12",
+ "alloy-provider",
+ "alloy-rpc-types-engine",
+ "alloy-transport",
+ "async-trait",
+ "op-alloy-rpc-types-engine",
+]
+
+[[package]]
 name = "op-alloy-rpc-types"
 version = "0.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6465,9 +6481,15 @@ version = "0.1.0"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
+ "alloy-network",
  "alloy-primitives 0.8.12",
+ "alloy-provider",
+ "alloy-rpc-client",
  "alloy-rpc-types-beacon",
  "alloy-rpc-types-engine",
+ "alloy-rpc-types-eth",
+ "alloy-transport",
+ "alloy-transport-http",
  "async-trait",
  "clap 4.5.21",
  "clap_builder",
@@ -6475,6 +6497,8 @@ dependencies = [
  "futures-util",
  "jsonrpsee 0.24.7",
  "op-alloy-consensus",
+ "op-alloy-provider",
+ "op-alloy-rpc-types-engine",
  "reth",
  "reth-basic-payload-builder",
  "reth-chain-state",
@@ -6500,11 +6524,13 @@ dependencies = [
  "reth-primitives",
  "reth-provider",
  "reth-revm",
+ "reth-rpc-layer",
  "reth-transaction-pool",
  "reth-trie",
  "revm",
  "tikv-jemallocator",
  "tokio",
+ "tower 0.4.13",
  "tracing",
 ]
 

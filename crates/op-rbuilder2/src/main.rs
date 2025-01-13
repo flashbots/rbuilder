@@ -1,6 +1,7 @@
 use clap::Parser;
 use generator::EmptyBlockPayloadJobGenerator;
-use payload_builder::OpPayloadBuilder;
+use payload_builder::OpPayloadBuilder as FBPayloadBuilder;
+use payload_builder_vanilla::VanillaOpPayloadBuilder;
 use reth::{
     builder::{components::PayloadServiceBuilder, node::FullNodeTypes, BuilderContext},
     payload::PayloadBuilderHandle,
@@ -11,7 +12,7 @@ use reth::{
     builder::{engine_tree_config::TreeConfig, EngineNodeLauncher},
     providers::providers::BlockchainProvider2,
 };
-use reth_basic_payload_builder::BasicPayloadJobGeneratorConfig;
+use reth_basic_payload_builder::{BasicPayloadJobGenerator, BasicPayloadJobGeneratorConfig};
 use reth_node_api::NodeTypesWithEngine;
 use reth_optimism_chainspec::OpChainSpec;
 use reth_optimism_cli::{chainspec::OpChainSpecParser, Cli};
@@ -22,6 +23,7 @@ use reth_payload_builder::PayloadBuilderService;
 
 pub mod generator;
 pub mod payload_builder;
+mod payload_builder_vanilla;
 
 #[derive(Debug, Clone, Copy, Default)]
 #[non_exhaustive]
@@ -39,6 +41,9 @@ where
         pool: Pool,
     ) -> eyre::Result<PayloadBuilderHandle<<Node::Types as NodeTypesWithEngine>::Engine>> {
         tracing::info!("Spawning a custom payload builder");
+        //let _payload_builder = reth_optimism_payload_builder::OpPayloadBuilder::new(
+        //    OpEvmConfig::new(ctx.chain_spec()),
+        //);
         let _conf = ctx.payload_builder_config();
 
         let payload_job_config = BasicPayloadJobGeneratorConfig::default();
@@ -48,7 +53,9 @@ where
             pool,
             ctx.task_executor().clone(),
             payload_job_config,
-            OpPayloadBuilder::new(OpEvmConfig::new(ctx.chain_spec())),
+            FBPayloadBuilder::new(OpEvmConfig::new(ctx.chain_spec())),
+            // VanillaOpPayloadBuilder::new(OpEvmConfig::new(ctx.chain_spec())),
+            // payload_builder,
         );
 
         let (payload_service, payload_builder) =

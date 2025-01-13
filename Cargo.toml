@@ -87,6 +87,7 @@ reth-tasks = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.2" }
 reth-ethereum-payload-builder = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.2" }
 reth-payload-builder-primitives = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.2" }
 reth-payload-util = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.2" }
+reth-rpc-layer = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.2" }
 
 # version is copied from reth  "v1.1.2" dependencies
 revm = { version = "18.0.0", features = [
@@ -105,7 +106,7 @@ ethereum_ssz = "0.8"
 alloy-primitives = { version = "0.8.11", default-features = false }
 alloy-rlp = "0.3.4"
 alloy-chains = "0.1.33"
-alloy-provider = { version = "0.6.4", features = ["ipc", "pubsub"] }
+alloy-provider = { version = "0.6.4", features = ["ipc", "pubsub", "engine-api"] }
 alloy-pubsub = { version = "0.6.4" }
 alloy-eips = { version = "0.6.4" }
 alloy-rpc-types = { version = "0.6.4" }
@@ -117,11 +118,14 @@ alloy-transport = { version = "0.6.4" }
 alloy-node-bindings = { version = "0.6.4" }
 alloy-consensus = { version = "0.6.4", features = ["kzg"] }
 op-alloy-consensus = { version = "0.6.8", features = ["kzg"] }
+op-alloy-provider = { version = "0.6.8" }
+op-alloy-rpc-types-engine = { version = "0.6.8" }
 alloy-serde = { version = "0.6.4" }
 alloy-rpc-types-beacon = { version = "0.6.4", features = ["ssz"] }
 alloy-rpc-types-engine = { version = "0.6.4", features = ["ssz"] }
 alloy-rpc-types-eth = { version = "0.6.4" }
 alloy-signer-local = { version = "0.6.4" }
+alloy-rpc-client = { version = "0.6.4" }
 alloy-genesis = { version = "0.6.4" }
 alloy-trie = { version = "0.7" }
 
