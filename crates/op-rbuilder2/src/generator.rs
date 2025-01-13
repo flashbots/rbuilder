@@ -207,7 +207,7 @@ where
         &mut self,
         kind: PayloadKind,
     ) -> (Self::ResolvePayloadFuture, KeepPayloadJobAlive) {
-        info!("resolve kind {:?} {:?}", kind, self.cell.is_some());
+        tracing::debug!("Resolve kind {:?} {:?}", kind, self.cell.is_some());
 
         // check if self.cell has a payload
         self.cancel.take();
@@ -250,9 +250,7 @@ where
                 best_payload: None,
             };
 
-            info!("Building payload");
             let result = builder.try_build(args, cell);
-            info!("Payload built: {:?}", result);
             let _ = tx.send(result);
         }));
     }
@@ -271,18 +269,18 @@ where
     type Output = Result<(), PayloadBuilderError>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        info!("Polling job");
+        tracing::trace!("Polling job");
         let this = self.get_mut();
 
         // Check if deadline is reached
         if let Poll::Ready(_) = this.deadline.as_mut().poll(cx) {
-            info!("Deadline reached");
+            tracing::debug!("Deadline reached");
             return Poll::Ready(Ok(()));
         }
 
         // If cancelled via resolve_kind()
         if this.cancel.is_none() {
-            info!("Job cancelled");
+            tracing::debug!("Job cancelled");
             return Poll::Ready(Ok(()));
         }
 
