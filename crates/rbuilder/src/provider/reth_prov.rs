@@ -3,8 +3,8 @@ use crate::utils::RootHasherImpl;
 use alloy_consensus::Header;
 use alloy_primitives::{BlockHash, BlockNumber, B256};
 use reth_errors::ProviderResult;
-use reth_provider::StateProviderBox;
 use reth_provider::{BlockReader, DatabaseProviderFactory, HeaderProvider};
+use reth_provider::{HashedPostStateProvider, StateCommitmentProvider, StateProviderBox};
 
 use super::{RootHasher, StateProviderFactory};
 
@@ -25,7 +25,9 @@ impl<P> StateProviderFactory for StateProviderFactoryFromRethProvider<P>
 where
     P: DatabaseProviderFactory<Provider: BlockReader>
         + reth_provider::StateProviderFactory
-        + HeaderProvider
+        + HeaderProvider<Header = Header>
+        + StateCommitmentProvider
+        + HashedPostStateProvider
         + Clone
         + 'static,
 {

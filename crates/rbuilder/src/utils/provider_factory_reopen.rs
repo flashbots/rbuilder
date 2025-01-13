@@ -11,12 +11,14 @@ use reth::providers::ExecutionOutcome;
 use reth::providers::{BlockHashReader, ChainSpecProvider, ProviderFactory};
 use reth_db::DatabaseError;
 use reth_errors::{ProviderError, ProviderResult, RethResult};
-use reth_node_api::NodeTypesWithDB;
+use reth_node_api::{NodePrimitives, NodeTypesWithDB};
 use reth_provider::{
     providers::{ProviderNodeTypes, StaticFileProvider},
     BlockNumReader, HeaderProvider, StateProviderBox, StaticFileProviderFactory,
 };
-use reth_provider::{BlockReader, DatabaseProviderFactory};
+use reth_provider::{
+    BlockReader, DatabaseProviderFactory, HashedPostStateProvider, StateCommitmentProvider,
+};
 use revm_primitives::B256;
 use std::ops::DerefMut;
 use std::{path::PathBuf, sync::Arc};
@@ -179,6 +181,8 @@ pub fn check_block_hash_reader_health<R: BlockHashReader>(
 
 impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> StateProviderFactory
     for ProviderFactoryReopener<N>
+where
+    N::Primitives: NodePrimitives<BlockHeader = Header>,
 {
     fn latest(&self) -> ProviderResult<StateProviderBox> {
         let provider = self
@@ -273,7 +277,13 @@ impl<T> RootHasherImpl<T> {
 
 impl<T> RootHasher for RootHasherImpl<T>
 where
-    T: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync + Clone + 'static,
+    T: DatabaseProviderFactory<Provider: BlockReader>
+        + StateCommitmentProvider
+        + HashedPostStateProvider
+        + Send
+        + Sync
+        + Clone
+        + 'static,
 {
     fn run_prefetcher(
         &self,
