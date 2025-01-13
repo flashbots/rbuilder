@@ -3,8 +3,6 @@ use std::path::PathBuf;
 use alloy_consensus::Header;
 use clap::Parser;
 use reth::revm::cached::CachedReads;
-use reth_db::Database;
-use reth_provider::{BlockReader, DatabaseProviderFactory, HeaderProvider, StateProviderFactory};
 use serde::de::DeserializeOwned;
 use std::fmt::Debug;
 use sysperf::{format_results, gather_system_info, run_all_benchmarks};
@@ -16,6 +14,7 @@ use crate::{
     live_builder::{
         base_config::load_config_toml_and_env, payload_events::MevBoostSlotDataGenerator,
     },
+    provider::StateProviderFactory,
     telemetry,
     utils::{bls::generate_random_bls_address, build_info::Version},
 };
@@ -54,33 +53,23 @@ pub trait LiveBuilderConfig: Debug + DeserializeOwned + Sync {
     /// Create a concrete builder
     ///
     /// Desugared from async to future to keep clippy happy
-    fn new_builder<P, DB>(
+    fn new_builder<P>(
         &self,
         provider: P,
         cancellation_token: CancellationToken,
-    ) -> impl std::future::Future<Output = eyre::Result<LiveBuilder<P, DB, MevBoostSlotDataGenerator>>>
-           + Send
+    ) -> impl std::future::Future<Output = eyre::Result<LiveBuilder<P, MevBoostSlotDataGenerator>>> + Send
     where
-        DB: Database + Clone + 'static,
-        P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-            + StateProviderFactory
-            + HeaderProvider<Header = Header>
-            + Clone
-            + 'static;
+        P: StateProviderFactory + Clone + 'static;
 
     /// Patch until we have a unified way of backtesting using the exact algorithms we use on the LiveBuilder.
     /// building_algorithm_name will come from the specific configuration.
-    fn build_backtest_block<P, DB>(
+    fn build_backtest_block<P>(
         &self,
         building_algorithm_name: &str,
         input: BacktestSimulateBlockInput<'_, P>,
     ) -> eyre::Result<(Block, CachedReads)>
     where
-        DB: Database + Clone + 'static,
-        P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-            + StateProviderFactory
-            + Clone
-            + 'static;
+        P: StateProviderFactory + Clone + 'static;
 }
 
 /// print_version_info func that will be called on command Cli::Version

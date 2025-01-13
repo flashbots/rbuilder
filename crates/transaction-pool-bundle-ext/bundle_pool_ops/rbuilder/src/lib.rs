@@ -4,7 +4,7 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 use core::fmt;
-use std::{fmt::Formatter, path::Path, sync::Arc, time::Duration};
+use std::{fmt::Formatter, sync::Arc, time::Duration};
 
 use alloy_primitives::U256;
 use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
@@ -18,7 +18,6 @@ use rbuilder::{
         Sorting,
     },
     live_builder::{
-        base_config::load_config_toml_and_env,
         cli::LiveBuilderConfig,
         config::{create_builders, BuilderConfig, Config, SpecificBuilderConfig},
         order_input::{rpc_server::RawCancelBundle, ReplaceableOrderPoolCommand},
@@ -26,11 +25,11 @@ use rbuilder::{
         SlotSource,
     },
     primitives::{Bundle, BundleReplacementKey, Order},
+    provider::reth_prov::StateProviderFactoryFromRethProvider,
     telemetry,
 };
-use reth_db_api::Database;
 use reth_primitives::TransactionSigned;
-use reth_provider::{BlockReader, DatabaseProviderFactory, HeaderProvider, StateProviderFactory};
+use reth_provider::{BlockReader, DatabaseProviderFactory, HeaderProvider};
 use tokio::{
     sync::{
         mpsc::{self, error::SendError},
@@ -89,14 +88,10 @@ impl SlotSource for OurSlotSource {
 }
 
 impl BundlePoolOps {
-    pub async fn new<P, DB>(
-        provider: P,
-        rbuilder_config_path: impl AsRef<Path>,
-    ) -> Result<Self, Error>
+    pub async fn new<P>(provider: P, config: Config) -> Result<Self, Error>
     where
-        DB: Database + Clone + 'static,
-        P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-            + StateProviderFactory
+        P: DatabaseProviderFactory<Provider: BlockReader>
+            + reth_provider::StateProviderFactory
             + HeaderProvider
             + Clone
             + 'static,
@@ -114,8 +109,6 @@ impl BundlePoolOps {
         };
 
         // Spawn the builder!
-        let config: Config = load_config_toml_and_env(rbuilder_config_path)?;
-
         let builder_strategy = BuilderConfig {
             name: "mp-ordering".to_string(),
             builder: SpecificBuilderConfig::OrderingBuilder(OrderingBuilderConfig {
@@ -127,16 +120,17 @@ impl BundlePoolOps {
                 build_duration_deadline_ms: None,
             }),
         };
-
-        let builders = create_builders(
-            vec![builder_strategy],
-            config.base_config.live_root_hash_config().unwrap(),
+        let provider = StateProviderFactoryFromRethProvider::new(
+            provider,
+            config.base_config().live_root_hash_config()?,
         );
+
+        let builders = create_builders(vec![builder_strategy]);
 
         // Build and run the process
         let builder = config
             .base_config
-            .create_builder_with_provider_factory::<P, DB, OurSlotSource>(
+            .create_builder_with_provider_factory(
                 cancellation_token,
                 Box::new(sink_factory),
                 slot_source,

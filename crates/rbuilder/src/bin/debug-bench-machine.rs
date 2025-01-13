@@ -9,9 +9,10 @@ use itertools::Itertools;
 use rbuilder::{
     building::{BlockBuildingContext, BlockState, PartialBlock, PartialBlockFork},
     live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig, config::Config},
+    provider::StateProviderFactory,
     utils::{extract_onchain_block_txs, find_suggested_fee_recipient, http_provider},
 };
-use reth::{providers::BlockNumReader, revm::cached::CachedReads};
+use reth::revm::cached::CachedReads;
 use reth_provider::StateProvider;
 use std::{path::PathBuf, sync::Arc, time::Instant};
 use tracing::{debug, info};
@@ -61,6 +62,7 @@ async fn main() -> eyre::Result<()> {
 
     let coinbase = onchain_block.header.beneficiary;
 
+    let parent_hash = onchain_block.header.parent_hash;
     let ctx = BlockBuildingContext::from_onchain_block(
         onchain_block,
         chain_spec,
@@ -69,6 +71,7 @@ async fn main() -> eyre::Result<()> {
         coinbase,
         suggested_fee_recipient,
         None,
+        Arc::from(provider_factory.root_hasher(parent_hash)),
     );
 
     let state_provider = Arc::<dyn StateProvider>::from(
@@ -84,9 +87,6 @@ async fn main() -> eyre::Result<()> {
         let ctx = ctx.clone();
         let txs = txs.clone();
         let state_provider = state_provider.clone();
-        let factory = provider_factory.clone();
-        let config = config.clone();
-        let root_hash_config = config.base_config.live_root_hash_config()?;
         let (new_cached_reads, build_time, finalize_time) =
             tokio::task::spawn_blocking(move || -> eyre::Result<_> {
                 let partial_block = PartialBlock::new(true, None);
@@ -112,12 +112,7 @@ async fn main() -> eyre::Result<()> {
                 let build_time = build_time.elapsed();
 
                 let finalize_time = Instant::now();
-                let finalized_block = partial_block.finalize(
-                    &mut state,
-                    &ctx,
-                    factory.clone(),
-                    root_hash_config.clone(),
-                )?;
+                let finalized_block = partial_block.finalize(&mut state, &ctx)?;
                 let finalize_time = finalize_time.elapsed();
 
                 debug!(

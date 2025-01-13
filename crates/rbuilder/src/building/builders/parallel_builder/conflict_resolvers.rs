@@ -4,7 +4,6 @@ use eyre::Result;
 use itertools::Itertools;
 use rand::{seq::SliceRandom, SeedableRng};
 use reth::{providers::StateProvider, revm::cached::CachedReads};
-use reth_provider::StateProviderFactory;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 use tracing::trace;
@@ -17,6 +16,7 @@ use super::{
 use crate::{
     building::{BlockBuildingContext, BlockState, ExecutionError, ExecutionResult, PartialBlock},
     primitives::{OrderId, SimulatedOrder},
+    provider::StateProviderFactory,
 };
 
 /// Context for resolving conflicts in merging tasks.
@@ -31,7 +31,7 @@ pub struct ResolverContext<P> {
 
 impl<P> ResolverContext<P>
 where
-    P: StateProviderFactory + Clone + 'static,
+    P: StateProviderFactory,
 {
     /// Creates a new `ResolverContext`.
     ///

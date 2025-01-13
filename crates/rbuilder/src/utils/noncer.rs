@@ -1,9 +1,9 @@
+use crate::provider::StateProviderFactory;
 use ahash::HashMap;
 use alloy_primitives::{Address, B256};
 use parking_lot::Mutex;
 use reth::providers::StateProviderBox;
 use reth_errors::ProviderResult;
-use reth_provider::StateProviderFactory;
 use std::sync::Arc;
 
 /// Struct to get nonces for Addresses, caching the results.

@@ -24,9 +24,6 @@ pub enum RootHashMode {
     /// Makes correct root hash calculation on the incorrect parent state.
     /// It can be used for benchmarks.
     IgnoreParentHash,
-    /// Don't calculate root hash.
-    /// It can be used for backtest.
-    SkipRootHash,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -63,15 +60,7 @@ pub struct RootHashConfig {
 }
 
 impl RootHashConfig {
-    pub fn skip_root_hash() -> Self {
-        Self {
-            mode: RootHashMode::SkipRootHash,
-            use_sparse_trie: false,
-            compare_sparse_trie_output: false,
-        }
-    }
-
-    pub fn live_config(use_sparse_trie: bool, compare_sparse_trie_output: bool) -> Self {
+    pub fn new(use_sparse_trie: bool, compare_sparse_trie_output: bool) -> Self {
         Self {
             mode: RootHashMode::CorrectRoot,
             use_sparse_trie,
@@ -108,7 +97,7 @@ pub fn calculate_state_root<P>(
     parent_hash: B256,
     outcome: &ExecutionOutcome,
     sparse_trie_shared_cache: SparseTrieSharedCache,
-    config: RootHashConfig,
+    config: &RootHashConfig,
 ) -> Result<B256, RootHashError>
 where
     P: DatabaseProviderFactory<Provider: BlockReader>
@@ -123,9 +112,6 @@ where
         RootHashMode::CorrectRoot => ConsistentDbView::new(provider.clone(), Some(parent_hash)),
         RootHashMode::IgnoreParentHash => ConsistentDbView::new_with_latest_tip(provider.clone())
             .map_err(ParallelStateRootError::Provider)?,
-        RootHashMode::SkipRootHash => {
-            return Ok(B256::ZERO);
-        }
     };
 
     let reference_root_hash = if config.compare_sparse_trie_output {
