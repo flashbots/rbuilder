@@ -268,6 +268,15 @@ async fn main() {
         // query the result, do nothing, just checks that we can get it back
         let payload = engine_api.get_payload_v3(payload_id).await.unwrap();
 
+        // Send a new_payload request to the builder node again. THIS MUST BE DONE
+        let validation_status = engine_api
+            .new_payload(payload.execution_payload.clone(), vec![], B256::ZERO)
+            .await
+            .unwrap();
+        if validation_status.status != PayloadStatusEnum::Valid {
+            panic!("not expected")
+        }
+
         if let Some(validation_node_api) = &validation_node_api {
             // Validate the payload with the validation node
             let validation_status = validation_node_api

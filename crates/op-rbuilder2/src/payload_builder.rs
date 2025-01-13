@@ -120,7 +120,6 @@ where
         best_payload.set(payload);
 
         tracing::info!(target: "payload_builder", "Fallback block built");
-        println!("Bundle state for block 0 {:?}", bundle_state);
 
         if ctx.attributes().no_tx_pool {
             tracing::info!(
@@ -181,7 +180,7 @@ where
             }
 
             let (payload, new_bundle_state) = build_block(db, &ctx, &info)?;
-            println!("Block built in time");
+
             best_payload.set(payload);
 
             bundle_state = new_bundle_state;
@@ -189,11 +188,6 @@ where
             flashblock_count += 1;
 
             std::thread::sleep(std::time::Duration::from_millis(250));
-
-            //if flashblock_count == 1 {
-            //    println!("Count is exit");
-            //    return Ok(());
-            //}
         }
     }
 }
@@ -254,18 +248,16 @@ where
         withdrawals_root,
     } = withdrawals_outcome;
 
-    //println!("Withdrawals {:?}", withdrawals);
-    //println!("Withdrawals root {:?}", withdrawals_root);
-
+    // TODO: We must run this only once per block, but we are running it on every flashblock
     // merge all transitions into bundle state, this would apply the withdrawal balance changes
     // and 4788 contract call
     state.merge_transitions(BundleRetention::Reverts);
 
     let new_bundle = state.take_bundle();
 
-    //println!("State pre root {:?}", new_bundle);
-
     let block_number = ctx.block_number();
+    assert_eq!(block_number, ctx.parent().number + 1);
+
     let execution_outcome = ExecutionOutcome::new(
         new_bundle.clone(),
         vec![info.receipts.clone()].into(),
@@ -348,12 +340,12 @@ where
     debug!(target: "payload_builder", ?sealed_block, "sealed built block");
 
     // create the executed block data
-    let executed = ExecutedBlock {
+    let _executed = ExecutedBlock {
         block: sealed_block.clone(),
         senders: Arc::new(info.executed_senders.clone()),
-        execution_output: Arc::new(execution_outcome),
-        hashed_state: Arc::new(hashed_state),
-        trie: Arc::new(trie_output),
+        execution_output: Arc::new(execution_outcome.clone()),
+        hashed_state: Arc::new(hashed_state.clone()),
+        trie: Arc::new(trie_output.clone()),
     };
 
     Ok((
@@ -363,7 +355,11 @@ where
             info.total_fees,
             ctx.chain_spec.clone(),
             ctx.config.attributes.clone(),
-            Some(executed),
+            // This must be set to NONE for now because we are doing merge transitions on every flashblock
+            // when it should only happen once per block, thus, it returns a confusing state back to op-reth.
+            // We can live without this for now because Op syncs up the executed block using new_payload
+            // calls, but eventually we would want to return the executed block here.
+            None,
         ),
         new_bundle,
     ))
@@ -770,7 +766,10 @@ where
         let mut evm = self.evm_config.evm_with_env(&mut *db, env);
 
         while let Some(tx) = best_txs.next(()) {
-            println!("Transaction {:?}", tx);
+            // check in info if the txn has been executed already
+            if info.executed_transactions.contains(&tx) {
+                continue;
+            }
 
             // ensure we still have capacity for this transaction
             if info.cumulative_gas_used + tx.gas_limit() > batch_gas_limit {
@@ -802,7 +801,6 @@ where
                         EVMError::Transaction(err) => {
                             if matches!(err, InvalidTransaction::NonceTooLow { .. }) {
                                 // if the nonce is too low, we can skip this transaction
-                                println!("Nonce too low");
                                 trace!(target: "payload_builder", %err, ?tx, "skipping nonce too low transaction");
                             } else {
                                 // if the transaction is invalid, we can skip it and all of its
@@ -820,8 +818,6 @@ where
                     }
                 }
             };
-
-            println!("Is valid");
 
             // commit changes
             evm.db_mut().commit(state);
