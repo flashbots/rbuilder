@@ -120,6 +120,7 @@ where
         best_payload.set(payload);
 
         tracing::info!(target: "payload_builder", "Fallback block built");
+        println!("Bundle state for block 0 {:?}", bundle_state);
 
         if ctx.attributes().no_tx_pool {
             tracing::info!(
@@ -139,6 +140,15 @@ where
 
         // 2. loop every n time and try to build an increasing block
         loop {
+            if ctx.cancel.is_cancelled() {
+                tracing::info!(
+                    target: "payload_builder",
+                    "Job cancelled, stopping payload building",
+                );
+                // if the job was cancelled, stop
+                return Ok(());
+            }
+
             tracing::info!(
                 target: "payload_builder",
                 "Building flashblock {}",
@@ -178,6 +188,11 @@ where
             flashblock_count += 1;
 
             std::thread::sleep(std::time::Duration::from_millis(250));
+
+            //if flashblock_count == 1 {
+            //    println!("Count is exit");
+            //    return Ok(());
+            //}
         }
     }
 }
@@ -238,13 +253,20 @@ where
         withdrawals_root,
     } = withdrawals_outcome;
 
+    //println!("Withdrawals {:?}", withdrawals);
+    //println!("Withdrawals root {:?}", withdrawals_root);
+
     // merge all transitions into bundle state, this would apply the withdrawal balance changes
     // and 4788 contract call
     state.merge_transitions(BundleRetention::Reverts);
 
+    let new_bundle = state.take_bundle();
+
+    println!("State pre root {:?}", new_bundle);
+
     let block_number = ctx.block_number();
     let execution_outcome = ExecutionOutcome::new(
-        state.take_bundle(),
+        new_bundle.clone(),
         vec![info.receipts.clone()].into(),
         block_number,
         Vec::new(),
@@ -342,7 +364,7 @@ where
             ctx.config.attributes.clone(),
             Some(executed),
         ),
-        state.take_bundle(),
+        new_bundle,
     ))
 }
 
@@ -747,6 +769,8 @@ where
         let mut evm = self.evm_config.evm_with_env(&mut *db, env);
 
         while let Some(tx) = best_txs.next(()) {
+            println!("Transaction {:?}", tx);
+
             // ensure we still have capacity for this transaction
             if info.cumulative_gas_used + tx.gas_limit() > batch_gas_limit {
                 // we can't fit this transaction into the block, so we need to mark it as

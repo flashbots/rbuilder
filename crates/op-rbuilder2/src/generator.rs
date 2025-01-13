@@ -1,6 +1,7 @@
 use alloy_eips::BlockNumberOrTag;
 use alloy_primitives::Bytes;
 use futures_util::Future;
+use futures_util::FutureExt;
 use reth::providers::{BlockReaderIdExt, BlockSource};
 use reth::{
     providers::StateProviderFactory, tasks::TaskSpawner, transaction_pool::TransactionPool,
@@ -14,6 +15,10 @@ use reth_payload_builder::{KeepPayloadJobAlive, PayloadBuilderError, PayloadJob}
 use reth_payload_primitives::BuiltPayload;
 use reth_primitives::SealedHeader;
 use std::sync::{Arc, Mutex};
+use tokio::sync::oneshot;
+use tokio::sync::Notify;
+use tokio::time::Duration;
+use tokio::time::Sleep;
 use tracing::info;
 
 /// A trait for building payloads that encapsulate Ethereum transactions.
@@ -124,7 +129,11 @@ where
         let hash = parent_block.hash();
         let header = SealedHeader::new(parent_block.header().clone(), hash);
 
+        info!("Spawn block building job");
+
+        let deadline = Box::pin(tokio::time::sleep(Duration::from_secs(2))); // Or another appropriate timeout
         let config = PayloadConfig::new(Arc::new(header), Bytes::default(), attributes);
+
         let mut job = EmptyBlockPayloadJob {
             client: self.client.clone(),
             pool: self.pool.clone(),
@@ -133,6 +142,8 @@ where
             config,
             cell: BlockCell::new(),
             cancel: None,
+            deadline,
+            build_complete: None,
         };
 
         job.spawn_build_job();
@@ -167,6 +178,8 @@ where
     pub(crate) cell: BlockCell<Builder::BuiltPayload>,
     /// Cancellation token for the running job
     pub(crate) cancel: Option<Cancelled>,
+    pub(crate) deadline: Pin<Box<Sleep>>, // Add deadline
+    pub(crate) build_complete: Option<oneshot::Receiver<Result<(), PayloadBuilderError>>>,
 }
 
 impl<Client, Pool, Tasks, Builder> PayloadJob for EmptyBlockPayloadJob<Client, Pool, Tasks, Builder>
@@ -194,10 +207,12 @@ where
         &mut self,
         kind: PayloadKind,
     ) -> (Self::ResolvePayloadFuture, KeepPayloadJobAlive) {
-        info!("resolve kind {:?}", kind);
+        info!("resolve kind {:?} {:?}", kind, self.cell.is_some());
+
+        // check if self.cell has a payload
         self.cancel.take();
 
-        let resolve_future = ResolvePayload::new(self.cell.clone());
+        let resolve_future = ResolvePayload::new(self.cell.wait_for_value());
         (resolve_future, KeepPayloadJobAlive::No)
     }
 }
@@ -221,6 +236,9 @@ where
         let payload_config = self.config.clone();
         let cell = self.cell.clone();
 
+        let (tx, rx) = oneshot::channel();
+        self.build_complete = Some(rx);
+
         self.cancel = Some(cancel);
         self.executor.spawn_blocking(Box::pin(async move {
             let args = BuildArguments {
@@ -232,7 +250,10 @@ where
                 best_payload: None,
             };
 
-            let _ = builder.try_build(args, cell);
+            info!("Building payload");
+            let result = builder.try_build(args, cell);
+            info!("Payload built: {:?}", result);
+            let _ = tx.send(result);
         }));
     }
 }
@@ -249,29 +270,44 @@ where
 {
     type Output = Result<(), PayloadBuilderError>;
 
-    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        info!("Polling job");
+        let this = self.get_mut();
+
+        // Check if deadline is reached
+        if let Poll::Ready(_) = this.deadline.as_mut().poll(cx) {
+            info!("Deadline reached");
+            return Poll::Ready(Ok(()));
+        }
+
+        // If cancelled via resolve_kind()
+        if this.cancel.is_none() {
+            info!("Job cancelled");
+            return Poll::Ready(Ok(()));
+        }
+
         Poll::Pending
     }
 }
 
 // A future that resolves when a payload becomes available in the BlockCell
 pub struct ResolvePayload<T> {
-    cell: BlockCell<T>,
+    future: WaitForValue<T>,
 }
 
 impl<T> ResolvePayload<T> {
-    pub fn new(cell: BlockCell<T>) -> Self {
-        Self { cell }
+    pub fn new(future: WaitForValue<T>) -> Self {
+        Self { future: future }
     }
 }
 
 impl<T: Clone> Future for ResolvePayload<T> {
     type Output = Result<T, PayloadBuilderError>;
 
-    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.get_mut().cell.get() {
-            Some(payload) => Poll::Ready(Ok(payload.clone())),
-            None => Poll::Ready(Err(PayloadBuilderError::MissingPayload)),
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match self.get_mut().future.poll_unpin(cx) {
+            Poll::Ready(value) => Poll::Ready(Ok(value)),
+            Poll::Pending => Poll::Pending,
         }
     }
 }
@@ -279,28 +315,135 @@ impl<T: Clone> Future for ResolvePayload<T> {
 #[derive(Clone)]
 pub struct BlockCell<T> {
     inner: Arc<Mutex<Option<T>>>,
+    notify: Arc<Notify>,
 }
 
 impl<T: Clone> BlockCell<T> {
     pub fn new() -> Self {
         Self {
             inner: Arc::new(Mutex::new(None)),
+            notify: Arc::new(Notify::new()),
         }
+    }
+
+    pub fn is_some(&self) -> bool {
+        let inner = self.inner.lock().unwrap();
+        inner.is_some()
     }
 
     pub fn set(&self, value: T) {
         let mut inner = self.inner.lock().unwrap();
         *inner = Some(value);
+        self.notify.notify_one();
     }
 
     pub fn get(&self) -> Option<T> {
         let inner = self.inner.lock().unwrap();
         inner.clone()
     }
+
+    // Return a future that resolves when value is set
+    pub fn wait_for_value(&self) -> WaitForValue<T> {
+        WaitForValue { cell: self.clone() }
+    }
+}
+
+#[derive(Clone)]
+// Future that resolves when a value is set in BlockCell
+pub struct WaitForValue<T> {
+    cell: BlockCell<T>,
+}
+
+impl<T: Clone> Future for WaitForValue<T> {
+    type Output = T;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if let Some(value) = self.cell.get() {
+            Poll::Ready(value)
+        } else {
+            // Instead of register, we use notified() to get a future
+            cx.waker().wake_by_ref();
+            Poll::Pending
+        }
+    }
 }
 
 impl<T: Clone> Default for BlockCell<T> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::task;
+    use tokio::time::{sleep, Duration};
+
+    #[tokio::test]
+    async fn test_block_cell_wait_for_value() {
+        let cell = BlockCell::new();
+
+        // Spawn a task that will set the value after a delay
+        let cell_clone = cell.clone();
+        task::spawn(async move {
+            sleep(Duration::from_millis(100)).await;
+            cell_clone.set(42);
+        });
+
+        // Wait for the value and verify
+        let wait_future = cell.wait_for_value();
+        let result = wait_future.await;
+        assert_eq!(result, 42);
+    }
+
+    #[tokio::test]
+    async fn test_block_cell_immediate_value() {
+        let cell = BlockCell::new();
+        cell.set(42);
+
+        // Value should be immediately available
+        let wait_future = cell.wait_for_value();
+        let result = wait_future.await;
+        assert_eq!(result, 42);
+    }
+
+    #[tokio::test]
+    async fn test_block_cell_multiple_waiters() {
+        let cell = BlockCell::new();
+
+        // Spawn multiple waiters
+        let wait1 = task::spawn({
+            let cell = cell.clone();
+            async move { cell.wait_for_value().await }
+        });
+
+        let wait2 = task::spawn({
+            let cell = cell.clone();
+            async move { cell.wait_for_value().await }
+        });
+
+        // Set value after a delay
+        sleep(Duration::from_millis(100)).await;
+        cell.set(42);
+
+        // All waiters should receive the value
+        assert_eq!(wait1.await.unwrap(), 42);
+        assert_eq!(wait2.await.unwrap(), 42);
+    }
+
+    #[tokio::test]
+    async fn test_block_cell_update_value() {
+        let cell = BlockCell::new();
+
+        // Set initial value
+        cell.set(42);
+
+        // Set new value
+        cell.set(43);
+
+        // Waiter should get the latest value
+        let result = cell.wait_for_value().await;
+        assert_eq!(result, 43);
     }
 }
