@@ -181,6 +181,7 @@ where
             }
 
             let (payload, new_bundle_state) = build_block(db, &ctx, &info)?;
+            println!("Block built in time");
             best_payload.set(payload);
 
             bundle_state = new_bundle_state;
@@ -262,7 +263,7 @@ where
 
     let new_bundle = state.take_bundle();
 
-    println!("State pre root {:?}", new_bundle);
+    //println!("State pre root {:?}", new_bundle);
 
     let block_number = ctx.block_number();
     let execution_outcome = ExecutionOutcome::new(
@@ -801,6 +802,7 @@ where
                         EVMError::Transaction(err) => {
                             if matches!(err, InvalidTransaction::NonceTooLow { .. }) {
                                 // if the nonce is too low, we can skip this transaction
+                                println!("Nonce too low");
                                 trace!(target: "payload_builder", %err, ?tx, "skipping nonce too low transaction");
                             } else {
                                 // if the transaction is invalid, we can skip it and all of its
@@ -818,6 +820,8 @@ where
                     }
                 }
             };
+
+            println!("Is valid");
 
             // commit changes
             evm.db_mut().commit(state);
