@@ -175,6 +175,12 @@ impl BlockData {
         result
     }
 
+    /*fn tt(available_accounts: &HashSet<Nonce>, nonce: u64, address: &Address) -> bool {
+        !available_accounts
+            .iter()
+            .any(|x| x.nonce == nonce && x.address == *address)
+    }*/
+
     /// Returns landed txs targeting account nonces non of our available txs were targeting.
     pub fn search_missing_account_nonce_on_available_orders(&self) -> Vec<(TxHash, AccountNonce)> {
         let mut available_accounts = HashSet::new();
@@ -186,6 +192,7 @@ impl BlockData {
         if let BlockTransactions::Full(txs) = &self.onchain_block.transactions {
             txs.iter()
                 .filter(|tx| {
+                    let tx = *tx;
                     !available_accounts
                         .iter()
                         .any(|x| x.nonce == tx.nonce() && x.address == tx.from)
