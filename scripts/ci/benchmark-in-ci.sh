@@ -62,6 +62,8 @@ function run_benchmark() {
 
         # Switch back to current commit and run benchmarks again
         echo "Switching back to $HEAD_SHA_SHORT and running benchmarks ..."
+        # Reset to ensure any changes (e.g. to Cargo.lock) are discarded before attempting to checkout.
+        git reset --hard
         git checkout $HEAD_SHA
         cargo bench --workspace
     fi
