@@ -9,7 +9,6 @@ use crate::{
     utils::{http_provider, BoxedProvider, ProviderFactoryReopener, Signer},
 };
 use ahash::HashSet;
-use alloy_consensus::Header;
 use alloy_primitives::{Address, B256};
 use eyre::{eyre, Context};
 use jsonrpsee::RpcModule;

@@ -309,7 +309,7 @@ async fn wait_for_block_header<P>(
     slot_time: OffsetDateTime,
     provider: &P,
     timings: &TimingsConfig,
-) -> eyre::Result<P::Header>
+) -> eyre::Result<Header>
 where
     P: StateProviderFactory,
 {

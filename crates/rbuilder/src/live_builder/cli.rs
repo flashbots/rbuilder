@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 
-use alloy_consensus::Header;
 use clap::Parser;
 use reth::revm::cached::CachedReads;
 use serde::de::DeserializeOwned;

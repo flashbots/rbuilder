@@ -38,7 +38,6 @@ use crate::{
     validation_api_client::ValidationAPIClient,
 };
 use alloy_chains::ChainKind;
-use alloy_consensus::Header;
 use alloy_primitives::{
     utils::{format_ether, parse_ether},
     FixedBytes, B256,
