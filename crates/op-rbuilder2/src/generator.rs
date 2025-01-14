@@ -273,7 +273,7 @@ where
         let this = self.get_mut();
 
         // Check if deadline is reached
-        if let Poll::Ready(_) = this.deadline.as_mut().poll(cx) {
+        if this.deadline.as_mut().poll(cx).is_ready() {
             tracing::debug!("Deadline reached");
             return Poll::Ready(Ok(()));
         }
@@ -295,7 +295,7 @@ pub struct ResolvePayload<T> {
 
 impl<T> ResolvePayload<T> {
     pub fn new(future: WaitForValue<T>) -> Self {
-        Self { future: future }
+        Self { future }
     }
 }
 
