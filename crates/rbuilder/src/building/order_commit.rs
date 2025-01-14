@@ -174,7 +174,7 @@ where
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct TransactionOk {
     pub exec_result: ExecutionResult,
     pub gas_used: u64,
@@ -188,7 +188,7 @@ pub struct TransactionOk {
     pub receipt: Receipt,
 }
 
-#[derive(Error, Debug, Eq, PartialEq)]
+#[derive(Error, Debug)]
 pub enum TransactionErr {
     #[error("Invalid transaction: {0:?}")]
     InvalidTransaction(InvalidTransaction),
@@ -200,7 +200,7 @@ pub enum TransactionErr {
     BlobGasLeft,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct BundleOk {
     pub gas_used: u64,
     pub cumulative_gas_used: u64,
@@ -217,7 +217,7 @@ pub struct BundleOk {
     pub original_order_ids: Vec<OrderId>,
 }
 
-#[derive(Error, Debug, Eq, PartialEq)]
+#[derive(Error, Debug)]
 pub enum BundleErr {
     #[error("Invalid transaction, hash: {0:?}, err: {1}")]
     InvalidTransaction(B256, TransactionErr),
@@ -261,7 +261,7 @@ pub enum BundleErr {
     NoSigner,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct OrderOk {
     pub coinbase_profit: U256,
     pub gas_used: u64,
@@ -278,7 +278,7 @@ pub struct OrderOk {
     pub used_state_trace: Option<UsedStateTrace>,
 }
 
-#[derive(Error, Debug, Eq, PartialEq)]
+#[derive(Error, Debug)]
 pub enum OrderErr {
     #[error("Transaction error: {0}")]
     Transaction(#[from] TransactionErr),
@@ -298,14 +298,14 @@ pub struct PartialBlockRollobackPoint {
     rollobacks: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct ReservedPayout {
     pub gas_limit: u64,
     pub tx_value: U256,
     pub total_refundable_value: U256,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct ShareBundleCommitResult {
     pub bundle_ok: BundleOk,
     pub coinbase_diff_before_payouts: U256,

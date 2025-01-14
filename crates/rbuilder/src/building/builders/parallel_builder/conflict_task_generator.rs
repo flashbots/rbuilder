@@ -436,11 +436,11 @@ mod tests {
 
         pub fn create_tx(&mut self) -> TransactionSignedEcRecovered {
             TransactionSignedEcRecovered::new_unchecked(
-                TransactionSigned {
-                    hash: self.create_hash(),
-                    transaction: Transaction::Legacy(TxLegacy::default()),
-                    ..Default::default()
-                },
+                TransactionSigned::new(
+                    Transaction::Legacy(TxLegacy::default()),
+                    alloy_primitives::PrimitiveSignature::test_signature(),
+                    self.create_hash(),
+                ),
                 Address::default(),
             )
         }

@@ -421,6 +421,20 @@ impl AsRef<TransactionSigned> for TransactionSignedEcRecoveredWithBlobs {
     }
 }
 
+impl Encodable2718 for TransactionSignedEcRecoveredWithBlobs {
+    fn type_flag(&self) -> Option<u8> {
+        self.tx.type_flag()
+    }
+
+    fn encode_2718_len(&self) -> usize {
+        self.tx.encode_2718_len()
+    }
+
+    fn encode_2718(&self, out: &mut dyn alloy_rlp::BufMut) {
+        self.tx.encode_2718(out)
+    }
+}
+
 /// Custom fmt to avoid leaking information.
 impl std::fmt::Debug for TransactionSignedEcRecoveredWithBlobs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

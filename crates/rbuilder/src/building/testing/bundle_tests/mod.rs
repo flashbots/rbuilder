@@ -583,7 +583,9 @@ fn test_mev_share_use_suggested_fee_recipient_as_coinbase() -> eyre::Result<()> 
         body_idx: 0,
         percent: DONT_CARE_PERCENTAGE,
     }]);
-    test_setup.commit_order_err_order_error(&OrderErr::Bundle(BundleErr::NoSigner));
+    test_setup.commit_order_err_order_error(|err| {
+        assert!(matches!(err, OrderErr::Bundle(BundleErr::NoSigner)))
+    });
 
     // Mev share without refunds is ok
     test_setup.begin_share_bundle_order(target_block, target_block);
@@ -662,9 +664,16 @@ fn test_subbundle_skip() -> eyre::Result<()> {
     test_setup.add_send_to_coinbase_tx(tx_sender1, 0)?;
     test_setup.finish_inner_bundle();
 
-    test_setup.commit_order_err_order_error(&OrderErr::Bundle(BundleErr::TransactionReverted(
-        revert_hash,
-    )));
+    test_setup.commit_order_err_order_error(|err| {
+        if let OrderErr::Bundle(BundleErr::TransactionReverted(hash)) = err {
+            assert_eq!(hash, revert_hash);
+        } else {
+            panic!(
+                "got {} while expecting OrderErr::Bundle(BundleErr::TransactionReverted)",
+                err
+            );
+        }
+    });
 
     // First bundle skipable , it fails -> life goes on
     test_setup.begin_share_bundle_order(target_block, target_block);
