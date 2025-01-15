@@ -13392,6 +13392,7 @@ dependencies = [
  "reth",
  "reth-eth-wire-types",
  "reth-primitives",
+ "reth-primitives-traits",
  "reth-transaction-pool",
  "tokio",
 ]
