@@ -28,8 +28,10 @@ use rbuilder::{
     provider::reth_prov::StateProviderFactoryFromRethProvider,
     telemetry,
 };
-use reth_primitives::TransactionSigned;
-use reth_provider::{BlockReader, DatabaseProviderFactory, HeaderProvider};
+use reth_primitives::{Header, TransactionSigned};
+use reth_provider::{
+    BlockReader, DatabaseProviderFactory, HeaderProvider, StateCommitmentProvider,
+};
 use tokio::{
     sync::{
         mpsc::{self, error::SendError},
@@ -92,7 +94,8 @@ impl BundlePoolOps {
     where
         P: DatabaseProviderFactory<Provider: BlockReader>
             + reth_provider::StateProviderFactory
-            + HeaderProvider
+            + HeaderProvider<Header = Header>
+            + StateCommitmentProvider
             + Clone
             + 'static,
     {
@@ -217,7 +220,7 @@ impl BundlePoolOperations for BundlePoolOps {
                 let orders = orders
                     .iter()
                     .flat_map(|order| order.txs.iter())
-                    .map(|er| er.clone().into_internal_tx_unsecure().into_signed())
+                    .map(|er| er.clone().into_internal_tx_unsecure().into_tx())
                     .collect::<Vec<_>>();
                 Ok(orders)
             }

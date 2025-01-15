@@ -5,12 +5,13 @@ use alloy_primitives::{Address, TxHash, B256, U256};
 use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
 use reth::providers::ChangedAccount;
 use reth_eth_wire_types::HandleMempoolData;
-use reth_primitives::PooledTransactionsElement;
+use reth_primitives::RecoveredTx;
+use reth_primitives_traits::BlockBody;
 use reth_transaction_pool::{
     AllPoolTransactions, AllTransactionsEvents, BestTransactions, BestTransactionsAttributes,
     BlobStore, BlobStoreError, BlockInfo, CanonicalStateUpdate, EthPoolTransaction,
     GetPooledTransactionLimit, NewBlobSidecar, NewTransactionEvent, Pool, PoolConfig, PoolResult,
-    PoolSize, PropagatedTransactions, TransactionEvents, TransactionListenerKind,
+    PoolSize, PoolTransaction, PropagatedTransactions, TransactionEvents, TransactionListenerKind,
     TransactionOrdering, TransactionOrigin, TransactionPool,
     TransactionPoolExt as TransactionPoolBlockInfoExt, TransactionValidator, ValidPoolTransaction,
 };
@@ -201,12 +202,16 @@ where
         &self,
         tx_hashes: Vec<TxHash>,
         limit: GetPooledTransactionLimit,
-    ) -> Vec<PooledTransactionsElement> {
+    ) -> Vec<<<V as TransactionValidator>::Transaction as PoolTransaction>::Pooled> {
         self.tx_pool
             .get_pooled_transaction_elements(tx_hashes, limit)
     }
 
-    fn get_pooled_transaction_element(&self, tx_hash: TxHash) -> Option<PooledTransactionsElement> {
+    fn get_pooled_transaction_element(
+        &self,
+        tx_hash: TxHash,
+    ) -> Option<RecoveredTx<<<V as TransactionValidator>::Transaction as PoolTransaction>::Pooled>>
+    {
         self.tx_pool.get_pooled_transaction_element(tx_hash)
     }
 
@@ -369,6 +374,13 @@ where
         self.tx_pool
             .get_blobs_for_versioned_hashes(versioned_hashes)
     }
+
+    fn pending_transactions_max(
+        &self,
+        max: usize,
+    ) -> Vec<Arc<ValidPoolTransaction<Self::Transaction>>> {
+        self.tx_pool.pending_transactions_max(max)
+    }
 }
 
 /// Implements the [`BundlePoolOperations`] interface by delegating to the inner `bundle_pool`.
@@ -440,7 +452,11 @@ where
         self.tx_pool.set_block_info(info)
     }
 
-    fn on_canonical_state_change(&self, update: CanonicalStateUpdate<'_>) {
+    fn on_canonical_state_change<H, BodyType>(&self, update: CanonicalStateUpdate<'_, H, BodyType>)
+    where
+        H: reth_primitives_traits::BlockHeader,
+        BodyType: BlockBody,
+    {
         self.tx_pool.on_canonical_state_change(update);
     }
 
