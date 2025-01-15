@@ -6399,7 +6399,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "op-rbuilder2"
+name = "op-rbuilder"
 version = "0.1.0"
 dependencies = [
  "alloy-consensus",
@@ -6422,6 +6422,7 @@ dependencies = [
  "op-alloy-consensus",
  "op-alloy-provider",
  "op-alloy-rpc-types-engine",
+ "rbuilder",
  "reth",
  "reth-basic-payload-builder",
  "reth-chain-state",
@@ -6451,6 +6452,8 @@ dependencies = [
  "reth-transaction-pool",
  "reth-trie",
  "revm",
+ "serde",
+ "serde_with",
  "tikv-jemallocator",
  "tokio",
  "tower 0.4.13",

@@ -1,9 +1,12 @@
 [package]
-name = "op-rbuilder2"
+name = "op-rbuilder"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+# workspace
+rbuilder = { path = "../rbuilder", features = ["optimism"] }
+
 reth.workspace = true
 reth-optimism-node.workspace = true
 reth-optimism-cli.workspace = true
@@ -52,6 +55,8 @@ futures-util = "0.3.31"
 eyre.workspace = true
 alloy-provider.workspace = true
 tower = "0.4"
+serde_with.workspace = true
+serde.workspace = true
 
 tokio.workspace = true
 jsonrpsee = { workspace = true }

@@ -138,6 +138,7 @@ auto_impl = { version = "1.2.0" }
 reqwest = { version = "0.12.8" }
 serde = { version = "1.0.210" }
 serde_json = { version = "1.0.128" }
+serde_with = { version = "3.8.1" }
 clap_builder = { version = "4.5.19" }
 derive_more = { version = "1" }
 tokio-stream = "0.1.16"
