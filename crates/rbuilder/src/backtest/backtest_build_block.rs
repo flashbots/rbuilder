@@ -88,7 +88,7 @@ where
         print_order_and_timestamp(&block_data.available_orders, &block_data);
     }
 
-    let provider_factory = config.base_config().create_provider_factory()?;
+    let provider_factory = config.base_config().create_provider_factory(true)?;
     let chain_spec = config.base_config().chain_spec()?;
 
     if cli.sim_landed_block {

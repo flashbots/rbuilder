@@ -111,7 +111,7 @@ where
         result
     };
 
-    let provider_factory = config.base_config().create_provider_factory()?;
+    let provider_factory = config.base_config().create_provider_factory(true)?;
     let chain_spec = config.base_config().chain_spec()?;
 
     let mut profits = Vec::new();
