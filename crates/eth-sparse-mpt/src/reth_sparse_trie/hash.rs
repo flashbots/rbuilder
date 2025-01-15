@@ -72,7 +72,7 @@ impl EthSparseTries {
             let hash = account_hashes
                 .remove(&account)
                 .expect("account hash not found");
-            let trie_account: TrieAccount = TrieAccount{
+            let trie_account: TrieAccount = TrieAccount {
                 nonce: updated_info.nonce,
                 balance: updated_info.balance,
                 storage_root: hash,

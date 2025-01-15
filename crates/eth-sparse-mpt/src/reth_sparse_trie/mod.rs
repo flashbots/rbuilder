@@ -1,7 +1,10 @@
 use alloy_primitives::{Address, B256};
 use change_set::{prepare_change_set, prepare_change_set_for_prefetch};
 use hash::RootHashError;
-use reth_provider::{providers::ConsistentDbView, BlockReader, DatabaseProviderFactory, ExecutionOutcome, StateCommitmentProvider};
+use reth_provider::{
+    providers::ConsistentDbView, BlockReader, DatabaseProviderFactory, ExecutionOutcome,
+    StateCommitmentProvider,
+};
 use std::time::{Duration, Instant};
 
 pub mod change_set;

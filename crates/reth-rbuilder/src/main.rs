@@ -21,8 +21,7 @@ use reth_node_builder::{
 use reth_node_ethereum::{node::EthereumAddOns, EthereumNode};
 use reth_provider::{
     providers::{BlockchainProvider, BlockchainProvider2},
-    BlockReader, DatabaseProviderFactory, HashedPostStateProvider, HeaderProvider,
-    StateCommitmentProvider,
+    BlockReader, DatabaseProviderFactory, HeaderProvider, StateCommitmentProvider,
 };
 use std::{path::PathBuf, process};
 use tokio::task;
@@ -105,7 +104,6 @@ fn main() {
                         .with_components(EthereumNode::components())
                         .with_add_ons::<EthereumAddOns<_>>(Default::default())
                         .on_rpc_started(move |ctx, _| {
-                            let a = ctx.provider();
                             spawn_rbuilder(ctx.provider().clone(), extra_args.rbuilder_config);
                             Ok(())
                         })
@@ -129,7 +127,6 @@ where
         + reth_provider::StateProviderFactory
         + HeaderProvider<Header = Header>
         + StateCommitmentProvider
-        + HashedPostStateProvider
         + Clone
         + 'static,
 {

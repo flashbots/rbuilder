@@ -4,7 +4,7 @@ use alloy_consensus::Header;
 use alloy_primitives::{BlockHash, BlockNumber, B256};
 use reth_errors::ProviderResult;
 use reth_provider::{BlockReader, DatabaseProviderFactory, HeaderProvider};
-use reth_provider::{HashedPostStateProvider, StateCommitmentProvider, StateProviderBox};
+use reth_provider::{StateCommitmentProvider, StateProviderBox};
 
 use super::{RootHasher, StateProviderFactory};
 
@@ -27,7 +27,6 @@ where
         + reth_provider::StateProviderFactory
         + HeaderProvider<Header = Header>
         + StateCommitmentProvider
-        + HashedPostStateProvider
         + Clone
         + 'static,
 {
@@ -63,11 +62,13 @@ where
         self.provider.last_block_number()
     }
 
-    fn root_hasher(&self, parent_hash: B256) -> Box<dyn RootHasher> {
-        Box::new(RootHasherImpl::new(
+    fn root_hasher(&self, parent_hash: B256) -> ProviderResult<Box<dyn RootHasher>> {
+        let hasher = self.history_by_block_hash(parent_hash)?;
+        Ok(Box::new(RootHasherImpl::new(
             parent_hash,
             self.config.clone(),
             self.provider.clone(),
-        ))
+            hasher,
+        )))
     }
 }

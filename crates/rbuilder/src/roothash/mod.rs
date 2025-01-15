@@ -69,21 +69,21 @@ impl RootHashConfig {
     }
 }
 
-fn calculate_parallel_root_hash<P>(
-    provider: &P,
+fn calculate_parallel_root_hash<P, HasherType>(
+    hasher: &HasherType,
     outcome: &ExecutionOutcome,
     consistent_db_view: ConsistentDbView<P>,
 ) -> Result<B256, ParallelStateRootError>
 where
+    HasherType: HashedPostStateProvider,
     P: DatabaseProviderFactory<Provider: BlockReader>
         + StateCommitmentProvider
-        + HashedPostStateProvider
         + Send
         + Sync
         + Clone
         + 'static,
 {
-    let hashed_post_state = provider.hashed_post_state(outcome.state());
+    let hashed_post_state = hasher.hashed_post_state(outcome.state());
     let parallel_root_calculator = ParallelStateRoot::new(
         consistent_db_view.clone(),
         TrieInput::from_state(hashed_post_state),
@@ -92,20 +92,21 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn calculate_state_root<P>(
+pub fn calculate_state_root<P, HasherType>(
     provider: P,
+    hasher: &HasherType,
     parent_hash: B256,
     outcome: &ExecutionOutcome,
     sparse_trie_shared_cache: SparseTrieSharedCache,
     config: &RootHashConfig,
 ) -> Result<B256, RootHashError>
 where
+    HasherType: HashedPostStateProvider,
     P: DatabaseProviderFactory<Provider: BlockReader>
         + Send
         + Sync
         + Clone
         + StateCommitmentProvider
-        + HashedPostStateProvider
         + 'static,
 {
     let consistent_db_view = match config.mode {
@@ -115,7 +116,7 @@ where
     };
 
     let reference_root_hash = if config.compare_sparse_trie_output {
-        calculate_parallel_root_hash(&provider, outcome, consistent_db_view.clone())?
+        calculate_parallel_root_hash(hasher, outcome, consistent_db_view.clone())?
     } else {
         B256::ZERO
     };
@@ -129,7 +130,7 @@ where
         trace!(?metrics, "Sparse trie metrics");
         root?
     } else {
-        calculate_parallel_root_hash(&provider, outcome, consistent_db_view)?
+        calculate_parallel_root_hash(hasher, outcome, consistent_db_view)?
     };
 
     if config.compare_sparse_trie_output && reference_root_hash != root {

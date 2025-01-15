@@ -1,12 +1,15 @@
 use crate::utils::{hash_map_with_capacity, HashMap, HashSet};
-use alloy_primitives::map::{HashSet as AlloyHashSet};
+use alloy_primitives::map::HashSet as AlloyHashSet;
 
 use alloy_primitives::{Bytes, B256};
 use alloy_trie::Nibbles;
 use rayon::prelude::*;
 use reth_errors::ProviderError;
 use reth_execution_errors::trie::StateProofError;
-use reth_provider::{providers::ConsistentDbView, BlockReader, DBProvider, DatabaseProviderFactory, StateCommitmentProvider};
+use reth_provider::{
+    providers::ConsistentDbView, BlockReader, DBProvider, DatabaseProviderFactory,
+    StateCommitmentProvider,
+};
 use reth_trie::{proof::Proof, MultiProof as RethMultiProof, MultiProofTargets, EMPTY_ROOT_HASH};
 use reth_trie_db::{DatabaseHashedCursorFactory, DatabaseTrieCursorFactory};
 use serde::{Deserialize, Serialize};
@@ -98,9 +101,7 @@ fn pad_path(mut path: Nibbles) -> B256 {
     res
 }
 
-fn get_proof_targets(
-    missing_nodes: MissingNodes,
-) -> (Vec<MultiProofTargets>, HashSet<B256>) {
+fn get_proof_targets(missing_nodes: MissingNodes) -> (Vec<MultiProofTargets>, HashSet<B256>) {
     // we will split all missing nodes accounts into buckets of (missing accounts / account_per_fetch)
     let account_per_fetch = 5;
 

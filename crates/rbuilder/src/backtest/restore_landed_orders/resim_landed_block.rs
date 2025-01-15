@@ -52,7 +52,7 @@ where
         coinbase,
         suggested_fee_recipient,
         None,
-        Arc::from(provider.root_hasher(parent_hash)),
+        Arc::from(provider.root_hasher(parent_hash)?),
     );
 
     let state_provider = provider.history_by_block_hash(ctx.attributes.parent)?;

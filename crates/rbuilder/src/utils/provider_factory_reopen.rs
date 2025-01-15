@@ -240,8 +240,8 @@ where
         provider.last_block_number()
     }
 
-    fn root_hasher(&self, parent_hash: B256) -> Box<dyn RootHasher> {
-        if let Some(root_hash_config) = &self.root_hash_config {
+    fn root_hasher(&self, parent_hash: B256) -> ProviderResult<Box<dyn RootHasher>> {
+        Ok(if let Some(root_hash_config) = &self.root_hash_config {
             let provider = self
                 .check_consistency_and_reopen_if_needed()
                 .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))
@@ -249,37 +249,40 @@ where
             Box::new(RootHasherImpl::new(
                 parent_hash,
                 root_hash_config.clone(),
+                provider.clone(),
                 provider,
             ))
         } else {
             Box::new(MockRootHasher {})
-        }
+        })
     }
 }
 
-pub struct RootHasherImpl<T> {
+pub struct RootHasherImpl<T, HasherType> {
     parent_hash: B256,
     provider: T,
+    hasher: HasherType,
     sparse_trie_shared_cache: SparseTrieSharedCache,
     config: RootHashConfig,
 }
 
-impl<T> RootHasherImpl<T> {
-    pub fn new(parent_hash: B256, config: RootHashConfig, provider: T) -> Self {
+impl<T, HasherType> RootHasherImpl<T, HasherType> {
+    pub fn new(parent_hash: B256, config: RootHashConfig, provider: T, hasher: HasherType) -> Self {
         Self {
             parent_hash,
             provider,
+            hasher,
             config,
             sparse_trie_shared_cache: Default::default(),
         }
     }
 }
 
-impl<T> RootHasher for RootHasherImpl<T>
+impl<T, HasherType> RootHasher for RootHasherImpl<T, HasherType>
 where
+    HasherType: HashedPostStateProvider,
     T: DatabaseProviderFactory<Provider: BlockReader>
         + StateCommitmentProvider
-        + HashedPostStateProvider
         + Send
         + Sync
         + Clone
@@ -302,6 +305,7 @@ where
     fn state_root(&self, outcome: &ExecutionOutcome) -> Result<B256, RootHashError> {
         calculate_state_root(
             self.provider.clone(),
+            &self.hasher,
             self.parent_hash,
             outcome,
             self.sparse_trie_shared_cache.clone(),
@@ -310,7 +314,7 @@ where
     }
 }
 
-impl<T> std::fmt::Debug for RootHasherImpl<T> {
+impl<T, HasherType> std::fmt::Debug for RootHasherImpl<T, HasherType> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RootHasherImpl")
             .field("parent_hash", &self.parent_hash)

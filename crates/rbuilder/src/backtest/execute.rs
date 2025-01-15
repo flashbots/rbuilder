@@ -87,7 +87,7 @@ where
         builder_signer.address,
         block_data.winning_bid_trace.proposer_fee_recipient,
         Some(builder_signer),
-        Arc::from(provider.root_hasher(block_data.winning_bid_trace.parent_hash)),
+        Arc::from(provider.root_hasher(block_data.winning_bid_trace.parent_hash)?),
     );
     let (sim_orders, sim_errors) =
         simulate_all_orders_with_sim_tree(provider.clone(), &ctx, &orders, false)?;
