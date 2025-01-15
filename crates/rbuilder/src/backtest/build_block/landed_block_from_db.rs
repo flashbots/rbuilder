@@ -20,7 +20,7 @@ use crate::{
         },
         BlockData, HistoricalDataStorage, OrdersWithTimestamp,
     },
-    building::BlockBuildingContext,
+    building::{builders::mock_block_building_helper::MockRootHasher, BlockBuildingContext},
     live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig},
     utils::{timestamp_as_u64, ProviderFactoryReopener},
 };
@@ -84,7 +84,6 @@ impl<ConfigType: LiveBuilderConfig> LandedBlockFromDBOrdersSource<ConfigType> {
 impl<ConfigType: LiveBuilderConfig>
     OrdersSource<
         ConfigType,
-        Arc<DatabaseEnv>,
         ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>,
     > for LandedBlockFromDBOrdersSource<ConfigType>
 {
@@ -100,7 +99,7 @@ impl<ConfigType: LiveBuilderConfig>
         &self,
     ) -> eyre::Result<ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>>
     {
-        self.config.base_config().create_provider_factory()
+        self.config.base_config().create_provider_factory(true)
     }
 
     fn create_block_building_context(&self) -> eyre::Result<BlockBuildingContext> {
@@ -113,6 +112,7 @@ impl<ConfigType: LiveBuilderConfig>
             signer.address,
             self.block_data.winning_bid_trace.proposer_fee_recipient,
             Some(signer),
+            Arc::new(MockRootHasher {}),
         ))
     }
 

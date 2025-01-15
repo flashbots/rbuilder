@@ -1,8 +1,5 @@
-use std::sync::Arc;
-
 use clap::{command, Parser};
-use reth_db::{test_utils::TempDatabase, DatabaseEnv};
-use reth_provider::{providers::BlockchainProvider2, test_utils::MockNodeTypesWithDB};
+use reth_provider::test_utils::MockNodeTypesWithDB;
 use revm_primitives::B256;
 use uuid::Uuid;
 
@@ -14,6 +11,7 @@ use crate::{
     },
     live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig},
     primitives::{Bundle, MempoolTx, Metadata, Order, TransactionSignedEcRecoveredWithBlobs},
+    provider::state_provider_factory_from_provider_factory::StateProviderFactoryFromProviderFactory,
 };
 
 use super::backtest_build_block::{run_backtest_build_block, BuildBlockCfg, OrdersSource};
@@ -112,11 +110,8 @@ impl<ConfigType: LiveBuilderConfig> SyntheticOrdersSource<ConfigType> {
 }
 
 impl<ConfigType: LiveBuilderConfig>
-    OrdersSource<
-        ConfigType,
-        Arc<TempDatabase<DatabaseEnv>>,
-        BlockchainProvider2<MockNodeTypesWithDB>,
-    > for SyntheticOrdersSource<ConfigType>
+    OrdersSource<ConfigType, StateProviderFactoryFromProviderFactory<MockNodeTypesWithDB>>
+    for SyntheticOrdersSource<ConfigType>
 {
     fn available_orders(&self) -> Vec<OrdersWithTimestamp> {
         self.orders.clone()
@@ -126,10 +121,13 @@ impl<ConfigType: LiveBuilderConfig>
         0
     }
 
-    fn create_provider_factory(&self) -> eyre::Result<BlockchainProvider2<MockNodeTypesWithDB>> {
-        Ok(BlockchainProvider2::new(
+    fn create_provider_factory(
+        &self,
+    ) -> eyre::Result<StateProviderFactoryFromProviderFactory<MockNodeTypesWithDB>> {
+        Ok(StateProviderFactoryFromProviderFactory::new(
             self.test_chain_state.provider_factory().clone(),
-        )?)
+            None,
+        ))
     }
 
     fn create_block_building_context(&self) -> eyre::Result<BlockBuildingContext> {
@@ -138,7 +136,7 @@ impl<ConfigType: LiveBuilderConfig>
 
     fn print_custom_stats(
         &self,
-        _provider: BlockchainProvider2<MockNodeTypesWithDB>,
+        _provider: StateProviderFactoryFromProviderFactory<MockNodeTypesWithDB>,
     ) -> eyre::Result<()> {
         Ok(())
     }

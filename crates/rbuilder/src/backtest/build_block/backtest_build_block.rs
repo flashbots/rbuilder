@@ -7,8 +7,6 @@
 
 use ahash::HashMap;
 use alloy_primitives::utils::format_ether;
-use reth_db::Database;
-use reth_provider::{BlockReader, DatabaseProviderFactory, StateProviderFactory};
 
 use crate::{
     backtest::{
@@ -18,6 +16,7 @@ use crate::{
     building::{builders::BacktestSimulateBlockInput, BlockBuildingContext},
     live_builder::cli::LiveBuilderConfig,
     primitives::{Order, OrderId, SimulatedOrder},
+    provider::StateProviderFactory,
 };
 use clap::Parser;
 use std::path::PathBuf;
@@ -42,14 +41,10 @@ pub struct BuildBlockCfg {
 
 /// Provides all the orders needed to simulate the construction of a block.
 /// It also provides the needed context to execute those orders.
-pub trait OrdersSource<ConfigType, DBType, ProviderType>
+pub trait OrdersSource<ConfigType, ProviderType>
 where
     ConfigType: LiveBuilderConfig,
-    DBType: Database + Clone + 'static,
-    ProviderType: DatabaseProviderFactory<DB = DBType, Provider: BlockReader>
-        + StateProviderFactory
-        + Clone
-        + 'static,
+    ProviderType: StateProviderFactory + Clone + 'static,
 {
     fn config(&self) -> &ConfigType;
     /// Orders available to build blocks with their time of arrival.
@@ -67,18 +62,14 @@ where
     fn print_custom_stats(&self, provider: ProviderType) -> eyre::Result<()>;
 }
 
-pub async fn run_backtest_build_block<ConfigType, OrdersSourceType, DBType, ProviderType>(
+pub async fn run_backtest_build_block<ConfigType, OrdersSourceType, ProviderType>(
     build_block_cfg: BuildBlockCfg,
     orders_source: OrdersSourceType,
 ) -> eyre::Result<()>
 where
     ConfigType: LiveBuilderConfig,
-    DBType: Database + Clone + 'static,
-    ProviderType: DatabaseProviderFactory<DB = DBType, Provider: BlockReader>
-        + StateProviderFactory
-        + Clone
-        + 'static,
-    OrdersSourceType: OrdersSource<ConfigType, DBType, ProviderType>,
+    ProviderType: StateProviderFactory + Clone + 'static,
+    OrdersSourceType: OrdersSource<ConfigType, ProviderType>,
 {
     let config = orders_source.config();
     config.base_config().setup_tracing_subscriber()?;

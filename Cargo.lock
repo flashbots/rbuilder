@@ -7845,6 +7845,7 @@ dependencies = [
  "rbuilder",
  "reth-primitives",
  "reth-provider",
+ "reth-transaction-pool",
  "tokio",
  "tokio-util",
  "tracing",
@@ -10141,6 +10142,7 @@ dependencies = [
 name = "reth-rbuilder"
 version = "0.1.0"
 dependencies = [
+ "alloy-rlp",
  "clap 4.5.21",
  "eyre",
  "libc",
@@ -10151,6 +10153,7 @@ dependencies = [
  "reth-node-builder",
  "reth-node-ethereum",
  "reth-provider",
+ "reth-transaction-pool",
  "tikv-jemallocator",
  "tokio",
  "tracing",
