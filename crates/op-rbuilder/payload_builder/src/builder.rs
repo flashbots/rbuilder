@@ -578,10 +578,7 @@ where
             None
         });
 
-    let WithdrawalsOutcome {
-        withdrawals_root,
-        withdrawals,
-    } = commit_withdrawals(
+    let withdrawals_root = commit_withdrawals(
         &mut db,
         &chain_spec,
         attributes.payload_attributes.timestamp,
