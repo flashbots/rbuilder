@@ -41,7 +41,8 @@ where
         pool: Pool,
     ) -> eyre::Result<PayloadBuilderHandle<<Node::Types as NodeTypesWithEngine>::Engine>> {
         tracing::info!("Spawning a custom payload builder");
-        let _vanilla_builder = VanillaOpPayloadBuilder::new(OpEvmConfig::new(ctx.chain_spec()));
+        let _fb_builder = FBPayloadBuilder::new(OpEvmConfig::new(ctx.chain_spec()));
+        let vanilla_builder = VanillaOpPayloadBuilder::new(OpEvmConfig::new(ctx.chain_spec()));
         let payload_job_config = BasicPayloadJobGeneratorConfig::default();
 
         let payload_generator = EmptyBlockPayloadJobGenerator::with_builder(
@@ -49,7 +50,8 @@ where
             pool,
             ctx.task_executor().clone(),
             payload_job_config,
-            FBPayloadBuilder::new(OpEvmConfig::new(ctx.chain_spec())),
+            // FBPayloadBuilder::new(OpEvmConfig::new(ctx.chain_spec())),
+            vanilla_builder,
         );
 
         let (payload_service, payload_builder) =
