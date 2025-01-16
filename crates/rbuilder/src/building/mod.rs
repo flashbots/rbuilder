@@ -24,7 +24,8 @@ use crate::{
 use ahash::HashSet;
 use alloy_eips::{
     calc_excess_blob_gas, eip1559::ETHEREUM_BLOCK_GAS_LIMIT, eip4844::BlobTransactionSidecar,
-    eip4895::Withdrawals, eip7685::Requests, merge::BEACON_NONCE,
+    eip4895::Withdrawals, eip6110::DEPOSIT_REQUEST_TYPE, eip7002::WITHDRAWAL_REQUEST_TYPE,
+    eip7251::CONSOLIDATION_REQUEST_TYPE, eip7685::Requests, merge::BEACON_NONCE,
 };
 use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
 use jsonrpsee::core::Serialize;
@@ -633,14 +634,18 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
                     &ctx.block_env,
                 )
                 .map_err(|err| FinalizeError::Other(err.into()))?;
-            // @TODO: I think this is wrong, need to check but my guess is that
-            // the Bytes from the system contracts does not contain the requests_typ prefix
-            // so we probably need to use [Requests::push_request_with_type] instead.
-            Some(Requests::new(vec![
-                deposit_requests,
-                withdrawal_requests,
-                consolidation_requests,
-            ]))
+
+            let mut requests = Requests::default();
+            if !deposit_requests.is_empty() {
+                requests.push_request_with_type(DEPOSIT_REQUEST_TYPE, deposit_requests);
+            }
+            if !withdrawal_requests.is_empty() {
+                requests.push_request_with_type(WITHDRAWAL_REQUEST_TYPE, withdrawal_requests);
+            }
+            if !consolidation_requests.is_empty() {
+                requests.push_request_with_type(CONSOLIDATION_REQUEST_TYPE, consolidation_requests);
+            }
+            Some(requests)
         } else {
             None
         };
