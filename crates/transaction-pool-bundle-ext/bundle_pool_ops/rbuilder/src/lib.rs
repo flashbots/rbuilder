@@ -4,7 +4,7 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 use core::fmt;
-use std::{fmt::Formatter, path::Path, sync::Arc, time::Duration};
+use std::{fmt::Formatter, sync::Arc, time::Duration};
 
 use alloy_primitives::U256;
 use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
@@ -18,7 +18,6 @@ use rbuilder::{
         Sorting,
     },
     live_builder::{
-        base_config::load_config_toml_and_env,
         cli::LiveBuilderConfig,
         config::{create_builders, BuilderConfig, Config, SpecificBuilderConfig},
         order_input::{rpc_server::RawCancelBundle, ReplaceableOrderPoolCommand},
@@ -31,6 +30,9 @@ use rbuilder::{
 };
 use reth_primitives::TransactionSigned;
 use reth_provider::{BlockReader, DatabaseProviderFactory, HeaderProvider};
+use reth_transaction_pool::{
+    BlobStore, EthPooledTransaction, Pool, TransactionOrdering, TransactionValidator,
+};
 use tokio::{
     sync::{
         mpsc::{self, error::SendError},
@@ -89,13 +91,20 @@ impl SlotSource for OurSlotSource {
 }
 
 impl BundlePoolOps {
-    pub async fn new<P>(provider: P, rbuilder_config_path: impl AsRef<Path>) -> Result<Self, Error>
+    pub async fn new<P, V, T, S>(
+        provider: P,
+        pool: Pool<V, T, S>,
+        config: Config,
+    ) -> Result<Self, Error>
     where
         P: DatabaseProviderFactory<Provider: BlockReader>
             + reth_provider::StateProviderFactory
             + HeaderProvider
             + Clone
             + 'static,
+        V: TransactionValidator<Transaction = EthPooledTransaction> + 'static,
+        T: TransactionOrdering<Transaction = <V as TransactionValidator>::Transaction>,
+        S: BlobStore,
     {
         // Create the payload source to trigger new block building
         let cancellation_token = CancellationToken::new();
@@ -108,9 +117,6 @@ impl BundlePoolOps {
         let sink_factory = SinkFactory {
             block_building_helper_tx,
         };
-
-        // Spawn the builder!
-        let config: Config = load_config_toml_and_env(rbuilder_config_path)?;
 
         let builder_strategy = BuilderConfig {
             name: "mp-ordering".to_string(),
@@ -165,6 +171,10 @@ impl BundlePoolOps {
             .await
             .expect("Failed to start full telemetry server");
 
+            builder
+                .connect_to_transaction_pool(pool)
+                .await
+                .expect("Failed to connect to reth pool");
             builder.run().await.unwrap();
 
             Ok::<(), ()>

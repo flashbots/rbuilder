@@ -1,14 +1,13 @@
-mod backtest_build_block;
 mod backtest_build_range;
 pub mod execute;
 pub mod fetch;
 
+pub mod build_block;
 pub mod redistribute;
 pub mod restore_landed_orders;
 mod results_store;
 mod store;
 
-pub use backtest_build_block::run_backtest_build_block;
 pub use backtest_build_range::run_backtest_build_range;
 use std::collections::HashSet;
 
@@ -29,6 +28,7 @@ pub use results_store::{BacktestResultsStorage, StoredBacktestResult};
 use serde::{Deserialize, Serialize};
 pub use store::HistoricalDataStorage;
 use time::OffsetDateTime;
+use tracing::trace;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RawOrdersWithTimestamp {
@@ -81,6 +81,7 @@ pub struct BlockData {
     /// Orders we had at the moment of building the block.
     /// This might be an approximation depending on DataSources used.
     pub available_orders: Vec<OrdersWithTimestamp>,
+    pub filtered_orders: HashSet<OrderId>,
     pub built_block_data: Option<BuiltBlockData>,
 }
 
@@ -97,8 +98,15 @@ impl BlockData {
     }
 
     fn filter_orders_by_end_timestamp_ms(&mut self, final_timestamp_ms: u64) {
-        self.available_orders
-            .retain(|orders| orders.timestamp_ms <= final_timestamp_ms);
+        self.available_orders.retain(|orders| {
+            if orders.timestamp_ms <= final_timestamp_ms {
+                true
+            } else {
+                trace!(order = ?orders.order.id(), "order filtered by end timestamp");
+                self.filtered_orders.insert(orders.order.id());
+                false
+            }
+        });
 
         // make sure that we have only one copy of the cancellable orders
         // we use timestamp and not replacement sequence number because of the limitation of the backtest
@@ -111,6 +119,8 @@ impl BlockData {
         self.available_orders.retain(|orders| {
             if let Some(key) = orders.order.replacement_key() {
                 if replacement_keys_seen.contains(&key) {
+                    trace!(order = ?orders.order.id(), "order filtered by end timestamp");
+                    self.filtered_orders.insert(orders.order.id());
                     return false;
                 }
                 replacement_keys_seen.insert(key);
@@ -135,13 +145,26 @@ impl BlockData {
                 return true;
             };
             let txs = orders.order.list_txs();
-            txs.iter().any(|(tx, _)| !mempool_txs.contains(&tx.hash()))
+            if txs.iter().any(|(tx, _)| !mempool_txs.contains(&tx.hash())) {
+                true
+            } else {
+                trace!(order = ?orders.order.id(), "order filtered from public mempool");
+                self.filtered_orders.insert(orders.order.id());
+                false
+            }
         });
     }
 
     pub fn filter_orders_by_ids(&mut self, order_ids: &[String]) {
-        self.available_orders
-            .retain(|order| order_ids.contains(&order.order.id().to_string()));
+        self.available_orders.retain(|order| {
+            if order_ids.contains(&order.order.id().to_string()) {
+                true
+            } else {
+                trace!(order = ?order.order.id(), "order filtered by id");
+                self.filtered_orders.insert(order.order.id());
+                false
+            }
+        });
     }
 
     pub fn filter_out_ignored_signers(&mut self, ignored_signers: &[Address]) {
@@ -152,7 +175,13 @@ impl BlockData {
             } else {
                 return true;
             };
-            !ignored_signers.contains(&signer)
+            if !ignored_signers.contains(&signer) {
+                true
+            } else {
+                trace!(order = ?order.id(), "order filtered by ignored signers");
+                self.filtered_orders.insert(order.id());
+                false
+            }
         });
     }
 

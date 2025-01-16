@@ -237,7 +237,7 @@ fn run_order_intake(
             }
         }
 
-        let new_orders = order_intake_consumer.drain_new_orders();
+        let new_orders = order_intake_consumer.try_drain_new_orders_if_no_cancellations();
 
         // We can update conflict_finder if we have ONLY adds
         if let Some(new_orders) = new_orders {

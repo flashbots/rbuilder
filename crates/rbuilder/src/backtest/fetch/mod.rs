@@ -15,6 +15,10 @@ use crate::{
 use alloy_provider::Provider;
 use alloy_rpc_types::{Block, BlockId, BlockNumberOrTag, BlockTransactionsKind};
 
+use crate::{
+    backtest::{fetch::mev_boost::PayloadDeliveredFetcher, OrdersWithTimestamp},
+    utils::BoxedProvider,
+};
 use eyre::WrapErr;
 use flashbots_db::RelayDB;
 use futures::TryStreamExt;
@@ -25,11 +29,6 @@ use std::{
 };
 use tokio::sync::Mutex;
 use tracing::{info, trace};
-
-use crate::{
-    backtest::{fetch::mev_boost::PayloadDeliveredFetcher, OrdersWithTimestamp},
-    utils::BoxedProvider,
-};
 
 /// Struct that brings block information ([BlockData]) from several [DataSource]s
 /// Filters txs already landed (onchain nonce > tx nonce)
@@ -255,6 +254,7 @@ impl HistoricalDataFetcher {
             onchain_block,
             available_orders,
             built_block_data,
+            filtered_orders: Default::default(),
         })
     }
 }

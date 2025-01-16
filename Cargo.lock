@@ -6426,6 +6426,7 @@ dependencies = [
  "clap 4.5.21",
  "eyre",
  "op-rbuilder-payload-builder",
+ "rbuilder",
  "rbuilder-bundle-pool-operations",
  "reth-basic-payload-builder",
  "reth-evm",
@@ -6453,6 +6454,7 @@ dependencies = [
  "alloy-rpc-types-beacon",
  "alloy-rpc-types-engine",
  "op-alloy-consensus",
+ "rbuilder",
  "reth-basic-payload-builder",
  "reth-chain-state",
  "reth-chainspec",
@@ -7918,6 +7920,7 @@ dependencies = [
  "rbuilder",
  "reth-primitives",
  "reth-provider",
+ "reth-transaction-pool",
  "tokio",
  "tokio-util",
  "tracing",
@@ -10214,6 +10217,7 @@ dependencies = [
 name = "reth-rbuilder"
 version = "0.1.0"
 dependencies = [
+ "alloy-rlp",
  "clap 4.5.21",
  "eyre",
  "libc",
@@ -10224,6 +10228,7 @@ dependencies = [
  "reth-node-builder",
  "reth-node-ethereum",
  "reth-provider",
+ "reth-transaction-pool",
  "tikv-jemallocator",
  "tokio",
  "tracing",

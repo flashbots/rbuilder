@@ -56,7 +56,7 @@ where
     let mut historical_data_storage =
         HistoricalDataStorage::new_from_path(&config.base_config().backtest_fetch_output_file)
             .await?;
-    let provider = config.base_config().create_provider_factory()?;
+    let provider = config.base_config().create_provider_factory(true)?;
     let mut csv_writer = cli
         .csv
         .map(|path| -> io::Result<_> { CSVResultWriter::new(path) })

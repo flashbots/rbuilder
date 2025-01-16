@@ -23,6 +23,7 @@ use reth_provider::{
     providers::{BlockchainProvider, BlockchainProvider2},
     BlockReader, DatabaseProviderFactory, HeaderProvider,
 };
+use reth_transaction_pool::{blobstore::DiskFileBlobStore, EthTransactionPool};
 use std::{path::PathBuf, process};
 use tokio::task;
 use tracing::{error, info, warn};
@@ -82,8 +83,8 @@ fn main() {
                         .with_types_and_provider::<EthereumNode, BlockchainProvider2<_>>()
                         .with_components(EthereumNode::components())
                         .with_add_ons(EthereumAddOns::default())
-                        .on_rpc_started(move |ctx, _| {
-                            spawn_rbuilder(ctx.provider().clone(), extra_args.rbuilder_config);
+                        .on_node_started(move |node| {
+                            spawn_rbuilder(node.provider().clone(), node.pool().clone(), extra_args.rbuilder_config);
                             Ok(())
                         })
                         .launch_with_fn(|builder| {
@@ -103,8 +104,8 @@ fn main() {
                         .with_types_and_provider::<EthereumNode, BlockchainProvider<_>>()
                         .with_components(EthereumNode::components())
                         .with_add_ons::<EthereumAddOns<_>>(Default::default())
-                        .on_rpc_started(move |ctx, _| {
-                            spawn_rbuilder(ctx.provider().clone(), extra_args.rbuilder_config);
+                        .on_node_started(move |node| {
+                            spawn_rbuilder(node.provider().clone(), node.pool().clone(), extra_args.rbuilder_config);
                             Ok(())
                         })
                         .launch().await?;
@@ -121,8 +122,11 @@ fn main() {
 /// Spawns a tokio rbuilder task.
 ///
 /// Takes down the entire process if the rbuilder errors or stops.
-fn spawn_rbuilder<P>(provider: P, config_path: PathBuf)
-where
+fn spawn_rbuilder<P>(
+    provider: P,
+    pool: EthTransactionPool<P, DiskFileBlobStore>,
+    config_path: PathBuf,
+) where
     P: DatabaseProviderFactory<Provider: BlockReader>
         + reth_provider::StateProviderFactory
         + HeaderProvider
@@ -156,6 +160,7 @@ where
                     Default::default(),
                 )
                 .await?;
+            builder.connect_to_transaction_pool(pool).await?;
             builder.run().await?;
 
             Ok::<(), eyre::Error>(())

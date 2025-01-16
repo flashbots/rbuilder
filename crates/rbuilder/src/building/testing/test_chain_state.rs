@@ -72,8 +72,35 @@ pub struct TestChainState {
     provider_factory: ProviderFactory<MockNodeTypesWithDB>,
     block_building_context: BlockBuildingContext,
 }
+pub struct ContractData {
+    address: Address,
+    code: Bytes,
+    code_hash: B256,
+}
+
+impl ContractData {
+    pub fn new(code: &Bytes, address: Address) -> Self {
+        let code_hash = keccak256(code);
+        ContractData {
+            address,
+            code: code.clone(),
+            code_hash,
+        }
+    }
+}
+
 impl TestChainState {
     pub fn new(block_args: BlockArgs) -> eyre::Result<Self> {
+        Self::new_with_balances_and_contracts(block_args, Default::default(), Default::default())
+    }
+
+    /// balances_to_increase this addresses start with that initial balances.
+    /// extra_contracts are deploy along with the default mev_test.
+    pub fn new_with_balances_and_contracts(
+        block_args: BlockArgs,
+        balances_to_increase: Vec<(Address, u128)>,
+        extra_contracts: Vec<ContractData>,
+    ) -> eyre::Result<Self> {
         let blocklisted_address = Signer::random();
         let builder = Signer::random();
         let fee_recipient = Signer::random();
@@ -88,7 +115,10 @@ impl TestChainState {
         let mev_test_address = Address::random();
         let dummy_test_address = Address::random();
         let test_contracts = TestContracts::load();
-        let (mev_test_hash, mev_test_code) = test_contracts.mev_test();
+
+        let mut contracts = extra_contracts;
+        contracts.push(test_contracts.mev_test(mev_test_address));
+
         let genesis_header = chain_spec.sealed_genesis_header();
         let provider_factory = create_test_provider_factory();
         {
@@ -122,22 +152,37 @@ impl TestChainState {
                         },
                     )?;
                 }
+                // Failed to map user_addresses and chain it with balances_to_increase :(
+                for (address, balance) in balances_to_increase {
+                    cursor.upsert(
+                        address,
+                        Account {
+                            nonce: 0,
+                            balance: U256::from(balance),
+                            bytecode_hash: None,
+                        },
+                    )?;
+                }
 
-                cursor.upsert(
-                    mev_test_address,
-                    Account {
-                        nonce: 0,
-                        balance: U256::ZERO,
-                        bytecode_hash: Some(mev_test_hash),
-                    },
-                )?;
+                for contract in &contracts {
+                    cursor.upsert(
+                        contract.address,
+                        Account {
+                            nonce: 0,
+                            balance: U256::ZERO,
+                            bytecode_hash: Some(contract.code_hash),
+                        },
+                    )?;
+                }
             }
             {
                 let mut cursor = provider
                     .tx_ref()
                     .cursor_write::<tables::Bytecodes>()
                     .unwrap();
-                cursor.upsert(mev_test_hash, Bytecode::new_raw(mev_test_code))?;
+                for contract in &contracts {
+                    cursor.upsert(contract.code_hash, Bytecode::new_raw(contract.code.clone()))?;
+                }
             }
             provider.commit()?;
         }
@@ -472,6 +517,7 @@ impl TxArgs {
     }
 }
 
+/// This contract was generated from mev-test-contract/src/MevTest.sol
 static TEST_CONTRACTS: &str = include_str!("./contracts.json");
 
 #[derive(Debug, serde::Deserialize)]
@@ -503,8 +549,7 @@ impl TestContracts {
         serde_json::from_str(TEST_CONTRACTS).expect("failed to load test contracts")
     }
 
-    fn mev_test(&self) -> (B256, Bytes) {
-        let hash = keccak256(&self.mev_test);
-        (hash, self.mev_test.clone())
+    fn mev_test(&self, address: Address) -> ContractData {
+        ContractData::new(&self.mev_test, address)
     }
 }
