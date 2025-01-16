@@ -195,7 +195,7 @@ impl TestChainState {
 
         let ctx = TestBlockContextBuilder::new(
             block_args,
-            builder.clone(),
+            builder,
             fee_recipient.address,
             chain_spec.clone(),
             blocklisted_address.address,
@@ -367,7 +367,7 @@ impl TestBlockContextBuilder {
                 extra_data: Default::default(),
                 requests_hash: Default::default(),
             },
-            self.builder_signer.clone(),
+            self.builder_signer,
             self.chain_spec,
             self.blocklist,
             self.prefer_gas_limit,

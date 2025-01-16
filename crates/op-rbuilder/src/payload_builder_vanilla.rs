@@ -3,11 +3,11 @@
 use std::{fmt::Display, sync::Arc};
 
 use crate::generator::{BlockCell, PayloadBuilder};
-use reth_basic_payload_builder::PayloadBuilder as RethPayloadBuilder; 
 use alloy_consensus::{Header, Transaction, TxEip1559, EMPTY_OMMER_ROOT_HASH};
 use alloy_eips::merge::BEACON_NONCE;
 use alloy_primitives::{Address, Bytes, TxKind, U256};
 use alloy_rpc_types_engine::PayloadId;
+use reth_basic_payload_builder::PayloadBuilder as RethPayloadBuilder;
 use reth_basic_payload_builder::*;
 use reth_chain_state::ExecutedBlock;
 use reth_chainspec::ChainSpecProvider;
@@ -307,17 +307,14 @@ where
         let message = format!("Block Number: {}", ctx.block_number())
             .as_bytes()
             .to_vec();
-        let builder_tx_gas =
-            OpPayloadBuilderCtx::<EvmConfig>::estimate_gas_for_builder_tx(message.clone());
+        let builder_tx_gas = ctx.builder_signer().map_or(0, |_| {
+            OpPayloadBuilderCtx::<EvmConfig>::estimate_gas_for_builder_tx(message.clone())
+        });
+        let block_gas_limit = ctx.block_gas_limit() - builder_tx_gas;
         if !ctx.attributes().no_tx_pool {
             let best_txs = best.best_transactions(pool, ctx.best_transaction_attributes());
             if ctx
-                .execute_best_transactions::<_, Pool>(
-                    &mut info,
-                    state,
-                    best_txs,
-                    ctx.block_gas_limit() - builder_tx_gas,
-                )?
+                .execute_best_transactions::<_, Pool>(&mut info, state, best_txs, block_gas_limit)?
                 .is_some()
             {
                 return Ok(BuildOutcomeKind::Cancelled);
@@ -333,7 +330,7 @@ where
         }
 
         // Add builder tx to the block
-        ctx.add_builder_tx(&mut info, state, message);
+        ctx.add_builder_tx(&mut info, state, builder_tx_gas, message);
 
         let withdrawals_outcome = ctx.commit_withdrawals(state)?;
 
@@ -863,16 +860,12 @@ where
         info: &mut ExecutionInfo,
         db: &mut State<DB>,
         mut best_txs: impl PayloadTransactions,
-        builder_estimated_gas_used: u64,
+        block_gas_limit: u64,
     ) -> Result<Option<()>, PayloadBuilderError>
     where
         DB: Database<Error = ProviderError>,
         Pool: TransactionPool,
     {
-        let block_gas_limit = self.block_gas_limit()
-            - self
-                .builder_signer()
-                .map_or(0, |_| builder_estimated_gas_used);
         let base_fee = self.base_fee();
 
         let env = EnvWithHandlerCfg::new_with_cfg_env(
@@ -968,6 +961,7 @@ where
         &self,
         info: &mut ExecutionInfo,
         db: &mut State<DB>,
+        builder_tx_gas: u64,
         message: Vec<u8>,
     ) -> Option<()>
     where
@@ -976,7 +970,6 @@ where
         self.builder_signer()
             .map(|signer| {
                 let base_fee = self.base_fee();
-                let builder_tx_gas = OpPayloadBuilderCtx::<EvmConfig>::estimate_gas_for_builder_tx(message.clone());
                 // Create message with block number for the builder to sign
                 let nonce = db
                     .load_cache_account(signer.address)
@@ -1010,6 +1003,9 @@ where
                     TxEnv::default(),
                 );
                 let mut evm = self.evm_config.evm_with_env(&mut *db, env);
+                *evm.tx_mut() = self
+                    .evm_config
+                    .tx_env(builder_tx.as_signed(), builder_tx.signer());
 
                 let ResultAndState { result, state } = evm
                     .transact()

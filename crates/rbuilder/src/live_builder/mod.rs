@@ -265,7 +265,7 @@ where
             if let Some(block_ctx) = BlockBuildingContext::from_attributes(
                 payload.payload_attributes_event.clone(),
                 &parent_header,
-                self.coinbase_signer.clone(),
+                self.coinbase_signer,
                 self.chain_chain_spec.clone(),
                 self.blocklist.clone(),
                 Some(payload.suggested_gas_limit),
