@@ -2,8 +2,6 @@
 members = [
     "crates/rbuilder",
     "crates/op-rbuilder",
-    "crates/op-rbuilder/payload_builder",
-    "crates/op-rbuilder/node",
     "crates/reth-rbuilder",
     "crates/rbuilder/src/test_utils",
     "crates/rbuilder/src/telemetry/metrics_macros",

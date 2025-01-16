@@ -1,5 +1,5 @@
 [package]
-name = "op-rbuilder2"
+name = "op-rbuilder"
 version = "0.1.0"
 edition = "2021"
 
@@ -92,7 +92,7 @@ optimism = [
 ]
 
 [[bin]]
-name = "op-rbuilder2"
+name = "op-rbuilder"
 path = "src/main.rs"
 
 [[bin]]
