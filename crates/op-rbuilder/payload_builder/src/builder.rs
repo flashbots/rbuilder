@@ -1,6 +1,8 @@
 //! Optimism payload builder implementation with Flashbots bundle support.
 
-use alloy_consensus::{BlockHeader, Header, Transaction, TxEip1559, EMPTY_OMMER_ROOT_HASH};
+use alloy_consensus::{
+    BlockHeader, Header, Transaction, TxEip1559, Typed2718, EMPTY_OMMER_ROOT_HASH,
+};
 use alloy_eips::merge::BEACON_NONCE;
 use alloy_rpc_types_beacon::events::{PayloadAttributesData, PayloadAttributesEvent};
 use alloy_rpc_types_engine::payload::PayloadAttributes;
@@ -8,21 +10,26 @@ use op_alloy_consensus::DepositTransaction;
 use rbuilder::utils::Signer;
 use reth_basic_payload_builder::*;
 use reth_chain_state::ExecutedBlock;
-use reth_chainspec::ChainSpecProvider;
-use reth_evm::{system_calls::SystemCaller, ConfigureEvm, ConfigureEvmEnv, NextBlockEnvAttributes};
+use reth_chainspec::{ChainSpecProvider, EthereumHardforks};
+use reth_evm::{
+    env::EvmEnv, system_calls::SystemCaller, ConfigureEvm, ConfigureEvmEnv, NextBlockEnvAttributes,
+};
 use reth_execution_types::ExecutionOutcome;
 use reth_optimism_chainspec::OpChainSpec;
 use reth_optimism_consensus::calculate_receipt_root_no_memo_optimism;
 use reth_optimism_forks::OpHardforks;
 use reth_optimism_node::{OpBuiltPayload, OpPayloadBuilderAttributes};
 use reth_optimism_payload_builder::error::OpPayloadBuilderError;
+use reth_optimism_primitives::OpTransactionSigned;
 use reth_payload_builder::PayloadBuilderError;
 use reth_payload_primitives::PayloadBuilderAttributes;
 use reth_primitives::{
-    proofs, Block, BlockBody, Receipt, Transaction as RethTransaction, TransactionSigned, TxType,
+    proofs, transaction::SignedTransactionIntoRecoveredExt, Block, BlockBody, Receipt,
+    Transaction as RethTransaction, TxType,
 };
 use reth_provider::StateProviderFactory;
 use reth_revm::database::StateProviderDatabase;
+use reth_transaction_pool::PoolTransaction;
 use reth_trie::HashedPostState;
 use revm::{
     db::states::bundle_state::BundleRetention,
@@ -94,11 +101,12 @@ where
         &self,
         config: &PayloadConfig<OpPayloadBuilderAttributes>,
         parent: &Header,
-    ) -> Result<(CfgEnvWithHandlerCfg, BlockEnv), EvmConfig::Error> {
+    ) -> Result<EvmEnv, EvmConfig::Error> {
         let next_attributes = NextBlockEnvAttributes {
             timestamp: config.attributes.timestamp(),
             suggested_fee_recipient: config.attributes.suggested_fee_recipient(),
             prev_randao: config.attributes.prev_randao(),
+            gas_limit: config.attributes.gas_limit.unwrap_or(parent.gas_limit),
         };
         self.evm_config
             .next_cfg_and_block_env(parent, next_attributes)
@@ -109,8 +117,8 @@ where
 impl<Pool, Client, EvmConfig> PayloadBuilder<Pool, Client> for OpRbuilderPayloadBuilder<EvmConfig>
 where
     Client: StateProviderFactory + ChainSpecProvider<ChainSpec = OpChainSpec>,
-    EvmConfig: ConfigureEvm<Header = Header>,
-    Pool: TransactionPoolBundleExt + BundlePoolOperations<Transaction = TransactionSigned>,
+    EvmConfig: ConfigureEvm<Header = Header, Transaction = OpTransactionSigned>,
+    Pool: TransactionPoolBundleExt + BundlePoolOperations<Transaction = OpTransactionSigned>,
 {
     type Attributes = OpPayloadBuilderAttributes;
     type BuiltPayload = OpBuiltPayload;
@@ -143,7 +151,10 @@ where
             data: payload_attributes_data,
         };
 
-        let (cfg_env, block_env) = self
+        let EvmEnv {
+            cfg_env_with_handler_cfg,
+            block_env,
+        } = self
             .cfg_and_block_env(&args.config, &args.config.parent_header)
             .map_err(PayloadBuilderError::other)?;
 
@@ -166,7 +177,7 @@ where
         try_build_inner(
             &self.evm_config,
             args,
-            cfg_env,
+            cfg_env_with_handler_cfg,
             block_env,
             self.builder_signer(),
             self.compute_pending_block,
@@ -210,8 +221,8 @@ pub(crate) fn try_build_inner<EvmConfig, Pool, Client>(
 ) -> Result<BuildOutcome<OpBuiltPayload>, PayloadBuilderError>
 where
     Client: StateProviderFactory + ChainSpecProvider<ChainSpec = OpChainSpec>,
-    EvmConfig: ConfigureEvm<Header = Header>,
-    Pool: TransactionPoolBundleExt + BundlePoolOperations<Transaction = TransactionSigned>,
+    EvmConfig: ConfigureEvm<Header = Header, Transaction = OpTransactionSigned>,
+    Pool: TransactionPoolBundleExt + BundlePoolOperations<Transaction = OpTransactionSigned>,
 {
     let BuildArguments {
         client,
@@ -232,7 +243,6 @@ where
     let PayloadConfig {
         parent_header,
         attributes,
-        mut extra_data,
     } = config;
 
     debug!(target: "payload_builder", id=%attributes.payload_attributes.payload_id(), parent_header = ?parent_header.hash(), parent_number = parent_header.number, "building new payload");
@@ -242,7 +252,7 @@ where
         initialized_block_env
             .gas_limit
             .try_into()
-            .unwrap_or(chain_spec.max_gas_limit)
+            .unwrap_or(parent_header.gas_limit)
     });
     let base_fee = initialized_block_env.basefee.to::<u64>();
 
@@ -331,11 +341,10 @@ where
                     sequencer_tx.signer(),
                 ))
             })?;
-
         let env = EnvWithHandlerCfg::new_with_cfg_env(
             initialized_cfg.clone(),
             initialized_block_env.clone(),
-            evm_config.tx_env(sequencer_tx.as_signed(), sequencer_tx.signer()),
+            evm_config.tx_env(sequencer_tx.tx(), sequencer_tx.signer()),
         );
 
         let mut evm = evm_config.evm_with_env(&mut db, env);
@@ -383,7 +392,7 @@ where
 
         // append sender and transaction to the respective lists
         executed_senders.push(sequencer_tx.signer());
-        executed_txs.push(sequencer_tx.into_signed());
+        executed_txs.push(sequencer_tx.into_tx());
     }
 
     // reserved gas for builder tx
@@ -431,7 +440,7 @@ where
         let env = EnvWithHandlerCfg::new_with_cfg_env(
             initialized_cfg.clone(),
             initialized_block_env.clone(),
-            evm_config.tx_env(tx.as_signed(), tx.signer()),
+            evm_config.tx_env(tx.tx(), tx.signer()),
         );
 
         // Configure the environment for the block.
@@ -491,7 +500,7 @@ where
 
         // append sender and transaction to the respective lists
         executed_senders.push(tx.signer());
-        executed_txs.push(tx.clone().into_signed());
+        executed_txs.push(tx.clone().into_tx());
         count += 1;
     }
 
@@ -538,7 +547,7 @@ where
             let env = EnvWithHandlerCfg::new_with_cfg_env(
                 initialized_cfg.clone(),
                 initialized_block_env.clone(),
-                evm_config.tx_env(builder_tx.as_signed(), builder_tx.signer()),
+                evm_config.tx_env(builder_tx.tx(), builder_tx.signer()),
             );
 
             let mut evm = evm_config.evm_with_env(&mut db, env);
@@ -569,7 +578,7 @@ where
 
             // Append sender and transaction to the respective lists
             executed_senders.push(builder_tx.signer());
-            executed_txs.push(builder_tx.into_signed());
+            executed_txs.push(builder_tx.into_tx());
             Ok(())
         })
         .transpose()
@@ -582,19 +591,16 @@ where
         &mut db,
         &chain_spec,
         attributes.payload_attributes.timestamp,
-        attributes.payload_attributes.withdrawals.clone(),
+        &attributes.payload_attributes.withdrawals,
     )?;
 
     // merge all transitions into bundle state, this would apply the withdrawal balance changes
     // and 4788 contract call
     db.merge_transitions(BundleRetention::Reverts);
 
-    let execution_outcome = ExecutionOutcome::new(
-        db.take_bundle(),
-        vec![receipts.clone()].into(),
-        block_number,
-        Vec::new(),
-    );
+    let execution_outcome =
+        ExecutionOutcome::new(db.take_bundle(), receipts.into(), block_number, Vec::new());
+
     let receipts_root = execution_outcome
         .generic_receipts_root_slow(block_number, |receipts| {
             calculate_receipt_root_no_memo_optimism(receipts, &chain_spec, attributes.timestamp())
@@ -635,13 +641,15 @@ where
     let is_holocene =
         chain_spec.is_holocene_active_at_timestamp(attributes.payload_attributes.timestamp);
 
-    if is_holocene {
-        extra_data = attributes
+    let extra_data = if is_holocene {
+        attributes
             .get_holocene_extra_data(
                 chain_spec.base_fee_params_at_timestamp(attributes.payload_attributes.timestamp),
             )
-            .map_err(PayloadBuilderError::other)?;
-    }
+            .map_err(PayloadBuilderError::other)?
+    } else {
+        Default::default()
+    };
 
     let header = Header {
         parent_hash: parent_header.hash(),
@@ -668,8 +676,8 @@ where
     };
 
     let withdrawals = chain_spec
-        .is_shanghai_active_at_timestamp(attributes.timestamp)
-        .then(|| attributes.withdrawals.clone());
+        .is_shanghai_active_at_timestamp(attributes.payload_attributes.timestamp)
+        .then(|| attributes.payload_attributes.withdrawals.clone());
 
     // seal the block
     let block = Block {
