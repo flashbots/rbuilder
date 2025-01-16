@@ -20,6 +20,7 @@ reth-optimism-consensus.workspace = true
 reth-optimism-chainspec.workspace = true
 reth-optimism-forks.workspace = true
 reth-optimism-node.workspace = true
+reth-optimism-primitives.workspace = true
 reth-execution-types.workspace = true
 reth-payload-builder.workspace = true
 reth-payload-primitives.workspace = true
@@ -27,6 +28,7 @@ reth-basic-payload-builder.workspace = true
 reth-trie.workspace = true
 reth-chain-state.workspace = true
 reth-optimism-payload-builder.workspace = true
+reth-transaction-pool.workspace = true
 
 # ethereum
 revm.workspace = true

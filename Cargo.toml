@@ -62,6 +62,7 @@ reth-payload-primitives = { git = "https://github.com/paradigmxyz/reth", tag = "
 reth-transaction-pool = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.5" }
 reth-consensus = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.5" }
 reth-optimism-consensus = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.5" }
+reth-optimism-primitives = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.5" }
 reth-optimism-cli = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.5" }
 reth-optimism-forks = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.5" }
 reth-auto-seal-consensus = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.5" }
