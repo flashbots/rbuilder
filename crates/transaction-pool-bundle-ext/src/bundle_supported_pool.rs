@@ -68,15 +68,9 @@ where
     S: BlobStore,
     B: BundlePoolOperations,
 {
-    pub fn new(
-        validator: V,
-        ordering: T,
-        blob_store: S,
-        bundle_ops: B,
-        tx_pool_config: PoolConfig,
-    ) -> Self {
+    pub fn new(pool: Pool<V, T, S>, bundle_ops: B) -> Self {
         Self {
-            tx_pool: Pool::<V, T, S>::new(validator, ordering, blob_store, tx_pool_config),
+            tx_pool: pool,
             bundle_pool: Arc::new(BundlePool::<B>::new(bundle_ops)),
         }
     }

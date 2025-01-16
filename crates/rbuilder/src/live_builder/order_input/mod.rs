@@ -328,33 +328,49 @@ where
     let handle = tokio::spawn(async move {
         info!("Clean orderpool job: started");
 
-        while let Some(header) = header_receiver.recv().await {
-            let block_number = header.number;
-            set_current_block(block_number);
-            let state = match provider_factory.latest() {
-                Ok(state) => state,
-                Err(err) => {
-                    error!("Failed to get latest state: {}", err);
-                    // @Metric error count
-                    continue;
+        loop {
+            tokio::select! {
+                header = header_receiver.recv() => {
+                    if let Some(header) = header {
+                        let block_number = header.number;
+                        set_current_block(block_number);
+                        let state = match provider_factory.latest() {
+                            Ok(state) => state,
+                            Err(err) => {
+                                error!("Failed to get latest state: {}", err);
+                                // @Metric error count
+                                continue;
+                            }
+                        };
+
+                        let mut orderpool = orderpool.lock();
+                        let start = Instant::now();
+
+                        orderpool.head_updated(block_number, &state);
+
+                        let update_time = start.elapsed();
+                        let (tx_count, bundle_count) = orderpool.content_count();
+                        set_ordepool_count(tx_count, bundle_count);
+                        debug!(
+                            block_number,
+                            tx_count,
+                            bundle_count,
+                            update_time_ms = update_time.as_millis(),
+                            "Cleaned orderpool",
+                        );
+                    } else {
+                        info!("Clean orderpool job: channel ended");
+                        if !global_cancellation.is_cancelled(){
+                            error!("Clean orderpool job: channel ended with no cancellation");
+                        }
+                        break;
+                    }
+                },
+                _ = global_cancellation.cancelled() => {
+                    info!("Clean orderpool job: received cancellation signal");
+                    break;
                 }
-            };
-
-            let mut orderpool = orderpool.lock();
-            let start = Instant::now();
-
-            orderpool.head_updated(block_number, &state);
-
-            let update_time = start.elapsed();
-            let (tx_count, bundle_count) = orderpool.content_count();
-            set_ordepool_count(tx_count, bundle_count);
-            debug!(
-                block_number,
-                tx_count,
-                bundle_count,
-                update_time_ms = update_time.as_millis(),
-                "Cleaned orderpool",
-            );
+            }
         }
 
         global_cancellation.cancel();

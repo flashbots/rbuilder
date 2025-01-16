@@ -28,9 +28,10 @@ use rbuilder::{
     provider::reth_prov::StateProviderFactoryFromRethProvider,
     telemetry,
 };
-use reth_primitives::{Header, TransactionSigned};
-use reth_provider::{
-    BlockReader, DatabaseProviderFactory, HeaderProvider, StateCommitmentProvider,
+use reth_primitives::TransactionSigned;
+use reth_provider::{BlockReader, DatabaseProviderFactory, HeaderProvider};
+use reth_transaction_pool::{
+    BlobStore, EthPooledTransaction, Pool, TransactionOrdering, TransactionValidator,
 };
 use tokio::{
     sync::{
@@ -90,7 +91,11 @@ impl SlotSource for OurSlotSource {
 }
 
 impl BundlePoolOps {
-    pub async fn new<P>(provider: P, config: Config) -> Result<Self, Error>
+    pub async fn new<P, V, T, S>(
+        provider: P,
+        pool: Pool<V, T, S>,
+        config: Config,
+    ) -> Result<Self, Error>
     where
         P: DatabaseProviderFactory<Provider: BlockReader>
             + reth_provider::StateProviderFactory
@@ -98,6 +103,9 @@ impl BundlePoolOps {
             + StateCommitmentProvider
             + Clone
             + 'static,
+        V: TransactionValidator<Transaction = EthPooledTransaction> + 'static,
+        T: TransactionOrdering<Transaction = <V as TransactionValidator>::Transaction>,
+        S: BlobStore,
     {
         // Create the payload source to trigger new block building
         let cancellation_token = CancellationToken::new();
@@ -111,7 +119,6 @@ impl BundlePoolOps {
             block_building_helper_tx,
         };
 
-        // Spawn the builder!
         let builder_strategy = BuilderConfig {
             name: "mp-ordering".to_string(),
             builder: SpecificBuilderConfig::OrderingBuilder(OrderingBuilderConfig {
@@ -165,6 +172,10 @@ impl BundlePoolOps {
             .await
             .expect("Failed to start full telemetry server");
 
+            builder
+                .connect_to_transaction_pool(pool)
+                .await
+                .expect("Failed to connect to reth pool");
             builder.run().await.unwrap();
 
             Ok::<(), ()>

@@ -192,7 +192,7 @@ impl DiffTrie {
                     new_nodes.reserve(3);
                     new_nodes.push((leaf_ptr, DiffTrieNode::new_leaf(key1, value)));
 
-                    // banch will point to the current extension child directly or to new extension node
+                    // branch will point to the current extension child directly or to new extension node
                     // that will point to child
 
                     let branch_other_child = if !key2.is_empty() {
@@ -410,7 +410,7 @@ impl DiffTrie {
                     let child_below = self
                         .nodes
                         .remove(child_ptr)
-                        .expect("orphaned child existance is checked when walking down");
+                        .expect("orphaned child existence is checked when walking down");
                     let node_above =
                         try_get_node_mut(&mut self.nodes, current_node, &Nibbles::new())
                             .expect("nodes must exist when walking back");
@@ -540,7 +540,7 @@ impl DiffTrie {
         match deletion_result {
             NodeDeletionResult::NodeDeleted => {
                 let ptr = get_new_ptr(&mut self.ptrs);
-                // trie is emptry, insert the null node on top
+                // trie is empty, insert the null node on top
                 self.nodes.insert(ptr, DiffTrieNode::new_null());
                 self.head = ptr;
             }

@@ -21,6 +21,7 @@ use sqlx::{
     ConnectOptions, Connection, Executor, Row, SqliteConnection,
 };
 use std::{
+    default::Default,
     ffi::OsString,
     path::{Path, PathBuf},
     str::FromStr,
@@ -529,6 +530,7 @@ fn group_rows_into_block_data(
                     onchain_block,
                     available_orders: Vec::new(),
                     built_block_data: None,
+                    filtered_orders: Default::default(),
                 },
             ))
         })
@@ -687,6 +689,7 @@ mod test {
             onchain_block,
             available_orders: orders,
             built_block_data: Some(built_block_data),
+            filtered_orders: Default::default(),
         };
 
         let mut storage = HistoricalDataStorage::new_from_memory().await.unwrap();

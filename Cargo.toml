@@ -2,8 +2,6 @@
 members = [
     "crates/rbuilder",
     "crates/op-rbuilder",
-    "crates/op-rbuilder/payload_builder",
-    "crates/op-rbuilder/node",
     "crates/reth-rbuilder",
     "crates/rbuilder/src/test_utils",
     "crates/rbuilder/src/telemetry/metrics_macros",
@@ -84,6 +82,11 @@ reth-storage-api = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.5"
 reth-optimism-rpc = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.5" }
 reth-optimism-payload-builder = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.5" }
 reth-optimism-chainspec = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.5" }
+reth-tasks = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.5" }
+reth-ethereum-payload-builder = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.5" }
+reth-payload-builder-primitives = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.5" }
+reth-payload-util = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.5" }
+reth-rpc-layer = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.5" }
 
 # version is copied from reth  "v1.1.5" dependencies
 revm = { version = "19.2.0", features = [
@@ -114,11 +117,14 @@ alloy-transport = { version = "0.9.2" }
 alloy-node-bindings = { version = "0.9.2" }
 alloy-consensus = { version = "0.9.2", features = ["kzg"] }
 op-alloy-consensus = { version = "0.6.8", features = ["kzg"] }
+op-alloy-provider = { version = "0.6.8" }
+op-alloy-rpc-types-engine = { version = "0.6.8" }
 alloy-serde = { version = "0.9.2" }
 alloy-rpc-types-beacon = { version = "0.9.2", features = ["ssz"] }
 alloy-rpc-types-engine = { version = "0.9.2", features = ["ssz"] }
 alloy-rpc-types-eth = { version = "0.9.2" }
 alloy-signer-local = { version = "0.9.2" }
+alloy-rpc-client = { version = "0.9.2" }
 alloy-genesis = { version = "0.9.2" }
 alloy-trie = { version = "0.7" }
 
