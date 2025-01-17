@@ -4,9 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-# workspace
-rbuilder = { path = "../rbuilder", features = ["optimism"] }
-
 reth.workspace = true
 reth-optimism-node.workspace = true
 reth-optimism-cli.workspace = true
@@ -57,7 +54,7 @@ alloy-provider.workspace = true
 tower = "0.4"
 serde_with.workspace = true
 serde.workspace = true
-
+secp256k1.workspace = true
 tokio.workspace = true
 jsonrpsee = { workspace = true }
 async-trait = { workspace = true }

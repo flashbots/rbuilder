@@ -3,7 +3,6 @@ use clap::Parser;
 use generator::EmptyBlockPayloadJobGenerator;
 use payload_builder::OpPayloadBuilder as FBPayloadBuilder;
 use payload_builder_vanilla::OpPayloadBuilderVanilla;
-use rbuilder::utils::Signer;
 use reth::{
     builder::{components::PayloadServiceBuilder, node::FullNodeTypes, BuilderContext},
     payload::PayloadBuilderHandle,
@@ -22,6 +21,7 @@ use reth_optimism_evm::OpEvmConfig;
 use reth_optimism_node::OpEngineTypes;
 use reth_optimism_node::{node::OpAddOns, OpNode};
 use reth_payload_builder::PayloadBuilderService;
+use tx_signer::Signer;
 
 /// CLI argument parsing.
 pub mod args;
@@ -29,6 +29,7 @@ pub mod args;
 pub mod generator;
 pub mod payload_builder;
 mod payload_builder_vanilla;
+mod tx_signer;
 
 #[derive(Debug, Clone, Copy, Default)]
 #[non_exhaustive]
@@ -88,7 +89,6 @@ fn main() {
             }
             let use_legacy_engine = op_rbuilder_args.rollup_args.legacy;
             let sequencer_http_arg = op_rbuilder_args.rollup_args.sequencer_http.clone();
-            let builder_signer = op_rbuilder_args.builder_secret_key()?;
             match use_legacy_engine {
                 false => {
                     let engine_tree_config = TreeConfig::default()
@@ -97,7 +97,7 @@ fn main() {
                     let handle = builder
                         .with_types_and_provider::<OpNode, BlockchainProvider2<_>>()
                         .with_components(
-                            OpNode::components(op_rbuilder_args.rollup_args).payload(CustomPayloadBuilder::new(builder_signer)),
+                            OpNode::components(op_rbuilder_args.rollup_args).payload(CustomPayloadBuilder::new(op_rbuilder_args.builder_signer)),
                         )
                         .with_add_ons(OpAddOns::new(sequencer_http_arg))
                         .launch_with_fn(|builder| {

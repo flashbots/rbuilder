@@ -87,7 +87,7 @@ mempool-dumpster = "0.1.1"
 itertools = "0.11.0"
 clap = { workspace = true, features = ["derive", "env"] }
 priority-queue = "2.0.3"
-secp256k1 = { version = "0.29", features = [
+secp256k1 = { workspace = true, features = [
     "global-context",
     "rand-std",
     "recovery",

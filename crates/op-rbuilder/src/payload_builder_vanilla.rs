@@ -2,7 +2,10 @@
 
 use std::{fmt::Display, sync::Arc};
 
-use crate::generator::{BlockCell, PayloadBuilder};
+use crate::{
+    generator::{BlockCell, PayloadBuilder},
+    tx_signer::Signer,
+};
 use alloy_consensus::{Header, Transaction, TxEip1559, EMPTY_OMMER_ROOT_HASH};
 use alloy_eips::merge::BEACON_NONCE;
 use alloy_primitives::{Address, Bytes, TxKind, U256};
@@ -40,7 +43,6 @@ use revm::{
 use tracing::{debug, trace, warn};
 
 use op_alloy_consensus::DepositTransaction;
-use rbuilder::utils::Signer;
 use reth_optimism_payload_builder::{
     error::OpPayloadBuilderError,
     payload::{OpBuiltPayload, OpPayloadBuilderAttributes},
@@ -151,7 +153,7 @@ where
             initialized_block_env,
             cancel,
             best_payload,
-            builder_signer: self.builder_signer.clone(),
+            builder_signer: self.builder_signer,
         };
 
         let builder = OpBuilder {
@@ -314,7 +316,7 @@ where
         if !ctx.attributes().no_tx_pool {
             let best_txs = best.best_transactions(pool, ctx.best_transaction_attributes());
             if ctx
-                .execute_best_transactions::<_, Pool>(&mut info, state, best_txs, block_gas_limit)?
+                .execute_best_transactions(&mut info, state, best_txs, block_gas_limit)?
                 .is_some()
             {
                 return Ok(BuildOutcomeKind::Cancelled);
@@ -669,7 +671,7 @@ impl<EvmConfig> OpPayloadBuilderCtx<EvmConfig> {
 
     /// Returns the builder signer
     pub fn builder_signer(&self) -> Option<Signer> {
-        self.builder_signer.clone()
+        self.builder_signer
     }
 
     /// Returns true if the fees are higher than the previous payload.
@@ -855,7 +857,7 @@ where
     /// Executes the given best transactions and updates the execution info.
     ///
     /// Returns `Ok(Some(())` if the job was cancelled.
-    pub fn execute_best_transactions<DB, Pool>(
+    pub fn execute_best_transactions<DB>(
         &self,
         info: &mut ExecutionInfo,
         db: &mut State<DB>,
@@ -864,7 +866,6 @@ where
     ) -> Result<Option<()>, PayloadBuilderError>
     where
         DB: Database<Error = ProviderError>,
-        Pool: TransactionPool,
     {
         let base_fee = self.base_fee();
 
