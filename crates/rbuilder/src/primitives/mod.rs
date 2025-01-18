@@ -258,7 +258,7 @@ pub struct Refund {
 }
 
 /// Users can specify how to get kickbacks and this is propagated by the MEV-Share Node to us.
-/// We get this configuration as multiple RefundConfigs, then the refunds are payed to the specified addresses in the indicated percentages.
+/// We get this configuration as multiple RefundConfigs, then the refunds are paid to the specified addresses in the indicated percentages.
 /// The sum of all RefundConfig::percent on a mev share bundle should be 100%.
 /// See [ShareBundleInner::refund_config] for more details.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -545,7 +545,7 @@ impl TransactionSignedEcRecoveredWithBlobs {
     }
 
     /// Encodes the "raw" canonical format of transaction (NOT the one used in `eth_sendRawTransaction`) BLOB DATA IS NOT ENCODED.
-    /// I intensionally omitted the version with blob data since we don't use it and may lead to confusions/bugs.
+    /// I intentsionally omitted the version with blob data since we don't use it and may lead to confusions/bugs.
     /// USE CAREFULLY since this exposes the signed tx.
     pub fn envelope_encoded_no_blobs(&self) -> Bytes {
         let mut buf = Vec::new();
@@ -628,7 +628,7 @@ impl TransactionSignedEcRecoveredWithBlobs {
 
 impl std::hash::Hash for TransactionSignedEcRecoveredWithBlobs {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        //This is enogth to identify the tx
+        //This is enough to identify the tx
         self.tx.hash(state);
     }
 }
