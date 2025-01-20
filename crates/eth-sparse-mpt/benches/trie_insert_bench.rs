@@ -66,7 +66,7 @@ fn gather_nodes(c: &mut Criterion) {
         b.iter(|| {
             let out = shared_cache
                 .gather_tries_for_changes(&changes)
-                .expect("gather must succed");
+                .expect("gather must succeed");
             black_box(out);
         })
     });
@@ -165,7 +165,7 @@ fn root_hash_all(c: &mut Criterion) {
 
     let tries = shared_cache
         .gather_tries_for_changes(&changes)
-        .expect("gather must succed");
+        .expect("gather must succeed");
 
     c.bench_function("root_hash_all_par_all", |b| {
         b.iter_batched(
@@ -228,10 +228,10 @@ fn root_hash_main_trie(c: &mut Criterion) {
 
     let mut trie = shared_cache
         .gather_tries_for_changes(&changes)
-        .expect("gather must succed")
+        .expect("gather must succeed")
         .account_trie;
     for key in changes.account_trie_updates {
-        trie.insert(key.clone(), key.clone()).expect("must instert");
+        trie.insert(key.clone(), key.clone()).expect("must insert");
     }
     for key in changes.account_trie_deletes {
         trie.delete(key).expect("must update");
@@ -267,7 +267,7 @@ fn root_hash_storage(c: &mut Criterion) {
 
     let tries = shared_cache
         .gather_tries_for_changes(&changes)
-        .expect("gather must succed");
+        .expect("gather must succeed");
 
     c.bench_function("root_hash_storage_insert", |b| {
         b.iter_batched(
