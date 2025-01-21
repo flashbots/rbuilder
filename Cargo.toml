@@ -53,6 +53,8 @@ reth-chainspec = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.5" }
 reth-evm = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.5" }
 reth-evm-ethereum = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.5" }
 reth-execution-errors = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.5" }
+reth-exex = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.5" }
+reth-metrics = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.5" }
 reth-trie-db = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.5" }
 reth-payload-primitives = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.5" }
 reth-transaction-pool = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.5" }
@@ -151,9 +153,10 @@ tokio-util = "0.7.12"
 url = "2.5.2"
 
 libc = { version = "0.2.161" }
+lazy_static = "1.4.0"
 tikv-jemallocator = { version = "0.6" }
 tracing = "0.1.37"
-
+metrics = { version = "0.24.1" }
 
 eth-sparse-mpt = { path = "crates/eth-sparse-mpt" }
 sysperf = { path = "crates/sysperf" }

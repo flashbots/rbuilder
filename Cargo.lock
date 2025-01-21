@@ -5748,9 +5748,9 @@ dependencies = [
 
 [[package]]
 name = "metrics"
-version = "0.24.0"
+version = "0.24.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ae428771d17306715c5091d446327d1cfdedc82185c65ba8423ab404e45bf10"
+checksum = "7a7deb012b3b2767169ff203fadb4c6b0b82b947512e5eb9e0b78c2e186ad9e3"
 dependencies = [
  "ahash",
  "portable-atomic",
@@ -6520,6 +6520,7 @@ dependencies = [
  "eyre",
  "futures-util",
  "jsonrpsee 0.24.7",
+ "metrics",
  "op-alloy-consensus",
  "op-alloy-rpc-types-engine",
  "reth",
@@ -6531,6 +6532,8 @@ dependencies = [
  "reth-ethereum-payload-builder",
  "reth-evm",
  "reth-execution-types",
+ "reth-exex",
+ "reth-metrics",
  "reth-node-api",
  "reth-node-ethereum",
  "reth-optimism-chainspec",

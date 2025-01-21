@@ -105,7 +105,7 @@ uuid = { version = "1.6.1", features = ["serde", "v5", "v4"] }
 prometheus = "0.13.4"
 hyper = { version = "1.3.1", features = ["server", "full"] }
 warp = "0.3.7"
-lazy_static = "1.4.0"
+lazy_static.workspace = true
 ctor = "0.2"
 toml = "0.8.8"
 ahash = "0.8.6"
