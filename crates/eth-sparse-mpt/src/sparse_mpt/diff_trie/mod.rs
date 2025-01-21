@@ -45,7 +45,7 @@ pub struct ErrSparseNodeNotFound {
 pub enum DeletionError {
     #[error("Deletion error: {0:?}")]
     NodeNotFound(#[from] ErrSparseNodeNotFound),
-    #[error("Key node found in the trie")]
+    #[error("Key node not found in the trie")]
     KeyNotFound,
 }
 
@@ -317,7 +317,7 @@ impl DiffTrie {
 
                     // check if we are removing from the branch with one child and we don't have a child
                     // its important to do it here so we don't modify the trie
-                    // @note, this may be too strict as we only need to check that for branches on the bottorm of the trie
+                    // @note, this may be too strict as we only need to check that for branches on the bottom of the trie
                     let child_count = branch.child_count();
                     if child_count == 2 {
                         // @test add test for this code path
