@@ -394,7 +394,7 @@ impl CSVResultWriter {
 }
 
 /// Spawns a task that reads BlockData from the HistoricalDataStorage in blocks of current_num_threads.
-/// The results can the be polled from the returned mpsc::Receiver
+/// The results can then be polled from the returned mpsc::Receiver
 /// This allows us to process a batch while the next is being fetched.
 fn spawn_block_fetcher(
     mut historical_data_storage: HistoricalDataStorage,
