@@ -516,7 +516,7 @@ impl TransactionSignedEcRecoveredWithBlobs {
         T: TransactionOrdering<Transaction = <V as TransactionValidator>::Transaction>,
         S: BlobStore,
     {
-        let blob_sidecar = pool.get_blob(tx.tx().hash())?.map(|b| (*b).clone());
+        let blob_sidecar = pool.get_blob(tx.tx().tx_hash().clone())?.map(|b| (*b).clone());
         Self::new(tx, blob_sidecar, None)
     }
 
@@ -530,7 +530,7 @@ impl TransactionSignedEcRecoveredWithBlobs {
     }
 
     pub fn hash(&self) -> TxHash {
-        self.tx.tx().hash()
+        self.tx.tx().tx_hash().clone()
     }
 
     pub fn signer(&self) -> Address {

@@ -144,7 +144,7 @@ criterion = { version = "0.5.1", features = ["html_reports", "async_tokio"] }
 optimism = [
     "reth-db/optimism",
     "reth-node-core/optimism",
-    "reth-primitives/optimism",
+    #"reth-primitives/optimism",
     "reth-provider/optimism",
     "revm-primitives/optimism",
     "revm/optimism",

@@ -13,7 +13,7 @@ pub mod tracers;
 use alloy_consensus::{Header, EMPTY_OMMER_ROOT_HASH};
 use alloy_primitives::{Address, Bytes, U256};
 use builders::mock_block_building_helper::MockRootHasher;
-use reth_primitives::{BlockBody, BlockExt};
+use reth_primitives::BlockBody;
 
 use crate::{
     primitives::{Order, OrderId, SimValue, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs},
@@ -34,6 +34,7 @@ use reth::{
     primitives::{proofs, Block, Receipt, Receipts, SealedBlock},
     providers::ExecutionOutcome,
     revm::cached::CachedReads,
+    api::{Block as BlockTrait},
 };
 use reth_basic_payload_builder::commit_withdrawals;
 use reth_chainspec::{ChainSpec, EthereumHardforks};
@@ -624,15 +625,13 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             let withdrawal_requests = system_caller
                 .post_block_withdrawal_requests_contract_call(
                     db.as_mut(),
-                    &ctx.initialized_cfg,
-                    &ctx.block_env,
+                    &(ctx.initialized_cfg.clone(), ctx.block_env.clone()).into(),
                 )
                 .map_err(|err| FinalizeError::Other(err.into()))?;
             let consolidation_requests = system_caller
                 .post_block_consolidation_requests_contract_call(
                     db.as_mut(),
-                    &ctx.initialized_cfg,
-                    &ctx.block_env,
+                    &(ctx.initialized_cfg.clone(), ctx.block_env.clone()).into(),
                 )
                 .map_err(|err| FinalizeError::Other(err.into()))?;
 
@@ -790,14 +789,12 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         );
         system_caller.pre_block_beacon_root_contract_call(
             db.as_mut(),
-            &ctx.initialized_cfg,
-            &ctx.block_env,
+            &(ctx.initialized_cfg.clone(), ctx.block_env.clone()).into(),
             ctx.attributes.parent_beacon_block_root(),
         )?;
         system_caller.pre_block_blockhashes_contract_call(
             db.as_mut(),
-            &ctx.initialized_cfg,
-            &ctx.block_env,
+            &(ctx.initialized_cfg.clone(), ctx.block_env.clone()).into(),
             ctx.attributes.parent,
         )?;
         db.as_mut().merge_transitions(BundleRetention::Reverts);

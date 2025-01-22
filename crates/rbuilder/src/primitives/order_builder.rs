@@ -1,5 +1,5 @@
 use std::mem;
-
+use reth_node_core::primitives::SignedTransaction;
 use super::{
     Bundle, BundleReplacementData, MempoolTx, Order, OrderId, Refund, RefundConfig, ShareBundle,
     ShareBundleBody, ShareBundleInner, ShareBundleTx, TransactionSignedEcRecoveredWithBlobs,
@@ -177,7 +177,7 @@ impl BundleBuilder {
         let mut txs = Vec::new();
         for (tx_with_blobs, opt) in self.txs {
             if opt {
-                reverting_tx_hashes.push(tx_with_blobs.tx.hash());
+                reverting_tx_hashes.push(tx_with_blobs.tx.tx_hash().clone());
             }
             txs.push(tx_with_blobs);
         }

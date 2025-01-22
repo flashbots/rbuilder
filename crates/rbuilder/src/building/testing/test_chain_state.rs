@@ -124,7 +124,7 @@ impl TestChainState {
         {
             let provider = provider_factory.provider_rw()?;
             provider.insert_historical_block(
-                SealedBlock::new(genesis_header.clone(), BlockBody::default())
+                SealedBlock::seal_parts(genesis_header.clone(), BlockBody::default())
                     .try_seal_with_senders()
                     .unwrap(),
             )?;
@@ -145,7 +145,7 @@ impl TestChainState {
                 for address in user_addresses {
                     cursor.upsert(
                         address,
-                        Account {
+                        &Account {
                             nonce: 0,
                             balance: parse_ether("1.0")?,
                             bytecode_hash: None,
@@ -156,7 +156,7 @@ impl TestChainState {
                 for (address, balance) in balances_to_increase {
                     cursor.upsert(
                         address,
-                        Account {
+                        &Account {
                             nonce: 0,
                             balance: U256::from(balance),
                             bytecode_hash: None,
@@ -167,7 +167,7 @@ impl TestChainState {
                 for contract in &contracts {
                     cursor.upsert(
                         contract.address,
-                        Account {
+                        &Account {
                             nonce: 0,
                             balance: U256::ZERO,
                             bytecode_hash: Some(contract.code_hash),
@@ -181,7 +181,7 @@ impl TestChainState {
                     .cursor_write::<tables::Bytecodes>()
                     .unwrap();
                 for contract in &contracts {
-                    cursor.upsert(contract.code_hash, Bytecode::new_raw(contract.code.clone()))?;
+                    cursor.upsert(contract.code_hash, &Bytecode::new_raw(contract.code.clone()))?;
                 }
             }
             provider.commit()?;

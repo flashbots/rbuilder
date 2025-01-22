@@ -215,7 +215,7 @@ async fn run_submit_to_relays_job(
             best_bid_value = format_ether(best_bid_value),
             true_bid_value = format_ether(block.trace.true_bid_value),
             block = block.sealed_block.number,
-            hash = ?block.sealed_block.header.hash(),
+            hash = ?block.sealed_block.header().hash_slow(),
             gas = block.sealed_block.gas_used,
             txs = block.sealed_block.body().transactions.len(),
             bundles,

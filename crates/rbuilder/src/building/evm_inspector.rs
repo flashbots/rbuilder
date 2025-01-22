@@ -213,9 +213,7 @@ impl<'a> RBuilderEVMInspector<'a> {
         used_state_trace: Option<&'a mut UsedStateTrace>,
     ) -> Self {
         let access_list_inspector = AccessListInspector::new(
-            tx.as_eip2930()
-                .map(|tx| tx.access_list.clone())
-                .unwrap_or_default(),
+            tx.access_list().cloned().unwrap_or_default(),
             tx.signer(),
             tx.to().unwrap_or_default(),
             None,

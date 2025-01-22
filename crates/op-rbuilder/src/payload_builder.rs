@@ -17,7 +17,6 @@ use reth_optimism_primitives::{OpReceipt, OpTransactionSigned};
 use reth_payload_builder_primitives::PayloadBuilderError;
 use reth_payload_primitives::PayloadBuilderAttributes;
 use reth_payload_util::PayloadTransactions;
-use reth_primitives::BlockExt;
 use reth_primitives::{
     proofs, transaction::SignedTransactionIntoRecoveredExt, Block, BlockBody, SealedHeader, TxType,
 };

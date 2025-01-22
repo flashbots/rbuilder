@@ -12,6 +12,7 @@ use eyre::Context;
 use reth_chainspec::ChainSpec;
 use reth_primitives::{Receipt, TransactionSignedEcRecovered};
 use std::sync::Arc;
+use reth_node_core::primitives::SignedTransaction;
 
 #[derive(Debug)]
 pub struct ExecutedTxs {
@@ -23,7 +24,7 @@ pub struct ExecutedTxs {
 
 impl ExecutedTxs {
     pub fn hash(&self) -> TxHash {
-        self.tx.hash()
+        self.tx.tx_hash().clone()
     }
 }
 
