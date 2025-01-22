@@ -1,9 +1,9 @@
 use std::str::FromStr;
 
 use alloy_primitives::{Address, PrimitiveSignature as Signature, B256, U256};
-use op_alloy_consensus::OpTypedTransaction;
-use reth_optimism_primitives::OpTransactionSigned;
-use reth_primitives::{public_key_to_address, Transaction, TransactionSignedEcRecovered};
+use reth_primitives::{
+    public_key_to_address, Transaction, TransactionSigned, TransactionSignedEcRecovered,
+};
 use secp256k1::{Message, SecretKey, SECP256K1};
 
 /// Simple struct to sign txs/messages.
@@ -38,10 +38,10 @@ impl Signer {
 
     pub fn sign_tx(
         &self,
-        tx: OpTypedTransaction,
+        tx: Transaction,
     ) -> Result<TransactionSignedEcRecovered, secp256k1::Error> {
         let signature = self.sign_message(tx.signature_hash())?;
-        let signed = OpTransactionSigned::new_unhashed(tx, signature);
+        let signed = TransactionSigned::new_unhashed(tx, signature);
         Ok(TransactionSignedEcRecovered::new_unchecked(
             signed,
             self.address,
