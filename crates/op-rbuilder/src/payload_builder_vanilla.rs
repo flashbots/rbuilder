@@ -26,7 +26,7 @@ use reth_payload_primitives::PayloadBuilderAttributes;
 use reth_payload_util::PayloadTransactions;
 use reth_primitives::{
     proofs, transaction::SignedTransactionIntoRecoveredExt, Block, BlockBody, BlockExt,
-    SealedHeader, Transaction as RethTransaction, TxType,
+    SealedHeader, TxType,
 };
 use reth_provider::{
     HashedPostStateProvider, ProviderError, StateProviderFactory, StateRootProvider,
@@ -43,7 +43,7 @@ use revm::{
 };
 use tracing::{debug, trace, warn};
 
-use op_alloy_consensus::{OpDepositReceipt, OpTxType};
+use op_alloy_consensus::{OpDepositReceipt, OpTxType, OpTypedTransaction};
 use reth_optimism_payload_builder::{
     error::OpPayloadBuilderError,
     payload::{OpBuiltPayload, OpPayloadBuilderAttributes},
@@ -93,9 +93,7 @@ where
     ) -> Result<(), PayloadBuilderError> {
         let pool = args.pool.clone();
 
-        match self.build_payload(args, |attrs| {
-            self.best_transactions.best_transactions(pool, attrs)
-        })? {
+        match self.build_payload(args, |attrs| ().best_transactions(pool, attrs))? {
             BuildOutcome::Better { payload, .. } => {
                 best_payload.set(payload);
                 Ok(())
@@ -969,7 +967,7 @@ where
                     })?;
 
                 // Create the EIP-1559 transaction
-                let eip1559 = RethTransaction::Eip1559(TxEip1559 {
+                let eip1559 = OpTypedTransaction::Eip1559(TxEip1559 {
                     chain_id: self.chain_id(),
                     nonce,
                     gas_limit: builder_tx_gas,
