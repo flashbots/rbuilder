@@ -191,6 +191,7 @@ impl TestChainState {
             genesis_header.hash(),
             RootHashConfig::new(true, false),
             provider_factory.clone(),
+            provider_factory.clone(),
         ));
 
         let ctx = TestBlockContextBuilder::new(

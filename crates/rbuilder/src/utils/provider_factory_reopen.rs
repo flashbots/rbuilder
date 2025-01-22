@@ -11,12 +11,14 @@ use reth::providers::ExecutionOutcome;
 use reth::providers::{BlockHashReader, ChainSpecProvider, ProviderFactory};
 use reth_db::DatabaseError;
 use reth_errors::{ProviderError, ProviderResult, RethResult};
-use reth_node_api::NodeTypesWithDB;
+use reth_node_api::{NodePrimitives, NodeTypesWithDB};
 use reth_provider::{
     providers::{ProviderNodeTypes, StaticFileProvider},
     BlockNumReader, HeaderProvider, StateProviderBox, StaticFileProviderFactory,
 };
-use reth_provider::{BlockReader, DatabaseProviderFactory};
+use reth_provider::{
+    BlockReader, DatabaseProviderFactory, HashedPostStateProvider, StateCommitmentProvider,
+};
 use revm_primitives::B256;
 use std::ops::DerefMut;
 use std::{path::PathBuf, sync::Arc};
@@ -179,6 +181,8 @@ pub fn check_block_hash_reader_health<R: BlockHashReader>(
 
 impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> StateProviderFactory
     for ProviderFactoryReopener<N>
+where
+    N::Primitives: NodePrimitives<BlockHeader = Header>,
 {
     fn latest(&self) -> ProviderResult<StateProviderBox> {
         let provider = self
@@ -236,8 +240,8 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> StateProviderFactory
         provider.last_block_number()
     }
 
-    fn root_hasher(&self, parent_hash: B256) -> Box<dyn RootHasher> {
-        if let Some(root_hash_config) = &self.root_hash_config {
+    fn root_hasher(&self, parent_hash: B256) -> ProviderResult<Box<dyn RootHasher>> {
+        Ok(if let Some(root_hash_config) = &self.root_hash_config {
             let provider = self
                 .check_consistency_and_reopen_if_needed()
                 .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))
@@ -245,35 +249,44 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> StateProviderFactory
             Box::new(RootHasherImpl::new(
                 parent_hash,
                 root_hash_config.clone(),
+                provider.clone(),
                 provider,
             ))
         } else {
             Box::new(MockRootHasher {})
-        }
+        })
     }
 }
 
-pub struct RootHasherImpl<T> {
+pub struct RootHasherImpl<T, HasherType> {
     parent_hash: B256,
     provider: T,
+    hasher: HasherType,
     sparse_trie_shared_cache: SparseTrieSharedCache,
     config: RootHashConfig,
 }
 
-impl<T> RootHasherImpl<T> {
-    pub fn new(parent_hash: B256, config: RootHashConfig, provider: T) -> Self {
+impl<T, HasherType> RootHasherImpl<T, HasherType> {
+    pub fn new(parent_hash: B256, config: RootHashConfig, provider: T, hasher: HasherType) -> Self {
         Self {
             parent_hash,
             provider,
+            hasher,
             config,
             sparse_trie_shared_cache: Default::default(),
         }
     }
 }
 
-impl<T> RootHasher for RootHasherImpl<T>
+impl<T, HasherType> RootHasher for RootHasherImpl<T, HasherType>
 where
-    T: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync + Clone + 'static,
+    HasherType: HashedPostStateProvider,
+    T: DatabaseProviderFactory<Provider: BlockReader>
+        + StateCommitmentProvider
+        + Send
+        + Sync
+        + Clone
+        + 'static,
 {
     fn run_prefetcher(
         &self,
@@ -292,6 +305,7 @@ where
     fn state_root(&self, outcome: &ExecutionOutcome) -> Result<B256, RootHashError> {
         calculate_state_root(
             self.provider.clone(),
+            &self.hasher,
             self.parent_hash,
             outcome,
             self.sparse_trie_shared_cache.clone(),
@@ -300,7 +314,7 @@ where
     }
 }
 
-impl<T> std::fmt::Debug for RootHasherImpl<T> {
+impl<T, HasherType> std::fmt::Debug for RootHasherImpl<T, HasherType> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RootHasherImpl")
             .field("parent_hash", &self.parent_hash)

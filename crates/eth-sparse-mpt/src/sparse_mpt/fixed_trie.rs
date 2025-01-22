@@ -462,12 +462,12 @@ fn get_child_ptr(child_ptrs: &[(u8, u64)], nibble: u8) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::{get_test_change_set, get_test_mutliproofs};
+    use crate::utils::{get_test_change_set, get_test_multiproofs};
 
     #[test]
     fn test_insert_and_gather_account_trie() {
         let account_proof = {
-            let multiproof = get_test_mutliproofs();
+            let multiproof = get_test_multiproofs();
             let mut account_proof: Vec<_> = multiproof
                 .into_iter()
                 .flat_map(|mp| mp.account_subtree.into_iter().collect::<Vec<_>>())

@@ -1,7 +1,7 @@
 use alloy_consensus::Header;
 use alloy_primitives::{BlockHash, BlockNumber};
 use reth_errors::ProviderResult;
-use reth_node_api::NodeTypesWithDB;
+use reth_node_api::{NodePrimitives, NodeTypes, NodeTypesWithDB};
 use reth_provider::{
     providers::ProviderNodeTypes, BlockHashReader, BlockNumReader, HeaderProvider, ProviderFactory,
     StateProviderBox,
@@ -32,8 +32,10 @@ impl<N: NodeTypesWithDB> StateProviderFactoryFromProviderFactory<N> {
     }
 }
 
-impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> StateProviderFactory
-    for StateProviderFactoryFromProviderFactory<N>
+impl<N> StateProviderFactory for StateProviderFactoryFromProviderFactory<N>
+where
+    N: NodeTypesWithDB + ProviderNodeTypes + Clone,
+    <N as NodeTypes>::Primitives: NodePrimitives<BlockHeader = Header>,
 {
     fn latest(&self) -> ProviderResult<StateProviderBox> {
         self.provider.latest()
@@ -67,15 +69,16 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> StateProviderFactory
         self.provider.last_block_number()
     }
 
-    fn root_hasher(&self, parent_hash: B256) -> Box<dyn RootHasher> {
-        if let Some(root_hash_config) = &self.root_hash_config {
+    fn root_hasher(&self, parent_hash: B256) -> ProviderResult<Box<dyn RootHasher>> {
+        Ok(if let Some(root_hash_config) = &self.root_hash_config {
             Box::new(RootHasherImpl::new(
                 parent_hash,
                 root_hash_config.clone(),
                 self.provider.clone(),
+                self.provider.clone(),
             ))
         } else {
             Box::new(MockRootHasher {})
-        }
+        })
     }
 }

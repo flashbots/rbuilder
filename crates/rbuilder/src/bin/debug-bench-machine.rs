@@ -71,7 +71,7 @@ async fn main() -> eyre::Result<()> {
         coinbase,
         suggested_fee_recipient,
         None,
-        Arc::from(provider_factory.root_hasher(parent_hash)),
+        Arc::from(provider_factory.root_hasher(parent_hash)?),
     );
 
     let state_provider = Arc::<dyn StateProvider>::from(

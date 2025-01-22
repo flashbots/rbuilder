@@ -31,7 +31,7 @@ pub trait StateProviderFactory: Send + Sync {
 
     fn last_block_number(&self) -> ProviderResult<BlockNumber>;
 
-    fn root_hasher(&self, parent_hash: B256) -> Box<dyn RootHasher>;
+    fn root_hasher(&self, parent_hash: B256) -> ProviderResult<Box<dyn RootHasher>>;
 }
 
 /// trait that computes the roothash for a new block assuming a predefine parent block (given in StateProviderFactory::root_hasher)

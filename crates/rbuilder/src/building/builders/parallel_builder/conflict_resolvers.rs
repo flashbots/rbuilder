@@ -466,7 +466,8 @@ mod tests {
     use ahash::HashSet;
     use alloy_consensus::TxLegacy;
     use alloy_primitives::{Address, TxHash, B256, U256};
-    use reth::primitives::{Transaction, TransactionSigned, TransactionSignedEcRecovered};
+    use reth::primitives::{TransactionSigned, TransactionSignedEcRecovered};
+    use reth_primitives::Transaction;
     use uuid::Uuid;
 
     use super::*;
@@ -504,12 +505,12 @@ mod tests {
                 nonce: self.create_u64(),
                 ..Default::default()
             };
-            TransactionSignedEcRecovered::from_signed_transaction(
-                TransactionSigned {
-                    hash: self.create_hash(),
-                    transaction: Transaction::Legacy(tx_legacy),
-                    ..Default::default()
-                },
+            TransactionSignedEcRecovered::new_unchecked(
+                TransactionSigned::new(
+                    Transaction::Legacy(tx_legacy),
+                    alloy_primitives::PrimitiveSignature::test_signature(),
+                    self.create_hash(),
+                ),
                 Address::default(),
             )
         }

@@ -1,8 +1,8 @@
-use args::OpRbuilderArgs;
 use clap::Parser;
 use generator::EmptyBlockPayloadJobGenerator;
 use payload_builder::OpPayloadBuilder as FBPayloadBuilder;
 use payload_builder_vanilla::OpPayloadBuilderVanilla;
+use reth::builder::Node;
 use reth::{
     builder::{components::PayloadServiceBuilder, node::FullNodeTypes, BuilderContext},
     payload::PayloadBuilderHandle,
@@ -15,22 +15,25 @@ use reth::{
 };
 use reth_basic_payload_builder::BasicPayloadJobGeneratorConfig;
 use reth_node_api::NodeTypesWithEngine;
+use reth_node_api::TxTy;
 use reth_optimism_chainspec::OpChainSpec;
 use reth_optimism_cli::{chainspec::OpChainSpecParser, Cli};
 use reth_optimism_evm::OpEvmConfig;
 use reth_optimism_node::OpEngineTypes;
-use reth_optimism_node::{node::OpAddOns, OpNode};
+use reth_optimism_node::OpNode;
 use reth_payload_builder::PayloadBuilderService;
 use tx_signer::Signer;
 
 /// CLI argument parsing.
 pub mod args;
 
+use reth_optimism_primitives::OpPrimitives;
+use reth_transaction_pool::PoolTransaction;
+
 pub mod generator;
 pub mod payload_builder;
 mod payload_builder_vanilla;
 mod tx_signer;
-
 #[derive(Debug, Clone, Copy, Default)]
 #[non_exhaustive]
 pub struct CustomPayloadBuilder {
@@ -45,9 +48,16 @@ impl CustomPayloadBuilder {
 
 impl<Node, Pool> PayloadServiceBuilder<Node, Pool> for CustomPayloadBuilder
 where
-    Node:
-        FullNodeTypes<Types: NodeTypesWithEngine<Engine = OpEngineTypes, ChainSpec = OpChainSpec>>,
-    Pool: TransactionPool + Unpin + 'static,
+    Node: FullNodeTypes<
+        Types: NodeTypesWithEngine<
+            Engine = OpEngineTypes,
+            ChainSpec = OpChainSpec,
+            Primitives = OpPrimitives,
+        >,
+    >,
+    Pool: TransactionPool<Transaction: PoolTransaction<Consensus = TxTy<Node::Types>>>
+        + Unpin
+        + 'static,
 {
     async fn spawn_payload_service(
         self,
@@ -82,43 +92,34 @@ where
 }
 
 fn main() {
-    Cli::<OpChainSpecParser, OpRbuilderArgs>::parse()
-        .run(|builder, op_rbuilder_args| async move {
-            if op_rbuilder_args.rollup_args.experimental {
-                tracing::warn!(target: "reth::cli", "Experimental engine is default now, and the --engine.experimental flag is deprecated. To enable the legacy functionality, use --engine.legacy.");
-            }
-            let use_legacy_engine = op_rbuilder_args.rollup_args.legacy;
-            let sequencer_http_arg = op_rbuilder_args.rollup_args.sequencer_http.clone();
-            match use_legacy_engine {
-                false => {
-                    let engine_tree_config = TreeConfig::default()
-                        .with_persistence_threshold(op_rbuilder_args.rollup_args.persistence_threshold)
-                        .with_memory_block_buffer_target(op_rbuilder_args.rollup_args.memory_block_buffer_target);
-                    let handle = builder
-                        .with_types_and_provider::<OpNode, BlockchainProvider2<_>>()
-                        .with_components(
-                            OpNode::components(op_rbuilder_args.rollup_args).payload(CustomPayloadBuilder::new(op_rbuilder_args.builder_signer)),
-                        )
-                        .with_add_ons(OpAddOns::new(sequencer_http_arg))
-                        .launch_with_fn(|builder| {
-                            let launcher = EngineNodeLauncher::new(
-                                builder.task_executor().clone(),
-                                builder.config().datadir(),
-                                engine_tree_config,
-                            );
-                            builder.launch_with(launcher)
-                        })
-                        .await?;
+    Cli::<OpChainSpecParser, args::OpRbuilderArgs>::parse()
+        .run(|builder, builder_args| async move {
+            let rollup_args = builder_args.rollup_args;
 
-                    handle.node_exit_future.await
-                },
-                true => {
-                    let handle =
-                        builder.node(OpNode::new(op_rbuilder_args.rollup_args.clone())).launch().await?;
+            let engine_tree_config = TreeConfig::default()
+                .with_persistence_threshold(rollup_args.persistence_threshold)
+                .with_memory_block_buffer_target(rollup_args.memory_block_buffer_target);
 
-                    handle.node_exit_future.await
-                },
-            }
+            let op_node = OpNode::new(rollup_args.clone());
+            let handle = builder
+                .with_types_and_provider::<OpNode, BlockchainProvider2<_>>()
+                .with_components(
+                    op_node
+                        .components()
+                        .payload(CustomPayloadBuilder::new(builder_args.builder_signer)),
+                )
+                .with_add_ons(op_node.add_ons())
+                .launch_with_fn(|builder| {
+                    let launcher = EngineNodeLauncher::new(
+                        builder.task_executor().clone(),
+                        builder.config().datadir(),
+                        engine_tree_config,
+                    );
+                    builder.launch_with(launcher)
+                })
+                .await?;
+
+            handle.node_exit_future.await
         })
         .unwrap();
 }

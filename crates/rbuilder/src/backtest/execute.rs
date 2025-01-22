@@ -76,7 +76,7 @@ where
         builder_signer.address,
         block_data.winning_bid_trace.proposer_fee_recipient,
         Some(builder_signer),
-        Arc::from(provider.root_hasher(block_data.winning_bid_trace.parent_hash)),
+        Arc::from(provider.root_hasher(block_data.winning_bid_trace.parent_hash)?),
     );
     backtest_prepare_ctx_for_block_from_building_context(
         ctx,

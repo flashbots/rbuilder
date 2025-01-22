@@ -112,7 +112,7 @@ where
         let builder_balance = self
             .provider
             .history_by_block_number(block)?
-            .account_balance(self.builder_addr)?
+            .account_balance(&self.builder_addr)?
             .unwrap_or_default();
         let header = self
             .provider

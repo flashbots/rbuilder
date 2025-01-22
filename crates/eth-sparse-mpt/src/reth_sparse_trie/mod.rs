@@ -3,6 +3,7 @@ use change_set::{prepare_change_set, prepare_change_set_for_prefetch};
 use hash::RootHashError;
 use reth_provider::{
     providers::ConsistentDbView, BlockReader, DatabaseProviderFactory, ExecutionOutcome,
+    StateCommitmentProvider,
 };
 use std::time::{Duration, Instant};
 
@@ -38,7 +39,7 @@ pub enum SparseTrieError {
     #[error("Error while updated shared cache: {0:?}")]
     FailedToUpdateSharedCache(#[from] AddNodeError),
     /// This might indicate bug in the library
-    /// or incorrect underlying storage (e.g. when deletes can't be applyed to the trie because it does not have that keys)
+    /// or incorrect underlying storage (e.g. when deletes can't be applied to the trie because it does not have that keys)
     #[error("Failed to fetch data")]
     FailedToFetchData,
 }
@@ -69,6 +70,7 @@ pub fn prefetch_tries_for_accounts<'a, Provider>(
 ) -> Result<(), SparseTrieError>
 where
     Provider: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync,
+    Provider: StateCommitmentProvider,
 {
     let change_set = prepare_change_set_for_prefetch(changed_data);
 
@@ -89,7 +91,7 @@ where
 }
 
 /// Calculate root hash for the given outcome on top of the block defined by consistent_db_view.
-/// * shared_cache should be created once for each parent block and it stores fethed parts of the trie
+/// * shared_cache should be created once for each parent block and it stores fetched parts of the trie
 /// * It uses rayon for parallelism and the thread pool should be configured from outside.
 pub fn calculate_root_hash_with_sparse_trie<Provider>(
     consistent_db_view: ConsistentDbView<Provider>,
@@ -98,6 +100,7 @@ pub fn calculate_root_hash_with_sparse_trie<Provider>(
 ) -> (Result<B256, SparseTrieError>, SparseTrieMetrics)
 where
     Provider: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync,
+    Provider: StateCommitmentProvider,
 {
     let mut metrics = SparseTrieMetrics::default();
 
@@ -139,7 +142,7 @@ where
 
         // {
         //     let multiproof_json = serde_json::to_string_pretty(&multiproof).expect("to json fail");
-        //     let mut file = std::fs::File::create(&format!("/tmp/mutliproof_{}.json", i)).unwrap();
+        //     let mut file = std::fs::File::create(&format!("/tmp/multiproof_{}.json", i)).unwrap();
         //     file.write_all(multiproof_json.as_bytes()).unwrap();
         // }
 

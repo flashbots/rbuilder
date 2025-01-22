@@ -72,7 +72,12 @@ impl EthSparseTries {
             let hash = account_hashes
                 .remove(&account)
                 .expect("account hash not found");
-            let trie_account: TrieAccount = (updated_info, hash).into();
+            let trie_account: TrieAccount = TrieAccount {
+                nonce: updated_info.nonce,
+                balance: updated_info.balance,
+                storage_root: hash,
+                code_hash: updated_info.code_hash,
+            };
             encoded_account.clear();
             trie_account.encode(&mut encoded_account);
 

@@ -11,7 +11,7 @@ use rbuilder::{
     provider::reth_prov::StateProviderFactoryFromRethProvider,
     telemetry,
 };
-use reth::{chainspec::EthereumChainSpecParser, cli::Cli};
+use reth::{chainspec::EthereumChainSpecParser, cli::Cli, primitives::Header};
 use reth_node_builder::{
     engine_tree_config::{
         TreeConfig, DEFAULT_MEMORY_BLOCK_BUFFER_TARGET, DEFAULT_PERSISTENCE_THRESHOLD,
@@ -21,7 +21,7 @@ use reth_node_builder::{
 use reth_node_ethereum::{node::EthereumAddOns, EthereumNode};
 use reth_provider::{
     providers::{BlockchainProvider, BlockchainProvider2},
-    BlockReader, DatabaseProviderFactory, HeaderProvider,
+    BlockReader, DatabaseProviderFactory, HeaderProvider, StateCommitmentProvider,
 };
 use reth_transaction_pool::{blobstore::DiskFileBlobStore, EthTransactionPool};
 use std::{path::PathBuf, process};
@@ -129,7 +129,8 @@ fn spawn_rbuilder<P>(
 ) where
     P: DatabaseProviderFactory<Provider: BlockReader>
         + reth_provider::StateProviderFactory
-        + HeaderProvider
+        + HeaderProvider<Header = Header>
+        + StateCommitmentProvider
         + Clone
         + 'static,
 {

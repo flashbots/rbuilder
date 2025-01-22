@@ -31,7 +31,7 @@ pub fn create_payout_tx(
     signer.sign_tx(tx)
 }
 
-#[derive(Debug, thiserror::Error, Eq, PartialEq)]
+#[derive(Debug, thiserror::Error)]
 pub enum PayoutTxErr {
     #[error("Reth error: {0}")]
     Reth(#[from] ProviderError),
@@ -68,8 +68,7 @@ pub fn insert_test_payout_tx(
     )?;
 
     let mut tx_env = TxEnv::default();
-    let tx_signed = tx.clone().into_signed();
-    tx_signed.fill_tx_env(&mut tx_env, tx_signed.recover_signer().unwrap());
+    tx.fill_tx_env(&mut tx_env, tx.signer());
 
     let env = Env {
         cfg: cfg.cfg_env.clone(),
@@ -95,7 +94,7 @@ pub fn insert_test_payout_tx(
     }
 }
 
-#[derive(Debug, thiserror::Error, Eq, PartialEq)]
+#[derive(Debug, thiserror::Error)]
 pub enum EstimatePayoutGasErr {
     #[error("Reth error: {0}")]
     Reth(#[from] ProviderError),

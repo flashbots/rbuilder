@@ -32,7 +32,7 @@ pub use provider_factory_reopen::{
     ProviderFactoryReopener, RootHasherImpl,
 };
 use reth_chainspec::ChainSpec;
-use reth_evm_ethereum::revm_spec_by_timestamp_after_merge;
+use reth_evm_ethereum::revm_spec_by_timestamp_and_block_number;
 use revm_primitives::{CfgEnv, CfgEnvWithHandlerCfg};
 use std::cmp::{max, min};
 pub use test_data_generator::TestDataGenerator;
@@ -114,13 +114,14 @@ pub fn gen_uid() -> u64 {
 
 pub fn default_cfg_env(
     chain: &ChainSpec,
-    block_timestamp_after_merge: u64,
+    block_timestamp: u64,
+    block_number: u64,
 ) -> CfgEnvWithHandlerCfg {
     let mut cfg = CfgEnv::default();
     cfg.chain_id = chain.chain().id();
     CfgEnvWithHandlerCfg::new_with_spec_id(
         cfg,
-        revm_spec_by_timestamp_after_merge(chain, block_timestamp_after_merge),
+        revm_spec_by_timestamp_and_block_number(chain, block_timestamp, block_number),
     )
 }
 

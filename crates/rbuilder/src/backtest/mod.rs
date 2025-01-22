@@ -215,6 +215,7 @@ impl BlockData {
         if let BlockTransactions::Full(txs) = &self.onchain_block.transactions {
             txs.iter()
                 .filter(|tx| {
+                    let tx = *tx;
                     !available_accounts
                         .iter()
                         .any(|x| x.nonce == tx.nonce() && x.address == tx.from)
