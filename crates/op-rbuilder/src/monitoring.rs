@@ -108,8 +108,8 @@ fn decode_chain_into_builder_txs(
                 .filter(|(tx, receipt)| {
                     receipt.success
                         && tx.input().starts_with(OP_BUILDER_TX_PREFIX)
-                        && tx.recover_signer().map_or(false, |signer| {
-                            builder_signer.map_or(false, |bs| signer == bs.address)
+                        && tx.recover_signer().is_some_and(|signer| {
+                            builder_signer.is_some_and(|bs| signer == bs.address)
                         })
                 })
                 .map(move |(tx, _)| (block, tx))
