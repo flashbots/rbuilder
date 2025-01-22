@@ -113,10 +113,8 @@ fn main() {
                 )
                 .with_add_ons(op_node.add_ons())
                 .install_exex("monitoring", move |ctx| {
-                    let builder_signer = op_rbuilder_args.builder_signer;
-                    async move {
-                        Ok(Monitoring::new(ctx, builder_signer).start())
-                    }
+                    let builder_signer = builder_args.builder_signer;
+                    async move { Ok(Monitoring::new(ctx, builder_signer).start()) }
                 })
                 .launch_with_fn(|builder| {
                     let launcher = EngineNodeLauncher::new(
