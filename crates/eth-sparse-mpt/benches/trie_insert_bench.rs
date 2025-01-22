@@ -6,7 +6,7 @@ use eth_sparse_mpt::{
         shared_cache::RethSparseTrieShareCacheInternal, SparseTrieSharedCache,
     },
     sparse_mpt::{DiffTrie, FixedTrie},
-    utils::{get_test_change_set, get_test_mutliproofs},
+    utils::{get_test_change_set, get_test_multiproofs},
 };
 
 fn get_storage_tries(changes: &ETHTrieChangeSet, tries: &EthSparseTries) -> Vec<DiffTrie> {
@@ -42,7 +42,7 @@ fn apply_storage_tries_changes<'a>(
 }
 
 fn gather_nodes(c: &mut Criterion) {
-    let multiproof = get_test_mutliproofs();
+    let multiproof = get_test_multiproofs();
     let changes = get_test_change_set();
 
     let shared_cache = SparseTrieSharedCache::default();
@@ -66,7 +66,7 @@ fn gather_nodes(c: &mut Criterion) {
         b.iter(|| {
             let out = shared_cache
                 .gather_tries_for_changes(&changes)
-                .expect("gather must succed");
+                .expect("gather must succeed");
             black_box(out);
         })
     });
@@ -113,7 +113,7 @@ fn gather_nodes(c: &mut Criterion) {
     });
 
     let account_proof = {
-        let multiproof = get_test_mutliproofs();
+        let multiproof = get_test_multiproofs();
         let mut account_proof: Vec<_> = multiproof
             .into_iter()
             .flat_map(|mp| mp.account_subtree.into_iter().collect::<Vec<_>>())
@@ -153,7 +153,7 @@ fn gather_nodes(c: &mut Criterion) {
 }
 
 fn root_hash_all(c: &mut Criterion) {
-    let multiproof = get_test_mutliproofs();
+    let multiproof = get_test_multiproofs();
     let changes = get_test_change_set();
 
     let shared_cache = SparseTrieSharedCache::default();
@@ -165,7 +165,7 @@ fn root_hash_all(c: &mut Criterion) {
 
     let tries = shared_cache
         .gather_tries_for_changes(&changes)
-        .expect("gather must succed");
+        .expect("gather must succeed");
 
     c.bench_function("root_hash_all_par_all", |b| {
         b.iter_batched(
@@ -216,7 +216,7 @@ fn root_hash_all(c: &mut Criterion) {
 }
 
 fn root_hash_main_trie(c: &mut Criterion) {
-    let multiproof = get_test_mutliproofs();
+    let multiproof = get_test_multiproofs();
     let changes = get_test_change_set();
 
     let shared_cache = SparseTrieSharedCache::default();
@@ -228,10 +228,10 @@ fn root_hash_main_trie(c: &mut Criterion) {
 
     let mut trie = shared_cache
         .gather_tries_for_changes(&changes)
-        .expect("gather must succed")
+        .expect("gather must succeed")
         .account_trie;
     for key in changes.account_trie_updates {
-        trie.insert(key.clone(), key.clone()).expect("must instert");
+        trie.insert(key.clone(), key.clone()).expect("must insert");
     }
     for key in changes.account_trie_deletes {
         trie.delete(key).expect("must update");
@@ -255,7 +255,7 @@ fn root_hash_main_trie(c: &mut Criterion) {
 }
 
 fn root_hash_storage(c: &mut Criterion) {
-    let multiproof = get_test_mutliproofs();
+    let multiproof = get_test_multiproofs();
     let changes = get_test_change_set();
 
     let shared_cache = SparseTrieSharedCache::default();
@@ -267,7 +267,7 @@ fn root_hash_storage(c: &mut Criterion) {
 
     let tries = shared_cache
         .gather_tries_for_changes(&changes)
-        .expect("gather must succed");
+        .expect("gather must succeed");
 
     c.bench_function("root_hash_storage_insert", |b| {
         b.iter_batched(
