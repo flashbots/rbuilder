@@ -44,6 +44,7 @@ alloy-rpc-types-eth.workspace = true
 alloy-rpc-client.workspace = true
 alloy-transport.workspace = true
 alloy-network.workspace = true
+alloy-rlp.workspace = true
 
 revm.workspace = true
 
@@ -58,6 +59,12 @@ jsonrpsee = { workspace = true }
 async-trait = { workspace = true }
 clap_builder = { workspace = true }
 clap.workspace = true
+
+secp256k1 = { version = "0.29", features = [
+    "global-context",
+    "rand-std",
+    "recovery",
+] }
 
 [target.'cfg(unix)'.dependencies]
 tikv-jemallocator = { version = "0.6", optional = true }

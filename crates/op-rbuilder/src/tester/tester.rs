@@ -1,5 +1,11 @@
+use alloy_eips::eip2718::{Decodable2718, Encodable2718};
 use alloy_eips::BlockNumberOrTag;
 use alloy_network::Ethereum;
+use alloy_primitives::address;
+use alloy_primitives::Address;
+use alloy_primitives::Bytes;
+use alloy_primitives::PrimitiveSignature as Signature;
+use alloy_primitives::TxKind;
 use alloy_primitives::B256;
 use alloy_primitives::U256;
 use alloy_provider::Provider;
@@ -12,6 +18,7 @@ use alloy_rpc_types_engine::{ExecutionPayloadV3, ForkchoiceUpdated, PayloadStatu
 use alloy_transport::BoxTransport;
 use clap::Parser;
 use jsonrpsee::http_client::{transport::HttpBackend, HttpClient};
+use op_alloy_consensus::TxDeposit;
 use op_alloy_rpc_types_engine::OpPayloadAttributes;
 use reth::{
     api::EngineTypes,
@@ -21,9 +28,16 @@ use reth::{
     },
 };
 use reth_optimism_node::OpEngineTypes;
+use reth_optimism_primitives::OpTransactionSigned;
 use reth_payload_builder::PayloadId;
+use reth_primitives::{
+    public_key_to_address, Transaction, TransactionSigned, TransactionSignedEcRecovered,
+};
 use reth_rpc_layer::{AuthClientLayer, AuthClientService, JwtSecret};
+use revm::interpreter::instructions::system::address;
+use secp256k1::{Message, SecretKey, SECP256K1};
 use std::{marker::PhantomData, str::FromStr};
+use tokio::io::Sink;
 
 /// Helper for engine api operations
 pub struct EngineApi<E> {
@@ -132,6 +146,9 @@ async fn main() {
     let args = Args::parse();
     println!("Validation: {}", args.validation);
 
+    let signer = Signer::random();
+    println!("signer {:?}", signer);
+
     let engine_api =
         EngineApi::<OpEngineTypes>::new("http://localhost:4444", "http://localhost:1111").unwrap();
 
@@ -232,6 +249,21 @@ async fn main() {
     loop {
         println!("latest block: {}", latest);
 
+        // send a deposit txn
+        let tx = TxDeposit {
+            source_hash: B256::default(),
+            from: address!("f39Fd6e51aad88F6F4ce6aB8827279cffFb92200"),
+            to: TxKind::default(),
+            mint: Some(1212121212121212),
+            value: U256::default(),
+            gas_limit: 210000,
+            is_system_transaction: true,
+            input: Bytes::default(),
+        };
+
+        let signed_tx = signer.sign_tx(Transaction::Deposit(tx)).unwrap();
+        let signed_tx_rlp = signed_tx.encoded_2718();
+
         let result = engine_api
             .update_forkchoice(
                 latest,
@@ -244,7 +276,8 @@ async fn main() {
                         prev_randao: B256::ZERO,
                         suggested_fee_recipient: Default::default(),
                     },
-                    transactions: None,
+                    transactions: Some(vec![signed_tx_rlp.into()]),
+                    // transactions: None,
                     no_tx_pool: Some(args.no_tx_pool),
                     gas_limit: Some(10000000000),
                     eip_1559_params: None,
@@ -316,5 +349,52 @@ async fn main() {
 
         latest = new_block_hash;
         timestamp = new_timestamp;
+    }
+}
+
+/// Simple struct to sign txs/messages.
+/// Mainly used to sign payout txs from the builder and to create test data.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Signer {
+    pub address: Address,
+    pub secret: SecretKey,
+}
+
+impl Signer {
+    pub fn try_from_secret(secret: B256) -> Result<Self, secp256k1::Error> {
+        let secret = SecretKey::from_slice(secret.as_ref())?;
+        let pubkey = secret.public_key(SECP256K1);
+        let address = public_key_to_address(pubkey);
+
+        Ok(Self { address, secret })
+    }
+
+    pub fn sign_message(&self, message: B256) -> Result<Signature, secp256k1::Error> {
+        let s = SECP256K1
+            .sign_ecdsa_recoverable(&Message::from_digest_slice(&message[..])?, &self.secret);
+        let (rec_id, data) = s.serialize_compact();
+
+        let signature = Signature::new(
+            U256::try_from_be_slice(&data[..32]).expect("The slice has at most 32 bytes"),
+            U256::try_from_be_slice(&data[32..64]).expect("The slice has at most 32 bytes"),
+            rec_id.to_i32() != 0,
+        );
+        Ok(signature)
+    }
+
+    pub fn sign_tx(
+        &self,
+        tx: Transaction,
+    ) -> Result<TransactionSignedEcRecovered, secp256k1::Error> {
+        let signature = self.sign_message(tx.signature_hash())?;
+        let signed = TransactionSigned::new_unhashed(tx, signature);
+        Ok(TransactionSignedEcRecovered::new_unchecked(
+            signed,
+            self.address,
+        ))
+    }
+
+    pub fn random() -> Self {
+        Self::try_from_secret(B256::random()).expect("failed to create random signer")
     }
 }
