@@ -111,9 +111,10 @@ impl BlockBuildingContext {
         )
         .expect("PayloadBuilderAttributes::try_new");
         let eth_evm_config = EthEvmConfig::new(chain_spec.clone());
-        // @TODO check ETHEREUM_BLOCK_GAS_LIMIT since it may not work on Op
         let gas_limit = calc_gas_limit(
             parent.gas_limit,
+            // This is only for tests, prefer_gas_limit should always be Some since
+            // the protocol does NOT cap the block to ETHEREUM_BLOCK_GAS_LIMIT.
             prefer_gas_limit.unwrap_or(ETHEREUM_BLOCK_GAS_LIMIT),
         );
         let EvmEnv {
