@@ -135,7 +135,7 @@ impl HistoricalDataStorage {
 
             CREATE TABLE IF NOT EXISTS built_block_included_orders (
                 block_number INTEGER NOT NULL,
-                order_id TEXT NOL NULL
+                order_id TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS built_block_data (
@@ -347,7 +347,7 @@ impl HistoricalDataStorage {
         .map(|mut v| v.remove(0))
     }
 
-    /// Retunrs BlockData for the given block, if some blocks are missing error is not returned.
+    /// Returns BlockData for the given block, if some blocks are missing error is not returned.
     /// WARN: will load into memory everything for blocks in range: min(blocks), max(blocks)
     pub async fn read_blocks(&mut self, blocks: &[u64]) -> eyre::Result<Vec<BlockData>> {
         let min_block = blocks.iter().min().copied().unwrap_or_default() as i64;
