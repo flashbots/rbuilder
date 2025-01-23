@@ -166,7 +166,7 @@ impl UnfinishedBlockBuildingSink for TracingBlockSink {
 /// This is a NOT real builder some data is not filled correctly (eg:BuiltBlockTrace)
 #[derive(Debug)]
 struct DummyBuildingAlgorithm {
-    /// Amnount of used orders to build a block
+    /// Amount of used orders to build a block
     orders_to_use: usize,
 }
 
