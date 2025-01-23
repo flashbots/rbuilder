@@ -717,7 +717,7 @@ lazy_static! {
             RelayConfig {
                 name: "playground".to_string(),
                 url: "http://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@localhost:5555".to_string(),
-                mode: RelayMode::GetSlotInfoOnly,
+                mode: RelayMode::Full,
                 submit_config:None,
                 priority: Some(0),
                 authorization_header: None,
