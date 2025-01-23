@@ -30,10 +30,8 @@ use rbuilder::{
         simulation::SimulatedOrderCommand,
         LiveBuilder,
     },
-    primitives::{
-        mev_boost::{MevBoostRelay, RelayConfig},
-        SimulatedOrder,
-    },
+    mev_boost::RelayClient,
+    primitives::{mev_boost::MevBoostRelaySlotInfoProvider, SimulatedOrder},
     provider::StateProviderFactory,
     utils::{ProviderFactoryReopener, Signer},
 };
@@ -61,11 +59,9 @@ async fn main() -> eyre::Result<()> {
     let chain_spec = MAINNET.clone();
     let cancel = CancellationToken::new();
 
-    let relay_config = RelayConfig::default().
-        with_url("https://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@boost-relay.flashbots.net").
-        with_name("flashbots");
-
-    let relay = MevBoostRelay::from_config(&relay_config)?;
+    let flashbots_relay_url = "https://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@boost-relay.flashbots.net";
+    let relay_client = RelayClient::from_url(flashbots_relay_url.parse()?, None, None, None);
+    let relay = MevBoostRelaySlotInfoProvider::new(relay_client, "flashbots".to_string(), 0);
 
     let payload_event = MevBoostSlotDataGenerator::new(
         vec![Client::default()],

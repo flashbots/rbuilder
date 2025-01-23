@@ -14,7 +14,7 @@ use crate::{
         },
         SlotSource,
     },
-    primitives::mev_boost::{MevBoostRelay, MevBoostRelayID},
+    primitives::mev_boost::{MevBoostRelayID, MevBoostRelaySlotInfoProvider},
 };
 use ahash::HashSet;
 use alloy_eips::merge::SLOT_DURATION;
@@ -80,7 +80,7 @@ impl MevBoostSlotData {
 /// - If join with spawned task is needed await on the JoinHandle returned by spawn.
 pub struct MevBoostSlotDataGenerator {
     cls: Vec<Client>,
-    relays: Vec<MevBoostRelay>,
+    relays: Vec<MevBoostRelaySlotInfoProvider>,
     blocklist: HashSet<Address>,
 
     global_cancellation: CancellationToken,
@@ -89,7 +89,7 @@ pub struct MevBoostSlotDataGenerator {
 impl MevBoostSlotDataGenerator {
     pub fn new(
         cls: Vec<Client>,
-        relays: Vec<MevBoostRelay>,
+        relays: Vec<MevBoostRelaySlotInfoProvider>,
         blocklist: HashSet<Address>,
         global_cancellation: CancellationToken,
     ) -> Self {

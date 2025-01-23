@@ -40,3 +40,4 @@ enabled_relays = ["playground"]
 name = "playground"
 url = "http://example.com"
 priority = 10
+mode = "full"

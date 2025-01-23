@@ -30,8 +30,10 @@ use crate::{
         base_config::EnvOrValue, block_output::relay_submit::BuilderSinkFactory,
         cli::LiveBuilderConfig, payload_events::MevBoostSlotDataGenerator,
     },
-    mev_boost::BLSBlockSigner,
-    primitives::mev_boost::{MevBoostRelay, RelayConfig},
+    mev_boost::{BLSBlockSigner, RelayClient},
+    primitives::mev_boost::{
+        MevBoostRelayBidSubmitter, MevBoostRelaySlotInfoProvider, RelayConfig, RelayMode,
+    },
     provider::StateProviderFactory,
     roothash::RootHashConfig,
     utils::{build_info::rbuilder_version, ProviderFactoryReopener, Signer},
@@ -171,50 +173,98 @@ impl L1Config {
             .collect()
     }
 
-    pub fn create_relays(&self) -> eyre::Result<Vec<MevBoostRelay>> {
-        let mut relay_configs = DEFAULT_RELAYS.clone();
+    /// Analyzes relay_config and creates MevBoostRelayBidSubmitter/MevBoostRelaySlotInfoProvider as needed.
+    fn create_relay_sub_objects(
+        relay_config: &RelayConfig,
+        client: RelayClient,
+        submitters: &mut Vec<MevBoostRelayBidSubmitter>,
+        slot_info_providers: &mut Vec<MevBoostRelaySlotInfoProvider>,
+    ) -> eyre::Result<()> {
+        if relay_config.mode.submits_bids() {
+            if let Some(submit_config) = &relay_config.submit_config {
+                submitters.push(MevBoostRelayBidSubmitter::new(
+                    client.clone(),
+                    relay_config.name.clone(),
+                    submit_config,
+                ));
+            } else {
+                eyre::bail!(
+                    "Relay {} in mode {:?} has no submit config",
+                    relay_config.name,
+                    relay_config.mode
+                );
+            }
+        }
+        if relay_config.mode.gets_slot_info() {
+            if let Some(priority) = &relay_config.priority {
+                slot_info_providers.push(MevBoostRelaySlotInfoProvider::new(
+                    client.clone(),
+                    relay_config.name.clone(),
+                    *priority,
+                ));
+            } else {
+                eyre::bail!(
+                    "Relay {} in mode {:?} has no priority",
+                    relay_config.name,
+                    relay_config.mode
+                );
+            }
+        }
+        Ok(())
+    }
 
+    pub fn create_relays(
+        &self,
+    ) -> eyre::Result<(
+        Vec<MevBoostRelayBidSubmitter>,
+        Vec<MevBoostRelaySlotInfoProvider>,
+    )> {
+        let mut relay_configs = DEFAULT_RELAYS.clone();
         // Update relay configs from user configuration - replace if found
         for relay in self.relays.clone() {
             relay_configs.insert(relay.name.clone(), relay);
         }
-
         // For backwards compatibility: add all user-configured relays to enabled_relays
         let mut effective_enabled_relays: std::collections::HashSet<String> =
             self.enabled_relays.iter().cloned().collect();
         effective_enabled_relays.extend(self.relays.iter().map(|r| r.name.clone()));
-
         // Create enabled relays
-        let mut results = Vec::new();
+        let mut submitters = Vec::new();
+        let mut slot_info_providers = Vec::new();
         for relay_name in effective_enabled_relays.iter() {
             match relay_configs.get(relay_name) {
-                Some(relay_config) => match MevBoostRelay::from_config(relay_config) {
-                    Ok(relay) => {
-                        info!(
-                            "Created relay: {:?} (priority: {})",
-                            relay_name, relay.priority
-                        );
-                        results.push(relay);
-                    }
-                    Err(e) => {
-                        return Err(eyre::eyre!(
-                            "Failed to create relay {}: {:?}",
-                            relay_name,
-                            e
-                        ));
-                    }
-                },
+                Some(relay_config) => {
+                    let url = match relay_config.url.parse() {
+                        Ok(url) => url,
+                        Err(err) => {
+                            eyre::bail!(
+                                "Failed to parse relay url. Error = {err}. Url = {}",
+                                relay_config.url
+                            );
+                        }
+                    };
+                    let client = RelayClient::from_url(
+                        url,
+                        relay_config.authorization_header.clone(),
+                        relay_config.builder_id_header.clone(),
+                        relay_config.api_token_header.clone(),
+                    );
+                    Self::create_relay_sub_objects(
+                        relay_config,
+                        client,
+                        &mut submitters,
+                        &mut slot_info_providers,
+                    )?;
+                }
                 None => {
                     return Err(eyre::eyre!("Relay {} not found in relays list", relay_name));
                 }
             }
         }
-
-        if results.is_empty() {
-            return Err(eyre::eyre!("No relays enabled"));
+        if slot_info_providers.is_empty() {
+            return Err(eyre::eyre!("No relays enabled for getting slot info"));
         }
-
-        Ok(results)
+        Ok((submitters, slot_info_providers))
     }
 
     fn submission_config(
@@ -285,12 +335,15 @@ impl L1Config {
         })
     }
 
-    /// Creates the RelaySubmitSinkFactory and also returns the associated relays.
+    /// Creates the RelaySubmitSinkFactory and also returns the associated relays (MevBoostRelaySlotInfoProvider).
     pub fn create_relays_sealed_sink_factory(
         &self,
         chain_spec: Arc<ChainSpec>,
         bid_observer: Box<dyn BidObserver + Send + Sync>,
-    ) -> eyre::Result<(Box<dyn BuilderSinkFactory>, Vec<MevBoostRelay>)> {
+    ) -> eyre::Result<(
+        Box<dyn BuilderSinkFactory>,
+        Vec<MevBoostRelaySlotInfoProvider>,
+    )> {
         let submission_config = self.submission_config(chain_spec, bid_observer)?;
         info!(
             "Builder mev boost normal relay pubkey: {:?}",
@@ -306,16 +359,16 @@ impl L1Config {
             );
         };
 
-        let relays = self.create_relays()?;
-        if relays.is_empty() {
-            eyre::bail!("No relays provided");
+        let (submitters, slot_info_providers) = self.create_relays()?;
+        if slot_info_providers.is_empty() {
+            eyre::bail!("No slot info providers provided");
         }
 
         let sink_factory: Box<dyn BuilderSinkFactory> = Box::new(RelaySubmitSinkFactory::new(
             submission_config,
-            relays.clone(),
+            submitters.clone(),
         ));
-        Ok((sink_factory, relays))
+        Ok((sink_factory, slot_info_providers))
     }
 }
 
@@ -612,11 +665,9 @@ lazy_static! {
                 name: "flashbots".to_string(),
                 url: "http://k8s-default-boostrel-9f278153f5-947835446.us-east-2.elb.amazonaws.com"
                     .to_string(),
-                use_ssz_for_submit: true,
-                use_gzip_for_submit: false,
-                priority: 0,
-                optimistic: false,
-                interval_between_submissions_ms: Some(250),
+                mode: RelayMode::GetSlotInfoOnly,
+                submit_config: None,
+                priority: Some(0),
                 authorization_header: None,
                 builder_id_header: None,
                 api_token_header: None,
@@ -627,11 +678,9 @@ lazy_static! {
             RelayConfig {
                 name: "ultrasound-us".to_string(),
                 url: "https://relay-builders-us.ultrasound.money".to_string(),
-                use_ssz_for_submit: true,
-                use_gzip_for_submit: true,
-                priority: 0,
-                optimistic: true,
-                interval_between_submissions_ms: None,
+                mode: RelayMode::GetSlotInfoOnly,
+                submit_config: None,
+                priority: Some(0),
                 authorization_header: None,
                 builder_id_header: None,
                 api_token_header: None,
@@ -642,11 +691,9 @@ lazy_static! {
             RelayConfig {
                 name: "ultrasound-eu".to_string(),
                 url: "https://relay-builders-eu.ultrasound.money".to_string(),
-                use_ssz_for_submit: true,
-                use_gzip_for_submit: true,
-                priority: 0,
-                optimistic: true,
-                interval_between_submissions_ms: None,
+                mode: RelayMode::GetSlotInfoOnly,
+                submit_config: None,
+                priority: Some(0),
                 authorization_header: None,
                 builder_id_header: None,
                 api_token_header: None,
@@ -657,11 +704,9 @@ lazy_static! {
             RelayConfig {
                 name: "agnostic".to_string(),
                 url: "https://0xa7ab7a996c8584251c8f925da3170bdfd6ebc75d50f5ddc4050a6fdc77f2a3b5fce2cc750d0865e05d7228af97d69561@agnostic-relay.net".to_string(),
-                use_ssz_for_submit: true,
-                use_gzip_for_submit: true,
-                priority: 0,
-                optimistic: true,
-                interval_between_submissions_ms: None,
+                mode: RelayMode::GetSlotInfoOnly,
+                submit_config:None,
+                priority: Some(0),
                 authorization_header: None,
                 builder_id_header: None,
                 api_token_header: None,
@@ -672,11 +717,9 @@ lazy_static! {
             RelayConfig {
                 name: "playground".to_string(),
                 url: "http://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@localhost:5555".to_string(),
-                priority: 0,
-                use_ssz_for_submit: false,
-                use_gzip_for_submit: false,
-                optimistic: false,
-                interval_between_submissions_ms: None,
+                mode: RelayMode::GetSlotInfoOnly,
+                submit_config:None,
+                priority: Some(0),
                 authorization_header: None,
                 builder_id_header: None,
                 api_token_header: None,
@@ -750,10 +793,10 @@ mod test {
 
         let config: Config = load_config_toml_and_env(p.clone()).expect("Config load");
 
-        let relays = config.l1_config.create_relays().unwrap();
-        assert_eq!(relays.len(), 1);
-        assert_eq!(relays[0].id, "playground");
-        assert_eq!(relays[0].priority, 10);
+        let (_, slot_info_providers) = config.l1_config.create_relays().unwrap();
+        assert_eq!(slot_info_providers.len(), 1);
+        assert_eq!(slot_info_providers[0].id(), "playground");
+        assert_eq!(slot_info_providers[0].priority(), 10);
     }
 
     #[test]

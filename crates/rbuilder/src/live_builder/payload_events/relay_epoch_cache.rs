@@ -1,6 +1,6 @@
 use crate::{
     mev_boost::{RelayError, ValidatorSlotData},
-    primitives::mev_boost::{MevBoostRelay, MevBoostRelayID},
+    primitives::mev_boost::{MevBoostRelayID, MevBoostRelaySlotInfoProvider},
     telemetry::{inc_conn_relay_errors, inc_other_relay_errors, inc_too_many_req_relay_errors},
 };
 use alloy_primitives::Address;
@@ -23,14 +23,14 @@ pub struct SlotData {
 /// Since the low level API used (/relay/v1/builder/validators) brings current and next epoch validator data it caches the results.
 #[derive(Debug)]
 struct RelayEpochCache {
-    relay: MevBoostRelay,
+    relay: MevBoostRelaySlotInfoProvider,
     min_slot: u64,
     max_slot: u64,
     slot_data: Vec<ValidatorSlotData>,
 }
 
 impl RelayEpochCache {
-    fn new(relay: MevBoostRelay) -> Self {
+    fn new(relay: MevBoostRelaySlotInfoProvider) -> Self {
         Self {
             relay,
             min_slot: 0,
@@ -41,7 +41,7 @@ impl RelayEpochCache {
 
     async fn update_epoch_data(&mut self) -> Result<(), RelayError> {
         // @Far validate signatures of proposers here to make sure that relay is correct.
-        let validators = self.relay.client.get_current_epoch_validators().await?;
+        let validators = self.relay.get_current_epoch_validators().await?;
         let min_slot = validators.iter().map(|v| v.slot).min().unwrap_or(0);
         let max_slot = validators.iter().map(|v| v.slot).max().unwrap_or(0);
 
@@ -71,17 +71,17 @@ pub struct RelaysForSlotData {
 }
 
 impl RelaysForSlotData {
-    pub fn new(relays: &[MevBoostRelay]) -> Self {
+    pub fn new(relays: &[MevBoostRelaySlotInfoProvider]) -> Self {
         // we sort relays so the relay with the highest priority will determine what is "correct" version of the epoch data.
         let sorted_relays = {
             let mut relays = relays.to_vec();
-            relays.sort_by_key(|r| r.priority);
+            relays.sort_by_key(|r| r.priority());
             relays
         };
         Self {
             relay: sorted_relays
                 .into_iter()
-                .map(|relay| (relay.id.clone(), RelayEpochCache::new(relay.clone())))
+                .map(|relay| (relay.id().clone(), RelayEpochCache::new(relay.clone())))
                 .collect(),
         }
     }

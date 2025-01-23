@@ -4,7 +4,7 @@ use crate::{
     mev_boost::{
         sign_block_for_relay, BLSBlockSigner, RelayError, SubmitBlockErr, SubmitBlockRequest,
     },
-    primitives::mev_boost::{MevBoostRelay, MevBoostRelayID},
+    primitives::mev_boost::{MevBoostRelayBidSubmitter, MevBoostRelayID},
     telemetry::{
         add_relay_submit_time, add_subsidy_value, inc_conn_relay_errors,
         inc_failed_block_simulations, inc_initiated_submissions, inc_other_relay_errors,
@@ -139,7 +139,7 @@ struct BuiltBlockInfo {
 async fn run_submit_to_relays_job(
     best_bid: Arc<BestBlockCell>,
     slot_data: MevBoostSlotData,
-    relays: Vec<MevBoostRelay>,
+    relays: Vec<MevBoostRelayBidSubmitter>,
     config: Arc<SubmissionConfig>,
     cancel: CancellationToken,
     competition_bid_value_source: Arc<dyn BidValueSource + Send + Sync>,
@@ -155,7 +155,7 @@ async fn run_submit_to_relays_job(
         let mut normal_relays = Vec::new();
         let mut optimistic_relays = Vec::new();
         for relay in relays {
-            if relay.optimistic {
+            if relay.optimistic() {
                 optimistic_relays.push(relay);
             } else {
                 normal_relays.push(relay);
@@ -288,7 +288,7 @@ async fn run_submit_to_relays_job(
         measure_block_e2e_latency(&block.trace.included_orders);
 
         for relay in &normal_relays {
-            let span = info_span!(parent: &submission_span, "relay_submit", relay = &relay.id, optimistic = false);
+            let span = info_span!(parent: &submission_span, "relay_submit", relay = &relay.id(), optimistic = false);
             let relay = relay.clone();
             let cancel = cancel.clone();
             let submission = normal_signed_submission.clone();
@@ -320,7 +320,7 @@ async fn run_submit_to_relays_job(
 
             if can_submit {
                 for relay in &optimistic_relays {
-                    let span = info_span!(parent: &submission_span, "relay_submit", relay = &relay.id, optimistic = true);
+                    let span = info_span!(parent: &submission_span, "relay_submit", relay = &relay.id(), optimistic = true);
                     let relay = relay.clone();
                     let cancel = cancel.clone();
                     let submission = optimistic_signed_submission.clone();
@@ -335,7 +335,7 @@ async fn run_submit_to_relays_job(
         } else {
             // non-optimistic submission to optimistic relays
             for relay in &optimistic_relays {
-                let span = info_span!(parent: &submission_span, "relay_submit", relay = &relay.id, optimistic = false);
+                let span = info_span!(parent: &submission_span, "relay_submit", relay = &relay.id(), optimistic = false);
                 let relay = relay.clone();
                 let cancel = cancel.clone();
                 let submission = normal_signed_submission.clone();
@@ -364,7 +364,7 @@ async fn run_submit_to_relays_job(
 pub async fn run_submit_to_relays_job_and_metrics(
     best_bid: Arc<BestBlockCell>,
     slot_data: MevBoostSlotData,
-    relays: Vec<MevBoostRelay>,
+    relays: Vec<MevBoostRelayBidSubmitter>,
     config: Arc<SubmissionConfig>,
     cancel: CancellationToken,
     competition_bid_value_source: Arc<dyn BidValueSource + Send + Sync>,
@@ -446,18 +446,16 @@ async fn validate_block(
 }
 
 async fn submit_bid_to_the_relay(
-    relay: &MevBoostRelay,
+    relay: &MevBoostRelayBidSubmitter,
     cancel: CancellationToken,
     signed_submit_request: SubmitBlockRequest,
     optimistic: bool,
 ) {
     let submit_start = Instant::now();
 
-    if let Some(limiter) = &relay.submission_rate_limiter {
-        if limiter.check().is_err() {
-            trace!("Relay submission is skipped due to rate limit");
-            return;
-        }
+    if !relay.can_submit_bid() {
+        trace!("Relay submission is skipped due to rate limit");
+        return;
     }
 
     let relay_result = tokio::select! {
@@ -470,8 +468,8 @@ async fn submit_bid_to_the_relay(
     match relay_result {
         Ok(()) => {
             trace!("Block submitted to the relay successfully");
-            add_relay_submit_time(&relay.id, submit_time);
-            inc_relay_accepted_submissions(&relay.id, optimistic);
+            add_relay_submit_time(relay.id(), submit_time);
+            inc_relay_accepted_submissions(relay.id(), optimistic);
         }
         Err(SubmitBlockErr::PayloadDelivered | SubmitBlockErr::PastSlot) => {
             trace!("Block already delivered by the relay, cancelling");
@@ -498,19 +496,19 @@ async fn submit_bid_to_the_relay(
         }
         Err(SubmitBlockErr::RelayError(RelayError::TooManyRequests)) => {
             trace!("Too many requests error submitting block to the relay");
-            inc_too_many_req_relay_errors(&relay.id);
+            inc_too_many_req_relay_errors(relay.id());
         }
         Err(SubmitBlockErr::RelayError(RelayError::ConnectionError))
         | Err(SubmitBlockErr::RelayError(RelayError::RequestError(_))) => {
             trace!(err = ?relay_result.unwrap_err(), "Connection error submitting block to the relay");
-            inc_conn_relay_errors(&relay.id);
+            inc_conn_relay_errors(relay.id());
         }
         Err(SubmitBlockErr::BlockKnown) => {
             trace!("Block already known");
         }
         Err(SubmitBlockErr::RelayError(_)) => {
             warn!(err = ?relay_result.unwrap_err(), "Error submitting block to the relay");
-            inc_other_relay_errors(&relay.id);
+            inc_other_relay_errors(relay.id());
         }
         Err(SubmitBlockErr::RPCConversionError(_)) => {
             error!(
@@ -534,14 +532,17 @@ async fn submit_bid_to_the_relay(
 #[derive(Debug)]
 pub struct RelaySubmitSinkFactory {
     submission_config: Arc<SubmissionConfig>,
-    relays: HashMap<MevBoostRelayID, MevBoostRelay>,
+    relays: HashMap<MevBoostRelayID, MevBoostRelayBidSubmitter>,
 }
 
 impl RelaySubmitSinkFactory {
-    pub fn new(submission_config: SubmissionConfig, relays: Vec<MevBoostRelay>) -> Self {
+    pub fn new(
+        submission_config: SubmissionConfig,
+        relays: Vec<MevBoostRelayBidSubmitter>,
+    ) -> Self {
         let relays = relays
             .into_iter()
-            .map(|relay| (relay.id.clone(), relay))
+            .map(|relay| (relay.id().clone(), relay))
             .collect();
         Self {
             submission_config: Arc::new(submission_config),
