@@ -666,7 +666,7 @@ lazy_static! {
                 name: "flashbots".to_string(),
                 url: "http://k8s-default-boostrel-9f278153f5-947835446.us-east-2.elb.amazonaws.com"
                     .to_string(),
-                mode: RelayMode::GetSlotInfoOnly,
+                mode: RelayMode::default(),
                 submit_config: None,
                 priority: Some(0),
                 authorization_header: None,
@@ -679,7 +679,7 @@ lazy_static! {
             RelayConfig {
                 name: "ultrasound-us".to_string(),
                 url: "https://relay-builders-us.ultrasound.money".to_string(),
-                mode: RelayMode::GetSlotInfoOnly,
+                mode: RelayMode::default(),
                 submit_config: None,
                 priority: Some(0),
                 authorization_header: None,
@@ -692,7 +692,7 @@ lazy_static! {
             RelayConfig {
                 name: "ultrasound-eu".to_string(),
                 url: "https://relay-builders-eu.ultrasound.money".to_string(),
-                mode: RelayMode::GetSlotInfoOnly,
+                mode: RelayMode::default(),
                 submit_config: None,
                 priority: Some(0),
                 authorization_header: None,
@@ -705,7 +705,7 @@ lazy_static! {
             RelayConfig {
                 name: "agnostic".to_string(),
                 url: "https://0xa7ab7a996c8584251c8f925da3170bdfd6ebc75d50f5ddc4050a6fdc77f2a3b5fce2cc750d0865e05d7228af97d69561@agnostic-relay.net".to_string(),
-                mode: RelayMode::GetSlotInfoOnly,
+                mode: RelayMode::default(),
                 submit_config:None,
                 priority: Some(0),
                 authorization_header: None,
@@ -718,7 +718,7 @@ lazy_static! {
             RelayConfig {
                 name: "playground".to_string(),
                 url: "http://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@localhost:5555".to_string(),
-                mode: RelayMode::Full,
+                mode: RelayMode::default(),
                 submit_config:None,
                 priority: Some(0),
                 authorization_header: None,
