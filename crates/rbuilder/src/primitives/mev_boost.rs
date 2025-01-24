@@ -18,7 +18,7 @@ pub enum RelayMode {
     /// Only gets slot info.
     #[serde(rename = "slot_info")]
     GetSlotInfoOnly,
-    /// Submits bids with extra headers. Does not used to get slot info.
+    /// Submits bids with extra headers. Is not used to get slot info.
     #[serde(rename = "test")]
     Test,
 }
