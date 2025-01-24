@@ -19,8 +19,8 @@ pub enum RelayMode {
     #[default]
     GetSlotInfoOnly,
     /// Submits bids with extra headers. Does not used to get slot info.
-    #[serde(rename = "fake")]
-    Fake,
+    #[serde(rename = "test")]
+    Test,
 }
 
 impl RelayMode {
@@ -28,14 +28,14 @@ impl RelayMode {
         match self {
             RelayMode::Full => true,
             RelayMode::GetSlotInfoOnly => false,
-            RelayMode::Fake => true,
+            RelayMode::Test => true,
         }
     }
     pub fn gets_slot_info(&self) -> bool {
         match self {
             RelayMode::Full => true,
             RelayMode::GetSlotInfoOnly => true,
-            RelayMode::Fake => false,
+            RelayMode::Test => false,
         }
     }
 }
@@ -242,7 +242,7 @@ mod test {
         let config: RelayConfig = toml::from_str(&(example_base.clone() + "'slot_info'")).unwrap();
         assert_eq!(config.mode, RelayMode::GetSlotInfoOnly);
 
-        let config: RelayConfig = toml::from_str(&(example_base.clone() + "'fake'")).unwrap();
-        assert_eq!(config.mode, RelayMode::Fake);
+        let config: RelayConfig = toml::from_str(&(example_base.clone() + "'test'")).unwrap();
+        assert_eq!(config.mode, RelayMode::Test);
     }
 }

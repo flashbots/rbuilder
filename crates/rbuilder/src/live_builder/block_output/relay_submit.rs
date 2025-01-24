@@ -563,12 +563,8 @@ impl BuilderSinkFactory for RelaySubmitSinkFactory {
         let relays = slot_data
             .relays
             .iter()
-            .map(|id| {
-                self.relays
-                    .get(id)
-                    .expect("Submission job is missing relay")
-                    .clone()
-            })
+            .flat_map(|id| self.relays.get(id))
+            .cloned()
             .collect();
         tokio::spawn(run_submit_to_relays_job_and_metrics(
             best_block_cell.clone(),
