@@ -744,7 +744,7 @@ lazy_static! {
                     use_gzip_for_submit: false,
                     optimistic: false,
                     interval_between_submissions_ms: None,
-                }),                
+                }),
                 priority: Some(0),
                 authorization_header: None,
                 builder_id_header: None,
