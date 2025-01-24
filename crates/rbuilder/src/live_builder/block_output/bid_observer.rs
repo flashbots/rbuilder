@@ -1,7 +1,7 @@
 use alloy_primitives::U256;
 use reth_primitives::SealedBlock;
 
-use crate::{building::BuiltBlockTrace, mev_boost::SubmitBlockRequest};
+use crate::{building::BuiltBlockTrace, mev_boost::submission::SubmitBlockRequest};
 
 /// Trait that receives every bid made by us to the relays.
 pub trait BidObserver: std::fmt::Debug {

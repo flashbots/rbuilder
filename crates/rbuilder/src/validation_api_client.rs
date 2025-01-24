@@ -2,7 +2,7 @@ use alloy_json_rpc::{ErrorPayload, RpcError};
 use std::{fmt::Debug, sync::Arc};
 
 use crate::{
-    mev_boost::SubmitBlockRequest,
+    mev_boost::submission::SubmitBlockRequest,
     telemetry::add_block_validation_time,
     utils::{http_provider, BoxedProvider},
 };

@@ -1,4 +1,4 @@
-use super::DenebSubmitBlockRequest;
+use super::submission::DenebSubmitBlockRequest;
 use alloy_consensus::{Blob, Bytes48};
 use alloy_primitives::{Address, Bloom, Bytes, B256, U256};
 use alloy_rpc_types_beacon::{

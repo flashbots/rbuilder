@@ -2,13 +2,11 @@ mod error;
 pub mod fake_mev_boost_relay;
 pub mod rpc;
 pub mod sign_payload;
+pub mod submission;
 
 use super::utils::u256decimal_serde_helper;
 
 use alloy_primitives::{Address, BlockHash, Bytes, U256};
-use alloy_rpc_types_beacon::relay::{
-    BidTrace, SignedBidSubmissionV2, SignedBidSubmissionV3, SignedBidSubmissionV4,
-};
 use flate2::{write::GzEncoder, Compression};
 use primitive_types::H384;
 use reqwest::{
@@ -19,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use ssz::Encode;
 use std::{io::Write, str::FromStr};
+use submission::{SubmitBlockRequest, SubmitBlockRequestNoBlobs, SubmitBlockRequestWithMetadata};
 use url::Url;
 
 pub use error::*;
@@ -456,7 +455,7 @@ impl RelayClient {
         submission_with_metadata: &SubmitBlockRequestWithMetadata,
         ssz: bool,
         gzip: bool,
-        add_metadata: bool,
+        fake_relay: bool,
     ) -> Result<Response, SubmitBlockErr> {
         let url = {
             let mut url = self.url.clone();
@@ -477,9 +476,17 @@ impl RelayClient {
                 SSZ_CONTENT_TYPE,
             )
         } else {
-            (
+            let json_result = if fake_relay {
+                // For the fake relay we remove the blobs
+                serde_json::to_vec(&SubmitBlockRequestNoBlobs(
+                    &submission_with_metadata.submission,
+                ))
+            } else {
                 serde_json::to_vec(&submission_with_metadata.submission)
-                    .map_err(|e| SubmitBlockErr::RPCSerializationError(e.to_string()))?,
+            };
+
+            (
+                json_result.map_err(|e| SubmitBlockErr::RPCSerializationError(e.to_string()))?,
                 JSON_CONTENT_TYPE,
             )
         };
@@ -503,7 +510,7 @@ impl RelayClient {
         }
 
         builder = builder.headers(headers).body(Body::from(body_data));
-        if add_metadata {
+        if fake_relay {
             builder = builder.header(
                 TOTAL_PAYMENT_HEADER,
                 submission_with_metadata
@@ -531,10 +538,10 @@ impl RelayClient {
         data: &SubmitBlockRequestWithMetadata,
         ssz: bool,
         gzip: bool,
-        add_metadata: bool,
+        fake_relay: bool,
     ) -> Result<(), SubmitBlockErr> {
         let resp = self
-            .call_relay_submit_block(data, ssz, gzip, add_metadata)
+            .call_relay_submit_block(data, ssz, gzip, fake_relay)
             .await?;
         let status = resp.status();
 
@@ -621,58 +628,10 @@ impl RelayClient {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ElectraSubmitBlockRequest(SignedBidSubmissionV4);
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DenebSubmitBlockRequest(SignedBidSubmissionV3);
-
-impl DenebSubmitBlockRequest {
-    pub fn as_ssz_bytes(&self) -> Vec<u8> {
-        self.0.as_ssz_bytes()
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct CapellaSubmitBlockRequest(SignedBidSubmissionV2);
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(untagged)]
-pub enum SubmitBlockRequest {
-    Capella(CapellaSubmitBlockRequest),
-    Deneb(DenebSubmitBlockRequest),
-    Electra(ElectraSubmitBlockRequest),
-}
-
-impl SubmitBlockRequest {
-    pub fn bid_trace(&self) -> BidTrace {
-        match self {
-            SubmitBlockRequest::Capella(req) => req.0.message.clone(),
-            SubmitBlockRequest::Deneb(req) => req.0.message.clone(),
-            SubmitBlockRequest::Electra(req) => req.0.message.clone(),
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct BidMetadata {
-    pub value: BidValueMetadata,
-}
-
-#[derive(Clone, Copy, Default, Debug)]
-pub struct BidValueMetadata {
-    pub coinbase_reward: U256,
-    pub top_competitor_bid: Option<U256>,
-}
-
-#[derive(Clone, Debug)]
-pub struct SubmitBlockRequestWithMetadata {
-    pub submission: SubmitBlockRequest,
-    pub metadata: BidMetadata,
-}
-
 #[cfg(test)]
 mod tests {
+    use submission::{BidMetadata, BidValueMetadata};
+
     use super::{rpc::TestDataGenerator, *};
     use crate::mev_boost::fake_mev_boost_relay::FakeMevBoostRelay;
 

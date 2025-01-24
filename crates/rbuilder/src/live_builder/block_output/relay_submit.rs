@@ -2,8 +2,11 @@ use crate::{
     building::builders::Block,
     live_builder::payload_events::MevBoostSlotData,
     mev_boost::{
-        sign_block_for_relay, BLSBlockSigner, BidMetadata, BidValueMetadata, RelayError,
-        SubmitBlockErr, SubmitBlockRequest, SubmitBlockRequestWithMetadata,
+        sign_block_for_relay,
+        submission::{
+            BidMetadata, BidValueMetadata, SubmitBlockRequest, SubmitBlockRequestWithMetadata,
+        },
+        BLSBlockSigner, RelayError, SubmitBlockErr,
     },
     primitives::mev_boost::{MevBoostRelayBidSubmitter, MevBoostRelayID},
     telemetry::{

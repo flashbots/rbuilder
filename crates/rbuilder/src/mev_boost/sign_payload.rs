@@ -1,4 +1,4 @@
-use super::{
+use super::submission::{
     CapellaSubmitBlockRequest, DenebSubmitBlockRequest, ElectraSubmitBlockRequest,
     SubmitBlockRequest,
 };

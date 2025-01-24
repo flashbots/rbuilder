@@ -1,5 +1,6 @@
 use crate::mev_boost::{
-    RelayClient, RelayError, SubmitBlockErr, SubmitBlockRequestWithMetadata, ValidatorSlotData,
+    submission::SubmitBlockRequestWithMetadata, RelayClient, RelayError, SubmitBlockErr,
+    ValidatorSlotData,
 };
 use governor::{DefaultDirectRateLimiter, Quota, RateLimiter};
 use serde::{Deserialize, Deserializer};
