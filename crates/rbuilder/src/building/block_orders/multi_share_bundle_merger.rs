@@ -126,7 +126,7 @@ mod test {
         let generated_order = context.pop_insert();
         context.assert_concatenated_sbundles_ok(&generated_order, &[br_hi.clone()]);
 
-        // for second expect a cancelation and a new megabundle with both
+        // for second expect a cancellation and a new megabundle with both
         context.insert_order(br_low.clone());
 
         assert_eq!(context.pop_remove(), generated_order.id());
@@ -168,7 +168,7 @@ mod test {
         let generated_order = context.pop_insert();
         context.assert_concatenated_sbundles_ok(&generated_order, &[br_hi.clone()]);
 
-        // for second expect a cancelation and a new megabundle with both
+        // for second expect a cancellation and a new megabundle with both
         context.insert_order(br_low.clone());
 
         assert_eq!(context.pop_remove(), generated_order.id());

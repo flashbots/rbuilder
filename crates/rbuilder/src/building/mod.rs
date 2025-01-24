@@ -19,13 +19,19 @@ use crate::{
     primitives::{Order, OrderId, SimValue, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs},
     provider::RootHasher,
     roothash::RootHashError,
-    utils::{a2r_withdrawal, calc_gas_limit, timestamp_as_u64, Signer},
+    utils::{a2r_withdrawal, timestamp_as_u64, Signer},
 };
 use ahash::HashSet;
 use alloy_eips::{
-    calc_excess_blob_gas, eip1559::ETHEREUM_BLOCK_GAS_LIMIT, eip4844::BlobTransactionSidecar,
-    eip4895::Withdrawals, eip6110::DEPOSIT_REQUEST_TYPE, eip7002::WITHDRAWAL_REQUEST_TYPE,
-    eip7251::CONSOLIDATION_REQUEST_TYPE, eip7685::Requests, merge::BEACON_NONCE,
+    calc_excess_blob_gas,
+    eip1559::{calculate_block_gas_limit, ETHEREUM_BLOCK_GAS_LIMIT},
+    eip4844::BlobTransactionSidecar,
+    eip4895::Withdrawals,
+    eip6110::DEPOSIT_REQUEST_TYPE,
+    eip7002::WITHDRAWAL_REQUEST_TYPE,
+    eip7251::CONSOLIDATION_REQUEST_TYPE,
+    eip7685::Requests,
+    merge::BEACON_NONCE,
 };
 use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
 use jsonrpsee::core::Serialize;
@@ -111,7 +117,7 @@ impl BlockBuildingContext {
         )
         .expect("PayloadBuilderAttributes::try_new");
         let eth_evm_config = EthEvmConfig::new(chain_spec.clone());
-        let gas_limit = calc_gas_limit(
+        let gas_limit = calculate_block_gas_limit(
             parent.gas_limit,
             // This is only for tests, prefer_gas_limit should always be Some since
             // the protocol does NOT cap the block to ETHEREUM_BLOCK_GAS_LIMIT.
@@ -132,10 +138,6 @@ impl BlockBuildingContext {
             )
             .ok()?;
         block_env.coinbase = signer.address;
-        if let Some(desired_limit) = prefer_gas_limit {
-            block_env.gas_limit =
-                U256::from(calc_gas_limit(block_env.gas_limit.to(), desired_limit));
-        }
 
         let excess_blob_gas = if chain_spec.is_cancun_active_at_timestamp(attributes.timestamp) {
             if chain_spec.is_cancun_active_at_timestamp(parent.timestamp) {

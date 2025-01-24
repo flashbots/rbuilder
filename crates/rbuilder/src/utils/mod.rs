@@ -34,7 +34,6 @@ pub use provider_factory_reopen::{
 use reth_chainspec::ChainSpec;
 use reth_evm_ethereum::revm_spec_by_timestamp_and_block_number;
 use revm_primitives::{CfgEnv, CfgEnvWithHandlerCfg};
-use std::cmp::{max, min};
 pub use test_data_generator::TestDataGenerator;
 use time::OffsetDateTime;
 pub use tx_signer::Signer;
@@ -132,46 +131,6 @@ pub fn unix_timestamp_now() -> u64 {
         .unwrap_or_default()
 }
 
-pub fn calc_gas_limit(parent: u64, desired_limit: u64) -> u64 {
-    /* port of this fuction from geth builder
-    func CalcGasLimit(parentGasLimit, desiredLimit uint64) uint64 {
-        delta := parentGasLimit/params.GasLimitBoundDivisor - 1
-        limit := parentGasLimit
-        if desiredLimit < params.MinGasLimit {
-            desiredLimit = params.MinGasLimit
-        }
-        // If we're outside our allowed gas range, we try to hone towards them
-        if limit < desiredLimit {
-            limit = parentGasLimit + delta
-            if limit > desiredLimit {
-                limit = desiredLimit
-            }
-            return limit
-        }
-        if limit > desiredLimit {
-            limit = parentGasLimit - delta
-            if limit < desiredLimit {
-                limit = desiredLimit
-            }
-        }
-        return limit
-    }
-    */
-    let delta = parent / 1024 - 1;
-
-    let desired_limit = max(desired_limit, 5000);
-
-    if parent < desired_limit {
-        return min(parent + delta, desired_limit);
-    }
-
-    if parent > desired_limit {
-        return max(parent - delta, desired_limit);
-    }
-
-    parent
-}
-
 pub fn int_percentage(value: u64, percentage: usize) -> u64 {
     value * percentage as u64 / 100
 }
@@ -248,6 +207,7 @@ pub fn extract_onchain_block_txs(
 #[cfg(test)]
 mod test {
     use super::*;
+    use alloy_eips::eip1559::calculate_block_gas_limit;
     use serde::{Deserialize, Serialize};
 
     #[test]
@@ -296,7 +256,7 @@ mod test {
         ];
 
         for test in tests {
-            let result = calc_gas_limit(test.parent, test.desired);
+            let result = calculate_block_gas_limit(test.parent, test.desired);
             assert_eq!(result, test.result);
         }
     }

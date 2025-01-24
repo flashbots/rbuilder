@@ -46,7 +46,7 @@ pub struct LiveBuilderInput<P> {
     pub cancel: CancellationToken,
 }
 
-/// Struct that helps reading new orders/cancelations
+/// Struct that helps reading new orders/cancellations
 /// Call consume_next_commands, check the new_commands() and then consume them via apply_new_commands.
 /// Call consume_next_cancellations and use cancel_data
 #[derive(Debug)]

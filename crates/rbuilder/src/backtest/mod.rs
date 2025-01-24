@@ -204,7 +204,7 @@ impl BlockData {
         result
     }
 
-    /// Returns landed txs targeting account nonces non of our available txs were targeting.
+    /// Returns landed txs targeting account nonces none of our available txs were targeting.
     pub fn search_missing_account_nonce_on_available_orders(&self) -> Vec<(TxHash, AccountNonce)> {
         let mut available_accounts = HashSet::new();
         for order in self.available_orders.iter().map(|owt| &owt.order) {
