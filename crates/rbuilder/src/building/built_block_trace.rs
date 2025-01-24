@@ -13,6 +13,8 @@ pub struct BuiltBlockTrace {
     pub included_orders: Vec<ExecutionResult>,
     /// How much we bid (pay to the validator)
     pub bid_value: U256,
+    /// coinbase balance delta before the payout tx.
+    pub coinbase_reward: U256,
     /// True block value (coinbase balance delta) excluding the cost of the payout to validator
     pub true_bid_value: U256,
     /// Some bundle failed with BundleErr::NoSigner, we might want to switch to !use_suggested_fee_recipient_as_coinbase
@@ -49,6 +51,7 @@ impl BuiltBlockTrace {
         Self {
             included_orders: Vec::new(),
             bid_value: U256::from(0),
+            coinbase_reward: U256::from(0),
             true_bid_value: U256::from(0),
             got_no_signer_error: false,
             orders_closed_at: OffsetDateTime::now_utc(),

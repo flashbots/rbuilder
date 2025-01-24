@@ -24,6 +24,9 @@ use url::Url;
 pub use error::*;
 pub use sign_payload::*;
 
+const TOTAL_PAYMENT_HEADER: &str = "Total-Payment";
+const TOP_BID_HEADER: &str = "Top-Bid";
+
 const JSON_CONTENT_TYPE: &str = "application/json";
 const SSZ_CONTENT_TYPE: &str = "application/octet-stream";
 const GZIP_CONTENT_ENCODING: &str = "gzip";
@@ -450,9 +453,10 @@ impl RelayClient {
     /// Mainly takes care of ssz/json raw/gzip
     async fn call_relay_submit_block(
         &self,
-        data: &SubmitBlockRequest,
+        submission_with_metadata: &SubmitBlockRequestWithMetadata,
         ssz: bool,
         gzip: bool,
+        add_metadata: bool,
     ) -> Result<Response, SubmitBlockErr> {
         let url = {
             let mut url = self.url.clone();
@@ -465,7 +469,7 @@ impl RelayClient {
         // SSZ vs JSON
         let (mut body_data, content_type) = if ssz {
             (
-                match data {
+                match &submission_with_metadata.submission {
                     SubmitBlockRequest::Capella(data) => data.0.as_ssz_bytes(),
                     SubmitBlockRequest::Deneb(data) => data.0.as_ssz_bytes(),
                     SubmitBlockRequest::Electra(data) => data.0.as_ssz_bytes(),
@@ -474,7 +478,7 @@ impl RelayClient {
             )
         } else {
             (
-                serde_json::to_vec(&data)
+                serde_json::to_vec(&submission_with_metadata.submission)
                     .map_err(|e| SubmitBlockErr::RPCSerializationError(e.to_string()))?,
                 JSON_CONTENT_TYPE,
             )
@@ -499,6 +503,21 @@ impl RelayClient {
         }
 
         builder = builder.headers(headers).body(Body::from(body_data));
+        if add_metadata {
+            builder = builder.header(
+                TOTAL_PAYMENT_HEADER,
+                submission_with_metadata
+                    .metadata
+                    .value
+                    .coinbase_reward
+                    .to_string(),
+            );
+            if let Some(top_competitor_bid) =
+                submission_with_metadata.metadata.value.top_competitor_bid
+            {
+                builder = builder.header(TOP_BID_HEADER, top_competitor_bid.to_string());
+            }
+        }
 
         Ok(builder
             .send()
@@ -509,11 +528,14 @@ impl RelayClient {
     /// Submits the block (call_relay_submit_block) and processes some special errors.
     pub async fn submit_block(
         &self,
-        data: &SubmitBlockRequest,
+        data: &SubmitBlockRequestWithMetadata,
         ssz: bool,
         gzip: bool,
+        add_metadata: bool,
     ) -> Result<(), SubmitBlockErr> {
-        let resp = self.call_relay_submit_block(data, ssz, gzip).await?;
+        let resp = self
+            .call_relay_submit_block(data, ssz, gzip, add_metadata)
+            .await?;
         let status = resp.status();
 
         if status == StatusCode::TOO_MANY_REQUESTS {
@@ -630,6 +652,23 @@ impl SubmitBlockRequest {
             SubmitBlockRequest::Electra(req) => req.0.message.clone(),
         }
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct BidMetadata {
+    pub value: BidValueMetadata,
+}
+
+#[derive(Clone, Copy, Default, Debug)]
+pub struct BidValueMetadata {
+    pub coinbase_reward: U256,
+    pub top_competitor_bid: Option<U256>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SubmitBlockRequestWithMetadata {
+    pub submission: SubmitBlockRequest,
+    pub metadata: BidMetadata,
 }
 
 #[cfg(test)]
@@ -781,9 +820,18 @@ mod tests {
 
         let relay_url = Url::from_str(&srv.endpoint()).unwrap();
         let relay = RelayClient::from_url(relay_url, None, None, None);
-        let sub_relay = SubmitBlockRequest::Deneb(generator.create_deneb_submit_block_request());
+        let submission = SubmitBlockRequest::Deneb(generator.create_deneb_submit_block_request());
+        let sub_relay = SubmitBlockRequestWithMetadata {
+            submission,
+            metadata: BidMetadata {
+                value: BidValueMetadata {
+                    coinbase_reward: Default::default(),
+                    top_competitor_bid: None,
+                },
+            },
+        };
         relay
-            .submit_block(&sub_relay, true, true)
+            .submit_block(&sub_relay, true, true, false)
             .await
             .expect("OPS!");
     }

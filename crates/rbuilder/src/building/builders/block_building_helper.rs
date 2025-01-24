@@ -251,6 +251,7 @@ where
         &mut self,
         payout_tx_value: Option<U256>,
     ) -> Result<(), BlockBuildingHelperError> {
+        self.built_block_trace.coinbase_reward = self.partial_block.coinbase_profit;
         let (bid_value, true_value) = if let (Some(payout_tx_gas), Some(payout_tx_value)) =
             (self.payout_tx_gas, payout_tx_value)
         {

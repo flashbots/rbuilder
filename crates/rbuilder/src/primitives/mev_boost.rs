@@ -1,5 +1,5 @@
 use crate::mev_boost::{
-    RelayClient, RelayError, SubmitBlockErr, SubmitBlockRequest, ValidatorSlotData,
+    RelayClient, RelayError, SubmitBlockErr, SubmitBlockRequestWithMetadata, ValidatorSlotData,
 };
 use governor::{DefaultDirectRateLimiter, Quota, RateLimiter};
 use serde::{Deserialize, Deserializer};
@@ -155,9 +155,17 @@ impl MevBoostRelayBidSubmitter {
         }
     }
 
-    pub async fn submit_block(&self, data: &SubmitBlockRequest) -> Result<(), SubmitBlockErr> {
+    pub async fn submit_block(
+        &self,
+        data: &SubmitBlockRequestWithMetadata,
+    ) -> Result<(), SubmitBlockErr> {
         self.client
-            .submit_block(data, self.use_ssz_for_submit, self.use_gzip_for_submit)
+            .submit_block(
+                data,
+                self.use_ssz_for_submit,
+                self.use_gzip_for_submit,
+                self.test_relay,
+            )
             .await
     }
 }

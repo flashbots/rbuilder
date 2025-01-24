@@ -2,7 +2,8 @@ use crate::{
     building::builders::Block,
     live_builder::payload_events::MevBoostSlotData,
     mev_boost::{
-        sign_block_for_relay, BLSBlockSigner, RelayError, SubmitBlockErr, SubmitBlockRequest,
+        sign_block_for_relay, BLSBlockSigner, BidMetadata, BidValueMetadata, RelayError,
+        SubmitBlockErr, SubmitBlockRequest, SubmitBlockRequestWithMetadata,
     },
     primitives::mev_boost::{MevBoostRelayBidSubmitter, MevBoostRelayID},
     telemetry::{
@@ -208,7 +209,14 @@ async fn run_submit_to_relays_job(
                 }
             });
 
-        let best_bid_value = best_bid_sync_source.best_bid_value().unwrap_or_default();
+        let bid_metadata = BidMetadata {
+            value: BidValueMetadata {
+                coinbase_reward: block.trace.coinbase_reward,
+                top_competitor_bid: best_bid_sync_source.best_bid_value(),
+            },
+        };
+
+        let best_bid_value = bid_metadata.value.top_competitor_bid.unwrap_or_default();
         let submission_span = info_span!(
             "bid",
             bid_value = format_ether(block.trace.bid_value),
@@ -240,7 +248,10 @@ async fn run_submit_to_relays_job(
                 slot_data.slot_data.pubkey,
                 block.trace.bid_value,
             ) {
-                Ok(res) => res,
+                Ok(res) => SubmitBlockRequestWithMetadata {
+                    submission: res,
+                    metadata: bid_metadata.clone(),
+                },
                 Err(err) => {
                     error!(parent: &submission_span, err = ?err, "Error signing block for relay");
                     continue 'submit;
@@ -258,7 +269,13 @@ async fn run_submit_to_relays_job(
                     slot_data.slot_data.pubkey,
                     block.trace.bid_value,
                 ) {
-                    Ok(res) => Some((res, optimistic_config)),
+                    Ok(res) => Some((
+                        SubmitBlockRequestWithMetadata {
+                            submission: res,
+                            metadata: bid_metadata.clone(),
+                        },
+                        optimistic_config,
+                    )),
                     Err(err) => {
                         error!(parent: &submission_span, err = ?err, "Error signing block for relay");
                         continue 'submit;
@@ -274,7 +291,7 @@ async fn run_submit_to_relays_job(
         if config.dry_run {
             validate_block(
                 &slot_data,
-                &normal_signed_submission,
+                &normal_signed_submission.submission,
                 block.sealed_block.clone(),
                 &config,
                 cancel.clone(),
@@ -306,7 +323,7 @@ async fn run_submit_to_relays_job(
             let can_submit = if optimistic_config.prevalidate_optimistic_blocks {
                 validate_block(
                     &slot_data,
-                    optimistic_signed_submission,
+                    &optimistic_signed_submission.submission,
                     block.sealed_block.clone(),
                     &config,
                     cancel.clone(),
@@ -352,7 +369,7 @@ async fn run_submit_to_relays_job(
             // NOTE: we only notify normal submission here because they have the same contents but different pubkeys
             config.bid_observer.block_submitted(
                 block.sealed_block,
-                normal_signed_submission,
+                normal_signed_submission.submission,
                 block.trace,
                 builder_name,
                 best_bid_value,
@@ -448,7 +465,7 @@ async fn validate_block(
 async fn submit_bid_to_the_relay(
     relay: &MevBoostRelayBidSubmitter,
     cancel: CancellationToken,
-    signed_submit_request: SubmitBlockRequest,
+    signed_submit_request: SubmitBlockRequestWithMetadata,
     optimistic: bool,
 ) {
     let submit_start = Instant::now();
@@ -486,7 +503,7 @@ async fn submit_bid_to_the_relay(
             store_error_event(
                 SIM_ERROR_CATEGORY,
                 relay_result.as_ref().unwrap_err().to_string().as_str(),
-                &signed_submit_request,
+                &signed_submit_request.submission,
             );
             error!(
                 err = ?relay_result.unwrap_err(),
