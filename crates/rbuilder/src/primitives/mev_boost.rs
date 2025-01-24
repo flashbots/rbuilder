@@ -107,10 +107,17 @@ pub struct MevBoostRelayBidSubmitter {
     /// Relay accepts optimistic submissions.
     optimistic: bool,
     submission_rate_limiter: Option<Arc<DefaultDirectRateLimiter>>,
+    /// This is not a real relay so we can send blocks to it even if it does not have any validator registered.
+    test_relay: bool,
 }
 
 impl MevBoostRelayBidSubmitter {
-    pub fn new(client: RelayClient, id: String, config: &RelaySubmitConfig) -> Self {
+    pub fn new(
+        client: RelayClient,
+        id: String,
+        config: &RelaySubmitConfig,
+        test_relay: bool,
+    ) -> Self {
         let submission_rate_limiter = config.interval_between_submissions_ms.map(|d| {
             Arc::new(RateLimiter::direct(
                 Quota::with_period(Duration::from_millis(d)).expect("Rate limiter time period"),
@@ -123,7 +130,12 @@ impl MevBoostRelayBidSubmitter {
             use_gzip_for_submit: config.use_gzip_for_submit,
             optimistic: config.optimistic,
             submission_rate_limiter,
+            test_relay,
         }
+    }
+
+    pub fn test_relay(&self) -> bool {
+        self.test_relay
     }
 
     pub fn id(&self) -> &MevBoostRelayID {

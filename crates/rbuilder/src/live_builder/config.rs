@@ -186,6 +186,7 @@ impl L1Config {
                     client.clone(),
                     relay_config.name.clone(),
                     submit_config,
+                    relay_config.mode == RelayMode::Test,
                 ));
             } else {
                 eyre::bail!(

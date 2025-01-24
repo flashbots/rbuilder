@@ -532,7 +532,12 @@ async fn submit_bid_to_the_relay(
 #[derive(Debug)]
 pub struct RelaySubmitSinkFactory {
     submission_config: Arc<SubmissionConfig>,
+    /// Real relays (!MevBoostRelayBidSubmitter::test_relay())
+    /// We submit to these only if the MevBoostRelayID is included on the MevBoostSlotData of the slot.
     relays: HashMap<MevBoostRelayID, MevBoostRelayBidSubmitter>,
+    /// Test relays (MevBoostRelayBidSubmitter::test_relay())
+    /// Always included on submissions.
+    test_relays: Vec<MevBoostRelayBidSubmitter>,
 }
 
 impl RelaySubmitSinkFactory {
@@ -540,13 +545,16 @@ impl RelaySubmitSinkFactory {
         submission_config: SubmissionConfig,
         relays: Vec<MevBoostRelayBidSubmitter>,
     ) -> Self {
+        let test_relays = relays.iter().filter(|r| r.test_relay()).cloned().collect();
         let relays = relays
             .into_iter()
+            .filter(|r| !r.test_relay())
             .map(|relay| (relay.id().clone(), relay))
             .collect();
         Self {
             submission_config: Arc::new(submission_config),
             relays,
+            test_relays,
         }
     }
 }
@@ -564,6 +572,7 @@ impl BuilderSinkFactory for RelaySubmitSinkFactory {
             .relays
             .iter()
             .flat_map(|id| self.relays.get(id))
+            .chain(self.test_relays.iter())
             .cloned()
             .collect();
         tokio::spawn(run_submit_to_relays_job_and_metrics(
