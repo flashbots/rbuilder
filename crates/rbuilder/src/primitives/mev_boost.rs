@@ -13,10 +13,10 @@ pub type MevBoostRelayID = String;
 pub enum RelayMode {
     /// Submits bids, gets slot info. No extra headers on bidding.
     #[serde(rename = "full")]
+    #[default]
     Full,
     /// Only gets slot info.
     #[serde(rename = "slot_info")]
-    #[default]
     GetSlotInfoOnly,
     /// Submits bids with extra headers. Does not used to get slot info.
     #[serde(rename = "test")]
@@ -52,6 +52,7 @@ pub struct RelayConfig {
     #[serde(default, deserialize_with = "deserialize_env_var")]
     pub api_token_header: Option<String>,
     /// mode defines the need of submit_config/priority
+    #[serde(default)]
     pub mode: RelayMode,
     #[serde(flatten)]
     /// Submit specific info.
@@ -244,5 +245,15 @@ mod test {
 
         let config: RelayConfig = toml::from_str(&(example_base.clone() + "'test'")).unwrap();
         assert_eq!(config.mode, RelayMode::Test);
+    }
+
+    #[test]
+    fn test_deserialize_relay_config_no_mode() {
+        let config = "
+        name = 'relay1'
+        url = 'url'";
+
+        let config: RelayConfig = toml::from_str(config).unwrap();
+        assert_eq!(config.mode, RelayMode::Full);
     }
 }
