@@ -19,6 +19,8 @@ use reth_node_api::{EngineTypes, PayloadTypes};
 use reth_optimism_node::OpEngineTypes;
 use reth_payload_builder::PayloadId;
 use reth_rpc_layer::{AuthClientLayer, AuthClientService, JwtSecret};
+use serde_json;
+use serde_json::Value;
 use std::str::FromStr;
 
 /// Helper for engine api operations
@@ -161,7 +163,7 @@ enum Commands {
     /// Generate genesis configuration
     Genesis {
         #[clap(long, help = "Output path for genesis files")]
-        output: String,
+        output: Option<String>,
     },
     /// Run the testing system
     Run {
@@ -186,8 +188,28 @@ async fn main() -> eyre::Result<()> {
     }
 }
 
-async fn generate_genesis(_output: String) -> eyre::Result<()> {
-    // TODO
+async fn generate_genesis(output: Option<String>) -> eyre::Result<()> {
+    // Read the template file
+    let template = include_str!("fixtures/genesis.json.tmpl");
+
+    // Parse the JSON
+    let mut genesis: Value = serde_json::from_str(&template)?;
+
+    // Update the timestamp field - example using current timestamp
+    let timestamp = chrono::Utc::now().timestamp();
+    if let Some(config) = genesis.as_object_mut() {
+        // Assuming timestamp is at the root level - adjust path as needed
+        config["timestamp"] = Value::String(format!("0x{:x}", timestamp));
+    }
+
+    // Write the result to the output file
+    if let Some(output) = output {
+        std::fs::write(&output, serde_json::to_string_pretty(&genesis)?)?;
+        println!("Generated genesis file at: {}", output);
+    } else {
+        println!("{}", serde_json::to_string_pretty(&genesis)?);
+    }
+
     Ok(())
 }
 
