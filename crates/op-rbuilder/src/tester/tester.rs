@@ -31,21 +31,59 @@ pub struct EngineApi<E> {
 
 pub type BoxedProvider = RootProvider<BoxTransport, Ethereum>;
 
-impl EngineApi<OpEngineTypes> {
-    pub fn new(url: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        let secret_layer = AuthClientLayer::new(JwtSecret::from_str(
-            "688f5d737bad920bdfb2fc2f488d6b6209eebda1dae949a8de91398d932c517a",
-        )?);
+/// Builder for EngineApi configuration
+pub struct EngineApiBuilder<E> {
+    url: String,
+    jwt_secret: String,
+    _marker: PhantomData<E>,
+}
+
+impl<E: EngineTypes> EngineApiBuilder<E> {
+    pub fn new() -> Self {
+        Self {
+            url: String::from("http://localhost:8551"), // default value
+            jwt_secret: String::from(
+                "688f5d737bad920bdfb2fc2f488d6b6209eebda1dae949a8de91398d932c517a",
+            ), // default value
+            _marker: PhantomData,
+        }
+    }
+
+    pub fn with_url(mut self, url: &str) -> Self {
+        self.url = url.to_string();
+        self
+    }
+
+    pub fn with_jwt_secret(mut self, jwt_secret: &str) -> Self {
+        self.jwt_secret = jwt_secret.to_string();
+        self
+    }
+
+    pub fn build(self) -> Result<EngineApi<E>, Box<dyn std::error::Error>> {
+        let secret_layer = AuthClientLayer::new(JwtSecret::from_str(&self.jwt_secret)?);
         let middleware = tower::ServiceBuilder::default().layer(secret_layer);
         let client = jsonrpsee::http_client::HttpClientBuilder::default()
             .set_http_middleware(middleware)
-            .build(url)
+            .build(&self.url)
             .expect("Failed to create http client");
 
-        Ok(Self {
+        Ok(EngineApi {
             engine_api_client: client,
             _marker: PhantomData,
         })
+    }
+}
+
+impl<E: EngineTypes> EngineApi<E> {
+    pub fn builder() -> EngineApiBuilder<E> {
+        EngineApiBuilder::new()
+    }
+}
+
+// Keep the specific OpEngineTypes implementation for backward compatibility
+impl EngineApi<OpEngineTypes> {
+    pub fn new(url: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        Self::builder().with_url(url).build()
     }
 }
 
