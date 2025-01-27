@@ -2,7 +2,6 @@ use alloy_eips::BlockNumberOrTag;
 use alloy_network::Ethereum;
 use alloy_primitives::B256;
 use alloy_primitives::U256;
-use alloy_provider::Provider;
 use alloy_provider::RootProvider;
 use alloy_rpc_types_engine::ExecutionPayloadV1;
 use alloy_rpc_types_engine::ExecutionPayloadV2;
@@ -11,14 +10,13 @@ use alloy_rpc_types_engine::PayloadStatusEnum;
 use alloy_rpc_types_engine::{ExecutionPayloadV3, ForkchoiceUpdated, PayloadStatus};
 use alloy_transport::BoxTransport;
 use clap::Parser;
+use jsonrpsee::core::RpcResult;
 use jsonrpsee::http_client::{transport::HttpBackend, HttpClient};
+use jsonrpsee::proc_macros::rpc;
 use op_alloy_rpc_types_engine::OpPayloadAttributes;
 use reth::{
     api::EngineTypes,
-    rpc::{
-        api::EngineApiClient,
-        types::{engine::ForkchoiceState, BlockTransactionsKind},
-    },
+    rpc::{api::EngineApiClient, types::engine::ForkchoiceState},
 };
 use reth_optimism_node::OpEngineTypes;
 use reth_payload_builder::PayloadId;
@@ -27,7 +25,6 @@ use std::{marker::PhantomData, str::FromStr};
 
 /// Helper for engine api operations
 pub struct EngineApi<E> {
-    url: String,
     pub engine_api_client: HttpClient<AuthClientService<HttpBackend>>,
     pub _marker: PhantomData<E>,
 }
@@ -35,7 +32,7 @@ pub struct EngineApi<E> {
 pub type BoxedProvider = RootProvider<BoxTransport, Ethereum>;
 
 impl EngineApi<OpEngineTypes> {
-    pub fn new(url: &str, non_auth_url: &str) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(url: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let secret_layer = AuthClientLayer::new(JwtSecret::from_str(
             "688f5d737bad920bdfb2fc2f488d6b6209eebda1dae949a8de91398d932c517a",
         )?);
@@ -46,15 +43,23 @@ impl EngineApi<OpEngineTypes> {
             .expect("Failed to create http client");
 
         Ok(Self {
-            url: non_auth_url.to_string(),
             engine_api_client: client,
             _marker: PhantomData,
         })
     }
 }
 
+#[rpc(server, client, namespace = "eth")]
+pub trait BlockApi {
+    #[method(name = "getBlockByNumber")]
+    async fn get_block_by_number(
+        &self,
+        block_number: BlockNumberOrTag,
+        include_txs: bool,
+    ) -> RpcResult<Option<alloy_rpc_types_eth::Block>>;
+}
+
 impl<E: EngineTypes + 'static> EngineApi<E> {
-    /// Retrieves a v3 payload from the engine api
     pub async fn get_payload_v3(
         &self,
         payload_id: PayloadId,
@@ -96,23 +101,21 @@ impl<E: EngineTypes + 'static> EngineApi<E> {
         .await?)
     }
 
-    pub async fn latest(&self) -> alloy_rpc_types_eth::Block {
-        self.get_block_by_number(BlockNumberOrTag::Latest, BlockTransactionsKind::Hashes)
-            .await
+    pub async fn latest(&self) -> eyre::Result<Option<alloy_rpc_types_eth::Block>> {
+        Ok(self
+            .get_block_by_number(BlockNumberOrTag::Latest, false)
+            .await?)
     }
 
     pub async fn get_block_by_number(
         &self,
         number: BlockNumberOrTag,
-        kind: BlockTransactionsKind,
-    ) -> alloy_rpc_types_eth::Block {
-        // TODO: Do not know how to use the other auth provider for this rpc call
-        let provider: BoxedProvider = RootProvider::new_http(self.url.parse().unwrap()).boxed();
-        provider
-            .get_block_by_number(number, kind)
-            .await
-            .unwrap()
-            .unwrap()
+        include_txs: bool,
+    ) -> eyre::Result<Option<alloy_rpc_types_eth::Block>> {
+        Ok(
+            BlockApiClient::get_block_by_number(&self.engine_api_client, number, include_txs)
+                .await?,
+        )
     }
 }
 
@@ -132,19 +135,15 @@ async fn main() {
     let args = Args::parse();
     println!("Validation: {}", args.validation);
 
-    let engine_api =
-        EngineApi::<OpEngineTypes>::new("http://localhost:4444", "http://localhost:1111").unwrap();
+    let engine_api = EngineApi::<OpEngineTypes>::new("http://localhost:4444").unwrap();
 
     let validation_node_api = if args.validation {
-        Some(
-            EngineApi::<OpEngineTypes>::new("http://localhost:5555", "http://localhost:2222")
-                .unwrap(),
-        )
+        Some(EngineApi::<OpEngineTypes>::new("http://localhost:5555").unwrap())
     } else {
         None
     };
 
-    let latest_block = engine_api.latest().await;
+    let latest_block = engine_api.latest().await.unwrap().expect("block not found");
 
     // latest hash and timestamp
     let mut latest = latest_block.header.hash;
@@ -152,7 +151,11 @@ async fn main() {
 
     if let Some(validation_node_api) = &validation_node_api {
         // if the validation node is behind the builder, try to sync it using the engine api
-        let latest_validation_block = validation_node_api.latest().await;
+        let latest_validation_block = validation_node_api
+            .latest()
+            .await
+            .unwrap()
+            .expect("block not found");
 
         if latest_validation_block.header.number > latest_block.header.number {
             panic!("validation node is ahead of the builder")
@@ -170,8 +173,10 @@ async fn main() {
                 println!("syncing block {}", i);
 
                 let block = engine_api
-                    .get_block_by_number(BlockNumberOrTag::Number(i), BlockTransactionsKind::Full)
-                    .await;
+                    .get_block_by_number(BlockNumberOrTag::Number(i), true)
+                    .await
+                    .unwrap()
+                    .expect("block not found");
 
                 if block.header.parent_hash != latest_hash {
                     panic!("not expected")
