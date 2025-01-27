@@ -148,25 +148,55 @@ pub trait BlockApi {
     ) -> RpcResult<Option<alloy_rpc_types_eth::Block>>;
 }
 
-/// This is a simple program
+/// CLI Commands
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
-struct Args {
-    #[clap(long, short, action)]
-    validation: bool,
+struct Cli {
+    #[clap(subcommand)]
+    command: Commands,
+}
 
-    #[clap(long, short, action, default_value = "false")]
-    no_tx_pool: bool,
+#[derive(Parser, Debug)]
+enum Commands {
+    /// Generate genesis configuration
+    Genesis {
+        #[clap(long, help = "Output path for genesis files")]
+        output: String,
+    },
+    /// Run the testing system
+    Run {
+        #[clap(long, short, action)]
+        validation: bool,
+
+        #[clap(long, short, action, default_value = "false")]
+        no_tx_pool: bool,
+    },
 }
 
 #[tokio::main]
-async fn main() {
-    let args = Args::parse();
-    println!("Validation: {}", args.validation);
+async fn main() -> eyre::Result<()> {
+    let cli = Cli::parse();
+
+    match cli.command {
+        Commands::Genesis { output } => generate_genesis(output).await,
+        Commands::Run {
+            validation,
+            no_tx_pool,
+        } => run_system(validation, no_tx_pool).await,
+    }
+}
+
+async fn generate_genesis(_output: String) -> eyre::Result<()> {
+    // TODO
+    Ok(())
+}
+
+async fn run_system(validation: bool, no_tx_pool: bool) -> eyre::Result<()> {
+    println!("Validation: {}", validation);
 
     let engine_api = EngineApi::new("http://localhost:4444").unwrap();
 
-    let validation_node_api = if args.validation {
+    let validation_node_api = if validation {
         Some(EngineApi::new("http://localhost:5555").unwrap())
     } else {
         None
@@ -279,7 +309,7 @@ async fn main() {
                         suggested_fee_recipient: Default::default(),
                     },
                     transactions: None,
-                    no_tx_pool: Some(args.no_tx_pool),
+                    no_tx_pool: Some(no_tx_pool),
                     gas_limit: Some(10000000000),
                     eip_1559_params: None,
                 }),
@@ -295,7 +325,7 @@ async fn main() {
 
         // Only wait for the block time to request the payload if the block builder
         // is expected to use the txpool (this is, no_tx_pool is false)
-        if !args.no_tx_pool {
+        if !no_tx_pool {
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         }
 
