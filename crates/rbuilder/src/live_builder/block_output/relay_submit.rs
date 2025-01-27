@@ -37,29 +37,30 @@ use super::{
 const SIM_ERROR_CATEGORY: &str = "submit_block_simulation";
 const VALIDATION_ERROR_CATEGORY: &str = "validate_block_simulation";
 
-/// Contains the best block so far.
-/// Building updates via compare_and_update while relay submitter polls via take_best_block.
+/// Contains the last pending block so far.
+/// Building updates via update while relay submitter polls via take_pending_block.
 /// A new block can be waited without polling via wait_for_change.
 #[derive(Debug, Default)]
-pub struct BestBlockCell {
+pub struct PendingBlockCell {
     block: Mutex<Option<Block>>,
     block_notify: Notify,
 }
 
-impl BestBlockCell {
-    pub fn compare_and_update(&self, block: Block) {
-        let mut best_block = self.block.lock();
-        let old_value = best_block
+impl PendingBlockCell {
+    /// Updates unless it's exactly the same block (hash)
+    pub fn update(&self, block: Block) {
+        let mut current_block = self.block.lock();
+        let old_block_hash = current_block
             .as_ref()
-            .map(|b| b.trace.bid_value)
+            .map(|b| b.sealed_block.hash())
             .unwrap_or_default();
-        if block.trace.bid_value > old_value {
-            *best_block = Some(block);
+        if block.sealed_block.hash() != old_block_hash {
+            *current_block = Some(block);
             self.block_notify.notify_one();
         }
     }
 
-    pub fn take_best_block(&self) -> Option<Block> {
+    pub fn take_pending_block(&self) -> Option<Block> {
         self.block.lock().take()
     }
 
@@ -70,13 +71,13 @@ impl BestBlockCell {
 
 /// Adapts BestBlockCell to BlockBuildingSink by calling compare_and_update on new_block.
 #[derive(Debug)]
-struct BestBlockCellToBlockBuildingSink {
-    best_block_cell: Arc<BestBlockCell>,
+struct PendingBlockCellToBlockBuildingSink {
+    pending_block_cell: Arc<PendingBlockCell>,
 }
 
-impl BlockBuildingSink for BestBlockCellToBlockBuildingSink {
+impl BlockBuildingSink for PendingBlockCellToBlockBuildingSink {
     fn new_block(&self, block: Block) {
-        self.best_block_cell.compare_and_update(block);
+        self.pending_block_cell.update(block);
     }
 }
 
@@ -141,7 +142,7 @@ struct BuiltBlockInfo {
 ///    returns the best bid made
 #[allow(clippy::too_many_arguments)]
 async fn run_submit_to_relays_job(
-    best_bid: Arc<BestBlockCell>,
+    pending_bid: Arc<PendingBlockCell>,
     slot_data: MevBoostSlotData,
     relays: Vec<MevBoostRelayBidSubmitter>,
     config: Arc<SubmissionConfig>,
@@ -168,16 +169,18 @@ async fn run_submit_to_relays_job(
         (normal_relays, optimistic_relays)
     };
 
-    let mut last_bid_value = U256::from(0);
+    let mut last_bid_hash = None;
     'submit: loop {
         if cancel.is_cancelled() {
             break 'submit res;
         }
 
-        best_bid.wait_for_change().await;
-        let block = if let Some(new_block) = best_bid.take_best_block() {
-            if new_block.trace.bid_value > last_bid_value {
-                last_bid_value = new_block.trace.bid_value;
+        pending_bid.wait_for_change().await;
+        let block = if let Some(new_block) = pending_bid.take_pending_block() {
+            if last_bid_hash
+                .is_none_or(|last_bid_hash| last_bid_hash != new_block.sealed_block.hash())
+            {
+                last_bid_hash = Some(new_block.sealed_block.hash());
                 new_block
             } else {
                 continue 'submit;
@@ -393,7 +396,7 @@ async fn run_submit_to_relays_job(
 }
 
 pub async fn run_submit_to_relays_job_and_metrics(
-    best_bid: Arc<BestBlockCell>,
+    pending_bid: Arc<PendingBlockCell>,
     slot_data: MevBoostSlotData,
     relays: Vec<MevBoostRelayBidSubmitter>,
     config: Arc<SubmissionConfig>,
@@ -401,7 +404,7 @@ pub async fn run_submit_to_relays_job_and_metrics(
     competition_bid_value_source: Arc<dyn BidValueSource + Send + Sync>,
 ) {
     let last_build_block_info = run_submit_to_relays_job(
-        best_bid,
+        pending_bid,
         slot_data,
         relays,
         config,
@@ -597,7 +600,7 @@ impl BuilderSinkFactory for RelaySubmitSinkFactory {
         competition_bid_value_source: Arc<dyn BidValueSource + Send + Sync>,
         cancel: CancellationToken,
     ) -> Box<dyn BlockBuildingSink> {
-        let best_block_cell = Arc::new(BestBlockCell::default());
+        let pending_block_cell = Arc::new(PendingBlockCell::default());
 
         let relays = slot_data
             .relays
@@ -607,13 +610,13 @@ impl BuilderSinkFactory for RelaySubmitSinkFactory {
             .cloned()
             .collect();
         tokio::spawn(run_submit_to_relays_job_and_metrics(
-            best_block_cell.clone(),
+            pending_block_cell.clone(),
             slot_data,
             relays,
             self.submission_config.clone(),
             cancel,
             competition_bid_value_source,
         ));
-        Box::new(BestBlockCellToBlockBuildingSink { best_block_cell })
+        Box::new(PendingBlockCellToBlockBuildingSink { pending_block_cell })
     }
 }
