@@ -65,6 +65,8 @@ clap.workspace = true
 derive_more.workspace = true
 metrics.workspace = true
 
+time = { version = "0.3.36", features = ["macros", "formatting", "parsing"] }
+
 [target.'cfg(unix)'.dependencies]
 tikv-jemallocator = { version = "0.6", optional = true }
 

@@ -32,6 +32,7 @@ use reth_optimism_primitives::OpPrimitives;
 use reth_transaction_pool::PoolTransaction;
 
 pub mod generator;
+mod integration;
 mod metrics;
 mod monitoring;
 pub mod payload_builder;
