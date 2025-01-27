@@ -6,8 +6,12 @@ use crate::{
     live_builder::payload_events::MevBoostSlotData,
     provider::StateProviderFactory,
 };
+use ahash::HashMap;
 use alloy_primitives::U256;
-use std::{fmt::Debug, sync::Arc};
+use std::{
+    fmt::Debug,
+    sync::{Arc, Mutex},
+};
 use tracing::error;
 
 use super::{
@@ -143,13 +147,17 @@ where
 
 /// Helper object containing the bidder.
 /// It just forwards new blocks and new competitions bids (via SlotBidderToBidValueObs) to the bidder.
-#[derive(Debug)]
 struct BlockSealingBidder {
-    /// Bidder we ask how to finish the blocks.
+    /// Used to unsubscribe on drop.
     bid_value_source_to_unsubscribe: Arc<dyn BidValueObs + Send + Sync>,
     /// Used to unsubscribe on drop.
     competition_bid_value_source: Arc<dyn BidValueSource + Send + Sync>,
+    /// We forward best block and competition bids to the bidder.
+    /// It will bid with the BidMaker it received on creation.
     bidder: Arc<dyn SlotBidder>,
+    /// For each algo name we store the last block so on each update we can look for the best block among all algos.
+    /// We should replace String for "real" type identifying the algo.
+    algorithm_to_last_block: Mutex<HashMap<String, BiddableUnfinishedBlock>>,
 }
 
 impl BlockSealingBidder {
@@ -173,12 +181,15 @@ impl BlockSealingBidder {
             bid_value_source_to_unsubscribe: slot_bidder_to_bid_value_obs,
             competition_bid_value_source,
             bidder,
+            algorithm_to_last_block: Default::default(),
         }
     }
 }
 
 impl UnfinishedBlockBuildingSink for BlockSealingBidder {
     fn new_block(&self, block: BiddableUnfinishedBlock) {
+        /*        let mut algorithm_to_last_block = self.algorithm_to_last_block.lock().unwrap();
+        algorithm_to_last_block.insert(block.builder_name().to_string(), block);*/
         self.bidder.new_block(block);
     }
 
@@ -191,5 +202,11 @@ impl Drop for BlockSealingBidder {
     fn drop(&mut self) {
         self.competition_bid_value_source
             .unsubscribe(self.bid_value_source_to_unsubscribe.clone());
+    }
+}
+
+impl Debug for BlockSealingBidder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BlockSealingBidder").finish()
     }
 }
