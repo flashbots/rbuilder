@@ -14,38 +14,33 @@ use jsonrpsee::core::RpcResult;
 use jsonrpsee::http_client::{transport::HttpBackend, HttpClient};
 use jsonrpsee::proc_macros::rpc;
 use op_alloy_rpc_types_engine::OpPayloadAttributes;
-use reth::{
-    api::EngineTypes,
-    rpc::{api::EngineApiClient, types::engine::ForkchoiceState},
-};
+use reth::rpc::{api::EngineApiClient, types::engine::ForkchoiceState};
+use reth_node_api::{EngineTypes, PayloadTypes};
 use reth_optimism_node::OpEngineTypes;
 use reth_payload_builder::PayloadId;
 use reth_rpc_layer::{AuthClientLayer, AuthClientService, JwtSecret};
-use std::{marker::PhantomData, str::FromStr};
+use std::str::FromStr;
 
 /// Helper for engine api operations
-pub struct EngineApi<E> {
+pub struct EngineApi {
     pub engine_api_client: HttpClient<AuthClientService<HttpBackend>>,
-    pub _marker: PhantomData<E>,
 }
 
 pub type BoxedProvider = RootProvider<BoxTransport, Ethereum>;
 
 /// Builder for EngineApi configuration
-pub struct EngineApiBuilder<E> {
+pub struct EngineApiBuilder {
     url: String,
     jwt_secret: String,
-    _marker: PhantomData<E>,
 }
 
-impl<E: EngineTypes> EngineApiBuilder<E> {
+impl EngineApiBuilder {
     pub fn new() -> Self {
         Self {
             url: String::from("http://localhost:8551"), // default value
             jwt_secret: String::from(
                 "688f5d737bad920bdfb2fc2f488d6b6209eebda1dae949a8de91398d932c517a",
             ), // default value
-            _marker: PhantomData,
         }
     }
 
@@ -59,7 +54,7 @@ impl<E: EngineTypes> EngineApiBuilder<E> {
         self
     }
 
-    pub fn build(self) -> Result<EngineApi<E>, Box<dyn std::error::Error>> {
+    pub fn build(self) -> Result<EngineApi, Box<dyn std::error::Error>> {
         let secret_layer = AuthClientLayer::new(JwtSecret::from_str(&self.jwt_secret)?);
         let middleware = tower::ServiceBuilder::default().layer(secret_layer);
         let client = jsonrpsee::http_client::HttpClientBuilder::default()
@@ -69,40 +64,27 @@ impl<E: EngineTypes> EngineApiBuilder<E> {
 
         Ok(EngineApi {
             engine_api_client: client,
-            _marker: PhantomData,
         })
     }
 }
 
-impl<E: EngineTypes> EngineApi<E> {
-    pub fn builder() -> EngineApiBuilder<E> {
+impl EngineApi {
+    pub fn builder() -> EngineApiBuilder {
         EngineApiBuilder::new()
     }
-}
 
-// Keep the specific OpEngineTypes implementation for backward compatibility
-impl EngineApi<OpEngineTypes> {
     pub fn new(url: &str) -> Result<Self, Box<dyn std::error::Error>> {
         Self::builder().with_url(url).build()
     }
-}
 
-#[rpc(server, client, namespace = "eth")]
-pub trait BlockApi {
-    #[method(name = "getBlockByNumber")]
-    async fn get_block_by_number(
-        &self,
-        block_number: BlockNumberOrTag,
-        include_txs: bool,
-    ) -> RpcResult<Option<alloy_rpc_types_eth::Block>>;
-}
-
-impl<E: EngineTypes + 'static> EngineApi<E> {
     pub async fn get_payload_v3(
         &self,
         payload_id: PayloadId,
-    ) -> eyre::Result<E::ExecutionPayloadEnvelopeV3> {
-        Ok(EngineApiClient::<E>::get_payload_v3(&self.engine_api_client, payload_id).await?)
+    ) -> eyre::Result<<OpEngineTypes as EngineTypes>::ExecutionPayloadEnvelopeV3> {
+        Ok(
+            EngineApiClient::<OpEngineTypes>::get_payload_v3(&self.engine_api_client, payload_id)
+                .await?,
+        )
     }
 
     pub async fn new_payload(
@@ -111,7 +93,7 @@ impl<E: EngineTypes + 'static> EngineApi<E> {
         versioned_hashes: Vec<B256>,
         parent_beacon_block_root: B256,
     ) -> eyre::Result<PayloadStatus> {
-        Ok(EngineApiClient::<E>::new_payload_v3(
+        Ok(EngineApiClient::<OpEngineTypes>::new_payload_v3(
             &self.engine_api_client,
             payload,
             versioned_hashes,
@@ -120,14 +102,13 @@ impl<E: EngineTypes + 'static> EngineApi<E> {
         .await?)
     }
 
-    /// Sends forkchoice update to the engine api
     pub async fn update_forkchoice(
         &self,
         current_head: B256,
         new_head: B256,
-        payload_attributes: Option<E::PayloadAttributes>,
+        payload_attributes: Option<<OpEngineTypes as PayloadTypes>::PayloadAttributes>,
     ) -> eyre::Result<ForkchoiceUpdated> {
-        Ok(EngineApiClient::<E>::fork_choice_updated_v3(
+        Ok(EngineApiClient::<OpEngineTypes>::fork_choice_updated_v3(
             &self.engine_api_client,
             ForkchoiceState {
                 head_block_hash: new_head,
@@ -157,6 +138,16 @@ impl<E: EngineTypes + 'static> EngineApi<E> {
     }
 }
 
+#[rpc(server, client, namespace = "eth")]
+pub trait BlockApi {
+    #[method(name = "getBlockByNumber")]
+    async fn get_block_by_number(
+        &self,
+        block_number: BlockNumberOrTag,
+        include_txs: bool,
+    ) -> RpcResult<Option<alloy_rpc_types_eth::Block>>;
+}
+
 /// This is a simple program
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -173,10 +164,10 @@ async fn main() {
     let args = Args::parse();
     println!("Validation: {}", args.validation);
 
-    let engine_api = EngineApi::<OpEngineTypes>::new("http://localhost:4444").unwrap();
+    let engine_api = EngineApi::new("http://localhost:4444").unwrap();
 
     let validation_node_api = if args.validation {
-        Some(EngineApi::<OpEngineTypes>::new("http://localhost:5555").unwrap())
+        Some(EngineApi::new("http://localhost:5555").unwrap())
     } else {
         None
     };
