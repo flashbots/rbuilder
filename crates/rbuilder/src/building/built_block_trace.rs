@@ -164,4 +164,14 @@ impl BuiltBlockTrace {
 
         Ok(())
     }
+
+    pub fn transaction_hashes(&self) -> Vec<TxHash> {
+        let mut hashes = Vec::new();
+        for execution_result in &self.included_orders {
+            for tx in &execution_result.txs {
+                hashes.push(tx.hash());
+            }
+        }
+        hashes
+    }
 }

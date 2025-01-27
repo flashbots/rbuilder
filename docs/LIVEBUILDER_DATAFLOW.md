@@ -172,7 +172,7 @@ On each block `BlockSealingBidderFactory` creates the following `BlockSealingBid
         Sealer--"new_block"-->BlockBuildingSink("**BlockBuildingSink**<br>🔄Task submitting to the relays")
       end
 ```
-The [BidMaker](../src/block_descriptor_bidding/traits.rs) is in charge of sealing the block, that is, adding the final payout tx to the validator and computing the root hash. Depending on `BlockSealingBidderFactory`'s configuration, it can use [SequentialSealerBidMaker](../crates/rbuilder/src/live_builder/block_output/bidding/sequential_sealer_bid_maker.rs) or [ParallelSealerBidMaker](../crates/rbuilder/src/live_builder/block_output/bidding/parallel_sealer_bid_maker.rs).
+The [BidMaker](../src/block_descriptor_bidding/traits.rs) is in charge of sealing the block, that is, adding the final payout tx to the validator and computing the root hash. The current implementation is [SequentialSealerBidMaker](../crates/rbuilder/src/live_builder/block_output/bidding/sequential_sealer_bid_maker.rs).
 
 Some notes on the provided rbuilder example:
 - The provided implementation of `BiddingService` is [TrueBlockValueBiddingService](../crates/rbuilder/src/live_builder/block_output/bidding/true_block_value_bidder.rs). This is a dummy service whose created `SlotBidder`s bid all true block value.

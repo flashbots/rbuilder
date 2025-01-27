@@ -85,6 +85,15 @@ pub struct BiddableUnfinishedBlock {
     true_block_value: U256,
 }
 
+impl Clone for BiddableUnfinishedBlock {
+    fn clone(&self) -> Self {
+        Self {
+            block: self.block.box_clone(),
+            true_block_value: self.true_block_value.clone(),
+        }
+    }
+}
+
 impl BiddableUnfinishedBlock {
     pub fn new(block: Box<dyn BlockBuildingHelper>) -> Result<Self, BlockBuildingHelperError> {
         let true_block_value = block.true_block_value()?;

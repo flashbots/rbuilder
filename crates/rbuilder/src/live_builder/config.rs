@@ -128,10 +128,6 @@ pub struct L1Config {
     /// If true all optimistic submissions will be validated on nodes specified in `dry_run_validation_url`
     pub optimistic_prevalidate_optimistic_blocks: bool,
 
-    /// How many seals we are going to be doing in parallel.
-    /// Optimal value may change depending on the roothash computation caching strategies.
-    pub max_concurrent_seals: u64,
-
     ///Name kept singular for backwards compatibility
     #[serde_as(deserialize_as = "OneOrMany<EnvOrValue<String>>")]
     pub cl_node_url: Vec<EnvOrValue<String>>,
@@ -153,7 +149,6 @@ impl Default for L1Config {
             optimistic_max_bid_value_eth: "0.0".to_string(),
             optimistic_prevalidate_optimistic_blocks: false,
             cl_node_url: vec![EnvOrValue::from("http://127.0.0.1:3500")],
-            max_concurrent_seals: DEFAULT_MAX_CONCURRENT_SEALS,
             genesis_fork_version: None,
         }
     }
@@ -404,7 +399,6 @@ impl LiveBuilderConfig for Config {
             sink_sealed_factory,
             Arc::new(NullBidValueSource {}),
             wallet_balance_watcher,
-            self.l1_config.max_concurrent_seals as usize,
         ));
 
         let blocklist_provider = self
