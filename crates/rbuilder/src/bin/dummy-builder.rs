@@ -10,7 +10,9 @@ use rbuilder::{
     beacon_api_client::Client,
     building::{
         builders::{
-            block_building_helper::{BlockBuildingHelper, BlockBuildingHelperFromProvider},
+            block_building_helper::{
+                BiddableUnfinishedBlock, BlockBuildingHelper, BlockBuildingHelperFromProvider,
+            },
             BlockBuildingAlgorithm, BlockBuildingAlgorithmInput, OrderConsumer,
             UnfinishedBlockBuildingSink, UnfinishedBlockBuildingSinkFactory,
         },
@@ -142,9 +144,9 @@ impl UnfinishedBlockBuildingSinkFactory for TraceBlockSinkFactory {
 struct TracingBlockSink {}
 
 impl UnfinishedBlockBuildingSink for TracingBlockSink {
-    fn new_block(&self, block: Box<dyn BlockBuildingHelper>) {
+    fn new_block(&self, block: BiddableUnfinishedBlock) {
         info!(
-            order_count =? block.built_block_trace().included_orders.len(),
+            order_count =? block.block().built_block_trace().included_orders.len(),
             "Block generated. Throwing it away!"
         );
     }
@@ -234,7 +236,9 @@ where
             let block = self
                 .build_block(orders, input.provider, &input.ctx)
                 .unwrap();
-            input.sink.new_block(block);
+            if let Ok(block) = BiddableUnfinishedBlock::new(block) {
+                input.sink.new_block(block);
+            }
         }
     }
 }

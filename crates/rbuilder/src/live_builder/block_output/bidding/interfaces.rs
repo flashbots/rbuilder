@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
 use crate::{
-    building::builders::{block_building_helper::BlockBuildingHelper, UnfinishedBlockBuildingSink},
+    building::builders::{
+        block_building_helper::{BiddableUnfinishedBlock, BlockBuildingHelper},
+        UnfinishedBlockBuildingSink,
+    },
     live_builder::block_output::bid_value_source::interfaces::BidValueObs,
 };
 use alloy_primitives::{BlockNumber, U256};
@@ -19,7 +22,7 @@ pub trait SlotBidder: UnfinishedBlockBuildingSink + BidValueObs {}
 /// Bid we want to make.
 pub struct Bid {
     /// Block we should seal with payout tx of payout_tx_value.
-    block: Box<dyn BlockBuildingHelper>,
+    block: BiddableUnfinishedBlock,
     /// payout_tx_value should be Some <=> block.can_add_payout_tx()
     payout_tx_value: Option<U256>,
 }
@@ -34,7 +37,7 @@ impl std::fmt::Debug for Bid {
 
 impl Bid {
     /// Creates a new Bid instance.
-    pub fn new(block: Box<dyn BlockBuildingHelper>, payout_tx_value: Option<U256>) -> Self {
+    pub fn new(block: BiddableUnfinishedBlock, payout_tx_value: Option<U256>) -> Self {
         Self {
             block,
             payout_tx_value,
@@ -42,7 +45,7 @@ impl Bid {
     }
 
     pub fn block(self) -> Box<dyn BlockBuildingHelper> {
-        self.block
+        self.block.into_building_helper()
     }
 
     /// Returns the payout transaction value.

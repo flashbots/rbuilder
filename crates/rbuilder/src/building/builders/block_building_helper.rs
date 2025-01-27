@@ -79,6 +79,39 @@ pub trait BlockBuildingHelper: Send + Sync {
     fn builder_name(&self) -> &str;
 }
 
+/// Wraps a BlockBuildingHelper with a valid true_block_value which makes it ready to bid.
+pub struct BiddableUnfinishedBlock {
+    block: Box<dyn BlockBuildingHelper>,
+    true_block_value: U256,
+}
+
+impl BiddableUnfinishedBlock {
+    pub fn new(block: Box<dyn BlockBuildingHelper>) -> Result<Self, BlockBuildingHelperError> {
+        let true_block_value = block.true_block_value()?;
+        Ok(Self {
+            block,
+            true_block_value,
+        })
+    }
+
+    pub fn true_block_value(&self) -> U256 {
+        self.true_block_value
+    }
+
+    /// returns not mutable ref to ensure true_block_value does not change.
+    pub fn block(&self) -> &dyn BlockBuildingHelper {
+        self.block.as_ref()
+    }
+
+    pub fn can_add_payout_tx(&self) -> bool {
+        self.block.can_add_payout_tx()
+    }
+
+    pub fn into_building_helper(self) -> Box<dyn BlockBuildingHelper> {
+        self.block
+    }
+}
+
 /// Implementation of BlockBuildingHelper based on a generic Provider
 #[derive(Clone)]
 pub struct BlockBuildingHelperFromProvider<P>

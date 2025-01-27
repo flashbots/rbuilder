@@ -14,7 +14,7 @@ use crate::{
 use ahash::HashSet;
 use alloy_eips::eip4844::BlobTransactionSidecar;
 use alloy_primitives::{Address, Bytes, B256};
-use block_building_helper::BlockBuildingHelper;
+use block_building_helper::BiddableUnfinishedBlock;
 use reth::{primitives::SealedBlock, revm::cached::CachedReads};
 use reth_errors::ProviderError;
 use std::{fmt::Debug, sync::Arc};
@@ -190,7 +190,7 @@ where
 
 /// Output of the BlockBuildingAlgorithm.
 pub trait UnfinishedBlockBuildingSink: std::fmt::Debug + Send + Sync {
-    fn new_block(&self, block: Box<dyn BlockBuildingHelper>);
+    fn new_block(&self, block: BiddableUnfinishedBlock);
 
     /// The sink may not like blocks where coinbase is the final fee_recipient (eg: this does not allows us to take profit!).
     /// Not sure this is the right place for this func. Might move somewhere else.

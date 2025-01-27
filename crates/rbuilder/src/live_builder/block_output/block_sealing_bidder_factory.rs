@@ -1,5 +1,8 @@
 use crate::{
-    building::builders::{UnfinishedBlockBuildingSink, UnfinishedBlockBuildingSinkFactory},
+    building::builders::{
+        block_building_helper::BiddableUnfinishedBlock, UnfinishedBlockBuildingSink,
+        UnfinishedBlockBuildingSinkFactory,
+    },
     live_builder::payload_events::MevBoostSlotData,
     provider::StateProviderFactory,
 };
@@ -175,10 +178,7 @@ impl BlockSealingBidder {
 }
 
 impl UnfinishedBlockBuildingSink for BlockSealingBidder {
-    fn new_block(
-        &self,
-        block: Box<dyn crate::building::builders::block_building_helper::BlockBuildingHelper>,
-    ) {
+    fn new_block(&self, block: BiddableUnfinishedBlock) {
         self.bidder.new_block(block);
     }
 

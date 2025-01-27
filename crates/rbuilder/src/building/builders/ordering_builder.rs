@@ -24,8 +24,9 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info_span, trace};
 
 use super::{
-    block_building_helper::BlockBuildingHelperFromProvider, handle_building_error,
-    BacktestSimulateBlockInput, Block, BlockBuildingAlgorithm, BlockBuildingAlgorithmInput,
+    block_building_helper::{BiddableUnfinishedBlock, BlockBuildingHelperFromProvider},
+    handle_building_error, BacktestSimulateBlockInput, Block, BlockBuildingAlgorithm,
+    BlockBuildingAlgorithmInput,
 };
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -105,7 +106,9 @@ where
                 if block.built_block_trace().got_no_signer_error {
                     use_suggested_fee_recipient_as_coinbase = false;
                 }
-                input.sink.new_block(block);
+                if let Ok(block) = BiddableUnfinishedBlock::new(block) {
+                    input.sink.new_block(block);
+                }
             }
             Err(err) => {
                 if !handle_building_error(err) {

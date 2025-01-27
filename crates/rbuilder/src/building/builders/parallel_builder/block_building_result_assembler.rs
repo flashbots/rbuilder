@@ -13,7 +13,9 @@ use tracing::{info_span, trace};
 use crate::{
     building::{
         builders::{
-            block_building_helper::{BlockBuildingHelper, BlockBuildingHelperFromProvider},
+            block_building_helper::{
+                BiddableUnfinishedBlock, BlockBuildingHelper, BlockBuildingHelperFromProvider,
+            },
             handle_building_error, UnfinishedBlockBuildingSink,
         },
         BlockBuildingContext,
@@ -150,7 +152,9 @@ where
                     }
 
                     if let Some(sink) = &self.sink {
-                        sink.new_block(new_block);
+                        if let Ok(new_block) = BiddableUnfinishedBlock::new(new_block) {
+                            sink.new_block(new_block);
+                        }
                     }
                 }
             }
