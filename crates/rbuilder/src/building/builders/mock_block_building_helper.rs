@@ -29,6 +29,7 @@ pub struct MockBlockBuildingHelper {
     built_block_trace: BuiltBlockTrace,
     block_building_context: BlockBuildingContext,
     can_add_payout_tx: bool,
+    builder_name: String,
 }
 
 impl MockBlockBuildingHelper {
@@ -41,7 +42,19 @@ impl MockBlockBuildingHelper {
             built_block_trace,
             block_building_context: BlockBuildingContext::dummy_for_testing(),
             can_add_payout_tx,
+            builder_name: "Mock".to_string(),
         }
+    }
+
+    pub fn with_builder_name(self, builder_name: String) -> Self {
+        Self {
+            builder_name,
+            ..self
+        }
+    }
+
+    pub fn built_block_trace_mut_ref(&mut self) -> &mut BuiltBlockTrace {
+        &mut self.built_block_trace
     }
 }
 
@@ -114,7 +127,7 @@ impl BlockBuildingHelper for MockBlockBuildingHelper {
     }
 
     fn builder_name(&self) -> &str {
-        "Mock"
+        &self.builder_name
     }
 }
 
