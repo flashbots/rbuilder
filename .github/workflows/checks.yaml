@@ -172,7 +172,7 @@ jobs:
         run: cargo run -p op-rbuilder --bin tester --features optimism -- genesis --output genesis.json
 
       - name: Run integration tests
-        run: cargo test --package op-rbuilder --lib --features optimism,integration -- integration::integration::tests
+        run: cargo test --package op-rbuilder --lib --features optimism,integration -- integration::integration_test::tests
 
       - name: Aggregate playground logs
         # This steps fails if the test fails early and the playground logs dir has not been created
