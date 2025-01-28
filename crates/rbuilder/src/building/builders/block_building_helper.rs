@@ -89,7 +89,7 @@ impl Clone for BiddableUnfinishedBlock {
     fn clone(&self) -> Self {
         Self {
             block: self.block.box_clone(),
-            true_block_value: self.true_block_value.clone(),
+            true_block_value: self.true_block_value,
         }
     }
 }
