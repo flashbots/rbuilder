@@ -174,34 +174,53 @@ pub async fn generate_genesis(output: Option<String>) -> eyre::Result<()> {
     Ok(())
 }
 
-pub async fn run_system(validation: bool, no_tx_pool: bool) -> eyre::Result<()> {
-    println!("Validation: {}", validation);
+/// A system that continuously generates blocks using the engine API
+pub struct BlockGenerator<'a> {
+    engine_api: &'a EngineApi,
+    validation_api: Option<&'a EngineApi>,
+    latest_hash: B256,
+    timestamp: u64,
+    no_tx_pool: bool,
+}
 
-    let engine_api = EngineApi::new("http://localhost:4444").unwrap();
+impl<'a> BlockGenerator<'a> {
+    pub fn new(
+        engine_api: &'a EngineApi,
+        validation_api: Option<&'a EngineApi>,
+        no_tx_pool: bool,
+    ) -> Self {
+        Self {
+            engine_api,
+            validation_api,
+            latest_hash: B256::ZERO, // temporary value
+            timestamp: 0,            // temporary value
+            no_tx_pool,
+        }
+    }
 
-    let validation_node_api = if validation {
-        Some(EngineApi::new("http://localhost:5555").unwrap())
-    } else {
-        None
-    };
+    /// Initialize the block generator by fetching the latest block
+    pub async fn init(&mut self) -> eyre::Result<()> {
+        let latest_block = self.engine_api.latest().await?.expect("block not found");
+        self.latest_hash = latest_block.header.hash;
+        self.timestamp = latest_block.header.timestamp;
 
-    let latest_block = engine_api.latest().await.unwrap().expect("block not found");
+        // Sync validation node if it exists
+        if let Some(validation_api) = self.validation_api {
+            self.sync_validation_node(validation_api).await?;
+        }
 
-    // latest hash and timestamp
-    let mut latest = latest_block.header.hash;
-    let mut timestamp = latest_block.header.timestamp;
+        Ok(())
+    }
 
-    if let Some(validation_node_api) = &validation_node_api {
-        // if the validation node is behind the builder, try to sync it using the engine api
-        let latest_validation_block = validation_node_api
-            .latest()
-            .await
-            .unwrap()
-            .expect("block not found");
+    /// Sync the validation node to the current state
+    async fn sync_validation_node(&self, validation_api: &EngineApi) -> eyre::Result<()> {
+        let latest_validation_block = validation_api.latest().await?.expect("block not found");
+        let latest_block = self.engine_api.latest().await?.expect("block not found");
 
         if latest_validation_block.header.number > latest_block.header.number {
-            panic!("validation node is ahead of the builder")
+            return Err(eyre::eyre!("validation node is ahead of the builder"));
         }
+
         if latest_validation_block.header.number < latest_block.header.number {
             println!(
                 "validation node {} is behind the builder {}, syncing up",
@@ -210,18 +229,17 @@ pub async fn run_system(validation: bool, no_tx_pool: bool) -> eyre::Result<()> 
 
             let mut latest_hash = latest_validation_block.header.hash;
 
-            // sync them up using fcu requests
             for i in (latest_validation_block.header.number + 1)..=latest_block.header.number {
                 println!("syncing block {}", i);
 
-                let block = engine_api
+                let block = self
+                    .engine_api
                     .get_block_by_number(BlockNumberOrTag::Number(i), true)
-                    .await
-                    .unwrap()
+                    .await?
                     .expect("block not found");
 
                 if block.header.parent_hash != latest_hash {
-                    panic!("not expected")
+                    return Err(eyre::eyre!("unexpected parent hash during sync"));
                 }
 
                 let payload_request = ExecutionPayloadV3 {
@@ -248,91 +266,87 @@ pub async fn run_system(validation: bool, no_tx_pool: bool) -> eyre::Result<()> 
                     excess_blob_gas: block.header.inner.excess_blob_gas.unwrap(),
                 };
 
-                let validation_payload = validation_node_api
+                let validation_status = validation_api
                     .new_payload(payload_request, vec![], B256::ZERO)
-                    .await
-                    .unwrap();
+                    .await?;
 
-                if validation_payload.status != PayloadStatusEnum::Valid {
-                    panic!("not expected")
+                if validation_status.status != PayloadStatusEnum::Valid {
+                    return Err(eyre::eyre!("invalid payload status during sync"));
                 }
 
-                let new_chain_hash = validation_payload.latest_valid_hash.unwrap();
+                let new_chain_hash = validation_status
+                    .latest_valid_hash
+                    .ok_or_else(|| eyre::eyre!("missing latest valid hash"))?;
+
                 if new_chain_hash != block.header.hash {
-                    println!("synced block {:?}", new_chain_hash);
-                    println!("expected block {:?}", block.header.hash);
-
-                    panic!("stop")
+                    return Err(eyre::eyre!("hash mismatch during sync"));
                 }
 
-                // send an fcu request to add to the canonical chain
-                let _result = validation_node_api
+                validation_api
                     .update_forkchoice(latest_hash, new_chain_hash, None)
-                    .await
-                    .unwrap();
+                    .await?;
 
                 latest_hash = new_chain_hash;
             }
         }
+
+        Ok(())
     }
 
-    loop {
-        println!("latest block: {}", latest);
-
-        let result = engine_api
+    /// Generate a single new block and return its hash
+    pub async fn generate_block(&mut self) -> eyre::Result<B256> {
+        // Request new block generation
+        let result = self
+            .engine_api
             .update_forkchoice(
-                latest,
-                latest,
+                self.latest_hash,
+                self.latest_hash,
                 Some(OpPayloadAttributes {
                     payload_attributes: PayloadAttributes {
                         withdrawals: Some(vec![]),
                         parent_beacon_block_root: Some(B256::ZERO),
-                        timestamp: timestamp + 1000,
+                        timestamp: self.timestamp + 1000,
                         prev_randao: B256::ZERO,
                         suggested_fee_recipient: Default::default(),
                     },
                     transactions: None,
-                    no_tx_pool: Some(no_tx_pool),
+                    no_tx_pool: Some(self.no_tx_pool),
                     gas_limit: Some(10000000000),
                     eip_1559_params: None,
                 }),
             )
-            .await
-            .unwrap();
+            .await?;
 
         if result.payload_status.status != PayloadStatusEnum::Valid {
-            panic!("not expected")
+            return Err(eyre::eyre!("Invalid payload status"));
         }
 
         let payload_id = result.payload_id.unwrap();
 
-        // Only wait for the block time to request the payload if the block builder
-        // is expected to use the txpool (this is, no_tx_pool is false)
-        if !no_tx_pool {
+        if !self.no_tx_pool {
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         }
 
-        // query the result, do nothing, just checks that we can get it back
-        let payload = engine_api.get_payload_v3(payload_id).await.unwrap();
+        let payload = self.engine_api.get_payload_v3(payload_id).await?;
 
-        // Send a new_payload request to the builder node again. THIS MUST BE DONE
-        let validation_status = engine_api
+        // Validate with builder node
+        let validation_status = self
+            .engine_api
             .new_payload(payload.execution_payload.clone(), vec![], B256::ZERO)
-            .await
-            .unwrap();
+            .await?;
+
         if validation_status.status != PayloadStatusEnum::Valid {
-            panic!("not expected")
+            return Err(eyre::eyre!("Invalid validation status from builder"));
         }
 
-        if let Some(validation_node_api) = &validation_node_api {
-            // Validate the payload with the validation node
-            let validation_status = validation_node_api
+        // Validate with validation node if present
+        if let Some(validation_api) = self.validation_api {
+            let validation_status = validation_api
                 .new_payload(payload.execution_payload.clone(), vec![], B256::ZERO)
-                .await
-                .unwrap();
+                .await?;
 
             if validation_status.status != PayloadStatusEnum::Valid {
-                panic!("not expected")
+                return Err(eyre::eyre!("Invalid validation status from validator"));
             }
         }
 
@@ -341,27 +355,59 @@ pub async fn run_system(validation: bool, no_tx_pool: bool) -> eyre::Result<()> 
             .payload_inner
             .payload_inner
             .block_hash;
-        let new_timestamp = payload
+
+        // Update forkchoice on builder
+        self.engine_api
+            .update_forkchoice(self.latest_hash, new_block_hash, None)
+            .await?;
+
+        // Update forkchoice on validator if present
+        if let Some(validation_api) = self.validation_api {
+            validation_api
+                .update_forkchoice(self.latest_hash, new_block_hash, None)
+                .await?;
+        }
+
+        // Update internal state
+        self.latest_hash = new_block_hash;
+        self.timestamp = payload
             .execution_payload
             .payload_inner
             .payload_inner
             .timestamp;
 
-        // send an FCU without payload attributes to lock in the block for the builder
-        let _result = engine_api
-            .update_forkchoice(latest, new_block_hash, None)
-            .await
-            .unwrap();
+        Ok(new_block_hash)
+    }
 
-        if let Some(validation_node_api) = &validation_node_api {
-            // do the same for the validator
-            let _result = validation_node_api
-                .update_forkchoice(latest, new_block_hash, None)
-                .await
-                .unwrap();
+    /// Generate multiple blocks in sequence
+    pub async fn generate_blocks(&mut self, count: u64) -> eyre::Result<Vec<B256>> {
+        let mut block_hashes = Vec::with_capacity(count as usize);
+        for _ in 0..count {
+            let hash = self.generate_block().await?;
+            block_hashes.push(hash);
         }
+        Ok(block_hashes)
+    }
+}
 
-        latest = new_block_hash;
-        timestamp = new_timestamp;
+pub async fn run_system(validation: bool, no_tx_pool: bool) -> eyre::Result<()> {
+    println!("Validation: {}", validation);
+
+    let engine_api = EngineApi::new("http://localhost:4444").unwrap();
+    let validation_api = if validation {
+        Some(EngineApi::new("http://localhost:5555").unwrap())
+    } else {
+        None
+    };
+
+    let mut generator = BlockGenerator::new(&engine_api, validation_api.as_ref(), no_tx_pool);
+
+    generator.init().await?;
+
+    // Infinite loop generating blocks
+    loop {
+        println!("Generating new block...");
+        let block_hash = generator.generate_block().await?;
+        println!("Generated block: {}", block_hash);
     }
 }

@@ -69,10 +69,7 @@ impl Service for OpRbuilderConfig {
         let mut bin_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         bin_path.push("../../target/debug/op-rbuilder");
 
-        println!("bin_path: {:?}", bin_path);
-
         let mut cmd = Command::new(bin_path);
-
         let jwt_path = get_or_create_jwt_path(self.jwt_secret_path.as_ref());
 
         cmd.arg("node")

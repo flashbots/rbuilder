@@ -1047,6 +1047,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::integration::{op_rbuilder::OpRbuilderConfig, IntegrationFramework};
+    use op_rbuilder::tester::{BlockGenerator, EngineApi};
     use std::path::PathBuf;
     use uuid::Uuid;
 
@@ -1072,5 +1073,13 @@ mod tests {
             .network_port(1235);
 
         framework.start("op-rbuilder", &reth).await.unwrap();
+
+        let engine_api = EngineApi::new("http://localhost:1234").unwrap();
+        let mut generator = BlockGenerator::new(&engine_api, None, false);
+        generator.init().await.unwrap();
+
+        for _ in 0..10 {
+            generator.generate_block().await.unwrap();
+        }
     }
 }
