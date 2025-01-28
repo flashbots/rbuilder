@@ -35,6 +35,12 @@ pub struct EngineApiBuilder {
     jwt_secret: String,
 }
 
+impl Default for EngineApiBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EngineApiBuilder {
     pub fn new() -> Self {
         Self {
@@ -122,9 +128,8 @@ impl EngineApi {
     }
 
     pub async fn latest(&self) -> eyre::Result<Option<alloy_rpc_types_eth::Block>> {
-        Ok(self
-            .get_block_by_number(BlockNumberOrTag::Latest, false)
-            .await?)
+        self.get_block_by_number(BlockNumberOrTag::Latest, false)
+            .await
     }
 
     pub async fn get_block_by_number(
@@ -154,7 +159,7 @@ pub async fn generate_genesis(output: Option<String>) -> eyre::Result<()> {
     let template = include_str!("fixtures/genesis.json.tmpl");
 
     // Parse the JSON
-    let mut genesis: Value = serde_json::from_str(&template)?;
+    let mut genesis: Value = serde_json::from_str(template)?;
 
     // Update the timestamp field - example using current timestamp
     let timestamp = chrono::Utc::now().timestamp();

@@ -1,6 +1,10 @@
 use crate::integration::{poll_logs, IntegrationError, Service, DEFAULT_JWT_TOKEN};
 use futures_util::Future;
-use std::{path::PathBuf, process::Command, time::Duration};
+use std::{
+    path::{Path, PathBuf},
+    process::Command,
+    time::Duration,
+};
 
 fn get_or_create_jwt_path(jwt_path: Option<&PathBuf>) -> PathBuf {
     jwt_path.cloned().unwrap_or_else(|| {
@@ -11,6 +15,7 @@ fn get_or_create_jwt_path(jwt_path: Option<&PathBuf>) -> PathBuf {
     })
 }
 
+#[derive(Default)]
 pub struct OpRbuilderConfig {
     auth_rpc_port: Option<u16>,
     jwt_secret_path: Option<PathBuf>,
@@ -18,19 +23,6 @@ pub struct OpRbuilderConfig {
     data_dir: Option<PathBuf>,
     http_port: Option<u16>,
     network_port: Option<u16>,
-}
-
-impl Default for OpRbuilderConfig {
-    fn default() -> Self {
-        Self {
-            auth_rpc_port: None,
-            jwt_secret_path: None,
-            chain_config_path: None,
-            data_dir: None,
-            http_port: None,
-            network_port: None,
-        }
-    }
 }
 
 impl OpRbuilderConfig {
@@ -106,10 +98,8 @@ impl Service for OpRbuilderConfig {
         cmd
     }
 
-    fn ready(
-        &self,
-        log_path: &PathBuf,
-    ) -> impl Future<Output = Result<(), IntegrationError>> + Send {
+    #[allow(clippy::manual_async_fn)]
+    fn ready(&self, log_path: &Path) -> impl Future<Output = Result<(), IntegrationError>> + Send {
         async move {
             poll_logs(
                 log_path,

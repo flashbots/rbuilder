@@ -1,4 +1,5 @@
 use std::future::Future;
+use std::path::Path;
 use std::{
     fs::{File, OpenOptions},
     io,
@@ -26,7 +27,6 @@ pub enum IntegrationError {
 }
 
 pub struct ServiceInstance {
-    name: String,
     process: Option<Child>,
     pub log_path: PathBuf,
 }
@@ -41,15 +41,12 @@ pub trait Service {
     fn command(&self) -> Command;
 
     /// Return a future that resolves when the service is ready
-    fn ready(
-        &self,
-        log_path: &PathBuf,
-    ) -> impl Future<Output = Result<(), IntegrationError>> + Send;
+    fn ready(&self, log_path: &Path) -> impl Future<Output = Result<(), IntegrationError>> + Send;
 }
 
 /// Helper function to poll logs periodically
 pub async fn poll_logs(
-    log_path: &PathBuf,
+    log_path: &Path,
     pattern: &str,
     interval: Duration,
     timeout: Duration,
@@ -78,7 +75,6 @@ impl ServiceInstance {
     pub fn new(name: String, test_dir: PathBuf) -> Self {
         let log_path = test_dir.join(format!("{}.log", name));
         Self {
-            name,
             process: None,
             log_path,
         }

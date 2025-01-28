@@ -111,7 +111,3 @@ path = "src/main.rs"
 [[bin]]
 name = "tester"
 path = "src/tester/main.rs"
-
-[[bin]]
-name = "tester2"
-path = "src/tester2/tester2.rs"
