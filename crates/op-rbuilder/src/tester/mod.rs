@@ -1,14 +1,11 @@
 use alloy_eips::BlockNumberOrTag;
-use alloy_network::Ethereum;
 use alloy_primitives::B256;
 use alloy_primitives::U256;
-use alloy_provider::RootProvider;
 use alloy_rpc_types_engine::ExecutionPayloadV1;
 use alloy_rpc_types_engine::ExecutionPayloadV2;
 use alloy_rpc_types_engine::PayloadAttributes;
 use alloy_rpc_types_engine::PayloadStatusEnum;
 use alloy_rpc_types_engine::{ExecutionPayloadV3, ForkchoiceUpdated, PayloadStatus};
-use alloy_transport::BoxTransport;
 use jsonrpsee::core::RpcResult;
 use jsonrpsee::http_client::{transport::HttpBackend, HttpClient};
 use jsonrpsee::proc_macros::rpc;
@@ -26,8 +23,6 @@ use std::str::FromStr;
 pub struct EngineApi {
     pub engine_api_client: HttpClient<AuthClientService<HttpBackend>>,
 }
-
-pub type BoxedProvider = RootProvider<BoxTransport, Ethereum>;
 
 /// Builder for EngineApi configuration
 pub struct EngineApiBuilder {
@@ -53,11 +48,6 @@ impl EngineApiBuilder {
 
     pub fn with_url(mut self, url: &str) -> Self {
         self.url = url.to_string();
-        self
-    }
-
-    pub fn with_jwt_secret(mut self, jwt_secret: &str) -> Self {
-        self.jwt_secret = jwt_secret.to_string();
         self
     }
 
@@ -154,6 +144,8 @@ pub trait BlockApi {
     ) -> RpcResult<Option<alloy_rpc_types_eth::Block>>;
 }
 
+// TODO: This is not being recognized as used code by the main function
+#[allow(dead_code)]
 pub async fn generate_genesis(output: Option<String>) -> eyre::Result<()> {
     // Read the template file
     let template = include_str!("fixtures/genesis.json.tmpl");
@@ -383,18 +375,10 @@ impl<'a> BlockGenerator<'a> {
 
         Ok(new_block_hash)
     }
-
-    /// Generate multiple blocks in sequence
-    pub async fn generate_blocks(&mut self, count: u64) -> eyre::Result<Vec<B256>> {
-        let mut block_hashes = Vec::with_capacity(count as usize);
-        for _ in 0..count {
-            let hash = self.generate_block().await?;
-            block_hashes.push(hash);
-        }
-        Ok(block_hashes)
-    }
 }
 
+// TODO: This is not being recognized as used code by the main function
+#[allow(dead_code)]
 pub async fn run_system(validation: bool, no_tx_pool: bool) -> eyre::Result<()> {
     println!("Validation: {}", validation);
 

@@ -45,11 +45,6 @@ impl OpRbuilderConfig {
         self
     }
 
-    pub fn http_port(mut self, port: u16) -> Self {
-        self.http_port = Some(port);
-        self
-    }
-
     pub fn network_port(mut self, port: u16) -> Self {
         self.network_port = Some(port);
         self

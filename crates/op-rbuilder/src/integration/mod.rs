@@ -112,26 +112,6 @@ impl ServiceInstance {
         Ok(())
     }
 
-    pub fn wait_for_log(&self, pattern: &str, timeout: Duration) -> Result<(), IntegrationError> {
-        let start = std::time::Instant::now();
-        loop {
-            if start.elapsed() > timeout {
-                return Err(IntegrationError::SpawnError);
-            }
-
-            let mut file = File::open(&self.log_path).map_err(|_| IntegrationError::LogError)?;
-            let mut contents = String::new();
-            file.read_to_string(&mut contents)
-                .map_err(|_| IntegrationError::LogError)?;
-
-            if contents.contains(pattern) {
-                return Ok(());
-            }
-
-            std::thread::sleep(Duration::from_millis(100));
-        }
-    }
-
     /// Start a service using its configuration and wait for it to be ready
     pub async fn start_with_config<T: Service>(
         &mut self,
