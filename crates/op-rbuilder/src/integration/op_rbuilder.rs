@@ -11,8 +11,7 @@ fn get_or_create_jwt_path(jwt_path: Option<&PathBuf>) -> PathBuf {
     })
 }
 
-pub struct RethConfig {
-    binary_path: PathBuf,
+pub struct OpRbuilderConfig {
     auth_rpc_port: Option<u16>,
     jwt_secret_path: Option<PathBuf>,
     chain_config_path: Option<PathBuf>,
@@ -21,10 +20,9 @@ pub struct RethConfig {
     network_port: Option<u16>,
 }
 
-impl Default for RethConfig {
+impl Default for OpRbuilderConfig {
     fn default() -> Self {
         Self {
-            binary_path: PathBuf::from("op-reth"),
             auth_rpc_port: None,
             jwt_secret_path: None,
             chain_config_path: None,
@@ -35,14 +33,9 @@ impl Default for RethConfig {
     }
 }
 
-impl RethConfig {
+impl OpRbuilderConfig {
     pub fn new() -> Self {
         Self::default()
-    }
-
-    pub fn binary_path<P: Into<PathBuf>>(mut self, path: P) -> Self {
-        self.binary_path = path.into();
-        self
     }
 
     pub fn auth_rpc_port(mut self, port: u16) -> Self {
@@ -71,9 +64,15 @@ impl RethConfig {
     }
 }
 
-impl Service for RethConfig {
+impl Service for OpRbuilderConfig {
     fn command(&self) -> Command {
-        let mut cmd = Command::new(&self.binary_path);
+        let mut bin_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        bin_path.push("../../target/debug/op-rbuilder");
+
+        println!("bin_path: {:?}", bin_path);
+
+        let mut cmd = Command::new(bin_path);
+
         let jwt_path = get_or_create_jwt_path(self.jwt_secret_path.as_ref());
 
         cmd.arg("node")
@@ -117,7 +116,7 @@ impl Service for RethConfig {
         async move {
             poll_logs(
                 log_path,
-                "Node is ready",
+                "Starting consensus engine",
                 Duration::from_millis(100),
                 Duration::from_secs(60),
             )

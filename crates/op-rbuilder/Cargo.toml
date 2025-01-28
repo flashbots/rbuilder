@@ -70,6 +70,7 @@ serde_json.workspace = true
 
 time = { version = "0.3.36", features = ["macros", "formatting", "parsing"] }
 chrono = "0.4"
+uuid = { version = "1.6.1", features = ["serde", "v5", "v4"] }
 
 [target.'cfg(unix)'.dependencies]
 tikv-jemallocator = { version = "0.6", optional = true }
@@ -109,4 +110,4 @@ path = "src/main.rs"
 
 [[bin]]
 name = "tester"
-path = "src/tester/tester.rs"
+path = "src/tester/main.rs"

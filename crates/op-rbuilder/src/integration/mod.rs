@@ -14,7 +14,8 @@ use tokio::time::sleep;
 pub const DEFAULT_JWT_TOKEN: &str =
     "688f5d737bad920bdfb2fc2f488d6b6209eebda1dae949a8de91398d932c517a";
 
-mod reth;
+pub mod op_rbuilder;
+
 #[derive(Debug)]
 pub enum IntegrationError {
     SpawnError,
@@ -156,7 +157,7 @@ impl IntegrationFramework {
             .map_err(|_| IntegrationError::SetupError)?;
 
         let mut test_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        test_dir.push("../../integration_tests");
+        test_dir.push("../../integration_logs");
         test_dir.push(test_name);
 
         std::fs::create_dir_all(&test_dir).map_err(|_| IntegrationError::SetupError)?;
@@ -165,6 +166,16 @@ impl IntegrationFramework {
             test_dir,
             services: Vec::new(),
         })
+    }
+
+    pub async fn start<T: Service>(
+        &mut self,
+        name: &str,
+        config: &T,
+    ) -> Result<&mut ServiceInstance, IntegrationError> {
+        let service = self.create_service(name)?;
+        service.start_with_config(config).await?;
+        Ok(service)
     }
 
     pub fn create_service(&mut self, name: &str) -> Result<&mut ServiceInstance, IntegrationError> {

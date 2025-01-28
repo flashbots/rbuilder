@@ -188,7 +188,7 @@ async fn main() -> eyre::Result<()> {
     }
 }
 
-async fn generate_genesis(output: Option<String>) -> eyre::Result<()> {
+pub async fn generate_genesis(output: Option<String>) -> eyre::Result<()> {
     // Read the template file
     let template = include_str!("fixtures/genesis.json.tmpl");
 
@@ -213,7 +213,7 @@ async fn generate_genesis(output: Option<String>) -> eyre::Result<()> {
     Ok(())
 }
 
-async fn run_system(validation: bool, no_tx_pool: bool) -> eyre::Result<()> {
+pub async fn run_system(validation: bool, no_tx_pool: bool) -> eyre::Result<()> {
     println!("Validation: {}", validation);
 
     let engine_api = EngineApi::new("http://localhost:4444").unwrap();
