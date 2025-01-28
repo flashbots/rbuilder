@@ -15,6 +15,7 @@ use tokio::time::sleep;
 pub const DEFAULT_JWT_TOKEN: &str =
     "688f5d737bad920bdfb2fc2f488d6b6209eebda1dae949a8de91398d932c517a";
 
+mod integration;
 pub mod op_rbuilder;
 
 #[derive(Debug)]

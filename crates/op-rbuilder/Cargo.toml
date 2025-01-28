@@ -104,6 +104,8 @@ optimism = [
 	"reth-optimism-cli/optimism"
 ]
 
+integration = []
+
 [[bin]]
 name = "op-rbuilder"
 path = "src/main.rs"
