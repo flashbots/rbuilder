@@ -104,11 +104,13 @@ impl<ConfigType: LiveBuilderConfig>
 
     fn create_block_building_context(&self) -> eyre::Result<BlockBuildingContext> {
         let signer = self.config.base_config().coinbase_signer()?;
+        let blocklist = self.config.base_config().blocklist_file_path.clone();
+
         Ok(BlockBuildingContext::from_onchain_block(
             self.block_data.onchain_block.clone(),
             self.config.base_config().chain_spec()?,
             None,
-            self.config.base_config().blocklist()?,
+            blocklist,
             signer.address,
             self.block_data.winning_bid_trace.proposer_fee_recipient,
             Some(signer),

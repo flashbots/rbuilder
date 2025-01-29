@@ -1,4 +1,3 @@
-use crate::building::BlockBuildingContext;
 use crate::provider::RootHasher;
 use crate::roothash::RootHashConfig;
 use crate::{
@@ -6,7 +5,6 @@ use crate::{
     building::BlockBuildingContext,
     utils::{RootHasherImpl, Signer},
 };
-use ahash::HashSet;
 use alloy_consensus::{Header, TxEip1559};
 use alloy_primitives::{
     keccak256, utils::parse_ether, Address, BlockHash, Bytes, TxKind as TransactionKind, B256, B64,
