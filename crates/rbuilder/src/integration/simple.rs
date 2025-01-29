@@ -41,7 +41,7 @@ mod tests {
         Ok(*pending_tx.tx_hash())
     }
 
-    // #[ignore_if_env_not_set("PLAYGROUND")] // TODO: Change with a custom macro (i.e ignore_if_not_playground)
+    #[ignore_if_env_not_set("PLAYGROUND")] // TODO: Change with a custom macro (i.e ignore_if_not_playground)
     #[tokio::test]
     async fn test_simple_example() {
         let srv = Playground::new().unwrap();
