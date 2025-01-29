@@ -79,7 +79,7 @@ impl BacktestResultsStorage {
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS backtest_results (
-                block INTERGER NOT NULL,
+                block INTEGER NOT NULL,
                 timestamp INTEGER NOT NULL,
                 rbuilder_version TEXT NOT NULL,
                 backtest_result TEXT NOT NULL

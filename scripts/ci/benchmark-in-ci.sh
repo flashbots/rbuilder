@@ -50,7 +50,7 @@ function run_benchmark() {
     if [ "$HEAD_SHA" == "$BASE_SHA" ]; then
         # Benchmark only current commit, no comparison
         echo "Running cargo bench ..."
-        cargo bench --workspace
+        cargo bench --workspace --features optimism
     else
         # Benchmark target commit first, and then benchmark current commit against that baseline
         echo "Benchmarking ${HEAD_SHA_SHORT} against the target ${BASE_SHA_SHORT} ..."
@@ -58,12 +58,14 @@ function run_benchmark() {
         # Switch to target commit and run benchmarks
         echo "Switching to $BASE_SHA_SHORT and starting benchmarks ..."
         git checkout $BASE_SHA
-        cargo bench --workspace
+        cargo bench --workspace --features optimism
 
         # Switch back to current commit and run benchmarks again
         echo "Switching back to $HEAD_SHA_SHORT and running benchmarks ..."
+        # Reset to ensure any changes (e.g. to Cargo.lock) are discarded before attempting to checkout.
+        git reset --hard
         git checkout $HEAD_SHA
-        cargo bench --workspace
+        cargo bench --workspace --features optimism
     fi
 }
 

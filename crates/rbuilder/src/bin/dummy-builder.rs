@@ -30,18 +30,15 @@ use rbuilder::{
         simulation::SimulatedOrderCommand,
         LiveBuilder,
     },
-    primitives::{
-        mev_boost::{MevBoostRelay, RelayConfig},
-        SimulatedOrder,
-    },
-    roothash::RootHashConfig,
+    mev_boost::RelayClient,
+    primitives::{mev_boost::MevBoostRelaySlotInfoProvider, SimulatedOrder},
+    provider::StateProviderFactory,
     utils::{ProviderFactoryReopener, Signer},
 };
 use reth_chainspec::MAINNET;
-use reth_db::{database::Database, DatabaseEnv};
+use reth_db::DatabaseEnv;
 use reth_node_api::NodeTypesWithDBAdapter;
 use reth_node_ethereum::EthereumNode;
-use reth_provider::{BlockReader, DatabaseProviderFactory, StateProviderFactory};
 use tokio::{
     signal::ctrl_c,
     sync::{broadcast, mpsc},
@@ -62,11 +59,9 @@ async fn main() -> eyre::Result<()> {
     let chain_spec = MAINNET.clone();
     let cancel = CancellationToken::new();
 
-    let relay_config = RelayConfig::default().
-        with_url("https://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@boost-relay.flashbots.net").
-        with_name("flashbots");
-
-    let relay = MevBoostRelay::from_config(&relay_config)?;
+    let flashbots_relay_url = "https://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@boost-relay.flashbots.net";
+    let relay_client = RelayClient::from_url(flashbots_relay_url.parse()?, None, None, None);
+    let relay = MevBoostRelaySlotInfoProvider::new(relay_client, "flashbots".to_string(), 0);
 
     let payload_event = MevBoostSlotDataGenerator::new(
         vec![Client::default()],
@@ -78,7 +73,7 @@ async fn main() -> eyre::Result<()> {
     let order_input_config = OrderInputConfig::new(
         false,
         true,
-        DEFAULT_EL_NODE_IPC_PATH.parse().unwrap(),
+        Some(PathBuf::from(DEFAULT_EL_NODE_IPC_PATH)),
         DEFAULT_INCOMING_BUNDLES_PORT,
         default_ip(),
         DEFAULT_SERVE_MAX_CONNECTIONS,
@@ -89,7 +84,6 @@ async fn main() -> eyre::Result<()> {
         mpsc::channel(order_input_config.input_channel_buffer_size);
     let builder = LiveBuilder::<
         ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>,
-        Arc<DatabaseEnv>,
         MevBoostSlotDataGenerator,
     > {
         watchdog_timeout: Some(Duration::from_secs(10000)),
@@ -103,6 +97,7 @@ async fn main() -> eyre::Result<()> {
             None,
             None,
             chain_spec.clone(),
+            None,
         )?,
         coinbase_signer: Signer::random(),
         extra_data: Vec::new(),
@@ -167,7 +162,7 @@ impl UnfinishedBlockBuildingSink for TracingBlockSink {
 /// This is a NOT real builder some data is not filled correctly (eg:BuiltBlockTrace)
 #[derive(Debug)]
 struct DummyBuildingAlgorithm {
-    /// Amnount of used orders to build a block
+    /// Amount of used orders to build a block
     orders_to_use: usize,
 }
 
@@ -199,22 +194,17 @@ impl DummyBuildingAlgorithm {
         }
     }
 
-    fn build_block<P, DB>(
+    fn build_block<P>(
         &self,
         orders: Vec<SimulatedOrder>,
         provider: P,
         ctx: &BlockBuildingContext,
     ) -> eyre::Result<Box<dyn BlockBuildingHelper>>
     where
-        DB: Database + Clone + 'static,
-        P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-            + StateProviderFactory
-            + Clone
-            + 'static,
+        P: StateProviderFactory + Clone + 'static,
     {
         let mut block_building_helper = BlockBuildingHelperFromProvider::new(
             provider.clone(),
-            RootHashConfig::live_config(false, false),
             ctx.clone(),
             None,
             BUILDER_NAME.to_string(),
@@ -231,13 +221,9 @@ impl DummyBuildingAlgorithm {
     }
 }
 
-impl<P, DB> BlockBuildingAlgorithm<P, DB> for DummyBuildingAlgorithm
+impl<P> BlockBuildingAlgorithm<P> for DummyBuildingAlgorithm
 where
-    DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-        + StateProviderFactory
-        + Clone
-        + 'static,
+    P: StateProviderFactory + Clone + 'static,
 {
     fn name(&self) -> String {
         BUILDER_NAME.to_string()

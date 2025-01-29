@@ -1,5 +1,5 @@
 use crate::utils::{hash_map_with_capacity, HashMap, HashSet};
-use alloy_primitives::map::{HashMap as AlloyHashMap, HashSet as AlloyHashSet};
+use alloy_primitives::map::HashSet as AlloyHashSet;
 
 use alloy_primitives::{Bytes, B256};
 use alloy_trie::Nibbles;
@@ -8,8 +8,9 @@ use reth_errors::ProviderError;
 use reth_execution_errors::trie::StateProofError;
 use reth_provider::{
     providers::ConsistentDbView, BlockReader, DBProvider, DatabaseProviderFactory,
+    StateCommitmentProvider,
 };
-use reth_trie::{proof::Proof, MultiProof as RethMultiProof, EMPTY_ROOT_HASH};
+use reth_trie::{proof::Proof, MultiProof as RethMultiProof, MultiProofTargets, EMPTY_ROOT_HASH};
 use reth_trie_db::{DatabaseHashedCursorFactory, DatabaseTrieCursorFactory};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, Seq};
@@ -58,6 +59,7 @@ pub struct TrieFetcher<Provider> {
 impl<Provider> TrieFetcher<Provider>
 where
     Provider: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync,
+    Provider: StateCommitmentProvider,
 {
     pub fn new(consistent_db_view: ConsistentDbView<Provider>) -> Self {
         Self { consistent_db_view }
@@ -99,13 +101,11 @@ fn pad_path(mut path: Nibbles) -> B256 {
     res
 }
 
-fn get_proof_targets(
-    missing_nodes: MissingNodes,
-) -> (Vec<AlloyHashMap<B256, AlloyHashSet<B256>>>, HashSet<B256>) {
+fn get_proof_targets(missing_nodes: MissingNodes) -> (Vec<MultiProofTargets>, HashSet<B256>) {
     // we will split all missing nodes accounts into buckets of (missing accounts / account_per_fetch)
     let account_per_fetch = 5;
 
-    let mut targets = std::collections::HashMap::new();
+    let mut targets = MultiProofTargets::default();
     let mut all_requested_accounts = HashSet::default();
     for account_trie_node in missing_nodes.account_trie_nodes {
         let is_address = account_trie_node.len() == 64;
@@ -125,10 +125,10 @@ fn get_proof_targets(
         }
     }
 
-    let mut result = Vec::<AlloyHashMap<B256, AlloyHashSet<B256>>>::new();
+    let mut result = Vec::<_>::new();
     let mut iter = targets.into_iter();
     loop {
-        let mut split_target = AlloyHashMap::<B256, AlloyHashSet<B256>>::default();
+        let mut split_target = MultiProofTargets::default();
         let mut count = 0;
         for (target_key, target_value) in iter.by_ref() {
             split_target.insert(target_key, target_value);

@@ -93,7 +93,7 @@ pub fn prepare_change_set<'a>(
             if value.is_zero() {
                 storage_deleted_keys.push(hashed_key);
             } else {
-                // @efficienty, alloy_fixed encoding
+                // @efficiently, alloy_fixed encoding
                 let value = Bytes::from(alloy_rlp::encode(value));
                 storage_updates_keys.push(hashed_key);
                 storage_updates_values.push(value);

@@ -1,10 +1,12 @@
-use super::{
+use super::submission::{
     CapellaSubmitBlockRequest, DenebSubmitBlockRequest, ElectraSubmitBlockRequest,
     SubmitBlockRequest,
 };
 use crate::utils::u256decimal_serde_helper;
+use alloy_eips::eip7685::Requests;
 use alloy_eips::{eip2718::Encodable2718, eip4844::BlobTransactionSidecar};
 use alloy_primitives::{Address, BlockHash, Bytes, FixedBytes, B256, U256};
+use alloy_rpc_types_beacon::requests::ExecutionRequestsV4;
 use alloy_rpc_types_beacon::{
     events::PayloadAttributesData,
     relay::{BidTrace, SignedBidSubmissionV2, SignedBidSubmissionV3, SignedBidSubmissionV4},
@@ -36,6 +38,12 @@ pub struct BLSBlockSigner {
 impl BLSBlockSigner {
     pub fn new(sec: SecretKey, domain: B256) -> eyre::Result<Self> {
         Ok(Self { sec, domain })
+    }
+
+    pub fn from_string(secret_key: String, domain: B256) -> eyre::Result<Self> {
+        let secret_key = SecretKey::try_from(secret_key)
+            .map_err(|e| eyre::eyre!("Failed to parse key: {:?}", e.to_string()))?;
+        Self::new(secret_key, domain)
     }
 
     pub fn sign_payload(&self, bid_trace: &BidTrace) -> eyre::Result<Vec<u8>> {
@@ -150,7 +158,7 @@ pub fn sign_block_for_relay(
             base_fee_per_gas: U256::from(sealed_block.base_fee_per_gas.unwrap_or_default()),
             block_hash: sealed_block.hash(),
             transactions: sealed_block
-                .body
+                .body()
                 .transactions
                 .iter()
                 .map(|tx| {
@@ -161,7 +169,7 @@ pub fn sign_block_for_relay(
                 .collect(),
         },
         withdrawals: sealed_block
-            .body
+            .body()
             .withdrawals
             .clone()
             .map(|w| {
@@ -189,14 +197,15 @@ pub fn sign_block_for_relay(
         };
 
         let blobs_bundle = marshal_txs_blobs_sidecars(blobs_bundle);
-
+        let execution_requests =
+            ExecutionRequestsV4::try_from(Requests::new(execution_requests.to_vec()))?;
         if chain_spec.is_prague_active_at_timestamp(sealed_block.timestamp) {
             SubmitBlockRequest::Electra(ElectraSubmitBlockRequest(SignedBidSubmissionV4 {
                 message,
                 execution_payload,
                 blobs_bundle,
                 signature,
-                execution_requests: execution_requests.to_vec(),
+                execution_requests,
             }))
         } else {
             SubmitBlockRequest::Deneb(DenebSubmitBlockRequest(SignedBidSubmissionV3 {

@@ -174,7 +174,7 @@ where
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct TransactionOk {
     pub exec_result: ExecutionResult,
     pub gas_used: u64,
@@ -188,7 +188,7 @@ pub struct TransactionOk {
     pub receipt: Receipt,
 }
 
-#[derive(Error, Debug, Eq, PartialEq)]
+#[derive(Error, Debug)]
 pub enum TransactionErr {
     #[error("Invalid transaction: {0:?}")]
     InvalidTransaction(InvalidTransaction),
@@ -200,7 +200,7 @@ pub enum TransactionErr {
     BlobGasLeft,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct BundleOk {
     pub gas_used: u64,
     pub cumulative_gas_used: u64,
@@ -217,7 +217,7 @@ pub struct BundleOk {
     pub original_order_ids: Vec<OrderId>,
 }
 
-#[derive(Error, Debug, Eq, PartialEq)]
+#[derive(Error, Debug)]
 pub enum BundleErr {
     #[error("Invalid transaction, hash: {0:?}, err: {1}")]
     InvalidTransaction(B256, TransactionErr),
@@ -261,7 +261,7 @@ pub enum BundleErr {
     NoSigner,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct OrderOk {
     pub coinbase_profit: U256,
     pub gas_used: u64,
@@ -278,7 +278,7 @@ pub struct OrderOk {
     pub used_state_trace: Option<UsedStateTrace>,
 }
 
-#[derive(Error, Debug, Eq, PartialEq)]
+#[derive(Error, Debug)]
 pub enum OrderErr {
     #[error("Transaction error: {0}")]
     Transaction(#[from] TransactionErr),
@@ -298,14 +298,14 @@ pub struct PartialBlockRollobackPoint {
     rollobacks: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct ReservedPayout {
     pub gas_limit: u64,
     pub tx_value: U256,
     pub total_refundable_value: U256,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct ShareBundleCommitResult {
     pub bundle_ok: BundleOk,
     pub coinbase_diff_before_payouts: U256,
@@ -409,7 +409,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
             .checked_sub(U256::from(cumulative_gas_used + gas_reserved))
         {
             Some(gas_left) => {
-                if tx.as_signed().gas_limit() > gas_left.to::<u64>() {
+                if tx.gas_limit() > gas_left.to::<u64>() {
                     return Ok(Err(TransactionErr::GasLeft));
                 }
             }
@@ -494,7 +494,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
             cumulative_blob_gas_used,
             cumulative_gas_used,
             tx: tx_with_blobs.clone(),
-            nonce_updated: (tx.signer(), tx.as_signed().nonce() + 1),
+            nonce_updated: (tx.signer(), tx.nonce() + 1),
             receipt,
         }))
     }

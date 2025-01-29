@@ -16,6 +16,7 @@ use crate::{
     },
     live_builder::cli::LiveBuilderConfig,
     primitives::{Order, OrderId},
+    provider::StateProviderFactory,
     utils::{signed_uint_delta, u256decimal_serde_helper},
 };
 use ahash::{HashMap, HashSet};
@@ -23,8 +24,6 @@ use alloy_primitives::{utils::format_ether, Address, B256, I256, U256};
 pub use cli::run_backtest_redistribute;
 use rayon::prelude::*;
 use reth_chainspec::ChainSpec;
-use reth_db::Database;
-use reth_provider::{BlockReader, DatabaseProviderFactory, HeaderProvider, StateProviderFactory};
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::{max, min},
@@ -117,19 +116,14 @@ pub struct RedistributionBlockOutput {
     pub joint_contribution: Vec<JointContributionData>,
 }
 
-pub fn calc_redistributions<P, DB, ConfigType>(
+pub fn calc_redistributions<P, ConfigType>(
     provider: P,
     config: &ConfigType,
     block_data: BlockData,
     distribute_to_mempool_txs: bool,
 ) -> eyre::Result<RedistributionBlockOutput>
 where
-    DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-        + StateProviderFactory
-        + HeaderProvider
-        + Clone
-        + 'static,
+    P: StateProviderFactory + Clone + 'static,
     ConfigType: LiveBuilderConfig,
 {
     let _block_span = info_span!("block", block = block_data.block_number).entered();
@@ -256,7 +250,11 @@ fn get_available_orders(
                 included_orders_available.insert(order.order.id(), order.clone());
             }
             None => {
-                warn!(order = ?id, "Included order not found in available orders");
+                if block_data.filtered_orders.contains(id) {
+                    info!(order = ?id, "Included order was filtered from available orders");
+                } else {
+                    warn!(order = ?id, "Included order not found in available orders");
+                }
             }
         }
     }
@@ -280,7 +278,7 @@ fn restore_available_landed_orders<P>(
     included_orders_available: &[OrdersWithTimestamp],
 ) -> eyre::Result<HashMap<OrderId, LandedOrderData>>
 where
-    P: StateProviderFactory + HeaderProvider + Clone + 'static,
+    P: StateProviderFactory + Clone + 'static,
 {
     let block_txs = sim_historical_block(
         provider.clone(),
@@ -480,18 +478,13 @@ impl ResultsWithoutExclusion {
     }
 }
 
-fn calculate_backtest_without_exclusion<P, DB, ConfigType>(
+fn calculate_backtest_without_exclusion<P, ConfigType>(
     provider: P,
     config: &ConfigType,
     block_data: BlockData,
 ) -> eyre::Result<ResultsWithoutExclusion>
 where
-    DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-        + StateProviderFactory
-        + HeaderProvider
-        + Clone
-        + 'static,
+    P: StateProviderFactory + Clone + 'static,
     ConfigType: LiveBuilderConfig,
 {
     let ExclusionResult {
@@ -548,7 +541,7 @@ impl ExclusionResults {
     }
 }
 
-fn calculate_backtest_identity_and_order_exclusion<P, DB, ConfigType>(
+fn calculate_backtest_identity_and_order_exclusion<P, ConfigType>(
     provider: P,
     config: &ConfigType,
     block_data: BlockData,
@@ -556,12 +549,7 @@ fn calculate_backtest_identity_and_order_exclusion<P, DB, ConfigType>(
     results_without_exclusion: &ResultsWithoutExclusion,
 ) -> eyre::Result<ExclusionResults>
 where
-    DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-        + StateProviderFactory
-        + HeaderProvider
-        + Clone
-        + 'static,
+    P: StateProviderFactory + Clone + 'static,
     ConfigType: LiveBuilderConfig,
 {
     let included_orders_exclusion = {
@@ -621,7 +609,7 @@ where
     })
 }
 
-fn calc_joint_exclusion_results<P, DB, ConfigType>(
+fn calc_joint_exclusion_results<P, ConfigType>(
     provider: P,
     config: &ConfigType,
     block_data: BlockData,
@@ -631,12 +619,7 @@ fn calc_joint_exclusion_results<P, DB, ConfigType>(
     distribute_to_mempool_txs: bool,
 ) -> eyre::Result<ExclusionResults>
 where
-    DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-        + StateProviderFactory
-        + HeaderProvider
-        + Clone
-        + 'static,
+    P: StateProviderFactory + Clone + 'static,
     ConfigType: LiveBuilderConfig,
 {
     // calculate identities that are possibly connected
@@ -962,19 +945,14 @@ struct ExclusionResult {
 }
 
 /// calculate block profit excluding some orders
-fn calc_profit_after_exclusion<P, DB, ConfigType>(
+fn calc_profit_after_exclusion<P, ConfigType>(
     provider: P,
     config: &ConfigType,
     block_data: &BlockData,
     exclusion_input: ExclusionInput,
 ) -> eyre::Result<ExclusionResult>
 where
-    DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-        + StateProviderFactory
-        + HeaderProvider
-        + Clone
-        + 'static,
+    P: StateProviderFactory + Clone + 'static,
     ConfigType: LiveBuilderConfig,
 {
     let block_data_with_excluded = {
@@ -997,16 +975,10 @@ where
 
     let base_config = config.base_config();
 
-    // we set built_block_lag_ms to 0 here because we already prefiltered all the orders
-    // in built_block_data, so we essentially just disable filtering in the `backtest_simulate_block`
-    // but we still filter by the relay timestamp
-    let built_block_lag_ms = 0;
-
     let result = backtest_simulate_block(
         block_data_with_excluded,
         provider.clone(),
         base_config.chain_spec()?,
-        built_block_lag_ms,
         base_config.backtest_builders.clone(),
         config,
         base_config.blocklist_file_path.clone(),

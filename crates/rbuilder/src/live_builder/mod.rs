@@ -19,6 +19,8 @@ use crate::{
         simulation::OrderSimulationPool,
         watchdog::spawn_watchdog_thread,
     },
+    primitives::{MempoolTx, Order, TransactionSignedEcRecoveredWithBlobs},
+    provider::StateProviderFactory,
     telemetry::inc_active_slots,
     utils::{
         error_storage::spawn_error_storage_writer, provider_head_state::ProviderHeadState, Signer,
@@ -31,15 +33,17 @@ use eyre::Context;
 use jsonrpsee::RpcModule;
 use order_input::ReplaceableOrderPoolCommand;
 use payload_events::MevBoostSlotData;
-use reth::providers::HeaderProvider;
+use reth::transaction_pool::{
+    BlobStore, EthPooledTransaction, Pool, TransactionListenerKind, TransactionOrdering,
+    TransactionPool, TransactionValidator,
+};
 use reth_chainspec::ChainSpec;
-use reth_db::Database;
-use reth_provider::{BlockReader, DatabaseProviderFactory, StateProviderFactory};
+use reth_primitives::TransactionSignedEcRecovered;
 use std::{cmp::min, fmt::Debug, path::PathBuf, sync::Arc, time::Duration};
 use time::OffsetDateTime;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 #[derive(Debug, Clone)]
 pub struct TimingsConfig {
@@ -79,15 +83,18 @@ pub trait SlotSource {
     fn recv_slot_channel(self) -> mpsc::UnboundedReceiver<MevBoostSlotData>;
 }
 
+/// Max headers sent to the cleaning task before the main loop blocks.
+/// Cleaning task is super fast so it should never lag behind block building, even 1 should be enough, 10 is super safe.
+const CLEAN_TASKS_CHANNEL_SIZE: usize = 10;
+
 /// Main builder struct.
 /// Connects to the CL, get the new slots and builds blocks for each slot.
 /// # Usage
 /// Create and run()
 #[derive(Debug)]
-pub struct LiveBuilder<P, DB, BlocksSourceType>
+pub struct LiveBuilder<P, BlocksSourceType>
 where
-    DB: Database + Clone + 'static,
-    P: StateProviderFactory + Clone,
+    P: StateProviderFactory,
     BlocksSourceType: SlotSource,
 {
     pub watchdog_timeout: Option<Duration>,
@@ -107,7 +114,7 @@ where
     pub global_cancellation: CancellationToken,
 
     pub sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
-    pub builders: Vec<Arc<dyn BlockBuildingAlgorithm<P, DB>>>,
+    pub builders: Vec<Arc<dyn BlockBuildingAlgorithm<P>>>,
     pub extra_rpc: RpcModule<()>,
 
     /// Notify rbuilder of new [`ReplaceableOrderPoolCommand`] flow via this channel.
@@ -116,21 +123,16 @@ where
     pub sbundle_merger_selected_signers: Arc<Vec<Address>>,
 }
 
-impl<P, DB, BlocksSourceType: SlotSource> LiveBuilder<P, DB, BlocksSourceType>
+impl<P, BlocksSourceType: SlotSource> LiveBuilder<P, BlocksSourceType>
 where
-    DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-        + StateProviderFactory
-        + HeaderProvider
-        + Clone
-        + 'static,
+    P: StateProviderFactory + Clone + 'static,
     BlocksSourceType: SlotSource,
 {
     pub fn with_extra_rpc(self, extra_rpc: RpcModule<()>) -> Self {
         Self { extra_rpc, ..self }
     }
 
-    pub fn with_builders(self, builders: Vec<Arc<dyn BlockBuildingAlgorithm<P, DB>>>) -> Self {
+    pub fn with_builders(self, builders: Vec<Arc<dyn BlockBuildingAlgorithm<P>>>) -> Self {
         Self { builders, ..self }
     }
 
@@ -151,6 +153,8 @@ where
         let mut inner_jobs_handles = Vec::new();
         let mut payload_events_channel = self.blocks_source.recv_slot_channel();
 
+        let (header_sender, header_receiver) = mpsc::channel(CLEAN_TASKS_CHANNEL_SIZE);
+
         let orderpool_subscriber = {
             let (handle, sub) = start_orderpool_jobs(
                 self.order_input_config,
@@ -159,6 +163,7 @@ where
                 self.global_cancellation.clone(),
                 self.orderpool_sender,
                 self.orderpool_receiver,
+                header_receiver,
             )
             .await?;
             inner_jobs_handles.push(handle);
@@ -248,17 +253,25 @@ where
                 "Got header for slot"
             );
 
+            // notify the order pool that there is a new header
+            if let Err(err) = header_sender.send(parent_header.clone()).await {
+                warn!("Failed to send header to builder pool: {:?}", err);
+            }
+
             inc_active_slots();
+
+            let root_hasher = Arc::from(self.provider.root_hasher(payload.parent_block_hash())?);
 
             if let Some(block_ctx) = BlockBuildingContext::from_attributes(
                 payload.payload_attributes_event.clone(),
                 &parent_header,
-                self.coinbase_signer.clone(),
+                self.coinbase_signer,
                 self.chain_chain_spec.clone(),
                 self.blocklist.clone(),
                 Some(payload.suggested_gas_limit),
                 self.extra_data.clone(),
                 None,
+                root_hasher,
             ) {
                 builder_pool.start_block_building(
                     payload,
@@ -284,6 +297,43 @@ where
         Ok(())
     }
 
+    /// Connect the builder to a reth [`TransactionPool`].
+    ///
+    /// This will
+    /// 1. Add pending and queued transactions to the [`OrderPool`]
+    /// 2. Subscribe to the pool directly, so the builder is not reliant on
+    ///    IPC to be notified of new transactions.
+    pub async fn connect_to_transaction_pool<V, T, S>(
+        &self,
+        pool: Pool<V, T, S>,
+    ) -> Result<(), eyre::Error>
+    where
+        V: TransactionValidator<Transaction = EthPooledTransaction> + 'static,
+        T: TransactionOrdering<Transaction = <V as TransactionValidator>::Transaction>,
+        S: BlobStore,
+    {
+        // Initialize the orderpool with every item in the reth pool.
+        for tx in pool
+            .all_transactions()
+            .pending_recovered()
+            .chain(pool.all_transactions().queued_recovered())
+        {
+            try_send_to_orderpool(tx, self.orderpool_sender.clone(), pool.clone()).await;
+        }
+
+        // Subscribe to new transactions in-process.
+        let mut recv = pool.new_transactions_listener_for(TransactionListenerKind::All);
+        let orderpool_sender = self.orderpool_sender.clone();
+        tokio::spawn(async move {
+            while let Some(e) = recv.recv().await {
+                let tx = e.transaction.transaction.transaction().clone();
+                try_send_to_orderpool(tx, orderpool_sender.clone(), pool.clone()).await;
+            }
+        });
+
+        Ok(())
+    }
+
     // Currently we only need two timings config, depending on whether rbuilder is being
     // used in the optimism context. If further customisation is required in the future
     // this should be improved on.
@@ -300,11 +350,11 @@ where
 async fn wait_for_block_header<P>(
     block: B256,
     slot_time: OffsetDateTime,
-    provider: P,
+    provider: &P,
     timings: &TimingsConfig,
 ) -> eyre::Result<Header>
 where
-    P: HeaderProvider,
+    P: StateProviderFactory,
 {
     let deadline = slot_time + timings.block_header_deadline_delta;
     while OffsetDateTime::now_utc() < deadline {
@@ -322,4 +372,32 @@ where
         }
     }
     Err(eyre::eyre!("Block header not found"))
+}
+
+/// Attempts to forward a [`TransactionSignedEcRecovered`] to an orderpool.
+///
+/// Helper for [`LiveBuilder::connect_to_transaction_pool`].
+///
+/// Errors are handled internally with a log.
+async fn try_send_to_orderpool<V, T, S>(
+    tx: TransactionSignedEcRecovered,
+    orderpool_sender: mpsc::Sender<ReplaceableOrderPoolCommand>,
+    pool: Pool<V, T, S>,
+) where
+    V: TransactionValidator<Transaction = EthPooledTransaction> + 'static,
+    T: TransactionOrdering<Transaction = <V as TransactionValidator>::Transaction>,
+    S: BlobStore,
+{
+    match TransactionSignedEcRecoveredWithBlobs::try_from_tx_without_blobs_and_pool(tx, pool) {
+        Ok(tx) => {
+            let order = Order::Tx(MempoolTx::new(tx));
+            let command = ReplaceableOrderPoolCommand::Order(order);
+            if let Err(e) = orderpool_sender.send(command).await {
+                error!("Error sending order to orderpool: {:#}", e);
+            }
+        }
+        Err(e) => {
+            error!("Error creating order from transaction: {:#}", e);
+        }
+    }
 }

@@ -3,7 +3,8 @@ use alloy_primitives::{BlockHash, U256};
 use criterion::{criterion_group, Criterion};
 use primitive_types::H384;
 use rbuilder::mev_boost::{
-    rpc::TestDataGenerator, sign_block_for_relay, BLSBlockSigner, DenebSubmitBlockRequest,
+    rpc::TestDataGenerator, sign_block_for_relay, submission::DenebSubmitBlockRequest,
+    BLSBlockSigner,
 };
 use reth::primitives::SealedBlock;
 use reth_chainspec::SEPOLIA;

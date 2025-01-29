@@ -4,10 +4,10 @@ use crate::{
     building::sim::{SimTree, SimulatedResult, SimulationRequest},
     live_builder::order_input::order_sink::OrderPoolCommand,
     primitives::{Order, OrderId},
+    provider::StateProviderFactory,
 };
 use ahash::HashSet;
 use alloy_primitives::utils::format_ether;
-use reth_provider::StateProviderFactory;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, trace, warn};
@@ -58,7 +58,7 @@ pub struct SimulationJob<P> {
 
 impl<P> SimulationJob<P>
 where
-    P: StateProviderFactory + Clone + 'static,
+    P: StateProviderFactory,
 {
     pub fn new(
         block_cancellation: CancellationToken,

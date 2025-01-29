@@ -15,13 +15,18 @@ use alloy_eips::{
 use alloy_primitives::{keccak256, Address, Bytes, TxHash, B256, U256};
 use derivative::Derivative;
 use integer_encoding::VarInt;
+use reth::transaction_pool::{
+    BlobStore, BlobStoreError, EthPooledTransaction, Pool, TransactionOrdering, TransactionPool,
+    TransactionValidator,
+};
+use reth_node_core::primitives::SignedTransaction;
 use reth_primitives::{
     kzg::{BYTES_PER_BLOB, BYTES_PER_COMMITMENT, BYTES_PER_PROOF},
-    PooledTransactionsElement, TransactionSigned, TransactionSignedEcRecovered,
+    PooledTransaction, Transaction, TransactionSigned, TransactionSignedEcRecovered,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{cmp::Ordering, collections::HashMap, fmt::Display, str::FromStr, sync::Arc};
+use std::{cmp::Ordering, collections::HashMap, fmt::Display, hash::Hash, str::FromStr, sync::Arc};
 pub use test_data_generator::TestDataGenerator;
 use thiserror::Error;
 use uuid::Uuid;
@@ -131,14 +136,14 @@ impl Bundle {
         let txs = self
             .txs
             .iter()
-            .map(|tx| (tx, self.reverting_tx_hashes.contains(&tx.tx.hash)));
+            .map(|tx| (tx, self.reverting_tx_hashes.contains(&tx.hash())));
         bundle_nonces(txs)
     }
 
     fn list_txs(&self) -> Vec<(&TransactionSignedEcRecoveredWithBlobs, bool)> {
         self.txs
             .iter()
-            .map(|tx| (tx, self.reverting_tx_hashes.contains(&tx.tx.hash())))
+            .map(|tx| (tx, self.reverting_tx_hashes.contains(&tx.hash())))
             .collect()
     }
 
@@ -254,7 +259,7 @@ pub struct Refund {
 }
 
 /// Users can specify how to get kickbacks and this is propagated by the MEV-Share Node to us.
-/// We get this configuration as multiple RefundConfigs, then the refunds are payed to the specified addresses in the indicated percentages.
+/// We get this configuration as multiple RefundConfigs, then the refunds are paid to the specified addresses in the indicated percentages.
 /// The sum of all RefundConfig::percent on a mev share bundle should be 100%.
 /// See [ShareBundleInner::refund_config] for more details.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -416,6 +421,20 @@ impl AsRef<TransactionSigned> for TransactionSignedEcRecoveredWithBlobs {
     }
 }
 
+impl Encodable2718 for TransactionSignedEcRecoveredWithBlobs {
+    fn type_flag(&self) -> Option<u8> {
+        self.tx.type_flag()
+    }
+
+    fn encode_2718_len(&self) -> usize {
+        self.tx.encode_2718_len()
+    }
+
+    fn encode_2718(&self, out: &mut dyn alloy_rlp::BufMut) {
+        self.tx.encode_2718(out)
+    }
+}
+
 /// Custom fmt to avoid leaking information.
 impl std::fmt::Debug for TransactionSignedEcRecoveredWithBlobs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -427,8 +446,8 @@ impl std::fmt::Debug for TransactionSignedEcRecoveredWithBlobs {
     }
 }
 
-#[derive(Error, Debug)]
-pub enum RawTxWithBlobsConvertError {
+#[derive(Error, Debug, derive_more::From)]
+pub enum TxWithBlobsCreateError {
     #[error("Failed to decode transaction, error: {0}")]
     FailedToDecodeTransaction(Eip2718Error),
     #[error("Invalid transaction signature")]
@@ -440,18 +459,68 @@ pub enum RawTxWithBlobsConvertError {
     /// To avoid consuming resources the generation of this error might not be perfect but helps 99% of the time.
     #[error("Failed to decode transaction, error: {0}. It probably is a 4484 canonical tx.")]
     FailedToDecodeTransactionProbablyIs4484Canonical(alloy_rlp::Error),
+    #[error("Tried to create an EIP4844 transaction without a blob")]
+    Eip4844MissingBlobSidecar,
+    #[error("Tried to create a non-EIP4844 transaction while passing blobs")]
+    BlobsMissingEip4844,
+    #[error("BlobStoreError: {0}")]
+    BlobStore(BlobStoreError),
 }
 
 impl TransactionSignedEcRecoveredWithBlobs {
-    /// Creates a Self with empty blobs sidecar ONLY if the tx has no blobs.
-    pub fn new_no_blobs(tx: TransactionSignedEcRecovered) -> Option<Self> {
-        if tx.transaction.blob_versioned_hashes().is_some() {
-            return None;
+    /// Create new with an optional blob sidecar.
+    ///
+    /// Warning: It is the caller's responsibility to check if a tx has blobs.
+    /// This fn will return an Err if it is passed an eip4844 without blobs,
+    /// or blobs without an eip4844.
+    pub fn new(
+        tx: TransactionSignedEcRecovered,
+        blob_sidecar: Option<BlobTransactionSidecar>,
+        metadata: Option<Metadata>,
+    ) -> Result<Self, TxWithBlobsCreateError> {
+        // Check for an eip4844 tx passed without blobs
+        if tx.transaction.blob_versioned_hashes().is_some() && blob_sidecar.is_none() {
+            Err(TxWithBlobsCreateError::Eip4844MissingBlobSidecar)
+        // Check for a non-eip4844 tx passed with blobs
+        } else if blob_sidecar.is_some() && tx.transaction.blob_versioned_hashes().is_none() {
+            Err(TxWithBlobsCreateError::BlobsMissingEip4844)
+        // Groovy!
+        } else {
+            Ok(Self {
+                tx,
+                blobs_sidecar: Arc::new(blob_sidecar.unwrap_or_default()),
+                metadata: metadata.unwrap_or_default(),
+            })
         }
-        Some(Self::new_for_testing(tx))
     }
 
-    /// Creates a Self with empty blobs sidecar. No consistency check is performed,
+    /// Shorthand for `new(tx, None, None)`
+    pub fn new_no_blobs(tx: TransactionSignedEcRecovered) -> Result<Self, TxWithBlobsCreateError> {
+        Self::new(tx, None, None)
+    }
+
+    /// Try to create a [`TransactionSignedEcRecoveredWithBlobs`] from a
+    /// [`TransactionSignedEcRecovered`] and reth pool.
+    ///
+    /// The pool is required because [`TransactionSignedEcRecovered`] on its
+    /// own does not contain blob information, it is required to fetch the blob.
+    ///
+    /// Unfortunately we need to pass the entire pool, because the blob store
+    /// is not part of the pool's public api.
+    pub fn try_from_tx_without_blobs_and_pool<V, T, S>(
+        tx: TransactionSignedEcRecovered,
+        pool: Pool<V, T, S>,
+    ) -> Result<Self, TxWithBlobsCreateError>
+    where
+        V: TransactionValidator<Transaction = EthPooledTransaction>,
+        T: TransactionOrdering<Transaction = <V as TransactionValidator>::Transaction>,
+        S: BlobStore,
+    {
+        let blob_sidecar = pool.get_blob(tx.tx().hash())?.map(|b| (*b).clone());
+        Self::new(tx, blob_sidecar, None)
+    }
+
+    /// Creates a Self with empty blobs sidecar. No consistency check is performed!
     pub fn new_for_testing(tx: TransactionSignedEcRecovered) -> Self {
         Self {
             tx,
@@ -461,7 +530,7 @@ impl TransactionSignedEcRecoveredWithBlobs {
     }
 
     pub fn hash(&self) -> TxHash {
-        self.tx.hash()
+        self.tx.tx().hash()
     }
 
     pub fn signer(&self) -> Address {
@@ -473,11 +542,11 @@ impl TransactionSignedEcRecoveredWithBlobs {
     }
 
     pub fn nonce(&self) -> u64 {
-        self.tx.as_signed().nonce()
+        self.tx.nonce()
     }
 
     pub fn value(&self) -> U256 {
-        self.tx.as_signed().value()
+        self.tx.value()
     }
 
     /// USE CAREFULLY since this exposes the signed tx.
@@ -491,62 +560,39 @@ impl TransactionSignedEcRecoveredWithBlobs {
     }
 
     /// Encodes the "raw" canonical format of transaction (NOT the one used in `eth_sendRawTransaction`) BLOB DATA IS NOT ENCODED.
-    /// I intensionally omitted the version with blob data since we don't use it and may lead to confusions/bugs.
+    /// I intentsionally omitted the version with blob data since we don't use it and may lead to confusions/bugs.
     /// USE CAREFULLY since this exposes the signed tx.
     pub fn envelope_encoded_no_blobs(&self) -> Bytes {
         let mut buf = Vec::new();
-        self.tx.as_signed().encode_2718(&mut buf);
+        self.tx.encode_2718(&mut buf);
         buf.into()
     }
 
     /// Decodes the "raw" format of transaction (e.g. `eth_sendRawTransaction`) with the blob data (network format)
     pub fn decode_enveloped_with_real_blobs(
         raw_tx: Bytes,
-    ) -> Result<TransactionSignedEcRecoveredWithBlobs, RawTxWithBlobsConvertError> {
+    ) -> Result<TransactionSignedEcRecoveredWithBlobs, TxWithBlobsCreateError> {
         let raw_tx = &mut raw_tx.as_ref();
-        let pooled_tx: PooledTransactionsElement =
-            PooledTransactionsElement::decode_2718(raw_tx)
-                .map_err(RawTxWithBlobsConvertError::FailedToDecodeTransaction)?;
+        let pooled_tx = PooledTransaction::decode_2718(raw_tx)
+            .map_err(TxWithBlobsCreateError::FailedToDecodeTransaction)?;
         let signer = pooled_tx
             .recover_signer()
-            .ok_or(RawTxWithBlobsConvertError::InvalidTransactionSignature)?;
+            .ok_or(TxWithBlobsCreateError::InvalidTransactionSignature)?;
         match pooled_tx {
-            PooledTransactionsElement::Legacy {
-                transaction: _,
-                signature: _,
-                hash: _,
-            } => TransactionSignedEcRecoveredWithBlobs::new_no_blobs(
-                pooled_tx.into_ecrecovered_transaction(signer),
-            )
-            .ok_or(RawTxWithBlobsConvertError::UnexpectedError),
-            PooledTransactionsElement::Eip2930 {
-                transaction: _,
-                signature: _,
-                hash: _,
-            } => TransactionSignedEcRecoveredWithBlobs::new_no_blobs(
-                pooled_tx.into_ecrecovered_transaction(signer),
-            )
-            .ok_or(RawTxWithBlobsConvertError::UnexpectedError),
-            PooledTransactionsElement::Eip1559 {
-                transaction: _,
-                signature: _,
-                hash: _,
-            } => TransactionSignedEcRecoveredWithBlobs::new_no_blobs(
-                pooled_tx.into_ecrecovered_transaction(signer),
-            )
-            .ok_or(RawTxWithBlobsConvertError::UnexpectedError),
-            PooledTransactionsElement::Eip7702 {
-                transaction: _,
-                signature: _,
-                hash: _,
-            } => TransactionSignedEcRecoveredWithBlobs::new_no_blobs(
-                pooled_tx.into_ecrecovered_transaction(signer),
-            )
-            .ok_or(RawTxWithBlobsConvertError::UnexpectedError),
-            PooledTransactionsElement::BlobTransaction(blob_tx) => {
-                let (tx, sidecar) = blob_tx.into_parts();
+            PooledTransaction::Legacy(_)
+            | PooledTransaction::Eip2930(_)
+            | PooledTransaction::Eip1559(_)
+            | PooledTransaction::Eip7702(_) => {
+                let tx_signed = TransactionSigned::from(pooled_tx);
+                TransactionSignedEcRecoveredWithBlobs::new_no_blobs(tx_signed.with_signer(signer))
+            }
+            PooledTransaction::Eip4844(blob_tx) => {
+                let (blob_tx, signature, hash) = blob_tx.into_parts();
+                let (blob_tx, sidecar) = blob_tx.into_parts();
+                let tx_signed =
+                    TransactionSigned::new(Transaction::Eip4844(blob_tx), signature, hash);
                 Ok(TransactionSignedEcRecoveredWithBlobs {
-                    tx: tx.with_signer(signer),
+                    tx: tx_signed.with_signer(signer),
                     blobs_sidecar: Arc::new(sidecar),
                     metadata: Metadata::default(),
                 })
@@ -556,12 +602,12 @@ impl TransactionSignedEcRecoveredWithBlobs {
     /// Decodes the "raw" canonical format of transaction (NOT the one used in `eth_sendRawTransaction`) generating fake blob data for backtesting
     pub fn decode_enveloped_with_fake_blobs(
         raw_tx: Bytes,
-    ) -> Result<TransactionSignedEcRecoveredWithBlobs, RawTxWithBlobsConvertError> {
+    ) -> Result<TransactionSignedEcRecoveredWithBlobs, TxWithBlobsCreateError> {
         let decoded = TransactionSigned::decode_2718(&mut raw_tx.as_ref())
-            .map_err(RawTxWithBlobsConvertError::FailedToDecodeTransaction)?;
+            .map_err(TxWithBlobsCreateError::FailedToDecodeTransaction)?;
         let tx = decoded
             .into_ecrecovered()
-            .ok_or(RawTxWithBlobsConvertError::InvalidTransactionSignature)?;
+            .ok_or(TxWithBlobsCreateError::InvalidTransactionSignature)?;
         let mut fake_sidecar = BlobTransactionSidecar::default();
         for _ in 0..tx.blob_versioned_hashes().map_or(0, |hashes| hashes.len()) {
             fake_sidecar.blobs.push(Blob::from([0u8; BYTES_PER_BLOB]));
@@ -582,7 +628,7 @@ impl TransactionSignedEcRecoveredWithBlobs {
 
 impl std::hash::Hash for TransactionSignedEcRecoveredWithBlobs {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        //This is enogth to identify the tx
+        //This is enough to identify the tx
         self.tx.hash(state);
     }
 }
@@ -686,7 +732,7 @@ impl Order {
     pub fn id(&self) -> OrderId {
         match self {
             Order::Bundle(bundle) => OrderId::Bundle(bundle.uuid),
-            Order::Tx(tx) => OrderId::Tx(tx.tx_with_blobs.tx.hash()),
+            Order::Tx(tx) => OrderId::Tx(tx.tx_with_blobs.hash()),
             Order::ShareBundle(bundle) => OrderId::ShareBundle(bundle.hash),
         }
     }
@@ -947,7 +993,7 @@ mod tests {
     /// A bundle with a single optional tx paying enough gas should be considered executable
     fn can_execute_single_optional_tx() {
         let needed_base_gas: u128 = 100000;
-        let tx = TransactionSignedEcRecovered::from_signed_transaction(
+        let tx = TransactionSignedEcRecovered::new_unchecked(
             TransactionSigned {
                 transaction: Transaction::Legacy(TxLegacy {
                     gas_price: needed_base_gas,

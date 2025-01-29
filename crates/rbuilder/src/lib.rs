@@ -6,6 +6,7 @@ pub mod integration;
 pub mod live_builder;
 pub mod mev_boost;
 pub mod primitives;
+pub mod provider;
 pub mod roothash;
 pub mod telemetry;
 pub mod utils;

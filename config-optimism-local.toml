@@ -24,6 +24,8 @@ ignore_cancellable_orders = true
 sbundle_mergeable_signers = []
 live_builders = ["mp-ordering"]
 
+enabled_relays = ["custom"]
+
 [[relays]]
 name = "custom"
 url = "http://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@localhost:5555"

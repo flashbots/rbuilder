@@ -1,8 +1,8 @@
 //! Mod for gathering info about reth's head.
 
+use crate::provider::StateProviderFactory;
 use alloy_primitives::BlockNumber;
 use reth_errors::ProviderResult;
-use reth_provider::{BlockHashReader, BlockNumReader};
 use revm_primitives::B256;
 
 /// For debugging. Results of asking for block number + hash to a BlockHashReader+BlockNumReader
@@ -15,7 +15,7 @@ pub struct ProviderHeadStateBlockHash {
 }
 
 impl ProviderHeadStateBlockHash {
-    pub fn new<P: BlockHashReader>(
+    pub fn new<P: StateProviderFactory>(
         provider: &P,
         block_number: ProviderResult<BlockNumber>,
     ) -> Self {
@@ -34,7 +34,7 @@ pub struct ProviderHeadState {
 }
 
 impl ProviderHeadState {
-    pub fn new<P: BlockNumReader>(provider: &P) -> Self {
+    pub fn new<P: StateProviderFactory>(provider: &P) -> Self {
         Self {
             last_block: ProviderHeadStateBlockHash::new(provider, provider.last_block_number()),
             best_block: ProviderHeadStateBlockHash::new(provider, provider.best_block_number()),

@@ -1,9 +1,9 @@
+use crate::provider::StateProviderFactory;
 use ahash::HashMap;
 use alloy_primitives::{Address, B256};
 use parking_lot::Mutex;
 use reth::providers::StateProviderBox;
 use reth_errors::ProviderResult;
-use reth_provider::StateProviderFactory;
 use std::sync::Arc;
 
 /// Struct to get nonces for Addresses, caching the results.
@@ -53,7 +53,7 @@ impl NonceCacheRef {
         if let Some(nonce) = cache.get(&address) {
             return Ok(*nonce);
         }
-        let nonce = self.state.account_nonce(address)?.unwrap_or_default();
+        let nonce = self.state.account_nonce(&address)?.unwrap_or_default();
         cache.insert(address, nonce);
         Ok(nonce)
     }

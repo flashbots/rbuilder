@@ -88,8 +88,8 @@ impl RethSparseTrieShareCacheInternal {
             Ok(account_trie) => {
                 tries.account_trie = account_trie;
             }
-            Err(missing_acccount_trie_nodes) => {
-                missing_nodes.account_trie_nodes = missing_acccount_trie_nodes;
+            Err(missing_account_trie_nodes) => {
+                missing_nodes.account_trie_nodes = missing_account_trie_nodes;
             }
         }
 

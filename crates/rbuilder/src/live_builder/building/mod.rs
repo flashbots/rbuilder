@@ -1,4 +1,4 @@
-use std::{cell::RefCell, marker::PhantomData, rc::Rc, sync::Arc, thread, time::Duration};
+use std::{cell::RefCell, rc::Rc, sync::Arc, thread, time::Duration};
 
 use crate::{
     building::{
@@ -10,10 +10,8 @@ use crate::{
     },
     live_builder::{payload_events::MevBoostSlotData, simulation::SlotOrderSimResults},
     primitives::{OrderId, SimulatedOrder},
-    roothash::run_trie_prefetcher,
+    provider::StateProviderFactory,
 };
-use reth_db::Database;
-use reth_provider::{BlockReader, DatabaseProviderFactory, StateProviderFactory};
 use revm_primitives::Address;
 use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
@@ -28,28 +26,23 @@ use super::{
 };
 
 #[derive(Debug)]
-pub struct BlockBuildingPool<P, DB> {
+pub struct BlockBuildingPool<P> {
     provider: P,
-    builders: Vec<Arc<dyn BlockBuildingAlgorithm<P, DB>>>,
+    builders: Vec<Arc<dyn BlockBuildingAlgorithm<P>>>,
     sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
     orderpool_subscriber: order_input::OrderPoolSubscriber,
     order_simulation_pool: OrderSimulationPool<P>,
     run_sparse_trie_prefetcher: bool,
     sbundle_merger_selected_signers: Arc<Vec<Address>>,
-    phantom: PhantomData<DB>,
 }
 
-impl<P, DB> BlockBuildingPool<P, DB>
+impl<P> BlockBuildingPool<P>
 where
-    DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-        + StateProviderFactory
-        + Clone
-        + 'static,
+    P: StateProviderFactory + Clone + 'static,
 {
     pub fn new(
         provider: P,
-        builders: Vec<Arc<dyn BlockBuildingAlgorithm<P, DB>>>,
+        builders: Vec<Arc<dyn BlockBuildingAlgorithm<P>>>,
         sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
         orderpool_subscriber: order_input::OrderPoolSubscriber,
         order_simulation_pool: OrderSimulationPool<P>,
@@ -64,7 +57,6 @@ where
             order_simulation_pool,
             run_sparse_trie_prefetcher,
             sbundle_merger_selected_signers,
-            phantom: PhantomData,
         }
     }
 
@@ -138,16 +130,9 @@ where
 
         if self.run_sparse_trie_prefetcher {
             let input = broadcast_input.subscribe();
-            let provider = self.provider.clone();
+
             tokio::task::spawn_blocking(move || {
-                run_trie_prefetcher(
-                    ctx.attributes.parent,
-                    ctx.shared_sparse_mpt_cache,
-                    provider,
-                    input,
-                    cancel.clone(),
-                );
-                debug!(block = block_number, "Stopped trie prefetcher job");
+                ctx.root_hasher.run_prefetcher(input, cancel);
             });
         }
 

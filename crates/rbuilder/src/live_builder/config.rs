@@ -11,7 +11,7 @@ use super::{
             wallet_balance_watcher::WalletBalanceWatcher,
         },
         block_sealing_bidder_factory::BlockSealingBidderFactory,
-        relay_submit::{RelaySubmitSinkFactory, SubmissionConfig},
+        relay_submit::{OptimisticConfig, RelaySubmitSinkFactory, SubmissionConfig},
     },
 };
 use crate::{
@@ -30,8 +30,12 @@ use crate::{
         base_config::EnvOrValue, block_output::relay_submit::BuilderSinkFactory,
         cli::LiveBuilderConfig, payload_events::MevBoostSlotDataGenerator,
     },
-    mev_boost::BLSBlockSigner,
-    primitives::mev_boost::{MevBoostRelay, RelayConfig},
+    mev_boost::{BLSBlockSigner, RelayClient},
+    primitives::mev_boost::{
+        MevBoostRelayBidSubmitter, MevBoostRelaySlotInfoProvider, RelayConfig, RelayMode,
+        RelaySubmitConfig,
+    },
+    provider::StateProviderFactory,
     roothash::RootHashConfig,
     utils::{build_info::rbuilder_version, ProviderFactoryReopener, Signer},
     validation_api_client::ValidationAPIClient,
@@ -46,18 +50,17 @@ use ethereum_consensus::{
     state_transition::Context as ContextEth,
 };
 use eyre::Context;
+use lazy_static::lazy_static;
 use reth::revm::cached::CachedReads;
 use reth_chainspec::{Chain, ChainSpec, NamedChain};
-use reth_db::{Database, DatabaseEnv};
+use reth_db::DatabaseEnv;
 use reth_node_api::NodeTypesWithDBAdapter;
 use reth_node_ethereum::EthereumNode;
 use reth_primitives::StaticFileSegment;
-use reth_provider::{
-    BlockReader, DatabaseProviderFactory, HeaderProvider, StateProviderFactory,
-    StaticFileProviderFactory,
-};
+use reth_provider::StaticFileProviderFactory;
 use serde::Deserialize;
 use serde_with::{serde_as, OneOrMany};
+use std::collections::HashMap;
 use std::{
     fmt::Debug,
     path::{Path, PathBuf},
@@ -65,7 +68,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use tracing::info;
+use tracing::{info, warn};
 use url::Url;
 
 /// We initialize the wallet with the last full day. This should be enough for any bidder.
@@ -108,11 +111,13 @@ pub struct Config {
 pub struct L1Config {
     // Relay Submission configuration
     pub relays: Vec<RelayConfig>,
+    pub enabled_relays: Vec<String>,
+
     pub dry_run: bool,
     #[serde_as(deserialize_as = "OneOrMany<_>")]
     pub dry_run_validation_url: Vec<String>,
     /// Secret key that will be used to sign normal submissions to the relay.
-    relay_secret_key: EnvOrValue<String>,
+    relay_secret_key: Option<EnvOrValue<String>>,
     /// Secret key that will be used to sign optimistic submissions to the relay.
     optimistic_relay_secret_key: EnvOrValue<String>,
     /// When enabled builer will make optimistic submissions to optimistic relays
@@ -139,9 +144,10 @@ impl Default for L1Config {
     fn default() -> Self {
         Self {
             relays: vec![],
+            enabled_relays: vec![],
             dry_run: false,
             dry_run_validation_url: vec![],
-            relay_secret_key: "".into(),
+            relay_secret_key: None,
             optimistic_relay_secret_key: "".into(),
             optimistic_enabled: false,
             optimistic_max_bid_value_eth: "0.0".to_string(),
@@ -168,39 +174,99 @@ impl L1Config {
             .collect()
     }
 
-    pub fn create_relays(&self) -> eyre::Result<Vec<MevBoostRelay>> {
-        let mut results = Vec::new();
-        for relay in &self.relays {
-            results.push(MevBoostRelay::from_config(relay)?);
+    /// Analyzes relay_config and creates MevBoostRelayBidSubmitter/MevBoostRelaySlotInfoProvider as needed.
+    fn create_relay_sub_objects(
+        relay_config: &RelayConfig,
+        client: RelayClient,
+        submitters: &mut Vec<MevBoostRelayBidSubmitter>,
+        slot_info_providers: &mut Vec<MevBoostRelaySlotInfoProvider>,
+    ) -> eyre::Result<()> {
+        if relay_config.mode.submits_bids() {
+            if let Some(submit_config) = &relay_config.submit_config {
+                submitters.push(MevBoostRelayBidSubmitter::new(
+                    client.clone(),
+                    relay_config.name.clone(),
+                    submit_config,
+                    relay_config.mode == RelayMode::Test,
+                ));
+            } else {
+                eyre::bail!(
+                    "Relay {} in mode {:?} has no submit config",
+                    relay_config.name,
+                    relay_config.mode
+                );
+            }
         }
-        Ok(results)
+        if relay_config.mode.gets_slot_info() {
+            if let Some(priority) = &relay_config.priority {
+                slot_info_providers.push(MevBoostRelaySlotInfoProvider::new(
+                    client.clone(),
+                    relay_config.name.clone(),
+                    *priority,
+                ));
+            } else {
+                eyre::bail!(
+                    "Relay {} in mode {:?} has no priority",
+                    relay_config.name,
+                    relay_config.mode
+                );
+            }
+        }
+        Ok(())
     }
 
-    fn bls_signer(&self, chain_spec: &ChainSpec) -> eyre::Result<BLSBlockSigner> {
-        let signing_domain = get_signing_domain(
-            chain_spec.chain,
-            self.beacon_clients()?,
-            self.genesis_fork_version.clone(),
-        )?;
-        let secret_key = self.relay_secret_key.value()?;
-        let secret_key = SecretKey::try_from(secret_key)
-            .map_err(|e| eyre::eyre!("Failed to parse relay key: {:?}", e.to_string()))?;
-
-        BLSBlockSigner::new(secret_key, signing_domain)
-    }
-
-    fn bls_optimistic_signer(&self, chain_spec: &ChainSpec) -> eyre::Result<BLSBlockSigner> {
-        let signing_domain = get_signing_domain(
-            chain_spec.chain,
-            self.beacon_clients()?,
-            self.genesis_fork_version.clone(),
-        )?;
-        let secret_key = self.optimistic_relay_secret_key.value()?;
-        let secret_key = SecretKey::try_from(secret_key).map_err(|e| {
-            eyre::eyre!("Failed to parse optimistic relay key: {:?}", e.to_string())
-        })?;
-
-        BLSBlockSigner::new(secret_key, signing_domain)
+    pub fn create_relays(
+        &self,
+    ) -> eyre::Result<(
+        Vec<MevBoostRelayBidSubmitter>,
+        Vec<MevBoostRelaySlotInfoProvider>,
+    )> {
+        let mut relay_configs = DEFAULT_RELAYS.clone();
+        // Update relay configs from user configuration - replace if found
+        for relay in self.relays.clone() {
+            relay_configs.insert(relay.name.clone(), relay);
+        }
+        // For backwards compatibility: add all user-configured relays to enabled_relays
+        let mut effective_enabled_relays: std::collections::HashSet<String> =
+            self.enabled_relays.iter().cloned().collect();
+        effective_enabled_relays.extend(self.relays.iter().map(|r| r.name.clone()));
+        // Create enabled relays
+        let mut submitters = Vec::new();
+        let mut slot_info_providers = Vec::new();
+        for relay_name in effective_enabled_relays.iter() {
+            match relay_configs.get(relay_name) {
+                Some(relay_config) => {
+                    let url = match relay_config.url.parse() {
+                        Ok(url) => url,
+                        Err(err) => {
+                            eyre::bail!(
+                                "Failed to parse relay url. Error = {err}. Url = {}",
+                                relay_config.url
+                            );
+                        }
+                    };
+                    let client = RelayClient::from_url(
+                        url,
+                        relay_config.authorization_header.clone(),
+                        relay_config.builder_id_header.clone(),
+                        relay_config.api_token_header.clone(),
+                    );
+                    Self::create_relay_sub_objects(
+                        relay_config,
+                        client,
+                        &mut submitters,
+                        &mut slot_info_providers,
+                    )?;
+                }
+                None => {
+                    return Err(eyre::eyre!("Relay {} not found in relays list", relay_name));
+                }
+            }
+        }
+        if slot_info_providers.is_empty() {
+            return Err(eyre::eyre!("No relays enabled for getting slot info"));
+        }
+        Ok((submitters, slot_info_providers))
     }
 
     fn submission_config(
@@ -225,64 +291,86 @@ impl L1Config {
             ValidationAPIClient::new(urls.as_slice())?
         };
 
-        let optimistic_signer = match self.bls_optimistic_signer(&chain_spec) {
-            Ok(signer) => signer,
-            Err(err) => {
-                if self.optimistic_enabled {
-                    eyre::bail!(
-                        "Optimistic mode enabled but no valid optimistic signer: {}",
-                        err
-                    );
-                } else {
-                    // we don't care about the actual value
-                    self.bls_signer(&chain_spec)?
-                }
-            }
+        let signing_domain = get_signing_domain(
+            chain_spec.chain,
+            self.beacon_clients()?,
+            self.genesis_fork_version.clone(),
+        )?;
+
+        let relay_secret_key = if let Some(secret_key) = &self.relay_secret_key {
+            let resolved_key = secret_key.value()?;
+            SecretKey::try_from(resolved_key)?
+        } else {
+            warn!("No relay secret key provided. A random key will be generated.");
+            SecretKey::random(&mut rand::thread_rng())?
         };
 
-        let signer = self.bls_signer(&chain_spec)?;
+        let signer = BLSBlockSigner::new(relay_secret_key, signing_domain)
+            .map_err(|e| eyre::eyre!("Failed to create normal signer: {:?}", e))?;
+
+        let optimistic_signer = if self.optimistic_enabled {
+            BLSBlockSigner::from_string(self.optimistic_relay_secret_key.value()?, signing_domain)
+                .map_err(|e| eyre::eyre!("Failed to create optimistic signer: {:?}", e))?
+        } else {
+            // Placeholder value since it is required for SubmissionConfig. But after https://github.com/flashbots/rbuilder/pull/323
+            // we can return None
+            signer.clone()
+        };
+
+        let optimistic_config = if self.optimistic_enabled {
+            Some(OptimisticConfig {
+                signer: optimistic_signer,
+                max_bid_value: parse_ether(&self.optimistic_max_bid_value_eth)?,
+                prevalidate_optimistic_blocks: self.optimistic_prevalidate_optimistic_blocks,
+            })
+        } else {
+            None
+        };
 
         Ok(SubmissionConfig {
             chain_spec,
             signer,
             dry_run: self.dry_run,
             validation_api,
-            optimistic_enabled: self.optimistic_enabled,
-            optimistic_signer,
-            optimistic_max_bid_value: parse_ether(&self.optimistic_max_bid_value_eth)?,
-            optimistic_prevalidate_optimistic_blocks: self.optimistic_prevalidate_optimistic_blocks,
+            optimistic_config,
             bid_observer,
         })
     }
 
-    /// Creates the RelaySubmitSinkFactory and also returns the associated relays.
+    /// Creates the RelaySubmitSinkFactory and also returns the associated relays (MevBoostRelaySlotInfoProvider).
     pub fn create_relays_sealed_sink_factory(
         &self,
         chain_spec: Arc<ChainSpec>,
         bid_observer: Box<dyn BidObserver + Send + Sync>,
-    ) -> eyre::Result<(Box<dyn BuilderSinkFactory>, Vec<MevBoostRelay>)> {
+    ) -> eyre::Result<(
+        Box<dyn BuilderSinkFactory>,
+        Vec<MevBoostRelaySlotInfoProvider>,
+    )> {
         let submission_config = self.submission_config(chain_spec, bid_observer)?;
         info!(
             "Builder mev boost normal relay pubkey: {:?}",
             submission_config.signer.pub_key()
         );
-        info!(
-            "Builder mev boost optimistic relay pubkey: {:?}",
-            submission_config.optimistic_signer.pub_key()
-        );
-        info!(
-            "Optimistic mode, enabled: {}, prevalidate: {}, max_value: {}",
-            submission_config.optimistic_enabled,
-            submission_config.optimistic_prevalidate_optimistic_blocks,
-            format_ether(submission_config.optimistic_max_bid_value),
-        );
 
-        let relays = self.create_relays()?;
+        if let Some(optimitic_config) = submission_config.optimistic_config.as_ref() {
+            info!(
+                "Optimistic mode enabled, relay pubkey {:?}, prevalidate: {}, max_value: {}",
+                optimitic_config.signer.pub_key(),
+                optimitic_config.prevalidate_optimistic_blocks,
+                format_ether(optimitic_config.max_bid_value),
+            );
+        };
+
+        let (submitters, slot_info_providers) = self.create_relays()?;
+        if slot_info_providers.is_empty() {
+            eyre::bail!("No slot info providers provided");
+        }
+
         let sink_factory: Box<dyn BuilderSinkFactory> = Box::new(RelaySubmitSinkFactory::new(
             submission_config,
-            relays.clone(),
+            submitters.clone(),
         ));
-        Ok((sink_factory, relays))
+        Ok((sink_factory, slot_info_providers))
     }
 }
 
@@ -290,18 +378,13 @@ impl LiveBuilderConfig for Config {
     fn base_config(&self) -> &BaseConfig {
         &self.base_config
     }
-    async fn new_builder<P, DB>(
+    async fn new_builder<P>(
         &self,
         provider: P,
         cancellation_token: tokio_util::sync::CancellationToken,
-    ) -> eyre::Result<super::LiveBuilder<P, DB, MevBoostSlotDataGenerator>>
+    ) -> eyre::Result<super::LiveBuilder<P, MevBoostSlotDataGenerator>>
     where
-        DB: Database + Clone + 'static,
-        P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-            + StateProviderFactory
-            + HeaderProvider
-            + Clone
-            + 'static,
+        P: StateProviderFactory + Clone + 'static,
     {
         let (sink_sealed_factory, relays) = self.l1_config.create_relays_sealed_sink_factory(
             self.base_config.chain_spec()?,
@@ -339,8 +422,7 @@ impl LiveBuilderConfig for Config {
                 provider,
             )
             .await?;
-        let root_hash_config = self.base_config.live_root_hash_config()?;
-        let builders = create_builders(self.live_builders()?, root_hash_config);
+        let builders = create_builders(self.live_builders()?);
         Ok(live_builder.with_builders(builders))
     }
 
@@ -348,17 +430,13 @@ impl LiveBuilderConfig for Config {
         rbuilder_version()
     }
 
-    fn build_backtest_block<P, DB>(
+    fn build_backtest_block<P>(
         &self,
         building_algorithm_name: &str,
         input: BacktestSimulateBlockInput<'_, P>,
     ) -> eyre::Result<(Block, CachedReads)>
     where
-        DB: Database + Clone + 'static,
-        P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-            + StateProviderFactory
-            + Clone
-            + 'static,
+        P: StateProviderFactory + Clone + 'static,
     {
         let builder_cfg = self.builder(building_algorithm_name)?;
         match builder_cfg.builder {
@@ -366,7 +444,7 @@ impl LiveBuilderConfig for Config {
                 crate::building::builders::ordering_builder::backtest_simulate_block(config, input)
             }
             SpecificBuilderConfig::ParallelBuilder(config) => {
-                parallel_build_backtest::<P, DB>(input, config)
+                parallel_build_backtest::<P>(input, config)
             }
         }
     }
@@ -470,6 +548,7 @@ pub fn create_provider_factory(
     reth_db_path: Option<&Path>,
     reth_static_files_path: Option<&Path>,
     chain_spec: Arc<ChainSpec>,
+    root_hash_config: Option<RootHashConfig>,
 ) -> eyre::Result<ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>> {
     let reth_db_path = match (reth_db_path, reth_datadir) {
         (Some(reth_db_path), _) => PathBuf::from(reth_db_path),
@@ -488,7 +567,7 @@ pub fn create_provider_factory(
     };
 
     let provider_factory_reopener =
-        ProviderFactoryReopener::new(db, chain_spec, reth_static_files_path)?;
+        ProviderFactoryReopener::new(db, chain_spec, reth_static_files_path, root_hash_config)?;
 
     if provider_factory_reopener
         .provider_factory_unchecked()
@@ -513,41 +592,24 @@ pub fn coinbase_signer_from_secret_key(secret_key: &str) -> eyre::Result<Signer>
     Ok(Signer::try_from_secret(secret_key)?)
 }
 
-pub fn create_builders<P, DB>(
-    configs: Vec<BuilderConfig>,
-    root_hash_config: RootHashConfig,
-) -> Vec<Arc<dyn BlockBuildingAlgorithm<P, DB>>>
+pub fn create_builders<P>(configs: Vec<BuilderConfig>) -> Vec<Arc<dyn BlockBuildingAlgorithm<P>>>
 where
-    DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-        + StateProviderFactory
-        + Clone
-        + 'static,
+    P: StateProviderFactory + Clone + 'static,
 {
-    configs
-        .into_iter()
-        .map(|cfg| create_builder(cfg, &root_hash_config))
-        .collect()
+    configs.into_iter().map(|cfg| create_builder(cfg)).collect()
 }
 
-fn create_builder<P, DB>(
-    cfg: BuilderConfig,
-    root_hash_config: &RootHashConfig,
-) -> Arc<dyn BlockBuildingAlgorithm<P, DB>>
+fn create_builder<P>(cfg: BuilderConfig) -> Arc<dyn BlockBuildingAlgorithm<P>>
 where
-    DB: Database + Clone + 'static,
-    P: DatabaseProviderFactory<DB = DB, Provider: BlockReader>
-        + StateProviderFactory
-        + Clone
-        + 'static,
+    P: StateProviderFactory + Clone + 'static,
 {
     match cfg.builder {
-        SpecificBuilderConfig::OrderingBuilder(order_cfg) => Arc::new(
-            OrderingBuildingAlgorithm::new(root_hash_config.clone(), order_cfg, cfg.name),
-        ),
-        SpecificBuilderConfig::ParallelBuilder(parallel_cfg) => Arc::new(
-            ParallelBuildingAlgorithm::new(root_hash_config.clone(), parallel_cfg, cfg.name),
-        ),
+        SpecificBuilderConfig::OrderingBuilder(order_cfg) => {
+            Arc::new(OrderingBuildingAlgorithm::new(order_cfg, cfg.name))
+        }
+        SpecificBuilderConfig::ParallelBuilder(parallel_cfg) => {
+            Arc::new(ParallelBuildingAlgorithm::new(parallel_cfg, cfg.name))
+        }
     }
 }
 
@@ -594,6 +656,103 @@ fn get_signing_domain(
     };
 
     Ok(B256::from(&compute_builder_domain(&cl_context)?))
+}
+
+lazy_static! {
+    static ref DEFAULT_RELAYS: HashMap<String, RelayConfig> = {
+        let mut map = HashMap::new();
+        map.insert(
+            "flashbots".to_string(),
+            RelayConfig {
+                name: "flashbots".to_string(),
+                url: "http://k8s-default-boostrel-9f278153f5-947835446.us-east-2.elb.amazonaws.com"
+                    .to_string(),
+                mode: RelayMode::Full,
+                submit_config: Some(RelaySubmitConfig {
+                    use_ssz_for_submit: true,
+                    use_gzip_for_submit: false,
+                    optimistic: false,
+                    interval_between_submissions_ms: Some(250),
+                }),
+                priority: Some(0),
+                authorization_header: None,
+                builder_id_header: None,
+                api_token_header: None,
+            },
+        );
+        map.insert(
+            "ultrasound-us".to_string(),
+            RelayConfig {
+                name: "ultrasound-us".to_string(),
+                url: "https://relay-builders-us.ultrasound.money".to_string(),
+                mode: RelayMode::Full,
+                submit_config: Some(RelaySubmitConfig {
+                    use_ssz_for_submit: true,
+                    use_gzip_for_submit: true,
+                    optimistic: true,
+                    interval_between_submissions_ms: None,
+                }),
+                priority: Some(0),
+                authorization_header: None,
+                builder_id_header: None,
+                api_token_header: None,
+            },
+        );
+        map.insert(
+            "ultrasound-eu".to_string(),
+            RelayConfig {
+                name: "ultrasound-eu".to_string(),
+                url: "https://relay-builders-eu.ultrasound.money".to_string(),
+                mode: RelayMode::Full,
+                submit_config: Some(RelaySubmitConfig {
+                    use_ssz_for_submit: true,
+                    use_gzip_for_submit: true,
+                    optimistic: true,
+                    interval_between_submissions_ms: None,
+                }),
+                priority: Some(0),
+                authorization_header: None,
+                builder_id_header: None,
+                api_token_header: None,
+            },
+        );
+        map.insert(
+            "agnostic".to_string(),
+            RelayConfig {
+                name: "agnostic".to_string(),
+                url: "https://0xa7ab7a996c8584251c8f925da3170bdfd6ebc75d50f5ddc4050a6fdc77f2a3b5fce2cc750d0865e05d7228af97d69561@agnostic-relay.net".to_string(),
+                mode: RelayMode::Full,
+                submit_config: Some(RelaySubmitConfig {
+                    use_ssz_for_submit: true,
+                    use_gzip_for_submit: true,
+                    optimistic: true,
+                    interval_between_submissions_ms: None,
+                }),                priority: Some(0),
+                authorization_header: None,
+                builder_id_header: None,
+                api_token_header: None,
+            },
+        );
+        map.insert(
+            "playground".to_string(),
+            RelayConfig {
+                name: "playground".to_string(),
+                url: "http://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@localhost:5555".to_string(),
+                mode: RelayMode::Full,
+                submit_config: Some(RelaySubmitConfig {
+                    use_ssz_for_submit: false,
+                    use_gzip_for_submit: false,
+                    optimistic: false,
+                    interval_between_submissions_ms: None,
+                }),
+                priority: Some(0),
+                authorization_header: None,
+                builder_id_header: None,
+                api_token_header: None,
+            },
+        );
+        map
+    };
 }
 
 #[cfg(test)]
@@ -651,6 +810,19 @@ mod test {
             .resolve_cl_node_urls()
             .unwrap()
             .contains(&"http://localhost:3500".to_string()));
+    }
+
+    #[test]
+    fn test_parse_enabled_relays() {
+        let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        p.push("./src/live_builder/testdata/config_with_relay_override.toml");
+
+        let config: Config = load_config_toml_and_env(p.clone()).expect("Config load");
+
+        let (_, slot_info_providers) = config.l1_config.create_relays().unwrap();
+        assert_eq!(slot_info_providers.len(), 1);
+        assert_eq!(slot_info_providers[0].id(), "playground");
+        assert_eq!(slot_info_providers[0].priority(), 10);
     }
 
     #[test]

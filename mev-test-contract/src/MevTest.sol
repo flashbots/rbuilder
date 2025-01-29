@@ -43,12 +43,12 @@ contract MevTest {
         revert();
     }
 
-    /// Return sum of the contract's balance and addr's balanace, for testing evm inspector with selfbalance/balance opcode.
+    /// Return sum of the contract's balance and addr's balance, for testing evm inspector with selfbalance/balance opcode.
     function testReadBalance(address payable addr) public payable {
         address(this).balance + addr.balance;
     }
 
-    // Deploy a contract and let the contract self-destruct, for testing evm inspector on contract depoly and destruct.
+    // Deploy a contract and let the contract self-destruct, for testing evm inspector on contract deploy and destruct.
     function testEphemeralContractDestruct(address payable refund) public payable {
         EphemeralContractTest ephemeral_contract = new EphemeralContractTest();
         ephemeral_contract.destruct{value: msg.value}(refund);

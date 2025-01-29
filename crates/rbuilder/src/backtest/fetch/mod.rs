@@ -15,6 +15,10 @@ use crate::{
 use alloy_provider::Provider;
 use alloy_rpc_types::{Block, BlockId, BlockNumberOrTag, BlockTransactionsKind};
 
+use crate::{
+    backtest::{fetch::mev_boost::PayloadDeliveredFetcher, OrdersWithTimestamp},
+    utils::BoxedProvider,
+};
 use eyre::WrapErr;
 use flashbots_db::RelayDB;
 use futures::TryStreamExt;
@@ -25,11 +29,6 @@ use std::{
 };
 use tokio::sync::Mutex;
 use tracing::{info, trace};
-
-use crate::{
-    backtest::{fetch::mev_boost::PayloadDeliveredFetcher, OrdersWithTimestamp},
-    utils::BoxedProvider,
-};
 
 /// Struct that brings block information ([BlockData]) from several [DataSource]s
 /// Filters txs already landed (onchain nonce > tx nonce)
@@ -129,7 +128,7 @@ impl HistoricalDataFetcher {
 
     /// Filters out orders with non-optional sub txs (we can't skip them) already landed (onchain nonce > tx nonce, can't be re-executed!)
     /// since they will fail.
-    /// Also filters orders the will not fail but will execute nothing (eg: all optional already landed txs -> all txs will be skipped).
+    /// Also filters orders that will not fail but will execute nothing (eg: all optional already landed txs -> all txs will be skipped).
     async fn filter_order_by_nonces(
         &self,
         orders: Vec<OrdersWithTimestamp>,
@@ -255,6 +254,7 @@ impl HistoricalDataFetcher {
             onchain_block,
             available_orders,
             built_block_data,
+            filtered_orders: Default::default(),
         })
     }
 }

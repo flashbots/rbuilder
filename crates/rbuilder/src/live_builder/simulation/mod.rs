@@ -8,11 +8,11 @@ use crate::{
     },
     live_builder::order_input::orderpool::OrdersForBlock,
     primitives::{OrderId, SimulatedOrder},
+    provider::StateProviderFactory,
     utils::{gen_uid, Signer},
 };
 use ahash::HashMap;
 use parking_lot::Mutex;
-use reth_provider::StateProviderFactory;
 use simulation_job::SimulationJob;
 use std::sync::Arc;
 use tokio::{sync::mpsc, task::JoinHandle};
@@ -185,9 +185,11 @@ mod tests {
 
         // Create simulation core
         let cancel = CancellationToken::new();
-        let provider_factory_reopener =
-            ProviderFactoryReopener::new_from_existing(test_context.provider_factory().clone())
-                .unwrap();
+        let provider_factory_reopener = ProviderFactoryReopener::new_from_existing(
+            test_context.provider_factory().clone(),
+            None,
+        )
+        .unwrap();
 
         let sim_pool = OrderSimulationPool::new(provider_factory_reopener, 4, cancel.clone());
         let (order_sender, order_receiver) = mpsc::unbounded_channel();

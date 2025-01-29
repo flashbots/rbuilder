@@ -2,9 +2,13 @@ use crate::{
     building::builders::Block,
     live_builder::payload_events::MevBoostSlotData,
     mev_boost::{
-        sign_block_for_relay, BLSBlockSigner, RelayError, SubmitBlockErr, SubmitBlockRequest,
+        sign_block_for_relay,
+        submission::{
+            BidMetadata, BidValueMetadata, SubmitBlockRequest, SubmitBlockRequestWithMetadata,
+        },
+        BLSBlockSigner, RelayError, SubmitBlockErr,
     },
-    primitives::mev_boost::{MevBoostRelay, MevBoostRelayID},
+    primitives::mev_boost::{MevBoostRelayBidSubmitter, MevBoostRelayID},
     telemetry::{
         add_relay_submit_time, add_subsidy_value, inc_conn_relay_errors,
         inc_failed_block_simulations, inc_initiated_submissions, inc_other_relay_errors,
@@ -102,12 +106,21 @@ pub struct SubmissionConfig {
     pub dry_run: bool,
     pub validation_api: ValidationAPIClient,
 
-    pub optimistic_enabled: bool,
-    pub optimistic_signer: BLSBlockSigner,
-    pub optimistic_max_bid_value: U256,
-    pub optimistic_prevalidate_optimistic_blocks: bool,
-
+    pub optimistic_config: Option<OptimisticConfig>,
     pub bid_observer: Box<dyn BidObserver + Send + Sync>,
+}
+
+/// Configuration for optimistic block submission to relays.
+///
+/// For optimistic relays when bid_value < max_bid_value:
+/// - If prevalidate_optimistic_blocks=true: Validate first, then submit with optimistic key
+/// - If prevalidate_optimistic_blocks=false: Submit directly with optimistic key
+///   Otherwise uses normal submission path.
+#[derive(Debug, Clone)]
+pub struct OptimisticConfig {
+    pub signer: BLSBlockSigner,
+    pub max_bid_value: U256,
+    pub prevalidate_optimistic_blocks: bool,
 }
 
 /// Values from [`BuiltBlockTrace`]
@@ -130,7 +143,7 @@ struct BuiltBlockInfo {
 async fn run_submit_to_relays_job(
     best_bid: Arc<BestBlockCell>,
     slot_data: MevBoostSlotData,
-    relays: Vec<MevBoostRelay>,
+    relays: Vec<MevBoostRelayBidSubmitter>,
     config: Arc<SubmissionConfig>,
     cancel: CancellationToken,
     competition_bid_value_source: Arc<dyn BidValueSource + Send + Sync>,
@@ -146,7 +159,7 @@ async fn run_submit_to_relays_job(
         let mut normal_relays = Vec::new();
         let mut optimistic_relays = Vec::new();
         for relay in relays {
-            if relay.optimistic {
+            if relay.optimistic() {
                 optimistic_relays.push(relay);
             } else {
                 normal_relays.push(relay);
@@ -186,9 +199,27 @@ async fn run_submit_to_relays_job(
             .iter()
             .filter(|o| !o.order.is_tx())
             .count();
-        let submission_optimistic =
-            config.optimistic_enabled && block.trace.bid_value < config.optimistic_max_bid_value;
-        let best_bid_value = best_bid_sync_source.best_bid_value().unwrap_or_default();
+
+        // Only enable the optimistic config for this block if the bid value is below the max bid value
+        let optimistic_config = config
+            .optimistic_config
+            .as_ref()
+            .and_then(|optimistic_config| {
+                if block.trace.bid_value < optimistic_config.max_bid_value {
+                    Some(optimistic_config)
+                } else {
+                    None
+                }
+            });
+
+        let bid_metadata = BidMetadata {
+            value: BidValueMetadata {
+                coinbase_reward: block.trace.coinbase_reward,
+                top_competitor_bid: best_bid_sync_source.best_bid_value(),
+            },
+        };
+
+        let best_bid_value = bid_metadata.value.top_competitor_bid.unwrap_or_default();
         let submission_span = info_span!(
             "bid",
             bid_value = format_ether(block.trace.bid_value),
@@ -197,7 +228,7 @@ async fn run_submit_to_relays_job(
             block = block.sealed_block.number,
             hash = ?block.sealed_block.header.hash(),
             gas = block.sealed_block.gas_used,
-            txs = block.sealed_block.body.transactions.len(),
+            txs = block.sealed_block.body().transactions.len(),
             bundles,
             builder_name = block.builder_name,
             fill_time_ms = block.trace.fill_time.as_millis(),
@@ -207,7 +238,7 @@ async fn run_submit_to_relays_job(
             parent: &submission_span,
             "Submitting bid",
         );
-        inc_initiated_submissions(submission_optimistic);
+        inc_initiated_submissions(optimistic_config.is_some());
 
         let (normal_signed_submission, optimistic_signed_submission) = {
             let normal_signed_submission = match sign_block_for_relay(
@@ -220,35 +251,50 @@ async fn run_submit_to_relays_job(
                 slot_data.slot_data.pubkey,
                 block.trace.bid_value,
             ) {
-                Ok(res) => res,
+                Ok(res) => SubmitBlockRequestWithMetadata {
+                    submission: res,
+                    metadata: bid_metadata.clone(),
+                },
                 Err(err) => {
                     error!(parent: &submission_span, err = ?err, "Error signing block for relay");
                     continue 'submit;
                 }
             };
-            let optimistic_signed_submission = match sign_block_for_relay(
-                &config.optimistic_signer,
-                &block.sealed_block,
-                &block.txs_blobs_sidecars,
-                &block.execution_requests,
-                &config.chain_spec,
-                &slot_data.payload_attributes_event.data,
-                slot_data.slot_data.pubkey,
-                block.trace.bid_value,
-            ) {
-                Ok(res) => res,
-                Err(err) => {
-                    error!(parent: &submission_span, err = ?err, "Error signing block for relay");
-                    continue 'submit;
+
+            let optimistic_signed_submission = if let Some(optimistic_config) = optimistic_config {
+                match sign_block_for_relay(
+                    &optimistic_config.signer,
+                    &block.sealed_block,
+                    &block.txs_blobs_sidecars,
+                    &block.execution_requests,
+                    &config.chain_spec,
+                    &slot_data.payload_attributes_event.data,
+                    slot_data.slot_data.pubkey,
+                    block.trace.bid_value,
+                ) {
+                    Ok(res) => Some((
+                        SubmitBlockRequestWithMetadata {
+                            submission: res,
+                            metadata: bid_metadata.clone(),
+                        },
+                        optimistic_config,
+                    )),
+                    Err(err) => {
+                        error!(parent: &submission_span, err = ?err, "Error signing block for relay");
+                        continue 'submit;
+                    }
                 }
+            } else {
+                None
             };
+
             (normal_signed_submission, optimistic_signed_submission)
         };
 
         if config.dry_run {
             validate_block(
                 &slot_data,
-                &normal_signed_submission,
+                &normal_signed_submission.submission,
                 block.sealed_block.clone(),
                 &config,
                 cancel.clone(),
@@ -262,7 +308,7 @@ async fn run_submit_to_relays_job(
         measure_block_e2e_latency(&block.trace.included_orders);
 
         for relay in &normal_relays {
-            let span = info_span!(parent: &submission_span, "relay_submit", relay = &relay.id, optimistic = false);
+            let span = info_span!(parent: &submission_span, "relay_submit", relay = &relay.id(), optimistic = false);
             let relay = relay.clone();
             let cancel = cancel.clone();
             let submission = normal_signed_submission.clone();
@@ -274,11 +320,13 @@ async fn run_submit_to_relays_job(
             );
         }
 
-        if submission_optimistic {
-            let can_submit = if config.optimistic_prevalidate_optimistic_blocks {
+        if let Some((optimistic_signed_submission, optimistic_config)) =
+            &optimistic_signed_submission
+        {
+            let can_submit = if optimistic_config.prevalidate_optimistic_blocks {
                 validate_block(
                     &slot_data,
-                    &optimistic_signed_submission,
+                    &optimistic_signed_submission.submission,
                     block.sealed_block.clone(),
                     &config,
                     cancel.clone(),
@@ -292,7 +340,7 @@ async fn run_submit_to_relays_job(
 
             if can_submit {
                 for relay in &optimistic_relays {
-                    let span = info_span!(parent: &submission_span, "relay_submit", relay = &relay.id, optimistic = true);
+                    let span = info_span!(parent: &submission_span, "relay_submit", relay = &relay.id(), optimistic = true);
                     let relay = relay.clone();
                     let cancel = cancel.clone();
                     let submission = optimistic_signed_submission.clone();
@@ -307,7 +355,7 @@ async fn run_submit_to_relays_job(
         } else {
             // non-optimistic submission to optimistic relays
             for relay in &optimistic_relays {
-                let span = info_span!(parent: &submission_span, "relay_submit", relay = &relay.id, optimistic = false);
+                let span = info_span!(parent: &submission_span, "relay_submit", relay = &relay.id(), optimistic = false);
                 let relay = relay.clone();
                 let cancel = cancel.clone();
                 let submission = normal_signed_submission.clone();
@@ -324,7 +372,7 @@ async fn run_submit_to_relays_job(
             // NOTE: we only notify normal submission here because they have the same contents but different pubkeys
             config.bid_observer.block_submitted(
                 block.sealed_block,
-                normal_signed_submission,
+                normal_signed_submission.submission,
                 block.trace,
                 builder_name,
                 best_bid_value,
@@ -336,7 +384,7 @@ async fn run_submit_to_relays_job(
 pub async fn run_submit_to_relays_job_and_metrics(
     best_bid: Arc<BestBlockCell>,
     slot_data: MevBoostSlotData,
-    relays: Vec<MevBoostRelay>,
+    relays: Vec<MevBoostRelayBidSubmitter>,
     config: Arc<SubmissionConfig>,
     cancel: CancellationToken,
     competition_bid_value_source: Arc<dyn BidValueSource + Send + Sync>,
@@ -418,18 +466,16 @@ async fn validate_block(
 }
 
 async fn submit_bid_to_the_relay(
-    relay: &MevBoostRelay,
+    relay: &MevBoostRelayBidSubmitter,
     cancel: CancellationToken,
-    signed_submit_request: SubmitBlockRequest,
+    signed_submit_request: SubmitBlockRequestWithMetadata,
     optimistic: bool,
 ) {
     let submit_start = Instant::now();
 
-    if let Some(limiter) = &relay.submission_rate_limiter {
-        if limiter.check().is_err() {
-            trace!("Relay submission is skipped due to rate limit");
-            return;
-        }
+    if !relay.can_submit_bid() {
+        trace!("Relay submission is skipped due to rate limit");
+        return;
     }
 
     let relay_result = tokio::select! {
@@ -442,8 +488,8 @@ async fn submit_bid_to_the_relay(
     match relay_result {
         Ok(()) => {
             trace!("Block submitted to the relay successfully");
-            add_relay_submit_time(&relay.id, submit_time);
-            inc_relay_accepted_submissions(&relay.id, optimistic);
+            add_relay_submit_time(relay.id(), submit_time);
+            inc_relay_accepted_submissions(relay.id(), optimistic);
         }
         Err(SubmitBlockErr::PayloadDelivered | SubmitBlockErr::PastSlot) => {
             trace!("Block already delivered by the relay, cancelling");
@@ -460,7 +506,7 @@ async fn submit_bid_to_the_relay(
             store_error_event(
                 SIM_ERROR_CATEGORY,
                 relay_result.as_ref().unwrap_err().to_string().as_str(),
-                &signed_submit_request,
+                &signed_submit_request.submission,
             );
             error!(
                 err = ?relay_result.unwrap_err(),
@@ -470,19 +516,19 @@ async fn submit_bid_to_the_relay(
         }
         Err(SubmitBlockErr::RelayError(RelayError::TooManyRequests)) => {
             trace!("Too many requests error submitting block to the relay");
-            inc_too_many_req_relay_errors(&relay.id);
+            inc_too_many_req_relay_errors(relay.id());
         }
         Err(SubmitBlockErr::RelayError(RelayError::ConnectionError))
         | Err(SubmitBlockErr::RelayError(RelayError::RequestError(_))) => {
             trace!(err = ?relay_result.unwrap_err(), "Connection error submitting block to the relay");
-            inc_conn_relay_errors(&relay.id);
+            inc_conn_relay_errors(relay.id());
         }
         Err(SubmitBlockErr::BlockKnown) => {
             trace!("Block already known");
         }
         Err(SubmitBlockErr::RelayError(_)) => {
             warn!(err = ?relay_result.unwrap_err(), "Error submitting block to the relay");
-            inc_other_relay_errors(&relay.id);
+            inc_other_relay_errors(relay.id());
         }
         Err(SubmitBlockErr::RPCConversionError(_)) => {
             error!(
@@ -506,18 +552,29 @@ async fn submit_bid_to_the_relay(
 #[derive(Debug)]
 pub struct RelaySubmitSinkFactory {
     submission_config: Arc<SubmissionConfig>,
-    relays: HashMap<MevBoostRelayID, MevBoostRelay>,
+    /// Real relays (!MevBoostRelayBidSubmitter::test_relay())
+    /// We submit to these only if the MevBoostRelayID is included on the MevBoostSlotData of the slot.
+    relays: HashMap<MevBoostRelayID, MevBoostRelayBidSubmitter>,
+    /// Test relays (MevBoostRelayBidSubmitter::test_relay())
+    /// Always included on submissions.
+    test_relays: Vec<MevBoostRelayBidSubmitter>,
 }
 
 impl RelaySubmitSinkFactory {
-    pub fn new(submission_config: SubmissionConfig, relays: Vec<MevBoostRelay>) -> Self {
+    pub fn new(
+        submission_config: SubmissionConfig,
+        relays: Vec<MevBoostRelayBidSubmitter>,
+    ) -> Self {
+        let test_relays = relays.iter().filter(|r| r.test_relay()).cloned().collect();
         let relays = relays
             .into_iter()
-            .map(|relay| (relay.id.clone(), relay))
+            .filter(|r| !r.test_relay())
+            .map(|relay| (relay.id().clone(), relay))
             .collect();
         Self {
             submission_config: Arc::new(submission_config),
             relays,
+            test_relays,
         }
     }
 }
@@ -534,12 +591,9 @@ impl BuilderSinkFactory for RelaySubmitSinkFactory {
         let relays = slot_data
             .relays
             .iter()
-            .map(|id| {
-                self.relays
-                    .get(id)
-                    .expect("Submission job is missing relay")
-                    .clone()
-            })
+            .flat_map(|id| self.relays.get(id))
+            .chain(self.test_relays.iter())
+            .cloned()
             .collect();
         tokio::spawn(run_submit_to_relays_job_and_metrics(
             best_block_cell.clone(),

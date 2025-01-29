@@ -6,7 +6,7 @@ use secp256k1::{Message, SecretKey, SECP256K1};
 
 /// Simple struct to sign txs/messages.
 /// Mainly used to sign payout txs from the builder and to create test data.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Signer {
     pub address: Address,
     pub secret: SecretKey,
@@ -39,8 +39,8 @@ impl Signer {
         tx: Transaction,
     ) -> Result<TransactionSignedEcRecovered, secp256k1::Error> {
         let signature = self.sign_message(tx.signature_hash())?;
-        let signed = TransactionSigned::from_transaction_and_signature(tx, signature);
-        Ok(TransactionSignedEcRecovered::from_signed_transaction(
+        let signed = TransactionSigned::new_unhashed(tx, signature);
+        Ok(TransactionSignedEcRecovered::new_unchecked(
             signed,
             self.address,
         ))
@@ -56,6 +56,7 @@ mod test {
     use super::*;
     use alloy_consensus::TxEip1559;
     use alloy_primitives::{address, fixed_bytes, TxKind as TransactionKind};
+    use reth_node_core::primitives::SignedTransaction;
     #[test]
     fn test_sign_transaction() {
         let secret =
@@ -78,7 +79,7 @@ mod test {
         let signed_tx = signer.sign_tx(tx).expect("sign tx");
         assert_eq!(signed_tx.signer(), address);
 
-        let signed = signed_tx.into_signed();
+        let signed = signed_tx.into_tx();
         assert_eq!(signed.recover_signer(), Some(address));
     }
 }
