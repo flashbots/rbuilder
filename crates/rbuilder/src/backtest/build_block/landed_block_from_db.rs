@@ -11,6 +11,7 @@ use alloy_primitives::utils::format_ether;
 use reth_db::DatabaseEnv;
 use reth_node_api::NodeTypesWithDBAdapter;
 use reth_node_ethereum::EthereumNode;
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     backtest::{
@@ -21,7 +22,10 @@ use crate::{
         BlockData, HistoricalDataStorage, OrdersWithTimestamp,
     },
     building::{builders::mock_block_building_helper::MockRootHasher, BlockBuildingContext},
-    live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig},
+    live_builder::{
+        base_config::load_config_toml_and_env, block_list_provider::BlockList,
+        cli::LiveBuilderConfig,
+    },
     utils::{timestamp_as_u64, ProviderFactoryReopener},
 };
 use clap::Parser;
@@ -61,6 +65,7 @@ struct LandedBlockFromDBOrdersSource<ConfigType> {
     block_data: BlockData,
     sim_landed_block: bool,
     config: ConfigType,
+    blocklist: BlockList,
 }
 
 impl<ConfigType: LiveBuilderConfig> LandedBlockFromDBOrdersSource<ConfigType> {
@@ -73,10 +78,17 @@ impl<ConfigType: LiveBuilderConfig> LandedBlockFromDBOrdersSource<ConfigType> {
             extra_cfg.show_missing,
         )
         .await?;
+        let blocklist = config
+            .base_config()
+            .blocklist_provider(false, CancellationToken::new())
+            .await?
+            .get_blocklist()?;
+
         Ok(Self {
             block_data,
             sim_landed_block: extra_cfg.sim_landed_block,
             config,
+            blocklist,
         })
     }
 }
@@ -108,7 +120,7 @@ impl<ConfigType: LiveBuilderConfig>
             self.block_data.onchain_block.clone(),
             self.config.base_config().chain_spec()?,
             None,
-            self.config.base_config().blocklist()?,
+            self.blocklist.clone(),
             signer.address,
             self.block_data.winning_bid_trace.proposer_fee_recipient,
             Some(signer),

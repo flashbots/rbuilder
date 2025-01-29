@@ -16,14 +16,15 @@ use crate::{
     },
     primitives::mev_boost::{MevBoostRelayID, MevBoostRelaySlotInfoProvider},
 };
-use ahash::HashSet;
 use alloy_eips::merge::SLOT_DURATION;
 use alloy_primitives::{utils::format_ether, Address, B256, U256};
 use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
-use std::{collections::VecDeque, time::Duration};
+use std::{collections::VecDeque, sync::Arc, time::Duration};
 use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
+
+use super::block_list_provider::BlockListProvider;
 
 const RECENTLY_SENT_EVENTS_BUFF: usize = 10;
 const NEW_PAYLOAD_RECV_TIMEOUT: Duration = SLOT_DURATION.saturating_mul(2);
@@ -81,8 +82,7 @@ impl MevBoostSlotData {
 pub struct MevBoostSlotDataGenerator {
     cls: Vec<Client>,
     relays: Vec<MevBoostRelaySlotInfoProvider>,
-    blocklist: HashSet<Address>,
-
+    blocklist_provider: Arc<dyn BlockListProvider>,
     global_cancellation: CancellationToken,
 }
 
@@ -90,13 +90,13 @@ impl MevBoostSlotDataGenerator {
     pub fn new(
         cls: Vec<Client>,
         relays: Vec<MevBoostRelaySlotInfoProvider>,
-        blocklist: HashSet<Address>,
+        blocklist_provider: Arc<dyn BlockListProvider>,
         global_cancellation: CancellationToken,
     ) -> Self {
         Self {
             cls,
             relays,
-            blocklist,
+            blocklist_provider,
             global_cancellation,
         }
     }
@@ -150,11 +150,21 @@ impl MevBoostSlotDataGenerator {
                     slot_data,
                 };
 
-                if let Err(err) =
-                    check_slot_data_for_blocklist(&mev_boost_slot_data, &self.blocklist)
-                {
-                    warn!("Slot data failed blocklist check: {:?}", err);
-                    continue;
+                match check_slot_data_for_blocklist(
+                    &mev_boost_slot_data,
+                    self.blocklist_provider.as_ref(),
+                ) {
+                    Ok(can_build) => {
+                        if !can_build {
+                            continue;
+                        }
+                    }
+                    Err(_) => {
+                        // Blocklist errors are FATAL
+                        error!("Cancelling building due to blocklist errors on MevBoostSlotDataGenerator");
+                        self.global_cancellation.cancel();
+                        return;
+                    }
                 }
 
                 if recently_sent_data.contains(&mev_boost_slot_data) {
@@ -190,17 +200,18 @@ impl SlotSource for MevBoostSlotDataGenerator {
     }
 }
 
+/// true->build
+/// false->don't build
+/// Error crisis, close.
 fn check_slot_data_for_blocklist(
     data: &MevBoostSlotData,
-    blocklist: &HashSet<Address>,
-) -> eyre::Result<()> {
-    if blocklist.contains(&data.fee_recipient()) {
-        return Err(eyre::eyre!(
-            "Slot data fee recipient is in the blocklist: {:?}",
-            data.fee_recipient()
-        ));
+    blocklist_provider: &dyn BlockListProvider,
+) -> Result<bool, super::block_list_provider::Error> {
+    if blocklist_provider.current_list_contains(&data.fee_recipient())? {
+        warn!(recipiend=?data.fee_recipient(),"Slot data fee recipient is in the blocklist");
+        return Ok(false);
     }
-    Ok(())
+    Ok(true)
 }
 
 fn report_slot_withdrawals_to_fee_recipients(data: &MevBoostSlotData) {

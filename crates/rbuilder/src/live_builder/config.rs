@@ -407,10 +407,14 @@ impl LiveBuilderConfig for Config {
             self.l1_config.max_concurrent_seals as usize,
         ));
 
+        let blocklist_provider = self
+            .base_config
+            .blocklist_provider(false, cancellation_token.clone())
+            .await?;
         let payload_event = MevBoostSlotDataGenerator::new(
             self.l1_config.beacon_clients()?,
             relays,
-            self.base_config.blocklist()?,
+            blocklist_provider.clone(),
             cancellation_token.clone(),
         );
         let live_builder = self
@@ -420,6 +424,7 @@ impl LiveBuilderConfig for Config {
                 sink_factory,
                 payload_event,
                 provider,
+                blocklist_provider,
             )
             .await?;
         let builders = create_builders(self.live_builders()?);

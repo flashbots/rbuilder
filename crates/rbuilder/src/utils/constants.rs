@@ -4,6 +4,9 @@
 
 pub const BASE_TX_GAS: u64 = 21_000;
 
+pub const SECS_PER_MINUTE: u64 = 60;
+pub const MINS_PER_HOUR: u64 = 60;
+
 //////////////////////////////////////////////////
 // Builder constants
 //////////////////////////////////////////////////

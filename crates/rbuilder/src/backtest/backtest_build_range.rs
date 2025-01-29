@@ -133,7 +133,11 @@ where
         None
     };
 
-    let blocklist = config.base_config().blocklist()?;
+    let blocklist = config
+        .base_config()
+        .blocklist_provider(false, cancel_token.clone())
+        .await?
+        .get_blocklist()?;
 
     let mut read_blocks = spawn_block_fetcher(
         historical_data_storage,

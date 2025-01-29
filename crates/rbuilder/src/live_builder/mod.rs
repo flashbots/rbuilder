@@ -1,4 +1,5 @@
 pub mod base_config;
+pub mod block_list_provider;
 pub mod block_output;
 pub mod building;
 pub mod cli;
@@ -25,9 +26,9 @@ use crate::{
         error_storage::spawn_error_storage_writer, provider_head_state::ProviderHeadState, Signer,
     },
 };
-use ahash::HashSet;
 use alloy_consensus::Header;
 use alloy_primitives::{Address, B256};
+use block_list_provider::BlockListProvider;
 use building::BlockBuildingPool;
 use eyre::Context;
 use jsonrpsee::RpcModule;
@@ -109,7 +110,7 @@ where
 
     pub coinbase_signer: Signer,
     pub extra_data: Vec<u8>,
-    pub blocklist: HashSet<Address>,
+    pub blocklist_provider: Arc<dyn BlockListProvider>,
 
     pub global_cancellation: CancellationToken,
 
@@ -137,7 +138,10 @@ where
     }
 
     pub async fn run(self) -> eyre::Result<()> {
-        info!("Builder block list size: {}", self.blocklist.len(),);
+        info!(
+            "Builder initial block list size: {}",
+            self.blocklist_provider.get_blocklist()?.len(),
+        );
         info!(
             "Builder coinbase address: {:?}",
             self.coinbase_signer.address
@@ -200,7 +204,8 @@ where
         };
 
         while let Some(payload) = payload_events_channel.recv().await {
-            if self.blocklist.contains(&payload.fee_recipient()) {
+            let blocklist = self.blocklist_provider.get_blocklist()?;
+            if blocklist.contains(&payload.fee_recipient()) {
                 warn!(
                     slot = payload.slot(),
                     "Fee recipient is in blocklist: {:?}",
@@ -267,7 +272,7 @@ where
                 &parent_header,
                 self.coinbase_signer,
                 self.chain_chain_spec.clone(),
-                self.blocklist.clone(),
+                blocklist.clone(),
                 Some(payload.suggested_gas_limit),
                 self.extra_data.clone(),
                 None,

@@ -6,9 +6,11 @@ use crate::{
     provider::StateProviderFactory,
     roothash::RootHashConfig,
     telemetry::{setup_reloadable_tracing_subscriber, LoggerConfig},
-    utils::{http_provider, BoxedProvider, ProviderFactoryReopener, Signer},
+    utils::{
+        constants::{MINS_PER_HOUR, SECS_PER_MINUTE},
+        http_provider, BoxedProvider, ProviderFactoryReopener, Signer,
+    },
 };
-use ahash::HashSet;
 use alloy_primitives::{Address, B256};
 use eyre::{eyre, Context};
 use jsonrpsee::RpcModule;
@@ -32,8 +34,15 @@ use std::{
 };
 use tokio::sync::mpsc;
 use tracing::{error, warn};
+use url::Url;
 
-use super::SlotSource;
+use super::{
+    block_list_provider::{
+        BlockListProvider, HttpBlockListProvider, NullBlockListProvider,
+        StaticFileBlockListProvider,
+    },
+    SlotSource,
+};
 
 /// Prefix for env variables in config
 const ENV_PREFIX: &str = "env:";
@@ -78,7 +87,17 @@ pub struct BaseConfig {
     pub reth_db_path: Option<PathBuf>,
     pub reth_static_files_path: Option<PathBuf>,
 
+    /// Backwards compatibility. Downloads blocklist from a file.
+    /// Same as setting a file name on blocklist.
     pub blocklist_file_path: Option<PathBuf>,
+
+    /// Can contain an url or a file name.
+    /// If it's a url download blocklist from url and updates periodically.
+    /// If it's a filename just loads the file (no updates).
+    pub blocklist: Option<String>,
+
+    /// If the downloaded file get older than this we abort.
+    pub blocklist_url_max_age_hours: Option<u64>,
 
     #[serde(deserialize_with = "deserialize_extra_data")]
     pub extra_data: Vec<u8>,
@@ -175,6 +194,7 @@ impl BaseConfig {
         sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
         slot_source: SlotSourceType,
         provider: P,
+        blocklist_provider: Arc<dyn BlockListProvider>,
     ) -> eyre::Result<super::LiveBuilder<P, SlotSourceType>>
     where
         P: StateProviderFactory,
@@ -194,7 +214,7 @@ impl BaseConfig {
 
             coinbase_signer: self.coinbase_signer()?,
             extra_data: self.extra_data.clone(),
-            blocklist: self.blocklist()?,
+            blocklist_provider,
 
             global_cancellation: cancellation_token,
 
@@ -274,14 +294,71 @@ impl BaseConfig {
         Ok(new_signer)
     }
 
-    pub fn blocklist(&self) -> eyre::Result<HashSet<Address>> {
-        if let Some(path) = &self.blocklist_file_path {
-            let blocklist_file = read_to_string(path).context("blocklist file")?;
-            let blocklist: Vec<Address> =
-                serde_json::from_str(&blocklist_file).context("blocklist file")?;
-            return Ok(blocklist.into_iter().collect());
+    pub async fn blocklist_provider(
+        &self,
+        validate_blocklist: bool,
+        cancellation_token: tokio_util::sync::CancellationToken,
+    ) -> eyre::Result<Arc<dyn BlockListProvider>> {
+        if self.blocklist.is_some() && self.blocklist_file_path.is_some() {
+            eyre::bail!("You can't use blocklist AND blocklist_file_path")
         }
-        Ok(HashSet::default())
+
+        if let Some(blocklist) = &self.blocklist {
+            // First try url loading
+            match Url::parse(blocklist) {
+                Ok(url) => {
+                    return self
+                        .blocklist_provider_from_url(url, validate_blocklist, cancellation_token)
+                        .await;
+                }
+                Err(_) => {
+                    // second try file loading
+                    return self
+                        .blocklist_provider_from_file(&blocklist.into(), validate_blocklist);
+                }
+            }
+        }
+
+        // Backwards compatibility
+        if let Some(blocklist_file_path) = &self.blocklist_file_path {
+            warn!("blocklist_file_path is deprecated please use blocklist");
+            return self.blocklist_provider_from_file(blocklist_file_path, validate_blocklist);
+        }
+
+        // default to empty
+        Ok(Arc::new(NullBlockListProvider {}))
+    }
+
+    pub fn blocklist_provider_from_file(
+        &self,
+        blocklist_file_path: &PathBuf,
+        validate_blocklist: bool,
+    ) -> eyre::Result<Arc<dyn BlockListProvider>> {
+        Ok(Arc::new(StaticFileBlockListProvider::new(
+            blocklist_file_path,
+            validate_blocklist,
+        )?))
+    }
+
+    pub async fn blocklist_provider_from_url(
+        &self,
+        blocklist_url: Url,
+        validate_blocklist: bool,
+        cancellation_token: tokio_util::sync::CancellationToken,
+    ) -> eyre::Result<Arc<dyn BlockListProvider>> {
+        let max_allowed_age_hours = self
+            .blocklist_url_max_age_hours
+            .unwrap_or(DEFAULT_BLOCKLIST_URL_MAX_AGE_HOURS);
+        let max_allowed_age =
+            Duration::from_secs(max_allowed_age_hours * SECS_PER_MINUTE * MINS_PER_HOUR);
+        let provider = HttpBlockListProvider::new(
+            blocklist_url,
+            max_allowed_age,
+            validate_blocklist,
+            cancellation_token,
+        )
+        .await?;
+        Ok(Arc::new(provider))
     }
 
     pub fn eth_rpc_provider(&self) -> eyre::Result<BoxedProvider> {
@@ -381,6 +458,8 @@ pub const DEFAULT_CL_NODE_URL: &str = "http://127.0.0.1:3500";
 pub const DEFAULT_EL_NODE_IPC_PATH: &str = "/tmp/reth.ipc";
 pub const DEFAULT_INCOMING_BUNDLES_PORT: u16 = 8645;
 pub const DEFAULT_RETH_DB_PATH: &str = "/mnt/data/reth";
+/// This will update every 2.4 hours, super reasonable.
+pub const DEFAULT_BLOCKLIST_URL_MAX_AGE_HOURS: u64 = 24;
 
 impl Default for BaseConfig {
     fn default() -> Self {
@@ -406,6 +485,8 @@ impl Default for BaseConfig {
             reth_db_path: None,
             reth_static_files_path: None,
             blocklist_file_path: None,
+            blocklist: None,
+            blocklist_url_max_age_hours: None,
             extra_data: b"extra_data_change_me".to_vec(),
             root_hash_use_sparse_trie: false,
             root_hash_compare_sparse_trie: false,

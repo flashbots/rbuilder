@@ -21,6 +21,7 @@ use rbuilder::{
             default_ip, DEFAULT_EL_NODE_IPC_PATH, DEFAULT_INCOMING_BUNDLES_PORT,
             DEFAULT_RETH_DB_PATH,
         },
+        block_list_provider::NullBlockListProvider,
         config::create_provider_factory,
         order_input::{
             OrderInputConfig, DEFAULT_INPUT_CHANNEL_BUFFER_SIZE, DEFAULT_RESULTS_CHANNEL_TIMEOUT,
@@ -62,11 +63,11 @@ async fn main() -> eyre::Result<()> {
     let flashbots_relay_url = "https://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@boost-relay.flashbots.net";
     let relay_client = RelayClient::from_url(flashbots_relay_url.parse()?, None, None, None);
     let relay = MevBoostRelaySlotInfoProvider::new(relay_client, "flashbots".to_string(), 0);
-
+    let blocklist_provider = Arc::new(NullBlockListProvider {});
     let payload_event = MevBoostSlotDataGenerator::new(
         vec![Client::default()],
         vec![relay],
-        Default::default(),
+        blocklist_provider.clone(),
         cancel.clone(),
     );
 
@@ -101,7 +102,7 @@ async fn main() -> eyre::Result<()> {
         )?,
         coinbase_signer: Signer::random(),
         extra_data: Vec::new(),
-        blocklist: Default::default(),
+        blocklist_provider,
         global_cancellation: cancel.clone(),
         extra_rpc: RpcModule::new(()),
         sink_factory: Box::new(TraceBlockSinkFactory {}),

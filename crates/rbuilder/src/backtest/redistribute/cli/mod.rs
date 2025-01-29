@@ -5,13 +5,17 @@ use crate::{
         redistribute::{calc_redistributions, RedistributionBlockOutput},
         BlockData, HistoricalDataStorage,
     },
-    live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig},
+    live_builder::{
+        base_config::load_config_toml_and_env, block_list_provider::BlockList,
+        cli::LiveBuilderConfig,
+    },
     provider::StateProviderFactory,
 };
 use alloy_primitives::utils::format_ether;
 use clap::Parser;
 use csv_output::{CSVOutputRow, CSVResultWriter};
 use std::{io, path::PathBuf};
+use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 #[derive(Parser, Debug)]
@@ -53,6 +57,12 @@ where
     let config: ConfigType = load_config_toml_and_env(cli.config)?;
     config.base_config().setup_tracing_subscriber()?;
 
+    let blocklist = config
+        .base_config()
+        .blocklist_provider(false, CancellationToken::new())
+        .await?
+        .get_blocklist()?;
+
     let mut historical_data_storage =
         HistoricalDataStorage::new_from_path(&config.base_config().backtest_fetch_output_file)
             .await?;
@@ -76,6 +86,7 @@ where
                 provider.clone(),
                 &config,
                 cli.distribute_to_mempool_txs,
+                blocklist,
             )?;
         }
         Commands::Range {
@@ -93,6 +104,7 @@ where
                     provider.clone(),
                     &config,
                     cli.distribute_to_mempool_txs,
+                    blocklist.clone(),
                 )?;
             }
         }
@@ -113,6 +125,7 @@ fn process_redisribution<P, ConfigType>(
     provider: P,
     config: &ConfigType,
     distribute_to_mempool_txs: bool,
+    blocklist: BlockList,
 ) -> eyre::Result<()>
 where
     P: StateProviderFactory + Clone + 'static,
@@ -126,6 +139,7 @@ where
         config,
         block_data,
         distribute_to_mempool_txs,
+        blocklist,
     ) {
         Ok(ok) => ok,
         Err(err) => {
