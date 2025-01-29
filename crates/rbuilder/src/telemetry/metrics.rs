@@ -7,7 +7,10 @@
 
 #![allow(unexpected_cfgs)]
 use crate::{
-    building::ExecutionResult, primitives::mev_boost::MevBoostRelayID, utils::build_info::Version,
+    building::ExecutionResult,
+    live_builder::block_list_provider::{blocklist_hash, BlockList},
+    primitives::mev_boost::MevBoostRelayID,
+    utils::build_info::Version,
 };
 use alloy_primitives::{utils::Unit, U256};
 use bigdecimal::num_traits::Pow;
@@ -139,6 +142,13 @@ register_metrics! {
         &["git", "git_ref", "build_time_utc"]
     )
     .unwrap();
+    pub static BLOCKLIST_HASH: IntGaugeVec = IntGaugeVec::new(
+        Opts::new("blocklist_hash", "Blocklist hash"),
+        &["hash"]
+    )
+    .unwrap();
+    pub static BLOCKLIST_LEN: IntGauge =
+        IntGauge::new("blocklist_len", "Blocklist len").unwrap();
     pub static RELAY_ACCEPTED_SUBMISSIONS: IntCounterVec = IntCounterVec::new(
         Opts::new(
             "relay_accepted_submissions",
@@ -223,6 +233,12 @@ pub(super) fn set_version(version: Version) {
             &version.build_time_utc,
         ])
         .set(1);
+}
+
+pub fn update_blocklist_metrics(blocklist: &BlockList) {
+    let hash = blocklist_hash(blocklist).to_string();
+    BLOCKLIST_HASH.with_label_values(&[&hash]).set(1);
+    BLOCKLIST_LEN.set(blocklist.len() as i64);
 }
 
 pub fn inc_other_relay_errors(relay: &MevBoostRelayID) {

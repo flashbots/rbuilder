@@ -1,5 +1,9 @@
+//! Different BlockListProvider flavors.
+//! Metrics are updated here, this is ugly.
 use ahash::HashSet;
-use revm_primitives::Address;
+use itertools::Itertools;
+use revm_primitives::{Address, B256};
+use sha2::{Digest, Sha256};
 use std::{
     fs::read_to_string,
     path::PathBuf,
@@ -10,6 +14,8 @@ use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 use url::Url;
+
+use crate::telemetry::update_blocklist_metrics;
 
 pub type BlockList = HashSet<Address>;
 
@@ -39,7 +45,23 @@ pub trait BlockListProvider: std::fmt::Debug + Sync + Send {
 
 /// BlockListProvider that always returns Ok(empty list)
 #[derive(Debug)]
-pub struct NullBlockListProvider {}
+pub struct NullBlockListProvider {
+    // Make the struct non-constructible from outside by adding a private field
+    _private: (),
+}
+
+impl NullBlockListProvider {
+    pub fn new() -> Self {
+        update_blocklist_metrics(&BlockList::default());
+        Self { _private: () }
+    }
+}
+
+impl Default for NullBlockListProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl BlockListProvider for NullBlockListProvider {
     fn get_blocklist(&self) -> Result<BlockList, Error> {
@@ -86,7 +108,7 @@ impl HttpBlockListProvider {
         let list = Self::read_list(url.clone(), validate_list)
             .await
             .map_err(|_| Error::UnableToLoadInitialList)?;
-
+        update_blocklist_metrics(&list);
         let last_updated_list = Arc::new(Mutex::new(BlockListWithTimestamp::new(list)));
         let last_updated_list_clone = last_updated_list.clone();
         // Spawn a task that continuously reloads the list
@@ -98,6 +120,7 @@ impl HttpBlockListProvider {
                         // mini bug, we ignore the cancellation while downloading the file.
                         if let Ok(list) = Self::read_list(url.clone(),validate_list).await {
                             let list_len = list.len();
+                            update_blocklist_metrics(&list);
                             *last_updated_list.lock().unwrap() = BlockListWithTimestamp::new(list);
                             info!(list_len,"Blocklist updated");
                         }
@@ -175,6 +198,8 @@ impl StaticFileBlockListProvider {
         if should_validate_list && !validate_list(&blocklist) {
             return Err(Error::UnableToLoadInitialList);
         }
+        let blocklist: BlockList = blocklist.into_iter().collect();
+        update_blocklist_metrics(&blocklist);
         Ok(Self {
             block_list: blocklist.into_iter().collect(),
         })
@@ -188,5 +213,41 @@ impl BlockListProvider for StaticFileBlockListProvider {
 
     fn current_list_contains(&self, address: &Address) -> Result<bool, Error> {
         Ok(self.block_list.contains(address))
+    }
+}
+
+/// The original code uses text hashing :( (https://github.com/flashbots/ofac/blob/main/hash-blacklist.py)
+pub fn blocklist_hash(blocklist: &BlockList) -> B256 {
+    let mut hasher = Sha256::new();
+    let sorted_text_hashes = blocklist
+        .iter()
+        .map(|addr| addr.to_string().to_ascii_lowercase())
+        .sorted();
+    for text in sorted_text_hashes {
+        hasher.update(text.as_bytes());
+    }
+    let hash_bytes = hasher.finalize();
+    B256::from_slice(&hash_bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use revm_primitives::{Address, B256};
+
+    use super::{blocklist_hash, BlockList};
+
+    #[test]
+    fn test_blocklist_hash() {
+        let json = r#"["0x05E0b5B40B7b66098C2161A5EE11C5740A3A7C45","0x01e2919679362dFBC9ee1644Ba9C6da6D6245BB1","0x03893a7c7463AE47D46bc7f091665f1893656003","0x04DBA1194ee10112fE6C3207C0687DEf0e78baCf"]"#;
+        let blocklist: Vec<Address> = serde_json::from_str(json).unwrap();
+        let blocklist: BlockList = blocklist.into_iter().collect();
+        // value generated with https://github.com/flashbots/ofac/blob/main/hash-blacklist.py
+        let exected_hash =
+            B256::from_str("0xe7d71b5f66f07cdd2a4eaea817e2a133e50f8cc5edea72b53311a7941e6e4b10")
+                .unwrap();
+        let hash = blocklist_hash(&blocklist);
+        assert_eq!(exected_hash, hash);
     }
 }

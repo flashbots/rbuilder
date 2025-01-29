@@ -326,7 +326,7 @@ impl BaseConfig {
         }
 
         // default to empty
-        Ok(Arc::new(NullBlockListProvider {}))
+        Ok(Arc::new(NullBlockListProvider::new()))
     }
 
     pub fn blocklist_provider_from_file(
