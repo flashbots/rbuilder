@@ -394,12 +394,25 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
 
         let mut db = self.state.new_db_ref();
         let tx = &tx_with_blobs.internal_tx_unsecure();
-        if ctx.blocklist.contains(&tx.signer())
-            || tx
-                .to()
-                .map(|to| ctx.blocklist.contains(&to))
-                .unwrap_or(false)
+        // Check if sender is blocklisted
+        if ctx.blocklist.contains(&tx.signer()) {
+            tracing::debug!(
+                "Transaction rejected - sender {} is blocklisted",
+                tx.signer()
+            );
+            return Ok(Err(TransactionErr::Blocklist));
+        }
+
+        // Check if recipient is blocklisted
+        if tx
+            .to()
+            .map(|to| ctx.blocklist.contains(&to))
+            .unwrap_or(false)
         {
+            tracing::debug!(
+                "Transaction rejected - recipient {} is blocklisted",
+                tx.to().unwrap()
+            );
             return Ok(Err(TransactionErr::Blocklist));
         }
 

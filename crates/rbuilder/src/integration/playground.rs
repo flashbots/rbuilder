@@ -32,6 +32,7 @@ pub enum PlaygroundError {
 
 pub struct Playground {
     builder: Child,
+    log_path: PathBuf,
 }
 
 fn open_log_file(path: PathBuf) -> io::Result<File> {
@@ -48,8 +49,8 @@ impl Playground {
         bin_path.push("../../target/debug/rbuilder");
 
         // Use the config file from the root directory
-        let config_path =
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../config-playground.toml");
+        let config_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("./src/integration/testdata/config.toml");
 
         let dt: OffsetDateTime = SystemTime::now().into();
 
@@ -99,7 +100,7 @@ impl Playground {
             thread::sleep(std::time::Duration::from_millis(100));
         }
 
-        Ok(Self { builder })
+        Ok(Self { builder, log_path })
     }
 
     pub async fn wait_for_next_slot(
@@ -119,6 +120,19 @@ impl Playground {
 
     pub fn el_url(&self) -> &str {
         "http://localhost:8545"
+    }
+
+    pub fn blocklist_key(&self) -> EthereumWallet {
+        // Address: 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC
+        let signer: PrivateKeySigner =
+            "5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a"
+                .parse()
+                .unwrap();
+        EthereumWallet::from(signer)
+    }
+
+    pub fn blocklist_address(&self) -> Address {
+        address!("3C44CdDdB6a900fa2b585dd299e03d12FA4293BC")
     }
 
     pub fn prefunded_key(&self) -> EthereumWallet {
@@ -159,6 +173,15 @@ impl Playground {
         } else {
             Err(PayloadDeliveredError::IncorrectBuilder)
         }
+    }
+
+    pub fn check_logs_contain(&self, pattern: &str) -> Result<bool, PlaygroundError> {
+        let mut file = File::open(&self.log_path).map_err(|_| PlaygroundError::SetupError)?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)
+            .map_err(|_| PlaygroundError::SetupError)?;
+
+        Ok(contents.contains(pattern))
     }
 }
 
