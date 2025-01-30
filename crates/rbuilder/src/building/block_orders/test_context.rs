@@ -16,7 +16,7 @@ use super::{order_dumper::OrderDumper, SimulatedOrderSink, TestDataGenerator};
 /// Usage:
 /// - Create orders via funcs like create_multiple_sbundle_tx_br
 /// - Call  insert_order/remove_order
-/// - Call expected results (pop_insert/pop_remove) in the expected order.
+/// - Check expected results (pop_insert/pop_remove) in the expected order.
 pub struct TestContext<TestedSinkType> {
     pub data_gen: TestDataGenerator,
     pub dumper: Rc<RefCell<OrderDumper>>,
@@ -72,7 +72,7 @@ impl<TestedSinkType: SimulatedOrderSink> TestContext<TestedSinkType> {
         }]
     }
 
-    // DEFAULT_REFUND for tx at index 0
+    // DEFAULT_REFUND applies to the tx at index 0
     fn default_tx_br_refund() -> Vec<Refund> {
         vec![Refund {
             body_idx: 0,
@@ -229,7 +229,7 @@ impl<TestedSinkType: SimulatedOrderSink> TestContext<TestedSinkType> {
     /// - the concatenated_sbundle has no refunds.
     /// - SimValue of concatenated_order is the same as the first of sbundles (current expected behavior of merging)
     ///
-    /// self is not used buf simplifies the call since the static func would need the types specified.
+    /// self is not used but simplifies the call since the static function would need the types specified.
     pub fn assert_concatenated_sbundles_ok(
         &self,
         concatenated_order: &SimulatedOrder,
