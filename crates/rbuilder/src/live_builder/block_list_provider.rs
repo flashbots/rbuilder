@@ -229,7 +229,7 @@ pub fn blocklist_hash(blocklist: &BlockList) -> B256 {
 }
 
 #[cfg(test)]
-mod test {
+pub mod test {
     use std::{
         io::{Read, Write},
         net::{TcpListener, TcpStream},
@@ -257,7 +257,7 @@ mod test {
         assert_eq!(exected_hash, hash);
     }
 
-    struct BlocklistHttpServer {
+    pub struct BlocklistHttpServer {
         /// None -> returns 404 error
         answer: Mutex<Option<String>>,
     }
@@ -325,7 +325,7 @@ mod test {
     lazy_static! {
         static ref BLOCKLIST_LEN_1: String = "[\"".to_string() + BLOCKED_ADDRESS + "\"]";
     }
-    const BLOCKLIST_LEN_2: &str = r#"["0x03893a7c7463AE47D46bc7f091665f1893656003","0x01e2919679362dFBC9ee1644Ba9C6da6D6245BB1"]"#;
+    pub const BLOCKLIST_LEN_2: &str = r#"["0x03893a7c7463AE47D46bc7f091665f1893656003","0x01e2919679362dFBC9ee1644Ba9C6da6D6245BB1"]"#;
     const EMPTY_BLOCKLIST: &str = r#"[]"#;
 
     #[tokio::test]

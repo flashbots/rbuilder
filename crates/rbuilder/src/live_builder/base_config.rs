@@ -99,6 +99,9 @@ pub struct BaseConfig {
     /// If the downloaded file get older than this we abort.
     pub blocklist_url_max_age_hours: Option<u64>,
 
+    /// Like blocklist_url_max_age_hours but in secs for integration tests.
+    pub blocklist_url_max_age_secs: Option<u64>,
+
     #[serde(deserialize_with = "deserialize_extra_data")]
     pub extra_data: Vec<u8>,
 
@@ -346,11 +349,15 @@ impl BaseConfig {
         validate_blocklist: bool,
         cancellation_token: tokio_util::sync::CancellationToken,
     ) -> eyre::Result<Arc<dyn BlockListProvider>> {
-        let max_allowed_age_hours = self
-            .blocklist_url_max_age_hours
-            .unwrap_or(DEFAULT_BLOCKLIST_URL_MAX_AGE_HOURS);
-        let max_allowed_age =
-            Duration::from_secs(max_allowed_age_hours * SECS_PER_MINUTE * MINS_PER_HOUR);
+        let max_allowed_age_secs =
+            if let Some(max_allowed_age_hours) = self.blocklist_url_max_age_hours {
+                max_allowed_age_hours * SECS_PER_MINUTE * MINS_PER_HOUR
+            } else if let Some(blocklist_url_max_age_secs) = self.blocklist_url_max_age_secs {
+                blocklist_url_max_age_secs
+            } else {
+                DEFAULT_BLOCKLIST_URL_MAX_AGE_HOURS * SECS_PER_MINUTE * MINS_PER_HOUR
+            };
+        let max_allowed_age = Duration::from_secs(max_allowed_age_secs);
         let provider = HttpBlockListProvider::new(
             blocklist_url,
             max_allowed_age,
@@ -487,6 +494,7 @@ impl Default for BaseConfig {
             blocklist_file_path: None,
             blocklist: None,
             blocklist_url_max_age_hours: None,
+            blocklist_url_max_age_secs: None,
             extra_data: b"extra_data_change_me".to_vec(),
             root_hash_use_sparse_trie: false,
             root_hash_compare_sparse_trie: false,

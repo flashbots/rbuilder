@@ -111,7 +111,7 @@ jobs:
         run: builder-playground &
 
       - name: Run integration tests with flags
-        run: cargo test --features="${{ matrix.features }}" --package rbuilder --lib -- integration
+        run: cargo test --features="${{ matrix.features }}" --package rbuilder --lib -- integration --test-threads=1
         env:
           PLAYGROUND: TRUE
 

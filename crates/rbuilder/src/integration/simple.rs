@@ -1,20 +1,25 @@
 #[cfg(test)]
 mod tests {
-    use crate::integration::playground::Playground;
+    use crate::{
+        integration::playground::Playground,
+        live_builder::block_list_provider::test::{BlocklistHttpServer, BLOCKLIST_LEN_2},
+    };
 
     use alloy_network::TransactionBuilder;
     use alloy_primitives::U256;
     use alloy_provider::{PendingTransactionBuilder, Provider, ProviderBuilder};
     use alloy_rpc_types::TransactionRequest;
-    use std::str::FromStr;
+    use std::{path::PathBuf, str::FromStr, time::Duration};
     use test_utils::ignore_if_env_not_set;
     use url::Url;
-
     #[ignore_if_env_not_set("PLAYGROUND")] // TODO: Change with a custom macro (i.e ignore_if_not_playground)
     #[tokio::test]
     async fn test_simple_example() {
+        let config_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../crates/rbuilder/src/integration/test_data/config-playground.toml");
+
         // This test sends a transaction ONLY to the builder and waits for the block to be built with it.
-        let srv = Playground::new().unwrap();
+        let srv = Playground::new(&config_path).unwrap();
         srv.wait_for_next_slot().await.unwrap();
 
         // send a transfer to the builder
@@ -51,5 +56,27 @@ mod tests {
         srv.validate_block_built(receipt.block_number.unwrap())
             .await
             .unwrap();
+    }
+
+    #[ignore_if_env_not_set("PLAYGROUND")]
+    /// TODO: Change with a custom macro (i.e ignore_if_not_playground)
+    /// Sadly builder shutdown does not always work properly so we have to wait for the watchdog to kill the process.
+    #[tokio::test]
+    async fn test_builder_closes_on_old_blocklist() {
+        let config_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+            "../../crates/rbuilder/src/integration/test_data/config-playground-http-blocklist.toml",
+        );
+        let blocklist_server = BlocklistHttpServer::new(1934, Some(BLOCKLIST_LEN_2.to_string()));
+        tokio::time::sleep(Duration::from_millis(100)).await; //puaj
+        let mut srv = Playground::new(&config_path).unwrap();
+        srv.wait_for_next_slot().await.unwrap();
+        blocklist_server.set_answer(None);
+        let timeout_secs = 5 /*blocklist_url_max_age_secs in cfg */ +
+             12 /* problem detected in next block start an cancel is signaled*/+
+             15 /*watchdog_timeout_sec */+
+             12 /*extra delay from watchdog*/+
+             1 /* for timing errors */;
+        tokio::time::sleep(Duration::from_secs(timeout_secs)).await; //puaj
+        assert!(!srv.builder_is_alive());
     }
 }
