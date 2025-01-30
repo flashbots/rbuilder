@@ -235,7 +235,7 @@ impl TestSetup {
         res.expect("Order commit failed")
     }
 
-    pub fn commit_order_err(&mut self, expected_error: &str) {
+    pub fn commit_order_err_check_text(&mut self, expected_error: &str) {
         let res = self.try_commit_order().expect("Failed to commit order");
         match res {
             Ok(_) => panic!("expected error, result: {:#?}", res),
@@ -251,8 +251,8 @@ impl TestSetup {
         }
     }
 
-    /// Name a little confusing: We expect a ExecutionError::OrderError(OrderError(expected_error))
-    pub fn commit_order_err_order_error<F: FnOnce(OrderErr)>(&mut self, err_check: F) {
+    /// Name a little confusing: We expect a ExecutionError::OrderError(e) and err_check(e) is ran on the error.
+    pub fn commit_order_err_check<F: FnOnce(OrderErr)>(&mut self, err_check: F) {
         let res = self.try_commit_order().expect("Failed to commit order");
         match res {
             Ok(_) => panic!("expected error,got ok result: {:#?}", res),
