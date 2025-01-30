@@ -1,7 +1,10 @@
 use super::{OrderInputConfig, ReplaceableOrderPoolCommand};
-use crate::primitives::{
-    serialize::{RawBundle, RawShareBundle, RawShareBundleDecodeResult, RawTx, TxEncoding},
-    Bundle, BundleReplacementKey, MempoolTx, Order,
+use crate::{
+    primitives::{
+        serialize::{RawBundle, RawShareBundle, RawShareBundleDecodeResult, RawTx, TxEncoding},
+        Bundle, BundleReplacementKey, MempoolTx, Order,
+    },
+    telemetry::mark_command_received,
 };
 use alloy_primitives::{Address, Bytes};
 use jsonrpsee::{server::Server, types::ErrorObject, RpcModule};
@@ -185,6 +188,7 @@ async fn send_command(
     channel: &mpsc::Sender<ReplaceableOrderPoolCommand>,
     timeout: Duration,
 ) {
+    mark_command_received(&command);
     match channel.send_timeout(command, timeout).await {
         Ok(()) => {}
         Err(SendTimeoutError::Timeout(_)) => {

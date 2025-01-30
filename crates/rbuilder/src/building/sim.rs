@@ -6,6 +6,7 @@ use crate::{
     building::{BlockBuildingContext, BlockState, CriticalCommitOrderError},
     primitives::{Order, OrderId, SimValue, SimulatedOrder},
     provider::StateProviderFactory,
+    telemetry::add_order_simulation_time,
     utils::{NonceCache, NonceCacheRef},
 };
 use ahash::{HashMap, HashSet};
@@ -433,7 +434,9 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
     let mut gas_used = 0;
     let mut blob_gas_used = 0;
     for parent in parent_orders {
+        let start = Instant::now();
         let result = fork.commit_order(&parent, ctx, gas_used, 0, blob_gas_used, true)?;
+        add_order_simulation_time(start.elapsed(), "sim");
         match result {
             Ok(res) => {
                 gas_used += res.gas_used;

@@ -7,9 +7,9 @@
 
 #![allow(unexpected_cfgs)]
 use crate::{
-    building::ExecutionResult,
     live_builder::block_list_provider::{blocklist_hash, BlockList},
-    primitives::mev_boost::MevBoostRelayID,
+    live_builder::order_input::ReplaceableOrderPoolCommand,
+    primitives::{mev_boost::MevBoostRelayID, Order},
     utils::build_info::Version,
 };
 use alloy_primitives::{utils::Unit, U256};
@@ -37,29 +37,21 @@ const BLOCK_METRICS_TIMESTAMP_LOWER_DELTA: time::Duration = time::Duration::seco
 /// We record timestamps only for blocks built within interval of the block timestamp
 const BLOCK_METRICS_TIMESTAMP_UPPER_DELTA: time::Duration = time::Duration::seconds(2);
 
+fn is_now_close_to_slot_end(block_timestamp: OffsetDateTime) -> bool {
+    let now = OffsetDateTime::now_utc();
+    let too_early = now < block_timestamp - BLOCK_METRICS_TIMESTAMP_LOWER_DELTA;
+    let too_late = block_timestamp + BLOCK_METRICS_TIMESTAMP_UPPER_DELTA < now;
+    !too_early && !too_late
+}
+
 lazy_static! {
     pub static ref REGISTRY: Registry = Registry::new();
 }
 
 register_metrics! {
-    pub static BLOCK_FILL_TIME: HistogramVec = HistogramVec::new(
-        HistogramOpts::new("block_fill_time", "Block Fill Times (ms)")
-            .buckets(exponential_buckets_range(1.0, 3000.0, 100)),
-        &["builder_name"]
-    )
-    .unwrap();
-    pub static BLOCK_FINALIZE_TIME: HistogramVec = HistogramVec::new(
-        HistogramOpts::new("block_finalize_time", "Block Finalize Times (ms)")
-            .buckets(exponential_buckets_range(1.0, 3000.0, 100)),
-        &["builder_name"]
-    )
-    .unwrap();
-    pub static BLOCK_ROOT_HASH_TIME: HistogramVec = HistogramVec::new(
-        HistogramOpts::new("block_root_hash_time", "Block Root Hash Time (ms)")
-            .buckets(exponential_buckets_range(1.0, 2000.0, 100)),
-        &["builder_name"]
-    )
-    .unwrap();
+
+    // Statistics about finalized blocks
+
     pub static BLOCK_BUILT_TXS: HistogramVec = HistogramVec::new(
         HistogramOpts::new("block_built_txs", "Transactions in the built block")
             .buckets(linear_buckets_range(1.0, 1000.0, 100)),
@@ -87,27 +79,30 @@ register_metrics! {
         &["builder_name"]
     )
     .unwrap();
-    pub static BLOCK_BUILT_MGAS_PER_SECOND: HistogramVec = HistogramVec::new(
-        HistogramOpts::new(
-            "block_built_mgas_per_second",
-            "MGas/s for the built block (including failing txs)"
-        )
-        .buckets(linear_buckets_range(1.0, 1000.0, 100)),
-        &["builder_name"]
-    )
-    .unwrap();
+
+
     pub static BLOCK_VALIDATION_TIME: HistogramVec = HistogramVec::new(
         HistogramOpts::new("block_validation_time", "Block Validation Times (ms)")
             .buckets(exponential_buckets_range(1.0, 3000.0, 100)),
         &[]
     )
     .unwrap();
+
+
+
     pub static CURRENT_BLOCK: IntGauge =
         IntGauge::new("current_block", "Current Block").unwrap();
     pub static ORDERPOOL_TXS: IntGauge =
         IntGauge::new("orderpool_txs", "Transactions In The Orderpool").unwrap();
     pub static ORDERPOOL_BUNDLES: IntGauge =
         IntGauge::new("orderpool_bundles", "Bundles In The Orderpool").unwrap();
+
+    pub static ORDERPOOL_ORDERS_RECEIVED: IntCounterVec = IntCounterVec::new(
+        Opts::new("orderpool_commands_received", "counter of orders received"),
+        &["kind"]
+    )
+    .unwrap();
+
     pub static RELAY_ERRORS: IntCounterVec = IntCounterVec::new(
         Opts::new("relay_errors", "counter of relay errors"),
         &["relay", "kind"]
@@ -173,16 +168,6 @@ register_metrics! {
         &["worker_id"]
     )
     .unwrap();
-    pub static ORDERS_IN_LAST_BUILT_BLOCK_E2E_LAT_MS: HistogramVec = HistogramVec::new(
-        HistogramOpts::new(
-            "orders_in_last_built_block_e2e_lat",
-            "For all blocks that are ready for submission to the relay its = min over orders (submission start - order received)"
-        )
-        .buckets(exponential_buckets_range(0.5, 3_000.0, 30)),
-        &[]
-    )
-    .unwrap();
-
     pub static PROVIDER_REOPEN_COUNTER: IntCounter = IntCounter::new(
         "provider_reopen_counter", "Counter of provider reopens").unwrap();
 
@@ -223,6 +208,35 @@ register_metrics! {
 
     pub static TOTAL_LANDED_SUBSIDIES_SUM: Counter =
         Counter::new("total_landed_subsidies_sum", "Sum of all total landed subsidies").unwrap();
+
+
+    // Performance metrics related to E2E latency
+
+    // Metrics for important step of the block processing
+    pub static BLOCK_FILL_TIME: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("block_fill_time", "Block Fill Times (ms)")
+            .buckets(exponential_buckets_range(1.0, 3000.0, 100)),
+        &["builder_name"]
+    )
+    .unwrap();
+    pub static BLOCK_FINALIZE_TIME: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("block_finalize_time", "Block Finalize Times (ms)")
+            .buckets(exponential_buckets_range(1.0, 3000.0, 100)),
+        &[]
+    )
+    .unwrap();
+    pub static BLOCK_ROOT_HASH_TIME: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("block_root_hash_time", "Block Root Hash Time (ms)")
+            .buckets(exponential_buckets_range(1.0, 2000.0, 100)),
+        &[]
+    )
+    .unwrap();
+    pub static ORDER_SIMULATION_TIME: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("order_simulation_time", "Order Simulation Time Time (ms)")
+            .buckets(exponential_buckets_range(1.0, 2000.0, 200)),
+        &["builder_name"]
+    )
+    .unwrap();
 }
 
 pub(super) fn set_version(version: Version) {
@@ -289,8 +303,7 @@ pub fn set_ordepool_count(txs: usize, bundles: usize) {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn add_built_block_metrics(
-    build_time: Duration,
+pub fn add_finalized_block_metrics(
     finalize_time: Duration,
     root_hash_time: Duration,
     txs: usize,
@@ -300,22 +313,17 @@ pub fn add_built_block_metrics(
     builder_name: &str,
     block_timestamp: OffsetDateTime,
 ) {
-    let now = OffsetDateTime::now_utc();
-    if now < block_timestamp - BLOCK_METRICS_TIMESTAMP_LOWER_DELTA
-        || block_timestamp + BLOCK_METRICS_TIMESTAMP_UPPER_DELTA < now
-    {
+    if !is_now_close_to_slot_end(block_timestamp) {
         return;
     }
 
-    BLOCK_FILL_TIME
-        .with_label_values(&[builder_name])
-        .observe(build_time.as_millis() as f64);
     BLOCK_FINALIZE_TIME
-        .with_label_values(&[builder_name])
-        .observe(finalize_time.as_millis() as f64);
+        .with_label_values(&[])
+        .observe(finalize_time.as_micros() as f64 / 1000.0);
     BLOCK_ROOT_HASH_TIME
-        .with_label_values(&[builder_name])
-        .observe(root_hash_time.as_millis() as f64);
+        .with_label_values(&[])
+        .observe(root_hash_time.as_micros() as f64 / 1000.0);
+
     BLOCK_BUILT_TXS
         .with_label_values(&[builder_name])
         .observe(txs as f64);
@@ -328,11 +336,19 @@ pub fn add_built_block_metrics(
     BLOCK_BUILT_SIM_GAS_USED
         .with_label_values(&[builder_name])
         .observe(sim_gas_used as f64);
-    BLOCK_BUILT_MGAS_PER_SECOND
+}
+
+pub fn add_block_fill_time(
+    duration: Duration,
+    builder_name: &str,
+    block_timestamp: OffsetDateTime,
+) {
+    if !is_now_close_to_slot_end(block_timestamp) {
+        return;
+    }
+    BLOCK_FILL_TIME
         .with_label_values(&[builder_name])
-        .observe(
-            (sim_gas_used as f64) / ((build_time.as_micros() + finalize_time.as_micros()) as f64),
-        );
+        .observe(duration.as_micros() as f64 / 1000.0);
 }
 
 pub fn add_block_validation_time(duration: Duration) {
@@ -392,30 +408,6 @@ pub fn add_sim_thread_utilisation_timings(
         .inc_by(wait_time.as_micros() as u64);
 }
 
-pub fn measure_block_e2e_latency(included_orders: &[ExecutionResult]) {
-    let submission_time = OffsetDateTime::now_utc();
-
-    let mut min_latency = None;
-    for order in included_orders {
-        let latency_ms = (submission_time - order.order.metadata().received_at_timestamp)
-            .as_seconds_f64()
-            * 1000.0;
-        if let Some(current_mint) = min_latency {
-            if latency_ms > 0.0 && latency_ms < current_mint {
-                min_latency = Some(latency_ms);
-            }
-        } else if latency_ms > 0.0 {
-            min_latency = Some(latency_ms);
-        }
-    }
-
-    if let Some(min_latency) = min_latency {
-        ORDERS_IN_LAST_BUILT_BLOCK_E2E_LAT_MS
-            .with_label_values(&[])
-            .observe(min_latency);
-    }
-}
-
 /// landed vs attempt
 fn subsidized_label(landed: bool) -> &'static str {
     if landed {
@@ -439,6 +431,23 @@ pub fn add_subsidy_value(value: U256, landed: bool) {
     if landed {
         TOTAL_LANDED_SUBSIDIES_SUM.inc_by(value_float);
     }
+}
+
+pub fn mark_command_received(command: &ReplaceableOrderPoolCommand) {
+    let kind = match command {
+        ReplaceableOrderPoolCommand::Order(Order::Bundle(_)) => "bundle",
+        ReplaceableOrderPoolCommand::Order(Order::Tx(_)) => "tx",
+        ReplaceableOrderPoolCommand::Order(Order::ShareBundle(_)) => "sbundle",
+        ReplaceableOrderPoolCommand::CancelShareBundle(_)
+        | ReplaceableOrderPoolCommand::CancelBundle(_) => "replacement",
+    };
+    ORDERPOOL_ORDERS_RECEIVED.with_label_values(&[kind]).inc();
+}
+
+pub fn add_order_simulation_time(duration: Duration, builder_name: &str) {
+    ORDER_SIMULATION_TIME
+        .with_label_values(&[builder_name])
+        .observe(duration.as_micros() as f64 / 1000.0);
 }
 
 pub(super) fn gather_prometheus_metrics() -> String {

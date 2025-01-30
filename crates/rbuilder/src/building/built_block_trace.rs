@@ -19,7 +19,9 @@ pub struct BuiltBlockTrace {
     pub true_bid_value: U256,
     /// Some bundle failed with BundleErr::NoSigner, we might want to switch to !use_suggested_fee_recipient_as_coinbase
     pub got_no_signer_error: bool,
+    /// Timestamp of the moment we stopped considering new orders for this block.
     pub orders_closed_at: OffsetDateTime,
+    /// Timestamp when this block was fully sealed and ready for submission.
     pub orders_sealed_at: OffsetDateTime,
     pub fill_time: Duration,
     pub finalize_time: Duration,

@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use crate::live_builder::simulation::SimulatedOrderCommand;
 use crate::provider::RootHasher;
 use crate::roothash::RootHashError;

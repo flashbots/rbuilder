@@ -1,7 +1,7 @@
 use super::{OrderInputConfig, ReplaceableOrderPoolCommand};
 use crate::{
     primitives::{MempoolTx, Order, TransactionSignedEcRecoveredWithBlobs},
-    telemetry::add_txfetcher_time_to_query,
+    telemetry::{add_txfetcher_time_to_query, mark_command_received},
 };
 use alloy_primitives::{hex, Bytes, FixedBytes};
 use alloy_provider::{IpcConnect, Provider, ProviderBuilder, RootProvider};
@@ -65,11 +65,10 @@ pub async fn subscribe_to_txpool_with_blobs(
             trace!(order = ?order.id(), parse_duration_mus = parse_duration.as_micros(), "Mempool transaction received with blobs");
             add_txfetcher_time_to_query(parse_duration);
 
+            let orderpool_command = ReplaceableOrderPoolCommand::Order(order);
+            mark_command_received(&orderpool_command);
             match results
-                .send_timeout(
-                    ReplaceableOrderPoolCommand::Order(order),
-                    config.results_channel_timeout,
-                )
+                .send_timeout(orderpool_command, config.results_channel_timeout)
                 .await
             {
                 Ok(()) => {}

@@ -13,7 +13,6 @@ use crate::{
         add_relay_submit_time, add_subsidy_value, inc_conn_relay_errors,
         inc_failed_block_simulations, inc_initiated_submissions, inc_other_relay_errors,
         inc_relay_accepted_submissions, inc_subsidized_blocks, inc_too_many_req_relay_errors,
-        measure_block_e2e_latency,
     },
     utils::{error_storage::store_error_event, tracing::dynamic_event},
     validation_api_client::{ValidationAPIClient, ValidationError},
@@ -304,8 +303,6 @@ async fn run_submit_to_relays_job(
             .await;
             continue 'submit;
         }
-
-        measure_block_e2e_latency(&block.trace.included_orders);
 
         for relay in &normal_relays {
             let span = info_span!(parent: &submission_span, "relay_submit", relay = &relay.id(), optimistic = false);
