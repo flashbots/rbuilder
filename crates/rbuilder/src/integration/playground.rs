@@ -102,6 +102,19 @@ impl Playground {
         matches!(self.builder.try_wait(), Ok(None))
     }
 
+    pub fn blocklist_key(&self) -> EthereumWallet {
+        // Address: 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC
+        let signer: PrivateKeySigner =
+            "5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a"
+                .parse()
+                .unwrap();
+        EthereumWallet::from(signer)
+    }
+
+    pub fn blocklist_address(&self) -> Address {
+        address!("3C44CdDdB6a900fa2b585dd299e03d12FA4293BC")
+    }
+
     pub async fn wait_for_next_slot(
         &self,
     ) -> Result<PayloadAttributesEvent, Box<dyn std::error::Error>> {
