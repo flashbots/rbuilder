@@ -15,7 +15,7 @@ use super::{order_dumper::OrderDumper, SimulatedOrderSink, TestDataGenerator};
 /// Helper with a ShareBundleMerger connected to a OrderDumper so we can analyze the results
 /// Usage:
 /// - Create orders via funcs like create_multiple_sbundle_tx_br
-/// - Call  insert_order`/`remove_order
+/// - Call  insert_order/remove_order
 /// - Check expected results (pop_insert/pop_remove) in the expected order.
 pub struct TestContext<TestedSinkType> {
     pub data_gen: TestDataGenerator,
