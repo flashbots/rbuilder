@@ -66,117 +66,70 @@ jobs:
         run: make validate-config
 
   integration:
-    name: Integration tests
-    runs-on: warp-ubuntu-latest-x64-32x
     strategy:
       matrix:
-        toolchain:
-          - stable
-        features:
-          - ""
+        toolchain: [stable]
+        include:
+          - package: rbuilder
+            features: []
+            scope: integration
+            playground: true
+          - package: op-rbuilder
+            features: ["optimism", "integration"]
+            scope: integration::integration_test::tests
+            playground: false
+    name: Integration tests / ${{ matrix.package }}
+    runs-on: warp-ubuntu-latest-x64-32x
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
 
-      # https://github.com/dtolnay/rust-toolchain
+       # https://github.com/dtolnay/rust-toolchain
       - name: Setup rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.toolchain }}
+
+      # https://github.com/swatinem/rust-cache
+      - name: Run Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      # https://github.com/Mozilla-Actions/sccache-action
+      - name: Run sccache-action
+        uses: mozilla-actions/sccache-action@v0.0.5
+
+      - name: Set sccache env vars
+        run: |
+          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
+          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+
+      - name: Build ${{ matrix.package }}
+        run: cargo build -p ${{ matrix.package }} --features ${{ matrix.features }}
 
       - name: Download builder playground
         uses: flashbots/flashbots-toolchain@v0.1
         with:
           builder-playground: latest
-
-      # https://github.com/swatinem/rust-cache
-      - name: Run Swatinem/rust-cache@v2
-        uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
-
-      # https://github.com/Mozilla-Actions/sccache-action
-      - name: Run sccache-action
-        uses: mozilla-actions/sccache-action@v0.0.5
-
-      - name: Set sccache env vars
-        run: |
-          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-
-      - name: Build the rbuilder
-        run: cargo build --features="${{ matrix.features }}"
+        if: ${{ matrix.playground }}
 
       - name: Run the playground
         run: builder-playground &
-
-      - name: Run integration tests with flags
-        run: cargo test --features="${{ matrix.features }}" --package rbuilder --lib -- integration
-        env:
-          PLAYGROUND: TRUE
-
-      - name: Aggregate playground logs
-        # This steps fails if the test fails early and the playground logs dir has not been created
-        if: ${{ failure() }}
-        run: |
-          mkdir /tmp/playground-logs
-          mv $HOME/.playground/devnet/logs /tmp/playground-logs
-          mv integration_logs /tmp/playground-logs
-
-      - name: Archive playground logs
-        uses: actions/upload-artifact@v4
-        if: ${{ failure() }}
-        with:
-          name: playground-logs
-          path: /tmp/playground-logs
-          retention-days: 5
-
-  op-integration:
-    name: Op Integration tests
-    runs-on: warp-ubuntu-latest-x64-32x
-    strategy:
-      matrix:
-        toolchain:
-          - stable
-        features:
-          - ""
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@v4
-
-      # https://github.com/dtolnay/rust-toolchain
-      - name: Setup rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ matrix.toolchain }}
-
-      # https://github.com/swatinem/rust-cache
-      - name: Run Swatinem/rust-cache@v2
-        uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
-
-      # https://github.com/Mozilla-Actions/sccache-action
-      - name: Run sccache-action
-        uses: mozilla-actions/sccache-action@v0.0.5
-
-      - name: Set sccache env vars
-        run: |
-          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-
-      - name: Build the rbuilder
-        run: cargo build -p op-rbuilder --bin op-rbuilder --features optimism
+        if: ${{ matrix.playground }}
 
       - name: Generate test genesis file
         run: cargo run -p op-rbuilder --bin tester --features optimism -- genesis --output genesis.json
+        if: ${{ matrix.package == 'op-rbuilder' }}
 
       - name: Run integration tests
-        run: cargo test --package op-rbuilder --lib --features optimism,integration -- integration::integration_test::tests
+        run: cargo test --lib -p ${{ matrix.package }} --features ${{ matrix.features }} -- ${{ matrix.scope }}
+        env:
+          PLAYGROUND: ${{ matrix.playground }}
 
       - name: Aggregate playground logs
         # This steps fails if the test fails early and the playground logs dir has not been created
-        if: ${{ failure() }}
+        if: ${{ failure() && matrix.playground }}
         run: |
           mkdir /tmp/playground-logs
           mv $HOME/.playground/devnet/logs /tmp/playground-logs
@@ -184,7 +137,7 @@ jobs:
 
       - name: Archive playground logs
         uses: actions/upload-artifact@v4
-        if: ${{ failure() }}
+        if: ${{ failure() && matrix.playground }}
         with:
           name: playground-logs
           path: /tmp/playground-logs
