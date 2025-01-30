@@ -21,7 +21,7 @@ use crate::{
     },
     primitives::{MempoolTx, Order, TransactionSignedEcRecoveredWithBlobs},
     provider::StateProviderFactory,
-    telemetry::inc_active_slots,
+    telemetry::{inc_active_slots, reset_histogram_metrics},
     utils::{
         error_storage::spawn_error_storage_writer, provider_head_state::ProviderHeadState, Signer,
     },
@@ -204,6 +204,8 @@ where
         };
 
         while let Some(payload) = payload_events_channel.recv().await {
+            reset_histogram_metrics();
+
             let blocklist = self.blocklist_provider.get_blocklist()?;
             if blocklist.contains(&payload.fee_recipient()) {
                 warn!(
