@@ -38,7 +38,7 @@ const API_TOKEN_HEADER: &str = "X-Api-Token";
 const SIM_FAILED_SUBSTRING: &str = "simulation failed";
 /// Any error containing SIM_FAILED_SUBSTRING and any of SIM_FAILED_NON_CRITICAL_ERRORS is not critical so we should not stop block building.
 const SIM_FAILED_NON_CRITICAL_ERRORS: &[&str] = &[
-    "blacklisted address", // Generated block is good but contains a blacklisted address. This happens if we don't use an OFAC blacklist but the relay does.
+    "blacklisted address", // Generated block is good but contains a blacklisted address. This happens if we don't use an blacklist but the relay does.
     "unknown ancestor",
     "missing trie node",
 ];
