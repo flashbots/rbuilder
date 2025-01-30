@@ -164,7 +164,7 @@ impl BlockListProvider for HttpBlockListProvider {
 /// @Pending upgrade the HttpBlockListProvider to allow to plugin the reader and have a generic updatable source for http/file
 #[derive(Debug)]
 pub struct StaticFileBlockListProvider {
-    block_list: Mutex<BlockList>,
+    block_list: BlockList,
 }
 
 impl StaticFileBlockListProvider {
@@ -176,18 +176,17 @@ impl StaticFileBlockListProvider {
             return Err(Error::UnableToLoadInitialList);
         }
         Ok(Self {
-            block_list: Mutex::new(blocklist.into_iter().collect()),
+            block_list: blocklist.into_iter().collect(),
         })
     }
 }
 
 impl BlockListProvider for StaticFileBlockListProvider {
-    /// Just gets the last version and checks the age.
     fn get_blocklist(&self) -> Result<BlockList, Error> {
-        Ok(self.block_list.lock().unwrap().clone())
+        Ok(self.block_list.clone())
     }
 
     fn current_list_contains(&self, address: &Address) -> Result<bool, Error> {
-        Ok(self.block_list.lock().unwrap().contains(address))
+        Ok(self.block_list.contains(address))
     }
 }
