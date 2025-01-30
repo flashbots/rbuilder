@@ -221,12 +221,9 @@ impl BlockListProvider for StaticFileBlockListProvider {
 /// The original code uses text hashing :( (https://github.com/flashbots/ofac/blob/main/hash-blacklist.py)
 pub fn blocklist_hash(blocklist: &BlockList) -> B256 {
     let mut hasher = Sha256::new();
-    let sorted_text_hashes = blocklist
-        .iter()
-        .map(|addr| addr.to_string().to_ascii_lowercase())
-        .sorted();
-    for text in sorted_text_hashes {
-        hasher.update(text.as_bytes());
+    let sorted_text_hashes = blocklist.iter().sorted();
+    for address in sorted_text_hashes {
+        hasher.update(address.0);
     }
     let hash_bytes = hasher.finalize();
     B256::from_slice(&hash_bytes)
@@ -256,7 +253,7 @@ mod test {
         let blocklist: BlockList = blocklist.into_iter().collect();
         // value generated with https://github.com/flashbots/ofac/blob/main/hash-blacklist.py
         let exected_hash =
-            B256::from_str("0xe7d71b5f66f07cdd2a4eaea817e2a133e50f8cc5edea72b53311a7941e6e4b10")
+            B256::from_str("0xee14e9d115e182f61871a5a385ab2f32ecf434f3b17bdbacc71044810d89e608")
                 .unwrap();
         let hash = blocklist_hash(&blocklist);
         assert_eq!(exected_hash, hash);
