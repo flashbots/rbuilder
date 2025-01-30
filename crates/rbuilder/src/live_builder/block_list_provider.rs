@@ -190,3 +190,138 @@ impl BlockListProvider for StaticFileBlockListProvider {
         Ok(self.block_list.contains(address))
     }
 }
+
+#[cfg(test)]
+mod test {
+    use std::{
+        io::{Read, Write},
+        net::{TcpListener, TcpStream},
+        str::FromStr,
+        sync::{Arc, Mutex},
+        thread,
+        time::Duration,
+    };
+
+    use super::HttpBlockListProvider;
+    use crate::live_builder::block_list_provider::{BlockList, BlockListProvider};
+    use lazy_static::lazy_static;
+    use revm_primitives::Address;
+    use tokio_util::sync::CancellationToken;
+    use url::Url;
+    struct BlocklistHttpServer {
+        /// None -> returns 404 error
+        answer: Mutex<Option<String>>,
+    }
+
+    impl BlocklistHttpServer {
+        pub fn new(port: u64, answer: Option<String>) -> Arc<Self> {
+            let res = Arc::new(Self {
+                answer: Mutex::new(answer),
+            });
+            let res_clone = res.clone();
+            thread::spawn(move || res_clone.run(port));
+            res
+        }
+
+        pub fn set_answer(&self, answer: Option<String>) {
+            *self.answer.lock().unwrap() = answer;
+        }
+
+        fn run(&self, port: u64) {
+            // Create the address string once
+            let addr = format!("127.0.0.1:{}", port);
+
+            // Create a TCP listener bound to the specified port
+            let listener = TcpListener::bind(&addr).unwrap();
+            println!("Server running at http://{}", addr);
+
+            // Listen for incoming connections
+            for stream in listener.incoming() {
+                match stream {
+                    Ok(stream) => {
+                        self.handle_connection(stream);
+                    }
+                    Err(e) => {
+                        eprintln!("Connection failed: {}", e);
+                    }
+                }
+            }
+        }
+
+        fn handle_connection(&self, mut stream: TcpStream) {
+            let mut buffer = [0; 1024];
+            let _ = stream.read(&mut buffer).unwrap();
+
+            let answer = self.answer.lock().unwrap().clone();
+            let (status_line, contents) = match answer {
+                Some(text) => ("HTTP/1.1 200 OK", text),
+                None => ("HTTP/1.1 404 NOT FOUND", String::from("File not found")),
+            };
+
+            // Create the response
+            let response = format!(
+                "{}\r\nContent-Length: {}\r\nContent-Type: text/plain\r\n\r\n{}",
+                status_line,
+                contents.len(),
+                contents
+            );
+
+            // Write the response back to the stream
+            stream.write_all(response.as_bytes()).unwrap();
+            stream.flush().unwrap();
+        }
+    }
+
+    const BLOCKED_ADDRESS: &str = "0x05E0b5B40B7b66098C2161A5EE11C5740A3A7C45";
+    lazy_static! {
+        static ref BLOCKLIST_LEN_1: String = "[\"".to_string() + BLOCKED_ADDRESS + "\"]";
+    }
+    const BLOCKLIST_LEN_2: &str = r#"["0x03893a7c7463AE47D46bc7f091665f1893656003","0x01e2919679362dFBC9ee1644Ba9C6da6D6245BB1"]"#;
+    const EMPTY_BLOCKLIST: &str = r#"[]"#;
+
+    #[tokio::test]
+    async fn test_age() {
+        const PORT: u64 = 1234;
+        const AGE_SECS: u64 = 3;
+        const UPDATE_SECS: u64 = 1;
+        let mut expected_blocklist_1 = BlockList::default();
+        expected_blocklist_1.insert(Address::from_str(BLOCKED_ADDRESS).unwrap());
+
+        let cancellation = CancellationToken::new();
+        let server = BlocklistHttpServer::new(PORT, Some(BLOCKLIST_LEN_1.clone()));
+        // ugly wait for BlocklistHttpServer
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let provider = HttpBlockListProvider::new(
+            Url::parse(&format!("http://127.0.0.1:{}", PORT)).unwrap(),
+            Duration::from_secs(AGE_SECS),
+            true,
+            cancellation.clone(),
+        )
+        .await
+        .unwrap();
+
+        // Simple check for list content
+        let blocklist = provider.get_blocklist().unwrap();
+        assert_eq!(blocklist, expected_blocklist_1);
+
+        // Simple check for new list
+        server.set_answer(Some(BLOCKLIST_LEN_2.to_string()));
+        tokio::time::sleep(Duration::from_secs(UPDATE_SECS)).await;
+        let blocklist = provider.get_blocklist().unwrap();
+        assert_eq!(blocklist.len(), 2);
+
+        // Check EMPTY_BLOCKLIST is invalid
+        server.set_answer(Some(EMPTY_BLOCKLIST.to_string()));
+        tokio::time::sleep(Duration::from_secs(UPDATE_SECS)).await;
+        // Validation fails so we should see the last list
+        let blocklist = provider.get_blocklist().unwrap();
+        assert_eq!(blocklist.len(), 2);
+
+        // Check error on age expiration
+        server.set_answer(None);
+        tokio::time::sleep(Duration::from_secs(AGE_SECS + 1)).await;
+        assert!(provider.get_blocklist().is_err());
+
+        cancellation.cancel();
+    }
+}
