@@ -71,11 +71,11 @@ jobs:
         toolchain: [stable]
         include:
           - package: rbuilder
-            features: []
+            features: ""
             scope: integration
             playground: true
           - package: op-rbuilder
-            features: ["optimism", "integration"]
+            features: "optimism integration"
             scope: integration::integration_test::tests
             playground: false
     name: Integration tests / ${{ matrix.package }}
