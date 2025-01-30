@@ -84,7 +84,7 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@v4
 
-       # https://github.com/dtolnay/rust-toolchain
+      # https://github.com/dtolnay/rust-toolchain
       - name: Setup rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
