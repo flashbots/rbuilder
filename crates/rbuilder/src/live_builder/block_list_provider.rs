@@ -151,6 +151,7 @@ impl HttpBlockListProvider {
             if !should_validate_list || validate_list(&blocklist) {
                 Ok(blocklist.into_iter().collect())
             } else {
+                error!("Invalid blocklist");
                 Err("Invalid list".into())
             }
         };
@@ -196,6 +197,7 @@ impl StaticFileBlockListProvider {
         let blocklist: Vec<Address> =
             serde_json::from_str(&blocklist_file).map_err(|_| Error::UnableToLoadInitialList)?;
         if should_validate_list && !validate_list(&blocklist) {
+            error!("Invalid blocklist");
             return Err(Error::UnableToLoadInitialList);
         }
         let blocklist: BlockList = blocklist.into_iter().collect();
