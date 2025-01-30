@@ -106,7 +106,7 @@ jobs:
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
 
       - name: Build ${{ matrix.package }}
-        run: cargo build -p ${{ matrix.package }} --features ${{ matrix.features }}
+        run: cargo build -p ${{ matrix.package }} --features "${{ matrix.features }}"
 
       - name: Download builder playground
         uses: flashbots/flashbots-toolchain@v0.1
@@ -123,7 +123,7 @@ jobs:
         if: ${{ matrix.package == 'op-rbuilder' }}
 
       - name: Run integration tests
-        run: cargo test --lib -p ${{ matrix.package }} --features ${{ matrix.features }} -- ${{ matrix.scope }}
+        run: cargo test --lib -p ${{ matrix.package }} --features "${{ matrix.features }}" -- ${{ matrix.scope }}
         env:
           PLAYGROUND: ${{ matrix.playground }}
 
