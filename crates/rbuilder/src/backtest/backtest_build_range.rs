@@ -135,7 +135,7 @@ where
 
     let blocklist = config
         .base_config()
-        .blocklist_provider(false, cancel_token.clone())
+        .blocklist_provider(cancel_token.clone())
         .await?
         .get_blocklist()?;
 

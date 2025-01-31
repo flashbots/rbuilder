@@ -102,6 +102,9 @@ pub struct BaseConfig {
     /// Like blocklist_url_max_age_hours but in secs for integration tests.
     pub blocklist_url_max_age_secs: Option<u64>,
 
+    /// if true will not allow to start without a blocklist or with an empty blocklist.
+    pub require_non_empty_blocklist: Option<bool>,
+
     #[serde(deserialize_with = "deserialize_extra_data")]
     pub extra_data: Vec<u8>,
 
@@ -299,11 +302,20 @@ impl BaseConfig {
 
     pub async fn blocklist_provider(
         &self,
-        validate_blocklist: bool,
         cancellation_token: tokio_util::sync::CancellationToken,
     ) -> eyre::Result<Arc<dyn BlockListProvider>> {
         if self.blocklist.is_some() && self.blocklist_file_path.is_some() {
             eyre::bail!("You can't use blocklist AND blocklist_file_path")
+        }
+
+        let require_non_empty_blocklist = self
+            .require_non_empty_blocklist
+            .unwrap_or(DEFAULT_REQUIRE_NON_EMPTY_BLOCKLIST);
+        if self.blocklist_file_path.is_none()
+            && self.blocklist.is_none()
+            && require_non_empty_blocklist
+        {
+            eyre::bail!("require_non_empty_blocklist = true but no blocklist used (blocklist_file_path/blocklist are not set)");
         }
 
         if let Some(blocklist) = &self.blocklist {
@@ -311,13 +323,19 @@ impl BaseConfig {
             match Url::parse(blocklist) {
                 Ok(url) => {
                     return self
-                        .blocklist_provider_from_url(url, validate_blocklist, cancellation_token)
+                        .blocklist_provider_from_url(
+                            url,
+                            require_non_empty_blocklist,
+                            cancellation_token,
+                        )
                         .await;
                 }
                 Err(_) => {
                     // second try file loading
-                    return self
-                        .blocklist_provider_from_file(&blocklist.into(), validate_blocklist);
+                    return self.blocklist_provider_from_file(
+                        &blocklist.into(),
+                        require_non_empty_blocklist,
+                    );
                 }
             }
         }
@@ -325,7 +343,8 @@ impl BaseConfig {
         // Backwards compatibility
         if let Some(blocklist_file_path) = &self.blocklist_file_path {
             warn!("blocklist_file_path is deprecated please use blocklist");
-            return self.blocklist_provider_from_file(blocklist_file_path, validate_blocklist);
+            return self
+                .blocklist_provider_from_file(blocklist_file_path, require_non_empty_blocklist);
         }
 
         // default to empty
@@ -467,6 +486,7 @@ pub const DEFAULT_INCOMING_BUNDLES_PORT: u16 = 8645;
 pub const DEFAULT_RETH_DB_PATH: &str = "/mnt/data/reth";
 /// This will update every 2.4 hours, super reasonable.
 pub const DEFAULT_BLOCKLIST_URL_MAX_AGE_HOURS: u64 = 24;
+pub const DEFAULT_REQUIRE_NON_EMPTY_BLOCKLIST: bool = false;
 
 impl Default for BaseConfig {
     fn default() -> Self {
@@ -510,6 +530,7 @@ impl Default for BaseConfig {
             simulation_threads: 1,
             sbundle_mergeable_signers: None,
             sbundle_mergeabe_signers: None,
+            require_non_empty_blocklist: Some(DEFAULT_REQUIRE_NON_EMPTY_BLOCKLIST),
         }
     }
 }
@@ -611,6 +632,7 @@ mod test {
     use reth_node_core::dirs::{DataDirPath, MaybePlatformPath};
     use reth_provider::{providers::StaticFileProvider, ProviderFactory};
     use tempfile::TempDir;
+    use tokio_util::sync::CancellationToken;
 
     #[test]
     fn test_default_config() {
@@ -618,6 +640,20 @@ mod test {
         let config_default = BaseConfig::default();
 
         assert_eq!(config, config_default);
+    }
+
+    #[tokio::test]
+    async fn test_require_non_empty_blocklist() {
+        let config = BaseConfig {
+            blocklist: None,
+            blocklist_file_path: None,
+            require_non_empty_blocklist: Some(true),
+            ..Default::default()
+        };
+        assert!(config
+            .blocklist_provider(CancellationToken::new())
+            .await
+            .is_err());
     }
 
     #[test]

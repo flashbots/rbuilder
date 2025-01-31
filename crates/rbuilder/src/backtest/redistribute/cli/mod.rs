@@ -59,7 +59,7 @@ where
 
     let blocklist = config
         .base_config()
-        .blocklist_provider(false, CancellationToken::new())
+        .blocklist_provider(CancellationToken::new())
         .await?
         .get_blocklist()?;
 

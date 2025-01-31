@@ -409,7 +409,7 @@ impl LiveBuilderConfig for Config {
 
         let blocklist_provider = self
             .base_config
-            .blocklist_provider(false, cancellation_token.clone())
+            .blocklist_provider(cancellation_token.clone())
             .await?;
         let payload_event = MevBoostSlotDataGenerator::new(
             self.l1_config.beacon_clients()?,
