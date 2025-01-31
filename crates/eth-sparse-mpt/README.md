@@ -21,6 +21,6 @@ next iterations: 140 ms (median, stable)
 
 eth-sparse-mpt:
 
-first iteraton : 225 ms
+first iteration : 225 ms
 next iterations: 5.1 ms (median, stable)
 ```
