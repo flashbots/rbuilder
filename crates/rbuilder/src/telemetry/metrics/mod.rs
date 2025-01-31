@@ -11,6 +11,7 @@ use crate::{
     primitives::mev_boost::MevBoostRelayID,
     utils::build_info::Version,
 };
+use crate::building::BuiltBlockTrace;
 use alloy_primitives::{utils::Unit, U256};
 use bigdecimal::num_traits::Pow;
 use ctor::ctor;
@@ -265,6 +266,18 @@ register_metrics! {
         &["builder_name"]
     )
     .unwrap();
+    pub static BLOCK_FILL_START_SEAL_END_TIME: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("block_build_start_seal_end_time", "Time between block build started and block sealed ended. (ms)")
+            .buckets(exponential_buckets_range(0.01, 500.0, 300)),
+        &["builder_name"]
+    )
+    .unwrap();
+    pub static BLOCK_SEAL_END_SUBMIT_START_TIME: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("block_seal_end_submit_start_time", "Time between block sealed ended and block submission started. (ms)")
+            .buckets(exponential_buckets_range(0.01, 500.0, 300)),
+        &[]
+    )
+    .unwrap();
 }
 
 // This function should be called periodically to reset histogram metrics.
@@ -300,6 +313,8 @@ pub fn reset_histogram_metrics() {
     ORDER_RECEIVED_TO_SIM_END_TIME.reset();
     ORDER_SIM_END_TO_FIRST_BUILD_STARTED_TIME.reset();
     ORDER_SIM_END_TO_FIRST_BUILD_STARTED_MIN_TIME.reset();
+    BLOCK_FILL_START_SEAL_END_TIME.reset();
+    BLOCK_SEAL_END_SUBMIT_START_TIME.reset();
 }
 
 pub(super) fn set_version(version: Version) {
@@ -367,8 +382,7 @@ pub fn set_ordepool_count(txs: usize, bundles: usize) {
 
 #[allow(clippy::too_many_arguments)]
 pub fn add_finalized_block_metrics(
-    finalize_time: Duration,
-    root_hash_time: Duration,
+    built_block_trace: &BuiltBlockTrace,
     txs: usize,
     blobs: usize,
     gas_used: u64,
@@ -382,10 +396,10 @@ pub fn add_finalized_block_metrics(
 
     BLOCK_FINALIZE_TIME
         .with_label_values(&[])
-        .observe(finalize_time.as_micros() as f64 / 1000.0);
+        .observe(built_block_trace.finalize_time.as_micros() as f64 / 1000.0);
     BLOCK_ROOT_HASH_TIME
         .with_label_values(&[])
-        .observe(root_hash_time.as_micros() as f64 / 1000.0);
+        .observe(built_block_trace.root_hash_time.as_micros() as f64 / 1000.0);
 
     BLOCK_BUILT_TXS
         .with_label_values(&[builder_name])
@@ -399,6 +413,13 @@ pub fn add_finalized_block_metrics(
     BLOCK_BUILT_SIM_GAS_USED
         .with_label_values(&[builder_name])
         .observe(sim_gas_used as f64);
+
+    let build_start_seal_end_time =
+        (built_block_trace.orders_sealed_at - built_block_trace.orders_closed_at).as_seconds_f64()
+            * 1000.0;
+    BLOCK_FILL_START_SEAL_END_TIME
+        .with_label_values(&[builder_name])
+        .observe(build_start_seal_end_time);
 }
 
 pub fn add_block_fill_time(
@@ -508,6 +529,15 @@ pub fn add_order_simulation_time(duration: Duration, builder_name: &str, success
     ORDER_SIMULATION_TIME
         .with_label_values(&[builder_name, sim_status(success)])
         .observe(duration.as_micros() as f64 / 1000.0);
+}
+
+pub fn mark_submission_start_time(block_sealed_at: OffsetDateTime) {
+    // we don't check if we are close to slot end because submission code handles that
+    let now = OffsetDateTime::now_utc();
+    let value = (now - block_sealed_at).as_seconds_f64() * 1000.0;
+    BLOCK_SEAL_END_SUBMIT_START_TIME
+        .with_label_values(&[])
+        .observe(value);
 }
 
 pub(super) fn gather_prometheus_metrics() -> String {

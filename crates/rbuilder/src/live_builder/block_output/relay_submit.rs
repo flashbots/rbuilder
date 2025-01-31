@@ -13,6 +13,7 @@ use crate::{
         add_relay_submit_time, add_subsidy_value, inc_conn_relay_errors,
         inc_failed_block_simulations, inc_initiated_submissions, inc_other_relay_errors,
         inc_relay_accepted_submissions, inc_subsidized_blocks, inc_too_many_req_relay_errors,
+        mark_submission_start_time,
     },
     utils::{error_storage::store_error_event, tracing::dynamic_event},
     validation_api_client::{ValidationAPIClient, ValidationError},
@@ -290,17 +291,30 @@ async fn run_submit_to_relays_job(
             (normal_signed_submission, optimistic_signed_submission)
         };
 
+        mark_submission_start_time(block.trace.orders_sealed_at);
+
         if config.dry_run {
-            validate_block(
-                &slot_data,
-                &normal_signed_submission.submission,
-                block.sealed_block.clone(),
-                &config,
-                cancel.clone(),
-                "Dry run",
-            )
-            .instrument(submission_span)
-            .await;
+            tokio::spawn({
+                let slot_data = slot_data.clone();
+                let submission = normal_signed_submission.submission.clone();
+                let sealed_block = block.sealed_block.clone();
+                let config = config.clone();
+                let cancel = cancel.clone();
+                let submission_span = submission_span.clone();
+
+                async move {
+                    validate_block(
+                        &slot_data,
+                        &submission,
+                        sealed_block,
+                        &config,
+                        cancel,
+                        "Dry run",
+                    )
+                    .instrument(submission_span)
+                    .await
+                }
+            });
             continue 'submit;
         }
 

@@ -219,8 +219,7 @@ where
         let blobs = finalized_block.txs_blob_sidecars.len();
 
         telemetry::add_finalized_block_metrics(
-            built_block_trace.finalize_time,
-            built_block_trace.root_hash_time,
+            built_block_trace,
             txs,
             blobs,
             gas_used,
