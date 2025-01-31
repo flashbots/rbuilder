@@ -15,6 +15,7 @@ use crate::{
     },
     primitives::{AccountNonce, OrderId},
     provider::StateProviderFactory,
+    telemetry::mark_builder_considering_order,
 };
 use ahash::{HashMap, HashSet};
 use reth::revm::cached::CachedReads;
@@ -258,6 +259,11 @@ where
                     break;
                 }
             }
+            mark_builder_considering_order(
+                sim_order.id(),
+                &block_building_helper.built_block_trace().orders_closed_at,
+                block_building_helper.builder_name(),
+            );
             let start_time = Instant::now();
             let commit_result = block_building_helper.commit_order(&sim_order)?;
             let order_commit_time = start_time.elapsed();

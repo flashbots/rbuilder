@@ -7,6 +7,7 @@ use priority_queue::PriorityQueue;
 use crate::{
     building::Sorting,
     primitives::{AccountNonce, Nonce, OrderId, SimulatedOrder},
+    telemetry::mark_order_not_ready_for_immediate_inclusion,
 };
 
 use super::SimulatedOrderSink;
@@ -125,7 +126,6 @@ impl PrioritizedOrderStore {
 
         for order_id in invalidated_orders {
             // check if order can still be valid because of optional nonces
-
             self.main_queue.remove(&order_id);
             let order = self
                 .remove_poped_order(&order_id)
@@ -158,6 +158,8 @@ impl PrioritizedOrderStore {
             );
             if retain_order {
                 self.insert_order(order);
+            } else {
+                mark_order_not_ready_for_immediate_inclusion(&order_id);
             }
         }
 

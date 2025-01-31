@@ -253,6 +253,18 @@ register_metrics! {
         &["status"]
     )
     .unwrap();
+    pub static ORDER_SIM_END_TO_FIRST_BUILD_STARTED_TIME: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("order_sim_end_to_first_build_started_time", "Time between order simulation end and start of the building run that first considered that order. (ms)")
+            .buckets(exponential_buckets_range(0.01, 300.0, 300)),
+        &["builder_name"]
+    )
+    .unwrap();
+    pub static ORDER_SIM_END_TO_FIRST_BUILD_STARTED_MIN_TIME: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("order_sim_end_to_first_build_started_min_time", "Time between order simulation end and start of the building run that first considered that order recorded only for the first order consideration over all builders. (ms)")
+            .buckets(exponential_buckets_range(0.01, 300.0, 300)),
+        &["builder_name"]
+    )
+    .unwrap();
 }
 
 // This function should be called periodically to reset histogram metrics.
@@ -286,6 +298,8 @@ pub fn reset_histogram_metrics() {
     TXFETCHER_TRANSACTION_QUERY_TIME.reset();
     SUBSIDY_VALUE.reset();
     ORDER_RECEIVED_TO_SIM_END_TIME.reset();
+    ORDER_SIM_END_TO_FIRST_BUILD_STARTED_TIME.reset();
+    ORDER_SIM_END_TO_FIRST_BUILD_STARTED_MIN_TIME.reset();
 }
 
 pub(super) fn set_version(version: Version) {

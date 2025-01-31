@@ -12,20 +12,38 @@ use tracing::warn;
 use super::{
     sim_status, BLOCK_METRICS_TIMESTAMP_LOWER_DELTA, BLOCK_METRICS_TIMESTAMP_UPPER_DELTA,
     ORDERPOOL_ORDERS_RECEIVED, ORDER_RECEIVED_TO_SIM_END_TIME,
+    ORDER_SIM_END_TO_FIRST_BUILD_STARTED_MIN_TIME, ORDER_SIM_END_TO_FIRST_BUILD_STARTED_TIME,
 };
 
 type Timestamp = u64; // timestamp in microseconds
+type BuilderId = u64; // integer id to minimize string cloning
 
 #[derive(Debug, Default)]
 struct TracingMetricsData {
     last_slot_critical_period_start: Timestamp,
     last_slot_critical_period_end: Timestamp,
 
+    builder_by_name: HashMap<String, u64>,
+
     // All fields below must be cleaned once per slot in `mark_building_started`
     orders_received: HashMap<OrderId, Timestamp>,
+    orders_with_pending_nonces: HashSet<OrderId>,
     orders_simulation_end: HashMap<OrderId, Timestamp>,
 
-    orders_with_pending_nonces: HashSet<OrderId>,
+    orders_not_ready_for_immediate_inclusion: HashSet<OrderId>,
+    orders_first_insertion_block_seal_start_by_builder: HashMap<(OrderId, BuilderId), Timestamp>,
+    orders_first_insertion_block_seal_start: HashMap<OrderId, (Timestamp, BuilderId)>,
+}
+
+impl TracingMetricsData {
+    fn get_builder_id(&mut self, name: &str) -> BuilderId {
+        if let Some(id) = self.builder_by_name.get(name) {
+            return *id;
+        }
+        let id = self.builder_by_name.len() as u64;
+        self.builder_by_name.insert(name.to_string(), id);
+        id
+    }
 }
 
 lazy_static! {
@@ -62,6 +80,10 @@ pub fn mark_building_started(block_timestamp: OffsetDateTime) {
     reg.orders_received.clear();
     reg.orders_simulation_end.clear();
     reg.orders_with_pending_nonces.clear();
+    reg.orders_first_insertion_block_seal_start_by_builder
+        .clear();
+    reg.orders_first_insertion_block_seal_start.clear();
+    reg.orders_not_ready_for_immediate_inclusion.clear();
 }
 
 pub fn mark_command_received(command: &ReplaceableOrderPoolCommand, received_at: OffsetDateTime) {
@@ -154,6 +176,79 @@ pub fn mark_order_simulation_end(id: OrderId, success: bool) {
     ORDER_RECEIVED_TO_SIM_END_TIME
         .with_label_values(&[sim_status(success)])
         .observe(received_to_sim_end_time_ms);
+}
+
+pub fn mark_order_not_ready_for_immediate_inclusion(order_id: &OrderId) {
+    let mut reg = lock_registry();
+    if reg
+        .orders_not_ready_for_immediate_inclusion
+        .contains(order_id)
+    {
+        return;
+    };
+    reg.orders_not_ready_for_immediate_inclusion
+        .insert(order_id.clone());
+}
+
+pub fn mark_builder_considering_order(
+    order_id: OrderId,
+    order_closed_at: &OffsetDateTime,
+    builder_name: &str,
+) {
+    let mut reg = lock_registry();
+
+    let timestamp = offset_datetime_to_timestamp_us(order_closed_at);
+    if !timestamp_in_critical_period(
+        timestamp,
+        reg.last_slot_critical_period_start,
+        reg.last_slot_critical_period_end,
+    ) {
+        return;
+    }
+
+    let builder_id = reg.get_builder_id(builder_name);
+    if reg
+        .orders_first_insertion_block_seal_start_by_builder
+        .contains_key(&(order_id, builder_id))
+    {
+        return;
+    }
+
+    let order_sim_end_time = reg
+        .orders_simulation_end
+        .get(&order_id)
+        .cloned()
+        .unwrap_or_default();
+    let ready_for_immediate_inclusion = reg
+        .orders_not_ready_for_immediate_inclusion
+        .contains(&order_id);
+
+    let min_time_set = if !reg
+        .orders_first_insertion_block_seal_start
+        .contains_key(&order_id)
+    {
+        reg.orders_first_insertion_block_seal_start
+            .insert(order_id.clone(), (builder_id, timestamp));
+        true
+    } else {
+        false
+    };
+
+    reg.orders_first_insertion_block_seal_start_by_builder
+        .insert((order_id, builder_id), timestamp);
+
+    if order_sim_end_time == 0 || order_sim_end_time > timestamp || ready_for_immediate_inclusion {
+        return;
+    }
+
+    ORDER_SIM_END_TO_FIRST_BUILD_STARTED_TIME
+        .with_label_values(&[builder_name])
+        .observe((timestamp - order_sim_end_time) as f64 / 1000.0);
+    if min_time_set {
+        ORDER_SIM_END_TO_FIRST_BUILD_STARTED_MIN_TIME
+            .with_label_values(&[builder_name])
+            .observe((timestamp - order_sim_end_time) as f64 / 1000.0);
+    }
 }
 
 fn offset_datetime_to_timestamp_us(dt: &OffsetDateTime) -> Timestamp {
