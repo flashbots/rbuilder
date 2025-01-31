@@ -1,13 +1,14 @@
+/// Tracing metrics are used to get a fine grained look at the path of the order through the builder.
+/// To start collecting this metric mark_building_started must be called at the start of each slot.
 use crate::{
     live_builder::order_input::ReplaceableOrderPoolCommand,
     primitives::{Order, OrderId},
 };
-use ahash::{HashMap, HashSet};
+use ahash::RandomState;
+use dashmap::{DashMap, DashSet};
 use lazy_static::lazy_static;
-use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::{Duration, Instant};
+use std::sync::{Arc, RwLock};
 use time::OffsetDateTime;
-use tracing::warn;
 
 use super::{
     sim_status, BLOCK_METRICS_TIMESTAMP_LOWER_DELTA, BLOCK_METRICS_TIMESTAMP_UPPER_DELTA,
@@ -20,72 +21,79 @@ type BuilderId = u64; // integer id to minimize string cloning
 
 #[derive(Debug, Default)]
 struct TracingMetricsData {
-    last_slot_critical_period_start: Timestamp,
-    last_slot_critical_period_end: Timestamp,
+    last_slot_critical_period: Arc<RwLock<(Timestamp, Timestamp)>>,
 
-    builder_by_name: HashMap<String, u64>,
+    builder_by_name: Arc<DashMap<String, u64, RandomState>>,
 
     // All fields below must be cleaned once per slot in `mark_building_started`
-    orders_received: HashMap<OrderId, Timestamp>,
-    orders_with_pending_nonces: HashSet<OrderId>,
-    orders_simulation_end: HashMap<OrderId, Timestamp>,
+    orders_received: Arc<DashMap<OrderId, Timestamp, RandomState>>,
+    orders_with_pending_nonces: Arc<DashSet<OrderId, RandomState>>,
+    orders_simulation_end: Arc<DashMap<OrderId, Timestamp, RandomState>>,
 
-    orders_not_ready_for_immediate_inclusion: HashSet<OrderId>,
-    orders_first_insertion_block_seal_start_by_builder: HashMap<(OrderId, BuilderId), Timestamp>,
-    orders_first_insertion_block_seal_start: HashMap<OrderId, (Timestamp, BuilderId)>,
-}
-
-impl TracingMetricsData {
-    fn get_builder_id(&mut self, name: &str) -> BuilderId {
-        if let Some(id) = self.builder_by_name.get(name) {
-            return *id;
-        }
-        let id = self.builder_by_name.len() as u64;
-        self.builder_by_name.insert(name.to_string(), id);
-        id
-    }
+    orders_not_ready_for_immediate_inclusion: Arc<DashSet<OrderId, RandomState>>,
+    orders_first_insertion_block_seal_start_by_builder:
+        Arc<DashMap<(OrderId, BuilderId), Timestamp, RandomState>>,
+    orders_first_insertion_block_seal_start:
+        Arc<DashMap<OrderId, (Timestamp, BuilderId), RandomState>>,
 }
 
 lazy_static! {
-    static ref METRICS_TRACING_REGISTRY: Arc<Mutex<TracingMetricsData>> =
-        Arc::new(Mutex::new(TracingMetricsData::default()));
+    static ref METRICS_TRACING_REGISTRY: TracingMetricsData = TracingMetricsData::default();
 }
 
-const LOCK_MAX_ACCEPTABLE_WAIT_DURATION: Duration = Duration::from_micros(10);
-
-fn lock_registry() -> MutexGuard<'static, TracingMetricsData> {
-    let start = Instant::now();
-    let guard = METRICS_TRACING_REGISTRY.lock().unwrap();
-    let wait_time = start.elapsed();
-    if wait_time > LOCK_MAX_ACCEPTABLE_WAIT_DURATION {
-        warn!(
-            wait_time_us = wait_time.as_micros(),
-            "Contentious lock in tracing_metrics"
-        );
+// this should be called on each of the tracing metric invocation to prevent memory leak when
+// mark_building_started is not called
+fn should_record_tracing_metric(timestamp: &OffsetDateTime) -> bool {
+    let (start, end) = *METRICS_TRACING_REGISTRY
+        .last_slot_critical_period
+        .read()
+        .unwrap();
+    if start == 0 || end == 0 {
+        return false;
     }
-    guard
+    let time = offset_datetime_to_timestamp_us(timestamp);
+
+    let too_early = time < start;
+    let too_late = time > end;
+    !too_early && !too_late
 }
 
-// This should be called on each slot start to mark building stating time and to clean accumulated data.
-// If its not called tracing data is not collected.
+fn get_builder_id(builder_name: &str) -> BuilderId {
+    if let Some(id) = METRICS_TRACING_REGISTRY.builder_by_name.get(builder_name) {
+        return *id;
+    }
+    let id: u64 = rand::random();
+    METRICS_TRACING_REGISTRY
+        .builder_by_name
+        .insert(builder_name.to_string(), id);
+    id
+}
+
+/// mark_building_started should be called on each slot start to mark building starting time and to clean accumulated data.
+/// If its not called tracing data is not collected.
 pub fn mark_building_started(block_timestamp: OffsetDateTime) {
-    let mut reg = lock_registry();
-    reg.last_slot_critical_period_start = (block_timestamp - BLOCK_METRICS_TIMESTAMP_LOWER_DELTA)
-        .unix_timestamp_nanos() as u64
-        / 1000;
-    reg.last_slot_critical_period_end = (block_timestamp + BLOCK_METRICS_TIMESTAMP_UPPER_DELTA)
-        .unix_timestamp_nanos() as u64
-        / 1000;
+    let reg = &METRICS_TRACING_REGISTRY;
+    {
+        let start = (block_timestamp - BLOCK_METRICS_TIMESTAMP_LOWER_DELTA).unix_timestamp_nanos()
+            as u64
+            / 1000;
+        let end = (block_timestamp + BLOCK_METRICS_TIMESTAMP_UPPER_DELTA).unix_timestamp_nanos()
+            as u64
+            / 1000;
+        let mut last_slot_period = reg.last_slot_critical_period.write().unwrap();
+        *last_slot_period = (start, end);
+    }
 
     reg.orders_received.clear();
-    reg.orders_simulation_end.clear();
     reg.orders_with_pending_nonces.clear();
+    reg.orders_simulation_end.clear();
+    reg.orders_not_ready_for_immediate_inclusion.clear();
     reg.orders_first_insertion_block_seal_start_by_builder
         .clear();
     reg.orders_first_insertion_block_seal_start.clear();
-    reg.orders_not_ready_for_immediate_inclusion.clear();
 }
 
+/// This should be called when ordrepool command appears in the builder. It can be a new order or order replacement.
 pub fn mark_command_received(command: &ReplaceableOrderPoolCommand, received_at: OffsetDateTime) {
     let kind = match command {
         ReplaceableOrderPoolCommand::Order(order) => {
@@ -103,68 +111,63 @@ pub fn mark_command_received(command: &ReplaceableOrderPoolCommand, received_at:
 }
 
 fn mark_order_received(id: OrderId, received_at: OffsetDateTime) {
-    let mut reg = lock_registry();
+    if !should_record_tracing_metric(&received_at) {
+        return;
+    }
 
+    if METRICS_TRACING_REGISTRY.orders_received.contains_key(&id) {
+        return;
+    }
     let timestamp = offset_datetime_to_timestamp_us(&received_at);
-    if !timestamp_in_critical_period(
-        timestamp,
-        reg.last_slot_critical_period_start,
-        reg.last_slot_critical_period_end,
-    ) {
-        return;
-    }
-
-    if reg.orders_received.contains_key(&id) {
-        return;
-    }
-    reg.orders_received.insert(id, timestamp);
+    METRICS_TRACING_REGISTRY
+        .orders_received
+        .insert(id, timestamp);
 }
 
+/// mark_order_pending_nonce should be called when order that was received can't be simulated immediately because of the nonce.
 pub fn mark_order_pending_nonce(id: OrderId) {
-    let mut reg = lock_registry();
-
-    let now = timestamp_now_us();
-    if !timestamp_in_critical_period(
-        now,
-        reg.last_slot_critical_period_start,
-        reg.last_slot_critical_period_end,
-    ) {
+    let now = OffsetDateTime::now_utc();
+    if !should_record_tracing_metric(&now) {
         return;
     }
 
-    reg.orders_with_pending_nonces.insert(id);
+    METRICS_TRACING_REGISTRY
+        .orders_with_pending_nonces
+        .insert(id);
 }
 
+/// mark_order_simulation_end should be called when order top of block simulation ends.
 pub fn mark_order_simulation_end(id: OrderId, success: bool) {
-    let mut reg = lock_registry();
-
-    let now = timestamp_now_us();
-    if !timestamp_in_critical_period(
-        now,
-        reg.last_slot_critical_period_start,
-        reg.last_slot_critical_period_end,
-    ) {
+    let now = OffsetDateTime::now_utc();
+    if !should_record_tracing_metric(&now) {
         return;
     }
 
-    let received_at = if let Some(ts) = reg.orders_received.get(&id) {
+    let received_at = if let Some(ts) = METRICS_TRACING_REGISTRY.orders_received.get(&id) {
         *ts
     } else {
         return;
     };
 
-    if reg.orders_simulation_end.contains_key(&id) {
+    if METRICS_TRACING_REGISTRY
+        .orders_simulation_end
+        .contains_key(&id)
+    {
         return;
     }
-
-    let now = timestamp_now_us();
-
-    reg.orders_simulation_end.insert(id, now);
 
     // we con't record metrics for ordrers that were stuck due to nonce
-    if reg.orders_with_pending_nonces.contains(&id) {
+    if METRICS_TRACING_REGISTRY
+        .orders_with_pending_nonces
+        .contains(&id)
+    {
         return;
     }
+
+    let now = offset_datetime_to_timestamp_us(&now);
+    METRICS_TRACING_REGISTRY
+        .orders_simulation_end
+        .insert(id, now);
 
     let received_to_sim_end_time_ms = if received_at < now {
         let time_us = (now - received_at) as f64;
@@ -178,63 +181,68 @@ pub fn mark_order_simulation_end(id: OrderId, success: bool) {
         .observe(received_to_sim_end_time_ms);
 }
 
+/// mark_order_not_ready_for_immediate_inclusion should be called if order can't be included immediatly.
+/// For example, if it was invalidated by nonce by other order inclusion.
 pub fn mark_order_not_ready_for_immediate_inclusion(order_id: &OrderId) {
-    let mut reg = lock_registry();
-    if reg
+    let now = OffsetDateTime::now_utc();
+    if !should_record_tracing_metric(&now) {
+        return;
+    }
+
+    if METRICS_TRACING_REGISTRY
         .orders_not_ready_for_immediate_inclusion
         .contains(order_id)
     {
         return;
     };
-    reg.orders_not_ready_for_immediate_inclusion
-        .insert(order_id.clone());
+    METRICS_TRACING_REGISTRY
+        .orders_not_ready_for_immediate_inclusion
+        .insert(*order_id);
 }
 
-pub fn mark_builder_considering_order(
+/// mark_builder_considers_order should be called when builder considers order for inclusion
+/// order_closed_at is a time at which builder stopped considering new orders for the current run
+pub fn mark_builder_considers_order(
     order_id: OrderId,
     order_closed_at: &OffsetDateTime,
     builder_name: &str,
 ) {
-    let mut reg = lock_registry();
-
-    let timestamp = offset_datetime_to_timestamp_us(order_closed_at);
-    if !timestamp_in_critical_period(
-        timestamp,
-        reg.last_slot_critical_period_start,
-        reg.last_slot_critical_period_end,
-    ) {
+    if !should_record_tracing_metric(order_closed_at) {
         return;
     }
 
-    let builder_id = reg.get_builder_id(builder_name);
-    if reg
+    let builder_id = get_builder_id(builder_name);
+    if METRICS_TRACING_REGISTRY
         .orders_first_insertion_block_seal_start_by_builder
         .contains_key(&(order_id, builder_id))
     {
         return;
     }
 
-    let order_sim_end_time = reg
+    let order_sim_end_time = METRICS_TRACING_REGISTRY
         .orders_simulation_end
         .get(&order_id)
-        .cloned()
+        .map(|r| *r)
         .unwrap_or_default();
-    let ready_for_immediate_inclusion = reg
+    let ready_for_immediate_inclusion = METRICS_TRACING_REGISTRY
         .orders_not_ready_for_immediate_inclusion
         .contains(&order_id);
 
-    let min_time_set = if !reg
+    let timestamp = offset_datetime_to_timestamp_us(order_closed_at);
+    let min_time_set = if !METRICS_TRACING_REGISTRY
         .orders_first_insertion_block_seal_start
         .contains_key(&order_id)
     {
-        reg.orders_first_insertion_block_seal_start
-            .insert(order_id.clone(), (builder_id, timestamp));
+        METRICS_TRACING_REGISTRY
+            .orders_first_insertion_block_seal_start
+            .insert(order_id, (builder_id, timestamp));
         true
     } else {
         false
     };
 
-    reg.orders_first_insertion_block_seal_start_by_builder
+    METRICS_TRACING_REGISTRY
+        .orders_first_insertion_block_seal_start_by_builder
         .insert((order_id, builder_id), timestamp);
 
     if order_sim_end_time == 0 || order_sim_end_time > timestamp || ready_for_immediate_inclusion {
@@ -255,14 +263,4 @@ fn offset_datetime_to_timestamp_us(dt: &OffsetDateTime) -> Timestamp {
     (dt.unix_timestamp_nanos() / 1_000)
         .try_into()
         .unwrap_or_default()
-}
-
-fn timestamp_now_us() -> Timestamp {
-    offset_datetime_to_timestamp_us(&OffsetDateTime::now_utc())
-}
-
-fn timestamp_in_critical_period(time: Timestamp, start: Timestamp, end: Timestamp) -> bool {
-    let too_early = time < start;
-    let too_late = time > end;
-    !too_early && !too_late
 }

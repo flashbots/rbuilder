@@ -6,12 +6,12 @@
 //! When metric server is spawned is serves prometheus metrics at: /debug/metrics/prometheus
 
 #![allow(unexpected_cfgs)]
+use crate::building::BuiltBlockTrace;
 use crate::{
     live_builder::block_list_provider::{blocklist_hash, BlockList},
     primitives::mev_boost::MevBoostRelayID,
     utils::build_info::Version,
 };
-use crate::building::BuiltBlockTrace;
 use alloy_primitives::{utils::Unit, U256};
 use bigdecimal::num_traits::Pow;
 use ctor::ctor;
@@ -42,9 +42,9 @@ const SIM_STATUS_OK: &str = "sim_success";
 const SIM_STATUS_FAIL: &str = "sim_fail";
 
 /// We record timestamps only for blocks built within interval of the block timestamp
-pub(self) const BLOCK_METRICS_TIMESTAMP_LOWER_DELTA: time::Duration = time::Duration::seconds(3);
+const BLOCK_METRICS_TIMESTAMP_LOWER_DELTA: time::Duration = time::Duration::seconds(3);
 /// We record timestamps only for blocks built within interval of the block timestamp
-pub(self) const BLOCK_METRICS_TIMESTAMP_UPPER_DELTA: time::Duration = time::Duration::seconds(2);
+const BLOCK_METRICS_TIMESTAMP_UPPER_DELTA: time::Duration = time::Duration::seconds(2);
 
 fn is_now_close_to_slot_end(block_timestamp: OffsetDateTime) -> bool {
     let now = OffsetDateTime::now_utc();
@@ -241,39 +241,44 @@ register_metrics! {
     )
     .unwrap();
     pub static ORDER_SIMULATION_TIME: HistogramVec = HistogramVec::new(
-        HistogramOpts::new("order_simulation_time", "Order Simulation Time Time (ms)")
+        HistogramOpts::new("order_simulation_time", "Order Simulation Time (ms)")
             .buckets(exponential_buckets_range(0.01, 200.0, 200)),
         &["builder_name", "status"]
     )
     .unwrap();
 
     // E2E tracing metrics
+    // The goal of these two metrics is:
+    // 1. Cover as many lines of code as possible without any gaps.
+    // 2. Show E2E latency of the order that could be executed immediately and also arrived towards the end of the slot.
+    // The path of order goes as follows:
+    // Received -> Simulated -> (builders start to build a block with it) -> block sealed -> block submit started
     pub static ORDER_RECEIVED_TO_SIM_END_TIME: HistogramVec = HistogramVec::new(
-        HistogramOpts::new("order_received_to_sim_end_time", "Time between when order was received and top of the block simulation ended for orders that arrive after slot start. (ms)")
+        HistogramOpts::new("order_received_to_sim_end_time", "Time between when the order was received and top of the block simulation ended for orders that arrive after slot start. (ms)")
             .buckets(exponential_buckets_range(0.01, 200.0, 200)),
         &["status"]
     )
     .unwrap();
     pub static ORDER_SIM_END_TO_FIRST_BUILD_STARTED_TIME: HistogramVec = HistogramVec::new(
-        HistogramOpts::new("order_sim_end_to_first_build_started_time", "Time between order simulation end and start of the building run that first considered that order. (ms)")
+        HistogramOpts::new("order_sim_end_to_first_build_started_time", "Time between when the order simulation ended and the builder started to build first block with it. (ms)")
             .buckets(exponential_buckets_range(0.01, 300.0, 300)),
         &["builder_name"]
     )
     .unwrap();
     pub static ORDER_SIM_END_TO_FIRST_BUILD_STARTED_MIN_TIME: HistogramVec = HistogramVec::new(
-        HistogramOpts::new("order_sim_end_to_first_build_started_min_time", "Time between order simulation end and start of the building run that first considered that order recorded only for the first order consideration over all builders. (ms)")
+        HistogramOpts::new("order_sim_end_to_first_build_started_min_time", "Time between when the order simulation ended and the first builder started to build first block with it. (ms)")
             .buckets(exponential_buckets_range(0.01, 300.0, 300)),
         &["builder_name"]
     )
     .unwrap();
     pub static BLOCK_FILL_START_SEAL_END_TIME: HistogramVec = HistogramVec::new(
-        HistogramOpts::new("block_build_start_seal_end_time", "Time between block build started and block sealed ended. (ms)")
+        HistogramOpts::new("block_build_start_seal_end_time", "Time between when the block build started and the block sealed ended. (ms)")
             .buckets(exponential_buckets_range(0.01, 500.0, 300)),
         &["builder_name"]
     )
     .unwrap();
     pub static BLOCK_SEAL_END_SUBMIT_START_TIME: HistogramVec = HistogramVec::new(
-        HistogramOpts::new("block_seal_end_submit_start_time", "Time between block sealed ended and block submission started. (ms)")
+        HistogramOpts::new("block_seal_end_submit_start_time", "Time between when the block sealed ended and the block submission started. (ms)")
             .buckets(exponential_buckets_range(0.01, 500.0, 300)),
         &[]
     )
@@ -517,7 +522,7 @@ pub fn add_subsidy_value(value: U256, landed: bool) {
     }
 }
 
-pub(self) fn sim_status(success: bool) -> &'static str {
+fn sim_status(success: bool) -> &'static str {
     if success {
         SIM_STATUS_OK
     } else {

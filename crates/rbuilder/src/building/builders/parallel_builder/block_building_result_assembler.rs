@@ -19,6 +19,7 @@ use crate::{
         BlockBuildingContext,
     },
     provider::StateProviderFactory,
+    telemetry::mark_builder_considers_order,
 };
 
 /// Assembles block building results from the best orderings of order groups.
@@ -223,6 +224,11 @@ where
                 let (order_idx, _) = sequence_of_orders.sequence_of_orders.remove(0);
                 let sim_order = &order_group.orders[order_idx];
 
+                mark_builder_considers_order(
+                    sim_order.id(),
+                    &block_building_helper.built_block_trace().orders_closed_at,
+                    block_building_helper.builder_name(),
+                );
                 let start_time = Instant::now();
                 let commit_result = block_building_helper.commit_order(sim_order)?;
                 let order_commit_time = start_time.elapsed();

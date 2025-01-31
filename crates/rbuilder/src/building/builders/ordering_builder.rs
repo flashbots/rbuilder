@@ -15,7 +15,7 @@ use crate::{
     },
     primitives::{AccountNonce, OrderId},
     provider::StateProviderFactory,
-    telemetry::mark_builder_considering_order,
+    telemetry::mark_builder_considers_order,
 };
 use ahash::{HashMap, HashSet};
 use reth::revm::cached::CachedReads;
@@ -259,7 +259,7 @@ where
                     break;
                 }
             }
-            mark_builder_considering_order(
+            mark_builder_considers_order(
                 sim_order.id(),
                 &block_building_helper.built_block_trace().orders_closed_at,
                 block_building_helper.builder_name(),
