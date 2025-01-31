@@ -8,8 +8,7 @@
 #![allow(unexpected_cfgs)]
 use crate::{
     live_builder::block_list_provider::{blocklist_hash, BlockList},
-    live_builder::order_input::ReplaceableOrderPoolCommand,
-    primitives::{mev_boost::MevBoostRelayID, Order},
+    primitives::mev_boost::MevBoostRelayID,
     utils::build_info::Version,
 };
 use alloy_primitives::{utils::Unit, U256};
@@ -27,6 +26,10 @@ use std::time::Instant;
 use time::OffsetDateTime;
 use tracing::error;
 
+mod tracing_metrics;
+
+pub use tracing_metrics::*;
+
 const SUBSIDY_ATTEMPT: &str = "attempt";
 const SUBSIDY_LANDED: &str = "landed";
 
@@ -34,10 +37,13 @@ const RELAY_ERROR_CONNECTION: &str = "conn";
 const RELAY_ERROR_TOO_MANY_REQUESTS: &str = "too_many";
 const RELAY_ERROR_OTHER: &str = "other";
 
+const SIM_STATUS_OK: &str = "sim_success";
+const SIM_STATUS_FAIL: &str = "sim_fail";
+
 /// We record timestamps only for blocks built within interval of the block timestamp
-const BLOCK_METRICS_TIMESTAMP_LOWER_DELTA: time::Duration = time::Duration::seconds(3);
+pub(self) const BLOCK_METRICS_TIMESTAMP_LOWER_DELTA: time::Duration = time::Duration::seconds(3);
 /// We record timestamps only for blocks built within interval of the block timestamp
-const BLOCK_METRICS_TIMESTAMP_UPPER_DELTA: time::Duration = time::Duration::seconds(2);
+pub(self) const BLOCK_METRICS_TIMESTAMP_UPPER_DELTA: time::Duration = time::Duration::seconds(2);
 
 fn is_now_close_to_slot_end(block_timestamp: OffsetDateTime) -> bool {
     let now = OffsetDateTime::now_utc();
@@ -235,8 +241,16 @@ register_metrics! {
     .unwrap();
     pub static ORDER_SIMULATION_TIME: HistogramVec = HistogramVec::new(
         HistogramOpts::new("order_simulation_time", "Order Simulation Time Time (ms)")
-            .buckets(exponential_buckets_range(1.0, 2000.0, 200)),
-        &["builder_name"]
+            .buckets(exponential_buckets_range(0.01, 200.0, 200)),
+        &["builder_name", "status"]
+    )
+    .unwrap();
+
+    // E2E tracing metrics
+    pub static ORDER_RECEIVED_TO_SIM_END_TIME: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("order_received_to_sim_end_time", "Time between when order was received and top of the block simulation ended for orders that arrive after slot start. (ms)")
+            .buckets(exponential_buckets_range(0.01, 200.0, 200)),
+        &["status"]
     )
     .unwrap();
 }
@@ -271,6 +285,7 @@ pub fn reset_histogram_metrics() {
     RELAY_SUBMIT_TIME.reset();
     TXFETCHER_TRANSACTION_QUERY_TIME.reset();
     SUBSIDY_VALUE.reset();
+    ORDER_RECEIVED_TO_SIM_END_TIME.reset();
 }
 
 pub(super) fn set_version(version: Version) {
@@ -467,20 +482,17 @@ pub fn add_subsidy_value(value: U256, landed: bool) {
     }
 }
 
-pub fn mark_command_received(command: &ReplaceableOrderPoolCommand) {
-    let kind = match command {
-        ReplaceableOrderPoolCommand::Order(Order::Bundle(_)) => "bundle",
-        ReplaceableOrderPoolCommand::Order(Order::Tx(_)) => "tx",
-        ReplaceableOrderPoolCommand::Order(Order::ShareBundle(_)) => "sbundle",
-        ReplaceableOrderPoolCommand::CancelShareBundle(_)
-        | ReplaceableOrderPoolCommand::CancelBundle(_) => "replacement",
-    };
-    ORDERPOOL_ORDERS_RECEIVED.with_label_values(&[kind]).inc();
+pub(self) fn sim_status(success: bool) -> &'static str {
+    if success {
+        SIM_STATUS_OK
+    } else {
+        SIM_STATUS_FAIL
+    }
 }
 
-pub fn add_order_simulation_time(duration: Duration, builder_name: &str) {
+pub fn add_order_simulation_time(duration: Duration, builder_name: &str, success: bool) {
     ORDER_SIMULATION_TIME
-        .with_label_values(&[builder_name])
+        .with_label_values(&[builder_name, sim_status(success)])
         .observe(duration.as_micros() as f64 / 1000.0);
 }
 

@@ -8,6 +8,7 @@ use alloy_provider::{IpcConnect, Provider, ProviderBuilder, RootProvider};
 use alloy_pubsub::PubSubFrontend;
 use futures::StreamExt;
 use std::{pin::pin, time::Instant};
+use time::OffsetDateTime;
 use tokio::{
     sync::{mpsc, mpsc::error::SendTimeoutError},
     task::JoinHandle,
@@ -45,6 +46,7 @@ pub async fn subscribe_to_txpool_with_blobs(
         let mut stream = pin!(stream);
 
         while let Some(tx_hash) = stream.next().await {
+            let received_at = OffsetDateTime::now_utc();
             let start = Instant::now();
 
             let tx_with_blobs = match get_tx_with_blobs(tx_hash, &provider).await {
@@ -66,7 +68,7 @@ pub async fn subscribe_to_txpool_with_blobs(
             add_txfetcher_time_to_query(parse_duration);
 
             let orderpool_command = ReplaceableOrderPoolCommand::Order(order);
-            mark_command_received(&orderpool_command);
+            mark_command_received(&orderpool_command, received_at);
             match results
                 .send_timeout(orderpool_command, config.results_channel_timeout)
                 .await

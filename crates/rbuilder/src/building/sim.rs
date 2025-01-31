@@ -6,7 +6,7 @@ use crate::{
     building::{BlockBuildingContext, BlockState, CriticalCommitOrderError},
     primitives::{Order, OrderId, SimValue, SimulatedOrder},
     provider::StateProviderFactory,
-    telemetry::add_order_simulation_time,
+    telemetry::{add_order_simulation_time, mark_order_pending_nonce},
     utils::{NonceCache, NonceCacheRef},
 };
 use ahash::{HashMap, HashSet};
@@ -111,11 +111,14 @@ where
 
         let order_nonce_state = self.get_order_nonce_state(&order, nonces)?;
 
+        let order_id = order.id();
+
         match order_nonce_state {
             OrderNonceState::Invalid => {
                 return Ok(());
             }
             OrderNonceState::PendingNonces(pending_nonces) => {
+                mark_order_pending_nonce(order_id);
                 let unsatisfied_nonces = pending_nonces.len();
                 for nonce in pending_nonces {
                     self.pending_nonces
@@ -430,13 +433,12 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
     ctx: &BlockBuildingContext,
     fork: &mut PartialBlockFork<'_, '_, Tracer>,
 ) -> Result<OrderSimResult, CriticalCommitOrderError> {
+    let start = Instant::now();
     // simulate parents
     let mut gas_used = 0;
     let mut blob_gas_used = 0;
     for parent in parent_orders {
-        let start = Instant::now();
         let result = fork.commit_order(&parent, ctx, gas_used, 0, blob_gas_used, true)?;
-        add_order_simulation_time(start.elapsed(), "sim");
         match result {
             Ok(res) => {
                 gas_used += res.gas_used;
@@ -455,6 +457,9 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
 
     // simulate
     let result = fork.commit_order(&order, ctx, gas_used, 0, blob_gas_used, true)?;
+    let sim_time = start.elapsed();
+    add_order_simulation_time(sim_time, "sim", result.is_ok()); // we count parent sim time + order sim time time here
+
     match result {
         Ok(res) => {
             let sim_value = SimValue::new(

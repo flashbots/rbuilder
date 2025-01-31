@@ -297,21 +297,26 @@ where
         let result =
             self.partial_block
                 .commit_order(order, &self.building_ctx, &mut self.block_state);
-        add_order_simulation_time(start.elapsed(), &self.builder_name);
-        match result {
+        let sim_time = start.elapsed();
+        let (result, sim_ok) = match result {
             Ok(ok_result) => match ok_result {
                 Ok(res) => {
                     self.built_block_trace.add_included_order(res);
-                    Ok(Ok(self.built_block_trace.included_orders.last().unwrap()))
+                    (
+                        Ok(Ok(self.built_block_trace.included_orders.last().unwrap())),
+                        true,
+                    )
                 }
                 Err(err) => {
                     self.built_block_trace
                         .modify_payment_when_no_signer_error(&err);
-                    Ok(Err(err))
+                    (Ok(Err(err)), false)
                 }
             },
-            Err(e) => Err(e),
-        }
+            Err(e) => (Err(e), false),
+        };
+        add_order_simulation_time(sim_time, &self.builder_name, sim_ok);
+        result
     }
 
     fn set_trace_fill_time(&mut self, time: Duration) {
