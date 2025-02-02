@@ -12,6 +12,7 @@ use crate::{
     },
 };
 use alloy_primitives::{Address, B256};
+use eth_sparse_mpt::RootHashThreadPool;
 use eyre::{eyre, Context};
 use jsonrpsee::RpcModule;
 use reth::chainspec::chain_value_parser;
@@ -121,6 +122,9 @@ pub struct BaseConfig {
     pub root_hash_use_sparse_trie: bool,
     /// compares result of root hash using sparse trie and reference root hash
     pub root_hash_compare_sparse_trie: bool,
+    /// number of threads used for root hash thread pool
+    /// if 0 global rayon pool is used
+    root_hash_threads: usize,
 
     pub watchdog_timeout_sec: Option<u64>,
 
@@ -193,6 +197,15 @@ impl BaseConfig {
         ))
     }
 
+    pub fn root_hash_thread_pool(&self) -> eyre::Result<Option<RootHashThreadPool>> {
+        let root_hash_thread_pool = if self.root_hash_threads > 0 {
+            Some(RootHashThreadPool::try_new(self.root_hash_threads)?)
+        } else {
+            None
+        };
+        Ok(root_hash_thread_pool)
+    }
+
     /// Allows instantiating a [`LiveBuilder`] with an existing provider factory
     pub async fn create_builder_with_provider_factory<P, SlotSourceType>(
         &self,
@@ -209,6 +222,7 @@ impl BaseConfig {
         let order_input_config = OrderInputConfig::from_config(self)?;
         let (orderpool_sender, orderpool_receiver) =
             mpsc::channel(order_input_config.input_channel_buffer_size);
+        let root_hash_thread_pool = self.root_hash_thread_pool()?;
         Ok(LiveBuilder::<P, SlotSourceType> {
             watchdog_timeout: self.watchdog_timeout(),
             error_storage_path: self.error_storage_path.clone(),
@@ -229,6 +243,7 @@ impl BaseConfig {
             builders: Vec::new(),
 
             run_sparse_trie_prefetcher: self.root_hash_use_sparse_trie,
+            root_hash_thread_pool,
 
             orderpool_sender,
             orderpool_receiver,
@@ -518,6 +533,7 @@ impl Default for BaseConfig {
             extra_data: b"extra_data_change_me".to_vec(),
             root_hash_use_sparse_trie: false,
             root_hash_compare_sparse_trie: false,
+            root_hash_threads: 0,
             watchdog_timeout_sec: None,
             backtest_fetch_mempool_data_dir: "/mnt/data/mempool".into(),
             backtest_fetch_eth_rpc_url: "http://127.0.0.1:8545".to_string(),

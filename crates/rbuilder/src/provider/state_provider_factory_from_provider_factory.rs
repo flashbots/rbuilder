@@ -1,5 +1,6 @@
 use alloy_consensus::Header;
 use alloy_primitives::{BlockHash, BlockNumber};
+use eth_sparse_mpt::RootHashThreadPool;
 use reth_errors::ProviderResult;
 use reth_node_api::{NodePrimitives, NodeTypes, NodeTypesWithDB};
 use reth_provider::{
@@ -69,13 +70,18 @@ where
         self.provider.last_block_number()
     }
 
-    fn root_hasher(&self, parent_hash: B256) -> ProviderResult<Box<dyn RootHasher>> {
+    fn root_hasher(
+        &self,
+        parent_hash: B256,
+        thread_pool: Option<RootHashThreadPool>,
+    ) -> ProviderResult<Box<dyn RootHasher>> {
         Ok(if let Some(root_hash_config) = &self.root_hash_config {
             Box::new(RootHasherImpl::new(
                 parent_hash,
                 root_hash_config.clone(),
                 self.provider.clone(),
                 self.provider.clone(),
+                thread_pool,
             ))
         } else {
             Box::new(MockRootHasher {})

@@ -30,6 +30,7 @@ use alloy_consensus::Header;
 use alloy_primitives::{Address, B256};
 use block_list_provider::BlockListProvider;
 use building::BlockBuildingPool;
+use eth_sparse_mpt::RootHashThreadPool;
 use eyre::Context;
 use jsonrpsee::RpcModule;
 use order_input::ReplaceableOrderPoolCommand;
@@ -104,6 +105,7 @@ where
     pub order_input_config: OrderInputConfig,
     pub blocks_source: BlocksSourceType,
     pub run_sparse_trie_prefetcher: bool,
+    pub root_hash_thread_pool: Option<RootHashThreadPool>,
 
     pub chain_chain_spec: Arc<ChainSpec>,
     pub provider: P,
@@ -267,7 +269,10 @@ where
 
             inc_active_slots();
 
-            let root_hasher = Arc::from(self.provider.root_hasher(payload.parent_block_hash())?);
+            let root_hasher = Arc::from(self.provider.root_hasher(
+                payload.parent_block_hash(),
+                self.root_hash_thread_pool.clone(),
+            )?);
 
             if let Some(block_ctx) = BlockBuildingContext::from_attributes(
                 payload.payload_attributes_event.clone(),

@@ -10,9 +10,11 @@
 
 pub mod reth_sparse_trie;
 pub mod sparse_mpt;
+#[cfg(any(test, feature = "benchmark-utils"))]
+pub mod test_utils;
 pub mod utils;
 
 pub use reth_sparse_trie::{
     calculate_root_hash_with_sparse_trie, prefetch_tries_for_accounts, ChangedAccountData,
-    SparseTrieSharedCache,
+    RootHashThreadPool, SparseTrieSharedCache,
 };
