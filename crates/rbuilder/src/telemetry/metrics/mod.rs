@@ -287,9 +287,9 @@ register_metrics! {
 
 // This function should be called periodically to reset histogram metrics.
 // If metrics are not reset histogram quantiles become rigid.
-// Reset period is set to 5 minutes.
+// Reset period is 10 minutes.
 pub fn reset_histogram_metrics() {
-    const HISTOGRAM_METRIC_RESET_PERIOD: Duration = Duration::from_secs(5 * 60);
+    const HISTOGRAM_METRIC_RESET_PERIOD: Duration = Duration::from_secs(10 * 60);
 
     lazy_static! {
         static ref LAST_RESET: Arc<Mutex<Instant>> = Arc::new(Mutex::new(Instant::now()));
