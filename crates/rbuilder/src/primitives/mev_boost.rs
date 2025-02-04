@@ -96,6 +96,7 @@ impl RelayConfig {
 
 /// Wrapper in RelayClient to submit blocks.
 /// Hides the particular configuration (eg: ssz, gip, optimistic).
+/// cancellation hardcoded on true for now.
 #[derive(Debug, Clone)]
 pub struct MevBoostRelayBidSubmitter {
     /// Id for UI
@@ -110,6 +111,8 @@ pub struct MevBoostRelayBidSubmitter {
     submission_rate_limiter: Option<Arc<DefaultDirectRateLimiter>>,
     /// This is not a real relay so we can send blocks to it even if it does not have any validator registered.
     test_relay: bool,
+    /// Parameter for the relay
+    cancellations: bool,
 }
 
 impl MevBoostRelayBidSubmitter {
@@ -132,6 +135,7 @@ impl MevBoostRelayBidSubmitter {
             optimistic: config.optimistic,
             submission_rate_limiter,
             test_relay,
+            cancellations: true,
         }
     }
 
@@ -166,6 +170,7 @@ impl MevBoostRelayBidSubmitter {
                 self.use_ssz_for_submit,
                 self.use_gzip_for_submit,
                 self.test_relay,
+                self.cancellations,
             )
             .await
     }
