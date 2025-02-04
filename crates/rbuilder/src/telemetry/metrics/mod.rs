@@ -233,7 +233,7 @@ register_metrics! {
     // Metrics for important step of the block processing
     pub static BLOCK_FILL_TIME: HistogramVec = HistogramVec::new(
         HistogramOpts::new("block_fill_time", "Block Fill Times (ms)")
-            .buckets(exponential_buckets_range(1.0, 3000.0, 100)),
+            .buckets(exponential_buckets_range(0.01, 3000.0, 200)),
         &["builder_name"]
     )
     .unwrap();

@@ -63,6 +63,7 @@ pub fn backtest_prepare_ctx_for_block<P>(
     blocklist: BlockList,
     sbundle_mergeabe_signers: &[Address],
     builder_signer: Signer,
+    evm_caching_enable: bool,
 ) -> eyre::Result<BacktestBlockInput>
 where
     P: StateProviderFactory + Clone + 'static,
@@ -80,6 +81,7 @@ where
         block_data.winning_bid_trace.proposer_fee_recipient,
         Some(builder_signer),
         Arc::from(provider.root_hasher(parent_num_hash)?),
+        evm_caching_enable,
     );
     backtest_prepare_ctx_for_block_from_building_context(
         ctx,
@@ -145,6 +147,7 @@ where
         blocklist,
         sbundle_mergeabe_signers,
         config.base_config().coinbase_signer()?,
+        config.base_config().evm_caching_enable,
     )?;
 
     let filtered_orders_blocklist_count = sim_errors

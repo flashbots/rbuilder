@@ -9,17 +9,19 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
 };
+
+use ahash::RandomState;
 use tracing::info;
 
 /// Database cache shared bewteen multiple threads.
 /// It should be created for unique parent block.
 #[derive(Debug, Clone, Default)]
 pub struct SharedCachedReads {
-    pub account_info: DashMap<Address, Option<AccountInfo>>,
-    pub storage: DashMap<(Address, U256), U256>,
+    pub account_info: DashMap<Address, Option<AccountInfo>, RandomState>,
+    pub storage: DashMap<(Address, U256), U256, RandomState>,
 
-    pub code_by_hash: DashMap<B256, Bytecode>,
-    pub block_hash: DashMap<u64, B256>,
+    pub code_by_hash: DashMap<B256, Bytecode, RandomState>,
+    pub block_hash: DashMap<u64, B256, RandomState>,
 
     pub local_hit_count: Arc<AtomicU64>,
     pub local_miss_count: Arc<AtomicU64>,

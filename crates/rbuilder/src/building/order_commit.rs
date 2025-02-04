@@ -2,6 +2,7 @@ use super::{
     cached_reads::{CachedDB, LocalCachedReads, SharedCachedReads},
     create_payout_tx,
     tracers::SimulationTracer,
+    tx_sim_cache::{CachedExecutionResult, EVMRecordingDatabase},
     BlockBuildingContext, EstimatePayoutGasErr, ThreadBlockBuildingContext,
 };
 use crate::{
@@ -20,6 +21,7 @@ use ahash::HashSet;
 use alloy_consensus::{constants::KECCAK_EMPTY, Transaction};
 use alloy_eips::eip4844::{DATA_GAS_PER_BLOB, MAX_DATA_GAS_PER_BLOCK};
 use alloy_primitives::{Address, B256, U256};
+use itertools::Itertools;
 use reth::revm::database::StateProviderDatabase;
 use reth_errors::ProviderError;
 use reth_evm::{Evm, EvmEnv};
@@ -194,7 +196,7 @@ pub struct TransactionOk {
     pub receipt: Receipt,
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum TransactionErr {
     #[error("Invalid transaction: {0:?}")]
     InvalidTransaction(InvalidTransaction),
@@ -223,7 +225,7 @@ pub struct BundleOk {
     pub original_order_ids: Vec<OrderId>,
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq, Eq)]
 pub enum BundleErr {
     #[error("Invalid transaction, hash: {0:?}, err: {1}")]
     InvalidTransaction(B256, TransactionErr),
@@ -284,7 +286,7 @@ pub struct OrderOk {
     pub used_state_trace: Option<UsedStateTrace>,
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq, Eq)]
 pub enum OrderErr {
     #[error("Transaction error: {0}")]
     Transaction(#[from] TransactionErr),
@@ -436,34 +438,75 @@ impl<'a, 'b, 'c, 'd, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, 'd, 
         // evm start
         // ====================================================
 
-        let used_state_tracer = self.tracer.as_ref().and_then(|tracer| {
-            if tracer.should_collect_used_state_trace() {
+        // this is set to true when user of the commit_* function wants to have used state trace,
+        // on the other hand we always record used state trace when doing evm caching we just can skip showing it
+        let is_recording_used_state = self
+            .tracer
+            .as_ref()
+            .map(|t| t.should_collect_used_state_trace())
+            .unwrap_or_default();
+        let caching_result = self.ctx.tx_execution_cache.get_cached_result(
+            db.as_mut(),
+            tx.hash(),
+            &self.ctx.evm_env.block_env.beneficiary,
+        )?;
+
+        let cached_used_state_trace;
+        let (res, used_state_trace) = if let Some(result) = caching_result.result {
+            cached_used_state_trace = Some(caching_result.used_state_trace);
+            (result, cached_used_state_trace.as_ref().map(|t| t.as_ref()))
+        } else {
+            let used_state_tracer = if is_recording_used_state || caching_result.should_cache {
                 self.tmp_used_state_tracer.clear();
                 Some(&mut self.tmp_used_state_tracer)
             } else {
                 None
-            }
-        });
+            };
 
-        let res = execute_evm(
-            &self.ctx.evm_factory,
-            self.ctx.evm_env.clone(),
-            tx_with_blobs,
-            used_state_tracer,
-            db.as_mut(),
-            &self.ctx.blocklist,
-        )?;
-        let res = match res {
-            Ok(res) => res,
-            Err(err) => return Ok(Err(err)),
+            let mut db = EVMRecordingDatabase::new(db.as_mut(), caching_result.should_cache);
+
+            let res = execute_evm(
+                &self.ctx.evm_factory,
+                self.ctx.evm_env.clone(),
+                tx_with_blobs,
+                used_state_tracer,
+                &mut db,
+                &self.ctx.blocklist,
+            )?;
+
+            if caching_result.should_cache {
+                self.ctx
+                    .tx_execution_cache
+                    .store_result(CachedExecutionResult {
+                        tx_hash: *tx.hash(),
+                        coinbase: self.ctx.evm_env.block_env.beneficiary,
+                        recorded_trace: db.recorded_trace,
+                        result: res.clone(),
+                        used_state_trace: Arc::new(self.tmp_used_state_tracer.clone()),
+                    });
+            }
+
+            let used_state_tracer = if is_recording_used_state {
+                Some(&self.tmp_used_state_tracer)
+            } else {
+                None
+            };
+            (res, used_state_tracer)
         };
 
         // evm end
         // ====================================================
 
+        let res = match res {
+            Ok(res) => res,
+            Err(err) => return Ok(Err(err)),
+        };
+
         if let Some(tracer) = &mut self.tracer {
             tracer.add_gas_used(res.result.gas_used());
-            tracer.add_used_state_trace(&self.tmp_used_state_tracer);
+            if let (true, Some(t)) = (is_recording_used_state, used_state_trace) {
+                tracer.add_used_state_trace(t)
+            }
         }
 
         db.as_mut().commit(res.state);
@@ -798,7 +841,7 @@ impl<'a, 'b, 'c, 'd, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, 'd, 
         let mut insert = res.bundle_ok;
 
         // now pay all kickbacks
-        for (to, payout) in res.payouts_promissed.into_iter() {
+        for (to, payout) in res.payouts_promissed.into_iter().sorted_by_key(|(a, _)| *a) {
             if let Err(err) = self.insert_refund_payout_tx(payout, to, gas_reserved, &mut insert)? {
                 return Ok(Err(err));
             }

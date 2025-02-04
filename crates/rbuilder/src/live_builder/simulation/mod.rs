@@ -4,6 +4,7 @@ mod simulation_job;
 use crate::{
     building::{
         sim::{SimTree, SimulatedResult, SimulationRequest},
+        tx_sim_cache::TxExecutionCache,
         BlockBuildingContext,
     },
     live_builder::order_input::orderpool::OrdersForBlock,
@@ -55,6 +56,7 @@ pub struct OrderSimulationPool<P> {
     running_tasks: Arc<Mutex<Vec<JoinHandle<()>>>>,
     current_contexts: Arc<Mutex<CurrentSimulationContexts>>,
     worker_threads: Vec<std::thread::JoinHandle<()>>,
+    use_random_coinbase: bool,
 }
 
 /// Result of a simulation.
@@ -70,7 +72,12 @@ impl<P> OrderSimulationPool<P>
 where
     P: StateProviderFactory + Clone + 'static,
 {
-    pub fn new(provider: P, num_workers: usize, global_cancellation: CancellationToken) -> Self {
+    pub fn new(
+        provider: P,
+        num_workers: usize,
+        use_random_coinbase: bool,
+        global_cancellation: CancellationToken,
+    ) -> Self {
         let mut result = Self {
             provider,
             running_tasks: Arc::new(Mutex::new(Vec::new())),
@@ -78,6 +85,7 @@ where
                 contexts: HashMap::default(),
             })),
             worker_threads: Vec::new(),
+            use_random_coinbase,
         };
         for i in 0..num_workers {
             let ctx = Arc::clone(&result.current_contexts);
@@ -107,12 +115,15 @@ where
     ) -> SlotOrderSimResults {
         let (slot_sim_results_sender, slot_sim_results_receiver) = mpsc::channel(10_000);
 
-        let ctx = {
+        let ctx = if self.use_random_coinbase {
             // use random coinbase for simulations to make top of the block simulation bypass harder
             let mut ctx = ctx;
             let signer = Signer::random();
             ctx.evm_env.block_env.beneficiary = signer.address;
             ctx.builder_signer = Some(signer);
+            ctx.tx_execution_cache = TxExecutionCache::new(false).into();
+            ctx
+        } else {
             ctx
         };
 
@@ -205,7 +216,7 @@ mod tests {
         )
         .unwrap();
 
-        let sim_pool = OrderSimulationPool::new(provider_factory_reopener, 4, cancel.clone());
+        let sim_pool = OrderSimulationPool::new(provider_factory_reopener, 4, true, cancel.clone());
         let (order_sender, order_receiver) = mpsc::unbounded_channel();
         let orders_for_block = OrdersForBlock {
             new_order_sub: order_receiver,

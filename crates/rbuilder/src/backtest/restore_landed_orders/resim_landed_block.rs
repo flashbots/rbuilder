@@ -53,6 +53,7 @@ where
         suggested_fee_recipient,
         None,
         Arc::from(provider.root_hasher(parent_num_hash)?),
+        false,
     );
 
     let mut local_ctx = ThreadBlockBuildingContext::default();

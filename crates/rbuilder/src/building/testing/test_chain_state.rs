@@ -396,6 +396,7 @@ impl TestBlockContextBuilder {
             Some(SpecId::SHANGHAI),
             self.root_hasher,
             0,
+            true,
         )
         .unwrap();
         if self.use_suggested_fee_recipient_as_coinbase {

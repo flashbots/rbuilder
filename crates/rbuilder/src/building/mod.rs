@@ -49,6 +49,7 @@ use std::{
 };
 use thiserror::Error;
 use time::OffsetDateTime;
+use tx_sim_cache::TxExecutionCache;
 
 pub mod block_orders;
 pub mod builders;
@@ -65,6 +66,7 @@ pub mod precompile_cache;
 pub mod sim;
 pub mod testing;
 pub mod tracers;
+pub mod tx_sim_cache;
 
 pub use self::{
     block_orders::*, builders::mock_block_building_helper::MockRootHasher, built_block_trace::*,
@@ -94,6 +96,7 @@ pub struct BlockBuildingContext {
     pub root_hasher: Arc<dyn RootHasher>,
     pub payload_id: InternalPayloadId,
     pub shared_cached_reads: Arc<SharedCachedReads>,
+    pub tx_execution_cache: Arc<TxExecutionCache>,
 }
 
 impl BlockBuildingContext {
@@ -111,6 +114,7 @@ impl BlockBuildingContext {
         spec_id: Option<SpecId>,
         root_hasher: Arc<dyn RootHasher>,
         payload_id: InternalPayloadId,
+        evm_caching_enable: bool,
     ) -> Option<BlockBuildingContext> {
         let attributes = EthPayloadBuilderAttributes::try_new(
             attributes.data.parent_block_hash,
@@ -178,6 +182,7 @@ impl BlockBuildingContext {
             root_hasher,
             payload_id,
             shared_cached_reads: Default::default(),
+            tx_execution_cache: Arc::new(TxExecutionCache::new(evm_caching_enable)),
         })
     }
 
@@ -194,6 +199,7 @@ impl BlockBuildingContext {
         suggested_fee_recipient: Address,
         builder_signer: Option<Signer>,
         root_hasher: Arc<dyn RootHasher>,
+        evm_caching_enable: bool,
     ) -> BlockBuildingContext {
         let block_number = onchain_block.header.number;
 
@@ -262,6 +268,7 @@ impl BlockBuildingContext {
             root_hasher,
             payload_id: 0,
             shared_cached_reads: Default::default(),
+            tx_execution_cache: Arc::new(TxExecutionCache::new(evm_caching_enable)),
         }
     }
 
@@ -278,6 +285,7 @@ impl BlockBuildingContext {
             Default::default(),
             Default::default(),
             Arc::new(MockRootHasher {}),
+            false,
         )
     }
 
@@ -415,7 +423,7 @@ pub enum InsertPayoutTxErr {
     NoSigner,
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq, Eq)]
 pub enum ExecutionError {
     #[error("Order error: {0}")]
     OrderError(#[from] OrderErr),

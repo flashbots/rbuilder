@@ -43,6 +43,20 @@ pub enum PayoutTxErr {
     NoSigner,
 }
 
+impl PartialEq for PayoutTxErr {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (PayoutTxErr::Reth(_), PayoutTxErr::Reth(_)) => true,
+            (PayoutTxErr::SignError(a), PayoutTxErr::SignError(b)) => a == b,
+            (PayoutTxErr::EvmError(_), PayoutTxErr::EvmError(_)) => true,
+            (PayoutTxErr::NoSigner, PayoutTxErr::NoSigner) => true,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for PayoutTxErr {}
+
 pub fn insert_test_payout_tx(
     to: Address,
     ctx: &BlockBuildingContext,
@@ -95,6 +109,22 @@ pub enum EstimatePayoutGasErr {
     #[error("Failed to estimate gas limit")]
     FailedToEstimate,
 }
+
+impl PartialEq for EstimatePayoutGasErr {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (EstimatePayoutGasErr::Reth(_), EstimatePayoutGasErr::Reth(_)) => true,
+            (EstimatePayoutGasErr::PayoutTxErr(a), EstimatePayoutGasErr::PayoutTxErr(b)) => a == b,
+            (EstimatePayoutGasErr::FailedToEstimate, EstimatePayoutGasErr::FailedToEstimate) => {
+                true
+            }
+            _ => false,
+        }
+    }
+}
+
+impl Eq for EstimatePayoutGasErr {}
+
 pub fn estimate_payout_gas_limit(
     to: Address,
     ctx: &BlockBuildingContext,
@@ -192,6 +222,7 @@ mod tests {
             proposer,
             Some(signer),
             Arc::new(MockRootHasher {}),
+            false,
         );
         let mut state = BlockState::new(provider_factory.latest().unwrap());
         let mut local_ctx = ThreadBlockBuildingContext::default();

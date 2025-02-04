@@ -121,6 +121,7 @@ pub struct BaseConfig {
 
     /// Number of threads used for incoming order simulation
     pub simulation_threads: usize,
+    pub simulation_use_random_coinbase: bool,
 
     /// uses cached sparse trie for root hash
     pub root_hash_use_sparse_trie: bool,
@@ -137,6 +138,8 @@ pub struct BaseConfig {
 
     /// Config for IPC state provider
     pub ipc_provider: Option<IpcProviderConfig>,
+
+    pub evm_caching_enable: bool,
 
     // backtest config
     backtest_fetch_mempool_data_dir: EnvOrValue<String>,
@@ -253,6 +256,9 @@ impl BaseConfig {
             orderpool_sender,
             orderpool_receiver,
             sbundle_merger_selected_signers: Arc::new(self.sbundle_mergeable_signers()),
+
+            evm_caching_enable: self.evm_caching_enable,
+            simulation_use_random_coinbase: self.simulation_use_random_coinbase,
         })
     }
 
@@ -570,10 +576,12 @@ impl Default for BaseConfig {
             backtest_builders: Vec::new(),
             live_builders: vec!["mgp-ordering".to_string(), "mp-ordering".to_string()],
             simulation_threads: 1,
+            simulation_use_random_coinbase: true,
             sbundle_mergeable_signers: None,
             sbundle_mergeabe_signers: None,
             require_non_empty_blocklist: Some(DEFAULT_REQUIRE_NON_EMPTY_BLOCKLIST),
             ipc_provider: None,
+            evm_caching_enable: false,
         }
     }
 }

@@ -74,6 +74,7 @@ async fn main() -> eyre::Result<()> {
         suggested_fee_recipient,
         None,
         Arc::from(provider_factory.root_hasher(parent_num_hash)?),
+        config.base_config().evm_caching_enable,
     );
 
     let state_provider = Arc::<dyn StateProvider>::from(
