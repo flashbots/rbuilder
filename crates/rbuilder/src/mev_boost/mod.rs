@@ -458,13 +458,11 @@ impl RelayClient {
         fake_relay: bool,
         cancellations: bool,
     ) -> Result<Response, SubmitBlockErr> {
-        let path = format!(
-            "/relay/v1/builder/blocks?cancellations={}",
-            if cancellations { 1 } else { 0 }
-        );
         let url = {
             let mut url = self.url.clone();
-            url.set_path(&path);
+            url.set_path("/relay/v1/builder/blocks");
+            url.query_pairs_mut()
+                .append_pair("cancellations", if cancellations { "1" } else { "0" });
             url
         };
 
