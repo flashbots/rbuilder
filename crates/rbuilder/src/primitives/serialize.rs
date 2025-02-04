@@ -87,16 +87,36 @@ where
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RawBundle {
-    pub block_number: U64,
+    /// blockNumber (Optional) `String`, a hex encoded block number for which this bundle is valid
+    /// on. If nil or 0, blockNumber will default to the current pending block
+    pub block_number: Option<U64>,
+    /// txs `Array[String]`, A list of signed transactions to execute in an atomic bundle, list can
+    /// be empty for bundle cancellations
     pub txs: Vec<Bytes>,
+    /// revertingTxHashes (Optional) `Array[String]`, A list of tx hashes that are allowed to
+    /// revert
     #[serde(default, deserialize_with = "deserialize_vec_b256_from_null_or_string")]
     pub reverting_tx_hashes: Vec<B256>,
+    /// droppingTxHashes (Optional) `Array[String]` A list of tx hashes that are allowed to be
+    /// discarded, but may not revert on chain.
+    #[serde(default, deserialize_with = "deserialize_vec_b256_from_null_or_string")]
+    pub dropping_tx_hashes: Vec<B256>,
+    /// a UUID v4 that can be used to replace or cancel this
+    /// bundle
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replacement_uuid: Option<Uuid>,
+    /// Same as replacement_uuid since the API change from builder to builder and we want  to bo compatible with all.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uuid: Option<Uuid>,
+    /// Address of the bundle sender.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signing_address: Option<Address>,
+    /// minTimestamp (Optional) `Number`, the minimum timestamp for which this bundle is valid, in
+    /// seconds since the unix epoch
     #[serde(skip_serializing_if = "Option::is_none")]
     pub min_timestamp: Option<u64>,
+    /// maxTimestamp (Optional) `Number`, the maximum timestamp for which this bundle is valid, in
+    /// seconds since the unix epoch
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_timestamp: Option<u64>,
     /// See [`BundleReplacementData`] sequence_number
