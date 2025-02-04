@@ -1,8 +1,8 @@
 use super::{BundleErr, ExecutionError, ExecutionResult, OrderErr};
 use crate::primitives::{Order, OrderId, OrderReplacementKey};
-use ahash::{HashMap, HashSet};
+use ahash::{AHasher, HashMap, HashSet};
 use alloy_primitives::{Address, TxHash, U256};
-use std::{collections::hash_map, time::Duration};
+use std::{collections::hash_map, hash::Hasher, time::Duration};
 use time::OffsetDateTime;
 
 /// Structs for recording data about a built block, such as what bundles were included, and where txs came from.
@@ -165,13 +165,15 @@ impl BuiltBlockTrace {
         Ok(())
     }
 
-    pub fn transaction_hashes(&self) -> Vec<TxHash> {
-        let mut hashes = Vec::new();
+    /// Generates a cheap hash to identify the tx content.
+    pub fn transactions_hash(&self) -> u64 {
+        let mut hasher = AHasher::default();
         for execution_result in &self.included_orders {
             for tx in &execution_result.txs {
-                hashes.push(tx.hash());
+                let tx_hash = tx.hash();
+                hasher.write(tx_hash.as_slice());
             }
         }
-        hashes
+        hasher.finish()
     }
 }
