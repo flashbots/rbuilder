@@ -110,7 +110,6 @@ async fn main() -> eyre::Result<()> {
         sink_factory: Box::new(TraceBlockSinkFactory {}),
         builders: vec![Arc::new(DummyBuildingAlgorithm::new(10))],
         run_sparse_trie_prefetcher: false,
-        root_hash_thread_pool: None,
         orderpool_sender,
         orderpool_receiver,
         sbundle_merger_selected_signers: Default::default(),

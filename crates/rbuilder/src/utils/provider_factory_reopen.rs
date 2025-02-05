@@ -6,7 +6,6 @@ use crate::telemetry::{inc_provider_bad_reopen_counter, inc_provider_reopen_coun
 use alloy_consensus::Header;
 use alloy_primitives::{BlockHash, BlockNumber};
 use eth_sparse_mpt::reth_sparse_trie::SparseTrieSharedCache;
-use eth_sparse_mpt::RootHashThreadPool;
 use parking_lot::{Mutex, RwLock};
 use reth::providers::ExecutionOutcome;
 use reth::providers::{BlockHashReader, ChainSpecProvider, ProviderFactory};
@@ -241,11 +240,7 @@ where
         provider.last_block_number()
     }
 
-    fn root_hasher(
-        &self,
-        parent_hash: B256,
-        thread_pool: Option<RootHashThreadPool>,
-    ) -> ProviderResult<Box<dyn RootHasher>> {
+    fn root_hasher(&self, parent_hash: B256) -> ProviderResult<Box<dyn RootHasher>> {
         Ok(if let Some(root_hash_config) = &self.root_hash_config {
             let provider = self
                 .check_consistency_and_reopen_if_needed()
@@ -256,7 +251,6 @@ where
                 root_hash_config.clone(),
                 provider.clone(),
                 provider,
-                thread_pool,
             ))
         } else {
             Box::new(MockRootHasher {})
@@ -270,24 +264,16 @@ pub struct RootHasherImpl<T, HasherType> {
     hasher: HasherType,
     sparse_trie_shared_cache: SparseTrieSharedCache,
     config: RootHashConfig,
-    thread_pool: Option<RootHashThreadPool>,
 }
 
 impl<T, HasherType> RootHasherImpl<T, HasherType> {
-    pub fn new(
-        parent_hash: B256,
-        config: RootHashConfig,
-        provider: T,
-        hasher: HasherType,
-        thread_pool: Option<RootHashThreadPool>,
-    ) -> Self {
+    pub fn new(parent_hash: B256, config: RootHashConfig, provider: T, hasher: HasherType) -> Self {
         Self {
             parent_hash,
             provider,
             hasher,
             config,
             sparse_trie_shared_cache: Default::default(),
-            thread_pool,
         }
     }
 }
@@ -324,7 +310,6 @@ where
             outcome,
             self.sparse_trie_shared_cache.clone(),
             &self.config,
-            &self.thread_pool,
         )
     }
 }

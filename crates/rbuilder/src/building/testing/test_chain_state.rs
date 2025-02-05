@@ -189,10 +189,9 @@ impl TestChainState {
 
         let root_hasher = Arc::from(RootHasherImpl::new(
             genesis_header.hash(),
-            RootHashConfig::new(true, false),
+            RootHashConfig::new(true, false, None),
             provider_factory.clone(),
             provider_factory.clone(),
-            None,
         ));
 
         let ctx = TestBlockContextBuilder::new(

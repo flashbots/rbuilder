@@ -60,14 +60,20 @@ pub struct RootHashConfig {
     pub mode: RootHashMode,
     pub use_sparse_trie: bool,
     pub compare_sparse_trie_output: bool,
+    pub thread_pool: Option<RootHashThreadPool>,
 }
 
 impl RootHashConfig {
-    pub fn new(use_sparse_trie: bool, compare_sparse_trie_output: bool) -> Self {
+    pub fn new(
+        use_sparse_trie: bool,
+        compare_sparse_trie_output: bool,
+        thread_pool: Option<RootHashThreadPool>,
+    ) -> Self {
         Self {
             mode: RootHashMode::CorrectRoot,
             use_sparse_trie,
             compare_sparse_trie_output,
+            thread_pool,
         }
     }
 }
@@ -102,7 +108,6 @@ pub fn calculate_state_root<P, HasherType>(
     outcome: &ExecutionOutcome,
     sparse_trie_shared_cache: SparseTrieSharedCache,
     config: &RootHashConfig,
-    thread_pool: &Option<RootHashThreadPool>,
 ) -> Result<B256, RootHashError>
 where
     HasherType: HashedPostStateProvider,
@@ -121,7 +126,7 @@ where
 
     let reference_root_hash = if config.compare_sparse_trie_output {
         // parallel root hash uses rayon
-        if let Some(thread_pool) = thread_pool {
+        if let Some(thread_pool) = &config.thread_pool {
             thread_pool.rayon_pool.install(|| {
                 calculate_parallel_root_hash(hasher, outcome, consistent_db_view.clone())
             })?
@@ -137,7 +142,7 @@ where
             consistent_db_view,
             outcome,
             sparse_trie_shared_cache,
-            thread_pool,
+            &config.thread_pool,
         );
         trace!(?metrics, "Sparse trie metrics");
         root?

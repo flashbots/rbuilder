@@ -222,7 +222,6 @@ impl BaseConfig {
         let order_input_config = OrderInputConfig::from_config(self)?;
         let (orderpool_sender, orderpool_receiver) =
             mpsc::channel(order_input_config.input_channel_buffer_size);
-        let root_hash_thread_pool = self.root_hash_thread_pool()?;
         Ok(LiveBuilder::<P, SlotSourceType> {
             watchdog_timeout: self.watchdog_timeout(),
             error_storage_path: self.error_storage_path.clone(),
@@ -243,7 +242,6 @@ impl BaseConfig {
             builders: Vec::new(),
 
             run_sparse_trie_prefetcher: self.root_hash_use_sparse_trie,
-            root_hash_thread_pool,
 
             orderpool_sender,
             orderpool_receiver,
@@ -297,9 +295,11 @@ impl BaseConfig {
                 "root_hash_compare_sparse_trie can't be set without root_hash_use_sparse_trie"
             );
         }
+        let thread_pool = self.root_hash_thread_pool()?;
         Ok(RootHashConfig::new(
             self.root_hash_use_sparse_trie,
             self.root_hash_compare_sparse_trie,
+            thread_pool,
         ))
     }
 
