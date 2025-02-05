@@ -12,12 +12,15 @@ use super::{RootHasher, StateProviderFactory};
 #[derive(Clone)]
 pub struct StateProviderFactoryFromRethProvider<P> {
     provider: P,
-    config: RootHashContext,
+    root_hash_context: RootHashContext,
 }
 
 impl<P> StateProviderFactoryFromRethProvider<P> {
-    pub fn new(provider: P, config: RootHashContext) -> Self {
-        Self { provider, config }
+    pub fn new(provider: P, root_hash_context: RootHashContext) -> Self {
+        Self {
+            provider,
+            root_hash_context,
+        }
     }
 }
 
@@ -66,7 +69,7 @@ where
         let hasher = self.history_by_block_hash(parent_hash)?;
         Ok(Box::new(RootHasherImpl::new(
             parent_hash,
-            self.config.clone(),
+            self.root_hash_context.clone(),
             self.provider.clone(),
             hasher,
         )))
