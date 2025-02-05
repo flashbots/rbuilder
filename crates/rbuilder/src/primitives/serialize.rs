@@ -105,7 +105,7 @@ pub struct RawBundle {
     /// bundle
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replacement_uuid: Option<Uuid>,
-    /// Same as replacement_uuid since the API change from builder to builder and we want  to bo compatible with all.
+    /// Same as replacement_uuid since the API change from builder to builder and we want to be compatible with all.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub uuid: Option<Uuid>,
     /// Address of the bundle sender.
@@ -159,7 +159,7 @@ impl RawBundle {
         };
 
         let mut bundle = Bundle {
-            block: self.block_number.to(),
+            block: self.block_number.unwrap_or_default().to(),
             txs,
             reverting_tx_hashes,
             hash: Default::default(),
@@ -208,14 +208,16 @@ impl RawBundle {
             .signer
             .or(value.replacement_data.map(|r| r.key.key().signer));
         Self {
-            block_number: U64::from(value.block),
+            block_number: Some(U64::from(value.block)),
             txs: value
                 .txs
                 .into_iter()
                 .map(|tx| tx.envelope_encoded_no_blobs())
                 .collect(),
             reverting_tx_hashes: value.reverting_tx_hashes,
+            dropping_tx_hashes: Default::default(),
             replacement_uuid,
+            uuid: replacement_uuid,
             signing_address,
             min_timestamp: value.min_timestamp,
             max_timestamp: value.max_timestamp,

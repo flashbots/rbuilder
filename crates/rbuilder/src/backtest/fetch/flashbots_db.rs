@@ -103,10 +103,12 @@ impl RelayDB {
                     };
 
                     let raw_bundle = RawBundle {
-                        block_number: U64::from(block),
+                        block_number: Some(U64::from(block)),
                         txs,
                         reverting_tx_hashes,
+                        dropping_tx_hashes: Default::default(),
                         replacement_uuid,
+                        uuid: replacement_uuid,
                         signing_address,
                         min_timestamp: min_timestamp.map(|ts| ts.try_into().unwrap_or_default()),
                         max_timestamp: None,
