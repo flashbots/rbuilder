@@ -1,7 +1,7 @@
 use crate::building::builders::mock_block_building_helper::MockRootHasher;
 use crate::live_builder::simulation::SimulatedOrderCommand;
 use crate::provider::{RootHasher, StateProviderFactory};
-use crate::roothash::{calculate_state_root, run_trie_prefetcher, RootHashConfig, RootHashError};
+use crate::roothash::{calculate_state_root, run_trie_prefetcher, RootHashContext, RootHashError};
 use crate::telemetry::{inc_provider_bad_reopen_counter, inc_provider_reopen_counter};
 use alloy_consensus::Header;
 use alloy_primitives::{BlockHash, BlockNumber};
@@ -40,7 +40,7 @@ pub struct ProviderFactoryReopener<N: NodeTypesWithDB> {
     /// Patch to disable checking on test mode. Is ugly but ProviderFactoryReopener should die shortly (5/24/2024).
     testing_mode: bool,
     /// None ->No root hash (MockRootHasher)
-    root_hash_config: Option<RootHashConfig>,
+    root_hash_config: Option<RootHashContext>,
 }
 
 /// root_hash_config None -> MockRootHasher used
@@ -49,7 +49,7 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
         db: N::DB,
         chain_spec: Arc<N::ChainSpec>,
         static_files_path: PathBuf,
-        root_hash_config: Option<RootHashConfig>,
+        root_hash_config: Option<RootHashContext>,
     ) -> RethResult<Self> {
         let provider_factory = ProviderFactory::new(
             db,
@@ -69,7 +69,7 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
 
     pub fn new_from_existing(
         provider_factory: ProviderFactory<N>,
-        root_hash_config: Option<RootHashConfig>,
+        root_hash_config: Option<RootHashContext>,
     ) -> RethResult<Self> {
         let chain_spec = provider_factory.chain_spec();
         let static_files_path = provider_factory.static_file_provider().path().to_path_buf();
@@ -263,11 +263,16 @@ pub struct RootHasherImpl<T, HasherType> {
     provider: T,
     hasher: HasherType,
     sparse_trie_shared_cache: SparseTrieSharedCache,
-    config: RootHashConfig,
+    config: RootHashContext,
 }
 
 impl<T, HasherType> RootHasherImpl<T, HasherType> {
-    pub fn new(parent_hash: B256, config: RootHashConfig, provider: T, hasher: HasherType) -> Self {
+    pub fn new(
+        parent_hash: B256,
+        config: RootHashContext,
+        provider: T,
+        hasher: HasherType,
+    ) -> Self {
         Self {
             parent_hash,
             provider,

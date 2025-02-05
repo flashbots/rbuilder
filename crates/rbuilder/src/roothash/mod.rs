@@ -56,14 +56,14 @@ impl RootHashError {
 }
 
 #[derive(Debug, Clone)]
-pub struct RootHashConfig {
+pub struct RootHashContext {
     pub mode: RootHashMode,
     pub use_sparse_trie: bool,
     pub compare_sparse_trie_output: bool,
     pub thread_pool: Option<RootHashThreadPool>,
 }
 
-impl RootHashConfig {
+impl RootHashContext {
     pub fn new(
         use_sparse_trie: bool,
         compare_sparse_trie_output: bool,
@@ -107,7 +107,7 @@ pub fn calculate_state_root<P, HasherType>(
     parent_hash: B256,
     outcome: &ExecutionOutcome,
     sparse_trie_shared_cache: SparseTrieSharedCache,
-    config: &RootHashConfig,
+    config: &RootHashContext,
 ) -> Result<B256, RootHashError>
 where
     HasherType: HashedPostStateProvider,

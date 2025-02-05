@@ -1,4 +1,4 @@
-use crate::roothash::RootHashConfig;
+use crate::roothash::RootHashContext;
 use crate::utils::RootHasherImpl;
 use alloy_consensus::Header;
 use alloy_primitives::{BlockHash, BlockNumber, B256};
@@ -12,11 +12,11 @@ use super::{RootHasher, StateProviderFactory};
 #[derive(Clone)]
 pub struct StateProviderFactoryFromRethProvider<P> {
     provider: P,
-    config: RootHashConfig,
+    config: RootHashContext,
 }
 
 impl<P> StateProviderFactoryFromRethProvider<P> {
-    pub fn new(provider: P, config: RootHashConfig) -> Self {
+    pub fn new(provider: P, config: RootHashContext) -> Self {
         Self { provider, config }
     }
 }

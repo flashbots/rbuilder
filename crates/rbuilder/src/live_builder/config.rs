@@ -36,7 +36,7 @@ use crate::{
         RelaySubmitConfig,
     },
     provider::StateProviderFactory,
-    roothash::RootHashConfig,
+    roothash::RootHashContext,
     utils::{build_info::rbuilder_version, ProviderFactoryReopener, Signer},
     validation_api_client::ValidationAPIClient,
 };
@@ -553,7 +553,7 @@ pub fn create_provider_factory(
     reth_db_path: Option<&Path>,
     reth_static_files_path: Option<&Path>,
     chain_spec: Arc<ChainSpec>,
-    root_hash_config: Option<RootHashConfig>,
+    root_hash_config: Option<RootHashContext>,
 ) -> eyre::Result<ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>> {
     let reth_db_path = match (reth_db_path, reth_datadir) {
         (Some(reth_db_path), _) => PathBuf::from(reth_db_path),

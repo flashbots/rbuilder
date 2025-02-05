@@ -4,7 +4,7 @@ use crate::{
     building::builders::UnfinishedBlockBuildingSinkFactory,
     live_builder::{order_input::OrderInputConfig, LiveBuilder},
     provider::StateProviderFactory,
-    roothash::RootHashConfig,
+    roothash::RootHashContext,
     telemetry::{setup_reloadable_tracing_subscriber, LoggerConfig},
     utils::{
         constants::{MINS_PER_HOUR, SECS_PER_MINUTE},
@@ -289,14 +289,16 @@ impl BaseConfig {
         )
     }
 
-    pub fn live_root_hash_config(&self) -> eyre::Result<RootHashConfig> {
+    /// live_root_hash_config creates a root hash thread pool
+    /// so it should be called once on the startup and cloned if needed
+    pub fn live_root_hash_config(&self) -> eyre::Result<RootHashContext> {
         if self.root_hash_compare_sparse_trie && !self.root_hash_use_sparse_trie {
             eyre::bail!(
                 "root_hash_compare_sparse_trie can't be set without root_hash_use_sparse_trie"
             );
         }
         let thread_pool = self.root_hash_thread_pool()?;
-        Ok(RootHashConfig::new(
+        Ok(RootHashContext::new(
             self.root_hash_use_sparse_trie,
             self.root_hash_compare_sparse_trie,
             thread_pool,
@@ -573,7 +575,7 @@ pub fn create_provider_factory(
     reth_static_files_path: Option<&Path>,
     chain_spec: Arc<ChainSpec>,
     rw: bool,
-    root_hash_config: Option<RootHashConfig>,
+    root_hash_config: Option<RootHashContext>,
 ) -> eyre::Result<ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>> {
     // shellexpand the reth datadir
     let reth_datadir = if let Some(reth_datadir) = reth_datadir {

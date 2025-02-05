@@ -9,7 +9,7 @@ use reth_provider::{
 use revm_primitives::B256;
 
 use crate::{
-    building::builders::mock_block_building_helper::MockRootHasher, roothash::RootHashConfig,
+    building::builders::mock_block_building_helper::MockRootHasher, roothash::RootHashContext,
     utils::RootHasherImpl,
 };
 
@@ -19,12 +19,12 @@ use super::{RootHasher, StateProviderFactory};
 #[derive(Clone)]
 pub struct StateProviderFactoryFromProviderFactory<N: NodeTypesWithDB> {
     provider: ProviderFactory<N>,
-    root_hash_config: Option<RootHashConfig>,
+    root_hash_config: Option<RootHashContext>,
 }
 
 impl<N: NodeTypesWithDB> StateProviderFactoryFromProviderFactory<N> {
     /// root_hash_config None -> no roothash (MockRootHasher)
-    pub fn new(provider: ProviderFactory<N>, root_hash_config: Option<RootHashConfig>) -> Self {
+    pub fn new(provider: ProviderFactory<N>, root_hash_config: Option<RootHashContext>) -> Self {
         Self {
             provider,
             root_hash_config,
