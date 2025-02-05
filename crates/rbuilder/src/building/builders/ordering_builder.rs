@@ -84,7 +84,7 @@ where
             break 'building;
         }
 
-        match order_intake_consumer.consume_next_batch() {
+        match order_intake_consumer.blocking_consume_next_batch() {
             Ok(ok) => {
                 if !ok {
                     break 'building;
