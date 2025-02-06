@@ -46,10 +46,15 @@ pub async fn start_server_accepting_bundles(
     module.register_async_method("eth_sendBundle", move |params, _| {
         let results = results_clone.clone();
         async move {
-	    let received_at = OffsetDateTime::now_utc();
-
+    	    let received_at = OffsetDateTime::now_utc();
             let start = Instant::now();
-            let raw_bundle: RawBundle = match params.one() {
+
+            let params = if params.is_object() {
+                params.parse()
+            } else {
+                params.one()
+            };
+            let raw_bundle: RawBundle = match params {
                 Ok(raw_bundle) => raw_bundle,
                 Err(err) => {
                     warn!(?err, "Failed to parse raw bundle");
