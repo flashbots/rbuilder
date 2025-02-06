@@ -809,7 +809,6 @@ mod tests {
             .decode_new_bundle(TxEncoding::WithBlobData)
             .expect("failed to convert bundle request to bundle");
 
-        let bundle_roundtrip = RawBundle::encode_no_blobs(bundle.clone());
         assert_eq!(bundle.block, None);
         assert_eq!(
             bundle.refund,
