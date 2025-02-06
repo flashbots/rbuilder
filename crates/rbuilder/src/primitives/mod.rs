@@ -175,7 +175,9 @@ impl Bundle {
 
         let uuid = {
             // Block, hash, reverting hashes.
-            let mut buff = Vec::with_capacity(8 + 32 + 32 * self.reverting_tx_hashes.len());
+            let mut buff = Vec::with_capacity(
+                8 + 32 + 32 * (self.reverting_tx_hashes.len() + self.dropping_tx_hashes.len()),
+            );
             {
                 let block = self.block as i64;
                 buff.append(&mut block.encode_var_vec());
@@ -184,6 +186,9 @@ impl Bundle {
             self.reverting_tx_hashes.sort();
             for reverted_hash in &self.reverting_tx_hashes {
                 buff.extend_from_slice(reverted_hash.as_slice());
+            }
+            for dropping_hash in &self.dropping_tx_hashes {
+                buff.extend_from_slice(dropping_hash.as_slice());
             }
             let hash = {
                 let mut res = [0u8; 16];
