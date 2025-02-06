@@ -164,7 +164,8 @@ impl Bundle {
     }
 
     /// Recalculate bundle hash and uuid.
-    /// Hash is computed from child tx hashes + reverting_tx_hashes.
+    /// Hash is computed from child tx hashes + reverting_tx_hashes + dropping_tx_hashes.
+    /// @Pending: improve since moving txs from reverting_tx_hashes to dropping_tx_hashes would give the same uuid
     pub fn hash_slow(&mut self) {
         let hash = self
             .txs
