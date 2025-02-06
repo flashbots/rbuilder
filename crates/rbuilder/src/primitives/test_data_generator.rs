@@ -52,7 +52,7 @@ impl TestDataGenerator {
         replacement_data: Option<BundleReplacementData>,
     ) -> Bundle {
         let mut res = Bundle {
-            block,
+            block: Some(block),
             min_timestamp: None,
             max_timestamp: None,
             txs: vec![self.create_tx_with_blobs_nonce(sender_nonce)],
@@ -118,7 +118,7 @@ impl TestDataGenerator {
             txs.push(tx1);
         }
         let mut bundle = Bundle {
-            block,
+            block: Some(block),
             min_timestamp: None,
             max_timestamp: None,
             txs,

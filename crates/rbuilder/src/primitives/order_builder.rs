@@ -182,7 +182,7 @@ impl BundleBuilder {
             txs.push(tx_with_blobs);
         }
         let mut bundle = Bundle {
-            block: self.block,
+            block: Some(self.block),
             min_timestamp: self.min_timestamp,
             max_timestamp: self.max_timestamp,
             txs,

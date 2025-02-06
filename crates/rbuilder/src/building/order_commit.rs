@@ -510,12 +510,15 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
         allow_tx_skip: bool,
     ) -> Result<Result<BundleOk, BundleErr>, CriticalCommitOrderError> {
         let current_block = ctx.block_env.number.to::<u64>();
-        if bundle.block != current_block {
-            return Ok(Err(BundleErr::TargetBlockIncorrect {
-                block: current_block,
-                target_block: bundle.block,
-                target_max_block: bundle.block,
-            }));
+        // None is good for any block
+        if let Some(block) = bundle.block {
+            if block != current_block {
+                return Ok(Err(BundleErr::TargetBlockIncorrect {
+                    block: current_block,
+                    target_block: block,
+                    target_max_block: block,
+                }));
+            }
         }
 
         let (min_ts, max_ts, block_ts) = (

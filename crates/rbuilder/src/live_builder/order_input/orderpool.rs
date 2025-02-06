@@ -72,6 +72,8 @@ pub struct OrderPool {
     /// cancelled bundle, cancellation arrival time
     bundle_cancellations: VecDeque<(BundleReplacementData, Instant)>,
     bundles_by_target_block: HashMap<u64, BundleBlockStore>,
+    /// Bundles with block == None. Always returned and cleaned on head_updated.
+    bundles_for_current_block: Vec<Order>,
     known_orders: LruCache<(OrderId, u64), ()>,
     sinks: HashMap<OrderPoolSubscriptionId, SinkSubscription>,
     next_sink_id: u64,
@@ -88,6 +90,7 @@ impl OrderPool {
         OrderPool {
             mempool_txs: Vec::new(),
             bundles_by_target_block: HashMap::default(),
+            bundles_for_current_block: Default::default(),
             known_orders: LruCache::new(NonZeroUsize::new(10_000).unwrap()),
             sinks: Default::default(),
             next_sink_id: 0,
@@ -118,12 +121,19 @@ impl OrderPool {
             }
             Order::Bundle(bundle) => {
                 let target_block = bundle.block;
-                let bundles_store = self
-                    .bundles_by_target_block
-                    .entry(target_block)
-                    .or_default();
-                bundles_store.bundles.push(order.clone());
-                (order, Some(target_block))
+                match target_block {
+                    Some(target_block) => {
+                        let bundles_store = self
+                            .bundles_by_target_block
+                            .entry(target_block)
+                            .or_default();
+                        bundles_store.bundles.push(order.clone());
+                    }
+                    None => {
+                        self.bundles_for_current_block.push(order.clone());
+                    }
+                };
+                (order, target_block)
             }
             Order::ShareBundle(bundle) => {
                 let target_block = bundle.block;
@@ -202,6 +212,11 @@ impl OrderPool {
                 sink.remove_sbundle(key);
             }
         }
+
+        for bundle in self.bundles_for_current_block.iter().cloned() {
+            sink.insert_order(bundle);
+        }
+
         let res = OrderPoolSubscriptionId(self.next_sink_id);
         self.next_sink_id += 1;
         self.sinks
@@ -224,7 +239,7 @@ impl OrderPool {
         // remove from bundles by target block
         self.bundles_by_target_block
             .retain(|block_number, _| *block_number > new_block_number);
-
+        self.bundles_for_current_block.clear();
         // remove mempool txs by nonce, time
         self.mempool_txs.retain(|(order, time)| {
             if time.elapsed() > TIME_TO_KEEP_TXS {

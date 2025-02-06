@@ -81,7 +81,7 @@ impl<ConfigType: LiveBuilderConfig> SyntheticOrdersSource<ConfigType> {
             let low_tip_tx = create_tip_tx(&test_chain_state, 2, i, LOW_TIP);
             let high_tip_tx = create_tip_tx(&test_chain_state, 3, i, HIGH_TIP);
             let mut bundle = Bundle {
-                block: block_number,
+                block: Some(block_number),
                 min_timestamp: None,
                 max_timestamp: None,
                 txs: vec![low_tip_tx, high_tip_tx],

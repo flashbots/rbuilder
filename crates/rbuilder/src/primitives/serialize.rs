@@ -219,8 +219,10 @@ impl RawBundle {
         self.reverting_tx_hashes.sort();
         self.dropping_tx_hashes.sort();
 
+        let block = self.block_number.unwrap_or_default().to();
+
         let mut bundle = Bundle {
-            block: self.block_number.unwrap_or_default().to(),
+            block: if block != 0 { Some(block) } else { None },
             txs,
             reverting_tx_hashes: self.reverting_tx_hashes,
             hash: Default::default(),
@@ -310,7 +312,7 @@ impl RawBundle {
             .signer
             .or(value.replacement_data.map(|r| r.key.key().signer));
         Self {
-            block_number: Some(U64::from(value.block)),
+            block_number: value.block.map(U64::from),
             txs: value
                 .txs
                 .into_iter()
@@ -754,7 +756,7 @@ mod tests {
         );
         assert_eq!(bundle.uuid, uuid!("a90205bc-2afd-5afe-b315-f17d597ffd97"));
 
-        assert_eq!(bundle.block, 18_050_847);
+        assert_eq!(bundle.block, Some(18_050_847));
         assert_eq!(
             bundle.reverting_tx_hashes,
             vec![fixed_bytes!(
@@ -808,8 +810,7 @@ mod tests {
             .expect("failed to convert bundle request to bundle");
 
         let bundle_roundtrip = RawBundle::encode_no_blobs(bundle.clone());
-        assert_eq!(bundle_request, bundle_roundtrip);
-        assert_eq!(bundle.block, 0);
+        assert_eq!(bundle.block, None);
         assert_eq!(
             bundle.refund,
             Some(BundleRefund {

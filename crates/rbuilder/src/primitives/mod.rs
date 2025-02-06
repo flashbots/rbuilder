@@ -116,7 +116,8 @@ pub struct BundleRefund {
 #[derive(Derivative)]
 #[derivative(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Bundle {
-    pub block: u64,
+    /// None means in the first possible block.
+    pub block: Option<u64>,
     pub min_timestamp: Option<u64>,
     pub max_timestamp: Option<u64>,
     pub txs: Vec<TransactionSignedEcRecoveredWithBlobs>,
@@ -180,7 +181,7 @@ impl Bundle {
                 8 + 32 + 32 * (self.reverting_tx_hashes.len() + self.dropping_tx_hashes.len()),
             );
             {
-                let block = self.block as i64;
+                let block = self.block.unwrap_or_default() as i64;
                 buff.append(&mut block.encode_var_vec());
             }
             buff.extend_from_slice(self.hash.as_slice());
@@ -803,7 +804,7 @@ impl Order {
 
     pub fn target_block(&self) -> Option<u64> {
         match self {
-            Order::Bundle(bundle) => Some(bundle.block),
+            Order::Bundle(bundle) => bundle.block,
             Order::Tx(_) => None,
             Order::ShareBundle(bundle) => Some(bundle.block),
         }

@@ -735,7 +735,7 @@ mod tests {
     #[test]
     fn test_simplified_order_conversion_bundle() {
         let bundle = Order::Bundle(Bundle {
-            block: 0,
+            block: Some(0),
             min_timestamp: None,
             max_timestamp: None,
             txs: vec![tx(0x01), tx(0x02)],

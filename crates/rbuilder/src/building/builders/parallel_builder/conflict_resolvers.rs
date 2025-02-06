@@ -535,7 +535,7 @@ mod tests {
             };
 
             let bundle = Bundle {
-                block: 0,
+                block: Some(0),
                 min_timestamp: None,
                 max_timestamp: None,
                 txs,
