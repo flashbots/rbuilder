@@ -1,13 +1,14 @@
 use super::{
-    Bundle, BundleReplacementData, BundleReplacementKey, MempoolTx, Order, Refund, RefundConfig,
-    ShareBundle, ShareBundleBody, ShareBundleInner, ShareBundleReplacementData,
+    Bundle, BundleRefund, BundleReplacementData, BundleReplacementKey, MempoolTx, Order, Refund,
+    RefundConfig, ShareBundle, ShareBundleBody, ShareBundleInner, ShareBundleReplacementData,
     ShareBundleReplacementKey, ShareBundleTx, TransactionSignedEcRecoveredWithBlobs,
     TxRevertBehavior, TxWithBlobsCreateError,
 };
 use alloy_consensus::constants::EIP4844_TX_TYPE_ID;
 use alloy_eips::eip2718::Eip2718Error;
-use alloy_primitives::{Address, Bytes, B256, U64};
+use alloy_primitives::{Address, Bytes, TxHash, B256, U64};
 use alloy_rlp::{Buf, Header};
+use derivative::Derivative;
 use reth_chainspec::MAINNET;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_with::serde_as;
@@ -84,7 +85,8 @@ where
 /// Struct to de/serialize json Bundles from bundles APIs and from/db.
 /// Does not assume a particular format on txs.
 #[serde_as]
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Derivative)]
+#[derivative(PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct RawBundle {
     /// blockNumber (Optional) `String`, a hex encoded block number for which this bundle is valid
@@ -122,6 +124,24 @@ pub struct RawBundle {
     /// See [`BundleReplacementData`] sequence_number
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replacement_nonce: Option<u64>,
+
+    /// refundPercent (Optional) `Number`, percent to refund back to the user.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refund_percent: Option<u8>,
+    /// refundRecipient (Optional) `Address`, address of the user where to refund to. If
+    /// refundPercent is set and refundRecipient is not, the whole bundle will be discarded.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refund_recipient: Option<Address>,
+    /// refundTxHashes (Optional) `Array[String]`, A list of tx hashes from which the refund is
+    /// calculated. Defaults to final transaction in the bundle if list is not specified/empty.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refund_tx_hashes: Option<Vec<TxHash>>,
+    /// firstSeenAt `Number`, timestamp at which bundle was first seen,
+    /// used for ensuring we respect the order of uuid bundles that
+    /// were first received elsewhere
+    #[derivative(PartialEq = "ignore")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_seen_at: Option<f64>,
 }
 
 #[derive(Error, Debug)]
@@ -132,10 +152,53 @@ pub enum RawBundleConvertError {
     IncorrectReplacementData,
     #[error("Blobs not supported by RawBundle")]
     BlobsNotSupported,
+    #[error("Invalid refund percent {0}")]
+    InvalidRefundPercent(u8),
+    #[error("Empty bundle with on uuid")]
+    EmptyBundle,
+    #[error("Found cancel on decode_new_bundle")]
+    FoundCancelExpectingBundle,
+}
+
+/// Since we use the same API (eth_sendBundle) to get new bundles and also to cancel them we need this struct.
+#[allow(clippy::large_enum_variant)]
+pub enum RawBundleDecodeResult {
+    NewBundle(Bundle),
+    CancelBundle(BundleReplacementData),
 }
 
 impl RawBundle {
-    pub fn try_into(self, encoding: TxEncoding) -> Result<Bundle, RawBundleConvertError> {
+    /// Same as decode but fails on cancel
+    pub fn decode_new_bundle(self, encoding: TxEncoding) -> Result<Bundle, RawBundleConvertError> {
+        let decode_res = self.decode(encoding)?;
+        match decode_res {
+            RawBundleDecodeResult::NewBundle(b) => Ok(b),
+            RawBundleDecodeResult::CancelBundle(_) => {
+                Err(RawBundleConvertError::FoundCancelExpectingBundle)
+            }
+        }
+    }
+
+    pub fn decode(
+        self,
+        encoding: TxEncoding,
+    ) -> Result<RawBundleDecodeResult, RawBundleConvertError> {
+        let replacement_data = Self::decode_replacement_data(
+            self.replacement_uuid,
+            self.uuid,
+            self.signing_address,
+            self.replacement_nonce,
+            self.first_seen_at,
+        )?;
+        // Check for cancellation
+        if self.txs.is_empty() {
+            match replacement_data {
+                Some(replacement_data) => {
+                    return Ok(RawBundleDecodeResult::CancelBundle(replacement_data))
+                }
+                None => return Err(RawBundleConvertError::EmptyBundle),
+            }
+        }
         let txs = self
             .txs
             .into_iter()
@@ -146,12 +209,13 @@ impl RawBundle {
                     .map_err(|e| RawBundleConvertError::FailedToDecodeTransaction(idx, e))
             })
             .collect::<Result<Vec<_>, _>>()?;
-
-        let replacement_data = Self::decode_replacement_data(
-            self.replacement_uuid,
-            self.signing_address,
-            self.replacement_nonce,
+        let refund = Self::parse_refund(
+            self.refund_percent,
+            self.refund_recipient,
+            self.refund_tx_hashes,
+            &txs,
         )?;
+
         let reverting_tx_hashes = {
             let mut sorted_reverting_hashes = self.reverting_tx_hashes;
             sorted_reverting_hashes.sort();
@@ -169,27 +233,68 @@ impl RawBundle {
             max_timestamp: self.max_timestamp,
             signer: self.signing_address,
             metadata: Default::default(),
+            dropping_tx_hashes: self.dropping_tx_hashes,
+            refund,
         };
         bundle.hash_slow();
-        Ok(bundle)
+        Ok(RawBundleDecodeResult::NewBundle(bundle))
+    }
+
+    fn parse_refund(
+        mut refund_percent: Option<u8>,
+        refund_recipient: Option<Address>,
+        refund_tx_hashes: Option<Vec<TxHash>>,
+        txs: &[TransactionSignedEcRecoveredWithBlobs],
+    ) -> Result<Option<BundleRefund>, RawBundleConvertError> {
+        // Validate refund percent setting.
+        if let Some(percent) = refund_percent {
+            if percent >= 100 {
+                return Err(RawBundleConvertError::InvalidRefundPercent(percent));
+            }
+            if percent == 0 {
+                refund_percent = None
+            }
+        }
+
+        let mut refund = None;
+        if let Some(percent) = refund_percent {
+            // Refund can be configured only if bundle is not empty.
+            // If bundle contains only one transaction, first == last.
+            if let Some((first_tx, last_tx)) = txs.first().zip(txs.last()) {
+                refund = Some(BundleRefund {
+                    percent,
+                    recipient: refund_recipient.unwrap_or_else(|| first_tx.signer()),
+                    tx_hashes: refund_tx_hashes
+                        .filter(|tx_hashes| !tx_hashes.is_empty())
+                        .unwrap_or_else(|| Vec::from([last_tx.hash()])),
+                });
+            }
+        }
+        Ok(refund)
     }
 
     /// consistency checks on raw data.
+    /// uuid takes priority over replacement_nonce
+    /// replacement_nonce takes priority over first_seen_at
+    /// In case first_seen_at_secs is used we synthesize a nonce by taking the usec.
     fn decode_replacement_data(
         replacement_uuid: Option<Uuid>,
+        mut uuid: Option<Uuid>,
         signing_address: Option<Address>,
-        replacement_nonce: Option<u64>,
+        mut replacement_nonce: Option<u64>,
+        first_seen_at_secs: Option<f64>,
     ) -> Result<Option<BundleReplacementData>, RawBundleConvertError> {
-        let got_uuid = replacement_uuid.is_some();
-        let got_nonce = replacement_nonce.is_some();
-        if got_uuid != got_nonce {
-            return Err(RawBundleConvertError::IncorrectReplacementData);
-        }
+        uuid = uuid.or(replacement_uuid);
+        replacement_nonce =
+            replacement_nonce.or(first_seen_at_secs.map(|t| (t * 1_000_000.0) as u64));
+        let got_uuid = uuid.is_some();
+        // @Pending generate global nonce or use a new field first_seen_at?
+        // let got_nonce = replacement_nonce.is_some();
         if !got_uuid {
             return Ok(None);
         }
         if let (Some(uuid), Some(signer), Some(sequence_number)) =
-            (replacement_uuid, signing_address, replacement_nonce)
+            (uuid, signing_address, replacement_nonce)
         {
             Ok(Some(BundleReplacementData {
                 key: BundleReplacementKey::new(uuid, signer),
@@ -215,13 +320,17 @@ impl RawBundle {
                 .map(|tx| tx.envelope_encoded_no_blobs())
                 .collect(),
             reverting_tx_hashes: value.reverting_tx_hashes,
-            dropping_tx_hashes: Default::default(),
+            dropping_tx_hashes: value.dropping_tx_hashes,
             replacement_uuid,
             uuid: replacement_uuid,
             signing_address,
             min_timestamp: value.min_timestamp,
             max_timestamp: value.max_timestamp,
             replacement_nonce,
+            refund_percent: value.refund.as_ref().map(|br| br.percent),
+            refund_recipient: value.refund.as_ref().map(|br| br.recipient),
+            refund_tx_hashes: value.refund.map(|br| br.tx_hashes),
+            first_seen_at: None,
         }
     }
 }
@@ -552,7 +661,7 @@ fn inner_bundle_to_raw_bundle_no_blobs(
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[serde(tag = "type")]
 pub enum RawOrder {
@@ -578,7 +687,7 @@ impl RawOrder {
         match self {
             RawOrder::Bundle(bundle) => Ok(Order::Bundle(
                 bundle
-                    .try_into(encoding)
+                    .decode_new_bundle(encoding)
                     .map_err(RawOrderConvertError::FailedToDecodeBundle)?,
             )),
             RawOrder::Tx(tx) => Ok(Order::Tx(
@@ -634,7 +743,7 @@ mod tests {
 
         let bundle = bundle_request
             .clone()
-            .try_into(TxEncoding::WithBlobData)
+            .decode_new_bundle(TxEncoding::WithBlobData)
             .expect("failed to convert bundle request to bundle");
 
         let bundle_roundtrip = RawBundle::encode_no_blobs(bundle.clone());
@@ -698,7 +807,7 @@ mod tests {
                 serde_json::from_str(input).expect("failed to decode bundle");
 
             let bundle = bundle_request
-                .try_into(TxEncoding::WithBlobData)
+                .decode_new_bundle(TxEncoding::WithBlobData)
                 .expect("failed to convert bundle request to bundle");
 
             assert_eq!(
@@ -723,7 +832,7 @@ mod tests {
             serde_json::from_str(bundle_json).expect("failed to decode bundle");
 
         let bundle = bundle_request
-            .try_into(TxEncoding::WithBlobData)
+            .decode_new_bundle(TxEncoding::WithBlobData)
             .expect("failed to convert bundle request to bundle");
 
         assert_eq!(
@@ -746,7 +855,7 @@ mod tests {
             serde_json::from_str(bundle_json).expect("failed to decode bundle");
 
         let bundle = bundle_request
-            .try_into(TxEncoding::WithBlobData)
+            .decode_new_bundle(TxEncoding::WithBlobData)
             .expect("failed to convert bundle request to bundle");
 
         assert_eq!(
@@ -767,7 +876,7 @@ mod tests {
 
         let bundle = bundle_request
             .clone()
-            .try_into(TxEncoding::WithBlobData)
+            .decode_new_bundle(TxEncoding::WithBlobData)
             .expect("failed to convert bundle request to bundle");
 
         let bundle_roundtrip = RawBundle::encode_no_blobs(bundle.clone());

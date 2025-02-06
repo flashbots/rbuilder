@@ -113,6 +113,10 @@ impl RelayDB {
                         min_timestamp: min_timestamp.map(|ts| ts.try_into().unwrap_or_default()),
                         max_timestamp: None,
                         replacement_nonce: replacement_uuid.and(Some(0)),
+                        refund_percent: None,
+                        refund_recipient: None,
+                        refund_tx_hashes: None,
+                        first_seen_at: None,
                     };
 
                     let order = RawOrder::Bundle(raw_bundle)

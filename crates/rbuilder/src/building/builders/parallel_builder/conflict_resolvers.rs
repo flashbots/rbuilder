@@ -545,6 +545,8 @@ mod tests {
                 replacement_data: None,
                 signer: None,
                 metadata: Metadata::default(),
+                dropping_tx_hashes: Vec::new(),
+                refund: None,
             };
 
             SimulatedOrder {

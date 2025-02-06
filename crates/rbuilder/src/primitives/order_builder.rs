@@ -192,6 +192,8 @@ impl BundleBuilder {
             replacement_data: self.replacement_data,
             signer: None,
             metadata: Default::default(),
+            dropping_tx_hashes: Default::default(),
+            refund: None,
         };
         bundle.hash_slow();
         bundle

@@ -62,6 +62,8 @@ impl TestDataGenerator {
             replacement_data: replacement_data.clone(),
             signer: replacement_data.map(|r| r.key.key().signer),
             metadata: Default::default(),
+            dropping_tx_hashes: vec![],
+            refund: None,
         };
         res.hash_slow();
         res
@@ -126,6 +128,8 @@ impl TestDataGenerator {
             replacement_data: replacement_data.clone(),
             signer: replacement_data.map(|r| r.key.key().signer),
             metadata: Default::default(),
+            dropping_tx_hashes: Default::default(),
+            refund: None,
         };
         bundle.hash_slow();
         bundle

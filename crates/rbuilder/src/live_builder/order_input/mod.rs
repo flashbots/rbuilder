@@ -11,7 +11,7 @@ use self::{
     orderpool::{OrderPool, OrderPoolSubscriptionId},
     replaceable_order_sink::ReplaceableOrderSink,
 };
-use crate::primitives::{serialize::CancelShareBundle, BundleReplacementKey, Order};
+use crate::primitives::{serialize::CancelShareBundle, BundleReplacementData, Order};
 use crate::provider::StateProviderFactory;
 use crate::telemetry::{set_current_block, set_ordepool_count};
 use alloy_consensus::Header;
@@ -162,7 +162,7 @@ pub enum ReplaceableOrderPoolCommand {
     Order(Order),
     /// Cancellation for sbundle
     CancelShareBundle(CancelShareBundle),
-    CancelBundle(BundleReplacementKey),
+    CancelBundle(BundleReplacementData),
 }
 
 impl ReplaceableOrderPoolCommand {

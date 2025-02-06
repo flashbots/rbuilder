@@ -93,6 +93,8 @@ impl<ConfigType: LiveBuilderConfig> SyntheticOrdersSource<ConfigType> {
                 metadata: Metadata {
                     received_at_timestamp: time::OffsetDateTime::from_unix_timestamp(0).unwrap(),
                 },
+                dropping_tx_hashes: Default::default(),
+                refund: None,
             };
             bundle.hash_slow();
             orders.push(OrdersWithTimestamp {
