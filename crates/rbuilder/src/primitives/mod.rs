@@ -164,6 +164,14 @@ impl Bundle {
             .collect()
     }
 
+    /// Returns `true` if the provided transaction hash is refundable.
+    pub fn is_tx_refundable(&self, hash: &B256) -> bool {
+        self.refund
+            .as_ref()
+            .map(|r| r.tx_hashes.contains(hash))
+            .unwrap_or_default()
+    }
+
     /// Recalculate bundle hash and uuid.
     /// Hash is computed from child tx hashes + reverting_tx_hashes + dropping_tx_hashes.
     /// @Pending: improve since moving txs from reverting_tx_hashes to dropping_tx_hashes would give the same uuid

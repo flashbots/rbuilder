@@ -650,39 +650,60 @@ fn test_mev_share_use_suggested_fee_recipient_as_coinbase() -> eyre::Result<()> 
 #[test]
 ///Checks TxRevertBehavior::AllowedInclude/AllowedExcluded by checking the consumed gas.
 fn test_bundle_revert_modes() -> eyre::Result<()> {
+    bundle_revert_modes_tests(false)?;
+    bundle_revert_modes_tests(true)?;
+    Ok(())
+}
+
+///Checks TxRevertBehavior::AllowedInclude/AllowedExcluded by checking the consumed gas.
+fn bundle_revert_modes_tests(share_bundle: bool) -> eyre::Result<()> {
     let target_block = 11;
     // 2 users to avoid caring about nonces
     let tx_sender0 = NamedAddr::User(0);
     let tx_sender1 = NamedAddr::User(1);
     let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().number(target_block))?;
+    let begin_bundle = |test_setup: &mut TestSetup| {
+        if share_bundle {
+            test_setup.begin_share_bundle_order(target_block, target_block);
+        } else {
+            test_setup.begin_bundle_order(target_block);
+        }
+    };
 
     // Single revert tx AllowedExcluded -> NO GAS
-    test_setup.begin_share_bundle_order(target_block, target_block);
+    begin_bundle(&mut test_setup);
     test_setup.add_revert(tx_sender0, TxRevertBehavior::AllowedExcluded)?;
-    let res = test_setup.commit_order_ok();
-    assert_eq!(res.gas_used, 0);
+    // Bundles behave different to sbundles on empty execution
+    if share_bundle {
+        let res = test_setup.commit_order_ok();
+        assert_eq!(res.gas_used, 0);
+    } else {
+        test_setup.commit_order_err_check(|err| {
+            assert!(matches!(err, OrderErr::Bundle(BundleErr::EmptyBundle)));
+        });
+    }
 
     // Measure simple tx
-    test_setup.begin_share_bundle_order(target_block, target_block);
+    begin_bundle(&mut test_setup);
     test_setup.add_revert(tx_sender0, TxRevertBehavior::AllowedIncluded)?;
     let res = test_setup.commit_order_ok();
     let reverting_gas = res.gas_used;
 
     // Measure reverting tx
-    test_setup.begin_share_bundle_order(target_block, target_block);
+    begin_bundle(&mut test_setup);
     test_setup.add_send_to_coinbase_tx(tx_sender0, 0)?;
     let res = test_setup.commit_order_ok();
     let send_gas = res.gas_used;
 
     // send + rev on AllowedIncluded pay both gases
-    test_setup.begin_share_bundle_order(target_block, target_block);
+    begin_bundle(&mut test_setup);
     test_setup.add_send_to_coinbase_tx(tx_sender1, 0)?;
     test_setup.add_revert(tx_sender0, TxRevertBehavior::AllowedIncluded)?;
     let res = test_setup.commit_order_ok();
     assert_eq!(res.gas_used, send_gas + reverting_gas);
 
     // send + rev on AllowedExcluded pay send
-    test_setup.begin_share_bundle_order(target_block, target_block);
+    begin_bundle(&mut test_setup);
     test_setup.add_send_to_coinbase_tx(tx_sender0, 0)?;
     test_setup.add_revert(tx_sender1, TxRevertBehavior::AllowedExcluded)?;
     let res = test_setup.commit_order_ok();
