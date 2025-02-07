@@ -218,16 +218,17 @@ async fn run_submit_to_relays_job(
         let bid_metadata = BidMetadata {
             value: BidValueMetadata {
                 coinbase_reward: block.trace.coinbase_reward,
-                top_competitor_bid: best_bid_sync_source.best_bid_value(),
+                top_competitor_bid: block.trace.seen_competition_bid,
             },
         };
 
-        let best_bid_value = bid_metadata.value.top_competitor_bid.unwrap_or_default();
+        let best_bid_value = best_bid_sync_source.best_bid_value();
         let submission_span = info_span!(
             "bid",
             bid_value = format_ether(block.trace.bid_value),
-            best_bid_value = format_ether(best_bid_value),
+            best_bid_value = format_ether(best_bid_value.unwrap_or_default()),
             true_bid_value = format_ether(block.trace.true_bid_value),
+            seen_competition_bid = format_ether(block.trace.seen_competition_bid.unwrap_or_default()),
             block = block.sealed_block.number,
             hash = ?block.sealed_block.header.hash(),
             gas = block.sealed_block.gas_used,
@@ -389,7 +390,7 @@ async fn run_submit_to_relays_job(
                 normal_signed_submission.submission,
                 block.trace,
                 builder_name,
-                best_bid_value,
+                bid_metadata.value.top_competitor_bid.unwrap_or_default(),
             );
         })
     }

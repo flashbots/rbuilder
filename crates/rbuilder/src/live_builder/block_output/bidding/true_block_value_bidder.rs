@@ -64,7 +64,8 @@ impl UnfinishedBlockBuildingSink for TrueBlockValueBidder {
         } else {
             None
         };
-        self.bid_maker.send_bid(Bid::new(block, payout_tx_value));
+        self.bid_maker
+            .send_bid(Bid::new(block, payout_tx_value, None));
     }
 
     fn can_use_suggested_fee_recipient_as_coinbase(&self) -> bool {

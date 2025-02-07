@@ -26,6 +26,8 @@ pub struct BuiltBlockTrace {
     pub fill_time: Duration,
     pub finalize_time: Duration,
     pub root_hash_time: Duration,
+    /// Value we saw in the competition when we decided to make this bid.
+    pub seen_competition_bid: Option<U256>,
 }
 
 impl Default for BuiltBlockTrace {
@@ -61,6 +63,7 @@ impl BuiltBlockTrace {
             fill_time: Duration::from_secs(0),
             finalize_time: Duration::from_secs(0),
             root_hash_time: Duration::from_secs(0),
+            seen_competition_bid: None,
         }
     }
 

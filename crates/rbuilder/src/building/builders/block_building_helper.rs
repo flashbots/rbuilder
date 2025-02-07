@@ -60,6 +60,7 @@ pub trait BlockBuildingHelper: Send + Sync {
     fn finalize_block(
         self: Box<Self>,
         payout_tx_value: Option<U256>,
+        seen_competition_bid: Option<U256>,
     ) -> Result<FinalizeBlockResult, BlockBuildingHelperError>;
 
     /// Useful if we want to give away this object but keep on building some other way.
@@ -386,6 +387,7 @@ where
     fn finalize_block(
         mut self: Box<Self>,
         payout_tx_value: Option<U256>,
+        seen_competition_bid: Option<U256>,
     ) -> Result<FinalizeBlockResult, BlockBuildingHelperError> {
         if payout_tx_value.is_some() && self.building_ctx.coinbase_is_suggested_fee_recipient() {
             return Err(BlockBuildingHelperError::PayoutTxNotAllowed);
@@ -419,7 +421,7 @@ where
         self.built_block_trace.update_orders_sealed_at();
         self.built_block_trace.root_hash_time = finalized_block.root_hash_time;
         self.built_block_trace.finalize_time = start_time.elapsed();
-
+        self.built_block_trace.seen_competition_bid = seen_competition_bid;
         Self::trace_finalized_block(
             &finalized_block,
             &self.builder_name,

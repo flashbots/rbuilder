@@ -155,7 +155,7 @@ where
     } else {
         Some(block_builder.true_block_value()?)
     };
-    let finalize_block_result = block_builder.finalize_block(payout_tx_value)?;
+    let finalize_block_result = block_builder.finalize_block(payout_tx_value, None)?;
     Ok((
         finalize_block_result.block,
         finalize_block_result.cached_reads,

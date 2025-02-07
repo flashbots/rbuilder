@@ -89,8 +89,10 @@ impl BlockBuildingHelper for MockBlockBuildingHelper {
     fn finalize_block(
         mut self: Box<Self>,
         payout_tx_value: Option<U256>,
+        seen_competition_bid: Option<U256>,
     ) -> Result<FinalizeBlockResult, BlockBuildingHelperError> {
         self.built_block_trace.update_orders_sealed_at();
+        self.built_block_trace.seen_competition_bid = seen_competition_bid;
         self.built_block_trace.bid_value = if let Some(payout_tx_value) = payout_tx_value {
             payout_tx_value
         } else {
