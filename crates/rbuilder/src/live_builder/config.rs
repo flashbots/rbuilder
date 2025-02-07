@@ -38,7 +38,6 @@ use crate::{
     provider::StateProviderFactory,
     roothash::RootHashContext,
     utils::{build_info::rbuilder_version, ProviderFactoryReopener, Signer},
-    validation_api_client::ValidationAPIClient,
 };
 use alloy_chains::ChainKind;
 use alloy_primitives::{
@@ -113,20 +112,15 @@ pub struct L1Config {
     pub relays: Vec<RelayConfig>,
     pub enabled_relays: Vec<String>,
 
-    pub dry_run: bool,
-    #[serde_as(deserialize_as = "OneOrMany<_>")]
-    pub dry_run_validation_url: Vec<String>,
     /// Secret key that will be used to sign normal submissions to the relay.
     relay_secret_key: Option<EnvOrValue<String>>,
     /// Secret key that will be used to sign optimistic submissions to the relay.
     optimistic_relay_secret_key: EnvOrValue<String>,
     /// When enabled builer will make optimistic submissions to optimistic relays
-    /// influenced by `optimistic_max_bid_value_eth` and `optimistic_prevalidate_optimistic_blocks`
+    /// influenced by `optimistic_max_bid_value_eth`
     pub optimistic_enabled: bool,
     /// Bids above this value will always be submitted in non-optimistic mode.
     pub optimistic_max_bid_value_eth: String,
-    /// If true all optimistic submissions will be validated on nodes specified in `dry_run_validation_url`
-    pub optimistic_prevalidate_optimistic_blocks: bool,
 
     ///Name kept singular for backwards compatibility
     #[serde_as(deserialize_as = "OneOrMany<EnvOrValue<String>>")]
@@ -141,13 +135,10 @@ impl Default for L1Config {
         Self {
             relays: vec![],
             enabled_relays: vec![],
-            dry_run: false,
-            dry_run_validation_url: vec![],
             relay_secret_key: None,
             optimistic_relay_secret_key: "".into(),
             optimistic_enabled: false,
             optimistic_max_bid_value_eth: "0.0".to_string(),
-            optimistic_prevalidate_optimistic_blocks: false,
             cl_node_url: vec![EnvOrValue::from("http://127.0.0.1:3500")],
             genesis_fork_version: None,
         }
@@ -269,23 +260,6 @@ impl L1Config {
         chain_spec: Arc<ChainSpec>,
         bid_observer: Box<dyn BidObserver + Send + Sync>,
     ) -> eyre::Result<SubmissionConfig> {
-        if (self.dry_run || self.optimistic_prevalidate_optimistic_blocks)
-            && self.dry_run_validation_url.is_empty()
-        {
-            eyre::bail!(
-                "Dry run or optimistic prevalidation enabled but no validation urls provided"
-            );
-        }
-        let validation_api = {
-            let urls = self
-                .dry_run_validation_url
-                .iter()
-                .map(|s| s.as_str())
-                .collect::<Vec<_>>();
-
-            ValidationAPIClient::new(urls.as_slice())?
-        };
-
         let signing_domain = get_signing_domain(
             chain_spec.chain,
             self.beacon_clients()?,
@@ -316,7 +290,6 @@ impl L1Config {
             Some(OptimisticConfig {
                 signer: optimistic_signer,
                 max_bid_value: parse_ether(&self.optimistic_max_bid_value_eth)?,
-                prevalidate_optimistic_blocks: self.optimistic_prevalidate_optimistic_blocks,
             })
         } else {
             None
@@ -325,8 +298,6 @@ impl L1Config {
         Ok(SubmissionConfig {
             chain_spec,
             signer,
-            dry_run: self.dry_run,
-            validation_api,
             optimistic_config,
             bid_observer,
         })
@@ -349,9 +320,8 @@ impl L1Config {
 
         if let Some(optimitic_config) = submission_config.optimistic_config.as_ref() {
             info!(
-                "Optimistic mode enabled, relay pubkey {:?}, prevalidate: {}, max_value: {}",
+                "Optimistic mode enabled, relay pubkey {:?}, max_value: {}",
                 optimitic_config.signer.pub_key(),
-                optimitic_config.prevalidate_optimistic_blocks,
                 format_ether(optimitic_config.max_bid_value),
             );
         };

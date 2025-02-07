@@ -1,13 +1,12 @@
 use alloy_json_rpc::{ErrorPayload, RpcError};
 use std::{fmt::Debug, sync::Arc};
 
-use crate::{
-    mev_boost::submission::SubmitBlockRequest,
-    telemetry::add_block_validation_time,
-    utils::{http_provider, BoxedProvider},
-};
 use alloy_primitives::B256;
 use alloy_provider::Provider;
+use rbuilder::{
+    mev_boost::submission::SubmitBlockRequest,
+    utils::{http_provider, BoxedProvider},
+};
 use serde::Serialize;
 use serde_with::{serde_as, DisplayFromStr};
 use tokio::sync::mpsc;
@@ -41,8 +40,7 @@ pub enum ValidationError {
     #[error("Validation failed")]
     ValidationFailed(ErrorPayload),
 
-    #[cfg_attr(not(feature = "redact-sensitive"), error("Local usage error: {0}"))]
-    #[cfg_attr(feature = "redact-sensitive", error("Local usage error: [REDACTED]"))]
+    #[error("Local usage error: {0}")]
     LocalUsageError(Box<dyn std::error::Error + Send + Sync>),
 }
 
@@ -69,7 +67,6 @@ impl ValidationAPIClient {
         parent_beacon_block_root: Option<B256>,
         cancellation_token: CancellationToken,
     ) -> Result<(), ValidationError> {
-        let start = std::time::Instant::now();
         if self.providers.is_empty() {
             return Err(ValidationError::NoValidationNodes);
         }
@@ -115,14 +112,12 @@ impl ValidationAPIClient {
             match result {
                 Ok(_) => {
                     // this means that block passed validation
-                    add_block_validation_time(start.elapsed());
                     return Ok(());
                 }
                 Err(RpcError::ErrorResp(err)) => {
                     if is_error_critical(&err.message) {
                         error!(err = ?err, "Validation node returned error");
                         // this should mean that block did not pass validation
-                        add_block_validation_time(start.elapsed());
                         return Err(ValidationError::ValidationFailed(err));
                     } else {
                         warn!(err = ?err, "Unable to validate block");

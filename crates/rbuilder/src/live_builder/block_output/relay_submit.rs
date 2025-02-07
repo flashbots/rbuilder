@@ -3,9 +3,7 @@ use crate::{
     live_builder::payload_events::MevBoostSlotData,
     mev_boost::{
         sign_block_for_relay,
-        submission::{
-            BidMetadata, BidValueMetadata, SubmitBlockRequest, SubmitBlockRequestWithMetadata,
-        },
+        submission::{BidMetadata, BidValueMetadata, SubmitBlockRequestWithMetadata},
         BLSBlockSigner, RelayError, SubmitBlockErr,
     },
     primitives::mev_boost::{MevBoostRelayBidSubmitter, MevBoostRelayID},
@@ -15,19 +13,17 @@ use crate::{
         inc_relay_accepted_submissions, inc_subsidized_blocks, inc_too_many_req_relay_errors,
         mark_submission_start_time,
     },
-    utils::{error_storage::store_error_event, tracing::dynamic_event},
-    validation_api_client::{ValidationAPIClient, ValidationError},
+    utils::error_storage::store_error_event,
 };
 use ahash::HashMap;
 use alloy_primitives::{utils::format_ether, U256};
 use mockall::automock;
 use parking_lot::Mutex;
 use reth_chainspec::ChainSpec;
-use reth_primitives::SealedBlock;
 use std::sync::Arc;
 use tokio::{sync::Notify, time::Instant};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, event, info_span, trace, warn, Instrument, Level};
+use tracing::{debug, error, info_span, trace, warn, Instrument};
 
 use super::{
     bid_observer::BidObserver,
@@ -35,7 +31,6 @@ use super::{
 };
 
 const SIM_ERROR_CATEGORY: &str = "submit_block_simulation";
-const VALIDATION_ERROR_CATEGORY: &str = "validate_block_simulation";
 
 /// Contains the last pending block so far.
 /// Building updates via update while relay submitter polls via take_pending_block.
@@ -104,24 +99,15 @@ pub struct SubmissionConfig {
     pub chain_spec: Arc<ChainSpec>,
     pub signer: BLSBlockSigner,
 
-    pub dry_run: bool,
-    pub validation_api: ValidationAPIClient,
-
     pub optimistic_config: Option<OptimisticConfig>,
     pub bid_observer: Box<dyn BidObserver + Send + Sync>,
 }
 
 /// Configuration for optimistic block submission to relays.
-///
-/// For optimistic relays when bid_value < max_bid_value:
-/// - If prevalidate_optimistic_blocks=true: Validate first, then submit with optimistic key
-/// - If prevalidate_optimistic_blocks=false: Submit directly with optimistic key
-///   Otherwise uses normal submission path.
 #[derive(Debug, Clone)]
 pub struct OptimisticConfig {
     pub signer: BLSBlockSigner,
     pub max_bid_value: U256,
-    pub prevalidate_optimistic_blocks: bool,
 }
 
 /// Values from [`BuiltBlockTrace`]
@@ -130,15 +116,11 @@ struct BuiltBlockInfo {
     pub true_bid_value: U256,
 }
 /// `run_submit_to_relays_job` is a main function for submitting blocks to relays
-/// Every 50ms It will take a new best block produced by builders and submit it.
 ///
 /// How submission works:
 /// 0. We divide relays into optimistic and non-optimistic (defined in config file)
-/// 1. If we are in dry run mode we validate the payload and skip submission to the relays
-/// 2. We schedule submissions with non-optimistic key for all non-optimistic relays.
-///    3.1 If "optimistic_enabled" is false or bid_value >= "optimistic_max_bid_value" we schedule submissions with non-optimistic key
-///    3.2 If "optimistic_prevalidate_optimistic_blocks" is false we schedule submissions with optimistic key
-///    3.3 If "optimistic_prevalidate_optimistic_blocks" is true we validate block using validation API and then schedule submissions with optimistic key
+/// 1. We schedule submissions with non-optimistic key for all non-optimistic relays.
+///    1.1 If "optimistic_enabled" is false or bid_value >= "optimistic_max_bid_value" we schedule submissions with non-optimistic key
 ///    returns the best bid made
 #[allow(clippy::too_many_arguments)]
 async fn run_submit_to_relays_job(
@@ -297,31 +279,6 @@ async fn run_submit_to_relays_job(
 
         mark_submission_start_time(block.trace.orders_sealed_at);
 
-        if config.dry_run {
-            tokio::spawn({
-                let slot_data = slot_data.clone();
-                let submission = normal_signed_submission.submission.clone();
-                let sealed_block = block.sealed_block.clone();
-                let config = config.clone();
-                let cancel = cancel.clone();
-                let submission_span = submission_span.clone();
-
-                async move {
-                    validate_block(
-                        &slot_data,
-                        &submission,
-                        sealed_block,
-                        &config,
-                        cancel,
-                        "Dry run",
-                    )
-                    .instrument(submission_span)
-                    .await
-                }
-            });
-            continue 'submit;
-        }
-
         for relay in &normal_relays {
             let span = info_span!(parent: &submission_span, "relay_submit", relay = &relay.id(), optimistic = false);
             let relay = relay.clone();
@@ -335,37 +292,18 @@ async fn run_submit_to_relays_job(
             );
         }
 
-        if let Some((optimistic_signed_submission, optimistic_config)) =
-            &optimistic_signed_submission
-        {
-            let can_submit = if optimistic_config.prevalidate_optimistic_blocks {
-                validate_block(
-                    &slot_data,
-                    &optimistic_signed_submission.submission,
-                    block.sealed_block.clone(),
-                    &config,
-                    cancel.clone(),
-                    "Optimistic check",
-                )
-                .instrument(submission_span.clone())
-                .await
-            } else {
-                true
-            };
-
-            if can_submit {
-                for relay in &optimistic_relays {
-                    let span = info_span!(parent: &submission_span, "relay_submit", relay = &relay.id(), optimistic = true);
-                    let relay = relay.clone();
-                    let cancel = cancel.clone();
-                    let submission = optimistic_signed_submission.clone();
-                    tokio::spawn(
-                        async move {
-                            submit_bid_to_the_relay(&relay, cancel.clone(), submission, true).await;
-                        }
-                        .instrument(span),
-                    );
-                }
+        if let Some((optimistic_signed_submission, _)) = &optimistic_signed_submission {
+            for relay in &optimistic_relays {
+                let span = info_span!(parent: &submission_span, "relay_submit", relay = &relay.id(), optimistic = true);
+                let relay = relay.clone();
+                let cancel = cancel.clone();
+                let submission = optimistic_signed_submission.clone();
+                tokio::spawn(
+                    async move {
+                        submit_bid_to_the_relay(&relay, cancel.clone(), submission, true).await;
+                    }
+                    .instrument(span),
+                );
             }
         } else {
             // non-optimistic submission to optimistic relays
@@ -420,62 +358,6 @@ pub async fn run_submit_to_relays_job_and_metrics(
                 last_build_block_info.bid_value - last_build_block_info.true_bid_value,
                 false,
             );
-        }
-    }
-}
-
-fn log_validation_error(err: ValidationError, level: Level, validation_use: &str) {
-    dynamic_event!(level,err = ?err, validation_use,"Validation failed");
-}
-
-/// Validates the blocks handling any logging.
-/// Answers if the block was validated ok.
-async fn validate_block(
-    slot_data: &MevBoostSlotData,
-    signed_submit_request: &SubmitBlockRequest,
-    block: SealedBlock,
-    config: &SubmissionConfig,
-    cancellation_token: CancellationToken,
-    validation_use: &str,
-) -> bool {
-    let withdrawals_root = block.withdrawals_root.unwrap_or_default();
-    let start = Instant::now();
-    match config
-        .validation_api
-        .validate_block(
-            signed_submit_request,
-            slot_data.suggested_gas_limit,
-            withdrawals_root,
-            block.parent_beacon_block_root,
-            cancellation_token,
-        )
-        .await
-    {
-        Ok(()) => {
-            trace!(
-                time_ms = start.elapsed().as_millis(),
-                validation_use,
-                "Validation passed"
-            );
-            true
-        }
-        Err(ValidationError::ValidationFailed(err)) => {
-            log_validation_error(
-                ValidationError::ValidationFailed(err.clone()),
-                Level::ERROR,
-                validation_use,
-            );
-            inc_failed_block_simulations();
-            store_error_event(
-                VALIDATION_ERROR_CATEGORY,
-                &err.to_string(),
-                signed_submit_request,
-            );
-            false
-        }
-        Err(err) => {
-            log_validation_error(err, Level::WARN, validation_use);
-            false
         }
     }
 }

@@ -6,7 +6,7 @@ use alloy_rpc_types_beacon::{
 };
 use alloy_rpc_types_engine::{BlobsBundleV1, ExecutionPayloadV3};
 use serde::{Deserialize, Serialize};
-use ssz::Encode;
+use ssz::{Decode, DecodeError, Encode};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ElectraSubmitBlockRequest(pub SignedBidSubmissionV4);
@@ -23,7 +23,7 @@ impl DenebSubmitBlockRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CapellaSubmitBlockRequest(pub SignedBidSubmissionV2);
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum SubmitBlockRequest {
     Capella(CapellaSubmitBlockRequest),
@@ -32,12 +32,28 @@ pub enum SubmitBlockRequest {
 }
 
 impl SubmitBlockRequest {
-    pub fn bid_trace(&self) -> BidTrace {
+    pub fn bid_trace(&self) -> &BidTrace {
         match self {
-            SubmitBlockRequest::Capella(req) => req.0.message.clone(),
-            SubmitBlockRequest::Deneb(req) => req.0.message.clone(),
-            SubmitBlockRequest::Electra(req) => req.0.message.clone(),
+            SubmitBlockRequest::Capella(req) => &req.0.message,
+            SubmitBlockRequest::Deneb(req) => &req.0.message,
+            SubmitBlockRequest::Electra(req) => &req.0.message,
         }
+    }
+
+    pub fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        if let Ok(result) = SignedBidSubmissionV4::from_ssz_bytes(bytes) {
+            return Ok(SubmitBlockRequest::Electra(ElectraSubmitBlockRequest(
+                result,
+            )));
+        }
+        if let Ok(result) = SignedBidSubmissionV3::from_ssz_bytes(bytes) {
+            return Ok(SubmitBlockRequest::Deneb(DenebSubmitBlockRequest(result)));
+        }
+
+        let result = SignedBidSubmissionV2::from_ssz_bytes(bytes)?;
+        Ok(SubmitBlockRequest::Capella(CapellaSubmitBlockRequest(
+            result,
+        )))
     }
 }
 
