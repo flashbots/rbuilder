@@ -11,8 +11,8 @@ use crate::{
         TransactionErr,
     },
     primitives::{
-        Bundle, BundleReplacementData, BundleReplacementKey, Order, OrderId, Refund, RefundConfig,
-        TxRevertBehavior,
+        Bundle, BundleRefund, BundleReplacementData, BundleReplacementKey, Order, OrderId, Refund,
+        RefundConfig, TxRevertBehavior,
     },
     utils::{constants::BASE_TX_GAS, int_percentage},
 };
@@ -325,6 +325,38 @@ fn test_share_bundle_revert() -> eyre::Result<()> {
 }
 
 #[test]
+fn test_bundle_ok_refunds() -> eyre::Result<()> {
+    let target_block = 11;
+    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().number(target_block))?;
+    let profit: u64 = 100_000;
+    let percent: u8 = 90;
+    let refundable_value = int_percentage(profit, percent as usize);
+    let recipient_named_address = NamedAddr::User(2);
+    let recipient = test_setup.named_address(recipient_named_address)?;
+    let recipient_balance_before = test_setup.balance(recipient_named_address)?;
+    test_setup.begin_bundle_order(target_block);
+    test_setup.add_dummy_tx_0_1_no_rev()?;
+    let profit_tx_hash = test_setup.add_send_to_coinbase_tx(NamedAddr::User(1), profit)?;
+    test_setup.set_bundle_refund(BundleRefund {
+        percent,
+        recipient,
+        tx_hashes: vec![profit_tx_hash],
+    });
+    let result = test_setup.commit_order_ok();
+    let recipient_balance_after = test_setup.balance(recipient_named_address)?;
+    let expected_refund = refundable_value - BASE_TX_GAS;
+    assert_eq!(
+        recipient_balance_after - recipient_balance_before,
+        expected_refund as i128
+    );
+    assert_eq!(
+        result.paid_kickbacks,
+        vec![(recipient, U256::from(expected_refund))]
+    );
+    Ok(())
+}
+
+#[test]
 fn test_mev_share_ok_refunds() -> eyre::Result<()> {
     let target_block = 11;
     let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().number(target_block))?;
@@ -473,7 +505,16 @@ fn test_mev_share_failed_refunds() -> eyre::Result<()> {
         body_idx: 0,
         percent: 90,
     }]);
-    test_setup.commit_order_err_check_text("Not enough refund for gas");
+    test_setup.commit_order_err_check(|err| {
+        assert!(matches!(
+            err,
+            OrderErr::Bundle(BundleErr::NotEnoughRefundForGas {
+                to: _,
+                refundable_value: _,
+                needed_value: _,
+            })
+        ))
+    });
 
     // this bundle tries to go into the builder balance by having really high refund config percent
     test_setup.begin_share_bundle_order(11, 11);
@@ -489,7 +530,7 @@ fn test_mev_share_failed_refunds() -> eyre::Result<()> {
         body_idx: 0,
         percent: 50,
     }]);
-    test_setup.commit_order_err_check_text("Negative profit");
+    test_setup.commit_order_err_check(|err| assert!(matches!(err, OrderErr::NegativeProfit(_))));
 
     // this bundle tries to go into the builder balance by having high refund percentage
     test_setup.begin_share_bundle_order(11, 11);
@@ -499,7 +540,7 @@ fn test_mev_share_failed_refunds() -> eyre::Result<()> {
         body_idx: 0,
         percent: 101,
     }]);
-    test_setup.commit_order_err_check_text("Negative profit");
+    test_setup.commit_order_err_check(|err| assert!(matches!(err, OrderErr::NegativeProfit(_))));
 
     Ok(())
 }

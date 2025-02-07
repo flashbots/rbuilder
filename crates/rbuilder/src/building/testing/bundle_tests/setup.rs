@@ -8,8 +8,8 @@ use crate::{
         BlockState, ExecutionError, ExecutionResult, OrderErr, PartialBlock,
     },
     primitives::{
-        order_builder::OrderBuilder, BundleReplacementData, OrderId, Refund, RefundConfig,
-        SimulatedOrder, TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior,
+        order_builder::OrderBuilder, BundleRefund, BundleReplacementData, OrderId, Refund,
+        RefundConfig, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior,
     },
 };
 use alloy_primitives::{Address, TxHash};
@@ -85,6 +85,10 @@ impl TestSetup {
 
     pub fn set_inner_bundle_refund(&mut self, refund: Vec<Refund>) {
         self.order_builder.set_inner_bundle_refund(refund)
+    }
+
+    pub fn set_bundle_refund(&mut self, refund: BundleRefund) {
+        self.order_builder.set_bundle_refund(refund)
     }
 
     pub fn set_inner_bundle_refund_config(&mut self, refund_config: Vec<RefundConfig>) {
@@ -273,6 +277,16 @@ impl TestSetup {
             .with_cached_reads(self.cached_reads.clone().unwrap_or_default());
 
         Ok(block_state.nonce(self.test_chain.named_address(named_addr)?)?)
+    }
+
+    pub fn balance(&self, named_addr: NamedAddr) -> eyre::Result<i128> {
+        let state_provider = self.test_chain.provider_factory().latest()?;
+        let mut block_state = BlockState::new(state_provider)
+            .with_bundle_state(self.bundle_state.clone().unwrap_or_default())
+            .with_cached_reads(self.cached_reads.clone().unwrap_or_default());
+        Ok(block_state
+            .balance(self.test_chain.named_address(named_addr)?)?
+            .to())
     }
 
     pub fn nonce(&self, named_addr: NamedAddr, nonce_value: NonceValue) -> eyre::Result<u64> {

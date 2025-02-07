@@ -109,6 +109,7 @@ pub struct BundleRefund {
     /// Address where to refund to.
     pub recipient: Address,
     /// A list of transaction hashes to refund.
+    /// This means that part (percent%) of the profit from the execution these txs goes to refund.recipient
     pub tx_hashes: Vec<TxHash>,
 }
 
@@ -165,6 +166,7 @@ impl Bundle {
     }
 
     /// Returns `true` if the provided transaction hash is refundable.
+    /// This means that part the profit from this execution goes to the self.refund.recipient
     pub fn is_tx_refundable(&self, hash: &B256) -> bool {
         self.refund
             .as_ref()

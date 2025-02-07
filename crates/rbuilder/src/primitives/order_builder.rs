@@ -1,9 +1,9 @@
 use std::mem;
 
 use super::{
-    Bundle, BundleReplacementData, MempoolTx, Order, OrderId, Refund, RefundConfig, ShareBundle,
-    ShareBundleBody, ShareBundleInner, ShareBundleTx, TransactionSignedEcRecoveredWithBlobs,
-    TxRevertBehavior,
+    Bundle, BundleRefund, BundleReplacementData, MempoolTx, Order, OrderId, Refund, RefundConfig,
+    ShareBundle, ShareBundleBody, ShareBundleInner, ShareBundleTx,
+    TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior,
 };
 
 /// Helper object to build Orders for testing.
@@ -124,6 +124,15 @@ impl OrderBuilder {
         }
     }
 
+    pub fn set_bundle_refund(&mut self, refund: BundleRefund) {
+        match self {
+            OrderBuilder::Bundle(builder) => {
+                builder.set_bundle_refund(refund);
+            }
+            _ => panic!("Only Bundle can have BundleRefund"),
+        }
+    }
+
     pub fn set_inner_bundle_refund_config(&mut self, refund_config: Vec<RefundConfig>) {
         match self {
             OrderBuilder::ShareBundle(builder) => {
@@ -150,6 +159,7 @@ pub struct BundleBuilder {
     min_timestamp: Option<u64>,
     max_timestamp: Option<u64>,
     replacement_data: Option<BundleReplacementData>,
+    refund: Option<BundleRefund>,
 }
 
 impl BundleBuilder {
@@ -160,6 +170,7 @@ impl BundleBuilder {
             min_timestamp: None,
             max_timestamp: None,
             replacement_data: None,
+            refund: None,
         }
     }
 
@@ -170,6 +181,10 @@ impl BundleBuilder {
 
     fn set_bundle_replacement_data(&mut self, data: BundleReplacementData) {
         self.replacement_data = Some(data);
+    }
+
+    fn set_bundle_refund(&mut self, refund: BundleRefund) {
+        self.refund = Some(refund);
     }
 
     fn build(self) -> Bundle {
@@ -200,7 +215,7 @@ impl BundleBuilder {
             signer: None,
             metadata: Default::default(),
             dropping_tx_hashes,
-            refund: None,
+            refund: self.refund,
         };
         bundle.hash_slow();
         bundle
