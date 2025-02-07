@@ -671,6 +671,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
             original_order_ids: Vec::new(),
         };
         for tx_with_blobs in &bundle.txs {
+            let tx_hash = tx_with_blobs.hash();
             let coinbase_balance_before = self.state.balance(ctx.block_env.coinbase)?;
             let rollback_point = self.rollback_point();
             let result = self.commit_tx(
@@ -683,12 +684,12 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
             match result {
                 Ok(res) => {
                     if !res.receipt.success {
-                        if bundle.dropping_tx_hashes.contains(&tx_with_blobs.hash()) {
+                        if bundle.dropping_tx_hashes.contains(&tx_hash) {
                             self.rollback(rollback_point);
                             continue;
                         }
-                        if !bundle.reverting_tx_hashes.contains(&tx_with_blobs.hash()) {
-                            return Ok(Err(BundleErr::TransactionReverted(tx_with_blobs.hash())));
+                        if !bundle.reverting_tx_hashes.contains(&tx_hash) {
+                            return Ok(Err(BundleErr::TransactionReverted(tx_hash)));
                         }
                     }
 
@@ -697,7 +698,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
                         coinbase_balance_after.checked_sub(coinbase_balance_before)
                     };
                     if let Some(profit) = coinbase_profit {
-                        if bundle.is_tx_refundable(&tx_with_blobs.hash()) {
+                        if bundle.is_tx_refundable(&tx_hash) {
                             refundable_profit += profit;
                         }
                     }
@@ -705,15 +706,12 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
                 }
                 Err(err) => {
                     // if optional transaction, skip
-                    if (allow_tx_skip && bundle.reverting_tx_hashes.contains(&tx_with_blobs.hash()))
-                        || bundle.dropping_tx_hashes.contains(&tx_with_blobs.hash())
+                    if (allow_tx_skip && bundle.reverting_tx_hashes.contains(&tx_hash))
+                        || bundle.dropping_tx_hashes.contains(&tx_hash)
                     {
                         continue;
                     } else {
-                        return Ok(Err(BundleErr::InvalidTransaction(
-                            tx_with_blobs.hash(),
-                            err,
-                        )));
+                        return Ok(Err(BundleErr::InvalidTransaction(tx_hash, err)));
                     }
                 }
             }

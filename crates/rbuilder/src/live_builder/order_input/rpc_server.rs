@@ -113,7 +113,7 @@ pub async fn start_server_accepting_bundles(
 /// Parses a bundle packet and forwards it to the results.
 /// Here we can generate:
 /// - ReplaceableOrderPoolCommand::Order(Bundle)).
-/// - CancelShareBundle (identified using empty txs).
+/// - ReplaceableOrderPoolCommand::CancelBundle (identified using empty txs).
 async fn handle_eth_send_bundle(
     results: mpsc::Sender<ReplaceableOrderPoolCommand>,
     timeout: Duration,
