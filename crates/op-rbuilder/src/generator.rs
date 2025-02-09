@@ -264,17 +264,20 @@ where
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         tracing::trace!("Polling job");
+        println!("Polling job");
         let this = self.get_mut();
 
         // Check if deadline is reached
         if this.deadline.as_mut().poll(cx).is_ready() {
             tracing::debug!("Deadline reached");
+            println!("Deadline reached");
             return Poll::Ready(Ok(()));
         }
 
         // If cancelled via resolve_kind()
         if this.cancel.is_none() {
             tracing::debug!("Job cancelled");
+            println!("Job cancelled");
             return Poll::Ready(Ok(()));
         }
 
@@ -381,7 +384,6 @@ mod tests {
     use reth_provider::test_utils::MockEthProvider;
     use reth_testing_utils::generators::{random_block_range, BlockRangeParams};
     use reth_transaction_pool::noop::NoopTransactionPool;
-    use std::sync::mpsc::{Receiver, Sender};
     use tokio::task;
     use tokio::time::{sleep, Duration};
 
@@ -454,13 +456,24 @@ mod tests {
 
     #[derive(Debug, Clone)]
     struct MockBuilder {
-        sender: Sender<BlockEvent>,
+        events: Arc<Mutex<Vec<BlockEvent>>>,
     }
 
     impl MockBuilder {
-        fn new() -> (Self, Receiver<BlockEvent>) {
-            let (tx, rx) = std::sync::mpsc::channel();
-            (Self { sender: tx }, rx)
+        fn new() -> Self {
+            Self {
+                events: Arc::new(Mutex::new(vec![])),
+            }
+        }
+
+        fn new_event(&self, event: BlockEvent) {
+            let mut events = self.events.lock().unwrap();
+            events.push(event);
+        }
+
+        fn get_events(&self) -> Vec<BlockEvent> {
+            let mut events = self.events.lock().unwrap();
+            std::mem::take(&mut *events)
         }
     }
 
@@ -490,7 +503,7 @@ mod tests {
         }
     }
 
-    #[derive(Debug, PartialEq)]
+    #[derive(Debug, PartialEq, Clone)]
     enum BlockEvent {
         Started,
         Cancelled,
@@ -505,11 +518,11 @@ mod tests {
             args: BuildArguments<Pool, Client, Self::Attributes, Self::BuiltPayload>,
             _best_payload: BlockCell<Self::BuiltPayload>,
         ) -> Result<(), PayloadBuilderError> {
-            let _ = self.sender.send(BlockEvent::Started);
+            self.new_event(BlockEvent::Started);
 
             loop {
                 if args.cancel.is_cancelled() {
-                    let _ = self.sender.send(BlockEvent::Cancelled);
+                    self.new_event(BlockEvent::Cancelled);
                     return Ok(());
                 }
 
@@ -527,7 +540,7 @@ mod tests {
         let client = MockEthProvider::default();
         let executor = TokioTaskExecutor::default();
         let config = BasicPayloadJobGeneratorConfig::default();
-        let (builder, receiver) = MockBuilder::new();
+        let builder = MockBuilder::new();
 
         let (start, count) = (1, 10);
         let blocks = random_block_range(
@@ -541,8 +554,13 @@ mod tests {
 
         client.extend_blocks(blocks.iter().cloned().map(|b| (b.hash(), b.unseal())));
 
-        let generator =
-            BlockPayloadJobGenerator::with_builder(client.clone(), pool, executor, config, builder);
+        let generator = BlockPayloadJobGenerator::with_builder(
+            client.clone(),
+            pool,
+            executor,
+            config,
+            builder.clone(),
+        );
 
         // this is not nice but necessary
         let mut attr = OpPayloadBuilderAttributes::default();
@@ -550,21 +568,27 @@ mod tests {
 
         {
             let job = generator.new_payload_job(attr.clone())?;
-            let handle = tokio::spawn(async move {
-                let _ = job.await;
-            });
+            let _ = job.await;
 
-            std::thread::spawn(move || {
-                let msg = receiver.recv().expect("msg");
-                assert_eq!(msg, BlockEvent::Started);
+            // you need to give one second for the job to be dropped and cancelled the internal job
+            std::thread::sleep(Duration::from_secs(1));
 
-                // if we do not do anything, eventually the job will be cancelled
-                let msg = receiver.recv().expect("msg");
-                assert_eq!(msg, BlockEvent::Cancelled);
-            });
-
-            handle.await.unwrap();
+            let events = builder.get_events();
+            assert_eq!(events, vec![BlockEvent::Started, BlockEvent::Cancelled]);
         }
+
+        {
+            // job resolve triggers cancellations from the build task
+            let mut job = generator.new_payload_job(attr.clone())?;
+            let _ = job.resolve();
+            let _ = job.await;
+
+            std::thread::sleep(Duration::from_secs(1));
+
+            let events = builder.get_events();
+            assert_eq!(events, vec![BlockEvent::Started, BlockEvent::Cancelled]);
+        }
+
         Ok(())
     }
 }
