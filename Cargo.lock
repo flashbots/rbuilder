@@ -6526,6 +6526,7 @@ dependencies = [
  "metrics",
  "op-alloy-consensus",
  "op-alloy-rpc-types-engine",
+ "rand 0.8.5",
  "reth",
  "reth-basic-payload-builder",
  "reth-chain-state",
@@ -6555,6 +6556,7 @@ dependencies = [
  "reth-provider",
  "reth-revm",
  "reth-rpc-layer",
+ "reth-testing-utils",
  "reth-transaction-pool",
  "reth-trie",
  "revm",
@@ -10776,6 +10778,21 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-futures",
+]
+
+[[package]]
+name = "reth-testing-utils"
+version = "1.1.5"
+source = "git+https://github.com/paradigmxyz/reth?tag=v1.1.5#3212af2d85a54eb207661361ac9fe1d7de4b5b8e"
+dependencies = [
+ "alloy-consensus",
+ "alloy-eips",
+ "alloy-genesis",
+ "alloy-primitives 0.8.15",
+ "rand 0.8.5",
+ "reth-primitives",
+ "reth-primitives-traits",
+ "secp256k1",
 ]
 
 [[package]]
