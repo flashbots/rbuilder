@@ -30,7 +30,7 @@ pub use store::HistoricalDataStorage;
 use time::OffsetDateTime;
 use tracing::trace;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RawOrdersWithTimestamp {
     pub timestamp_ms: u64,
     pub order: RawOrder,

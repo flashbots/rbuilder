@@ -1,8 +1,11 @@
 use super::{OrderInputConfig, ReplaceableOrderPoolCommand};
 use crate::{
     primitives::{
-        serialize::{RawBundle, RawShareBundle, RawShareBundleDecodeResult, RawTx, TxEncoding},
-        Bundle, BundleReplacementKey, MempoolTx, Order,
+        serialize::{
+            RawBundle, RawBundleDecodeResult, RawShareBundle, RawShareBundleDecodeResult, RawTx,
+            TxEncoding,
+        },
+        BundleReplacementData, BundleReplacementKey, MempoolTx, Order,
     },
     telemetry::mark_command_received,
 };
@@ -44,34 +47,7 @@ pub async fn start_server_accepting_bundles(
 
     let results_clone = results.clone();
     module.register_async_method("eth_sendBundle", move |params, _| {
-        let results = results_clone.clone();
-        async move {
-	    let received_at = OffsetDateTime::now_utc();
-
-            let start = Instant::now();
-            let raw_bundle: RawBundle = match params.one() {
-                Ok(raw_bundle) => raw_bundle,
-                Err(err) => {
-                    warn!(?err, "Failed to parse raw bundle");
-                    // @Metric
-                    return;
-                }
-            };
-
-            let bundle: Bundle = match raw_bundle.try_into(TxEncoding::WithBlobData) {
-                Ok(bundle) => bundle,
-                Err(err) => {
-                    warn!(?err, "Failed to decode raw bundle");
-                    // @Metric
-                    return;
-                }
-            };
-            let order = Order::Bundle(bundle);
-            let parse_duration = start.elapsed();
-            let target_block = order.target_block().unwrap_or_default();
-            trace!(order = ?order.id(), parse_duration_mus = parse_duration.as_micros(), target_block, "Received bundle");
-            send_order(order, &results, timeout, received_at).await;
-        }
+        handle_eth_send_bundle(results_clone.clone(), timeout, params)
     })?;
 
     let results_clone = results.clone();
@@ -134,8 +110,56 @@ pub async fn start_server_accepting_bundles(
     }))
 }
 
+/// Parses a bundle packet and forwards it to the results.
+/// Here we can generate:
+/// - ReplaceableOrderPoolCommand::Order(Bundle)).
+/// - ReplaceableOrderPoolCommand::CancelBundle (identified using empty txs).
+async fn handle_eth_send_bundle(
+    results: mpsc::Sender<ReplaceableOrderPoolCommand>,
+    timeout: Duration,
+    params: jsonrpsee::types::Params<'static>,
+) {
+    let received_at = OffsetDateTime::now_utc();
+    let start = Instant::now();
+    let raw_bundle: RawBundle = match params.one() {
+        Ok(raw_bundle) => raw_bundle,
+        Err(err) => {
+            warn!(?err, "Failed to parse raw bundle");
+            // @Metric
+            return;
+        }
+    };
+
+    let bundle_res = match raw_bundle.decode(TxEncoding::WithBlobData) {
+        Ok(bundle_res) => bundle_res,
+        Err(err) => {
+            warn!(?err, "Failed to decode raw bundle");
+            // @Metric
+            return;
+        }
+    };
+    match bundle_res {
+        RawBundleDecodeResult::NewBundle(bundle) => {
+            let order = Order::Bundle(bundle);
+            let parse_duration = start.elapsed();
+            let target_block = order.target_block().unwrap_or_default();
+            trace!(order = ?order.id(), parse_duration_mus = parse_duration.as_micros(), target_block, "Received bundle");
+            send_order(order, &results, timeout, received_at).await;
+        }
+        RawBundleDecodeResult::CancelBundle(replacement_data) => {
+            send_command(
+                ReplaceableOrderPoolCommand::CancelBundle(replacement_data),
+                &results,
+                timeout,
+                received_at,
+            )
+            .await;
+        }
+    }
+}
+
 /// Parses a mev share bundle packet and forwards it to the results.
-/// Here we can have NewShareBundle or CancelShareBundle (identified using a "cancel" field (a little ugly)).
+/// Here we can generate ReplaceableOrderPoolCommand::Order(ShareBundle)) or CancelShareBundle (identified using a "cancel" field (a little ugly)).
 async fn handle_mev_send_bundle(
     results: mpsc::Sender<ReplaceableOrderPoolCommand>,
     timeout: Duration,
@@ -239,8 +263,14 @@ async fn handle_cancel_bundle(
         cancel_bundle.replacement_uuid,
         cancel_bundle.signing_address,
     );
+    let sequence_number = 0;
+    let replacement_data = BundleReplacementData {
+        key,
+        sequence_number,
+    };
+    // @Pending nonce
     send_command(
-        ReplaceableOrderPoolCommand::CancelBundle(key),
+        ReplaceableOrderPoolCommand::CancelBundle(replacement_data),
         &results,
         timeout,
         received_at,

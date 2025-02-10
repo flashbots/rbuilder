@@ -535,7 +535,7 @@ mod tests {
             };
 
             let bundle = Bundle {
-                block: 0,
+                block: Some(0),
                 min_timestamp: None,
                 max_timestamp: None,
                 txs,
@@ -545,6 +545,8 @@ mod tests {
                 replacement_data: None,
                 signer: None,
                 metadata: Metadata::default(),
+                dropping_tx_hashes: Vec::new(),
+                refund: None,
             };
 
             SimulatedOrder {

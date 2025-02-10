@@ -42,9 +42,6 @@ struct BestBidSyncSourceInner {
 
 impl BidValueObs for BestBidSyncSourceInner {
     fn update_new_bid(&self, bid: U256) {
-        let mut best_bid = self.best_bid.lock();
-        if best_bid.map_or(true, |old_bid| old_bid < bid) {
-            *best_bid = Some(bid);
-        }
+        *self.best_bid.lock() = Some(bid);
     }
 }

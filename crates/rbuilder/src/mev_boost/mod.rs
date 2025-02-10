@@ -456,10 +456,13 @@ impl RelayClient {
         ssz: bool,
         gzip: bool,
         fake_relay: bool,
+        cancellations: bool,
     ) -> Result<Response, SubmitBlockErr> {
         let url = {
             let mut url = self.url.clone();
             url.set_path("/relay/v1/builder/blocks");
+            url.query_pairs_mut()
+                .append_pair("cancellations", if cancellations { "1" } else { "0" });
             url
         };
 
@@ -539,9 +542,10 @@ impl RelayClient {
         ssz: bool,
         gzip: bool,
         fake_relay: bool,
+        cancellations: bool,
     ) -> Result<(), SubmitBlockErr> {
         let resp = self
-            .call_relay_submit_block(data, ssz, gzip, fake_relay)
+            .call_relay_submit_block(data, ssz, gzip, fake_relay, cancellations)
             .await?;
         let status = resp.status();
 
@@ -790,7 +794,7 @@ mod tests {
             },
         };
         relay
-            .submit_block(&sub_relay, true, true, false)
+            .submit_block(&sub_relay, true, true, false, false)
             .await
             .expect("OPS!");
     }

@@ -92,6 +92,7 @@ reth-ethereum-payload-builder = { git = "https://github.com/paradigmxyz/reth", t
 reth-payload-builder-primitives = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.5" }
 reth-payload-util = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.5" }
 reth-rpc-layer = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.5" }
+reth-testing-utils = { git = "https://github.com/paradigmxyz/reth", tag = "v1.1.5" }
 
 # version is copied from reth  "v1.1.5" dependencies
 revm = { version = "19.2.0", features = [

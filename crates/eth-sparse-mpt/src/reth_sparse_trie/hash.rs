@@ -7,10 +7,14 @@ use alloy_primitives::{Bytes, B256};
 use alloy_rlp::Encodable;
 use rayon::prelude::*;
 use reth_trie::TrieAccount;
+use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, Seq};
 
-#[derive(Default, Clone)]
+#[serde_as]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct EthSparseTries {
     pub account_trie: DiffTrie,
+    #[serde_as(as = "Seq<(_, _)>")]
     pub storage_tries: HashMap<Bytes, DiffTrie>,
 }
 

@@ -18,7 +18,10 @@ use block_building_helper::BiddableUnfinishedBlock;
 use reth::{primitives::SealedBlock, revm::cached::CachedReads};
 use reth_errors::ProviderError;
 use std::{fmt::Debug, sync::Arc};
-use tokio::sync::{broadcast, broadcast::error::TryRecvError};
+use tokio::sync::{
+    broadcast,
+    broadcast::error::{RecvError, TryRecvError},
+};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
@@ -67,7 +70,17 @@ impl OrderConsumer {
     /// Returns true if success, on false builder should stop
     /// New commands are accumulatd in self.new_commands
     /// Call apply_new_commands to easily consume them.
-    pub fn consume_next_commands(&mut self) -> eyre::Result<bool> {
+    /// This method will block until the first command is received
+    pub fn blocking_consume_next_commands(&mut self) -> eyre::Result<bool> {
+        match self.orders.blocking_recv() {
+            Ok(order) => self.new_commands.push(order),
+            Err(RecvError::Closed) => {
+                return Ok(false);
+            }
+            Err(RecvError::Lagged(msg)) => {
+                warn!(msg, "Builder thread lagging on sim orders channel");
+            }
+        }
         for _ in 0..1024 {
             match self.orders.try_recv() {
                 Ok(order) => self.new_commands.push(order),
@@ -78,7 +91,7 @@ impl OrderConsumer {
                     return Ok(false);
                 }
                 Err(TryRecvError::Lagged(msg)) => {
-                    warn!("Builder thread lagging on sim orders channel: {}", msg);
+                    warn!(msg, "Builder thread lagging on sim orders channel");
                     break;
                 }
             }
@@ -130,8 +143,9 @@ where
     }
 
     /// Returns true if success, on false builder should stop
-    pub fn consume_next_batch(&mut self) -> eyre::Result<bool> {
-        if !self.order_consumer.consume_next_commands()? {
+    /// Blocks until the first item in the next batch is available.
+    pub fn blocking_consume_next_batch(&mut self) -> eyre::Result<bool> {
+        if !self.order_consumer.blocking_consume_next_commands()? {
             return Ok(false);
         }
         if !self.update_onchain_nonces()? {

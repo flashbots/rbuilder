@@ -1,7 +1,8 @@
 use super::*;
 use crate::{
     sparse_mpt::*,
-    utils::{reference_trie_hash, HashSet, StoredFailureCase},
+    test_utils::{reference_trie_hash, StoredFailureCase},
+    utils::HashSet,
 };
 use alloy_primitives::{Bytes, B256};
 use eyre::Context;
@@ -493,7 +494,7 @@ fn check_correct_gather_for_orphan_of_and_orphan() {
 
 #[test]
 fn known_failure_case_0() {
-    let input = StoredFailureCase::load("./test_data/failure_case_0.json");
+    let input = StoredFailureCase::load("./test_data/failure_case_0.json.gz");
 
     let mut prev_value = None;
     for i in 0..10 {

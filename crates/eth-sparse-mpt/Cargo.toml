@@ -7,6 +7,7 @@ license.workspace = true
 homepage.workspace = true
 repository.workspace = true
 
+
 [dependencies]
 thiserror = "1.0.61"
 serde = { version = "1.0.203", features = ["derive"] }
@@ -33,15 +34,21 @@ alloy-primitives.workspace = true
 alloy-rlp.workspace = true
 alloy-trie.workspace = true
 
-# test only dependencies but included here to be accessible from benches/
-hash-db = "0.15.2"
-triehash = "0.8.4"
+
+# test deps
+hash-db = { version = "0.15.2", optional = true }
+triehash = { version = "0.8.4", optional = true }
+flate2 = { version = "1.0.35", optional = true }
+eyre = { workspace = true, optional = true}
+
+[features]
+benchmark-utils = ["dep:hash-db", "dep:triehash", "dep:flate2", "dep:eyre"]
 
 [dev-dependencies]
 criterion = { version = "0.4", features = ["html_reports"] }
-eyre = "0.6.12"
 rand = { version = "0.8.5", features = ["small_rng"] }
 proptest = "1.5.0"
+eth-sparse-mpt = { path = ".", features = ["benchmark-utils"] }
 
 [[bench]]
 name = "trie_insert_bench"
@@ -49,5 +56,9 @@ harness = false
 
 [[bench]]
 name = "trie_nodes_benches"
+harness = false
+
+[[bench]]
+name = "trie_example_bench"
 harness = false
 

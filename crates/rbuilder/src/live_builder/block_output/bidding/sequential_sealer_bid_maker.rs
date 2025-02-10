@@ -88,10 +88,15 @@ impl SequentialSealerBidMakerProcess {
     async fn check_for_new_bid(&mut self) {
         if let Some(bid) = self.pending_bid.consume_bid() {
             let payout_tx_val = bid.payout_tx_value();
+            let seen_competition_bid = bid.seen_competition_bid();
             let block = bid.block();
             let block_number = block.building_context().block();
             let builder_name = block.builder_name().to_string();
-            match tokio::task::spawn_blocking(move || block.finalize_block(payout_tx_val)).await {
+            match tokio::task::spawn_blocking(move || {
+                block.finalize_block(payout_tx_val, seen_competition_bid)
+            })
+            .await
+            {
                 Ok(finalize_res) => match finalize_res {
                     Ok(res) => self.sink.new_block(res.block),
                     Err(error) => {

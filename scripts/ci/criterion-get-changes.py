@@ -137,5 +137,5 @@ elif output_format == "html":
     print("</tbody>")
 else:
     print("Benchmark \t Mean \t Status \t Significant")
-    for full_id, url, mean_fmt, ms, is_significant in change_data:
+    for full_id, url, mean_fmt, msg, is_significant in change_data:
         print(f"{full_id} \t {mean_fmt}% \t {msg} \t {is_significant}")

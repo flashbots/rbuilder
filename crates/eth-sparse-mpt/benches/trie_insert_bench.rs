@@ -6,7 +6,7 @@ use eth_sparse_mpt::{
         shared_cache::RethSparseTrieShareCacheInternal, SparseTrieSharedCache,
     },
     sparse_mpt::{DiffTrie, FixedTrie},
-    utils::{get_test_change_set, get_test_multiproofs},
+    test_utils::{get_test_change_set, get_test_multiproofs},
 };
 
 fn get_storage_tries(changes: &ETHTrieChangeSet, tries: &EthSparseTries) -> Vec<DiffTrie> {

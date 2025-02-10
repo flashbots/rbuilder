@@ -11,8 +11,8 @@ use crate::{
         TransactionErr,
     },
     primitives::{
-        Bundle, BundleReplacementData, BundleReplacementKey, Order, OrderId, Refund, RefundConfig,
-        TxRevertBehavior,
+        Bundle, BundleRefund, BundleReplacementData, BundleReplacementKey, Order, OrderId, Refund,
+        RefundConfig, TxRevertBehavior,
     },
     utils::{constants::BASE_TX_GAS, int_percentage},
 };
@@ -325,6 +325,38 @@ fn test_share_bundle_revert() -> eyre::Result<()> {
 }
 
 #[test]
+fn test_bundle_ok_refunds() -> eyre::Result<()> {
+    let target_block = 11;
+    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().number(target_block))?;
+    let profit: u64 = 100_000;
+    let percent: u8 = 90;
+    let refundable_value = int_percentage(profit, percent as usize);
+    let recipient_named_address = NamedAddr::User(2);
+    let recipient = test_setup.named_address(recipient_named_address)?;
+    let recipient_balance_before = test_setup.balance(recipient_named_address)?;
+    test_setup.begin_bundle_order(target_block);
+    test_setup.add_dummy_tx_0_1_no_rev()?;
+    let profit_tx_hash = test_setup.add_send_to_coinbase_tx(NamedAddr::User(1), profit)?;
+    test_setup.set_bundle_refund(BundleRefund {
+        percent,
+        recipient,
+        tx_hashes: vec![profit_tx_hash],
+    });
+    let result = test_setup.commit_order_ok();
+    let recipient_balance_after = test_setup.balance(recipient_named_address)?;
+    let expected_refund = refundable_value - BASE_TX_GAS;
+    assert_eq!(
+        recipient_balance_after - recipient_balance_before,
+        expected_refund as i128
+    );
+    assert_eq!(
+        result.paid_kickbacks,
+        vec![(recipient, U256::from(expected_refund))]
+    );
+    Ok(())
+}
+
+#[test]
 fn test_mev_share_ok_refunds() -> eyre::Result<()> {
     let target_block = 11;
     let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().number(target_block))?;
@@ -473,7 +505,16 @@ fn test_mev_share_failed_refunds() -> eyre::Result<()> {
         body_idx: 0,
         percent: 90,
     }]);
-    test_setup.commit_order_err_check_text("Not enough refund for gas");
+    test_setup.commit_order_err_check(|err| {
+        assert!(matches!(
+            err,
+            OrderErr::Bundle(BundleErr::NotEnoughRefundForGas {
+                to: _,
+                refundable_value: _,
+                needed_value: _,
+            })
+        ))
+    });
 
     // this bundle tries to go into the builder balance by having really high refund config percent
     test_setup.begin_share_bundle_order(11, 11);
@@ -489,7 +530,7 @@ fn test_mev_share_failed_refunds() -> eyre::Result<()> {
         body_idx: 0,
         percent: 50,
     }]);
-    test_setup.commit_order_err_check_text("Negative profit");
+    test_setup.commit_order_err_check(|err| assert!(matches!(err, OrderErr::NegativeProfit(_))));
 
     // this bundle tries to go into the builder balance by having high refund percentage
     test_setup.begin_share_bundle_order(11, 11);
@@ -499,7 +540,7 @@ fn test_mev_share_failed_refunds() -> eyre::Result<()> {
         body_idx: 0,
         percent: 101,
     }]);
-    test_setup.commit_order_err_check_text("Negative profit");
+    test_setup.commit_order_err_check(|err| assert!(matches!(err, OrderErr::NegativeProfit(_))));
 
     Ok(())
 }
@@ -650,39 +691,60 @@ fn test_mev_share_use_suggested_fee_recipient_as_coinbase() -> eyre::Result<()> 
 #[test]
 ///Checks TxRevertBehavior::AllowedInclude/AllowedExcluded by checking the consumed gas.
 fn test_bundle_revert_modes() -> eyre::Result<()> {
+    bundle_revert_modes_tests(false)?;
+    bundle_revert_modes_tests(true)?;
+    Ok(())
+}
+
+///Checks TxRevertBehavior::AllowedInclude/AllowedExcluded by checking the consumed gas.
+fn bundle_revert_modes_tests(share_bundle: bool) -> eyre::Result<()> {
     let target_block = 11;
     // 2 users to avoid caring about nonces
     let tx_sender0 = NamedAddr::User(0);
     let tx_sender1 = NamedAddr::User(1);
     let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().number(target_block))?;
+    let begin_bundle = |test_setup: &mut TestSetup| {
+        if share_bundle {
+            test_setup.begin_share_bundle_order(target_block, target_block);
+        } else {
+            test_setup.begin_bundle_order(target_block);
+        }
+    };
 
     // Single revert tx AllowedExcluded -> NO GAS
-    test_setup.begin_share_bundle_order(target_block, target_block);
+    begin_bundle(&mut test_setup);
     test_setup.add_revert(tx_sender0, TxRevertBehavior::AllowedExcluded)?;
-    let res = test_setup.commit_order_ok();
-    assert_eq!(res.gas_used, 0);
+    // Bundles behave different to sbundles on empty execution
+    if share_bundle {
+        let res = test_setup.commit_order_ok();
+        assert_eq!(res.gas_used, 0);
+    } else {
+        test_setup.commit_order_err_check(|err| {
+            assert!(matches!(err, OrderErr::Bundle(BundleErr::EmptyBundle)));
+        });
+    }
 
     // Measure simple tx
-    test_setup.begin_share_bundle_order(target_block, target_block);
+    begin_bundle(&mut test_setup);
     test_setup.add_revert(tx_sender0, TxRevertBehavior::AllowedIncluded)?;
     let res = test_setup.commit_order_ok();
     let reverting_gas = res.gas_used;
 
     // Measure reverting tx
-    test_setup.begin_share_bundle_order(target_block, target_block);
+    begin_bundle(&mut test_setup);
     test_setup.add_send_to_coinbase_tx(tx_sender0, 0)?;
     let res = test_setup.commit_order_ok();
     let send_gas = res.gas_used;
 
     // send + rev on AllowedIncluded pay both gases
-    test_setup.begin_share_bundle_order(target_block, target_block);
+    begin_bundle(&mut test_setup);
     test_setup.add_send_to_coinbase_tx(tx_sender1, 0)?;
     test_setup.add_revert(tx_sender0, TxRevertBehavior::AllowedIncluded)?;
     let res = test_setup.commit_order_ok();
     assert_eq!(res.gas_used, send_gas + reverting_gas);
 
     // send + rev on AllowedExcluded pay send
-    test_setup.begin_share_bundle_order(target_block, target_block);
+    begin_bundle(&mut test_setup);
     test_setup.add_send_to_coinbase_tx(tx_sender0, 0)?;
     test_setup.add_revert(tx_sender1, TxRevertBehavior::AllowedExcluded)?;
     let res = test_setup.commit_order_ok();

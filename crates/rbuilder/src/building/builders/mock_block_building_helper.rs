@@ -29,6 +29,7 @@ pub struct MockBlockBuildingHelper {
     built_block_trace: BuiltBlockTrace,
     block_building_context: BlockBuildingContext,
     can_add_payout_tx: bool,
+    builder_name: String,
 }
 
 impl MockBlockBuildingHelper {
@@ -41,7 +42,19 @@ impl MockBlockBuildingHelper {
             built_block_trace,
             block_building_context: BlockBuildingContext::dummy_for_testing(),
             can_add_payout_tx,
+            builder_name: "Mock".to_string(),
         }
+    }
+
+    pub fn with_builder_name(self, builder_name: String) -> Self {
+        Self {
+            builder_name,
+            ..self
+        }
+    }
+
+    pub fn built_block_trace_mut_ref(&mut self) -> &mut BuiltBlockTrace {
+        &mut self.built_block_trace
     }
 }
 
@@ -76,8 +89,10 @@ impl BlockBuildingHelper for MockBlockBuildingHelper {
     fn finalize_block(
         mut self: Box<Self>,
         payout_tx_value: Option<U256>,
+        seen_competition_bid: Option<U256>,
     ) -> Result<FinalizeBlockResult, BlockBuildingHelperError> {
         self.built_block_trace.update_orders_sealed_at();
+        self.built_block_trace.seen_competition_bid = seen_competition_bid;
         self.built_block_trace.bid_value = if let Some(payout_tx_value) = payout_tx_value {
             payout_tx_value
         } else {
@@ -114,7 +129,7 @@ impl BlockBuildingHelper for MockBlockBuildingHelper {
     }
 
     fn builder_name(&self) -> &str {
-        "Mock"
+        &self.builder_name
     }
 }
 

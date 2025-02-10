@@ -643,7 +643,7 @@ mod test {
             RawOrdersWithTimestamp {
                 timestamp_ms: 11,
                 order: RawOrder::Bundle(RawBundle {
-                    block_number: U64::from(12),
+                    block_number: Some(U64::from(12)),
                     txs: vec![tx.clone().into()],
                     reverting_tx_hashes: vec![],
                     replacement_uuid: Some(uuid::Uuid::from_u128(11)),
@@ -653,6 +653,12 @@ mod test {
                     min_timestamp: None,
                     max_timestamp: Some(100),
                     replacement_nonce: Some(0),
+                    dropping_tx_hashes: vec![],
+                    uuid: None,
+                    refund_percent: None,
+                    refund_recipient: None,
+                    refund_tx_hashes: None,
+                    first_seen_at: None,
                 }),
             }
             .decode(TxEncoding::WithBlobData)

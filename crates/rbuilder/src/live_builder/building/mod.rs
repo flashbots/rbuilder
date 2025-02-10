@@ -1,3 +1,5 @@
+mod unfinished_block_building_sink_muxer;
+
 use std::{cell::RefCell, rc::Rc, sync::Arc, thread, time::Duration};
 
 use crate::{
@@ -16,6 +18,7 @@ use revm_primitives::Address;
 use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, trace};
+use unfinished_block_building_sink_muxer::UnfinishedBlockBuildingSinkMuxer;
 
 use super::{
     order_input::{
@@ -108,6 +111,7 @@ where
     ) {
         let builder_sink = self.sink_factory.create_sink(slot_data, cancel.clone());
         let (broadcast_input, _) = broadcast::channel(10_000);
+        let muxer = Arc::new(UnfinishedBlockBuildingSinkMuxer::new(builder_sink));
 
         let block_number = ctx.block_env.number.to::<u64>();
 
@@ -118,7 +122,7 @@ where
                 provider: self.provider.clone(),
                 ctx: ctx.clone(),
                 input: broadcast_input.subscribe(),
-                sink: builder_sink.clone(),
+                sink: muxer.clone(),
                 cancel: cancel.clone(),
             };
             let builder = builder.clone();

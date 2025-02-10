@@ -81,7 +81,7 @@ impl<ConfigType: LiveBuilderConfig> SyntheticOrdersSource<ConfigType> {
             let low_tip_tx = create_tip_tx(&test_chain_state, 2, i, LOW_TIP);
             let high_tip_tx = create_tip_tx(&test_chain_state, 3, i, HIGH_TIP);
             let mut bundle = Bundle {
-                block: block_number,
+                block: Some(block_number),
                 min_timestamp: None,
                 max_timestamp: None,
                 txs: vec![low_tip_tx, high_tip_tx],
@@ -93,6 +93,8 @@ impl<ConfigType: LiveBuilderConfig> SyntheticOrdersSource<ConfigType> {
                 metadata: Metadata {
                     received_at_timestamp: time::OffsetDateTime::from_unix_timestamp(0).unwrap(),
                 },
+                dropping_tx_hashes: Default::default(),
+                refund: None,
             };
             bundle.hash_slow();
             orders.push(OrdersWithTimestamp {

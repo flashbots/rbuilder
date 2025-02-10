@@ -25,6 +25,8 @@ pub struct Bid {
     block: BiddableUnfinishedBlock,
     /// payout_tx_value should be Some <=> block.can_add_payout_tx()
     payout_tx_value: Option<U256>,
+    /// Value we saw in the competition when we decided to make this bid.
+    seen_competition_bid: Option<U256>,
 }
 
 impl std::fmt::Debug for Bid {
@@ -37,10 +39,15 @@ impl std::fmt::Debug for Bid {
 
 impl Bid {
     /// Creates a new Bid instance.
-    pub fn new(block: BiddableUnfinishedBlock, payout_tx_value: Option<U256>) -> Self {
+    pub fn new(
+        block: BiddableUnfinishedBlock,
+        payout_tx_value: Option<U256>,
+        seen_competition_bid: Option<U256>,
+    ) -> Self {
         Self {
             block,
             payout_tx_value,
+            seen_competition_bid,
         }
     }
 
@@ -48,9 +55,12 @@ impl Bid {
         self.block.into_building_helper()
     }
 
-    /// Returns the payout transaction value.
     pub fn payout_tx_value(&self) -> Option<U256> {
         self.payout_tx_value
+    }
+
+    pub fn seen_competition_bid(&self) -> Option<U256> {
+        self.seen_competition_bid
     }
 }
 

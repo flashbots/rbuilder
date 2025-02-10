@@ -1,6 +1,6 @@
 use tracing::info;
 
-use crate::primitives::{Order, OrderReplacementKey};
+use crate::primitives::{BundleReplacementData, Order, ShareBundleReplacementKey};
 use core::fmt::Debug;
 
 /// Receiver of order commands in a low level order stream (mempool + RPC calls).
@@ -12,7 +12,8 @@ use core::fmt::Debug;
 /// so we can identify the newest.
 pub trait ReplaceableOrderSink: Debug + Send {
     fn insert_order(&mut self, order: Order) -> bool;
-    fn remove_bundle(&mut self, key: OrderReplacementKey) -> bool;
+    fn remove_bundle(&mut self, replacement_data: BundleReplacementData) -> bool;
+    fn remove_sbundle(&mut self, key: ShareBundleReplacementKey) -> bool;
     /// @Pending remove this ugly hack to check if we can stop sending data.
     /// It should be replaced for a better control over object destruction
     fn is_alive(&self) -> bool;
@@ -32,12 +33,17 @@ impl ReplaceableOrderSink for ReplaceableOrderPrinter {
         true
     }
 
-    fn remove_bundle(&mut self, key: OrderReplacementKey) -> bool {
-        info!(key=?key,"Cancelled  bundle");
+    fn remove_bundle(&mut self, replacement_data: BundleReplacementData) -> bool {
+        info!(replacement_data=?replacement_data,"Cancelled Bundle");
         true
     }
 
     fn is_alive(&self) -> bool {
+        true
+    }
+
+    fn remove_sbundle(&mut self, key: ShareBundleReplacementKey) -> bool {
+        info!(key=?key,"Cancelled SBundle");
         true
     }
 }

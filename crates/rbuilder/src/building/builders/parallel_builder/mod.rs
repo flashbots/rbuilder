@@ -345,7 +345,7 @@ where
     } else {
         Some(block_building_helper.true_block_value()?)
     };
-    let finalize_block_result = block_building_helper.finalize_block(payout_tx_value)?;
+    let finalize_block_result = block_building_helper.finalize_block(payout_tx_value, None)?;
     let building_duration = building_start.elapsed();
     let total_duration = start_time.elapsed();
 

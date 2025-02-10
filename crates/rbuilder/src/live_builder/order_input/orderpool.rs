@@ -1,6 +1,5 @@
 use crate::primitives::{
-    serialize::CancelShareBundle, BundleReplacementKey, Order, OrderId, OrderReplacementKey,
-    ShareBundleReplacementKey,
+    serialize::CancelShareBundle, BundleReplacementData, Order, OrderId, ShareBundleReplacementKey,
 };
 use ahash::HashMap;
 use alloy_eips::merge::SLOT_DURATION;
@@ -71,8 +70,10 @@ pub struct OrderPoolSubscriptionId(u64);
 pub struct OrderPool {
     mempool_txs: Vec<(Order, Instant)>,
     /// cancelled bundle, cancellation arrival time
-    bundle_cancellations: VecDeque<(BundleReplacementKey, Instant)>,
+    bundle_cancellations: VecDeque<(BundleReplacementData, Instant)>,
     bundles_by_target_block: HashMap<u64, BundleBlockStore>,
+    /// Bundles with block == None. Always returned and cleaned on head_updated.
+    bundles_for_current_block: Vec<Order>,
     known_orders: LruCache<(OrderId, u64), ()>,
     sinks: HashMap<OrderPoolSubscriptionId, SinkSubscription>,
     next_sink_id: u64,
@@ -89,6 +90,7 @@ impl OrderPool {
         OrderPool {
             mempool_txs: Vec::new(),
             bundles_by_target_block: HashMap::default(),
+            bundles_for_current_block: Default::default(),
             known_orders: LruCache::new(NonZeroUsize::new(10_000).unwrap()),
             sinks: Default::default(),
             next_sink_id: 0,
@@ -119,12 +121,19 @@ impl OrderPool {
             }
             Order::Bundle(bundle) => {
                 let target_block = bundle.block;
-                let bundles_store = self
-                    .bundles_by_target_block
-                    .entry(target_block)
-                    .or_default();
-                bundles_store.bundles.push(order.clone());
-                (order, Some(target_block))
+                match target_block {
+                    Some(target_block) => {
+                        let bundles_store = self
+                            .bundles_by_target_block
+                            .entry(target_block)
+                            .or_default();
+                        bundles_store.bundles.push(order.clone());
+                    }
+                    None => {
+                        self.bundles_for_current_block.push(order.clone());
+                    }
+                };
+                (order, target_block)
             }
             Order::ShareBundle(bundle) => {
                 let target_block = bundle.block;
@@ -148,8 +157,9 @@ impl OrderPool {
         bundles_store.cancelled_sbundles.push(cancellation.key);
     }
 
-    fn process_remove_bundle(&mut self, key: &BundleReplacementKey) {
-        self.bundle_cancellations.push_back((*key, Instant::now()));
+    fn process_remove_bundle(&mut self, key: &BundleReplacementData) {
+        self.bundle_cancellations
+            .push_back((key.clone(), Instant::now()));
     }
 
     fn process_command(&mut self, command: ReplaceableOrderPoolCommand) {
@@ -166,11 +176,11 @@ impl OrderPool {
             if target_block.is_none() || target_block == Some(sub.block_number) {
                 let send_ok = match command.clone() {
                     ReplaceableOrderPoolCommand::Order(o) => sub.sink.insert_order(o),
-                    ReplaceableOrderPoolCommand::CancelShareBundle(cancel) => sub
-                        .sink
-                        .remove_bundle(OrderReplacementKey::ShareBundle(cancel.key)),
-                    ReplaceableOrderPoolCommand::CancelBundle(key) => {
-                        sub.sink.remove_bundle(OrderReplacementKey::Bundle(key))
+                    ReplaceableOrderPoolCommand::CancelShareBundle(cancel) => {
+                        sub.sink.remove_sbundle(cancel.key)
+                    }
+                    ReplaceableOrderPoolCommand::CancelBundle(replacement_data) => {
+                        sub.sink.remove_bundle(replacement_data)
                     }
                 };
                 if !send_ok {
@@ -190,18 +200,23 @@ impl OrderPool {
         for order in self.mempool_txs.iter().map(|(order, _)| order.clone()) {
             sink.insert_order(order);
         }
-        for cancellation_key in self.bundle_cancellations.iter().map(|(key, _)| key) {
-            sink.remove_bundle(OrderReplacementKey::Bundle(*cancellation_key));
+        for replacement_data in self.bundle_cancellations.iter().map(|(key, _)| key) {
+            sink.remove_bundle(replacement_data.clone());
         }
 
         if let Some(bundle_store) = self.bundles_by_target_block.get(&block_number) {
             for order in bundle_store.bundles.iter().cloned() {
                 sink.insert_order(order);
             }
-            for order_id in bundle_store.cancelled_sbundles.iter().cloned() {
-                sink.remove_bundle(OrderReplacementKey::ShareBundle(order_id));
+            for key in bundle_store.cancelled_sbundles.iter().cloned() {
+                sink.remove_sbundle(key);
             }
         }
+
+        for bundle in self.bundles_for_current_block.iter().cloned() {
+            sink.insert_order(bundle);
+        }
+
         let res = OrderPoolSubscriptionId(self.next_sink_id);
         self.next_sink_id += 1;
         self.sinks
@@ -224,7 +239,7 @@ impl OrderPool {
         // remove from bundles by target block
         self.bundles_by_target_block
             .retain(|block_number, _| *block_number > new_block_number);
-
+        self.bundles_for_current_block.clear();
         // remove mempool txs by nonce, time
         self.mempool_txs.retain(|(order, time)| {
             if time.elapsed() > TIME_TO_KEEP_TXS {

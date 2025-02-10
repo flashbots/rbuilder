@@ -37,6 +37,7 @@ reth-rpc-layer.workspace = true
 reth-payload-builder-primitives.workspace = true
 reth-payload-util.workspace = true
 reth-transaction-pool.workspace = true
+reth-testing-utils.workspace = true
 reth-optimism-forks.workspace = true
 alloy-primitives.workspace = true
 alloy-consensus.workspace = true
@@ -76,6 +77,7 @@ time = { version = "0.3.36", features = ["macros", "formatting", "parsing"] }
 chrono = "0.4"
 uuid = { version = "1.6.1", features = ["serde", "v5", "v4"] }
 tokio-tungstenite = "0.26.1"
+rand = "0.8.5"
 
 [target.'cfg(unix)'.dependencies]
 tikv-jemallocator = { version = "0.6", optional = true }

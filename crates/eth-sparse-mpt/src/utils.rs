@@ -1,17 +1,11 @@
-use alloy_primitives::{keccak256, Bytes, B256};
+use alloy_primitives::{keccak256, Bytes};
 use alloy_rlp::{length_of_length, BufMut, Encodable, Header, EMPTY_STRING_CODE};
 use alloy_trie::{
     nodes::{ExtensionNodeRef, LeafNodeRef},
     Nibbles,
 };
 use reth_trie::RlpNode;
-use rustc_hash::{FxBuildHasher, FxHasher};
-use serde::{Deserialize, Serialize};
-
-use crate::{
-    reth_sparse_trie::{change_set::ETHTrieChangeSet, trie_fetcher::MultiProof},
-    sparse_mpt::DiffTrie,
-};
+use rustc_hash::FxBuildHasher;
 
 pub type HashMap<K, V> = std::collections::HashMap<K, V, FxBuildHasher>;
 pub type HashSet<K> = std::collections::HashSet<K, FxBuildHasher>;
@@ -115,57 +109,4 @@ pub fn encode_len_branch_node(child_rlp_pointers: &[Option<&[u8]>; 16]) -> usize
 
 pub fn encode_null_node(out: &mut Vec<u8>) {
     out.push(EMPTY_STRING_CODE)
-}
-
-// test utils
-
-#[derive(Debug)]
-pub struct KeccakHasher {}
-
-impl hash_db::Hasher for KeccakHasher {
-    type Out = B256;
-    type StdHasher = FxHasher;
-    const LENGTH: usize = 32;
-
-    fn hash(x: &[u8]) -> Self::Out {
-        keccak256(x)
-    }
-}
-
-pub fn reference_trie_hash(data: &[(Bytes, Bytes)]) -> B256 {
-    triehash::trie_root::<KeccakHasher, _, _, _>(data.to_vec())
-}
-
-pub fn get_test_multiproofs() -> Vec<MultiProof> {
-    let files = [
-        "./test_data/multiproof_0.json",
-        "./test_data/multiproof_1.json",
-    ];
-    let mut result = Vec::new();
-    for file in files {
-        let data = std::fs::read_to_string(file).expect("reading multiproof");
-        result.push(serde_json::from_str(&data).expect("parsing multiproof"));
-    }
-    result
-}
-
-pub fn get_test_change_set() -> ETHTrieChangeSet {
-    let data = std::fs::read_to_string("./test_data/changeset.json").expect("reading changeset");
-    serde_json::from_str(&data).expect("parsing changeset")
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StoredFailureCase {
-    pub trie: DiffTrie,
-    pub updated_keys: Vec<Bytes>,
-    pub updated_values: Vec<Bytes>,
-    pub deleted_keys: Vec<Bytes>,
-}
-
-impl StoredFailureCase {
-    pub fn load(path: &str) -> StoredFailureCase {
-        // raed from file
-        let data = std::fs::read_to_string(path).expect("reading stored failure case");
-        serde_json::from_str(&data).expect("parsing stored failure case")
-    }
 }

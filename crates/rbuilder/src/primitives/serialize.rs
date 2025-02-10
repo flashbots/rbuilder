@@ -1,13 +1,14 @@
 use super::{
-    Bundle, BundleReplacementData, BundleReplacementKey, MempoolTx, Order, Refund, RefundConfig,
-    ShareBundle, ShareBundleBody, ShareBundleInner, ShareBundleReplacementData,
+    Bundle, BundleRefund, BundleReplacementData, BundleReplacementKey, MempoolTx, Order, Refund,
+    RefundConfig, ShareBundle, ShareBundleBody, ShareBundleInner, ShareBundleReplacementData,
     ShareBundleReplacementKey, ShareBundleTx, TransactionSignedEcRecoveredWithBlobs,
     TxRevertBehavior, TxWithBlobsCreateError,
 };
 use alloy_consensus::constants::EIP4844_TX_TYPE_ID;
 use alloy_eips::eip2718::Eip2718Error;
-use alloy_primitives::{Address, Bytes, B256, U64};
+use alloy_primitives::{Address, Bytes, TxHash, B256, U64};
 use alloy_rlp::{Buf, Header};
+use derivative::Derivative;
 use reth_chainspec::MAINNET;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_with::serde_as;
@@ -84,24 +85,63 @@ where
 /// Struct to de/serialize json Bundles from bundles APIs and from/db.
 /// Does not assume a particular format on txs.
 #[serde_as]
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Derivative)]
+#[derivative(PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct RawBundle {
-    pub block_number: U64,
+    /// blockNumber (Optional) `String`, a hex encoded block number for which this bundle is valid
+    /// on. If nil or 0, blockNumber will default to the current pending block
+    pub block_number: Option<U64>,
+    /// txs `Array[String]`, A list of signed transactions to execute in an atomic bundle, list can
+    /// be empty for bundle cancellations
     pub txs: Vec<Bytes>,
+    /// revertingTxHashes (Optional) `Array[String]`, A list of tx hashes that are allowed to
+    /// revert
     #[serde(default, deserialize_with = "deserialize_vec_b256_from_null_or_string")]
     pub reverting_tx_hashes: Vec<B256>,
+    /// droppingTxHashes (Optional) `Array[String]` A list of tx hashes that are allowed to be
+    /// discarded, but may not revert on chain.
+    #[serde(default, deserialize_with = "deserialize_vec_b256_from_null_or_string")]
+    pub dropping_tx_hashes: Vec<B256>,
+    /// a UUID v4 that can be used to replace or cancel this
+    /// bundle
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replacement_uuid: Option<Uuid>,
+    /// Same as replacement_uuid since the API change from builder to builder and we want to be compatible with all.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uuid: Option<Uuid>,
+    /// Address of the bundle sender.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signing_address: Option<Address>,
+    /// minTimestamp (Optional) `Number`, the minimum timestamp for which this bundle is valid, in
+    /// seconds since the unix epoch
     #[serde(skip_serializing_if = "Option::is_none")]
     pub min_timestamp: Option<u64>,
+    /// maxTimestamp (Optional) `Number`, the maximum timestamp for which this bundle is valid, in
+    /// seconds since the unix epoch
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_timestamp: Option<u64>,
     /// See [`BundleReplacementData`] sequence_number
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replacement_nonce: Option<u64>,
+
+    /// refundPercent (Optional) `Number`, percent to refund back to the user.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refund_percent: Option<u8>,
+    /// refundRecipient (Optional) `Address`, address of the user where to refund to. If
+    /// refundPercent is set and refundRecipient is not, the whole bundle will be discarded.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refund_recipient: Option<Address>,
+    /// refundTxHashes (Optional) `Array[String]`, A list of tx hashes from which the refund is
+    /// calculated. Defaults to final transaction in the bundle if list is not specified/empty.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refund_tx_hashes: Option<Vec<TxHash>>,
+    /// firstSeenAt `Number`, timestamp at which bundle was first seen,
+    /// used for ensuring we respect the order of uuid bundles that
+    /// were first received elsewhere
+    #[derivative(PartialEq = "ignore")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_seen_at: Option<f64>,
 }
 
 #[derive(Error, Debug)]
@@ -112,10 +152,53 @@ pub enum RawBundleConvertError {
     IncorrectReplacementData,
     #[error("Blobs not supported by RawBundle")]
     BlobsNotSupported,
+    #[error("Invalid refund percent {0}")]
+    InvalidRefundPercent(u8),
+    #[error("Empty bundle with on uuid")]
+    EmptyBundle,
+    #[error("Found cancel on decode_new_bundle")]
+    FoundCancelExpectingBundle,
+}
+
+/// Since we use the same API (eth_sendBundle) to get new bundles and also to cancel them we need this struct.
+#[allow(clippy::large_enum_variant)]
+pub enum RawBundleDecodeResult {
+    NewBundle(Bundle),
+    CancelBundle(BundleReplacementData),
 }
 
 impl RawBundle {
-    pub fn try_into(self, encoding: TxEncoding) -> Result<Bundle, RawBundleConvertError> {
+    /// Same as decode but fails on cancel
+    pub fn decode_new_bundle(self, encoding: TxEncoding) -> Result<Bundle, RawBundleConvertError> {
+        let decode_res = self.decode(encoding)?;
+        match decode_res {
+            RawBundleDecodeResult::NewBundle(b) => Ok(b),
+            RawBundleDecodeResult::CancelBundle(_) => {
+                Err(RawBundleConvertError::FoundCancelExpectingBundle)
+            }
+        }
+    }
+
+    pub fn decode(
+        mut self,
+        encoding: TxEncoding,
+    ) -> Result<RawBundleDecodeResult, RawBundleConvertError> {
+        let replacement_data = Self::decode_replacement_data(
+            self.replacement_uuid,
+            self.uuid,
+            self.signing_address,
+            self.replacement_nonce,
+            self.first_seen_at,
+        )?;
+        // Check for cancellation
+        if self.txs.is_empty() {
+            match replacement_data {
+                Some(replacement_data) => {
+                    return Ok(RawBundleDecodeResult::CancelBundle(replacement_data))
+                }
+                None => return Err(RawBundleConvertError::EmptyBundle),
+            }
+        }
         let txs = self
             .txs
             .into_iter()
@@ -126,22 +209,22 @@ impl RawBundle {
                     .map_err(|e| RawBundleConvertError::FailedToDecodeTransaction(idx, e))
             })
             .collect::<Result<Vec<_>, _>>()?;
-
-        let replacement_data = Self::decode_replacement_data(
-            self.replacement_uuid,
-            self.signing_address,
-            self.replacement_nonce,
+        let refund = Self::parse_refund(
+            self.refund_percent,
+            self.refund_recipient,
+            self.refund_tx_hashes,
+            &txs,
         )?;
-        let reverting_tx_hashes = {
-            let mut sorted_reverting_hashes = self.reverting_tx_hashes;
-            sorted_reverting_hashes.sort();
-            sorted_reverting_hashes
-        };
+
+        self.reverting_tx_hashes.sort();
+        self.dropping_tx_hashes.sort();
+
+        let block = self.block_number.unwrap_or_default().to();
 
         let mut bundle = Bundle {
-            block: self.block_number.to(),
+            block: if block != 0 { Some(block) } else { None },
             txs,
-            reverting_tx_hashes,
+            reverting_tx_hashes: self.reverting_tx_hashes,
             hash: Default::default(),
             uuid: Default::default(),
             replacement_data,
@@ -149,27 +232,68 @@ impl RawBundle {
             max_timestamp: self.max_timestamp,
             signer: self.signing_address,
             metadata: Default::default(),
+            dropping_tx_hashes: self.dropping_tx_hashes,
+            refund,
         };
         bundle.hash_slow();
-        Ok(bundle)
+        Ok(RawBundleDecodeResult::NewBundle(bundle))
+    }
+
+    fn parse_refund(
+        mut refund_percent: Option<u8>,
+        refund_recipient: Option<Address>,
+        refund_tx_hashes: Option<Vec<TxHash>>,
+        txs: &[TransactionSignedEcRecoveredWithBlobs],
+    ) -> Result<Option<BundleRefund>, RawBundleConvertError> {
+        // Validate refund percent setting.
+        if let Some(percent) = refund_percent {
+            if percent >= 100 {
+                return Err(RawBundleConvertError::InvalidRefundPercent(percent));
+            }
+            if percent == 0 {
+                refund_percent = None
+            }
+        }
+
+        let mut refund = None;
+        if let Some(percent) = refund_percent {
+            // Refund can be configured only if bundle is not empty.
+            // If bundle contains only one transaction, first == last.
+            if let Some((first_tx, last_tx)) = txs.first().zip(txs.last()) {
+                refund = Some(BundleRefund {
+                    percent,
+                    recipient: refund_recipient.unwrap_or_else(|| first_tx.signer()),
+                    tx_hashes: refund_tx_hashes
+                        .filter(|tx_hashes| !tx_hashes.is_empty())
+                        .unwrap_or_else(|| Vec::from([last_tx.hash()])),
+                });
+            }
+        }
+        Ok(refund)
     }
 
     /// consistency checks on raw data.
+    /// uuid takes priority over replacement_nonce
+    /// replacement_nonce takes priority over first_seen_at
+    /// In case first_seen_at_secs is used we synthesize a nonce by taking the usec.
     fn decode_replacement_data(
         replacement_uuid: Option<Uuid>,
+        mut uuid: Option<Uuid>,
         signing_address: Option<Address>,
-        replacement_nonce: Option<u64>,
+        mut replacement_nonce: Option<u64>,
+        first_seen_at_secs: Option<f64>,
     ) -> Result<Option<BundleReplacementData>, RawBundleConvertError> {
-        let got_uuid = replacement_uuid.is_some();
-        let got_nonce = replacement_nonce.is_some();
-        if got_uuid != got_nonce {
-            return Err(RawBundleConvertError::IncorrectReplacementData);
-        }
+        uuid = uuid.or(replacement_uuid);
+        replacement_nonce =
+            replacement_nonce.or(first_seen_at_secs.map(|t| (t * 1_000_000.0) as u64));
+        let got_uuid = uuid.is_some();
+        // @Pending generate global nonce or use a new field first_seen_at?
+        // let got_nonce = replacement_nonce.is_some();
         if !got_uuid {
             return Ok(None);
         }
         if let (Some(uuid), Some(signer), Some(sequence_number)) =
-            (replacement_uuid, signing_address, replacement_nonce)
+            (uuid, signing_address, replacement_nonce)
         {
             Ok(Some(BundleReplacementData {
                 key: BundleReplacementKey::new(uuid, signer),
@@ -188,18 +312,24 @@ impl RawBundle {
             .signer
             .or(value.replacement_data.map(|r| r.key.key().signer));
         Self {
-            block_number: U64::from(value.block),
+            block_number: value.block.map(U64::from),
             txs: value
                 .txs
                 .into_iter()
                 .map(|tx| tx.envelope_encoded_no_blobs())
                 .collect(),
             reverting_tx_hashes: value.reverting_tx_hashes,
+            dropping_tx_hashes: value.dropping_tx_hashes,
             replacement_uuid,
+            uuid: replacement_uuid,
             signing_address,
             min_timestamp: value.min_timestamp,
             max_timestamp: value.max_timestamp,
             replacement_nonce,
+            refund_percent: value.refund.as_ref().map(|br| br.percent),
+            refund_recipient: value.refund.as_ref().map(|br| br.recipient),
+            refund_tx_hashes: value.refund.map(|br| br.tx_hashes),
+            first_seen_at: None,
         }
     }
 }
@@ -530,7 +660,7 @@ fn inner_bundle_to_raw_bundle_no_blobs(
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[serde(tag = "type")]
 pub enum RawOrder {
@@ -556,7 +686,7 @@ impl RawOrder {
         match self {
             RawOrder::Bundle(bundle) => Ok(Order::Bundle(
                 bundle
-                    .try_into(encoding)
+                    .decode_new_bundle(encoding)
                     .map_err(RawOrderConvertError::FailedToDecodeBundle)?,
             )),
             RawOrder::Tx(tx) => Ok(Order::Tx(
@@ -587,6 +717,8 @@ impl From<Order> for RawOrder {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::*;
     use alloy_consensus::Transaction;
     use alloy_eips::eip2718::Encodable2718;
@@ -612,7 +744,7 @@ mod tests {
 
         let bundle = bundle_request
             .clone()
-            .try_into(TxEncoding::WithBlobData)
+            .decode_new_bundle(TxEncoding::WithBlobData)
             .expect("failed to convert bundle request to bundle");
 
         let bundle_roundtrip = RawBundle::encode_no_blobs(bundle.clone());
@@ -624,7 +756,7 @@ mod tests {
         );
         assert_eq!(bundle.uuid, uuid!("a90205bc-2afd-5afe-b315-f17d597ffd97"));
 
-        assert_eq!(bundle.block, 18_050_847);
+        assert_eq!(bundle.block, Some(18_050_847));
         assert_eq!(
             bundle.reverting_tx_hashes,
             vec![fixed_bytes!(
@@ -632,6 +764,7 @@ mod tests {
             )]
         );
         assert_eq!(bundle.txs.len(), 1);
+        assert_eq!(bundle.refund, None);
 
         let tx = &bundle.txs[0].tx;
         assert_eq!(tx.nonce(), 973);
@@ -648,6 +781,45 @@ mod tests {
         assert_eq!(
             bundle.signer,
             Some(address!("4696595f68034b47BbEc82dB62852B49a8EE7105"))
+        );
+    }
+
+    #[test]
+    fn test_correct_bundle_decoding_refunds_no_block() {
+        // raw json string
+        let bundle_json = r#"
+        {
+            "txs": [
+                "0x02f86b83aa36a780800982520894f24a01ae29dec4629dfb4170647c4ed4efc392cd861ca62a4c95b880c080a07d37bb5a4da153a6fbe24cf1f346ef35748003d1d0fc59cf6c17fb22d49e42cea02c231ac233220b494b1ad501c440c8b1a34535cdb8ca633992d6f35b14428672"
+            ],
+            "blockNumber": 0,
+            "minTimestamp": 0,
+            "maxTimestamp": 0,
+            "revertingTxHashes": [],
+            "refundPercent": 1,
+            "refundRecipient": "0x95222290dd7278aa3ddd389cc1e1d165cc4bafe5",
+            "refundTxHashes": ["0x75662ab9cb6d1be7334723db5587435616352c7e581a52867959ac24006ac1fe"]
+        }"#;
+
+        let bundle_request: RawBundle =
+            serde_json::from_str(bundle_json).expect("failed to decode bundle");
+
+        let bundle = bundle_request
+            .clone()
+            .decode_new_bundle(TxEncoding::WithBlobData)
+            .expect("failed to convert bundle request to bundle");
+
+        assert_eq!(bundle.block, None);
+        assert_eq!(
+            bundle.refund,
+            Some(BundleRefund {
+                percent: 1,
+                recipient: Address::from_str("0x95222290dd7278aa3ddd389cc1e1d165cc4bafe5").unwrap(),
+                tx_hashes: Vec::from([B256::from_str(
+                    "0x75662ab9cb6d1be7334723db5587435616352c7e581a52867959ac24006ac1fe",
+                )
+                .unwrap()]),
+            })
         );
     }
 
@@ -676,7 +848,43 @@ mod tests {
                 serde_json::from_str(input).expect("failed to decode bundle");
 
             let bundle = bundle_request
-                .try_into(TxEncoding::WithBlobData)
+                .decode_new_bundle(TxEncoding::WithBlobData)
+                .expect("failed to convert bundle request to bundle");
+
+            assert_eq!(
+                bundle.hash,
+                fixed_bytes!("cf3c567aede099e5455207ed81c4884f72a4c0c24ddca331163a335525cd22cc")
+            );
+            assert_eq!(bundle.uuid, uuid!("d9a3ae52-79a2-5ce9-a687-e2aa4183d5c6"));
+        }
+    }
+
+    #[test]
+    fn test_correct_bundle_uuid_multiple_dropping_hashes() {
+        // reverting tx hashes ordering should not matter
+        let inputs = [
+            r#"
+        {
+            "blockNumber": "0x1136F1F",
+            "txs": ["0x02f9037b018203cd8405f5e1008503692da370830388ba943fc91a3afd70395cd496c647d5a6cc9d4b2b7fad8780e531581b77c4b903043593564c000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000a00000000000000000000000000000000000000000000000000000000064f390d300000000000000000000000000000000000000000000000000000000000000030b090c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000c000000000000000000000000000000000000000000000000000000000000001e0000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000080e531581b77c400000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000009184e72a0000000000000000000000000000000000000000000000000000080e531581b77c400000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000c02aaa39b223fe8d0a0e5c4f27ead9083c756cc2000000000000000000000000b5ea574dd8f2b735424dfc8c4e16760fc44a931b000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000c001a0a9ea84ad107d335afd5e5d2ddcc576f183be37386a9ac6c9d4469d0329c22e87a06a51ea5a0809f43bf72d0156f1db956da3a9f3da24b590b7eed01128ff84a2c1"],
+            "droppingTxHashes": ["0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
+        }
+        "#,
+            r#"
+        {
+            "blockNumber": "0x1136F1F",
+            "txs": ["0x02f9037b018203cd8405f5e1008503692da370830388ba943fc91a3afd70395cd496c647d5a6cc9d4b2b7fad8780e531581b77c4b903043593564c000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000a00000000000000000000000000000000000000000000000000000000064f390d300000000000000000000000000000000000000000000000000000000000000030b090c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000c000000000000000000000000000000000000000000000000000000000000001e0000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000080e531581b77c400000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000009184e72a0000000000000000000000000000000000000000000000000000080e531581b77c400000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000c02aaa39b223fe8d0a0e5c4f27ead9083c756cc2000000000000000000000000b5ea574dd8f2b735424dfc8c4e16760fc44a931b000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000c001a0a9ea84ad107d335afd5e5d2ddcc576f183be37386a9ac6c9d4469d0329c22e87a06a51ea5a0809f43bf72d0156f1db956da3a9f3da24b590b7eed01128ff84a2c1"],
+            "droppingTxHashes": ["0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"]
+        }
+        "#,
+        ];
+
+        for input in inputs {
+            let bundle_request: RawBundle =
+                serde_json::from_str(input).expect("failed to decode bundle");
+
+            let bundle = bundle_request
+                .decode_new_bundle(TxEncoding::WithBlobData)
                 .expect("failed to convert bundle request to bundle");
 
             assert_eq!(
@@ -701,7 +909,7 @@ mod tests {
             serde_json::from_str(bundle_json).expect("failed to decode bundle");
 
         let bundle = bundle_request
-            .try_into(TxEncoding::WithBlobData)
+            .decode_new_bundle(TxEncoding::WithBlobData)
             .expect("failed to convert bundle request to bundle");
 
         assert_eq!(
@@ -724,7 +932,7 @@ mod tests {
             serde_json::from_str(bundle_json).expect("failed to decode bundle");
 
         let bundle = bundle_request
-            .try_into(TxEncoding::WithBlobData)
+            .decode_new_bundle(TxEncoding::WithBlobData)
             .expect("failed to convert bundle request to bundle");
 
         assert_eq!(
@@ -745,7 +953,7 @@ mod tests {
 
         let bundle = bundle_request
             .clone()
-            .try_into(TxEncoding::WithBlobData)
+            .decode_new_bundle(TxEncoding::WithBlobData)
             .expect("failed to convert bundle request to bundle");
 
         let bundle_roundtrip = RawBundle::encode_no_blobs(bundle.clone());

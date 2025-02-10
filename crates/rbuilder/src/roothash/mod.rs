@@ -1,9 +1,12 @@
 mod prefetcher;
 
 use alloy_primitives::B256;
-use eth_sparse_mpt::reth_sparse_trie::{
-    calculate_root_hash_with_sparse_trie, trie_fetcher::FetchNodeError, SparseTrieError,
-    SparseTrieSharedCache,
+use eth_sparse_mpt::{
+    reth_sparse_trie::{
+        calculate_root_hash_with_sparse_trie, trie_fetcher::FetchNodeError, SparseTrieError,
+        SparseTrieSharedCache,
+    },
+    RootHashThreadPool,
 };
 use reth::providers::{providers::ConsistentDbView, ExecutionOutcome};
 use reth_errors::ProviderError;
@@ -53,18 +56,24 @@ impl RootHashError {
 }
 
 #[derive(Debug, Clone)]
-pub struct RootHashConfig {
+pub struct RootHashContext {
     pub mode: RootHashMode,
     pub use_sparse_trie: bool,
     pub compare_sparse_trie_output: bool,
+    pub thread_pool: Option<RootHashThreadPool>,
 }
 
-impl RootHashConfig {
-    pub fn new(use_sparse_trie: bool, compare_sparse_trie_output: bool) -> Self {
+impl RootHashContext {
+    pub fn new(
+        use_sparse_trie: bool,
+        compare_sparse_trie_output: bool,
+        thread_pool: Option<RootHashThreadPool>,
+    ) -> Self {
         Self {
             mode: RootHashMode::CorrectRoot,
             use_sparse_trie,
             compare_sparse_trie_output,
+            thread_pool,
         }
     }
 }
@@ -98,7 +107,7 @@ pub fn calculate_state_root<P, HasherType>(
     parent_hash: B256,
     outcome: &ExecutionOutcome,
     sparse_trie_shared_cache: SparseTrieSharedCache,
-    config: &RootHashConfig,
+    config: &RootHashContext,
 ) -> Result<B256, RootHashError>
 where
     HasherType: HashedPostStateProvider,
@@ -116,7 +125,14 @@ where
     };
 
     let reference_root_hash = if config.compare_sparse_trie_output {
-        calculate_parallel_root_hash(hasher, outcome, consistent_db_view.clone())?
+        // parallel root hash uses rayon
+        if let Some(thread_pool) = &config.thread_pool {
+            thread_pool.rayon_pool.install(|| {
+                calculate_parallel_root_hash(hasher, outcome, consistent_db_view.clone())
+            })?
+        } else {
+            calculate_parallel_root_hash(hasher, outcome, consistent_db_view.clone())?
+        }
     } else {
         B256::ZERO
     };
@@ -126,6 +142,7 @@ where
             consistent_db_view,
             outcome,
             sparse_trie_shared_cache,
+            &config.thread_pool,
         );
         trace!(?metrics, "Sparse trie metrics");
         root?

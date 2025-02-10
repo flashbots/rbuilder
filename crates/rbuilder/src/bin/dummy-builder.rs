@@ -187,7 +187,7 @@ impl DummyBuildingAlgorithm {
             if cancel.is_cancelled() {
                 break None;
             }
-            order_consumer.consume_next_commands().unwrap();
+            order_consumer.blocking_consume_next_commands().unwrap();
             order_consumer.apply_new_commands(&mut orders_sink);
             let orders = orders_sink.get_orders();
             if orders.len() >= self.orders_to_use {

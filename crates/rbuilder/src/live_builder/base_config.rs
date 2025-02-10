@@ -4,7 +4,7 @@ use crate::{
     building::builders::UnfinishedBlockBuildingSinkFactory,
     live_builder::{order_input::OrderInputConfig, LiveBuilder},
     provider::StateProviderFactory,
-    roothash::RootHashConfig,
+    roothash::RootHashContext,
     telemetry::{setup_reloadable_tracing_subscriber, LoggerConfig},
     utils::{
         constants::{MINS_PER_HOUR, SECS_PER_MINUTE},
@@ -12,6 +12,7 @@ use crate::{
     },
 };
 use alloy_primitives::{Address, B256};
+use eth_sparse_mpt::RootHashThreadPool;
 use eyre::{eyre, Context};
 use jsonrpsee::RpcModule;
 use reth::chainspec::chain_value_parser;
@@ -121,6 +122,9 @@ pub struct BaseConfig {
     pub root_hash_use_sparse_trie: bool,
     /// compares result of root hash using sparse trie and reference root hash
     pub root_hash_compare_sparse_trie: bool,
+    /// number of threads used for root hash thread pool
+    /// if 0 global rayon pool is used
+    root_hash_threads: usize,
 
     pub watchdog_timeout_sec: Option<u64>,
 
@@ -191,6 +195,15 @@ impl BaseConfig {
             self.full_telemetry_server_ip,
             self.full_telemetry_server_port,
         ))
+    }
+
+    pub fn root_hash_thread_pool(&self) -> eyre::Result<Option<RootHashThreadPool>> {
+        let root_hash_thread_pool = if self.root_hash_threads > 0 {
+            Some(RootHashThreadPool::try_new(self.root_hash_threads)?)
+        } else {
+            None
+        };
+        Ok(root_hash_thread_pool)
     }
 
     /// Allows instantiating a [`LiveBuilder`] with an existing provider factory
@@ -276,15 +289,19 @@ impl BaseConfig {
         )
     }
 
-    pub fn live_root_hash_config(&self) -> eyre::Result<RootHashConfig> {
+    /// live_root_hash_config creates a root hash thread pool
+    /// so it should be called once on the startup and cloned if needed
+    pub fn live_root_hash_config(&self) -> eyre::Result<RootHashContext> {
         if self.root_hash_compare_sparse_trie && !self.root_hash_use_sparse_trie {
             eyre::bail!(
                 "root_hash_compare_sparse_trie can't be set without root_hash_use_sparse_trie"
             );
         }
-        Ok(RootHashConfig::new(
+        let thread_pool = self.root_hash_thread_pool()?;
+        Ok(RootHashContext::new(
             self.root_hash_use_sparse_trie,
             self.root_hash_compare_sparse_trie,
+            thread_pool,
         ))
     }
 
@@ -518,6 +535,7 @@ impl Default for BaseConfig {
             extra_data: b"extra_data_change_me".to_vec(),
             root_hash_use_sparse_trie: false,
             root_hash_compare_sparse_trie: false,
+            root_hash_threads: 0,
             watchdog_timeout_sec: None,
             backtest_fetch_mempool_data_dir: "/mnt/data/mempool".into(),
             backtest_fetch_eth_rpc_url: "http://127.0.0.1:8545".to_string(),
@@ -557,7 +575,7 @@ pub fn create_provider_factory(
     reth_static_files_path: Option<&Path>,
     chain_spec: Arc<ChainSpec>,
     rw: bool,
-    root_hash_config: Option<RootHashConfig>,
+    root_hash_config: Option<RootHashContext>,
 ) -> eyre::Result<ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>> {
     // shellexpand the reth datadir
     let reth_datadir = if let Some(reth_datadir) = reth_datadir {

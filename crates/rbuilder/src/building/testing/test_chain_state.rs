@@ -1,5 +1,5 @@
 use crate::provider::RootHasher;
-use crate::roothash::RootHashConfig;
+use crate::roothash::RootHashContext;
 use crate::utils::RootHasherImpl;
 use crate::{building::BlockBuildingContext, utils::Signer};
 use ahash::HashSet;
@@ -189,7 +189,7 @@ impl TestChainState {
 
         let root_hasher = Arc::from(RootHasherImpl::new(
             genesis_header.hash(),
-            RootHashConfig::new(true, false),
+            RootHashContext::new(true, false, None),
             provider_factory.clone(),
             provider_factory.clone(),
         ));
