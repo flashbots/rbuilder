@@ -41,7 +41,7 @@ mod tests {
         let engine_api = EngineApi::new("http://localhost:1234").unwrap();
         let validation_api = EngineApi::new("http://localhost:1236").unwrap();
 
-        let mut generator = BlockGenerator::new(&engine_api, Some(&validation_api), false);
+        let mut generator = BlockGenerator::new(&engine_api, Some(&validation_api), false, 1);
         generator.init().await.unwrap();
 
         for _ in 0..10 {
