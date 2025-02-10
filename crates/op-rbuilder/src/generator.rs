@@ -568,7 +568,7 @@ mod tests {
             let _ = job.await;
 
             // you need to give one second for the job to be dropped and cancelled the internal job
-            std::thread::sleep(Duration::from_secs(1));
+            tokio::time::sleep(Duration::from_secs(1)).await;
 
             let events = builder.get_events();
             assert_eq!(events, vec![BlockEvent::Started, BlockEvent::Cancelled]);
@@ -580,7 +580,7 @@ mod tests {
             let _ = job.resolve();
             let _ = job.await;
 
-            std::thread::sleep(Duration::from_secs(1));
+            tokio::time::sleep(Duration::from_secs(1)).await;
 
             let events = builder.get_events();
             assert_eq!(events, vec![BlockEvent::Started, BlockEvent::Cancelled]);
