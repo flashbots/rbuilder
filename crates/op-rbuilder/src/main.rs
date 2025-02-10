@@ -135,7 +135,7 @@ fn main() {
                 */
                 .on_node_started(move |ctx| {
                     let new_canonical_blocks = ctx.provider().canonical_state_stream();
-                    let builder_signer = builder_args.builder_signer.clone();
+                    let builder_signer = builder_args.builder_signer;
 
                     ctx.task_executor.spawn_critical(
                         "monitoring",
