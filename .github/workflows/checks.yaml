@@ -167,7 +167,7 @@ jobs:
 
       - name: Download op-reth
         run: |
-          ./scripts/download-op-reth.sh
+          ./scripts/ci/download-op-reth.sh
           echo "$(pwd)" >> $GITHUB_PATH
 
       - name: Build the rbuilder
