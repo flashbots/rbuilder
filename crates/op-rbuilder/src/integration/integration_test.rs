@@ -5,6 +5,9 @@ mod tests {
     use std::path::PathBuf;
     use uuid::Uuid;
 
+    const BUILDER_PRIVATE_KEY: &str =
+        "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
+
     #[tokio::test]
     async fn integration_test_chain_produces_blocks() {
         // This is a simple test using the integration framework to test that the chain
@@ -24,9 +27,10 @@ mod tests {
             .chain_config_path(genesis_path)
             .data_dir(data_dir)
             .auth_rpc_port(1234)
-            .network_port(1235);
+            .network_port(1235)
+            .with_builder_private_key(BUILDER_PRIVATE_KEY);
 
-        framework.start("op-rbuilder", &reth).await.unwrap();
+        let op_rbuilder = framework.start("op-rbuilder", &reth).await.unwrap();
 
         let engine_api = EngineApi::new("http://localhost:1234").unwrap();
         let mut generator = BlockGenerator::new(&engine_api, None, false, 1);
@@ -35,5 +39,11 @@ mod tests {
         for _ in 0..10 {
             generator.generate_block().await.unwrap();
         }
+
+        // there must be a line logging the monitoring transaction
+        op_rbuilder
+            .find_log_line("Committed block built by builder")
+            .await
+            .unwrap();
     }
 }
