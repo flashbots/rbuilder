@@ -341,7 +341,7 @@ impl<'a> BlockGenerator<'a> {
         let transactions = if let Some(transactions) = transactions {
             // prepend the block info transaction
             let mut all_transactions = vec![block_info_tx];
-            all_transactions.extend(transactions.into_iter().map(|t| t));
+            all_transactions.extend(transactions.into_iter());
             all_transactions
         } else {
             vec![block_info_tx]
