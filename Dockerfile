@@ -9,7 +9,7 @@
 ARG FEATURES
 ARG RBUILDER_BIN="rbuilder"
 
-FROM rust:1.82 as base
+FROM rust:1.82 AS base
 
 RUN apt-get update \
     && apt-get install -y clang libclang-dev
@@ -39,7 +39,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 #
 # Builder container (running "cargo chef cook" and "cargo build --release")
 #
-FROM base as builder
+FROM base AS builder
 WORKDIR /app
 COPY --from=planner /app/recipe.json recipe.json
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
@@ -49,7 +49,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 COPY . .
 
 
-FROM builder as rbuilder
+FROM builder AS rbuilder
 ARG RBUILDER_BIN
 ARG FEATURES
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
@@ -57,7 +57,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
     cargo build --release --features="$FEATURES" --package=${RBUILDER_BIN}
 
-FROM builder as test-relay
+FROM builder AS test-relay
 ARG FEATURES
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
@@ -66,13 +66,13 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 
 # Runtime container for test-relay
-FROM gcr.io/distroless/cc-debian12 as test-relay-runtime
+FROM gcr.io/distroless/cc-debian12 AS test-relay-runtime
 WORKDIR /app
 COPY --from=test-relay /app/target/release/test-relay /app/test-relay
 ENTRYPOINT ["/app/test-relay"]
 
 # Runtime container for rbuilder
-FROM gcr.io/distroless/cc-debian12 as rbuilder-runtime
+FROM gcr.io/distroless/cc-debian12 AS rbuilder-runtime
 ARG RBUILDER_BIN
 WORKDIR /app
 COPY --from=rbuilder /app/target/release/${RBUILDER_BIN} /app/rbuilder
