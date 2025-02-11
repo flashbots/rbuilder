@@ -6525,6 +6525,7 @@ dependencies = [
  "jsonrpsee 0.24.7",
  "metrics",
  "op-alloy-consensus",
+ "op-alloy-network",
  "op-alloy-rpc-types-engine",
  "rand 0.8.5",
  "reth",
