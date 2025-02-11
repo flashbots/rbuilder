@@ -30,11 +30,6 @@ mod tests {
             .network_port(1235)
             .with_builder_private_key(BUILDER_PRIVATE_KEY);
 
-        let op_rbuilder = framework
-            .start("op-rbuilder", &op_rbuilder_config)
-            .await
-            .unwrap();
-
         // create the validation reth node
         let reth_data_dir = std::env::temp_dir().join(Uuid::new_v4().to_string());
         let reth = OpRethConfig::new()
@@ -44,6 +39,11 @@ mod tests {
             .network_port(1237);
 
         framework.start("op-reth", &reth).await.unwrap();
+
+        let op_rbuilder = framework
+            .start("op-rbuilder", &op_rbuilder_config)
+            .await
+            .unwrap();
 
         let engine_api = EngineApi::new("http://localhost:1234").unwrap();
         let validation_api = EngineApi::new("http://localhost:1236").unwrap();
