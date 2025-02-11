@@ -12,12 +12,7 @@ use rbuilder::{
     telemetry,
 };
 use reth::{chainspec::EthereumChainSpecParser, cli::Cli, primitives::Header};
-use reth_node_builder::{
-    engine_tree_config::{
-        TreeConfig, DEFAULT_MEMORY_BLOCK_BUFFER_TARGET, DEFAULT_PERSISTENCE_THRESHOLD,
-    },
-    EngineNodeLauncher,
-};
+use reth_node_builder::{engine_tree_config::TreeConfig, EngineNodeLauncher};
 use reth_node_ethereum::{node::EthereumAddOns, EthereumNode};
 use reth_provider::{
     providers::{BlockchainProvider, BlockchainProvider2},
@@ -51,11 +46,19 @@ pub struct ExtraArgs {
     pub legacy: bool,
 
     /// Configure persistence threshold for engine experimental.
-    #[arg(long = "engine.persistence-threshold", conflicts_with = "legacy", default_value_t = DEFAULT_PERSISTENCE_THRESHOLD)]
+    #[arg(
+        long = "engine.persistence-threshold",
+        conflicts_with = "legacy",
+        default_value_t = 0
+    )]
     pub persistence_threshold: u64,
 
     /// Configure the target number of blocks to keep in memory.
-    #[arg(long = "engine.memory-block-buffer-target", conflicts_with = "legacy", default_value_t = DEFAULT_MEMORY_BLOCK_BUFFER_TARGET)]
+    #[arg(
+        long = "engine.memory-block-buffer-target",
+        conflicts_with = "legacy",
+        default_value_t = 0
+    )]
     pub memory_block_buffer_target: u64,
 }
 
