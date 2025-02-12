@@ -79,7 +79,9 @@ rbuilder has a solid initial benchmarking setup (based on [Criterion.rs](https:/
 
 ### Testing on real orderflow 
 
-For testing full live builders using real orderflow without submitting blocks, we provide the `test-relay` tool. This standalone binary implements the MEV-Boost relay API required for builder to function. The test-relay only performs block validation and compares profits between builders who submit blocks to it, without actually sending blocks to the network.
+This repo includes a `test-relay` tool for testing live builders without submitting blocks to live production relays. This standalone binary implements the MEV-Boost Relay API required for builder to function. The test-relay only performs block validation and compares profits between builders who submit blocks to it, without actually sending blocks to the network.
+
+The test relay exposes several Prometheus metrics about the blocks it received.
 
 ### End-to-end local testing
 
