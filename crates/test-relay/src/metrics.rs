@@ -51,7 +51,7 @@ register_metrics! {
     .unwrap();
 
     pub static WINNER_ADVANTAGE: HistogramVec = HistogramVec::new(
-        HistogramOpts::new("winner_advantage", "Percentage of value that winner has over the next best bid")
+        HistogramOpts::new("winner_advantage", "Percentage of value that winner has over the next best bid by other builders")
             .buckets(linear_buckets_range(0.0, 100.0, 100)),
         &["builder"],
     ).unwrap();

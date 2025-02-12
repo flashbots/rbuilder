@@ -77,6 +77,10 @@ rbuilder has a solid initial benchmarking setup (based on [Criterion.rs](https:/
 - Benchmarks are located in [`crates/rbuilder/benches`](./crates/rbuilder/benches/). We'd love to add more meaningful benchmarks there!
 - Let us know about further improvement ideas and additional relevant benchmarks.
 
+### Testing on real orderflow 
+
+For testing full live builders using real orderflow without submitting blocks, we provide the `test-relay` tool. This standalone binary implements the MEV-Boost relay API required for builder to function. The test-relay only performs block validation and compares profits between builders who submit blocks to it, without actually sending blocks to the network.
+
 ### End-to-end local testing
 
 You can use [builder-playground](https://github.com/flashbots/builder-playground) to deploy a fully functional local setup for the builder ([Lighthouse](https://github.com/sigp/lighthouse) consensus client (proposer + validator) + [Reth](https://github.com/paradigmxyz/reth/) execution client + [MEV-Boost-Relay](https://github.com/flashbots/mev-boost-relay))) to test rbuilder.
@@ -199,7 +203,7 @@ Big shoutout to the [Reth](https://github.com/paradigmxyz/reth) team for buildin
 
 
 | Binary                      | Description                                                                                           |
-| --------------------------- | ----------------------------------------------------------------------------------------------------- |
+|-----------------------------|-------------------------------------------------------------------------------------------------------|
 | `rbuilder`                  | Live block builder                                                                                    |
 | `backtest-build-block`      | Run backtests for a single block                                                                      |
 | `backtest-build-range`      | Run backtests for a range of block                                                                    |
@@ -210,3 +214,4 @@ Big shoutout to the [Reth](https://github.com/paradigmxyz/reth) team for buildin
 | `debug-order-input`         | Observe input of the bundles and transactions                                                         |
 | `debug-order-sim`           | Observe simulation of the bundles and transactions                                                    |
 | `debug-slot-data-generator` | Shows new payload jobs coming from CL with attached data from relays.                                 |
+| `test-relay`                | Test MEV-boost relay that accepts blocks and validates them.                                          |

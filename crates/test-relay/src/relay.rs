@@ -34,7 +34,6 @@ use warp::body;
 use warp::{
     http::status::StatusCode,
     query,
-    reject::Reject,
     reply::{self, Reply},
     Filter,
 };
@@ -75,23 +74,21 @@ impl RelayError {
     }
 }
 
-fn ok_json_reply<T: Serialize>(msg: &T) -> Box<dyn Reply> {
-    Box::new(reply::json(msg))
-}
-
 #[derive(Debug, Serialize)]
 struct RelayErrorResponse {
     code: i64,
     message: String,
 }
 
-impl Reject for RelayErrorResponse {}
-
 #[derive(Debug, Deserialize)]
 struct BlockQueryParams {
     cancellations: Option<i32>,
 }
 
+/// It will run the following processes:
+/// * API server
+/// * mev boost slot info generator that will fetch data from CL nodes + relay
+/// * winner sampler that will sample top bid to estimate auction winner for the given slot
 pub fn spawn_relay_server(
     address: SocketAddr,
     validation_client: Option<ValidationAPIClient>,
@@ -144,8 +141,11 @@ pub fn spawn_relay_server(
 
 #[derive(Debug, Clone)]
 struct RelayState {
+    // Validation client that is used to validate blocks.
     validation_client: Option<ValidationAPIClient>,
+    // Relay used to fetch data for /relay/v1/builder/validators
     relay_for_slot_data: MevBoostRelaySlotInfoProvider,
+    // Slot data for the last payload arguments received from CL nodes and relay
     pending_slot_data: Arc<Mutex<Option<PendingSlotData>>>,
 }
 
@@ -156,7 +156,7 @@ impl RelayState {
             .get_current_epoch_validators()
             .await
         {
-            Ok(slot_data) => ok_json_reply(&slot_data),
+            Ok(slot_data) => Box::new(reply::json(&slot_data)),
             Err(err) => {
                 warn!(?err, "Failed to fetch epoch data from relay");
                 inc_relay_errors();
@@ -398,12 +398,18 @@ async fn run_winner_sampler(relay_state: RelayState, cancellation_token: Cancell
 
 #[derive(Debug)]
 struct PendingSlotData {
+    // Payload attributes for the slot
     slot_data: MevBoostSlotData,
+    // Withdrawals root is calculated from slot_data and used for validation call.
     withdrawals_root: B256,
-    // best_bid: Option<U256>
+    // Current best bid on the relay
+    // its calculated from best_bid_by_replacement_key by taking the highest value bid
     best_bid: Option<BestBidData>,
-    // For empty key we store uncancallable bids
-    // for non-empty keys we use builder pubkeys
+    // Best bid by builders.
+    // There are two types of bids: cancellable and not and
+    // we must store last cancellable bid by builder pubkey and replace when new bid arrives.
+    // For empty key we store uncancallable bids.
+    // For non-empty keys we use builder pubkeys.
     best_bid_by_replacement_key: HashMap<Bytes, BestBidData>,
 }
 
@@ -550,6 +556,7 @@ struct BestBidData {
     advantage: f64,
 }
 
+/// short readable builder id for metrics
 fn builder_id(pubkey: &[u8]) -> String {
     let pubkey_hex = alloy_primitives::hex::encode(pubkey);
     if pubkey_hex.len() < 8 {
