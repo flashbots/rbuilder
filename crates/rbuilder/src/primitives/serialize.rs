@@ -280,27 +280,33 @@ impl RawBundle {
         replacement_uuid: Option<Uuid>,
         mut uuid: Option<Uuid>,
         signing_address: Option<Address>,
-        mut replacement_nonce: Option<u64>,
+        replacement_nonce: Option<u64>,
         first_seen_at_secs: Option<f64>,
     ) -> Result<Option<BundleReplacementData>, RawBundleConvertError> {
         uuid = uuid.or(replacement_uuid);
-        replacement_nonce =
-            replacement_nonce.or(first_seen_at_secs.map(|t| (t * 1_000_000.0) as u64));
-        let got_uuid = uuid.is_some();
-        // @Pending generate global nonce or use a new field first_seen_at?
-        // let got_nonce = replacement_nonce.is_some();
-        if !got_uuid {
-            return Ok(None);
-        }
-        if let (Some(uuid), Some(signer), Some(sequence_number)) =
-            (uuid, signing_address, replacement_nonce)
-        {
-            Ok(Some(BundleReplacementData {
-                key: BundleReplacementKey::new(uuid, signer),
-                sequence_number,
-            }))
-        } else {
-            Err(RawBundleConvertError::IncorrectReplacementData) //got_uuid && got_nonce && !signer
+        match uuid {
+            Some(uuid) => {
+                let (sequence_number, signer) = match (replacement_nonce, first_seen_at_secs) {
+                    (None, None) => return Err(RawBundleConvertError::IncorrectReplacementData),
+                    // first_seen_at_secs mode does not uses signer
+                    (None, Some(first_seen_at_secs)) => {
+                        ((first_seen_at_secs * 1_000_000.0) as u64, None)
+                    }
+                    //
+                    (Some(replacement_nonce), None) => match signing_address {
+                        Some(s) => (replacement_nonce, Some(s)),
+                        None => return Err(RawBundleConvertError::IncorrectReplacementData),
+                    },
+                    (Some(_), Some(_)) => {
+                        return Err(RawBundleConvertError::IncorrectReplacementData)
+                    }
+                };
+                Ok(Some(BundleReplacementData {
+                    key: BundleReplacementKey::new(uuid, signer),
+                    sequence_number,
+                }))
+            }
+            None => Ok(None),
         }
     }
 
@@ -308,9 +314,12 @@ impl RawBundle {
     pub fn encode_no_blobs(value: Bundle) -> Self {
         let replacement_uuid = value.replacement_data.as_ref().map(|r| r.key.key().id);
         let replacement_nonce = value.replacement_data.as_ref().map(|r| r.sequence_number);
-        let signing_address = value
-            .signer
-            .or(value.replacement_data.map(|r| r.key.key().signer));
+        let signing_address = value.signer.or_else(|| {
+            value
+                .replacement_data
+                .as_ref()
+                .and_then(|r| r.key.key().signer)
+        });
         Self {
             block_number: value.block.map(U64::from),
             txs: value

@@ -373,7 +373,9 @@ impl ShareBundleInner {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
 pub struct ReplacementKey {
     pub id: Uuid,
-    pub signer: Address,
+    /// None means we don't have signer so the identity will be only by uuid.
+    /// Source not giving signer risk uuid collision but if uuid is properly generated is almost impossible.
+    pub signer: Option<Address>,
 }
 
 pub type ShareBundleReplacementData = ReplacementData<ShareBundleReplacementKey>;
@@ -690,7 +692,10 @@ pub enum Order {
 pub struct ShareBundleReplacementKey(ReplacementKey);
 impl ShareBundleReplacementKey {
     pub fn new(id: Uuid, signer: Address) -> Self {
-        Self(ReplacementKey { id, signer })
+        Self(ReplacementKey {
+            id,
+            signer: Some(signer),
+        })
     }
 
     pub fn key(&self) -> ReplacementKey {
@@ -702,7 +707,7 @@ impl ShareBundleReplacementKey {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BundleReplacementKey(ReplacementKey);
 impl BundleReplacementKey {
-    pub fn new(id: Uuid, signer: Address) -> Self {
+    pub fn new(id: Uuid, signer: Option<Address>) -> Self {
         Self(ReplacementKey { id, signer })
     }
     pub fn key(&self) -> ReplacementKey {

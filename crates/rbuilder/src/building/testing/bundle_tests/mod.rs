@@ -584,7 +584,7 @@ fn test_bundle_consistency_check() -> eyre::Result<()> {
     // check commit of 2 bundles with the same replacement uuid
     {
         let replacement_data = BundleReplacementData {
-            key: BundleReplacementKey::new(Uuid::from_u128(100), Address::random()),
+            key: BundleReplacementKey::new(Uuid::from_u128(100), Some(Address::random())),
             sequence_number: 0,
         };
         let mut built_block_trace = BuiltBlockTrace::new();

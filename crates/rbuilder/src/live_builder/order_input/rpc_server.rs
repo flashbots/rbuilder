@@ -261,7 +261,7 @@ async fn handle_cancel_bundle(
     };
     let key = BundleReplacementKey::new(
         cancel_bundle.replacement_uuid,
-        cancel_bundle.signing_address,
+        Some(cancel_bundle.signing_address),
     );
     let sequence_number = 0;
     let replacement_data = BundleReplacementData {
