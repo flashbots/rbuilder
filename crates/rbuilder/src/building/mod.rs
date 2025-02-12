@@ -13,7 +13,8 @@ pub mod tracers;
 use alloy_consensus::{Header, EMPTY_OMMER_ROOT_HASH};
 use alloy_primitives::{Address, Bytes, U256};
 use builders::mock_block_building_helper::MockRootHasher;
-use reth_primitives::{BlockBody, BlockExt};
+use reth_primitives::BlockBody;
+use reth_primitives_traits::{proofs, Block as _};
 
 use crate::{
     primitives::{Order, OrderId, SimValue, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs},
@@ -37,7 +38,7 @@ use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
 use jsonrpsee::core::Serialize;
 use reth::{
     payload::PayloadId,
-    primitives::{proofs, Block, Receipt, Receipts, SealedBlock},
+    primitives::{Block, Receipt, SealedBlock},
     providers::ExecutionOutcome,
     revm::cached::CachedReads,
 };

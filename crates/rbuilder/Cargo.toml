@@ -31,6 +31,7 @@ reth-trie-parallel.workspace = true
 reth-node-api.workspace = true
 reth-node-core.workspace = true
 reth-primitives.workspace = true
+reth-primitives-traits.workspace = true
 reth-provider.workspace = true
 reth-chainspec.workspace = true
 reth-evm.workspace = true
@@ -147,8 +148,6 @@ criterion = { version = "0.5.1", features = ["html_reports", "async_tokio"] }
 optimism = [
     "reth-db/optimism",
     "reth-node-core/optimism",
-    "reth-primitives/optimism",
-    "reth-provider/optimism",
     "revm-primitives/optimism",
     "revm/optimism",
 ]
