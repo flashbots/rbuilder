@@ -16,17 +16,16 @@ fn get_or_create_jwt_path(jwt_path: Option<&PathBuf>) -> PathBuf {
 }
 
 #[derive(Default)]
-pub struct OpRbuilderConfig {
+pub struct OpRethConfig {
     auth_rpc_port: Option<u16>,
     jwt_secret_path: Option<PathBuf>,
     chain_config_path: Option<PathBuf>,
     data_dir: Option<PathBuf>,
     http_port: Option<u16>,
     network_port: Option<u16>,
-    builder_private_key: Option<String>,
 }
 
-impl OpRbuilderConfig {
+impl OpRethConfig {
     pub fn new() -> Self {
         Self::default()
     }
@@ -50,22 +49,11 @@ impl OpRbuilderConfig {
         self.network_port = Some(port);
         self
     }
-
-    pub fn http_port(mut self, port: u16) -> Self {
-        self.http_port = Some(port);
-        self
-    }
-
-    pub fn with_builder_private_key(mut self, private_key: &str) -> Self {
-        self.builder_private_key = Some(private_key.to_string());
-        self
-    }
 }
 
-impl Service for OpRbuilderConfig {
+impl Service for OpRethConfig {
     fn command(&self) -> Command {
-        let mut bin_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        bin_path.push("../../target/debug/op-rbuilder");
+        let bin_path = PathBuf::from("op-reth");
 
         let mut cmd = Command::new(bin_path);
         let jwt_path = get_or_create_jwt_path(self.jwt_secret_path.as_ref());
@@ -94,11 +82,6 @@ impl Service for OpRbuilderConfig {
             .arg("--disable-discovery")
             .arg("--port")
             .arg(self.network_port.expect("network_port not set").to_string());
-
-        if let Some(builder_private_key) = &self.builder_private_key {
-            cmd.arg("--rollup.builder-secret-key")
-                .arg(builder_private_key);
-        }
 
         if let Some(http_port) = self.http_port {
             cmd.arg("--http")

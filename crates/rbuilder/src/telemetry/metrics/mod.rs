@@ -545,12 +545,12 @@ pub fn mark_submission_start_time(block_sealed_at: OffsetDateTime) {
         .observe(value);
 }
 
-pub(super) fn gather_prometheus_metrics() -> String {
+pub fn gather_prometheus_metrics(registry: &Registry) -> String {
     use prometheus::Encoder;
     let encoder = prometheus::TextEncoder::new();
 
     let mut buffer = Vec::new();
-    if let Err(e) = encoder.encode(&REGISTRY.gather(), &mut buffer) {
+    if let Err(e) = encoder.encode(&registry.gather(), &mut buffer) {
         error!("could not encode custom metrics: {}", e);
     };
     let mut res = String::from_utf8(buffer.clone()).unwrap_or_else(|e| {
@@ -573,7 +573,7 @@ pub(super) fn gather_prometheus_metrics() -> String {
 }
 
 // Creates n exponential buckets that cover range from start to end.
-fn exponential_buckets_range(start: f64, end: f64, n: usize) -> Vec<f64> {
+pub fn exponential_buckets_range(start: f64, end: f64, n: usize) -> Vec<f64> {
     assert!(start > 0.0 && start < end);
     assert!(n > 1);
     let factor = (end / start).powf(1.0 / (n - 1) as f64);
@@ -581,7 +581,7 @@ fn exponential_buckets_range(start: f64, end: f64, n: usize) -> Vec<f64> {
 }
 
 // Creates n linear buckets that cover range from [start, end].
-fn linear_buckets_range(start: f64, end: f64, n: usize) -> Vec<f64> {
+pub fn linear_buckets_range(start: f64, end: f64, n: usize) -> Vec<f64> {
     assert!(start < end);
     let width = (end - start) / (n - 1) as f64;
     prometheus::linear_buckets(start, width, n).unwrap()

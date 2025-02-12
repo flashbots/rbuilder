@@ -17,6 +17,7 @@ pub const DEFAULT_JWT_TOKEN: &str =
 
 mod integration_test;
 pub mod op_rbuilder;
+pub mod op_reth;
 
 #[derive(Debug)]
 pub enum IntegrationError {
@@ -120,6 +121,20 @@ impl ServiceInstance {
         self.start(config.command())?;
         config.ready(&self.log_path).await?;
         Ok(())
+    }
+
+    pub async fn find_log_line(&self, pattern: &str) -> eyre::Result<()> {
+        let mut file =
+            File::open(&self.log_path).map_err(|_| eyre::eyre!("Failed to open log file"))?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)
+            .map_err(|_| eyre::eyre!("Failed to read log file"))?;
+
+        if contents.contains(pattern) {
+            Ok(())
+        } else {
+            Err(eyre::eyre!("Pattern not found in log file"))
+        }
     }
 }
 

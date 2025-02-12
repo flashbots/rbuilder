@@ -15,9 +15,10 @@ members = [
     "crates/rbuilder/src/test_utils",
     "crates/rbuilder/src/telemetry/metrics_macros",
     "crates/eth-sparse-mpt",
-    "crates/sysperf"
+    "crates/sysperf",
+    "crates/test-relay",
 ]
-default-members = ["crates/rbuilder", "crates/reth-rbuilder"]
+default-members = ["crates/rbuilder", "crates/reth-rbuilder", "crates/test-relay"]
 resolver = "2"
 
 # Like release, but with full debug symbols. Useful for e.g. `perf`.
@@ -130,8 +131,6 @@ alloy-signer-local = { version = "0.9.2" }
 alloy-rpc-client = { version = "0.9.2" }
 alloy-genesis = { version = "0.9.2" }
 alloy-trie = { version = "0.7" }
-
-# op
 op-alloy-rpc-types = { version = "0.9.0", default-features = false }
 op-alloy-rpc-types-engine = { version =  "0.9.0", default-features = false }
 op-alloy-rpc-jsonrpsee = { version =  "0.9.0", default-features = false }
@@ -139,7 +138,8 @@ op-alloy-network = { version =  "0.9.0", default-features = false }
 op-alloy-consensus = { version =  "0.9.0", default-features = false }
 
 async-trait = { version = "0.1.83" }
-clap = { version = "4.4.3" }
+clap = { version = "4.4.3", features = ["derive", "env"] }
+clap_builder = { version = "4.5.19" }
 thiserror = { version = "1.0.64" }
 eyre = { version = "0.6.12" }
 jsonrpsee = { version = "0.24.4" }
@@ -152,17 +152,24 @@ serde = { version = "1.0.210" }
 serde_json = { version = "1.0.128" }
 serde_with = { version = "3.8.1" }
 secp256k1 = { version = "0.29" }
-clap_builder = { version = "4.5.19" }
 derive_more = { version = "1" }
 tokio-stream = "0.1.16"
 tokio-util = "0.7.12"
 url = "2.5.2"
+warp = "0.3.7"
+flate2 = "1.0.35"
+prometheus = "0.13.4"
+ctor = "0.2"
 
 libc = { version = "0.2.161" }
 lazy_static = "1.4.0"
 tikv-jemallocator = { version = "0.6" }
 tracing = "0.1.37"
 metrics = { version = "0.24.1" }
+ahash = "0.8.6"
+time = { version = "0.3.36", features = ["macros", "formatting", "parsing"] }
 
 eth-sparse-mpt = { path = "crates/eth-sparse-mpt" }
+rbuilder = { path = "crates/rbuilder" }
 sysperf = { path = "crates/sysperf" }
+metrics_macros = { path = "crates/rbuilder/src/telemetry/metrics_macros"}

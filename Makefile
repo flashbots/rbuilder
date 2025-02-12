@@ -27,9 +27,13 @@ clean: ## Clean up
 build: ## Build (debug version)
 	cargo build --features "$(FEATURES)"
 
-.PHONY: docker-image
-docker-image: ## Build a rbuilder Docker image
-	docker build --platform linux/amd64 --build-arg FEATURES="$(FEATURES)" . -t rbuilder
+.PHONY: docker-image-rubilder
+docker-image-rubilder: ## Build a rbuilder Docker image
+	docker build --platform linux/amd64 --target rbuilder-runtime --build-arg FEATURES="$(FEATURES)"  . -t rbuilder
+
+.PHONY: docker-image-test-relay
+docker-image-test-relay: ## Build a test relay Docker image
+	docker build --platform linux/amd64 --target test-relay-runtime --build-arg FEATURES="$(FEATURES)" . -t test-relay
 
 ##@ Dev
 

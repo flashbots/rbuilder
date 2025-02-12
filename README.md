@@ -40,7 +40,6 @@ To run rbuilder you need:
 * Source of bundles that sends `eth_sendBundle`, `mev_sendBundle`, `eth_sendRawTransaction` as JSON rpc calls. (`jsonrpc_server_port`)
   (by default rbuilder will take raw txs from the reth node mempool)
 * Relays so submit to (`relays`)
-* Alternatively it can submit to the block validation API if run in the dry run mode (`dry_run`, `dry_run_validation_url`)
 
 A sample configuration for running Lighthouse and triggering payload events would be:
 ```
@@ -77,6 +76,12 @@ rbuilder has a solid initial benchmarking setup (based on [Criterion.rs](https:/
 - You can run benchmarks with `make bench` and open the Criterion-generated report with `make bench-report-open`.
 - Benchmarks are located in [`crates/rbuilder/benches`](./crates/rbuilder/benches/). We'd love to add more meaningful benchmarks there!
 - Let us know about further improvement ideas and additional relevant benchmarks.
+
+### Testing with a fake relay
+
+This repo includes a `test-relay` tool for testing live builders without submitting blocks to live production relays. This standalone binary implements the MEV-Boost Relay API required for builder to function. The test-relay only performs block validation and compares profits between builders who submit blocks to it, without actually sending blocks to the network.
+
+The test relay exposes several Prometheus metrics about the blocks it received.
 
 ### End-to-end local testing
 
@@ -200,7 +205,7 @@ Big shoutout to the [Reth](https://github.com/paradigmxyz/reth) team for buildin
 
 
 | Binary                      | Description                                                                                           |
-| --------------------------- | ----------------------------------------------------------------------------------------------------- |
+|-----------------------------|-------------------------------------------------------------------------------------------------------|
 | `rbuilder`                  | Live block builder                                                                                    |
 | `backtest-build-block`      | Run backtests for a single block                                                                      |
 | `backtest-build-range`      | Run backtests for a range of block                                                                    |
@@ -211,3 +216,4 @@ Big shoutout to the [Reth](https://github.com/paradigmxyz/reth) team for buildin
 | `debug-order-input`         | Observe input of the bundles and transactions                                                         |
 | `debug-order-sim`           | Observe simulation of the bundles and transactions                                                    |
 | `debug-slot-data-generator` | Shows new payload jobs coming from CL with attached data from relays.                                 |
+| `test-relay`                | Test MEV-boost relay that accepts blocks and validates them.                                          |

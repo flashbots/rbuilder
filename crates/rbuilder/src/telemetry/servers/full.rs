@@ -16,6 +16,7 @@ use crate::{
     telemetry::{
         dynamic_logs::{default_log_config, reset_log_config, set_log_config},
         metrics::{gather_prometheus_metrics, set_version},
+        REGISTRY,
     },
     utils::build_info::Version,
 };
@@ -44,7 +45,7 @@ pub async fn spawn(
 }
 
 async fn metrics_handler() -> Result<impl Reply, Rejection> {
-    Ok(gather_prometheus_metrics())
+    Ok(gather_prometheus_metrics(&REGISTRY))
 }
 
 #[derive(Debug, Deserialize)]

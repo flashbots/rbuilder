@@ -1,0 +1,39 @@
+[package]
+name = "test-relay"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+exclude.workspace = true
+
+[dependencies]
+rbuilder.workspace = true
+clap.workspace = true
+clap_builder.workspace = true
+eyre.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+
+alloy-json-rpc.workspace = true
+alloy-primitives.workspace = true
+alloy-provider.workspace = true
+alloy-consensus.workspace = true
+serde.workspace = true
+serde_with.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+warp.workspace = true
+flate2.workspace = true
+lazy_static.workspace = true
+metrics_macros.workspace = true
+
+prometheus.workspace = true
+ctor.workspace = true
+
+ethereum_ssz.workspace = true
+url.workspace = true
+ahash.workspace = true
+time.workspace = true
