@@ -72,7 +72,7 @@ pub struct BlockPayloadJobGenerator<Client, Pool, Tasks, Builder> {
     /// Whether to ensure only one payload is being processed at a time
     ensure_only_one_payload: bool,
     /// The last payload being processed
-    last_payload: Arc<Mutex<Option<CancellationToken>>>,
+    last_payload: Arc<Mutex<CancellationToken>>,
 }
 
 // === impl EmptyBlockPayloadJobGenerator ===
@@ -95,7 +95,7 @@ impl<Client, Pool, Tasks, Builder> BlockPayloadJobGenerator<Client, Pool, Tasks,
             _config: config,
             builder,
             ensure_only_one_payload,
-            last_payload: Arc::new(Mutex::new(None)),
+            last_payload: Arc::new(Mutex::new(CancellationToken::new())),
         }
     }
 }
@@ -123,19 +123,17 @@ where
         attributes: <Builder as PayloadBuilder<Pool, Client>>::Attributes,
     ) -> Result<Self::Job, PayloadBuilderError> {
         let cancel_token = if self.ensure_only_one_payload {
-            // Cancel any existing payload first
+            // Cancel existing payload
             {
                 let last_payload = self.last_payload.lock().unwrap();
-                if let Some(token) = &*last_payload {
-                    token.cancel();
-                }
+                last_payload.cancel();
             }
 
             // Create and set new cancellation token with a fresh lock
             let cancel_token = CancellationToken::new();
             {
                 let mut last_payload = self.last_payload.lock().unwrap();
-                *last_payload = Some(cancel_token.clone());
+                *last_payload = cancel_token.clone();
             }
             cancel_token
         } else {

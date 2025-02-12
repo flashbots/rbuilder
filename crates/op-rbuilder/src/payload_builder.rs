@@ -91,7 +91,7 @@ impl<EvmConfig> OpPayloadBuilder<EvmConfig> {
 
         tokio::spawn(async move {
             while let Ok((stream, _)) = listener.accept().await {
-                println!("Accepted websocket connection");
+                tracing::info!("Accepted websocket connection");
                 let subscribers = subscribers.clone();
 
                 tokio::spawn(async move {
