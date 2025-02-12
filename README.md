@@ -77,7 +77,7 @@ rbuilder has a solid initial benchmarking setup (based on [Criterion.rs](https:/
 - Benchmarks are located in [`crates/rbuilder/benches`](./crates/rbuilder/benches/). We'd love to add more meaningful benchmarks there!
 - Let us know about further improvement ideas and additional relevant benchmarks.
 
-### Testing on real orderflow 
+### Testing with a fake relay
 
 This repo includes a `test-relay` tool for testing live builders without submitting blocks to live production relays. This standalone binary implements the MEV-Boost Relay API required for builder to function. The test-relay only performs block validation and compares profits between builders who submit blocks to it, without actually sending blocks to the network.
 
