@@ -1,6 +1,6 @@
 use std::{fmt::Display, sync::Arc, sync::Mutex};
 
-use crate::generator::{BlockCell, PayloadBuilder};
+use crate::generator::{BlockCell, BuildArguments, PayloadBuilder};
 use alloy_consensus::{Eip658Value, Header, Transaction, Typed2718, EMPTY_OMMER_ROOT_HASH};
 use alloy_eips::merge::BEACON_NONCE;
 use alloy_primitives::{Address, Bytes, B256, U256};
@@ -35,6 +35,7 @@ use revm::{
     },
     Database, DatabaseCommit,
 };
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, trace, warn};
 
 use op_alloy_rpc_types_engine::OpExecutionPayloadEnvelopeV3;
@@ -541,7 +542,7 @@ pub struct OpPayloadBuilderCtx<EvmConfig> {
     /// Block config
     pub initialized_block_env: BlockEnv,
     /// Marker to check whether the job has been cancelled.
-    pub cancel: Cancelled,
+    pub cancel: CancellationToken,
     /// The currently best payload.
     pub best_payload: Option<OpBuiltPayload>,
 }

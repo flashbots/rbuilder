@@ -5,17 +5,18 @@ use reth::{
     providers::StateProviderFactory, tasks::TaskSpawner, transaction_pool::TransactionPool,
 };
 use reth_basic_payload_builder::{BasicPayloadJobGeneratorConfig, PayloadConfig};
-use reth_basic_payload_builder::{BuildArguments, Cancelled};
 use reth_node_api::PayloadBuilderAttributes;
 use reth_node_api::PayloadKind;
 use reth_payload_builder::PayloadJobGenerator;
 use reth_payload_builder::{KeepPayloadJobAlive, PayloadBuilderError, PayloadJob};
 use reth_payload_primitives::BuiltPayload;
+use reth_revm::cached::CachedReads;
 use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
 use tokio::sync::Notify;
 use tokio::time::Duration;
 use tokio::time::Sleep;
+use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 /// A trait for building payloads that encapsulate Ethereum transactions.
@@ -66,6 +67,10 @@ pub struct BlockPayloadJobGenerator<Client, Pool, Tasks, Builder> {
     ///
     /// See [PayloadBuilder]
     builder: Builder,
+    /// Whether to ensure only one payload is being processed at a time
+    ensure_only_one_payload: bool,
+    /// The last payload being processed
+    last_payload: Arc<Mutex<Option<CancellationToken>>>,
 }
 
 // === impl EmptyBlockPayloadJobGenerator ===
@@ -79,6 +84,7 @@ impl<Client, Pool, Tasks, Builder> BlockPayloadJobGenerator<Client, Pool, Tasks,
         executor: Tasks,
         config: BasicPayloadJobGeneratorConfig,
         builder: Builder,
+        ensure_only_one_payload: bool,
     ) -> Self {
         Self {
             client,
@@ -86,6 +92,8 @@ impl<Client, Pool, Tasks, Builder> BlockPayloadJobGenerator<Client, Pool, Tasks,
             executor,
             _config: config,
             builder,
+            ensure_only_one_payload,
+            last_payload: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -112,6 +120,26 @@ where
         &self,
         attributes: <Builder as PayloadBuilder<Pool, Client>>::Attributes,
     ) -> Result<Self::Job, PayloadBuilderError> {
+        let cancel_token = if self.ensure_only_one_payload {
+            // Cancel any existing payload first
+            {
+                let last_payload = self.last_payload.lock().unwrap();
+                if let Some(token) = &*last_payload {
+                    token.cancel();
+                }
+            }
+
+            // Create and set new cancellation token with a fresh lock
+            let cancel_token = CancellationToken::new();
+            {
+                let mut last_payload = self.last_payload.lock().unwrap();
+                *last_payload = Some(cancel_token.clone());
+            }
+            cancel_token
+        } else {
+            CancellationToken::new()
+        };
+
         let parent_header = if attributes.parent().is_zero() {
             // use latest block if parent is zero: genesis block
             self.client
@@ -135,7 +163,7 @@ where
             builder: self.builder.clone(),
             config,
             cell: BlockCell::new(),
-            cancel: None,
+            cancel: cancel_token,
             deadline,
             build_complete: None,
         };
@@ -171,7 +199,7 @@ where
     /// The cell that holds the built payload.
     pub(crate) cell: BlockCell<Builder::BuiltPayload>,
     /// Cancellation token for the running job
-    pub(crate) cancel: Option<Cancelled>,
+    pub(crate) cancel: CancellationToken,
     pub(crate) deadline: Pin<Box<Sleep>>, // Add deadline
     pub(crate) build_complete: Option<oneshot::Receiver<Result<(), PayloadBuilderError>>>,
 }
@@ -201,14 +229,31 @@ where
         &mut self,
         kind: PayloadKind,
     ) -> (Self::ResolvePayloadFuture, KeepPayloadJobAlive) {
-        tracing::debug!("Resolve kind {:?} {:?}", kind, self.cell.is_some());
+        tracing::info!("Resolve kind {:?}", kind);
 
         // check if self.cell has a payload
-        self.cancel.take();
+        self.cancel.cancel();
 
         let resolve_future = ResolvePayload::new(self.cell.wait_for_value());
         (resolve_future, KeepPayloadJobAlive::No)
     }
+}
+
+pub struct BuildArguments<Pool, Client, Attributes, Payload> {
+    /// How to interact with the chain.
+    pub client: Client,
+    /// The transaction pool.
+    ///
+    /// Or the type that provides the transactions to build the payload.
+    pub pool: Pool,
+    /// Previously cached disk reads
+    pub cached_reads: CachedReads,
+    /// How to configure the payload.
+    pub config: PayloadConfig<Attributes>,
+    /// A marker that can be used to cancel the job.
+    pub cancel: CancellationToken,
+    /// The best payload achieved so far.
+    pub best_payload: Option<Payload>,
 }
 
 /// A [PayloadJob] is a future that's being polled by the `PayloadBuilderService`
@@ -225,22 +270,20 @@ where
         let builder = self.builder.clone();
         let client = self.client.clone();
         let pool = self.pool.clone();
-        let cancel = Cancelled::default();
-        let _cancel = cancel.clone(); // Clone for the task
         let payload_config = self.config.clone();
         let cell = self.cell.clone();
+        let cancel = self.cancel.clone();
 
         let (tx, rx) = oneshot::channel();
         self.build_complete = Some(rx);
 
-        self.cancel = Some(cancel);
         self.executor.spawn_blocking(Box::pin(async move {
             let args = BuildArguments {
                 client,
                 pool,
                 cached_reads: Default::default(),
                 config: payload_config,
-                cancel: _cancel,
+                cancel,
                 best_payload: None,
             };
 
@@ -268,12 +311,13 @@ where
 
         // Check if deadline is reached
         if this.deadline.as_mut().poll(cx).is_ready() {
+            this.cancel.cancel();
             tracing::debug!("Deadline reached");
             return Poll::Ready(Ok(()));
         }
 
         // If cancelled via resolve_kind()
-        if this.cancel.is_none() {
+        if this.cancel.is_cancelled() {
             tracing::debug!("Job cancelled");
             return Poll::Ready(Ok(()));
         }
@@ -557,6 +601,7 @@ mod tests {
             executor,
             config,
             builder.clone(),
+            false,
         );
 
         // this is not nice but necessary

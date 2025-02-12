@@ -96,6 +96,7 @@ where
             payload_job_config,
             // FBPayloadBuilder::new(OpEvmConfig::new(ctx.chain_spec())),
             payload_builder,
+            true,
         );
 
         let (payload_service, payload_builder) =

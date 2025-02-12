@@ -22,6 +22,7 @@ reth-evm.workspace = true
 reth-exex.workspace = true
 reth-chainspec.workspace = true
 reth-primitives.workspace = true
+reth-primitives-traits.workspace = true
 reth-node-api.workspace = true
 reth-basic-payload-builder.workspace = true
 reth-payload-builder.workspace = true
@@ -72,6 +73,7 @@ clap.workspace = true
 derive_more.workspace = true
 metrics.workspace = true
 serde_json.workspace = true
+tokio-util.workspace = true
 
 time = { version = "0.3.36", features = ["macros", "formatting", "parsing"] }
 chrono = "0.4"
