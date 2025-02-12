@@ -1,7 +1,6 @@
 use clap::Parser;
 use generator::BlockPayloadJobGenerator;
 use monitoring::Monitoring;
-use payload_builder::OpPayloadBuilder as FBPayloadBuilder;
 use payload_builder_vanilla::OpPayloadBuilderVanilla;
 use reth::builder::Node;
 use reth::{
