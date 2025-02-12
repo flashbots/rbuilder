@@ -73,13 +73,13 @@ where
         pool: Pool,
     ) -> eyre::Result<PayloadBuilderHandle<<Node::Types as NodeTypesWithEngine>::Engine>> {
         tracing::info!("Spawning a custom payload builder");
-        let _fb_builder = FBPayloadBuilder::new(OpEvmConfig::new(ctx.chain_spec()));
-        let _vanilla_builder = OpPayloadBuilderVanilla::new(
+        let vanilla_builder = OpPayloadBuilderVanilla::new(
             OpEvmConfig::new(ctx.chain_spec()),
             self.builder_secret_key,
         );
         let payload_job_config = BasicPayloadJobGeneratorConfig::default();
 
+        /*
         let payload_builder = FBPayloadBuilder::new(OpEvmConfig::new(ctx.chain_spec()));
 
         // Start WebSocket server
@@ -88,14 +88,14 @@ where
         } else {
             tracing::info!("FB websocket server started on 127.0.0.1:1111");
         }
+        */
 
         let payload_generator = BlockPayloadJobGenerator::with_builder(
             ctx.provider().clone(),
             pool,
             ctx.task_executor().clone(),
             payload_job_config,
-            // FBPayloadBuilder::new(OpEvmConfig::new(ctx.chain_spec())),
-            payload_builder,
+            vanilla_builder,
             true,
         );
 
