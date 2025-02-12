@@ -122,15 +122,12 @@ impl<EvmConfig> OpPayloadBuilder<EvmConfig> {
                 subscribers.retain_mut(|ws_stream| {
                     let message = message.clone();
                     async move {
-                        match ws_stream
+                        ws_stream
                             .send(tokio_tungstenite::tungstenite::Message::Text(
                                 message.into(),
                             ))
                             .await
-                        {
-                            Ok(_) => true,
-                            Err(_) => false,
-                        }
+                            .is_ok()
                     }
                     .now_or_never()
                     .unwrap_or(false)
