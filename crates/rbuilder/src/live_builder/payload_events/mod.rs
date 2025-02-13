@@ -16,7 +16,7 @@ use crate::{
     },
     primitives::mev_boost::{MevBoostRelayID, MevBoostRelaySlotInfoProvider},
 };
-use alloy_eips::merge::SLOT_DURATION;
+use alloy_eips::{merge::SLOT_DURATION, BlockNumHash};
 use alloy_primitives::{utils::format_ether, Address, B256, U256};
 use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
 use std::{collections::VecDeque, sync::Arc, time::Duration};
@@ -48,6 +48,13 @@ pub struct MevBoostSlotData {
 impl MevBoostSlotData {
     pub fn parent_block_hash(&self) -> B256 {
         self.payload_attributes_event.data.parent_block_hash
+    }
+
+    pub fn parent_block_num_hash(&self) -> BlockNumHash {
+        BlockNumHash::new(
+            self.payload_attributes_event.data.parent_block_number,
+            self.payload_attributes_event.data.parent_block_hash,
+        )
     }
 
     pub fn timestamp(&self) -> time::OffsetDateTime {

@@ -272,7 +272,7 @@ where
         );
 
         trace!(
-            block = building_ctx.block_env.number.to::<u64>(),
+            block = building_ctx.evm_env.block_env.number.to::<u64>(),
             build_time_mus = built_block_trace.fill_time.as_micros(),
             finalize_time_mus = built_block_trace.finalize_time.as_micros(),
             root_hash_time_mus = built_block_trace.root_hash_time.as_micros(),

@@ -1,4 +1,5 @@
 use alloy_primitives::{B256, U256};
+use reth_primitives::TransactionSigned;
 
 use crate::building::{
     evm_inspector::SlotKey,
@@ -103,7 +104,7 @@ fn test_read_balance() -> eyre::Result<()> {
 
     let mev_test_contract_addr = test_setup.named_address(NamedAddr::MevTest)?;
     let dummy_addr = test_setup.named_address(NamedAddr::Dummy)?;
-    let tx: reth_primitives::TransactionSignedEcRecovered =
+    let tx: reth_primitives::Recovered<TransactionSigned> =
         test_setup.make_test_read_balance_tx(dummy_addr, 100)?;
     let used_state_trace = test_setup.inspect_tx_without_commit(tx)?;
 
@@ -125,7 +126,7 @@ fn test_ephemeral_contract_destruct() -> eyre::Result<()> {
     let test_setup = TestSetup::new()?;
 
     let refund_addr = test_setup.named_address(NamedAddr::Dummy)?;
-    let tx: reth_primitives::TransactionSignedEcRecovered =
+    let tx: reth_primitives::Recovered<TransactionSigned> =
         test_setup.make_test_ephemeral_contract_destruct_tx(refund_addr, 100)?;
     let used_state_trace = test_setup.inspect_tx_without_commit(tx)?;
 

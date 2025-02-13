@@ -1,6 +1,7 @@
 use crate::primitives::{OrderId, TransactionSignedEcRecoveredWithBlobs};
 use alloy_primitives::{Address, B256, I256, U256};
-use reth_primitives::{TransactionSigned, TransactionSignedEcRecovered};
+use reth_primitives::{Recovered, Transaction, TransactionSigned};
+use revm_primitives::PrimitiveSignature;
 
 pub fn order_id(id: u64) -> OrderId {
     OrderId::Tx(hash(id))
@@ -23,14 +24,12 @@ pub fn i256(i: i64) -> I256 {
 }
 
 pub fn tx(tx_hash: u64) -> TransactionSignedEcRecoveredWithBlobs {
-    TransactionSignedEcRecoveredWithBlobs::new_for_testing(
-        TransactionSignedEcRecovered::new_unchecked(
-            TransactionSigned::new(
-                Default::default(),
-                alloy_primitives::PrimitiveSignature::test_signature(),
-                hash(tx_hash),
-            ),
-            Address::default(),
+    TransactionSignedEcRecoveredWithBlobs::new_for_testing(Recovered::new_unchecked(
+        TransactionSigned::new(
+            Transaction::Legacy(Default::default()),
+            PrimitiveSignature::test_signature(),
+            hash(tx_hash),
         ),
-    )
+        Address::default(),
+    ))
 }

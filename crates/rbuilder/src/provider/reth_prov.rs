@@ -1,6 +1,7 @@
 use crate::roothash::RootHashContext;
 use crate::utils::RootHasherImpl;
 use alloy_consensus::Header;
+use alloy_eips::BlockNumHash;
 use alloy_primitives::{BlockHash, BlockNumber, B256};
 use reth_errors::ProviderResult;
 use reth_provider::{BlockReader, DatabaseProviderFactory, HeaderProvider};
@@ -65,10 +66,10 @@ where
         self.provider.last_block_number()
     }
 
-    fn root_hasher(&self, parent_hash: B256) -> ProviderResult<Box<dyn RootHasher>> {
-        let hasher = self.history_by_block_hash(parent_hash)?;
+    fn root_hasher(&self, parent_num_hash: BlockNumHash) -> ProviderResult<Box<dyn RootHasher>> {
+        let hasher = self.history_by_block_hash(parent_num_hash.hash)?;
         Ok(Box::new(RootHasherImpl::new(
-            parent_hash,
+            parent_num_hash,
             self.root_hash_context.clone(),
             self.provider.clone(),
             hasher,

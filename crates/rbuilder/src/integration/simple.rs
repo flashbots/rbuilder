@@ -22,7 +22,6 @@ mod tests {
             ProviderBuilder::new().on_http(Url::parse(srv.rbuilder_rpc_url()).unwrap());
 
         let provider = ProviderBuilder::new()
-            .with_recommended_fillers()
             .wallet(private_key)
             .on_http(Url::parse(srv.el_url()).unwrap());
 
@@ -61,7 +60,7 @@ mod tests {
 
         // Wait for receipt
         let binding = ProviderBuilder::new().on_http(Url::parse(srv.el_url()).unwrap());
-        let pending_tx = PendingTransactionBuilder::new(binding.clone(), tx_hash)
+        let pending_tx = PendingTransactionBuilder::new(binding.root().clone(), tx_hash)
             .with_timeout(Some(std::time::Duration::from_secs(60)));
 
         let receipt = pending_tx.get_receipt().await.unwrap();
@@ -80,7 +79,7 @@ mod tests {
                 .unwrap();
 
             // wait for 20 seconds
-            let pending_tx = PendingTransactionBuilder::new(binding.clone(), tx_hash)
+            let pending_tx = PendingTransactionBuilder::new(binding.root().clone(), tx_hash)
                 .with_timeout(Some(std::time::Duration::from_secs(20)));
 
             assert!(
@@ -98,7 +97,7 @@ mod tests {
                     .unwrap();
 
             // wait for 20 seconds
-            let pending_tx = PendingTransactionBuilder::new(binding, tx_hash)
+            let pending_tx = PendingTransactionBuilder::new(binding.root().clone(), tx_hash)
                 .with_timeout(Some(std::time::Duration::from_secs(20)));
 
             assert!(

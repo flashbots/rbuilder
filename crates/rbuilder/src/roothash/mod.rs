@@ -1,5 +1,6 @@
 mod prefetcher;
 
+use alloy_eips::BlockNumHash;
 use alloy_primitives::B256;
 use eth_sparse_mpt::{
     reth_sparse_trie::{
@@ -104,7 +105,7 @@ where
 pub fn calculate_state_root<P, HasherType>(
     provider: P,
     hasher: &HasherType,
-    parent_hash: B256,
+    parent_num_hash: BlockNumHash,
     outcome: &ExecutionOutcome,
     sparse_trie_shared_cache: SparseTrieSharedCache,
     config: &RootHashContext,
@@ -119,7 +120,10 @@ where
         + 'static,
 {
     let consistent_db_view = match config.mode {
-        RootHashMode::CorrectRoot => ConsistentDbView::new(provider.clone(), Some(parent_hash)),
+        RootHashMode::CorrectRoot => ConsistentDbView::new(
+            provider.clone(),
+            Some((parent_num_hash.hash, parent_num_hash.number)),
+        ),
         RootHashMode::IgnoreParentHash => ConsistentDbView::new_with_latest_tip(provider.clone())
             .map_err(ParallelStateRootError::Provider)?,
     };

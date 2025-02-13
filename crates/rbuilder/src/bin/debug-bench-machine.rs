@@ -62,7 +62,7 @@ async fn main() -> eyre::Result<()> {
 
     let coinbase = onchain_block.header.beneficiary;
 
-    let parent_hash = onchain_block.header.parent_hash;
+    let parent_num_hash = onchain_block.header.parent_num_hash();
     let ctx = BlockBuildingContext::from_onchain_block(
         onchain_block,
         chain_spec,
@@ -71,7 +71,7 @@ async fn main() -> eyre::Result<()> {
         coinbase,
         suggested_fee_recipient,
         None,
-        Arc::from(provider_factory.root_hasher(parent_hash)?),
+        Arc::from(provider_factory.root_hasher(parent_num_hash)?),
     );
 
     let state_provider = Arc::<dyn StateProvider>::from(

@@ -11,12 +11,16 @@ use rbuilder::{
     provider::reth_prov::StateProviderFactoryFromRethProvider,
     telemetry,
 };
-use reth::{chainspec::EthereumChainSpecParser, cli::Cli, primitives::Header};
+use reth::{
+    chainspec::{EthereumChainSpecParser, EthereumHardforks},
+    cli::Cli,
+    primitives::Header,
+};
 use reth_node_builder::{engine_tree_config::TreeConfig, EngineNodeLauncher};
 use reth_node_ethereum::{node::EthereumAddOns, EthereumNode};
 use reth_provider::{
-    providers::{BlockchainProvider, BlockchainProvider2},
-    BlockReader, DatabaseProviderFactory, HeaderProvider, StateCommitmentProvider,
+    providers::BlockchainProvider, BlockReader, ChainSpecProvider, DatabaseProviderFactory,
+    HeaderProvider, StateCommitmentProvider,
 };
 use reth_transaction_pool::{blobstore::DiskFileBlobStore, EthTransactionPool};
 use std::{path::PathBuf, process};
@@ -83,7 +87,7 @@ fn main() {
                         .with_persistence_threshold(extra_args.persistence_threshold)
                         .with_memory_block_buffer_target(extra_args.memory_block_buffer_target);
                     let handle = builder
-                        .with_types_and_provider::<EthereumNode, BlockchainProvider2<_>>()
+                        .with_types_and_provider::<EthereumNode, BlockchainProvider<_>>()
                         .with_components(EthereumNode::components())
                         .with_add_ons(EthereumAddOns::default())
                         .on_node_started(move |node| {
@@ -134,8 +138,10 @@ fn spawn_rbuilder<P>(
         + reth_provider::StateProviderFactory
         + HeaderProvider<Header = Header>
         + StateCommitmentProvider
+        + reth_provider::ChainSpecProvider
         + Clone
         + 'static,
+    <P as ChainSpecProvider>::ChainSpec: EthereumHardforks,
 {
     let _handle = task::spawn(async move {
         let result = async {

@@ -1,7 +1,8 @@
 use std::{iter, time::Instant};
 
 use ahash::{HashMap, HashSet};
-use alloy_primitives::{Address, B256};
+use alloy_eips::BlockNumHash;
+use alloy_primitives::Address;
 use eth_sparse_mpt::{
     prefetch_tries_for_accounts,
     reth_sparse_trie::{trie_fetcher::FetchNodeError, SparseTrieError, SparseTrieSharedCache},
@@ -27,7 +28,7 @@ const CONSUME_SIM_ORDERS_BATCH: usize = 128;
 /// Runs a process that prefetches pieces of the trie based on the slots used by the order in simulation
 /// Its a blocking call so it should be spawned on the separate thread.
 pub fn run_trie_prefetcher<P>(
-    parent_hash: B256,
+    parent_num_hash: BlockNumHash,
     shared_sparse_mpt_cache: SparseTrieSharedCache,
     provider: P,
     mut simulated_orders: broadcast::Receiver<SimulatedOrderCommand>,
@@ -36,7 +37,10 @@ pub fn run_trie_prefetcher<P>(
     P: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync + Clone,
     P: StateCommitmentProvider,
 {
-    let consistent_db_view = ConsistentDbView::new(provider, Some(parent_hash));
+    let consistent_db_view = ConsistentDbView::new(
+        provider,
+        Some((parent_num_hash.hash, parent_num_hash.number)),
+    );
 
     // here we mark data that was fetched for this slot before
     let mut fetched_accounts: HashSet<Address> = HashSet::default();

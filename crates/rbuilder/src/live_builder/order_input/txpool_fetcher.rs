@@ -4,8 +4,7 @@ use crate::{
     telemetry::{add_txfetcher_time_to_query, mark_command_received},
 };
 use alloy_primitives::{hex, Bytes, FixedBytes};
-use alloy_provider::{IpcConnect, Provider, ProviderBuilder, RootProvider};
-use alloy_pubsub::PubSubFrontend;
+use alloy_provider::{IpcConnect, Provider, ProviderBuilder};
 use futures::StreamExt;
 use std::{pin::pin, time::Instant};
 use time::OffsetDateTime;
@@ -94,7 +93,7 @@ pub async fn subscribe_to_txpool_with_blobs(
 /// Calls eth_getRawTransactionByHash on EL node and decodes.
 async fn get_tx_with_blobs(
     tx_hash: FixedBytes<32>,
-    provider: &RootProvider<PubSubFrontend>,
+    provider: &impl alloy_provider::Provider,
 ) -> eyre::Result<Option<TransactionSignedEcRecoveredWithBlobs>> {
     // TODO: Use https://github.com/alloy-rs/alloy/pull/1168 when it gets cut
     // in a release
@@ -153,7 +152,6 @@ mod test {
         let wallet = EthereumWallet::from(signer);
 
         let provider = ProviderBuilder::new()
-            .with_recommended_fillers()
             .wallet(wallet)
             .on_http(anvil.endpoint().parse().unwrap());
 

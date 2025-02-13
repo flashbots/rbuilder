@@ -39,7 +39,7 @@ use reth::transaction_pool::{
     TransactionPool, TransactionValidator,
 };
 use reth_chainspec::ChainSpec;
-use reth_primitives::TransactionSignedEcRecovered;
+use reth_primitives::{Recovered, TransactionSigned};
 use std::{cmp::min, fmt::Debug, path::PathBuf, sync::Arc, time::Duration};
 use time::OffsetDateTime;
 use tokio::sync::mpsc;
@@ -267,7 +267,8 @@ where
 
             inc_active_slots();
 
-            let root_hasher = Arc::from(self.provider.root_hasher(payload.parent_block_hash())?);
+            let root_hasher =
+                Arc::from(self.provider.root_hasher(payload.parent_block_num_hash())?);
 
             if let Some(block_ctx) = BlockBuildingContext::from_attributes(
                 payload.payload_attributes_event.clone(),
@@ -381,13 +382,13 @@ where
     Err(eyre::eyre!("Block header not found"))
 }
 
-/// Attempts to forward a [`TransactionSignedEcRecovered`] to an orderpool.
+/// Attempts to forward a [`Recovered<TransactionSigned>`] to an orderpool.
 ///
 /// Helper for [`LiveBuilder::connect_to_transaction_pool`].
 ///
 /// Errors are handled internally with a log.
 async fn try_send_to_orderpool<V, T, S>(
-    tx: TransactionSignedEcRecovered,
+    tx: Recovered<TransactionSigned>,
     orderpool_sender: mpsc::Sender<ReplaceableOrderPoolCommand>,
     pool: Pool<V, T, S>,
 ) where

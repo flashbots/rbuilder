@@ -1,6 +1,6 @@
 use alloy_consensus::TxLegacy;
 use alloy_primitives::B256;
-use reth_primitives::{Transaction, TransactionSigned, TransactionSignedEcRecovered};
+use reth_primitives::{Recovered, Transaction, TransactionSigned};
 use revm_primitives::PrimitiveSignature;
 use uuid::Uuid;
 
@@ -18,12 +18,12 @@ pub struct TestDataGenerator {
 }
 
 impl TestDataGenerator {
-    pub fn create_tx(&mut self) -> TransactionSignedEcRecovered {
+    pub fn create_tx(&mut self) -> Recovered<TransactionSigned> {
         self.create_tx_nonce(AccountNonce::default())
     }
 
-    pub fn create_tx_nonce(&mut self, sender_nonce: AccountNonce) -> TransactionSignedEcRecovered {
-        TransactionSignedEcRecovered::new_unchecked(
+    pub fn create_tx_nonce(&mut self, sender_nonce: AccountNonce) -> Recovered<TransactionSigned> {
+        Recovered::new_unchecked(
             TransactionSigned::new(
                 Transaction::Legacy(TxLegacy {
                     nonce: sender_nonce.nonce,

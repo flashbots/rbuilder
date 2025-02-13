@@ -11,6 +11,7 @@ use crate::{
     utils::{clean_extradata, Signer},
 };
 use ahash::HashSet;
+use alloy_eips::BlockNumHash;
 use alloy_primitives::{Address, U256};
 use reth::revm::cached::CachedReads;
 use reth_chainspec::ChainSpec;
@@ -68,6 +69,10 @@ pub fn backtest_prepare_ctx_for_block<P>(
 where
     P: StateProviderFactory + Clone + 'static,
 {
+    let parent_num_hash = BlockNumHash::new(
+        block_data.winning_bid_trace.block_number.saturating_sub(1),
+        block_data.winning_bid_trace.parent_hash,
+    );
     let ctx = BlockBuildingContext::from_onchain_block(
         block_data.onchain_block,
         chain_spec.clone(),
@@ -76,7 +81,7 @@ where
         builder_signer.address,
         block_data.winning_bid_trace.proposer_fee_recipient,
         Some(builder_signer),
-        Arc::from(provider.root_hasher(block_data.winning_bid_trace.parent_hash)?),
+        Arc::from(provider.root_hasher(parent_num_hash)?),
     );
     backtest_prepare_ctx_for_block_from_building_context(
         ctx,
