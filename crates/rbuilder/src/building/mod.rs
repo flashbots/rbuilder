@@ -730,23 +730,15 @@ fn enforce_inplace_sim_result(
     // }
     let sorting_items = sort.sorting_value(sim_result);
     let inplace_sorting_items = sort.sorting_value(inplace_sim_result);
-    let mut has_err: bool = false;
     for i in 0..sorting_items.len() {
         if (inplace_sorting_items[i] * U256::from(100)) < (sorting_items[i] * U256::from(95)) {
-            has_err = true;
-        } else {
-            has_err = false;
-            break;
+            return Err(ExecutionError::LowerInsertedValue {
+                before: sim_result.clone(),
+                inplace: inplace_sim_result.clone(),
+            });
         }
-    };
-    if has_err {
-        Err(ExecutionError::LowerInsertedValue {
-            before: sim_result.clone(),
-            inplace: inplace_sim_result.clone(),
-        })
-    } else {
-        Ok(())
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -820,6 +812,40 @@ mod tests {
             coinbase_profit: U256::from(0),
             mev_gas_price: U256::from(105),
             gas_used: 105,
+            ..Default::default()
+        };
+        assert!(enforce_inplace_sim_result(sort, sim_result, inplace_sim_result).is_ok());
+    }
+
+    #[test]
+    fn test_enforce_inplace_sim_result_preconf() {
+        let sort = Sorting::Preconf;
+        let sim_result = &SimValue {
+            mev_gas_price: U256::from(100),
+            avg_bid_price: Some(U256::from(100)),
+            ..Default::default()
+        };
+
+        // Lower than 95% of the original value
+        let inplace_sim_result = &SimValue {
+            mev_gas_price: U256::from(94),
+            avg_bid_price: Some(U256::from(94)),
+            ..Default::default()
+        };
+        assert!(enforce_inplace_sim_result(sort, sim_result, inplace_sim_result).is_err());
+
+        // Equal to original value
+        let inplace_sim_result = &SimValue {
+            mev_gas_price: U256::from(100),
+            avg_bid_price: Some(U256::from(100)),
+            ..Default::default()
+        };
+        assert!(enforce_inplace_sim_result(sort, sim_result, inplace_sim_result).is_ok());
+
+        // Higher than original value
+        let inplace_sim_result = &SimValue {
+            mev_gas_price: U256::from(105),
+            avg_bid_price: Some(U256::from(105)),
             ..Default::default()
         };
         assert!(enforce_inplace_sim_result(sort, sim_result, inplace_sim_result).is_ok());
