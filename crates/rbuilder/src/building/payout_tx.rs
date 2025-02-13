@@ -107,7 +107,7 @@ pub fn estimate_payout_gas_limit(
     state: &mut BlockState,
     gas_used: u64,
 ) -> Result<u64, EstimatePayoutGasErr> {
-    tracing::trace!(address = ?to, "Estimating payout gas");
+    // tracing::trace!(address = ?to, "Estimating payout gas");
     if state.code_hash(to)? == KECCAK_EMPTY {
         return Ok(21_000);
     }

@@ -1,13 +1,13 @@
 use std::{cmp::Ordering, collections::hash_map::Entry};
 
-use ahash::{HashMap, HashSet};
-use alloy_primitives::{Address, U256};
-use priority_queue::PriorityQueue;
-use tracing::log::{debug};
 use crate::{
     building::Sorting,
     primitives::{AccountNonce, Nonce, OrderId, SimulatedOrder},
 };
+use ahash::{HashMap, HashSet};
+use alloy_primitives::{Address, U256};
+use priority_queue::PriorityQueue;
+use tracing::log::debug;
 
 use super::SimulatedOrderSink;
 
@@ -212,9 +212,17 @@ impl SimulatedOrderSink for PrioritizedOrderStore {
                 .unwrap_or_default();
             if onchain_nonce > nonce && !optional {
                 // order can't be included because of nonce
+                if sim_order.order.is_preconf() {
+                    debug!("preconf order (id={}) cannot be included because of nonce. (onchain nonce: {}, order nonce: {}, optional: {})",
+                        sim_order.order.id(), onchain_nonce, nonce, optional);
+                }
                 return;
             }
             if onchain_nonce < nonce && !optional {
+                if sim_order.order.is_preconf() {
+                    debug!("preconf order (id={}) will add into pending nonce list. (onchain nonce: {}, order nonce: {}, optional: {})",
+                        sim_order.order.id(), onchain_nonce, nonce, optional);
+                }
                 pending_nonces.push(AccountNonce {
                     account: address,
                     nonce,

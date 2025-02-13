@@ -81,7 +81,19 @@ pub fn setup_reloadable_tracing_subscriber(config: LoggerConfig) -> eyre::Result
         let mut handle = RELOAD_HANDLE.lock().unwrap();
         *handle = Some(reload_handle);
     }
-    tracing_subscriber::registry().with(reload_layer).init();
+
+    tracing_subscriber::registry()
+        .with(reload_layer)
+        .init();
+
+    // // Create and combine with console subscriber
+    // let console_layer = console_subscriber::ConsoleLayer::builder()
+    //     .with_default_env()
+    //     .spawn();
+    // tracing_subscriber::registry()
+    //     .with(reload_layer)
+    //     .with(console_layer)
+    //     .init();
 
     Ok(())
 }

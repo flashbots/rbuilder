@@ -7,7 +7,7 @@ build = "build.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tokio = "1.38.0"
+tokio = { version = "1.38.0"}
 serde = "1.0.188"
 serde_json = "1.0.105"
 thiserror = "1.0.47"
@@ -38,7 +38,7 @@ alloy-network.workspace = true
 alloy-transport.workspace = true
 alloy-serde.workspace = true
 
-reqwest = { version = "0.11.20", features = ["blocking"] }
+reqwest = { version = "0.11.20", features = ["blocking", "json", "cookies"] }
 serde_with = { version = "3.8.1", features = ["time_0_3"] }
 primitive-types = "0.12.1"
 url = "2.4.1"
@@ -96,12 +96,15 @@ sha2 = "0.10.8"
 lz4_flex = "0.11.2"
 once_cell = "1.19.0"
 exponential-backoff = "1.2.0"
-tungstenite = "0.23.0"
+tungstenite = {version = "0.24.0", features = ["native-tls"]}
 redis = "0.25.4"
 governor = "0.6.3"
 derivative = "2.2.0"
 mockall = "0.12.1"
 shellexpand = "3.1.0"
+openssl = "0.10.68"
+futures-util = "0.3.30"
+tokio-tungstenite = "0.20.1"
 
 [build-dependencies]
 built = { version = "0.7.1", features = ["git2", "chrono"] }

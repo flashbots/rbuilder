@@ -22,16 +22,10 @@ sbundle_mergeabe_signers = []
 
 # EthGas API domain
 preconf_api_url = ""
+preconf_chain_id = ""
 # EthGas WebSocket domain
-# preconf_ws_url = "wss://
+# preconf_ws_url = "wss://"
 simulation_threads = 1
-#### slot_delta_to_start_block_build_ms ####
-# Delta relative to slot_time at which we start to build blocks.
-# If not set, block build will start after getting header from slot.
-# (previous slot +4s, current slot -8s, can refer to SLOT_PROPOSAL_DURATION)
-# Usually negative since we need to start building BEFORE the slot time. (default: None)
-########################################
-slot_delta_to_start_block_build_ms = -1500
 #### slot_delta_to_start_submits_ms ####
 # Delta relative to slot_time at which we start to submit blocks.
 # Usually negative since we need to start submitting BEFORE the slot time. (default: -8000, example: -5000)
@@ -60,7 +54,6 @@ sorting = "preconf"
 failed_order_retries = 1
 drop_failed_orders = true
 build_duration_deadline_ms = 1500
-send_value = 100000000000000000
 
 #[[builders]]
 #name = "mgp-ordering"

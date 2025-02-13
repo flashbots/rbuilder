@@ -19,7 +19,7 @@ use std::{
     collections::hash_map::Entry,
     time::{Duration, Instant},
 };
-use tracing::{error, trace};
+use tracing::{error, trace, debug};
 
 #[derive(Debug)]
 pub enum OrderSimResult {
@@ -222,9 +222,12 @@ impl<DB: Database> SimTree<DB> {
         result: SimulatedResult,
         state: &NonceCacheRef,
     ) -> Result<(), ProviderError> {
+        trace!("process_simulation_task_result: {:?}", result);
         self.sims.insert(result.id, result.clone());
         let mut orders_ready = Vec::new();
         if result.nonces_after.len() == 1 {
+            trace!("result.nonces_after.len() == 1");
+
             let updated_nonce = result.nonces_after.first().unwrap().clone();
 
             match self.sims_that_update_one_nonce.entry(updated_nonce.clone()) {
@@ -239,10 +242,15 @@ impl<DB: Database> SimTree<DB> {
                             .coinbase_profit
                     };
                     if result.simulated_order.sim_value.coinbase_profit > current_sim_profit {
+                        trace!("result.simulated_order.sim_value.coinbase_profit > current_sim_profit");
                         entry.insert(result.id);
+                    } else {
+                        trace!("result.simulated_order.sim_value.coinbase_profit <= current_sim_profit");
                     }
                 }
                 Entry::Vacant(entry) => {
+                    trace!("entry.insert(result.id)");
+
                     entry.insert(result.id);
 
                     if let Some(pending_orders) = self.pending_nonces.remove(&updated_nonce) {
@@ -310,6 +318,8 @@ pub fn simulate_all_orders_with_sim_tree<DB: Database + Clone>(
     orders: &[Order],
     randomize_insertion: bool,
 ) -> Result<(Vec<SimulatedOrder>, Vec<OrderErr>), CriticalCommitOrderError> {
+    debug!("Starting simulation for {} orders", orders.len());
+
     let mut sim_tree = SimTree::new(factory.clone(), ctx.attributes.parent);
 
     let mut orders = orders.to_vec();
@@ -329,8 +339,9 @@ pub fn simulate_all_orders_with_sim_tree<DB: Database + Clone>(
         // mix new orders into the sim_tree
         if randomize_insertion && !orders.is_empty() {
             let insert_size = min(random_insert_size, orders.len());
-            let orders = orders.drain(..insert_size).collect::<Vec<_>>();
-            sim_tree.push_orders(orders)?;
+            let orders_to_insert = orders.drain(..insert_size).collect::<Vec<_>>();
+            debug!("Pushing {} orders to simulation tree", orders_to_insert.len());
+            sim_tree.push_orders(orders_to_insert)?;
         }
 
         let sim_tasks = sim_tree.pop_simulation_tasks(1000);
@@ -374,9 +385,9 @@ pub fn simulate_all_orders_with_sim_tree<DB: Database + Clone>(
                             .into_iter()
                             .map(|(address, nonce)| NonceKey { address, nonce })
                             .collect(),
-
                         simulation_time: start_time.elapsed(),
                     };
+                    debug!("Simulated order successfully");
                     sim_results.push(result);
                 }
             }
@@ -384,6 +395,7 @@ pub fn simulate_all_orders_with_sim_tree<DB: Database + Clone>(
         sim_tree.submit_simulation_tasks_results(sim_results)?;
     }
 
+    debug!("Simulation completed with {} errors", sim_errors.len());
     Ok((
         sim_tree
             .sims
@@ -401,11 +413,19 @@ pub fn simulate_order(
     ctx: &BlockBuildingContext,
     state: &mut BlockState,
 ) -> Result<OrderSimResultWithGas, CriticalCommitOrderError> {
+    debug!("Received order for simulation: {:?}", order);
+
     let mut tracer = AccumulatorSimulationTracer::new();
     let mut fork = PartialBlockFork::new(state).with_tracer(&mut tracer);
     let rollback_point = fork.rollback_point();
-    let sim_res = simulate_order_using_fork(parent_orders, order, ctx, &mut fork);
+    let sim_res = simulate_order_using_fork(parent_orders, order.clone(), ctx, &mut fork);
     fork.rollback(rollback_point);
+
+    match &sim_res {
+        Ok(_) => debug!("Simulation finished for order: {:?}", order),
+        Err(err) => error!("Simulation failed for order: {:?}, error: {:?}", order, err),
+    }
+
     let sim_res = sim_res?;
     Ok(OrderSimResultWithGas {
         result: sim_res,
@@ -424,6 +444,7 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
     let mut prev_order = None;
     let mut gas_used = 0;
     let mut blob_gas_used = 0;
+
     for parent in parent_orders {
         let result = fork.commit_order(&parent, ctx, gas_used, 0, blob_gas_used, true)?;
         match result {
@@ -434,7 +455,7 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
             }
             Err(err) => {
                 tracing::trace!(
-                    "failed to simulate parent order, id: {:?}, err: {:?}",
+                    "Failed to simulate parent order, id: {:?}, err: {:?}",
                     parent.id(),
                     err
                 );
@@ -455,6 +476,7 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
                 order.metadata().avg_bid_price,
             );
             let new_nonces = res.nonces_updated.into_iter().collect::<Vec<_>>();
+            debug!("Order simulated successfully: {:?}", order);
             Ok(OrderSimResult::Success(
                 SimulatedOrder {
                     order,
@@ -465,6 +487,9 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
                 new_nonces,
             ))
         }
-        Err(err) => Ok(OrderSimResult::Failed(err)),
+        Err(err) => {
+            error!("Failed to simulate order: {:?}, error: {:?}", order, err);
+            Ok(OrderSimResult::Failed(err))
+        }
     }
 }

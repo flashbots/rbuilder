@@ -16,7 +16,10 @@ use reth::providers::{BlockNumReader, ProviderFactory};
 use reth_db::database::Database;
 use reth_provider::StateProvider;
 
-use super::{finalize_block_execution, BacktestSimulateBlockInput, Block, BlockBuildingAlgorithm, BlockBuildingAlgorithmInput, BlockBuildingSink};
+use super::{
+    finalize_block_execution, BacktestSimulateBlockInput, Block, BlockBuildingAlgorithm,
+    BlockBuildingAlgorithmInput, BlockBuildingSink,
+};
 use crate::{
     building::tracers::GasUsedSimulationTracer, live_builder::bidding::SlotBidder,
     roothash::RootHashMode, utils::check_provider_factory_health,
@@ -52,8 +55,6 @@ pub struct OrderingBuilderConfig {
     /// Amount of time allocated for EVM execution while building block.
     #[serde(default)]
     pub build_duration_deadline_ms: Option<u64>,
-
-    pub send_value: u64,
 }
 
 impl OrderingBuilderConfig {
@@ -211,6 +212,7 @@ impl<DB: Database + Clone + 'static> OrderingBuilderContext<DB> {
                             .collect();
                         block_orders.update_onchain_nonces(&nonces_updated);
                         built_block_trace.add_included_order(res);
+                        trace!("should have inculded oredr, {:?}", built_block_trace)
                     }
                     Err(err) => {
                         built_block_trace.modify_payment_when_no_signer_error(&err);
@@ -249,6 +251,7 @@ impl<DB: Database + Clone + 'static> OrderingBuilderContext<DB> {
             let fee_recipient_balance_diff = fee_recipient_balance_after
                 .checked_sub(fee_recipient_balance_before)
                 .unwrap_or_default();
+            // trace!("before finalize_block_execution"); too many log
 
             let should_finalize = finalize_block_execution(
                 ctx,
@@ -259,6 +262,7 @@ impl<DB: Database + Clone + 'static> OrderingBuilderContext<DB> {
                 self.slot_bidder.as_ref(),
                 fee_recipient_balance_diff,
             )?;
+            trace!("after finalize_block_execution");
 
             if !should_finalize {
                 trace!(
@@ -269,6 +273,7 @@ impl<DB: Database + Clone + 'static> OrderingBuilderContext<DB> {
                 );
                 return Ok(None);
             }
+            trace!("before verify_bundle_consistency.finalize");
 
             built_block_trace.verify_bundle_consistency(&ctx.blocklist)?;
             (built_block_trace, state, partial_block)
@@ -279,6 +284,7 @@ impl<DB: Database + Clone + 'static> OrderingBuilderContext<DB> {
         built_block_trace.fill_time = build_time;
 
         let start = Instant::now();
+        trace!("before partial_block.finalize");
 
         let sim_gas_used = partial_block.tracer.used_gas;
         let finalized_block = partial_block.finalize(
@@ -288,7 +294,10 @@ impl<DB: Database + Clone + 'static> OrderingBuilderContext<DB> {
             self.root_hash_mode,
             self.root_hash_task_pool.clone(),
         )?;
+        trace!("after partial_block.finalize {:?}", finalized_block);
+
         built_block_trace.update_orders_timestamps_after_block_sealed(orders_closed_at);
+        trace!("update_orders_timestamps_after_block_sealed");
 
         self.cached_reads = Some(finalized_block.cached_reads);
 
@@ -299,6 +308,7 @@ impl<DB: Database + Clone + 'static> OrderingBuilderContext<DB> {
         let txs = finalized_block.sealed_block.body.len();
         let gas_used = finalized_block.sealed_block.gas_used;
         let blobs = finalized_block.txs_blob_sidecars.len();
+        trace!("before add_built_block_metrics");
 
         telemetry::add_built_block_metrics(
             build_time,
@@ -357,7 +367,7 @@ impl OrderingBuildingAlgorithm {
     }
 }
 impl<DB: Database + Clone + 'static, SinkType: BlockBuildingSink>
-BlockBuildingAlgorithm<DB, SinkType> for OrderingBuildingAlgorithm
+    BlockBuildingAlgorithm<DB, SinkType> for OrderingBuildingAlgorithm
 {
     fn name(&self) -> String {
         self.name.clone()
@@ -424,6 +434,7 @@ pub fn run_ordering_builder<DB: Database + Clone + 'static, SinkType: BlockBuild
         }
 
         let orders = order_intake_consumer.current_block_orders();
+        // trace!("orders: {:?}", orders); //empty
         match builder.build_block(orders, use_suggested_fee_recipient_as_coinbase) {
             Ok(Some(block)) => {
                 if block.trace.got_no_signer_error {
@@ -441,8 +452,10 @@ pub fn run_ordering_builder<DB: Database + Clone + 'static, SinkType: BlockBuild
                         .last_block_number()
                         .unwrap_or_default();
                     debug!(
+                        err_str,
                         block_number,
-                        last_block_number, "Can't build on this head, cancelling slot"
+                        last_block_number,
+                        "Can't build on this head, cancelling slot"
                     );
                     input.cancel.cancel();
                     break 'building;
@@ -485,8 +498,8 @@ pub fn backtest_simulate_block<DB: Database + Clone + 'static>(
         input.ctx.clone(),
         ordering_config,
     )
-        .with_skip_root_hash()
-        .with_cached_reads(input.cached_reads.unwrap_or_default());
+    .with_skip_root_hash()
+    .with_cached_reads(input.cached_reads.unwrap_or_default());
     let block = builder
         .build_block(block_orders, use_suggested_fee_recipient_as_coinbase)?
         .ok_or_else(|| eyre::eyre!("No block built"))?;

@@ -11,7 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::mpsc::{self};
-use tracing::{error, trace};
+use tracing::{debug, error, trace};
 
 use super::{
     order_sink::{OrderPoolCommand, OrderSender2OrderSink},
@@ -100,6 +100,9 @@ impl OrderPool {
     }
 
     fn process_order(&mut self, order: &Order) {
+        if order.is_preconf() {
+            debug!("orderpool received preconf order(id={})", order.id());
+        }
         let target_block = order.target_block();
         let order_id = order.id();
         if self
@@ -117,6 +120,7 @@ impl OrderPool {
                 (order, None)
             }
             Order::Bundle(bundle) => {
+                debug!(?order_id, "Adding bundle order");
                 let target_block = bundle.block;
                 let bundles_store = self
                     .bundles_by_target_block
@@ -164,7 +168,9 @@ impl OrderPool {
             }
             if target_block.is_none() || target_block == Some(sub.block_number) {
                 let send_ok = match command.clone() {
-                    ReplaceableOrderPoolCommand::Order(o) => sub.sink.insert_order(o),
+                    ReplaceableOrderPoolCommand::Order(o) => {
+                        sub.sink.insert_order(o)
+                    },
                     ReplaceableOrderPoolCommand::CancelShareBundle(cancel) => sub
                         .sink
                         .remove_bundle(OrderReplacementKey::ShareBundle(cancel.key)),

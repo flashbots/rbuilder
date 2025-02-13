@@ -100,7 +100,7 @@ pub struct BaseConfig {
     relay_secret_key: EnvOrInplaceValue,
     /// Secret key that will be used to sign optimistic submissions to the relay.
     optimistic_relay_secret_key: EnvOrInplaceValue,
-    /// When enabled builer will make optimistic submissions to optimistic relays
+    /// When enabled builder will make optimistic submissions to optimistic relays
     /// influenced by `optimistic_max_bid_value_eth` and `optimistic_prevalidate_optimistic_blocks`
     pub optimistic_enabled: bool,
     /// Bids above this value will always be submitted in non-optimistic mode.
@@ -109,10 +109,12 @@ pub struct BaseConfig {
     pub optimistic_prevalidate_optimistic_blocks: bool,
     pub blocks_processor_url: Option<String>,
 
-    // Preconf
+    // preconf api
     pub preconf_api_url: Option<String>,
+    pub preconf_chain_id: Option<String>,
+
+    // preconf websocket
     pub preconf_ws_url: Option<String>,
-    pub slot_delta_to_start_block_build_ms: Option<i64>,
 
     /// mev-share bundles coming from this address are treated in a special way(see [`ShareBundleMerger`])
     pub sbundle_mergeabe_signers: Option<Vec<Address>>,
@@ -232,7 +234,6 @@ impl BaseConfig {
             simulation_threads: self.simulation_threads,
             order_input_config: OrderInputConfig::from_config(self),
 
-            slot_delta_to_start_block_build_ms: self.slot_delta_to_start_block_build_ms(),
             preconf_config: PreconfConfig::from_config(self),
             chain_chain_spec: self.chain_spec()?,
             provider_factory,
@@ -370,6 +371,13 @@ impl BaseConfig {
         ))
     }
 
+    pub fn get_relay_secret_key(&self) -> eyre::Result<String> {
+        if self.optimistic_enabled {
+            return self.optimistic_relay_secret_key.value();
+        }
+        self.relay_secret_key.value()
+    }
+
     pub fn bls_signer(&self) -> eyre::Result<BLSBlockSigner> {
         let chain_spec = self.chain_spec()?;
         let signing_domain =
@@ -493,11 +501,6 @@ impl BaseConfig {
         Ok(path_expanded.parse()?)
     }
 
-    pub fn slot_delta_to_start_block_build_ms(&self) -> Option<time::Duration> {
-        self.slot_delta_to_start_block_build_ms
-            .map(time::Duration::milliseconds)
-    }
-
     pub fn slot_delta_to_start_submits(&self) -> time::Duration {
         self.slot_delta_to_start_submits_ms
             .map(time::Duration::milliseconds)
@@ -610,8 +613,8 @@ impl Default for BaseConfig {
             sbundle_mergeabe_signers: None,
             slot_delta_to_start_submits_ms: None,
             preconf_api_url: None,
+            preconf_chain_id: None,
             preconf_ws_url: None,
-            slot_delta_to_start_block_build_ms: None,
             min_time_between_block_check_ms: None,
         }
     }

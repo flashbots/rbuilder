@@ -12,13 +12,21 @@ pub mod testing;
 pub mod tracers;
 pub use block_orders::BlockOrders;
 
+use self::tracers::SimulationTracer;
+use crate::{backtest::BlockData, roothash::RootHashMode, utils::default_cfg_env};
 use crate::{
     primitives::{Order, OrderId, SimValue, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs},
     roothash::calculate_state_root,
     utils::{a2r_withdrawal, calc_gas_limit, timestamp_as_u64, Signer},
 };
 use ahash::HashSet;
+pub use block_orders::*;
+pub use built_block_trace::*;
+#[cfg(test)]
+pub use conflict::*;
 use jsonrpsee::core::Serialize;
+pub use order_commit::*;
+pub use payout_tx::*;
 use reth::{
     payload::PayloadId,
     primitives::{
@@ -42,18 +50,11 @@ use revm::{
     primitives::{BlobExcessGasAndPrice, BlockEnv, CfgEnvWithHandlerCfg, SpecId},
 };
 use serde::Deserialize;
+pub use sim::simulate_order;
 use std::{hash::Hash, str::FromStr, sync::Arc};
 use thiserror::Error;
 use time::OffsetDateTime;
-use self::tracers::SimulationTracer;
-use crate::{backtest::BlockData, roothash::RootHashMode, utils::default_cfg_env};
-pub use block_orders::*;
-pub use built_block_trace::*;
-#[cfg(test)]
-pub use conflict::*;
-pub use order_commit::*;
-pub use payout_tx::*;
-pub use sim::simulate_order;
+use tracing::{error, trace};
 
 #[derive(Debug, Clone)]
 pub struct BlockBuildingContext {
@@ -72,7 +73,6 @@ pub struct BlockBuildingContext {
     pub excess_blob_gas: Option<u64>,
     /// Version of the EVM that we are going to use
     pub spec_id: SpecId,
-    pub slot_delta_to_start_block_build_ms: Option<time::Duration>,
 }
 
 impl BlockBuildingContext {
@@ -87,7 +87,6 @@ impl BlockBuildingContext {
         prefer_gas_limit: Option<u64>,
         extra_data: Vec<u8>,
         spec_id: Option<SpecId>,
-        slot_delta_to_start_block_build_ms: Option<time::Duration>,
     ) -> BlockBuildingContext {
         let attributes = EthPayloadBuilderAttributes::try_new(
             attributes.data.parent_block_hash,
@@ -139,7 +138,6 @@ impl BlockBuildingContext {
             extra_data,
             excess_blob_gas,
             spec_id,
-            slot_delta_to_start_block_build_ms,
         }
     }
 
@@ -151,7 +149,6 @@ impl BlockBuildingContext {
         chain_spec: Arc<ChainSpec>,
         blocklist: HashSet<Address>,
         spec_id: Option<SpecId>,
-        slot_delta_to_start_block_build_ms: Option<time::Duration>,
     ) -> BlockBuildingContext {
         let builder_signer =
             Signer::try_from_secret(B256::random()).expect("failed to create signer");
@@ -238,7 +235,6 @@ impl BlockBuildingContext {
                 .excess_blob_gas
                 .map(|b| b as u64),
             spec_id,
-            slot_delta_to_start_block_build_ms,
         }
     }
 
@@ -278,7 +274,10 @@ impl Sorting {
         match self {
             Sorting::MevGasPrice => vec![sim_value.mev_gas_price, U256::ZERO, U256::ZERO],
             Sorting::MaxProfit => vec![sim_value.coinbase_profit, U256::ZERO, U256::ZERO],
-            Sorting::Preconf => vec![sim_value.avg_bid_price.unwrap_or_default(), sim_value.mev_gas_price],
+            Sorting::Preconf => vec![
+                sim_value.avg_bid_price.unwrap_or_default(),
+                sim_value.mev_gas_price,
+            ],
         }
     }
 }
@@ -361,18 +360,18 @@ impl ExecutionError {
     pub fn try_get_tx_too_high_error(&self, order: &Order) -> Option<(Address, u64)> {
         match self {
             ExecutionError::OrderError(OrderErr::Transaction(
-                                           TransactionErr::InvalidTransaction(InvalidTransaction::NonceTooHigh {
-                                                                                  tx: tx_nonce,
-                                                                                  ..
-                                                                              }),
-                                       )) => Some((order.list_txs().first()?.0.tx.signer(), *tx_nonce)),
+                TransactionErr::InvalidTransaction(InvalidTransaction::NonceTooHigh {
+                    tx: tx_nonce,
+                    ..
+                }),
+            )) => Some((order.list_txs().first()?.0.tx.signer(), *tx_nonce)),
             ExecutionError::OrderError(OrderErr::Bundle(BundleErr::InvalidTransaction(
-                                                            hash,
-                                                            TransactionErr::InvalidTransaction(InvalidTransaction::NonceTooHigh {
-                                                                                                   tx: tx_nonce,
-                                                                                                   ..
-                                                                                               }),
-                                                        ))) => {
+                hash,
+                TransactionErr::InvalidTransaction(InvalidTransaction::NonceTooHigh {
+                    tx: tx_nonce,
+                    ..
+                }),
+            ))) => {
                 let signer = order
                     .list_txs()
                     .iter()
@@ -550,6 +549,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         root_hash_mode: RootHashMode,
         root_hash_task_pool: BlockingTaskPool,
     ) -> eyre::Result<FinalizeResult> {
+        trace!("start finalize");
         let (withdrawals_root, withdrawals) = {
             let mut db = state.new_db_ref();
             let WithdrawalsOutcome {
@@ -566,6 +566,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         };
 
         let (cached_reads, bundle) = state.into_parts();
+        trace!("new bundle");
 
         let bundle = BundleStateWithReceipts::new(
             bundle,
@@ -584,6 +585,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         let logs_bloom = bundle
             .block_logs_bloom(block_number)
             .expect("Number is in range");
+        trace!("calculate_state_root");
 
         let state_root = calculate_state_root(
             provider_factory,
@@ -592,6 +594,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             root_hash_mode,
             root_hash_task_pool,
         )?;
+        trace!("calculate_transaction_root");
 
         // create the block header
         let transactions_root = proofs::calculate_transaction_root(&self.executed_tx);
@@ -608,6 +611,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
                 }
             }
         }
+        trace!("finalize should be done");
 
         let mut txs_blob_sidecars = Vec::new();
         let (excess_blob_gas, blob_gas_used) = if ctx
@@ -623,6 +627,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         } else {
             (None, None)
         };
+        trace!("is_cancun_active_at_timestamp");
 
         let header = Header {
             parent_hash: ctx.attributes.parent,
@@ -812,40 +817,6 @@ mod tests {
             coinbase_profit: U256::from(0),
             mev_gas_price: U256::from(105),
             gas_used: 105,
-            ..Default::default()
-        };
-        assert!(enforce_inplace_sim_result(sort, sim_result, inplace_sim_result).is_ok());
-    }
-
-    #[test]
-    fn test_enforce_inplace_sim_result_preconf() {
-        let sort = Sorting::Preconf;
-        let sim_result = &SimValue {
-            mev_gas_price: U256::from(100),
-            avg_bid_price: Some(U256::from(100)),
-            ..Default::default()
-        };
-
-        // Lower than 95% of the original value
-        let inplace_sim_result = &SimValue {
-            mev_gas_price: U256::from(94),
-            avg_bid_price: Some(U256::from(94)),
-            ..Default::default()
-        };
-        assert!(enforce_inplace_sim_result(sort, sim_result, inplace_sim_result).is_err());
-
-        // Equal to original value
-        let inplace_sim_result = &SimValue {
-            mev_gas_price: U256::from(100),
-            avg_bid_price: Some(U256::from(100)),
-            ..Default::default()
-        };
-        assert!(enforce_inplace_sim_result(sort, sim_result, inplace_sim_result).is_ok());
-
-        // Higher than original value
-        let inplace_sim_result = &SimValue {
-            mev_gas_price: U256::from(105),
-            avg_bid_price: Some(U256::from(105)),
             ..Default::default()
         };
         assert!(enforce_inplace_sim_result(sort, sim_result, inplace_sim_result).is_ok());

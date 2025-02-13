@@ -62,7 +62,6 @@ pub struct LiveBuilder<DB, BuilderSinkFactoryType: BuilderSinkFactory> {
     pub simulation_threads: usize,
     pub order_input_config: OrderInputConfig,
     pub preconf_config: PreconfConfig,
-    pub slot_delta_to_start_block_build_ms: Option<time::Duration>,
 
     pub chain_chain_spec: Arc<ChainSpec>,
     pub provider_factory: ProviderFactoryReopener<DB>,
@@ -240,8 +239,22 @@ where
                 Some(payload.suggested_gas_limit),
                 self.extra_data.clone(),
                 None,
-                self.slot_delta_to_start_block_build_ms,
             );
+
+
+            // match preconf_info_sender.send(PreconfInfo {
+            //     slot: payload.slot(),
+            //     block_number: payload.block(),
+            //     timestamp: Some(payload.timestamp().unix_timestamp() as u64),
+            // }).await {
+            //     Ok(_) => {
+            //         debug!("sent preconf info -> slot: {}, block: {}", payload.slot(), payload.block());
+            //     },
+            //     Err(e) => {
+            //         error!("preconf info sender cannot send preconf info: {:?}", e);
+            //     }
+            // }
+
 
             builder_pool.start_block_building(
                 payload,
@@ -272,11 +285,14 @@ async fn wait_for_block_header<DB: Database>(
     slot_time: OffsetDateTime,
     provider_factory: &ProviderFactory<DB>,
 ) -> eyre::Result<Header> {
+    info!("Trying to get header for block hash: {:?}", block);
     let dead_line = slot_time + BLOCK_HEADER_DEAD_LINE_DELTA;
     while OffsetDateTime::now_utc() < dead_line {
         if let Some(header) = provider_factory.header(&block)? {
+            info!("Found header: {:?}", header);
             return Ok(header);
         } else {
+            warn!("Header not found, retrying...");
             let time_to_sleep = min(
                 dead_line - OffsetDateTime::now_utc(),
                 GET_BLOCK_HEADER_PERIOD,
@@ -287,5 +303,5 @@ async fn wait_for_block_header<DB: Database>(
             tokio::time::sleep(time_to_sleep.try_into().unwrap()).await;
         }
     }
-    Err(eyre::eyre!("Block header not found"))
+    Err(eyre::eyre!("Block header not found for hash: {:?}", block))
 }

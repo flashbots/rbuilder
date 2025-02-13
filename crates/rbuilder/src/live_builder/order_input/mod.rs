@@ -4,15 +4,17 @@ pub mod clean_orderpool;
 pub mod order_replacement_manager;
 pub mod order_sink;
 pub mod orderpool;
+pub mod preconf_fetcher;
 pub mod replaceable_order_sink;
 pub mod rpc_server;
 pub mod txpool_fetcher;
-pub mod preconf_fetcher;
 
 use self::{
     orderpool::{OrderPool, OrderPoolSubscriptionId},
     replaceable_order_sink::ReplaceableOrderSink,
 };
+use super::base_config::BaseConfig;
+use crate::preconf::{PreconfConfig, PreconfInfo};
 use crate::{
     primitives::{serialize::CancelShareBundle, BundleReplacementKey, Order},
     utils::ProviderFactoryReopener,
@@ -26,11 +28,8 @@ use std::{
     time::Duration,
 };
 use tokio::{sync::mpsc, task::JoinHandle};
-use tokio::sync::mpsc::Sender;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, trace, warn};
-use crate::preconf::{PreconfConfig, PreconfInfo};
-use super::base_config::BaseConfig;
 
 /// Thread safe access to OrderPool to get orderflow
 #[derive(Debug)]
@@ -160,7 +159,11 @@ pub async fn start_orderpool_jobs<DB: Database + Clone + 'static>(
     provider_factory: ProviderFactoryReopener<DB>,
     extra_rpc: RpcModule<()>,
     global_cancel: CancellationToken,
-) -> eyre::Result<(JoinHandle<()>, OrderPoolSubscriber, Sender<PreconfInfo>)> {
+) -> eyre::Result<(
+    JoinHandle<()>,
+    OrderPoolSubscriber,
+    mpsc::Sender<PreconfInfo>,
+)> {
     if order_input_config.ignore_cancellable_orders {
         warn!("ignore_cancellable_orders is set to true, some order input is ignored");
     }
@@ -173,7 +176,8 @@ pub async fn start_orderpool_jobs<DB: Database + Clone + 'static>(
         orderpool: orderpool.clone(),
     };
 
-    let (order_sender, order_receiver) = mpsc::channel(order_input_config.input_channel_buffer_size);
+    let (order_sender, order_receiver) =
+        mpsc::channel(order_input_config.input_channel_buffer_size);
 
     let clean_job = clean_orderpool::spawn_clean_orderpool_job(
         order_input_config.clone(),
@@ -197,11 +201,12 @@ pub async fn start_orderpool_jobs<DB: Database + Clone + 'static>(
     )
     .await?;
 
-    let (preconf_fetcher, preconf_info_sender) = preconf_fetcher::subscribe_to_preconf_pool(
+    let (preconf_handlers, preconf_info_sender) = preconf_fetcher::subscribe_to_preconf_pool(
         preconf_config.clone(),
         order_sender.clone(),
         global_cancel.clone(),
-    ).await?;
+    )
+    .await?;
 
     let handle = tokio::spawn(async move {
         info!("OrderPoolJobs: started");
@@ -258,7 +263,7 @@ pub async fn start_orderpool_jobs<DB: Database + Clone + 'static>(
             new_commands.clear();
         }
 
-        for handle in [clean_job, rpc_server, txpool_fetcher, preconf_fetcher] {
+        for handle in [clean_job, rpc_server, txpool_fetcher].into_iter().chain(preconf_handlers) {
             handle
                 .await
                 .map_err(|err| {

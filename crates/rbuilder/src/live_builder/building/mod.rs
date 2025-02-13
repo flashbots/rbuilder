@@ -1,8 +1,15 @@
 pub mod relay_submit;
 
-use std::{sync::Arc, time::Duration};
 pub use relay_submit::SubmissionConfig;
+use std::{sync::Arc, time::Duration};
 
+use super::{
+    bidding::BiddingService,
+    order_input::{self, orderpool::OrdersForBlock},
+    payload_events,
+    simulation::OrderSimulationPool,
+};
+use crate::live_builder::order_input::order_replacement_manager::OrderReplacementManager;
 use crate::{
     building::{
         builders::{BlockBuildingAlgorithm, BlockBuildingAlgorithmInput, BuilderSinkFactory},
@@ -12,21 +19,10 @@ use crate::{
     utils::ProviderFactoryReopener,
 };
 use reth_db::database::Database;
-use time::OffsetDateTime;
-use tokio::time::sleep;
 use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, trace};
-use crate::live_builder::order_input::order_replacement_manager::OrderReplacementManager;
 use crate::preconf::PreconfInfo;
-use super::{
-    bidding::BiddingService,
-    order_input::{
-        self, orderpool::OrdersForBlock,
-    },
-    payload_events,
-    simulation::OrderSimulationPool,
-};
 
 #[derive(Debug)]
 pub struct BlockBuildingPool<DB, BuilderSinkFactoryType: BuilderSinkFactory> {
@@ -73,8 +69,19 @@ where
         let block_cancellation = global_cancellation.child_token();
 
         let cancel = block_cancellation.clone();
+        let payload_clone = payload.clone();
         tokio::spawn(async move {
+            debug!(
+                "sleep til slot({}) end: {:?}",
+                payload_clone.slot(),
+                max_time_to_build
+            );
             tokio::time::sleep(max_time_to_build).await;
+            debug!(
+                "reached slot({}) end: {:?}",
+                payload_clone.slot(),
+                max_time_to_build
+            );
             cancel.cancel();
         });
 
@@ -139,19 +146,18 @@ where
         };
 
         tokio::spawn(async move {
-            if let Some(delta) = ctx.slot_delta_to_start_block_build_ms {
-                let submit_start_time = slot_end_timestamp + delta;
-                let sleep_duration = submit_start_time - OffsetDateTime::now_utc();
-                if sleep_duration.is_positive() {
-                    debug!(?sleep_duration, "sleep til block start time");
-                    sleep(sleep_duration.try_into().unwrap()).await;
-                }
-            }
-            preconf_info_sender.send(PreconfInfo {
+            match preconf_info_sender.send(PreconfInfo {
                 block_number,
                 slot,
                 timestamp: Some(slot_end_timestamp.unix_timestamp() as u64),
-            }).await.expect("preconf info sender cannot send preconf info");
+            }).await {
+                Ok(_) => {
+                    debug!("sent preconf info -> slot: {}, block: {}", slot, block_number);
+                },
+                Err(e) => {
+                    error!("preconf info sender cannot send preconf info: {:?}", e);
+                }
+            }
         });
 
         debug!("start building jobs");

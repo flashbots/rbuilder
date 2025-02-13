@@ -5,6 +5,7 @@ use ahash::{HashMap, HashSet};
 use alloy_primitives::{Address, U256};
 use std::time::Duration;
 use time::OffsetDateTime;
+use tracing::{trace};
 
 /// Structs for recording data about a built block, such as what bundles were included, and where txs came from.
 /// Trace can be used to verify bundle invariants.
@@ -60,8 +61,12 @@ impl BuiltBlockTrace {
 
     /// Call after a commit_order ok
     pub fn add_included_order(&mut self, execution_result: ExecutionResult) {
+        trace!("execution_result.order.is_preconf");
         if execution_result.order.is_preconf() {
+
             let preconf_tx_len = execution_result.txs.len() as i32;
+            trace!("preconf len to add: {}", preconf_tx_len);
+
             self.preconf_tx_count = self.preconf_tx_count.add(preconf_tx_len);
         }
         self.included_orders.push(execution_result);

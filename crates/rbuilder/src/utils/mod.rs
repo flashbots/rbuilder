@@ -8,6 +8,7 @@ mod provider_factory_reopen;
 pub mod reconnect;
 mod test_data_generator;
 mod tx_signer;
+pub mod failed_txs_writer;
 
 use alloy_network::Ethereum;
 use alloy_primitives::U256;

@@ -139,24 +139,26 @@ impl<DB: Database + Clone + Send + 'static> SimulationJob<DB> {
                 n = self.new_order_sub.recv_many(&mut new_commands, 1024) => {
                     if n != 0 {
                         if !self.process_new_commands(&new_commands).await {
+                            debug!("Processing new commands failed, stopping simulation job");
                             return;
                         }
                         new_commands.clear();
                     } else {
                         trace!("New order sub is closed");
                         return;
-                        // channel is closed, we should cancel this job
                     }
                 }
                 n = self.sim_results_receiver.recv_many(&mut new_sim_results, 1024) => {
                     if n != 0 {
                         if !self.process_new_simulations(&mut new_sim_results).await {
+                            debug!("Processing new simulations failed, stopping simulation job");
                             return;
                         }
                         new_sim_results.clear();
                     }
                 }
                 _ = self.block_cancellation.cancelled() => {
+                    debug!("Simulation job cancelled");
                     return;
                 }
             }
@@ -209,6 +211,10 @@ impl<DB: Database + Clone + Send + 'static> SimulationJob<DB> {
         &mut self,
         new_sim_results: &mut Vec<SimulatedResult>,
     ) -> bool {
+        // Log the number of new simulation results received
+        debug!("Processing {} new simulation results", new_sim_results.len());
+        // trace!("new_sim_results: {:?}", new_sim_results); //it dose have shit inside
+
         // send results
         let mut valid_simulated_orders = Vec::new();
         for sim_result in new_sim_results {
@@ -234,6 +240,9 @@ impl<DB: Database + Clone + Send + 'static> SimulationJob<DB> {
                 {
                     return false; //receiver closed :(
                 }
+            } else {
+                // Log if the order was cancelled
+                debug!(order_id=?sim_result.simulated_order.order.id(), "Order was cancelled, skipping.");
             }
         }
         // update simtree
@@ -279,8 +288,8 @@ impl<DB: Database + Clone + Send + 'static> SimulationJob<DB> {
     }
 
     async fn process_new_commands(&mut self, new_commands: &[OrderPoolCommand]) -> bool {
-        for new_commnad in new_commands {
-            match new_commnad {
+        for new_command in new_commands {
+            match new_command {
                 OrderPoolCommand::Insert(order) => {
                     if !self.process_new_order(order.clone()) {
                         return false;

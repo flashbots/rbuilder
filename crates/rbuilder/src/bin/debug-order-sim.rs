@@ -62,7 +62,7 @@ pub async fn main() -> eyre::Result<()> {
 
     let (_orderpool, order_pool_subscriber, _preconf_client) = start_orderpool_jobs(
         order_input_config,
-        PreconfConfig{ preconf_api_url: None, preconf_ws_url: None },
+        PreconfConfig::new(None, None, None, "".to_string()),
         provider_factory.clone(),
         RpcModule::new(()),
         cancel.clone(),
@@ -126,7 +126,6 @@ pub async fn main() -> eyre::Result<()> {
             Default::default(),
             None,
             Vec::new(),
-            None,
             None,
         );
 

@@ -16,7 +16,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio_util::sync::CancellationToken;
-use tracing::error;
+use tracing::{error};
 
 pub fn run_sim_worker<DB: Database + Clone + Send + 'static>(
     worker_id: usize,
@@ -97,7 +97,10 @@ pub fn run_sim_worker<DB: Database + Clone + Send + 'static>(
                                 .unwrap_or_default();
                             true
                         }
-                        OrderSimResult::Failed(_) => false,
+                        OrderSimResult::Failed(err) => {
+                            error!("Simulation failed: {:?}", err);
+                            false
+                        }
                     };
                     telemetry::inc_simulated_orders(sim_ok);
                     telemetry::inc_simulation_gas_used(sim_result.gas_used);

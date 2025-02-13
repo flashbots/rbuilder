@@ -73,7 +73,6 @@ pub fn backtest_prepare_ctx_for_block<DB: Database + Clone>(
         chain_spec.clone(),
         blocklist,
         None,
-        None,
     );
     let (sim_orders, sim_errors) =
         simulate_all_orders_with_sim_tree(provider_factory.clone(), &ctx, &orders, false)?;

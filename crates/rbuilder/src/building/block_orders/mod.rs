@@ -21,6 +21,7 @@ use reth_interfaces::provider::ProviderResult;
 
 use prioritized_order_store::PrioritizedOrderStore;
 pub use test_data_generator::TestDataGenerator;
+use tracing::{trace};
 
 /// Generic SimulatedOrder sink to add and remove orders.
 pub trait SimulatedOrderSink {
@@ -99,6 +100,7 @@ impl Default for SimulatedOrderStore {
 
 impl SimulatedOrderSink for SimulatedOrderStore {
     fn insert_order(&mut self, order: SimulatedOrder) {
+        trace!("insert_order: {:?}",order);
         if let Some(new_orders) = &mut self.new_orders {
             new_orders.push(order.clone());
         }

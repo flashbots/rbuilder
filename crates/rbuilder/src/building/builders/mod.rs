@@ -15,7 +15,7 @@ use crate::{
     utils::NonceCache,
 };
 use ahash::HashSet;
-use alloy_primitives::{Address, B256, U256};
+use alloy_primitives::{Address, Uint, B256, U256};
 use reth::{
     primitives::{BlobTransactionSidecar, SealedBlock},
     providers::ProviderFactory,
@@ -27,6 +27,7 @@ use std::{
     cmp::max,
     sync::{Arc, Mutex},
 };
+use alloy_primitives::utils::parse_units;
 use tokio::sync::{broadcast, broadcast::error::TryRecvError};
 use tokio_util::sync::CancellationToken;
 use tracing::{warn};
@@ -69,10 +70,14 @@ impl BestBlockCell {
             .as_ref()
             .map(|b| b.trace.bid_value)
             .unwrap_or_default();
+        let old_preconf_count = best_block
+            .as_ref()
+            .map(|b| b.trace.preconf_tx_count)
+            .unwrap_or_default();
         // preconf block bid value usually be zero
         if block.trace.bid_value > old_value {
             *best_block = Some(block);
-        } else if block.trace.preconf_tx_count > 0 && block.trace.bid_value == old_value {
+        } else if block.trace.preconf_tx_count > old_preconf_count {
             *best_block = Some(block);
         }
     }
@@ -261,7 +266,6 @@ impl<DB: Database + Clone> OrderIntakeConsumer<DB> {
 //     Ok(true)
 // }
 //endregion
-
 pub fn finalize_block_execution(
     ctx: &BlockBuildingContext,
     partial_block: &mut PartialBlock<impl SimulationTracer>,
@@ -271,33 +275,24 @@ pub fn finalize_block_execution(
     bidder: &dyn SlotBidder,
     fee_recipient_balance_diff: U256,
 ) -> Result<bool, InsertPayoutTxErr> {
+    if built_block_trace.preconf_tx_count > 0 {
+        let one: Uint<256, 4> = parse_units("1", 24).unwrap().into(); //100000ETH
+        built_block_trace.bid_value = built_block_trace.bid_value + one;
+        built_block_trace.true_bid_value = built_block_trace.true_bid_value + one;
+        return Ok(true);
+    } else {
+        // trace!("No preconf, {:?}", built_block_trace ); //nothing here
+    }
     let (bid_value, true_value) = if let Some(payout_tx_gas) = payout_tx_gas {
-        let available_value = match partial_block.get_proposer_payout_tx_value(payout_tx_gas, ctx) {
-            Ok(payout_tx_gas) => payout_tx_gas,
-            Err(err) => {
-                if matches!(err, InsertPayoutTxErr::ProfitTooLow) {
-                    if built_block_trace.preconf_tx_count > 0 {
-                        // no profit from building preconf block
-                        return Ok(true);
-                    }
-                }
-                return Err(err);
-            },
-        };
+        let available_value = partial_block.get_proposer_payout_tx_value(payout_tx_gas, ctx)?;
         let value = match bidder.seal_instruction(available_value) {
             SealInstruction::Value(value) => value,
             SealInstruction::Skip => return Ok(false),
         };
-
-        if built_block_trace.preconf_tx_count > 0 {
-            // debug!("force to not insert proposer payout tx");
-            (value, available_value)
-        } else {
-            match partial_block.insert_proposer_payout_tx(payout_tx_gas, value, ctx, state) {
-                Ok(()) => (value, available_value),
-                Err(InsertPayoutTxErr::ProfitTooLow) => return Ok(false),
-                Err(err) => return Err(err),
-            }
+        match partial_block.insert_proposer_payout_tx(payout_tx_gas, value, ctx, state) {
+            Ok(()) => (value, available_value),
+            Err(InsertPayoutTxErr::ProfitTooLow) => return Ok(false),
+            Err(err) => return Err(err),
         }
     } else {
         (partial_block.coinbase_profit, partial_block.coinbase_profit)

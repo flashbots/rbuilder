@@ -77,7 +77,6 @@ async fn main() -> eyre::Result<()> {
         blocklist: Default::default(),
         excess_blob_gas: block_data.excess_blob_gas,
         spec_id: SpecId::LATEST,
-        slot_delta_to_start_block_build_ms: None,
     };
 
     let orders = block_data

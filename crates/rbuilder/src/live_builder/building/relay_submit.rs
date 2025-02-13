@@ -16,10 +16,9 @@ use crate::{
     validation_api_client::{ValidationError, ValidationAPIClient},
 };
 use ahash::HashMap;
-use alloy_primitives::{utils::format_ether, Uint, U256};
+use alloy_primitives::{utils::format_ether, U256};
 use reth::primitives::{ChainSpec, SealedBlock};
 use std::{sync::Arc, time::Duration};
-use alloy_primitives::utils::parse_units;
 use tokio::time::{sleep, Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info_span, trace, warn, Instrument};
@@ -95,6 +94,7 @@ async fn run_submit_to_relays_job(
     };
 
     let mut last_bid_value = U256::from(0);
+    let mut last_preconf_count = i32::from(0);
     let mut last_submit_time = Instant::now();
     'submit: loop {
         if cancel.is_cancelled() {
@@ -107,27 +107,15 @@ async fn run_submit_to_relays_job(
         }
         last_submit_time = Instant::now();
 
-        // let block = if let Some(new_block) = best_bid.take_best_block() {
-        //     if new_block.trace.bid_value > last_bid_value {
-        //         last_bid_value = new_block.trace.bid_value;
-        //         new_block
-        //     } else if new_block.trace.preconf_tx_count > 0 && new_block.trace.bid_value == last_bid_value {
-        //         last_bid_value = new_block.trace.bid_value;
-        //         new_block
-        //     } else {
-        //         continue 'submit;
-        //     }
-        // } else {
-        //     continue 'submit;
-        // };
-
         //region submit large bid value for preconf block to bypass comparison
-        let mut block = if let Some(new_block) = best_bid.take_best_block() {
+        let block = if let Some(new_block) = best_bid.take_best_block() {
             if new_block.trace.bid_value > last_bid_value {
                 last_bid_value = new_block.trace.bid_value;
+                last_preconf_count = new_block.trace.preconf_tx_count;
                 new_block
-            } else if new_block.trace.preconf_tx_count > 0 && new_block.trace.bid_value == last_bid_value {
+            } else if new_block.trace.preconf_tx_count > last_preconf_count {
                 last_bid_value = new_block.trace.bid_value;
+                last_preconf_count = new_block.trace.preconf_tx_count;
                 new_block
             } else {
                 continue 'submit;
@@ -135,11 +123,11 @@ async fn run_submit_to_relays_job(
         } else {
             continue 'submit;
         };
-        if block.trace.preconf_tx_count > 0 {
-            let one: Uint<256, 4> = parse_units("1", 24).unwrap().into(); //100000ETH
-            block.trace.bid_value = block.trace.bid_value + one;
-            block.trace.true_bid_value = block.trace.true_bid_value + one;
-        }
+        // if block.trace.preconf_tx_count > 0 {
+        //     let one: Uint<256, 4> = parse_units("1", 24).unwrap().into(); //100000ETH
+        //     block.trace.bid_value = block.trace.bid_value + one;
+        //     block.trace.true_bid_value = block.trace.true_bid_value + one;
+        // }
         //endregion
 
         res = Some(BuiltBlockInfo {

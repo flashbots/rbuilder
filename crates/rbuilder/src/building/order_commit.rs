@@ -7,7 +7,7 @@ use crate::{
         Bundle, Order, OrderId, RefundConfig, ShareBundle, ShareBundleBody, ShareBundleInner,
         TransactionSignedEcRecoveredWithBlobs,
     },
-    utils::get_percent,
+    utils::{failed_txs_writer, get_percent},
 };
 
 use alloy_primitives::{Address, B256, U256};
@@ -33,6 +33,7 @@ use revm::{
 use crate::building::evm_inspector::{RBuilderEVMInspector, UsedStateTrace};
 use std::collections::HashMap;
 use thiserror::Error;
+use tracing::{error};
 
 #[derive(Clone)]
 pub struct BlockState<'a> {
@@ -543,6 +544,13 @@ impl<'a, 'b, 'c, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, Tracer> 
             match result {
                 Ok(res) => {
                     if !res.receipt.success && !bundle.reverting_tx_hashes.contains(&tx.hash()) {
+                        // write tx
+                        let record = failed_txs_writer::FailedTx {
+                            uuid: bundle.uuid.to_string(),
+                            tx_hash: tx.hash.to_string(),
+                            failed_reason: BundleErr::TransactionReverted(tx.hash()).to_string(),
+                        };
+                        failed_txs_writer::append_json(&record).unwrap();
                         return Ok(Err(BundleErr::TransactionReverted(tx.hash())));
                     }
 
@@ -555,8 +563,15 @@ impl<'a, 'b, 'c, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, Tracer> 
                     insert.receipts.push(res.receipt);
                 }
                 Err(err) => {
+                    // write tx
+                    let record = failed_txs_writer::FailedTx {
+                        uuid: bundle.uuid.to_string(),
+                        tx_hash: tx.hash.to_string(),
+                        failed_reason: err.to_string(),
+                    };
+                    failed_txs_writer::append_json(&record).unwrap();
                     // if optional transaction, skip
-                    if allow_tx_skip && bundle.reverting_tx_hashes.contains(&tx.hash()) {
+                    if allow_tx_skip && bundle.reverting_tx_hashes.contains(&tx.hash()){
                         continue;
                     } else {
                         return Ok(Err(BundleErr::InvalidTransaction(tx.hash(), err)));

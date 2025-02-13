@@ -123,7 +123,6 @@ impl Default for Config {
                         drop_failed_orders: true,
                         coinbase_payment: false,
                         build_duration_deadline_ms: None,
-                        send_value: 0,
                     }),
                 },
                 BuilderConfig {
@@ -135,7 +134,6 @@ impl Default for Config {
                         drop_failed_orders: true,
                         coinbase_payment: false,
                         build_duration_deadline_ms: None,
-                        send_value: 0,
                     }),
                 },
                 BuilderConfig {
@@ -147,7 +145,6 @@ impl Default for Config {
                         drop_failed_orders: true,
                         coinbase_payment: false,
                         build_duration_deadline_ms: None,
-                        send_value: 0,
                     }),
                 },
             ],
