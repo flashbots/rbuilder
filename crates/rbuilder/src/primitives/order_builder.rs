@@ -195,10 +195,10 @@ impl BundleBuilder {
             match revert_behavior {
                 TxRevertBehavior::NotAllowed => {}
                 TxRevertBehavior::AllowedIncluded => {
-                    reverting_tx_hashes.push(tx_with_blobs.tx.hash())
+                    reverting_tx_hashes.push(*tx_with_blobs.tx.hash())
                 }
                 TxRevertBehavior::AllowedExcluded => {
-                    dropping_tx_hashes.push(tx_with_blobs.tx.hash())
+                    dropping_tx_hashes.push(*tx_with_blobs.tx.hash())
                 }
             }
             txs.push(tx_with_blobs);

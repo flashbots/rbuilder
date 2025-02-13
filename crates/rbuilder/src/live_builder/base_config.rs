@@ -8,10 +8,11 @@ use crate::{
     telemetry::{setup_reloadable_tracing_subscriber, LoggerConfig},
     utils::{
         constants::{MINS_PER_HOUR, SECS_PER_MINUTE},
-        http_provider, BoxedProvider, ProviderFactoryReopener, Signer,
+        http_provider, ProviderFactoryReopener, Signer,
     },
 };
 use alloy_primitives::{Address, B256};
+use alloy_provider::RootProvider;
 use eth_sparse_mpt::RootHashThreadPool;
 use eyre::{eyre, Context};
 use jsonrpsee::RpcModule;
@@ -404,7 +405,7 @@ impl BaseConfig {
         Ok(Arc::new(provider))
     }
 
-    pub fn eth_rpc_provider(&self) -> eyre::Result<BoxedProvider> {
+    pub fn eth_rpc_provider(&self) -> eyre::Result<RootProvider> {
         Ok(http_provider(self.backtest_fetch_eth_rpc_url.parse()?))
     }
 

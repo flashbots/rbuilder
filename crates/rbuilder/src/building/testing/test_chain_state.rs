@@ -3,7 +3,7 @@ use crate::roothash::RootHashContext;
 use crate::utils::RootHasherImpl;
 use crate::{building::BlockBuildingContext, utils::Signer};
 use ahash::HashSet;
-use alloy_consensus::{Header, TxEip1559};
+use alloy_consensus::{Block, Header, TxEip1559};
 use alloy_primitives::{
     keccak256, utils::parse_ether, Address, BlockHash, Bytes, TxKind as TransactionKind, B256, B64,
     U256,
@@ -11,12 +11,14 @@ use alloy_primitives::{
 use alloy_rpc_types_beacon::events::{PayloadAttributesData, PayloadAttributesEvent};
 use lazy_static::lazy_static;
 use reth::{
-    primitives::{Account, BlockBody, Bytecode, SealedBlock, TransactionSignedEcRecovered},
+    primitives::{Account, BlockBody, Bytecode},
     providers::ProviderFactory,
     rpc::types::{engine::PayloadAttributes, Withdrawal},
 };
 use reth_chainspec::{ChainSpec, MAINNET};
 use reth_db::{cursor::DbCursorRW, tables, transaction::DbTxMut};
+use reth_primitives::{Recovered, TransactionSigned};
+use reth_primitives_traits::Block as _;
 use reth_provider::test_utils::{create_test_provider_factory, MockNodeTypesWithDB};
 use revm_primitives::SpecId;
 use std::sync::Arc;
@@ -124,8 +126,8 @@ impl TestChainState {
         {
             let provider = provider_factory.provider_rw()?;
             provider.insert_historical_block(
-                SealedBlock::new(genesis_header.clone(), BlockBody::default())
-                    .try_seal_with_senders()
+                Block::new(genesis_header.header().clone(), BlockBody::default())
+                    .try_into_recovered()
                     .unwrap(),
             )?;
 
@@ -145,7 +147,7 @@ impl TestChainState {
                 for address in user_addresses {
                     cursor.upsert(
                         address,
-                        Account {
+                        &Account {
                             nonce: 0,
                             balance: parse_ether("1.0")?,
                             bytecode_hash: None,
@@ -156,7 +158,7 @@ impl TestChainState {
                 for (address, balance) in balances_to_increase {
                     cursor.upsert(
                         address,
-                        Account {
+                        &Account {
                             nonce: 0,
                             balance: U256::from(balance),
                             bytecode_hash: None,
@@ -167,7 +169,7 @@ impl TestChainState {
                 for contract in &contracts {
                     cursor.upsert(
                         contract.address,
-                        Account {
+                        &Account {
                             nonce: 0,
                             balance: U256::ZERO,
                             bytecode_hash: Some(contract.code_hash),
@@ -181,14 +183,17 @@ impl TestChainState {
                     .cursor_write::<tables::Bytecodes>()
                     .unwrap();
                 for contract in &contracts {
-                    cursor.upsert(contract.code_hash, Bytecode::new_raw(contract.code.clone()))?;
+                    cursor.upsert(
+                        contract.code_hash,
+                        &Bytecode::new_raw(contract.code.clone()),
+                    )?;
                 }
             }
             provider.commit()?;
         }
 
         let root_hasher = Arc::from(RootHasherImpl::new(
-            genesis_header.hash(),
+            genesis_header.num_hash(),
             RootHashContext::new(true, false, None),
             provider_factory.clone(),
             provider_factory.clone(),
@@ -219,7 +224,7 @@ impl TestChainState {
     }
 
     // returns signed transaction
-    pub fn sign_tx(&self, args: TxArgs) -> eyre::Result<TransactionSignedEcRecovered> {
+    pub fn sign_tx(&self, args: TxArgs) -> eyre::Result<Recovered<TransactionSigned>> {
         let tx = TxEip1559 {
             chain_id: self.chain_spec.chain.id(),
             nonce: args.nonce,

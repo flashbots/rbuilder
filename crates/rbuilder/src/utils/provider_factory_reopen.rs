@@ -4,6 +4,7 @@ use crate::provider::{RootHasher, StateProviderFactory};
 use crate::roothash::{calculate_state_root, run_trie_prefetcher, RootHashContext, RootHashError};
 use crate::telemetry::{inc_provider_bad_reopen_counter, inc_provider_reopen_counter};
 use alloy_consensus::Header;
+use alloy_eips::BlockNumHash;
 use alloy_primitives::{BlockHash, BlockNumber};
 use eth_sparse_mpt::reth_sparse_trie::SparseTrieSharedCache;
 use parking_lot::{Mutex, RwLock};
@@ -240,14 +241,14 @@ where
         provider.last_block_number()
     }
 
-    fn root_hasher(&self, parent_hash: B256) -> ProviderResult<Box<dyn RootHasher>> {
+    fn root_hasher(&self, parent_num_hash: BlockNumHash) -> ProviderResult<Box<dyn RootHasher>> {
         Ok(if let Some(root_hash_config) = &self.root_hash_config {
             let provider = self
                 .check_consistency_and_reopen_if_needed()
                 .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))
                 .unwrap();
             Box::new(RootHasherImpl::new(
-                parent_hash,
+                parent_num_hash,
                 root_hash_config.clone(),
                 provider.clone(),
                 provider,
@@ -259,7 +260,7 @@ where
 }
 
 pub struct RootHasherImpl<T, HasherType> {
-    parent_hash: B256,
+    parent_num_hash: BlockNumHash,
     provider: T,
     hasher: HasherType,
     sparse_trie_shared_cache: SparseTrieSharedCache,
@@ -268,13 +269,13 @@ pub struct RootHasherImpl<T, HasherType> {
 
 impl<T, HasherType> RootHasherImpl<T, HasherType> {
     pub fn new(
-        parent_hash: B256,
+        parent_num_hash: BlockNumHash,
         config: RootHashContext,
         provider: T,
         hasher: HasherType,
     ) -> Self {
         Self {
-            parent_hash,
+            parent_num_hash,
             provider,
             hasher,
             config,
@@ -299,7 +300,7 @@ where
         cancel: CancellationToken,
     ) {
         run_trie_prefetcher(
-            self.parent_hash,
+            self.parent_num_hash,
             self.sparse_trie_shared_cache.clone(),
             self.provider.clone(),
             simulated_orders,
@@ -311,7 +312,7 @@ where
         calculate_state_root(
             self.provider.clone(),
             &self.hasher,
-            self.parent_hash,
+            self.parent_num_hash,
             outcome,
             self.sparse_trie_shared_cache.clone(),
             &self.config,
@@ -322,7 +323,7 @@ where
 impl<T, HasherType> std::fmt::Debug for RootHasherImpl<T, HasherType> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RootHasherImpl")
-            .field("parent_hash", &self.parent_hash)
+            .field("parent_num_hash", &self.parent_num_hash)
             .finish()
     }
 }

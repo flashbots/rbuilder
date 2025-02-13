@@ -403,7 +403,8 @@ mod tests {
     };
     use alloy_consensus::TxLegacy;
     use alloy_primitives::{Address, TxHash, B256, U256};
-    use reth::primitives::{Transaction, TransactionSigned, TransactionSignedEcRecovered};
+    use reth::primitives::{Transaction, TransactionSigned};
+    use reth_primitives::Recovered;
     use std::sync::Arc;
 
     use crate::building::evm_inspector::{SlotKey, UsedStateTrace};
@@ -434,8 +435,8 @@ mod tests {
             TxHash::from(self.create_u256())
         }
 
-        pub fn create_tx(&mut self) -> TransactionSignedEcRecovered {
-            TransactionSignedEcRecovered::new_unchecked(
+        pub fn create_tx(&mut self) -> Recovered<TransactionSigned> {
+            Recovered::new_unchecked(
                 TransactionSigned::new(
                     Transaction::Legacy(TxLegacy::default()),
                     alloy_primitives::PrimitiveSignature::test_signature(),

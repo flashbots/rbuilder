@@ -111,7 +111,7 @@ where
             // use random coinbase for simulations to make top of the block simulation bypass harder
             let mut ctx = ctx;
             let signer = Signer::random();
-            ctx.block_env.coinbase = signer.address;
+            ctx.evm_env.block_env.coinbase = signer.address;
             ctx.builder_signer = Some(signer);
             ctx
         };
@@ -119,7 +119,7 @@ where
         let provider = self.provider.clone();
         let current_contexts = Arc::clone(&self.current_contexts);
         let block_context: BlockContextId = gen_uid();
-        let span = info_span!("sim_ctx", block = ctx.block_env.number.to::<u64>(), parent = ?ctx.attributes.parent);
+        let span = info_span!("sim_ctx", block = ctx.evm_env.block_env.number.to::<u64>(), parent = ?ctx.attributes.parent);
 
         let handle = tokio::spawn(
             async move {

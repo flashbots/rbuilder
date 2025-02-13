@@ -15,10 +15,8 @@ pub mod provider_head_state;
 pub mod test_utils;
 pub mod tracing;
 
-use alloy_network::Ethereum;
 use alloy_primitives::{Address, Sign, I256, U256};
 use alloy_provider::RootProvider;
-use alloy_transport::BoxTransport;
 
 use crate::primitives::{
     serialize::{RawTx, TxEncoding},
@@ -63,10 +61,8 @@ pub mod u256decimal_serde_helper {
     }
 }
 
-pub type BoxedProvider = RootProvider<BoxTransport, Ethereum>;
-
-pub fn http_provider(url: reqwest::Url) -> BoxedProvider {
-    RootProvider::new_http(url).boxed()
+pub fn http_provider(url: reqwest::Url) -> RootProvider {
+    RootProvider::new_http(url)
 }
 
 #[cfg(test)]

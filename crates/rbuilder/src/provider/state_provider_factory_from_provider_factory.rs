@@ -1,4 +1,5 @@
 use alloy_consensus::Header;
+use alloy_eips::BlockNumHash;
 use alloy_primitives::{BlockHash, BlockNumber};
 use reth_errors::ProviderResult;
 use reth_node_api::{NodePrimitives, NodeTypes, NodeTypesWithDB};
@@ -69,10 +70,10 @@ where
         self.provider.last_block_number()
     }
 
-    fn root_hasher(&self, parent_hash: B256) -> ProviderResult<Box<dyn RootHasher>> {
+    fn root_hasher(&self, parent_num_hash: BlockNumHash) -> ProviderResult<Box<dyn RootHasher>> {
         Ok(if let Some(root_hash_context) = &self.root_hash_context {
             Box::new(RootHasherImpl::new(
-                parent_hash,
+                parent_num_hash,
                 root_hash_context.clone(),
                 self.provider.clone(),
                 self.provider.clone(),
