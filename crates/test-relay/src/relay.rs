@@ -3,7 +3,7 @@ use crate::{
         add_payload_processing_time, add_payload_validation_time, add_winning_bid,
         inc_payload_validation_errors, inc_payloads_received, inc_relay_errors,
     },
-    validation_api_client::ValidationAPIClient,
+    validation_api_client::{ValidationAPIClient, ValidationError},
 };
 use ahash::HashMap;
 use alloy_consensus::proofs::calculate_withdrawals_root;
@@ -29,7 +29,7 @@ use std::{io::Read, net::SocketAddr};
 use time::OffsetDateTime;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 use warp::body;
 use warp::{
     http::status::StatusCode,
@@ -276,10 +276,15 @@ impl RelayState {
                 .await
             {
                 Ok(_) => {}
-                Err(err) => {
-                    warn!(?err, "Failed to validate block");
+                Err(ValidationError::ValidationFailed(payload)) => {
+                    error!(err = ?payload, "Block validation failed");
                     inc_payload_validation_errors(&builder_id);
-                    return RelayError::SimulationFailed(err.to_string()).reply();
+                    let msg = serde_json::to_string(&payload).unwrap_or_default();
+                    return RelayError::SimulationFailed(msg).reply();
+                }
+                Err(err) => {
+                    warn!(?err, "Unable to validate block");
+                    return RelayError::BlockProcessing.reply();
                 }
             }
 
