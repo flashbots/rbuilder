@@ -1,32 +1,16 @@
 use futures_util::Future;
 use futures_util::FutureExt;
 use reth::providers::BlockReaderIdExt;
-use reth::{
-    builder::{components::PayloadServiceBuilder, node::FullNodeTypes, BuilderContext},
-    payload::PayloadBuilderHandle,
-    providers::CanonStateSubscriptions,
-    transaction_pool::TransactionPool,
-};
 use reth::{providers::StateProviderFactory, tasks::TaskSpawner};
 use reth_basic_payload_builder::HeaderForPayload;
 use reth_basic_payload_builder::{BasicPayloadJobGeneratorConfig, PayloadConfig};
-use reth_node_api::NodeTypesWithEngine;
 use reth_node_api::PayloadBuilderAttributes;
-use reth_node_api::PayloadBuilderFor;
 use reth_node_api::PayloadKind;
-use reth_node_api::TxTy;
-use reth_optimism_chainspec::OpChainSpec;
-use reth_optimism_node::OpEngineTypes;
-use reth_optimism_payload_builder::OpBuiltPayload;
-use reth_optimism_payload_builder::OpPayloadBuilderAttributes;
-use reth_optimism_primitives::OpPrimitives;
-use reth_payload_builder::PayloadBuilderService;
 use reth_payload_builder::PayloadJobGenerator;
 use reth_payload_builder::{KeepPayloadJobAlive, PayloadBuilderError, PayloadJob};
 use reth_payload_primitives::BuiltPayload;
 use reth_primitives_traits::HeaderTy;
 use reth_revm::cached::CachedReads;
-use reth_transaction_pool::PoolTransaction;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;

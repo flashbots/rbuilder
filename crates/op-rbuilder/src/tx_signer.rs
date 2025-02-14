@@ -3,8 +3,6 @@ use std::str::FromStr;
 use alloy_consensus::SignableTransaction;
 use alloy_primitives::{Address, PrimitiveSignature as Signature, B256, U256};
 use op_alloy_consensus::OpTypedTransaction;
-use reth_node_api::NodePrimitives;
-use reth_node_api::TxTy;
 use reth_optimism_primitives::OpTransactionSigned;
 use reth_primitives::{public_key_to_address, Recovered};
 use secp256k1::{Message, SecretKey, SECP256K1};

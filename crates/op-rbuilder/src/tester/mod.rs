@@ -21,7 +21,6 @@ use op_alloy_rpc_types_engine::OpPayloadAttributes;
 use reth::rpc::{api::EngineApiClient, types::engine::ForkchoiceState};
 use reth_node_api::{EngineTypes, PayloadTypes};
 use reth_optimism_node::OpEngineTypes;
-use reth_optimism_primitives::OpPrimitives;
 use reth_payload_builder::PayloadId;
 use reth_rpc_layer::{AuthClientLayer, AuthClientService, JwtSecret};
 use serde_json;

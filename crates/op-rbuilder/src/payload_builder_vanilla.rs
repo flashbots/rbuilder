@@ -4,7 +4,6 @@ use reth_node_api::NodePrimitives;
 use reth_optimism_evm::BasicOpReceiptBuilder;
 use reth_optimism_evm::{OpReceiptBuilder, ReceiptBuilderCtx};
 use reth_optimism_payload_builder::OpPayloadPrimitives;
-use reth_optimism_primitives::transaction::signed::OpTransaction;
 use reth_transaction_pool::PoolTransaction;
 use std::{fmt::Display, sync::Arc, time::Instant};
 
@@ -21,7 +20,6 @@ use alloy_consensus::{
 use alloy_eips::merge::BEACON_NONCE;
 use alloy_primitives::{Address, Bytes, TxKind, B256, U256};
 use alloy_rpc_types_engine::PayloadId;
-use futures_util::Future;
 use op_alloy_consensus::{OpDepositReceipt, OpTypedTransaction};
 use reth::builder::{components::PayloadServiceBuilder, node::FullNodeTypes, BuilderContext};
 use reth::payload::PayloadBuilderHandle;
@@ -37,7 +35,6 @@ use reth_evm::{
 };
 use reth_execution_types::ExecutionOutcome;
 use reth_node_api::NodeTypesWithEngine;
-use reth_node_api::PrimitivesTy;
 use reth_node_api::TxTy;
 use reth_optimism_chainspec::OpChainSpec;
 use reth_optimism_consensus::calculate_receipt_root_no_memo_optimism;
@@ -49,6 +46,7 @@ use reth_optimism_payload_builder::{
     payload::{OpBuiltPayload, OpPayloadBuilderAttributes},
 };
 use reth_optimism_primitives::OpPrimitives;
+use reth_optimism_primitives::OpTransactionSigned;
 use reth_payload_builder::PayloadBuilderService;
 use reth_payload_builder_primitives::PayloadBuilderError;
 use reth_payload_primitives::PayloadBuilderAttributes;
@@ -158,14 +156,14 @@ where
 
     fn try_build(
         &self,
-        args: reth_basic_payload_builder::BuildArguments<Self::Attributes, Self::BuiltPayload>,
+        _args: reth_basic_payload_builder::BuildArguments<Self::Attributes, Self::BuiltPayload>,
     ) -> Result<BuildOutcome<Self::BuiltPayload>, PayloadBuilderError> {
         unimplemented!()
     }
 
     fn build_empty_payload(
         &self,
-        config: reth_basic_payload_builder::PayloadConfig<
+        _config: reth_basic_payload_builder::PayloadConfig<
             Self::Attributes,
             reth_basic_payload_builder::HeaderForPayload<Self::BuiltPayload>,
         >,
@@ -221,7 +219,7 @@ impl<EvmConfig, Pool, Client, N, Txs> PayloadBuilder
     for OpPayloadBuilderVanilla<Pool, Client, EvmConfig, N, Txs>
 where
     Client: StateProviderFactory + ChainSpecProvider<ChainSpec: EthChainSpec + OpHardforks> + Clone,
-    N: OpPayloadPrimitives,
+    N: OpPayloadPrimitives<_TX = OpTransactionSigned>,
     Pool: TransactionPool<Transaction: PoolTransaction<Consensus = N::SignedTx>>,
     EvmConfig: ConfigureEvmFor<N>,
     Txs: OpPayloadTransactions<Pool::Transaction>,
@@ -272,7 +270,7 @@ impl<Pool, Client, EvmConfig, N, T> OpPayloadBuilderVanilla<Pool, Client, EvmCon
 where
     Pool: TransactionPool<Transaction: PoolTransaction<Consensus = N::SignedTx>>,
     Client: StateProviderFactory + ChainSpecProvider<ChainSpec: EthChainSpec + OpHardforks>,
-    N: OpPayloadPrimitives,
+    N: OpPayloadPrimitives<_TX = OpTransactionSigned>,
     EvmConfig: ConfigureEvmFor<N>,
 {
     /// Constructs an Optimism payload from the transactions sent via the
@@ -388,7 +386,7 @@ impl<Txs> OpBuilder<'_, Txs> {
         ctx: &OpPayloadBuilderCtx<EvmConfig, ChainSpec, N>,
     ) -> Result<BuildOutcomeKind<ExecutedPayload<N>>, PayloadBuilderError>
     where
-        N: OpPayloadPrimitives,
+        N: OpPayloadPrimitives<_TX = OpTransactionSigned>,
         Txs: PayloadTransactions<Transaction: PoolTransaction<Consensus = N::SignedTx>>,
         EvmConfig: ConfigureEvmFor<N>,
         ChainSpec: EthChainSpec + OpHardforks,
@@ -438,7 +436,7 @@ impl<Txs> OpBuilder<'_, Txs> {
         }
 
         // Add builder tx to the block
-        // ctx.add_builder_tx(&mut info, state, builder_tx_gas, message);
+        ctx.add_builder_tx(&mut info, state, builder_tx_gas, message);
 
         let withdrawals_root = ctx.commit_withdrawals(state)?;
 
@@ -472,7 +470,7 @@ impl<Txs> OpBuilder<'_, Txs> {
     where
         EvmConfig: ConfigureEvmFor<N>,
         ChainSpec: EthChainSpec + OpHardforks,
-        N: OpPayloadPrimitives,
+        N: OpPayloadPrimitives<_TX = OpTransactionSigned>,
         Txs: PayloadTransactions<Transaction: PoolTransaction<Consensus = N::SignedTx>>,
         DB: Database<Error = ProviderError> + AsRef<P>,
         P: StateRootProvider + HashedPostStateProvider + StorageRootProvider,
@@ -805,6 +803,7 @@ where
     }
 
     /// Returns the chain id
+    /// #
     pub fn chain_id(&self) -> u64 {
         self.chain_spec.chain_id()
     }
@@ -852,7 +851,7 @@ impl<EvmConfig, ChainSpec, N> OpPayloadBuilderCtx<EvmConfig, ChainSpec, N>
 where
     EvmConfig: ConfigureEvmFor<N>,
     ChainSpec: EthChainSpec + OpHardforks,
-    N: OpPayloadPrimitives,
+    N: OpPayloadPrimitives<_TX = OpTransactionSigned>,
 {
     /// apply eip-4788 pre block contract call
     pub fn apply_pre_beacon_root_contract_call<DB>(
