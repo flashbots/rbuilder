@@ -4,6 +4,7 @@ mod tests {
         op_rbuilder::OpRbuilderConfig, op_reth::OpRethConfig, IntegrationFramework,
     };
     use crate::tester::{BlockGenerator, EngineApi};
+    use alloy_provider::Identity;
     use alloy_provider::{Provider, ProviderBuilder};
     use alloy_rpc_types_eth::BlockTransactionsKind;
     use op_alloy_network::Optimism;
@@ -55,8 +56,7 @@ mod tests {
         let mut generator = BlockGenerator::new(&engine_api, Some(&validation_api), false, 1);
         generator.init().await?;
 
-        let provider = ProviderBuilder::new()
-            .network::<Optimism>()
+        let provider = ProviderBuilder::<Identity, Identity, Optimism>::default()
             .on_http("http://localhost:1238".parse()?);
 
         for _ in 0..10 {

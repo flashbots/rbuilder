@@ -1,9 +1,6 @@
 use clap::Parser;
 use monitoring::Monitoring;
 use payload_builder_vanilla::CustomOpPayloadBuilder;
-use payload_builder_vanilla::OpPayloadBuilderVanilla;
-use reth::builder::Node;
-use reth::builder::{engine_tree_config::TreeConfig, EngineNodeLauncher};
 use reth::providers::CanonStateSubscriptions;
 use reth_optimism_cli::{chainspec::OpChainSpecParser, Cli};
 use reth_optimism_node::node::OpAddOnsBuilder;
