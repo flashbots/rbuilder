@@ -3,7 +3,7 @@ use crate::{
     primitives::{MempoolTx, Order, TransactionSignedEcRecoveredWithBlobs},
     telemetry::{add_txfetcher_time_to_query, mark_command_received},
 };
-use alloy_primitives::{hex, Bytes, FixedBytes};
+use alloy_primitives::FixedBytes;
 use alloy_provider::{IpcConnect, Provider, ProviderBuilder};
 use futures::StreamExt;
 use std::{pin::pin, time::Instant};
