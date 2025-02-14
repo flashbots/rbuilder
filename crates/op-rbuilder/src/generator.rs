@@ -8,6 +8,7 @@ use reth::{
     transaction_pool::TransactionPool,
 };
 use reth::{providers::StateProviderFactory, tasks::TaskSpawner};
+use reth_basic_payload_builder::HeaderForPayload;
 use reth_basic_payload_builder::{BasicPayloadJobGeneratorConfig, PayloadConfig};
 use reth_node_api::NodeTypesWithEngine;
 use reth_node_api::PayloadBuilderAttributes;
@@ -23,6 +24,7 @@ use reth_payload_builder::PayloadBuilderService;
 use reth_payload_builder::PayloadJobGenerator;
 use reth_payload_builder::{KeepPayloadJobAlive, PayloadBuilderError, PayloadJob};
 use reth_payload_primitives::BuiltPayload;
+use reth_primitives_traits::HeaderTy;
 use reth_revm::cached::CachedReads;
 use reth_transaction_pool::PoolTransaction;
 use std::sync::{Arc, Mutex};
@@ -63,7 +65,7 @@ pub trait PayloadBuilder: Send + Sync + Clone {
     /// A `Result` indicating the build outcome or an error.
     fn try_build(
         &self,
-        args: BuildArguments<Self::Attributes>,
+        args: BuildArguments<Self::Attributes, Self::BuiltPayload>,
         best_payload: BlockCell<Self::BuiltPayload>,
     ) -> Result<(), PayloadBuilderError>;
 }
@@ -114,14 +116,14 @@ impl<Client, Tasks, Builder> PayloadJobGenerator
     for BlockPayloadJobGenerator<Client, Tasks, Builder>
 where
     Client: StateProviderFactory
-        + BlockReaderIdExt<Header = alloy_consensus::Header>
+        + BlockReaderIdExt<Header = HeaderForPayload<Builder::BuiltPayload>>
         + Clone
         + Unpin
         + 'static,
     Tasks: TaskSpawner + Clone + Unpin + 'static,
     Builder: PayloadBuilder + Unpin + 'static,
-    <Builder as PayloadBuilder>::Attributes: Unpin + Clone,
-    <Builder as PayloadBuilder>::BuiltPayload: Unpin + Clone,
+    Builder::Attributes: Unpin + Clone,
+    Builder::BuiltPayload: Unpin + Clone,
 {
     type Job = BlockPayloadJob<Tasks, Builder>;
 
@@ -201,7 +203,7 @@ where
     Builder: PayloadBuilder,
 {
     /// The configuration for how the payload will be created.
-    pub(crate) config: PayloadConfig<Builder::Attributes>,
+    pub(crate) config: PayloadConfig<Builder::Attributes, HeaderForPayload<Builder::BuiltPayload>>,
     /// How to spawn building tasks
     pub(crate) executor: Tasks,
     /// The type responsible for building payloads.
@@ -220,8 +222,8 @@ impl<Tasks, Builder> PayloadJob for BlockPayloadJob<Tasks, Builder>
 where
     Tasks: TaskSpawner + Clone + 'static,
     Builder: PayloadBuilder + Unpin + 'static,
-    <Builder as PayloadBuilder>::Attributes: Unpin + Clone,
-    <Builder as PayloadBuilder>::BuiltPayload: Unpin + Clone,
+    Builder::Attributes: Unpin + Clone,
+    Builder::BuiltPayload: Unpin + Clone,
 {
     type PayloadAttributes = Builder::Attributes;
     type ResolvePayloadFuture = ResolvePayload<Self::BuiltPayload>;
@@ -249,11 +251,11 @@ where
     }
 }
 
-pub struct BuildArguments<Attributes> {
+pub struct BuildArguments<Attributes, Payload: BuiltPayload> {
     /// Previously cached disk reads
     pub cached_reads: CachedReads,
     /// How to configure the payload.
-    pub config: PayloadConfig<Attributes>,
+    pub config: PayloadConfig<Attributes, HeaderTy<Payload::Primitives>>,
     /// A marker that can be used to cancel the job.
     pub cancel: CancellationToken,
 }
@@ -263,8 +265,8 @@ impl<Tasks, Builder> BlockPayloadJob<Tasks, Builder>
 where
     Tasks: TaskSpawner + Clone + 'static,
     Builder: PayloadBuilder + Unpin + 'static,
-    <Builder as PayloadBuilder>::Attributes: Unpin + Clone,
-    <Builder as PayloadBuilder>::BuiltPayload: Unpin + Clone,
+    Builder::Attributes: Unpin + Clone,
+    Builder::BuiltPayload: Unpin + Clone,
 {
     pub fn spawn_build_job(&mut self) {
         let builder = self.builder.clone();
@@ -293,8 +295,8 @@ impl<Tasks, Builder> Future for BlockPayloadJob<Tasks, Builder>
 where
     Tasks: TaskSpawner + Clone + 'static,
     Builder: PayloadBuilder + Unpin + 'static,
-    <Builder as PayloadBuilder>::Attributes: Unpin + Clone,
-    <Builder as PayloadBuilder>::BuiltPayload: Unpin + Clone,
+    Builder::Attributes: Unpin + Clone,
+    Builder::BuiltPayload: Unpin + Clone,
 {
     type Output = Result<(), PayloadBuilderError>;
 
@@ -571,7 +573,7 @@ mod tests {
 
         fn try_build(
             &self,
-            args: BuildArguments<Self::Attributes>,
+            args: BuildArguments<Self::Attributes, Self::BuiltPayload>,
             _best_payload: BlockCell<Self::BuiltPayload>,
         ) -> Result<(), PayloadBuilderError> {
             self.new_event(BlockEvent::Started);

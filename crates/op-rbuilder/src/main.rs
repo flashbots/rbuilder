@@ -6,7 +6,7 @@ use reth::builder::Node;
 use reth::builder::{engine_tree_config::TreeConfig, EngineNodeLauncher};
 use reth::providers::CanonStateSubscriptions;
 use reth_optimism_cli::{chainspec::OpChainSpecParser, Cli};
-use reth_optimism_evm::OpEvmConfig;
+use reth_optimism_node::node::OpAddOnsBuilder;
 use reth_optimism_node::OpNode;
 
 /// CLI argument parsing.
@@ -36,7 +36,12 @@ fn main() {
                         .components()
                         .payload(CustomOpPayloadBuilder::new(builder_args.builder_signer)),
                 )
-                .with_add_ons(op_node.add_ons())
+                .with_add_ons(
+                    OpAddOnsBuilder::default()
+                        .with_sequencer(rollup_args.sequencer_http.clone())
+                        .with_enable_tx_conditional(rollup_args.enable_tx_conditional)
+                        .build(),
+                )
                 .on_node_started(move |ctx| {
                     let new_canonical_blocks = ctx.provider().canonical_state_stream();
                     let builder_signer = builder_args.builder_signer;
