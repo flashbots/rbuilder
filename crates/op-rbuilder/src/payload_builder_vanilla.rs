@@ -100,7 +100,6 @@ where
         + Unpin
         + 'static,
 {
-    // Use your custom payload builder type here
     type PayloadBuilder = OpPayloadBuilderVanilla<Pool, Node::Provider, OpEvmConfig, OpPrimitives>;
 
     async fn build_payload_builder(
@@ -232,7 +231,7 @@ where
 
     fn try_build(
         &self,
-        args: BuildArguments<Self::Attributes>,
+        args: BuildArguments<Self::Attributes, Self::BuiltPayload>,
         best_payload: BlockCell<Self::BuiltPayload>,
     ) -> Result<(), PayloadBuilderError> {
         let pool = self.pool.clone();
@@ -286,7 +285,7 @@ where
     /// a result indicating success with the payload or an error in case of failure.
     fn build_payload<'a, Txs>(
         &self,
-        args: BuildArguments<OpPayloadBuilderAttributes<N::SignedTx>>,
+        args: BuildArguments<OpPayloadBuilderAttributes<N::SignedTx>, OpBuiltPayload<N>>,
         best: impl FnOnce(BestTransactionsAttributes) -> Txs + Send + Sync + 'a,
     ) -> Result<BuildOutcome<OpBuiltPayload<N>>, PayloadBuilderError>
     where
@@ -1138,7 +1137,6 @@ where
         Ok(None)
     }
 
-    /*
     pub fn add_builder_tx<DB>(
         &self,
         info: &mut ExecutionInfo<N>,
@@ -1177,7 +1175,9 @@ where
                 let tx = eip1559;
 
                 // Sign the transaction
-                let builder_tx = signer.sign_tx(tx).map_err(PayloadBuilderError::other)?;
+                let builder_tx = signer
+                    .sign_tx::<N>(tx)
+                    .map_err(PayloadBuilderError::other)?;
 
                 let mut evm = self.evm_config.evm_with_env(&mut *db, self.evm_env.clone());
                 let tx_env = self.evm_config.tx_env(builder_tx.tx(), builder_tx.signer());
@@ -1210,7 +1210,6 @@ where
                 None
             })
     }
-    */
 }
 
 fn estimate_gas_for_builder_tx(input: Vec<u8>) -> u64 {

@@ -3,6 +3,8 @@ use std::str::FromStr;
 use alloy_consensus::SignableTransaction;
 use alloy_primitives::{Address, PrimitiveSignature as Signature, B256, U256};
 use op_alloy_consensus::OpTypedTransaction;
+use reth_node_api::NodePrimitives;
+use reth_node_api::TxTy;
 use reth_optimism_primitives::OpTransactionSigned;
 use reth_primitives::{public_key_to_address, Recovered};
 use secp256k1::{Message, SecretKey, SECP256K1};
@@ -37,10 +39,14 @@ impl Signer {
         Ok(signature)
     }
 
-    pub fn sign_tx(
+    pub fn sign_tx<N: NodePrimitives>(
         &self,
         tx: OpTypedTransaction,
-    ) -> Result<Recovered<OpTransactionSigned>, secp256k1::Error> {
+    ) -> Result<Recovered<N::SignedTx>, secp256k1::Error>
+    where
+        N::SignedTx: TryFrom<OpTransactionSigned>, // Add this bound
+        <N::SignedTx as TryFrom<OpTransactionSigned>>::Error: std::fmt::Debug, // And this one
+    {
         let signature_hash = match &tx {
             OpTypedTransaction::Legacy(tx) => tx.signature_hash(),
             OpTypedTransaction::Eip2930(tx) => tx.signature_hash(),
@@ -50,8 +56,8 @@ impl Signer {
         };
         let signature = self.sign_message(signature_hash)?;
         let signed = OpTransactionSigned::new_unhashed(tx, signature);
-        Ok(Recovered::<OpTransactionSigned>::new_unchecked(
-            signed,
+        Ok(Recovered::new_unchecked(
+            signed.try_into().unwrap(),
             self.address,
         ))
     }
@@ -76,6 +82,7 @@ mod test {
     use alloy_consensus::TxEip1559;
     use alloy_primitives::{address, fixed_bytes, TxKind as TransactionKind};
     use reth::core::primitives::SignedTransaction;
+    use reth_optimism_primitives::OpPrimitives;
     #[test]
     fn test_sign_transaction() {
         let secret =
@@ -95,7 +102,7 @@ mod test {
             ..Default::default()
         });
 
-        let signed_tx = signer.sign_tx(tx).expect("sign tx");
+        let signed_tx = signer.sign_tx::<OpPrimitives>(tx).expect("sign tx");
         assert_eq!(signed_tx.signer(), address);
 
         let signed = signed_tx.into_tx();
