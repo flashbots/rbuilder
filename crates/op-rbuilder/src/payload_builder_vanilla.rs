@@ -1175,9 +1175,7 @@ where
                 let tx = eip1559;
 
                 // Sign the transaction
-                let builder_tx = signer
-                    .sign_tx::<N>(tx)
-                    .map_err(PayloadBuilderError::other)?;
+                let builder_tx = signer.sign_tx(tx).map_err(PayloadBuilderError::other)?;
 
                 let mut evm = self.evm_config.evm_with_env(&mut *db, self.evm_env.clone());
                 let tx_env = self.evm_config.tx_env(builder_tx.tx(), builder_tx.signer());

@@ -335,8 +335,7 @@ impl<'a> BlockGenerator<'a> {
 
             // Create a temporary signer for the deposit
             let signer = Signer::random();
-            let signed_tx =
-                signer.sign_tx::<OpPrimitives>(OpTypedTransaction::Deposit(deposit_tx))?;
+            let signed_tx = signer.sign_tx(OpTypedTransaction::Deposit(deposit_tx))?;
             signed_tx.encoded_2718().into()
         };
 
@@ -448,7 +447,7 @@ impl<'a> BlockGenerator<'a> {
 
         // Create a temporary signer for the deposit
         let signer = Signer::random();
-        let signed_tx = signer.sign_tx::<OpPrimitives>(OpTypedTransaction::Deposit(deposit_tx))?;
+        let signed_tx = signer.sign_tx(OpTypedTransaction::Deposit(deposit_tx))?;
         let signed_tx_rlp = signed_tx.encoded_2718();
 
         self.submit_payload(Some(vec![signed_tx_rlp.into()])).await
