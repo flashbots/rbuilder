@@ -1,4 +1,5 @@
 use crate::validation_api_client::ValidationAPIClient;
+use ahash::HashMap;
 use metrics::spawn_metrics_server;
 use rbuilder::{
     beacon_api_client::Client,
@@ -60,9 +61,19 @@ struct Cli {
     #[clap(
         long,
         help = "CL clients to fetch mev boost slot data",
-        env = "CL_CLIENTS"
+        env = "CL_CLIENTS",
+        value_delimiter = ',',
+        value_parser
     )]
     cl_clients: Vec<String>,
+    #[clap(
+        long,
+        help = "Map builder relay key to name, e.g. abb3..ca6c:staging-01",
+        env = "BUILDER_NAMES",
+        value_delimiter = ',',
+        value_parser
+    )]
+    builder_names: Vec<String>,
 }
 
 #[tokio::main]
@@ -102,11 +113,26 @@ async fn main() -> eyre::Result<()> {
         None
     };
 
+    let builder_names = {
+        let mut map = HashMap::default();
+        for arg in cli.builder_names {
+            let arg: Vec<_> = arg.split(':').collect();
+            if arg.len() != 2 {
+                eyre::bail!(
+                    "builder_names should have the format like this: abb3..ca6c:staging-01"
+                );
+            }
+            map.insert(arg[0].to_string(), arg[1].to_string());
+        }
+        map
+    };
+
     spawn_relay_server(
         cli.listen_address,
         validation_client,
         cl_clients,
         relay,
+        builder_names,
         global_cancellation.clone(),
     )?;
 

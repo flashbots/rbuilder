@@ -94,12 +94,14 @@ pub fn spawn_relay_server(
     validation_client: Option<ValidationAPIClient>,
     cl_clients: Vec<Client>,
     relay: MevBoostRelaySlotInfoProvider,
+    builder_names: HashMap<String, String>,
     cancellation_token: CancellationToken,
 ) -> eyre::Result<()> {
     let relay_state = RelayState {
         validation_client,
         relay_for_slot_data: relay.clone(),
         pending_slot_data: Arc::new(Mutex::new(None)),
+        builder_names,
     };
     spawn_mev_boost_slot_data_generator(
         relay_state.clone(),
@@ -147,6 +149,7 @@ struct RelayState {
     relay_for_slot_data: MevBoostRelaySlotInfoProvider,
     // Slot data for the last payload arguments received from CL nodes and relay
     pending_slot_data: Arc<Mutex<Option<PendingSlotData>>>,
+    builder_names: HashMap<String, String>,
 }
 
 impl RelayState {
@@ -228,7 +231,10 @@ impl RelayState {
             }
         };
 
-        let builder_id = builder_id(submission.bid_trace().builder_pubkey.as_ref());
+        let builder_id = builder_id(
+            submission.bid_trace().builder_pubkey.as_ref(),
+            &self.builder_names,
+        );
 
         inc_payloads_received(&builder_id);
 
@@ -390,7 +396,7 @@ async fn run_winner_sampler(relay_state: RelayState, cancellation_token: Cancell
                 continue 'sampling;
             }
 
-            let builder = builder_id(&best_bid.builder);
+            let builder = builder_id(&best_bid.builder, &relay_state.builder_names);
             add_winning_bid(&builder, best_bid.advantage);
         }
     }
@@ -557,15 +563,21 @@ struct BestBidData {
 }
 
 /// short readable builder id for metrics
-fn builder_id(pubkey: &[u8]) -> String {
+fn builder_id(pubkey: &[u8], builder_names: &HashMap<String, String>) -> String {
     let pubkey_hex = alloy_primitives::hex::encode(pubkey);
     if pubkey_hex.len() < 8 {
         return "incorrect_pubkey".to_string();
     }
 
-    format!(
+    let pubkey_name = format!(
         "{}..{}",
         &pubkey_hex[0..4],
         &pubkey_hex[pubkey_hex.len() - 4..]
-    )
+    );
+
+    if let Some(name) = builder_names.get(&pubkey_name) {
+        name.clone()
+    } else {
+        pubkey_name
+    }
 }
