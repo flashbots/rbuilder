@@ -95,23 +95,11 @@ async fn get_tx_with_blobs(
     tx_hash: FixedBytes<32>,
     provider: &impl alloy_provider::Provider,
 ) -> eyre::Result<Option<TransactionSignedEcRecoveredWithBlobs>> {
-    // TODO: Use https://github.com/alloy-rs/alloy/pull/1168 when it gets cut
-    // in a release
-    let raw_tx: Option<String> = provider
-        .client()
-        .request("eth_getRawTransactionByHash", vec![tx_hash])
-        .await?;
-
-    let raw_tx = if let Some(raw_tx) = raw_tx {
-        raw_tx
-    } else {
+    let Some(response) = provider.get_raw_transaction_by_hash(tx_hash).await? else {
         return Ok(None);
     };
-
-    let raw_tx = hex::decode(raw_tx)?;
-    let raw_tx = Bytes::from(raw_tx);
     Ok(Some(
-        TransactionSignedEcRecoveredWithBlobs::decode_enveloped_with_real_blobs(raw_tx)?,
+        TransactionSignedEcRecoveredWithBlobs::decode_enveloped_with_real_blobs(response)?,
     ))
 }
 
