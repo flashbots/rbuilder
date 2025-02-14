@@ -55,7 +55,7 @@ use revm::{
     db::states::bundle_state::BundleRetention,
     primitives::{BlobExcessGasAndPrice, BlockEnv, SpecId},
 };
-use revm_primitives::InvalidTransaction;
+use revm_primitives::{InvalidTransaction, B256};
 use serde::Deserialize;
 use std::{
     hash::Hash,
@@ -601,13 +601,13 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         Ok(())
     }
 
-    /// Mostly based on reth's (v1.1.1) default_ethereum_payload_builder.
-    #[allow(clippy::too_many_arguments)]
-    pub fn finalize(
-        self,
+    /// returns (requests,withdrawals_root)
+    pub fn process_requests(
+        &self,
         state: &mut BlockState,
         ctx: &BlockBuildingContext,
-    ) -> Result<FinalizeResult, FinalizeError> {
+    ) -> Result<(Option<Requests>, Option<B256>), FinalizeError> {
+        let mut db = state.new_db_ref();
         let requests = if ctx
             .chain_spec
             .is_prague_active_at_timestamp(ctx.attributes.timestamp())
@@ -616,8 +616,6 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
                 EthEvmConfig::new(ctx.chain_spec.clone()),
                 ctx.chain_spec.clone(),
             );
-            let mut db = state.new_db_ref();
-
             let deposit_requests =
                 parse_deposits_from_receipts(&ctx.chain_spec, self.receipts.iter())
                     .map_err(|err| FinalizeError::Other(err.into()))?;
@@ -644,7 +642,6 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         };
 
         let withdrawals_root = {
-            let mut db = state.new_db_ref();
             let withdrawals_root = commit_withdrawals(
                 db.as_mut(),
                 &ctx.chain_spec,
@@ -657,7 +654,17 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             db.as_mut().merge_transitions(BundleRetention::Reverts);
             withdrawals_root
         };
+        Ok((requests, withdrawals_root))
+    }
 
+    /// Mostly based on reth's (v1.2) default_ethereum_payload_builder.
+    #[allow(clippy::too_many_arguments)]
+    pub fn finalize(
+        self,
+        state: &mut BlockState,
+        ctx: &BlockBuildingContext,
+    ) -> Result<FinalizeResult, FinalizeError> {
+        let (requests, withdrawals_root) = self.process_requests(state, ctx)?;
         let (cached_reads, bundle) = state.clone_bundle_and_cache();
         let block_number = ctx.evm_env.block_env.number.to::<u64>();
 
