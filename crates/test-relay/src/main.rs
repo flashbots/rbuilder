@@ -118,9 +118,7 @@ async fn main() -> eyre::Result<()> {
         for arg in cli.builder_names {
             let arg: Vec<_> = arg.split(':').collect();
             if arg.len() != 2 {
-                eyre::bail!(
-                    "builder_names should have the format like this: abb3..ca6c:staging-01"
-                );
+                eyre::bail!("Expected builder name with format \"[<pubkey_id>]:<name>\" (e.g. \"abb3..ca6c:staging-01\"");
             }
             map.insert(arg[0].to_string(), arg[1].to_string());
         }
