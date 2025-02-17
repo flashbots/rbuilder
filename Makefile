@@ -27,7 +27,7 @@ clean: ## Clean up
 build: ## Build (debug version)
 	cargo build --features "$(FEATURES)"
 
-.PHONY: docker-image-rubilder
+.PHONY: docker-image-rbuilder
 docker-image-rubilder: ## Build a rbuilder Docker image
 	docker build --platform linux/amd64 --target rbuilder-runtime --build-arg FEATURES="$(FEATURES)"  . -t rbuilder
 
