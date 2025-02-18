@@ -1091,16 +1091,8 @@ where
                 num_txs_simulated_success += 1;
             } else {
                 num_txs_simulated_fail += 1;
+                continue;
             }
-            self.metrics
-                .payload_num_tx_simulated
-                .record(num_txs_simulated as f64);
-            self.metrics
-                .payload_num_tx_simulated_success
-                .record(num_txs_simulated_success as f64);
-            self.metrics
-                .payload_num_tx_simulated_fail
-                .record(num_txs_simulated_fail as f64);
 
             // commit changes
             evm.db_mut().commit(state);
@@ -1132,6 +1124,15 @@ where
         self.metrics
             .payload_num_tx_considered
             .record(num_txs_considered as f64);
+        self.metrics
+            .payload_num_tx_simulated
+            .record(num_txs_simulated as f64);
+        self.metrics
+            .payload_num_tx_simulated_success
+            .record(num_txs_simulated_success as f64);
+        self.metrics
+            .payload_num_tx_simulated_fail
+            .record(num_txs_simulated_fail as f64);
 
         Ok(None)
     }
