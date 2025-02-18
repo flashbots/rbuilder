@@ -9,12 +9,13 @@ use reth_optimism_node::OpNode;
 /// CLI argument parsing.
 pub mod args;
 
+mod flashblocks_primitives;
 pub mod generator;
 #[cfg(test)]
 mod integration;
 mod metrics;
 mod monitoring;
-// pub mod payload_builder;
+pub mod payload_builder;
 mod payload_builder_vanilla;
 #[cfg(test)]
 mod tester;
