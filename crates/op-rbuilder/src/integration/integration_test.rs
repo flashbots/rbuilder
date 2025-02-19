@@ -53,7 +53,7 @@ mod tests {
         let engine_api = EngineApi::new("http://localhost:1234").unwrap();
         let validation_api = EngineApi::new("http://localhost:1236").unwrap();
 
-        let mut generator = BlockGenerator::new(&engine_api, Some(&validation_api), false, 1);
+        let mut generator = BlockGenerator::new(&engine_api, Some(&validation_api), false, 1, None);
         generator.init().await?;
 
         let provider = ProviderBuilder::<Identity, Identity, Optimism>::default()

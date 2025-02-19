@@ -83,6 +83,8 @@ tokio-tungstenite = "0.26.1"
 rand = "0.8.5"
 alloy-serde = "0.7"
 
+rollup-boost = { git = "http://github.com/flashbots/rollup-boost", rev = "0b089a37b8525d328ab93962bb8121811ee3ca1f" }
+
 [target.'cfg(unix)'.dependencies]
 tikv-jemallocator = { version = "0.6", optional = true }
 
@@ -95,13 +97,13 @@ default = ["jemalloc"]
 jemalloc = [
 	"dep:tikv-jemallocator",
 	"reth-cli-util/jemalloc",
-	"reth-optimism-cli/jemalloc"
+	"reth-optimism-cli/jemalloc",
 ]
 jemalloc-prof = [
 	"jemalloc",
 	"tikv-jemallocator?/profiling",
 	"reth/jemalloc-prof",
-	"reth-cli-util/jemalloc-prof"
+	"reth-cli-util/jemalloc-prof",
 ]
 
 min-error-logs = ["tracing/release_max_level_error"]
@@ -110,10 +112,7 @@ min-info-logs = ["tracing/release_max_level_info"]
 min-debug-logs = ["tracing/release_max_level_debug"]
 min-trace-logs = ["tracing/release_max_level_trace"]
 
-optimism = [
-	"reth-optimism-node/optimism",
-	"reth-optimism-cli/optimism"
-]
+optimism = ["reth-optimism-node/optimism", "reth-optimism-cli/optimism"]
 
 integration = []
 

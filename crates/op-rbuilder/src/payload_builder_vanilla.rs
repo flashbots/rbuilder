@@ -1036,6 +1036,13 @@ where
         while let Some(tx) = best_txs.next(()) {
             let tx = tx.into_consensus();
             num_txs_considered += 1;
+
+            println!(
+                "gas limit: {:?}, cummulative gas used: {:?}",
+                tx.gas_limit(),
+                info.cumulative_gas_used
+            );
+
             // ensure we still have capacity for this transaction
             if info.cumulative_gas_used + tx.gas_limit() > block_gas_limit {
                 // we can't fit this transaction into the block, so we need to mark it as

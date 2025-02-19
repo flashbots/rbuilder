@@ -23,6 +23,8 @@ use reth_node_api::{EngineTypes, PayloadTypes};
 use reth_optimism_node::OpEngineTypes;
 use reth_payload_builder::PayloadId;
 use reth_rpc_layer::{AuthClientLayer, AuthClientService, JwtSecret};
+use rollup_boost::flashblocks::FlashblocksService;
+use rollup_boost::Flashblocks;
 use serde_json;
 use serde_json::Value;
 use std::str::FromStr;
@@ -193,6 +195,10 @@ pub struct BlockGenerator<'a> {
     latest_hash: B256,
     no_tx_pool: bool,
     block_time_secs: u64,
+
+    // flashblocks service
+    flashblocks_endpoint: Option<String>,
+    flashblocks_service: Option<FlashblocksService>,
 }
 
 impl<'a> BlockGenerator<'a> {
@@ -201,6 +207,7 @@ impl<'a> BlockGenerator<'a> {
         validation_api: Option<&'a EngineApi>,
         no_tx_pool: bool,
         block_time_secs: u64,
+        flashblocks_endpoint: Option<String>,
     ) -> Self {
         Self {
             engine_api,
@@ -208,6 +215,8 @@ impl<'a> BlockGenerator<'a> {
             latest_hash: B256::ZERO, // temporary value
             no_tx_pool,
             block_time_secs,
+            flashblocks_endpoint,
+            flashblocks_service: None,
         }
     }
 
@@ -219,6 +228,17 @@ impl<'a> BlockGenerator<'a> {
         // Sync validation node if it exists
         if let Some(validation_api) = self.validation_api {
             self.sync_validation_node(validation_api).await?;
+        }
+
+        // Initialize flashblocks service
+        if let Some(flashblocks_endpoint) = &self.flashblocks_endpoint {
+            println!(
+                "Initializing flashblocks service at {}",
+                flashblocks_endpoint
+            );
+
+            self.flashblocks_service =
+                Some(Flashblocks::run(flashblocks_endpoint.to_string()).unwrap());
         }
 
         Ok(())
@@ -362,7 +382,7 @@ impl<'a> BlockGenerator<'a> {
                     },
                     transactions: Some(transactions),
                     no_tx_pool: Some(self.no_tx_pool),
-                    gas_limit: Some(10000000000),
+                    gas_limit: Some(10000000),
                     eip_1559_params: None,
                 }),
             )
@@ -374,11 +394,22 @@ impl<'a> BlockGenerator<'a> {
 
         let payload_id = result.payload_id.unwrap();
 
+        // update the payload id in the flashblocks service if present
+        if let Some(flashblocks_service) = &self.flashblocks_service {
+            flashblocks_service.set_current_payload_id(payload_id).await;
+        }
+
         if !self.no_tx_pool {
             tokio::time::sleep(tokio::time::Duration::from_secs(self.block_time_secs)).await;
         }
 
-        let payload = self.engine_api.get_payload_v3(payload_id).await?;
+        let payload = if let Some(flashblocks_service) = &self.flashblocks_service {
+            flashblocks_service.get_best_payload().await?.unwrap()
+        } else {
+            self.engine_api.get_payload_v3(payload_id).await?
+        };
+
+        println!("Payload: {:?}", payload);
 
         // Validate with builder node
         let validation_status = self
@@ -474,6 +505,8 @@ pub async fn run_system(
         validation_api.as_ref(),
         no_tx_pool,
         block_time_secs,
+        // Some("ws://localhost:1111".to_string()),
+        None,
     );
 
     generator.init().await?;
