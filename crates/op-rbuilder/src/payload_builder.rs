@@ -74,16 +74,17 @@ use tokio::sync::mpsc;
 use tokio_tungstenite::accept_async;
 use tokio_tungstenite::WebSocketStream;
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 #[non_exhaustive]
 pub struct CustomOpPayloadBuilder {
     #[allow(dead_code)]
     builder_signer: Option<Signer>,
+    flashblocks_ws_url: String,
 }
 
 impl CustomOpPayloadBuilder {
-    pub fn new(builder_signer: Option<Signer>) -> Self {
-        Self { builder_signer }
+    pub fn new(builder_signer: Option<Signer>, flashblocks_ws_url: String) -> Self {
+        Self { builder_signer, flashblocks_ws_url }
     }
 }
 
@@ -107,11 +108,13 @@ where
         ctx: &BuilderContext<Node>,
         pool: Pool,
     ) -> eyre::Result<Self::PayloadBuilder> {
+        let flashblocks_ws_url = self.flashblocks_ws_url.clone();
         Ok(OpPayloadBuilder::new(
             OpEvmConfig::new(ctx.chain_spec()),
             pool,
             ctx.provider().clone(),
             Arc::new(BasicOpReceiptBuilder::default()),
+            flashblocks_ws_url,
         ))
     }
 
@@ -194,6 +197,7 @@ impl<Pool, Client, EvmConfig, N: NodePrimitives> OpPayloadBuilder<Pool, Client, 
         pool: Pool,
         client: Client,
         receipt_builder: Arc<dyn OpReceiptBuilder<N::SignedTx, Receipt = N::Receipt>>,
+        flashblocks_ws_url: String,
     ) -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
         let subscribers = Arc::new(Mutex::new(Vec::new()));
@@ -201,7 +205,7 @@ impl<Pool, Client, EvmConfig, N: NodePrimitives> OpPayloadBuilder<Pool, Client, 
         Self::publish_task(rx, subscribers.clone());
 
         tokio::spawn(async move {
-            Self::start_ws(subscribers, "127.0.0.1:1111").await;
+            Self::start_ws(subscribers, &flashblocks_ws_url).await;
         });
 
         Self {
