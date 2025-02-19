@@ -1,13 +1,13 @@
 use futures_util::Future;
 use futures_util::FutureExt;
 use reth::providers::BlockReaderIdExt;
+use reth::providers::StateProviderFactory;
 use reth::{
     builder::{components::PayloadServiceBuilder, node::FullNodeTypes, BuilderContext},
     payload::PayloadBuilderHandle,
     providers::CanonStateSubscriptions,
     transaction_pool::TransactionPool,
 };
-use reth::{providers::StateProviderFactory, tasks::TaskSpawner};
 use reth_basic_payload_builder::{BasicPayloadJobGeneratorConfig, PayloadConfig};
 use reth_node_api::NodeTypesWithEngine;
 use reth_node_api::PayloadBuilderAttributes;
@@ -78,7 +78,6 @@ where
         let payload_generator = BlockPayloadJobGenerator::with_builder(
             ctx.provider().clone(),
             pool,
-            ctx.task_executor().clone(),
             payload_job_config,
             self.builder,
             false,
@@ -131,13 +130,11 @@ pub trait PayloadBuilder<Pool, Client>: Send + Sync + Clone {
 
 /// The generator type that creates new jobs that builds empty blocks.
 #[derive(Debug)]
-pub struct BlockPayloadJobGenerator<Client, Pool, Tasks, Builder> {
+pub struct BlockPayloadJobGenerator<Client, Pool, Builder> {
     /// The client that can interact with the chain.
     client: Client,
     /// txpool
     pool: Pool,
-    /// How to spawn building tasks
-    executor: Tasks,
     /// The configuration for the job generator.
     _config: BasicPayloadJobGeneratorConfig,
     /// The type responsible for building payloads.
@@ -152,13 +149,12 @@ pub struct BlockPayloadJobGenerator<Client, Pool, Tasks, Builder> {
 
 // === impl EmptyBlockPayloadJobGenerator ===
 
-impl<Client, Pool, Tasks, Builder> BlockPayloadJobGenerator<Client, Pool, Tasks, Builder> {
+impl<Client, Pool, Builder> BlockPayloadJobGenerator<Client, Pool, Builder> {
     /// Creates a new [EmptyBlockPayloadJobGenerator] with the given config and custom
     /// [PayloadBuilder]
     pub fn with_builder(
         client: Client,
         pool: Pool,
-        executor: Tasks,
         config: BasicPayloadJobGeneratorConfig,
         builder: Builder,
         ensure_only_one_payload: bool,
@@ -166,7 +162,6 @@ impl<Client, Pool, Tasks, Builder> BlockPayloadJobGenerator<Client, Pool, Tasks,
         Self {
             client,
             pool,
-            executor,
             _config: config,
             builder,
             ensure_only_one_payload,
@@ -175,8 +170,7 @@ impl<Client, Pool, Tasks, Builder> BlockPayloadJobGenerator<Client, Pool, Tasks,
     }
 }
 
-impl<Client, Pool, Tasks, Builder> PayloadJobGenerator
-    for BlockPayloadJobGenerator<Client, Pool, Tasks, Builder>
+impl<Client, Pool, Builder> PayloadJobGenerator for BlockPayloadJobGenerator<Client, Pool, Builder>
 where
     Client: StateProviderFactory
         + BlockReaderIdExt<Header = alloy_consensus::Header>
@@ -184,12 +178,11 @@ where
         + Unpin
         + 'static,
     Pool: TransactionPool + Unpin + 'static,
-    Tasks: TaskSpawner + Clone + Unpin + 'static,
     Builder: PayloadBuilder<Pool, Client> + Unpin + 'static,
     <Builder as PayloadBuilder<Pool, Client>>::Attributes: Unpin + Clone,
     <Builder as PayloadBuilder<Pool, Client>>::BuiltPayload: Unpin + Clone,
 {
-    type Job = BlockPayloadJob<Client, Pool, Tasks, Builder>;
+    type Job = BlockPayloadJob<Client, Pool, Builder>;
 
     /// This is invoked when the node receives payload attributes from the beacon node via
     /// `engine_forkchoiceUpdatedV1`
@@ -243,7 +236,6 @@ where
         let mut job = BlockPayloadJob {
             client: self.client.clone(),
             pool: self.pool.clone(),
-            executor: self.executor.clone(),
             builder: self.builder.clone(),
             config,
             cell: BlockCell::new(),
@@ -264,7 +256,7 @@ use std::{
 };
 
 /// A [PayloadJob] that builds empty blocks.
-pub struct BlockPayloadJob<Client, Pool, Tasks, Builder>
+pub struct BlockPayloadJob<Client, Pool, Builder>
 where
     Builder: PayloadBuilder<Pool, Client>,
 {
@@ -274,8 +266,6 @@ where
     pub(crate) client: Client,
     /// The transaction pool.
     pub(crate) pool: Pool,
-    /// How to spawn building tasks
-    pub(crate) executor: Tasks,
     /// The type responsible for building payloads.
     ///
     /// See [PayloadBuilder]
@@ -288,11 +278,10 @@ where
     pub(crate) build_complete: Option<oneshot::Receiver<Result<(), PayloadBuilderError>>>,
 }
 
-impl<Client, Pool, Tasks, Builder> PayloadJob for BlockPayloadJob<Client, Pool, Tasks, Builder>
+impl<Client, Pool, Builder> PayloadJob for BlockPayloadJob<Client, Pool, Builder>
 where
     Client: StateProviderFactory + Clone + Unpin + 'static,
     Pool: TransactionPool + Unpin + 'static,
-    Tasks: TaskSpawner + Clone + 'static,
     Builder: PayloadBuilder<Pool, Client> + Unpin + 'static,
     <Builder as PayloadBuilder<Pool, Client>>::Attributes: Unpin + Clone,
     <Builder as PayloadBuilder<Pool, Client>>::BuiltPayload: Unpin + Clone,
@@ -339,11 +328,10 @@ pub struct BuildArguments<Pool, Client, Attributes> {
 }
 
 /// A [PayloadJob] is a future that's being polled by the `PayloadBuilderService`
-impl<Client, Pool, Tasks, Builder> BlockPayloadJob<Client, Pool, Tasks, Builder>
+impl<Client, Pool, Builder> BlockPayloadJob<Client, Pool, Builder>
 where
     Client: StateProviderFactory + Clone + Unpin + 'static,
     Pool: TransactionPool + Unpin + 'static,
-    Tasks: TaskSpawner + Clone + 'static,
     Builder: PayloadBuilder<Pool, Client> + Unpin + 'static,
     <Builder as PayloadBuilder<Pool, Client>>::Attributes: Unpin + Clone,
     <Builder as PayloadBuilder<Pool, Client>>::BuiltPayload: Unpin + Clone,
@@ -359,27 +347,28 @@ where
         let (tx, rx) = oneshot::channel();
         self.build_complete = Some(rx);
 
-        self.executor.spawn_blocking(Box::pin(async move {
-            let args = BuildArguments {
-                client,
-                pool,
-                cached_reads: Default::default(),
-                config: payload_config,
-                cancel,
-            };
+        tokio::task::spawn_blocking(move || {
+            tokio::runtime::Handle::current().block_on(async move {
+                let args = BuildArguments {
+                    client,
+                    pool,
+                    cached_reads: Default::default(),
+                    config: payload_config,
+                    cancel,
+                };
 
-            let result = builder.try_build(args, cell);
-            let _ = tx.send(result);
-        }));
+                let result = builder.try_build(args, cell);
+                let _ = tx.send(result);
+            })
+        });
     }
 }
 
 /// A [PayloadJob] is a a future that's being polled by the `PayloadBuilderService`
-impl<Client, Pool, Tasks, Builder> Future for BlockPayloadJob<Client, Pool, Tasks, Builder>
+impl<Client, Pool, Builder> Future for BlockPayloadJob<Client, Pool, Builder>
 where
     Client: StateProviderFactory + Clone + Unpin + 'static,
     Pool: TransactionPool + Unpin + 'static,
-    Tasks: TaskSpawner + Clone + 'static,
     Builder: PayloadBuilder<Pool, Client> + Unpin + 'static,
     <Builder as PayloadBuilder<Pool, Client>>::Attributes: Unpin + Clone,
     <Builder as PayloadBuilder<Pool, Client>>::BuiltPayload: Unpin + Clone,
@@ -718,7 +707,6 @@ mod tests {
         let generator = BlockPayloadJobGenerator::with_builder(
             client.clone(),
             pool,
-            executor,
             config,
             builder.clone(),
             false,
