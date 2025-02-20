@@ -142,7 +142,7 @@ async fn handle_eth_send_bundle(
     match bundle_res {
         RawBundleDecodeResult::NewBundle(bundle) => {
             if bundle.max_timestamp == Some(0) {
-                let order = OrderId::Bundle(bundle.uuid.clone());
+                let order = OrderId::Bundle(bundle.uuid);
                 warn!(
                     ?order,
                     min_timestamp = bundle.min_timestamp,

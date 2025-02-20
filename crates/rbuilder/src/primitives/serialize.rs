@@ -115,10 +115,12 @@ pub struct RawBundle {
     pub signing_address: Option<Address>,
     /// minTimestamp (Optional) `Number`, the minimum timestamp for which this bundle is valid, in
     /// seconds since the unix epoch
+    /// A value of 0 means it is unset.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub min_timestamp: Option<u64>,
     /// maxTimestamp (Optional) `Number`, the maximum timestamp for which this bundle is valid, in
     /// seconds since the unix epoch
+    /// A value of 0 means it is unset.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_timestamp: Option<u64>,
     /// See [`BundleReplacementData`] sequence_number
@@ -228,8 +230,9 @@ impl RawBundle {
             hash: Default::default(),
             uuid: Default::default(),
             replacement_data,
-            min_timestamp: self.min_timestamp,
-            max_timestamp: self.max_timestamp,
+            // we assume that 0 timestamp is the same as timestamp not set
+            min_timestamp: self.min_timestamp.filter(|t| *t != 0),
+            max_timestamp: self.max_timestamp.filter(|t| *t != 0),
             signer: self.signing_address,
             metadata: Default::default(),
             dropping_tx_hashes: self.dropping_tx_hashes,
