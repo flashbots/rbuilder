@@ -1,3 +1,5 @@
+use std::hash::{Hash, Hasher};
+
 use alloy_primitives::{keccak256, Bytes};
 use alloy_rlp::{length_of_length, BufMut, Encodable, Header, EMPTY_STRING_CODE};
 use alloy_trie::{
@@ -5,13 +7,19 @@ use alloy_trie::{
     Nibbles,
 };
 use reth_trie::RlpNode;
-use rustc_hash::FxBuildHasher;
+use rustc_hash::{FxBuildHasher, FxHasher};
 
 pub type HashMap<K, V> = std::collections::HashMap<K, V, FxBuildHasher>;
 pub type HashSet<K> = std::collections::HashSet<K, FxBuildHasher>;
 
 pub fn hash_map_with_capacity<K, V>(capacity: usize) -> HashMap<K, V> {
     HashMap::with_capacity_and_hasher(capacity, FxBuildHasher)
+}
+
+pub fn fast_hash<H: Hash>(value: &H) -> u64 {
+    let mut hasher = FxHasher::default();
+    value.hash(&mut hasher);
+    hasher.finish()
 }
 
 pub fn rlp_pointer(rlp_encode: Bytes) -> Bytes {
