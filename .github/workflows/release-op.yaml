@@ -1,4 +1,4 @@
-name: Release
+name: Release Optimism
 
 on:
   push:
@@ -159,7 +159,10 @@ jobs:
     permissions:
       contents: read
       packages: write
-
+    strategy:
+      matrix:
+        features:
+          - ${{ github.event.inputs.features }}${{ github.event.inputs.features && ',' }}optimism
     steps:
       - name: checkout sources
         uses: actions/checkout@v4
@@ -198,10 +201,10 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           context: .
-          file: Dockerfile.op-rbuilder
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           build-args: |
             FEATURES=${{ matrix.features }}
+            RBUILDER_BIN=op-rbuilder
