@@ -115,7 +115,6 @@ pub struct RawBundle {
     pub signing_address: Option<Address>,
     /// minTimestamp (Optional) `Number`, the minimum timestamp for which this bundle is valid, in
     /// seconds since the unix epoch
-    /// A value of 0 means it is unset.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub min_timestamp: Option<u64>,
     /// maxTimestamp (Optional) `Number`, the maximum timestamp for which this bundle is valid, in
@@ -231,7 +230,7 @@ impl RawBundle {
             uuid: Default::default(),
             replacement_data,
             // we assume that 0 timestamp is the same as timestamp not set
-            min_timestamp: self.min_timestamp.filter(|t| *t != 0),
+            min_timestamp: self.min_timestamp,
             max_timestamp: self.max_timestamp.filter(|t| *t != 0),
             signer: self.signing_address,
             metadata: Default::default(),
@@ -1023,7 +1022,7 @@ mod tests {
         );
         assert_eq!(bundle.uuid, uuid!("3255ceb4-fdc5-592d-a501-2183727ca3df"));
 
-        assert_eq!(bundle.min_timestamp, None);
+        assert_eq!(bundle.min_timestamp, Some(0));
         assert_eq!(bundle.max_timestamp, None);
     }
 
