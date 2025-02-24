@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - "v*"
+    branches:
+      - jfog
   workflow_dispatch:
     inputs:
       draft-release:
@@ -29,6 +31,10 @@ on:
           - 'redact-sensitive'
         required: false
         type: choice
+
+env:
+  DOCKER_REGISTRY: nethermind.jfrog.io
+  JFROG_REPOSITORY: modular-oci-local-dev
 
 jobs:
   extract-version:
@@ -191,12 +197,16 @@ jobs:
             # Push latest tag for full version only, not for prerelease versions (i.e. not for v1.2.3-rc1)
             type=raw,value=latest,enable=${{ !contains(env.VERSION, '-') }}
 
-      - name: docker login
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      # - name: docker login
+      #   uses: docker/login-action@v3
+      #   with:
+      #     registry: ghcr.io
+      #     username: ${{ github.actor }}
+      #     password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to JFrog Artifactory
+        run: docker login ${{ env.DOCKER_REGISTRY }} -u ${{ secrets.ARTIFACTORY_MODULAR_USERNAME }} -p ${{ secrets.ARTIFACTORY_MODULAR_TOKEN_DEVELOPER }}
+
 
       - name: docker build and push
         uses: docker/build-push-action@v5
