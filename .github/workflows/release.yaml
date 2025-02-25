@@ -5,7 +5,7 @@ on:
     tags:
       - "v*"
     branches:
-      - jfog
+      - jfrog
   workflow_dispatch:
     inputs:
       draft-release:
