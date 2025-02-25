@@ -151,19 +151,23 @@ impl Bundle {
         can_execute_with_block_base_fee(self.list_txs(), block_base_fee)
     }
 
+    fn is_tx_optional(&self, hash: &B256) -> bool {
+        self.reverting_tx_hashes.contains(hash) || self.dropping_tx_hashes.contains(hash)
+    }
+
     /// BundledTxInfo for all the child txs.
     pub fn nonces(&self) -> Vec<Nonce> {
         let txs = self
             .txs
             .iter()
-            .map(|tx| (tx, self.reverting_tx_hashes.contains(&tx.hash())));
+            .map(|tx| (tx, self.is_tx_optional(&tx.hash())));
         bundle_nonces(txs)
     }
 
     fn list_txs(&self) -> Vec<(&TransactionSignedEcRecoveredWithBlobs, bool)> {
         self.txs
             .iter()
-            .map(|tx| (tx, self.reverting_tx_hashes.contains(&tx.hash())))
+            .map(|tx| (tx, self.is_tx_optional(&tx.hash())))
             .collect()
     }
 
