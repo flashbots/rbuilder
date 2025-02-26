@@ -7,3 +7,6 @@ live_builders = ["mgp-ordering"]
 enabled_relays = ["playground"]
 log_level = "info,rbuilder=debug"
 coinbase_secret_key = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+
+root_hash_use_sparse_trie=true
+root_hash_compare_sparse_trie=false
