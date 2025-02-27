@@ -42,7 +42,7 @@ fn open_log_file(path: PathBuf) -> io::Result<File> {
 }
 
 impl Playground {
-    pub fn new(cfg_path: &PathBuf) -> Result<Self, PlaygroundError> {
+    pub fn new(name: &str, cfg_path: &PathBuf) -> Result<Self, PlaygroundError> {
         // load the binary from the cargo_dir
         let mut bin_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         bin_path.push("../../target/debug/rbuilder");
@@ -51,12 +51,15 @@ impl Playground {
 
         let format = format_description::parse("[year]_[month]_[day]_[hour]_[minute]_[second]")
             .map_err(|_| PlaygroundError::SetupError)?;
-        let name = dt
+        let format_str = dt
             .format(&format)
             .map_err(|_| PlaygroundError::SetupError)?;
 
         let mut log_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        log_path.push(format!("../../integration_logs/{}.log", name));
+        log_path.push(format!(
+            "../../integration_logs/{}_{}.log",
+            format_str, name,
+        ));
 
         let log = open_log_file(log_path.clone()).map_err(|_| PlaygroundError::SetupError)?;
         let stdout = log.try_clone().map_err(|_| PlaygroundError::SetupError)?;

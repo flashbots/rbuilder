@@ -25,7 +25,7 @@ use std::ops::DerefMut;
 use std::{path::PathBuf, sync::Arc};
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
-use tracing::debug;
+use tracing::{debug, error};
 
 /// This struct is used as a workaround for https://github.com/paradigmxyz/reth/issues/7836
 /// it shares one instance of the provider factory that is recreated when inconsistency is detected.
@@ -247,8 +247,15 @@ where
                 .check_consistency_and_reopen_if_needed()
                 .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))
                 .unwrap();
+            let parent_state_root = provider
+                .header_by_hash_or_number(parent_num_hash.hash.into())?
+                .map(|h| h.state_root);
+            if parent_state_root.is_none() {
+                error!("Parent hash is not found (for root_hasher)");
+            }
             Box::new(RootHasherImpl::new(
                 parent_num_hash,
+                parent_state_root,
                 root_hash_config.clone(),
                 provider.clone(),
                 provider,
@@ -270,16 +277,22 @@ pub struct RootHasherImpl<T, HasherType> {
 impl<T, HasherType> RootHasherImpl<T, HasherType> {
     pub fn new(
         parent_num_hash: BlockNumHash,
+        parent_state_root: Option<B256>,
         config: RootHashContext,
         provider: T,
         hasher: HasherType,
     ) -> Self {
+        let sparse_trie_shared_cache = if let Some(parent_state_root) = parent_state_root {
+            SparseTrieSharedCache::new_with_parent_hash(parent_state_root)
+        } else {
+            SparseTrieSharedCache::default()
+        };
         Self {
             parent_num_hash,
             provider,
             hasher,
             config,
-            sparse_trie_shared_cache: Default::default(),
+            sparse_trie_shared_cache,
         }
     }
 }

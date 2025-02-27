@@ -6,6 +6,7 @@ use crate::{
     utils::HashMap,
 };
 use alloy_primitives::Bytes;
+use alloy_primitives::B256;
 use alloy_trie::Nibbles;
 
 /// SparseTrieSharedCache is a storage for fetched parts of the ethereum tries
@@ -13,6 +14,16 @@ use alloy_trie::Nibbles;
 #[derive(Debug, Clone, Default)]
 pub struct SparseTrieSharedCache {
     internal: Arc<RwLock<RethSparseTrieShareCacheInternal>>,
+}
+
+impl SparseTrieSharedCache {
+    pub fn new_with_parent_hash(parent_root_hash: B256) -> Self {
+        let mut internal = RethSparseTrieShareCacheInternal::default();
+        internal.account_trie.expected_root_hash = parent_root_hash;
+        Self {
+            internal: Arc::new(RwLock::new(internal)),
+        }
+    }
 }
 
 pub struct StorageTrieInfo {}

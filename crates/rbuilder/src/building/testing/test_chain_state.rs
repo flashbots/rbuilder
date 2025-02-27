@@ -194,6 +194,7 @@ impl TestChainState {
 
         let root_hasher = Arc::from(RootHasherImpl::new(
             genesis_header.num_hash(),
+            None,
             RootHashContext::new(true, false, None),
             provider_factory.clone(),
             provider_factory.clone(),

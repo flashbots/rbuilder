@@ -50,7 +50,7 @@ mod tests {
             .join("../../crates/rbuilder/src/integration/test_data/config-playground.toml");
 
         // This test sends a transaction ONLY to the builder and waits for the block to be built with it.
-        let srv = Playground::new(&config_path).unwrap();
+        let srv = Playground::new("test_simple_example", &config_path).unwrap();
         srv.wait_for_next_slot().await.unwrap();
 
         // Send transaction using the helper function
@@ -117,7 +117,8 @@ mod tests {
         );
         let blocklist_server = BlocklistHttpServer::new(1934, Some(BLOCKLIST_LEN_2.to_string()));
         tokio::time::sleep(Duration::from_millis(100)).await; //puaj
-        let mut srv = Playground::new(&config_path).unwrap();
+        let mut srv =
+            Playground::new("test_builder_closes_on_old_blocklist", &config_path).unwrap();
         srv.wait_for_next_slot().await.unwrap();
         blocklist_server.set_answer(None);
         let timeout_secs = 5 /*blocklist_url_max_age_secs in cfg */ +

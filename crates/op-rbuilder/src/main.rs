@@ -1,11 +1,14 @@
 use clap::Parser;
 use monitoring::Monitoring;
-// use payload_builder_vanilla::CustomOpPayloadBuilder;
-use payload_builder::CustomOpPayloadBuilder;
 use reth::providers::CanonStateSubscriptions;
 use reth_optimism_cli::{chainspec::OpChainSpecParser, Cli};
 use reth_optimism_node::node::OpAddOnsBuilder;
 use reth_optimism_node::OpNode;
+
+#[cfg(feature = "flashblocks")]
+use payload_builder::CustomOpPayloadBuilder;
+#[cfg(not(feature = "flashblocks"))]
+use payload_builder_vanilla::CustomOpPayloadBuilder;
 
 /// CLI argument parsing.
 pub mod args;
@@ -14,8 +17,10 @@ pub mod generator;
 mod integration;
 mod metrics;
 mod monitoring;
-mod payload_builder;
-// mod payload_builder_vanilla;
+#[cfg(feature = "flashblocks")]
+pub mod payload_builder;
+#[cfg(not(feature = "flashblocks"))]
+mod payload_builder_vanilla;
 #[cfg(test)]
 mod tester;
 mod tx_signer;

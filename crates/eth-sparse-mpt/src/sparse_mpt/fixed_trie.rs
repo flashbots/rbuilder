@@ -1,4 +1,6 @@
-use crate::utils::{hash_map_with_capacity, HashMap, HashSet};
+use crate::utils::fast_hash;
+use crate::utils::{hash_map_with_capacity, HashMap};
+use alloy_primitives::keccak256;
 use alloy_primitives::Bytes;
 use alloy_rlp::Decodable;
 use alloy_trie::nodes::{
@@ -6,6 +8,7 @@ use alloy_trie::nodes::{
     TrieNode as AlloyTrieNode,
 };
 use reth_trie::Nibbles;
+use revm_primitives::B256;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, Seq};
 use smallvec::SmallVec;
@@ -17,6 +20,9 @@ use super::{
     get_new_ptr, DiffBranchNode, DiffChildPtr, DiffExtensionNode, DiffLeafNode, DiffTrie,
     DiffTrieNode, DiffTrieNodeKind, NodeCursor,
 };
+
+const NULL_NODE_BYTES: Bytes = Bytes::from_static(&[0x80]);
+const HEAD_NODE_PATH: Nibbles = Nibbles::new();
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum FixedTrieNode {
@@ -40,6 +46,9 @@ pub enum AddNodeError {
     /// parent must be added before children
     #[error("Invalid input")]
     InvalidInput,
+    /// This happens when proofs added are not from the same trie.
+    #[error("Inconsistent proofs added")]
+    InconsistentProofs,
 }
 
 impl FixedTrieNode {
@@ -136,11 +145,15 @@ impl From<AlloyExtensionNode> for FixedExtensionNode {
 #[serde_as]
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FixedTrie {
+    /// if set to non-zero we will verify proofs for consistency
+    #[serde(default)]
+    pub expected_root_hash: B256,
     #[serde_as(as = "Seq<(_, _)>")]
     pub nodes: HashMap<u64, FixedTrieNode>,
     pub head: u64,
     pub ptrs: u64,
-    pub nodes_inserted: HashSet<Nibbles>,
+    // used to verify proof consistency storsed fast_hash(path), fast_hash(node_from_proof)
+    pub nodes_inserted: HashMap<u64, u64>,
     // used for preallocations, wrong value will not influence correctness
     pub height: usize,
 }
@@ -206,17 +219,33 @@ impl FixedTrie {
     /// nodes must be sorted by key
     /// nodes must be empty if and only if trie is empty
     pub fn add_nodes(&mut self, nodes: &[(Nibbles, Bytes)]) -> Result<(), AddNodeError> {
+        // this is not a critical error
+        debug_assert!(nodes.iter().is_sorted_by_key(|(path, _)| path));
+
         // when adding empty proof we init try to be empty
         if nodes.is_empty() && self.nodes.is_empty() {
             self.nodes.insert(0, FixedTrieNode::Null);
             self.head = 0;
             self.ptrs = 0;
-            self.nodes_inserted.insert(Nibbles::new());
+            self.nodes_inserted
+                .insert(fast_hash(&HEAD_NODE_PATH), fast_hash(&NULL_NODE_BYTES));
         }
 
         for (path, node) in nodes {
-            if self.nodes_inserted.contains(path) {
+            let path_hash = fast_hash(&path);
+            let node_hash = fast_hash(&node);
+
+            if let Some(inserted_node_hash) = self.nodes_inserted.get(&path_hash) {
+                if *inserted_node_hash != node_hash {
+                    return Err(AddNodeError::InconsistentProofs);
+                }
                 continue;
+            } else if path == &HEAD_NODE_PATH && !self.expected_root_hash.is_zero() {
+                // here we verify the first proof that we insert and compare the head node hash to the root hash provided from outside
+                let proof_root_hash = keccak256(node);
+                if proof_root_hash != self.expected_root_hash {
+                    return Err(AddNodeError::InconsistentProofs);
+                }
             }
 
             let alloy_trie_node = AlloyTrieNode::decode(&mut node.as_ref())?;
@@ -296,7 +325,7 @@ impl FixedTrie {
             }
             self.height = max(self.height, height);
 
-            self.nodes_inserted.insert(path.clone());
+            self.nodes_inserted.insert(path_hash, node_hash);
             let ptr = get_new_ptr(&mut self.ptrs);
             self.nodes.insert(ptr, fixed_trie_node);
 

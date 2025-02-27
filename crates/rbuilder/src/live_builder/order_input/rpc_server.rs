@@ -5,7 +5,7 @@ use crate::{
             RawBundle, RawBundleDecodeResult, RawShareBundle, RawShareBundleDecodeResult, RawTx,
             TxEncoding,
         },
-        BundleReplacementData, BundleReplacementKey, MempoolTx, Order,
+        BundleReplacementData, BundleReplacementKey, MempoolTx, Order, OrderId,
     },
     telemetry::mark_command_received,
 };
@@ -138,8 +138,18 @@ async fn handle_eth_send_bundle(
             return;
         }
     };
+
     match bundle_res {
         RawBundleDecodeResult::NewBundle(bundle) => {
+            if bundle.max_timestamp == Some(0) {
+                let order = OrderId::Bundle(bundle.uuid);
+                warn!(
+                    ?order,
+                    min_timestamp = bundle.min_timestamp,
+                    max_timestamp = bundle.max_timestamp,
+                    "Bundle has timestamp 0"
+                );
+            }
             let order = Order::Bundle(bundle);
             let parse_duration = start.elapsed();
             let target_block = order.target_block().unwrap_or_default();

@@ -79,11 +79,12 @@ tokio-util.workspace = true
 time = { version = "0.3.36", features = ["macros", "formatting", "parsing"] }
 chrono = "0.4"
 uuid = { version = "1.6.1", features = ["serde", "v5", "v4"] }
-tokio-tungstenite = "0.26.1"
+tokio-tungstenite = "0.26.2"
 rand = "0.8.5"
 alloy-serde = "0.7"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 
-rollup-boost = { git = "http://github.com/flashbots/rollup-boost", rev = "0b089a37b8525d328ab93962bb8121811ee3ca1f" }
+rollup-boost = { git = "http://github.com/flashbots/rollup-boost", rev = "ef4a70c554feac4faaa331b218e966aad228f180" }
 
 [target.'cfg(unix)'.dependencies]
 tikv-jemallocator = { version = "0.6", optional = true }
@@ -115,6 +116,7 @@ min-trace-logs = ["tracing/release_max_level_trace"]
 optimism = ["reth-optimism-node/optimism", "reth-optimism-cli/optimism"]
 
 integration = []
+flashblocks = []
 
 [[bin]]
 name = "op-rbuilder"

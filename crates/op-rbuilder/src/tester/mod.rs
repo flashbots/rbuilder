@@ -12,6 +12,7 @@ use alloy_rpc_types_engine::ExecutionPayloadV2;
 use alloy_rpc_types_engine::PayloadAttributes;
 use alloy_rpc_types_engine::PayloadStatusEnum;
 use alloy_rpc_types_engine::{ExecutionPayloadV3, ForkchoiceUpdated, PayloadStatus};
+use alloy_rpc_types_eth::Block;
 use jsonrpsee::core::RpcResult;
 use jsonrpsee::http_client::{transport::HttpBackend, HttpClient};
 use jsonrpsee::proc_macros::rpc;
@@ -221,7 +222,11 @@ impl<'a> BlockGenerator<'a> {
     }
 
     /// Initialize the block generator by fetching the latest block
-    pub async fn init(&mut self) -> eyre::Result<()> {
+    pub async fn init(&mut self) -> eyre::Result<Block> {
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .init();
+
         let latest_block = self.engine_api.latest().await?.expect("block not found");
         self.latest_hash = latest_block.header.hash;
 
@@ -237,11 +242,13 @@ impl<'a> BlockGenerator<'a> {
                 flashblocks_endpoint
             );
 
-            self.flashblocks_service =
-                Some(Flashblocks::run(flashblocks_endpoint.to_string()).unwrap());
+            self.flashblocks_service = Some(Flashblocks::run(
+                flashblocks_endpoint.to_string(),
+                "127.0.0.1:1112".to_string(), // output address for the preconfirmations from rb
+            )?);
         }
 
-        Ok(())
+        Ok(latest_block)
     }
 
     /// Sync the validation node to the current state
@@ -409,8 +416,6 @@ impl<'a> BlockGenerator<'a> {
             self.engine_api.get_payload_v3(payload_id).await?
         };
 
-        println!("Payload: {:?}", payload);
-
         // Validate with builder node
         let validation_status = self
             .engine_api
@@ -490,6 +495,7 @@ pub async fn run_system(
     validation: bool,
     no_tx_pool: bool,
     block_time_secs: u64,
+    flashblocks_endpoint: Option<String>,
 ) -> eyre::Result<()> {
     println!("Validation: {}", validation);
 
@@ -505,8 +511,7 @@ pub async fn run_system(
         validation_api.as_ref(),
         no_tx_pool,
         block_time_secs,
-        // Some("ws://localhost:1111".to_string()),
-        None,
+        flashblocks_endpoint,
     );
 
     generator.init().await?;
