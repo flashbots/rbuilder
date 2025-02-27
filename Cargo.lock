@@ -8618,6 +8618,7 @@ dependencies = [
  "rand 0.8.5",
  "rayon",
  "redis",
+ "reipc",
  "reqwest 0.12.9",
  "reth",
  "reth-basic-payload-builder",
@@ -8758,6 +8759,22 @@ checksum = "1541daf4e4ed43a0922b7969bdc2170178bcacc5dabf7e39bc508a9fa3953a7a"
 dependencies = [
  "hashbrown 0.14.5",
  "memchr",
+]
+
+[[package]]
+name = "reipc"
+version = "0.1.0"
+source = "git+https://github.com/nethermindeth/reipc.git?rev=806abf826a1ba54a8d291cac585be3e14a09418a#806abf826a1ba54a8d291cac585be3e14a09418a"
+dependencies = [
+ "alloy-json-rpc",
+ "alloy-primitives 0.8.21",
+ "alloy-rpc-types-eth 0.11.1",
+ "bytes",
+ "crossbeam",
+ "dashmap 6.1.0",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
