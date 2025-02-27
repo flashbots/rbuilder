@@ -11681,7 +11681,7 @@ dependencies = [
 [[package]]
 name = "rollup-boost"
 version = "0.1.0"
-source = "git+http://github.com/flashbots/rollup-boost?rev=ef4a70c554feac4faaa331b218e966aad228f180#ef4a70c554feac4faaa331b218e966aad228f180"
+source = "git+http://github.com/flashbots/rollup-boost?rev=e74a1fd01366e4ddd13515da4efda59cdc8fbce0#e74a1fd01366e4ddd13515da4efda59cdc8fbce0"
 dependencies = [
  "alloy-eips 0.11.1",
  "alloy-primitives 0.8.21",
@@ -11697,6 +11697,7 @@ dependencies = [
  "http-body 0.4.6",
  "http-body-util",
  "hyper 1.5.0",
+ "hyper-rustls 0.27.3",
  "hyper-util",
  "jsonrpsee 0.24.7",
  "lazy_static",
@@ -11715,6 +11716,7 @@ dependencies = [
  "opentelemetry_sdk",
  "paste",
  "reqwest 0.12.9",
+ "rustls 0.23.16",
  "serde",
  "serde_json",
  "thiserror 1.0.69",

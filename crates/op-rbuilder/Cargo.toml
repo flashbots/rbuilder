@@ -84,7 +84,7 @@ rand = "0.8.5"
 alloy-serde = "0.7"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 
-rollup-boost = { git = "http://github.com/flashbots/rollup-boost", rev = "ef4a70c554feac4faaa331b218e966aad228f180" }
+rollup-boost = { git = "http://github.com/flashbots/rollup-boost", rev = "e74a1fd01366e4ddd13515da4efda59cdc8fbce0" }
 
 [target.'cfg(unix)'.dependencies]
 tikv-jemallocator = { version = "0.6", optional = true }
