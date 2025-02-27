@@ -223,10 +223,6 @@ impl<'a> BlockGenerator<'a> {
 
     /// Initialize the block generator by fetching the latest block
     pub async fn init(&mut self) -> eyre::Result<Block> {
-        tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .init();
-
         let latest_block = self.engine_api.latest().await?.expect("block not found");
         self.latest_hash = latest_block.header.hash;
 
