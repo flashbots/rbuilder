@@ -62,6 +62,7 @@ pub fn run_ordering_builder<P>(input: LiveBuilderInput<P>, config: &OrderingBuil
 where
     P: StateProviderFactory + Clone + 'static,
 {
+    let payload_id = input.ctx.payload_id;
     let mut order_intake_consumer = OrderIntakeConsumer::new(
         input.provider.clone(),
         input.input,
@@ -112,7 +113,7 @@ where
                 }
             }
             Err(err) => {
-                if !handle_building_error(err) {
+                if !handle_building_error(err, payload_id) {
                     break 'building;
                 }
             }

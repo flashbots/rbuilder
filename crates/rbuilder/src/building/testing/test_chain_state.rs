@@ -381,6 +381,7 @@ impl TestBlockContextBuilder {
             vec![],
             Some(SpecId::SHANGHAI),
             self.root_hasher,
+            0,
         )
         .unwrap();
         if self.use_suggested_fee_recipient_as_coinbase {

@@ -15,10 +15,12 @@ use crate::{
         SlotSource,
     },
     primitives::mev_boost::{MevBoostRelayID, MevBoostRelaySlotInfoProvider},
+    utils::timestamp_ms_to_offset_datetime,
 };
 use alloy_eips::{merge::SLOT_DURATION, BlockNumHash};
 use alloy_primitives::{utils::format_ether, Address, B256, U256};
 use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
+use derivative::Derivative;
 use std::{collections::VecDeque, sync::Arc, time::Duration};
 use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
@@ -33,9 +35,13 @@ const NEW_PAYLOAD_RECV_TIMEOUT: Duration = SLOT_DURATION.saturating_mul(2);
 /// One slot (12secs) is enough so we don't saturate any resource and we don't miss to many slots.
 const CONSENSUS_CLIENT_RECONNECT_WAIT: Duration = SLOT_DURATION;
 
+/// Unique paload ID used to track payload across the builder.
+pub type InternalPayloadId = u64;
+
 /// Data about a slot received from relays.
 /// Contains the important information needed to build and submit the block.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Derivative)]
+#[derivative(Debug, Clone, PartialEq, Eq)]
 pub struct MevBoostSlotData {
     /// The .data.payload_attributes.suggested_fee_recipient is replaced
     pub payload_attributes_event: PayloadAttributesEvent,
@@ -43,6 +49,8 @@ pub struct MevBoostSlotData {
     /// List of relays agreeing to the slot_data. It may not contain all the relays (eg: errors, forks, validators registering only to some relays)
     pub relays: Vec<MevBoostRelayID>,
     pub slot_data: SlotData,
+    #[derivative(PartialEq = "ignore", Hash = "ignore")]
+    pub payload_id: InternalPayloadId,
 }
 
 impl MevBoostSlotData {
@@ -137,32 +145,59 @@ impl MevBoostSlotDataGenerator {
                     return;
                 }
 
-                let (slot_data, relays) =
-                    if let Some(res) = relays.slot_data(event.data.proposal_slot).await {
-                        res
-                    } else {
-                        continue;
-                    };
+                let payload_id: InternalPayloadId = rand::random();
+                let slot = event.data.proposal_slot;
+                let block = event.data.parent_block_number + 1;
+                let parent_hash = event.data.parent_block_hash;
+                let timestamp =
+                    timestamp_ms_to_offset_datetime(event.data.payload_attributes.timestamp * 1000);
+                info!(
+                    payload_id,
+                    slot,
+                    block,
+                    ?parent_hash,
+                    ?timestamp,
+                    "Payload attributes received from CL client"
+                );
+
+                let (slot_data, relays) = if let Some(res) = relays.slot_data(slot).await {
+                    res
+                } else {
+                    info!(
+                        payload_id,
+                        reason = "no MEV-Boost relay data",
+                        "Payload attributes discarded"
+                    );
+                    continue;
+                };
 
                 let mut correct_event = event;
                 correct_event
                     .data
                     .payload_attributes
                     .suggested_fee_recipient = slot_data.fee_recipient;
+                info!(payload_id, address = ?slot_data.fee_recipient, "Payload attributes correct fee recipient set");
 
                 let mev_boost_slot_data = MevBoostSlotData {
                     payload_attributes_event: correct_event,
                     suggested_gas_limit: slot_data.gas_limit,
                     relays,
                     slot_data,
+                    payload_id,
                 };
 
                 match check_slot_data_for_blocklist(
                     &mev_boost_slot_data,
                     self.blocklist_provider.as_ref(),
+                    payload_id,
                 ) {
                     Ok(can_build) => {
                         if !can_build {
+                            info!(
+                                payload_id,
+                                reason = "blocklist",
+                                "Payload attributes discarded"
+                            );
                             continue;
                         }
                     }
@@ -175,6 +210,11 @@ impl MevBoostSlotDataGenerator {
                 }
 
                 if recently_sent_data.contains(&mev_boost_slot_data) {
+                    info!(
+                        payload_id,
+                        reason = "the same payload was already sent",
+                        "Payload attributes discarded"
+                    );
                     continue;
                 }
                 if recently_sent_data.len() > RECENTLY_SENT_EVENTS_BUFF {
@@ -185,7 +225,7 @@ impl MevBoostSlotDataGenerator {
                 report_slot_withdrawals_to_fee_recipients(&mev_boost_slot_data);
 
                 if send.send(mev_boost_slot_data).is_err() {
-                    debug!("MevBoostSlotData events channel closed");
+                    debug!(payload_id, "MevBoostSlotData events channel closed");
                     break;
                 }
             }
@@ -213,9 +253,10 @@ impl SlotSource for MevBoostSlotDataGenerator {
 fn check_slot_data_for_blocklist(
     data: &MevBoostSlotData,
     blocklist_provider: &dyn BlockListProvider,
+    payload_id: InternalPayloadId,
 ) -> Result<bool, super::block_list_provider::Error> {
     if blocklist_provider.current_list_contains(&data.fee_recipient())? {
-        warn!(recipiend=?data.fee_recipient(),"Slot data fee recipient is in the blocklist");
+        warn!(payload_id, recipiend=?data.fee_recipient(),"Slot data fee recipient is in the blocklist");
         return Ok(false);
     }
     Ok(true)

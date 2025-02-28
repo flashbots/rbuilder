@@ -409,9 +409,12 @@ where
             Err(err) => {
                 if err.is_consistent_db_view_err() {
                     let last_block_number = self.provider.last_block_number().unwrap_or_default();
+
                     debug!(
                         block_number,
-                        last_block_number, "Can't build on this head, cancelling slot"
+                        payload_id = self.building_ctx.payload_id,
+                        last_block_number,
+                        "Can't build on this head, cancelling slot"
                     );
                     self.cancel_on_fatal_error.cancel();
                 }

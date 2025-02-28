@@ -209,33 +209,37 @@ where
             let blocklist = self.blocklist_provider.get_blocklist()?;
             if blocklist.contains(&payload.fee_recipient()) {
                 warn!(
-                    slot = payload.slot(),
-                    fee_recipient = ?payload.fee_recipient(),
-                    "Fee recipient is in blocklist"
-                );
+                        slot = payload.slot(),
+                        fee_recipient = ?payload.fee_recipient(),
+                payload_id = payload.payload_id,
+                        "Fee recipient is in blocklist"
+                    );
                 continue;
             }
             let current_time = OffsetDateTime::now_utc();
             // see if we can get parent header in a reasonable time
             let time_to_slot = payload.timestamp() - current_time;
             debug!(
-                slot = payload.slot(),
-                block = payload.block(),
-                ?current_time,
-                payload_timestamp = ?payload.timestamp(),
-                ?time_to_slot,
-                parent_hash = ?payload.parent_block_hash(),
-                provider_head_state = ?ProviderHeadState::new(&self.provider),
-                "Received payload, time till slot timestamp",
-            );
+                    slot = payload.slot(),
+                    block = payload.block(),
+            payload_id = payload.payload_id,
+                    ?current_time,
+                    payload_timestamp = ?payload.timestamp(),
+                    ?time_to_slot,
+                    parent_hash = ?payload.parent_block_hash(),
+                    provider_head_state = ?ProviderHeadState::new(&self.provider),
+                    "Received payload, time till slot timestamp",
+                );
 
             let time_until_slot_end = time_to_slot + timings.slot_proposal_duration;
             if time_until_slot_end.is_negative() {
                 warn!(
-                    slot = payload.slot(),
-                    parent_hash = ?payload.parent_block_hash(),
-                    "Slot already ended, skipping block building"
-                );
+                        slot = payload.slot(),
+                        block = payload.block(),
+                payload_id = payload.payload_id,
+                        parent_hash = ?payload.parent_block_hash(),
+                        "Slot already ended, skipping block building"
+                    );
                 continue;
             };
 
@@ -247,18 +251,19 @@ where
                 {
                     Ok(header) => header,
                     Err(err) => {
-                        warn!(parent_hash = ?payload.parent_block_hash(), ?err, "Failed to get parent header for new slot");
+                        warn!(payload_id = payload.payload_id, parent_hash = ?payload.parent_block_hash(), ?err, "Failed to get parent header for new slot");
                         continue;
                     }
                 }
             };
 
             debug!(
-                slot = payload.slot(),
-                block = payload.block(),
-                parent_hash = ?payload.parent_block_hash(),
-                "Got header for slot"
-            );
+                    slot = payload.slot(),
+                    block = payload.block(),
+            payload_id = payload.payload_id,
+                    parent_hash = ?payload.parent_block_hash(),
+                    "Got header for slot"
+                );
 
             // notify the order pool that there is a new header
             if let Err(err) = header_sender.send(parent_header.clone()).await {
@@ -280,6 +285,7 @@ where
                 self.extra_data.clone(),
                 None,
                 root_hasher,
+                payload.payload_id,
             ) {
                 mark_building_started(block_ctx.timestamp());
                 builder_pool.start_block_building(

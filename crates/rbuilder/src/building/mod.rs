@@ -17,6 +17,7 @@ use reth_primitives::BlockBody;
 use reth_primitives_traits::{proofs, Block as _};
 
 use crate::{
+    live_builder::payload_events::InternalPayloadId,
     primitives::{Order, OrderId, SimValue, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs},
     provider::RootHasher,
     roothash::RootHashError,
@@ -93,6 +94,7 @@ pub struct BlockBuildingContext {
     /// Version of the EVM that we are going to use
     pub spec_id: SpecId,
     pub root_hasher: Arc<dyn RootHasher>,
+    pub payload_id: InternalPayloadId,
 }
 
 impl BlockBuildingContext {
@@ -109,6 +111,7 @@ impl BlockBuildingContext {
         extra_data: Vec<u8>,
         spec_id: Option<SpecId>,
         root_hasher: Arc<dyn RootHasher>,
+        payload_id: InternalPayloadId,
     ) -> Option<BlockBuildingContext> {
         let attributes = EthPayloadBuilderAttributes::try_new(
             attributes.data.parent_block_hash,
@@ -171,6 +174,7 @@ impl BlockBuildingContext {
             excess_blob_gas,
             spec_id,
             root_hasher,
+            payload_id,
         })
     }
 
@@ -254,6 +258,7 @@ impl BlockBuildingContext {
             excess_blob_gas: onchain_block.header.excess_blob_gas,
             spec_id,
             root_hasher,
+            payload_id: 0,
         }
     }
 

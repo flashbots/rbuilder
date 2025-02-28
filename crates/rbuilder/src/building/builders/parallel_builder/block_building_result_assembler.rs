@@ -161,7 +161,7 @@ where
             }
             Err(err) => {
                 let _span = info_span!("Parallel builder failed to build new block",run_id = self.run_id,version = version,err=?err).entered();
-                if !handle_building_error(err) {
+                if !handle_building_error(err, self.ctx.payload_id) {
                     return false;
                 }
             }
