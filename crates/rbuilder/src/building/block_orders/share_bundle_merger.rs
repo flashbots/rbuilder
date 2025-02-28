@@ -180,7 +180,7 @@ impl<SinkType: SimulatedOrderSink> MultiBackrunManager<SinkType> {
             self.regenerate_multi_order();
             return Some(order.sim_order);
         }
-        error!("sorted order not found for {:?}", key);
+        error!(?key, "sorted order not found");
         None
     }
 
@@ -197,10 +197,7 @@ impl<SinkType: SimulatedOrderSink> MultiBackrunManager<SinkType> {
         }
         let merged_order = self.merge_orders();
         if merged_order.is_none() {
-            error!(
-                "Failed to generate order for user bundle {:?}",
-                self.user_bundle_hash
-            );
+            error!(bundle_hash = ?self.user_bundle_hash, "Failed to generate order for user bundle");
             return;
         }
         let merged_order = merged_order.unwrap();
@@ -274,7 +271,7 @@ impl<SinkType: SimulatedOrderSink> ShareBundleMerger<SinkType> {
             return None;
         };
         let first_item = sbundle.inner_bundle.body.first().or_else(|| {
-            error!("Empty sbundle {:?}", sbundle);
+            error!(?sbundle, "Empty sbundle");
             None
         })?;
 

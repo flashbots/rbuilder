@@ -210,8 +210,8 @@ where
             if blocklist.contains(&payload.fee_recipient()) {
                 warn!(
                     slot = payload.slot(),
-                    "Fee recipient is in blocklist: {:?}",
-                    payload.fee_recipient()
+                    fee_recipient = ?payload.fee_recipient(),
+                    "Fee recipient is in blocklist"
                 );
                 continue;
             }
@@ -247,7 +247,7 @@ where
                 {
                     Ok(header) => header,
                     Err(err) => {
-                        warn!(parent_hash = ?payload.parent_block_hash(),"Failed to get parent header for new slot: {:?}", err);
+                        warn!(parent_hash = ?payload.parent_block_hash(), ?err, "Failed to get parent header for new slot");
                         continue;
                     }
                 }
@@ -262,7 +262,7 @@ where
 
             // notify the order pool that there is a new header
             if let Err(err) = header_sender.send(parent_header.clone()).await {
-                warn!("Failed to send header to builder pool: {:?}", err);
+                warn!(?err, "Failed to send header to builder pool");
             }
 
             inc_active_slots();
@@ -299,7 +299,7 @@ where
         for handle in inner_jobs_handles {
             handle
                 .await
-                .map_err(|err| warn!("Job handle await error: {:?}", err))
+                .map_err(|err| warn!(?err, "Job handle await error"))
                 .unwrap_or_default();
         }
         Ok(())

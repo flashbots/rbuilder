@@ -294,7 +294,7 @@ where
             handle
                 .await
                 .map_err(|err| {
-                    tracing::error!("Error while waiting for OrderPoolJobs to finish: {:?}", err)
+                    tracing::error!(?err, "Error while waiting for OrderPoolJobs to finish")
                 })
                 .unwrap_or_default();
         }

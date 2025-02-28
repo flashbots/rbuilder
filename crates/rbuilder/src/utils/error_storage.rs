@@ -51,7 +51,8 @@ pub async fn spawn_error_storage_writer(
                     if let Err(err) = storage.write_error_event(&event).await {
                         warn!(
                             category = event.category,
-                            "Error writing error event to storage: {:?}", err
+                            ?err,
+                            "Error writing error event to storage"
                         );
                     }
                 } else {
@@ -79,14 +80,14 @@ pub fn store_error_event<T: serde::Serialize>(category: &str, error: &str, paylo
         let payload_json = match serde_json::to_string(&payload) {
             Ok(res) => res,
             Err(err) => {
-                error!("Error serializing error payload: {:?}", err);
+                error!(?err, "Error serializing error payload");
                 return;
             }
         };
         if payload_json.len() > MAX_PAYLOAD_SIZE_BYTES {
             error!(
-                "Error payload is too large, not storing error event. Payload size: {}",
-                payload_json.len()
+                payload_size = payload_json.len(),
+                "Error payload is too large, not storing error event"
             );
             return;
         }
