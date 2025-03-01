@@ -305,7 +305,7 @@ impl BaseConfig {
 
         Ok(IpcStateProviderFactory::new(
             &ipc_provider_config.ipc_path,
-            ipc_provider_config.request_timeout,
+            Duration::from_millis(ipc_provider_config.request_timeout),
         ))
     }
 
