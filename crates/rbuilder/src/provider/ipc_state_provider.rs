@@ -1,4 +1,9 @@
-use std::{fmt::Debug, path::Path, sync::Arc, time::Duration};
+use std::{
+    fmt::Debug,
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Duration,
+};
 
 use alloy_consensus::{constants::KECCAK_EMPTY, Header};
 use alloy_eips::{BlockId, BlockNumHash, BlockNumberOrTag};
@@ -30,7 +35,7 @@ use super::{RootHasher, StateProviderFactory};
 /// 100ms was picked up after initial testing using Nethermind client as state provider
 /// 99.9% requests return within 50ms; using 100ms gives us error rate of ~0.03%
 /// Median response time is ~300 micro_sec.
-const IPC_REQUEST_TIMEOUT_MS: u64 = 100;
+const DEFAULT_IPC_REQUEST_TIMEOUT_MS: u64 = 100;
 
 /// Remote state provider factory allows providing state via remote RPC calls over IPC
 /// Specifically UnixDomainSockets
@@ -44,19 +49,34 @@ pub struct IpcStateProviderFactory {
 }
 
 impl IpcStateProviderFactory {
-    pub fn new(ipc_path: &Path) -> Self {
-        let ipc_provider = RpcProvider::try_connect(
-            ipc_path,
-            Duration::from_millis(IPC_REQUEST_TIMEOUT_MS).into(),
-        )
-        // there is no need to gracefully handle (or propagate) this error, if we cannot connect
-        // to IPC, then rbuilder cannot work
-        .expect("Can't connect to IPC");
+    pub fn new(ipc_path: &Path, req_timeout: Duration) -> Self {
+        let ipc_provider = RpcProvider::try_connect(ipc_path, req_timeout.into())
+            // there is no need to gracefully handle (or propagate) this error, if we cannot connect
+            // to IPC, then rbuilder cannot work
+            .expect("Can't connect to IPC");
 
         Self {
             ipc_provider,
             code_cache: Arc::new(DashMap::new()),
             state_provider_by_hash: Arc::new(DashMap::new()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields)]
+pub struct IpcProviderConfig {
+    pub(crate) request_timeout: Duration,
+    pub(crate) ipc_path: PathBuf,
+    pub(crate) txpool_server_url: String,
+}
+
+impl Default for IpcProviderConfig {
+    fn default() -> Self {
+        Self {
+            request_timeout: Duration::from_millis(DEFAULT_IPC_REQUEST_TIMEOUT_MS),
+            txpool_server_url: String::new(),
+            ipc_path: PathBuf::new(),
         }
     }
 }
@@ -273,18 +293,12 @@ impl StateProvider for IpcStateProvider {
         let _guard = span.enter();
         trace!("bytecode:get");
 
-        if code_hash.is_zero() {
-            trace!("bytecode: hash is zero");
-            return Ok(None);
-        }
-
-        if *code_hash == KECCAK_EMPTY {
-            trace!("bytecode: hash is empty");
+        let empty_hash = code_hash.is_zero() || *code_hash == KECCAK_EMPTY;
+        if empty_hash {
             return Ok(None);
         }
 
         if let Some(bytecode) = self.code_cache.get(code_hash) {
-            trace!("bytecode: cache hit");
             return Ok(Some(bytecode.clone()));
         }
 

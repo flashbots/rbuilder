@@ -3,7 +3,10 @@
 use crate::{
     building::builders::UnfinishedBlockBuildingSinkFactory,
     live_builder::{order_input::OrderInputConfig, LiveBuilder},
-    provider::StateProviderFactory,
+    provider::{
+        ipc_state_provider::{IpcProviderConfig, IpcStateProviderFactory},
+        StateProviderFactories, StateProviderFactory,
+    },
     roothash::RootHashContext,
     telemetry::{setup_reloadable_tracing_subscriber, LoggerConfig},
     utils::{
@@ -131,6 +134,9 @@ pub struct BaseConfig {
 
     /// List of `builders` to be used for live building
     pub live_builders: Vec<String>,
+
+    /// Config for IPC state provider
+    pub ipc_provider: Option<IpcProviderConfig>,
 
     // backtest config
     backtest_fetch_mempool_data_dir: EnvOrValue<String>,
@@ -288,6 +294,32 @@ impl BaseConfig {
                 Some(self.live_root_hash_config()?)
             },
         )
+    }
+
+    /// Opens IPC connection to node that will provide the sate
+    pub fn create_ipc_provider_factory(&self) -> eyre::Result<IpcStateProviderFactory> {
+        let ipc_provider_config = self
+            .ipc_provider
+            .as_ref()
+            .ok_or_else(|| eyre::eyre!("IPC provider not configured"))?;
+
+        Ok(IpcStateProviderFactory::new(
+            &ipc_provider_config.ipc_path,
+            ipc_provider_config.request_timeout,
+        ))
+    }
+
+    pub fn get_provider_factory_from_config(
+        &self,
+        skip_root_hash: bool,
+    ) -> eyre::Result<StateProviderFactories> {
+        if self.ipc_provider.is_some() {
+            self.create_ipc_provider_factory()
+                .map(StateProviderFactories::Ipc)
+        } else {
+            self.create_provider_factory(skip_root_hash)
+                .map(StateProviderFactories::Reth)
+        }
     }
 
     /// live_root_hash_config creates a root hash thread pool
@@ -554,6 +586,7 @@ impl Default for BaseConfig {
             sbundle_mergeable_signers: None,
             sbundle_mergeabe_signers: None,
             require_non_empty_blocklist: Some(DEFAULT_REQUIRE_NON_EMPTY_BLOCKLIST),
+            ipc_provider: None,
         }
     }
 }
