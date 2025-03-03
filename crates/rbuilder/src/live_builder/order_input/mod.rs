@@ -75,7 +75,7 @@ impl Drop for AutoRemovingOrderPoolSubscriptionId {
 }
 
 #[derive(Debug, Clone)]
-pub enum TxpoolSource {
+pub enum MempoolSource {
     Ipc(PathBuf),
     Ws(String),
 }
@@ -87,8 +87,8 @@ pub struct OrderInputConfig {
     ignore_cancellable_orders: bool,
     /// if true -- txs with blobs are ignored
     ignore_blobs: bool,
-    /// Txpool source
-    tx_source: Option<TxpoolSource>,
+    /// Tx pool source
+    mempool_source: Option<MempoolSource>,
     /// Input RPC port
     server_port: u16,
     /// Input RPC ip
@@ -109,7 +109,7 @@ impl OrderInputConfig {
     pub fn new(
         ignore_cancellable_orders: bool,
         ignore_blobs: bool,
-        tx_source: Option<TxpoolSource>,
+        mempool_source: Option<MempoolSource>,
         server_port: u16,
         server_ip: Ipv4Addr,
         serve_max_connections: u32,
@@ -119,7 +119,7 @@ impl OrderInputConfig {
         Self {
             ignore_cancellable_orders,
             ignore_blobs,
-            tx_source,
+            mempool_source,
             server_port,
             server_ip,
             serve_max_connections,
@@ -129,11 +129,11 @@ impl OrderInputConfig {
     }
 
     pub fn from_config(config: &BaseConfig) -> eyre::Result<Self> {
-        let tx_source = if let Some(provider) = &config.ipc_provider {
-            Some(TxpoolSource::Ws(provider.txpool_server_url.clone()))
+        let mempool = if let Some(provider) = &config.ipc_provider {
+            Some(MempoolSource::Ws(provider.txpool_server_url.clone()))
         } else if let Some(path) = &config.el_node_ipc_path {
             let expanded_path = expand_path(path.as_path())?;
-            Some(TxpoolSource::Ipc(expanded_path))
+            Some(MempoolSource::Ipc(expanded_path))
         } else {
             None
         };
@@ -141,7 +141,7 @@ impl OrderInputConfig {
         Ok(OrderInputConfig {
             ignore_cancellable_orders: config.ignore_cancellable_orders,
             ignore_blobs: config.ignore_blobs,
-            tx_source,
+            mempool_source: mempool,
             server_port: config.jsonrpc_server_port,
             server_ip: config.jsonrpc_server_ip,
             serve_max_connections: 4096,
@@ -152,7 +152,7 @@ impl OrderInputConfig {
 
     pub fn default_e2e() -> Self {
         Self {
-            tx_source: Some(TxpoolSource::Ipc(PathBuf::from("/tmp/anvil.ipc"))),
+            mempool_source: Some(MempoolSource::Ipc(PathBuf::from("/tmp/anvil.ipc"))),
             results_channel_timeout: Duration::new(5, 0),
             ignore_cancellable_orders: false,
             ignore_blobs: false,
@@ -231,7 +231,7 @@ where
 
     let mut handles = vec![clean_job, rpc_server];
 
-    if config.tx_source.is_some() {
+    if config.mempool_source.is_some() {
         info!("IPC path configured, starting txpool subscription");
         let txpool_fetcher = txpool_fetcher::subscribe_to_txpool_with_blobs(
             config.clone(),

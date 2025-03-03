@@ -26,7 +26,7 @@ use rbuilder::{
         block_list_provider::NullBlockListProvider,
         config::create_provider_factory,
         order_input::{
-            OrderInputConfig, TxpoolSource, DEFAULT_INPUT_CHANNEL_BUFFER_SIZE,
+            MempoolSource, OrderInputConfig, DEFAULT_INPUT_CHANNEL_BUFFER_SIZE,
             DEFAULT_RESULTS_CHANNEL_TIMEOUT, DEFAULT_SERVE_MAX_CONNECTIONS,
         },
         payload_events::{MevBoostSlotData, MevBoostSlotDataGenerator},
@@ -76,7 +76,7 @@ async fn main() -> eyre::Result<()> {
     let order_input_config = OrderInputConfig::new(
         false,
         true,
-        Some(TxpoolSource::Ipc(PathBuf::from(DEFAULT_EL_NODE_IPC_PATH))),
+        Some(MempoolSource::Ipc(PathBuf::from(DEFAULT_EL_NODE_IPC_PATH))),
         DEFAULT_INCOMING_BUNDLES_PORT,
         default_ip(),
         DEFAULT_SERVE_MAX_CONNECTIONS,

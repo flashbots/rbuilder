@@ -74,14 +74,14 @@ impl IpcStateProviderFactory {
 pub struct IpcProviderConfig {
     pub(crate) request_timeout: u64,
     pub(crate) ipc_path: PathBuf,
-    pub(crate) txpool_server_url: String,
+    pub(crate) mempool_server_url: String,
 }
 
 impl Default for IpcProviderConfig {
     fn default() -> Self {
         Self {
             request_timeout: DEFAULT_IPC_REQUEST_TIMEOUT_MS,
-            txpool_server_url: String::new(),
+            mempool_server_url: String::new(),
             ipc_path: PathBuf::new(),
         }
     }
