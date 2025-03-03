@@ -130,7 +130,7 @@ impl OrderInputConfig {
 
     pub fn from_config(config: &BaseConfig) -> eyre::Result<Self> {
         let mempool = if let Some(provider) = &config.ipc_provider {
-            Some(MempoolSource::Ws(provider.txpool_server_url.clone()))
+            Some(MempoolSource::Ws(provider.mempool_server_url.clone()))
         } else if let Some(path) = &config.el_node_ipc_path {
             let expanded_path = expand_path(path.as_path())?;
             Some(MempoolSource::Ipc(expanded_path))
