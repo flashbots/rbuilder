@@ -111,7 +111,7 @@ impl<ConfigType: LiveBuilderConfig>
         &self,
     ) -> eyre::Result<ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>>
     {
-        self.config.base_config().create_provider_factory(true)
+        self.config.base_config().create_reth_provider_factory(true)
     }
 
     fn create_block_building_context(&self) -> eyre::Result<BlockBuildingContext> {

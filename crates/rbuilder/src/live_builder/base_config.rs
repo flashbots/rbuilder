@@ -277,7 +277,7 @@ impl BaseConfig {
 
     /// Open reth db and DB should be opened once per process but it can be cloned and moved to different threads.
     /// skip_root_hash -> will create a mock roothasher. Used on backtesting since reth can't compute roothashes on the past.
-    pub fn create_provider_factory(
+    pub fn create_reth_provider_factory(
         &self,
         skip_root_hash: bool,
     ) -> eyre::Result<ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>>
@@ -309,7 +309,7 @@ impl BaseConfig {
         ))
     }
 
-    pub fn get_provider_factory_from_config(
+    pub fn create_provider_factory_from_config(
         &self,
         skip_root_hash: bool,
     ) -> eyre::Result<StateProviderFactories> {
@@ -317,7 +317,7 @@ impl BaseConfig {
             self.create_ipc_provider_factory()
                 .map(StateProviderFactories::Ipc)
         } else {
-            self.create_provider_factory(skip_root_hash)
+            self.create_reth_provider_factory(skip_root_hash)
                 .map(StateProviderFactories::Reth)
         }
     }

@@ -42,7 +42,7 @@ async fn main() -> eyre::Result<()> {
 
     let chain_spec = config.base_config().chain_spec()?;
 
-    let provider_factory = config.base_config().create_provider_factory(false)?;
+    let provider_factory = config.base_config().create_reth_provider_factory(false)?;
 
     let last_block = provider_factory.last_block_number()?;
 

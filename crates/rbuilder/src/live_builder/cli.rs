@@ -122,7 +122,7 @@ where
     .await?;
     let provider = config
         .base_config()
-        .get_provider_factory_from_config(false)?;
+        .create_provider_factory_from_config(false)?;
     let builder = config.new_builder(provider, cancel.clone()).await?;
 
     let ctrlc = tokio::spawn(async move {
