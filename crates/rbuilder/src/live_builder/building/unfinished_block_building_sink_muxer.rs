@@ -1,6 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use ahash::HashMap;
+use parking_lot::Mutex;
 
 use crate::building::builders::{
     block_building_helper::BiddableUnfinishedBlock, UnfinishedBlockBuildingSink,
@@ -26,12 +27,7 @@ impl UnfinishedBlockBuildingSinkMuxer {
 
 impl UnfinishedBlockBuildingSink for UnfinishedBlockBuildingSinkMuxer {
     fn new_block(&self, block: BiddableUnfinishedBlock) {
-        if let Some(best_biddable_block) = self
-            .best_block_state
-            .lock()
-            .unwrap()
-            .update_best_block(block)
-        {
+        if let Some(best_biddable_block) = self.best_block_state.lock().update_best_block(block) {
             self.sink.new_block(best_biddable_block);
         }
     }
