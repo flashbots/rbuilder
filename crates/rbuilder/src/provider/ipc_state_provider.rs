@@ -262,6 +262,7 @@ impl IpcStateProvider {
 
     /// Crates new instance of state provider on the heap
     // Box::new(Arc::new(Self)) is required because StateProviderFactory returns Box<dyn StateProvider>
+    #[allow(clippy::redundant_allocation)]
     fn into_boxed(
         ipc_provider: RpcProvider,
         block_id: BlockId,
