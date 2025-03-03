@@ -34,6 +34,8 @@ alloy-primitives.workspace = true
 alloy-rlp.workspace = true
 alloy-trie.workspace = true
 
+# other
+parking_lot.workspace = true
 
 # test deps
 hash-db = { version = "0.15.2", optional = true }

@@ -2,14 +2,10 @@
 //! Metrics are updated here, this is ugly.
 use ahash::HashSet;
 use itertools::Itertools;
+use parking_lot::{Mutex, MutexGuard};
 use revm_primitives::{Address, B256};
 use sha2::{Digest, Sha256};
-use std::{
-    fs::read_to_string,
-    path::PathBuf,
-    sync::{Arc, Mutex, MutexGuard},
-    time::Duration,
-};
+use std::{fs::read_to_string, path::PathBuf, sync::Arc, time::Duration};
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
@@ -121,7 +117,7 @@ impl HttpBlockListProvider {
                         if let Ok(list) = Self::read_list(url.clone(),validate_list).await {
                             let list_len = list.len();
                             update_blocklist_metrics(&list);
-                            *last_updated_list.lock().unwrap() = BlockListWithTimestamp::new(list);
+                            *last_updated_list.lock() = BlockListWithTimestamp::new(list);
                             info!(list_len,"Blocklist updated");
                         }
                     },
@@ -162,7 +158,7 @@ impl HttpBlockListProvider {
     }
 
     fn lock_current_list(&self) -> Result<MutexGuard<'_, BlockListWithTimestamp>, Error> {
-        let last_updated_list = self.last_updated_list.lock().unwrap();
+        let last_updated_list = self.last_updated_list.lock();
         if OffsetDateTime::now_utc() - last_updated_list.timestamp > self.max_allowed_age {
             return Err(Error::UnableToUpdateList);
         }

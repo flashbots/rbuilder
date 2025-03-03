@@ -134,8 +134,9 @@ foldhash = "0.1.3"
 eth-sparse-mpt.workspace = true
 sysperf.workspace = true
 crossbeam = "0.8.4"
-parking_lot = "0.12.3"
+parking_lot.workspace = true
 dashmap = "6.1.0"
+
 
 [build-dependencies]
 built = { version = "0.7.1", features = ["git2", "chrono"] }

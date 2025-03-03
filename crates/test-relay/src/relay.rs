@@ -9,6 +9,7 @@ use ahash::HashMap;
 use alloy_consensus::proofs::calculate_withdrawals_root;
 use alloy_primitives::{bytes::Bytes, utils::format_ether, B256, U256};
 use flate2::bufread::GzDecoder;
+use parking_lot::Mutex;
 use rbuilder::{
     beacon_api_client::Client,
     live_builder::{
@@ -20,11 +21,7 @@ use rbuilder::{
 };
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
-use std::{
-    collections::hash_map::Entry,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::{collections::hash_map::Entry, sync::Arc, time::Duration};
 use std::{io::Read, net::SocketAddr};
 use time::OffsetDateTime;
 use tokio::sync::mpsc;
@@ -239,7 +236,7 @@ impl RelayState {
         inc_payloads_received(&builder_id);
 
         let (withdrawals_root, registered_gas_limit, parent_beacon_block_root) = {
-            let pending_slot = self.pending_slot_data.lock().unwrap();
+            let pending_slot = self.pending_slot_data.lock();
             let pending_slot = if pending_slot.is_some() {
                 pending_slot.as_ref().unwrap()
             } else {
@@ -306,7 +303,7 @@ impl RelayState {
         );
 
         {
-            let mut pending_slot = self.pending_slot_data.lock().unwrap();
+            let mut pending_slot = self.pending_slot_data.lock();
             let pending_slot = if pending_slot.is_some() {
                 pending_slot.as_mut().unwrap()
             } else {
@@ -359,7 +356,7 @@ async fn run_slot_data_fetcher(
         };
         {
             info!(slot = new_slot_data.slot(), "New slot data");
-            let mut current_slot_data = relay_state.pending_slot_data.lock().unwrap();
+            let mut current_slot_data = relay_state.pending_slot_data.lock();
             *current_slot_data = Some(PendingSlotData::new(new_slot_data));
         }
     }
@@ -375,7 +372,7 @@ async fn run_winner_sampler(relay_state: RelayState, cancellation_token: Cancell
                 _ = cancellation_token.cancelled() => break 'sampling,
         };
         {
-            let current_slot_data = relay_state.pending_slot_data.lock().unwrap();
+            let current_slot_data = relay_state.pending_slot_data.lock();
 
             let (slot_end, best_bid) = if let Some(value) = current_slot_data
                 .as_ref()
