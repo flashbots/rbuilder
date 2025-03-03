@@ -9,12 +9,13 @@ use alloy_consensus::{constants::KECCAK_EMPTY, Header};
 use alloy_eips::{BlockId, BlockNumHash, BlockNumberOrTag};
 use alloy_primitives::{BlockHash, BlockNumber, StorageKey, StorageValue, U64};
 use dashmap::DashMap;
+use quick_cache::sync::Cache;
 use reipc::rpc_provider::RpcProvider;
 use reth_errors::{ProviderError, ProviderResult};
 use reth_primitives::{Account, Bytecode};
 use reth_provider::{
-    AccountReader, BlockHashReader, HashedPostStateProvider, StateProofProvider, StateProvider,
-    StateProviderBox, StateRootProvider, StorageRootProvider,
+    errors::any::AnyError, AccountReader, BlockHashReader, HashedPostStateProvider,
+    StateProofProvider, StateProvider, StateProviderBox, StateRootProvider, StorageRootProvider,
 };
 use reth_trie::{
     updates::TrieUpdates, AccountProof, HashedPostState, HashedStorage, MultiProof,
@@ -36,6 +37,10 @@ use super::{RootHasher, StateProviderFactory};
 /// 99.9% requests return within 50ms; using 100ms gives us error rate of ~0.03%
 /// Median response time is ~300 micro_sec.
 const DEFAULT_IPC_REQUEST_TIMEOUT_MS: u64 = 100;
+/// For how many blocks to cache state for
+/// Most CL implementations keep state for last 128 blocks in memory,
+/// We are mimicking this
+const DEFAULT_STATE_CACHE_SIZE: usize = 128;
 
 /// Remote state provider factory allows providing state via remote RPC calls over IPC
 /// Specifically UnixDomainSockets
@@ -44,11 +49,12 @@ pub struct IpcStateProviderFactory {
     ipc_provider: RpcProvider,
 
     code_cache: Arc<DashMap<B256, Bytecode>>,
-    //TODO: invalidate cache for old blocks
-    state_provider_by_hash: Arc<DashMap<BlockHash, Arc<IpcStateProvider>>>,
+    state_provider_by_hash: Arc<Cache<BlockHash, Arc<IpcStateProvider>>>,
 }
 
 impl IpcStateProviderFactory {
+    /// Crates new IPC Provider Factory by establishing connection to IPC given path to the IPC
+    /// req_timeout is the same across all requests to the IPC
     pub fn new(ipc_path: &Path, req_timeout: Duration) -> Self {
         let ipc_provider = RpcProvider::try_connect(ipc_path, req_timeout.into())
             // there is no need to gracefully handle (or propagate) this error, if we cannot connect
@@ -58,7 +64,7 @@ impl IpcStateProviderFactory {
         Self {
             ipc_provider,
             code_cache: Arc::new(DashMap::new()),
-            state_provider_by_hash: Arc::new(DashMap::new()),
+            state_provider_by_hash: Arc::new(Cache::new(DEFAULT_STATE_CACHE_SIZE)),
         }
     }
 }
@@ -82,6 +88,7 @@ impl Default for IpcProviderConfig {
 }
 
 impl StateProviderFactory for IpcStateProviderFactory {
+    /// Gets state for the latest block
     fn latest(&self) -> ProviderResult<StateProviderBox> {
         let state = IpcStateProvider::into_boxed(
             self.ipc_provider.clone(),
@@ -92,6 +99,7 @@ impl StateProviderFactory for IpcStateProviderFactory {
         Ok(state)
     }
 
+    /// Gets state at the block number
     // We are not caching state provider by block number to avoid any issues with reorgs
     // The calls to  history_by_block_number are rare and we shouldn't be loosing perf by not
     // leveraging caching here
@@ -105,9 +113,10 @@ impl StateProviderFactory for IpcStateProviderFactory {
         Ok(state)
     }
 
+    /// Gets state at the block hash
     fn history_by_block_hash(&self, block: BlockHash) -> ProviderResult<StateProviderBox> {
         if let Some(state) = self.state_provider_by_hash.get(&block) {
-            return Ok(Box::new(state.clone()));
+            return Ok(Box::new(state));
         }
 
         let state = IpcStateProvider::into_boxed(
@@ -120,6 +129,7 @@ impl StateProviderFactory for IpcStateProviderFactory {
         Ok(state)
     }
 
+    /// Gets block header given block hash
     fn header(&self, block_hash: &BlockHash) -> ProviderResult<Option<Header>> {
         let id: u64 = rand::random();
         let span = trace_span!("header", id, block_hash = %block_hash.to_string());
@@ -132,7 +142,7 @@ impl StateProviderFactory for IpcStateProviderFactory {
                 "eth_getBlockByHash",
                 (block_hash, false),
             )
-            .map_err(transport_to_provider_error)?
+            .map_err(ipc_to_provider_error)?
             .map(|b| b.header.inner);
 
         if header.is_none() {
@@ -145,6 +155,7 @@ impl StateProviderFactory for IpcStateProviderFactory {
         Ok(header)
     }
 
+    /// Gets block hash given block number
     fn block_hash(&self, number: BlockNumber) -> ProviderResult<Option<B256>> {
         let id: u64 = rand::random();
         let span = trace_span!("block_hash provider factory", id, block_num = number);
@@ -154,17 +165,18 @@ impl StateProviderFactory for IpcStateProviderFactory {
         let block_hash = self
             .ipc_provider
             .call::<_, B256>("rbuilder_getBlockHash", (BlockNumberOrTag::Number(number),))
-            .map_err(transport_to_provider_error)?;
+            .map_err(ipc_to_provider_error)?;
 
         trace!("block_hash: got");
         Ok(Some(block_hash))
     }
 
-    //TODO: is this correct?
+    /// Gets block number of latest known block
     fn best_block_number(&self) -> ProviderResult<BlockNumber> {
         self.last_block_number()
     }
 
+    /// Gets block header given block hash
     fn header_by_number(&self, num: u64) -> ProviderResult<Option<Header>> {
         let id: u64 = rand::random();
         let span = trace_span!("header_by_number", id, block_num = num);
@@ -177,7 +189,7 @@ impl StateProviderFactory for IpcStateProviderFactory {
                 "eth_getBlockByNumber",
                 (num, false),
             )
-            .map_err(transport_to_provider_error)?;
+            .map_err(ipc_to_provider_error)?;
 
         if block.is_none() {
             trace!("header_by_num: got none");
@@ -189,6 +201,7 @@ impl StateProviderFactory for IpcStateProviderFactory {
         Ok(block.map(|b| b.header.inner))
     }
 
+    /// Gets block number of latest known block
     fn last_block_number(&self) -> ProviderResult<BlockNumber> {
         let id: u64 = rand::random();
         let span = trace_span!("last_block_num", id);
@@ -198,13 +211,14 @@ impl StateProviderFactory for IpcStateProviderFactory {
         let block_num = self
             .ipc_provider
             .call::<_, U64>("eth_blockNumber", ())
-            .map_err(transport_to_provider_error)?
+            .map_err(ipc_to_provider_error)?
             .to::<u64>();
 
         trace!("last_block_num: got");
         Ok(block_num)
     }
 
+    /// Creates new root hasher - struct responsible for calculating root hash
     fn root_hasher(&self, parent_hash: BlockNumHash) -> ProviderResult<Box<dyn RootHasher>> {
         Ok(Box::new(StatRootHashCalculator {
             remote_provider: self.ipc_provider.clone(),
@@ -277,7 +291,7 @@ impl StateProvider for IpcStateProvider {
         let storage = self
             .ipc_provider
             .call::<_, StorageValue>("eth_getStorageAt", (account, key))
-            .map_err(transport_to_provider_error)?;
+            .map_err(ipc_to_provider_error)?;
 
         self.storage_cache.insert((account, storage_key), storage);
 
@@ -305,7 +319,7 @@ impl StateProvider for IpcStateProvider {
         let bytes = self
             .ipc_provider
             .call::<_, Bytes>("rbuilder_getCodeByHash", (code_hash,))
-            .map_err(transport_to_provider_error)?;
+            .map_err(ipc_to_provider_error)?;
 
         let bytecode = Bytecode::new_raw(bytes);
 
@@ -331,7 +345,7 @@ impl BlockHashReader for IpcStateProvider {
         let block_hash = self
             .ipc_provider
             .call::<_, B256>("rbuilder_getBlockHash", (BlockNumberOrTag::Number(number),))
-            .map_err(transport_to_provider_error)?;
+            .map_err(ipc_to_provider_error)?;
 
         self.block_hash_cache.insert(number, block_hash);
         trace!("block_hash provider: got");
@@ -364,7 +378,7 @@ impl AccountReader for IpcStateProvider {
         let account = self
             .ipc_provider
             .call::<_, AccountState>("rbuilder_getAccount", (*address, self.block_id))
-            .map_err(transport_to_provider_error)?;
+            .map_err(ipc_to_provider_error)?;
 
         let account = Account {
             nonce: account.nonce.try_into().unwrap(),
@@ -562,7 +576,6 @@ impl From<BundleAccount> for AccountDiff {
     }
 }
 
-//TODO: this is temp hack, fix it properly
-fn transport_to_provider_error(e: reipc::errors::RpcError) -> ProviderError {
-    ProviderError::Database(reth_db::DatabaseError::Other(format!("IPC ERROR: {e}")))
+fn ipc_to_provider_error(e: reipc::errors::RpcError) -> ProviderError {
+    ProviderError::Other(AnyError::new(e))
 }

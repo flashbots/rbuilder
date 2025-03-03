@@ -135,7 +135,10 @@ sysperf.workspace = true
 crossbeam = "0.8.4"
 parking_lot.workspace = true
 dashmap = "6.1.0"
+
+# IPC state provider deps
 reipc = { git = "https://github.com/nethermindeth/reipc.git", rev = "806abf826a1ba54a8d291cac585be3e14a09418a" }
+quick_cache = "0.6.11"
 
 
 
