@@ -72,7 +72,7 @@ impl IpcStateProviderFactory {
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct IpcProviderConfig {
-    pub(crate) request_timeout: u64,
+    pub(crate) request_timeout_ms: u64,
     pub(crate) ipc_path: PathBuf,
     pub(crate) mempool_server_url: String,
 }
@@ -80,7 +80,7 @@ pub struct IpcProviderConfig {
 impl Default for IpcProviderConfig {
     fn default() -> Self {
         Self {
-            request_timeout: DEFAULT_IPC_REQUEST_TIMEOUT_MS,
+            request_timeout_ms: DEFAULT_IPC_REQUEST_TIMEOUT_MS,
             mempool_server_url: String::new(),
             ipc_path: PathBuf::new(),
         }
