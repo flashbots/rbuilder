@@ -24,12 +24,21 @@ blocklist_file_path = "./blocklist.json"
 
 ignore_cancellable_orders = true
 
+# watchdog_timeout_sec = 600
+# simulation_threads = 4
+
 # genesis_fork_version = "0x00112233"
 
 sbundle_mergeable_signers = []
-live_builders = ["mp-ordering", "mgp-ordering", "merging"]
+live_builders = ["mp-ordering", "mgp-ordering", "parallel"]
 
 enabled_relays = ["flashbots"]
+
+# This can be used with test-relay
+# [[relays]]
+# name = "flashbots_test"
+# url = "http://localhost:80"
+# priority = 0
 
 [[builders]]
 name = "mgp-ordering"
