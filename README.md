@@ -83,6 +83,30 @@ This repo includes a `test-relay` tool for testing live builders without submitt
 
 The test relay exposes several Prometheus metrics about the blocks it received.
 
+Example of how to use test relay:
+
+```bash
+./test-relay \
+    --relay "https://boost-relay-holesky.flashbots.net" \
+    --validation-url "http://localhost:8545" \
+    --cl-clients "http://localhost:5052" 
+```
+For relay flag, instead of Holesky, you can use:
+
+- [https://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@boost-relay.flashbots.net/](https://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@boost-relay.flashbots.net/)
+- [https://boost-relay-sepolia.flashbots.net/](https://boost-relay-sepolia.flashbots.net/)
+
+When validation-url is passed, the block produced by the `rbuilder` is validated by the EL node which must support Flashbots validation API (e.g. `flashbots_validateBuilderSubmissionV3`)
+
+For rbuilder to use fake (`test-relay`), config.toml must include it as (one of) the relays. Example:
+
+```TOML
+[[relays]]
+name = "flashbots-test"
+url = "http://localhost:80"
+priority = 0
+```
+
 ### End-to-end local testing
 
 You can use [builder-playground](https://github.com/flashbots/builder-playground) to deploy a fully functional local setup for the builder ([Lighthouse](https://github.com/sigp/lighthouse) consensus client (proposer + validator) + [Reth](https://github.com/paradigmxyz/reth/) execution client + [MEV-Boost-Relay](https://github.com/flashbots/mev-boost-relay))) to test rbuilder.
