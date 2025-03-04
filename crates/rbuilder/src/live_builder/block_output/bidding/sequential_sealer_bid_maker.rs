@@ -99,20 +99,20 @@ impl SequentialSealerBidMakerProcess {
             {
                 Ok(finalize_res) => match finalize_res {
                     Ok(res) => self.sink.new_block(res.block),
-                    Err(error) => {
-                        if error.is_critical() {
+                    Err(err) => {
+                        if err.is_critical() {
                             error!(
                                 builder_name,
-                                block_number,
-                                ?error,
+                                block = block_number,
+                                ?err,
                                 "Error on finalize_block on SequentialSealerBidMaker"
                             )
                         }
                     }
                 },
-                Err(error) => error!(
-                    block_number,
-                    ?error,
+                Err(err) => error!(
+                    block = block_number,
+                    ?err,
                     "Error on join finalize_block on SequentialSealerBidMaker"
                 ),
             }

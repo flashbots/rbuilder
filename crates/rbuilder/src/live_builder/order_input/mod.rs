@@ -332,8 +332,8 @@ where
             tokio::select! {
                 header = header_receiver.recv() => {
                     if let Some(header) = header {
-                        let block_number = header.number;
-                        set_current_block(block_number);
+                        let current_block = header.number;
+                        set_current_block(current_block);
                         let state = match provider_factory.latest() {
                             Ok(state) => state,
                             Err(err) => {
@@ -346,13 +346,13 @@ where
                         let mut orderpool = orderpool.lock();
                         let start = Instant::now();
 
-                        orderpool.head_updated(block_number, &state);
+                        orderpool.head_updated(current_block, &state);
 
                         let update_time = start.elapsed();
                         let (tx_count, bundle_count) = orderpool.content_count();
                         set_ordepool_count(tx_count, bundle_count);
                         debug!(
-                            block_number,
+                            current_block,
                             tx_count,
                             bundle_count,
                             update_time_ms = update_time.as_millis(),
