@@ -93,10 +93,10 @@ Example of how to use test relay:
 ```
 For relay flag, instead of Holesky, you can use:
 
-- [https://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@boost-relay.flashbots.net/](https://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@boost-relay.flashbots.net/)
-- [https://boost-relay-sepolia.flashbots.net/](https://boost-relay-sepolia.flashbots.net/)
+- Mainnet: [https://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@boost-relay.flashbots.net/](https://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@boost-relay.flashbots.net/)
+- Sepolia: [https://boost-relay-sepolia.flashbots.net/](https://boost-relay-sepolia.flashbots.net/)
 
-When validation-url is passed, the block produced by the `rbuilder` is validated by the EL node which must support Flashbots validation API (e.g. `flashbots_validateBuilderSubmissionV3`)
+When validation-url is passed, blocks produced by the `rbuilder` are validated by the EL node. This node must support Flashbots validation API (e.g. `flashbots_validateBuilderSubmissionV3`).
 
 For rbuilder to use fake (`test-relay`), config.toml must include it as (one of) the relays. Example:
 
