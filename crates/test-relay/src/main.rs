@@ -104,7 +104,7 @@ async fn main() -> eyre::Result<()> {
     let relay = {
         let url: Url = cli.relay.parse()?;
         let client = RelayClient::from_url(url, None, None, None);
-        MevBoostRelaySlotInfoProvider::new(client, "relay".to_string(), 1)
+        MevBoostRelaySlotInfoProvider::new(client, "relay".to_string())
     };
 
     let validation_client = if let Some(url) = cli.validation_url {

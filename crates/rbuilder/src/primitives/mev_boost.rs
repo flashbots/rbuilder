@@ -52,15 +52,14 @@ pub struct RelayConfig {
     pub builder_id_header: Option<String>,
     #[serde(default, deserialize_with = "deserialize_env_var")]
     pub api_token_header: Option<String>,
-    /// mode defines the need of submit_config/priority
+    /// mode defines the need of submit_config
     #[serde(default)]
     pub mode: RelayMode,
     #[serde(flatten)]
     /// Submit specific info.
     /// Used only for Full and Fake mode.
     pub submit_config: Option<RelaySubmitConfig>,
-    /// priority when getting slot data so solve unconsistencies. Lower number ->  higher priority.
-    /// Used only for Full and GetSlotInfoOnly mode.
+    /// Deprecated field that is not used
     pub priority: Option<usize>,
 }
 
@@ -182,23 +181,14 @@ pub struct MevBoostRelaySlotInfoProvider {
     /// Id for UI
     id: MevBoostRelayID,
     client: RelayClient,
-    /// Lower priority -> more important.
-    priority: usize,
 }
 
 impl MevBoostRelaySlotInfoProvider {
-    pub fn new(client: RelayClient, id: String, priority: usize) -> Self {
-        Self {
-            client,
-            id,
-            priority,
-        }
+    pub fn new(client: RelayClient, id: String) -> Self {
+        Self { client, id }
     }
     pub fn id(&self) -> &MevBoostRelayID {
         &self.id
-    }
-    pub fn priority(&self) -> usize {
-        self.priority
     }
 
     /// A little ugly, needed for backtest payload fetcher.
@@ -234,7 +224,6 @@ mod test {
         let example = "
         name = 'relay1'
         url = 'url'
-        priority = 0
         authorization_header = 'env:XXX'
         builder_id_header = 'env:YYY'
         api_token_header = 'env:ZZZ'
@@ -248,7 +237,7 @@ mod test {
         let config: RelayConfig = toml::from_str(example).unwrap();
         assert_eq!(config.name, "relay1");
         assert_eq!(config.url, "url");
-        assert_eq!(config.priority, Some(0));
+        assert_eq!(config.priority, None);
         assert_eq!(config.authorization_header.unwrap(), "AAA");
         assert_eq!(config.builder_id_header.unwrap(), "BBB");
         assert_eq!(config.api_token_header.unwrap(), "CCC");

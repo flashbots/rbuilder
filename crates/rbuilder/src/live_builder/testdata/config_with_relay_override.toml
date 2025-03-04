@@ -34,5 +34,4 @@ enabled_relays = ["playground"]
 [[relays]]
 name = "playground"
 url = "http://example.com"
-priority = 10
 mode = "full"

@@ -167,6 +167,13 @@ impl L1Config {
         submitters: &mut Vec<MevBoostRelayBidSubmitter>,
         slot_info_providers: &mut Vec<MevBoostRelaySlotInfoProvider>,
     ) -> eyre::Result<()> {
+        if relay_config.priority.is_some() {
+            warn!(
+                relay = relay_config.name,
+                "Deprecated: relay priority set, ignoring"
+            );
+        }
+
         if relay_config.mode.submits_bids() {
             if let Some(submit_config) = &relay_config.submit_config {
                 submitters.push(MevBoostRelayBidSubmitter::new(
@@ -184,19 +191,10 @@ impl L1Config {
             }
         }
         if relay_config.mode.gets_slot_info() {
-            if let Some(priority) = &relay_config.priority {
-                slot_info_providers.push(MevBoostRelaySlotInfoProvider::new(
-                    client.clone(),
-                    relay_config.name.clone(),
-                    *priority,
-                ));
-            } else {
-                eyre::bail!(
-                    "Relay {} in mode {:?} has no priority",
-                    relay_config.name,
-                    relay_config.mode
-                );
-            }
+            slot_info_providers.push(MevBoostRelaySlotInfoProvider::new(
+                client.clone(),
+                relay_config.name.clone(),
+            ));
         }
         Ok(())
     }
@@ -791,7 +789,6 @@ mod test {
         let (_, slot_info_providers) = config.l1_config.create_relays().unwrap();
         assert_eq!(slot_info_providers.len(), 1);
         assert_eq!(slot_info_providers[0].id(), "playground");
-        assert_eq!(slot_info_providers[0].priority(), 10);
     }
 
     #[test]
