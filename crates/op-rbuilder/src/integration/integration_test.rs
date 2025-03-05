@@ -322,7 +322,8 @@ mod tests {
             .collect();
 
         // Verify transactions are ordered by decreasing fee (highest fee first)
-        for i in 0..tx_fees.len() - 1 {
+        // Skip the first deposit transaction and last builder transaction
+        for i in 1..tx_fees.len() - 2 {
             assert!(
                 tx_fees[i] >= tx_fees[i + 1],
                 "Transactions not ordered by decreasing fee: {:?}",
