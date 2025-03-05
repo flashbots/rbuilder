@@ -87,6 +87,7 @@ tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 
 rollup-boost = { git = "http://github.com/flashbots/rollup-boost", rev = "e74a1fd01366e4ddd13515da4efda59cdc8fbce0" }
 thiserror = "2.0.11"
+url = "2.5.3"
 
 [target.'cfg(unix)'.dependencies]
 tikv-jemallocator = { version = "0.6", optional = true }
@@ -118,7 +119,7 @@ min-trace-logs = ["tracing/release_max_level_trace"]
 optimism = ["reth-optimism-node/optimism", "reth-optimism-cli/optimism"]
 
 integration = []
-flashblocks = []
+#flashblocks = []
 
 [[bin]]
 name = "op-rbuilder"

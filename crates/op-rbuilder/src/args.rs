@@ -6,6 +6,7 @@
 use reth_optimism_node::args::RollupArgs;
 
 use crate::tx_signer::Signer;
+use alloy_transport_http::reqwest::Url;
 
 /// Parameters for rollup configuration
 #[derive(Debug, Clone, Default, PartialEq, Eq, clap::Args)]
@@ -17,4 +18,7 @@ pub struct OpRbuilderArgs {
     /// Builder secret key for signing last transaction in block
     #[arg(long = "rollup.builder-secret-key", env = "BUILDER_SECRET_KEY")]
     pub builder_signer: Option<Signer>,
+    /// URL of the supervisor service for transaction validation
+    #[arg(long = "rollup.supervisor-url", env = "SUPERVISOR_URL")]
+    pub supervisor_url: Option<Url>,
 }
