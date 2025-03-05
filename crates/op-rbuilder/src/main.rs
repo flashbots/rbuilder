@@ -24,6 +24,7 @@ mod payload_builder_vanilla;
 #[cfg(test)]
 mod tester;
 mod tx_signer;
+mod primitives;
 
 fn main() {
     Cli::<OpChainSpecParser, args::OpRbuilderArgs>::parse()
