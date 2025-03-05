@@ -127,6 +127,8 @@ impl MevBoostSlotDataGenerator {
     pub fn spawn(self) -> (JoinHandle<()>, mpsc::UnboundedReceiver<MevBoostSlotData>) {
         let relays = RelaysForSlotData::new(&self.relays);
 
+        let mut payload_counter = 0;
+
         let (send, receive) = mpsc::unbounded_channel();
         let handle = tokio::spawn(async move {
             let mut source = PayloadSourceMuxer::new(
@@ -145,7 +147,9 @@ impl MevBoostSlotDataGenerator {
                     return;
                 }
 
-                let payload_id: InternalPayloadId = rand::random();
+                let payload_id: InternalPayloadId = payload_counter;
+                payload_counter += 1;
+
                 let slot = event.data.proposal_slot;
                 let block = event.data.parent_block_number + 1;
                 let parent_hash = event.data.parent_block_hash;
