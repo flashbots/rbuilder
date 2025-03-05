@@ -1,9 +1,14 @@
-use crate::generator::BlockPayloadJobGenerator;
-use crate::generator::BuildArguments;
 use crate::{
-    generator::{BlockCell, PayloadBuilder},
+    generator::{BlockCell, PayloadBuilder, BuildArguments, BlockPayloadJobGenerator},
     metrics::OpRBuilderMetrics,
     tx_signer::Signer,
+    primitives::kona::{
+        SupervisorValidator,
+        ExecutingMessageValidatorError,
+        ExecutingMessageValidator,
+        SafetyLevel,
+        ExecutingMessage,
+    }
 };
 use alloy_consensus::constants::EMPTY_WITHDRAWALS;
 use alloy_consensus::transaction::Recovered;
@@ -75,18 +80,25 @@ use revm::{
 use std::collections::HashSet;
 use std::error::Error as StdError;
 use std::{fmt::Display, sync::Arc, time::Instant};
+use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, trace, warn};
 
-#[derive(Debug, Clone, Copy, Default)]
+use url::Url;
+
+#[derive(Debug, Clone, Default)]
 #[non_exhaustive]
 pub struct CustomOpPayloadBuilder {
     builder_signer: Option<Signer>,
+    supervisor_url: Option<Url>,
 }
 
 impl CustomOpPayloadBuilder {
-    pub fn new(builder_signer: Option<Signer>) -> Self {
-        Self { builder_signer }
+    pub fn new(builder_signer: Option<Signer>, supervisor_url: Option<Url>) -> Self {
+        Self {
+            builder_signer,
+            supervisor_url,
+        }
     }
 }
 
@@ -116,6 +128,7 @@ where
             pool,
             ctx.provider().clone(),
             Arc::new(BasicOpReceiptBuilder::default()),
+            self.supervisor_url.clone(),
         ))
     }
 
@@ -197,6 +210,8 @@ pub struct OpPayloadBuilderVanilla<Pool, Client, EvmConfig, N: NodePrimitives, T
     pub metrics: OpRBuilderMetrics,
     /// Node primitive types.
     pub receipt_builder: Arc<dyn OpReceiptBuilder<N::SignedTx, Receipt = N::Receipt>>,
+    /// Client to execute supervisor validation
+    pub supervisor_client: Option<HttpClient>,
 }
 
 impl<Pool, Client, EvmConfig, N: NodePrimitives>
@@ -209,6 +224,7 @@ impl<Pool, Client, EvmConfig, N: NodePrimitives>
         pool: Pool,
         client: Client,
         receipt_builder: Arc<dyn OpReceiptBuilder<N::SignedTx, Receipt = N::Receipt>>,
+        supervisor_url: Option<Url>,
     ) -> Self {
         Self::with_builder_config(
             evm_config,
@@ -216,6 +232,7 @@ impl<Pool, Client, EvmConfig, N: NodePrimitives>
             pool,
             client,
             receipt_builder,
+            supervisor_url,
             Default::default(),
         )
     }
@@ -226,8 +243,11 @@ impl<Pool, Client, EvmConfig, N: NodePrimitives>
         pool: Pool,
         client: Client,
         receipt_builder: Arc<dyn OpReceiptBuilder<N::SignedTx, Receipt = N::Receipt>>,
+        supervisor_url: Option<Url>,
         config: OpBuilderConfig,
     ) -> Self {
+        let supervisor_client =
+            supervisor_url.map(|url| HttpClientBuilder::default().build(url).expect("building supervisor http client"));
         Self {
             pool,
             client,
@@ -237,6 +257,7 @@ impl<Pool, Client, EvmConfig, N: NodePrimitives>
             best_transactions: (),
             metrics: Default::default(),
             builder_signer,
+            supervisor_client,
         }
     }
 }
@@ -344,6 +365,7 @@ where
             receipt_builder: self.receipt_builder.clone(),
             builder_signer: self.builder_signer,
             metrics: Default::default(),
+            supervisor_client: self.supervisor_client.clone(),
         };
 
         let builder = OpBuilder::new(best, remove_reverted);
@@ -820,6 +842,8 @@ pub struct OpPayloadBuilderCtx<EvmConfig: ConfigureEvmEnv, ChainSpec, N: NodePri
     pub builder_signer: Option<Signer>,
     /// The metrics for the builder
     pub metrics: OpRBuilderMetrics,
+    /// Client to execute supervisor validation
+    pub supervisor_client: Option<HttpClient>,
 }
 
 impl<EvmConfig, ChainSpec, N> OpPayloadBuilderCtx<EvmConfig, ChainSpec, N>
@@ -1110,6 +1134,29 @@ where
                     return Err(PayloadBuilderError::EvmExecutionError(Box::new(err)));
                 }
             };
+            // op-supervisor validation
+            match self.validate_supervisor_messages(&result)? {
+                Ok(()) => (),
+                Err(err) => {
+                    match err {
+                        ExecutingMessageValidatorError::SupervisorServerError(err) => {
+                            warn!(target: "payload_builder", %err, ?sequencer_tx, "Supervisor error, skipping.");
+                            self.metrics.inc_num_cross_chain_tx_server_error();
+                            continue;
+                        },
+                        ExecutingMessageValidatorError::ValidationTimeout(_) => {
+                            trace!(target: "payload_builder", %err, ?sequencer_tx, "Executing message validation timed out, skipping.");
+                            self.metrics.inc_num_cross_chain_tx_timeout();
+                            continue;
+                        },
+                        err => {
+                            trace!(target: "payload_builder", %err, ?sequencer_tx, "Executing message rejected.");
+                            self.metrics.inc_num_cross_chain_tx_fail();
+                            continue;
+                        }
+                    }
+                }
+            }
 
             // commit changes
             evm.db_mut().commit(state);
@@ -1208,6 +1255,34 @@ where
                 }
             };
 
+            match self.validate_supervisor_messages(&result)? {
+                Ok(()) => (),
+                Err(err) => {
+                    match err {
+                        ExecutingMessageValidatorError::SupervisorServerError(err) => {
+                            trace!(target: "payload_builder", %err, ?tx, "Supervisor error, skipping.");
+                            self.metrics.inc_num_cross_chain_tx_server_error();
+                            continue;
+                        },
+                        ExecutingMessageValidatorError::ValidationTimeout(_) => {
+                            trace!(target: "payload_builder", %err, ?tx, "Executing message validation timed out, skipping.");
+                            self.metrics.inc_num_cross_chain_tx_timeout();
+                            continue;
+                        },
+                        err => {
+                            trace!(target: "payload_builder", %err, ?tx, "Executing message rejected.");
+                            self.metrics.inc_num_cross_chain_tx_fail();
+                            // It's possible that transaction invalid now, but would be valid later.
+                            // We should keep limited queue for transactions that could become valid.
+                            // We should have the limit to ensure that builder won't get overwhelmed.
+                            best_txs.mark_invalid(tx.signer(), tx.nonce());
+                            continue;
+                        }
+                    }
+                }
+            }
+
+
             self.metrics
                 .tx_simulation_duration
                 .record(tx_simulation_start_time.elapsed());
@@ -1264,6 +1339,33 @@ where
             .record(num_txs_simulated_fail as f64);
 
         Ok(None)
+    }
+
+    pub fn validate_supervisor_messages(&self, result: &ExecutionResult) -> Result<Result<(), ExecutingMessageValidatorError>, PayloadBuilderError> {
+        if let Some(client) = &self.supervisor_client {
+            let executing_messages = SupervisorValidator::parse_messages(result.clone().into_logs().as_slice())
+                .flatten()
+                .collect::<Vec<ExecutingMessage>>();
+            if !executing_messages.is_empty() {
+                self.metrics.inc_num_cross_chain_tx();
+                let (channel_tx, rx) = std::sync::mpsc::channel();
+                tokio::task::block_in_place(move || {
+                    let res = tokio::runtime::Handle::current().block_on(async {
+                        SupervisorValidator::validate_messages(
+                            client,
+                            executing_messages.as_slice(),
+                            SafetyLevel::CrossUnsafe,
+                            Some(core::time::Duration::from_millis(100)),
+                        )
+                            .await
+                    });
+                    let _ = channel_tx.send(res);
+                });
+                return rx.recv().map_err(|_| PayloadBuilderError::ChannelClosed);
+            }
+        }
+        Ok(Ok(()))
+
     }
 
     pub fn add_builder_tx<DB>(
