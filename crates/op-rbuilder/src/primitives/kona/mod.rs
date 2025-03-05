@@ -5,7 +5,7 @@ pub use supervisor::SupervisorValidator;
 pub mod safety;
 pub use safety::SafetyLevel;
 pub mod api;
-pub use api::SupervisorApiClient;
+pub use api::{SupervisorApiClient, SupervisorApiServer};
 pub mod message;
 pub use message::ExecutingMessage;
 pub mod constants;

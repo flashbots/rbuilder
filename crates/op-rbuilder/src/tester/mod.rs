@@ -1,7 +1,8 @@
+use std::net::IpAddr;
 use crate::tx_signer::Signer;
 use alloy_eips::eip2718::Encodable2718;
 use alloy_eips::BlockNumberOrTag;
-use alloy_primitives::address;
+use alloy_primitives::{address, b64};
 use alloy_primitives::Address;
 use alloy_primitives::Bytes;
 use alloy_primitives::TxKind;
@@ -30,8 +31,12 @@ use serde_json::Value;
 use std::str::FromStr;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
+use crate::tester::op_supervisor::start_mock_supervisor;
+
+pub mod op_supervisor;
 
 /// Helper for engine api operations
+#[derive(Debug)]
 pub struct EngineApi {
     pub engine_api_client: HttpClient<AuthClientService<HttpBackend>>,
 }
@@ -385,7 +390,7 @@ impl<'a> BlockGenerator<'a> {
                     transactions: Some(transactions),
                     no_tx_pool: Some(self.no_tx_pool),
                     gas_limit: Some(10000000),
-                    eip_1559_params: None,
+                    eip_1559_params: Some(b64!("0000000000000000")),
                 }),
             )
             .await?;
@@ -489,17 +494,23 @@ impl<'a> BlockGenerator<'a> {
 pub async fn run_system(
     validation: bool,
     no_tx_pool: bool,
+    supervisor: bool,
     block_time_secs: u64,
     flashblocks_endpoint: Option<String>,
 ) -> eyre::Result<()> {
     println!("Validation: {}", validation);
 
     let engine_api = EngineApi::new("http://localhost:4444").unwrap();
+    println!("{:?}", engine_api);
     let validation_api = if validation {
         Some(EngineApi::new("http://localhost:5555").unwrap())
     } else {
         None
     };
+    if supervisor {
+        // Start the supervisor mock that would be used to validation "crosschain tx"
+        start_mock_supervisor(4445).await;
+    }
 
     let mut generator = BlockGenerator::new(
         &engine_api,

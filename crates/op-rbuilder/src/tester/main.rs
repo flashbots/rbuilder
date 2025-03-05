@@ -25,6 +25,9 @@ enum Commands {
         #[clap(long, short, action, default_value = "false")]
         no_tx_pool: bool,
 
+        #[clap(long, short, action, default_value = "false")]
+        supervisor: bool,
+
         #[clap(long, short, action, default_value = "1")]
         block_time_secs: u64,
 
@@ -49,12 +52,14 @@ async fn main() -> eyre::Result<()> {
         Commands::Run {
             validation,
             no_tx_pool,
+            supervisor,
             block_time_secs,
             flashblocks_endpoint,
         } => {
             run_system(
                 validation,
                 no_tx_pool,
+                supervisor,
                 block_time_secs,
                 flashblocks_endpoint,
             )
