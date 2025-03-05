@@ -1,14 +1,11 @@
 use crate::{
-    generator::{BlockCell, PayloadBuilder, BuildArguments, BlockPayloadJobGenerator},
+    generator::{BlockCell, BlockPayloadJobGenerator, BuildArguments, PayloadBuilder},
     metrics::OpRBuilderMetrics,
-    tx_signer::Signer,
     primitives::kona::{
+        ExecutingMessage, ExecutingMessageValidator, ExecutingMessageValidatorError, SafetyLevel,
         SupervisorValidator,
-        ExecutingMessageValidatorError,
-        ExecutingMessageValidator,
-        SafetyLevel,
-        ExecutingMessage,
-    }
+    },
+    tx_signer::Signer,
 };
 use alloy_consensus::constants::EMPTY_WITHDRAWALS;
 use alloy_consensus::transaction::Recovered;
@@ -20,6 +17,7 @@ use alloy_primitives::private::alloy_rlp::Encodable;
 use alloy_primitives::{Address, Bytes, TxHash, TxKind, B256, U256};
 use alloy_rpc_types_engine::PayloadId;
 use alloy_rpc_types_eth::Withdrawals;
+use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use op_alloy_consensus::{OpDepositReceipt, OpTypedTransaction};
 use reth::builder::{components::PayloadServiceBuilder, node::FullNodeTypes, BuilderContext};
 use reth::core::primitives::InMemorySize;
@@ -80,7 +78,6 @@ use revm::{
 use std::collections::HashSet;
 use std::error::Error as StdError;
 use std::{fmt::Display, sync::Arc, time::Instant};
-use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, trace, warn};
 
@@ -246,8 +243,11 @@ impl<Pool, Client, EvmConfig, N: NodePrimitives>
         supervisor_url: Option<Url>,
         config: OpBuilderConfig,
     ) -> Self {
-        let supervisor_client =
-            supervisor_url.map(|url| HttpClientBuilder::default().build(url).expect("building supervisor http client"));
+        let supervisor_client = supervisor_url.map(|url| {
+            HttpClientBuilder::default()
+                .build(url)
+                .expect("building supervisor http client")
+        });
         Self {
             pool,
             client,
@@ -1137,25 +1137,23 @@ where
             // op-supervisor validation
             match self.validate_supervisor_messages(&result)? {
                 Ok(()) => (),
-                Err(err) => {
-                    match err {
-                        ExecutingMessageValidatorError::SupervisorServerError(err) => {
-                            warn!(target: "payload_builder", %err, ?sequencer_tx, "Supervisor error, skipping.");
-                            self.metrics.inc_num_cross_chain_tx_server_error();
-                            continue;
-                        },
-                        ExecutingMessageValidatorError::ValidationTimeout(_) => {
-                            trace!(target: "payload_builder", %err, ?sequencer_tx, "Executing message validation timed out, skipping.");
-                            self.metrics.inc_num_cross_chain_tx_timeout();
-                            continue;
-                        },
-                        err => {
-                            trace!(target: "payload_builder", %err, ?sequencer_tx, "Executing message rejected.");
-                            self.metrics.inc_num_cross_chain_tx_fail();
-                            continue;
-                        }
+                Err(err) => match err {
+                    ExecutingMessageValidatorError::SupervisorServerError(err) => {
+                        warn!(target: "payload_builder", %err, ?sequencer_tx, "Supervisor error, skipping.");
+                        self.metrics.inc_num_cross_chain_tx_server_error();
+                        continue;
                     }
-                }
+                    ExecutingMessageValidatorError::ValidationTimeout(_) => {
+                        trace!(target: "payload_builder", %err, ?sequencer_tx, "Executing message validation timed out, skipping.");
+                        self.metrics.inc_num_cross_chain_tx_timeout();
+                        continue;
+                    }
+                    err => {
+                        trace!(target: "payload_builder", %err, ?sequencer_tx, "Executing message rejected.");
+                        self.metrics.inc_num_cross_chain_tx_fail();
+                        continue;
+                    }
+                },
             }
 
             // commit changes
@@ -1263,12 +1261,12 @@ where
                             trace!(target: "payload_builder", %err, ?tx, "Supervisor error, skipping.");
                             self.metrics.inc_num_cross_chain_tx_server_error();
                             continue;
-                        },
+                        }
                         ExecutingMessageValidatorError::ValidationTimeout(_) => {
                             trace!(target: "payload_builder", %err, ?tx, "Executing message validation timed out, skipping.");
                             self.metrics.inc_num_cross_chain_tx_timeout();
                             continue;
-                        },
+                        }
                         err => {
                             trace!(target: "payload_builder", %err, ?tx, "Executing message rejected.");
                             self.metrics.inc_num_cross_chain_tx_fail();
@@ -1281,7 +1279,6 @@ where
                     }
                 }
             }
-
 
             self.metrics
                 .tx_simulation_duration
@@ -1341,11 +1338,15 @@ where
         Ok(None)
     }
 
-    pub fn validate_supervisor_messages(&self, result: &ExecutionResult) -> Result<Result<(), ExecutingMessageValidatorError>, PayloadBuilderError> {
+    pub fn validate_supervisor_messages(
+        &self,
+        result: &ExecutionResult,
+    ) -> Result<Result<(), ExecutingMessageValidatorError>, PayloadBuilderError> {
         if let Some(client) = &self.supervisor_client {
-            let executing_messages = SupervisorValidator::parse_messages(result.clone().into_logs().as_slice())
-                .flatten()
-                .collect::<Vec<ExecutingMessage>>();
+            let executing_messages =
+                SupervisorValidator::parse_messages(result.clone().into_logs().as_slice())
+                    .flatten()
+                    .collect::<Vec<ExecutingMessage>>();
             if !executing_messages.is_empty() {
                 self.metrics.inc_num_cross_chain_tx();
                 let (channel_tx, rx) = std::sync::mpsc::channel();
@@ -1357,7 +1358,7 @@ where
                             SafetyLevel::CrossUnsafe,
                             Some(core::time::Duration::from_millis(100)),
                         )
-                            .await
+                        .await
                     });
                     let _ = channel_tx.send(res);
                 });
@@ -1365,7 +1366,6 @@ where
             }
         }
         Ok(Ok(()))
-
     }
 
     pub fn add_builder_tx<DB>(
