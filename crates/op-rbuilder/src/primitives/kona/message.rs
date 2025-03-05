@@ -1,7 +1,7 @@
 //! [Source](https://github.com/op-rs/kona/blob/a1d8ea603960cb4bd3cc19784f7c3365352f1849/crates/protocol/interop/src/message.rs)
 
 use alloy_primitives::{keccak256, Bytes, Log};
-use alloy_sol_types::{sol};
+use alloy_sol_types::sol;
 use derive_more::{AsRef, From};
 
 sol! {
