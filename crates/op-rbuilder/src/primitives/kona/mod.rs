@@ -1,6 +1,5 @@
 pub mod traits;
 pub use traits::ExecutingMessageValidator;
-pub mod supervisor;
 pub mod safety;
 pub use safety::SafetyLevel;
 pub mod api;
