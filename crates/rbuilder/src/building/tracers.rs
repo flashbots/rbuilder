@@ -38,6 +38,10 @@ impl AccumulatorSimulationTracer {
             used_state_trace: UsedStateTrace::default(),
         }
     }
+
+    pub fn get_used_state_clone(&self) -> UsedStateTrace {
+        self.used_state_trace.clone()
+    }
 }
 
 impl Default for AccumulatorSimulationTracer {

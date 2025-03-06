@@ -222,9 +222,10 @@ impl TestSetup {
         };
 
         let result = self.partial_block.commit_order(
-            &sim_order,
+            &sim_order.order,
             self.test_chain.block_building_context(),
             &mut block_state,
+            Some(&sim_order.sim_value),
         )?;
 
         let (cached_reads, bundle_state, _) = block_state.into_parts();

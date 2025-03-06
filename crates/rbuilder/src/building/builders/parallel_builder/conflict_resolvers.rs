@@ -175,7 +175,12 @@ where
             }
 
             let sim_order = &task.group.orders[order_idx];
-            match partial_block.commit_order(sim_order, &self.ctx, &mut state)? {
+            match partial_block.commit_order(
+                &sim_order.order,
+                &self.ctx,
+                &mut state,
+                Some(&sim_order.sim_value),
+            )? {
                 Ok(res) => self.handle_successful_commit(
                     res,
                     sim_order,

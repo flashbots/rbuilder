@@ -1,5 +1,6 @@
 use alloy_primitives::{utils::format_ether, U256};
 use reth::revm::cached::CachedReads;
+use revm::db::BundleState;
 use std::{
     cmp::max,
     time::{Duration, Instant},
@@ -12,10 +13,10 @@ use crate::{
     building::{
         estimate_payout_gas_limit, tracers::GasUsedSimulationTracer, BlockBuildingContext,
         BlockState, BuiltBlockTrace, BuiltBlockTraceError, CriticalCommitOrderError,
-        EstimatePayoutGasErr, ExecutionError, ExecutionResult, FinalizeError, FinalizeResult,
-        PartialBlock, Sorting,
+        EstimatePayoutGasErr, ExecutionError, ExecutionResult, ExecutionWithTraceResult,
+        FinalizeError, FinalizeResult, PartialBlock, Sorting,
     },
-    primitives::SimulatedOrder,
+    primitives::{Order, SimValue, SimulatedOrder},
     provider::StateProviderFactory,
     telemetry::{self, add_block_fill_time, add_order_simulation_time},
     utils::{check_block_hash_reader_health, HistoricalBlockError},
@@ -33,12 +34,26 @@ use super::Block;
 pub trait BlockBuildingHelper: Send + Sync {
     fn box_clone(&self) -> Box<dyn BlockBuildingHelper>;
 
-    /// Tries to add an order to the end of the block.
+    /// Tries to add a SimulatedOrder to the end of the block.
     /// Block state changes only on Ok(Ok)
-    fn commit_order(
+    /// Can fail due to low profit error (ExecutionError::LowerInsertedValue).
+    fn commit_sim_order(
         &mut self,
         order: &SimulatedOrder,
     ) -> Result<Result<&ExecutionResult, ExecutionError>, CriticalCommitOrderError>;
+
+    /// Tries to add an Order to the end of the block.
+    /// Block state changes only on Ok(Ok)
+    fn commit_order(
+        &mut self,
+        order: &Order,
+    ) -> Result<Result<&ExecutionResult, ExecutionError>, CriticalCommitOrderError>;
+
+    /// Generates a ExecutionWithTraceResult, it's a little more expensive than commit_order.
+    fn commit_order_with_trace(
+        &mut self,
+        order: &Order,
+    ) -> Result<Result<ExecutionWithTraceResult, ExecutionError>, CriticalCommitOrderError>;
 
     /// Call set the trace fill_time (we still have to review this)
     fn set_trace_fill_time(&mut self, time: Duration);
@@ -78,6 +93,11 @@ pub trait BlockBuildingHelper: Send + Sync {
     /// Name of the builder that pregenerated this block.
     /// BE CAREFUL: Might be ambiguous if several building parts were involved...
     fn builder_name(&self) -> &str;
+
+    /// Get the bundle state. Manly used to stream state diff in bob.
+    fn get_bundle_state(&self) -> &BundleState;
+
+    fn gas_remaining(&self) -> u64;
 }
 
 /// Wraps a BlockBuildingHelper with a valid true_block_value which makes it ready to bid.
@@ -324,21 +344,21 @@ where
         self.built_block_trace.true_bid_value = true_value;
         Ok(())
     }
-}
 
-impl<P> BlockBuildingHelper for BlockBuildingHelperFromProvider<P>
-where
-    P: StateProviderFactory + Clone + 'static,
-{
     /// Forwards to partial_block and updates trace.
-    fn commit_order(
+
+    fn commit_order_internal(
         &mut self,
-        order: &SimulatedOrder,
+        order: &Order,
+        sim_value: Option<&SimValue>,
     ) -> Result<Result<&ExecutionResult, ExecutionError>, CriticalCommitOrderError> {
         let start = Instant::now();
-        let result =
-            self.partial_block
-                .commit_order(order, &self.building_ctx, &mut self.block_state);
+        let result = self.partial_block.commit_order(
+            order,
+            &self.building_ctx,
+            &mut self.block_state,
+            sim_value,
+        );
         let sim_time = start.elapsed();
         let (result, sim_ok) = match result {
             Ok(ok_result) => match ok_result {
@@ -348,6 +368,61 @@ where
                         Ok(Ok(self.built_block_trace.included_orders.last().unwrap())),
                         true,
                     )
+                }
+                Err(err) => {
+                    self.built_block_trace
+                        .modify_payment_when_no_signer_error(&err);
+                    (Ok(Err(err)), false)
+                }
+            },
+            Err(e) => (Err(e), false),
+        };
+        add_order_simulation_time(sim_time, &self.builder_name, sim_ok);
+        result
+    }
+}
+
+impl<P> BlockBuildingHelper for BlockBuildingHelperFromProvider<P>
+where
+    P: StateProviderFactory + Clone + 'static,
+{
+    fn commit_sim_order(
+        &mut self,
+        order: &SimulatedOrder,
+    ) -> Result<Result<&ExecutionResult, ExecutionError>, CriticalCommitOrderError> {
+        self.commit_order_internal(&order.order, Some(&order.sim_value))
+    }
+
+    fn commit_order(
+        &mut self,
+        order: &Order,
+    ) -> Result<Result<&ExecutionResult, ExecutionError>, CriticalCommitOrderError> {
+        self.commit_order_internal(order, None)
+    }
+
+    fn commit_order_with_trace(
+        &mut self,
+        order: &Order,
+    ) -> Result<Result<ExecutionWithTraceResult, ExecutionError>, CriticalCommitOrderError> {
+        let start = Instant::now();
+        let mut tracer = crate::building::tracers::AccumulatorSimulationTracer::new();
+        let result = self.partial_block.commit_order_with_tracer(
+            order,
+            &self.building_ctx,
+            &mut self.block_state,
+            None,
+            &mut tracer,
+        );
+        let sim_time = start.elapsed();
+        let (result, sim_ok) = match result {
+            Ok(ok_result) => match ok_result {
+                Ok(res) => {
+                    self.built_block_trace.add_included_order(res);
+                    let res = ExecutionWithTraceResult {
+                        execution_result: self.built_block_trace.included_orders.last().unwrap(),
+                        used_state_trace: tracer.get_used_state_clone(),
+                    };
+                    (Ok(Ok(res)), true)
                 }
                 Err(err) => {
                     self.built_block_trace
@@ -468,5 +543,16 @@ where
 
     fn builder_name(&self) -> &str {
         &self.builder_name
+    }
+
+    fn get_bundle_state(&self) -> &BundleState {
+        self.block_state.get_bundle_state()
+    }
+
+    fn gas_remaining(&self) -> u64 {
+        if self.partial_block.gas_used > self.partial_block.gas_reserved {
+            return 0;
+        }
+        self.partial_block.gas_reserved - self.partial_block.gas_used
     }
 }

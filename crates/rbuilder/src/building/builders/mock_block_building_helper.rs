@@ -1,4 +1,5 @@
 use crate::live_builder::simulation::SimulatedOrderCommand;
+use crate::primitives::Order;
 use crate::provider::RootHasher;
 use crate::roothash::RootHashError;
 use crate::{
@@ -13,6 +14,7 @@ use alloy_primitives::U256;
 use reth::providers::ExecutionOutcome;
 use reth::revm::cached::CachedReads;
 use reth_primitives::SealedBlock;
+use revm::db::BundleState;
 use time::OffsetDateTime;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
@@ -30,6 +32,7 @@ pub struct MockBlockBuildingHelper {
     block_building_context: BlockBuildingContext,
     can_add_payout_tx: bool,
     builder_name: String,
+    dummy_bundle_state: BundleState,
 }
 
 impl MockBlockBuildingHelper {
@@ -43,6 +46,7 @@ impl MockBlockBuildingHelper {
             block_building_context: BlockBuildingContext::dummy_for_testing(),
             can_add_payout_tx,
             builder_name: "Mock".to_string(),
+            dummy_bundle_state: BundleState::default(),
         }
     }
 
@@ -61,13 +65,6 @@ impl MockBlockBuildingHelper {
 impl BlockBuildingHelper for MockBlockBuildingHelper {
     fn box_clone(&self) -> Box<dyn BlockBuildingHelper> {
         Box::new(self.clone())
-    }
-
-    fn commit_order(
-        &mut self,
-        _order: &SimulatedOrder,
-    ) -> Result<Result<&ExecutionResult, ExecutionError>, CriticalCommitOrderError> {
-        unimplemented!()
     }
 
     fn set_trace_fill_time(&mut self, time: std::time::Duration) {
@@ -130,6 +127,38 @@ impl BlockBuildingHelper for MockBlockBuildingHelper {
 
     fn builder_name(&self) -> &str {
         &self.builder_name
+    }
+
+    fn get_bundle_state(&self) -> &BundleState {
+        &self.dummy_bundle_state
+    }
+
+    fn commit_sim_order(
+        &mut self,
+        _order: &SimulatedOrder,
+    ) -> Result<Result<&ExecutionResult, ExecutionError>, CriticalCommitOrderError> {
+        unimplemented!()
+    }
+
+    fn commit_order(
+        &mut self,
+        _order: &Order,
+    ) -> Result<Result<&ExecutionResult, ExecutionError>, CriticalCommitOrderError> {
+        unimplemented!()
+    }
+
+    fn commit_order_with_trace(
+        &mut self,
+        _order: &Order,
+    ) -> Result<
+        Result<crate::building::ExecutionWithTraceResult, ExecutionError>,
+        CriticalCommitOrderError,
+    > {
+        unimplemented!()
+    }
+
+    fn gas_remaining(&self) -> u64 {
+        0
     }
 }
 

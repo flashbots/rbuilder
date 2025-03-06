@@ -13,12 +13,13 @@ pub mod tracers;
 use alloy_consensus::{Header, EMPTY_OMMER_ROOT_HASH};
 use alloy_primitives::{Address, Bytes, U256};
 use builders::mock_block_building_helper::MockRootHasher;
+use evm_inspector::UsedStateTrace;
 use reth_primitives::BlockBody;
 use reth_primitives_traits::{proofs, Block as _};
 
 use crate::{
     live_builder::payload_events::InternalPayloadId,
-    primitives::{Order, OrderId, SimValue, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs},
+    primitives::{Order, OrderId, SimValue, TransactionSignedEcRecoveredWithBlobs},
     provider::RootHasher,
     roothash::RootHashError,
     utils::{a2r_withdrawal, timestamp_as_u64, Signer},
@@ -378,6 +379,13 @@ pub struct ExecutionResult {
     pub paid_kickbacks: Vec<(Address, U256)>,
 }
 
+/// Add UsedStateTrace to the result.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExecutionWithTraceResult<'a> {
+    pub execution_result: &'a ExecutionResult,
+    pub used_state_trace: UsedStateTrace,
+}
+
 #[derive(Error, Debug)]
 pub enum InsertPayoutTxErr {
     #[error("Critical order commit error: {0}")]
@@ -487,28 +495,39 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         self.gas_reserved = 0;
     }
 
-    pub fn commit_order(
-        &mut self,
-        order: &SimulatedOrder,
+    /// Execution part of the commit_order.
+    /// Allows to execute without a &mut self witch causes problems when tracer is &mut self.tracer (another indirect &mut self)
+    /// On commit_order_on_fork_with_tracer Ok(Ok) you should ALWAYS call update_from_order_ok.
+    #[allow(clippy::too_many_arguments)]
+    fn commit_order_on_fork_with_tracer(
+        cumulative_gas_used: u64,
+        gas_reserved: u64,
+        cumulative_blob_gas_used: u64,
+        allow_tx_skip: bool,
+        enforce_sorting: Option<Sorting>,
+        order: &Order,
         ctx: &BlockBuildingContext,
+        sim_value: Option<&SimValue>,
         state: &mut BlockState,
-    ) -> Result<Result<ExecutionResult, ExecutionError>, CriticalCommitOrderError> {
-        if ctx.builder_signer.is_none() && !order.sim_value.paid_kickbacks.is_empty() {
+        tracer: &mut impl SimulationTracer,
+    ) -> Result<Result<(OrderOk, SimValue), ExecutionError>, CriticalCommitOrderError> {
+        if ctx.builder_signer.is_none()
+            && sim_value.is_some_and(|sim_value| !sim_value.paid_kickbacks.is_empty())
+        {
             // Return here to avoid wasting time on a call to fork.commit_order that 99% will fail
             return Ok(Err(ExecutionError::OrderError(OrderErr::Bundle(
                 BundleErr::NoSigner,
             ))));
         }
-
-        let mut fork = PartialBlockFork::new(state).with_tracer(&mut self.tracer);
+        let mut fork = PartialBlockFork::new(state).with_tracer(tracer);
         let rollback = fork.rollback_point();
         let exec_result = fork.commit_order(
-            &order.order,
+            order,
             ctx,
-            self.gas_used,
-            self.gas_reserved,
-            self.blob_gas_used,
-            self.discard_txs,
+            cumulative_gas_used,
+            gas_reserved,
+            cumulative_blob_gas_used,
+            allow_tx_skip,
         )?;
         let ok_result = match exec_result {
             Ok(ok) => ok,
@@ -523,33 +542,102 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             ok_result.blob_gas_used,
             ok_result.paid_kickbacks.clone(),
         );
-        if let Some(enforce_sorting) = self.enforce_sorting {
-            match enforce_inplace_sim_result(enforce_sorting, &order.sim_value, &inplace_sim_result)
-            {
-                Ok(()) => {}
-                Err(err) => {
-                    fork.rollback(rollback);
-                    return Ok(Err(err));
+        if let Some(enforce_sorting) = enforce_sorting {
+            if let Some(sim_value) = sim_value {
+                match enforce_inplace_sim_result(enforce_sorting, sim_value, &inplace_sim_result) {
+                    Ok(()) => {}
+                    Err(err) => {
+                        fork.rollback(rollback);
+                        return Ok(Err(err));
+                    }
                 }
             }
         }
+        Ok(Ok((ok_result, inplace_sim_result)))
+    }
 
+    /// On successful (Ok(Ok)) execution of commit_order_on_fork_with_tracer this func updates the state and generates the ExecutionResult.
+    fn update_from_order_ok(
+        &mut self,
+        order: &Order,
+        ok_result: OrderOk,
+        inplace_sim_result: SimValue,
+    ) -> ExecutionResult {
         self.gas_used += ok_result.gas_used;
         self.blob_gas_used += ok_result.blob_gas_used;
         self.coinbase_profit += ok_result.coinbase_profit;
         self.executed_tx.extend(ok_result.txs.clone());
         self.receipts.extend(ok_result.receipts.clone());
-        Ok(Ok(ExecutionResult {
+        ExecutionResult {
             coinbase_profit: ok_result.coinbase_profit,
             inplace_sim: inplace_sim_result,
             gas_used: ok_result.gas_used,
-            order: order.order.clone(),
+            order: order.clone(),
             txs: ok_result.txs,
             original_order_ids: ok_result.original_order_ids,
             receipts: ok_result.receipts,
             nonces_updated: ok_result.nonces_updated,
             paid_kickbacks: ok_result.paid_kickbacks,
-        }))
+        }
+    }
+
+    /// Standard order commit using the default tracer (self.tracer)
+    pub fn commit_order(
+        &mut self,
+        order: &Order,
+        ctx: &BlockBuildingContext,
+        state: &mut BlockState,
+        sim_value: Option<&SimValue>,
+    ) -> Result<Result<ExecutionResult, ExecutionError>, CriticalCommitOrderError> {
+        match Self::commit_order_on_fork_with_tracer(
+            self.gas_used,
+            self.gas_reserved,
+            self.blob_gas_used,
+            self.discard_txs,
+            self.enforce_sorting,
+            order,
+            ctx,
+            sim_value,
+            state,
+            &mut self.tracer,
+        )? {
+            Ok((ok_result, inplace_sim_result)) => Ok(Ok(self.update_from_order_ok(
+                order,
+                ok_result,
+                inplace_sim_result,
+            ))),
+            Err(e) => Ok(Err(e)),
+        }
+    }
+
+    /// commit_order but with a custom external tracer.
+    pub fn commit_order_with_tracer(
+        &mut self,
+        order: &Order,
+        ctx: &BlockBuildingContext,
+        state: &mut BlockState,
+        sim_value: Option<&SimValue>,
+        tracer: &mut impl SimulationTracer,
+    ) -> Result<Result<ExecutionResult, ExecutionError>, CriticalCommitOrderError> {
+        match Self::commit_order_on_fork_with_tracer(
+            self.gas_used,
+            self.gas_reserved,
+            self.blob_gas_used,
+            self.discard_txs,
+            self.enforce_sorting,
+            order,
+            ctx,
+            sim_value,
+            state,
+            tracer,
+        )? {
+            Ok((ok_result, inplace_sim_result)) => Ok(Ok(self.update_from_order_ok(
+                order,
+                ok_result,
+                inplace_sim_result,
+            ))),
+            Err(e) => Ok(Err(e)),
+        }
     }
 
     /// Gets the block profit excluding the expected payout base gas that we'll pay.

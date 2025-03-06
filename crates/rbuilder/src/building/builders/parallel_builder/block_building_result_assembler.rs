@@ -234,7 +234,7 @@ where
                     block_building_helper.builder_name(),
                 );
                 let start_time = Instant::now();
-                let commit_result = block_building_helper.commit_order(sim_order)?;
+                let commit_result = block_building_helper.commit_sim_order(sim_order)?;
                 let order_commit_time = start_time.elapsed();
 
                 let mut gas_used = 0;
@@ -304,7 +304,7 @@ where
             for (order_idx, _) in sequence_of_orders.sequence_of_orders.iter() {
                 let sim_order = &order_group.orders[*order_idx];
 
-                let commit_result = block_building_helper.commit_order(sim_order)?;
+                let commit_result = block_building_helper.commit_sim_order(sim_order)?;
 
                 match commit_result {
                     Ok(res) => {

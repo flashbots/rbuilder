@@ -71,6 +71,12 @@ impl BlockState {
         (self.cached_reads, self.bundle_state.unwrap(), self.provider)
     }
 
+    pub fn get_bundle_state(&self) -> &BundleState {
+        self.bundle_state
+            .as_ref()
+            .expect("BundleState should be initialized")
+    }
+
     pub fn clone_bundle_and_cache(&self) -> (CachedReads, BundleState) {
         (
             self.cached_reads.clone(),
@@ -275,6 +281,7 @@ pub struct OrderOk {
     pub nonces_updated: Vec<(Address, u64)>,
     pub receipts: Vec<Receipt>,
     pub paid_kickbacks: Vec<(Address, U256)>,
+    /// Only present if the proper Tracer was used (SimulationTracer::get_used_state_tracer is some).
     pub used_state_trace: Option<UsedStateTrace>,
 }
 

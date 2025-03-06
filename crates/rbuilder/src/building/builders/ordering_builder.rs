@@ -269,7 +269,7 @@ where
                 block_building_helper.builder_name(),
             );
             let start_time = Instant::now();
-            let commit_result = block_building_helper.commit_order(&sim_order)?;
+            let commit_result = block_building_helper.commit_sim_order(&sim_order)?;
             let order_commit_time = start_time.elapsed();
             let mut gas_used = 0;
             let mut execution_error = None;
