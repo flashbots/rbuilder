@@ -291,7 +291,7 @@ where
             },
             |hashes| {
                 #[allow(clippy::unit_arg)]
-                self.best_transactions.remove_reverted(pool.clone(), hashes)
+                self.best_transactions.remove_invalid(pool.clone(), hashes)
             },
         )? {
             BuildOutcome::Better { payload, .. } => {
@@ -428,7 +428,7 @@ pub struct OpBuilder<'a, Txs> {
     best: Box<dyn FnOnce(BestTransactionsAttributes) -> Txs + 'a>,
     /// Removes reverted transactions from the tx pool
     #[debug(skip)]
-    remove_reverted: Box<dyn FnOnce(Vec<TxHash>) + 'a>,
+    remove_invalid: Box<dyn FnOnce(Vec<TxHash>) + 'a>,
 }
 
 impl<'a, Txs> OpBuilder<'a, Txs> {
@@ -438,7 +438,7 @@ impl<'a, Txs> OpBuilder<'a, Txs> {
     ) -> Self {
         Self {
             best: Box::new(best),
-            remove_reverted: Box::new(remove_reverted),
+            remove_invalid: Box::new(remove_reverted),
         }
     }
 }
@@ -460,7 +460,7 @@ impl<Txs> OpBuilder<'_, Txs> {
     {
         let Self {
             best,
-            remove_reverted,
+            remove_invalid,
         } = self;
         info!(target: "payload_builder", id=%ctx.payload_id(), parent_header = ?ctx.parent().hash(), parent_number = ctx.parent().number, "building new payload");
 
@@ -557,7 +557,7 @@ impl<Txs> OpBuilder<'_, Txs> {
             None
         };
 
-        remove_reverted(info.reverted_tx_hashes.iter().copied().collect());
+        remove_invalid(info.invalid_tx_hashes.iter().copied().collect());
 
         let payload = ExecutedPayload {
             info,
@@ -726,8 +726,8 @@ pub trait OpPayloadTransactions<Transaction>: Clone + Send + Sync + Unpin + 'sta
         attr: BestTransactionsAttributes,
     ) -> impl PayloadTransactions<Transaction = Transaction>;
 
-    /// Removes reverted transactions from the tx pool
-    fn remove_reverted<Pool: TransactionPool<Transaction = Transaction>>(
+    /// Removes invalid transactions from the tx pool
+    fn remove_invalid<Pool: TransactionPool<Transaction = Transaction>>(
         &self,
         pool: Pool,
         hashes: Vec<TxHash>,
@@ -743,7 +743,7 @@ impl<T: PoolTransaction> OpPayloadTransactions<T> for () {
         BestPayloadTransactions::new(pool.best_transactions_with_attributes(attr))
     }
 
-    fn remove_reverted<Pool: TransactionPool<Transaction = T>>(
+    fn remove_invalid<Pool: TransactionPool<Transaction = T>>(
         &self,
         pool: Pool,
         hashes: Vec<TxHash>,
@@ -777,7 +777,7 @@ pub struct ExecutionInfo<N: NodePrimitives> {
     /// Tracks fees from executed mempool transactions
     pub total_fees: U256,
     /// Tracks the reverted transaction hashes to remove from the transaction pool
-    pub reverted_tx_hashes: HashSet<TxHash>,
+    pub invalid_tx_hashes: HashSet<TxHash>,
 }
 
 impl<N: NodePrimitives> ExecutionInfo<N> {
@@ -790,7 +790,7 @@ impl<N: NodePrimitives> ExecutionInfo<N> {
             cumulative_gas_used: 0,
             cumulative_da_bytes_used: 0,
             total_fees: U256::ZERO,
-            reverted_tx_hashes: HashSet::new(),
+            invalid_tx_hashes: HashSet::new(),
         }
     }
 
@@ -1274,6 +1274,7 @@ where
                             // We should keep limited queue for transactions that could become valid.
                             // We should have the limit to ensure that builder won't get overwhelmed.
                             best_txs.mark_invalid(tx.signer(), tx.nonce());
+                            info.invalid_tx_hashes.insert(*tx.tx_hash());
                             continue;
                         }
                     }
@@ -1291,7 +1292,7 @@ where
                 num_txs_simulated_fail += 1;
                 trace!(target: "payload_builder", ?tx, "skipping reverted transaction");
                 best_txs.mark_invalid(tx.signer(), tx.nonce());
-                info.reverted_tx_hashes.insert(*tx.tx_hash());
+                info.invalid_tx_hashes.insert(*tx.tx_hash());
                 continue;
             }
 
