@@ -1,5 +1,6 @@
 use std::net::IpAddr;
 use crate::tx_signer::Signer;
+use alloy_consensus::TxEip1559;
 use alloy_eips::eip2718::Encodable2718;
 use alloy_eips::BlockNumberOrTag;
 use alloy_primitives::{address, b64};
@@ -32,6 +33,8 @@ use std::str::FromStr;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 use crate::tester::op_supervisor::start_mock_supervisor;
+use crate::tester::op_supervisor::{MessageIdentifier, relayMessageCall};
+use alloy_sol_types::SolCall;
 
 pub mod op_supervisor;
 
@@ -204,6 +207,9 @@ pub struct BlockGenerator<'a> {
     // flashblocks service
     flashblocks_endpoint: Option<String>,
     flashblocks_service: Option<FlashblocksService>,
+    
+    // We're keeping builder_signer for now since it might be used elsewhere
+    builder_signer: Option<Signer>,
 }
 
 impl<'a> BlockGenerator<'a> {
@@ -222,6 +228,7 @@ impl<'a> BlockGenerator<'a> {
             block_time_secs,
             flashblocks_endpoint,
             flashblocks_service: None,
+            builder_signer: None,
         }
     }
 
@@ -487,6 +494,63 @@ impl<'a> BlockGenerator<'a> {
 
         self.submit_payload(Some(vec![signed_tx_rlp.into()])).await
     }
+
+    /// Submit a crosschain transaction to the system
+    pub async fn cross(&mut self, origin: Address, blocknumber: u128, log_index: u128, timestamp: u128, chain_id: u128) -> eyre::Result<B256> {
+        // Create crosschain transaction
+        // This transaction is just a call to the function relayMessage((address, uint256, uint256, uint256, uint256), bytes) of 
+        // the smartcontract at 0x4200000000000000000000000000000000000023 with all data 
+        // encoded in the data field
+        
+        // Create the MessageIdentifier struct
+        let message_id = MessageIdentifier {
+            origin,
+            blockNumber: U256::from(blocknumber),
+            logIndex: U256::from(log_index),
+            timestamp: U256::from(timestamp),
+            chainId: U256::from(chain_id),
+        };
+        
+        // Use the specific payload provided
+        let sent_message = Bytes::from(
+            hex::decode("382409ac69001e11931a28435afef442cbfd20d9891907e8fa373ba7d351f3200000000000000000000000000000000000000000000000000000000000000386000000000000000000000000420beef0000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000420beef00000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000064d9f50046000000000000000000000000f39fd6e51aad88f6f4ce6ab8827279cfffb92266000000000000000000000000f39fd6e51aad88f6f4ce6ab8827279cfffb9226600000000000000000000000000000000000000000000000000000000000003e800000000000000000000000000000000000000000000000000000000").expect("Invalid hex string")
+        );
+        
+        // Create the function call
+        let relay_call = relayMessageCall {
+            _id: message_id,
+            _sentMessage: sent_message.clone(),
+        };
+        
+        // Encode the function call
+        let calldata = relay_call.abi_encode();
+        
+        // Create a transaction to the cross-domain messenger contract
+        let cross_domain_messenger = address!("4200000000000000000000000000000000000023");
+        
+        // Create a temporary signer for the transaction (similar to deposit function)
+        let signer = Signer::random();
+        
+        // Create an EIP-1559 transaction with constant chain ID
+        let tx = OpTypedTransaction::Eip1559(TxEip1559 {
+            chain_id: 901, // Constant chain ID
+            nonce: 0, // This will be replaced with the actual nonce
+            gas_limit: 500000, // Sufficient gas for the cross-chain call
+            max_fee_per_gas: 1000000000, // 1 gwei
+            max_priority_fee_per_gas: 1000000000, // 1 gwei
+            to: TxKind::Call(cross_domain_messenger),
+            value: U256::ZERO,
+            input: calldata.into(),
+            ..Default::default()
+        });
+        
+        // Sign the transaction
+        let signed_tx = signer.sign_tx(tx)?;
+        let signed_tx_rlp = signed_tx.encoded_2718();
+        
+        // Submit the transaction in a new block
+        self.submit_payload(Some(vec![signed_tx_rlp.into()])).await
+    }
 }
 
 // TODO: This is not being recognized as used code by the main function
@@ -494,7 +558,6 @@ impl<'a> BlockGenerator<'a> {
 pub async fn run_system(
     validation: bool,
     no_tx_pool: bool,
-    supervisor: bool,
     block_time_secs: u64,
     flashblocks_endpoint: Option<String>,
 ) -> eyre::Result<()> {
@@ -507,10 +570,6 @@ pub async fn run_system(
     } else {
         None
     };
-    if supervisor {
-        // Start the supervisor mock that would be used to validation "crosschain tx"
-        start_mock_supervisor(4445).await;
-    }
 
     let mut generator = BlockGenerator::new(
         &engine_api,
@@ -528,4 +587,15 @@ pub async fn run_system(
         let block_hash = generator.generate_block().await?;
         println!("Generated block: {}", block_hash);
     }
+}
+
+// TODO: This is not being recognized as used code by the main function
+#[allow(dead_code)]
+pub async fn run_supervsior() -> eyre::Result<()> {
+    // Start the supervisor mock that would be used to validation "crosschain tx"
+    println!("Starting supervisor");
+    let handle = start_mock_supervisor(4445).await;
+    println!("Supervisor started");
+    handle.stopped().await;
+    Ok(())
 }
