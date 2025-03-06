@@ -76,15 +76,19 @@ use std::{fmt::Display, sync::Arc, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, trace, warn};
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 #[non_exhaustive]
 pub struct CustomOpPayloadBuilder {
     builder_signer: Option<Signer>,
+    flashblocks_ws_url: String,
 }
 
 impl CustomOpPayloadBuilder {
-    pub fn new(builder_signer: Option<Signer>) -> Self {
-        Self { builder_signer }
+    pub fn new(builder_signer: Option<Signer>, flashblocks_ws_url: String) -> Self {
+        Self {
+            builder_signer,
+            flashblocks_ws_url,
+        }
     }
 }
 

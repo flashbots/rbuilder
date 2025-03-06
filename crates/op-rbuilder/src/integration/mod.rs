@@ -130,6 +130,8 @@ impl ServiceInstance {
         file.read_to_string(&mut contents)
             .map_err(|_| eyre::eyre!("Failed to read log file"))?;
 
+        println!("contents: {:?}", contents);
+
         if contents.contains(pattern) {
             Ok(())
         } else {

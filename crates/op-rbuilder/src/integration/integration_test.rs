@@ -12,10 +12,14 @@ mod tests {
     use alloy_provider::Identity;
     use alloy_provider::{Provider, ProviderBuilder};
     use alloy_rpc_types_eth::BlockTransactionsKind;
+    use futures_util::StreamExt;
     use op_alloy_consensus::OpTypedTransaction;
     use op_alloy_network::Optimism;
     use std::cmp::max;
     use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+    use tokio_tungstenite::connect_async;
     use uuid::Uuid;
 
     const BUILDER_PRIVATE_KEY: &str =
@@ -41,7 +45,8 @@ mod tests {
             .auth_rpc_port(1234)
             .network_port(1235)
             .http_port(1238)
-            .with_builder_private_key(BUILDER_PRIVATE_KEY);
+            .with_builder_private_key(BUILDER_PRIVATE_KEY)
+            .with_flashblocks_ws_url("localhost:1239");
 
         // create the validation reth node
         let reth_data_dir = std::env::temp_dir().join(Uuid::new_v4().to_string());
@@ -57,6 +62,23 @@ mod tests {
             .start("op-rbuilder", &op_rbuilder_config)
             .await
             .unwrap();
+
+        // Create a struct to hold received messages
+        let received_messages = Arc::new(Mutex::new(Vec::new()));
+        let messages_clone = received_messages.clone();
+
+        // Spawn WebSocket listener task
+        let ws_handle = tokio::spawn(async move {
+            let (ws_stream, _) = connect_async("ws://localhost:1239").await?;
+            let (_, mut read) = ws_stream.split();
+
+            while let Some(Ok(msg)) = read.next().await {
+                if let Ok(text) = msg.into_text() {
+                    messages_clone.lock().unwrap().push(text);
+                }
+            }
+            Ok::<_, eyre::Error>(())
+        });
 
         let engine_api = EngineApi::new("http://localhost:1234").unwrap();
         let validation_api = EngineApi::new("http://localhost:1236").unwrap();
@@ -83,11 +105,45 @@ mod tests {
                     .expect("receipt");
             }
         }
-
         // there must be a line logging the monitoring transaction
         op_rbuilder
             .find_log_line("Committed block built by builder")
             .await?;
+
+        // Wait for specific messages or timeout
+        let timeout_duration = Duration::from_secs(10);
+        tokio::time::timeout(timeout_duration, async {
+            let mut message_count = 0;
+            loop {
+                if message_count >= 10 {
+                    break;
+                }
+                let messages = received_messages.lock().unwrap();
+                let messages_json: Vec<serde_json::Value> = messages
+                    .iter()
+                    .map(|msg| serde_json::from_str(msg).unwrap())
+                    .collect();
+                for msg in messages_json.iter() {
+                    let metadata = msg.get("metadata");
+                    assert!(metadata.is_some(), "metadata field missing");
+                    let metadata = metadata.unwrap();
+                    assert!(
+                        metadata.get("block_number").is_some(),
+                        "block_number missing"
+                    );
+                    assert!(
+                        metadata.get("new_account_balances").is_some(),
+                        "new_account_balances missing"
+                    );
+                    assert!(metadata.get("receipts").is_some(), "receipts missing");
+                    message_count += 1;
+                }
+                drop(messages);
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        })
+        .await?;
+        ws_handle.abort();
 
         Ok(())
     }
