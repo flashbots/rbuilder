@@ -267,28 +267,35 @@ mod tests {
             MIN_PROTOCOL_BASE_FEE,
         );
 
-        // Get builder's address and create multiple transactions with different fees
-        let known_wallet = Signer::try_from_secret(BUILDER_PRIVATE_KEY.parse()?)?;
-        let builder_address = known_wallet.address;
-
-        // Get current nonce from chain
-        let nonce = provider.get_transaction_count(builder_address).await?;
-
         // Create transactions with increasing fee values
         let priority_fees: [u128; 5] = [1, 3, 5, 2, 4]; // Deliberately not in order
+        let signers = vec![
+            Signer::random(),
+            Signer::random(),
+            Signer::random(),
+            Signer::random(),
+            Signer::random(),
+        ];
         let mut txs = Vec::new();
+
+        // Fund test accounts with deposits
+        for signer in &signers {
+            generator
+                .deposit(signer.address, 1000000000000000000)
+                .await?;
+        }
 
         // Send transactions in non-optimal fee order
         for (i, priority_fee) in priority_fees.iter().enumerate() {
             let tx_request = OpTypedTransaction::Eip1559(TxEip1559 {
                 chain_id: 901,
-                nonce: nonce + i as u64,
+                nonce: 1,
                 gas_limit: 210000,
                 max_fee_per_gas: base_fee as u128 + *priority_fee,
                 max_priority_fee_per_gas: *priority_fee,
                 ..Default::default()
             });
-            let signed_tx = known_wallet.sign_tx(tx_request)?;
+            let signed_tx = signers[i].sign_tx(tx_request)?;
             let tx = provider
                 .send_raw_transaction(signed_tx.encoded_2718().as_slice())
                 .await?;
