@@ -127,7 +127,9 @@ impl MevBoostSlotDataGenerator {
     pub fn spawn(self) -> (JoinHandle<()>, mpsc::UnboundedReceiver<MevBoostSlotData>) {
         let relays = RelaysForSlotData::new(&self.relays);
 
-        let mut payload_counter = 0;
+        // we generate first payload id randomly so logs don't have the same payload id after restarts
+        // u32 is used because it will fit into json log as integer and its enough to be unique over long interval
+        let mut payload_counter = rand::random::<u32>() as u64;
 
         let (send, receive) = mpsc::unbounded_channel();
         let handle = tokio::spawn(async move {
