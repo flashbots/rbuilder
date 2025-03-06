@@ -107,7 +107,7 @@ mod tests {
         }
         // there must be a line logging the monitoring transaction
         op_rbuilder
-            .find_log_line("Committed block built by builder")
+            .find_log_line("Committed block built by builder") // no builder tx for flashblocks builder
             .await?;
 
         // Wait for specific messages or timeout
@@ -254,7 +254,7 @@ mod tests {
                     .transactions
                     .hashes()
                     .any(|hash| hash == *reverting_tx.tx_hash()),
-                "reverted transaction unexpectedly included in block"
+                "reverted transaction unexpectedly included in block" // flashblock builder still includes reverted txs
             );
             for hash in block.transactions.hashes() {
                 let receipt = provider

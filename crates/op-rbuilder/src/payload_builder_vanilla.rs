@@ -80,6 +80,7 @@ use tracing::{info, trace, warn};
 #[non_exhaustive]
 pub struct CustomOpPayloadBuilder {
     builder_signer: Option<Signer>,
+    #[allow(dead_code)]
     flashblocks_ws_url: String,
 }
 
