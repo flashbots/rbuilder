@@ -33,7 +33,7 @@ use building::BlockBuildingPool;
 use eyre::Context;
 use jsonrpsee::RpcModule;
 use order_input::ReplaceableOrderPoolCommand;
-use payload_events::MevBoostSlotData;
+use payload_events::{InternalPayloadId, MevBoostSlotData};
 use reth::transaction_pool::{
     BlobStore, EthPooledTransaction, Pool, TransactionListenerKind, TransactionOrdering,
     TransactionPool, TransactionValidator,
@@ -247,7 +247,16 @@ where
                 // @Nicer
                 let parent_block = payload.parent_block_hash();
                 let timestamp = payload.timestamp();
-                match wait_for_block_header(parent_block, timestamp, &self.provider, &timings).await
+                let block_number = payload.block();
+                match wait_for_block_header(
+                    block_number,
+                    parent_block,
+                    payload.payload_id,
+                    timestamp,
+                    &self.provider,
+                    &timings,
+                )
+                .await
                 {
                     Ok(header) => header,
                     Err(err) => {
@@ -362,7 +371,9 @@ where
 
 /// May fail if we wait too much (see [BLOCK_HEADER_DEAD_LINE_DELTA])
 async fn wait_for_block_header<P>(
-    block: B256,
+    block: u64,
+    parent_hash: B256,
+    payload_id: InternalPayloadId,
     slot_time: OffsetDateTime,
     provider: &P,
     timings: &TimingsConfig,
@@ -371,18 +382,45 @@ where
     P: StateProviderFactory,
 {
     let deadline = slot_time + timings.block_header_deadline_delta;
-    while OffsetDateTime::now_utc() < deadline {
-        if let Some(header) = provider.header(&block)? {
+    let mut sleep_duration: Option<Duration> = None;
+    loop {
+        if let Some(sleep_duration) = sleep_duration.take() {
+            tokio::time::sleep(sleep_duration).await;
+        }
+
+        if let Some(header) = provider.header(&parent_hash)? {
+            info!(
+                block,
+                ?parent_hash,
+                payload_id,
+                "Payload parent header found"
+            );
             return Ok(header);
         } else {
+            let current_parent_hash = provider
+                .header_by_number(block.checked_sub(1).unwrap_or(1))?
+                .map(|h| h.hash_slow());
+            info!(
+                block,
+                ?parent_hash,
+                ?current_parent_hash,
+                payload_id,
+                "Payload parent header not found, trying again"
+            );
+
             let time_to_sleep = min(
                 deadline - OffsetDateTime::now_utc(),
                 timings.get_block_header_period,
             );
             if time_to_sleep.is_negative() {
-                break;
+                sleep_duration = None;
+            } else {
+                sleep_duration = Some(time_to_sleep.try_into().unwrap());
             }
-            tokio::time::sleep(time_to_sleep.try_into().unwrap()).await;
+        }
+
+        if OffsetDateTime::now_utc() > deadline {
+            break;
         }
     }
     Err(eyre::eyre!("Block header not found"))
