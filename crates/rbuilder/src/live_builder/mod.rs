@@ -389,12 +389,6 @@ where
         }
 
         if let Some(header) = provider.header(&parent_hash)? {
-            info!(
-                block,
-                ?parent_hash,
-                payload_id,
-                "Payload parent header found"
-            );
             return Ok(header);
         } else {
             let current_parent_hash = provider
