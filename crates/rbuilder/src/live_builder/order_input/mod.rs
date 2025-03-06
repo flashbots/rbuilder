@@ -232,7 +232,7 @@ where
     let mut handles = vec![clean_job, rpc_server];
 
     if config.mempool_source.is_some() {
-        info!("IPC path configured, starting txpool subscription");
+        info!("Txpool source configured, starting txpool subscription");
         let txpool_fetcher = txpool_fetcher::subscribe_to_txpool_with_blobs(
             config.clone(),
             order_sender.clone(),
@@ -241,7 +241,7 @@ where
         .await?;
         handles.push(txpool_fetcher);
     } else {
-        info!("No IPC path configured, skipping txpool subscription");
+        info!("No Txpool source configured, skipping txpool subscription");
     }
 
     let handle = tokio::spawn(async move {

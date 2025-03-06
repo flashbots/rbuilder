@@ -26,7 +26,7 @@ pub async fn subscribe_to_txpool_with_blobs(
 ) -> eyre::Result<JoinHandle<()>> {
     let mempool = config
         .mempool_source
-        .ok_or_else(|| eyre::eyre!("No TX source configured"))?;
+        .ok_or_else(|| eyre::eyre!("No txpool source configured"))?;
 
     let provider = match mempool {
         MempoolSource::Ipc(path) => {

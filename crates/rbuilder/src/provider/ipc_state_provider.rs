@@ -44,7 +44,7 @@ const DEFAULT_STATE_CACHE_SIZE: usize = 128;
 
 /// Remote state provider factory allows providing state via remote RPC calls over IPC
 /// Specifically UnixDomainSockets
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct IpcStateProviderFactory {
     ipc_provider: RpcProvider,
 
@@ -59,7 +59,7 @@ impl IpcStateProviderFactory {
         let ipc_provider = RpcProvider::try_connect(ipc_path, req_timeout.into())
             // there is no need to gracefully handle (or propagate) this error, if we cannot connect
             // to IPC, then rbuilder cannot work
-            .expect("Can't connect to IPC");
+            .expect("can't connect to IPC");
 
         Self {
             ipc_provider,
@@ -131,8 +131,8 @@ impl StateProviderFactory for IpcStateProviderFactory {
 
     /// Gets block header given block hash
     fn header(&self, block_hash: &BlockHash) -> ProviderResult<Option<Header>> {
-        let id: u64 = rand::random();
-        let span = trace_span!("header", id, block_hash = %block_hash.to_string());
+        let span =
+            trace_span!("header", id = rand::random::<u64>(), block_hash = %block_hash.to_string());
         let _guard = span.enter();
         trace!("header: get");
 
@@ -145,30 +145,27 @@ impl StateProviderFactory for IpcStateProviderFactory {
             .map_err(ipc_to_provider_error)?
             .map(|b| b.header.inner);
 
-        if header.is_none() {
-            trace!("header: got none");
-            return Ok(None);
-        }
-
         trace!("header: got");
-
         Ok(header)
     }
 
     /// Gets block hash given block number
     fn block_hash(&self, number: BlockNumber) -> ProviderResult<Option<B256>> {
-        let id: u64 = rand::random();
-        let span = trace_span!("block_hash provider factory", id, block_num = number);
+        let span = trace_span!(
+            "block_hash provider factory",
+            id = rand::random::<u64>(),
+            block_num = number
+        );
         let _guard = span.enter();
         trace!("block_hash:get");
 
         let block_hash = self
             .ipc_provider
-            .call::<_, B256>("rbuilder_getBlockHash", (BlockNumberOrTag::Number(number),))
+            .call::<_, Option<B256>>("rbuilder_getBlockHash", (BlockNumberOrTag::Number(number),))
             .map_err(ipc_to_provider_error)?;
 
         trace!("block_hash: got");
-        Ok(Some(block_hash))
+        Ok(block_hash)
     }
 
     /// Gets block number of latest known block
@@ -178,8 +175,11 @@ impl StateProviderFactory for IpcStateProviderFactory {
 
     /// Gets block header given block hash
     fn header_by_number(&self, num: u64) -> ProviderResult<Option<Header>> {
-        let id: u64 = rand::random();
-        let span = trace_span!("header_by_number", id, block_num = num);
+        let span = trace_span!(
+            "header_by_number",
+            id = rand::random::<u64>(),
+            block_num = num
+        );
         let _guard = span.enter();
         trace!("header_by_num:get");
 
@@ -189,22 +189,16 @@ impl StateProviderFactory for IpcStateProviderFactory {
                 "eth_getBlockByNumber",
                 (num, false),
             )
-            .map_err(ipc_to_provider_error)?;
-
-        if block.is_none() {
-            trace!("header_by_num: got none");
-            return Ok(None);
-        }
+            .map_err(ipc_to_provider_error)?
+            .map(|b| b.header.inner);
 
         trace!("header_by_num: got");
-
-        Ok(block.map(|b| b.header.inner))
+        Ok(block)
     }
 
     /// Gets block number of latest known block
     fn last_block_number(&self) -> ProviderResult<BlockNumber> {
-        let id: u64 = rand::random();
-        let span = trace_span!("last_block_num", id);
+        let span = trace_span!("last_block_num", id = rand::random::<u64>());
         let _guard = span.enter();
         trace!("last_block_num:get");
 
@@ -227,15 +221,18 @@ impl StateProviderFactory for IpcStateProviderFactory {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct IpcStateProvider {
     ipc_provider: RpcProvider,
     block_id: BlockId,
 
-    //Per block cache
+    // Per block cache
     block_hash_cache: DashMap<u64, BlockHash>,
-    storage_cache: DashMap<(Address, StorageKey), StorageValue>,
-    account_cache: DashMap<Address, Account>,
+    // Note: It's ok to cache Account (and Storage) even in case of None, this is because StateProvider gives the
+    // state for some past block, so if account didn't exist the first time, it cannot magically
+    // appear later on
+    account_cache: DashMap<Address, Option<Account>>,
+    storage_cache: DashMap<(Address, StorageKey), Option<StorageValue>>,
 
     // Global cache (cache not related to specific block)
     code_cache: Arc<DashMap<B256, Bytecode>>,
@@ -262,6 +259,7 @@ impl IpcStateProvider {
 
     /// Crates new instance of state provider on the heap
     // Box::new(Arc::new(Self)) is required because StateProviderFactory returns Box<dyn StateProvider>
+    // Note: this is known clippy issue: https://github.com/rust-lang/rust-clippy/issues/7472
     #[allow(clippy::redundant_allocation)]
     fn into_boxed(
         ipc_provider: RpcProvider,
@@ -279,32 +277,30 @@ impl StateProvider for IpcStateProvider {
         account: Address,
         storage_key: StorageKey,
     ) -> ProviderResult<Option<StorageValue>> {
-        let id: u64 = rand::random();
-        let span = trace_span!("storage", id);
+        let span = trace_span!("storage", id = rand::random::<u64>());
         let _guard = span.enter();
         trace!("storage:get");
 
         if let Some(storage) = self.storage_cache.get(&(account, storage_key)) {
-            return Ok(Some(*storage));
+            return Ok(*storage);
         }
 
         let key: U256 = storage_key.into();
         let storage = self
             .ipc_provider
-            .call::<_, StorageValue>("eth_getStorageAt", (account, key))
+            .call::<_, Option<StorageValue>>("eth_getStorageAt", (account, key))
             .map_err(ipc_to_provider_error)?;
 
         self.storage_cache.insert((account, storage_key), storage);
 
         trace!("got storage");
-        Ok(Some(storage))
+        Ok(storage)
     }
 
     /// Get account code by its hash
     /// IMPORTANT: Assumes remote provider (node) has RPC call:"rbuilder_getCodeByHash"
     fn bytecode_by_hash(&self, code_hash: &B256) -> ProviderResult<Option<Bytecode>> {
-        let id: u64 = rand::random();
-        let span = trace_span!("bytecode", id);
+        let span = trace_span!("bytecode", id = rand::random::<u64>());
         let _guard = span.enter();
         trace!("bytecode:get");
 
@@ -317,17 +313,18 @@ impl StateProvider for IpcStateProvider {
             return Ok(Some(bytecode.clone()));
         }
 
-        let bytes = self
+        let bytecode = self
             .ipc_provider
-            .call::<_, Bytes>("rbuilder_getCodeByHash", (code_hash,))
-            .map_err(ipc_to_provider_error)?;
+            .call::<_, Option<Bytes>>("rbuilder_getCodeByHash", (code_hash,))
+            .map_err(ipc_to_provider_error)?
+            .map(|b| {
+                let bytecode = Bytecode::new_raw(b);
+                self.code_cache.insert(*code_hash, bytecode.clone());
+                bytecode
+            });
 
-        let bytecode = Bytecode::new_raw(bytes);
-
-        self.code_cache.insert(*code_hash, bytecode.clone());
         trace!("bytecode: got");
-
-        Ok(Some(bytecode))
+        Ok(bytecode)
     }
 }
 
@@ -335,22 +332,25 @@ impl BlockHashReader for IpcStateProvider {
     /// Get the hash of the block with the given number. Returns `None` if no block with this number exists
     /// IMPORTANT: Assumes IPC provider (node) has RPC call:"rbuilder_getBlockHash"
     fn block_hash(&self, number: BlockNumber) -> ProviderResult<Option<B256>> {
-        let id: u64 = rand::random();
-        let span = trace_span!("block_hash provider", id);
+        let span = trace_span!("block_hash provider", id = rand::random::<u64>());
         let _guard = span.enter();
         trace!("block_hash: get");
 
         if let Some(hash) = self.block_hash_cache.get(&number) {
             return Ok(Some(*hash));
         }
+
         let block_hash = self
             .ipc_provider
-            .call::<_, B256>("rbuilder_getBlockHash", (BlockNumberOrTag::Number(number),))
+            .call::<_, Option<B256>>("rbuilder_getBlockHash", (BlockNumberOrTag::Number(number),))
             .map_err(ipc_to_provider_error)?;
 
-        self.block_hash_cache.insert(number, block_hash);
+        if let Some(bh) = block_hash {
+            self.block_hash_cache.insert(number, bh);
+        }
+
         trace!("block_hash provider: got");
-        Ok(Some(block_hash))
+        Ok(block_hash)
     }
 
     fn canonical_hashes_range(
@@ -367,30 +367,32 @@ impl AccountReader for IpcStateProvider {
     /// IMPORTANT: Assumes IPC provider (node) has RPC call:"rbuilder_getAccount"
     /// Returns `None` if the account doesn't exist.
     fn basic_account(&self, address: &Address) -> ProviderResult<Option<Account>> {
-        let id: u64 = rand::random();
-        let span = trace_span!("account", id, address = address.to_string());
+        let span = trace_span!(
+            "account",
+            id = rand::random::<u64>(),
+            address = address.to_string()
+        );
         let _guard = span.enter();
         trace!("account: get");
 
         if let Some(account) = self.account_cache.get(address) {
-            return Ok(Some(*account));
+            return Ok(*account);
         }
 
         let account = self
             .ipc_provider
-            .call::<_, AccountState>("rbuilder_getAccount", (*address, self.block_id))
-            .map_err(ipc_to_provider_error)?;
-
-        let account = Account {
-            nonce: account.nonce.try_into().unwrap(),
-            bytecode_hash: account.code_hash.into(),
-            balance: account.balance,
-        };
+            .call::<_, Option<AccountState>>("rbuilder_getAccount", (*address, self.block_id))
+            .map_err(ipc_to_provider_error)?
+            .map(|a| Account {
+                nonce: a.nonce.try_into().unwrap(),
+                bytecode_hash: a.code_hash.into(),
+                balance: a.balance,
+            });
 
         self.account_cache.insert(*address, account);
 
         trace!("account: got");
-        Ok(Some(account))
+        Ok(account)
     }
 }
 
@@ -479,7 +481,7 @@ impl HashedPostStateProvider for IpcStateProvider {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct StatRootHashCalculator {
     remote_provider: RpcProvider,
     parent_hash: B256,
@@ -500,8 +502,11 @@ impl RootHasher for StatRootHashCalculator {
         &self,
         outcome: &reth_provider::ExecutionOutcome,
     ) -> Result<B256, crate::roothash::RootHashError> {
-        let id: u64 = rand::random();
-        let span = trace_span!("state_root", id, block = outcome.first_block);
+        let span = trace_span!(
+            "state_root",
+            id = rand::random::<u64>(),
+            block = outcome.first_block
+        );
         let _guard = span.enter();
         trace!("state_root: get");
 
@@ -521,14 +526,7 @@ impl RootHasher for StatRootHashCalculator {
             .map_err(|_| crate::roothash::RootHashError::Verification)?;
 
         trace!("state_root: got");
-
         Ok(hash)
-    }
-}
-
-impl derive_more::Debug for StatRootHashCalculator {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("StatRootHashCalculator").finish()
     }
 }
 
