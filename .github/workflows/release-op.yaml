@@ -192,15 +192,12 @@ jobs:
             # Push latest tag for full version only, not for prerelease versions (i.e. not for v1.2.3-rc1)
             type=raw,value=latest,enable=${{ !contains(env.VERSION, '-') }}
 
-      # - name: docker login
-      #   uses: docker/login-action@v3
-      #   with:
-      #     registry: ghcr.io
-      #     username: ${{ github.actor }}
-      #     password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Log in to JFrog Artifactory
-        run: docker login ${{ env.DOCKER_REGISTRY }} -u ${{ secrets.ARTIFACTORY_MODULAR_USERNAME }} -p ${{ secrets.ARTIFACTORY_MODULAR_TOKEN_DEVELOPER }}
+      - name: docker login
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.ARTIFACTORY_MODULAR_USERNAME }}
+          password: ${{ secrets.ARTIFACTORY_MODULAR_TOKEN_DEVELOPER }}
 
       - name: docker build and push op-rbuilder
         uses: docker/build-push-action@v5
