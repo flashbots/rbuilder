@@ -569,7 +569,6 @@ where
         .collect::<Vec<_>>();
 
     let new_receipts = info.receipts[info.last_flashblock_index..].to_vec();
-
     let receipts_with_hash = new_transactions
         .iter()
         .zip(new_receipts.iter())

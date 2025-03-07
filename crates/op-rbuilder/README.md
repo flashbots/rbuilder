@@ -53,7 +53,7 @@ To run the integration tests, run:
 cargo run -p op-rbuilder --bin tester --features optimism -- genesis --output genesis.json
 
 # Build the op-rbuilder binary
-cargo build -p op-rbuilder --bin op-rbuilder --features optimism,flashblocks
+cargo build -p op-rbuilder --bin op-rbuilder --features optimism
 
 # Run the integration tests
 cargo run -p op-rbuilder --bin tester --features optimism -- run

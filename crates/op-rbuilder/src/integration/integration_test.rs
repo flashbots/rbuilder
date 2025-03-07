@@ -309,7 +309,7 @@ mod tests {
             .find_log_line("Processing new chain commit") // no builder tx for flashblocks builder
             .await?;
 
-        // Wait for specific messages or timeout
+        // Process websocket messages
         let timeout_duration = Duration::from_secs(10);
         tokio::time::timeout(timeout_duration, async {
             let mut message_count = 0;
