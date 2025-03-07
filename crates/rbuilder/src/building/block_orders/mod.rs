@@ -1,5 +1,5 @@
 pub mod multi_share_bundle_merger;
-mod prioritized_order_store;
+pub mod prioritized_order_store;
 mod share_bundle_merger;
 
 #[cfg(test)]

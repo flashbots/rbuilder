@@ -61,3 +61,7 @@ name = "parallel"
 algo = "parallel-builder"
 discard_txs = true
 num_threads = 25
+
+[bob_config]
+diff_server_port = 8547
+stream_start_ms = 2000

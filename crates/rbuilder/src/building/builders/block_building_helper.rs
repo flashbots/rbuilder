@@ -140,6 +140,18 @@ impl BiddableUnfinishedBlock {
     pub fn into_building_helper(self) -> Box<dyn BlockBuildingHelper> {
         self.block
     }
+
+    pub fn building_context(&self) -> &BlockBuildingContext {
+        self.block.building_context()
+    }
+
+    pub fn get_bundle_state(&self) -> &BundleState {
+        self.block.get_bundle_state()
+    }
+
+    pub fn gas_remaining(&self) -> u64 {
+        self.block.gas_remaining()
+    }
 }
 
 /// Implementation of BlockBuildingHelper based on a generic Provider

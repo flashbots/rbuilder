@@ -109,6 +109,7 @@ async fn main() -> eyre::Result<()> {
         extra_rpc: RpcModule::new(()),
         sink_factory: Box::new(TraceBlockSinkFactory {}),
         builders: vec![Arc::new(DummyBuildingAlgorithm::new(10))],
+        bob_builder: None,
         run_sparse_trie_prefetcher: false,
         orderpool_sender,
         orderpool_receiver,

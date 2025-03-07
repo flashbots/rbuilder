@@ -18,6 +18,7 @@ use crate::{
     beacon_api_client::Client,
     building::{
         builders::{
+            bob_builder::{BobBuilder, BobBuilderConfig},
             ordering_builder::{OrderingBuilderConfig, OrderingBuildingAlgorithm},
             parallel_builder::{
                 parallel_build_backtest, ParallelBuilderConfig, ParallelBuildingAlgorithm,
@@ -93,12 +94,31 @@ pub struct BuilderConfig {
 #[serde_as]
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
+pub struct BobConfig {
+    pub diff_server_port: u16,
+    pub stream_start_ms: u64,
+}
+
+impl Default for BobConfig {
+    fn default() -> Self {
+        Self {
+            diff_server_port: 8547,
+            stream_start_ms: 2000,
+        }
+    }
+}
+
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields)]
 pub struct Config {
     #[serde(flatten)]
     pub base_config: BaseConfig,
 
     #[serde(flatten)]
     pub l1_config: L1Config,
+
+    pub bob_config: Option<BobConfig>,
 
     /// selected builder configurations
     pub builders: Vec<BuilderConfig>,
@@ -389,6 +409,20 @@ impl LiveBuilderConfig for Config {
                 blocklist_provider,
             )
             .await?;
+        let live_builder = match &self.bob_config {
+            Some(config) => {
+                let config = BobBuilderConfig::from_config(
+                    config,
+                    live_builder.order_input_config.server_ip,
+                    // We might want to use an specific cfg or move this out of order_input_config
+                    live_builder.order_input_config.results_channel_timeout,
+                    live_builder.order_input_config.input_channel_buffer_size,
+                );
+                let bob_builder = BobBuilder::new(config).await?;
+                live_builder.with_bob_builder(bob_builder)
+            }
+            None => live_builder,
+        };
         let builders = create_builders(self.live_builders()?);
         Ok(live_builder.with_builders(builders))
     }
@@ -440,6 +474,7 @@ impl Default for Config {
         Self {
             base_config: Default::default(),
             l1_config: Default::default(),
+            bob_config: None,
             builders: vec![
                 BuilderConfig {
                     name: "mgp-ordering".to_string(),

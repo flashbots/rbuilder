@@ -5,7 +5,8 @@ use std::{cell::RefCell, rc::Rc, sync::Arc, thread, time::Duration};
 use crate::{
     building::{
         builders::{
-            BlockBuildingAlgorithm, BlockBuildingAlgorithmInput, UnfinishedBlockBuildingSinkFactory,
+            bob_builder::BobBuilder, BlockBuildingAlgorithm, BlockBuildingAlgorithmInput,
+            UnfinishedBlockBuildingSinkFactory,
         },
         multi_share_bundle_merger::MultiShareBundleMerger,
         simulated_order_command_to_sink, BlockBuildingContext, SimulatedOrderSink,
@@ -35,6 +36,7 @@ use super::{
 pub struct BlockBuildingPool<P> {
     provider: P,
     builders: Vec<Arc<dyn BlockBuildingAlgorithm<P>>>,
+    bob_builder: Option<BobBuilder>,
     sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
     orderpool_subscriber: order_input::OrderPoolSubscriber,
     order_simulation_pool: OrderSimulationPool<P>,
@@ -46,9 +48,11 @@ impl<P> BlockBuildingPool<P>
 where
     P: StateProviderFactory + Clone + 'static,
 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         provider: P,
         builders: Vec<Arc<dyn BlockBuildingAlgorithm<P>>>,
+        bob_builder: Option<BobBuilder>,
         sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
         orderpool_subscriber: order_input::OrderPoolSubscriber,
         order_simulation_pool: OrderSimulationPool<P>,
@@ -58,6 +62,7 @@ where
         BlockBuildingPool {
             provider,
             builders,
+            bob_builder,
             sink_factory,
             orderpool_subscriber,
             order_simulation_pool,
@@ -121,7 +126,16 @@ where
         input: SlotOrderSimResults,
         cancel: CancellationToken,
     ) {
-        let builder_sink = self.sink_factory.create_sink(slot_data, cancel.clone());
+        let builder_sink = self
+            .sink_factory
+            .create_sink(slot_data.clone(), cancel.clone());
+        let builder_sink = match self.bob_builder.clone() {
+            Some(builder) => {
+                Arc::new(builder.new_handle(builder_sink, slot_data.timestamp(), cancel.clone()))
+            }
+            None => builder_sink,
+        };
+
         let (broadcast_input, _) = broadcast::channel(10_000);
         let muxer = Arc::new(UnfinishedBlockBuildingSinkMuxer::new(builder_sink));
 
