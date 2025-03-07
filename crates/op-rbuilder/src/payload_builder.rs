@@ -74,6 +74,15 @@ use tokio::sync::mpsc;
 use tokio_tungstenite::accept_async;
 use tokio_tungstenite::WebSocketStream;
 
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Serialize, Deserialize)]
+struct FlashblocksMetadata<N: NodePrimitives> {
+    receipts: HashMap<B256, N::Receipt>,
+    new_account_balances: HashMap<Address, U256>,
+    block_number: u64,
+}
+
 #[derive(Debug, Clone, Default)]
 #[non_exhaustive]
 pub struct CustomOpPayloadBuilder {
@@ -572,11 +581,11 @@ where
         .filter_map(|(address, account)| account.info.as_ref().map(|info| (*address, info.balance)))
         .collect::<HashMap<Address, U256>>();
 
-    let metadata = serde_json::json!({
-        "receipts": receipts_with_hash,
-        "new_account_balances": new_account_balances,
-        "block_number": ctx.parent().number + 1,
-    });
+    let metadata: FlashblocksMetadata<N> = FlashblocksMetadata {
+        receipts: receipts_with_hash,
+        new_account_balances,
+        block_number: ctx.parent().number + 1,
+    };
 
     // Prepare the flashblocks message
     let fb_payload = FlashblocksPayloadV1 {
@@ -606,7 +615,7 @@ where
             transactions: new_transactions_encoded,
             withdrawals: ctx.withdrawals().cloned().unwrap_or_default().to_vec(),
         },
-        metadata,
+        metadata: serde_json::to_value(&metadata).unwrap_or_default(),
     };
 
     Ok((

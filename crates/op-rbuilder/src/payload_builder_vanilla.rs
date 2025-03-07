@@ -80,16 +80,22 @@ use tracing::{info, trace, warn};
 #[non_exhaustive]
 pub struct CustomOpPayloadBuilder {
     builder_signer: Option<Signer>,
-    #[allow(dead_code)]
+    #[cfg(feature = "flashblocks")]
     flashblocks_ws_url: String,
 }
 
 impl CustomOpPayloadBuilder {
+    #[cfg(feature = "flashblocks")]
     pub fn new(builder_signer: Option<Signer>, flashblocks_ws_url: String) -> Self {
         Self {
             builder_signer,
             flashblocks_ws_url,
         }
+    }
+
+    #[cfg(not(feature = "flashblocks"))]
+    pub fn new(builder_signer: Option<Signer>, _flashblocks_ws_url: String) -> Self {
+        Self { builder_signer }
     }
 }
 
