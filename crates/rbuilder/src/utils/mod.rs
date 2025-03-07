@@ -33,7 +33,7 @@ use reth_chainspec::ChainSpec;
 use reth_evm_ethereum::revm_spec_by_timestamp_and_block_number;
 use revm_primitives::{CfgEnv, CfgEnvWithHandlerCfg};
 pub use test_data_generator::TestDataGenerator;
-use time::OffsetDateTime;
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 pub use tx_signer::Signer;
 
 /// de/serializes U256 as decimal value (U256 serde default is hexa). Needed to interact with some JSONs (eg:ProposerPayloadDelivered in relay provider API)
@@ -198,6 +198,12 @@ pub fn extract_onchain_block_txs(
         result.push(tx.tx_with_blobs);
     }
     Ok(result)
+}
+
+pub fn format_offset_datetime_rfc3339(datetime: &OffsetDateTime) -> String {
+    datetime
+        .format(&Rfc3339)
+        .expect("failed to format datetime")
 }
 
 #[cfg(test)]

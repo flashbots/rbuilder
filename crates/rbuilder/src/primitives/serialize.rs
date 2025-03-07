@@ -137,7 +137,7 @@ pub struct RawBundle {
     /// calculated. Defaults to final transaction in the bundle if list is not specified/empty.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refund_tx_hashes: Option<Vec<TxHash>>,
-    /// firstSeenAt `Number`, timestamp at which bundle was first seen,
+    /// firstSeenAt `Number`, timestamp (seconds) at which bundle was first seen,
     /// used for ensuring we respect the order of uuid bundles that
     /// were first received elsewhere
     #[derivative(PartialEq = "ignore")]

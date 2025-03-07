@@ -156,7 +156,9 @@ pub fn run_trie_prefetcher<P>(
                 return;
             }
             Err(err) => {
-                error!(?err, "Error while prefetching trie nodes");
+                if !err.is_db_consistency_error() {
+                    error!(?err, "Error while prefetching trie nodes");
+                }
             }
         }
         trace!(

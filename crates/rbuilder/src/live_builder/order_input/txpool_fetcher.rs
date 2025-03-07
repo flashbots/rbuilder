@@ -67,7 +67,7 @@ pub async fn subscribe_to_txpool_with_blobs(
             add_txfetcher_time_to_query(parse_duration);
 
             let orderpool_command = ReplaceableOrderPoolCommand::Order(order);
-            mark_command_received(&orderpool_command, received_at);
+            mark_command_received(&orderpool_command, received_at, None);
             match results
                 .send_timeout(orderpool_command, config.results_channel_timeout)
                 .await

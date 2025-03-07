@@ -15,7 +15,7 @@ use crate::{
         SlotSource,
     },
     primitives::mev_boost::{MevBoostRelayID, MevBoostRelaySlotInfoProvider},
-    utils::timestamp_ms_to_offset_datetime,
+    utils::{format_offset_datetime_rfc3339, timestamp_ms_to_offset_datetime},
 };
 use alloy_eips::{merge::SLOT_DURATION, BlockNumHash};
 use alloy_primitives::{utils::format_ether, Address, B256, U256};
@@ -127,7 +127,9 @@ impl MevBoostSlotDataGenerator {
     pub fn spawn(self) -> (JoinHandle<()>, mpsc::UnboundedReceiver<MevBoostSlotData>) {
         let relays = RelaysForSlotData::new(&self.relays);
 
-        let mut payload_counter = 0;
+        // we generate first payload id randomly so logs don't have the same payload id after restarts
+        // u32 is used because it will fit into json log as integer and its enough to be unique over long interval
+        let mut payload_counter = rand::random::<u32>() as u64;
 
         let (send, receive) = mpsc::unbounded_channel();
         let handle = tokio::spawn(async move {
@@ -160,7 +162,7 @@ impl MevBoostSlotDataGenerator {
                     slot,
                     block,
                     ?parent_hash,
-                    ?timestamp,
+                    payload_timestamp = format_offset_datetime_rfc3339(&timestamp),
                     "Payload attributes received from CL client"
                 );
 
