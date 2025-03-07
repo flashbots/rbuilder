@@ -46,9 +46,15 @@ impl RootHashError {
     pub fn is_consistent_db_view_err(&self) -> bool {
         let provider_error = match self {
             RootHashError::AsyncStateRoot(ParallelStateRootError::Provider(p)) => p,
-            RootHashError::SparseStateRoot(SparseTrieError::FetchNode(
-                FetchNodeError::Provider(p),
-            )) => p,
+            RootHashError::SparseStateRoot(sparse_state_root_err) => {
+                if let SparseTrieError::FetchNode(FetchNodeError::Provider(p)) =
+                    sparse_state_root_err
+                {
+                    p
+                } else {
+                    return sparse_state_root_err.is_db_consistency_error();
+                }
+            }
             _ => return false,
         };
 
