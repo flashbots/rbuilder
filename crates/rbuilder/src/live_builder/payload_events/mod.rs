@@ -15,7 +15,7 @@ use crate::{
         SlotSource,
     },
     primitives::mev_boost::{MevBoostRelayID, MevBoostRelaySlotInfoProvider},
-    utils::timestamp_ms_to_offset_datetime,
+    utils::{format_offset_datetime_rfc3339, timestamp_ms_to_offset_datetime},
 };
 use alloy_eips::{merge::SLOT_DURATION, BlockNumHash};
 use alloy_primitives::{utils::format_ether, Address, B256, U256};
@@ -162,7 +162,7 @@ impl MevBoostSlotDataGenerator {
                     slot,
                     block,
                     ?parent_hash,
-                    ?timestamp,
+                    payload_timestamp = format_offset_datetime_rfc3339(&timestamp),
                     "Payload attributes received from CL client"
                 );
 
