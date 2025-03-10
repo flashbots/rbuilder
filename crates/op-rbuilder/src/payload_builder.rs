@@ -1,9 +1,9 @@
 use std::{fmt::Display, sync::Arc, sync::Mutex};
 
 use crate::{
-    generator::{BlockPayloadJobGenerator, BlockCell, BuildArguments, PayloadBuilder},
+    generator::{BlockCell, BlockPayloadJobGenerator, BuildArguments, PayloadBuilder},
+    primitives::reth::{ExecutedPayload, ExecutionInfo},
     tx_signer::Signer,
-    primitives::reth::{ExecutedPayload, ExecutionInfo}
 };
 use alloy_consensus::{Eip658Value, Header, Transaction, Typed2718, EMPTY_OMMER_ROOT_HASH};
 use alloy_eips::merge::BEACON_NONCE;

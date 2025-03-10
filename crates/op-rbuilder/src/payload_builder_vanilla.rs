@@ -3,8 +3,8 @@ use crate::generator::BuildArguments;
 use crate::{
     generator::{BlockCell, PayloadBuilder},
     metrics::OpRBuilderMetrics,
+    primitives::reth::{ExecutedPayload, ExecutionInfo},
     tx_signer::Signer,
-    primitives::reth::{ExecutionInfo, ExecutedPayload}
 };
 use alloy_consensus::constants::EMPTY_WITHDRAWALS;
 use alloy_consensus::transaction::Recovered;

@@ -1,9 +1,9 @@
-//! [Source]()
-use reth_node_api::NodePrimitives;
-use alloy_primitives::{Address, TxHash, B256, U256};
-use std::collections::HashSet;
+//! Heavily influenced by [reth](https://github.com/paradigmxyz/reth/blob/1e965caf5fa176f244a31c0d2662ba1b590938db/crates/optimism/payload/src/builder.rs#L570)
 use alloy_consensus::Transaction;
 use alloy_primitives::private::alloy_rlp::Encodable;
+use alloy_primitives::{Address, TxHash, B256, U256};
+use reth_node_api::NodePrimitives;
+use std::collections::HashSet;
 
 /// Holds the state after execution
 #[derive(Debug)]
@@ -34,7 +34,6 @@ pub struct ExecutionInfo<N: NodePrimitives> {
     /// Index of the last consumed flashblock
     pub last_flashblock_index: usize,
 }
-
 
 impl<N: NodePrimitives> ExecutionInfo<N> {
     /// Create a new instance with allocated slots.

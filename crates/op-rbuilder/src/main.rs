@@ -21,10 +21,10 @@ mod monitoring;
 pub mod payload_builder;
 #[cfg(not(feature = "flashblocks"))]
 mod payload_builder_vanilla;
+mod primitives;
 #[cfg(test)]
 mod tester;
 mod tx_signer;
-mod primitives;
 
 fn main() {
     Cli::<OpChainSpecParser, args::OpRbuilderArgs>::parse()
