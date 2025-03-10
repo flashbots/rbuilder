@@ -16,10 +16,9 @@ use crate::{
 };
 use ahash::HashSet;
 use alloy_eips::eip4844::BlobTransactionSidecar;
-use alloy_primitives::{Address, Bytes, B256};
+use alloy_primitives::{Address, Bytes};
 use block_building_helper::BiddableUnfinishedBlock;
 use reth::{primitives::SealedBlock, revm::cached::CachedReads};
-use reth_errors::ProviderError;
 use std::{fmt::Debug, sync::Arc};
 use tokio::sync::{
     broadcast,
@@ -115,8 +114,8 @@ impl OrderConsumer {
 }
 
 #[derive(Debug)]
-pub struct OrderIntakeConsumer<P> {
-    nonce_cache: NonceCache<P>,
+pub struct OrderIntakeConsumer {
+    nonces: NonceCache,
 
     block_orders: PrioritizedOrderStore,
     onchain_nonces_updated: HashSet<Address>,
@@ -124,21 +123,15 @@ pub struct OrderIntakeConsumer<P> {
     order_consumer: OrderConsumer,
 }
 
-impl<P> OrderIntakeConsumer<P>
-where
-    P: StateProviderFactory,
-{
+impl OrderIntakeConsumer {
     /// See [`ShareBundleMerger`] for sbundle_merger_selected_signers
     pub fn new(
-        provider: P,
+        nonces: NonceCache,
         orders: broadcast::Receiver<SimulatedOrderCommand>,
-        parent_block: B256,
         sorting: Sorting,
     ) -> Self {
-        let nonce_cache = NonceCache::new(provider, parent_block);
-
         Self {
-            nonce_cache,
+            nonces,
             block_orders: PrioritizedOrderStore::new(sorting, vec![]),
             onchain_nonces_updated: HashSet::default(),
             order_consumer: OrderConsumer::new(orders),
@@ -170,18 +163,13 @@ where
                 SimulatedOrderCommand::Simulation(sim_order) => Some(sim_order),
                 SimulatedOrderCommand::Cancellation(_) => None,
             });
-        let nonce_db_ref = match self.nonce_cache.get_ref() {
-            Ok(nonce_db_ref) => nonce_db_ref,
-            Err(ProviderError::BlockHashNotFound(_)) => return Ok(false), // This can happen on reorgs since the block is removed
-            Err(err) => return Err(err.into()),
-        };
         let mut nonces = Vec::new();
         for new_order in new_orders {
             for nonce in new_order.order.nonces() {
                 if self.onchain_nonces_updated.contains(&nonce.address) {
                     continue;
                 }
-                let onchain_nonce = nonce_db_ref.nonce(nonce.address)?;
+                let onchain_nonce = self.nonces.nonce(nonce.address)?;
                 nonces.push(AccountNonce {
                     account: nonce.address,
                     nonce: onchain_nonce,

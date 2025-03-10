@@ -7,10 +7,10 @@ use crate::{
     primitives::{Order, OrderId, SimValue, SimulatedOrder},
     provider::StateProviderFactory,
     telemetry::{add_order_simulation_time, mark_order_pending_nonce},
-    utils::{NonceCache, NonceCacheRef},
+    utils::NonceCache,
 };
 use ahash::{HashMap, HashSet};
-use alloy_primitives::{Address, B256};
+use alloy_primitives::Address;
 use rand::seq::SliceRandom;
 use reth::revm::cached::CachedReads;
 use reth_errors::ProviderError;
@@ -68,9 +68,9 @@ pub struct SimulatedResult {
 
 // @Feat replaceable orders
 #[derive(Debug)]
-pub struct SimTree<P> {
+pub struct SimTree {
     // fields for nonce management
-    nonce_cache: NonceCache<P>,
+    nonces: NonceCache,
 
     sims: HashMap<SimulationId, SimulatedResult>,
     sims_that_update_one_nonce: HashMap<NonceKey, SimulationId>,
@@ -88,14 +88,10 @@ enum OrderNonceState {
     Ready(Vec<Order>),
 }
 
-impl<P> SimTree<P>
-where
-    P: StateProviderFactory,
-{
-    pub fn new(provider: P, parent_block: B256) -> Self {
-        let nonce_cache = NonceCache::new(provider, parent_block);
+impl SimTree {
+    pub fn new(nonce_cache_ref: NonceCache) -> Self {
         Self {
-            nonce_cache,
+            nonces: nonce_cache_ref,
             sims: HashMap::default(),
             sims_that_update_one_nonce: HashMap::default(),
             pending_orders: HashMap::default(),
@@ -104,12 +100,12 @@ where
         }
     }
 
-    fn push_order(&mut self, order: Order, nonces: &NonceCacheRef) -> Result<(), ProviderError> {
+    fn push_order(&mut self, order: Order) -> Result<(), ProviderError> {
         if self.pending_orders.contains_key(&order.id()) {
             return Ok(());
         }
 
-        let order_nonce_state = self.get_order_nonce_state(&order, nonces)?;
+        let order_nonce_state = self.get_order_nonce_state(&order)?;
 
         let order_id = order.id();
 
@@ -145,17 +141,13 @@ where
         Ok(())
     }
 
-    fn get_order_nonce_state(
-        &mut self,
-        order: &Order,
-        nonces: &NonceCacheRef,
-    ) -> Result<OrderNonceState, ProviderError> {
+    fn get_order_nonce_state(&mut self, order: &Order) -> Result<OrderNonceState, ProviderError> {
         let mut onchain_nonces_incremented = HashSet::default();
         let mut pending_nonces = Vec::new();
         let mut parent_orders = Vec::new();
 
         for nonce in order.nonces() {
-            let onchain_nonce = nonces.nonce(nonce.address)?;
+            let onchain_nonce = self.nonces.nonce(nonce.address)?;
 
             match onchain_nonce.cmp(&nonce.nonce) {
                 Ordering::Equal => {
@@ -212,9 +204,8 @@ where
     }
 
     pub fn push_orders(&mut self, orders: Vec<Order>) -> Result<(), ProviderError> {
-        let state = self.nonce_cache.get_ref()?;
         for order in orders {
-            self.push_order(order, &state)?;
+            self.push_order(order)?;
         }
         Ok(())
     }
@@ -228,7 +219,6 @@ where
     fn process_simulation_task_result(
         &mut self,
         result: SimulatedResult,
-        state: &NonceCacheRef,
     ) -> Result<(), ProviderError> {
         self.sims.insert(result.id, result.clone());
         let mut orders_ready = Vec::new();
@@ -275,7 +265,7 @@ where
         }
 
         for ready_order in orders_ready {
-            let pending_state = self.get_order_nonce_state(&ready_order, state)?;
+            let pending_state = self.get_order_nonce_state(&ready_order)?;
             match pending_state {
                 OrderNonceState::Ready(parents) => {
                     self.ready_orders.push(SimulationRequest {
@@ -301,9 +291,8 @@ where
         &mut self,
         results: Vec<SimulatedResult>,
     ) -> Result<(), ProviderError> {
-        let nonces = self.nonce_cache.get_ref()?;
         for result in results {
-            self.process_simulation_task_result(result, &nonces)?;
+            self.process_simulation_task_result(result)?;
         }
         Ok(())
     }
@@ -321,7 +310,11 @@ pub fn simulate_all_orders_with_sim_tree<P>(
 where
     P: StateProviderFactory + Clone,
 {
-    let mut sim_tree = SimTree::new(provider.clone(), ctx.attributes.parent);
+    let nonces = {
+        let state = provider.history_by_block_hash(ctx.attributes.parent)?;
+        NonceCache::new(state)
+    };
+    let mut sim_tree = SimTree::new(nonces);
 
     let mut orders = orders.to_vec();
     let random_insert_size = max(orders.len() / 20, 1);

@@ -16,6 +16,7 @@ use crate::{
     primitives::{AccountNonce, OrderId},
     provider::StateProviderFactory,
     telemetry::mark_builder_considers_order,
+    utils::NonceCache,
 };
 use ahash::{HashMap, HashSet};
 use reth::revm::cached::CachedReads;
@@ -63,12 +64,27 @@ where
     P: StateProviderFactory + Clone + 'static,
 {
     let payload_id = input.ctx.payload_id;
-    let mut order_intake_consumer = OrderIntakeConsumer::new(
-        input.provider.clone(),
-        input.input,
-        input.ctx.attributes.parent,
-        config.sorting,
-    );
+
+    let nonces = {
+        let block_state = match input
+            .provider
+            .history_by_block_hash(input.ctx.attributes.parent)
+        {
+            Ok(state) => state,
+            Err(err) => {
+                error!(
+                    ?err,
+                    payload_id,
+                    builder = input.builder_name,
+                    "Failed to get history_by_block_hash, cancelling builder job"
+                );
+                return;
+            }
+        };
+        NonceCache::new(block_state)
+    };
+
+    let mut order_intake_consumer = OrderIntakeConsumer::new(nonces, input.input, config.sorting);
 
     let mut builder = OrderingBuilderContext::new(
         input.provider.clone(),

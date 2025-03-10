@@ -9,7 +9,7 @@ use crate::{
     live_builder::order_input::orderpool::OrdersForBlock,
     primitives::{OrderId, SimulatedOrder},
     provider::StateProviderFactory,
-    utils::{gen_uid, Signer},
+    utils::{gen_uid, NonceCache, Signer},
 };
 use ahash::HashMap;
 use parking_lot::Mutex;
@@ -17,7 +17,7 @@ use simulation_job::SimulationJob;
 use std::sync::Arc;
 use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
-use tracing::{info_span, Instrument};
+use tracing::{error, info_span, Instrument};
 
 #[derive(Debug)]
 pub struct SlotOrderSimResults {
@@ -123,7 +123,21 @@ where
 
         let handle = tokio::spawn(
             async move {
-                let sim_tree = SimTree::new(provider, ctx.attributes.parent);
+                let nonces = {
+                    let state = match provider.history_by_block_hash(ctx.attributes.parent) {
+                        Ok(state) => state,
+                        Err(err) => {
+                            error!(
+                                ?err,
+                                "Failed to get history_by_block_hash, cancelling simulation job"
+                            );
+                            return;
+                        }
+                    };
+                    NonceCache::new(state)
+                };
+
+                let sim_tree = SimTree::new(nonces);
                 let new_order_sub = input.new_order_sub;
                 let (sim_req_sender, sim_req_receiver) = flume::unbounded();
                 let (sim_results_sender, sim_results_receiver) = mpsc::channel(1024);

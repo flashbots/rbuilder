@@ -7,7 +7,7 @@ use alloy_consensus::Header;
 use alloy_eips::BlockNumHash;
 use alloy_primitives::{BlockHash, BlockNumber};
 use eth_sparse_mpt::reth_sparse_trie::SparseTrieSharedCache;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::Mutex;
 use reth::providers::ExecutionOutcome;
 use reth::providers::{BlockHashReader, ChainSpecProvider, ProviderFactory};
 use reth_db::DatabaseError;
@@ -36,8 +36,6 @@ pub struct ProviderFactoryReopener<N: NodeTypesWithDB> {
     provider_factory: Arc<Mutex<ProviderFactory<N>>>,
     chain_spec: Arc<N::ChainSpec>,
     static_files_path: PathBuf,
-    /// Last block the Reopener verified consistency for.
-    last_consistent_block: Arc<RwLock<Option<BlockNumber>>>,
     /// Patch to disable checking on test mode. Is ugly but ProviderFactoryReopener should die shortly (5/24/2024).
     testing_mode: bool,
     /// None ->No root hash (MockRootHasher)
@@ -64,7 +62,6 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
             static_files_path,
             root_hash_config,
             testing_mode: false,
-            last_consistent_block: Arc::new(RwLock::new(None)),
         })
     }
 
@@ -80,7 +77,6 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
             static_files_path,
             root_hash_config,
             testing_mode: true,
-            last_consistent_block: Arc::new(RwLock::new(None)),
         })
     }
 
@@ -104,8 +100,7 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
         let mut provider_factory = self.provider_factory.lock();
 
         // Don't need to check consistency for the block that was just checked.
-        let last_consistent_block = *self.last_consistent_block.read();
-        if !self.testing_mode && last_consistent_block != Some(best_block_number) {
+        if !self.testing_mode {
             match check_block_hash_reader_health(best_block_number, provider_factory.deref_mut()) {
                 Ok(()) => {}
                 Err(err) => {
@@ -132,8 +127,6 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
                     );
                 }
             }
-
-            *self.last_consistent_block.write() = Some(best_block_number);
         }
         Ok(provider_factory.clone())
     }
