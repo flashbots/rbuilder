@@ -1,16 +1,14 @@
+use crate::tx_signer::Signer;
 use alloy_consensus::transaction::Recovered;
 use alloy_consensus::TxEip1559;
 use alloy_primitives::{Address, TxKind};
 use op_alloy_consensus::OpTypedTransaction;
-use reth_optimism_payload_builder::error::OpPayloadBuilderError;
-use reth_payload_primitives::PayloadBuilderError;
-use crate::tx_signer::Signer;
-use reth_optimism_primitives::{
-     OpTransactionSigned,
-};
-use revm::db::State;
 use reth_evm::Database;
+use reth_optimism_payload_builder::error::OpPayloadBuilderError;
+use reth_optimism_primitives::OpTransactionSigned;
+use reth_payload_primitives::PayloadBuilderError;
 use reth_provider::ProviderError;
+use revm::db::State;
 
 /// Creates signed builder tx to Address::ZERO and specified message as input
 pub fn signed_builder_tx<DB>(

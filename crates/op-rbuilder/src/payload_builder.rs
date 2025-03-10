@@ -5,6 +5,7 @@ use crate::{
     primitives::reth::{ExecutedPayload, ExecutionInfo},
     tx_signer::Signer,
 };
+use alloy_consensus::constants::EMPTY_WITHDRAWALS;
 use alloy_consensus::{Eip658Value, Header, Transaction, Typed2718, EMPTY_OMMER_ROOT_HASH};
 use alloy_eips::merge::BEACON_NONCE;
 use alloy_eips::Encodable2718;
@@ -37,8 +38,8 @@ use reth_optimism_node::OpEngineTypes;
 use reth_optimism_payload_builder::error::OpPayloadBuilderError;
 use reth_optimism_payload_builder::payload::{OpBuiltPayload, OpPayloadBuilderAttributes};
 use reth_optimism_payload_builder::OpPayloadPrimitives;
-use reth_optimism_primitives::{OpPrimitives, ADDRESS_L2_TO_L1_MESSAGE_PASSER};
 use reth_optimism_primitives::OpTransactionSigned;
+use reth_optimism_primitives::{OpPrimitives, ADDRESS_L2_TO_L1_MESSAGE_PASSER};
 use reth_payload_builder::PayloadBuilderService;
 use reth_payload_builder_primitives::PayloadBuilderError;
 use reth_payload_primitives::PayloadBuilderAttributes;
@@ -66,17 +67,16 @@ use rollup_boost::{
 };
 use serde_json::Value;
 use std::error::Error as StdError;
-use alloy_consensus::constants::EMPTY_WITHDRAWALS;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, trace, warn};
 
+use crate::primitives::reth::OpPayloadBuilderCtx;
 use futures_util::FutureExt;
 use futures_util::SinkExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
 use tokio_tungstenite::accept_async;
 use tokio_tungstenite::WebSocketStream;
-use crate::primitives::reth::OpPayloadBuilderCtx;
 
 #[derive(Debug, Clone, Copy, Default)]
 #[non_exhaustive]
@@ -380,7 +380,14 @@ where
                     .best_transactions_with_attributes(ctx.best_transaction_attributes()),
             );
             // TODO: flashblocks doesn't have DA limits implemented, for now we pass None, None
-            ctx.execute_best_transactions(&mut info, &mut db, best_txs, total_gas_per_batch, None, None)?;
+            ctx.execute_best_transactions(
+                &mut info,
+                &mut db,
+                best_txs,
+                total_gas_per_batch,
+                None,
+                None,
+            )?;
 
             if ctx.cancel.is_cancelled() {
                 tracing::info!(

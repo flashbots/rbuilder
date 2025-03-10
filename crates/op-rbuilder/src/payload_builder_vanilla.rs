@@ -1,5 +1,8 @@
 use crate::generator::BlockPayloadJobGenerator;
 use crate::generator::BuildArguments;
+use crate::primitives::{
+    estimate_gas_for_builder_tx, reth::OpPayloadBuilderCtx, signed_builder_tx,
+};
 use crate::{
     generator::{BlockCell, PayloadBuilder},
     metrics::OpRBuilderMetrics,
@@ -77,12 +80,6 @@ use std::error::Error as StdError;
 use std::{fmt::Display, sync::Arc, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, trace, warn};
-use crate::primitives::{
-    reth::OpPayloadBuilderCtx,
-    estimate_gas_for_builder_tx,
-    signed_builder_tx
-};
-
 
 #[derive(Debug, Clone, Copy, Default)]
 #[non_exhaustive]
