@@ -1008,7 +1008,7 @@ where
             }
 
             // ensure we still have capacity for this transaction
-            if info.cumulative_gas_used + tx.gas_limit() > batch_gas_limit {
+            if info.is_tx_over_limits(tx.tx(), batch_gas_limit, None, None) {
                 println!("A");
                 // we can't fit this transaction into the block, so we need to mark it as
                 // invalid which also removes all dependent transaction from
