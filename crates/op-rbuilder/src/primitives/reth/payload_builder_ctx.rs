@@ -1,46 +1,44 @@
 use crate::metrics::OpRBuilderMetrics;
-use crate::primitives::helpers::signed_builder_tx;
 use crate::primitives::reth::ExecutionInfo;
+#[cfg(not(feature = "flashblocks"))]
+use crate::primitives::signed_builder_tx;
+#[cfg(not(feature = "flashblocks"))]
 use crate::tx_signer::Signer;
 use alloy_consensus::{Eip658Value, Transaction};
 use alloy_eips::eip4895::Withdrawals;
 use alloy_eips::Typed2718;
+#[cfg(not(feature = "flashblocks"))]
 use alloy_primitives::private::alloy_rlp::Encodable;
-use alloy_primitives::{Address, Bytes, TxHash, TxKind, U256};
+use alloy_primitives::{Bytes, U256};
 use alloy_rpc_types_engine::PayloadId;
 use op_alloy_consensus::OpDepositReceipt;
 use reth_basic_payload_builder::PayloadConfig;
 use reth_chainspec::EthChainSpec;
 use reth_evm::{
     env::EvmEnv, system_calls::SystemCaller, ConfigureEvmEnv, ConfigureEvmFor, Database, Evm,
-    EvmError, InvalidTxError, NextBlockEnvAttributes,
+    EvmError, InvalidTxError,
 };
 use reth_optimism_evm::{OpReceiptBuilder, ReceiptBuilderCtx};
 use reth_optimism_forks::OpHardforks;
 use reth_optimism_payload_builder::config::OpDAConfig;
 use reth_optimism_payload_builder::error::OpPayloadBuilderError;
 use reth_optimism_payload_builder::{OpPayloadBuilderAttributes, OpPayloadPrimitives};
-use reth_optimism_primitives::{
-    OpPrimitives, OpTransactionSigned, ADDRESS_L2_TO_L1_MESSAGE_PASSER,
-};
+use reth_optimism_primitives::OpTransactionSigned;
 use reth_payload_primitives::{PayloadBuilderAttributes, PayloadBuilderError};
 use reth_payload_util::PayloadTransactions;
-use reth_primitives::{transaction::SignedTransactionIntoRecoveredExt, BlockBody, SealedHeader};
+use reth_primitives::{transaction::SignedTransactionIntoRecoveredExt, SealedHeader};
 use reth_primitives_traits::{InMemorySize, NodePrimitives, SignedTransaction};
-use reth_provider::{
-    HashedPostStateProvider, ProviderError, StateProviderFactory, StateRootProvider,
-    StorageRootProvider,
-};
+use reth_provider::ProviderError;
 use reth_transaction_pool::{BestTransactionsAttributes, PoolTransaction};
 use revm::{
-    db::{states::bundle_state::BundleRetention, State},
+    db::State,
     primitives::{ExecutionResult, ResultAndState},
     DatabaseCommit,
 };
 use std::error::Error as StdError;
 use std::{fmt::Display, sync::Arc, time::Instant};
 use tokio_util::sync::CancellationToken;
-use tracing::{info, trace, warn};
+use tracing::{trace, warn};
 
 /// Container type that holds all necessities to build a new payload.
 #[derive(Debug)]

@@ -1,36 +1,24 @@
 use crate::generator::BlockPayloadJobGenerator;
 use crate::generator::BuildArguments;
-use crate::primitives::{
-    estimate_gas_for_builder_tx, reth::OpPayloadBuilderCtx, signed_builder_tx,
-};
+use crate::primitives::{estimate_gas_for_builder_tx, reth::OpPayloadBuilderCtx};
 use crate::{
     generator::{BlockCell, PayloadBuilder},
     metrics::OpRBuilderMetrics,
-    primitives::reth::{ExecutedPayload, ExecutionInfo},
+    primitives::reth::ExecutedPayload,
     tx_signer::Signer,
 };
 use alloy_consensus::constants::EMPTY_WITHDRAWALS;
-use alloy_consensus::transaction::Recovered;
-use alloy_consensus::{
-    Eip658Value, Header, Transaction, TxEip1559, Typed2718, EMPTY_OMMER_ROOT_HASH,
-};
+use alloy_consensus::{Header, Transaction, EMPTY_OMMER_ROOT_HASH};
 use alloy_eips::merge::BEACON_NONCE;
-use alloy_primitives::private::alloy_rlp::Encodable;
-use alloy_primitives::{Address, Bytes, TxHash, TxKind, U256};
-use alloy_rpc_types_engine::PayloadId;
-use alloy_rpc_types_eth::Withdrawals;
-use op_alloy_consensus::{OpDepositReceipt, OpTypedTransaction};
+use alloy_primitives::{TxHash, U256};
 use reth::builder::{components::PayloadServiceBuilder, node::FullNodeTypes, BuilderContext};
 use reth::core::primitives::InMemorySize;
 use reth::payload::PayloadBuilderHandle;
-use reth_basic_payload_builder::{
-    BasicPayloadJobGeneratorConfig, BuildOutcome, BuildOutcomeKind, PayloadConfig,
-};
+use reth_basic_payload_builder::{BasicPayloadJobGeneratorConfig, BuildOutcome, BuildOutcomeKind};
 use reth_chain_state::{ExecutedBlock, ExecutedBlockWithTrieUpdates};
-use reth_chainspec::{ChainSpecProvider, EthChainSpec, EthereumHardforks};
+use reth_chainspec::{ChainSpecProvider, EthChainSpec};
 use reth_evm::{
-    env::EvmEnv, system_calls::SystemCaller, ConfigureEvmEnv, ConfigureEvmFor, Database, Evm,
-    EvmError, InvalidTxError, NextBlockEnvAttributes,
+    env::EvmEnv, ConfigureEvmEnv, ConfigureEvmFor, Database, Evm, NextBlockEnvAttributes,
 };
 use reth_execution_types::ExecutionOutcome;
 use reth_node_api::NodePrimitives;
@@ -40,15 +28,12 @@ use reth_optimism_chainspec::OpChainSpec;
 use reth_optimism_consensus::calculate_receipt_root_no_memo_optimism;
 use reth_optimism_evm::BasicOpReceiptBuilder;
 use reth_optimism_evm::OpEvmConfig;
-use reth_optimism_evm::{OpReceiptBuilder, ReceiptBuilderCtx};
+use reth_optimism_evm::OpReceiptBuilder;
 use reth_optimism_forks::OpHardforks;
 use reth_optimism_node::OpEngineTypes;
-use reth_optimism_payload_builder::config::{OpBuilderConfig, OpDAConfig};
+use reth_optimism_payload_builder::config::OpBuilderConfig;
+use reth_optimism_payload_builder::payload::{OpBuiltPayload, OpPayloadBuilderAttributes};
 use reth_optimism_payload_builder::OpPayloadPrimitives;
-use reth_optimism_payload_builder::{
-    error::OpPayloadBuilderError,
-    payload::{OpBuiltPayload, OpPayloadBuilderAttributes},
-};
 use reth_optimism_primitives::{
     OpPrimitives, OpTransactionSigned, ADDRESS_L2_TO_L1_MESSAGE_PASSER,
 };
@@ -57,11 +42,10 @@ use reth_payload_builder_primitives::PayloadBuilderError;
 use reth_payload_primitives::PayloadBuilderAttributes;
 use reth_payload_util::BestPayloadTransactions;
 use reth_payload_util::PayloadTransactions;
-use reth_primitives::{transaction::SignedTransactionIntoRecoveredExt, BlockBody, SealedHeader};
+use reth_primitives::BlockBody;
 use reth_primitives_traits::proofs;
 use reth_primitives_traits::Block;
 use reth_primitives_traits::RecoveredBlock;
-use reth_primitives_traits::SignedTransaction;
 use reth_provider::CanonStateSubscriptions;
 use reth_provider::{
     HashedPostStateProvider, ProviderError, StateProviderFactory, StateRootProvider,
@@ -71,15 +55,9 @@ use reth_revm::database::StateProviderDatabase;
 use reth_transaction_pool::BestTransactionsAttributes;
 use reth_transaction_pool::PoolTransaction;
 use reth_transaction_pool::TransactionPool;
-use revm::{
-    db::{states::bundle_state::BundleRetention, State},
-    primitives::{ExecutionResult, ResultAndState},
-    DatabaseCommit,
-};
-use std::error::Error as StdError;
-use std::{fmt::Display, sync::Arc, time::Instant};
-use tokio_util::sync::CancellationToken;
-use tracing::{info, trace, warn};
+use revm::db::{states::bundle_state::BundleRetention, State};
+use std::{sync::Arc, time::Instant};
+use tracing::{info, warn};
 
 #[derive(Debug, Clone, Copy, Default)]
 #[non_exhaustive]

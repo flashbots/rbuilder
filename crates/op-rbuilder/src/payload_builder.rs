@@ -1,29 +1,22 @@
-use std::{fmt::Display, sync::Arc, sync::Mutex};
+use std::{sync::Arc, sync::Mutex};
 
 use crate::{
     generator::{BlockCell, BlockPayloadJobGenerator, BuildArguments, PayloadBuilder},
-    primitives::reth::{ExecutedPayload, ExecutionInfo},
+    primitives::reth::ExecutionInfo,
     tx_signer::Signer,
 };
 use alloy_consensus::constants::EMPTY_WITHDRAWALS;
-use alloy_consensus::{Eip658Value, Header, Transaction, Typed2718, EMPTY_OMMER_ROOT_HASH};
+use alloy_consensus::{Header, Transaction, EMPTY_OMMER_ROOT_HASH};
 use alloy_eips::merge::BEACON_NONCE;
 use alloy_eips::Encodable2718;
-use alloy_primitives::{Address, Bytes, TxHash, B256, U256};
-use alloy_rpc_types_engine::PayloadId;
-use alloy_rpc_types_eth::Withdrawals;
-use op_alloy_consensus::OpDepositReceipt;
+use alloy_primitives::{TxHash, U256};
 use reth::builder::{components::PayloadServiceBuilder, node::FullNodeTypes, BuilderContext};
 use reth::payload::PayloadBuilderHandle;
-use reth_basic_payload_builder::commit_withdrawals;
 use reth_basic_payload_builder::BasicPayloadJobGeneratorConfig;
-use reth_basic_payload_builder::{BuildOutcome, PayloadConfig};
+use reth_basic_payload_builder::BuildOutcome;
 use reth_chainspec::ChainSpecProvider;
 use reth_chainspec::EthChainSpec;
-use reth_evm::{
-    env::EvmEnv, system_calls::SystemCaller, ConfigureEvmEnv, ConfigureEvmFor, Database, Evm,
-    EvmError, InvalidTxError, NextBlockEnvAttributes,
-};
+use reth_evm::{env::EvmEnv, ConfigureEvmEnv, ConfigureEvmFor, Database, NextBlockEnvAttributes};
 use reth_execution_types::ExecutionOutcome;
 use reth_node_api::NodePrimitives;
 use reth_node_api::NodeTypesWithEngine;
@@ -32,10 +25,9 @@ use reth_optimism_chainspec::OpChainSpec;
 use reth_optimism_consensus::calculate_receipt_root_no_memo_optimism;
 use reth_optimism_evm::BasicOpReceiptBuilder;
 use reth_optimism_evm::OpEvmConfig;
-use reth_optimism_evm::{OpReceiptBuilder, ReceiptBuilderCtx};
+use reth_optimism_evm::OpReceiptBuilder;
 use reth_optimism_forks::OpHardforks;
 use reth_optimism_node::OpEngineTypes;
-use reth_optimism_payload_builder::error::OpPayloadBuilderError;
 use reth_optimism_payload_builder::payload::{OpBuiltPayload, OpPayloadBuilderAttributes};
 use reth_optimism_payload_builder::OpPayloadPrimitives;
 use reth_optimism_primitives::OpTransactionSigned;
@@ -45,7 +37,7 @@ use reth_payload_builder_primitives::PayloadBuilderError;
 use reth_payload_primitives::PayloadBuilderAttributes;
 use reth_payload_util::BestPayloadTransactions;
 use reth_payload_util::PayloadTransactions;
-use reth_primitives::{transaction::SignedTransactionIntoRecoveredExt, BlockBody, SealedHeader};
+use reth_primitives::BlockBody;
 use reth_primitives_traits::proofs;
 use reth_primitives_traits::Block as _;
 use reth_provider::CanonStateSubscriptions;
@@ -56,19 +48,12 @@ use reth_provider::{
 use reth_revm::database::StateProviderDatabase;
 use reth_transaction_pool::PoolTransaction;
 use reth_transaction_pool::{BestTransactionsAttributes, TransactionPool};
-use revm::primitives::ExecutionResult;
-use revm::{
-    db::{states::bundle_state::BundleRetention, BundleState, State},
-    primitives::ResultAndState,
-    DatabaseCommit,
-};
+use revm::db::{states::bundle_state::BundleRetention, BundleState, State};
 use rollup_boost::{
     ExecutionPayloadBaseV1, ExecutionPayloadFlashblockDeltaV1, FlashblocksPayloadV1,
 };
 use serde_json::Value;
-use std::error::Error as StdError;
-use tokio_util::sync::CancellationToken;
-use tracing::{debug, trace, warn};
+use tracing::{debug, warn};
 
 use crate::primitives::reth::OpPayloadBuilderCtx;
 use futures_util::FutureExt;
