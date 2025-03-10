@@ -294,9 +294,13 @@ where
         payout_tx_value: Option<U256>,
     ) -> Result<(), BlockBuildingHelperError> {
         self.built_block_trace.coinbase_reward = self.partial_block.coinbase_profit;
+
+        let use_last_tx_payment;
+
         let (bid_value, true_value) = if let (Some(payout_tx_gas), Some(payout_tx_value)) =
             (self.payout_tx_gas, payout_tx_value)
         {
+            use_last_tx_payment = true;
             match self.partial_block.insert_proposer_payout_tx(
                 payout_tx_gas,
                 payout_tx_value,
@@ -307,6 +311,7 @@ where
                 Err(err) => return Err(err.into()),
             }
         } else {
+            use_last_tx_payment = false;
             (
                 self.partial_block.coinbase_profit,
                 self.partial_block.coinbase_profit,
@@ -320,7 +325,19 @@ where
         let fee_recipient_balance_diff = fee_recipient_balance_after
             .checked_sub(self._fee_recipient_balance_start)
             .unwrap_or_default();
-        self.built_block_trace.bid_value = max(bid_value, fee_recipient_balance_diff);
+
+        if use_last_tx_payment {
+            self.built_block_trace.bid_value = max(bid_value, fee_recipient_balance_diff);
+        } else {
+            // When the coinbase address is the fee recipient, we exclusively use fee_recipient_balance_diff
+            // since this is the value used by validation nodes
+            //
+            // Using fee_recipient_balance_diff may cause block validation failures in certain edge cases
+            // Example: If the fee recipient is a contract that sweeps its balance to another address on each call,
+            // and we include a bundle paying directly to coinbase, the fee recipient balance would be 0
+            // causing validation nodes to reject the block
+            self.built_block_trace.bid_value = fee_recipient_balance_diff;
+        }
         self.built_block_trace.true_bid_value = true_value;
         Ok(())
     }
