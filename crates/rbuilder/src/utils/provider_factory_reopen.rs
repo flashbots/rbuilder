@@ -99,7 +99,6 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
             .map_err(|err| eyre::eyre!("Error getting best block number: {:?}", err))?;
         let mut provider_factory = self.provider_factory.lock();
 
-        // Don't need to check consistency for the block that was just checked.
         if !self.testing_mode {
             match check_block_hash_reader_health(best_block_number, provider_factory.deref_mut()) {
                 Ok(()) => {}
