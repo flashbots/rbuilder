@@ -11,7 +11,7 @@ pub mod sim;
 pub mod testing;
 pub mod tracers;
 use alloy_consensus::{Header, EMPTY_OMMER_ROOT_HASH};
-use alloy_primitives::{Address, Bytes, U256};
+use alloy_primitives::{Address, Bytes, U128, U256};
 use builders::mock_block_building_helper::MockRootHasher;
 use reth_primitives::BlockBody;
 use reth_primitives_traits::{proofs, Block as _};
@@ -323,20 +323,20 @@ impl Sorting {
         }
     }
 
-    pub fn sorting_value_toba(&self, sim_order: &SimulatedOrder) -> U256 {
+    pub fn sorting_value_toba(&self, sim_order: &SimulatedOrder) -> u128 {
         match self {
             Sorting::MevGasPrice => {
                 if sim_order.order.is_toba() {
-                    U256::MAX
+                    u128::MAX
                 } else {
-                    sim_order.sim_value.mev_gas_price
+                    sim_order.sim_value.mev_gas_price.to::<u128>()
                 }
             }
             Sorting::MaxProfit => {
                 if sim_order.order.is_toba() {
-                    U256::MAX
+                    u128::MAX
                 } else {
-                    sim_order.sim_value.coinbase_profit
+                    sim_order.sim_value.coinbase_profit.to::<u128>()
                 }
             }
         }

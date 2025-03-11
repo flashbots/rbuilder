@@ -209,7 +209,7 @@ impl SimulatedOrderSink for PrioritizedOrderStore {
             self.main_queue.push(
                 sim_order.id(),
                 OrderPriority {
-                    priority: self.priority.sorting_value_toba(&sim_order).to::<u128>(),
+                    priority: self.priority.sorting_value_toba(&sim_order),
                     order_id: sim_order.id(),
                 },
             );
