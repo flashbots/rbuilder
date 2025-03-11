@@ -1,7 +1,9 @@
-use crate::provider::RootHasher;
-use crate::roothash::RootHashContext;
-use crate::utils::RootHasherImpl;
-use crate::{building::BlockBuildingContext, utils::Signer};
+use crate::{
+    building::BlockBuildingContext,
+    provider::RootHasher,
+    roothash::RootHashContext,
+    utils::{RootHasherImpl, Signer},
+};
 use ahash::HashSet;
 use alloy_consensus::{Block, Header, TxEip1559};
 use alloy_primitives::{
@@ -9,7 +11,6 @@ use alloy_primitives::{
     U256,
 };
 use alloy_rpc_types_beacon::events::{PayloadAttributesData, PayloadAttributesEvent};
-use lazy_static::lazy_static;
 use reth::{
     primitives::{Account, BlockBody, Bytecode},
     providers::ProviderFactory,
@@ -21,7 +22,7 @@ use reth_primitives::{Recovered, TransactionSigned};
 use reth_primitives_traits::Block as _;
 use reth_provider::test_utils::{create_test_provider_factory, MockNodeTypesWithDB};
 use revm_primitives::SpecId;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 #[derive(Debug, Clone, Copy)]
 pub enum NamedAddr {
@@ -542,15 +543,16 @@ fn selector(func_signature: &str) -> [u8; 4] {
 }
 
 // Selectors for functions contained in the test contract (mev-test-contract/src/MevTest.sol).
-lazy_static! {
-    static ref INCREMENT_VALUE_SELECTOR: [u8; 4] = selector("incrementValue(uint256,uint256)");
-    static ref SENT_TO_SELECTOR: [u8; 4] = selector("sendTo(address)");
-    static ref SEND_TO_COINBASE_SELECTOR: [u8; 4] = selector("sendToCoinbase()");
-    static ref REVERT_SELECTOR: [u8; 4] = selector("revert()");
-    static ref TEST_READ_BALANCE: [u8; 4] = selector("testReadBalance(address)");
-    static ref TEST_EPHEMERAL_CONTRACT_DESTRUCT: [u8; 4] =
-        selector("testEphemeralContractDestruct(address)");
-}
+static INCREMENT_VALUE_SELECTOR: LazyLock<[u8; 4]> =
+    LazyLock::new(|| selector("incrementValue(uint256,uint256)"));
+static SENT_TO_SELECTOR: LazyLock<[u8; 4]> = LazyLock::new(|| selector("sendTo(address)"));
+static SEND_TO_COINBASE_SELECTOR: LazyLock<[u8; 4]> =
+    LazyLock::new(|| selector("sendToCoinbase()"));
+static REVERT_SELECTOR: LazyLock<[u8; 4]> = LazyLock::new(|| selector("revert()"));
+static TEST_READ_BALANCE: LazyLock<[u8; 4]> =
+    LazyLock::new(|| selector("testReadBalance(address)"));
+static TEST_EPHEMERAL_CONTRACT_DESTRUCT: LazyLock<[u8; 4]> =
+    LazyLock::new(|| selector("testEphemeralContractDestruct(address)"));
 
 impl TestContracts {
     pub fn load() -> Self {

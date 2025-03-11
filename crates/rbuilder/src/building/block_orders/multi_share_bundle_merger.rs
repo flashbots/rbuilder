@@ -103,12 +103,11 @@ mod test {
     use super::MultiShareBundleMerger;
 
     use alloy_primitives::Address;
-    use lazy_static::lazy_static;
-    lazy_static! {
-        static ref SIGNER_1: Address = Address::random();
-        static ref SIGNER_2: Address = Address::random();
-        static ref UNKNOWN_SIGNER: Address = Address::random();
-    }
+    use std::sync::LazyLock;
+
+    static SIGNER_1: LazyLock<Address> = LazyLock::new(|| Address::random());
+    static SIGNER_2: LazyLock<Address> = LazyLock::new(|| Address::random());
+    static UNKNOWN_SIGNER: LazyLock<Address> = LazyLock::new(|| Address::random());
 
     fn new_test_context() -> TestContext<MultiShareBundleMerger<OrderDumper>> {
         let signers = vec![*SIGNER_1, *SIGNER_2];
