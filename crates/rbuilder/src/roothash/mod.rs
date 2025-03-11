@@ -38,6 +38,8 @@ pub enum RootHashError {
     SparseStateRoot(#[from] SparseTrieError),
     #[error("State root verification error")]
     Verification,
+    #[error("State root calculation via RPC failed")]
+    RpcStateRootFailed,
 }
 
 impl RootHashError {
