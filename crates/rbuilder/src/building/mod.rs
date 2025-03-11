@@ -322,6 +322,25 @@ impl Sorting {
             Sorting::MaxProfit => sim_value.coinbase_profit,
         }
     }
+
+    pub fn sorting_value_toba(&self, sim_order: &SimulatedOrder) -> U256 {
+        match self {
+            Sorting::MevGasPrice => {
+                if sim_order.order.is_toba() {
+                    U256::MAX
+                } else {
+                    sim_order.sim_value.mev_gas_price
+                }
+            }
+            Sorting::MaxProfit => {
+                if sim_order.order.is_toba() {
+                    U256::MAX
+                } else {
+                    sim_order.sim_value.coinbase_profit
+                }
+            }
+        }
+    }
 }
 
 impl FromStr for Sorting {
