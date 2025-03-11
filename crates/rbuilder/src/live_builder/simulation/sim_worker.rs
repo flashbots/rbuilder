@@ -28,7 +28,7 @@ pub fn run_sim_worker<P>(
 ) where
     P: StateProviderFactory,
 {
-    loop {
+    'main: loop {
         if global_cancellation.is_cancelled() {
             return;
         }
@@ -48,24 +48,23 @@ pub fn run_sim_worker<P>(
 
         let mut cached_reads = CachedReads::default();
         let mut last_sim_finished = Instant::now();
+
+        let state_provider =
+            match provider.history_by_block_hash(current_sim_context.block_ctx.attributes.parent) {
+                Ok(state_provider) => Arc::new(state_provider),
+                Err(err) => {
+                    error!(?err, "Error while getting state for block");
+                    continue 'main;
+                }
+            };
         while let Ok(task) = current_sim_context.requests.recv() {
             let sim_thread_wait_time = last_sim_finished.elapsed();
             let sim_start = Instant::now();
 
-            let state_provider = match provider
-                .history_by_block_hash(current_sim_context.block_ctx.attributes.parent)
-            {
-                Ok(state_provider) => state_provider,
-                Err(err) => {
-                    error!(?err, "Error while getting state for block");
-                    // break here so we can try to get new context
-                    // @Metric
-                    break;
-                }
-            };
             let order_id = task.order.id();
             let start_time = Instant::now();
-            let mut block_state = BlockState::new(state_provider).with_cached_reads(cached_reads);
+            let mut block_state =
+                BlockState::new_arc(state_provider.clone()).with_cached_reads(cached_reads);
             let sim_result = simulate_order(
                 task.parents.clone(),
                 task.order,
