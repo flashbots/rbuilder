@@ -41,6 +41,7 @@ const SIM_FAILED_NON_CRITICAL_ERRORS: &[&str] = &[
     "blacklisted address", // Generated block is good but contains a blacklisted address. This happens if we don't use an blacklist but the relay does.
     "unknown ancestor",
     "missing trie node",
+    "parent block not found", // Generated from time to time from agnostic relay "simulation failed: parent block not found"
 ];
 
 // @Org consolidate with primitives::mev_boost
