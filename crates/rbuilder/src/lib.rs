@@ -8,4 +8,5 @@ pub mod primitives;
 pub mod provider;
 pub mod roothash;
 pub mod telemetry;
+pub mod toba;
 pub mod utils;

@@ -136,6 +136,7 @@ sysperf.workspace = true
 crossbeam = "0.8.4"
 parking_lot.workspace = true
 dashmap = "6.1.0"
+tokio-tungstenite = "0.21.0"
 
 
 [build-dependencies]

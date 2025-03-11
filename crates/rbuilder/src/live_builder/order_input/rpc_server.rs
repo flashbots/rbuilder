@@ -220,7 +220,7 @@ async fn handle_mev_send_bundle(
     };
 }
 
-async fn send_order(
+pub(crate) async fn send_order(
     order: Order,
     channel: &mpsc::Sender<ReplaceableOrderPoolCommand>,
     timeout: Duration,
@@ -238,7 +238,7 @@ async fn send_order(
 }
 
 /// Eats the errors and traces them.
-async fn send_command(
+pub(crate) async fn send_command(
     command: ReplaceableOrderPoolCommand,
     channel: &mpsc::Sender<ReplaceableOrderPoolCommand>,
     timeout: Duration,
