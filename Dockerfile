@@ -10,6 +10,7 @@ ARG FEATURES
 ARG RBUILDER_BIN="rbuilder"
 
 FROM rust:1.82 as base
+ARG TARGETPLATFORM
 
 RUN apt-get update \
     && apt-get install -y clang libclang-dev
@@ -17,7 +18,23 @@ RUN apt-get update \
 RUN rustup component add clippy rustfmt
 
 
-RUN cargo install sccache --version ^0.8
+# We manually download sccache, because compilation is resource-intensive
+RUN set -eux; \
+    case "$TARGETPLATFORM" in \
+      "linux/amd64")  ARCH_TAG="x86_64-unknown-linux-musl" ;; \
+      "linux/arm64")  ARCH_TAG="aarch64-unknown-linux-musl" ;; \
+      *) \
+        echo "Unsupported platform: $TARGETPLATFORM"; \
+        exit 1 \
+        ;; \
+    esac; \
+    wget -O /tmp/sccache.tar.gz \
+      "https://github.com/mozilla/sccache/releases/download/v0.8.2/sccache-v0.8.2-${ARCH_TAG}.tar.gz"; \
+    tar -xf /tmp/sccache.tar.gz -C /tmp; \
+    mv /tmp/sccache-v0.8.2-${ARCH_TAG}/sccache /usr/local/bin/sccache; \
+    chmod +x /usr/local/bin/sccache; \
+    rm -rf /tmp/sccache.tar.gz /tmp/sccache-v0.8.2-${ARCH_TAG}
+
 RUN cargo install cargo-chef --version ^0.1
 
 
