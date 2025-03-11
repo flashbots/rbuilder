@@ -206,8 +206,12 @@ impl DummyBuildingAlgorithm {
     where
         P: StateProviderFactory + Clone + 'static,
     {
+        let block_state = provider
+            .history_by_block_hash(ctx.attributes.parent)?
+            .into();
+
         let mut block_building_helper = BlockBuildingHelperFromProvider::new(
-            provider.clone(),
+            block_state,
             ctx.clone(),
             None,
             BUILDER_NAME.to_string(),

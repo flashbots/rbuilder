@@ -19,9 +19,14 @@ use crate::{
     utils::NonceCache,
 };
 use ahash::{HashMap, HashSet};
+use derivative::Derivative;
 use reth::revm::cached::CachedReads;
+use reth_provider::StateProvider;
 use serde::Deserialize;
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info_span, trace};
 
@@ -65,29 +70,28 @@ where
 {
     let payload_id = input.ctx.payload_id;
 
-    let nonces = {
-        let block_state = match input
-            .provider
-            .history_by_block_hash(input.ctx.attributes.parent)
-        {
-            Ok(state) => state,
-            Err(err) => {
-                error!(
-                    ?err,
-                    payload_id,
-                    builder = input.builder_name,
-                    "Failed to get history_by_block_hash, cancelling builder job"
-                );
-                return;
-            }
-        };
-        NonceCache::new(block_state)
+    let block_state: Arc<dyn StateProvider> = match input
+        .provider
+        .history_by_block_hash(input.ctx.attributes.parent)
+    {
+        Ok(state) => Arc::from(state),
+        Err(err) => {
+            error!(
+                ?err,
+                payload_id,
+                builder = input.builder_name,
+                "Failed to get history_by_block_hash, cancelling builder job"
+            );
+            return;
+        }
     };
+
+    let nonces = NonceCache::new(block_state.clone());
 
     let mut order_intake_consumer = OrderIntakeConsumer::new(nonces, input.input, config.sorting);
 
     let mut builder = OrderingBuilderContext::new(
-        input.provider.clone(),
+        block_state.clone(),
         input.builder_name,
         input.ctx,
         config.clone(),
@@ -155,7 +159,7 @@ where
     let block_orders =
         block_orders_from_sim_orders(input.sim_orders, ordering_config.sorting, &state_provider)?;
     let mut builder = OrderingBuilderContext::new(
-        input.provider.clone(),
+        Arc::from(state_provider),
         input.builder_name,
         input.ctx.clone(),
         ordering_config,
@@ -179,9 +183,11 @@ where
     ))
 }
 
-#[derive(Debug)]
-pub struct OrderingBuilderContext<P> {
-    provider: P,
+#[derive(Derivative)]
+#[derivative(Debug)]
+pub struct OrderingBuilderContext {
+    #[derivative(Debug = "ignore")]
+    state: Arc<dyn StateProvider>,
     builder_name: String,
     ctx: BlockBuildingContext,
     config: OrderingBuilderConfig,
@@ -194,18 +200,15 @@ pub struct OrderingBuilderContext<P> {
     order_attempts: HashMap<OrderId, usize>,
 }
 
-impl<P> OrderingBuilderContext<P>
-where
-    P: StateProviderFactory + Clone + 'static,
-{
+impl OrderingBuilderContext {
     pub fn new(
-        provider: P,
+        state: Arc<dyn StateProvider>,
         builder_name: String,
         ctx: BlockBuildingContext,
         config: OrderingBuilderConfig,
     ) -> Self {
         Self {
-            provider,
+            state,
             builder_name,
             ctx,
             config,
@@ -250,7 +253,7 @@ where
         self.order_attempts.clear();
 
         let mut block_building_helper = BlockBuildingHelperFromProvider::new(
-            self.provider.clone(),
+            self.state.clone(),
             new_ctx,
             self.cached_reads.take(),
             self.builder_name.clone(),

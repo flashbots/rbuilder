@@ -16,6 +16,7 @@ use crossbeam::queue::SegQueue;
 use eyre::Result;
 use itertools::Itertools;
 use results_aggregator::BestResults;
+use reth_provider::StateProvider;
 use serde::Deserialize;
 use simulation_cache::SharedSimulationCache;
 use std::{
@@ -76,7 +77,7 @@ struct ParallelBuilder<P> {
     conflict_task_generator: ConflictTaskGenerator,
     conflict_resolving_pool: ConflictResolvingPool<P>,
     results_aggregator: ResultsAggregator,
-    block_building_result_assembler: BlockBuildingResultAssembler<P>,
+    block_building_result_assembler: BlockBuildingResultAssembler,
 }
 
 impl<P> ParallelBuilder<P>
@@ -85,7 +86,10 @@ where
 {
     /// Creates a ParallelBuilder.
     /// Sets up the various components and communication channels.
-    pub fn new(input: LiveBuilderInput<P>, config: &ParallelBuilderConfig) -> Self {
+    pub fn try_new(
+        input: LiveBuilderInput<P>,
+        config: &ParallelBuilderConfig,
+    ) -> eyre::Result<Self> {
         let (group_result_sender, group_result_receiver) = get_communication_channels();
         let group_result_sender_for_task_generator = group_result_sender.clone();
 
@@ -113,10 +117,15 @@ where
         let results_aggregator =
             ResultsAggregator::new(group_result_receiver, Arc::clone(&best_results));
 
+        let block_state = input
+            .provider
+            .history_by_block_hash(input.ctx.attributes.parent)?
+            .into();
+
         let block_building_result_assembler = BlockBuildingResultAssembler::new(
             config,
             Arc::clone(&best_results),
-            input.provider.clone(),
+            block_state,
             input.ctx.clone(),
             input.cancel.clone(),
             input.builder_name.clone(),
@@ -126,14 +135,14 @@ where
 
         let order_intake_consumer = OrderIntakeStore::new(input.input);
 
-        Self {
+        Ok(Self {
             order_intake_consumer,
             conflict_finder,
             conflict_task_generator,
             conflict_resolving_pool,
             results_aggregator,
             block_building_result_assembler,
-        }
+        })
     }
 
     /// Initializes the orders in the cached groups.
@@ -182,13 +191,26 @@ where
     let cancel_for_block_building_result_assembler = input.cancel.clone();
     let cancel_for_process_orders_loop = input.cancel.clone();
 
-    let mut builder = ParallelBuilder::new(input, config);
+    let mut builder = match ParallelBuilder::try_new(input, config) {
+        Ok(builder) => builder,
+        Err(err) => {
+            error!(?err, "Failed to create parallel builder, cancelling");
+            return;
+        }
+    };
     builder.initialize_orders();
 
     // Start task processing
-    thread::spawn(move || {
-        builder.conflict_resolving_pool.start();
-    });
+    match builder.conflict_resolving_pool.start() {
+        Ok(()) => {}
+        Err(err) => {
+            error!(
+                ?err,
+                "Failed to start parallel builder conflict_resolving_pool, cancelling"
+            );
+            return;
+        }
+    }
 
     // Process that collects conflict resolution results from workers and triggers block building
     tokio::spawn(async move {
@@ -299,13 +321,18 @@ where
 
     let setup_duration = setup_start.elapsed();
 
+    let block_state: Arc<dyn StateProvider> = input
+        .provider
+        .history_by_block_hash(input.ctx.attributes.parent)?
+        .into();
+
     // Group processing
     let processing_start = Instant::now();
     let groups = conflict_finder.get_order_groups();
     let results = conflict_resolving_pool.process_groups_backtest(
         groups,
         &input.ctx,
-        &input.provider,
+        block_state.clone(),
         Arc::clone(&simulation_cache),
     );
     let processing_duration = processing_start.elapsed();
@@ -315,7 +342,7 @@ where
     let block_building_result_assembler = BlockBuildingResultAssembler::new(
         &config,
         Arc::clone(&best_results),
-        input.provider.clone(),
+        block_state.clone(),
         input.ctx.clone(),
         CancellationToken::new(),
         String::from("backtest_builder"),

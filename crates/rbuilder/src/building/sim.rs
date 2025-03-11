@@ -312,7 +312,7 @@ where
 {
     let nonces = {
         let state = provider.history_by_block_hash(ctx.attributes.parent)?;
-        NonceCache::new(state)
+        NonceCache::new(state.into())
     };
     let mut sim_tree = SimTree::new(nonces);
 

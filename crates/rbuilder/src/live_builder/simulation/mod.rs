@@ -134,7 +134,7 @@ where
                             return;
                         }
                     };
-                    NonceCache::new(state)
+                    NonceCache::new(state.into())
                 };
 
                 let sim_tree = SimTree::new(nonces);

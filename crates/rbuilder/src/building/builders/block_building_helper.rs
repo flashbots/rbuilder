@@ -1,7 +1,9 @@
 use alloy_primitives::{utils::format_ether, U256};
 use reth::revm::cached::CachedReads;
+use reth_provider::StateProvider;
 use std::{
     cmp::max,
+    sync::Arc,
     time::{Duration, Instant},
 };
 use time::OffsetDateTime;
@@ -16,7 +18,6 @@ use crate::{
         PartialBlock, Sorting,
     },
     primitives::SimulatedOrder,
-    provider::StateProviderFactory,
     telemetry::{self, add_block_fill_time, add_order_simulation_time},
     utils::{check_block_hash_reader_health, HistoricalBlockError},
 };
@@ -124,10 +125,7 @@ impl BiddableUnfinishedBlock {
 
 /// Implementation of BlockBuildingHelper based on a generic Provider
 #[derive(Clone)]
-pub struct BlockBuildingHelperFromProvider<P>
-where
-    P: StateProviderFactory,
-{
+pub struct BlockBuildingHelperFromProvider {
     /// Balance of fee recipient before we stared building.
     _fee_recipient_balance_start: U256,
     /// Accumulated changes for the block (due to commit_order calls).
@@ -141,8 +139,6 @@ where
     builder_name: String,
     building_ctx: BlockBuildingContext,
     built_block_trace: BuiltBlockTrace,
-    /// Needed to get the initial state and the final root hash calculation.
-    provider: P,
     /// Token to cancel in case of fatal error (if we believe that it's impossible to build for this block).
     cancel_on_fatal_error: CancellationToken,
 }
@@ -188,10 +184,7 @@ pub struct FinalizeBlockResult {
     pub cached_reads: CachedReads,
 }
 
-impl<P> BlockBuildingHelperFromProvider<P>
-where
-    P: StateProviderFactory + Clone + 'static,
-{
+impl BlockBuildingHelperFromProvider {
     /// allow_tx_skip: see [`PartialBlockFork`]
     /// Performs initialization:
     /// - Query fee_recipient_balance_start.
@@ -199,7 +192,7 @@ where
     /// - Estimate payout tx cost.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        provider: P,
+        state_provider: Arc<dyn StateProvider>,
         building_ctx: BlockBuildingContext,
         cached_reads: Option<CachedReads>,
         builder_name: String,
@@ -207,9 +200,6 @@ where
         enforce_sorting: Option<Sorting>,
         cancel_on_fatal_error: CancellationToken,
     ) -> Result<Self, BlockBuildingHelperError> {
-        // @Maybe an issue - we have 2 db txs here (one for hash and one for finalize)
-        let state_provider = provider.history_by_block_hash(building_ctx.attributes.parent)?;
-
         let last_committed_block = building_ctx.block() - 1;
         check_block_hash_reader_health(last_committed_block, &state_provider)?;
 
@@ -219,7 +209,7 @@ where
         let mut partial_block = PartialBlock::new(discard_txs, enforce_sorting)
             .with_tracer(GasUsedSimulationTracer::default());
         let mut block_state =
-            BlockState::new(state_provider).with_cached_reads(cached_reads.unwrap_or_default());
+            BlockState::new_arc(state_provider).with_cached_reads(cached_reads.unwrap_or_default());
         partial_block
             .pre_block_call(&building_ctx, &mut block_state)
             .map_err(|_| BlockBuildingHelperError::PreBlockCallFailed)?;
@@ -244,7 +234,6 @@ where
             builder_name,
             building_ctx,
             built_block_trace: BuiltBlockTrace::new(),
-            provider,
             cancel_on_fatal_error,
         })
     }
@@ -343,10 +332,7 @@ where
     }
 }
 
-impl<P> BlockBuildingHelper for BlockBuildingHelperFromProvider<P>
-where
-    P: StateProviderFactory + Clone + 'static,
-{
+impl BlockBuildingHelper for BlockBuildingHelperFromProvider {
     /// Forwards to partial_block and updates trace.
     fn commit_order(
         &mut self,
@@ -425,12 +411,9 @@ where
             Ok(finalized_block) => finalized_block,
             Err(err) => {
                 if err.is_consistent_db_view_err() {
-                    let last_block_number = self.provider.last_block_number().unwrap_or_default();
-
                     debug!(
                         block_number,
                         payload_id = self.building_ctx.payload_id,
-                        last_block_number,
                         "Can't build on this head, cancelling slot"
                     );
                     self.cancel_on_fatal_error.cancel();

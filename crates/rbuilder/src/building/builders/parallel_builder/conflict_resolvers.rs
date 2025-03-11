@@ -1,5 +1,6 @@
 use ahash::HashMap;
 use alloy_primitives::{Address, U256};
+use derivative::Derivative;
 use eyre::Result;
 use itertools::Itertools;
 use rand::{seq::SliceRandom, SeedableRng};
@@ -16,23 +17,22 @@ use super::{
 use crate::{
     building::{BlockBuildingContext, BlockState, ExecutionError, ExecutionResult, PartialBlock},
     primitives::{OrderId, SimulatedOrder},
-    provider::StateProviderFactory,
 };
 
 /// Context for resolving conflicts in merging tasks.
-#[derive(Debug)]
-pub struct ResolverContext<P> {
-    pub provider: P,
+
+#[derive(Derivative)]
+#[derivative(Debug)]
+pub struct ResolverContext {
+    #[derivative(Debug = "ignore")]
+    pub state: Arc<dyn StateProvider>,
     pub ctx: BlockBuildingContext,
     pub cancellation_token: CancellationToken,
     pub cache: Option<CachedReads>,
     pub simulation_cache: Arc<SharedSimulationCache>,
 }
 
-impl<P> ResolverContext<P>
-where
-    P: StateProviderFactory,
-{
+impl ResolverContext {
     /// Creates a new `ResolverContext`.
     ///
     /// # Arguments
@@ -43,14 +43,14 @@ where
     /// * `cache` - Optional cached reads for optimization.
     /// * `simulation_cache` - Shared cache for simulation results.
     pub fn new(
-        provider: P,
+        state: Arc<dyn StateProvider>,
         ctx: BlockBuildingContext,
         cancellation_token: CancellationToken,
         cache: Option<CachedReads>,
         simulation_cache: Arc<SharedSimulationCache>,
     ) -> Self {
         ResolverContext {
-            provider,
+            state,
             ctx,
             cancellation_token,
             cache,
@@ -73,11 +73,6 @@ where
             task.group.id,
             task.algorithm
         );
-        // TODO: refactor to get history_by_block_hash only once per block but not per conflict task
-        let state_provider = self
-            .provider
-            .history_by_block_hash(self.ctx.attributes.parent)?;
-        let state_provider: Arc<dyn StateProvider> = Arc::from(state_provider);
 
         let sequence_to_try = generate_sequences_of_orders_to_try(&task);
 
@@ -88,7 +83,7 @@ where
 
         for sequence_of_orders in sequence_to_try {
             let (resolution_result, state) =
-                self.process_sequence_of_orders(sequence_of_orders, &task, &state_provider)?;
+                self.process_sequence_of_orders(sequence_of_orders, &task, self.state.clone())?;
             self.update_best_result(resolution_result, &mut best_resolution_result);
 
             let (new_cached_reads, _, _) = state.into_parts();
@@ -136,7 +131,7 @@ where
         &mut self,
         sequence_of_orders: Vec<usize>,
         task: &ConflictTask,
-        state_provider: &Arc<dyn StateProvider>,
+        state_provider: Arc<dyn StateProvider>,
     ) -> Result<(ResolutionResult, BlockState)> {
         let order_id_to_index = self.initialize_order_id_to_index_map(task);
         let full_sequence_of_orders = self.initialize_full_order_ids_vec(&sequence_of_orders, task);
@@ -287,7 +282,7 @@ where
     fn initialize_block_state(
         &mut self,
         cached_state_option: &Option<Arc<CachedSimulationState>>,
-        state_provider: &Arc<dyn StateProvider>,
+        state_provider: Arc<dyn StateProvider>,
     ) -> BlockState {
         if let Some(cached_state) = &cached_state_option {
             // Use cached state
@@ -297,9 +292,9 @@ where
         } else {
             // If we don't have a cached state from the simulation cache, we use the cached reads from the block state in some cases
             if let Some(cache) = &self.cache {
-                BlockState::new_arc(state_provider.clone()).with_cached_reads(cache.clone())
+                BlockState::new_arc(state_provider).with_cached_reads(cache.clone())
             } else {
-                BlockState::new_arc(state_provider.clone())
+                BlockState::new_arc(state_provider)
             }
         }
     }

@@ -5,6 +5,7 @@ use super::{
 use ahash::HashMap;
 use alloy_primitives::utils::format_ether;
 use reth::revm::cached::CachedReads;
+use reth_provider::StateProvider;
 use std::{sync::Arc, time::Instant};
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
@@ -20,13 +21,12 @@ use crate::{
         },
         BlockBuildingContext,
     },
-    provider::StateProviderFactory,
     telemetry::mark_builder_considers_order,
 };
 
 /// Assembles block building results from the best orderings of order groups.
-pub struct BlockBuildingResultAssembler<P> {
-    provider: P,
+pub struct BlockBuildingResultAssembler {
+    state: Arc<dyn StateProvider>,
     ctx: BlockBuildingContext,
     cancellation_token: CancellationToken,
     cached_reads: Option<CachedReads>,
@@ -40,10 +40,7 @@ pub struct BlockBuildingResultAssembler<P> {
     last_version: Option<u64>,
 }
 
-impl<P> BlockBuildingResultAssembler<P>
-where
-    P: StateProviderFactory + Clone + 'static,
-{
+impl BlockBuildingResultAssembler {
     /// Creates a new `BlockBuildingResultAssembler`.
     ///
     /// # Arguments
@@ -56,7 +53,7 @@ where
     pub fn new(
         config: &ParallelBuilderConfig,
         best_results: Arc<BestResults>,
-        provider: P,
+        state: Arc<dyn StateProvider>,
         ctx: BlockBuildingContext,
         cancellation_token: CancellationToken,
         builder_name: String,
@@ -64,7 +61,7 @@ where
         sink: Option<Arc<dyn UnfinishedBlockBuildingSink>>,
     ) -> Self {
         Self {
-            provider,
+            state,
             ctx,
             cancellation_token,
             cached_reads: None,
@@ -198,7 +195,7 @@ where
         }
 
         let mut block_building_helper = BlockBuildingHelperFromProvider::new(
-            self.provider.clone(),
+            self.state.clone(),
             ctx,
             self.cached_reads.clone(),
             self.builder_name.clone(),
@@ -270,7 +267,7 @@ where
         orders_closed_at: OffsetDateTime,
     ) -> eyre::Result<Box<dyn BlockBuildingHelper>> {
         let mut block_building_helper = BlockBuildingHelperFromProvider::new(
-            self.provider.clone(),
+            self.state.clone(),
             self.ctx.clone(),
             None, // No cached reads for backtest start
             String::from("backtest_builder"),
