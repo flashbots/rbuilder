@@ -73,6 +73,7 @@ where
             task.group.id,
             task.algorithm
         );
+        // TODO: refactor to get history_by_block_hash only once per block but not per conflict task
         let state_provider = self
             .provider
             .history_by_block_hash(self.ctx.attributes.parent)?;
