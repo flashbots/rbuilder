@@ -6,6 +6,7 @@ pub mod orderpool;
 pub mod replaceable_order_sink;
 pub mod rpc_server;
 pub mod txpool_fetcher;
+mod ws_server;
 
 use self::{
     orderpool::{OrderPool, OrderPoolSubscriptionId},
@@ -220,7 +221,14 @@ where
     )
     .await?;
 
-    let mut handles = vec![clean_job, rpc_server];
+    let ws_server = ws_server::start_toba_ws_server(
+        config.clone(),
+        order_sender.clone(),
+        global_cancel.clone(),
+    )
+    .await?;
+
+    let mut handles = vec![clean_job, rpc_server, ws_server];
 
     if config.ipc_path.is_some() {
         info!("IPC path configured, starting txpool subscription");

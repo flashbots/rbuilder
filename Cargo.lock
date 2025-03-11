@@ -8476,6 +8476,7 @@ dependencies = [
  "time",
  "tokio",
  "tokio-stream",
+ "tokio-tungstenite 0.21.0",
  "tokio-util",
  "toml 0.8.19",
  "tracing",
