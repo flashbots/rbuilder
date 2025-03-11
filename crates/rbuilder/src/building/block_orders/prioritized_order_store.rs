@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, collections::hash_map::Entry};
+use std::{cmp::Ordering, collections::hash_map::Entry, sync::Arc};
 
 use ahash::{HashMap, HashSet};
 use alloy_primitives::Address;
@@ -59,7 +59,7 @@ pub struct PrioritizedOrderStore {
     /// Orders waiting for an account to reach a particular nonce.
     pending_orders: HashMap<AccountNonce, Vec<OrderId>>,
     /// Id -> order for all orders we manage. Carefully maintained by remove/insert
-    orders: HashMap<OrderId, SimulatedOrder>,
+    orders: HashMap<OrderId, Arc<SimulatedOrder>>,
 
     /// defines what orders are popped first
     priority: Sorting,
@@ -84,7 +84,7 @@ impl PrioritizedOrderStore {
         }
     }
 
-    pub fn pop_order(&mut self) -> Option<SimulatedOrder> {
+    pub fn pop_order(&mut self) -> Option<Arc<SimulatedOrder>> {
         let (id, _) = self.main_queue.pop()?;
 
         let order = self
@@ -94,7 +94,7 @@ impl PrioritizedOrderStore {
     }
 
     /// Clean up after some order was removed from main_queue
-    fn remove_poped_order(&mut self, id: &OrderId) -> Option<SimulatedOrder> {
+    fn remove_poped_order(&mut self, id: &OrderId) -> Option<Arc<SimulatedOrder>> {
         let sim_order = self.orders.remove(id)?;
         for Nonce { address, .. } in sim_order.order.nonces() {
             match self.main_queue_nonces.entry(address) {
@@ -153,7 +153,7 @@ impl PrioritizedOrderStore {
             let retain_order = valid && valid_nonces > 0;
             tracing::trace!(order = ?order_id, retain_order, "invalidated order");
             if retain_order {
-                self.insert_order(order);
+                self.insert_order(order.clone());
             } else {
                 mark_order_not_ready_for_immediate_inclusion(&order_id);
             }
@@ -172,13 +172,13 @@ impl PrioritizedOrderStore {
         }
     }
 
-    pub fn get_all_orders(&self) -> Vec<SimulatedOrder> {
+    pub fn get_all_orders(&self) -> Vec<Arc<SimulatedOrder>> {
         self.orders.values().cloned().collect()
     }
 }
 
 impl SimulatedOrderSink for PrioritizedOrderStore {
-    fn insert_order(&mut self, sim_order: SimulatedOrder) {
+    fn insert_order(&mut self, sim_order: Arc<SimulatedOrder>) {
         if self.orders.contains_key(&sim_order.id()) {
             return;
         }
@@ -233,7 +233,7 @@ impl SimulatedOrderSink for PrioritizedOrderStore {
         self.orders.insert(sim_order.id(), sim_order);
     }
 
-    fn remove_order(&mut self, id: OrderId) -> Option<SimulatedOrder> {
+    fn remove_order(&mut self, id: OrderId) -> Option<Arc<SimulatedOrder>> {
         // we don't remove from pending because pending will clean itself
         if self.main_queue.remove(&id).is_some() {
             self.remove_poped_order(&id);

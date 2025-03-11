@@ -313,9 +313,9 @@ impl OrderingBuilderContext {
                         // try to reinsert order into the map
                         let order_attempts = order_attempts.entry(sim_order.id()).or_insert(0);
                         if *order_attempts < self.config.failed_order_retries {
-                            let mut new_order = sim_order.clone();
+                            let mut new_order = (*sim_order).clone();
                             new_order.sim_value = inplace.clone();
-                            block_orders.insert_order(new_order);
+                            block_orders.insert_order(Arc::new(new_order));
                             *order_attempts += 1;
                             reinserted = true;
                         }

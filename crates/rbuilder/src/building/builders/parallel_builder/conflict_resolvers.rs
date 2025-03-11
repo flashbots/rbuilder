@@ -516,7 +516,7 @@ mod tests {
             coinbase_profit: U256,
             mev_gas_price: U256,
             num_of_orders: usize,
-        ) -> SimulatedOrder {
+        ) -> Arc<SimulatedOrder> {
             let mut txs = Vec::new();
             for _ in 0..num_of_orders {
                 txs.push(
@@ -545,18 +545,18 @@ mod tests {
                 refund: None,
             };
 
-            SimulatedOrder {
+            Arc::new(SimulatedOrder {
                 order: Order::Bundle(bundle),
                 used_state_trace: None,
                 sim_value,
-            }
+            })
         }
     }
 
     // Helper function to create an order group
     fn create_mock_order_group(
         id: GroupId,
-        orders: Vec<SimulatedOrder>,
+        orders: Vec<Arc<SimulatedOrder>>,
         conflicting_ids: HashSet<GroupId>,
     ) -> ConflictGroup {
         ConflictGroup {

@@ -18,10 +18,7 @@ use tokio::sync::broadcast::{
 use tokio_util::sync::CancellationToken;
 use tracing::{error, trace, warn};
 
-use crate::{
-    building::evm_inspector::SlotKey, live_builder::simulation::SimulatedOrderCommand,
-    primitives::SimulatedOrder,
-};
+use crate::{building::evm_inspector::SlotKey, live_builder::simulation::SimulatedOrderCommand};
 
 const CONSUME_SIM_ORDERS_BATCH: usize = 128;
 
@@ -59,11 +56,12 @@ pub fn run_trie_prefetcher<P>(
 
         for _ in 0..CONSUME_SIM_ORDERS_BATCH {
             match simulated_orders.try_recv() {
-                Ok(SimulatedOrderCommand::Simulation(SimulatedOrder {
-                    used_state_trace: Some(used_state_trace),
-                    ..
-                })) => {
-                    used_state_traces.push(used_state_trace);
+                Ok(SimulatedOrderCommand::Simulation(sim_order)) => {
+                    if let Some(used_state_trace) = &sim_order.used_state_trace {
+                        used_state_traces.push(used_state_trace.clone());
+                    } else {
+                        continue;
+                    }
                 }
                 Ok(_) => continue,
                 Err(TryRecvError::Empty) => {
@@ -72,11 +70,12 @@ pub fn run_trie_prefetcher<P>(
                     }
                     // block so thread can sleep if there are no inputs
                     match simulated_orders.blocking_recv() {
-                        Ok(SimulatedOrderCommand::Simulation(SimulatedOrder {
-                            used_state_trace: Some(used_state_trace),
-                            ..
-                        })) => {
-                            used_state_traces.push(used_state_trace);
+                        Ok(SimulatedOrderCommand::Simulation(sim_order)) => {
+                            if let Some(used_state_trace) = &sim_order.used_state_trace {
+                                used_state_traces.push(used_state_trace.clone());
+                            } else {
+                                continue;
+                            }
                         }
                         Ok(_) => continue,
                         Err(RecvError::Closed) => return,

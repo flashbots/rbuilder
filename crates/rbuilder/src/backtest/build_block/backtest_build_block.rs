@@ -19,7 +19,7 @@ use crate::{
     provider::StateProviderFactory,
 };
 use clap::Parser;
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 #[derive(Parser, Debug)]
 pub struct BuildBlockCfg {
@@ -204,7 +204,7 @@ fn print_order_and_timestamp(orders_with_ts: &[OrdersWithTimestamp], block_time_
 
 /// Print information about simulated orders.
 fn print_simulated_orders(
-    sim_orders: &[SimulatedOrder],
+    sim_orders: &[Arc<SimulatedOrder>],
     order_and_timestamp: &HashMap<OrderId, u64>,
     block_time_as_unix_ms: u64,
 ) {

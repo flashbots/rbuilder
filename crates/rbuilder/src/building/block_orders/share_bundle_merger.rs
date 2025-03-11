@@ -3,6 +3,7 @@ use std::{
     cmp::Ordering,
     collections::{hash_map::Entry, BTreeMap},
     rc::Rc,
+    sync::Arc,
 };
 
 use ahash::HashMap;
@@ -20,7 +21,7 @@ use super::SimulatedOrderSink;
 #[derive(Debug, Clone)]
 struct BrokenDownShareBundle {
     /// sim order containing the ShareBundle as received
-    sim_order: SimulatedOrder,
+    sim_order: Arc<SimulatedOrder>,
     /// hash of the user inner bundle. This is the identity of the user txs
     user_bundle_hash: B256,
     /// extracted from self.sbundle.sim_value.paid_kickbacks
@@ -107,7 +108,7 @@ impl<SinkType: SimulatedOrderSink> MultiBackrunManager<SinkType> {
 
     /// Merge all orders in a single ShareBundle containing all other ShareBundle as skippable items.
     /// All other info for the SimulatedOrder is taken from the first ShareBundle.
-    fn merge_orders(&self) -> Option<SimulatedOrder> {
+    fn merge_orders(&self) -> Option<Arc<SimulatedOrder>> {
         if self.sorted_orders.is_empty() {
             return None;
         }
@@ -145,11 +146,11 @@ impl<SinkType: SimulatedOrderSink> MultiBackrunManager<SinkType> {
             metadata: highest_payback_order.sim_order.order.metadata().clone(),
         };
         sbundle.hash_slow();
-        Some(SimulatedOrder {
+        Some(Arc::new(SimulatedOrder {
             order: Order::ShareBundle(sbundle),
             sim_value: highest_payback_order.sim_order.sim_value.clone(),
             used_state_trace: highest_payback_order.sim_order.used_state_trace.clone(),
-        })
+        }))
     }
 
     /// On changes calls regenerate_multi_order
@@ -166,7 +167,7 @@ impl<SinkType: SimulatedOrderSink> MultiBackrunManager<SinkType> {
     }
 
     /// On changes calls regenerate_multi_order
-    fn remove_order(&mut self, id: OrderId) -> Option<SimulatedOrder> {
+    fn remove_order(&mut self, id: OrderId) -> Option<Arc<SimulatedOrder>> {
         let user_kickback = self.order_kickbacks.remove(&id).or_else(|| {
             error!(order_id = ?id, "remove_order for not inserted order");
             None
@@ -264,8 +265,8 @@ impl<SinkType: SimulatedOrderSink> ShareBundleMerger<SinkType> {
     const USER_BUNDLE_INDEX: usize = 0;
     /// Tries to analyze if the order is a mergeable sbundle by looking at its structure to check if this is a user txs or a backrun sbundle
     /// Only check here is if Signer is in selected_signers
-    fn break_down_bundle(&self, order: &SimulatedOrder) -> Option<BrokenDownShareBundle> {
-        let sbundle = if let Order::ShareBundle(sbundle) = order.order.clone() {
+    fn break_down_bundle(&self, order: &Arc<SimulatedOrder>) -> Option<BrokenDownShareBundle> {
+        let sbundle = if let Order::ShareBundle(sbundle) = &order.order {
             sbundle
         } else {
             return None;
@@ -283,8 +284,8 @@ impl<SinkType: SimulatedOrderSink> ShareBundleMerger<SinkType> {
 
     /// This should contain only ShareBundleBody::Tx with no refund (but it can contain refund_info)
     fn break_down_user_tx_bundle(
-        sbundle: ShareBundle,
-        sim_order: &SimulatedOrder,
+        sbundle: &ShareBundle,
+        sim_order: &Arc<SimulatedOrder>,
     ) -> Option<BrokenDownShareBundle> {
         let got_bundles = sbundle
             .inner_bundle
@@ -314,11 +315,11 @@ impl<SinkType: SimulatedOrderSink> ShareBundleMerger<SinkType> {
     /// - Must contain one refund pointing to the user bundle.
     /// - The first (USER_BUNDLE_INDEX) item (the user bundle) should be a sub bundle with no refund.
     fn break_down_backrun_bundle(
-        sbundle: ShareBundle,
-        sim_order: &SimulatedOrder,
+        sbundle: &ShareBundle,
+        sim_order: &Arc<SimulatedOrder>,
     ) -> Option<BrokenDownShareBundle> {
-        let user_bundle_hash = Self::check_and_get_user_bundle_hash_from_backrun(&sbundle)?;
-        if !Self::check_refunds_from_backrun_ok(&sbundle) {
+        let user_bundle_hash = Self::check_and_get_user_bundle_hash_from_backrun(sbundle)?;
+        if !Self::check_refunds_from_backrun_ok(sbundle) {
             return None;
         }
         let mut user_kickback = U256::ZERO;
@@ -392,7 +393,7 @@ impl<SinkType: SimulatedOrderSink> ShareBundleMerger<SinkType> {
 impl<SinkType: SimulatedOrderSink> SimulatedOrderSink for ShareBundleMerger<SinkType> {
     /// if we can manage the SimulatedOrder send it to the MultiBackrunManager
     /// if not just forward downstream
-    fn insert_order(&mut self, order: SimulatedOrder) {
+    fn insert_order(&mut self, order: Arc<SimulatedOrder>) {
         if let Some(broken_down_sbundle) = self.break_down_bundle(&order) {
             let handler = self
                 .multi_backrun_managers
@@ -410,7 +411,7 @@ impl<SinkType: SimulatedOrderSink> SimulatedOrderSink for ShareBundleMerger<Sink
     }
 
     /// give to handler or forward downstream
-    fn remove_order(&mut self, id: OrderId) -> Option<SimulatedOrder> {
+    fn remove_order(&mut self, id: OrderId) -> Option<Arc<SimulatedOrder>> {
         match self.order_id_2_multi_backrun_managers.entry(id) {
             Entry::Occupied(handler) => handler.get().borrow_mut().remove_order(id),
             Entry::Vacant(_) => self.order_sink.borrow_mut().remove_order(id),

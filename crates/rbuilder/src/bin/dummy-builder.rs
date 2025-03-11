@@ -180,7 +180,7 @@ impl DummyBuildingAlgorithm {
         &self,
         cancel: &CancellationToken,
         orders_source: broadcast::Receiver<SimulatedOrderCommand>,
-    ) -> Option<Vec<SimulatedOrder>> {
+    ) -> Option<Vec<Arc<SimulatedOrder>>> {
         let mut orders_sink = SimulatedOrderStore::new();
         let mut order_consumer = OrderConsumer::new(orders_source);
         loop {
@@ -199,7 +199,7 @@ impl DummyBuildingAlgorithm {
 
     fn build_block<P>(
         &self,
-        orders: Vec<SimulatedOrder>,
+        orders: Vec<Arc<SimulatedOrder>>,
         provider: P,
         ctx: &BlockBuildingContext,
     ) -> eyre::Result<Box<dyn BlockBuildingHelper>>

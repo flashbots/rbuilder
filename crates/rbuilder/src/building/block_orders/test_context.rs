@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 use alloy_primitives::{Address, B256, U256};
 
@@ -44,15 +44,15 @@ impl<TestedSinkType: SimulatedOrderSink> TestContext<TestedSinkType> {
         }
     }
 
-    pub fn insert_order(&mut self, order: SimulatedOrder) {
+    pub fn insert_order(&mut self, order: Arc<SimulatedOrder>) {
         self.tested_sink.insert_order(order);
     }
 
-    pub fn remove_order(&mut self, id: OrderId) -> Option<SimulatedOrder> {
+    pub fn remove_order(&mut self, id: OrderId) -> Option<Arc<SimulatedOrder>> {
         self.tested_sink.remove_order(id)
     }
 
-    pub fn pop_insert(&mut self) -> SimulatedOrder {
+    pub fn pop_insert(&mut self) -> Arc<SimulatedOrder> {
         self.dumper.borrow_mut().pop_insert()
     }
 
@@ -132,7 +132,7 @@ impl<TestedSinkType: SimulatedOrderSink> TestContext<TestedSinkType> {
         &mut self,
         hi_signer: Option<Address>,
         low_signer: Option<Address>,
-    ) -> (SimulatedOrder, SimulatedOrder) {
+    ) -> (Arc<SimulatedOrder>, Arc<SimulatedOrder>) {
         let mut backruns = self.create_multiple_sbundle_tx_br(2);
         backruns[0].signer = hi_signer;
         backruns[1].signer = low_signer;
@@ -160,7 +160,7 @@ impl<TestedSinkType: SimulatedOrderSink> TestContext<TestedSinkType> {
         order: Order,
         coinbase_profit: u64,
         mev_gas_price: u64,
-    ) -> SimulatedOrder {
+    ) -> Arc<SimulatedOrder> {
         let sim_value = SimValue {
             coinbase_profit: U256::from(coinbase_profit),
             mev_gas_price: U256::from(mev_gas_price),
@@ -170,11 +170,11 @@ impl<TestedSinkType: SimulatedOrderSink> TestContext<TestedSinkType> {
             )],
             ..Default::default()
         };
-        SimulatedOrder {
+        Arc::new(SimulatedOrder {
             order,
             sim_value,
             used_state_trace: None,
-        }
+        })
     }
 
     /// creates a basic bundle with body and refund/refund_config.
@@ -232,8 +232,8 @@ impl<TestedSinkType: SimulatedOrderSink> TestContext<TestedSinkType> {
     /// self is not used but simplifies the call since the static function would need the types specified.
     pub fn assert_concatenated_sbundles_ok(
         &self,
-        concatenated_order: &SimulatedOrder,
-        sbundles: &[SimulatedOrder],
+        concatenated_order: &Arc<SimulatedOrder>,
+        sbundles: &[Arc<SimulatedOrder>],
     ) {
         let concatenated_sbundle = Self::as_sbundle(&concatenated_order.order);
         assert_eq!(concatenated_sbundle.inner_bundle.body.len(), sbundles.len());

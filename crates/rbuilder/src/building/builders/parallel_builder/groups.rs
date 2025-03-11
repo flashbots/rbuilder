@@ -23,13 +23,13 @@ pub struct ResolutionResult {
 #[derive(Debug, Clone)]
 pub struct ConflictGroup {
     pub id: usize,
-    pub orders: Arc<Vec<SimulatedOrder>>,
+    pub orders: Arc<Vec<Arc<SimulatedOrder>>>,
     pub conflicting_group_ids: Arc<HashSet<usize>>,
 }
 
 #[derive(Debug, Default)]
 struct GroupData {
-    orders: Vec<SimulatedOrder>,
+    orders: Vec<Arc<SimulatedOrder>>,
     reads: Vec<SlotKey>,
     writes: Vec<SlotKey>,
     balance_reads: Vec<Address>,
@@ -106,7 +106,7 @@ impl ConflictFinder {
         }
     }
 
-    pub fn add_orders(&mut self, orders: Vec<SimulatedOrder>) {
+    pub fn add_orders(&mut self, orders: Vec<Arc<SimulatedOrder>>) {
         for order in orders {
             if self.orders.contains(&order.id()) {
                 continue;
@@ -380,6 +380,8 @@ fn remove_group_key_from_map<K: std::cmp::Eq + std::hash::Hash + Clone>(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use alloy_consensus::TxLegacy;
     use alloy_primitives::{Address, TxHash, B256, U256};
     use reth::primitives::{Transaction, TransactionSigned};
@@ -445,7 +447,7 @@ mod tests {
             balance_write: Option<&Address>,
             contract_creation: Option<&Address>,
             contract_destruction: Option<&Address>,
-        ) -> SimulatedOrder {
+        ) -> Arc<SimulatedOrder> {
             let mut trace = UsedStateTrace::default();
             if let Some(read) = read {
                 trace
@@ -475,7 +477,7 @@ mod tests {
                 trace.destructed_contracts.push(*contract_address);
             }
 
-            SimulatedOrder {
+            Arc::new(SimulatedOrder {
                 order: Order::Tx(MempoolTx {
                     tx_with_blobs: TransactionSignedEcRecoveredWithBlobs::new_no_blobs(
                         self.create_tx(),
@@ -484,7 +486,7 @@ mod tests {
                 }),
                 used_state_trace: Some(trace),
                 sim_value: SimValue::default(),
-            }
+            })
         }
     }
 

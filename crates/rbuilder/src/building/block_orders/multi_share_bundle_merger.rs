@@ -1,10 +1,10 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 use ahash::HashMap;
 use alloy_primitives::Address;
 use tracing::error;
 
-use crate::primitives::OrderId;
+use crate::primitives::{OrderId, SimulatedOrder};
 
 use super::{share_bundle_merger::ShareBundleMerger, SimulatedOrderSink};
 
@@ -76,16 +76,13 @@ impl<SinkType: SimulatedOrderSink> MultiShareBundleMerger<SinkType> {
 }
 
 impl<SinkType: SimulatedOrderSink> SimulatedOrderSink for MultiShareBundleMerger<SinkType> {
-    fn insert_order(&mut self, order: crate::primitives::SimulatedOrder) {
+    fn insert_order(&mut self, order: Arc<SimulatedOrder>) {
         let signer = order.order.signer();
         self.inserted_orders_signers.insert(order.id(), signer);
         self.get_merger(&signer).borrow_mut().insert_order(order);
     }
 
-    fn remove_order(
-        &mut self,
-        id: crate::primitives::OrderId,
-    ) -> Option<crate::primitives::SimulatedOrder> {
+    fn remove_order(&mut self, id: crate::primitives::OrderId) -> Option<Arc<SimulatedOrder>> {
         match self.inserted_orders_signers.get(&id).cloned() {
             Some(signer) => self.get_merger(&signer).borrow_mut().remove_order(id),
             None => {

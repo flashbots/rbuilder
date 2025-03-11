@@ -188,7 +188,7 @@ impl OrderIntakeConsumer {
     pub fn remove_orders(
         &mut self,
         orders: impl IntoIterator<Item = OrderId>,
-    ) -> Vec<SimulatedOrder> {
+    ) -> Vec<Arc<SimulatedOrder>> {
         self.block_orders.remove_orders(orders)
     }
 }
@@ -238,7 +238,7 @@ pub trait UnfinishedBlockBuildingSinkFactory: Debug + Send + Sync {
 pub struct BacktestSimulateBlockInput<'a, P> {
     pub ctx: BlockBuildingContext,
     pub builder_name: String,
-    pub sim_orders: &'a Vec<SimulatedOrder>,
+    pub sim_orders: &'a Vec<Arc<SimulatedOrder>>,
     pub provider: P,
     pub cached_reads: Option<CachedReads>,
 }

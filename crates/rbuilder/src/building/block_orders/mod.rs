@@ -7,6 +7,8 @@ mod order_dumper;
 #[cfg(test)]
 mod test_context;
 mod test_data_generator;
+use std::sync::Arc;
+
 use crate::{
     building::Sorting,
     live_builder::simulation::SimulatedOrderCommand,
@@ -21,10 +23,13 @@ pub use test_data_generator::TestDataGenerator;
 
 /// Generic SimulatedOrder sink to add and remove orders.
 pub trait SimulatedOrderSink {
-    fn insert_order(&mut self, order: SimulatedOrder);
+    fn insert_order(&mut self, order: Arc<SimulatedOrder>);
     /// if found, returns the removed order
-    fn remove_order(&mut self, id: OrderId) -> Option<SimulatedOrder>;
-    fn remove_orders(&mut self, orders: impl IntoIterator<Item = OrderId>) -> Vec<SimulatedOrder> {
+    fn remove_order(&mut self, id: OrderId) -> Option<Arc<SimulatedOrder>>;
+    fn remove_orders(
+        &mut self,
+        orders: impl IntoIterator<Item = OrderId>,
+    ) -> Vec<Arc<SimulatedOrder>> {
         let mut result = Vec::new();
         for id in orders {
             if let Some(o) = self.remove_order(id) {
@@ -51,10 +56,10 @@ pub fn simulated_order_command_to_sink<SinkType: SimulatedOrderSink>(
 /// SimulatedOrderSink that stores all orders + all the adds from last drain_new_orders ONLY if we didn't see removes.
 pub struct SimulatedOrderStore {
     /// Id -> order for all orders we manage. Carefully maintained by remove/insert
-    orders: HashMap<OrderId, SimulatedOrder>,
+    orders: HashMap<OrderId, Arc<SimulatedOrder>>,
     /// Stored add commands since last drain_new_orders. If we see a cancel y goes to None.
     /// This could be in another object..
-    new_orders: Option<Vec<SimulatedOrder>>,
+    new_orders: Option<Vec<Arc<SimulatedOrder>>>,
 }
 
 impl SimulatedOrderStore {
@@ -65,12 +70,12 @@ impl SimulatedOrderStore {
         }
     }
 
-    pub fn get_orders(&self) -> Vec<SimulatedOrder> {
+    pub fn get_orders(&self) -> Vec<Arc<SimulatedOrder>> {
         self.orders.values().cloned().collect()
     }
 
     /// Allows to get new adds ONLY if no remove_order was received
-    pub fn drain_new_orders(&mut self) -> Option<Vec<SimulatedOrder>> {
+    pub fn drain_new_orders(&mut self) -> Option<Vec<Arc<SimulatedOrder>>> {
         self.new_orders.replace(Vec::new())
     }
 }
@@ -82,14 +87,14 @@ impl Default for SimulatedOrderStore {
 }
 
 impl SimulatedOrderSink for SimulatedOrderStore {
-    fn insert_order(&mut self, order: SimulatedOrder) {
+    fn insert_order(&mut self, order: Arc<SimulatedOrder>) {
         if let Some(new_orders) = &mut self.new_orders {
             new_orders.push(order.clone());
         }
         self.orders.insert(order.id(), order);
     }
 
-    fn remove_order(&mut self, id: OrderId) -> Option<SimulatedOrder> {
+    fn remove_order(&mut self, id: OrderId) -> Option<Arc<SimulatedOrder>> {
         self.new_orders = None;
         self.orders.remove(&id)
     }
@@ -97,7 +102,7 @@ impl SimulatedOrderSink for SimulatedOrderStore {
 
 /// Create block orders struct from simulated orders. Used in the backtest, not practical while live.
 pub fn block_orders_from_sim_orders(
-    sim_orders: &[SimulatedOrder],
+    sim_orders: &[Arc<SimulatedOrder>],
     sorting: Sorting,
     state_provider: &StateProviderBox,
 ) -> ProviderResult<PrioritizedOrderStore> {
@@ -174,7 +179,7 @@ mod test {
             &mut self,
             tx_nonce: &AccountNonce,
             tx_profit: u64,
-        ) -> SimulatedOrder {
+        ) -> Arc<SimulatedOrder> {
             let order = self.data_gen.base.create_tx_order(tx_nonce.clone());
             let order = self.data_gen.create_sim_order(order, tx_profit, tx_profit);
             self.order_pool.insert_order(order.clone());
@@ -186,7 +191,7 @@ mod test {
             &mut self,
             txs_info: &[BundledTxInfo],
             bundle_profit: u64,
-        ) -> SimulatedOrder {
+        ) -> Arc<SimulatedOrder> {
             let order = self.data_gen.base.create_bundle_multi_tx_order(
                 0, // in the context of PrioritizedOrderStore we don't care about the block (it's prefiltered)
                 txs_info, None,
@@ -206,7 +211,7 @@ mod test {
             tx2_nonce: &AccountNonce,
             tx2_optional: bool,
             bundle_profit: u64,
-        ) -> SimulatedOrder {
+        ) -> Arc<SimulatedOrder> {
             let txs_info = [
                 BundledTxInfo {
                     nonce: tx1_nonce.clone(),

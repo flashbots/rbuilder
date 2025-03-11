@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use tokio::sync::broadcast;
 
 use crate::{
@@ -32,12 +34,12 @@ impl OrderIntakeStore {
     }
 
     /// returns the new orders since last call if we ONLY had new orders (no cancellations allowed)
-    pub fn try_drain_new_orders_if_no_cancellations(&mut self) -> Option<Vec<SimulatedOrder>> {
+    pub fn try_drain_new_orders_if_no_cancellations(&mut self) -> Option<Vec<Arc<SimulatedOrder>>> {
         self.order_sink.drain_new_orders()
     }
 
     /// All the current orders
-    pub fn get_orders(&self) -> Vec<SimulatedOrder> {
+    pub fn get_orders(&self) -> Vec<Arc<SimulatedOrder>> {
         self.order_sink.get_orders()
     }
 }

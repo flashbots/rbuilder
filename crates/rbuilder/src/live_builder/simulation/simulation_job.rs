@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, sync::Arc};
 
 use crate::{
     building::sim::{SimTree, SimulatedResult, SimulationRequest},
@@ -206,9 +206,9 @@ impl SimulationJob {
                     .insert(sim_result.simulated_order.id())
                     && self
                         .slot_sim_results_sender
-                        .send(SimulatedOrderCommand::Simulation(
+                        .send(SimulatedOrderCommand::Simulation(Arc::new(
                             sim_result.simulated_order.clone(),
-                        ))
+                        )))
                         .await
                         .is_err()
                 {

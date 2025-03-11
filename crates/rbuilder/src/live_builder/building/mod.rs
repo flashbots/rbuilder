@@ -185,14 +185,14 @@ impl SimulatedOrderSinkToChannel {
 }
 
 impl SimulatedOrderSink for SimulatedOrderSinkToChannel {
-    fn insert_order(&mut self, order: SimulatedOrder) {
+    fn insert_order(&mut self, order: Arc<SimulatedOrder>) {
         self.sender_returned_error |= self
             .sender
             .send(SimulatedOrderCommand::Simulation(order))
             .is_err()
     }
 
-    fn remove_order(&mut self, id: OrderId) -> Option<SimulatedOrder> {
+    fn remove_order(&mut self, id: OrderId) -> Option<Arc<SimulatedOrder>> {
         self.sender_returned_error |= self
             .sender
             .send(SimulatedOrderCommand::Cancellation(id))

@@ -3,7 +3,7 @@ use ahash::{HashMap, HashSet};
 use alloy_primitives::{utils::format_ether, U256};
 use crossbeam_queue::SegQueue;
 use itertools::Itertools;
-use std::time::Instant;
+use std::{sync::Arc, time::Instant};
 use tracing::trace;
 
 use super::{
@@ -268,7 +268,7 @@ impl ConflictTaskGenerator {
     /// # Returns
     ///
     /// The sum of the top N profits as a `U256`.
-    fn sum_top_n_profits(&self, orders: &[SimulatedOrder], n: usize) -> U256 {
+    fn sum_top_n_profits(&self, orders: &[Arc<SimulatedOrder>], n: usize) -> U256 {
         orders
             .iter()
             .map(|o| o.sim_value.coinbase_profit)
@@ -451,7 +451,7 @@ mod tests {
             read: Option<&SlotKey>,
             write: Option<&SlotKey>,
             coinbase_profit: U256,
-        ) -> SimulatedOrder {
+        ) -> Arc<SimulatedOrder> {
             let mut trace = UsedStateTrace::default();
             if let Some(read) = read {
                 trace
@@ -469,7 +469,7 @@ mod tests {
                 ..Default::default()
             };
 
-            SimulatedOrder {
+            Arc::new(SimulatedOrder {
                 order: Order::Tx(MempoolTx {
                     tx_with_blobs: TransactionSignedEcRecoveredWithBlobs::new_no_blobs(
                         self.create_tx(),
@@ -478,14 +478,14 @@ mod tests {
                 }),
                 used_state_trace: Some(trace),
                 sim_value,
-            }
+            })
         }
     }
 
     // Helper function to create an order group
     fn create_conflict_group(
         id: GroupId,
-        orders: Vec<SimulatedOrder>,
+        orders: Vec<Arc<SimulatedOrder>>,
         conflicting_ids: HashSet<GroupId>,
     ) -> ConflictGroup {
         ConflictGroup {

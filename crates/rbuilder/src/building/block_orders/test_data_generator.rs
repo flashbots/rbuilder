@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use alloy_primitives::U256;
 
 use crate::primitives::{AccountNonce, Order, SimValue, SimulatedOrder};
@@ -21,16 +23,16 @@ impl TestDataGenerator {
         order: Order,
         coinbase_profit: u64,
         mev_gas_price: u64,
-    ) -> SimulatedOrder {
+    ) -> Arc<SimulatedOrder> {
         let sim_value = SimValue {
             coinbase_profit: U256::from(coinbase_profit),
             mev_gas_price: U256::from(mev_gas_price),
             ..Default::default()
         };
-        SimulatedOrder {
+        Arc::new(SimulatedOrder {
             order,
             sim_value,
             used_state_trace: None,
-        }
+        })
     }
 }

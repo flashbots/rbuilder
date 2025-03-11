@@ -61,7 +61,7 @@ pub struct OrderSimulationPool<P> {
 #[derive(Clone, Debug)]
 pub enum SimulatedOrderCommand {
     /// New simulation.
-    Simulation(SimulatedOrder),
+    Simulation(Arc<SimulatedOrder>),
     /// Forwarded cancellation from the order source.
     Cancellation(OrderId),
 }
