@@ -21,7 +21,7 @@ impl OrderBuilder {
         match builder {
             OrderBuilder::MempoolTx(tx) => {
                 let tx = tx.expect("No transactions for mempool tx order.");
-                Order::Tx(MempoolTx::new(tx))
+                Order::Tx(MempoolTx::new(tx, false))
             }
             OrderBuilder::Bundle(builder) => Order::Bundle(builder.build()),
             OrderBuilder::ShareBundle(builder) => Order::ShareBundle(builder.build()),

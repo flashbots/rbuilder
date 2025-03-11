@@ -56,7 +56,7 @@ pub async fn start_toba_ws_server(
                             let start = Instant::now();
                             if let Ok(bytes) = (&transaction).parse() {
                                 let tx: MempoolTx = match TxEncoding::WithBlobData.decode(bytes) {
-                                    Ok(tx) => MempoolTx::new(tx),
+                                    Ok(tx) => MempoolTx::new(tx,false),
                                     Err(err) => {
                                         warn!(?err, "Failed to decode raw transaction");
                                         return;

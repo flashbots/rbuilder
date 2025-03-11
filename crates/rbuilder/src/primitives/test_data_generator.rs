@@ -138,6 +138,7 @@ impl TestDataGenerator {
     pub fn create_mempool_tx(&mut self, sender_nonce: AccountNonce) -> MempoolTx {
         MempoolTx {
             tx_with_blobs: self.create_tx_with_blobs_nonce(sender_nonce),
+            is_toba: false,
         }
     }
 

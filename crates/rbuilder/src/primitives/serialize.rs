@@ -354,7 +354,7 @@ pub struct RawTx {
 
 impl RawTx {
     pub fn decode(self, encoding: TxEncoding) -> Result<MempoolTx, TxWithBlobsCreateError> {
-        Ok(MempoolTx::new(encoding.decode(self.tx)?))
+        Ok(MempoolTx::new(encoding.decode(self.tx)?, false))
     }
 
     /// See [TransactionSignedEcRecoveredWithBlobs::envelope_encoded_no_blobs]

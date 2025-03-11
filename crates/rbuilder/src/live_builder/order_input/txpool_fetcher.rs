@@ -60,7 +60,7 @@ pub async fn subscribe_to_txpool_with_blobs(
                 }
             };
 
-            let tx = MempoolTx::new(tx_with_blobs);
+            let tx = MempoolTx::new(tx_with_blobs, false);
             let order = Order::Tx(tx);
             let parse_duration = start.elapsed();
             trace!(order = ?order.id(), parse_duration_mus = parse_duration.as_micros(), "Mempool transaction received with blobs");
@@ -105,7 +105,6 @@ async fn get_tx_with_blobs(
 
 #[cfg(test)]
 mod test {
-
     use super::*;
     use alloy_consensus::{SidecarBuilder, SimpleCoder};
     use alloy_network::{EthereumWallet, TransactionBuilder};
@@ -166,9 +165,10 @@ mod test {
         let recv_tx = receiver.recv().await.unwrap();
 
         let tx_with_blobs = match recv_tx {
-            ReplaceableOrderPoolCommand::Order(Order::Tx(MempoolTx { tx_with_blobs })) => {
-                Some(tx_with_blobs)
-            }
+            ReplaceableOrderPoolCommand::Order(Order::Tx(MempoolTx {
+                tx_with_blobs,
+                is_toba: false,
+            })) => Some(tx_with_blobs),
             _ => None,
         }
         .unwrap();
@@ -188,9 +188,10 @@ mod test {
         let recv_tx = receiver.recv().await.unwrap();
 
         let tx_without_blobs = match recv_tx {
-            ReplaceableOrderPoolCommand::Order(Order::Tx(MempoolTx { tx_with_blobs })) => {
-                Some(tx_with_blobs)
-            }
+            ReplaceableOrderPoolCommand::Order(Order::Tx(MempoolTx {
+                tx_with_blobs,
+                is_toba: false,
+            })) => Some(tx_with_blobs),
             _ => None,
         }
         .unwrap();

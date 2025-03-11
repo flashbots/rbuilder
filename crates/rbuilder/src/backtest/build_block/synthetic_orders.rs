@@ -70,7 +70,7 @@ impl<ConfigType: LiveBuilderConfig> SyntheticOrdersSource<ConfigType> {
                 1,
                 i,
                 LOW_TIP,
-            )));
+            ),false));
             orders.push(OrdersWithTimestamp {
                 timestamp_ms: 0,
                 order,

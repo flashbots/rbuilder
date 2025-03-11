@@ -683,11 +683,15 @@ impl std::hash::Hash for TransactionSignedEcRecoveredWithBlobs {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MempoolTx {
     pub tx_with_blobs: TransactionSignedEcRecoveredWithBlobs,
+    pub is_toba: bool,
 }
 
 impl MempoolTx {
-    pub fn new(tx_with_blobs: TransactionSignedEcRecoveredWithBlobs) -> Self {
-        Self { tx_with_blobs }
+    pub fn new(tx_with_blobs: TransactionSignedEcRecoveredWithBlobs, is_toba: bool) -> Self {
+        Self {
+            tx_with_blobs,
+            is_toba,
+        }
     }
 }
 
@@ -851,6 +855,13 @@ impl Order {
             Order::Bundle(bundle) => &bundle.metadata,
             Order::Tx(tx) => &tx.tx_with_blobs.metadata,
             Order::ShareBundle(bundle) => &bundle.metadata,
+        }
+    }
+
+    pub fn is_toba(&self) -> bool {
+        match self {
+            Order::Tx(tx) => tx.is_toba,
+            _ => false
         }
     }
 }
