@@ -12,14 +12,11 @@ use crate::{
     utils::timestamp_as_u64,
 };
 
-use alloy_provider::Provider;
+use alloy_provider::{Provider, RootProvider};
 use alloy_rpc_types::{Block, BlockId, BlockNumberOrTag, BlockTransactionsKind};
+use eyre::Context;
 
-use crate::{
-    backtest::{fetch::mev_boost::PayloadDeliveredFetcher, OrdersWithTimestamp},
-    utils::BoxedProvider,
-};
-use eyre::WrapErr;
+use crate::backtest::{fetch::mev_boost::PayloadDeliveredFetcher, OrdersWithTimestamp};
 use flashbots_db::RelayDB;
 use futures::TryStreamExt;
 use std::{
@@ -41,14 +38,14 @@ use tracing::{info, trace};
 /// 2 - call [HistoricalDataFetcher::fetch_historical_data] for all the needed blocks
 #[derive(Debug, Clone)]
 pub struct HistoricalDataFetcher {
-    eth_provider: BoxedProvider,
+    eth_provider: RootProvider,
     eth_rpc_parallel: usize,
     data_sources: Vec<Box<dyn DataSource>>,
     payload_delivered_fetcher: PayloadDeliveredFetcher,
 }
 
 impl HistoricalDataFetcher {
-    pub fn new(eth_provider: BoxedProvider, eth_rpc_parallel: usize) -> Self {
+    pub fn new(eth_provider: RootProvider, eth_rpc_parallel: usize) -> Self {
         Self {
             eth_provider,
             eth_rpc_parallel,

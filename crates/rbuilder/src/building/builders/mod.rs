@@ -6,7 +6,10 @@ pub mod parallel_builder;
 
 use crate::{
     building::{BlockBuildingContext, BuiltBlockTrace, SimulatedOrderSink, Sorting},
-    live_builder::{payload_events::MevBoostSlotData, simulation::SimulatedOrderCommand},
+    live_builder::{
+        payload_events::{InternalPayloadId, MevBoostSlotData},
+        simulation::SimulatedOrderCommand,
+    },
     primitives::{AccountNonce, OrderId, SimulatedOrder},
     provider::StateProviderFactory,
     utils::{is_provider_factory_health_error, NonceCache},
@@ -254,12 +257,16 @@ pub struct BacktestSimulateBlockInput<'a, P> {
 
 /// Handles error from block filling stage.
 /// Answers if block filling should continue.
-pub fn handle_building_error(err: eyre::Report) -> bool {
+pub fn handle_building_error(err: eyre::Report, payload_id: InternalPayloadId) -> bool {
     // @Types
     let err_str = err.to_string();
     if !err_str.contains("Profit too low") {
         if is_provider_factory_health_error(&err) {
-            info!(?err, "Cancelling building due to provider factory error");
+            info!(
+                payload_id,
+                ?err,
+                "Cancelling building due to provider factory error"
+            );
             return false;
         } else {
             warn!(?err, "Error filling orders");

@@ -22,6 +22,7 @@ reth-evm.workspace = true
 reth-exex.workspace = true
 reth-chainspec.workspace = true
 reth-primitives.workspace = true
+reth-primitives-traits.workspace = true
 reth-node-api.workspace = true
 reth-basic-payload-builder.workspace = true
 reth-payload-builder.workspace = true
@@ -37,6 +38,7 @@ reth-rpc-layer.workspace = true
 reth-payload-builder-primitives.workspace = true
 reth-payload-util.workspace = true
 reth-transaction-pool.workspace = true
+reth-testing-utils.workspace = true
 reth-optimism-forks.workspace = true
 alloy-primitives.workspace = true
 alloy-consensus.workspace = true
@@ -52,6 +54,7 @@ alloy-network.workspace = true
 # op
 op-alloy-consensus.workspace = true
 op-alloy-rpc-types-engine.workspace = true
+op-alloy-network.workspace = true
 
 revm.workspace = true
 
@@ -71,10 +74,17 @@ clap.workspace = true
 derive_more.workspace = true
 metrics.workspace = true
 serde_json.workspace = true
+tokio-util.workspace = true
 
 time = { version = "0.3.36", features = ["macros", "formatting", "parsing"] }
 chrono = "0.4"
 uuid = { version = "1.6.1", features = ["serde", "v5", "v4"] }
+tokio-tungstenite = "0.26.2"
+rand = "0.8.5"
+alloy-serde = "0.7"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
+
+rollup-boost = { git = "http://github.com/flashbots/rollup-boost", rev = "e74a1fd01366e4ddd13515da4efda59cdc8fbce0" }
 
 [target.'cfg(unix)'.dependencies]
 tikv-jemallocator = { version = "0.6", optional = true }
@@ -88,13 +98,13 @@ default = ["jemalloc"]
 jemalloc = [
 	"dep:tikv-jemallocator",
 	"reth-cli-util/jemalloc",
-	"reth-optimism-cli/jemalloc"
+	"reth-optimism-cli/jemalloc",
 ]
 jemalloc-prof = [
 	"jemalloc",
 	"tikv-jemallocator?/profiling",
 	"reth/jemalloc-prof",
-	"reth-cli-util/jemalloc-prof"
+	"reth-cli-util/jemalloc-prof",
 ]
 
 min-error-logs = ["tracing/release_max_level_error"]
@@ -103,12 +113,10 @@ min-info-logs = ["tracing/release_max_level_info"]
 min-debug-logs = ["tracing/release_max_level_debug"]
 min-trace-logs = ["tracing/release_max_level_trace"]
 
-optimism = [
-	"reth-optimism-node/optimism",
-	"reth-optimism-cli/optimism"
-]
+optimism = ["reth-optimism-node/optimism", "reth-optimism-cli/optimism"]
 
 integration = []
+flashblocks = []
 
 [[bin]]
 name = "op-rbuilder"

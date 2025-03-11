@@ -22,7 +22,6 @@ mod tests {
             ProviderBuilder::new().on_http(Url::parse(srv.rbuilder_rpc_url()).unwrap());
 
         let provider = ProviderBuilder::new()
-            .with_recommended_fillers()
             .wallet(private_key)
             .on_http(Url::parse(srv.el_url()).unwrap());
 
@@ -51,7 +50,7 @@ mod tests {
             .join("../../crates/rbuilder/src/integration/test_data/config-playground.toml");
 
         // This test sends a transaction ONLY to the builder and waits for the block to be built with it.
-        let srv = Playground::new(&config_path).unwrap();
+        let srv = Playground::new("test_simple_example", &config_path).unwrap();
         srv.wait_for_next_slot().await.unwrap();
 
         // Send transaction using the helper function
@@ -61,7 +60,7 @@ mod tests {
 
         // Wait for receipt
         let binding = ProviderBuilder::new().on_http(Url::parse(srv.el_url()).unwrap());
-        let pending_tx = PendingTransactionBuilder::new(binding.clone(), tx_hash)
+        let pending_tx = PendingTransactionBuilder::new(binding.root().clone(), tx_hash)
             .with_timeout(Some(std::time::Duration::from_secs(60)));
 
         let receipt = pending_tx.get_receipt().await.unwrap();
@@ -80,7 +79,7 @@ mod tests {
                 .unwrap();
 
             // wait for 20 seconds
-            let pending_tx = PendingTransactionBuilder::new(binding.clone(), tx_hash)
+            let pending_tx = PendingTransactionBuilder::new(binding.root().clone(), tx_hash)
                 .with_timeout(Some(std::time::Duration::from_secs(20)));
 
             assert!(
@@ -98,7 +97,7 @@ mod tests {
                     .unwrap();
 
             // wait for 20 seconds
-            let pending_tx = PendingTransactionBuilder::new(binding, tx_hash)
+            let pending_tx = PendingTransactionBuilder::new(binding.root().clone(), tx_hash)
                 .with_timeout(Some(std::time::Duration::from_secs(20)));
 
             assert!(
@@ -118,7 +117,8 @@ mod tests {
         );
         let blocklist_server = BlocklistHttpServer::new(1934, Some(BLOCKLIST_LEN_2.to_string()));
         tokio::time::sleep(Duration::from_millis(100)).await; //puaj
-        let mut srv = Playground::new(&config_path).unwrap();
+        let mut srv =
+            Playground::new("test_builder_closes_on_old_blocklist", &config_path).unwrap();
         srv.wait_for_next_slot().await.unwrap();
         blocklist_server.set_answer(None);
         let timeout_secs = 5 /*blocklist_url_max_age_secs in cfg */ +

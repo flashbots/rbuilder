@@ -1,9 +1,9 @@
 use crate::utils::{extract_prefix_and_suffix, rlp_pointer, strip_first_nibble_mut, HashMap};
 use alloy_primitives::{keccak256, Bytes, B256};
+use parking_lot::Mutex;
 use reth_trie::Nibbles;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, Seq};
-use std::sync::Mutex;
 
 mod nodes;
 
@@ -713,11 +713,11 @@ impl DiffTrie {
                                     scope.spawn(move |_| {
                                         let data =
                                             rlp_pointer(self.root_hash_parallel_nodes(*child));
-                                        res.lock().unwrap().push((idx, data));
+                                        res.lock().push((idx, data));
                                     });
                                 }
                             });
-                            let mut results = res.lock().unwrap();
+                            let mut results = res.lock();
                             results.sort_by_key(|(i, _)| *i);
                             let results: Vec<_> = results.iter().map(|(_, b)| b.clone()).collect();
                             results

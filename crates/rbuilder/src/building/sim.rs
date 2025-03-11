@@ -168,9 +168,9 @@ where
                     if !nonce.optional {
                         // this order will never be valid
                         trace!(
-                            id = order.id().to_string(),
-                            "Dropping order because of nonce: {:?}",
-                            nonce
+                            order = ?order.id(),
+                            ?nonce,
+                            "Dropping order because of nonce"
                         );
                         return Ok(OrderNonceState::Invalid);
                     } else {
@@ -372,8 +372,8 @@ where
                 OrderSimResult::Failed(err) => {
                     trace!(
                         order = sim_task.order.id().to_string(),
-                        "Order simulation failed: {:?}",
-                        err
+                        ?err,
+                        "Order simulation failed"
                     );
                     sim_errors.push(err);
                     continue;
@@ -445,11 +445,7 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
                 blob_gas_used += res.blob_gas_used;
             }
             Err(err) => {
-                tracing::trace!(
-                    "failed to simulate parent order, id: {:?}, err: {:?}",
-                    parent.id(),
-                    err
-                );
+                tracing::trace!(parent_order = ?parent.id(), ?err, "failed to simulate parent order");
                 return Ok(OrderSimResult::Failed(err));
             }
         }

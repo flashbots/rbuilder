@@ -221,7 +221,10 @@ mod test {
 
         fn create_bundle_replacement_data(&mut self) -> BundleReplacementData {
             BundleReplacementData {
-                key: BundleReplacementKey::new(Uuid::new_v4(), self.base.base.create_address()),
+                key: BundleReplacementKey::new(
+                    Uuid::new_v4(),
+                    Some(self.base.base.create_address()),
+                ),
                 sequence_number: 0,
             }
         }
@@ -393,7 +396,7 @@ mod test {
         let sbundle_replacement_data = ShareBundleReplacementData {
             key: ShareBundleReplacementKey::new(
                 bundle_replacement_data.key.key().id,
-                bundle_replacement_data.key.key().signer,
+                bundle_replacement_data.key.key().signer.unwrap(),
             ),
             sequence_number: bundle_replacement_data.sequence_number,
         };

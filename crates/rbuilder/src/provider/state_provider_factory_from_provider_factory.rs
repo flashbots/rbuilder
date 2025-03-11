@@ -1,4 +1,5 @@
 use alloy_consensus::Header;
+use alloy_eips::BlockNumHash;
 use alloy_primitives::{BlockHash, BlockNumber};
 use reth_errors::ProviderResult;
 use reth_node_api::{NodePrimitives, NodeTypes, NodeTypesWithDB};
@@ -7,6 +8,7 @@ use reth_provider::{
     StateProviderBox,
 };
 use revm_primitives::B256;
+use tracing::error;
 
 use crate::{
     building::builders::mock_block_building_helper::MockRootHasher, roothash::RootHashContext,
@@ -69,10 +71,18 @@ where
         self.provider.last_block_number()
     }
 
-    fn root_hasher(&self, parent_hash: B256) -> ProviderResult<Box<dyn RootHasher>> {
+    fn root_hasher(&self, parent_num_hash: BlockNumHash) -> ProviderResult<Box<dyn RootHasher>> {
         Ok(if let Some(root_hash_context) = &self.root_hash_context {
+            let parent_state_root = self
+                .provider
+                .header_by_hash_or_number(parent_num_hash.hash.into())?
+                .map(|h| h.state_root);
+            if parent_state_root.is_none() {
+                error!("Parent hash is not found (for root_hasher)");
+            }
             Box::new(RootHasherImpl::new(
-                parent_hash,
+                parent_num_hash,
+                parent_state_root,
                 root_hash_context.clone(),
                 self.provider.clone(),
                 self.provider.clone(),

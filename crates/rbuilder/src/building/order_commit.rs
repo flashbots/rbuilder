@@ -404,6 +404,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
         }
 
         match ctx
+            .evm_env
             .block_env
             .gas_limit
             .checked_sub(U256::from(cumulative_gas_used + gas_reserved))
@@ -421,8 +422,8 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
         tx_signed.fill_tx_env(&mut tx_env, tx_signed.signer());
 
         let env = Env {
-            cfg: ctx.initialized_cfg.cfg_env.clone(),
-            block: ctx.block_env.clone(),
+            cfg: ctx.evm_env.cfg_env.clone(),
+            block: ctx.evm_env.block_env.clone(),
             tx: tx_env,
         };
 
@@ -509,7 +510,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
         cumulative_blob_gas_used: u64,
         allow_tx_skip: bool,
     ) -> Result<Result<BundleOk, BundleErr>, CriticalCommitOrderError> {
-        let current_block = ctx.block_env.number.to::<u64>();
+        let current_block = ctx.evm_env.block_env.number.to::<u64>();
         // None is good for any block
         if let Some(block) = bundle.block {
             if block != current_block {
@@ -524,7 +525,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
         let (min_ts, max_ts, block_ts) = (
             bundle.min_timestamp.unwrap_or(0),
             bundle.max_timestamp.unwrap_or(u64::MAX),
-            ctx.block_env.timestamp.to::<u64>(),
+            ctx.evm_env.block_env.timestamp.to::<u64>(),
         );
         if !(min_ts <= block_ts && block_ts <= max_ts) {
             return Ok(Err(BundleErr::IncorrectTimestamp {
@@ -569,7 +570,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
                 return Err(BundleErr::EstimatePayoutGas(err));
             }
         };
-        let base_fee = ctx.block_env.basefee * U256::from(gas_limit);
+        let base_fee = ctx.evm_env.block_env.basefee * U256::from(gas_limit);
         if base_fee > refundable_value {
             return Err(BundleErr::NotEnoughRefundForGas {
                 to,
@@ -604,7 +605,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
         let nonce = self.state.nonce(builder_signer.address)?;
         let payout_tx = match create_payout_tx(
             ctx.chain_spec.as_ref(),
-            ctx.block_env.basefee,
+            ctx.evm_env.block_env.basefee,
             builder_signer,
             nonce,
             to,
@@ -672,7 +673,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
         };
         for tx_with_blobs in &bundle.txs {
             let tx_hash = tx_with_blobs.hash();
-            let coinbase_balance_before = self.state.balance(ctx.block_env.coinbase)?;
+            let coinbase_balance_before = self.state.balance(ctx.evm_env.block_env.coinbase)?;
             let rollback_point = self.rollback_point();
             let result = self.commit_tx(
                 tx_with_blobs,
@@ -694,7 +695,8 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
                     }
 
                     let coinbase_profit = {
-                        let coinbase_balance_after = self.state.balance(ctx.block_env.coinbase)?;
+                        let coinbase_balance_after =
+                            self.state.balance(ctx.evm_env.block_env.coinbase)?;
                         coinbase_balance_after.checked_sub(coinbase_balance_before)
                     };
                     if let Some(profit) = coinbase_profit {
@@ -754,7 +756,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
         cumulative_blob_gas_used: u64,
         allow_tx_skip: bool,
     ) -> Result<Result<BundleOk, BundleErr>, CriticalCommitOrderError> {
-        let current_block = ctx.block_env.number.to::<u64>();
+        let current_block = ctx.evm_env.block_env.number.to::<u64>();
         if !(bundle.block <= current_block && current_block <= bundle.max_block) {
             return Ok(Err(BundleErr::TargetBlockIncorrect {
                 block: current_block,
@@ -854,7 +856,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
             paid_kickbacks: Vec::new(),
             original_order_ids: Vec::new(),
         };
-        let coinbase_balance_before = self.state.balance(ctx.block_env.coinbase)?;
+        let coinbase_balance_before = self.state.balance(ctx.evm_env.block_env.coinbase)?;
         let refundable_elements = bundle
             .refund
             .iter()
@@ -867,7 +869,8 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
                 ShareBundleBody::Tx(sbundle_tx) => {
                     let rollback_point = self.rollback_point();
                     let tx = &sbundle_tx.tx;
-                    let coinbase_balance_before = self.state.balance(ctx.block_env.coinbase)?;
+                    let coinbase_balance_before =
+                        self.state.balance(ctx.evm_env.block_env.coinbase)?;
                     let result = self.commit_tx(
                         tx,
                         ctx,
@@ -892,7 +895,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
 
                             let coinbase_profit = {
                                 let coinbase_balance_after =
-                                    self.state.balance(ctx.block_env.coinbase)?;
+                                    self.state.balance(ctx.evm_env.block_env.coinbase)?;
                                 coinbase_balance_after.checked_sub(coinbase_balance_before)
                             };
                             if let Some(profit) = coinbase_profit {
@@ -1007,7 +1010,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
         }
 
         let coinbase_diff_before_payouts = {
-            let coinbase_balance_after = self.state.balance(ctx.block_env.coinbase)?;
+            let coinbase_balance_after = self.state.balance(ctx.evm_env.block_env.coinbase)?;
             coinbase_balance_after
                 .checked_sub(coinbase_balance_before)
                 .unwrap_or_default()
@@ -1062,7 +1065,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
         cumulative_blob_gas_used: u64,
         allow_tx_skip: bool,
     ) -> Result<Result<OrderOk, OrderErr>, CriticalCommitOrderError> {
-        let coinbase_balance_before = self.state.balance(ctx.block_env.coinbase)?;
+        let coinbase_balance_before = self.state.balance(ctx.evm_env.block_env.coinbase)?;
         match order {
             Order::Tx(tx) => {
                 let res = self.commit_tx(
@@ -1076,7 +1079,8 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
                     Ok(ok) => {
                         // Builder does not sign txs in this code path, so allow negative coinbase
                         // profit.
-                        let coinbase_balance_after = self.state.balance(ctx.block_env.coinbase)?;
+                        let coinbase_balance_after =
+                            self.state.balance(ctx.evm_env.block_env.coinbase)?;
                         let coinbase_profit =
                             coinbase_balance_after.saturating_sub(coinbase_balance_before);
                         Ok(Ok(OrderOk {
@@ -1109,7 +1113,8 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
                     Ok(ok) => {
                         // Builder does not sign txs in this code path, so allow negative coinbase
                         // profit.
-                        let coinbase_balance_after = self.state.balance(ctx.block_env.coinbase)?;
+                        let coinbase_balance_after =
+                            self.state.balance(ctx.evm_env.block_env.coinbase)?;
                         let coinbase_profit =
                             coinbase_balance_after.saturating_sub(coinbase_balance_before);
                         Ok(Ok(OrderOk {
@@ -1140,7 +1145,8 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
                 )?;
                 match res {
                     Ok(ok) => {
-                        let coinbase_balance_after = self.state.balance(ctx.block_env.coinbase)?;
+                        let coinbase_balance_after =
+                            self.state.balance(ctx.evm_env.block_env.coinbase)?;
                         // Builder does sign txs in this code path, so do not allow negative coinbase
                         // profit.
                         let coinbase_profit = match coinbase_profit(

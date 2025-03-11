@@ -23,6 +23,7 @@ pub struct OpRbuilderConfig {
     data_dir: Option<PathBuf>,
     http_port: Option<u16>,
     network_port: Option<u16>,
+    builder_private_key: Option<String>,
 }
 
 impl OpRbuilderConfig {
@@ -47,6 +48,16 @@ impl OpRbuilderConfig {
 
     pub fn network_port(mut self, port: u16) -> Self {
         self.network_port = Some(port);
+        self
+    }
+
+    pub fn http_port(mut self, port: u16) -> Self {
+        self.http_port = Some(port);
+        self
+    }
+
+    pub fn with_builder_private_key(mut self, private_key: &str) -> Self {
+        self.builder_private_key = Some(private_key.to_string());
         self
     }
 }
@@ -82,7 +93,13 @@ impl Service for OpRbuilderConfig {
             .arg(self.data_dir.as_ref().expect("data_dir not set"))
             .arg("--disable-discovery")
             .arg("--port")
-            .arg(self.network_port.expect("network_port not set").to_string());
+            .arg(self.network_port.expect("network_port not set").to_string())
+            .arg("--ipcdisable");
+
+        if let Some(builder_private_key) = &self.builder_private_key {
+            cmd.arg("--rollup.builder-secret-key")
+                .arg(builder_private_key);
+        }
 
         if let Some(http_port) = self.http_port {
             cmd.arg("--http")

@@ -1,7 +1,7 @@
 use ahash::HashMap;
 use alloy_consensus::Transaction;
 use alloy_primitives::{Address, B256, U256};
-use reth_primitives::TransactionSignedEcRecovered;
+use reth_primitives::{Recovered, TransactionSigned};
 use revm::{
     interpreter::{opcode, CallInputs, CallOutcome, Interpreter},
     Database, EvmContext, Inspector,
@@ -57,7 +57,7 @@ impl<'a> UsedStateEVMInspector<'a> {
     /// This method is used to mark nonce change as a slot read / write.
     /// Txs with the same nonce are in conflict and origin address is EOA that does not have storage.
     /// We convert nonce change to the slot 0 read and write of the signer
-    fn use_tx_nonce(&mut self, tx: &TransactionSignedEcRecovered) {
+    fn use_tx_nonce(&mut self, tx: &Recovered<TransactionSigned>) {
         self.used_state_trace.read_slot_values.insert(
             SlotKey {
                 address: tx.signer(),
@@ -209,13 +209,11 @@ pub struct RBuilderEVMInspector<'a> {
 
 impl<'a> RBuilderEVMInspector<'a> {
     pub fn new(
-        tx: &TransactionSignedEcRecovered,
+        tx: &Recovered<TransactionSigned>,
         used_state_trace: Option<&'a mut UsedStateTrace>,
     ) -> Self {
         let access_list_inspector = AccessListInspector::new(
-            tx.as_eip2930()
-                .map(|tx| tx.access_list.clone())
-                .unwrap_or_default(),
+            tx.access_list().cloned().unwrap_or_default(),
             tx.signer(),
             tx.to().unwrap_or_default(),
             None,

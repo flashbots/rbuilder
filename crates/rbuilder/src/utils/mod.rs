@@ -15,10 +15,8 @@ pub mod provider_head_state;
 pub mod test_utils;
 pub mod tracing;
 
-use alloy_network::Ethereum;
 use alloy_primitives::{Address, Sign, I256, U256};
 use alloy_provider::RootProvider;
-use alloy_transport::BoxTransport;
 
 use crate::primitives::{
     serialize::{RawTx, TxEncoding},
@@ -35,7 +33,7 @@ use reth_chainspec::ChainSpec;
 use reth_evm_ethereum::revm_spec_by_timestamp_and_block_number;
 use revm_primitives::{CfgEnv, CfgEnvWithHandlerCfg};
 pub use test_data_generator::TestDataGenerator;
-use time::OffsetDateTime;
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 pub use tx_signer::Signer;
 
 /// de/serializes U256 as decimal value (U256 serde default is hexa). Needed to interact with some JSONs (eg:ProposerPayloadDelivered in relay provider API)
@@ -63,10 +61,8 @@ pub mod u256decimal_serde_helper {
     }
 }
 
-pub type BoxedProvider = RootProvider<BoxTransport, Ethereum>;
-
-pub fn http_provider(url: reqwest::Url) -> BoxedProvider {
-    RootProvider::new_http(url).boxed()
+pub fn http_provider(url: reqwest::Url) -> RootProvider {
+    RootProvider::new_http(url)
 }
 
 #[cfg(test)]
@@ -202,6 +198,12 @@ pub fn extract_onchain_block_txs(
         result.push(tx.tx_with_blobs);
     }
     Ok(result)
+}
+
+pub fn format_offset_datetime_rfc3339(datetime: &OffsetDateTime) -> String {
+    datetime
+        .format(&Rfc3339)
+        .expect("failed to format datetime")
 }
 
 #[cfg(test)]

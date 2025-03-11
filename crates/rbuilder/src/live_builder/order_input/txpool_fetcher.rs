@@ -3,9 +3,8 @@ use crate::{
     primitives::{MempoolTx, Order, TransactionSignedEcRecoveredWithBlobs},
     telemetry::{add_txfetcher_time_to_query, mark_command_received},
 };
-use alloy_primitives::{hex, Bytes, FixedBytes};
-use alloy_provider::{IpcConnect, Provider, ProviderBuilder, RootProvider};
-use alloy_pubsub::PubSubFrontend;
+use alloy_primitives::FixedBytes;
+use alloy_provider::{IpcConnect, Provider, ProviderBuilder};
 use futures::StreamExt;
 use std::{pin::pin, time::Instant};
 use time::OffsetDateTime;
@@ -68,7 +67,7 @@ pub async fn subscribe_to_txpool_with_blobs(
             add_txfetcher_time_to_query(parse_duration);
 
             let orderpool_command = ReplaceableOrderPoolCommand::Order(order);
-            mark_command_received(&orderpool_command, received_at);
+            mark_command_received(&orderpool_command, received_at, None);
             match results
                 .send_timeout(orderpool_command, config.results_channel_timeout)
                 .await
@@ -94,25 +93,13 @@ pub async fn subscribe_to_txpool_with_blobs(
 /// Calls eth_getRawTransactionByHash on EL node and decodes.
 async fn get_tx_with_blobs(
     tx_hash: FixedBytes<32>,
-    provider: &RootProvider<PubSubFrontend>,
+    provider: &impl alloy_provider::Provider,
 ) -> eyre::Result<Option<TransactionSignedEcRecoveredWithBlobs>> {
-    // TODO: Use https://github.com/alloy-rs/alloy/pull/1168 when it gets cut
-    // in a release
-    let raw_tx: Option<String> = provider
-        .client()
-        .request("eth_getRawTransactionByHash", vec![tx_hash])
-        .await?;
-
-    let raw_tx = if let Some(raw_tx) = raw_tx {
-        raw_tx
-    } else {
+    let Some(response) = provider.get_raw_transaction_by_hash(tx_hash).await? else {
         return Ok(None);
     };
-
-    let raw_tx = hex::decode(raw_tx)?;
-    let raw_tx = Bytes::from(raw_tx);
     Ok(Some(
-        TransactionSignedEcRecoveredWithBlobs::decode_enveloped_with_real_blobs(raw_tx)?,
+        TransactionSignedEcRecoveredWithBlobs::decode_enveloped_with_real_blobs(response)?,
     ))
 }
 
@@ -153,7 +140,6 @@ mod test {
         let wallet = EthereumWallet::from(signer);
 
         let provider = ProviderBuilder::new()
-            .with_recommended_fillers()
             .wallet(wallet)
             .on_http(anvil.endpoint().parse().unwrap());
 

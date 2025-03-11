@@ -17,8 +17,11 @@ use crate::{
 use revm_primitives::Address;
 use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, trace};
+use tracing::{debug, info, trace, warn};
 use unfinished_block_building_sink_muxer::UnfinishedBlockBuildingSinkMuxer;
+
+/// Interval for checking if last block still corresponds to the parent of the given block building context
+const CHECK_LAST_BLOCK_INTERVAL: Duration = Duration::from_millis(100);
 
 use super::{
     order_input::{
@@ -79,12 +82,21 @@ where
             cancel.cancel();
         });
 
+        {
+            let provider = self.provider.clone();
+            let block_ctx = block_ctx.clone();
+            let block_cancellation = block_cancellation.clone();
+            tokio::task::spawn_blocking(move || {
+                run_check_if_parent_block_is_last_block(provider, block_ctx, block_cancellation);
+            });
+        }
+
         let (orders_for_block, sink) = OrdersForBlock::new_with_sink();
         // add OrderReplacementManager to manage replacements and cancellations
         let order_replacement_manager = OrderReplacementManager::new(Box::new(sink));
         // sink removal is automatic via OrderSink::is_alive false
         let _block_sub = self.orderpool_subscriber.add_sink(
-            block_ctx.block_env.number.to(),
+            block_ctx.evm_env.block_env.number.to(),
             Box::new(order_replacement_manager),
         );
 
@@ -113,7 +125,7 @@ where
         let (broadcast_input, _) = broadcast::channel(10_000);
         let muxer = Arc::new(UnfinishedBlockBuildingSinkMuxer::new(builder_sink));
 
-        let block_number = ctx.block_env.number.to::<u64>();
+        let block_number = ctx.evm_env.block_env.number.to::<u64>();
 
         for builder in self.builders.iter() {
             let builder_name = builder.name();
@@ -207,4 +219,63 @@ fn merge_and_send(
         }
     }
     trace!("Cancelling merge_and_send job, source stopped");
+}
+
+fn run_check_if_parent_block_is_last_block<P>(
+    provider: P,
+    block_ctx: BlockBuildingContext,
+    block_cancellation: CancellationToken,
+) where
+    P: StateProviderFactory + Clone + 'static,
+{
+    loop {
+        std::thread::sleep(CHECK_LAST_BLOCK_INTERVAL);
+        if block_cancellation.is_cancelled() {
+            return;
+        }
+        let last_block_number = match provider.last_block_number() {
+            Ok(n) => n,
+            Err(err) => {
+                warn!(?err, "Failed to get last block number");
+                continue;
+            }
+        };
+        if last_block_number + 1 != block_ctx.block() {
+            info!(
+                reason = "last block number",
+                last_block_number,
+                block = block_ctx.block(),
+                payload_id = block_ctx.payload_id,
+                "Cancelling building job"
+            );
+            block_cancellation.cancel();
+            return;
+        }
+
+        let last_block_hash = match provider.block_hash(last_block_number) {
+            Ok(Some(h)) => h,
+            Ok(None) => {
+                warn!(err = "hash is missing", "Failed to get last block hash");
+                continue;
+            }
+            Err(err) => {
+                warn!(?err, "Failed to get last block hash");
+                continue;
+            }
+        };
+
+        let parent_hash = block_ctx.attributes.parent;
+        if last_block_hash != parent_hash {
+            info!(
+                reason = "last block hash",
+                ?last_block_hash,
+                ?parent_hash,
+                block = block_ctx.block(),
+                payload_id = block_ctx.payload_id,
+                "Cancelling building job"
+            );
+            block_cancellation.cancel();
+            return;
+        }
+    }
 }

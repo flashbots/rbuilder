@@ -6,12 +6,13 @@ use alloy_primitives::Address;
 use alloy_primitives::Bytes;
 use alloy_primitives::TxKind;
 use alloy_primitives::B256;
-use alloy_primitives::U256;
+use alloy_primitives::{hex, U256};
 use alloy_rpc_types_engine::ExecutionPayloadV1;
 use alloy_rpc_types_engine::ExecutionPayloadV2;
 use alloy_rpc_types_engine::PayloadAttributes;
 use alloy_rpc_types_engine::PayloadStatusEnum;
 use alloy_rpc_types_engine::{ExecutionPayloadV3, ForkchoiceUpdated, PayloadStatus};
+use alloy_rpc_types_eth::Block;
 use jsonrpsee::core::RpcResult;
 use jsonrpsee::http_client::{transport::HttpBackend, HttpClient};
 use jsonrpsee::proc_macros::rpc;
@@ -23,9 +24,13 @@ use reth_node_api::{EngineTypes, PayloadTypes};
 use reth_optimism_node::OpEngineTypes;
 use reth_payload_builder::PayloadId;
 use reth_rpc_layer::{AuthClientLayer, AuthClientService, JwtSecret};
+use rollup_boost::flashblocks::FlashblocksService;
+use rollup_boost::Flashblocks;
 use serde_json;
 use serde_json::Value;
 use std::str::FromStr;
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
 
 /// Helper for engine api operations
 pub struct EngineApi {
@@ -179,13 +184,22 @@ pub async fn generate_genesis(output: Option<String>) -> eyre::Result<()> {
     Ok(())
 }
 
+// L1 block info for OP mainnet block 124665056 (stored in input of tx at index 0)
+//
+// https://optimistic.etherscan.io/tx/0x312e290cf36df704a2217b015d6455396830b0ce678b860ebfcc30f41403d7b1
+const FJORD_DATA: &[u8] = &hex!("440a5e200000146b000f79c500000000000000040000000066d052e700000000013ad8a3000000000000000000000000000000000000000000000000000000003ef1278700000000000000000000000000000000000000000000000000000000000000012fdf87b89884a61e74b322bbcf60386f543bfae7827725efaaf0ab1de2294a590000000000000000000000006887246668a3b87f54deb3b94ba47a6f63f32985");
+
 /// A system that continuously generates blocks using the engine API
 pub struct BlockGenerator<'a> {
     engine_api: &'a EngineApi,
     validation_api: Option<&'a EngineApi>,
     latest_hash: B256,
-    timestamp: u64,
     no_tx_pool: bool,
+    block_time_secs: u64,
+
+    // flashblocks service
+    flashblocks_endpoint: Option<String>,
+    flashblocks_service: Option<FlashblocksService>,
 }
 
 impl<'a> BlockGenerator<'a> {
@@ -193,28 +207,44 @@ impl<'a> BlockGenerator<'a> {
         engine_api: &'a EngineApi,
         validation_api: Option<&'a EngineApi>,
         no_tx_pool: bool,
+        block_time_secs: u64,
+        flashblocks_endpoint: Option<String>,
     ) -> Self {
         Self {
             engine_api,
             validation_api,
             latest_hash: B256::ZERO, // temporary value
-            timestamp: 0,            // temporary value
             no_tx_pool,
+            block_time_secs,
+            flashblocks_endpoint,
+            flashblocks_service: None,
         }
     }
 
     /// Initialize the block generator by fetching the latest block
-    pub async fn init(&mut self) -> eyre::Result<()> {
+    pub async fn init(&mut self) -> eyre::Result<Block> {
         let latest_block = self.engine_api.latest().await?.expect("block not found");
         self.latest_hash = latest_block.header.hash;
-        self.timestamp = latest_block.header.timestamp;
 
         // Sync validation node if it exists
         if let Some(validation_api) = self.validation_api {
             self.sync_validation_node(validation_api).await?;
         }
 
-        Ok(())
+        // Initialize flashblocks service
+        if let Some(flashblocks_endpoint) = &self.flashblocks_endpoint {
+            println!(
+                "Initializing flashblocks service at {}",
+                flashblocks_endpoint
+            );
+
+            self.flashblocks_service = Some(Flashblocks::run(
+                flashblocks_endpoint.to_string(),
+                "127.0.0.1:1112".to_string(), // output address for the preconfirmations from rb
+            )?);
+        }
+
+        Ok(latest_block)
     }
 
     /// Sync the validation node to the current state
@@ -300,6 +330,46 @@ impl<'a> BlockGenerator<'a> {
 
     /// Helper function to submit a payload and update chain state
     async fn submit_payload(&mut self, transactions: Option<Vec<Bytes>>) -> eyre::Result<B256> {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let timestamp = timestamp + self.block_time_secs;
+
+        // Add L1 block info as the first transaction in every L2 block
+        // This deposit transaction contains L1 block metadata required by the L2 chain
+        // Currently using hardcoded data from L1 block 124665056
+        // If this info is not provided, Reth cannot decode the receipt for any transaction
+        // in the block since it also includes this info as part of the result.
+        // It does not matter if the to address (4200000000000000000000000000000000000015) is
+        // not deployed on the L2 chain since Reth queries the block to get the info and not the contract.
+        let block_info_tx: Bytes = {
+            let deposit_tx = TxDeposit {
+                source_hash: B256::default(),
+                from: address!("DeaDDEaDDeAdDeAdDEAdDEaddeAddEAdDEAd0001"),
+                to: TxKind::Call(address!("4200000000000000000000000000000000000015")),
+                mint: None,
+                value: U256::default(),
+                gas_limit: 210000,
+                is_system_transaction: true,
+                input: FJORD_DATA.into(),
+            };
+
+            // Create a temporary signer for the deposit
+            let signer = Signer::random();
+            let signed_tx = signer.sign_tx(OpTypedTransaction::Deposit(deposit_tx))?;
+            signed_tx.encoded_2718().into()
+        };
+
+        let transactions = if let Some(transactions) = transactions {
+            // prepend the block info transaction
+            let mut all_transactions = vec![block_info_tx];
+            all_transactions.extend(transactions.into_iter());
+            all_transactions
+        } else {
+            vec![block_info_tx]
+        };
+
         let result = self
             .engine_api
             .update_forkchoice(
@@ -309,13 +379,13 @@ impl<'a> BlockGenerator<'a> {
                     payload_attributes: PayloadAttributes {
                         withdrawals: Some(vec![]),
                         parent_beacon_block_root: Some(B256::ZERO),
-                        timestamp: self.timestamp + 1000,
+                        timestamp,
                         prev_randao: B256::ZERO,
                         suggested_fee_recipient: Default::default(),
                     },
-                    transactions,
+                    transactions: Some(transactions),
                     no_tx_pool: Some(self.no_tx_pool),
-                    gas_limit: Some(10000000000),
+                    gas_limit: Some(10000000),
                     eip_1559_params: None,
                 }),
             )
@@ -327,11 +397,20 @@ impl<'a> BlockGenerator<'a> {
 
         let payload_id = result.payload_id.unwrap();
 
-        if !self.no_tx_pool {
-            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        // update the payload id in the flashblocks service if present
+        if let Some(flashblocks_service) = &self.flashblocks_service {
+            flashblocks_service.set_current_payload_id(payload_id).await;
         }
 
-        let payload = self.engine_api.get_payload_v3(payload_id).await?;
+        if !self.no_tx_pool {
+            tokio::time::sleep(tokio::time::Duration::from_secs(self.block_time_secs)).await;
+        }
+
+        let payload = if let Some(flashblocks_service) = &self.flashblocks_service {
+            flashblocks_service.get_best_payload().await?.unwrap()
+        } else {
+            self.engine_api.get_payload_v3(payload_id).await?
+        };
 
         // Validate with builder node
         let validation_status = self
@@ -374,12 +453,6 @@ impl<'a> BlockGenerator<'a> {
 
         // Update internal state
         self.latest_hash = new_block_hash;
-        self.timestamp = payload
-            .execution_payload
-            .payload_inner
-            .payload_inner
-            .timestamp;
-
         Ok(new_block_hash)
     }
 
@@ -390,13 +463,13 @@ impl<'a> BlockGenerator<'a> {
 
     /// Submit a deposit transaction to seed an account with ETH
     #[allow(dead_code)]
-    pub async fn deposit(&mut self, to: Address, value: u128) -> eyre::Result<B256> {
+    pub async fn deposit(&mut self, address: Address, value: u128) -> eyre::Result<B256> {
         // Create deposit transaction
         let deposit_tx = TxDeposit {
             source_hash: B256::default(),
-            from: address!("f39Fd6e51aad88F6F4ce6aB8827279cffFb92200"), // Standard deposit source
-            to: TxKind::Call(to),                                       // Recipient address
-            mint: Some(value),                                          // Amount to deposit
+            from: address, // Set the sender to the address of the account to seed
+            to: TxKind::Create,
+            mint: Some(value), // Amount to deposit
             value: U256::default(),
             gas_limit: 210000,
             is_system_transaction: true,
@@ -414,7 +487,12 @@ impl<'a> BlockGenerator<'a> {
 
 // TODO: This is not being recognized as used code by the main function
 #[allow(dead_code)]
-pub async fn run_system(validation: bool, no_tx_pool: bool) -> eyre::Result<()> {
+pub async fn run_system(
+    validation: bool,
+    no_tx_pool: bool,
+    block_time_secs: u64,
+    flashblocks_endpoint: Option<String>,
+) -> eyre::Result<()> {
     println!("Validation: {}", validation);
 
     let engine_api = EngineApi::new("http://localhost:4444").unwrap();
@@ -424,7 +502,13 @@ pub async fn run_system(validation: bool, no_tx_pool: bool) -> eyre::Result<()> 
         None
     };
 
-    let mut generator = BlockGenerator::new(&engine_api, validation_api.as_ref(), no_tx_pool);
+    let mut generator = BlockGenerator::new(
+        &engine_api,
+        validation_api.as_ref(),
+        no_tx_pool,
+        block_time_secs,
+        flashblocks_endpoint,
+    );
 
     generator.init().await?;
 

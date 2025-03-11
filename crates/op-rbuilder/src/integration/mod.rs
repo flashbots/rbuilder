@@ -17,6 +17,7 @@ pub const DEFAULT_JWT_TOKEN: &str =
 
 mod integration_test;
 pub mod op_rbuilder;
+pub mod op_reth;
 
 #[derive(Debug)]
 pub enum IntegrationError {
@@ -121,21 +122,35 @@ impl ServiceInstance {
         config.ready(&self.log_path).await?;
         Ok(())
     }
+
+    pub async fn find_log_line(&self, pattern: &str) -> eyre::Result<()> {
+        let mut file =
+            File::open(&self.log_path).map_err(|_| eyre::eyre!("Failed to open log file"))?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)
+            .map_err(|_| eyre::eyre!("Failed to read log file"))?;
+
+        if contents.contains(pattern) {
+            Ok(())
+        } else {
+            Err(eyre::eyre!("Pattern not found in log file"))
+        }
+    }
 }
 
 impl IntegrationFramework {
-    pub fn new() -> Result<Self, IntegrationError> {
+    pub fn new(test_name: &str) -> Result<Self, IntegrationError> {
         let dt: OffsetDateTime = SystemTime::now().into();
         let format = format_description::parse("[year]_[month]_[day]_[hour]_[minute]_[second]")
             .map_err(|_| IntegrationError::SetupError)?;
 
-        let test_name = dt
+        let date_format = dt
             .format(&format)
             .map_err(|_| IntegrationError::SetupError)?;
 
         let mut test_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         test_dir.push("../../integration_logs");
-        test_dir.push(test_name);
+        test_dir.push(format!("{}_{}", date_format, test_name));
 
         std::fs::create_dir_all(&test_dir).map_err(|_| IntegrationError::SetupError)?;
 

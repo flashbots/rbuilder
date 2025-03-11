@@ -3,11 +3,12 @@ use crate::{
     primitives::mev_boost::{MevBoostRelayID, MevBoostRelaySlotInfoProvider},
     telemetry::{inc_conn_relay_errors, inc_other_relay_errors, inc_too_many_req_relay_errors},
 };
+use ahash::HashMap;
 use alloy_primitives::Address;
 use futures::stream::FuturesOrdered;
 use primitive_types::H384;
 use tokio_stream::StreamExt;
-use tracing::{info_span, trace, warn};
+use tracing::{info, info_span, trace, trace_span, warn};
 
 /// Info about a slot obtained from a relay.
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
@@ -72,15 +73,9 @@ pub struct RelaysForSlotData {
 
 impl RelaysForSlotData {
     pub fn new(relays: &[MevBoostRelaySlotInfoProvider]) -> Self {
-        // we sort relays so the relay with the highest priority will determine what is "correct" version of the epoch data.
-        let sorted_relays = {
-            let mut relays = relays.to_vec();
-            relays.sort_by_key(|r| r.priority());
-            relays
-        };
         Self {
-            relay: sorted_relays
-                .into_iter()
+            relay: relays
+                .iter()
                 .map(|relay| (relay.id().clone(), RelayEpochCache::new(relay.clone())))
                 .collect(),
         }
@@ -99,8 +94,7 @@ impl RelaysForSlotData {
             .collect::<Vec<_>>()
             .await;
 
-        let mut slot_data = None;
-        let mut relays = Vec::new();
+        let mut relay_ok_res = Vec::new();
         for (relay, res) in relay_res {
             let span = info_span!("relay", relay, slot);
             let _span_guard = span.enter();
@@ -131,25 +125,128 @@ impl RelaysForSlotData {
                 }
             };
             assert_eq!(relay_data.slot, slot);
-            let relay_slot_data = SlotData {
-                fee_recipient: relay_data.entry.message.fee_recipient,
-                gas_limit: relay_data.entry.message.gas_limit,
-                pubkey: relay_data.entry.message.pubkey,
-            };
-            if let Some(slot_data) = &slot_data {
-                if slot_data != &relay_slot_data {
-                    warn!(
-                        relay_slot_data = ?relay_slot_data, slot_data = ?slot_data,
-                        "Relay returned slot data that is different from returned from other relay",
-                    );
-                    continue;
-                }
-            } else {
-                // since relays are sorted the relay with the highest priority will determine the value of slot_data
-                slot_data = Some(relay_slot_data);
-            }
-            relays.push(relay);
+            relay_ok_res.push((relay, relay_data));
         }
-        slot_data.map(|d| (d, relays))
+        resolve_relay_slot_data(relay_ok_res)
+    }
+}
+
+fn resolve_relay_slot_data(
+    fetched_data: Vec<(MevBoostRelayID, ValidatorSlotData)>,
+) -> Option<(SlotData, Vec<MevBoostRelayID>)> {
+    if fetched_data.is_empty() {
+        return None;
+    }
+
+    let mut slot_relays: HashMap<SlotData, Vec<MevBoostRelayID>> = HashMap::default();
+    let mut slot_raw_data: HashMap<SlotData, Vec<ValidatorSlotData>> = HashMap::default();
+
+    for (relay, raw_data) in fetched_data {
+        let slot_data = SlotData {
+            fee_recipient: raw_data.entry.message.fee_recipient,
+            gas_limit: raw_data.entry.message.gas_limit,
+            pubkey: raw_data.entry.message.pubkey,
+        };
+        slot_relays
+            .entry(slot_data.clone())
+            .or_default()
+            .push(relay);
+        slot_raw_data.entry(slot_data).or_default().push(raw_data);
+    }
+
+    // all relays returned the same data
+    if slot_relays.len() == 1 {
+        let (slot_data, relays) = slot_relays.into_iter().next().unwrap();
+        return Some((slot_data, relays));
+    }
+
+    let (latest_slot_data, _) = slot_raw_data
+        .iter()
+        .max_by_key(|(_, v)| {
+            v.iter()
+                .map(|r| r.entry.message.timestamp)
+                .max()
+                .unwrap_or_default()
+        })
+        .unwrap();
+    let selected_relays = slot_relays.get(latest_slot_data).unwrap();
+
+    let span = trace_span!("raw_relay_data", ?slot_raw_data);
+    let _span_guard = span.enter();
+    info!(all_data = ?slot_relays, ?selected_relays, "Relays returned different slot data");
+
+    Some(slot_relays.remove_entry(latest_slot_data).unwrap())
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{
+        mev_boost::{ValidatorRegistration, ValidatorRegistrationMessage},
+        utils::set_test_debug_tracing_subscriber,
+    };
+
+    use super::*;
+    use alloy_primitives::{address, Bytes};
+
+    fn make_test_data(fee_recipient: Address, timestamp: u64) -> ValidatorSlotData {
+        ValidatorSlotData {
+            entry: ValidatorRegistration {
+                message: ValidatorRegistrationMessage {
+                    fee_recipient,
+                    gas_limit: 30000000,
+                    timestamp,
+                    pubkey: H384::zero(),
+                },
+                signature: Bytes::new(),
+            },
+            validator_index: 1,
+            slot: 2,
+        }
+    }
+
+    #[test]
+    fn test_resolve_slot_data() {
+        set_test_debug_tracing_subscriber();
+
+        // Test when all relays return same data
+        let relay1 = MevBoostRelayID::from("relay1");
+        let relay2 = MevBoostRelayID::from("relay2");
+        let data = make_test_data(address!("1111111111111111111111111111111111111111"), 100);
+
+        let fetched = vec![
+            (relay1.clone(), data.clone()),
+            (relay2.clone(), data.clone()),
+        ];
+
+        let result = resolve_relay_slot_data(fetched);
+        let (slot_data, relays) = result.unwrap();
+        assert_eq!(
+            SlotData {
+                fee_recipient: address!("1111111111111111111111111111111111111111"),
+                gas_limit: 30000000,
+                pubkey: H384::zero(),
+            },
+            slot_data
+        );
+        assert_eq!(relays, vec![relay1.clone(), relay2.clone()]);
+
+        // Test when relays return different data (should pick latest timestamp)
+        let data2 = make_test_data(address!("2222222222222222222222222222222222222222"), 200);
+        let fetched = vec![
+            (relay1.clone(), data.clone()),
+            (relay2.clone(), data2.clone()),
+        ];
+
+        let result = resolve_relay_slot_data(fetched);
+        let (slot_data, relays) = result.unwrap();
+        assert_eq!(
+            SlotData {
+                fee_recipient: address!("2222222222222222222222222222222222222222"),
+                gas_limit: 30000000,
+                pubkey: H384::zero(),
+            },
+            slot_data
+        );
+        assert_eq!(relays, vec![relay2.clone()]);
     }
 }

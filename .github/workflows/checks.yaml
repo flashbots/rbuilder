@@ -165,6 +165,11 @@ jobs:
           echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
 
+      - name: Download op-reth
+        run: |
+          ./scripts/ci/download-op-reth.sh
+          echo "$(pwd)" >> $GITHUB_PATH
+
       - name: Build the rbuilder
         run: cargo build -p op-rbuilder --bin op-rbuilder --features optimism
 

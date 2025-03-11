@@ -133,7 +133,7 @@ impl TestSetup {
             .to(to)
             .value(value);
         let tx = self.test_chain.sign_tx(args)?;
-        let tx_hash = tx.hash();
+        let tx_hash = *tx.hash();
         self.order_builder.add_tx(
             TransactionSignedEcRecoveredWithBlobs::new_no_blobs(tx).unwrap(),
             revert_behavior,
@@ -143,7 +143,7 @@ impl TestSetup {
 
     fn add_tx(&mut self, args: TxArgs, revert_behavior: TxRevertBehavior) -> eyre::Result<TxHash> {
         let tx = self.test_chain.sign_tx(args)?;
-        let tx_hash = tx.hash();
+        let tx_hash = *tx.hash();
         self.order_builder.add_tx(
             TransactionSignedEcRecoveredWithBlobs::new_no_blobs(tx).unwrap(),
             revert_behavior,

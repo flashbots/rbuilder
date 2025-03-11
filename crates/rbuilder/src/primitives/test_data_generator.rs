@@ -1,6 +1,6 @@
 use alloy_consensus::TxLegacy;
 use alloy_primitives::B256;
-use reth_primitives::{Transaction, TransactionSigned, TransactionSignedEcRecovered};
+use reth_primitives::{Recovered, Transaction, TransactionSigned};
 use revm_primitives::PrimitiveSignature;
 use uuid::Uuid;
 
@@ -18,12 +18,12 @@ pub struct TestDataGenerator {
 }
 
 impl TestDataGenerator {
-    pub fn create_tx(&mut self) -> TransactionSignedEcRecovered {
+    pub fn create_tx(&mut self) -> Recovered<TransactionSigned> {
         self.create_tx_nonce(AccountNonce::default())
     }
 
-    pub fn create_tx_nonce(&mut self, sender_nonce: AccountNonce) -> TransactionSignedEcRecovered {
-        TransactionSignedEcRecovered::new_unchecked(
+    pub fn create_tx_nonce(&mut self, sender_nonce: AccountNonce) -> Recovered<TransactionSigned> {
+        Recovered::new_unchecked(
             TransactionSigned::new(
                 Transaction::Legacy(TxLegacy {
                     nonce: sender_nonce.nonce,
@@ -60,7 +60,7 @@ impl TestDataGenerator {
             hash: B256::default(),
             uuid: Uuid::default(),
             replacement_data: replacement_data.clone(),
-            signer: replacement_data.map(|r| r.key.key().signer),
+            signer: replacement_data.as_ref().and_then(|r| r.key.key().signer),
             metadata: Default::default(),
             dropping_tx_hashes: vec![],
             refund: None,
@@ -92,7 +92,7 @@ impl TestDataGenerator {
             block,
             max_block: block,
             inner_bundle,
-            signer: replacement_data.as_ref().map(|r| r.key.key().signer),
+            signer: replacement_data.as_ref().and_then(|r| r.key.key().signer),
             replacement_data,
             original_orders: Vec::new(),
             metadata: Default::default(),
@@ -126,7 +126,7 @@ impl TestDataGenerator {
             hash: B256::default(),
             uuid: Uuid::default(),
             replacement_data: replacement_data.clone(),
-            signer: replacement_data.map(|r| r.key.key().signer),
+            signer: replacement_data.as_ref().and_then(|r| r.key.key().signer),
             metadata: Default::default(),
             dropping_tx_hashes: Default::default(),
             refund: None,

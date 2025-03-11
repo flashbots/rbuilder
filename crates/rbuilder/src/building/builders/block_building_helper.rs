@@ -272,7 +272,7 @@ where
         );
 
         trace!(
-            block = building_ctx.block_env.number.to::<u64>(),
+            block = building_ctx.evm_env.block_env.number.to::<u64>(),
             build_time_mus = built_block_trace.fill_time.as_micros(),
             finalize_time_mus = built_block_trace.finalize_time.as_micros(),
             root_hash_time_mus = built_block_trace.root_hash_time.as_micros(),
@@ -409,9 +409,12 @@ where
             Err(err) => {
                 if err.is_consistent_db_view_err() {
                     let last_block_number = self.provider.last_block_number().unwrap_or_default();
+
                     debug!(
                         block_number,
-                        last_block_number, "Can't build on this head, cancelling slot"
+                        payload_id = self.building_ctx.payload_id,
+                        last_block_number,
+                        "Can't build on this head, cancelling slot"
                     );
                     self.cancel_on_fatal_error.cancel();
                 }

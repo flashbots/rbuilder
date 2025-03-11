@@ -38,7 +38,6 @@ impl Default for PayloadDeliveredFetcher {
                 MevBoostRelaySlotInfoProvider::new(
                     RelayClient::from_known_relay(r.clone()),
                     r.name(),
-                    0,
                 )
             })
             .collect::<Vec<_>>();

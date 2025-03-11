@@ -3,7 +3,7 @@ use std::fmt;
 use crate::{
     building::sim::{SimTree, SimulatedResult, SimulationRequest},
     live_builder::order_input::order_sink::OrderPoolCommand,
-    primitives::{Order, OrderId},
+    primitives::{Order, OrderId, OrderReplacementKey},
     provider::StateProviderFactory,
 };
 use ahash::HashSet;
@@ -39,6 +39,12 @@ pub struct SimulationJob<P> {
 
     orders_received: OrderCounter,
     orders_simulated_ok: OrderCounter,
+
+    unique_replacement_key_bundles: HashSet<OrderReplacementKey>,
+    orders_with_replacement_key: usize,
+
+    unique_replacement_key_bundles_sim_ok: HashSet<OrderReplacementKey>,
+    orders_with_replacement_key_sim_ok: usize,
 
     /// Orders we got via new_order_sub and are still being processed (they could be inside the SimTree or in the sim queue)
     /// and were not cancelled.
@@ -77,6 +83,10 @@ where
             sim_tree,
             orders_received: OrderCounter::default(),
             orders_simulated_ok: OrderCounter::default(),
+            orders_with_replacement_key: 0,
+            unique_replacement_key_bundles: Default::default(),
+            orders_with_replacement_key_sim_ok: 0,
+            unique_replacement_key_bundles_sim_ok: Default::default(),
             in_flight_orders: Default::default(),
             not_cancelled_sent_simulated_orders: Default::default(),
         }
@@ -88,6 +98,10 @@ where
         info!(
             ?self.orders_received,
             ?self.orders_simulated_ok,
+        bundles_with_replace = self.orders_with_replacement_key,
+        unique_replace_count = self.unique_replacement_key_bundles.len(),
+        bundles_with_replace_sim_ok = self.orders_with_replacement_key_sim_ok,
+        unique_replace_count_sim_ok = self.unique_replacement_key_bundles_sim_ok.len(),
             "Stopping simulation job "
         );
     }
@@ -180,6 +194,10 @@ where
             "Order simulated");
             self.orders_simulated_ok
                 .accumulate(&sim_result.simulated_order.order);
+            if let Some(repl_key) = sim_result.simulated_order.order.replacement_key() {
+                self.unique_replacement_key_bundles_sim_ok.insert(repl_key);
+                self.orders_with_replacement_key_sim_ok += 1;
+            }
             // Skip cancelled orders and remove from in_flight_orders
             if self
                 .in_flight_orders
@@ -239,6 +257,10 @@ where
     /// feeding the sim tree.
     fn process_new_order(&mut self, order: Order) -> bool {
         self.orders_received.accumulate(&order);
+        if let Some(repl_key) = order.replacement_key() {
+            self.unique_replacement_key_bundles.insert(repl_key);
+            self.orders_with_replacement_key += 1;
+        }
         let order_id = order.id();
         if let Err(err) = self.sim_tree.push_orders(vec![order]) {
             error!(?err, "Failed to push order into the sim tree");

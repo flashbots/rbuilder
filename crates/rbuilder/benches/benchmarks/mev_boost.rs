@@ -1,5 +1,6 @@
+use alloy_consensus::{Block, Header};
 use alloy_eips::eip4844::BlobTransactionSidecar;
-use alloy_primitives::{BlockHash, U256};
+use alloy_primitives::U256;
 use criterion::{criterion_group, Criterion};
 use primitive_types::H384;
 use rbuilder::mev_boost::{
@@ -8,7 +9,7 @@ use rbuilder::mev_boost::{
 };
 use reth::primitives::SealedBlock;
 use reth_chainspec::SEPOLIA;
-use reth_primitives::{kzg::Blob, SealedHeader};
+use reth_primitives::kzg::Blob;
 use std::{fs, path::PathBuf, sync::Arc};
 
 fn mev_boost_serialize_submit_block(data: DenebSubmitBlockRequest) {
@@ -98,13 +99,15 @@ fn bench_mevboost_sign(c: &mut Criterion) {
 
     // Create a sealed block that is after the Cancun hard fork in Sepolia
     // this is, a timestamp higher than 1706655072
-    let mut sealed_block_deneb: SealedBlock<alloy_consensus::Header, reth_primitives::BlockBody> =
-        SealedBlock::default();
-    let mut header = sealed_block_deneb.header().clone();
-    header.timestamp = 2706655072;
-    header.blob_gas_used = Some(64);
-    header.excess_blob_gas = Some(64);
-    sealed_block_deneb.header = SealedHeader::new(header.clone(), BlockHash::default());
+    let sealed_block_deneb = SealedBlock::new_unhashed(Block::new(
+        Header {
+            timestamp: 2706655072,
+            blob_gas_used: Some(64),
+            excess_blob_gas: Some(64),
+            ..Default::default()
+        },
+        Default::default(),
+    ));
 
     group.bench_function("Deneb", |b| {
         b.iter(|| {

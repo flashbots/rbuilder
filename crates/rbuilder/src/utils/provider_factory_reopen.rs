@@ -4,6 +4,7 @@ use crate::provider::{RootHasher, StateProviderFactory};
 use crate::roothash::{calculate_state_root, run_trie_prefetcher, RootHashContext, RootHashError};
 use crate::telemetry::{inc_provider_bad_reopen_counter, inc_provider_reopen_counter};
 use alloy_consensus::Header;
+use alloy_eips::BlockNumHash;
 use alloy_primitives::{BlockHash, BlockNumber};
 use eth_sparse_mpt::reth_sparse_trie::SparseTrieSharedCache;
 use parking_lot::{Mutex, RwLock};
@@ -24,7 +25,7 @@ use std::ops::DerefMut;
 use std::{path::PathBuf, sync::Arc};
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
-use tracing::debug;
+use tracing::{debug, error};
 
 /// This struct is used as a workaround for https://github.com/paradigmxyz/reth/issues/7836
 /// it shares one instance of the provider factory that is recreated when inconsistency is detected.
@@ -240,14 +241,21 @@ where
         provider.last_block_number()
     }
 
-    fn root_hasher(&self, parent_hash: B256) -> ProviderResult<Box<dyn RootHasher>> {
+    fn root_hasher(&self, parent_num_hash: BlockNumHash) -> ProviderResult<Box<dyn RootHasher>> {
         Ok(if let Some(root_hash_config) = &self.root_hash_config {
             let provider = self
                 .check_consistency_and_reopen_if_needed()
                 .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))
                 .unwrap();
+            let parent_state_root = provider
+                .header_by_hash_or_number(parent_num_hash.hash.into())?
+                .map(|h| h.state_root);
+            if parent_state_root.is_none() {
+                error!("Parent hash is not found (for root_hasher)");
+            }
             Box::new(RootHasherImpl::new(
-                parent_hash,
+                parent_num_hash,
+                parent_state_root,
                 root_hash_config.clone(),
                 provider.clone(),
                 provider,
@@ -259,7 +267,7 @@ where
 }
 
 pub struct RootHasherImpl<T, HasherType> {
-    parent_hash: B256,
+    parent_num_hash: BlockNumHash,
     provider: T,
     hasher: HasherType,
     sparse_trie_shared_cache: SparseTrieSharedCache,
@@ -268,17 +276,23 @@ pub struct RootHasherImpl<T, HasherType> {
 
 impl<T, HasherType> RootHasherImpl<T, HasherType> {
     pub fn new(
-        parent_hash: B256,
+        parent_num_hash: BlockNumHash,
+        parent_state_root: Option<B256>,
         config: RootHashContext,
         provider: T,
         hasher: HasherType,
     ) -> Self {
+        let sparse_trie_shared_cache = if let Some(parent_state_root) = parent_state_root {
+            SparseTrieSharedCache::new_with_parent_hash(parent_state_root)
+        } else {
+            SparseTrieSharedCache::default()
+        };
         Self {
-            parent_hash,
+            parent_num_hash,
             provider,
             hasher,
             config,
-            sparse_trie_shared_cache: Default::default(),
+            sparse_trie_shared_cache,
         }
     }
 }
@@ -299,7 +313,7 @@ where
         cancel: CancellationToken,
     ) {
         run_trie_prefetcher(
-            self.parent_hash,
+            self.parent_num_hash,
             self.sparse_trie_shared_cache.clone(),
             self.provider.clone(),
             simulated_orders,
@@ -311,7 +325,7 @@ where
         calculate_state_root(
             self.provider.clone(),
             &self.hasher,
-            self.parent_hash,
+            self.parent_num_hash,
             outcome,
             self.sparse_trie_shared_cache.clone(),
             &self.config,
@@ -322,7 +336,7 @@ where
 impl<T, HasherType> std::fmt::Debug for RootHasherImpl<T, HasherType> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RootHasherImpl")
-            .field("parent_hash", &self.parent_hash)
+            .field("parent_num_hash", &self.parent_num_hash)
             .finish()
     }
 }

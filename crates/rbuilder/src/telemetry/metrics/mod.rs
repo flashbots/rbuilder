@@ -252,7 +252,13 @@ register_metrics! {
     // 1. Cover as many lines of code as possible without any gaps.
     // 2. Show E2E latency of the order that could be executed immediately and also arrived towards the end of the slot.
     // The path of order goes as follows:
-    // Received -> Simulated -> (builders start to build a block with it) -> block sealed -> block submit started
+    // First seen(on infra) -> Received -> Simulated -> (builders start to build a block with it) -> block sealed -> block submit started
+    pub static ORDER_FIRST_SEEN_TO_ORDER_RECEIVED: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("order_first_seen_to_received", "Time between when the order was first seen on infra in front of the builder and when it was received. (ms)")
+            .buckets(exponential_buckets_range(0.01, 2000.0, 300)),
+        &[]
+    )
+    .unwrap();
     pub static ORDER_RECEIVED_TO_SIM_END_TIME: HistogramVec = HistogramVec::new(
         HistogramOpts::new("order_received_to_sim_end_time", "Time between when the order was received and top of the block simulation ended for orders that arrive after slot start. (ms)")
             .buckets(exponential_buckets_range(0.01, 200.0, 200)),
@@ -315,6 +321,7 @@ pub fn reset_histogram_metrics() {
     RELAY_SUBMIT_TIME.reset();
     TXFETCHER_TRANSACTION_QUERY_TIME.reset();
     SUBSIDY_VALUE.reset();
+    ORDER_FIRST_SEEN_TO_ORDER_RECEIVED.reset();
     ORDER_RECEIVED_TO_SIM_END_TIME.reset();
     ORDER_SIM_END_TO_FIRST_BUILD_STARTED_TIME.reset();
     ORDER_SIM_END_TO_FIRST_BUILD_STARTED_MIN_TIME.reset();
@@ -545,12 +552,12 @@ pub fn mark_submission_start_time(block_sealed_at: OffsetDateTime) {
         .observe(value);
 }
 
-pub(super) fn gather_prometheus_metrics() -> String {
+pub fn gather_prometheus_metrics(registry: &Registry) -> String {
     use prometheus::Encoder;
     let encoder = prometheus::TextEncoder::new();
 
     let mut buffer = Vec::new();
-    if let Err(e) = encoder.encode(&REGISTRY.gather(), &mut buffer) {
+    if let Err(e) = encoder.encode(&registry.gather(), &mut buffer) {
         error!("could not encode custom metrics: {}", e);
     };
     let mut res = String::from_utf8(buffer.clone()).unwrap_or_else(|e| {
@@ -573,7 +580,7 @@ pub(super) fn gather_prometheus_metrics() -> String {
 }
 
 // Creates n exponential buckets that cover range from start to end.
-fn exponential_buckets_range(start: f64, end: f64, n: usize) -> Vec<f64> {
+pub fn exponential_buckets_range(start: f64, end: f64, n: usize) -> Vec<f64> {
     assert!(start > 0.0 && start < end);
     assert!(n > 1);
     let factor = (end / start).powf(1.0 / (n - 1) as f64);
@@ -581,7 +588,7 @@ fn exponential_buckets_range(start: f64, end: f64, n: usize) -> Vec<f64> {
 }
 
 // Creates n linear buckets that cover range from [start, end].
-fn linear_buckets_range(start: f64, end: f64, n: usize) -> Vec<f64> {
+pub fn linear_buckets_range(start: f64, end: f64, n: usize) -> Vec<f64> {
     assert!(start < end);
     let width = (end - start) / (n - 1) as f64;
     prometheus::linear_buckets(start, width, n).unwrap()

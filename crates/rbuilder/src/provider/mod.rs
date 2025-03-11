@@ -1,6 +1,7 @@
 use crate::live_builder::simulation::SimulatedOrderCommand;
 use crate::roothash::RootHashError;
 use alloy_consensus::Header;
+use alloy_eips::BlockNumHash;
 use alloy_primitives::{BlockHash, BlockNumber, B256};
 use reth::providers::ExecutionOutcome;
 use reth_errors::ProviderResult;
@@ -31,7 +32,7 @@ pub trait StateProviderFactory: Send + Sync {
 
     fn last_block_number(&self) -> ProviderResult<BlockNumber>;
 
-    fn root_hasher(&self, parent_hash: B256) -> ProviderResult<Box<dyn RootHasher>>;
+    fn root_hasher(&self, parent_num_hash: BlockNumHash) -> ProviderResult<Box<dyn RootHasher>>;
 }
 
 /// trait that computes the roothash for a new block assuming a predefine parent block (given in StateProviderFactory::root_hasher)

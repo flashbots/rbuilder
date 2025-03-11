@@ -1,7 +1,6 @@
 use crate::provider::StateProviderFactory;
-use ahash::HashMap;
 use alloy_primitives::{Address, B256};
-use parking_lot::Mutex;
+use dashmap::DashMap;
 use reth::providers::StateProviderBox;
 use reth_errors::ProviderResult;
 use std::sync::Arc;
@@ -15,9 +14,8 @@ use std::sync::Arc;
 #[derive(Debug)]
 pub struct NonceCache<P> {
     provider: P,
-    // We have to use Arc<Mutex here because Rc are not Send (so can't be used in futures)
-    // and borrows don't work when nonce cache is a field in a struct.
-    cache: Arc<Mutex<HashMap<Address, u64>>>,
+    // We use Arc<DashMap> here to allow concurrent access to cache
+    cache: Arc<DashMap<Address, u64>>,
     block: B256,
 }
 
@@ -28,7 +26,7 @@ where
     pub fn new(provider: P, block: B256) -> Self {
         Self {
             provider,
-            cache: Arc::new(Mutex::new(HashMap::default())),
+            cache: Arc::new(DashMap::default()),
             block,
         }
     }
@@ -44,17 +42,17 @@ where
 
 pub struct NonceCacheRef {
     state: StateProviderBox,
-    cache: Arc<Mutex<HashMap<Address, u64>>>,
+    cache: Arc<DashMap<Address, u64>>,
 }
 
 impl NonceCacheRef {
     pub fn nonce(&self, address: Address) -> ProviderResult<u64> {
-        let mut cache = self.cache.lock();
-        if let Some(nonce) = cache.get(&address) {
+        if let Some(nonce) = self.cache.get(&address) {
             return Ok(*nonce);
         }
+
         let nonce = self.state.account_nonce(&address)?.unwrap_or_default();
-        cache.insert(address, nonce);
+        self.cache.insert(address, nonce);
         Ok(nonce)
     }
 }

@@ -46,6 +46,17 @@ pub enum SparseTrieError {
     FailedToFetchData,
 }
 
+impl SparseTrieError {
+    /// When reth's block tip changes we generate an error which is not really critical.
+    /// We have this func so we can avoid logging it.
+    /// This could be unstable due to reth changes, DON'T use as a real error check.
+    pub fn is_db_consistency_error(&self) -> bool {
+        matches!(
+            self,
+            SparseTrieError::FailedToUpdateSharedCache(AddNodeError::InconsistentProofs)
+        )
+    }
+}
 #[derive(Debug)]
 pub struct ChangedAccountData {
     pub address: Address,

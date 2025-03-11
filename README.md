@@ -40,7 +40,6 @@ To run rbuilder you need:
 * Source of bundles that sends `eth_sendBundle`, `mev_sendBundle`, `eth_sendRawTransaction` as JSON rpc calls. (`jsonrpc_server_port`)
   (by default rbuilder will take raw txs from the reth node mempool)
 * Relays so submit to (`relays`)
-* Alternatively it can submit to the block validation API if run in the dry run mode (`dry_run`, `dry_run_validation_url`)
 
 A sample configuration for running Lighthouse and triggering payload events would be:
 ```
@@ -77,6 +76,36 @@ rbuilder has a solid initial benchmarking setup (based on [Criterion.rs](https:/
 - You can run benchmarks with `make bench` and open the Criterion-generated report with `make bench-report-open`.
 - Benchmarks are located in [`crates/rbuilder/benches`](./crates/rbuilder/benches/). We'd love to add more meaningful benchmarks there!
 - Let us know about further improvement ideas and additional relevant benchmarks.
+
+### Testing with a fake relay
+
+This repo includes a `test-relay` tool for testing live builders without submitting blocks to live production relays. This standalone binary implements the MEV-Boost Relay API required for builder to function. The test-relay only performs block validation and compares profits between builders who submit blocks to it, without actually sending blocks to the network.
+
+The test relay exposes several Prometheus metrics about the blocks it received.
+
+Example of how to use test relay:
+
+```bash
+./test-relay \
+    --relay "https://boost-relay-holesky.flashbots.net" \
+    --validation-url "http://localhost:8545" \
+    --cl-clients "http://localhost:5052" 
+```
+For relay flag, instead of Holesky, you can use:
+
+- Mainnet: [https://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@boost-relay.flashbots.net/](https://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@boost-relay.flashbots.net/)
+- Sepolia: [https://boost-relay-sepolia.flashbots.net/](https://boost-relay-sepolia.flashbots.net/)
+
+When validation-url is passed, blocks produced by the `rbuilder` are validated by the EL node. This node must support Flashbots validation API (e.g. `flashbots_validateBuilderSubmissionV3`).
+
+For rbuilder to use fake (`test-relay`), config.toml must include it as (one of) the relays. Example:
+
+```TOML
+[[relays]]
+name = "flashbots-test"
+url = "http://localhost:80"
+priority = 0
+```
 
 ### End-to-end local testing
 
@@ -200,7 +229,7 @@ Big shoutout to the [Reth](https://github.com/paradigmxyz/reth) team for buildin
 
 
 | Binary                      | Description                                                                                           |
-| --------------------------- | ----------------------------------------------------------------------------------------------------- |
+|-----------------------------|-------------------------------------------------------------------------------------------------------|
 | `rbuilder`                  | Live block builder                                                                                    |
 | `backtest-build-block`      | Run backtests for a single block                                                                      |
 | `backtest-build-range`      | Run backtests for a range of block                                                                    |
@@ -211,3 +240,4 @@ Big shoutout to the [Reth](https://github.com/paradigmxyz/reth) team for buildin
 | `debug-order-input`         | Observe input of the bundles and transactions                                                         |
 | `debug-order-sim`           | Observe simulation of the bundles and transactions                                                    |
 | `debug-slot-data-generator` | Shows new payload jobs coming from CL with attached data from relays.                                 |
+| `test-relay`                | Test MEV-boost relay that accepts blocks and validates them.                                          |

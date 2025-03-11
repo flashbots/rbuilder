@@ -417,7 +417,7 @@ fn spawn_block_fetcher(
             let mut blocks = match historical_data_storage.read_blocks(blocks).await {
                 Ok(res) => res,
                 Err(err) => {
-                    warn!("Failed to read blocks from storage: {:?}", err);
+                    warn!(?err, "Failed to read blocks from storage");
                     return;
                 }
             };
@@ -428,7 +428,7 @@ fn spawn_block_fetcher(
             match sender.send(blocks).await {
                 Ok(_) => {}
                 Err(err) => {
-                    warn!("Failed to send blocks to processing: {:?}", err);
+                    warn!(?err, "Failed to send blocks to processing");
                     return;
                 }
             }

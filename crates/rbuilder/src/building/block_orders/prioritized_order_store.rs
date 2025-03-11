@@ -151,11 +151,7 @@ impl PrioritizedOrderStore {
                 }
             }
             let retain_order = valid && valid_nonces > 0;
-            tracing::trace!(
-                "invalidated order: {:?}, retain: {}",
-                order_id,
-                retain_order
-            );
+            tracing::trace!(order = ?order_id, retain_order, "invalidated order");
             if retain_order {
                 self.insert_order(order);
             } else {

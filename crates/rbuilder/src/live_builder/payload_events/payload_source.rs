@@ -52,7 +52,7 @@ impl CLPayloadSource {
                                     }
                                 }
                                 Err(err) => {
-                                    error!("Error while receiving CL SEE event: {:?}, ignoring", err);
+                                    error!(?err, "Error while receiving CL SEE event, ignoring");
                                 }
                             }
                         }
