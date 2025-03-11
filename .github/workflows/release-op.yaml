@@ -113,7 +113,7 @@ jobs:
     needs: [extract-version, build-binary]
     runs-on: warp-ubuntu-latest-x64-16x
     env:
-      VERSION: ${{ needs.extract-version.outputs.VERSION }}
+      VERSION: op-${{ needs.extract-version.outputs.VERSION }}
     permissions:
       contents: write
     steps:
