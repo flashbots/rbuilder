@@ -77,8 +77,14 @@ where
         let block_cancellation = global_cancellation.child_token();
 
         let cancel = block_cancellation.clone();
+        let block = block_ctx.block();
+        let payload_id = block_ctx.payload_id;
         tokio::spawn(async move {
             tokio::time::sleep(max_time_to_build).await;
+            info!(
+                reason = "max_time_to_build",
+                block, payload_id, "Cancelling building job"
+            );
             cancel.cancel();
         });
 
@@ -129,7 +135,12 @@ where
 
         for builder in self.builders.iter() {
             let builder_name = builder.name();
-            debug!(block = block_number, builder_name, "Spawning builder job");
+            debug!(
+                block = block_number,
+                payload_id = ctx.payload_id,
+                builder_name,
+                "Spawning builder job"
+            );
             let input = BlockBuildingAlgorithmInput::<P> {
                 provider: self.provider.clone(),
                 ctx: ctx.clone(),
@@ -140,7 +151,12 @@ where
             let builder = builder.clone();
             tokio::task::spawn_blocking(move || {
                 builder.build_blocks(input);
-                debug!(block = block_number, builder_name, "Stopped builder job");
+                debug!(
+                    block = block_number,
+                    payload_id = ctx.payload_id,
+                    builder_name,
+                    "Stopped builder job"
+                );
             });
         }
 

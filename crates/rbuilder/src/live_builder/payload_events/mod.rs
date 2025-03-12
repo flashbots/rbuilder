@@ -297,9 +297,9 @@ fn report_slot_withdrawals_to_fee_recipients(data: &MevBoostSlotData) {
         info!(
             slot = data.slot(),
             block = data.block(),
-            "Slot has withdrawals to the fee recipient, address: {:?} , amount: {}",
-            fee_recipient,
-            format_ether(withdrawals_to_fee_recipient)
+            address = ?fee_recipient,
+            amount = format_ether(withdrawals_to_fee_recipient),
+            "Slot has withdrawals to the fee recipient",
         );
     }
 }
