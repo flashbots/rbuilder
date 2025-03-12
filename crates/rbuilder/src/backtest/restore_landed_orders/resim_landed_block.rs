@@ -56,7 +56,7 @@ where
     );
 
     let state_provider = provider.history_by_block_hash(ctx.attributes.parent)?;
-    let mut partial_block = PartialBlock::new(true, None);
+    let mut partial_block = PartialBlock::new(true);
     let mut state = BlockState::new(state_provider);
 
     partial_block

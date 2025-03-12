@@ -216,13 +216,12 @@ impl DummyBuildingAlgorithm {
             None,
             BUILDER_NAME.to_string(),
             false,
-            None,
             CancellationToken::new(),
         )?;
 
         for order in orders {
             // don't care about the result
-            let _ = block_building_helper.commit_order(&order)?;
+            let _ = block_building_helper.commit_order(&order, &|_| Ok(()))?;
         }
         Ok(Box::new(block_building_helper))
     }

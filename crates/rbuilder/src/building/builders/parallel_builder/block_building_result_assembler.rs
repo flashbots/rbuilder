@@ -200,7 +200,6 @@ impl BlockBuildingResultAssembler {
             self.cached_reads.clone(),
             self.builder_name.clone(),
             self.discard_txs,
-            None,
             self.cancellation_token.clone(),
         )?;
         block_building_helper.set_trace_orders_closed_at(orders_closed_at);
@@ -231,7 +230,7 @@ impl BlockBuildingResultAssembler {
                     block_building_helper.builder_name(),
                 );
                 let start_time = Instant::now();
-                let commit_result = block_building_helper.commit_order(sim_order)?;
+                let commit_result = block_building_helper.commit_order(sim_order, &|_| Ok(()))?;
                 let order_commit_time = start_time.elapsed();
 
                 let mut gas_used = 0;
@@ -272,7 +271,6 @@ impl BlockBuildingResultAssembler {
             None, // No cached reads for backtest start
             String::from("backtest_builder"),
             self.discard_txs,
-            None,
             CancellationToken::new(),
         )?;
 
@@ -301,7 +299,7 @@ impl BlockBuildingResultAssembler {
             for (order_idx, _) in sequence_of_orders.sequence_of_orders.iter() {
                 let sim_order = &order_group.orders[*order_idx];
 
-                let commit_result = block_building_helper.commit_order(sim_order)?;
+                let commit_result = block_building_helper.commit_order(sim_order, &|_| Ok(()))?;
 
                 match commit_result {
                     Ok(res) => {

@@ -5,7 +5,7 @@ pub mod ordering_builder;
 pub mod parallel_builder;
 
 use crate::{
-    building::{BlockBuildingContext, BuiltBlockTrace, SimulatedOrderSink, Sorting},
+    building::{BlockBuildingContext, BuiltBlockTrace, SimulatedOrderSink},
     live_builder::{
         payload_events::{InternalPayloadId, MevBoostSlotData},
         simulation::SimulatedOrderCommand,
@@ -27,7 +27,7 @@ use tokio::sync::{
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
-use super::{simulated_order_command_to_sink, PrioritizedOrderStore};
+use super::{simulated_order_command_to_sink, OrderPriority, PrioritizedOrderStore};
 
 /// Block we built
 #[derive(Debug, Clone)]
@@ -114,25 +114,21 @@ impl OrderConsumer {
 }
 
 #[derive(Debug)]
-pub struct OrderIntakeConsumer {
+pub struct OrderIntakeConsumer<OrderPriorityType> {
     nonces: NonceCache,
 
-    block_orders: PrioritizedOrderStore,
+    block_orders: PrioritizedOrderStore<OrderPriorityType>,
     onchain_nonces_updated: HashSet<Address>,
 
     order_consumer: OrderConsumer,
 }
 
-impl OrderIntakeConsumer {
+impl<OrderPriorityType: OrderPriority> OrderIntakeConsumer<OrderPriorityType> {
     /// See [`ShareBundleMerger`] for sbundle_merger_selected_signers
-    pub fn new(
-        nonces: NonceCache,
-        orders: broadcast::Receiver<SimulatedOrderCommand>,
-        sorting: Sorting,
-    ) -> Self {
+    pub fn new(nonces: NonceCache, orders: broadcast::Receiver<SimulatedOrderCommand>) -> Self {
         Self {
             nonces,
-            block_orders: PrioritizedOrderStore::new(sorting, vec![]),
+            block_orders: PrioritizedOrderStore::new(vec![]),
             onchain_nonces_updated: HashSet::default(),
             order_consumer: OrderConsumer::new(orders),
         }
@@ -181,7 +177,7 @@ impl OrderIntakeConsumer {
         Ok(true)
     }
 
-    pub fn current_block_orders(&self) -> PrioritizedOrderStore {
+    pub fn current_block_orders(&self) -> PrioritizedOrderStore<OrderPriorityType> {
         self.block_orders.clone()
     }
 

@@ -1,36 +1,15 @@
-use std::{cmp::Ordering, collections::hash_map::Entry, sync::Arc};
+use std::{collections::hash_map::Entry, sync::Arc};
 
 use ahash::{HashMap, HashSet};
 use alloy_primitives::Address;
 use priority_queue::PriorityQueue;
 
 use crate::{
-    building::Sorting,
     primitives::{AccountNonce, Nonce, OrderId, SimulatedOrder},
     telemetry::mark_order_not_ready_for_immediate_inclusion,
 };
 
-use super::SimulatedOrderSink;
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct OrderPriority {
-    pub order_id: OrderId,
-    pub priority: u128,
-}
-
-impl PartialOrd for OrderPriority {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for OrderPriority {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.priority
-            .cmp(&other.priority)
-            .then_with(|| self.order_id.cmp(&other.order_id))
-    }
-}
+use super::{OrderPriority, SimulatedOrderSink};
 
 /// Block store that checks the nonces and priorities of the orders so we can easily get the best by calling pop_order()
 /// Not orders are ready to be executed due to nonce dependencies.
@@ -44,9 +23,9 @@ impl Ord for OrderPriority {
 ///     if the order is executed call update_onchain_nonces to update all the changed nonces.
 /// - Remove orders: remove_orders. This is useful if we think this orders are no really good (failed to execute to often)
 #[derive(Debug, Clone)]
-pub struct PrioritizedOrderStore {
+pub struct PrioritizedOrderStore<OrderPriorityType> {
     /// Ready (all nonce matching (or not matched but optional)) to execute orders sorted
-    main_queue: PriorityQueue<OrderId, OrderPriority>,
+    main_queue: PriorityQueue<OrderId, OrderPriorityType>,
     /// For each account we store all the orders from main_queue which contain a tx from this account.
     /// Since the orders belong to main_queue these are orders ready to execute.
     /// As soon as we execute an order from main_queue all orders for all the accounts the order used (order.nonces()) could get invalidated (if tx is not optional).
@@ -60,16 +39,10 @@ pub struct PrioritizedOrderStore {
     pending_orders: HashMap<AccountNonce, Vec<OrderId>>,
     /// Id -> order for all orders we manage. Carefully maintained by remove/insert
     orders: HashMap<OrderId, Arc<SimulatedOrder>>,
-
-    /// defines what orders are popped first
-    priority: Sorting,
 }
 
-impl PrioritizedOrderStore {
-    pub fn new(
-        priority: Sorting,
-        initial_onchain_nonces: impl IntoIterator<Item = AccountNonce>,
-    ) -> Self {
+impl<OrderPriorityType: OrderPriority> PrioritizedOrderStore<OrderPriorityType> {
+    pub fn new(initial_onchain_nonces: impl IntoIterator<Item = AccountNonce>) -> Self {
         let mut onchain_nonces = HashMap::default();
         for onchain_nonce in initial_onchain_nonces {
             onchain_nonces.insert(onchain_nonce.account, onchain_nonce.nonce);
@@ -80,7 +53,6 @@ impl PrioritizedOrderStore {
             onchain_nonces,
             pending_orders: HashMap::default(),
             orders: HashMap::default(),
-            priority,
         }
     }
 
@@ -177,7 +149,9 @@ impl PrioritizedOrderStore {
     }
 }
 
-impl SimulatedOrderSink for PrioritizedOrderStore {
+impl<OrderPriorityType: OrderPriority> SimulatedOrderSink
+    for PrioritizedOrderStore<OrderPriorityType>
+{
     fn insert_order(&mut self, sim_order: Arc<SimulatedOrder>) {
         if self.orders.contains_key(&sim_order.id()) {
             return;
@@ -206,16 +180,8 @@ impl SimulatedOrderSink for PrioritizedOrderStore {
             }
         }
         if pending_nonces.is_empty() {
-            self.main_queue.push(
-                sim_order.id(),
-                OrderPriority {
-                    priority: self
-                        .priority
-                        .sorting_value(&sim_order.sim_value)
-                        .to::<u128>(),
-                    order_id: sim_order.id(),
-                },
-            );
+            self.main_queue
+                .push(sim_order.id(), OrderPriorityType::new(sim_order.clone()));
             for nonce in sim_order.nonces() {
                 self.main_queue_nonces
                     .entry(nonce.address)

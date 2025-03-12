@@ -4,13 +4,13 @@ mod share_bundle_merger;
 
 #[cfg(test)]
 mod order_dumper;
+pub mod order_priority;
 #[cfg(test)]
 mod test_context;
 mod test_data_generator;
 use std::sync::Arc;
 
 use crate::{
-    building::Sorting,
     live_builder::simulation::SimulatedOrderCommand,
     primitives::{AccountNonce, OrderId, SimulatedOrder},
 };
@@ -18,6 +18,7 @@ use ahash::HashMap;
 use reth_errors::ProviderResult;
 use reth_provider::StateProviderBox;
 
+pub use order_priority::OrderPriority;
 pub use prioritized_order_store::PrioritizedOrderStore;
 pub use test_data_generator::TestDataGenerator;
 
@@ -101,11 +102,10 @@ impl SimulatedOrderSink for SimulatedOrderStore {
 }
 
 /// Create block orders struct from simulated orders. Used in the backtest, not practical while live.
-pub fn block_orders_from_sim_orders(
+pub fn block_orders_from_sim_orders<OrderPriorityType: OrderPriority>(
     sim_orders: &[Arc<SimulatedOrder>],
-    sorting: Sorting,
     state_provider: &StateProviderBox,
-) -> ProviderResult<PrioritizedOrderStore> {
+) -> ProviderResult<PrioritizedOrderStore<OrderPriorityType>> {
     let mut onchain_nonces = vec![];
     for order in sim_orders {
         for nonce in order.order.nonces() {
@@ -118,7 +118,7 @@ pub fn block_orders_from_sim_orders(
             });
         }
     }
-    let mut block_orders = PrioritizedOrderStore::new(sorting, onchain_nonces);
+    let mut block_orders = PrioritizedOrderStore::<OrderPriorityType>::new(onchain_nonces);
 
     for order in sim_orders.iter().cloned() {
         block_orders.insert_order(order);
@@ -131,24 +131,24 @@ pub fn block_orders_from_sim_orders(
 mod test {
     use crate::primitives::BundledTxInfo;
 
-    use super::*;
+    use super::{order_priority::OrderMaxProfitPriority, *};
     /// Helper struct for common PrioritizedOrderStore test operations
     /// Works hardcoded on Sorting::MaxProfit since it changes nothing on internal logic
     struct TestContext {
         pub data_gen: TestDataGenerator,
-        pub order_pool: PrioritizedOrderStore,
+        pub order_pool: PrioritizedOrderStore<OrderMaxProfitPriority>,
     }
 
     impl TestContext {
         /// Context with 1 account to send txs from
-        pub fn new_1_account(nonce: u64) -> (AccountNonce, TestContext) {
+        pub fn new_1_account(nonce: u64) -> (AccountNonce, Self) {
             let mut data_gen = TestDataGenerator::default();
             let nonce = data_gen.create_account_nonce(nonce);
             (
                 nonce.clone(),
                 TestContext {
                     data_gen,
-                    order_pool: PrioritizedOrderStore::new(Sorting::MaxProfit, vec![nonce]),
+                    order_pool: PrioritizedOrderStore::<OrderMaxProfitPriority>::new(vec![nonce]),
                 },
             )
         }
@@ -166,10 +166,9 @@ mod test {
                 nonce_2.clone(),
                 TestContext {
                     data_gen,
-                    order_pool: PrioritizedOrderStore::new(
-                        Sorting::MaxProfit,
-                        vec![nonce_1, nonce_2],
-                    ),
+                    order_pool: PrioritizedOrderStore::<OrderMaxProfitPriority>::new(vec![
+                        nonce_1, nonce_2,
+                    ]),
                 },
             )
         }

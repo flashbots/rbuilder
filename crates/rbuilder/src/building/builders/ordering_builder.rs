@@ -11,9 +11,10 @@ use crate::{
         builders::{
             block_building_helper::BlockBuildingHelper, LiveBuilderInput, OrderIntakeConsumer,
         },
-        BlockBuildingContext, ExecutionError, PrioritizedOrderStore, SimulatedOrderSink, Sorting,
+        BlockBuildingContext, ExecutionError, OrderPriority, PrioritizedOrderStore,
+        SimulatedOrderSink, Sorting,
     },
-    primitives::{AccountNonce, OrderId},
+    primitives::{AccountNonce, OrderId, SimValue},
     provider::StateProviderFactory,
     telemetry::mark_builder_considers_order,
     utils::NonceCache,
@@ -24,6 +25,7 @@ use reth::revm::cached::CachedReads;
 use reth_provider::StateProvider;
 use serde::Deserialize;
 use std::{
+    marker::PhantomData,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -64,9 +66,12 @@ impl OrderingBuilderConfig {
     }
 }
 
-pub fn run_ordering_builder<P>(input: LiveBuilderInput<P>, config: &OrderingBuilderConfig)
-where
+pub fn run_ordering_builder<P, OrderPriorityType>(
+    input: LiveBuilderInput<P>,
+    config: &OrderingBuilderConfig,
+) where
     P: StateProviderFactory + Clone + 'static,
+    OrderPriorityType: OrderPriority,
 {
     let payload_id = input.ctx.payload_id;
 
@@ -88,7 +93,8 @@ where
 
     let nonces = NonceCache::new(block_state.clone());
 
-    let mut order_intake_consumer = OrderIntakeConsumer::new(nonces, input.input, config.sorting);
+    let mut order_intake_consumer =
+        OrderIntakeConsumer::<OrderPriorityType>::new(nonces, input.input);
 
     let mut builder = OrderingBuilderContext::new(
         block_state.clone(),
@@ -145,7 +151,7 @@ where
     }
 }
 
-pub fn backtest_simulate_block<P>(
+pub fn backtest_simulate_block<P, OrderPriorityType: OrderPriority>(
     ordering_config: OrderingBuilderConfig,
     input: BacktestSimulateBlockInput<'_, P>,
 ) -> eyre::Result<(Block, CachedReads)>
@@ -157,7 +163,7 @@ where
         .provider
         .history_by_block_number(input.ctx.evm_env.block_env.number.to::<u64>() - 1)?;
     let block_orders =
-        block_orders_from_sim_orders(input.sim_orders, ordering_config.sorting, &state_provider)?;
+        block_orders_from_sim_orders::<OrderPriorityType>(input.sim_orders, &state_provider)?;
     let mut builder = OrderingBuilderContext::new(
         Arc::from(state_provider),
         input.builder_name,
@@ -232,9 +238,9 @@ impl OrderingBuilderContext {
     /// use_suggested_fee_recipient_as_coinbase: all the mev profit goes directly to the slot suggested_fee_recipient so we avoid the payout tx.
     ///     This mode disables mev-share orders since the builder has to receive the mev profit to give some portion back to the mev-share user.
     /// !use_suggested_fee_recipient_as_coinbase: all the mev profit goes to the builder and at the end of the block we pay to the suggested_fee_recipient.
-    pub fn build_block(
+    pub fn build_block<OrderPriorityType: OrderPriority>(
         &mut self,
-        block_orders: PrioritizedOrderStore,
+        block_orders: PrioritizedOrderStore<OrderPriorityType>,
         use_suggested_fee_recipient_as_coinbase: bool,
         cancel_block: CancellationToken,
     ) -> eyre::Result<Box<dyn BlockBuildingHelper>> {
@@ -258,7 +264,6 @@ impl OrderingBuilderContext {
             self.cached_reads.take(),
             self.builder_name.clone(),
             self.config.discard_txs,
-            self.config.sorting.into(),
             cancel_block,
         )?;
 
@@ -268,10 +273,10 @@ impl OrderingBuilderContext {
         Ok(Box::new(block_building_helper))
     }
 
-    fn fill_orders(
+    fn fill_orders<OrderPriorityType: OrderPriority>(
         &mut self,
         block_building_helper: &mut dyn BlockBuildingHelper,
-        mut block_orders: PrioritizedOrderStore,
+        mut block_orders: PrioritizedOrderStore<OrderPriorityType>,
         build_start: Instant,
     ) -> eyre::Result<()> {
         let mut order_attempts: HashMap<OrderId, usize> = HashMap::default();
@@ -288,7 +293,9 @@ impl OrderingBuilderContext {
                 block_building_helper.builder_name(),
             );
             let start_time = Instant::now();
-            let commit_result = block_building_helper.commit_order(&sim_order)?;
+            let commit_result = block_building_helper.commit_order(&sim_order, &|sim_result| {
+                simulation_too_low::<OrderPriorityType>(&sim_order.sim_value, sim_result)
+            })?;
             let order_commit_time = start_time.elapsed();
             let mut gas_used = 0;
             let mut execution_error = None;
@@ -341,20 +348,28 @@ impl OrderingBuilderContext {
 }
 
 #[derive(Debug)]
-pub struct OrderingBuildingAlgorithm {
+pub struct OrderingBuildingAlgorithm<OrderPriorityType> {
     config: OrderingBuilderConfig,
     name: String,
+    /// The ordering priority type used to sort simulated orders.
+    order_priority: PhantomData<OrderPriorityType>,
 }
 
-impl OrderingBuildingAlgorithm {
+impl<OrderPriorityType> OrderingBuildingAlgorithm<OrderPriorityType> {
     pub fn new(config: OrderingBuilderConfig, name: String) -> Self {
-        Self { config, name }
+        Self {
+            config,
+            name,
+            order_priority: PhantomData,
+        }
     }
 }
 
-impl<P> BlockBuildingAlgorithm<P> for OrderingBuildingAlgorithm
+impl<P, OrderPriorityType> BlockBuildingAlgorithm<P>
+    for OrderingBuildingAlgorithm<OrderPriorityType>
 where
     P: StateProviderFactory + Clone + 'static,
+    OrderPriorityType: OrderPriority,
 {
     fn name(&self) -> String {
         self.name.clone()
@@ -369,6 +384,114 @@ where
             builder_name: self.name.clone(),
             cancel: input.cancel,
         };
-        run_ordering_builder(live_input, &self.config);
+        run_ordering_builder::<P, OrderPriorityType>(live_input, &self.config);
+    }
+}
+
+// Check that new simulation results during block building are not much lower (defined by OrderPriority) than the top-of-block simulation results
+// @Opt is large err OK here
+#[allow(clippy::result_large_err)]
+fn simulation_too_low<OrderPriorityType: OrderPriority>(
+    original_sim_result: &SimValue,
+    new_sim_result: &SimValue,
+) -> Result<(), ExecutionError> {
+    if OrderPriorityType::simulation_too_low(original_sim_result, new_sim_result) {
+        Err(ExecutionError::LowerInsertedValue {
+            before: original_sim_result.clone(),
+            inplace: new_sim_result.clone(),
+        })
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use revm_primitives::U256;
+
+    use crate::building::order_priority::{OrderMaxProfitPriority, OrderMevGasPricePriority};
+
+    use super::*;
+
+    #[test]
+    fn test_simulation_too_low_max_profit() {
+        let sim_result = &SimValue {
+            coinbase_profit: U256::from(100),
+            mev_gas_price: U256::from(0),
+            ..Default::default()
+        };
+        let inplace_sim_result = &SimValue {
+            coinbase_profit: U256::from(94),
+            mev_gas_price: U256::from(0),
+            ..Default::default()
+        };
+
+        // Lower than 95% of the original value
+        assert!(
+            simulation_too_low::<OrderMaxProfitPriority>(sim_result, inplace_sim_result).is_err()
+        );
+
+        // Equal to original value
+        let inplace_sim_result = &SimValue {
+            coinbase_profit: U256::from(100),
+            mev_gas_price: U256::from(0),
+            ..Default::default()
+        };
+        assert!(
+            simulation_too_low::<OrderMaxProfitPriority>(sim_result, inplace_sim_result).is_ok()
+        );
+
+        // Higher than original value
+        let inplace_sim_result = &SimValue {
+            coinbase_profit: U256::from(105),
+            mev_gas_price: U256::from(0),
+            ..Default::default()
+        };
+        assert!(
+            simulation_too_low::<OrderMaxProfitPriority>(sim_result, inplace_sim_result).is_ok()
+        );
+    }
+
+    #[test]
+    fn test_simulation_too_low_mev_gas_price() {
+        let sim_result = &SimValue {
+            coinbase_profit: U256::from(0),
+            mev_gas_price: U256::from(100),
+            gas_used: 100,
+            ..Default::default()
+        };
+
+        // Lower than 95% of the original value
+        let inplace_sim_result = &SimValue {
+            coinbase_profit: U256::from(0),
+            mev_gas_price: U256::from(94),
+            gas_used: 94,
+            ..Default::default()
+        };
+        assert!(
+            simulation_too_low::<OrderMevGasPricePriority>(sim_result, inplace_sim_result).is_err()
+        );
+
+        // Equal to original value
+        let inplace_sim_result = &SimValue {
+            coinbase_profit: U256::from(0),
+            mev_gas_price: U256::from(100),
+            gas_used: 105,
+            ..Default::default()
+        };
+        assert!(
+            simulation_too_low::<OrderMevGasPricePriority>(sim_result, inplace_sim_result).is_ok()
+        );
+
+        // Higher than original value
+        let inplace_sim_result = &SimValue {
+            coinbase_profit: U256::from(0),
+            mev_gas_price: U256::from(105),
+            gas_used: 105,
+            ..Default::default()
+        };
+        assert!(
+            simulation_too_low::<OrderMevGasPricePriority>(sim_result, inplace_sim_result).is_ok()
+        );
     }
 }

@@ -89,7 +89,7 @@ async fn main() -> eyre::Result<()> {
         let state_provider = state_provider.clone();
         let (new_cached_reads, build_time, finalize_time) =
             tokio::task::spawn_blocking(move || -> eyre::Result<_> {
-                let partial_block = PartialBlock::new(true, None);
+                let partial_block = PartialBlock::new(true);
                 let mut state = BlockState::new_arc(state_provider)
                     .with_cached_reads(cached_reads.unwrap_or_default());
 

@@ -35,7 +35,7 @@ pub struct TestSetup {
 impl TestSetup {
     pub fn gen_test_setup(block_args: BlockArgs) -> eyre::Result<Self> {
         Ok(Self {
-            partial_block: PartialBlock::new(true, None),
+            partial_block: PartialBlock::new(true),
             order_builder: OrderBuilder::None,
             bundle_state: None,
             cached_reads: None,
@@ -225,6 +225,7 @@ impl TestSetup {
             &sim_order,
             self.test_chain.block_building_context(),
             &mut block_state,
+            &|_| Ok(()),
         )?;
 
         let (cached_reads, bundle_state, _) = block_state.into_parts();

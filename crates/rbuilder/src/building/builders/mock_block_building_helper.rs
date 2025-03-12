@@ -1,4 +1,5 @@
 use crate::live_builder::simulation::SimulatedOrderCommand;
+use crate::primitives::SimValue;
 use crate::provider::RootHasher;
 use crate::roothash::RootHashError;
 use crate::{
@@ -66,6 +67,7 @@ impl BlockBuildingHelper for MockBlockBuildingHelper {
     fn commit_order(
         &mut self,
         _order: &SimulatedOrder,
+        _result_filter: &dyn Fn(&SimValue) -> Result<(), ExecutionError>,
     ) -> Result<Result<&ExecutionResult, ExecutionError>, CriticalCommitOrderError> {
         unimplemented!()
     }

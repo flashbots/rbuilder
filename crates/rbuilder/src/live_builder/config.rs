@@ -24,6 +24,7 @@ use crate::{
             },
             BacktestSimulateBlockInput, Block, BlockBuildingAlgorithm,
         },
+        order_priority::{OrderMaxProfitPriority, OrderMevGasPricePriority},
         Sorting,
     },
     live_builder::{
@@ -407,9 +408,20 @@ impl LiveBuilderConfig for Config {
     {
         let builder_cfg = self.builder(building_algorithm_name)?;
         match builder_cfg.builder {
-            SpecificBuilderConfig::OrderingBuilder(config) => {
-                crate::building::builders::ordering_builder::backtest_simulate_block(config, input)
-            }
+            SpecificBuilderConfig::OrderingBuilder(config) => match config.sorting {
+                Sorting::MevGasPrice => {
+                    crate::building::builders::ordering_builder::backtest_simulate_block::<
+                        P,
+                        OrderMevGasPricePriority,
+                    >(config, input)
+                }
+                Sorting::MaxProfit => {
+                    crate::building::builders::ordering_builder::backtest_simulate_block::<
+                        P,
+                        OrderMaxProfitPriority,
+                    >(config, input)
+                }
+            },
             SpecificBuilderConfig::ParallelBuilder(config) => {
                 parallel_build_backtest::<P>(input, config)
             }
@@ -571,9 +583,14 @@ where
     P: StateProviderFactory + Clone + 'static,
 {
     match cfg.builder {
-        SpecificBuilderConfig::OrderingBuilder(order_cfg) => {
-            Arc::new(OrderingBuildingAlgorithm::new(order_cfg, cfg.name))
-        }
+        SpecificBuilderConfig::OrderingBuilder(order_cfg) => match order_cfg.sorting {
+            Sorting::MevGasPrice => Arc::new(
+                OrderingBuildingAlgorithm::<OrderMevGasPricePriority>::new(order_cfg, cfg.name),
+            ),
+            Sorting::MaxProfit => Arc::new(
+                OrderingBuildingAlgorithm::<OrderMaxProfitPriority>::new(order_cfg, cfg.name),
+            ),
+        },
         SpecificBuilderConfig::ParallelBuilder(parallel_cfg) => {
             Arc::new(ParallelBuildingAlgorithm::new(parallel_cfg, cfg.name))
         }

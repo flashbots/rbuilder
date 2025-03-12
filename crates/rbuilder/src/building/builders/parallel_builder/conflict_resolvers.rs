@@ -142,7 +142,7 @@ impl ResolverContext {
             .get_cached_state(&full_sequence_of_orders);
 
         // Initialize state and partial block
-        let mut partial_block = PartialBlock::new(true, None);
+        let mut partial_block = PartialBlock::new(true);
         let mut state = self.initialize_block_state(&cached_state_option, state_provider);
         partial_block.pre_block_call(&self.ctx, &mut state)?;
 
@@ -171,7 +171,7 @@ impl ResolverContext {
             }
 
             let sim_order = &task.group.orders[order_idx];
-            match partial_block.commit_order(sim_order, &self.ctx, &mut state)? {
+            match partial_block.commit_order(sim_order, &self.ctx, &mut state, &|_| Ok(()))? {
                 Ok(res) => self.handle_successful_commit(
                     res,
                     sim_order,

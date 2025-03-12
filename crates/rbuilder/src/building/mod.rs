@@ -315,22 +315,16 @@ pub enum Sorting {
     MaxProfit,
 }
 
-impl Sorting {
-    pub fn sorting_value(&self, sim_value: &SimValue) -> U256 {
-        match self {
-            Sorting::MevGasPrice => sim_value.mev_gas_price,
-            Sorting::MaxProfit => sim_value.coinbase_profit,
-        }
-    }
-}
+const MEV_GAS_PRICE_NAME: &str = "mev_gas_price";
+const MAX_PROFIT_NAME: &str = "max_profit";
 
 impl FromStr for Sorting {
     type Err = eyre::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "mev_gas_price" => Ok(Self::MevGasPrice),
-            "max_profit" => Ok(Self::MaxProfit),
+            MEV_GAS_PRICE_NAME => Ok(Self::MevGasPrice),
+            MAX_PROFIT_NAME => Ok(Self::MaxProfit),
             _ => eyre::bail!("Invalid algorithm"),
         }
     }
@@ -338,8 +332,8 @@ impl FromStr for Sorting {
 impl std::fmt::Display for Sorting {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Sorting::MevGasPrice => write!(f, "mev_gas_price"),
-            Sorting::MaxProfit => write!(f, "max_profit"),
+            Sorting::MevGasPrice => write!(f, "{}", MEV_GAS_PRICE_NAME),
+            Sorting::MaxProfit => write!(f, "{}", MAX_PROFIT_NAME),
         }
     }
 }
@@ -348,8 +342,6 @@ impl std::fmt::Display for Sorting {
 pub struct PartialBlock<Tracer: SimulationTracer> {
     /// Value used as allow_tx_skip on calls to [`PartialBlockFork`]
     pub discard_txs: bool,
-    /// If some [`enforce_inplace_sim_result`] is called after each tx to check the profit.
-    pub enforce_sorting: Option<Sorting>,
     pub gas_used: u64,
     /// Reserved gas for later use (usually final payout tx). When simulating we subtract this from the block gas limit.
     pub gas_reserved: u64,
@@ -468,7 +460,6 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
     ) -> PartialBlock<NewTracer> {
         PartialBlock {
             discard_txs: self.discard_txs,
-            enforce_sorting: self.enforce_sorting,
             gas_used: self.gas_used,
             gas_reserved: self.gas_reserved,
             blob_gas_used: self.blob_gas_used,
@@ -487,11 +478,15 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         self.gas_reserved = 0;
     }
 
+    /// result_filter: little hack to allow "cancel" the execution depending no the SimValue result. Ideally it would be nicer to split commit_order
+    ///     in 2 parts, one that executes but does not apply (returns state changes) and then another one that applies the changes.
+    ///     You can always pass &|_| Ok(()) if you don't need the filter.
     pub fn commit_order(
         &mut self,
         order: &SimulatedOrder,
         ctx: &BlockBuildingContext,
         state: &mut BlockState,
+        result_filter: &dyn Fn(&SimValue) -> Result<(), ExecutionError>,
     ) -> Result<Result<ExecutionResult, ExecutionError>, CriticalCommitOrderError> {
         if ctx.builder_signer.is_none() && !order.sim_value.paid_kickbacks.is_empty() {
             // Return here to avoid wasting time on a call to fork.commit_order that 99% will fail
@@ -523,14 +518,12 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             ok_result.blob_gas_used,
             ok_result.paid_kickbacks.clone(),
         );
-        if let Some(enforce_sorting) = self.enforce_sorting {
-            match enforce_inplace_sim_result(enforce_sorting, &order.sim_value, &inplace_sim_result)
-            {
-                Ok(()) => {}
-                Err(err) => {
-                    fork.rollback(rollback);
-                    return Ok(Err(err));
-                }
+
+        match result_filter(&inplace_sim_result) {
+            Ok(()) => {}
+            Err(err) => {
+                fork.rollback(rollback);
+                return Ok(Err(err));
             }
         }
 
@@ -804,10 +797,9 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
 }
 
 impl PartialBlock<()> {
-    pub fn new(discard_txs: bool, enforce_sorting: Option<Sorting>) -> Self {
+    pub fn new(discard_txs: bool) -> Self {
         Self {
             discard_txs,
-            enforce_sorting,
             gas_used: 0,
             gas_reserved: 0,
             blob_gas_used: 0,
@@ -829,103 +821,4 @@ pub enum FillOrdersError {
     CriticalCommitOrderError(#[from] CriticalCommitOrderError),
     #[error("Payout tx error: {0}")]
     PayoutTxErr(#[from] InsertPayoutTxErr),
-}
-
-// Enforces that 'inplace' simulation results during block building are not lower than 95% of the top-of-block simulation results
-// @Opt is large err OK here
-#[allow(clippy::result_large_err)]
-fn enforce_inplace_sim_result(
-    sort: Sorting,
-    sim_result: &SimValue,
-    inplace_sim_result: &SimValue,
-) -> Result<(), ExecutionError> {
-    let (sim_value, inplace_value) = (
-        sort.sorting_value(sim_result),
-        sort.sorting_value(inplace_sim_result),
-    );
-    if (inplace_value * U256::from(100)) < (sim_value * U256::from(95)) {
-        Err(ExecutionError::LowerInsertedValue {
-            before: sim_result.clone(),
-            inplace: inplace_sim_result.clone(),
-        })
-    } else {
-        Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_enforce_inplace_sim_result_max_profit() {
-        let sort = Sorting::MaxProfit;
-        let sim_result = &SimValue {
-            coinbase_profit: U256::from(100),
-            mev_gas_price: U256::from(0),
-            ..Default::default()
-        };
-        let inplace_sim_result = &SimValue {
-            coinbase_profit: U256::from(94),
-            mev_gas_price: U256::from(0),
-            ..Default::default()
-        };
-
-        // Lower than 95% of the original value
-        assert!(enforce_inplace_sim_result(sort, sim_result, inplace_sim_result).is_err());
-
-        // Equal to original value
-        let inplace_sim_result = &SimValue {
-            coinbase_profit: U256::from(100),
-            mev_gas_price: U256::from(0),
-            ..Default::default()
-        };
-        assert!(enforce_inplace_sim_result(sort, sim_result, inplace_sim_result).is_ok());
-
-        // Higher than original value
-        let inplace_sim_result = &SimValue {
-            coinbase_profit: U256::from(105),
-            mev_gas_price: U256::from(0),
-            ..Default::default()
-        };
-        assert!(enforce_inplace_sim_result(sort, sim_result, inplace_sim_result).is_ok());
-    }
-
-    #[test]
-    fn test_enforce_inplace_sim_result_mev_gas_price() {
-        let sort = Sorting::MevGasPrice;
-        let sim_result = &SimValue {
-            coinbase_profit: U256::from(0),
-            mev_gas_price: U256::from(100),
-            gas_used: 100,
-            ..Default::default()
-        };
-
-        // Lower than 95% of the original value
-        let inplace_sim_result = &SimValue {
-            coinbase_profit: U256::from(0),
-            mev_gas_price: U256::from(94),
-            gas_used: 94,
-            ..Default::default()
-        };
-        assert!(enforce_inplace_sim_result(sort, sim_result, inplace_sim_result).is_err());
-
-        // Equal to original value
-        let inplace_sim_result = &SimValue {
-            coinbase_profit: U256::from(0),
-            mev_gas_price: U256::from(100),
-            gas_used: 105,
-            ..Default::default()
-        };
-        assert!(enforce_inplace_sim_result(sort, sim_result, inplace_sim_result).is_ok());
-
-        // Higher than original value
-        let inplace_sim_result = &SimValue {
-            coinbase_profit: U256::from(0),
-            mev_gas_price: U256::from(105),
-            gas_used: 105,
-            ..Default::default()
-        };
-        assert!(enforce_inplace_sim_result(sort, sim_result, inplace_sim_result).is_ok());
-    }
 }

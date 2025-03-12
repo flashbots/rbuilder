@@ -15,9 +15,9 @@ use crate::{
         estimate_payout_gas_limit, tracers::GasUsedSimulationTracer, BlockBuildingContext,
         BlockState, BuiltBlockTrace, BuiltBlockTraceError, CriticalCommitOrderError,
         EstimatePayoutGasErr, ExecutionError, ExecutionResult, FinalizeError, FinalizeResult,
-        PartialBlock, Sorting,
+        PartialBlock,
     },
-    primitives::SimulatedOrder,
+    primitives::{SimValue, SimulatedOrder},
     telemetry::{self, add_block_fill_time, add_order_simulation_time},
     utils::{check_block_hash_reader_health, HistoricalBlockError},
 };
@@ -36,9 +36,11 @@ pub trait BlockBuildingHelper: Send + Sync {
 
     /// Tries to add an order to the end of the block.
     /// Block state changes only on Ok(Ok)
+    /// See [PartialBlock::commit_order]
     fn commit_order(
         &mut self,
         order: &SimulatedOrder,
+        result_filter: &dyn Fn(&SimValue) -> Result<(), ExecutionError>,
     ) -> Result<Result<&ExecutionResult, ExecutionError>, CriticalCommitOrderError>;
 
     /// Call set the trace fill_time (we still have to review this)
@@ -197,7 +199,6 @@ impl BlockBuildingHelperFromProvider {
         cached_reads: Option<CachedReads>,
         builder_name: String,
         discard_txs: bool,
-        enforce_sorting: Option<Sorting>,
         cancel_on_fatal_error: CancellationToken,
     ) -> Result<Self, BlockBuildingHelperError> {
         let last_committed_block = building_ctx.block() - 1;
@@ -206,8 +207,8 @@ impl BlockBuildingHelperFromProvider {
         let fee_recipient_balance_start = state_provider
             .account_balance(&building_ctx.attributes.suggested_fee_recipient)?
             .unwrap_or_default();
-        let mut partial_block = PartialBlock::new(discard_txs, enforce_sorting)
-            .with_tracer(GasUsedSimulationTracer::default());
+        let mut partial_block =
+            PartialBlock::new(discard_txs).with_tracer(GasUsedSimulationTracer::default());
         let mut block_state =
             BlockState::new_arc(state_provider).with_cached_reads(cached_reads.unwrap_or_default());
         partial_block
@@ -337,11 +338,15 @@ impl BlockBuildingHelper for BlockBuildingHelperFromProvider {
     fn commit_order(
         &mut self,
         order: &SimulatedOrder,
+        result_filter: &dyn Fn(&SimValue) -> Result<(), ExecutionError>,
     ) -> Result<Result<&ExecutionResult, ExecutionError>, CriticalCommitOrderError> {
         let start = Instant::now();
-        let result =
-            self.partial_block
-                .commit_order(order, &self.building_ctx, &mut self.block_state);
+        let result = self.partial_block.commit_order(
+            order,
+            &self.building_ctx,
+            &mut self.block_state,
+            result_filter,
+        );
         let sim_time = start.elapsed();
         let (result, sim_ok) = match result {
             Ok(ok_result) => match ok_result {
