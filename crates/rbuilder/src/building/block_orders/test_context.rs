@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 
-use alloy_primitives::{Address, B256, U256};
+use alloy_primitives::{Address, U256};
 
 use crate::{
     primitives::{

@@ -65,9 +65,7 @@ macro_rules! create_order_priority {
     };
 }
 
-///////////////////////////////
 /// MevGasPrice
-///////////////////////////////
 struct OrderMevGasPricePriorityCmp {}
 impl OrderMevGasPricePriorityCmp {
     #[inline]
@@ -88,10 +86,7 @@ fn simulation_too_low_gas_price(original_sim_value: &SimValue, new_sim_value: &S
     )
 }
 
-///////////////////////////////
 /// MaxProfit
-///////////////////////////////
-
 struct OrderMaxProfitPriorityCmp {}
 impl OrderMaxProfitPriorityCmp {
     #[inline]
@@ -114,11 +109,8 @@ fn simulation_too_low_profit(original_sim_value: &SimValue, new_sim_value: &SimV
     )
 }
 
-///////////////////////////////
 /// OrderType
 /// Prioritizes Bundles over Mempool
-///////////////////////////////
-
 struct OrderTypeCmp {}
 impl OrderTypeCmp {
     #[inline]
@@ -142,11 +134,7 @@ impl OrderTypeCmp {
     }
 }
 
-///////////////////////////////
-/// OrderType
-/// Prioritizes Bundles over Mempool
-///////////////////////////////
-
+/// Prioritizes orders with 3 or more txs
 struct OrderLengthThreeCmp {}
 impl OrderLengthThreeCmp {
     #[inline]
