@@ -17,6 +17,7 @@ pub mod generator;
 #[cfg(test)]
 mod integration;
 mod metrics;
+mod monitor_tx_pool;
 mod monitoring;
 #[cfg(feature = "flashblocks")]
 pub mod payload_builder;
@@ -26,7 +27,7 @@ mod primitives;
 #[cfg(test)]
 mod tester;
 mod tx_signer;
-use tracing::debug;
+use monitor_tx_pool::monitor_tx_pool;
 
 fn main() {
     Cli::<OpChainSpecParser, args::OpRbuilderArgs>::parse()
@@ -52,24 +53,15 @@ fn main() {
                     let new_canonical_blocks = ctx.provider().canonical_state_stream();
                     let builder_signer = builder_args.builder_signer;
 
-                    ctx.task_executor.spawn_critical(
-                        "tx-tracking",
-                        Box::pin(async move {
-                            let mut new_transactions = ctx.pool.new_transactions_listener();
-
-                            loop {
-                                match new_transactions.try_recv() {
-                                    Ok(event) => {
-                                        let tx = event.transaction;
-                                        debug!("Transaction received: {:?}", tx.hash());
-                                    }
-                                    Err(e) => {
-                                        debug!("Error receiving transaction: {e:?}");
-                                    }
-                                }
-                            }
-                        }),
-                    );
+                    if builder_args.log_pool_transactions {
+                        tracing::info!("Logging pool transactions");
+                        ctx.task_executor.spawn_critical(
+                            "txlogging",
+                            Box::pin(async move {
+                                monitor_tx_pool(ctx.pool.all_transactions_event_listener()).await;
+                            }),
+                        );
+                    }
 
                     ctx.task_executor.spawn_critical(
                         "monitoring",
