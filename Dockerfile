@@ -9,7 +9,7 @@
 ARG FEATURES
 ARG RBUILDER_BIN="rbuilder"
 
-FROM rust:1.82 as base
+FROM rust:1.85 as base
 ARG TARGETPLATFORM
 
 RUN apt-get update \
