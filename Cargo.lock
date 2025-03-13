@@ -6916,6 +6916,7 @@ dependencies = [
  "reth-primitives-traits",
  "reth-provider",
  "reth-revm",
+ "reth-rpc-eth-api",
  "reth-rpc-layer",
  "reth-testing-utils",
  "reth-transaction-pool",
