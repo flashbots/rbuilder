@@ -193,18 +193,15 @@ impl<TestedSinkType: SimulatedOrderSink> TestContext<TestedSinkType> {
             can_skip: false,
             original_order_id: None,
         };
-        let mut sbundle = ShareBundle {
-            hash: B256::default(),
-            block: DONT_CARE_BLOCK,
-            max_block: DONT_CARE_BLOCK,
-            inner_bundle: inner,
+        ShareBundle::new(
+            DONT_CARE_BLOCK,
+            DONT_CARE_BLOCK,
+            inner,
             signer,
-            replacement_data: None,
-            original_orders: Vec::new(),
-            metadata: Default::default(),
-        };
-        sbundle.hash_slow();
-        sbundle
+            None,
+            Vec::new(),
+            Default::default(),
+        )
     }
 
     fn as_inner(item: &ShareBundleBody) -> &ShareBundleInner {
@@ -236,17 +233,20 @@ impl<TestedSinkType: SimulatedOrderSink> TestContext<TestedSinkType> {
         sbundles: &[Arc<SimulatedOrder>],
     ) {
         let concatenated_sbundle = Self::as_sbundle(&concatenated_order.order);
-        assert_eq!(concatenated_sbundle.inner_bundle.body.len(), sbundles.len());
-        assert!(concatenated_sbundle.inner_bundle.refund.is_empty());
-        assert!(concatenated_sbundle.inner_bundle.refund_config.is_empty());
+        assert_eq!(
+            concatenated_sbundle.inner_bundle().body.len(),
+            sbundles.len()
+        );
+        assert!(concatenated_sbundle.inner_bundle().refund.is_empty());
+        assert!(concatenated_sbundle.inner_bundle().refund_config.is_empty());
         let concatenated_sbundle_inners = concatenated_sbundle
-            .inner_bundle
+            .inner_bundle()
             .body
             .iter()
             .map(Self::as_inner);
         let sbundles_inners = sbundles
             .iter()
-            .map(|sb| &Self::as_sbundle(&sb.order).inner_bundle);
+            .map(|sb| Self::as_sbundle(&sb.order).inner_bundle());
         concatenated_sbundle_inners
             .zip(sbundles_inners)
             .for_each(|(conc_sbundle, sbundle)| {

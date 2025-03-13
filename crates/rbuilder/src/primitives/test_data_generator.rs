@@ -87,18 +87,15 @@ impl TestDataGenerator {
             can_skip: true,
             original_order_id: None,
         };
-        let mut res = ShareBundle {
-            hash: Default::default(),
+        ShareBundle::new(
             block,
-            max_block: block,
+            block,
             inner_bundle,
-            signer: replacement_data.as_ref().and_then(|r| r.key.key().signer),
+            replacement_data.as_ref().and_then(|r| r.key.key().signer),
             replacement_data,
-            original_orders: Vec::new(),
-            metadata: Default::default(),
-        };
-        res.hash_slow();
-        res
+            Vec::new(),
+            Default::default(),
+        )
     }
 
     /// Creates a bundle with a multiple txs

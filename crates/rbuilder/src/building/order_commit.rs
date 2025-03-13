@@ -787,7 +787,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
         allow_tx_skip: bool,
     ) -> Result<Result<BundleOk, BundleErr>, CriticalCommitOrderError> {
         let res = self.commit_share_bundle_inner(
-            &bundle.inner_bundle,
+            bundle.inner_bundle(),
             ctx,
             cumulative_gas_used,
             gas_reserved,

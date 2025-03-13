@@ -24,7 +24,10 @@ use crate::{
             },
             BacktestSimulateBlockInput, Block, BlockBuildingAlgorithm,
         },
-        order_priority::{OrderMaxProfitPriority, OrderMevGasPricePriority},
+        order_priority::{
+            OrderLengthThreeMaxProfitPriority, OrderLengthThreeMevGasPricePriority,
+            OrderMaxProfitPriority, OrderMevGasPricePriority, OrderTypePriority,
+        },
         Sorting,
     },
     live_builder::{
@@ -421,6 +424,24 @@ impl LiveBuilderConfig for Config {
                         OrderMaxProfitPriority,
                     >(config, input)
                 }
+                Sorting::TypeMaxProfit => {
+                    crate::building::builders::ordering_builder::backtest_simulate_block::<
+                        P,
+                        OrderTypePriority,
+                    >(config, input)
+                }
+                Sorting::LengthThreeMaxProfit => {
+                    crate::building::builders::ordering_builder::backtest_simulate_block::<
+                        P,
+                        OrderLengthThreeMaxProfitPriority,
+                    >(config, input)
+                }
+                Sorting::LengthThreeMevGasPrice => {
+                    crate::building::builders::ordering_builder::backtest_simulate_block::<
+                        P,
+                        OrderLengthThreeMevGasPricePriority,
+                    >(config, input)
+                }
             },
             SpecificBuilderConfig::ParallelBuilder(config) => {
                 parallel_build_backtest::<P>(input, config)
@@ -590,6 +611,15 @@ where
             Sorting::MaxProfit => Arc::new(
                 OrderingBuildingAlgorithm::<OrderMaxProfitPriority>::new(order_cfg, cfg.name),
             ),
+            Sorting::TypeMaxProfit => Arc::new(
+                OrderingBuildingAlgorithm::<OrderTypePriority>::new(order_cfg, cfg.name),
+            ),
+            Sorting::LengthThreeMaxProfit => Arc::new(OrderingBuildingAlgorithm::<
+                OrderLengthThreeMaxProfitPriority,
+            >::new(order_cfg, cfg.name)),
+            Sorting::LengthThreeMevGasPrice => Arc::new(OrderingBuildingAlgorithm::<
+                OrderLengthThreeMevGasPricePriority,
+            >::new(order_cfg, cfg.name)),
         },
         SpecificBuilderConfig::ParallelBuilder(parallel_cfg) => {
             Arc::new(ParallelBuildingAlgorithm::new(parallel_cfg, cfg.name))

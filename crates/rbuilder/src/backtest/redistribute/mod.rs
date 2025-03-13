@@ -1066,7 +1066,7 @@ fn order_redistribution_address(order: &Order, protect_signers: &[Address]) -> O
             // 1. first address from the refund config
             // 2. origin of the first tx
 
-            if let Some(first_refund) = bundle.inner_bundle.refund_config.first() {
+            if let Some(first_refund) = bundle.inner_bundle().refund_config.first() {
                 return Some(first_refund.address);
             }
 

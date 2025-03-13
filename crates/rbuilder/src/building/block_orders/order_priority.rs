@@ -19,110 +19,164 @@ fn new_sim_value_too_low(original_sim: U256, new_sim: U256) -> bool {
     new_sim * U256::from(100) < (original_sim * U256::from(MIN_SIM_RESULT_PERCENTAGE))
 }
 
-// @TODO: Make macro!
+macro_rules! create_order_priority {
+    ($order_priority:ident($cmp:ident $( , $next_cmp:ident )*)<$new_sim_value_too_low_func:ident>) => {
+        #[derive(Debug, Clone)]
+        pub struct $order_priority {
+            order: Arc<SimulatedOrder>,
+        }
+
+        impl OrderPriority for $order_priority {
+            fn new(order: Arc<SimulatedOrder>) -> Self {
+                Self { order }
+            }
+
+            fn simulation_too_low(
+                original_sim_value: &SimValue,
+                new_sim_value: &SimValue,
+            ) -> bool {
+                $new_sim_value_too_low_func(
+                    original_sim_value,
+                    new_sim_value,
+                )
+            }
+        }
+
+        impl PartialEq for $order_priority {
+            fn eq(&self, other: &Self) -> bool {
+                $cmp::eq(&self.order, &other.order)
+            }
+        }
+
+        impl Eq for $order_priority {}
+
+        impl PartialOrd for $order_priority {
+            fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+                Some(self.cmp(other))
+            }
+        }
+
+        impl Ord for $order_priority {
+            fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+                $cmp::cmp(&self.order, &other.order)
+                    $( .then_with(|| $next_cmp::cmp(&self.order, &other.order)) )*
+            }
+        }
+    };
+}
 
 ///////////////////////////////
 /// MevGasPrice
 ///////////////////////////////
-
-#[derive(Debug, Clone)]
-pub struct OrderMevGasPricePriority {
-    order: Arc<SimulatedOrder>,
-}
-
-impl OrderPriority for OrderMevGasPricePriority {
-    fn new(order: Arc<SimulatedOrder>) -> Self {
-        Self { order }
+struct OrderMevGasPricePriorityCmp {}
+impl OrderMevGasPricePriorityCmp {
+    #[inline]
+    fn eq(a: &SimulatedOrder, b: &SimulatedOrder) -> bool {
+        a.sim_value.mev_gas_price == b.sim_value.mev_gas_price
     }
 
-    fn simulation_too_low(original_sim_value: &SimValue, new_sim_value: &SimValue) -> bool {
-        new_sim_value_too_low(
-            original_sim_value.mev_gas_price,
-            new_sim_value.mev_gas_price,
-        )
+    #[inline]
+    fn cmp(a: &SimulatedOrder, b: &SimulatedOrder) -> Ordering {
+        a.sim_value.mev_gas_price.cmp(&b.sim_value.mev_gas_price)
     }
 }
-
 #[inline]
-fn mev_gas_price_eq(a: &SimulatedOrder, b: &SimulatedOrder) -> bool {
-    a.sim_value.mev_gas_price == b.sim_value.mev_gas_price
-}
-
-#[inline]
-fn mev_gas_price_cmp(a: &SimulatedOrder, b: &SimulatedOrder) -> Ordering {
-    a.sim_value.mev_gas_price.cmp(&b.sim_value.mev_gas_price)
-}
-
-impl PartialEq for OrderMevGasPricePriority {
-    fn eq(&self, other: &Self) -> bool {
-        mev_gas_price_eq(&self.order, &other.order)
-    }
-}
-
-impl Eq for OrderMevGasPricePriority {}
-
-impl PartialOrd for OrderMevGasPricePriority {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for OrderMevGasPricePriority {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        mev_gas_price_cmp(&self.order, &other.order)
-    }
+fn simulation_too_low_gas_price(original_sim_value: &SimValue, new_sim_value: &SimValue) -> bool {
+    new_sim_value_too_low(
+        original_sim_value.mev_gas_price,
+        new_sim_value.mev_gas_price,
+    )
 }
 
 ///////////////////////////////
 /// MaxProfit
 ///////////////////////////////
 
-#[derive(Debug, Clone)]
-pub struct OrderMaxProfitPriority {
-    order: Arc<SimulatedOrder>,
-}
-
-impl OrderPriority for OrderMaxProfitPriority {
-    fn new(order: Arc<SimulatedOrder>) -> Self {
-        Self { order }
+struct OrderMaxProfitPriorityCmp {}
+impl OrderMaxProfitPriorityCmp {
+    #[inline]
+    fn eq(a: &SimulatedOrder, b: &SimulatedOrder) -> bool {
+        a.sim_value.coinbase_profit == b.sim_value.coinbase_profit
     }
 
-    fn simulation_too_low(original_sim_value: &SimValue, new_sim_value: &SimValue) -> bool {
-        new_sim_value_too_low(
-            original_sim_value.coinbase_profit,
-            new_sim_value.coinbase_profit,
-        )
+    #[inline]
+    fn cmp(a: &SimulatedOrder, b: &SimulatedOrder) -> Ordering {
+        a.sim_value
+            .coinbase_profit
+            .cmp(&b.sim_value.coinbase_profit)
     }
 }
-
 #[inline]
-fn max_profit_eq(a: &SimulatedOrder, b: &SimulatedOrder) -> bool {
-    a.sim_value.coinbase_profit == b.sim_value.coinbase_profit
+fn simulation_too_low_profit(original_sim_value: &SimValue, new_sim_value: &SimValue) -> bool {
+    new_sim_value_too_low(
+        original_sim_value.coinbase_profit,
+        new_sim_value.coinbase_profit,
+    )
 }
 
-#[inline]
-fn max_profit_cmp(a: &SimulatedOrder, b: &SimulatedOrder) -> Ordering {
-    a.sim_value
-        .coinbase_profit
-        .cmp(&b.sim_value.coinbase_profit)
-}
+///////////////////////////////
+/// OrderType
+/// Prioritizes Bundles over Mempool
+///////////////////////////////
 
-impl PartialEq for OrderMaxProfitPriority {
-    fn eq(&self, other: &Self) -> bool {
-        max_profit_eq(&self.order, &other.order)
+struct OrderTypeCmp {}
+impl OrderTypeCmp {
+    #[inline]
+    fn eq(a: &SimulatedOrder, b: &SimulatedOrder) -> bool {
+        a.order.is_tx() == b.order.is_tx()
+    }
+
+    #[inline]
+    fn cmp(a: &SimulatedOrder, b: &SimulatedOrder) -> Ordering {
+        let a_is_tx = a.order.is_tx();
+        let b_is_tx = b.order.is_tx();
+        if a_is_tx == b_is_tx {
+            Ordering::Equal
+        } else if a_is_tx {
+            //*a_is_tx && !b_is_tx
+            Ordering::Less
+        } else {
+            //*!a_is_tx && b_is_tx
+            Ordering::Greater
+        }
     }
 }
 
-impl Eq for OrderMaxProfitPriority {}
+///////////////////////////////
+/// OrderType
+/// Prioritizes Bundles over Mempool
+///////////////////////////////
 
-impl PartialOrd for OrderMaxProfitPriority {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
+struct OrderLengthThreeCmp {}
+impl OrderLengthThreeCmp {
+    #[inline]
+    fn is_long(a: &SimulatedOrder) -> bool {
+        a.order.list_txs_len() >= 3
+    }
+
+    #[inline]
+    fn eq(a: &SimulatedOrder, b: &SimulatedOrder) -> bool {
+        Self::is_long(a) == Self::is_long(b)
+    }
+
+    #[inline]
+    fn cmp(a: &SimulatedOrder, b: &SimulatedOrder) -> Ordering {
+        let a_is_long = Self::is_long(a);
+        let b_is_long = Self::is_long(b);
+        if a_is_long == b_is_long {
+            Ordering::Equal
+        } else if a_is_long {
+            //*a_is_long && !b_is_long
+            Ordering::Greater
+        } else {
+            //*!a_is_long && b_is_long
+            Ordering::Less
+        }
     }
 }
 
-impl Ord for OrderMaxProfitPriority {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        max_profit_cmp(&self.order, &other.order)
-    }
-}
+create_order_priority!(OrderMevGasPricePriority(OrderMevGasPricePriorityCmp)<simulation_too_low_gas_price>);
+create_order_priority!(OrderMaxProfitPriority(OrderMaxProfitPriorityCmp)<simulation_too_low_profit>);
+create_order_priority!(OrderTypePriority(OrderTypeCmp,OrderMaxProfitPriorityCmp)<simulation_too_low_profit>);
+create_order_priority!(OrderLengthThreeMaxProfitPriority(OrderLengthThreeCmp,OrderMaxProfitPriorityCmp)<simulation_too_low_profit>);
+create_order_priority!(OrderLengthThreeMevGasPricePriority(OrderLengthThreeCmp,OrderMevGasPricePriorityCmp)<simulation_too_low_profit>);

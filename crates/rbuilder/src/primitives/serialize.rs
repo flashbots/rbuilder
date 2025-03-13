@@ -506,19 +506,15 @@ impl RawShareBundle {
         }
 
         let (_, inner_bundle) = extract_inner_bundle(0, 0, self, &encoding)?;
-        let mut bundle = ShareBundle {
-            hash: Default::default(),
+        let bundle = ShareBundle::new(
             block,
             max_block,
             inner_bundle,
             signer,
             replacement_data,
-            original_orders: Vec::new(),
-            metadata: Default::default(),
-        };
-
-        bundle.hash_slow();
-
+            Vec::new(),
+            Default::default(),
+        );
         Ok(RawShareBundleDecodeResult::NewShareBundle(Box::new(bundle)))
     }
 

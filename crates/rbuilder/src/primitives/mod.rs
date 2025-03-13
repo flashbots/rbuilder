@@ -171,6 +171,11 @@ impl Bundle {
             .collect()
     }
 
+    /// list_txs().len()
+    fn list_txs_len(&self) -> usize {
+        self.txs.len()
+    }
+
     /// Returns `true` if the provided transaction hash is refundable.
     /// This means that part the profit from this execution goes to the self.refund.recipient
     pub fn is_tx_refundable(&self, hash: &B256) -> bool {
@@ -335,6 +340,16 @@ impl ShareBundleInner {
             .collect()
     }
 
+    pub fn list_txs_len(&self) -> usize {
+        self.body
+            .iter()
+            .map(|b| match b {
+                ShareBundleBody::Tx(_) => 1,
+                ShareBundleBody::Bundle(bundle) => bundle.list_txs_len(),
+            })
+            .sum()
+    }
+
     /// Refunds config for the ShareBundleInner.
     /// refund_config not empty -> we use it
     /// refund_config empty:
@@ -396,7 +411,9 @@ pub struct ShareBundle {
     pub hash: B256,
     pub block: u64,
     pub max_block: u64,
-    pub inner_bundle: ShareBundleInner,
+    inner_bundle: ShareBundleInner,
+    /// Cached inner_bundle.list_txs_len()
+    list_txs_len: usize,
     pub signer: Option<Address>,
     /// data that uniquely identifies this ShareBundle for update or cancellation
     pub replacement_data: Option<ShareBundleReplacementData>,
@@ -408,12 +425,84 @@ pub struct ShareBundle {
 }
 
 impl ShareBundle {
+    pub fn new(
+        block: u64,
+        max_block: u64,
+        inner_bundle: ShareBundleInner,
+        signer: Option<Address>,
+        replacement_data: Option<ShareBundleReplacementData>,
+        original_orders: Vec<Order>,
+        metadata: Metadata,
+    ) -> Self {
+        let list_txs_len = inner_bundle.list_txs_len();
+        let mut sbundle = Self {
+            hash: B256::default(),
+            block,
+            max_block,
+            inner_bundle,
+            list_txs_len,
+            signer,
+            replacement_data,
+            original_orders,
+            metadata,
+        };
+        sbundle.hash_slow();
+        sbundle
+    }
+
+    #[cfg(test)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_fake_hash(
+        hash: B256,
+        block: u64,
+        max_block: u64,
+        inner_bundle: ShareBundleInner,
+        signer: Option<Address>,
+        replacement_data: Option<ShareBundleReplacementData>,
+        original_orders: Vec<Order>,
+        metadata: Metadata,
+    ) -> Self {
+        let list_txs_len = inner_bundle.list_txs_len();
+        Self {
+            hash,
+            block,
+            max_block,
+            inner_bundle,
+            list_txs_len,
+            signer,
+            replacement_data,
+            original_orders,
+            metadata,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn with_inner_bundle(self, inner_bundle: ShareBundleInner) -> Self {
+        Self::new(
+            self.block,
+            self.max_block,
+            inner_bundle,
+            self.signer,
+            self.replacement_data,
+            self.original_orders,
+            self.metadata,
+        )
+    }
+
+    pub fn inner_bundle(&self) -> &ShareBundleInner {
+        &self.inner_bundle
+    }
     pub fn can_execute_with_block_base_fee(&self, block_base_fee: u128) -> bool {
         can_execute_with_block_base_fee(self.list_txs(), block_base_fee)
     }
 
     pub fn list_txs(&self) -> Vec<(&TransactionSignedEcRecoveredWithBlobs, bool)> {
         self.inner_bundle.list_txs()
+    }
+
+    /// @Pending: optimize by caching (we need to enforce inner_bundle immutability)
+    pub fn list_txs_len(&self) -> usize {
+        self.list_txs_len
     }
 
     /// BundledTxInfo for all the child txs
@@ -426,8 +515,7 @@ impl ShareBundle {
     }
 
     // Recalculate bundle hash.
-    /// Sadly it's not perfect since it only hashes inner txs in DFS, so tree structure and all other cfg is lost.
-    pub fn hash_slow(&mut self) {
+    fn hash_slow(&mut self) {
         self.hash = self.inner_bundle.hash_slow();
     }
 
@@ -797,6 +885,15 @@ impl Order {
             Order::Bundle(bundle) => bundle.list_txs(),
             Order::Tx(tx) => vec![(&tx.tx_with_blobs, true)],
             Order::ShareBundle(bundle) => bundle.list_txs(),
+        }
+    }
+
+    /// list_txs().len()
+    pub fn list_txs_len(&self) -> usize {
+        match self {
+            Order::Bundle(bundle) => bundle.list_txs_len(),
+            Order::Tx(_) => 1,
+            Order::ShareBundle(bundle) => bundle.list_txs_len(),
         }
     }
 

@@ -119,7 +119,7 @@ impl<SinkType: SimulatedOrderSink> MultiBackrunManager<SinkType> {
         let mut original_orders = Vec::new();
         for broken_order in self.sorted_orders.values() {
             if let Some(sbundle) = broken_order.sbundle() {
-                let mut inner_bundle = sbundle.inner_bundle.clone();
+                let mut inner_bundle = sbundle.inner_bundle().clone();
                 inner_bundle.can_skip = true;
                 inner_bundle.original_order_id = Some(broken_order.sim_order.id());
                 body.push(ShareBundleBody::Bundle(inner_bundle));
@@ -134,18 +134,16 @@ impl<SinkType: SimulatedOrderSink> MultiBackrunManager<SinkType> {
             can_skip: false,
             original_order_id: None,
         };
-        let mut sbundle = ShareBundle {
-            hash: Default::default(),
-            block: highest_payback_order_bundle.block,
-            max_block: highest_payback_order_bundle.max_block,
+        let sbundle = ShareBundle::new(
+            highest_payback_order_bundle.block,
+            highest_payback_order_bundle.max_block,
             inner_bundle,
-            signer: highest_payback_order_bundle.signer,
-            replacement_data: None, //replacement_data get lost since we merge many sbundles
+            highest_payback_order_bundle.signer,
+            None, //replacement_data get lost since we merge many sbundles
             original_orders,
             // We take parent order submission time
-            metadata: highest_payback_order.sim_order.order.metadata().clone(),
-        };
-        sbundle.hash_slow();
+            highest_payback_order.sim_order.order.metadata().clone(),
+        );
         Some(Arc::new(SimulatedOrder {
             order: Order::ShareBundle(sbundle),
             sim_value: highest_payback_order.sim_order.sim_value.clone(),
@@ -271,7 +269,7 @@ impl<SinkType: SimulatedOrderSink> ShareBundleMerger<SinkType> {
         } else {
             return None;
         };
-        let first_item = sbundle.inner_bundle.body.first().or_else(|| {
+        let first_item = sbundle.inner_bundle().body.first().or_else(|| {
             error!(?sbundle, "Empty sbundle");
             None
         })?;
@@ -288,7 +286,7 @@ impl<SinkType: SimulatedOrderSink> ShareBundleMerger<SinkType> {
         sim_order: &Arc<SimulatedOrder>,
     ) -> Option<BrokenDownShareBundle> {
         let got_bundles = sbundle
-            .inner_bundle
+            .inner_bundle()
             .body
             .iter()
             .any(|item| matches!(item, ShareBundleBody::Bundle(_)));
@@ -298,7 +296,7 @@ impl<SinkType: SimulatedOrderSink> ShareBundleMerger<SinkType> {
             );
             return None;
         }
-        if !sbundle.inner_bundle.refund.is_empty() {
+        if !sbundle.inner_bundle().refund.is_empty() {
             warn!(hash = ?sbundle.hash,
                 "sbundle for user txs should not contain refunds"
             );
@@ -336,7 +334,7 @@ impl<SinkType: SimulatedOrderSink> ShareBundleMerger<SinkType> {
     /// Checks also that it contains no refund stuff
     fn check_and_get_user_bundle_hash_from_backrun(sbundle: &ShareBundle) -> Option<B256> {
         let user_bundle = sbundle
-            .inner_bundle
+            .inner_bundle()
             .body
             .get(Self::USER_BUNDLE_INDEX)
             .or_else(|| {
@@ -368,15 +366,15 @@ impl<SinkType: SimulatedOrderSink> ShareBundleMerger<SinkType> {
 
     /// - Have a single inner_bundle.refund (user tx) with body_idx == 0
     fn check_refunds_from_backrun_ok(sbundle: &ShareBundle) -> bool {
-        if sbundle.inner_bundle.refund.len() != 1 {
+        if sbundle.inner_bundle().refund.len() != 1 {
             warn!(
                 hash = ?sbundle.hash,
                 "sbundle should have a single refund but has {}",
-                sbundle.inner_bundle.refund.len()
+                sbundle.inner_bundle().refund.len()
             );
             return false;
         }
-        let first_body_idx = sbundle.inner_bundle.refund[0].body_idx;
+        let first_body_idx = sbundle.inner_bundle().refund[0].body_idx;
         if first_body_idx != Self::USER_BUNDLE_INDEX {
             warn!(
                 hash = ?sbundle.hash,
@@ -457,11 +455,12 @@ mod test {
     /// more than a inner_bundle.refund should pass as is
     fn test_2_refunds() {
         let mut context = new_test_context();
-        let mut sbundle = context.create_sbundle_tx_br();
-        sbundle
-            .inner_bundle
+        let sbundle = context.create_sbundle_tx_br();
+        let mut new_inner_bundle = sbundle.inner_bundle().clone();
+        new_inner_bundle
             .refund
-            .push(sbundle.inner_bundle.refund[0].clone());
+            .push(sbundle.inner_bundle().refund[0].clone());
+        let sbundle = sbundle.with_inner_bundle(new_inner_bundle);
         context.assert_passes_as_is(Order::ShareBundle(sbundle));
     }
 

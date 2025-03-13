@@ -45,7 +45,7 @@ impl SimplifiedOrder {
             }
             Order::ShareBundle(bundle) => SimplifiedOrder::new(
                 id,
-                OrderChunk::chunks_from_inner_share_bundle(&bundle.inner_bundle),
+                OrderChunk::chunks_from_inner_share_bundle(bundle.inner_bundle()),
             ),
         }
     }
@@ -766,11 +766,11 @@ mod tests {
 
     #[test]
     fn test_simplified_order_conversion_share_bundle() {
-        let bundle = Order::ShareBundle(ShareBundle {
-            hash: hash(0xb1),
-            block: 0,
-            max_block: 0,
-            inner_bundle: ShareBundleInner {
+        let bundle = Order::ShareBundle(ShareBundle::new_with_fake_hash(
+            hash(0xb1),
+            0,
+            0,
+            ShareBundleInner {
                 body: vec![
                     ShareBundleBody::Tx(ShareBundleTx {
                         tx: tx(0x01),
@@ -832,11 +832,11 @@ mod tests {
                 can_skip: false,
                 original_order_id: None,
             },
-            signer: None,
-            replacement_data: None,
-            original_orders: vec![],
-            metadata: Default::default(),
-        });
+            None,
+            None,
+            vec![],
+            Default::default(),
+        ));
         let expected = SimplifiedOrder::new(
             OrderId::ShareBundle(hash(0xb1)),
             vec![

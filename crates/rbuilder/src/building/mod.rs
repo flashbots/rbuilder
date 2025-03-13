@@ -313,10 +313,19 @@ pub enum Sorting {
     MevGasPrice,
     /// Sorts the SimulatedOrders by its absolute profit which is computed as the coinbase balance delta after executing the order
     MaxProfit,
+    /// Orders are ordered by their origin (bundle/sbundles then mempool) and then by their absolute profit.
+    TypeMaxProfit,
+    /// Orders are ordered by length 3 (orders length >= 3 first) and then by their absolute profit.
+    LengthThreeMaxProfit,
+    /// Orders are ordered by length 3 (orders length >= 3 first) and then by their mev gas price.
+    LengthThreeMevGasPrice,
 }
 
 const MEV_GAS_PRICE_NAME: &str = "mev_gas_price";
 const MAX_PROFIT_NAME: &str = "max_profit";
+const TYPE_MAX_PROFIT_NAME: &str = "type_max_profit";
+const LENGTH_THREE_MAX_PROFIT_NAME: &str = "length_three_max_profit";
+const LENGTH_THREE_MEV_GAS_PRICE_NAME: &str = "length_three_mev_gas_price";
 
 impl FromStr for Sorting {
     type Err = eyre::Error;
@@ -325,6 +334,9 @@ impl FromStr for Sorting {
         match s {
             MEV_GAS_PRICE_NAME => Ok(Self::MevGasPrice),
             MAX_PROFIT_NAME => Ok(Self::MaxProfit),
+            TYPE_MAX_PROFIT_NAME => Ok(Self::TypeMaxProfit),
+            LENGTH_THREE_MAX_PROFIT_NAME => Ok(Self::LengthThreeMaxProfit),
+            LENGTH_THREE_MEV_GAS_PRICE_NAME => Ok(Self::LengthThreeMevGasPrice),
             _ => eyre::bail!("Invalid algorithm"),
         }
     }
@@ -334,6 +346,9 @@ impl std::fmt::Display for Sorting {
         match self {
             Sorting::MevGasPrice => write!(f, "{}", MEV_GAS_PRICE_NAME),
             Sorting::MaxProfit => write!(f, "{}", MAX_PROFIT_NAME),
+            Sorting::TypeMaxProfit => write!(f, "{}", TYPE_MAX_PROFIT_NAME),
+            Sorting::LengthThreeMaxProfit => write!(f, "{}", LENGTH_THREE_MAX_PROFIT_NAME),
+            Sorting::LengthThreeMevGasPrice => write!(f, "{}", LENGTH_THREE_MEV_GAS_PRICE_NAME),
         }
     }
 }

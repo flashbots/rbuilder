@@ -250,18 +250,15 @@ impl ShareBundleBuilder {
 
     fn build(mut self) -> ShareBundle {
         let inner_bundle = self.inner_bundle_stack.pop().unwrap();
-        let mut bundle = ShareBundle {
-            hash: Default::default(),
-            block: self.block,
-            max_block: self.max_block,
+        ShareBundle::new(
+            self.block,
+            self.max_block,
             inner_bundle,
-            signer: None,
-            replacement_data: None,
-            original_orders: Vec::new(),
-            metadata: Default::default(),
-        };
-        bundle.hash_slow();
-        bundle
+            None,
+            None,
+            Vec::new(),
+            Default::default(),
+        )
     }
 
     fn start_inner_bundle(&mut self, can_skip: bool) {
