@@ -197,11 +197,13 @@ async fn run_submit_to_relays_job(
                 }
             });
 
+        let executed_orders = block.trace.included_orders.iter().flat_map(|exec_res| exec_res.order.original_orders()); 
         let bid_metadata = BidMetadata {
             value: BidValueMetadata {
                 coinbase_reward: block.trace.coinbase_reward,
                 top_competitor_bid: block.trace.seen_competition_bid,
             },
+            order_ids: executed_orders.map(|o|o.id()).collect(),
         };
 
         let best_bid_value = best_bid_sync_source.best_bid_value();

@@ -8,6 +8,8 @@ use alloy_rpc_types_engine::{BlobsBundleV1, ExecutionPayloadV3};
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
 
+use crate::primitives::OrderId;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ElectraSubmitBlockRequest(pub SignedBidSubmissionV4);
 
@@ -60,6 +62,7 @@ impl SubmitBlockRequest {
 #[derive(Clone, Debug)]
 pub struct BidMetadata {
     pub value: BidValueMetadata,
+    pub order_ids: Vec<OrderId>,
 }
 
 #[derive(Clone, Copy, Default, Debug)]

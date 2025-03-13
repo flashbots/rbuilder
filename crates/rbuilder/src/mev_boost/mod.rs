@@ -8,6 +8,7 @@ use super::utils::u256decimal_serde_helper;
 
 use alloy_primitives::{Address, BlockHash, Bytes, U256};
 use flate2::{write::GzEncoder, Compression};
+use itertools::Itertools;
 use primitive_types::H384;
 use reqwest::{
     header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_ENCODING, CONTENT_TYPE},
@@ -24,6 +25,7 @@ pub use error::*;
 pub use sign_payload::*;
 
 const TOTAL_PAYMENT_HEADER: &str = "Total-Payment";
+const BUNDLE_HASHES_HEADER: &str = "Bundle-Hashes";
 const TOP_BID_HEADER: &str = "Top-Bid";
 
 const JSON_CONTENT_TYPE: &str = "application/json";
@@ -527,6 +529,17 @@ impl RelayClient {
                 submission_with_metadata.metadata.value.top_competitor_bid
             {
                 builder = builder.header(TOP_BID_HEADER, top_competitor_bid.to_string());
+            }
+            if !submission_with_metadata.metadata.order_ids.is_empty() {
+                builder = builder.header(
+                    BUNDLE_HASHES_HEADER,
+                    submission_with_metadata
+                        .metadata
+                        .order_ids
+                        .iter()
+                        .map(|id| id.to_string())
+                        .join(","),
+                );
             }
         }
 
