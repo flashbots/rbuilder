@@ -32,6 +32,57 @@ pub struct UsedStateTrace {
     pub destructed_contracts: Vec<Address>,
 }
 
+impl UsedStateTrace {
+    /// Order of appending traces matters. We assume that "other" trace comes after previously appended traces.
+    /// We keep track of first read and last write operations.
+    pub fn append_trace(&mut self, other: &UsedStateTrace) {
+        for (read_slot, read_value) in &other.read_slot_values {
+            if self.read_slot_values.contains_key(read_slot) {
+                continue;
+            }
+            self.read_slot_values.insert(read_slot.clone(), *read_value);
+        }
+
+        self.written_slot_values
+            .extend(other.written_slot_values.clone());
+
+        for (address, balance) in &other.read_balances {
+            if self.read_balances.contains_key(address) {
+                continue;
+            }
+            self.read_balances.insert(*address, *balance);
+        }
+
+        for (address, received_amount) in &other.received_amount {
+            *self.received_amount.entry(*address).or_default() += received_amount;
+        }
+
+        for (address, sent_amount) in &other.sent_amount {
+            *self.sent_amount.entry(*address).or_default() += sent_amount;
+        }
+
+        self.created_contracts
+            .extend(other.created_contracts.clone());
+
+        for address in &other.destructed_contracts {
+            if self.destructed_contracts.contains(address) {
+                continue;
+            }
+            self.destructed_contracts.push(*address);
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.read_slot_values.clear();
+        self.written_slot_values.clear();
+        self.read_balances.clear();
+        self.received_amount.clear();
+        self.sent_amount.clear();
+        self.created_contracts.clear();
+        self.destructed_contracts.clear();
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 enum NextStepAction {
     #[default]

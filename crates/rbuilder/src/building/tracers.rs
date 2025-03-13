@@ -4,9 +4,16 @@ use crate::building::evm_inspector::UsedStateTrace;
 pub trait SimulationTracer {
     /// En EVM instance executed a tx consuming gas.
     /// This includes reverting transactions.
-    fn gas_used(&mut self, _gas: u64) {}
+    fn add_gas_used(&mut self, _gas: u64) {}
 
-    fn get_used_state_tracer(&mut self) -> Option<&mut UsedStateTrace> {
+    /// If tracer returns true tx_commit will call add_used_state_trace with the given transaction trace.
+    fn should_collect_used_state_trace(&self) -> bool {
+        false
+    }
+
+    fn add_used_state_trace(&mut self, _trace: &UsedStateTrace) {}
+
+    fn get_used_state_tracer(&self) -> Option<&UsedStateTrace> {
         None
     }
 }
@@ -19,7 +26,7 @@ pub struct GasUsedSimulationTracer {
 }
 
 impl SimulationTracer for GasUsedSimulationTracer {
-    fn gas_used(&mut self, gas: u64) {
+    fn add_gas_used(&mut self, gas: u64) {
         self.used_gas += gas;
     }
 }
@@ -47,11 +54,19 @@ impl Default for AccumulatorSimulationTracer {
 }
 
 impl SimulationTracer for AccumulatorSimulationTracer {
-    fn gas_used(&mut self, gas: u64) {
+    fn add_gas_used(&mut self, gas: u64) {
         self.used_gas += gas;
     }
 
-    fn get_used_state_tracer(&mut self) -> Option<&mut UsedStateTrace> {
-        Some(&mut self.used_state_trace)
+    fn should_collect_used_state_trace(&self) -> bool {
+        true
+    }
+
+    fn add_used_state_trace(&mut self, trace: &UsedStateTrace) {
+        self.used_state_trace.append_trace(trace);
+    }
+
+    fn get_used_state_tracer(&self) -> Option<&UsedStateTrace> {
+        Some(&self.used_state_trace)
     }
 }

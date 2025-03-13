@@ -10,6 +10,7 @@ use crate::{
     utils::get_percent,
 };
 
+use ahash::HashSet;
 use alloy_primitives::{Address, B256, U256};
 
 use alloy_consensus::{constants::KECCAK_EMPTY, Transaction};
@@ -24,6 +25,7 @@ use revm::{
     primitives::{db::WrapDatabaseRef, EVMError, Env, ExecutionResult, InvalidTransaction, TxEnv},
     Database, DatabaseCommit, State,
 };
+use revm_primitives::{BlockEnv, CfgEnv, ResultAndState, SpecId};
 
 use crate::building::evm_inspector::{RBuilderEVMInspector, UsedStateTrace};
 use std::{collections::HashMap, sync::Arc};
@@ -292,6 +294,8 @@ pub struct PartialBlockFork<'a, 'b, Tracer: SimulationTracer> {
     pub rollbacks: usize,
     pub state: &'a mut BlockState,
     pub tracer: Option<&'b mut Tracer>,
+    /// Temporary state trace used as a scratchpad for tx execution
+    tmp_used_state_tracer: UsedStateTrace,
 }
 
 pub struct PartialBlockRollobackPoint {
@@ -334,6 +338,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
             rollbacks: self.rollbacks,
             state: self.state,
             tracer: Some(tracer),
+            tmp_used_state_tracer: self.tmp_used_state_tracer,
         }
     }
 
@@ -417,52 +422,42 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
             None => return Ok(Err(TransactionErr::GasLeft)),
         }
 
-        let mut tx_env = TxEnv::default();
-        let tx_signed = tx_with_blobs.internal_tx_unsecure();
-        tx_signed.fill_tx_env(&mut tx_env, tx_signed.signer());
+        // evm start
+        // ====================================================
 
-        let env = Env {
-            cfg: ctx.evm_env.cfg_env.clone(),
-            block: ctx.evm_env.block_env.clone(),
-            tx: tx_env,
-        };
+        let used_state_tracer = self.tracer.as_ref().and_then(|tracer| {
+            if tracer.should_collect_used_state_trace() {
+                self.tmp_used_state_tracer.clear();
+                Some(&mut self.tmp_used_state_tracer)
+            } else {
+                None
+            }
+        });
 
-        let used_state_tracer = self.tracer.as_mut().and_then(|t| t.get_used_state_tracer());
-        let mut rbuilder_inspector = RBuilderEVMInspector::new(tx, used_state_tracer);
-
-        let mut evm = revm::Evm::builder()
-            .with_spec_id(ctx.spec_id)
-            .with_env(Box::new(env))
-            .with_db(db.as_mut())
-            .with_external_context(&mut rbuilder_inspector)
-            .append_handler_register(inspector_handle_register)
-            .build();
-        let res = match evm.transact() {
+        let res = execute_evm(
+            tx_with_blobs,
+            ctx.evm_env.cfg_env.clone(),
+            ctx.evm_env.block_env.clone(),
+            used_state_tracer,
+            ctx.spec_id,
+            db.as_mut(),
+            &ctx.blocklist,
+        )?;
+        let res = match res {
             Ok(res) => res,
-            Err(err) => match err {
-                EVMError::Transaction(tx_err) => {
-                    return Ok(Err(TransactionErr::InvalidTransaction(tx_err)))
-                }
-                EVMError::Database(_)
-                | EVMError::Header(_)
-                | EVMError::Custom(_)
-                | EVMError::Precompile(_) => return Err(err.into()),
-            },
+            Err(err) => return Ok(Err(err)),
         };
-        let mut db_context = evm.into_context();
-        let db = &mut db_context.evm.db;
-        let access_list = rbuilder_inspector.into_access_list();
+
+        // evm end
+        // ====================================================
+
         if let Some(tracer) = &mut self.tracer {
-            tracer.gas_used(res.result.gas_used());
+            tracer.add_gas_used(res.result.gas_used());
+            tracer.add_used_state_trace(&self.tmp_used_state_tracer);
         }
-        if access_list
-            .flatten()
-            .any(|(a, _)| ctx.blocklist.contains(&a))
-        {
-            return Ok(Err(TransactionErr::Blocklist));
-        }
-        db.commit(res.state);
-        db.merge_transitions(BundleRetention::Reverts);
+
+        db.as_mut().commit(res.state);
+        db.as_mut().merge_transitions(BundleRetention::Reverts);
         self.rollbacks += 1;
 
         // add gas used by the transaction to cumulative gas used, before creating the receipt
@@ -1032,7 +1027,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
         self.tracer
             .as_mut()
             .and_then(|t| t.get_used_state_tracer())
-            .map(|t| t.clone())
+            .cloned()
     }
 
     pub fn commit_order(
@@ -1185,6 +1180,7 @@ impl<'a> PartialBlockFork<'a, '_, ()> {
             rollbacks: 0,
             state,
             tracer: None,
+            tmp_used_state_tracer: Default::default(),
         }
     }
 }
@@ -1219,4 +1215,62 @@ fn update_nonce_list_with_updates(
     for new_update in new_updates {
         update_nonce_list(nonces_updated, new_update);
     }
+}
+
+/// This method is used to clearly outline inputs and outputs for the EVM interpreter execution
+/// Mutable parameters:
+/// * used_state_tracer is filled if set
+/// * db has mutable methods but EVM is doing only reads (we don't call db.commit())
+///   so all mutations are implementation dependent
+///
+/// Gas checks must be done before calling this methods
+/// thats why it can't return `TransactionErr::GasLeft` and  `TransactionErr::BlobGasLeft`
+fn execute_evm(
+    tx_with_blobs: &TransactionSignedEcRecoveredWithBlobs,
+    cfg_env: CfgEnv,
+    block_env: BlockEnv,
+    used_state_tracer: Option<&mut UsedStateTrace>,
+    spec_id: SpecId,
+    db: impl Database<Error = ProviderError>,
+    blocklist: &HashSet<Address>,
+) -> Result<Result<ResultAndState, TransactionErr>, CriticalCommitOrderError> {
+    let mut tx_env = TxEnv::default();
+    let tx_signed = tx_with_blobs.internal_tx_unsecure();
+    tx_signed.fill_tx_env(&mut tx_env, tx_signed.signer());
+
+    let env = Env {
+        cfg: cfg_env,
+        block: block_env,
+        tx: tx_env,
+    };
+
+    let tx = tx_with_blobs.internal_tx_unsecure();
+    let mut rbuilder_inspector = RBuilderEVMInspector::new(tx, used_state_tracer);
+
+    let mut evm = revm::Evm::builder()
+        .with_spec_id(spec_id)
+        .with_env(Box::new(env))
+        .with_db(db)
+        .with_external_context(&mut rbuilder_inspector)
+        .append_handler_register(inspector_handle_register)
+        .build();
+    let res = match evm.transact() {
+        Ok(res) => res,
+        Err(err) => match err {
+            EVMError::Transaction(tx_err) => {
+                return Ok(Err(TransactionErr::InvalidTransaction(tx_err)))
+            }
+            EVMError::Database(_)
+            | EVMError::Header(_)
+            | EVMError::Custom(_)
+            | EVMError::Precompile(_) => return Err(err.into()),
+        },
+    };
+    drop(evm);
+    let access_list = rbuilder_inspector.into_access_list();
+    if access_list.flatten().any(|(a, _)| blocklist.contains(&a)) {
+        return Ok(Err(TransactionErr::Blocklist));
+    }
+
+    Ok(Ok(res))
 }
