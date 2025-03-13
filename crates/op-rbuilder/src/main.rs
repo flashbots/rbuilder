@@ -9,6 +9,7 @@ use reth_optimism_node::OpNode;
 use payload_builder::CustomOpPayloadBuilder;
 #[cfg(not(feature = "flashblocks"))]
 use payload_builder_vanilla::CustomOpPayloadBuilder;
+use reth_transaction_pool::TransactionPool;
 
 /// CLI argument parsing.
 pub mod args;
@@ -25,6 +26,7 @@ mod primitives;
 #[cfg(test)]
 mod tester;
 mod tx_signer;
+use tracing::debug;
 
 fn main() {
     Cli::<OpChainSpecParser, args::OpRbuilderArgs>::parse()
@@ -49,6 +51,25 @@ fn main() {
                 .on_node_started(move |ctx| {
                     let new_canonical_blocks = ctx.provider().canonical_state_stream();
                     let builder_signer = builder_args.builder_signer;
+
+                    ctx.task_executor.spawn_critical(
+                        "tx-tracking",
+                        Box::pin(async move {
+                            let mut new_transactions = ctx.pool.new_transactions_listener();
+
+                            loop {
+                                match new_transactions.try_recv() {
+                                    Ok(event) => {
+                                        let tx = event.transaction;
+                                        debug!("Transaction received: {:?}", tx.hash());
+                                    }
+                                    Err(e) => {
+                                        debug!("Error receiving transaction: {e:?}");
+                                    }
+                                }
+                            }
+                        }),
+                    );
 
                     ctx.task_executor.spawn_critical(
                         "monitoring",
