@@ -236,8 +236,8 @@ pub mod test {
     };
 
     use super::{blocklist_hash, BlockList, BlockListProvider, HttpBlockListProvider};
-    use lazy_static::lazy_static;
     use revm_primitives::{Address, B256};
+    use std::sync::LazyLock;
     use tokio_util::sync::CancellationToken;
     use url::Url;
 
@@ -318,9 +318,10 @@ pub mod test {
     }
 
     const BLOCKED_ADDRESS: &str = "0x05E0b5B40B7b66098C2161A5EE11C5740A3A7C45";
-    lazy_static! {
-        static ref BLOCKLIST_LEN_1: String = "[\"".to_string() + BLOCKED_ADDRESS + "\"]";
-    }
+
+    static BLOCKLIST_LEN_1: LazyLock<String> =
+        LazyLock::new(|| "[\"".to_string() + BLOCKED_ADDRESS + "\"]");
+
     pub const BLOCKLIST_LEN_2: &str = r#"["0x03893a7c7463AE47D46bc7f091665f1893656003","0x01e2919679362dFBC9ee1644Ba9C6da6D6245BB1"]"#;
     const EMPTY_BLOCKLIST: &str = r#"[]"#;
 

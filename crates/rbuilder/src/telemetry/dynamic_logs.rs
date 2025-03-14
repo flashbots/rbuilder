@@ -1,8 +1,11 @@
 //! This module provides a functionality to dynamically change the log level
 
-use lazy_static::lazy_static;
 use parking_lot::Mutex;
-use std::{fs::File, path::PathBuf, sync::Arc};
+use std::{
+    fs::File,
+    path::PathBuf,
+    sync::{Arc, LazyLock},
+};
 use tracing_subscriber::{
     filter::Filtered, fmt, layer::SubscriberExt, reload, reload::Handle, util::SubscriberInitExt,
     EnvFilter, Layer, Registry,
@@ -11,12 +14,10 @@ use tracing_subscriber::{
 type BoxedLayer = Box<dyn Layer<Registry> + Send + Sync>;
 type FilteredLayer = Filtered<BoxedLayer, EnvFilter, Registry>;
 
-lazy_static! {
-    static ref DEFAULT_CONFIG: Arc<Mutex<LoggerConfig>> =
-        Arc::new(Mutex::new(LoggerConfig::default()));
-    static ref RELOAD_HANDLE: Arc<Mutex<Option<Handle<FilteredLayer, Registry>>>> =
-        Arc::new(Mutex::new(None));
-}
+static DEFAULT_CONFIG: LazyLock<Arc<Mutex<LoggerConfig>>> =
+    LazyLock::new(|| Arc::new(Mutex::new(LoggerConfig::default())));
+static RELOAD_HANDLE: LazyLock<Arc<Mutex<Option<Handle<FilteredLayer, Registry>>>>> =
+    LazyLock::new(|| Arc::new(Mutex::new(None)));
 
 #[derive(Debug, Clone)]
 pub struct LoggerConfig {

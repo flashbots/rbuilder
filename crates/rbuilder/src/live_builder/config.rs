@@ -50,7 +50,6 @@ use ethereum_consensus::{
     state_transition::Context as ContextEth,
 };
 use eyre::Context;
-use lazy_static::lazy_static;
 use reth::revm::cached::CachedReads;
 use reth_chainspec::{Chain, ChainSpec, NamedChain};
 use reth_db::DatabaseEnv;
@@ -60,12 +59,12 @@ use reth_primitives::StaticFileSegment;
 use reth_provider::StaticFileProviderFactory;
 use serde::Deserialize;
 use serde_with::{serde_as, OneOrMany};
-use std::collections::HashMap;
 use std::{
+    collections::HashMap,
     fmt::Debug,
     path::{Path, PathBuf},
     str::FromStr,
-    sync::Arc,
+    sync::{Arc, LazyLock},
     time::Duration,
 };
 use tracing::{info, warn};
@@ -642,65 +641,64 @@ fn get_signing_domain(
     Ok(B256::from(&compute_builder_domain(&cl_context)?))
 }
 
-lazy_static! {
-    static ref DEFAULT_RELAYS: HashMap<String, RelayConfig> = {
-        let mut map = HashMap::new();
-        map.insert(
-            "flashbots".to_string(),
-            RelayConfig {
-                name: "flashbots".to_string(),
-                url: "http://k8s-default-boostrel-9f278153f5-947835446.us-east-2.elb.amazonaws.com"
-                    .to_string(),
-                mode: RelayMode::Full,
-                submit_config: Some(RelaySubmitConfig {
-                    use_ssz_for_submit: true,
-                    use_gzip_for_submit: false,
-                    optimistic: false,
-                    interval_between_submissions_ms: Some(250),
-                }),
-                priority: Some(0),
-                authorization_header: None,
-                builder_id_header: None,
-                api_token_header: None,
-            },
-        );
-        map.insert(
-            "ultrasound-us".to_string(),
-            RelayConfig {
-                name: "ultrasound-us".to_string(),
-                url: "https://relay-builders-us.ultrasound.money".to_string(),
-                mode: RelayMode::Full,
-                submit_config: Some(RelaySubmitConfig {
-                    use_ssz_for_submit: true,
-                    use_gzip_for_submit: true,
-                    optimistic: true,
-                    interval_between_submissions_ms: None,
-                }),
-                priority: Some(0),
-                authorization_header: None,
-                builder_id_header: None,
-                api_token_header: None,
-            },
-        );
-        map.insert(
-            "ultrasound-eu".to_string(),
-            RelayConfig {
-                name: "ultrasound-eu".to_string(),
-                url: "https://relay-builders-eu.ultrasound.money".to_string(),
-                mode: RelayMode::Full,
-                submit_config: Some(RelaySubmitConfig {
-                    use_ssz_for_submit: true,
-                    use_gzip_for_submit: true,
-                    optimistic: true,
-                    interval_between_submissions_ms: None,
-                }),
-                priority: Some(0),
-                authorization_header: None,
-                builder_id_header: None,
-                api_token_header: None,
-            },
-        );
-        map.insert(
+static DEFAULT_RELAYS: LazyLock<HashMap<String, RelayConfig>> = LazyLock::new(|| {
+    let mut map = HashMap::new();
+    map.insert(
+        "flashbots".to_string(),
+        RelayConfig {
+            name: "flashbots".to_string(),
+            url: "http://k8s-default-boostrel-9f278153f5-947835446.us-east-2.elb.amazonaws.com"
+                .to_string(),
+            mode: RelayMode::Full,
+            submit_config: Some(RelaySubmitConfig {
+                use_ssz_for_submit: true,
+                use_gzip_for_submit: false,
+                optimistic: false,
+                interval_between_submissions_ms: Some(250),
+            }),
+            priority: Some(0),
+            authorization_header: None,
+            builder_id_header: None,
+            api_token_header: None,
+        },
+    );
+    map.insert(
+        "ultrasound-us".to_string(),
+        RelayConfig {
+            name: "ultrasound-us".to_string(),
+            url: "https://relay-builders-us.ultrasound.money".to_string(),
+            mode: RelayMode::Full,
+            submit_config: Some(RelaySubmitConfig {
+                use_ssz_for_submit: true,
+                use_gzip_for_submit: true,
+                optimistic: true,
+                interval_between_submissions_ms: None,
+            }),
+            priority: Some(0),
+            authorization_header: None,
+            builder_id_header: None,
+            api_token_header: None,
+        },
+    );
+    map.insert(
+        "ultrasound-eu".to_string(),
+        RelayConfig {
+            name: "ultrasound-eu".to_string(),
+            url: "https://relay-builders-eu.ultrasound.money".to_string(),
+            mode: RelayMode::Full,
+            submit_config: Some(RelaySubmitConfig {
+                use_ssz_for_submit: true,
+                use_gzip_for_submit: true,
+                optimistic: true,
+                interval_between_submissions_ms: None,
+            }),
+            priority: Some(0),
+            authorization_header: None,
+            builder_id_header: None,
+            api_token_header: None,
+        },
+    );
+    map.insert(
             "agnostic".to_string(),
             RelayConfig {
                 name: "agnostic".to_string(),
@@ -717,7 +715,7 @@ lazy_static! {
                 api_token_header: None,
             },
         );
-        map.insert(
+    map.insert(
             "playground".to_string(),
             RelayConfig {
                 name: "playground".to_string(),
@@ -735,9 +733,8 @@ lazy_static! {
                 api_token_header: None,
             },
         );
-        map
-    };
-}
+    map
+});
 
 #[cfg(test)]
 mod test {

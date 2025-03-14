@@ -3,10 +3,13 @@
 //! Writer limits amount of errors that can be written to the db.
 
 use crossbeam_queue::ArrayQueue;
-use lazy_static::lazy_static;
 use parking_lot::Mutex;
 use sqlx::{sqlite::SqliteConnectOptions, ConnectOptions, Executor, SqliteConnection};
-use std::{path::Path, sync::Arc, time::Duration};
+use std::{
+    path::Path,
+    sync::{Arc, LazyLock},
+    time::Duration,
+};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info_span, warn};
 
@@ -27,10 +30,9 @@ struct ErrorEvent {
     payload: String,
 }
 
-lazy_static! {
-    /// Not using null object pattern due to some generic on trait problems.
-    static ref EVENT_QUEUE: Mutex<Option<Arc<ArrayQueue<ErrorEvent>>>> = Mutex::new(None);
-}
+/// Not using null object pattern due to some generic on trait problems.
+static EVENT_QUEUE: LazyLock<Mutex<Option<Arc<ArrayQueue<ErrorEvent>>>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 fn event_queue() -> Option<Arc<ArrayQueue<ErrorEvent>>> {
     EVENT_QUEUE.lock().clone()
