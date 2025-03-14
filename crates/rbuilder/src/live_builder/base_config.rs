@@ -5,7 +5,7 @@ use crate::{
     live_builder::{order_input::OrderInputConfig, LiveBuilder},
     provider::{
         ipc_state_provider::{IpcProviderConfig, IpcStateProviderFactory},
-        StateProviderFactories, StateProviderFactory,
+        StateProviderFactory,
     },
     roothash::RootHashContext,
     telemetry::{setup_reloadable_tracing_subscriber, LoggerConfig},
@@ -307,19 +307,6 @@ impl BaseConfig {
             &ipc_provider_config.ipc_path,
             Duration::from_millis(ipc_provider_config.request_timeout_ms),
         ))
-    }
-
-    pub fn create_provider_factory_from_config(
-        &self,
-        skip_root_hash: bool,
-    ) -> eyre::Result<StateProviderFactories> {
-        if self.ipc_provider.is_some() {
-            self.create_ipc_provider_factory()
-                .map(StateProviderFactories::Ipc)
-        } else {
-            self.create_reth_provider_factory(skip_root_hash)
-                .map(StateProviderFactories::Reth)
-        }
     }
 
     /// live_root_hash_config creates a root hash thread pool

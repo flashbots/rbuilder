@@ -107,8 +107,6 @@ where
     let config: ConfigType = load_config_toml_and_env(cli.config)?;
     config.base_config().setup_tracing_subscriber()?;
 
-    let cancel = CancellationToken::new();
-
     // Spawn redacted server that is safe for tdx builders to expose
     telemetry::servers::redacted::spawn(config.base_config().redacted_telemetry_server_address())
         .await?;
@@ -120,9 +118,25 @@ where
         config.base_config().log_enable_dynamic,
     )
     .await?;
-    let provider = config
-        .base_config()
-        .create_provider_factory_from_config(false)?;
+    if config.base_config().ipc_provider.is_some() {
+        let provider = config.base_config().create_ipc_provider_factory()?;
+        run_builder(provider, config, on_run).await
+    } else {
+        let provider = config.base_config().create_reth_provider_factory(false)?;
+        run_builder(provider, config, on_run).await
+    }
+}
+
+async fn run_builder<P, ConfigType>(
+    provider: P,
+    config: ConfigType,
+    on_run: Option<fn()>,
+) -> eyre::Result<()>
+where
+    ConfigType: LiveBuilderConfig,
+    P: StateProviderFactory + Clone + 'static,
+{
+    let cancel = CancellationToken::new();
     let builder = config.new_builder(provider, cancel.clone()).await?;
 
     let ctrlc = tokio::spawn(async move {
@@ -133,7 +147,6 @@ where
         on_run();
     }
     builder.run().await?;
-
     ctrlc.await.unwrap_or_default();
     Ok(())
 }
