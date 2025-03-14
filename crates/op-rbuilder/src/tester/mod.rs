@@ -752,6 +752,7 @@ pub async fn run_system(
     no_tx_pool: bool,
     block_time_secs: u64,
     flashblocks_endpoint: Option<String>,
+    use_contender: bool,
 ) -> eyre::Result<()> {
     println!("Validation: {}", validation);
 
@@ -781,14 +782,16 @@ pub async fn run_system(
         .map_err(|e| eyre::eyre!(e.to_string()))?;
     let db = SqliteDb::new_memory();
 
-    generator
-        .init_contender(
-            std::sync::Arc::new(db),
-            test_config,
-            Url::from_str(rpc_url)?,
-        )
-        .await?;
-    println!("Contender initialized");
+    if use_contender {
+        generator
+            .init_contender(
+                std::sync::Arc::new(db),
+                test_config,
+                Url::from_str(rpc_url)?,
+            )
+            .await?;
+        println!("Contender initialized");
+    }
 
     // Infinite loop generating blocks
     loop {

@@ -30,6 +30,14 @@ enum Commands {
 
         #[clap(long, short, action)]
         flashblocks_endpoint: Option<String>,
+
+        #[clap(
+            long,
+            short,
+            action,
+            long_help = "Add contender spam transactions to blocks"
+        )]
+        contender: bool,
     },
     /// Deposit funds to the system
     Deposit {
@@ -51,12 +59,14 @@ async fn main() -> eyre::Result<()> {
             no_tx_pool,
             block_time_secs,
             flashblocks_endpoint,
+            contender,
         } => {
             run_system(
                 validation,
                 no_tx_pool,
                 block_time_secs,
                 flashblocks_endpoint,
+                contender,
             )
             .await
         }
