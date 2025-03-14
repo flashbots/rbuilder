@@ -1,3 +1,4 @@
+pub mod backtest_fetch;
 pub mod data_source;
 pub mod flashbots_db;
 pub mod mempool;
@@ -17,7 +18,6 @@ use alloy_rpc_types::{Block, BlockId, BlockNumberOrTag, BlockTransactionsKind};
 use eyre::Context;
 
 use crate::backtest::{fetch::mev_boost::PayloadDeliveredFetcher, OrdersWithTimestamp};
-use flashbots_db::RelayDB;
 use futures::TryStreamExt;
 use std::{
     collections::HashMap,
@@ -54,26 +54,15 @@ impl HistoricalDataFetcher {
         }
     }
 
-    pub fn with_default_datasource(
-        mut self,
-        mempool_datadir: PathBuf,
-        flashbots_db: Option<RelayDB>,
-    ) -> eyre::Result<Self> {
+    pub fn with_default_datasource(mut self, mempool_datadir: PathBuf) -> eyre::Result<Self> {
         let mempool = Box::new(mempool::MempoolDumpsterDatasource::new(mempool_datadir)?);
         self.data_sources.push(mempool);
-        if let Some(flashbots_db) = flashbots_db {
-            self.data_sources.push(Box::new(flashbots_db));
-        };
         Ok(self)
     }
 
-    pub fn with_datasource(self, datasource: Box<dyn DataSource>) -> Self {
-        let mut data_sources = self.data_sources;
-        data_sources.push(datasource);
-        Self {
-            data_sources,
-            ..self
-        }
+    pub fn with_datasource(mut self, datasource: Box<dyn DataSource>) -> Self {
+        self.data_sources.push(datasource);
+        self
     }
 
     async fn get_payload_delivered_bid_trace(
