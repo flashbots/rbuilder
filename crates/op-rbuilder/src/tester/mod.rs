@@ -1,18 +1,37 @@
 use crate::tx_signer::Signer;
+use alloy_consensus::Transaction;
+use alloy_consensus::TxEnvelope;
 use alloy_eips::eip2718::Encodable2718;
+use alloy_eips::BlockId;
 use alloy_eips::BlockNumberOrTag;
+use alloy_network::Ethereum;
 use alloy_primitives::address;
 use alloy_primitives::Address;
 use alloy_primitives::Bytes;
 use alloy_primitives::TxKind;
 use alloy_primitives::B256;
 use alloy_primitives::{hex, U256};
+use alloy_provider::PendingTransactionBuilder;
+use alloy_provider::{Provider, ProviderBuilder};
 use alloy_rpc_types_engine::ExecutionPayloadV1;
 use alloy_rpc_types_engine::ExecutionPayloadV2;
 use alloy_rpc_types_engine::PayloadAttributes;
 use alloy_rpc_types_engine::PayloadStatusEnum;
 use alloy_rpc_types_engine::{ExecutionPayloadV3, ForkchoiceUpdated, PayloadStatus};
 use alloy_rpc_types_eth::Block;
+use alloy_transport_http::reqwest::Url;
+use contender_core::agent_controller::AgentStore;
+use contender_core::db::DbOps;
+use contender_core::db::NamedTx;
+use contender_core::error::ContenderError;
+use contender_core::generator::types::SpamRequest;
+use contender_core::generator::util::complete_tx_request;
+use contender_core::generator::Generator;
+use contender_core::generator::PlanType;
+use contender_core::generator::RandSeed;
+use contender_core::test_scenario::{TestScenario, TestScenarioParams};
+use contender_sqlite::SqliteDb;
+use contender_testfile::TestConfig;
 use jsonrpsee::core::RpcResult;
 use jsonrpsee::http_client::{transport::HttpBackend, HttpClient};
 use jsonrpsee::proc_macros::rpc;
@@ -34,6 +53,7 @@ use std::time::UNIX_EPOCH;
 /// Helper for engine api operations
 pub struct EngineApi {
     pub engine_api_client: HttpClient<AuthClientService<HttpBackend>>,
+    pub url: Url,
 }
 
 /// Builder for EngineApi configuration
@@ -73,6 +93,7 @@ impl EngineApiBuilder {
 
         Ok(EngineApi {
             engine_api_client: client,
+            url: Url::from_str(&self.url)?,
         })
     }
 }
@@ -195,10 +216,14 @@ pub struct BlockGenerator<'a> {
     latest_hash: B256,
     no_tx_pool: bool,
     block_time_secs: u64,
+    block_gas_limit: u64,
 
     // flashblocks service
     flashblocks_endpoint: Option<String>,
     flashblocks_service: Option<FlashblocksService>,
+
+    // contender tx generator
+    contender: Option<TestScenario<SqliteDb, RandSeed, TestConfig>>,
 }
 
 impl<'a> BlockGenerator<'a> {
@@ -217,6 +242,8 @@ impl<'a> BlockGenerator<'a> {
             block_time_secs,
             flashblocks_endpoint,
             flashblocks_service: None,
+            contender: None,
+            block_gas_limit: 0,
         }
     }
 
@@ -455,9 +482,211 @@ impl<'a> BlockGenerator<'a> {
         Ok(new_block_hash)
     }
 
+    pub async fn init_contender(
+        &mut self,
+        db: std::sync::Arc<SqliteDb>,
+        test_config: TestConfig,
+        rpc_url: Url,
+    ) -> eyre::Result<()> {
+        let mut agents = AgentStore::new();
+        let seed = RandSeed::new();
+
+        agents.add_random_agent("admin", 1, &seed);
+        for pool in get_spam_pools(&test_config) {
+            agents.add_random_agent(&pool, 1, &seed);
+        }
+
+        let mut scenario = TestScenario::new(
+            test_config,
+            db.clone(),
+            seed,
+            TestScenarioParams {
+                rpc_url,
+                builder_rpc_url: None,
+                signers: vec![], // TODO: add signers
+                agent_store: agents,
+                tx_type: Default::default(),
+            },
+        )
+        .await?;
+
+        db.create_tables().expect("failed to create tables");
+
+        // fund agent accounts
+        for agent_addr in scenario.agent_store.all_signer_addresses() {
+            let _ = self
+                .deposit(agent_addr, 100_000_000_000_000_000_000_u128)
+                .await?;
+        }
+
+        let (sender, mut receiver) = tokio::sync::mpsc::channel::<(
+            PendingTransactionBuilder<Ethereum>,
+            Option<String>,
+        )>(420);
+
+        // we do everything in the callback so no need to actually capture the returned txs
+        scenario.load_txs(PlanType::Create(|tx_req| {
+            /* callback */
+            // copy data/refs from self before spawning the task
+            let from = tx_req.tx.from.to_owned().ok_or(ContenderError::SetupError(
+                "failed to get 'from' address",
+                None,
+            ))?;
+            let wallet_conf = scenario
+                .wallet_map
+                .get(&from)
+                .unwrap_or_else(|| panic!("couldn't find wallet for 'from' address {}", from))
+                .to_owned();
+            let wallet = ProviderBuilder::new()
+                .wallet(wallet_conf)
+                .on_http(scenario.rpc_url.to_owned());
+
+            println!(
+                "deploying contract: {:?}",
+                tx_req.name.as_ref().unwrap_or(&"".to_string())
+            );
+
+            let tx_type = scenario.tx_type;
+            let gas_price = 1_000_000_000_u128;
+            let sender = std::sync::Arc::new(sender.clone());
+            let handle = tokio::task::spawn(async move {
+                // estimate gas limit
+                let gas_limit = wallet
+                    .estimate_gas(&tx_req.tx)
+                    .await
+                    .expect("failed to estimate gas");
+
+                // inject missing fields into tx_req.tx
+                let mut tx = tx_req.tx;
+                complete_tx_request(&mut tx, tx_type, gas_price, gas_price, gas_limit, scenario.chain_id);
+
+                let res = wallet.send_transaction(tx).await;
+                if let Err(err) = res {
+                    let err = err.to_string();
+                    if err.to_lowercase().contains("already known") {
+                        eprintln!("Transaction already known. You may be using the same seed (or private key) as another spammer. Try modifying seed with `-s`, or waiting if you set `-p`. JSON-RPC Error: {:?}", err);
+                    } else if err.to_lowercase().contains("insufficient funds") {
+                        eprintln!(
+                            "Insufficient funds for transaction (account: {}). Try passing a funded private key with `-p`. JSON-RPC Error: {:?}",
+                            from,
+                            err
+                        );
+                    } else if err.to_lowercase().contains("replacement transaction underpriced") {
+                        eprintln!("Replacement transaction underpriced. You may have to wait, or replace the currently-pending transactions manually. JSON-RPC Error: {:?}", err);
+                    } else {
+                        eprintln!("failed to send tx: {:?}", err);
+                    }
+                    return;
+                }
+                let res =
+                    res.expect("this will never happen. If it does, I'm a terrible programmer.");
+
+                // send mpsc message here
+                sender.send((res, tx_req.name)).await.expect("failed to send message");
+            });
+            Ok(Some(handle))
+        })).await?;
+
+        receiver.close();
+
+        while let Some((res, name)) = receiver.recv().await {
+            println!("sent contract deployment: {:?}", name);
+            self.submit_payload(None).await?;
+            let receipt = res.get_receipt().await.expect("failed to get receipt");
+            println!(
+                "contract address: {}",
+                receipt.contract_address.unwrap_or_default()
+            );
+            db.insert_named_txs(
+                NamedTx::new(
+                    name.unwrap_or_default(),
+                    receipt.transaction_hash,
+                    receipt.contract_address,
+                )
+                .into(),
+                &scenario.rpc_url.to_string(),
+            )
+            .expect("failed to insert tx into db");
+        }
+
+        println!("Finished deploying contracts.");
+        scenario.sync_nonces().await?;
+
+        let block = scenario
+            .rpc_client
+            .get_block(
+                BlockId::latest(),
+                alloy_rpc_types_eth::BlockTransactionsKind::Hashes,
+            )
+            .await?
+            .unwrap();
+        self.block_gas_limit = block.header.gas_limit;
+        println!("block gas limit: {}", self.block_gas_limit);
+        self.contender = Some(scenario);
+        Ok(())
+    }
+
     /// Generate a single new block and return its hash
     pub async fn generate_block(&mut self) -> eyre::Result<B256> {
-        self.submit_payload(None).await
+        if let Some(contender) = self.contender.as_mut() {
+            println!("submitting payload with contender txs...");
+            let mut all_signed_txs: Vec<TxEnvelope> = vec![];
+            let mut total_gas_used = 0;
+            let txs = contender
+                .load_txs(contender_core::generator::PlanType::Spam(10, |_tx| {
+                    Ok(None)
+                }))
+                .await?;
+            let ex_requests = contender.prepare_spam(txs.as_slice()).await?;
+            for exr in ex_requests {
+                match exr {
+                    contender_core::spammer::ExecutionPayload::SignedTx(tx, _req) => {
+                        if total_gas_used + tx.gas_limit() > self.block_gas_limit {
+                            println!("skipping Tx due to gas limit: {:?}", tx.tx_hash());
+                            continue;
+                        }
+                        total_gas_used += tx.gas_limit();
+                        all_signed_txs.push(*tx);
+                    }
+                    contender_core::spammer::ExecutionPayload::SignedTxBundle(txs, _reqs) => {
+                        for tx in txs {
+                            if total_gas_used + tx.gas_limit() > self.block_gas_limit {
+                                println!("skipping Tx due to gas limit: {:?}", tx.tx_hash());
+                                continue;
+                            }
+                            total_gas_used += tx.gas_limit();
+                            all_signed_txs.push(tx);
+                        }
+                    }
+                }
+            }
+            let signed_tx_bytes: Vec<Bytes> = all_signed_txs
+                .iter()
+                .map(|tx| tx.encoded_2718().into())
+                .collect();
+
+            let rpc = contender.rpc_client.clone();
+            let res = self.submit_payload(Some(signed_tx_bytes)).await?;
+
+            let receipts = rpc
+                .get_block_receipts(BlockId::from(res.to_owned()))
+                .await?
+                .unwrap_or_default();
+            for tx in all_signed_txs {
+                if !receipts
+                    .iter()
+                    .map(|r| r.transaction_hash)
+                    .collect::<Vec<_>>()
+                    .contains(tx.tx_hash())
+                {
+                    eprintln!("tx not included in block: {:?}", tx.tx_hash());
+                }
+            }
+            Ok(res)
+        } else {
+            println!("submitting empty payload...");
+            self.submit_payload(None).await
+        }
     }
 
     /// Submit a deposit transaction to seed an account with ETH
@@ -484,6 +713,38 @@ impl<'a> BlockGenerator<'a> {
     }
 }
 
+/// Helper function to extract spam pools from contender test config.
+/// TODO: remove this function once it's available in the contender_core crate.
+pub fn get_spam_pools(testconfig: &TestConfig) -> Vec<String> {
+    let mut from_pools = vec![];
+    let spam = testconfig
+        .spam
+        .as_ref()
+        .expect("No spam function calls found in testfile");
+
+    for s in spam {
+        match s {
+            SpamRequest::Tx(fn_call) => {
+                if let Some(from_pool) = &fn_call.from_pool {
+                    from_pools.push(from_pool.to_owned());
+                }
+            }
+            SpamRequest::Bundle(bundle) => {
+                for tx in &bundle.txs {
+                    if let Some(from_pool) = &tx.from_pool {
+                        from_pools.push(from_pool.to_owned());
+                    }
+                }
+            }
+        }
+    }
+
+    // filter out non-unique pools
+    from_pools.sort();
+    from_pools.dedup();
+    from_pools
+}
+
 // TODO: This is not being recognized as used code by the main function
 #[allow(dead_code)]
 pub async fn run_system(
@@ -493,6 +754,9 @@ pub async fn run_system(
     flashblocks_endpoint: Option<String>,
 ) -> eyre::Result<()> {
     println!("Validation: {}", validation);
+
+    // TODO: put this somewhere else
+    let rpc_url = "http://localhost:1111";
 
     let engine_api = EngineApi::new("http://localhost:4444").unwrap();
     let validation_api = if validation {
@@ -510,6 +774,21 @@ pub async fn run_system(
     );
 
     generator.init().await?;
+
+    let testfile =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/tester/fixtures/stress.toml");
+    let test_config = TestConfig::from_file(testfile.to_str().expect("invalid file path"))
+        .map_err(|e| eyre::eyre!(e.to_string()))?;
+    let db = SqliteDb::new_memory();
+
+    generator
+        .init_contender(
+            std::sync::Arc::new(db),
+            test_config,
+            Url::from_str(rpc_url)?,
+        )
+        .await?;
+    println!("Contender initialized");
 
     // Infinite loop generating blocks
     loop {
