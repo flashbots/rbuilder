@@ -271,11 +271,12 @@ impl SimulationJob {
         for new_commnad in new_commands {
             match new_commnad {
                 OrderPoolCommand::Insert(order) => {
-                    if !self.process_new_order(order.clone()) {
-                        return false;
-                    }
+                    // This is not unrecoverable error, so if it fails, we ignore it and try processing next order
+                    let _success = self.process_new_order(order.clone());
                 }
                 OrderPoolCommand::Remove(order_id) => {
+                    // Returns false if channel is closed,
+                    // In that case there is no need to process any new orders or cancellations for this slot
                     if !self.process_order_cancellation(order_id).await {
                         return false;
                     }
