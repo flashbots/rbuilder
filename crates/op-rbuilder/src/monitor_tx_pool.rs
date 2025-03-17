@@ -12,31 +12,50 @@ pub async fn monitor_tx_pool(mut new_transactions: AllTransactionsEvents<OpPoole
 fn transaction_event_log(event: FullTransactionEvent<OpPooledTransaction>) {
     match event {
         FullTransactionEvent::Pending(hash) => {
-            debug!("Transaction event: tx={:?}, kind=pending", hash)
+            debug!(
+                tx_hash = hash.to_string(),
+                kind = "pending",
+                "Transaction event received"
+            )
         }
         FullTransactionEvent::Queued(hash) => {
-            debug!("Transaction event: tx={:?}, kind=queued", hash)
+            debug!(
+                tx_hash = hash.to_string(),
+                kind = "queued",
+                "Transaction event received"
+            )
         }
         FullTransactionEvent::Mined {
             tx_hash,
             block_hash,
         } => debug!(
-            "Transaction event: tx={:?}, kind=mined, block={:?}",
-            tx_hash, block_hash
+            tx_hash = tx_hash.to_string(),
+            kind = "mined",
+            block_hash = block_hash.to_string(),
+            "Transaction event received"
         ),
         FullTransactionEvent::Replaced {
             transaction,
             replaced_by,
         } => debug!(
-            "Transaction event: tx={:?}, kind=replaced, replaced_by={:?}",
-            transaction.hash(),
-            replaced_by
+            tx_hash = transaction.hash().to_string(),
+            kind = "replaced",
+            replaced_by = replaced_by.to_string(),
+            "Transaction event received"
         ),
         FullTransactionEvent::Discarded(hash) => {
-            debug!("Transaction event: tx={:?}, kind=discarded", hash)
+            debug!(
+                tx_hash = hash.to_string(),
+                kind = "discarded",
+                "Transaction event received"
+            )
         }
         FullTransactionEvent::Invalid(hash) => {
-            debug!("Transaction event: tx={:?}, kind=invalid", hash)
+            debug!(
+                tx_hash = hash.to_string(),
+                kind = "invalid",
+                "Transaction event received"
+            )
         }
         FullTransactionEvent::Propagated(_propagated) => {}
     }
