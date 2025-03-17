@@ -1,4 +1,5 @@
-use alloy_primitives::Address;
+use alloy_eips::BlockNumberOrTag;
+use alloy_primitives::{Address, B256};
 use clap::Parser;
 use op_rbuilder::tester::*;
 
@@ -31,6 +32,7 @@ enum Commands {
         #[clap(long, short, action)]
         flashblocks_endpoint: Option<String>,
     },
+    Crash {},
     /// Deposit funds to the system
     Deposit {
         #[clap(long, help = "Address to deposit funds to")]
@@ -59,6 +61,29 @@ async fn main() -> eyre::Result<()> {
                 flashblocks_endpoint,
             )
             .await
+        }
+        Commands::Crash {} => {
+            let engine_api = EngineApi::new("http://localhost:4444").unwrap();
+            let block = engine_api.latest().await?.unwrap();
+
+            // fork two blocks behind
+            let fork_header = engine_api
+                .get_block_by_number(BlockNumberOrTag::Number(block.header.number - 1), false)
+                .await?
+                .unwrap()
+                .header;
+
+            println!(
+                "fork header {:?} {:?}",
+                fork_header.parent_hash, fork_header.hash
+            );
+
+            let fork_choice_updated = engine_api
+                .update_forkchoice(fork_header.parent_hash, fork_header.hash, None)
+                .await?;
+
+            println!("fork choice updated {:?}", fork_choice_updated);
+            Ok(())
         }
         Commands::Deposit { address, amount } => {
             let engine_api = EngineApi::builder().build().unwrap();
