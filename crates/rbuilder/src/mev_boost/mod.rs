@@ -805,6 +805,7 @@ mod tests {
                     coinbase_reward: Default::default(),
                     top_competitor_bid: None,
                 },
+                order_ids: vec![],
             },
         };
         relay
