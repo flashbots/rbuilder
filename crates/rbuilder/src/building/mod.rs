@@ -17,13 +17,12 @@ use reth_primitives::BlockBody;
 use reth_primitives_traits::{proofs, Block as _};
 
 use crate::{
-    live_builder::payload_events::InternalPayloadId,
+    live_builder::{block_list_provider::BlockList, payload_events::InternalPayloadId},
     primitives::{Order, OrderId, SimValue, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs},
     provider::RootHasher,
     roothash::RootHashError,
-    utils::{a2r_withdrawal, timestamp_as_u64, Signer},
+    utils::{a2r_withdrawal, default_cfg_env, timestamp_as_u64, Signer},
 };
-use ahash::HashSet;
 use alloy_eips::{
     eip1559::{calculate_block_gas_limit, ETHEREUM_BLOCK_GAS_LIMIT_30M},
     eip4844::BlobTransactionSidecar,
@@ -68,7 +67,6 @@ use thiserror::Error;
 use time::OffsetDateTime;
 
 use self::tracers::SimulationTracer;
-use crate::utils::default_cfg_env;
 pub use block_orders::*;
 pub use built_block_trace::*;
 #[cfg(test)]
@@ -87,7 +85,7 @@ pub struct BlockBuildingContext {
     /// None: coinbase = attributes.suggested_fee_recipient. No payoffs allowed.
     /// Some(signer): coinbase = signer.
     pub builder_signer: Option<Signer>,
-    pub blocklist: HashSet<Address>,
+    pub blocklist: BlockList,
     pub extra_data: Vec<u8>,
     /// Excess blob gas calculated from the parent block header
     pub excess_blob_gas: Option<u64>,
@@ -106,7 +104,7 @@ impl BlockBuildingContext {
         parent: &Header,
         signer: Signer,
         chain_spec: Arc<ChainSpec>,
-        blocklist: HashSet<Address>,
+        blocklist: BlockList,
         prefer_gas_limit: Option<u64>,
         extra_data: Vec<u8>,
         spec_id: Option<SpecId>,
@@ -186,7 +184,7 @@ impl BlockBuildingContext {
         onchain_block: alloy_rpc_types::Block,
         chain_spec: Arc<ChainSpec>,
         spec_id: Option<SpecId>,
-        blocklist: HashSet<Address>,
+        blocklist: BlockList,
         coinbase: Address,
         suggested_fee_recipient: Address,
         builder_signer: Option<Signer>,

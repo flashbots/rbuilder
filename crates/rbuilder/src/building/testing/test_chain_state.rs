@@ -1,8 +1,8 @@
+use crate::live_builder::block_list_provider::BlockList;
 use crate::provider::RootHasher;
 use crate::roothash::RootHashContext;
 use crate::utils::RootHasherImpl;
 use crate::{building::BlockBuildingContext, utils::Signer};
-use ahash::HashSet;
 use alloy_consensus::{Block, Header, TxEip1559};
 use alloy_primitives::{
     keccak256, utils::parse_ether, Address, BlockHash, Bytes, TxKind as TransactionKind, B256, B64,
@@ -295,7 +295,7 @@ struct TestBlockContextBuilder {
     parent_gas_used: u64,
     parent_hash: BlockHash,
     chain_spec: Arc<ChainSpec>,
-    blocklist: HashSet<Address>,
+    blocklist: BlockList,
     prefer_gas_limit: Option<u64>,
     use_suggested_fee_recipient_as_coinbase: bool,
     root_hasher: Arc<dyn RootHasher>,

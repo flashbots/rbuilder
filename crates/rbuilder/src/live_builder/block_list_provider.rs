@@ -13,6 +13,7 @@ use url::Url;
 
 use crate::telemetry::update_blocklist_metrics;
 
+/// List of flagged addresses to be blocked from being included in blocks
 pub type BlockList = HashSet<Address>;
 
 #[derive(Debug, thiserror::Error)]
