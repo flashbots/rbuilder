@@ -272,6 +272,9 @@ impl<Pool, Client, EvmConfig, N: NodePrimitives>
         )
     }
 
+    // TODO: we will move supervisor_url and supervisor_safety_level into OpBuilderConfig to reduce
+    // number of args
+    #[allow(clippy::too_many_arguments)]
     pub fn with_builder_config(
         evm_config: EvmConfig,
         builder_signer: Option<Signer>,
@@ -282,6 +285,7 @@ impl<Pool, Client, EvmConfig, N: NodePrimitives>
         supervisor_safety_level: Option<String>,
         config: OpBuilderConfig,
     ) -> Self {
+        // TODO: we should make this client required if interop hardfork enabled, add this after spec rebase
         let supervisor_client = supervisor_url.map(|url| {
             SupervisorValidator::new(
                 HttpClientBuilder::default()
@@ -1441,6 +1445,7 @@ fn estimate_gas_for_builder_tx(input: Vec<u8>) -> u64 {
 /// Returns (is_valid, is_recoverable)
 pub fn is_cross_tx_valid<N: NodePrimitives>(
     tx: &N::SignedTx,
+    // TODO: after spec rebase we must make this field not optional
     client: Option<&SupervisorValidator>,
     safety_level: SafetyLevel,
     timestamp: u64,
@@ -1464,6 +1469,7 @@ pub fn is_cross_tx_valid<N: NodePrimitives>(
                 Ok(()) => (true, true),
                 Err(err) => {
                     match err {
+                        // TODO: we should add reconnecting to supervisor in case of disconnect
                         InteropTxValidatorError::SupervisorServerError(err) => {
                             warn!(target: "payload_builder", %err, ?tx, "Supervisor error, skipping.");
                             metrics.inc_num_cross_chain_tx_server_error();

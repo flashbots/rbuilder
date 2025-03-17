@@ -44,7 +44,7 @@ pub struct OpRbuilderArgs {
     pub supervisor_url: Option<Url>,
     /// URL of the supervisor service for transaction validation
     #[arg(
-        long = "rollup.supervisor-url",
+        long = "rollup.supervisor_safety_level",
         env = "SUPERVISOR_SAFETY_LEVEL",
         help = "Safety level to pass to supervisor, values: finalized, safe, local-safe, cross-unsafe, unsafe, invalid"
     )]
