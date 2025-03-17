@@ -44,6 +44,7 @@ const SIM_FAILED_NON_CRITICAL_ERRORS: &[&str] = &[
     "unknown ancestor",
     "missing trie node",
     "parent block not found", // Generated from time to time from agnostic relay "simulation failed: parent block not found"
+    "block is too old, outside validation window", // Generated from time to time from agnostic relay in the end of the slot
 ];
 
 // @Org consolidate with primitives::mev_boost
