@@ -54,7 +54,7 @@ pub use sim::simulate_order;
 use std::{hash::Hash, str::FromStr, sync::Arc};
 use thiserror::Error;
 use time::OffsetDateTime;
-use tracing::{error, trace};
+use tracing::{error};
 
 #[derive(Debug, Clone)]
 pub struct BlockBuildingContext {
@@ -238,6 +238,10 @@ impl BlockBuildingContext {
         }
     }
 
+    pub fn set_suggested_fee_recipient(&mut self, fee_recipient: Address) {
+        self.attributes.suggested_fee_recipient = fee_recipient;
+    }
+
     pub fn modify_use_suggested_fee_recipient_as_coinbase(&mut self) {
         self.builder_signer = None;
         self.block_env.coinbase = self.attributes.suggested_fee_recipient;
@@ -275,7 +279,8 @@ impl Sorting {
             Sorting::MevGasPrice => vec![sim_value.mev_gas_price, U256::ZERO, U256::ZERO],
             Sorting::MaxProfit => vec![sim_value.coinbase_profit, U256::ZERO, U256::ZERO],
             Sorting::Preconf => vec![
-                sim_value.avg_bid_price.unwrap_or_default(),
+                sim_value.preconf_ordering.unwrap_or(U256::ZERO), // no preconf ordering if public mempool tx
+                sim_value.preconf_bid_price.unwrap_or(U256::ZERO), // no bid price if public mempool tx
                 sim_value.mev_gas_price,
             ],
         }
@@ -416,6 +421,10 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         self.gas_reserved = gas;
     }
 
+    pub fn deduct_reserve_gas(&mut self, gas: u64) {
+        self.gas_reserved -= gas;
+    }
+
     pub fn free_reserved_gas(&mut self) {
         self.gas_reserved = 0;
     }
@@ -455,7 +464,8 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             ok_result.gas_used,
             ok_result.blob_gas_used,
             ok_result.paid_kickbacks.clone(),
-            ok_result.avg_bid_price,
+            ok_result.preconf_bid_price,
+            ok_result.preconf_ordering
         );
         if let Some(enforce_sorting) = self.enforce_sorting {
             match enforce_inplace_sim_result(enforce_sorting, &order.sim_value, &inplace_sim_result)
@@ -540,6 +550,100 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         Ok(())
     }
 
+    pub fn insert_bottom_preconf(
+        &mut self,
+        bottom_preconf: &SimulatedOrder,
+        bottom_preconf_gas: u64,
+        ctx: &BlockBuildingContext,
+        state: &mut BlockState,
+    ) -> Result<Result<ExecutionResult, ExecutionError>, OrderErr> {
+        self.deduct_reserve_gas(bottom_preconf_gas);
+        let mut fork = PartialBlockFork::new(state).with_tracer(&mut self.tracer);
+        let execution_result = match fork.commit_order(
+            &bottom_preconf.order,
+            ctx,
+            self.gas_used,
+            self.gas_reserved,
+            self.blob_gas_used,
+            self.discard_txs,
+        ) {
+            Ok(ok) => ok,
+            Err(e) => {
+                return Err(OrderErr::Bundle(BundleErr::FailedToCommitBottomPreconf(e.to_string())));
+            }
+        };
+        match execution_result {
+            Ok(ok_result) => {
+                let inplace_sim_result = SimValue::new(
+                    ok_result.coinbase_profit,
+                    ok_result.gas_used,
+                    ok_result.blob_gas_used,
+                    ok_result.paid_kickbacks.clone(),
+                    ok_result.preconf_bid_price,
+                    ok_result.preconf_ordering
+                );
+                self.gas_used += ok_result.gas_used;
+                self.blob_gas_used += ok_result.blob_gas_used;
+                self.coinbase_profit += ok_result.coinbase_profit;
+                self.executed_tx.extend(ok_result.txs.clone());
+                self.receipts.extend(ok_result.receipts.clone());
+
+                Ok(Ok(ExecutionResult {
+                    coinbase_profit: ok_result.coinbase_profit,
+                    inplace_sim: inplace_sim_result,
+                    gas_used: ok_result.gas_used,
+                    order: bottom_preconf.order.clone(),
+                    txs: ok_result.txs,
+                    original_order_ids: ok_result.original_order_ids,
+                    receipts: ok_result.receipts,
+                    nonces_updated: ok_result.nonces_updated,
+                    paid_kickbacks: ok_result.paid_kickbacks,
+                }))
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+
+    pub fn insert_self_payout_tx(
+        &mut self,
+        gas_limit: u64,
+        value: U256,
+        ctx: &BlockBuildingContext,
+        state: &mut BlockState,
+    ) -> Result<(), InsertPayoutTxErr> {
+        let builder_signer = ctx
+            .builder_signer
+            .as_ref()
+            .ok_or(InsertPayoutTxErr::NoSigner)?;
+        self.deduct_reserve_gas(gas_limit);
+        let nonce = state
+            .nonce(builder_signer.address)
+            .map_err(CriticalCommitOrderError::Reth)?;
+        let tx = create_payout_tx(
+            ctx.chain_spec.as_ref(),
+            ctx.block_env.basefee,
+            builder_signer,
+            nonce,
+            builder_signer.address,
+            gas_limit,
+            value.to(),
+        )?;
+        // payout tx has no blobs so it's safe to unwrap
+        let tx = TransactionSignedEcRecoveredWithBlobs::new_no_blobs(tx).unwrap();
+        let mut fork = PartialBlockFork::new(state).with_tracer(&mut self.tracer);
+        let exec_result = fork.commit_tx(&tx, ctx, self.gas_used, 0, self.blob_gas_used)?;
+        let ok_result = exec_result?;
+        if !ok_result.receipt.success {
+            return Err(InsertPayoutTxErr::PayoutTxReverted);
+        }
+        self.gas_used += ok_result.gas_used;
+        self.blob_gas_used += ok_result.blob_gas_used;
+        self.executed_tx.push(ok_result.tx);
+        self.receipts.push(ok_result.receipt);
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn finalize<DB: reth_db::database::Database + Clone + 'static>(
         self,
@@ -549,7 +653,6 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         root_hash_mode: RootHashMode,
         root_hash_task_pool: BlockingTaskPool,
     ) -> eyre::Result<FinalizeResult> {
-        trace!("start finalize");
         let (withdrawals_root, withdrawals) = {
             let mut db = state.new_db_ref();
             let WithdrawalsOutcome {
@@ -566,7 +669,6 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         };
 
         let (cached_reads, bundle) = state.into_parts();
-        trace!("new bundle");
 
         let bundle = BundleStateWithReceipts::new(
             bundle,
@@ -585,7 +687,6 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         let logs_bloom = bundle
             .block_logs_bloom(block_number)
             .expect("Number is in range");
-        trace!("calculate_state_root");
 
         let state_root = calculate_state_root(
             provider_factory,
@@ -594,7 +695,6 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             root_hash_mode,
             root_hash_task_pool,
         )?;
-        trace!("calculate_transaction_root");
 
         // create the block header
         let transactions_root = proofs::calculate_transaction_root(&self.executed_tx);
@@ -611,7 +711,6 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
                 }
             }
         }
-        trace!("finalize should be done");
 
         let mut txs_blob_sidecars = Vec::new();
         let (excess_blob_gas, blob_gas_used) = if ctx
@@ -627,7 +726,6 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         } else {
             (None, None)
         };
-        trace!("is_cancun_active_at_timestamp");
 
         let header = Header {
             parent_hash: ctx.attributes.parent,
@@ -721,18 +819,6 @@ fn enforce_inplace_sim_result(
     sim_result: &SimValue,
     inplace_sim_result: &SimValue,
 ) -> Result<(), ExecutionError> {
-    // let (sim_value, inplace_value) = (
-    //     sort.sorting_value(sim_result),
-    //     sort.sorting_value(inplace_sim_result),
-    // );
-    // if (inplace_value * U256::from(100)) < (sim_value * U256::from(95)) {
-    //     Err(ExecutionError::LowerInsertedValue {
-    //         before: sim_result.clone(),
-    //         inplace: inplace_sim_result.clone(),
-    //     })
-    // } else {
-    //     Ok(())
-    // }
     let sorting_items = sort.sorting_value(sim_result);
     let inplace_sorting_items = sort.sorting_value(inplace_sim_result);
     for i in 0..sorting_items.len() {

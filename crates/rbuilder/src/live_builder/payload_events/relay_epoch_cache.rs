@@ -7,7 +7,7 @@ use alloy_primitives::Address;
 use futures::stream::FuturesOrdered;
 use primitive_types::H384;
 use tokio_stream::StreamExt;
-use tracing::{info_span, trace, warn};
+use tracing::{info_span, warn};
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct SlotData {
@@ -94,11 +94,9 @@ impl RelaysForSlotData {
             let _span_guard = span.enter();
             let relay_data = match res {
                 Ok(Some(res)) => {
-                    trace!("Got slot data from the relay");
                     res
                 }
                 Ok(None) => {
-                    trace!("Relay does not have slot data");
                     continue;
                 }
                 Err(err) => {

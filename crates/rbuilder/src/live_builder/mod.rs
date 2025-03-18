@@ -8,6 +8,7 @@ pub mod payload_events;
 pub mod simulation;
 mod watchdog;
 
+use crate::preconf::{PreconfConfig, PreconfInfo};
 use crate::{
     building::{
         builders::{BlockBuildingAlgorithm, BuilderSinkFactory},
@@ -38,8 +39,7 @@ use std::{cmp::min, path::PathBuf, sync::Arc, time::Duration};
 use time::OffsetDateTime;
 use tokio::task::spawn_blocking;
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info, warn};
-use crate::preconf::{PreconfConfig};
+use tracing::{debug, error, info, warn};
 
 /// Time the proposer have to propose a block from the beginning of the slot (https://www.paradigm.xyz/2023/04/mev-boost-ethereum-consensus Slot anatomy)
 const SLOT_PROPOSAL_DURATION: std::time::Duration = Duration::from_secs(4);
@@ -127,17 +127,18 @@ where
             chan
         };
 
-        let (orderpool_subscriber, preconf_info_sender) = {
-            let (handle, sub, sender) = start_orderpool_jobs(
-                self.order_input_config,
-                self.preconf_config,
-                self.provider_factory.clone(),
-                self.extra_rpc,
-                self.global_cancellation.clone(),
-            )
-            .await?;
+        let (orderpool_subscriber, preconf_info_sender, mut preconf_reserved_receiver, preconf_state_handler) = {
+            let (handle, sub, preconf_info, preconf_reserved, preconf_state) =
+                start_orderpool_jobs(
+                    self.order_input_config,
+                    self.preconf_config,
+                    self.provider_factory.clone(),
+                    self.extra_rpc,
+                    self.global_cancellation.clone(),
+                )
+                .await?;
             inner_jobs_handles.push(handle);
-            (sub, sender)
+            (sub, preconf_info, preconf_reserved, preconf_state)
         };
 
         let order_simulation_pool = {
@@ -241,28 +242,30 @@ where
                 None,
             );
 
+            let curr_info = PreconfInfo {
+                slot: payload.slot(),
+                block_number: payload.block(),
+                timestamp: Some(payload.timestamp().unix_timestamp() as u64),
+            };
+            match preconf_info_sender.send(curr_info) {
+                Ok(_) => {
+                    debug!("sent preconf info: {:?}", curr_info);
+                }
+                Err(e) => {
+                    debug!("failed to send preconf info: {:?}, err={}", curr_info, e);
+                }
+            };
 
-            // match preconf_info_sender.send(PreconfInfo {
-            //     slot: payload.slot(),
-            //     block_number: payload.block(),
-            //     timestamp: Some(payload.timestamp().unix_timestamp() as u64),
-            // }).await {
-            //     Ok(_) => {
-            //         debug!("sent preconf info -> slot: {}, block: {}", payload.slot(), payload.block());
-            //     },
-            //     Err(e) => {
-            //         error!("preconf info sender cannot send preconf info: {:?}", e);
-            //     }
-            // }
-
-
-            builder_pool.start_block_building(
-                payload,
-                block_ctx,
-                self.global_cancellation.clone(),
-                time_until_slot_end.try_into().unwrap_or_default(),
-                preconf_info_sender.clone(),
-            );
+            builder_pool
+                .start_block_building(
+                    payload,
+                    block_ctx,
+                    self.global_cancellation.clone(),
+                    time_until_slot_end.try_into().unwrap_or_default(),
+                    &mut preconf_reserved_receiver,
+                    &preconf_state_handler
+                )
+                .await;
 
             watchdog_sender.try_send(()).unwrap_or_default();
         }

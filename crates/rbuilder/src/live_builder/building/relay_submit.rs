@@ -13,7 +13,7 @@ use crate::{
         measure_block_e2e_latency,
     },
     utils::error_storage::store_error_event,
-    validation_api_client::{ValidationError, ValidationAPIClient},
+    validation_api_client::{ValidationAPIClient, ValidationError},
 };
 use ahash::HashMap;
 use alloy_primitives::{utils::format_ether, U256};
@@ -94,7 +94,7 @@ async fn run_submit_to_relays_job(
     };
 
     let mut last_bid_value = U256::from(0);
-    let mut last_preconf_count = i32::from(0);
+    let mut last_preconf_bundle_count = i32::from(0);
     let mut last_submit_time = Instant::now();
     'submit: loop {
         if cancel.is_cancelled() {
@@ -111,11 +111,11 @@ async fn run_submit_to_relays_job(
         let block = if let Some(new_block) = best_bid.take_best_block() {
             if new_block.trace.bid_value > last_bid_value {
                 last_bid_value = new_block.trace.bid_value;
-                last_preconf_count = new_block.trace.preconf_tx_count;
+                last_preconf_bundle_count = new_block.trace.preconf_bundle_count;
                 new_block
-            } else if new_block.trace.preconf_tx_count > last_preconf_count {
+            } else if new_block.trace.preconf_bundle_count >= last_preconf_bundle_count {
                 last_bid_value = new_block.trace.bid_value;
-                last_preconf_count = new_block.trace.preconf_tx_count;
+                last_preconf_bundle_count = new_block.trace.preconf_bundle_count;
                 new_block
             } else {
                 continue 'submit;
@@ -123,12 +123,6 @@ async fn run_submit_to_relays_job(
         } else {
             continue 'submit;
         };
-        // if block.trace.preconf_tx_count > 0 {
-        //     let one: Uint<256, 4> = parse_units("1", 24).unwrap().into(); //100000ETH
-        //     block.trace.bid_value = block.trace.bid_value + one;
-        //     block.trace.true_bid_value = block.trace.true_bid_value + one;
-        // }
-        //endregion
 
         res = Some(BuiltBlockInfo {
             bid_value: block.trace.bid_value,
@@ -146,14 +140,14 @@ async fn run_submit_to_relays_job(
         let submission_optimistic =
             config.optimistic_enabled && block.trace.bid_value < config.optimistic_max_bid_value;
         let best_bid_value = slot_bidder.best_bid_value().unwrap_or_default();
-        if block.trace.preconf_tx_count > 0 {
-            debug!("before submitting to relays, preconf block's block number = {}, block hash = {}, preconf txs size = {}, block bid value = {}",
-                block.sealed_block.number, block.sealed_block.header.hash(), block.trace.preconf_tx_count, format_ether(block.trace.bid_value));
-            block.trace.included_orders.iter().for_each(|res| {
-                debug!("result ordering: order id = {}, avg_bid_price = {}, mev_gas_price = {}, coinbase_profit = {}",
-                    res.order.id(), format_ether(res.inplace_sim.avg_bid_price.unwrap_or(U256::ZERO)), format_ether(res.inplace_sim.mev_gas_price), format_ether(res.inplace_sim.coinbase_profit));
-            });
-        }
+        // if block.trace.preconf_bundle_count > 0 {
+        //     debug!("before submitting to relays, preconf block's block number = {}, block hash = {}, preconf bundle size = {}, block bid value = {}",
+        //         block.sealed_block.number, block.sealed_block.header.hash(), block.trace.preconf_bundle_count, format_ether(block.trace.bid_value));
+        //     block.trace.included_orders.iter().for_each(|res| {
+        //         debug!("result ordering: order id = {}, preconf_ordering = {}, preconf_bid_price = {}, mev_gas_price = {}, coinbase_profit = {}",
+        //             res.order.id(), res.inplace_sim.preconf_ordering.unwrap_or(U256::ZERO), format_ether(res.inplace_sim.preconf_bid_price.unwrap_or(U256::ZERO)), format_ether(res.inplace_sim.mev_gas_price), format_ether(res.inplace_sim.coinbase_profit));
+        //     });
+        // }
         let submission_span = info_span!(
             "bid",
             bid_value = format_ether(block.trace.bid_value),
@@ -216,7 +210,7 @@ async fn run_submit_to_relays_job(
                 &config,
                 cancel.clone(),
             )
-                .await
+            .await
             {
                 Ok(()) => {
                     trace!(parent: &submission_span, "Dry run validation passed");
@@ -248,7 +242,7 @@ async fn run_submit_to_relays_job(
                 async move {
                     submit_bid_to_the_relay(&relay, cancel.clone(), submission, false).await;
                 }
-                    .instrument(span),
+                .instrument(span),
             );
         }
 
@@ -262,7 +256,7 @@ async fn run_submit_to_relays_job(
                     &config,
                     cancel.clone(),
                 )
-                    .await
+                .await
                 {
                     Ok(()) => {
                         trace!(parent: &submission_span,
@@ -300,7 +294,7 @@ async fn run_submit_to_relays_job(
                         async move {
                             submit_bid_to_the_relay(&relay, cancel.clone(), submission, true).await;
                         }
-                            .instrument(span),
+                        .instrument(span),
                     );
                 }
             }
@@ -315,7 +309,7 @@ async fn run_submit_to_relays_job(
                     async move {
                         submit_bid_to_the_relay(&relay, cancel.clone(), submission, false).await;
                     }
-                        .instrument(span),
+                    .instrument(span),
                 );
             }
         }
@@ -355,7 +349,7 @@ pub async fn run_submit_to_relays_job_and_metrics(
         cancel,
         slot_bidder,
     )
-        .await;
+    .await;
     if let Some(best_bid) = best_bid {
         if best_bid.bid_value > best_bid.true_bid_value {
             inc_subsidized_blocks(false);

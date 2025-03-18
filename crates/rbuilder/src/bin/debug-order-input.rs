@@ -4,6 +4,7 @@ use ethers::{
     providers::{Ipc, Provider},
 };
 use jsonrpsee::RpcModule;
+use rbuilder::preconf::PreconfConfig;
 use rbuilder::{
     live_builder::{
         base_config::load_config_toml_and_env,
@@ -21,7 +22,6 @@ use tokio::signal::ctrl_c;
 use tokio_stream::StreamExt;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, log::debug};
-use rbuilder::preconf::PreconfConfig;
 
 #[derive(Parser, Debug)]
 struct Cli {
@@ -48,14 +48,15 @@ pub async fn main() -> eyre::Result<()> {
 
     let order_input_config = OrderInputConfig::from_config(config.base_config());
 
-    let (handle, order_pool_subscriber, _preconf_client) = start_orderpool_jobs(
-        order_input_config,
-        PreconfConfig::new(None, None, None, "".to_string()),
-        provider_factory,
-        RpcModule::new(()),
-        cancel.clone(),
-    )
-    .await?;
+    let (handle, order_pool_subscriber, _preconf_sender, _preconf_rx, _preconf_state) =
+        start_orderpool_jobs(
+            order_input_config,
+            PreconfConfig::new(None, None, None, None, "".to_string()),
+            provider_factory,
+            RpcModule::new(()),
+            cancel.clone(),
+        )
+        .await?;
 
     let ipc = Ipc::connect(config.base_config().el_node_ipc_path.clone()).await?;
     let provider = Provider::new(ipc);

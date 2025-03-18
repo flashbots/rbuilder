@@ -1,20 +1,22 @@
-#![allow(unused)]
 use crate::live_builder::order_input::preconf_fetcher::WS_READ_TIMEOUT_PERIOD;
-use crate::preconf::{eth_to_wei, string_to_uuid, PreconfError, PreconfInfo};
+use crate::preconf::{
+    assign_preconf_ordering, convert_timestamp_ns, eth_to_wei, string_to_uuid, PreconfBundleType,
+    PreconfError, PreconfHealthStatus, PreconfInfo, PreconfReservedInfo, PreconfState,
+};
 use crate::primitives::{
     Bundle, BundleReplacementData, BundleReplacementKey, Metadata, Order,
     TransactionSignedEcRecoveredWithBlobs,
 };
-use alloy_primitives::{hex, Bytes, B256};
+use alloy_primitives::{hex, keccak256, Bytes, B256};
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::{Arc};
+use std::sync::Arc;
 use std::time::Duration;
+use time::OffsetDateTime;
 use tokio::net::TcpStream;
-use tokio::sync::mpsc::Sender;
-use tokio::sync::RwLock;
+use tokio::sync::{mpsc, watch, RwLock};
 use tokio::time::timeout;
 use tokio_tungstenite::tungstenite::{Error, Message};
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
@@ -71,14 +73,14 @@ struct PreconfLoginMessage {
 #[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 enum PreconfQueryType {
-    PreConfMarket,
+    PreconfMarket,
     PreconfBundles,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 enum PreconfChannel {
-    PreConfMarketUpdate,
+    PreconfMarketUpdate,
     // MarketPriceHistory,
     // RecentTrades,
     // OrderBook,
@@ -97,9 +99,9 @@ enum PreconfMarketType {
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 enum WebsocketEvent {
-    Subscription(SubscriptionEvent),
     Data(DataEvent),
     Log(LogEvent),
+    Subscription(SubscriptionEvent),
     Connection(ConnectionEvent),
     QueryResponse(WsQueryResponse),
 }
@@ -161,7 +163,7 @@ enum WsQueryData {
 #[serde(untagged)]
 enum WsStreamData {
     CurrentSlot(CurrentSlotData),
-    PreConfMarketUpdate(PreConfMarketUpdateData),
+    PreconfMarketUpdate(PreconfMarketUpdateData),
     PreconfBundleUpdate(PreconfBundles),
 }
 #[derive(Debug, Deserialize, Eq, PartialEq, Default)]
@@ -175,7 +177,7 @@ struct CurrentSlotData {
 }
 
 #[derive(Debug, Deserialize, Eq, PartialEq, Default)]
-pub struct PreConfMarketUpdateData {
+pub struct PreconfMarketUpdateData {
     #[serde(rename = "s")]
     slot: u64,
     #[serde(rename = "M")]
@@ -184,12 +186,16 @@ pub struct PreConfMarketUpdateData {
     trx_submit_time: u64,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PreconfBundles {
     #[serde(rename = "s")]
     slot: u64,
     #[serde(rename = "bu")]
     bundles: Vec<PreconfBundle>,
+    #[serde(rename = "e")]
+    empty_space: u64,
+    #[serde(rename = "r", skip_serializing_if = "Option::is_none")]
+    fee_recipient: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -198,7 +204,11 @@ pub struct PreconfBundle {
     replacement_uuid: String,
     txs: Vec<PreconfTx>,
     #[serde(rename = "p")]
-    average_bid_price: String,
+    bid_price: String,
+    #[serde(rename = "o", skip_serializing_if = "Option::is_none")]
+    ordering: Option<i8>,
+    #[serde(rename = "B", skip_serializing_if = "Option::is_none")]
+    bundle_type: Option<PreconfBundleType>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -213,7 +223,7 @@ struct PreconfTx {
 
 // To skip PartialEq on PreconfBundles
 impl PartialEq for PreconfBundles {
-    fn eq(&self, other: &Self) -> bool {
+    fn eq(&self, _other: &Self) -> bool {
         true
     }
 }
@@ -224,53 +234,59 @@ pub struct PreconfWsClient {
     pub ws_url: String,
     pub ws_reader: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     pub ws_writer: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
-    pub order_sender: Sender<Order>,
-    pub market_info: Arc<RwLock<HashMap<u64, u64>>>, // slot as key, utc timestamp as value
-    pub access_token: Arc<RwLock<Option<String>>>,
+    pub order_sender: mpsc::Sender<Order>,
+    pub info_receiver: watch::Receiver<PreconfInfo>,
+    pub reserved_sender: watch::Sender<PreconfReservedInfo>,
     pub is_logged_in: bool,
-    pub is_fallback_enabled: Arc<RwLock<bool>>,
     pub retry_count: u32,
     pub max_retries: u32,
     pub retry_base_delay_ms: u64,
+    pub state: PreconfState,
 }
 
 impl PreconfWsClient {
-    pub async fn login(&mut self, curr_preconf_info: PreconfInfo) {
+    pub async fn login(&mut self) {
         self.send_ping().await;
         let login_text;
         {
-            let access_token_reader = self.access_token.read().await;
-            let access_token = access_token_reader.clone().unwrap();
+            let guard = self.state.access_token.read().await;
+            let access_token = guard.clone();
+            if access_token.is_none() {
+                error!("please login on preconf api client first.");
+                return;
+            };
             let args = vec![PreconfArg::PreconfLogin(PreconfLoginMessage {
-                access_token,
+                access_token: access_token.unwrap(),
             })];
             login_text = self.create_ws_message(OpCode::Login, args);
         }
         self.send_message(login_text).await;
         // Wait for login confirmation
         while !self.is_logged_in {
-            debug!("waiting login confirmation...");
-            self.read_stream(curr_preconf_info.clone()).await;
+            // debug!("waiting login confirmation...");
+            self.read_stream().await;
         }
         self.subscribe().await;
     }
 
-    pub async fn re_login_with_retry(&mut self, curr_preconf_info: PreconfInfo) {
+    pub async fn re_login_with_retry(&mut self) {
         while self.retry_count < self.max_retries {
             info!("re-logging in to preconf websocket server...");
             let delay = self.retry_base_delay_ms * (2_u64.pow(self.retry_count));
             tokio::time::sleep(Duration::from_millis(delay)).await;
-            self.re_login().await;
-            let retry;
-            {
-                let fallback_enabled = self.is_fallback_enabled.read().await;
-                retry = *fallback_enabled;
-            }
-            if !retry {
+            let is_connected = self.reconnect().await;
+            if is_connected {
                 // Re-login successful
                 self.retry_count = 0;
-                self.login(curr_preconf_info.clone()).await;
+                self.login().await;
                 if self.is_logged_in {
+                    // Move the health_guard into a separate scope
+                    {
+                        let mut health_guard = self.state.health_status.write().await;
+                        *health_guard = PreconfHealthStatus::WsEnabled;
+                    } // health_guard is dropped here
+                    let curr_info = self.info_receiver.borrow().clone();
+                    self.get_preconf_bundles(curr_info.slot).await;
                     return;
                 }
             }
@@ -291,32 +307,25 @@ impl PreconfWsClient {
         }
     }
 
-    pub async fn re_login(&mut self) {
+    pub async fn reconnect(&mut self) -> bool {
         match connect_async(self.ws_url.as_str()).await {
             Ok((socket, resp)) => {
-                if resp.status().as_u16() != 101 {
-                    let mut guard = self.is_fallback_enabled.write().await;
-                    *guard = true;
-                    return;
+                if resp.status().as_u16() == 101 {
+                    let (ws_writer, ws_reader) = socket.split();
+                    self.ws_reader = ws_reader;
+                    self.ws_writer = ws_writer;
+                    return true;
                 }
-                let (ws_writer, ws_reader) = socket.split();
-                self.ws_reader = ws_reader;
-                self.ws_writer = ws_writer;
-                let mut guard = self.is_fallback_enabled.write().await;
-                *guard = false;
             }
-            Err(_) => {
-                let mut guard = self.is_fallback_enabled.write().await;
-                *guard = true;
-                return;
-            }
+            Err(_) => {}
         };
+        false
     }
 
     async fn subscribe(&mut self) {
         let args = vec![
             PreconfArg::PreconfChannel(PreconfChannelMessage {
-                channel: PreconfChannel::PreConfMarketUpdate,
+                channel: PreconfChannel::PreconfMarketUpdate,
                 market_type: Some(PreconfMarketType::InclusionPreconf),
             }),
             PreconfArg::PreconfChannel(PreconfChannelMessage {
@@ -335,18 +344,18 @@ impl PreconfWsClient {
             }
             Err(e) => {
                 error!("failed to send ws message: {:?}, Error: {:?}", msg, e);
-                let mut guard = self.is_fallback_enabled.write().await;
-                *guard = true;
+                let mut guard = self.state.health_status.write().await;
+                *guard = PreconfHealthStatus::FallbackEnabled;
                 self.is_logged_in = false;
             }
         }
     }
 
-    pub async fn get_preconf_bundles(&mut self, slot: Option<u64>) {
+    pub async fn get_preconf_bundles(&mut self, slot: u64) {
         let args = vec![PreconfArg::PreconfQuery(PreconfQueryMessage {
             query_type: PreconfQueryType::PreconfBundles,
             market_type: None,
-            slot,
+            slot: Some(slot),
         })];
         let query_text = self.create_ws_message(OpCode::Query, args);
         self.send_message(query_text).await;
@@ -362,10 +371,10 @@ impl PreconfWsClient {
         self.send_message(Message::Text("ping".into())).await;
     }
 
-    pub async fn read_stream(&mut self, curr_preconf_info: PreconfInfo) {
+    pub async fn read_stream(&mut self) {
         match timeout(WS_READ_TIMEOUT_PERIOD, self.ws_reader.next()).await {
             Ok(Some(Ok(Message::Text(text)))) => {
-                self.on_message(text, curr_preconf_info).await;
+                self.on_message(text).await;
             }
             Ok(Some(Ok(Message::Close(_)))) => {
                 self.on_close().await;
@@ -380,32 +389,42 @@ impl PreconfWsClient {
         }
     }
 
-    async fn on_message(&mut self, text: String, curr_preconf_info: PreconfInfo) {
+    async fn on_message(&mut self, text: String) {
         if text.eq("pong") {
             return;
         }
-        debug!("Received Websocket Text: {}", text);
+        // debug!("Received Websocket Text: {}", text);
         match serde_json::from_str::<WebsocketEvent>(&text) {
             Ok(event) => match event {
                 WebsocketEvent::Data(DataEvent { event, data, .. }) => match (event, data) {
                     (
-                        PreconfChannel::PreConfMarketUpdate,
-                        WsStreamData::PreConfMarketUpdate(data),
+                        PreconfChannel::PreconfMarketUpdate,
+                        WsStreamData::PreconfMarketUpdate(data),
                     ) => {
-                        let curr_market_info = Arc::clone(&self.market_info);
+                        let market_info = Arc::clone(&self.state.market_info);
                         tokio::spawn(async move {
-                            process_preconf_market_update(curr_market_info, data).await;
+                            process_preconf_market_update(market_info, data).await;
                         });
                     }
                     (
                         PreconfChannel::PreconfBundleUpdate,
                         WsStreamData::PreconfBundleUpdate(data),
                     ) => {
+                        let curr_info = self.info_receiver.borrow_and_update().clone();
+                        if data.slot != curr_info.slot {
+                            warn!("received preconf bundle stream event slot ({}) is not match with current rpc slot ({}).",data.slot, curr_info.slot);
+                        }
                         let sender = self.order_sender.clone();
+                        let reserved_info = PreconfReservedInfo {
+                            slot: data.slot.clone(),
+                            empty_space: data.empty_space.clone(),
+                            fee_recipient: data.fee_recipient.clone(),
+                        };
                         tokio::spawn(async move {
-                            debug!("Received Websocket Get Bundles Stream: {}", text);
-                            process_preconf_bundles(&sender, data, curr_preconf_info).await;
+                            debug!("received ws get bundle stream event: {}", text);
+                            process_preconf_bundles(&sender, data, curr_info).await;
                         });
+                        self.reserved_sender.send(reserved_info).unwrap();
                     }
                     (PreconfChannel::CurrentSlot, WsStreamData::CurrentSlot(data)) => {
                         trace!("Received current slot event: {:?}", data);
@@ -417,11 +436,22 @@ impl PreconfWsClient {
                 WebsocketEvent::QueryResponse(WsQueryResponse { query_type, data }) => {
                     match (query_type, data) {
                         (PreconfQueryType::PreconfBundles, WsQueryData::PreconfBundles(data)) => {
+                            let curr_info = self.info_receiver.borrow_and_update().clone();
+                            if data.slot != curr_info.slot {
+                                warn!("received preconf bundle query event slot ({}) is not match with current rpc slot ({}).",data.slot, curr_info.slot);
+                            }
+
                             let sender = self.order_sender.clone();
+                            let reserved_info = PreconfReservedInfo {
+                                slot: data.slot.clone(),
+                                empty_space: data.empty_space.clone(),
+                                fee_recipient: data.fee_recipient.clone(),
+                            };
                             tokio::spawn(async move {
-                                debug!("Received Websocket Get Bundles Stream: {}", text);
-                                process_preconf_bundles(&sender, data, curr_preconf_info).await;
+                                debug!("received ws get bundle query response: {}", text);
+                                process_preconf_bundles(&sender, data, curr_info).await;
                             });
+                            self.reserved_sender.send(reserved_info).unwrap();
                         }
                         (query_type, data) => {
                             error!(
@@ -435,16 +465,33 @@ impl PreconfWsClient {
                     trace!("Received log event: {:?}", log_event);
                     if log_event.event == OpCode::Login {
                         self.is_logged_in = true;
-                        info!("preconf websocket client logged in.");
+                        info!(
+                            "preconf websocket client(id={}) logged in.",
+                            log_event.conn_id
+                        );
                     } else if log_event.event == OpCode::Error {
-                        error!("received websocket error: {:?}", log_event);
+                        error!(
+                            "received websocket error message={}, code={}",
+                            log_event.msg, log_event.code
+                        );
                     }
                 }
                 WebsocketEvent::Subscription(sub_event) => {
-                    trace!("Received subscription event: {:?}", sub_event);
+                    trace!(
+                        "Received subscription event: {:?}, {:?}, {:?}",
+                        sub_event.event,
+                        sub_event.conn_id,
+                        sub_event.arg
+                    );
                 }
                 WebsocketEvent::Connection(connection_event) => {
-                    trace!("Received connection event: {:?}", connection_event);
+                    trace!(
+                        "Received connection event: {:?}, {:?}, {:?}, {:?}",
+                        connection_event.channel,
+                        connection_event.conn_id,
+                        connection_event.count,
+                        connection_event.event
+                    );
                 }
             },
             Err(e) => {
@@ -455,8 +502,8 @@ impl PreconfWsClient {
 
     async fn on_close(&mut self) {
         error!("Preconf Websocket connection is closed");
-        let mut writer = self.is_fallback_enabled.write().await;
-        *writer = true;
+        let mut guard = self.state.health_status.write().await;
+        *guard = PreconfHealthStatus::FallbackEnabled;
         self.is_logged_in = false;
     }
 
@@ -473,8 +520,8 @@ impl PreconfWsClient {
 }
 
 pub async fn process_preconf_market_update(
-    market_info: Arc<RwLock<HashMap<u64, u64>>>,
-    market_update: PreConfMarketUpdateData,
+    market_info: Arc<RwLock<HashMap<u64, OffsetDateTime>>>,
+    market_update: PreconfMarketUpdateData,
 ) {
     trace!("Received market update event: {:?}", market_update);
     let slot = market_update.slot;
@@ -483,6 +530,7 @@ pub async fn process_preconf_market_update(
     if reader.contains_key(&slot) || reader.len() == 0 || reader.len() < 64 {
         return;
     }
+    drop(reader);
     // clean expired markets
     let mut writer = market_info.write().await;
     let til = slot - 1;
@@ -490,55 +538,48 @@ pub async fn process_preconf_market_update(
         writer.remove(&key);
     }
     // append new markets
-    writer.insert(slot, market_update.trx_submit_time);
+    let datetime = convert_timestamp_ns(market_update.trx_submit_time);
+    writer.insert(slot, datetime);
 }
 
 pub async fn process_preconf_bundles(
-    preconf_sender: &Sender<Order>,
+    order_sender: &mpsc::Sender<Order>,
     data_event: PreconfBundles,
-    curr_preconf_info: PreconfInfo,
+    preconf_info: PreconfInfo,
 ) {
-    if data_event.slot == curr_preconf_info.slot {
-        for bundle in data_event.bundles {
-            if bundle.txs.is_empty() {
-                debug!("received preconf transactions is empty");
-                return;
-            }
-            debug!("ws: generate_order_from_preconf");
-            match generate_ws_order_from_preconf(
-                curr_preconf_info.block_number,
-                curr_preconf_info.timestamp.unwrap(),
-                bundle.clone(),
-            ) {
-                Ok(preconf_order) => {
-                    debug!("Attempting to send preconf order: {:?}", preconf_order);
-                    match preconf_sender.send(preconf_order).await {
-                        Ok(_) => {
-                            debug!("Successfully sent preconf order.");
-                        }
-                        Err(err) => {
-                            error!("Failed to send preconf order: {}", err);
-                        }
+    for bundle in data_event.bundles {
+        if bundle.txs.is_empty() {
+            debug!("received preconf transactions is empty");
+            return;
+        }
+        match generate_order_from_ws_preconf(
+            preconf_info.block_number,
+            preconf_info.timestamp.unwrap(),
+            bundle.clone(),
+        ) {
+            Ok(preconf_order) => {
+                debug!("Attempting to send preconf order: {:?}", preconf_order);
+                match order_sender.send(preconf_order).await {
+                    Ok(_) => {}
+                    Err(err) => {
+                        error!("Failed to send preconf order: {}", err);
                     }
                 }
-                Err(err) => {
-                    error!("Failed to generate order from preconf: {}", err);
-                }
+            }
+            Err(err) => {
+                error!("Failed to generate order from preconf: {}", err);
             }
         }
-    } else {
-        warn!(
-            "received preconf bundle event slot ({}) is not match with current rpc slot ({}).",
-            data_event.slot, curr_preconf_info.slot
-        );
     }
 }
 
-pub fn generate_ws_order_from_preconf(
+pub fn generate_order_from_ws_preconf(
     block: u64,
     timestamp: u64,
     bundle: PreconfBundle,
 ) -> Result<Order, PreconfError> {
+    let mut metadata: Metadata = Metadata::with_current_received_at();
+    let mut raw_bundle_hash: Vec<u8> = vec![];
     let mut reverting_tx_hashes: Vec<B256> = vec![];
     let mut signer = None;
     let bundle_uuid = string_to_uuid(bundle.replacement_uuid.clone())?;
@@ -554,6 +595,7 @@ pub fn generate_ws_order_from_preconf(
                     if preconf_tx.can_revert {
                         reverting_tx_hashes.push(tx.hash());
                     };
+                    raw_bundle_hash.extend_from_slice(&tx.hash().0.to_vec());
                     signer = Some(tx.signer());
                     Some(tx)
                 }
@@ -562,22 +604,6 @@ pub fn generate_ws_order_from_preconf(
                     None
                 }
             }
-            // let tx_bytes =
-            //     hex::decode(&preconf_tx.tx.clone().trim_start_matches("0x")).unwrap();
-            // let trx = match TransactionSigned::decode(&mut tx_bytes.as_slice()) {
-            //     Ok(tx_signed) => tx_signed,
-            //     Err(err) => {
-            //         error!("cannot convert to signed transaction object, {}", err);
-            //         return None;
-            //     }
-            // };
-            // if preconf_tx.can_revert {
-            //     reverting_tx_hashes.push(trx.hash);
-            // };
-            // signer = trx.recover_signer();
-            // TransactionSignedEcRecoveredWithBlobs::new_no_blobs(
-            //     TransactionSignedEcRecovered::from_signed_transaction(trx, signer.unwrap()),
-            // )
         })
         .collect();
 
@@ -585,20 +611,21 @@ pub fn generate_ws_order_from_preconf(
         key: BundleReplacementKey::new(bundle_uuid, signer.unwrap()),
         sequence_number: 0,
     };
-
-    let mut metadata: Metadata = Default::default();
-    let avg_bid_price: f64 = bundle.average_bid_price.parse().unwrap();
-    match eth_to_wei(avg_bid_price) {
+    let bundle_hash = keccak256(raw_bundle_hash);
+    let bid_price: f64 = bundle.bid_price.parse().unwrap();
+    let preconf_ordering = assign_preconf_ordering(bundle.ordering);
+    match eth_to_wei(bid_price) {
         Ok(p) => {
-            metadata.avg_bid_price = Some(p);
+            metadata.preconf_bid_price = Some(p);
+            metadata.preconf_ordering = preconf_ordering;
             Ok(Order::Bundle(Bundle {
                 block,
                 min_timestamp: Some(timestamp),
                 max_timestamp: None,
                 txs: trxs,
                 reverting_tx_hashes,
-                hash: B256::default(),
-                uuid: bundle_uuid, //Uuid::new_v4(),
+                hash: bundle_hash,
+                uuid: bundle_uuid,
                 replacement_data: Some(replacement_data),
                 signer,
                 metadata,

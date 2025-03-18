@@ -83,7 +83,7 @@ async fn main() -> eyre::Result<()> {
             DEFAULT_RESULTS_CHANNEL_TIMEOUT,
             DEFAULT_INPUT_CHANNEL_BUFFER_SIZE,
         ),
-        preconf_config: PreconfConfig::new(None, None, None, "".to_string()),
+        preconf_config: PreconfConfig::new(None, None, None, None, "".to_string()),
         chain_chain_spec: chain_spec.clone(),
         provider_factory: create_provider_factory(
             Some(&RETH_DB_PATH.parse::<PathBuf>().unwrap()),

@@ -116,6 +116,8 @@ pub struct BaseConfig {
     // preconf websocket
     pub preconf_ws_url: Option<String>,
 
+    pub fallback_fee_recipient: Option<String>,
+
     /// mev-share bundles coming from this address are treated in a special way(see [`ShareBundleMerger`])
     pub sbundle_mergeabe_signers: Option<Vec<Address>>,
 
@@ -615,6 +617,7 @@ impl Default for BaseConfig {
             preconf_api_url: None,
             preconf_chain_id: None,
             preconf_ws_url: None,
+            fallback_fee_recipient: None,
             min_time_between_block_check_ms: None,
         }
     }

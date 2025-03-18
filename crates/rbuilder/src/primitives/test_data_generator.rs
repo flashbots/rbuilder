@@ -111,6 +111,7 @@ impl TestDataGenerator {
             if tx_info.optional {
                 reverting_tx_hashes.push(tx1.hash());
             }
+            println!("adding tx({})...", tx1.hash().to_string());
             txs.push(tx1);
         }
         let mut bundle = Bundle {

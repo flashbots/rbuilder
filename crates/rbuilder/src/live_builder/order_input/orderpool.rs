@@ -100,9 +100,6 @@ impl OrderPool {
     }
 
     fn process_order(&mut self, order: &Order) {
-        if order.is_preconf() {
-            debug!("orderpool received preconf order(id={})", order.id());
-        }
         let target_block = order.target_block();
         let order_id = order.id();
         if self

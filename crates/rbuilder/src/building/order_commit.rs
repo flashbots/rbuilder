@@ -33,7 +33,7 @@ use revm::{
 use crate::building::evm_inspector::{RBuilderEVMInspector, UsedStateTrace};
 use std::collections::HashMap;
 use thiserror::Error;
-use tracing::{error};
+use tracing::error;
 
 #[derive(Clone)]
 pub struct BlockState<'a> {
@@ -235,6 +235,8 @@ pub enum BundleErr {
         // if none, tx just reverted
         err: Option<TransactionErr>,
     },
+    #[error("Failed to commit the bottom preconf bundle, err: {0}")]
+    FailedToCommitBottomPreconf(String),
     #[error("Failed to estimate payout gas: {0}")]
     EstimatePayoutGas(#[from] EstimatePayoutGasErr),
     #[error("Failed to create payout tx: {0}")]
@@ -263,7 +265,8 @@ pub struct OrderOk {
     pub paid_kickbacks: Vec<(Address, U256)>,
     pub used_state_trace: Option<UsedStateTrace>,
     // preconf related fields
-    pub avg_bid_price: Option<U256>,
+    pub preconf_bid_price: Option<U256>,
+    pub preconf_ordering: Option<U256>,
 }
 
 #[derive(Error, Debug, Eq, PartialEq)]
@@ -544,13 +547,15 @@ impl<'a, 'b, 'c, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, Tracer> 
             match result {
                 Ok(res) => {
                     if !res.receipt.success && !bundle.reverting_tx_hashes.contains(&tx.hash()) {
-                        // write tx
-                        let record = failed_txs_writer::FailedTx {
-                            uuid: bundle.uuid.to_string(),
-                            tx_hash: tx.hash.to_string(),
-                            failed_reason: BundleErr::TransactionReverted(tx.hash()).to_string(),
-                        };
-                        failed_txs_writer::append_json(&record).unwrap();
+                        if bundle.is_preconf() {
+                            let record = failed_txs_writer::FailedTx {
+                                uuid: bundle.uuid.to_string(),
+                                tx_hash: tx.hash.to_string(),
+                                failed_reason: BundleErr::TransactionReverted(tx.hash())
+                                    .to_string(),
+                            };
+                            failed_txs_writer::append_json(&record).unwrap();
+                        }
                         return Ok(Err(BundleErr::TransactionReverted(tx.hash())));
                     }
 
@@ -563,15 +568,17 @@ impl<'a, 'b, 'c, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, Tracer> 
                     insert.receipts.push(res.receipt);
                 }
                 Err(err) => {
-                    // write tx
-                    let record = failed_txs_writer::FailedTx {
-                        uuid: bundle.uuid.to_string(),
-                        tx_hash: tx.hash.to_string(),
-                        failed_reason: err.to_string(),
-                    };
-                    failed_txs_writer::append_json(&record).unwrap();
+                    if bundle.is_preconf() {
+                        // write tx
+                        let record = failed_txs_writer::FailedTx {
+                            uuid: bundle.uuid.to_string(),
+                            tx_hash: tx.hash.to_string(),
+                            failed_reason: err.to_string(),
+                        };
+                        failed_txs_writer::append_json(&record).unwrap();
+                    }
                     // if optional transaction, skip
-                    if allow_tx_skip && bundle.reverting_tx_hashes.contains(&tx.hash()){
+                    if allow_tx_skip && bundle.reverting_tx_hashes.contains(&tx.hash()) {
                         continue;
                     } else {
                         return Ok(Err(BundleErr::InvalidTransaction(tx.hash(), err)));
@@ -1017,7 +1024,8 @@ impl<'a, 'b, 'c, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, Tracer> 
                             paid_kickbacks: Vec::new(),
                             used_state_trace: self.get_used_state_trace(),
                             original_order_ids: Vec::new(),
-                            avg_bid_price: None,
+                            preconf_bid_price: None,
+                            preconf_ordering: None,
                         }))
                     }
                     Err(err) => Ok(Err(err.into())),
@@ -1056,7 +1064,8 @@ impl<'a, 'b, 'c, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, Tracer> 
                             paid_kickbacks: ok.paid_kickbacks,
                             used_state_trace: self.get_used_state_trace(),
                             original_order_ids: ok.original_order_ids,
-                            avg_bid_price: bundle.metadata.avg_bid_price,
+                            preconf_bid_price: bundle.metadata.preconf_bid_price,
+                            preconf_ordering: bundle.metadata.preconf_ordering,
                         }))
                     }
                     Err(err) => Ok(Err(err.into())),
@@ -1095,7 +1104,8 @@ impl<'a, 'b, 'c, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, Tracer> 
                             paid_kickbacks: ok.paid_kickbacks,
                             used_state_trace: self.get_used_state_trace(),
                             original_order_ids: ok.original_order_ids,
-                            avg_bid_price: bundle.metadata.avg_bid_price,
+                            preconf_bid_price: bundle.metadata.preconf_bid_price,
+                            preconf_ordering: bundle.metadata.preconf_ordering,
                         }))
                     }
                     Err(err) => Ok(Err(err.into())),

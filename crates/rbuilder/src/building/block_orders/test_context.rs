@@ -264,7 +264,7 @@ impl<TestedSinkType: SimulatedOrderSink> TestContext<TestedSinkType> {
     pub fn assert_passes_as_is(&mut self, order: Order) {
         let sim_order =
             self.data_gen
-                .create_sim_order(order, DONT_CARE_PROFIT, DONT_CARE_GAS_PRICE);
+                .create_sim_order(order, DONT_CARE_PROFIT, DONT_CARE_GAS_PRICE, None, None);
         self.insert_order(sim_order.clone());
         assert!(self.pop_insert() == sim_order);
     }

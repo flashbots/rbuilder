@@ -1,28 +1,25 @@
-#![allow(unused)]
-use crate::preconf::{eth_to_wei, string_to_uuid, PreconfError, PreconfInfo};
+use crate::preconf::{
+    assign_preconf_ordering, convert_timestamp_ns, eth_to_wei, string_to_uuid, PreconfBundleType,
+    PreconfError, PreconfHealthStatus, PreconfInfo, PreconfReservedInfo, PreconfState,
+};
 use crate::primitives::{
     Bundle, BundleReplacementData, BundleReplacementKey, Metadata, Order,
-    RawTxWithBlobsConvertError, TransactionSignedEcRecoveredWithBlobs,
+    TransactionSignedEcRecoveredWithBlobs,
 };
-use alloy_primitives::{hex, Bytes, B256, U256};
-use alloy_rlp::Decodable;
+use alloy_primitives::{hex, keccak256, Bytes, B256};
 use ethers::core::k256::ecdsa::SigningKey;
 use ethers::prelude::transaction::eip712::TypedData;
 use ethers::signers::{Signer, Wallet};
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, USER_AGENT};
 use reqwest::Response;
-use reth_primitives::{TransactionSigned, TransactionSignedEcRecovered};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::str::FromStr;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use time::OffsetDateTime;
-use tokio::sync::mpsc::Sender;
-use tokio::sync::RwLock;
+use tokio::sync::{mpsc, watch};
 use tracing::{debug, error, info, trace};
 use url::Url;
-use uuid::Uuid;
 
 #[derive(Debug, Deserialize)]
 struct ApiResponse {
@@ -48,87 +45,87 @@ enum ApiData {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct LoginResponse {
-    status: String,
+    // status: String,
     eip712_message: String,
     nonce_hash: String,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct EIP712Message {
-    types: EIP712Types,
-    primary_type: String,
-    message: Message,
-    domain: Domain,
-}
+// #[derive(Debug, Deserialize)]
+// #[serde(rename_all = "camelCase")]
+// struct EIP712Message {
+//     types: EIP712Types,
+//     primary_type: String,
+//     message: Message,
+//     domain: Domain,
+// }
 
-#[derive(Debug, Deserialize)]
-struct EIP712Types {
-    #[serde(rename = "EIP712Domain")]
-    eip712_domain: Vec<Field>,
-    data: Vec<Field>,
-}
+// #[derive(Debug, Deserialize)]
+// struct EIP712Types {
+//     #[serde(rename = "EIP712Domain")]
+//     eip712_domain: Vec<Field>,
+//     data: Vec<Field>,
+// }
 
-#[derive(Debug, Deserialize)]
-struct Field {
-    name: String,
-    #[serde(rename = "type")]
-    field_type: String,
-}
+// #[derive(Debug, Deserialize)]
+// struct Field {
+//     name: String,
+//     #[serde(rename = "type")]
+//     field_type: String,
+// }
 
-#[derive(Debug, Deserialize)]
-struct Message {
-    hash: String,
-    message: String,
-    domain: String,
-}
+// #[derive(Debug, Deserialize)]
+// struct Message {
+//     hash: String,
+//     message: String,
+//     domain: String,
+// }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Domain {
-    name: String,
-    version: String,
-    chain_id: u64,
-    verifying_contract: String,
-}
+// #[derive(Debug, Deserialize)]
+// #[serde(rename_all = "camelCase")]
+// struct Domain {
+//     name: String,
+//     version: String,
+//     chain_id: u64,
+//     verifying_contract: String,
+// }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct VerifyResponse {
-    user: User,
+    // user: User,
     access_token: AccessToken,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct User {
-    user_id: u64,
-    address: String,
-    user_type: u32,
-    accounts: Vec<Account>,
-    #[serde(default)]
-    status: Option<u32>,
-    #[serde(default)]
-    user_class: Option<u32>,
-    #[serde(default)]
-    display_name: Option<String>,
-}
+// #[derive(Debug, Deserialize)]
+// #[serde(rename_all = "camelCase")]
+// pub struct User {
+//     user_id: u64,
+//     address: String,
+//     user_type: u32,
+//     accounts: Vec<Account>,
+//     #[serde(default)]
+//     status: Option<u32>,
+//     #[serde(default)]
+//     user_class: Option<u32>,
+//     #[serde(default)]
+//     display_name: Option<String>,
+// }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Account {
-    #[serde(rename = "type")]
-    account_type: u32,
-    account_id: u64,
-    #[serde(default)]
-    user_id: Option<u64>,
-    #[serde(default)]
-    name: Option<String>,
-    #[serde(default)]
-    status: Option<u32>,
-    #[serde(default)]
-    update_date: Option<u64>,
-}
+// #[derive(Debug, Deserialize)]
+// #[serde(rename_all = "camelCase")]
+// pub struct Account {
+//     #[serde(rename = "type")]
+//     account_type: u32,
+//     account_id: u64,
+//     #[serde(default)]
+//     user_id: Option<u64>,
+//     #[serde(default)]
+//     name: Option<String>,
+//     #[serde(default)]
+//     status: Option<u32>,
+//     #[serde(default)]
+//     update_date: Option<u64>,
+// }
 
 #[derive(Deserialize, Debug)]
 pub struct AccessToken {
@@ -138,21 +135,21 @@ pub struct AccessToken {
 
 #[derive(Deserialize, Debug)]
 pub struct TokenData {
-    header: Header,
+    // header: Header,
     payload: Payload,
 }
 
-#[derive(Deserialize, Debug)]
-pub struct Header {
-    alg: String,
-    typ: String,
-}
+// #[derive(Deserialize, Debug)]
+// pub struct Header {
+//     alg: String,
+//     typ: String,
+// }
 
 #[derive(Deserialize, Debug)]
 pub struct Payload {
-    user: PayloadUser,
-    access_type: String,
-    iat: i64,
+    // user: PayloadUser,
+    // access_type: String,
+    // iat: i64,
     exp: i64,
 }
 
@@ -199,9 +196,12 @@ struct PreconfMarket {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct PreconfBundles {
     slot: u64,
     bundles: Vec<PreconfBundle>,
+    empty_space: u64,
+    fee_recipient: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -209,7 +209,11 @@ struct PreconfBundles {
 struct PreconfBundle {
     txs: Vec<PreconfTx>,
     replacement_uuid: String,
-    average_bid_price: f64,
+    bid_price: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ordering: Option<i8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    bundle_type: Option<PreconfBundleType>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -225,44 +229,21 @@ pub struct PreconfApiClient {
     pub api_url: Url,
     pub chain_id: String,
     pub client: reqwest::Client,
-    pub access_token: Arc<RwLock<Option<String>>>,
     pub refresh_token: Option<String>,
     pub access_token_exp: Option<i64>,
     pub refresh_token_exp: Option<i64>,
-    pub order_sender: Sender<Order>,
-    pub market_info: Arc<RwLock<HashMap<u64, u64>>>, // slot as key, utc timestamp as value
-    pub is_fallback_enabled: Arc<RwLock<bool>>,
-    relay_secret_key: String,
+    pub order_sender: mpsc::Sender<Order>,
+    pub info_receiver: watch::Receiver<PreconfInfo>,
+    pub reserved_sender: watch::Sender<PreconfReservedInfo>,
+    pub state: PreconfState,
+    pub relay_secret_key: String,
 }
 
 impl PreconfApiClient {
-    pub fn new(
-        api_url: Url,
-        chain_id: String,
-        relay_secret_key: String,
-        order_sender: Sender<Order>,
-        access_token: Arc<RwLock<Option<String>>>,
-        market_info: Arc<RwLock<HashMap<u64, u64>>>,
-        is_fallback_enabled: Arc<RwLock<bool>>,
-    ) -> Self {
-        Self {
-            api_url,
-            chain_id,
-            client: reqwest::Client::new(),
-            access_token,
-            refresh_token: None,
-            access_token_exp: None,
-            refresh_token_exp: None,
-            order_sender,
-            market_info,
-            is_fallback_enabled,
-            relay_secret_key,
-        }
-    }
-
     pub async fn get_headers(&self) -> HeaderMap {
         let mut headers = HeaderMap::new();
-        let access_token = self.access_token.read().await;
+        let guard = self.state.access_token.read().await;
+        let access_token = guard.clone();
         if access_token.is_some() {
             let token = access_token.clone().unwrap();
             let authorization_header = format!("Bearer {}", token);
@@ -275,18 +256,30 @@ impl PreconfApiClient {
         headers
     }
 
-    pub async fn login(&mut self) {
+    pub async fn re_login(&mut self) -> bool {
+        let mut logged_in = false;
+        for _ in 0..3 {
+            if self.login().await {
+                logged_in = true;
+                break;
+            }
+        }
+        logged_in
+    }
+
+    pub async fn login(&mut self) -> bool {
+        let mut is_logged_in = false;
         let wallet: Wallet<SigningKey> =
             match Wallet::from_bytes(&hex::hex::decode(self.relay_secret_key.as_str()).unwrap()) {
                 Ok(wallet) => wallet,
                 Err(e) => {
                     error!("Failed to create wallet: {}", e);
-                    return;
+                    return is_logged_in;
                 }
             };
         let address = format!("0x{:x}", wallet.address());
 
-        let login_url = format!("{}api/user/login", self.api_url);
+        let login_url = format!("{}api/v1/user/login", self.api_url);
 
         let login_response = match self
             .client
@@ -300,8 +293,10 @@ impl PreconfApiClient {
         {
             Ok(response) => response,
             Err(e) => {
+                let mut guard = self.state.health_status.write().await;
+                *guard = PreconfHealthStatus::ServerFailed;
                 error!("Failed to login: {}", e);
-                return;
+                return is_logged_in;
             }
         };
 
@@ -324,7 +319,7 @@ impl PreconfApiClient {
                     // Send the signature back to complete verification
                     let verify_response = match self
                         .client
-                        .post(format!("{}api/user/login/verify", self.api_url))
+                        .post(format!("{}api/v1/user/login/verify", self.api_url))
                         .form(&[
                             ("addr", address.as_str()),
                             ("signature", &signature.to_string()),
@@ -336,14 +331,14 @@ impl PreconfApiClient {
                         Ok(response) => response,
                         Err(e) => {
                             error!("Failed to verify signature: {}", e);
-                            return;
+                            return is_logged_in;
                         }
                     };
 
                     if verify_response.status().is_success() {
                         let (refresh_token, refresh_token_exp) =
                             self.extract_refresh_token(&verify_response);
-                        trace!("refresh token: {:?}", refresh_token);
+                        trace!("Refresh token: {:?}", refresh_token);
                         if let ApiData::Verify(verify_resp) = verify_response
                             .json::<ApiResponse>()
                             .await
@@ -354,11 +349,12 @@ impl PreconfApiClient {
                             let access_token_exp = verify_resp.access_token.data.payload.exp;
                             trace!("JWT access token: {:?}", access_token);
                             trace!("Expired at: {:?}", access_token_exp);
-                            let mut access_token_writer = self.access_token.write().await;
+                            let mut access_token_writer = self.state.access_token.write().await;
                             *access_token_writer = Some(access_token);
                             self.refresh_token = refresh_token;
                             self.access_token_exp = Some(access_token_exp);
                             self.refresh_token_exp = refresh_token_exp;
+                            is_logged_in = true;
                         }
                     } else {
                         error!(
@@ -369,6 +365,7 @@ impl PreconfApiClient {
                 }
             }
         }
+        is_logged_in
     }
 
     fn extract_refresh_token(&self, response: &Response) -> (Option<String>, Option<i64>) {
@@ -404,7 +401,10 @@ impl PreconfApiClient {
         if self.refresh_token_exp.is_some() {
             let refresh_expiry: i64 = self.refresh_token_exp.unwrap() - (24 * 60 * 60);
             if self.is_token_expired(refresh_expiry) {
-                self.login().await;
+                let logged_in = self.login().await;
+                if !logged_in {
+                    error!("Failed to refresh access token due to failed login.");
+                }
             } else {
                 let start = Instant::now();
                 debug!("refreshing access token...");
@@ -428,7 +428,7 @@ impl PreconfApiClient {
                 return;
             }
         }
-        let refresh_url = format!("{}api/user/login/refresh", self.api_url);
+        let refresh_url = format!("{}api/v1/user/login/refresh", self.api_url);
         let refresh_token = self.refresh_token.clone().unwrap();
         let refresh_response = self
             .client
@@ -449,7 +449,7 @@ impl PreconfApiClient {
                     "new JWT access token: {:?}",
                     refresh_resp.access_token.token
                 );
-                let mut access_token_writer = self.access_token.write().await;
+                let mut access_token_writer = self.state.access_token.write().await;
                 *access_token_writer = Some(refresh_resp.access_token.token);
                 self.access_token_exp = Some(refresh_resp.access_token.data.payload.exp);
             }
@@ -464,12 +464,13 @@ impl PreconfApiClient {
 
 impl PreconfApiClient {
     async fn clean_market_info(&self, slot: u64) {
-        let reader = self.market_info.read().await;
+        let reader = self.state.market_info.read().await;
         if reader.len() == 0 || !reader.contains_key(&slot) || reader.len() < 64 {
             return;
         }
+        drop(reader);
         let til = slot - 1;
-        let mut writer = self.market_info.write().await;
+        let mut writer = self.state.market_info.write().await;
         for key in 1..=til {
             writer.remove(&key);
         }
@@ -478,50 +479,43 @@ impl PreconfApiClient {
     pub async fn get_inclusion_preconf_market_expiry(&self, slot: u64) -> Option<OffsetDateTime> {
         debug!("get market expiry on slot={}", slot);
         // clean market info
-        self.clean_market_info(slot);
+        self.clean_market_info(slot).await;
         // Try to get the market info from the map or load it if it's not present.
-        let market_expiry;
-        let market_info_reader = self.market_info.read().await;
-        if !market_info_reader.contains_key(&slot) {
-            market_expiry = self.get_inclusion_preconf_market_info(slot).await;
-        } else {
-            market_expiry = market_info_reader.get(&slot).cloned();
-        }
-        if market_expiry.is_none() {
-            return None;
-        }
-        let timestamp_ns = market_expiry.unwrap();
-        debug!("get market expiry timestamp_ns={}", timestamp_ns);
-        let timestamp = timestamp_ns / 1000; // timestamp is in milliseconds
-        let datetime = OffsetDateTime::from_unix_timestamp(timestamp as i64).unwrap();
-        Some(datetime)
+        self.get_inclusion_preconf_market_info(slot).await
     }
 
-    async fn get_inclusion_preconf_market_info(&self, curr_slot: u64) -> Option<u64> {
-        let url = format!("{}api/p/inclusion_preconf/markets", self.api_url);
-        let start = Instant::now();
+    async fn get_inclusion_preconf_market_info(&self, curr_slot: u64) -> Option<OffsetDateTime> {
+        let reader = self.state.market_info.read().await;
+        if reader.contains_key(&curr_slot) {
+            return reader.get(&curr_slot).cloned();
+        }
+        let url = format!("{}api/v1/p/inclusion-preconf/markets", self.api_url);
         match self.client.get(&url).send().await {
             Ok(r) => match r.json::<ApiResponse>().await {
                 Ok(api_resp) => {
-                    let mut market_expiry: Option<u64> = None;
+                    let mut market_expiry: Option<OffsetDateTime> = None;
                     if !api_resp.success {
                         error!("market info api response is failed: {}", api_resp);
                     } else if let ApiData::PreconfMarkets(market_data) = api_resp.data {
-                        for market in market_data.markets.iter() {
-                            if curr_slot == market.slot {
-                                market_expiry = Some(market.trx_submit_time);
+                        for i in 0..market_data.markets.len() {
+                            let market = &market_data.markets[i];
+                            if i == 0 && curr_slot < market.slot {
+                                break;
+                            } else if curr_slot == market.slot {
+                                let datetime = convert_timestamp_ns(market.trx_submit_time);
+                                market_expiry = Some(datetime);
                                 break;
                             }
                         }
-                        let market_info = Arc::clone(&self.market_info);
+                        let market_info = Arc::clone(&self.state.market_info);
                         tokio::spawn(async move {
                             let mut writer = market_info.write().await;
                             for market in market_data.markets {
-                                writer.insert(market.slot, market.trx_submit_time);
+                                let datetime = convert_timestamp_ns(market.trx_submit_time);
+                                writer.insert(market.slot, datetime);
                             }
                         });
                     }
-                    debug!("get market expiry spent time = {:?}", start.elapsed());
                     market_expiry
                 }
                 Err(err) => {
@@ -530,6 +524,8 @@ impl PreconfApiClient {
                 }
             },
             Err(err) => {
+                let mut guard = self.state.health_status.write().await;
+                *guard = PreconfHealthStatus::ServerFailed;
                 error!("Cannot fetch market info from exchange: {}", err);
                 None
             }
@@ -538,11 +534,7 @@ impl PreconfApiClient {
 
     pub async fn fetch_inclusion_preconfs(&self, slot: u64, block: u64, timestamp: u64) {
         info!("fetch preconfs on slot={}, block={}", slot, block);
-        // http://172.31.21.149:3210
-        // http://localhost:8280
-        let url = format!("{}api/slot/bundles?slot={}", self.api_url, slot);
-        // let url = format!("http://localhost:8280/api/slot/bundles?slot={}", slot);
-
+        let url = format!("{}api/v1/slot/bundles?slot={}", self.api_url, slot);
         let headers = self.get_headers().await;
         match self.client.get(&url).headers(headers).send().await {
             Ok(response) => {
@@ -550,118 +542,144 @@ impl PreconfApiClient {
                     Ok(resp) => {
                         if !resp.success {
                             error!("Failed to fetch inclusion preconf from server: {}", resp);
+                            let gas_info = PreconfReservedInfo {
+                                slot: slot.clone(),
+                                empty_space: 0,
+                                fee_recipient: Some(self.state.get_fallback_fee_recipient().clone()),
+                            };
+                            self.reserved_sender.send(gas_info).unwrap();
                         } else {
                             if let ApiData::PreconfBundles(bundle_response) = resp.data {
-                                if (bundle_response.bundles.is_empty()) {
+                                if bundle_response.bundles.is_empty() {
                                     debug!(
                                         "received empty preconf bundle response: {:?}",
                                         bundle_response
                                     );
                                 } else {
-                                    for bundle in bundle_response.bundles {
-                                        if bundle.txs.is_empty() {
-                                            debug!("received preconf transactions is empty");
-                                            return;
-                                        }
-                                        match self
-                                            .generate_order_from_preconf(block, timestamp, bundle)
-                                        {
-                                            Ok(preconf_order) => {
-                                                if self
-                                                    .order_sender
-                                                    .send(preconf_order)
-                                                    .await
-                                                    .is_err()
-                                                {
-                                                    error!("receiver closed");
+                                    debug!(
+                                        "received preconf bundle response: {:?}",
+                                        bundle_response
+                                    );
+                                    let order_sender = self.order_sender.clone();
+                                    tokio::spawn(async move {
+                                        for bundle in bundle_response.bundles {
+                                            if bundle.txs.is_empty() {
+                                                debug!("received preconf transactions is empty");
+                                                return;
+                                            }
+                                            match generate_order_from_api_preconf(
+                                                block, timestamp, bundle,
+                                            ) {
+                                                Ok(preconf_order) => {
+                                                    if order_sender
+                                                        .send(preconf_order)
+                                                        .await
+                                                        .is_err()
+                                                    {
+                                                        error!("receiver closed");
+                                                    }
+                                                }
+                                                Err(err) => {
+                                                    error!(
+                                                        "Failed to generate order from preconf: {}",
+                                                        err
+                                                    );
                                                 }
                                             }
-                                            Err(err) => {
-                                                error!(
-                                                    "Failed to generate order from preconf: {}",
-                                                    err
-                                                );
-                                            }
                                         }
-                                    }
-                                }
+                                    });
+                                };
+                                let gas_info = PreconfReservedInfo {
+                                    slot: bundle_response.slot.clone(),
+                                    empty_space: bundle_response.empty_space.clone(),
+                                    fee_recipient: bundle_response.fee_recipient.clone(),
+                                };
+                                self.reserved_sender.send(gas_info).unwrap();
                             }
                         }
                     }
                     Err(err) => {
                         error!("Failed to fetch preconf request: {}", err);
+                        let gas_info = PreconfReservedInfo {
+                            slot: slot.clone(),
+                            empty_space: 0,
+                            fee_recipient: Some(self.state.get_fallback_fee_recipient().clone()),
+                        };
+                        self.reserved_sender.send(gas_info).unwrap();
                         return; // Exit if JSON parsing fails
                     }
                 }
             }
             Err(err) => {
+                let mut guard = self.state.health_status.write().await;
+                *guard = PreconfHealthStatus::ServerFailed;
                 error!("cannot fetch preconf requests from preconf server, {}", err);
             }
         }
-        return;
     }
+}
 
-    fn generate_order_from_preconf(
-        &self,
-        block: u64,
-        timestamp: u64,
-        bundle: PreconfBundle,
-    ) -> Result<Order, PreconfError> {
-        let mut reverting_tx_hashes: Vec<B256> = vec![];
-        let mut signer = None;
-        let bundle_uuid = string_to_uuid(bundle.replacement_uuid.clone())?;
-        let trxs: Vec<TransactionSignedEcRecoveredWithBlobs> = bundle
-            .txs
-            .iter()
-            .filter_map(|preconf_tx| {
-                let tx_bytes =
-                    hex::decode(&preconf_tx.tx.clone().trim_start_matches("0x")).unwrap();
-                let raw_tx = Bytes::from(tx_bytes);
-                // handle transaction with/without blobs
-                match TransactionSignedEcRecoveredWithBlobs::decode_enveloped_with_real_blobs(
-                    raw_tx,
-                ) {
-                    Ok(tx) => {
-                        if preconf_tx.can_revert {
-                            reverting_tx_hashes.push(tx.hash());
-                        };
-                        signer = Some(tx.signer());
-                        Some(tx)
-                    }
-                    Err(e) => {
-                        error!("cannot decode preconf tx with blobs: {}", e);
-                        None
-                    }
+fn generate_order_from_api_preconf(
+    block: u64,
+    timestamp: u64,
+    bundle: PreconfBundle,
+) -> Result<Order, PreconfError> {
+    let mut metadata: Metadata = Metadata::with_current_received_at();
+    let mut raw_bundle_hash: Vec<u8> = vec![];
+    let mut reverting_tx_hashes: Vec<B256> = vec![];
+    let mut signer = None;
+    let bundle_uuid = string_to_uuid(bundle.replacement_uuid.clone())?;
+    let trxs: Vec<TransactionSignedEcRecoveredWithBlobs> = bundle
+        .txs
+        .iter()
+        .filter_map(|preconf_tx| {
+            let tx_bytes = hex::decode(&preconf_tx.tx.clone().trim_start_matches("0x")).unwrap();
+            let raw_tx = Bytes::from(tx_bytes);
+            // handle transaction with/without blobs
+            match TransactionSignedEcRecoveredWithBlobs::decode_enveloped_with_real_blobs(raw_tx) {
+                Ok(tx) => {
+                    if preconf_tx.can_revert {
+                        reverting_tx_hashes.push(tx.hash());
+                    };
+                    raw_bundle_hash.extend_from_slice(&tx.hash().0.to_vec());
+                    signer = Some(tx.signer());
+                    Some(tx)
                 }
-            })
-            .collect();
-
-        let replacement_data = BundleReplacementData {
-            key: BundleReplacementKey::new(bundle_uuid, signer.unwrap()),
-            sequence_number: 0,
-        };
-
-        let mut metadata: Metadata = Default::default();
-        match eth_to_wei(bundle.average_bid_price) {
-            Ok(average_bid_price) => {
-                metadata.avg_bid_price = Some(average_bid_price);
-                Ok(Order::Bundle(Bundle {
-                    block,
-                    min_timestamp: Some(timestamp),
-                    max_timestamp: None,
-                    txs: trxs,
-                    reverting_tx_hashes,
-                    hash: B256::default(),
-                    uuid: bundle_uuid,
-                    replacement_data: Some(replacement_data),
-                    signer,
-                    metadata,
-                }))
+                Err(e) => {
+                    error!("cannot decode preconf tx with blobs: {}", e);
+                    None
+                }
             }
-            Err(e) => Err(PreconfError::PreconfConvertError(format!(
-                "Cannot generate order from bundle: {}",
-                e
-            ))),
+        })
+        .collect();
+
+    let replacement_data = BundleReplacementData {
+        key: BundleReplacementKey::new(bundle_uuid, signer.unwrap()),
+        sequence_number: 0,
+    };
+    let bundle_hash = keccak256(raw_bundle_hash);
+    let bid_price: f64 = bundle.bid_price.parse().unwrap();
+    let preconf_ordering = assign_preconf_ordering(bundle.ordering);
+    match eth_to_wei(bid_price) {
+        Ok(p) => {
+            metadata.preconf_bid_price = Some(p);
+            metadata.preconf_ordering = preconf_ordering;
+            Ok(Order::Bundle(Bundle {
+                block,
+                min_timestamp: Some(timestamp),
+                max_timestamp: None,
+                txs: trxs,
+                reverting_tx_hashes,
+                hash: bundle_hash,
+                uuid: bundle_uuid,
+                replacement_data: Some(replacement_data),
+                signer,
+                metadata,
+            }))
         }
+        Err(e) => Err(PreconfError::PreconfConvertError(format!(
+            "Cannot generate order from bundle: {}",
+            e
+        ))),
     }
 }

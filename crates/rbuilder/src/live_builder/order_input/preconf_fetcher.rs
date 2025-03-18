@@ -1,23 +1,22 @@
 use super::ReplaceableOrderPoolCommand;
 use crate::preconf::preconf_api_client::PreconfApiClient;
 use crate::preconf::preconf_ws_client::PreconfWsClient;
-use crate::preconf::{new_preconf_api, new_preconf_ws, PreconfClient, PreconfConfig, PreconfInfo};
+use crate::preconf::{
+    new_preconf_api, new_preconf_ws, PreconfConfig, PreconfHealthStatus, PreconfInfo,
+    PreconfReservedInfo, PreconfState,
+};
 use crate::primitives::Order;
-use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 use time::OffsetDateTime;
-use tokio::sync::RwLock;
-use tokio::time::error::Elapsed;
-use tokio::time::timeout;
 use tokio::{
-    sync::{mpsc, mpsc::error::SendTimeoutError},
+    sync::{mpsc, mpsc::error::SendTimeoutError, watch},
     task::JoinHandle,
+    time::timeout,
 };
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, info, trace, warn};
 
-const PRECONF_RECEIVER_TIMEOUT_PERIOD: Duration = Duration::from_millis(100);
+pub const PRECONF_RECEIVER_TIMEOUT_PERIOD: Duration = Duration::from_millis(100);
 const PRECONF_SEND_ORDER_TIMEOUT_PERIOD: Duration = Duration::from_millis(50);
 const PRECONF_TOKEN_REFRESH_PERIOD: Duration = Duration::from_secs(3350);
 const PRECONF_WS_PING_PERIOD: Duration = Duration::from_secs(20);
@@ -32,7 +31,12 @@ pub async fn subscribe_to_preconf_pool(
     config: PreconfConfig,
     results: mpsc::Sender<ReplaceableOrderPoolCommand>,
     global_cancel: CancellationToken,
-) -> eyre::Result<(Vec<JoinHandle<()>>, mpsc::Sender<PreconfInfo>)> {
+) -> eyre::Result<(
+    Vec<JoinHandle<()>>,
+    watch::Sender<PreconfInfo>,
+    watch::Receiver<PreconfReservedInfo>,
+    PreconfState
+)> {
     let mut preconf_handlers = Vec::new();
     let (preconf_order_sender, mut preconf_order_receiver) =
         mpsc::channel::<Order>(PRECONF_CAPACITY);
@@ -63,14 +67,19 @@ pub async fn subscribe_to_preconf_pool(
         info!("Subscribe to preconf pool: finished");
     });
     preconf_handlers.push(order_handler);
-    let (preconf_info_sender, rx) = mpsc::channel::<PreconfInfo>(1);
-    let api_rx = Arc::new(RwLock::new(rx));
-    let ws_rx = Arc::clone(&api_rx);
-    info!("Created preconf info channel.");
-    let (mut api_client, preconf_ws) =
-        get_preconf_client(config.clone(), preconf_order_sender.clone())
-            .await
-            .unwrap();
+    info!("Created preconf channel.");
+    let (info_sender, info_receiver) = watch::channel(PreconfInfo {
+        slot: 0,
+        block_number: 0,
+        timestamp: None,
+    });
+    let (reserved_sender, reserved_receiver) = watch::channel(PreconfReservedInfo {
+        slot: 0,
+        empty_space: 0,
+        fee_recipient: None,
+    });
+    let (mut api_client, preconf_ws, preconf_state) =
+        get_preconf_client(config, preconf_order_sender, info_receiver, reserved_sender).await?;
     let api_handler: JoinHandle<()> = tokio::spawn(async move {
         let mut last_refresh = Instant::now();
         loop {
@@ -83,49 +92,73 @@ pub async fn subscribe_to_preconf_pool(
                 );
                 last_refresh = Instant::now();
             }
-            let is_fallback_enabled = {
-                let read_guard = api_client.is_fallback_enabled.read().await;
-                *read_guard
+
+            let run_api = {
+                let guard = api_client.state.health_status.read().await;
+                let health_status = guard.clone();
+                drop(guard);
+                if health_status == PreconfHealthStatus::FallbackEnabled
+                    || health_status == PreconfHealthStatus::ApiEnabled
+                {
+                    true
+                } else if health_status == PreconfHealthStatus::ServerFailed {
+                    api_client.re_login().await
+                } else {
+                    false
+                }
             };
-            if is_fallback_enabled {
-                match timeout(PRECONF_RECEIVER_TIMEOUT_PERIOD, api_rx.write().await.recv()).await {
-                    Ok(Some(info)) => {
-                        debug!("latest preconf info from api received: {:?}", info.clone());
-                        let market_expiry = api_client
-                            .get_inclusion_preconf_market_expiry(info.slot.clone())
-                            .await;
-                        debug!(
-                            "let market_expiry: {:?}, now: {:?}",
-                            market_expiry,
-                            OffsetDateTime::now_utc()
-                        );
-                        if let Some(expiry) = market_expiry {
-                            let slot = info.slot;
-                            let block_number = info.block_number;
-                            let timestamp = info.timestamp.unwrap();
-                            let sleep_duration = expiry - OffsetDateTime::now_utc();
+            if run_api {
+                match timeout(
+                    PRECONF_RECEIVER_TIMEOUT_PERIOD,
+                    api_client.info_receiver.changed()
+                )
+                .await
+                {
+                    Ok(Ok(())) => {
+                        let curr_info = *api_client.info_receiver.borrow_and_update();
+                        debug!("Received new preconf info: {:?}", curr_info);
+                        if let Some(market_expiry) = api_client
+                            .get_inclusion_preconf_market_expiry(curr_info.slot)
+                            .await
+                        {
+                            let sleep_duration = market_expiry - OffsetDateTime::now_utc();
                             if sleep_duration.is_positive() {
                                 debug!(
                                     "preconf fetcher scheduling fetch for slot={} after {:?}",
-                                    slot, sleep_duration
+                                    curr_info.slot, sleep_duration
                                 );
                                 tokio::time::sleep(sleep_duration.try_into().unwrap()).await;
                             }
-                            debug!("preconf fetcher starting fetch for slot={}", slot);
+                            debug!("preconf fetcher starting fetch for slot={}", curr_info.slot);
                             api_client
-                                .fetch_inclusion_preconfs(slot, block_number, timestamp)
+                                .fetch_inclusion_preconfs(
+                                    curr_info.slot,
+                                    curr_info.block_number,
+                                    curr_info.timestamp.unwrap(),
+                                )
                                 .await;
                         } else {
-                            debug!(
-                                "preconf fetcher did not get market info from {:?}, skip.",
-                                info.clone()
+                            warn!(
+                                "preconf fetcher did not get market info from {:?}(market may not open), skip.",
+                                curr_info
                             );
+                            let gas_info = PreconfReservedInfo {
+                                slot: curr_info.slot,
+                                empty_space: 0,
+                                fee_recipient: None, //suppose will use the fee recipient address from relay
+                            };
+                            api_client.reserved_sender.send(gas_info).unwrap();
                         }
                     }
-                    Err(Elapsed { .. }) => {
+                    Ok(Err(recv_err)) => {
+                        // The watch sender has been dropped; exit the loop
+                        error!(
+                            "preconf info sender in api has been dropped with error={}",
+                            recv_err
+                        );
                         continue;
                     }
-                    Ok(None) => {
+                    Err(_) => {
                         continue;
                     }
                 }
@@ -138,51 +171,45 @@ pub async fn subscribe_to_preconf_pool(
         let ws_handler: JoinHandle<()> = {
             tokio::spawn(async move {
                 let mut last_ping = Instant::now();
-                let mut curr_preconf_info = PreconfInfo {
-                    block_number: 0,
-                    slot: 0,
-                    timestamp: None,
-                };
-                ws_client.login(curr_preconf_info).await;
+                ws_client.login().await;
                 loop {
                     let start = Instant::now();
-                    let is_fallback_enabled = {
-                        let read_guard = ws_client.is_fallback_enabled.read().await;
-                        *read_guard
+                    let run_ws = {
+                        let guard = ws_client.state.health_status.read().await;
+                        *guard == PreconfHealthStatus::WsEnabled
                     };
-                    if !is_fallback_enabled {
+                    if run_ws {
                         if last_ping.elapsed() >= PRECONF_WS_PING_PERIOD {
-                            trace!("sending websocket ping...");
                             ws_client.send_ping().await;
                             last_ping = Instant::now();
-                            trace!("reset websocket ping timer");
                         }
-
-                        ws_client.read_stream(curr_preconf_info.clone()).await;
-
-                        match timeout(PRECONF_RECEIVER_TIMEOUT_PERIOD, ws_rx.write().await.recv())
-                            .await
+                        ws_client.read_stream().await;
+                        match timeout(
+                            PRECONF_RECEIVER_TIMEOUT_PERIOD,
+                            ws_client.info_receiver.changed(),
+                        )
+                        .await
                         {
-                            Ok(Some(info)) => {
-                                debug!("latest preconf info from ws received: {:?}", info);
-                                curr_preconf_info = info.clone();
-                                ws_client
-                                    .get_preconf_bundles(Some(curr_preconf_info.slot.clone()))
-                                    .await;
+                            Ok(Ok(())) => {
+                                let curr_info = *ws_client.info_receiver.borrow_and_update();
+                                ws_client.get_preconf_bundles(curr_info.slot).await;
                             }
-                            Err(Elapsed { .. }) => {
+                            Ok(Err(recv_err)) => {
+                                // The watch sender has been dropped; exit the loop
+                                debug!(
+                                    "Preconf info sender in ws has been dropped with error={}",
+                                    recv_err
+                                );
                                 continue;
                             }
-                            Ok(None) => {
+                            Err(_) => {
                                 continue;
                             }
                         }
                         info!("before read stream, above job took {:?}", start.elapsed());
                     } else {
                         trace!("ws client will re-login.");
-                        ws_client
-                            .re_login_with_retry(curr_preconf_info.clone())
-                            .await;
+                        ws_client.re_login_with_retry().await;
                     }
                 }
             })
@@ -190,24 +217,39 @@ pub async fn subscribe_to_preconf_pool(
         preconf_handlers.push(ws_handler);
     }
 
-    Ok((preconf_handlers, preconf_info_sender))
+    Ok((preconf_handlers, info_sender, reserved_receiver, preconf_state))
 }
 
 pub async fn get_preconf_client(
     config: PreconfConfig,
     preconf_sender: mpsc::Sender<Order>,
-) -> eyre::Result<(PreconfApiClient, Option<PreconfWsClient>)> {
-    let preconf_client = PreconfClient {
-        market_info: Arc::new(RwLock::new(HashMap::new())),
-        access_token: Arc::new(RwLock::new(None)),
-        is_fallback_enabled: Arc::new(RwLock::new(false)),
-    };
-    let api_client = new_preconf_api(&preconf_client, config.clone(), preconf_sender.clone()).await;
+    info_receiver: watch::Receiver<PreconfInfo>,
+    reserved_sender: watch::Sender<PreconfReservedInfo>,
+) -> eyre::Result<(PreconfApiClient, Option<PreconfWsClient>, PreconfState)> {
+    if config.fallback_fee_recipient.is_none() {
+        return Err(eyre::eyre!("kindly include fallback_fee_recipient in the configuration"));
+    }
+    let preconf_state = PreconfState::new(config.fallback_fee_recipient.clone().unwrap());
+    let api_client = new_preconf_api(
+        &preconf_state,
+        config.clone(),
+        preconf_sender.clone(),
+        info_receiver.clone(),
+        reserved_sender.clone(),
+    )
+    .await;
     if api_client.is_none() {
         return Err(eyre::eyre!(
             "kindly include preconf_api_url in the configuration"
         ));
     }
-    let ws_client = new_preconf_ws(&preconf_client, config.clone(), preconf_sender.clone()).await;
-    Ok((api_client.unwrap(), ws_client))
+    let ws_client = new_preconf_ws(
+        &preconf_state,
+        config.clone(),
+        preconf_sender.clone(),
+        info_receiver.clone(),
+        reserved_sender.clone(),
+    )
+    .await;
+    Ok((api_client.unwrap(), ws_client, preconf_state))
 }

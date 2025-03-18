@@ -1,15 +1,13 @@
 pub mod relay_submit;
 
-pub use relay_submit::SubmissionConfig;
-use std::{sync::Arc, time::Duration};
-
 use super::{
     bidding::BiddingService,
     order_input::{self, orderpool::OrdersForBlock},
-    payload_events,
     simulation::OrderSimulationPool,
 };
 use crate::live_builder::order_input::order_replacement_manager::OrderReplacementManager;
+use crate::live_builder::order_input::preconf_fetcher::PRECONF_RECEIVER_TIMEOUT_PERIOD;
+use crate::preconf::{PreconfReservedInfo, PreconfState};
 use crate::{
     building::{
         builders::{BlockBuildingAlgorithm, BlockBuildingAlgorithmInput, BuilderSinkFactory},
@@ -18,11 +16,15 @@ use crate::{
     live_builder::{payload_events::MevBoostSlotData, simulation::SlotOrderSimResults},
     utils::ProviderFactoryReopener,
 };
+use alloy_primitives::Address;
+pub use relay_submit::SubmissionConfig;
 use reth_db::database::Database;
-use tokio::sync::{broadcast, mpsc};
+use std::str::FromStr;
+use std::{sync::Arc, time::Duration};
+use tokio::sync::{broadcast, mpsc, watch};
+use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, trace};
-use crate::preconf::PreconfInfo;
 
 #[derive(Debug)]
 pub struct BlockBuildingPool<DB, BuilderSinkFactoryType: BuilderSinkFactory> {
@@ -58,30 +60,20 @@ where
     }
 
     /// Connects OrdersForBlock->OrderReplacementManager->Simulations and calls start_building_job
-    pub fn start_block_building(
+    pub async fn start_block_building(
         &mut self,
-        payload: payload_events::MevBoostSlotData,
+        payload: MevBoostSlotData,
         block_ctx: BlockBuildingContext,
         global_cancellation: CancellationToken,
         max_time_to_build: Duration,
-        preconf_info_sender: mpsc::Sender<PreconfInfo>,
+        preconf_reserved_receiver: &mut watch::Receiver<PreconfReservedInfo>,
+        preconf_state_handler: &PreconfState,
     ) {
         let block_cancellation = global_cancellation.child_token();
 
         let cancel = block_cancellation.clone();
-        let payload_clone = payload.clone();
         tokio::spawn(async move {
-            debug!(
-                "sleep til slot({}) end: {:?}",
-                payload_clone.slot(),
-                max_time_to_build
-            );
             tokio::time::sleep(max_time_to_build).await;
-            debug!(
-                "reached slot({}) end: {:?}",
-                payload_clone.slot(),
-                max_time_to_build
-            );
             cancel.cancel();
         });
 
@@ -104,18 +96,21 @@ where
             payload,
             simulations_for_block,
             block_cancellation,
-            preconf_info_sender,
-        );
+            preconf_reserved_receiver,
+            preconf_state_handler,
+        )
+        .await;
     }
 
     /// Per each BlockBuildingAlgorithm creates BlockBuildingAlgorithmInput and Sinks and spawn a task to run it
-    fn start_building_job(
+    async fn start_building_job(
         &mut self,
-        ctx: BlockBuildingContext,
+        mut ctx: BlockBuildingContext,
         slot_data: MevBoostSlotData,
         input: SlotOrderSimResults,
         cancel: CancellationToken,
-        preconf_info_sender: mpsc::Sender<PreconfInfo>,
+        preconf_reserved_receiver: &mut watch::Receiver<PreconfReservedInfo>,
+        preconf_state_handler: &PreconfState,
     ) {
         let slot = slot_data.slot();
         let block = slot_data.block();
@@ -144,42 +139,71 @@ where
                 return;
             }
         };
-
-        tokio::spawn(async move {
-            match preconf_info_sender.send(PreconfInfo {
-                block_number,
-                slot,
-                timestamp: Some(slot_end_timestamp.unix_timestamp() as u64),
-            }).await {
-                Ok(_) => {
-                    debug!("sent preconf info -> slot: {}, block: {}", slot, block_number);
-                },
-                Err(e) => {
-                    error!("preconf info sender cannot send preconf info: {:?}", e);
-                }
+        debug!("waiting to get preconf reserved gas...");
+        let preconf_reserved_gas;
+        'get_preconf_reserved_info: loop {
+            let is_preconf_alive = preconf_state_handler.is_healthy().await;
+            if !is_preconf_alive || cancel.is_cancelled() {
+                preconf_reserved_gas = 0;
+                let fallback_fee_recipient =
+                    Address::from_str(preconf_state_handler.get_fallback_fee_recipient().as_str())
+                        .unwrap();
+                ctx.set_suggested_fee_recipient(fallback_fee_recipient);
+                break 'get_preconf_reserved_info;
             }
-        });
-
-        debug!("start building jobs");
-        for builder in self.builders.iter() {
-            let builder_name = builder.name();
-            debug!(block = block_number, builder_name, "Spawning builder job");
-            let input = BlockBuildingAlgorithmInput::<DB, BuilderSinkFactoryType::SinkType> {
-                provider_factory: provider_factory.clone(),
-                ctx: ctx.clone(),
-                input: broadcast_input.subscribe(),
-                sink: builder_sink.clone(),
-                slot_bidder: slot_bidder.clone(),
-                cancel: cancel.clone(),
-            };
-            let builder = builder.clone();
-            tokio::task::spawn_blocking(move || {
-                builder.build_blocks(input);
-                debug!(block = block_number, builder_name, "Stopped builder job");
-            });
+            match timeout(
+                PRECONF_RECEIVER_TIMEOUT_PERIOD,
+                preconf_reserved_receiver.changed(),
+            )
+            .await
+            {
+                Ok(Ok(())) => {
+                    let reserved_info = preconf_reserved_receiver.borrow().clone();
+                    if reserved_info.slot == slot {
+                        // debug!("got preconf reserved info = {:?}", reserved_info);
+                        preconf_reserved_gas = reserved_info.empty_space;
+                        if reserved_info.fee_recipient.is_some() {
+                            let fee_recipient =
+                                Address::from_str(reserved_info.fee_recipient.unwrap().as_str())
+                                    .unwrap();
+                            ctx.set_suggested_fee_recipient(fee_recipient);
+                        }
+                        break 'get_preconf_reserved_info;
+                    }
+                }
+                Ok(Err(recv_err)) => {
+                    error!("preconf reserved info got error: {}", recv_err);
+                }
+                Err(_) => {}
+            }
         }
-
-        tokio::spawn(multiplex_job(input.orders, broadcast_input));
+        if !cancel.is_cancelled() {
+            debug!("start building jobs on slot={}", slot);
+            for builder in self.builders.iter() {
+                let builder_name = builder.name();
+                debug!(
+                    block = block_number,
+                    preconf_reserved_gas, builder_name, "Spawning builder job"
+                );
+                let input = BlockBuildingAlgorithmInput::<DB, BuilderSinkFactoryType::SinkType> {
+                    provider_factory: provider_factory.clone(),
+                    ctx: ctx.clone(),
+                    input: broadcast_input.subscribe(),
+                    sink: builder_sink.clone(),
+                    slot_bidder: slot_bidder.clone(),
+                    cancel: cancel.clone(),
+                    preconf_reserved_gas,
+                };
+                let builder = builder.clone();
+                tokio::task::spawn_blocking(move || {
+                    builder.build_blocks(input);
+                    debug!(block = block_number, builder_name, "Stopped builder job");
+                });
+            }
+            tokio::spawn(multiplex_job(input.orders, broadcast_input));
+        } else {
+            debug!("cancelled building jobs on slot={}", slot);
+        }
     }
 }
 

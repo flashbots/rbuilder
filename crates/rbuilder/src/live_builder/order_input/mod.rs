@@ -14,7 +14,7 @@ use self::{
     replaceable_order_sink::ReplaceableOrderSink,
 };
 use super::base_config::BaseConfig;
-use crate::preconf::{PreconfConfig, PreconfInfo};
+use crate::preconf::{PreconfConfig, PreconfInfo, PreconfReservedInfo, PreconfState};
 use crate::{
     primitives::{serialize::CancelShareBundle, BundleReplacementKey, Order},
     utils::ProviderFactoryReopener,
@@ -27,7 +27,7 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tokio::{sync::mpsc, task::JoinHandle};
+use tokio::{sync::mpsc, sync::watch, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, trace, warn};
 
@@ -162,7 +162,9 @@ pub async fn start_orderpool_jobs<DB: Database + Clone + 'static>(
 ) -> eyre::Result<(
     JoinHandle<()>,
     OrderPoolSubscriber,
-    mpsc::Sender<PreconfInfo>,
+    watch::Sender<PreconfInfo>,
+    watch::Receiver<PreconfReservedInfo>,
+    PreconfState,
 )> {
     if order_input_config.ignore_cancellable_orders {
         warn!("ignore_cancellable_orders is set to true, some order input is ignored");
@@ -201,12 +203,13 @@ pub async fn start_orderpool_jobs<DB: Database + Clone + 'static>(
     )
     .await?;
 
-    let (preconf_handlers, preconf_info_sender) = preconf_fetcher::subscribe_to_preconf_pool(
-        preconf_config.clone(),
-        order_sender.clone(),
-        global_cancel.clone(),
-    )
-    .await?;
+    let (preconf_handlers, preconf_info_sender, preconf_reserved_receiver, preconf_state) =
+        preconf_fetcher::subscribe_to_preconf_pool(
+            preconf_config.clone(),
+            order_sender.clone(),
+            global_cancel.clone(),
+        )
+        .await?;
 
     let handle = tokio::spawn(async move {
         info!("OrderPoolJobs: started");
@@ -263,7 +266,10 @@ pub async fn start_orderpool_jobs<DB: Database + Clone + 'static>(
             new_commands.clear();
         }
 
-        for handle in [clean_job, rpc_server, txpool_fetcher].into_iter().chain(preconf_handlers) {
+        for handle in [clean_job, rpc_server, txpool_fetcher]
+            .into_iter()
+            .chain(preconf_handlers)
+        {
             handle
                 .await
                 .map_err(|err| {
@@ -274,5 +280,11 @@ pub async fn start_orderpool_jobs<DB: Database + Clone + 'static>(
         info!("OrderPoolJobs: finished");
     });
 
-    Ok((handle, subscriber, preconf_info_sender))
+    Ok((
+        handle,
+        subscriber,
+        preconf_info_sender,
+        preconf_reserved_receiver,
+        preconf_state,
+    ))
 }

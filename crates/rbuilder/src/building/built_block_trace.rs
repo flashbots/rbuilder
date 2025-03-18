@@ -5,7 +5,6 @@ use ahash::{HashMap, HashSet};
 use alloy_primitives::{Address, U256};
 use std::time::Duration;
 use time::OffsetDateTime;
-use tracing::{trace};
 
 /// Structs for recording data about a built block, such as what bundles were included, and where txs came from.
 /// Trace can be used to verify bundle invariants.
@@ -23,7 +22,7 @@ pub struct BuiltBlockTrace {
     pub orders_sealed_at: OffsetDateTime,
     pub fill_time: Duration,
     pub finalize_time: Duration,
-    pub preconf_tx_count: i32,
+    pub preconf_bundle_count: i32,
 }
 
 impl Default for BuiltBlockTrace {
@@ -43,7 +42,7 @@ impl BuiltBlockTrace {
             orders_sealed_at: OffsetDateTime::now_utc(),
             fill_time: Duration::from_secs(0),
             finalize_time: Duration::from_secs(0),
-            preconf_tx_count: 0,
+            preconf_bundle_count: 0,
         }
     }
 
@@ -61,13 +60,9 @@ impl BuiltBlockTrace {
 
     /// Call after a commit_order ok
     pub fn add_included_order(&mut self, execution_result: ExecutionResult) {
-        trace!("execution_result.order.is_preconf");
         if execution_result.order.is_preconf() {
-
-            let preconf_tx_len = execution_result.txs.len() as i32;
-            trace!("preconf len to add: {}", preconf_tx_len);
-
-            self.preconf_tx_count = self.preconf_tx_count.add(preconf_tx_len);
+            self.preconf_bundle_count = self.preconf_bundle_count.add(1);
+            // trace!("added preconf bundle (id={}) to included orders.", execution_result.order.id());
         }
         self.included_orders.push(execution_result);
     }

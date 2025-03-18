@@ -22,18 +22,21 @@ use std::{cmp::Ordering, collections::HashMap, fmt::Display, str::FromStr, sync:
 pub use test_data_generator::TestDataGenerator;
 use thiserror::Error;
 use uuid::Uuid;
+use crate::preconf::PreconfOrdering;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Metadata {
     pub received_at_timestamp: time::OffsetDateTime,
-    pub avg_bid_price: Option<U256>,
+    pub preconf_ordering: Option<U256>,
+    pub preconf_bid_price: Option<U256>,
 }
 
 impl Metadata {
     pub fn with_current_received_at() -> Self {
         Self {
             received_at_timestamp: time::OffsetDateTime::now_utc(),
-            avg_bid_price: None,
+            preconf_ordering: None,
+            preconf_bid_price: None,
         }
     }
 }
@@ -134,6 +137,10 @@ impl Bundle {
             .iter()
             .map(|tx| (tx, self.reverting_tx_hashes.contains(&tx.tx.hash())))
             .collect()
+    }
+
+    pub fn is_preconf(&self) -> bool {
+        self.metadata.preconf_bid_price.is_some()
     }
 
     /// Recalculate bundle hash and uuid
@@ -608,9 +615,28 @@ impl Order {
 
     pub fn is_preconf(&self) -> bool {
         if matches!(self, Order::Bundle(_)) {
-            return self.metadata().avg_bid_price.is_some();
+            return self.metadata().preconf_bid_price.is_some();
         }
         false
+    }
+
+    pub fn is_bottom_preconf(&self) -> bool {
+        if matches!(self, Order::Bundle(_)) {
+            if self.metadata().preconf_ordering.is_some() {
+                if self.metadata().preconf_ordering.unwrap() == U256::from(PreconfOrdering::BottomPreconf as u64) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    pub fn get_gas_limit(&self) -> u64 {
+        let mut gas_limit = 0;
+        self.list_txs().iter().for_each(|(tx, _)| {
+            gas_limit += tx.tx.gas_limit()
+        });
+        gas_limit
     }
     
     /// Vec<(Tx, allowed to revert)>
@@ -686,7 +712,8 @@ pub struct SimValue {
     pub mev_gas_price: U256,
     pub paid_kickbacks: Vec<(Address, U256)>,
     // preconf related fields
-    pub avg_bid_price: Option<U256>,
+    pub preconf_bid_price: Option<U256>,
+    pub preconf_ordering: Option<U256>,
 }
 
 impl SimValue {
@@ -695,7 +722,8 @@ impl SimValue {
         gas_used: u64,
         blob_gas_used: u64,
         paid_kickbacks: Vec<(Address, U256)>,
-        avg_bid_price: Option<U256>,
+        preconf_bid_price: Option<U256>,
+        preconf_ordering: Option<U256>,
     ) -> Self {
         let mev_gas_price = if gas_used != 0 {
             coinbase_profit / U256::from(gas_used)
@@ -708,7 +736,8 @@ impl SimValue {
             blob_gas_used,
             mev_gas_price,
             paid_kickbacks,
-            avg_bid_price,
+            preconf_bid_price,
+            preconf_ordering
         }
     }
 }
@@ -728,6 +757,14 @@ impl SimulatedOrder {
 
     pub fn nonces(&self) -> Vec<Nonce> {
         self.order.nonces()
+    }
+
+    pub fn is_bottom_preconf(&self) -> bool {
+        self.order.is_bottom_preconf()
+    }
+
+    pub fn is_preconf(&self) -> bool {
+        self.order.is_preconf()
     }
 }
 

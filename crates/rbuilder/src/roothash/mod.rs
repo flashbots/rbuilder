@@ -5,7 +5,6 @@ use reth::{
 };
 use reth_db::database::Database;
 use reth_trie_parallel::async_root::{AsyncStateRoot, AsyncStateRootError};
-use tracing::{trace};
 
 #[derive(Debug, Clone, Copy)]
 pub enum RootHashMode {
@@ -28,7 +27,6 @@ pub fn calculate_state_root<DB: Database + Clone + 'static>(
     mode: RootHashMode,
     blocking_task_pool: BlockingTaskPool,
 ) -> Result<B256, AsyncStateRootError> {
-    trace!("inside calculate_state_root");
     let consistent_db_view = match mode {
         RootHashMode::CorrectRoot => ConsistentDbView::new(provider_factory, Some(parent_hash)),
         RootHashMode::IgnoreParentHash => ConsistentDbView::new_with_latest_tip(provider_factory)
@@ -37,17 +35,12 @@ pub fn calculate_state_root<DB: Database + Clone + 'static>(
             return Ok(B256::ZERO);
         }
     };
-    trace!("hash_state_slow");
 
     let hashed_post_state = bundle.hash_state_slow();
-    trace!("async_root_calculator");
 
     let async_root_calculator =
         AsyncStateRoot::new(consistent_db_view, blocking_task_pool, hashed_post_state);
-    trace!("incremental_root");
 
     let root = futures::executor::block_on(async_root_calculator.incremental_root())?;
-    trace!("finished calculate_state_root? {:?}", root);
-
     Ok(root)
 }

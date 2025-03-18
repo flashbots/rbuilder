@@ -191,6 +191,20 @@ impl PrioritizedOrderStore {
     pub fn print_priority_queue(&self, tag: &str) {
         debug!("[{}] current main queue: {:?}", tag, self.main_queue);
     }
+
+    pub fn get_preconf_bottom_gas(&self) -> u64 {
+        let mut gas = 0;
+        self.orders.iter().for_each(|(_, sim_order)| {
+            if sim_order.is_bottom_preconf() {
+                gas += sim_order.order.get_gas_limit();
+            }
+        });
+        gas
+    }
+
+    pub fn contains_preconf(&self) -> bool {
+        self.orders.iter().any(|(_, sim_order)| sim_order.is_preconf())
+    }
 }
 
 impl SimulatedOrderSink for PrioritizedOrderStore {

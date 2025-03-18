@@ -2,6 +2,7 @@ use alloy_primitives::utils::format_ether;
 use clap::Parser;
 use jsonrpsee::RpcModule;
 use payload_events::MevBoostSlotDataGenerator;
+use rbuilder::preconf::PreconfConfig;
 use rbuilder::{
     building::BlockBuildingContext,
     live_builder::{
@@ -23,7 +24,6 @@ use std::{path::PathBuf, time::Duration};
 use tokio::signal::ctrl_c;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
-use rbuilder::preconf::PreconfConfig;
 
 #[derive(Parser, Debug)]
 struct Cli {
@@ -60,15 +60,15 @@ pub async fn main() -> eyre::Result<()> {
 
     let order_input_config = OrderInputConfig::from_config(config.base_config());
 
-    let (_orderpool, order_pool_subscriber, _preconf_client) = start_orderpool_jobs(
-        order_input_config,
-        PreconfConfig::new(None, None, None, "".to_string()),
-        provider_factory.clone(),
-        RpcModule::new(()),
-        cancel.clone(),
-
-    )
-    .await?;
+    let (_orderpool, order_pool_subscriber, _preconf_sender, _preconf_rx, _preconf_state) =
+        start_orderpool_jobs(
+            order_input_config,
+            PreconfConfig::new(None, None, None, None, "".to_string()),
+            provider_factory.clone(),
+            RpcModule::new(()),
+            cancel.clone(),
+        )
+        .await?;
 
     let sim_pool = OrderSimulationPool::new(provider_factory.clone(), 4, cancel.clone());
 

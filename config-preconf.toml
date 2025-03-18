@@ -21,10 +21,11 @@ ignore_cancellable_orders = true
 sbundle_mergeabe_signers = []
 
 # EthGas API domain
-preconf_api_url = ""
+preconf_api_url = "https://"
 preconf_chain_id = ""
 # EthGas WebSocket domain
-# preconf_ws_url = "wss://"
+preconf_ws_url = "wss://"
+fallback_fee_recipient=""
 simulation_threads = 1
 #### slot_delta_to_start_submits_ms ####
 # Delta relative to slot_time at which we start to submit blocks.
@@ -49,7 +50,7 @@ use_gzip_for_submit = false
 name = "preconf-ordering"
 algo = "ordering-builder"
 discard_txs = false
-coinbase_payment = false
+coinbase_payment = true
 sorting = "preconf"
 failed_order_retries = 1
 drop_failed_orders = true

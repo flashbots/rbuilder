@@ -15,7 +15,7 @@ use crate::{
     utils::NonceCache,
 };
 use ahash::HashSet;
-use alloy_primitives::{Address, Uint, B256, U256};
+use alloy_primitives::{Address, B256, U256};
 use reth::{
     primitives::{BlobTransactionSidecar, SealedBlock},
     providers::ProviderFactory,
@@ -27,10 +27,11 @@ use std::{
     cmp::max,
     sync::{Arc, Mutex},
 };
-use alloy_primitives::utils::parse_units;
 use tokio::sync::{broadcast, broadcast::error::TryRecvError};
 use tokio_util::sync::CancellationToken;
 use tracing::{warn};
+use tracing::log::error;
+use crate::building::{BundleErr, ExecutionError, ExecutionResult, OrderErr};
 
 /// Block we built
 #[derive(Debug, Clone)]
@@ -70,14 +71,14 @@ impl BestBlockCell {
             .as_ref()
             .map(|b| b.trace.bid_value)
             .unwrap_or_default();
-        let old_preconf_count = best_block
+        let old_preconf_bundle_count = best_block
             .as_ref()
-            .map(|b| b.trace.preconf_tx_count)
+            .map(|b| b.trace.preconf_bundle_count)
             .unwrap_or_default();
         // preconf block bid value usually be zero
         if block.trace.bid_value > old_value {
             *best_block = Some(block);
-        } else if block.trace.preconf_tx_count > old_preconf_count {
+        } else if block.trace.preconf_bundle_count >= old_preconf_bundle_count {
             *best_block = Some(block);
         }
     }
@@ -98,6 +99,7 @@ pub struct LiveBuilderInput<DB: Database, SinkType: BlockBuildingSink> {
     pub slot_bidder: Arc<dyn SlotBidder>,
     pub cancel: CancellationToken,
     pub sbundle_mergeabe_signers: Vec<Address>,
+    pub preconf_reserved_gas: u64,
 }
 
 /// Struct that helps reading new orders/cancelations
@@ -266,22 +268,58 @@ impl<DB: Database + Clone> OrderIntakeConsumer<DB> {
 //     Ok(true)
 // }
 //endregion
-pub fn finalize_block_execution(
+pub fn add_bottom_preconf(
     ctx: &BlockBuildingContext,
     partial_block: &mut PartialBlock<impl SimulationTracer>,
     state: &mut BlockState,
+    bottom_preconf: &SimulatedOrder,
+    bottom_preconf_gas: u64
+) -> Result<ExecutionResult, ExecutionError> {
+    if ctx.builder_signer.is_none() && !bottom_preconf.sim_value.paid_kickbacks.is_empty() {
+        // Return here to avoid wasting time on a call to fork.commit_order that 99% will fail
+        return Err(ExecutionError::OrderError(OrderErr::Bundle(
+            BundleErr::NoSigner,
+        )));
+    }
+    match partial_block.insert_bottom_preconf(bottom_preconf, bottom_preconf_gas, ctx, state) {
+        Ok(res) => {
+            // debug!("added bottom preconf back on block {}.", ctx.block_env.number);
+            res
+        }
+        Err(e) => {
+            Err(ExecutionError::OrderError(e))
+        }
+    }
+}
+
+pub fn insert_self_payout_tx(
+    ctx: &BlockBuildingContext,
+    partial_block: &mut PartialBlock<impl SimulationTracer>,
+    state: &mut BlockState,
+) -> bool {
+    if ctx.builder_signer.is_none() {
+        // Return here to avoid wasting time on a call to fork.commit_order that 99% will fail
+        error!("No signer for self payout tx");
+        return false;
+    }
+    partial_block.insert_self_payout_tx(21000, U256::ZERO, ctx, state).expect("insert self payout tx in partial block");
+    true
+}
+
+pub fn finalize_block_execution(
+    ctx: &BlockBuildingContext,
+    partial_block: &mut PartialBlock<impl SimulationTracer>,
+    _state: &mut BlockState,
     built_block_trace: &mut BuiltBlockTrace,
     payout_tx_gas: Option<u64>,
     bidder: &dyn SlotBidder,
     fee_recipient_balance_diff: U256,
 ) -> Result<bool, InsertPayoutTxErr> {
-    if built_block_trace.preconf_tx_count > 0 {
-        let one: Uint<256, 4> = parse_units("1", 24).unwrap().into(); //100000ETH
-        built_block_trace.bid_value = built_block_trace.bid_value + one;
-        built_block_trace.true_bid_value = built_block_trace.true_bid_value + one;
+    if built_block_trace.preconf_bundle_count > 0 {
+        // let one: Uint<256, 4> = parse_units("1", 24).unwrap().into(); //100000ETH
+        // built_block_trace.bid_value = built_block_trace.bid_value + one;
+        // built_block_trace.true_bid_value = built_block_trace.true_bid_value + one;
         return Ok(true);
-    } else {
-        // trace!("No preconf, {:?}", built_block_trace ); //nothing here
     }
     let (bid_value, true_value) = if let Some(payout_tx_gas) = payout_tx_gas {
         let available_value = partial_block.get_proposer_payout_tx_value(payout_tx_gas, ctx)?;
@@ -289,11 +327,13 @@ pub fn finalize_block_execution(
             SealInstruction::Value(value) => value,
             SealInstruction::Skip => return Ok(false),
         };
-        match partial_block.insert_proposer_payout_tx(payout_tx_gas, value, ctx, state) {
-            Ok(()) => (value, available_value),
-            Err(InsertPayoutTxErr::ProfitTooLow) => return Ok(false),
-            Err(err) => return Err(err),
-        }
+        (value, available_value)
+        // skip the payout tx
+        // match partial_block.insert_proposer_payout_tx(payout_tx_gas, value, ctx, state) {
+        //     Ok(()) => (value, available_value),
+        //     Err(InsertPayoutTxErr::ProfitTooLow) => return Ok(false),
+        //     Err(err) => return Err(err),
+        // }
     } else {
         (partial_block.coinbase_profit, partial_block.coinbase_profit)
     };
@@ -318,6 +358,7 @@ pub struct BlockBuildingAlgorithmInput<DB: Database, SinkType: BlockBuildingSink
     /// Needed to add the pay to validator tx (the bid!)
     pub slot_bidder: Arc<dyn SlotBidder>,
     pub cancel: CancellationToken,
+    pub preconf_reserved_gas: u64,
 }
 
 /// Algorithm to build blocks
