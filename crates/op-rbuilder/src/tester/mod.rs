@@ -492,9 +492,7 @@ impl<'a> BlockGenerator<'a> {
         let seed = RandSeed::new();
 
         agents.add_random_agent("admin", 1, &seed);
-        for pool in get_spam_pools(&test_config) {
-            agents.add_random_agent(&pool, 1, &seed);
-        }
+        agents.init(&test_config.get_spam_pools(), 1, &seed);
 
         let mut scenario = TestScenario::new(
             test_config,
@@ -711,38 +709,6 @@ impl<'a> BlockGenerator<'a> {
 
         self.submit_payload(Some(vec![signed_tx_rlp.into()])).await
     }
-}
-
-/// Helper function to extract spam pools from contender test config.
-/// TODO: remove this function once it's available in the contender_core crate.
-pub fn get_spam_pools(testconfig: &TestConfig) -> Vec<String> {
-    let mut from_pools = vec![];
-    let spam = testconfig
-        .spam
-        .as_ref()
-        .expect("No spam function calls found in testfile");
-
-    for s in spam {
-        match s {
-            SpamRequest::Tx(fn_call) => {
-                if let Some(from_pool) = &fn_call.from_pool {
-                    from_pools.push(from_pool.to_owned());
-                }
-            }
-            SpamRequest::Bundle(bundle) => {
-                for tx in &bundle.txs {
-                    if let Some(from_pool) = &tx.from_pool {
-                        from_pools.push(from_pool.to_owned());
-                    }
-                }
-            }
-        }
-    }
-
-    // filter out non-unique pools
-    from_pools.sort();
-    from_pools.dedup();
-    from_pools
 }
 
 // TODO: This is not being recognized as used code by the main function

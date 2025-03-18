@@ -2488,7 +2488,7 @@ checksum = "7c74b8349d32d297c9134b8c88677813a227df8f779daa29bfc29c183fe3dca6"
 [[package]]
 name = "contender_bundle_provider"
 version = "0.1.0"
-source = "git+https://github.com/flashbots/contender#9fecda8e38c4247a2895a0b9f281bb6f68110a0f"
+source = "git+https://github.com/flashbots/contender?rev=56ea79824b9002b29eebeeb44058f6750f17e160#56ea79824b9002b29eebeeb44058f6750f17e160"
 dependencies = [
  "alloy",
 ]
@@ -2496,7 +2496,7 @@ dependencies = [
 [[package]]
 name = "contender_core"
 version = "0.1.0"
-source = "git+https://github.com/flashbots/contender#9fecda8e38c4247a2895a0b9f281bb6f68110a0f"
+source = "git+https://github.com/flashbots/contender?rev=56ea79824b9002b29eebeeb44058f6750f17e160#56ea79824b9002b29eebeeb44058f6750f17e160"
 dependencies = [
  "alloy",
  "async-trait",
@@ -2511,7 +2511,7 @@ dependencies = [
 [[package]]
 name = "contender_sqlite"
 version = "0.1.0"
-source = "git+https://github.com/flashbots/contender#9fecda8e38c4247a2895a0b9f281bb6f68110a0f"
+source = "git+https://github.com/flashbots/contender?rev=56ea79824b9002b29eebeeb44058f6750f17e160#56ea79824b9002b29eebeeb44058f6750f17e160"
 dependencies = [
  "alloy",
  "contender_core",
@@ -2524,7 +2524,7 @@ dependencies = [
 [[package]]
 name = "contender_testfile"
 version = "0.1.0"
-source = "git+https://github.com/flashbots/contender#9fecda8e38c4247a2895a0b9f281bb6f68110a0f"
+source = "git+https://github.com/flashbots/contender?rev=56ea79824b9002b29eebeeb44058f6750f17e160#56ea79824b9002b29eebeeb44058f6750f17e160"
 dependencies = [
  "alloy",
  "contender_core",
