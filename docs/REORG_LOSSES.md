@@ -1,10 +1,10 @@
 # Reorg losses
 
 
-From time to time, the Ethereum network forks for a short time (you can check that on https://etherscan.io/blocks_forked), causing block reorganizations (reorgs). When a reorg happens, all the transactions from the losing fork go to the mempool. This includes any private transactions, particularly any builder-generated transactions, such as the ones we add at the end of the block to pay the validator.
+From time to time, the Ethereum network forks for a short time (you can check that at https://etherscan.io/blocks_forked), causing block reorganizations (reorgs). When a reorg happens, all the transactions from the losing fork go to the mempool. This includes any private transactions, particularly any builder-generated transactions, such as the ones we add at the end of the block to pay the validator.
 
 
-If this happens, the builder ends up paying the bid to a random validator without winning any block! Notice that **this happens even if this transaction gives no tip to the block**, probably because, for some builders, when all paying transactions are included in the block they are building (and some gas is left), they include free transactions.
+If this happens, the builder ends up paying the bid to a random validator without winning a block! Notice that **this happens even if this transaction gives no tip to the block**, probably because, for some builders, when all paying transactions are included in the block they are building (and some gas is left), they include free transactions.
 
 
 This is a rare event but occurs from time to time and **causes losses to the builder**. As soon as the builder wins a real (non-reorged) block, the nonce changes, the old reorged transaction gets invalidated, and we are safe again.
