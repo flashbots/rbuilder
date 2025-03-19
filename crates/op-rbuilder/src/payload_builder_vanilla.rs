@@ -562,7 +562,7 @@ impl<Txs> OpBuilder<'_, Txs> {
             None
         };
 
-        remove_reverted(info.reverted_tx_hashes.iter().copied().collect());
+        // remove_reverted(info.reverted_tx_hashes.iter().copied().collect());
 
         let payload = ExecutedPayload {
             info,
