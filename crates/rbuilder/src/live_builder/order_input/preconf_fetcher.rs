@@ -6,8 +6,10 @@ use crate::preconf::{
     PreconfReservedInfo, PreconfState,
 };
 use crate::primitives::Order;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use time::OffsetDateTime;
+use tokio::sync::Mutex;
 use tokio::{
     sync::{mpsc, mpsc::error::SendTimeoutError, watch},
     task::JoinHandle,
@@ -35,7 +37,7 @@ pub async fn subscribe_to_preconf_pool(
     Vec<JoinHandle<()>>,
     watch::Sender<PreconfInfo>,
     watch::Receiver<PreconfReservedInfo>,
-    PreconfState
+    PreconfState,
 )> {
     let mut preconf_handlers = Vec::new();
     let (preconf_order_sender, mut preconf_order_receiver) =
@@ -110,7 +112,7 @@ pub async fn subscribe_to_preconf_pool(
             if run_api {
                 match timeout(
                     PRECONF_RECEIVER_TIMEOUT_PERIOD,
-                    api_client.info_receiver.changed()
+                    api_client.info_receiver.changed(),
                 )
                 .await
                 {
@@ -124,19 +126,16 @@ pub async fn subscribe_to_preconf_pool(
                             let sleep_duration = market_expiry - OffsetDateTime::now_utc();
                             if sleep_duration.is_positive() {
                                 debug!(
-                                    "preconf fetcher scheduling fetch for slot={} after {:?}",
+                                    "preconf fetcher scheduling fetch slot={} after {:?} on api",
                                     curr_info.slot, sleep_duration
                                 );
                                 tokio::time::sleep(sleep_duration.try_into().unwrap()).await;
                             }
-                            debug!("preconf fetcher starting fetch for slot={}", curr_info.slot);
-                            api_client
-                                .fetch_inclusion_preconfs(
-                                    curr_info.slot,
-                                    curr_info.block_number,
-                                    curr_info.timestamp.unwrap(),
-                                )
-                                .await;
+                            debug!(
+                                "preconf fetcher starting fetch slot={} on api",
+                                curr_info.slot
+                            );
+                            api_client.fetch_inclusion_preconfs(curr_info).await;
                         } else {
                             warn!(
                                 "preconf fetcher did not get market info from {:?}(market may not open), skip.",
@@ -171,6 +170,7 @@ pub async fn subscribe_to_preconf_pool(
         let ws_handler: JoinHandle<()> = {
             tokio::spawn(async move {
                 let mut last_ping = Instant::now();
+                let query_lock = Arc::new(Mutex::new(false));
                 ws_client.login().await;
                 loop {
                     let start = Instant::now();
@@ -183,6 +183,11 @@ pub async fn subscribe_to_preconf_pool(
                             ws_client.send_ping().await;
                             last_ping = Instant::now();
                         }
+                        let mut do_query = query_lock.lock().await;
+                        if *do_query {
+                            *do_query = false;
+                            ws_client.get_preconf_bundles().await;
+                        }
                         ws_client.read_stream().await;
                         match timeout(
                             PRECONF_RECEIVER_TIMEOUT_PERIOD,
@@ -192,7 +197,26 @@ pub async fn subscribe_to_preconf_pool(
                         {
                             Ok(Ok(())) => {
                                 let curr_info = *ws_client.info_receiver.borrow_and_update();
-                                ws_client.get_preconf_bundles(curr_info.slot).await;
+                                if let Some(market_expiry) =
+                                    ws_client.get_market_info(&curr_info.slot).await
+                                {
+                                    let call_query = Arc::clone(&query_lock);
+                                    tokio::spawn(async move {
+                                        let sleep_duration =
+                                            market_expiry - OffsetDateTime::now_utc();
+                                        if sleep_duration.is_positive() {
+                                            debug!("preconf fetcher scheduling fetch slot={} after {:?} on ws", curr_info.slot, sleep_duration);
+                                            tokio::time::sleep(sleep_duration.try_into().unwrap())
+                                                .await;
+                                        }
+                                        debug!(
+                                            "preconf fetcher starting fetch slot={} on ws",
+                                            curr_info.slot
+                                        );
+                                        let mut do_query = call_query.lock().await;
+                                        *do_query = true;
+                                    });
+                                }
                             }
                             Ok(Err(recv_err)) => {
                                 // The watch sender has been dropped; exit the loop
@@ -217,7 +241,12 @@ pub async fn subscribe_to_preconf_pool(
         preconf_handlers.push(ws_handler);
     }
 
-    Ok((preconf_handlers, info_sender, reserved_receiver, preconf_state))
+    Ok((
+        preconf_handlers,
+        info_sender,
+        reserved_receiver,
+        preconf_state,
+    ))
 }
 
 pub async fn get_preconf_client(
@@ -227,7 +256,9 @@ pub async fn get_preconf_client(
     reserved_sender: watch::Sender<PreconfReservedInfo>,
 ) -> eyre::Result<(PreconfApiClient, Option<PreconfWsClient>, PreconfState)> {
     if config.fallback_fee_recipient.is_none() {
-        return Err(eyre::eyre!("kindly include fallback_fee_recipient in the configuration"));
+        return Err(eyre::eyre!(
+            "kindly include fallback_fee_recipient in the configuration"
+        ));
     }
     let preconf_state = PreconfState::new(config.fallback_fee_recipient.clone().unwrap());
     let api_client = new_preconf_api(

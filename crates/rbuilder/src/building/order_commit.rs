@@ -1042,14 +1042,18 @@ impl<'a, 'b, 'c, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, Tracer> 
                 )?;
                 match res {
                     Ok(ok) => {
-                        let coinbase_balance_after = self.state.balance(ctx.block_env.coinbase)?;
-                        let coinbase_profit = match coinbase_profit(
-                            coinbase_balance_before,
-                            coinbase_balance_after,
-                        ) {
-                            Ok(profit) => profit,
-                            Err(err) => {
-                                return Ok(Err(err));
+                        let coinbase_profit = if bundle.is_preconf()
+                            && bundle.contains_fee_recipient_tx(ctx.block_env.coinbase)
+                        {
+                            U256::ZERO
+                        } else {
+                            let coinbase_balance_after =
+                                self.state.balance(ctx.block_env.coinbase)?;
+                            match coinbase_profit(coinbase_balance_before, coinbase_balance_after) {
+                                Ok(profit) => profit,
+                                Err(err) => {
+                                    return Ok(Err(err));
+                                }
                             }
                         };
                         Ok(Ok(OrderOk {

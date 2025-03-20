@@ -5,7 +5,7 @@ use crate::live_builder::base_config::BaseConfig;
 use crate::preconf::preconf_api_client::PreconfApiClient;
 use crate::preconf::preconf_ws_client::PreconfWsClient;
 use crate::primitives::Order;
-use alloy_primitives::U256;
+use alloy_primitives::{Address, U256};
 use futures_util::StreamExt;
 use jsonrpsee::core::Serialize;
 use reqwest::StatusCode;
@@ -61,12 +61,12 @@ impl<'de> Deserialize<'de> for PreconfBundleType {
 pub struct PreconfReservedInfo {
     pub slot: u64,
     pub empty_space: u64,
-    pub fee_recipient: Option<String>,
+    pub fee_recipient: Option<Address>,
 }
 
 #[derive(Debug)]
 pub struct PreconfState {
-    pub fallback_fee_recipient: String,
+    pub fallback_fee_recipient: Address,
     pub market_info: Arc<RwLock<HashMap<u64, OffsetDateTime>>>,
     pub access_token: Arc<RwLock<Option<String>>>,
     pub health_status: Arc<RwLock<PreconfHealthStatus>>,
@@ -78,7 +78,7 @@ impl PreconfState {
             market_info: Arc::new(RwLock::new(HashMap::new())),
             access_token: Arc::new(RwLock::new(None)),
             health_status: Arc::new(RwLock::new(PreconfHealthStatus::Init)),
-            fallback_fee_recipient
+            fallback_fee_recipient: convert_str_to_address(fallback_fee_recipient),
         }
     }
 
@@ -93,7 +93,7 @@ impl PreconfState {
         false
     }
 
-    pub fn get_fallback_fee_recipient(&self) -> String {
+    pub fn get_fallback_fee_recipient(&self) -> Address {
         self.fallback_fee_recipient.clone()
     }
 }
@@ -120,7 +120,6 @@ pub struct PreconfInfo {
 pub struct PreconfConfig {
     // api
     pub preconf_api_url: Option<String>,
-    pub preconf_chain_id: Option<String>,
 
     // websocket
     pub preconf_ws_url: Option<String>,
@@ -135,14 +134,12 @@ impl PreconfConfig {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         preconf_api_url: Option<String>,
-        preconf_chain_id: Option<String>,
         preconf_ws_url: Option<String>,
         fallback_fee_recipient: Option<String>,
         relay_secret_key: String,
     ) -> Self {
         Self {
             preconf_api_url,
-            preconf_chain_id,
             preconf_ws_url,
             fallback_fee_recipient,
             relay_secret_key,
@@ -151,7 +148,6 @@ impl PreconfConfig {
     pub fn from_config(config: &BaseConfig) -> Self {
         PreconfConfig {
             preconf_api_url: config.preconf_api_url.clone(),
-            preconf_chain_id: config.preconf_chain_id.clone(),
             preconf_ws_url: config.preconf_ws_url.clone(),
             fallback_fee_recipient: config.fallback_fee_recipient.clone(),
             relay_secret_key: config.get_relay_secret_key().unwrap(),
@@ -256,11 +252,9 @@ pub async fn new_preconf_api(
     }
 
     let api_url = Url::parse(config.preconf_api_url.as_ref().unwrap().as_str()).unwrap();
-    let chain_id = config.preconf_chain_id.unwrap();
     let relay_secret_key = config.relay_secret_key.clone();
     let mut api_client = PreconfApiClient {
         api_url,
-        chain_id,
         client: reqwest::Client::new(),
         refresh_token: None,
         access_token_exp: None,
@@ -305,19 +299,19 @@ pub fn eth_to_wei(price_eth: f64) -> Result<U256, PreconfError> {
     Ok(U256::from(wei_value))
 }
 
-pub fn assign_preconf_ordering(ordering: Option<i8>) -> Option<U256> {
-    if ordering.is_none() {
-        return Some(U256::from(PreconfOrdering::RegularPreconf as u64));
+pub fn assign_preconf_ordering(ordering: Option<i8>) -> U256 {
+    match ordering {
+        Some(1) => U256::from(PreconfOrdering::TopPreconf as u64),
+        Some(-1) => U256::from(PreconfOrdering::BottomPreconf as u64),
+        _ => U256::from(PreconfOrdering::RegularPreconf as u64),
     }
-    let preconf_ordering = match ordering.unwrap() {
-        1 => PreconfOrdering::TopPreconf,
-        -1 => PreconfOrdering::BottomPreconf,
-        _ => PreconfOrdering::RegularPreconf,
-    };
-    Some(U256::from(preconf_ordering as u64))
 }
 
 pub fn convert_timestamp_ns(timestamp: u64) -> OffsetDateTime {
     let ts = timestamp / 1000; // timestamp is in milliseconds
     OffsetDateTime::from_unix_timestamp(ts as i64).unwrap()
+}
+
+pub fn convert_str_to_address(address: String) -> Address {
+    Address::from_str(address.as_str()).unwrap()
 }

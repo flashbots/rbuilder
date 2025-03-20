@@ -16,10 +16,8 @@ use crate::{
     live_builder::{payload_events::MevBoostSlotData, simulation::SlotOrderSimResults},
     utils::ProviderFactoryReopener,
 };
-use alloy_primitives::Address;
 pub use relay_submit::SubmissionConfig;
 use reth_db::database::Database;
-use std::str::FromStr;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{broadcast, mpsc, watch};
 use tokio::time::timeout;
@@ -145,9 +143,7 @@ where
             let is_preconf_alive = preconf_state_handler.is_healthy().await;
             if !is_preconf_alive || cancel.is_cancelled() {
                 preconf_reserved_gas = 0;
-                let fallback_fee_recipient =
-                    Address::from_str(preconf_state_handler.get_fallback_fee_recipient().as_str())
-                        .unwrap();
+                let fallback_fee_recipient = preconf_state_handler.get_fallback_fee_recipient();
                 ctx.set_suggested_fee_recipient(fallback_fee_recipient);
                 break 'get_preconf_reserved_info;
             }
@@ -163,9 +159,7 @@ where
                         // debug!("got preconf reserved info = {:?}", reserved_info);
                         preconf_reserved_gas = reserved_info.empty_space;
                         if reserved_info.fee_recipient.is_some() {
-                            let fee_recipient =
-                                Address::from_str(reserved_info.fee_recipient.unwrap().as_str())
-                                    .unwrap();
+                            let fee_recipient = reserved_info.fee_recipient.unwrap();
                             ctx.set_suggested_fee_recipient(fee_recipient);
                         }
                         break 'get_preconf_reserved_info;

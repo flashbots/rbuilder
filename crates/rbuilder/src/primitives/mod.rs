@@ -5,6 +5,7 @@ pub mod serialize;
 mod test_data_generator;
 
 use crate::building::evm_inspector::UsedStateTrace;
+use crate::preconf::PreconfOrdering;
 use alloy_primitives::{Bytes, TxHash};
 use derivative::Derivative;
 use ethereum_consensus::deneb::polynomial_commitments::BYTES_PER_COMMITMENT;
@@ -22,7 +23,6 @@ use std::{cmp::Ordering, collections::HashMap, fmt::Display, str::FromStr, sync:
 pub use test_data_generator::TestDataGenerator;
 use thiserror::Error;
 use uuid::Uuid;
-use crate::preconf::PreconfOrdering;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Metadata {
@@ -141,6 +141,10 @@ impl Bundle {
 
     pub fn is_preconf(&self) -> bool {
         self.metadata.preconf_bid_price.is_some()
+    }
+
+    pub fn contains_fee_recipient_tx(&self, recipient: Address) -> bool {
+        self.signer == Some(recipient)
     }
 
     /// Recalculate bundle hash and uuid
@@ -519,6 +523,10 @@ impl MempoolTx {
     pub fn new(tx_with_blobs: TransactionSignedEcRecoveredWithBlobs) -> Self {
         Self { tx_with_blobs }
     }
+
+    pub fn is_preconf(&self) -> bool {
+        self.tx_with_blobs.metadata.preconf_bid_price.is_some()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -623,7 +631,9 @@ impl Order {
     pub fn is_bottom_preconf(&self) -> bool {
         if matches!(self, Order::Bundle(_)) {
             if self.metadata().preconf_ordering.is_some() {
-                if self.metadata().preconf_ordering.unwrap() == U256::from(PreconfOrdering::BottomPreconf as u64) {
+                if self.metadata().preconf_ordering.unwrap()
+                    == U256::from(PreconfOrdering::BottomPreconf as u64)
+                {
                     return true;
                 }
             }
@@ -633,12 +643,12 @@ impl Order {
 
     pub fn get_gas_limit(&self) -> u64 {
         let mut gas_limit = 0;
-        self.list_txs().iter().for_each(|(tx, _)| {
-            gas_limit += tx.tx.gas_limit()
-        });
+        self.list_txs()
+            .iter()
+            .for_each(|(tx, _)| gas_limit += tx.tx.gas_limit());
         gas_limit
     }
-    
+
     /// Vec<(Tx, allowed to revert)>
     pub fn list_txs(&self) -> Vec<(&TransactionSignedEcRecoveredWithBlobs, bool)> {
         match self {
@@ -737,7 +747,7 @@ impl SimValue {
             mev_gas_price,
             paid_kickbacks,
             preconf_bid_price,
-            preconf_ordering
+            preconf_ordering,
         }
     }
 }
@@ -841,7 +851,7 @@ impl Ord for OrderId {
 }
 
 fn bundle_nonces<'a>(
-    txs: impl Iterator<Item=(&'a TransactionSignedEcRecoveredWithBlobs, bool)>,
+    txs: impl Iterator<Item = (&'a TransactionSignedEcRecoveredWithBlobs, bool)>,
 ) -> Vec<Nonce> {
     let mut nonces: HashMap<Address, Nonce> = HashMap::new();
     for (tx, optional) in txs.map(|(tx_with_blob, optional)| (&tx_with_blob.tx, optional)) {

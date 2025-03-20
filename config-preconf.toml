@@ -22,7 +22,6 @@ sbundle_mergeabe_signers = []
 
 # EthGas API domain
 preconf_api_url = "https://"
-preconf_chain_id = ""
 # EthGas WebSocket domain
 preconf_ws_url = "wss://"
 fallback_fee_recipient=""

@@ -134,7 +134,8 @@ impl<DB: Database + Clone + 'static> OrderingBuilderContext<DB> {
         preconf_reserved_gas: u64,
     ) -> eyre::Result<Option<Block>> {
         let forced_empty_block = U256::from(preconf_reserved_gas).eq(&self.ctx.block_env.gas_limit);
-        let enabled_self_payout = forced_empty_block && !block_orders.contains_preconf();
+        let contains_preconf = block_orders.contains_preconf();
+        let enabled_self_payout = forced_empty_block && !contains_preconf;
         let enabled_coinbase_payout = !enabled_self_payout
             && use_suggested_fee_recipient_as_coinbase
             && self.slot_bidder.is_pay_to_coinbase_allowed();
@@ -148,7 +149,7 @@ impl<DB: Database + Clone + 'static> OrderingBuilderContext<DB> {
         //     enabled_coinbase_payout,
         //     enabled_self_payout,
         //     forced_empty_block,
-        //     block_orders.contains_preconf(),
+        //     contains_preconf,
         //     use_suggested_fee_recipient_as_coinbase,
         //     self.slot_bidder.is_pay_to_coinbase_allowed()
         // );
@@ -308,9 +309,14 @@ impl<DB: Database + Clone + 'static> OrderingBuilderContext<DB> {
                 .account_balance(ctx.attributes.suggested_fee_recipient)?
                 .unwrap_or_default();
 
-            let fee_recipient_balance_diff = fee_recipient_balance_after
+            let mut fee_recipient_balance_diff = fee_recipient_balance_after
                 .checked_sub(fee_recipient_balance_before)
                 .unwrap_or_default();
+
+            if contains_preconf && fee_recipient_balance_diff < U256::ZERO {
+                // block may contain fee recipient tx that causes the diff to be negative
+                fee_recipient_balance_diff = U256::ZERO;
+            }
 
             let should_finalize = enabled_self_payout
                 || finalize_block_execution(

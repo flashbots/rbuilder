@@ -51,7 +51,7 @@ pub async fn main() -> eyre::Result<()> {
     let (handle, order_pool_subscriber, _preconf_sender, _preconf_rx, _preconf_state) =
         start_orderpool_jobs(
             order_input_config,
-            PreconfConfig::new(None, None, None, None, "".to_string()),
+            PreconfConfig::new(None, None, None, "".to_string()),
             provider_factory,
             RpcModule::new(()),
             cancel.clone(),

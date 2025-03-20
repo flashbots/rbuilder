@@ -1,8 +1,5 @@
 use crate::live_builder::order_input::preconf_fetcher::WS_READ_TIMEOUT_PERIOD;
-use crate::preconf::{
-    assign_preconf_ordering, convert_timestamp_ns, eth_to_wei, string_to_uuid, PreconfBundleType,
-    PreconfError, PreconfHealthStatus, PreconfInfo, PreconfReservedInfo, PreconfState,
-};
+use crate::preconf::{assign_preconf_ordering, convert_str_to_address, convert_timestamp_ns, eth_to_wei, string_to_uuid, PreconfBundleType, PreconfError, PreconfHealthStatus, PreconfInfo, PreconfReservedInfo, PreconfState};
 use crate::primitives::{
     Bundle, BundleReplacementData, BundleReplacementKey, Metadata, Order,
     TransactionSignedEcRecoveredWithBlobs,
@@ -205,7 +202,7 @@ pub struct PreconfBundle {
     txs: Vec<PreconfTx>,
     #[serde(rename = "p")]
     bid_price: String,
-    #[serde(rename = "o", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "o")]
     ordering: Option<i8>,
     #[serde(rename = "B", skip_serializing_if = "Option::is_none")]
     bundle_type: Option<PreconfBundleType>,
@@ -267,6 +264,9 @@ impl PreconfWsClient {
             self.read_stream().await;
         }
         self.subscribe().await;
+        while self.state.market_info.read().await.is_empty() {
+            self.read_stream().await;
+        }
     }
 
     pub async fn re_login_with_retry(&mut self) {
@@ -285,8 +285,7 @@ impl PreconfWsClient {
                         let mut health_guard = self.state.health_status.write().await;
                         *health_guard = PreconfHealthStatus::WsEnabled;
                     } // health_guard is dropped here
-                    let curr_info = self.info_receiver.borrow().clone();
-                    self.get_preconf_bundles(curr_info.slot).await;
+                    self.get_preconf_bundles().await;
                     return;
                 }
             }
@@ -351,11 +350,12 @@ impl PreconfWsClient {
         }
     }
 
-    pub async fn get_preconf_bundles(&mut self, slot: u64) {
+    pub async fn get_preconf_bundles(&mut self) {
+        let curr_info = self.info_receiver.borrow_and_update().clone();
         let args = vec![PreconfArg::PreconfQuery(PreconfQueryMessage {
             query_type: PreconfQueryType::PreconfBundles,
             market_type: None,
-            slot: Some(slot),
+            slot: Some(curr_info.slot),
         })];
         let query_text = self.create_ws_message(OpCode::Query, args);
         self.send_message(query_text).await;
@@ -415,10 +415,11 @@ impl PreconfWsClient {
                             warn!("received preconf bundle stream event slot ({}) is not match with current rpc slot ({}).",data.slot, curr_info.slot);
                         }
                         let sender = self.order_sender.clone();
+                        let fee_recipient = data.fee_recipient.clone().map(convert_str_to_address);
                         let reserved_info = PreconfReservedInfo {
                             slot: data.slot.clone(),
                             empty_space: data.empty_space.clone(),
-                            fee_recipient: data.fee_recipient.clone(),
+                            fee_recipient,
                         };
                         tokio::spawn(async move {
                             debug!("received ws get bundle stream event: {}", text);
@@ -442,10 +443,11 @@ impl PreconfWsClient {
                             }
 
                             let sender = self.order_sender.clone();
+                            let fee_recipient = data.fee_recipient.clone().map(convert_str_to_address);
                             let reserved_info = PreconfReservedInfo {
                                 slot: data.slot.clone(),
                                 empty_space: data.empty_space.clone(),
-                                fee_recipient: data.fee_recipient.clone(),
+                                fee_recipient,
                             };
                             tokio::spawn(async move {
                                 debug!("received ws get bundle query response: {}", text);
@@ -500,6 +502,15 @@ impl PreconfWsClient {
         }
     }
 
+    pub async fn get_market_info(&self, slot: &u64) -> Option<OffsetDateTime> {
+        let guard = self.state.market_info.read().await;
+        if guard.contains_key(slot) {
+            Some(guard.get(slot).unwrap().clone())
+        } else {
+            None
+        }
+    }
+
     async fn on_close(&mut self) {
         error!("Preconf Websocket connection is closed");
         let mut guard = self.state.health_status.write().await;
@@ -527,15 +538,19 @@ pub async fn process_preconf_market_update(
     let slot = market_update.slot;
     // skip if market info already have slot info
     let reader = market_info.read().await;
-    if reader.contains_key(&slot) || reader.len() == 0 || reader.len() < 64 {
-        return;
+
+    let mut do_clean = false;
+    if reader.len() > 64 {
+        do_clean = true;
     }
     drop(reader);
-    // clean expired markets
     let mut writer = market_info.write().await;
-    let til = slot - 1;
-    for key in 1..=til {
-        writer.remove(&key);
+    // clean expired markets
+    if do_clean {
+        let til = slot - 1;
+        for key in 1..=til {
+            writer.remove(&key);
+        }
     }
     // append new markets
     let datetime = convert_timestamp_ns(market_update.trx_submit_time);
@@ -560,7 +575,9 @@ pub async fn process_preconf_bundles(
             Ok(preconf_order) => {
                 debug!("Attempting to send preconf order: {:?}", preconf_order);
                 match order_sender.send(preconf_order).await {
-                    Ok(_) => {}
+                    Ok(_) => {
+                        debug!("Successfully sent preconf order.");
+                    }
                     Err(err) => {
                         error!("Failed to send preconf order: {}", err);
                     }
@@ -617,7 +634,7 @@ pub fn generate_order_from_ws_preconf(
     match eth_to_wei(bid_price) {
         Ok(p) => {
             metadata.preconf_bid_price = Some(p);
-            metadata.preconf_ordering = preconf_ordering;
+            metadata.preconf_ordering = Some(preconf_ordering);
             Ok(Order::Bundle(Bundle {
                 block,
                 min_timestamp: Some(timestamp),

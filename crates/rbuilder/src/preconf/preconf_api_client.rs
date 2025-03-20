@@ -1,6 +1,7 @@
 use crate::preconf::{
-    assign_preconf_ordering, convert_timestamp_ns, eth_to_wei, string_to_uuid, PreconfBundleType,
-    PreconfError, PreconfHealthStatus, PreconfInfo, PreconfReservedInfo, PreconfState,
+    assign_preconf_ordering, convert_str_to_address, convert_timestamp_ns, eth_to_wei,
+    string_to_uuid, PreconfBundleType, PreconfError, PreconfHealthStatus, PreconfInfo,
+    PreconfReservedInfo, PreconfState,
 };
 use crate::primitives::{
     Bundle, BundleReplacementData, BundleReplacementKey, Metadata, Order,
@@ -210,7 +211,6 @@ struct PreconfBundle {
     txs: Vec<PreconfTx>,
     replacement_uuid: String,
     bid_price: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     ordering: Option<i8>,
     #[serde(skip_serializing_if = "Option::is_none")]
     bundle_type: Option<PreconfBundleType>,
@@ -227,7 +227,6 @@ struct PreconfTx {
 #[derive(Debug)]
 pub struct PreconfApiClient {
     pub api_url: Url,
-    pub chain_id: String,
     pub client: reqwest::Client,
     pub refresh_token: Option<String>,
     pub access_token_exp: Option<i64>,
@@ -286,7 +285,6 @@ impl PreconfApiClient {
             .post(&login_url)
             .form(&[
                 ("addr", address.as_str()),
-                ("chainId", self.chain_id.as_str()),
             ])
             .send()
             .await
@@ -465,14 +463,17 @@ impl PreconfApiClient {
 impl PreconfApiClient {
     async fn clean_market_info(&self, slot: u64) {
         let reader = self.state.market_info.read().await;
-        if reader.len() == 0 || !reader.contains_key(&slot) || reader.len() < 64 {
-            return;
+        let mut do_clean = false;
+        if reader.len() > 64 {
+            do_clean = true;
         }
         drop(reader);
-        let til = slot - 1;
-        let mut writer = self.state.market_info.write().await;
-        for key in 1..=til {
-            writer.remove(&key);
+        if do_clean {
+            let til = slot - 1;
+            let mut writer = self.state.market_info.write().await;
+            for key in 1..=til {
+                writer.remove(&key);
+            }
         }
     }
 
@@ -480,15 +481,16 @@ impl PreconfApiClient {
         debug!("get market expiry on slot={}", slot);
         // clean market info
         self.clean_market_info(slot).await;
-        // Try to get the market info from the map or load it if it's not present.
-        self.get_inclusion_preconf_market_info(slot).await
+        let reader = self.state.market_info.read().await;
+        if reader.contains_key(&slot) {
+            reader.get(&slot).cloned()
+        } else {
+            // Try to get the market info from the map or load it if it's not present.
+            self.get_inclusion_preconf_market_info(slot).await
+        }
     }
 
     async fn get_inclusion_preconf_market_info(&self, curr_slot: u64) -> Option<OffsetDateTime> {
-        let reader = self.state.market_info.read().await;
-        if reader.contains_key(&curr_slot) {
-            return reader.get(&curr_slot).cloned();
-        }
         let url = format!("{}api/v1/p/inclusion-preconf/markets", self.api_url);
         match self.client.get(&url).send().await {
             Ok(r) => match r.json::<ApiResponse>().await {
@@ -532,9 +534,12 @@ impl PreconfApiClient {
         }
     }
 
-    pub async fn fetch_inclusion_preconfs(&self, slot: u64, block: u64, timestamp: u64) {
-        info!("fetch preconfs on slot={}, block={}", slot, block);
-        let url = format!("{}api/v1/slot/bundles?slot={}", self.api_url, slot);
+    pub async fn fetch_inclusion_preconfs(&self, preconf_info: PreconfInfo) {
+        info!("fetch preconfs: {:?}", preconf_info);
+        let url = format!(
+            "{}api/v1/slot/bundles?slot={}",
+            self.api_url, preconf_info.slot
+        );
         let headers = self.get_headers().await;
         match self.client.get(&url).headers(headers).send().await {
             Ok(response) => {
@@ -543,9 +548,11 @@ impl PreconfApiClient {
                         if !resp.success {
                             error!("Failed to fetch inclusion preconf from server: {}", resp);
                             let gas_info = PreconfReservedInfo {
-                                slot: slot.clone(),
+                                slot: preconf_info.slot.clone(),
                                 empty_space: 0,
-                                fee_recipient: Some(self.state.get_fallback_fee_recipient().clone()),
+                                fee_recipient: Some(
+                                    self.state.get_fallback_fee_recipient().clone(),
+                                ),
                             };
                             self.reserved_sender.send(gas_info).unwrap();
                         } else {
@@ -564,35 +571,44 @@ impl PreconfApiClient {
                                     tokio::spawn(async move {
                                         for bundle in bundle_response.bundles {
                                             if bundle.txs.is_empty() {
-                                                debug!("received preconf transactions is empty");
-                                                return;
-                                            }
-                                            match generate_order_from_api_preconf(
-                                                block, timestamp, bundle,
-                                            ) {
-                                                Ok(preconf_order) => {
-                                                    if order_sender
-                                                        .send(preconf_order)
-                                                        .await
-                                                        .is_err()
-                                                    {
-                                                        error!("receiver closed");
+                                                debug!("received preconf bundle contains zero transaction.");
+                                            } else {
+                                                match generate_order_from_api_preconf(
+                                                    preconf_info.block_number,
+                                                    preconf_info.timestamp.unwrap(),
+                                                    bundle,
+                                                ) {
+                                                    Ok(preconf_order) => {
+                                                        if preconf_order.has_blobs() {
+                                                            debug!(
+                                                                "preconf order(id={}) has blobs",
+                                                                preconf_order.id().to_string()
+                                                            );
+                                                        } else {
+                                                            debug!("preconf order(id={}) do not have blobs", preconf_order.id().to_string());
+                                                        }
+                                                        if order_sender
+                                                            .send(preconf_order)
+                                                            .await
+                                                            .is_err()
+                                                        {
+                                                            error!("receiver closed");
+                                                        }
                                                     }
-                                                }
-                                                Err(err) => {
-                                                    error!(
-                                                        "Failed to generate order from preconf: {}",
-                                                        err
-                                                    );
+                                                    Err(err) => {
+                                                        error!("Failed to generate order from preconf: {}", err);
+                                                    }
                                                 }
                                             }
                                         }
                                     });
                                 };
+                                let fee_recipient =
+                                    bundle_response.fee_recipient.map(convert_str_to_address);
                                 let gas_info = PreconfReservedInfo {
                                     slot: bundle_response.slot.clone(),
                                     empty_space: bundle_response.empty_space.clone(),
-                                    fee_recipient: bundle_response.fee_recipient.clone(),
+                                    fee_recipient,
                                 };
                                 self.reserved_sender.send(gas_info).unwrap();
                             }
@@ -601,7 +617,7 @@ impl PreconfApiClient {
                     Err(err) => {
                         error!("Failed to fetch preconf request: {}", err);
                         let gas_info = PreconfReservedInfo {
-                            slot: slot.clone(),
+                            slot: preconf_info.slot.clone(),
                             empty_space: 0,
                             fee_recipient: Some(self.state.get_fallback_fee_recipient().clone()),
                         };
@@ -663,7 +679,7 @@ fn generate_order_from_api_preconf(
     match eth_to_wei(bid_price) {
         Ok(p) => {
             metadata.preconf_bid_price = Some(p);
-            metadata.preconf_ordering = preconf_ordering;
+            metadata.preconf_ordering = Some(preconf_ordering);
             Ok(Order::Bundle(Bundle {
                 block,
                 min_timestamp: Some(timestamp),

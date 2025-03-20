@@ -58,6 +58,7 @@ pub async fn subscribe_to_txpool_with_blobs(
             let tx_with_blobs = match get_tx_with_blobs(tx_hash, &provider).await {
                 Ok(Some(tx_with_blobs)) => tx_with_blobs,
                 Ok(None) => {
+                    trace!(?tx_hash, "tx not found in tx pool");
                     continue;
                 }
                 Err(err) => {
