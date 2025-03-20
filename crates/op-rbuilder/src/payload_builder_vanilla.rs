@@ -1,3 +1,4 @@
+use crate::primitives::reth::PayloadBuilderService;
 use crate::{
     generator::{BlockCell, BlockPayloadJobGenerator, BuildArguments, PayloadBuilder},
     metrics::OpRBuilderMetrics,
@@ -56,7 +57,6 @@ use reth_optimism_primitives::{
     OpPrimitives, OpReceipt, OpTransactionSigned, ADDRESS_L2_TO_L1_MESSAGE_PASSER,
 };
 use reth_optimism_txpool::OpPooledTx;
-use reth_payload_builder::PayloadBuilderService;
 use reth_payload_builder_primitives::PayloadBuilderError;
 use reth_payload_primitives::PayloadBuilderAttributes;
 use reth_payload_util::{BestPayloadTransactions, PayloadTransactions};
