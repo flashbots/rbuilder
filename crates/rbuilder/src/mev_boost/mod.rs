@@ -532,15 +532,28 @@ impl RelayClient {
                 builder = builder.header(TOP_BID_HEADER, top_competitor_bid.to_string());
             }
             if !submission_with_metadata.metadata.order_ids.is_empty() {
-                builder = builder.header(
-                    BUNDLE_HASHES_HEADER,
-                    submission_with_metadata
-                        .metadata
-                        .order_ids
-                        .iter()
-                        .map(|id| id.to_string())
-                        .join(","),
-                );
+                const MAX_BUNDLE_IDS: usize = 150;
+                let bundle_ids: Vec<_> = submission_with_metadata
+                    .metadata
+                    .order_ids
+                    .iter()
+                    .filter_map(|or| match or {
+                        crate::primitives::OrderId::Tx(_fixed_bytes) => None,
+                        crate::primitives::OrderId::Bundle(uuid) => Some(uuid),
+                        crate::primitives::OrderId::ShareBundle(_fixed_bytes) => None,
+                    })
+                    .collect();
+                let total_bundles = bundle_ids.len();
+                let mut bundle_ids = bundle_ids
+                    .iter()
+                    .take(MAX_BUNDLE_IDS)
+                    .map(|uuid| format!("{:?}", uuid));
+                let bundle_ids = if total_bundles > MAX_BUNDLE_IDS {
+                    bundle_ids.join(",") + ",CAPPED"
+                } else {
+                    bundle_ids.join(",")
+                };
+                builder = builder.header(BUNDLE_HASHES_HEADER, bundle_ids);
             }
         }
 
