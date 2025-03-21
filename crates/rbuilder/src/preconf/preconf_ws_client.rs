@@ -264,9 +264,6 @@ impl PreconfWsClient {
             self.read_stream().await;
         }
         self.subscribe().await;
-        while self.state.market_info.read().await.is_empty() {
-            self.read_stream().await;
-        }
     }
 
     pub async fn re_login_with_retry(&mut self) {
