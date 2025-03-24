@@ -1,12 +1,11 @@
 use alloy_primitives::TxHash;
 use reth_transaction_pool::TransactionPool;
 use reth_transaction_pool::{
-    BestTransactions, BestTransactionsAttributes, BlobStore, EthPoolTransaction, Pool,
-    PoolTransaction, TransactionOrdering, TransactionValidator, ValidPoolTransaction,
+    BestTransactions, BestTransactionsAttributes, EthPoolTransaction, ValidPoolTransaction,
 };
 use std::sync::Arc;
-#[auto_impl::auto_impl(&, Arc)]
-pub trait CustomTransactionPool: Send + Sync + Clone {
+
+pub trait BuilderTransactionPool: Send + Sync + Clone {
     /// The transaction type of the pool
     type Transaction: EthPoolTransaction;
 
@@ -28,53 +27,20 @@ pub trait CustomTransactionPool: Send + Sync + Clone {
     ) -> Vec<Arc<ValidPoolTransaction<Self::Transaction>>>;
 }
 
-#[derive(Debug)]
-pub struct CustomPool<Pool>
-where
-    Pool: TransactionPool,
-    Pool::Transaction: PoolTransaction,
-{
-    pool: Arc<Pool>,
-}
-
-impl<Pool> CustomPool<Pool>
-where
-    Pool: TransactionPool,
-    Pool::Transaction: PoolTransaction,
-{
-    pub fn new(pool: Pool) -> Self {
-        Self {
-            pool: Arc::new(pool),
-        }
-    }
-}
-
-impl<Pool> CustomTransactionPool for CustomPool<Pool>
-where
-    Pool: TransactionPool,
-    Pool::Transaction: PoolTransaction,
-{
-    type Transaction = Pool::Transaction;
+impl<T: TransactionPool> BuilderTransactionPool for T {
+    type Transaction = T::Transaction;
 
     fn best_transactions_with_attributes(
         &self,
         best_transactions_attributes: BestTransactionsAttributes,
     ) -> Box<dyn BestTransactions<Item = Arc<ValidPoolTransaction<Self::Transaction>>>> {
-        TransactionPool::best_transactions_with_attributes(&self.pool, best_transactions_attributes)
+        TransactionPool::best_transactions_with_attributes(self, best_transactions_attributes)
     }
 
     fn remove_transactions(
         &self,
         hashes: Vec<TxHash>,
     ) -> Vec<Arc<ValidPoolTransaction<Self::Transaction>>> {
-        TransactionPool::remove_transactions(&self.pool, hashes)
-    }
-}
-
-impl<Pool: TransactionPool> Clone for CustomPool<Pool> {
-    fn clone(&self) -> Self {
-        Self {
-            pool: Arc::clone(&self.pool),
-        }
+        TransactionPool::remove_transactions(self, hashes)
     }
 }
