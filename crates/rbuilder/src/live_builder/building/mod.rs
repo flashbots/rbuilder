@@ -157,7 +157,11 @@ where
                     let reserved_info = preconf_reserved_receiver.borrow().clone();
                     if reserved_info.slot == slot {
                         // debug!("got preconf reserved info = {:?}", reserved_info);
-                        preconf_reserved_gas = reserved_info.empty_space;
+                        if reserved_info.empty_space < 0 {
+                            preconf_reserved_gas = u64::try_from(ctx.block_env.gas_limit).unwrap();
+                        } else {
+                            preconf_reserved_gas = reserved_info.empty_space.clone() as u64;
+                        }
                         if reserved_info.fee_recipient.is_some() {
                             let fee_recipient = reserved_info.fee_recipient.unwrap();
                             ctx.set_suggested_fee_recipient(fee_recipient);

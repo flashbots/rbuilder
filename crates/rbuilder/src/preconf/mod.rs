@@ -60,7 +60,7 @@ impl<'de> Deserialize<'de> for PreconfBundleType {
 #[derive(Debug, Clone)]
 pub struct PreconfReservedInfo {
     pub slot: u64,
-    pub empty_space: u64,
+    pub empty_space: i64,
     pub fee_recipient: Option<Address>,
 }
 

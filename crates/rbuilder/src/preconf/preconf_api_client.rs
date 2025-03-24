@@ -201,7 +201,7 @@ struct PreconfMarket {
 struct PreconfBundles {
     slot: u64,
     bundles: Vec<PreconfBundle>,
-    empty_space: u64,
+    empty_space: i64,
     fee_recipient: Option<String>,
 }
 

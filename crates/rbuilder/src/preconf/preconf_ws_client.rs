@@ -190,7 +190,7 @@ pub struct PreconfBundles {
     #[serde(rename = "bu")]
     bundles: Vec<PreconfBundle>,
     #[serde(rename = "e")]
-    empty_space: u64,
+    empty_space: i64,
     #[serde(rename = "r", skip_serializing_if = "Option::is_none")]
     fee_recipient: Option<String>,
 }
