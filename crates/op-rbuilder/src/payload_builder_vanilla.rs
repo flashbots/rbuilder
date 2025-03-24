@@ -1,3 +1,4 @@
+use crate::txpool_trait::{CustomPool, CustomTransactionPool};
 use crate::{
     generator::{BlockCell, BlockPayloadJobGenerator, BuildArguments, PayloadBuilder},
     metrics::OpRBuilderMetrics,
@@ -194,7 +195,7 @@ where
 impl<Pool, Client, EvmConfig, N, Txs> reth_basic_payload_builder::PayloadBuilder
     for OpPayloadBuilderVanilla<Pool, Client, EvmConfig, N, Txs>
 where
-    Pool: Clone + Send + Sync,
+    Pool: TransactionPool + Clone + Send + Sync,
     Client: Clone + Send + Sync,
     EvmConfig: Clone + Send + Sync,
     N: NodePrimitives,
@@ -223,13 +224,19 @@ where
 
 /// Optimism's payload builder
 #[derive(Debug, Clone)]
-pub struct OpPayloadBuilderVanilla<Pool, Client, EvmConfig, N: NodePrimitives, Txs = ()> {
+pub struct OpPayloadBuilderVanilla<
+    Pool: TransactionPool,
+    Client,
+    EvmConfig,
+    N: NodePrimitives,
+    Txs = (),
+> {
     /// The type responsible for creating the evm.
     pub evm_config: EvmConfig,
     /// The builder's signer key to use for an end of block tx
     pub builder_signer: Option<Signer>,
     /// The transaction pool
-    pub pool: Pool,
+    pub pool: CustomPool<Pool>,
     /// Node client
     pub client: Client,
     /// Settings for the builder, e.g. DA settings.
@@ -247,7 +254,7 @@ pub struct OpPayloadBuilderVanilla<Pool, Client, EvmConfig, N: NodePrimitives, T
     pub supervisor_safety_level: SafetyLevel,
 }
 
-impl<Pool, Client, EvmConfig, N: NodePrimitives>
+impl<Pool: TransactionPool, Client, EvmConfig, N: NodePrimitives>
     OpPayloadBuilderVanilla<Pool, Client, EvmConfig, N>
 {
     /// `OpPayloadBuilder` constructor.
@@ -298,6 +305,7 @@ impl<Pool, Client, EvmConfig, N: NodePrimitives>
                 serde_json::from_str(level.as_str()).expect("parsing supervisor_safety_level")
             })
             .unwrap_or(SafetyLevel::CrossUnsafe);
+        let pool = CustomPool::new(pool.clone());
         Self {
             pool,
             client,
@@ -772,14 +780,14 @@ impl<Txs> OpBuilder<'_, Txs> {
 pub trait OpPayloadTransactions<Transaction>: Clone + Send + Sync + Unpin + 'static {
     /// Returns an iterator that yields the transaction in the order they should get included in the
     /// new payload.
-    fn best_transactions<Pool: TransactionPool<Transaction = Transaction>>(
+    fn best_transactions<Pool: CustomTransactionPool<Transaction = Transaction>>(
         &self,
         pool: Pool,
         attr: BestTransactionsAttributes,
     ) -> impl PayloadTransactions<Transaction = Transaction>;
 
     /// Removes invalid transactions from the tx pool
-    fn remove_invalid<Pool: TransactionPool<Transaction = Transaction>>(
+    fn remove_invalid<Pool: CustomTransactionPool<Transaction = Transaction>>(
         &self,
         pool: Pool,
         hashes: Vec<TxHash>,
@@ -787,7 +795,7 @@ pub trait OpPayloadTransactions<Transaction>: Clone + Send + Sync + Unpin + 'sta
 }
 
 impl<T: PoolTransaction> OpPayloadTransactions<T> for () {
-    fn best_transactions<Pool: TransactionPool<Transaction = T>>(
+    fn best_transactions<Pool: CustomTransactionPool<Transaction = T>>(
         &self,
         pool: Pool,
         attr: BestTransactionsAttributes,
@@ -795,7 +803,7 @@ impl<T: PoolTransaction> OpPayloadTransactions<T> for () {
         BestPayloadTransactions::new(pool.best_transactions_with_attributes(attr))
     }
 
-    fn remove_invalid<Pool: TransactionPool<Transaction = T>>(
+    fn remove_invalid<Pool: CustomTransactionPool<Transaction = T>>(
         &self,
         pool: Pool,
         hashes: Vec<TxHash>,
