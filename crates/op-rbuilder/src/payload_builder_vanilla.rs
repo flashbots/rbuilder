@@ -195,7 +195,7 @@ where
 impl<Pool, Client, EvmConfig, N, Txs> reth_basic_payload_builder::PayloadBuilder
     for OpPayloadBuilderVanilla<Pool, Client, EvmConfig, N, Txs>
 where
-    Pool: TransactionPool + Clone + Send + Sync,
+    Pool: Clone + Send + Sync,
     Client: Clone + Send + Sync,
     EvmConfig: Clone + Send + Sync,
     N: NodePrimitives,
@@ -224,13 +224,7 @@ where
 
 /// Optimism's payload builder
 #[derive(Debug, Clone)]
-pub struct OpPayloadBuilderVanilla<
-    Pool: BuilderTransactionPool,
-    Client,
-    EvmConfig,
-    N: NodePrimitives,
-    Txs = (),
-> {
+pub struct OpPayloadBuilderVanilla<Pool, Client, EvmConfig, N: NodePrimitives, Txs = ()> {
     /// The type responsible for creating the evm.
     pub evm_config: EvmConfig,
     /// The builder's signer key to use for an end of block tx
@@ -254,7 +248,7 @@ pub struct OpPayloadBuilderVanilla<
     pub supervisor_safety_level: SafetyLevel,
 }
 
-impl<Pool: BuilderTransactionPool, Client, EvmConfig, N: NodePrimitives>
+impl<Pool, Client, EvmConfig, N: NodePrimitives>
     OpPayloadBuilderVanilla<Pool, Client, EvmConfig, N>
 {
     /// `OpPayloadBuilder` constructor.

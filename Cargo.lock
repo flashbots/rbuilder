@@ -7136,7 +7136,6 @@ dependencies = [
  "alloy-transport",
  "alloy-transport-http",
  "async-trait",
- "auto_impl",
  "chrono",
  "clap 4.5.21",
  "clap_builder",
