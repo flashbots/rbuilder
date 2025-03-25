@@ -535,20 +535,23 @@ impl RawShareBundle {
     }
 }
 
-fn serialize_revert_behavior(revert: TxRevertBehavior) -> (bool, Option<String>) {
+const TX_REVERT_NOT_ALLOWED: &str = "fail";
+const TX_REVERT_ALLOWED_INCLUDED: &str = "allow";
+const TX_REVERT_ALLOWED_EXCLUDED: &str = "drop";
+fn serialize_revert_behavior(revert: TxRevertBehavior) -> String {
     match revert {
-        TxRevertBehavior::NotAllowed => (false, Some("fail".into())),
-        TxRevertBehavior::AllowedIncluded => (true, Some("allow".into())),
-        TxRevertBehavior::AllowedExcluded => (true, Some("drop".into())),
+        TxRevertBehavior::NotAllowed => TX_REVERT_NOT_ALLOWED.to_owned(),
+        TxRevertBehavior::AllowedIncluded => TX_REVERT_ALLOWED_INCLUDED.to_owned(),
+        TxRevertBehavior::AllowedExcluded => TX_REVERT_ALLOWED_EXCLUDED.to_owned(),
     }
 }
 
 fn parse_revert_behavior(can_revert: bool, revert_mode: Option<String>) -> TxRevertBehavior {
     if let Some(revert_mode) = revert_mode {
         match revert_mode.as_str() {
-            "fail" => TxRevertBehavior::NotAllowed,
-            "allow" => TxRevertBehavior::AllowedIncluded,
-            "drop" => TxRevertBehavior::AllowedExcluded,
+            TX_REVERT_NOT_ALLOWED => TxRevertBehavior::NotAllowed,
+            TX_REVERT_ALLOWED_INCLUDED => TxRevertBehavior::AllowedIncluded,
+            TX_REVERT_ALLOWED_EXCLUDED => TxRevertBehavior::AllowedExcluded,
             _ => {
                 error!(?revert_mode, "Illegal revert mode");
                 TxRevertBehavior::NotAllowed
@@ -651,8 +654,9 @@ fn inner_bundle_to_raw_bundle_no_blobs(
                 ))),
             },
             ShareBundleBody::Tx(sbundle_tx) => {
-                let (can_revert, revert_mode) =
-                    serialize_revert_behavior(sbundle_tx.revert_behavior);
+                // We don't really need this since revert_mode takes priority over can_revert but just in case...
+                let can_revert = sbundle_tx.revert_behavior.can_revert();
+                let revert_mode = Some(serialize_revert_behavior(sbundle_tx.revert_behavior));
                 RawShareBundleBody {
                     tx: Some(sbundle_tx.tx.envelope_encoded_no_blobs()),
                     can_revert,
