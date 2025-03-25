@@ -112,8 +112,11 @@ impl BlockData {
         // we use timestamp and not replacement sequence number because of the limitation of the backtest
 
         // sort orders by timestamp from latest to earliest (high timestamp to low)
-        self.available_orders
-            .sort_by(|a, b| b.timestamp_ms.cmp(&a.timestamp_ms));
+        self.available_orders.sort_by(|a, b| {
+            b.timestamp_ms
+                .cmp(&a.timestamp_ms)
+                .then_with(|| a.order.id().cmp(&b.order.id()))
+        });
         let mut replacement_keys_seen: HashSet<OrderReplacementKey> = HashSet::default();
 
         self.available_orders.retain(|orders| {
