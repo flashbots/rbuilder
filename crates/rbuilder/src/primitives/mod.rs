@@ -194,6 +194,74 @@ impl Bundle {
             .unwrap_or_default()
     }
 
+    fn uuid_v1(&mut self) -> Uuid {
+        // Block, hash, reverting hashes.
+        let mut buff =
+            Vec::with_capacity(size_of::<i64>() + 32 + 32 * self.reverting_tx_hashes.len());
+        {
+            let block = self.block.unwrap_or_default() as i64;
+            buff.append(&mut block.encode_var_vec());
+        }
+        buff.extend_from_slice(self.hash.as_slice());
+        self.reverting_tx_hashes.sort();
+        for reverted_hash in &self.reverting_tx_hashes {
+            buff.extend_from_slice(reverted_hash.as_slice());
+        }
+        Self::uuid_from_buffer(buff)
+    }
+
+    fn uuid_from_buffer(buff: Vec<u8>) -> Uuid {
+        let hash = {
+            let mut res = [0u8; 16];
+            let mut hasher = Sha256::new();
+            // We write 16 zeroes to replicate golang hashing behavior.
+            hasher.update(res);
+            hasher.update(&buff);
+            let output = hasher.finalize();
+            res.copy_from_slice(&output.as_slice()[0..16]);
+            res
+        };
+        uuid::Builder::from_sha1_bytes(hash).into_uuid()
+    }
+
+    fn uuid_v2(&mut self) -> Uuid {
+        // Block,min_timestamp,max_timestamp,reverting_tx_hashes.len(),dropping_tx_hashes.len(), hash, reverting hashes,dropping_tx_hashes.
+        // If refund present: percent,recipient,tx_hashes.len(),tx_hashes
+        let mut buff = Vec::with_capacity(
+            5 * size_of::<u64>()
+                + 32
+                + 32 * (self.reverting_tx_hashes.len()
+                    + self.dropping_tx_hashes.len()
+                    + self.refund.as_ref().map(|r| r.tx_hashes.len()).unwrap_or(0))
+                + size_of::<char>()
+                + size_of::<Address>(),
+        );
+        buff.append(&mut self.block.unwrap_or_default().encode_var_vec());
+        buff.append(&mut self.min_timestamp.unwrap_or(u64::MIN).encode_var_vec());
+        buff.append(&mut self.max_timestamp.unwrap_or(u64::MAX).encode_var_vec());
+        buff.append(&mut (self.reverting_tx_hashes.len() as u64).encode_var_vec());
+        buff.append(&mut (self.dropping_tx_hashes.len() as u64).encode_var_vec());
+        buff.extend_from_slice(self.hash.as_slice());
+        self.reverting_tx_hashes.sort();
+        self.dropping_tx_hashes.sort();
+        for reverted_hash in &self.reverting_tx_hashes {
+            buff.extend_from_slice(reverted_hash.as_slice());
+        }
+        for dropping_hash in &self.dropping_tx_hashes {
+            buff.extend_from_slice(dropping_hash.as_slice());
+        }
+        if let Some(refund) = &mut self.refund {
+            buff.push(refund.percent);
+            buff.extend_from_slice(refund.recipient.as_slice());
+            refund.tx_hashes.sort();
+            buff.append(&mut (refund.tx_hashes.len() as u64).encode_var_vec());
+            for tx_hash in &refund.tx_hashes {
+                buff.extend_from_slice(tx_hash.as_slice());
+            }
+        }
+        Self::uuid_from_buffer(buff)
+    }
+
     /// Recalculate bundle hash and uuid.
     /// Hash is computed from child tx hashes + reverting_tx_hashes + dropping_tx_hashes.
     /// @Pending: improve since moving txs from reverting_tx_hashes to dropping_tx_hashes would give the same uuid
@@ -204,42 +272,10 @@ impl Bundle {
             .flat_map(|tx| tx.hash().0.to_vec())
             .collect::<Vec<_>>();
         self.hash = keccak256(hash);
-
-        let uuid = {
-            // Block, hash, reverting hashes.
-            let mut buff = Vec::with_capacity(
-                8 + 32 + 32 * (self.reverting_tx_hashes.len() + self.dropping_tx_hashes.len()),
-            );
-            let block = self.block.unwrap_or_default() as i64;
-            buff.append(&mut block.encode_var_vec());
-
-            let min_timestamp = self.min_timestamp.unwrap_or(u64::MIN);
-            buff.append(&mut min_timestamp.encode_var_vec());
-
-            let max_timestamp = self.max_timestamp.unwrap_or(u64::MAX);
-            buff.append(&mut max_timestamp.encode_var_vec());
-
-            buff.extend_from_slice(self.hash.as_slice());
-            self.reverting_tx_hashes.sort();
-            for reverted_hash in &self.reverting_tx_hashes {
-                buff.extend_from_slice(reverted_hash.as_slice());
-            }
-            for dropping_hash in &self.dropping_tx_hashes {
-                buff.extend_from_slice(dropping_hash.as_slice());
-            }
-            let hash = {
-                let mut res = [0u8; 16];
-                let mut hasher = Sha256::new();
-                // We write 16 zeroes to replicate golang hashing behavior.
-                hasher.update(res);
-                hasher.update(&buff);
-                let output = hasher.finalize();
-                res.copy_from_slice(&output.as_slice()[0..16]);
-                res
-            };
-            uuid::Builder::from_sha1_bytes(hash).into_uuid()
+        self.uuid = match self.version {
+            BundleVersion::V1 => self.uuid_v1(),
+            BundleVersion::V2 => self.uuid_v2(),
         };
-        self.uuid = uuid;
     }
 }
 
