@@ -275,8 +275,8 @@ fn get_available_orders(
                 included_orders_available.insert(order.order.id(), order.clone());
             }
             None => {
-                if block_data.filtered_orders.contains(id) {
-                    info!(order = ?id, "Included order was filtered from available orders");
+                if let Some(reason) = block_data.filtered_orders.get(id) {
+                    info!(order = ?id, ?reason, "Included order was filtered from available orders");
                 } else {
                     warn!(order = ?id, "Included order not found in available orders");
                 }

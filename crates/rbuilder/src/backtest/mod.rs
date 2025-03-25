@@ -8,6 +8,7 @@ pub mod restore_landed_orders;
 mod results_store;
 mod store;
 
+use ahash::HashMap;
 pub use backtest_build_range::run_backtest_build_range;
 use std::collections::HashSet;
 
@@ -71,6 +72,18 @@ pub struct BuiltBlockData {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OrderFilteredReason {
+    /// Order was received late
+    Timestamp,
+    /// Order is made of mempool txs
+    MempoolTxs,
+    /// Order id was explicitly filtered out
+    Ids,
+    /// Order signer was explicitly filtered out
+    Signer,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlockData {
     pub block_number: u64,
     /// Extra info for landed block (not contained on onchain_block).
@@ -81,7 +94,7 @@ pub struct BlockData {
     /// Orders we had at the moment of building the block.
     /// This might be an approximation depending on DataSources used.
     pub available_orders: Vec<OrdersWithTimestamp>,
-    pub filtered_orders: HashSet<OrderId>,
+    pub filtered_orders: HashMap<OrderId, OrderFilteredReason>,
     pub built_block_data: Option<BuiltBlockData>,
 }
 
@@ -103,7 +116,8 @@ impl BlockData {
                 true
             } else {
                 trace!(order = ?orders.order.id(), "order filtered by end timestamp");
-                self.filtered_orders.insert(orders.order.id());
+                self.filtered_orders
+                    .insert(orders.order.id(), OrderFilteredReason::Timestamp);
                 false
             }
         });
@@ -123,7 +137,8 @@ impl BlockData {
             if let Some(key) = orders.order.replacement_key() {
                 if replacement_keys_seen.contains(&key) {
                     trace!(order = ?orders.order.id(), "order filtered by end timestamp");
-                    self.filtered_orders.insert(orders.order.id());
+                    self.filtered_orders
+                        .insert(orders.order.id(), OrderFilteredReason::Timestamp);
                     return false;
                 }
                 replacement_keys_seen.insert(key);
@@ -152,7 +167,8 @@ impl BlockData {
                 true
             } else {
                 trace!(order = ?orders.order.id(), "order filtered from public mempool");
-                self.filtered_orders.insert(orders.order.id());
+                self.filtered_orders
+                    .insert(orders.order.id(), OrderFilteredReason::MempoolTxs);
                 false
             }
         });
@@ -164,7 +180,8 @@ impl BlockData {
                 true
             } else {
                 trace!(order = ?order.order.id(), "order filtered by id");
-                self.filtered_orders.insert(order.order.id());
+                self.filtered_orders
+                    .insert(order.order.id(), OrderFilteredReason::Ids);
                 false
             }
         });
@@ -182,7 +199,8 @@ impl BlockData {
                 true
             } else {
                 trace!(order = ?order.id(), "order filtered by ignored signers");
-                self.filtered_orders.insert(order.id());
+                self.filtered_orders
+                    .insert(order.id(), OrderFilteredReason::Signer);
                 false
             }
         });
