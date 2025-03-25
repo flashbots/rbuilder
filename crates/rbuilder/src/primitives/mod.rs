@@ -28,7 +28,9 @@ use reth_primitives::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{cmp::Ordering, collections::HashMap, fmt::Display, hash::Hash, str::FromStr, sync::Arc};
+use std::{
+    cmp::Ordering, collections::HashMap, fmt::Display, hash::Hash, str::FromStr, sync::Arc, u64,
+};
 pub use test_data_generator::TestDataGenerator;
 use thiserror::Error;
 use uuid::Uuid;
@@ -201,10 +203,15 @@ impl Bundle {
             let mut buff = Vec::with_capacity(
                 8 + 32 + 32 * (self.reverting_tx_hashes.len() + self.dropping_tx_hashes.len()),
             );
-            {
-                let block = self.block.unwrap_or_default() as i64;
-                buff.append(&mut block.encode_var_vec());
-            }
+            let block = self.block.unwrap_or_default() as i64;
+            buff.append(&mut block.encode_var_vec());
+
+            let min_timestamp = self.min_timestamp.unwrap_or(u64::MIN);
+            buff.append(&mut min_timestamp.encode_var_vec());
+
+            let max_timestamp = self.max_timestamp.unwrap_or(u64::MAX);
+            buff.append(&mut max_timestamp.encode_var_vec());
+
             buff.extend_from_slice(self.hash.as_slice());
             self.reverting_tx_hashes.sort();
             for reverted_hash in &self.reverting_tx_hashes {
