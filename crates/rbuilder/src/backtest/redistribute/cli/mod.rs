@@ -14,7 +14,8 @@ use crate::{
 use alloy_primitives::utils::format_ether;
 use clap::Parser;
 use csv_output::{CSVOutputRow, CSVResultWriter};
-use std::{io, path::PathBuf};
+use parking_lot::Mutex;
+use std::{io, path::PathBuf, sync::Arc};
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
@@ -50,7 +51,7 @@ enum Commands {
 
 pub async fn run_backtest_redistribute<ConfigType>() -> eyre::Result<()>
 where
-    ConfigType: LiveBuilderConfig,
+    ConfigType: LiveBuilderConfig + Clone + Send + 'static,
 {
     let cli = Cli::parse();
 
@@ -67,12 +68,13 @@ where
         HistoricalDataStorage::new_from_path(&config.base_config().backtest_fetch_output_file)
             .await?;
     let provider = config.base_config().create_provider_factory(true)?;
-    let mut csv_writer = cli
+    let csv_writer = cli
         .csv
         .map(|path| -> io::Result<_> { CSVResultWriter::new(path) })
-        .transpose()?;
+        .transpose()?
+        .map(|w| Arc::new(Mutex::new(w)));
 
-    let mut json_accum = cli.json.as_ref().map(|_| Vec::new());
+    let json_accum = cli.json.as_ref().map(|_| Arc::new(Mutex::new(Vec::new())));
     match cli.command {
         Commands::Block { block_number } => {
             let block_data = historical_data_storage
@@ -81,13 +83,14 @@ where
 
             process_redisribution(
                 block_data,
-                csv_writer.as_mut(),
-                json_accum.as_mut(),
+                csv_writer.clone(),
+                json_accum.clone(),
                 provider.clone(),
-                &config,
+                config.clone(),
                 cli.distribute_to_mempool_txs,
                 blocklist,
-            )?;
+            )
+            .await?;
         }
         Commands::Range {
             start_block,
@@ -99,13 +102,14 @@ where
             for block_data in blocks_data {
                 process_redisribution(
                     block_data,
-                    csv_writer.as_mut(),
-                    json_accum.as_mut(),
+                    csv_writer.clone(),
+                    json_accum.clone(),
                     provider.clone(),
-                    &config,
+                    config.clone(),
                     cli.distribute_to_mempool_txs,
                     blocklist.clone(),
-                )?;
+                )
+                .await?;
             }
         }
     }
@@ -118,25 +122,52 @@ where
     Ok(())
 }
 
-fn process_redisribution<P, ConfigType>(
+async fn process_redisribution<P, ConfigType>(
     block_data: BlockData,
-    csv_writer: Option<&mut CSVResultWriter>,
-    json_accum: Option<&mut Vec<RedistributionBlockOutput>>,
+    csv_writer: Option<Arc<Mutex<CSVResultWriter>>>,
+    json_accum: Option<Arc<Mutex<Vec<RedistributionBlockOutput>>>>,
     provider: P,
-    config: &ConfigType,
+    config: ConfigType,
     distribute_to_mempool_txs: bool,
     blocklist: BlockList,
 ) -> eyre::Result<()>
 where
-    P: StateProviderFactory + Clone + 'static,
-    ConfigType: LiveBuilderConfig,
+    P: StateProviderFactory + Clone + Send + 'static,
+    ConfigType: LiveBuilderConfig + Send + 'static,
+{
+    tokio::task::spawn_blocking(move || {
+        process_redisribution_internal(
+            block_data,
+            csv_writer,
+            json_accum,
+            provider,
+            config,
+            distribute_to_mempool_txs,
+            blocklist,
+        )
+    })
+    .await?
+}
+
+fn process_redisribution_internal<P, ConfigType>(
+    block_data: BlockData,
+    csv_writer: Option<Arc<Mutex<CSVResultWriter>>>,
+    json_accum: Option<Arc<Mutex<Vec<RedistributionBlockOutput>>>>,
+    provider: P,
+    config: ConfigType,
+    distribute_to_mempool_txs: bool,
+    blocklist: BlockList,
+) -> eyre::Result<()>
+where
+    P: StateProviderFactory + Clone + Send + 'static,
+    ConfigType: LiveBuilderConfig + Send + 'static,
 {
     let block_number = block_data.block_number;
     let block_hash = block_data.onchain_block.header.hash;
     info!(block_number, "Calculating redistribution for a block");
     let redistribution_values = match calc_redistributions(
         provider.clone(),
-        config,
+        &config,
         block_data,
         distribute_to_mempool_txs,
         blocklist,
@@ -152,6 +183,7 @@ where
     };
 
     if let Some(json_accum) = json_accum {
+        let mut json_accum = json_accum.lock();
         json_accum.push(redistribution_values.clone())
     }
 
@@ -176,6 +208,7 @@ where
                 amount: value,
             })
             .collect();
+        let mut csv_writer = csv_writer.lock();
         csv_writer.write_data(values)?;
     } else {
         for (address, value) in old_output {
