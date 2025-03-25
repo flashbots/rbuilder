@@ -37,14 +37,15 @@ fn main() {
             let op_node = OpNode::new(rollup_args.clone());
             let handle = builder
                 .with_types::<OpNode>()
-                .with_components(op_node.components().payload(CustomOpPayloadBuilder::new(
-                    builder_args.builder_signer,
-                    builder_args.flashblocks_ws_url,
-                    builder_args.chain_block_time,
-                    builder_args.flashblock_block_time,
-                    builder_args.supervisor_url,
-                    builder_args.supervisor_safety_level,
-                )))
+                .with_components(
+                    op_node.components().payload(
+                        CustomOpPayloadBuilder::new()
+                            .builder_signer(builder_args.builder_signer)
+                            .supervisor_url(builder_args.supervisor_url)
+                            .supervisor_safety_level(builder_args.supervisor_safety_level)
+                            .build(),
+                    ),
+                )
                 .with_add_ons(
                     OpAddOnsBuilder::default()
                         .with_sequencer(rollup_args.sequencer_http.clone())

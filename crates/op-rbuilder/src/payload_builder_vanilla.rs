@@ -96,39 +96,46 @@ pub struct CustomOpPayloadBuilder {
 }
 
 impl CustomOpPayloadBuilder {
-    #[cfg(feature = "flashblocks")]
-    pub fn new(
-        builder_signer: Option<Signer>,
-        flashblocks_ws_url: String,
-        chain_block_time: u64,
-        flashblock_block_time: u64,
-        supervisor_url: Option<Url>,
-        supervisor_safety_level: Option<String>,
-    ) -> Self {
-        Self {
-            builder_signer,
-            flashblocks_ws_url,
-            chain_block_time,
-            flashblock_block_time,
-            supervisor_url,
-            supervisor_safety_level,
-        }
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    #[cfg(not(feature = "flashblocks"))]
-    pub fn new(
-        builder_signer: Option<Signer>,
-        _flashblocks_ws_url: String,
-        _chain_block_time: u64,
-        _flashblock_block_time: u64,
-        supervisor_url: Option<Url>,
-        supervisor_safety_level: Option<String>,
-    ) -> Self {
-        Self {
-            builder_signer,
-            supervisor_url,
-            supervisor_safety_level,
-        }
+    pub fn builder_signer(mut self, signer: Option<Signer>) -> Self {
+        self.builder_signer = signer;
+        self
+    }
+
+    pub fn supervisor_url(mut self, url: Option<Url>) -> Self {
+        self.supervisor_url = url;
+        self
+    }
+
+    pub fn supervisor_safety_level(mut self, level: Option<String>) -> Self {
+        self.supervisor_safety_level = level;
+        self
+    }
+
+    #[cfg(feature = "flashblocks")]
+    pub fn flashblocks_ws_url(mut self, url: String) -> Self {
+        self.flashblocks_ws_url = Some(url);
+        self
+    }
+
+    #[cfg(feature = "flashblocks")]
+    pub fn chain_block_time(mut self, time: u64) -> Self {
+        self.chain_block_time = Some(time);
+        self
+    }
+
+    #[cfg(feature = "flashblocks")]
+    pub fn flashblock_block_time(mut self, time: u64) -> Self {
+        self.flashblock_block_time = Some(time);
+        self
+    }
+
+    /// Finalize the builder by returning itself.
+    pub fn build(self) -> Self {
+        self
     }
 }
 
