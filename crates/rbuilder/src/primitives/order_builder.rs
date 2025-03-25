@@ -3,7 +3,7 @@ use std::mem;
 use super::{
     Bundle, BundleRefund, BundleReplacementData, MempoolTx, Order, OrderId, Refund, RefundConfig,
     ShareBundle, ShareBundleBody, ShareBundleInner, ShareBundleTx,
-    TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior,
+    TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior, LAST_BUNDLE_VERSION,
 };
 
 /// Helper object to build Orders for testing.
@@ -216,6 +216,7 @@ impl BundleBuilder {
             metadata: Default::default(),
             dropping_tx_hashes,
             refund: self.refund,
+            version: LAST_BUNDLE_VERSION,
         };
         bundle.hash_slow();
         bundle

@@ -4,7 +4,7 @@ use crate::{
         BuiltBlockData, OrdersWithTimestamp,
     },
     primitives::{
-        serialize::{RawBundle, RawOrder, RawShareBundle, TxEncoding},
+        serialize::{RawBundle, RawOrder, RawShareBundle, TxEncoding, BUNDLE_VERSION_V1},
         Order, OrderId,
     },
 };
@@ -117,6 +117,7 @@ impl RelayDB {
                         refund_recipient: None,
                         refund_tx_hashes: None,
                         first_seen_at: None,
+                        version: Some(BUNDLE_VERSION_V1.to_owned()),
                     };
 
                     let order = RawOrder::Bundle(raw_bundle)

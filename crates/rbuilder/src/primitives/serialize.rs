@@ -1,8 +1,9 @@
 use super::{
-    Bundle, BundleRefund, BundleReplacementData, BundleReplacementKey, MempoolTx, Order, Refund,
-    RefundConfig, ShareBundle, ShareBundleBody, ShareBundleInner, ShareBundleReplacementData,
-    ShareBundleReplacementKey, ShareBundleTx, TransactionSignedEcRecoveredWithBlobs,
-    TxRevertBehavior, TxWithBlobsCreateError,
+    Bundle, BundleRefund, BundleReplacementData, BundleReplacementKey, BundleVersion, MempoolTx,
+    Order, Refund, RefundConfig, ShareBundle, ShareBundleBody, ShareBundleInner,
+    ShareBundleReplacementData, ShareBundleReplacementKey, ShareBundleTx,
+    TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior, TxWithBlobsCreateError,
+    LAST_BUNDLE_VERSION,
 };
 use alloy_consensus::constants::EIP4844_TX_TYPE_ID;
 use alloy_eips::eip2718::Eip2718Error;
@@ -89,6 +90,7 @@ where
 #[derivative(PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct RawBundle {
+    pub version: Option<String>,
     /// blockNumber (Optional) `String`, a hex encoded block number for which this bundle is valid
     /// on. If nil or 0, blockNumber will default to the current pending block
     pub block_number: Option<U64>,
@@ -159,6 +161,8 @@ pub enum RawBundleConvertError {
     EmptyBundle,
     #[error("Found cancel on decode_new_bundle")]
     FoundCancelExpectingBundle,
+    #[error("Unsupported version {0}")]
+    UnsupportedVersion(String),
 }
 
 /// Since we use the same API (eth_sendBundle) to get new bundles and also to cancel them we need this struct.
@@ -167,6 +171,9 @@ pub enum RawBundleDecodeResult {
     NewBundle(Bundle),
     CancelBundle(BundleReplacementData),
 }
+
+pub const BUNDLE_VERSION_V1: &str = "v1";
+pub const BUNDLE_VERSION_V2: &str = "v2";
 
 impl RawBundle {
     /// Same as decode but fails on cancel
@@ -236,6 +243,7 @@ impl RawBundle {
             metadata: Default::default(),
             dropping_tx_hashes: self.dropping_tx_hashes,
             refund,
+            version: Self::decode_version(self.version)?,
         };
         bundle.hash_slow();
         Ok(RawBundleDecodeResult::NewBundle(bundle))
@@ -341,6 +349,26 @@ impl RawBundle {
             refund_recipient: value.refund.as_ref().map(|br| br.recipient),
             refund_tx_hashes: value.refund.map(|br| br.tx_hashes),
             first_seen_at: None,
+            version: Some(Self::encode_version(value.version)),
+        }
+    }
+
+    fn decode_version(version: Option<String>) -> Result<BundleVersion, RawBundleConvertError> {
+        if let Some(version) = version {
+            match version.as_str() {
+                BUNDLE_VERSION_V1 => Ok(BundleVersion::V1),
+                BUNDLE_VERSION_V2 => Ok(BundleVersion::V2),
+                _ => Err(RawBundleConvertError::UnsupportedVersion(version)),
+            }
+        } else {
+            Ok(LAST_BUNDLE_VERSION)
+        }
+    }
+
+    pub fn encode_version(version: BundleVersion) -> String {
+        match version {
+            BundleVersion::V1 => BUNDLE_VERSION_V1.to_string(),
+            BundleVersion::V2 => BUNDLE_VERSION_V2.to_string(),
         }
     }
 }

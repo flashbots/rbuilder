@@ -10,7 +10,10 @@ use crate::{
         BlockBuildingContext,
     },
     live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig},
-    primitives::{Bundle, MempoolTx, Metadata, Order, TransactionSignedEcRecoveredWithBlobs},
+    primitives::{
+        Bundle, MempoolTx, Metadata, Order, TransactionSignedEcRecoveredWithBlobs,
+        LAST_BUNDLE_VERSION,
+    },
     provider::state_provider_factory_from_provider_factory::StateProviderFactoryFromProviderFactory,
 };
 
@@ -95,6 +98,7 @@ impl<ConfigType: LiveBuilderConfig> SyntheticOrdersSource<ConfigType> {
                 },
                 dropping_tx_hashes: Default::default(),
                 refund: None,
+                version: LAST_BUNDLE_VERSION,
             };
             bundle.hash_slow();
             orders.push(OrdersWithTimestamp {

@@ -411,7 +411,7 @@ fn find_landed_order_data(
 mod tests {
     use super::*;
     use crate::{
-        primitives::{Bundle, MempoolTx, Refund, ShareBundle, ShareBundleTx},
+        primitives::{Bundle, MempoolTx, Refund, ShareBundle, ShareBundleTx, LAST_BUNDLE_VERSION},
         utils::test_utils::*,
     };
 
@@ -747,6 +747,7 @@ mod tests {
             metadata: Default::default(),
             dropping_tx_hashes: Default::default(),
             refund: Default::default(),
+            version: LAST_BUNDLE_VERSION,
         });
         let expected = SimplifiedOrder::new(
             OrderId::Bundle(uuid::uuid!("00000000-0000-0000-0000-ffff00000002")),

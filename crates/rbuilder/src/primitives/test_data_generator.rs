@@ -7,7 +7,7 @@ use uuid::Uuid;
 use super::{
     AccountNonce, Bundle, BundleReplacementData, BundledTxInfo, MempoolTx, Order, ShareBundle,
     ShareBundleBody, ShareBundleInner, ShareBundleReplacementData, ShareBundleTx,
-    TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior,
+    TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior, LAST_BUNDLE_VERSION,
 };
 
 /// TestDataGenerator for Orders.
@@ -64,6 +64,7 @@ impl TestDataGenerator {
             metadata: Default::default(),
             dropping_tx_hashes: vec![],
             refund: None,
+            version: LAST_BUNDLE_VERSION,
         };
         res.hash_slow();
         res
@@ -127,6 +128,7 @@ impl TestDataGenerator {
             metadata: Default::default(),
             dropping_tx_hashes: Default::default(),
             refund: None,
+            version: LAST_BUNDLE_VERSION,
         };
         bundle.hash_slow();
         bundle

@@ -471,7 +471,7 @@ mod tests {
         building::builders::parallel_builder::{ConflictGroup, GroupId, TaskPriority},
         primitives::{
             Bundle, Metadata, Order, SimValue, SimulatedOrder,
-            TransactionSignedEcRecoveredWithBlobs,
+            TransactionSignedEcRecoveredWithBlobs, LAST_BUNDLE_VERSION,
         },
     };
 
@@ -543,6 +543,7 @@ mod tests {
                 metadata: Metadata::default(),
                 dropping_tx_hashes: Vec::new(),
                 refund: None,
+                version: LAST_BUNDLE_VERSION,
             };
 
             Arc::new(SimulatedOrder {

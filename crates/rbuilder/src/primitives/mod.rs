@@ -28,9 +28,7 @@ use reth_primitives::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{
-    cmp::Ordering, collections::HashMap, fmt::Display, hash::Hash, str::FromStr, sync::Arc, u64,
-};
+use std::{cmp::Ordering, collections::HashMap, fmt::Display, hash::Hash, str::FromStr, sync::Arc};
 pub use test_data_generator::TestDataGenerator;
 use thiserror::Error;
 use uuid::Uuid;
@@ -117,10 +115,19 @@ pub struct BundleRefund {
     pub tx_hashes: Vec<TxHash>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum BundleVersion {
+    V1,
+    V2,
+}
+
+pub const LAST_BUNDLE_VERSION: BundleVersion = BundleVersion::V2;
+
 /// Bundle sent to us usually by a searcher via eth_sendBundle (https://docs.flashbots.net/flashbots-auction/advanced/rpc-endpoint#eth_sendbundle).
 #[derive(Derivative)]
 #[derivative(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Bundle {
+    pub version: BundleVersion,
     /// None means in the first possible block.
     pub block: Option<u64>,
     pub min_timestamp: Option<u64>,
