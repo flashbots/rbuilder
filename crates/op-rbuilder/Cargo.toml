@@ -40,6 +40,8 @@ reth-payload-util.workspace = true
 reth-transaction-pool.workspace = true
 reth-testing-utils.workspace = true
 reth-optimism-forks.workspace = true
+reth-rpc-eth-api.workspace = true
+
 alloy-primitives.workspace = true
 alloy-consensus.workspace = true
 alloy-eips.workspace = true

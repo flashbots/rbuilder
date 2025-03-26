@@ -5,6 +5,7 @@ use reth_optimism_cli::{chainspec::OpChainSpecParser, Cli};
 use reth_optimism_node::node::OpAddOnsBuilder;
 use reth_optimism_node::OpNode;
 
+use crate::engine_api_ext::EthApiOverrideServer;
 #[cfg(feature = "flashblocks")]
 use payload_builder::CustomOpPayloadBuilder;
 #[cfg(not(feature = "flashblocks"))]
@@ -13,6 +14,8 @@ use reth_transaction_pool::TransactionPool;
 
 /// CLI argument parsing.
 pub mod args;
+mod engine_api_ext;
+use engine_api_ext::EthApiExt;
 pub mod generator;
 #[cfg(test)]
 mod integration;
@@ -72,6 +75,13 @@ fn main() {
                             let _ = monitoring.run_with_stream(new_canonical_blocks).await;
                         }),
                     );
+
+                    Ok(())
+                })
+                .extend_rpc_modules(move |ctx| {
+                    ctx.modules.replace_configured(
+                        EthApiExt::new(ctx.registry.eth_api().clone()).into_rpc(),
+                    )?;
 
                     Ok(())
                 })
