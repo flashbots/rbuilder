@@ -29,7 +29,7 @@ use std::{
     cmp::{max, min},
     sync::Arc,
 };
-use tracing::{debug, info, info_span, trace, warn};
+use tracing::{debug, error, info, info_span, trace, warn};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize)]
@@ -135,7 +135,8 @@ where
         warn!("Protect signers are not set");
     }
 
-    let (onchain_block_profit, block_data, built_block_data) = prepare_block_data(block_data)?;
+    let (onchain_block_profit, block_data, built_block_data) =
+        prepare_block_data(config, block_data)?;
 
     let included_orders_available =
         get_available_orders(&block_data, &built_block_data, distribute_to_mempool_txs);
@@ -221,15 +222,29 @@ where
     Ok(result)
 }
 
-fn prepare_block_data(
+fn prepare_block_data<ConfigType>(
+    config: &ConfigType,
     mut block_data: BlockData,
-) -> eyre::Result<(U256, BlockData, BuiltBlockData)> {
+) -> eyre::Result<(U256, BlockData, BuiltBlockData)>
+where
+    ConfigType: LiveBuilderConfig,
+{
     let built_block_data = if let Some(block_data) = block_data.built_block_data.clone() {
         block_data
     } else {
-        warn!(block = block_data.block_number, "Block data not found");
+        error!(block = block_data.block_number, "Block data not found");
         eyre::bail!("Included block data not found");
     };
+
+    let config_coinbase_signer = config.base_config().coinbase_signer()?.address;
+    let block_coinbase = block_data.onchain_block.header.beneficiary;
+    if config_coinbase_signer != block_coinbase {
+        warn!(
+            ?block_coinbase,
+            ?config_coinbase_signer,
+            "Onchain block coinbase does not match config coinbase signer"
+        );
+    }
 
     let orders_before_filtering = block_data.available_orders.len();
 
@@ -259,6 +274,7 @@ fn prepare_block_data(
     } else {
         U256::ZERO
     };
+
     Ok((block_profit, block_data, built_block_data))
 }
 
