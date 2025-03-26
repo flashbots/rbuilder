@@ -4,7 +4,7 @@ use alloy_consensus::{constants::KECCAK_EMPTY, TxEip1559};
 use alloy_primitives::{Address, TxKind as TransactionKind, U256};
 use reth_chainspec::ChainSpec;
 use reth_errors::ProviderError;
-use reth_evm::{Evm, EvmFactory};
+use reth_evm::{Evm, EvmEnv, EvmFactory};
 use reth_primitives::{Recovered, Transaction, TransactionSigned};
 use revm::context::result::{EVMError, ExecutionResult};
 
@@ -56,6 +56,10 @@ pub fn insert_test_payout_tx(
     let mut cfg = ctx.evm_env.cfg_env.clone();
     // disable balance check so we can estimate the gas cost without having any funds
     cfg.disable_balance_check = true;
+    let evm_env = EvmEnv {
+        cfg_env: cfg,
+        block_env: ctx.evm_env.block_env().clone(),
+    };
 
     let tx = create_payout_tx(
         ctx.chain_spec.as_ref(),
@@ -68,7 +72,7 @@ pub fn insert_test_payout_tx(
     )?;
 
     let mut db = state.new_db_ref();
-    let mut evm = ctx.evm_factory.create_evm(db.as_mut(), ctx.evm_env.clone());
+    let mut evm = ctx.evm_factory.create_evm(db.as_mut(), evm_env);
     let res = evm.transact(&tx)?;
     match res.result {
         ExecutionResult::Success {
