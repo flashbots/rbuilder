@@ -10,8 +10,8 @@ if [ "$#" -ne 2 ]; then
 fi
 
 script_dir=$( dirname -- "$0"; )
-criterion_dir=$( realpath -s $1 )
-output_dir=$( realpath -s $2 )
+criterion_dir=$( realpath "$1" )
+output_dir=$( realpath "$2" )
 
 source "${script_dir}/env-vars.sh"
 
