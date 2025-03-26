@@ -801,7 +801,7 @@ mod tests {
     use alloy_consensus::Transaction;
     use alloy_eips::eip2718::Encodable2718;
     use alloy_primitives::{address, fixed_bytes, keccak256, U256};
-    use revm_primitives::bytes;
+    use revm_primitives::{b256, bytes};
     use uuid::uuid;
 
     #[test]
@@ -860,45 +860,6 @@ mod tests {
         assert_eq!(
             bundle.signer,
             Some(address!("4696595f68034b47BbEc82dB62852B49a8EE7105"))
-        );
-    }
-
-    #[test]
-    fn test_correct_bundle_decoding_refunds_no_block() {
-        // raw json string
-        let bundle_json = r#"
-        {
-            "txs": [
-                "0x02f86b83aa36a780800982520894f24a01ae29dec4629dfb4170647c4ed4efc392cd861ca62a4c95b880c080a07d37bb5a4da153a6fbe24cf1f346ef35748003d1d0fc59cf6c17fb22d49e42cea02c231ac233220b494b1ad501c440c8b1a34535cdb8ca633992d6f35b14428672"
-            ],
-            "blockNumber": 0,
-            "minTimestamp": 0,
-            "maxTimestamp": 0,
-            "revertingTxHashes": [],
-            "refundPercent": 1,
-            "refundRecipient": "0x95222290dd7278aa3ddd389cc1e1d165cc4bafe5",
-            "refundTxHashes": ["0x75662ab9cb6d1be7334723db5587435616352c7e581a52867959ac24006ac1fe"]
-        }"#;
-
-        let bundle_request: RawBundle =
-            serde_json::from_str(bundle_json).expect("failed to decode bundle");
-
-        let bundle = bundle_request
-            .clone()
-            .decode_new_bundle(TxEncoding::WithBlobData)
-            .expect("failed to convert bundle request to bundle");
-
-        assert_eq!(bundle.block, None);
-        assert_eq!(
-            bundle.refund,
-            Some(BundleRefund {
-                percent: 1,
-                recipient: Address::from_str("0x95222290dd7278aa3ddd389cc1e1d165cc4bafe5").unwrap(),
-                tx_hashes: Vec::from([B256::from_str(
-                    "0x75662ab9cb6d1be7334723db5587435616352c7e581a52867959ac24006ac1fe",
-                )
-                .unwrap()]),
-            })
         );
     }
 
@@ -1062,6 +1023,151 @@ mod tests {
 
         assert_eq!(bundle.min_timestamp, Some(0));
         assert_eq!(bundle.max_timestamp, None);
+    }
+
+    #[test]
+    fn test_correct_bundle_uuid_multiple_dropping_hashes_v2() {
+        // reverting tx hashes ordering should not matter
+        let inputs = [
+            r#"
+        {
+            "version": "v2",
+            "blockNumber": "0x1136F1F",
+            "txs": ["0x02f9037b018203cd8405f5e1008503692da370830388ba943fc91a3afd70395cd496c647d5a6cc9d4b2b7fad8780e531581b77c4b903043593564c000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000a00000000000000000000000000000000000000000000000000000000064f390d300000000000000000000000000000000000000000000000000000000000000030b090c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000c000000000000000000000000000000000000000000000000000000000000001e0000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000080e531581b77c400000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000009184e72a0000000000000000000000000000000000000000000000000000080e531581b77c400000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000c02aaa39b223fe8d0a0e5c4f27ead9083c756cc2000000000000000000000000b5ea574dd8f2b735424dfc8c4e16760fc44a931b000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000c001a0a9ea84ad107d335afd5e5d2ddcc576f183be37386a9ac6c9d4469d0329c22e87a06a51ea5a0809f43bf72d0156f1db956da3a9f3da24b590b7eed01128ff84a2c1"],
+            "droppingTxHashes": ["0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
+        }
+        "#,
+            r#"
+        {
+            "version": "v2",
+            "blockNumber": "0x1136F1F",
+            "txs": ["0x02f9037b018203cd8405f5e1008503692da370830388ba943fc91a3afd70395cd496c647d5a6cc9d4b2b7fad8780e531581b77c4b903043593564c000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000a00000000000000000000000000000000000000000000000000000000064f390d300000000000000000000000000000000000000000000000000000000000000030b090c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000c000000000000000000000000000000000000000000000000000000000000001e0000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000080e531581b77c400000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000009184e72a0000000000000000000000000000000000000000000000000000080e531581b77c400000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000c02aaa39b223fe8d0a0e5c4f27ead9083c756cc2000000000000000000000000b5ea574dd8f2b735424dfc8c4e16760fc44a931b000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000c001a0a9ea84ad107d335afd5e5d2ddcc576f183be37386a9ac6c9d4469d0329c22e87a06a51ea5a0809f43bf72d0156f1db956da3a9f3da24b590b7eed01128ff84a2c1"],
+            "droppingTxHashes": ["0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"]
+        }
+        "#,
+        ];
+
+        for input in inputs {
+            let bundle_request: RawBundle =
+                serde_json::from_str(input).expect("failed to decode bundle");
+
+            let bundle = bundle_request
+                .decode_new_bundle(TxEncoding::WithBlobData)
+                .expect("failed to convert bundle request to bundle");
+
+            assert_eq!(
+                bundle.hash,
+                fixed_bytes!("cf3c567aede099e5455207ed81c4884f72a4c0c24ddca331163a335525cd22cc")
+            );
+            assert_eq!(bundle.uuid, uuid!("7addcd74-5d07-5d05-8750-3f0858e09195"));
+        }
+    }
+
+    #[test]
+    fn test_correct_bundle_decoding_refunds_no_block_v2() {
+        // raw json string
+        let bundle_json = r#"
+        {
+            "version": "v2",
+            "txs": [
+                "0x02f86b83aa36a780800982520894f24a01ae29dec4629dfb4170647c4ed4efc392cd861ca62a4c95b880c080a07d37bb5a4da153a6fbe24cf1f346ef35748003d1d0fc59cf6c17fb22d49e42cea02c231ac233220b494b1ad501c440c8b1a34535cdb8ca633992d6f35b14428672"
+            ],
+            "blockNumber": 0,
+            "minTimestamp": 123,
+            "maxTimestamp": 1234,
+            "revertingTxHashes": ["0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"],
+            "droppingTxHashes": ["0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+            "refundPercent": 1,
+            "refundRecipient": "0x95222290dd7278aa3ddd389cc1e1d165cc4bafe5",
+            "refundTxHashes": ["0x75662ab9cb6d1be7334723db5587435616352c7e581a52867959ac24006ac1fe"]
+        }"#;
+
+        let bundle_request: RawBundle =
+            serde_json::from_str(bundle_json).expect("failed to decode bundle");
+
+        let bundle = bundle_request
+            .clone()
+            .decode_new_bundle(TxEncoding::WithBlobData)
+            .expect("failed to convert bundle request to bundle");
+
+        assert_eq!(bundle.block, None);
+        assert_eq!(
+            bundle.refund,
+            Some(BundleRefund {
+                percent: 1,
+                recipient: Address::from_str("0x95222290dd7278aa3ddd389cc1e1d165cc4bafe5").unwrap(),
+                tx_hashes: Vec::from([b256!(
+                    "0x75662ab9cb6d1be7334723db5587435616352c7e581a52867959ac24006ac1fe"
+                )]),
+            })
+        );
+        assert_eq!(bundle.uuid, uuid!("e2bdb8cd-9473-5a1b-b425-57fa7ecfe2c1"));
+    }
+
+    #[test]
+    /// droppingTxHashes/refundPercent/refundRecipient/refundTxHashes should fail to decode as v1
+    fn test_error_bundle_decoding_invalid_fields_v1() {
+        let base_bundle_json = r#"
+        {
+            "version": "v1",
+            "txs": [
+                "0x02f86b83aa36a780800982520894f24a01ae29dec4629dfb4170647c4ed4efc392cd861ca62a4c95b880c080a07d37bb5a4da153a6fbe24cf1f346ef35748003d1d0fc59cf6c17fb22d49e42cea02c231ac233220b494b1ad501c440c8b1a34535cdb8ca633992d6f35b14428672"
+            ],
+            "blockNumber": 0,
+            "minTimestamp": 123,
+            "maxTimestamp": 1234,
+            "revertingTxHashes": ["0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"],
+        "#.to_owned();
+
+        let extra_invalid_fields = [
+            r#" "droppingTxHashes": ["0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"] "#,
+            r#" "refundPercent": 1 "#,
+            r#" "refundRecipient": "0x95222290dd7278aa3ddd389cc1e1d165cc4bafe5" "#,
+            r#" "refundTxHashes": ["0x75662ab9cb6d1be7334723db5587435616352c7e581a52867959ac24006ac1fe"] "#,
+        ];
+
+        for field in extra_invalid_fields {
+            let bundle_json = base_bundle_json.clone() + field + "}";
+            println!("{bundle_json}");
+            let bundle_request: RawBundle =
+                serde_json::from_str(&bundle_json).expect("failed to decode bundle");
+            let res = bundle_request
+                .clone()
+                .decode_new_bundle(TxEncoding::WithBlobData);
+            assert!(matches!(
+                res,
+                Err(RawBundleConvertError::FieldNotSupportedByVersion(
+                    _,
+                    BundleVersion::V1
+                ))
+            ));
+        }
+    }
+
+    #[test]
+    fn test_correct_bundle_decoding_no_timestamps_v2() {
+        // raw json string
+        let bundle_json = r#"
+        {
+            "version": "v2",
+            "txs": [
+                "0x02f86b83aa36a780800982520894f24a01ae29dec4629dfb4170647c4ed4efc392cd861ca62a4c95b880c080a07d37bb5a4da153a6fbe24cf1f346ef35748003d1d0fc59cf6c17fb22d49e42cea02c231ac233220b494b1ad501c440c8b1a34535cdb8ca633992d6f35b14428672"
+            ],
+            "blockNumber": 0,
+            "revertingTxHashes": []
+        }"#;
+
+        let bundle_request: RawBundle =
+            serde_json::from_str(bundle_json).expect("failed to decode bundle");
+
+        let bundle = bundle_request
+            .clone()
+            .decode_new_bundle(TxEncoding::WithBlobData)
+            .expect("failed to convert bundle request to bundle");
+
+        assert_eq!(bundle.min_timestamp, None);
+        assert_eq!(bundle.max_timestamp, None);
+        assert_eq!(bundle.uuid, uuid!("22dc6bf0-9a12-5a76-9bbd-98ab77423415"));
     }
 
     #[test]
