@@ -63,7 +63,7 @@ use reth_primitives_traits::RecoveredBlock;
 use reth_primitives_traits::SignedTransaction;
 use reth_provider::CanonStateSubscriptions;
 use reth_provider::{
-    HashedPostStateProvider, ProviderError, StateProviderFactory, StateRootProvider,
+    HashedPostStateProvider, ProviderError, StateRootProvider,
     StorageRootProvider,
 };
 use reth_revm::database::StateProviderDatabase;
@@ -80,6 +80,7 @@ use std::{fmt::Display, sync::Arc, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, trace, warn};
 use url::Url;
+use crate::provider::BuilderStateProviderFactory;
 
 #[derive(Debug, Clone, Default)]
 #[non_exhaustive]
@@ -316,7 +317,7 @@ impl<Pool, Client, EvmConfig, N: NodePrimitives>
 impl<EvmConfig, Pool, Client, N, Txs> PayloadBuilder
     for OpPayloadBuilderVanilla<Pool, Client, EvmConfig, N, Txs>
 where
-    Client: StateProviderFactory + ChainSpecProvider<ChainSpec: EthChainSpec + OpHardforks> + Clone,
+    Client: BuilderStateProviderFactory + ChainSpecProvider<ChainSpec: EthChainSpec + OpHardforks> + Clone,
     N: OpPayloadPrimitives<_TX = OpTransactionSigned>,
     Pool: TransactionPool<Transaction: PoolTransaction<Consensus = N::SignedTx>>,
     EvmConfig: ConfigureEvmFor<N>,
@@ -375,7 +376,7 @@ where
 impl<Pool, Client, EvmConfig, N, T> OpPayloadBuilderVanilla<Pool, Client, EvmConfig, N, T>
 where
     Pool: TransactionPool<Transaction: PoolTransaction<Consensus = N::SignedTx>>,
-    Client: StateProviderFactory + ChainSpecProvider<ChainSpec: EthChainSpec + OpHardforks>,
+    Client: BuilderStateProviderFactory + ChainSpecProvider<ChainSpec: EthChainSpec + OpHardforks>,
     N: OpPayloadPrimitives<_TX = OpTransactionSigned>,
     EvmConfig: ConfigureEvmFor<N>,
 {

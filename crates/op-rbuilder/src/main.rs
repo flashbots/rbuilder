@@ -28,6 +28,7 @@ mod primitives;
 mod tester;
 mod tx_signer;
 use monitor_tx_pool::monitor_tx_pool;
+mod provider;
 
 fn main() {
     Cli::<OpChainSpecParser, args::OpRbuilderArgs>::parse()
