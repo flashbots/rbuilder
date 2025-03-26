@@ -130,6 +130,11 @@ where
     let _block_span = info_span!("block", block = block_data.block_number).entered();
     let protect_signers = config.base_config().backtest_protect_bundle_signers.clone();
 
+    info!(?protect_signers, "Protect signers");
+    if protect_signers.is_empty() {
+        warn!("Protect signers are not set");
+    }
+
     let (onchain_block_profit, block_data, built_block_data) = prepare_block_data(block_data)?;
 
     let included_orders_available =
@@ -417,10 +422,17 @@ fn split_orders_by_identities(
     let mut bundle_hash_by_id = HashMap::default();
     let mut order_sender_by_id = HashMap::default();
 
+    let mut protect_signer_seen = false;
+
     for order in &included_orders_available {
         let order_id = order.order.id();
         let address = match order_redistribution_address(&order.order, protect_signers) {
-            Some(address) => address,
+            Some((address, protect_signer)) => {
+                if protect_signer {
+                    protect_signer_seen = true;
+                }
+                address
+            }
             None => {
                 warn!(order = ?order_id, "Included order redistribution address not found");
                 continue;
@@ -439,7 +451,12 @@ fn split_orders_by_identities(
         };
         order_sender_by_id.insert(id, order_sender(&order.order));
         let address = match order_redistribution_address(&order.order, protect_signers) {
-            Some(address) => address,
+            Some((address, protect_signer)) => {
+                if protect_signer {
+                    protect_signer_seen = true;
+                }
+                address
+            }
             None => {
                 warn!(order = ?id, "Available order redistribution address not found");
                 continue;
@@ -461,6 +478,10 @@ fn split_orders_by_identities(
         let orders = all_orders_by_address.entry(address).or_default();
         orders.push(id);
         orders_id_to_address.insert(id, address);
+    }
+
+    if !protect_signer_seen {
+        warn!("No orders from protect signer");
     }
 
     let mut included_orders_by_address: Vec<(Address, Vec<OrderId>)> =
@@ -1057,12 +1078,16 @@ where
     })
 }
 
-fn order_redistribution_address(order: &Order, protect_signers: &[Address]) -> Option<Address> {
+// returns true if signer is from protect
+fn order_redistribution_address(
+    order: &Order,
+    protect_signers: &[Address],
+) -> Option<(Address, bool)> {
     let signer = match order.signer() {
         Some(signer) => signer,
         None => {
             return if order.is_tx() {
-                Some(order.list_txs().first()?.0.signer())
+                Some((order.list_txs().first()?.0.signer(), false))
             } else {
                 None
             }
@@ -1070,14 +1095,14 @@ fn order_redistribution_address(order: &Order, protect_signers: &[Address]) -> O
     };
 
     if !protect_signers.contains(&signer) {
-        return Some(signer);
+        return Some((signer, false));
     }
 
     match order {
         Order::Bundle(bundle) => {
             // if its just a bundle we take origin tx of the first transaction
             let tx = bundle.txs.first()?;
-            Some(tx.signer())
+            Some((tx.signer(), true))
         }
         Order::ShareBundle(bundle) => {
             // if it is a share bundle we take either
@@ -1085,12 +1110,12 @@ fn order_redistribution_address(order: &Order, protect_signers: &[Address]) -> O
             // 2. origin of the first tx
 
             if let Some(first_refund) = bundle.inner_bundle().refund_config.first() {
-                return Some(first_refund.address);
+                return Some((first_refund.address, true));
             }
 
             let txs = bundle.list_txs();
             let (first_tx, _) = txs.first()?;
-            Some(first_tx.signer())
+            Some((first_tx.signer(), true))
         }
         Order::Tx(_) => {
             unreachable!("Mempool tx order can't have signer");
