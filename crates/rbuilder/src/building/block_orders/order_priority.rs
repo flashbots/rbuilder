@@ -1,8 +1,6 @@
-use std::{cmp::Ordering, sync::Arc};
-
-use revm_primitives::U256;
-
 use crate::primitives::{SimValue, SimulatedOrder};
+use alloy_primitives::U256;
+use std::{cmp::Ordering, sync::Arc};
 
 /// Trait to specify how we prioritize orders (eg: which we try first when are building blocks)
 pub trait OrderPriority: Ord + Clone + std::fmt::Debug + Send + Sync {
@@ -163,8 +161,17 @@ impl OrderLengthThreeCmp {
     }
 }
 
-create_order_priority!(OrderMevGasPricePriority(OrderMevGasPricePriorityCmp)<simulation_too_low_gas_price>);
-create_order_priority!(OrderMaxProfitPriority(OrderMaxProfitPriorityCmp)<simulation_too_low_profit>);
-create_order_priority!(OrderTypePriority(OrderTypeCmp,OrderMaxProfitPriorityCmp)<simulation_too_low_profit>);
-create_order_priority!(OrderLengthThreeMaxProfitPriority(OrderLengthThreeCmp,OrderMaxProfitPriorityCmp)<simulation_too_low_profit>);
-create_order_priority!(OrderLengthThreeMevGasPricePriority(OrderLengthThreeCmp,OrderMevGasPricePriorityCmp)<simulation_too_low_profit>);
+/// Breaks ties deterministically if all other orderings gave the same result
+struct OrderIDCmp {}
+impl OrderIDCmp {
+    #[inline]
+    fn cmp(a: &SimulatedOrder, b: &SimulatedOrder) -> Ordering {
+        a.id().cmp(&b.id())
+    }
+}
+
+create_order_priority!(OrderMevGasPricePriority(OrderMevGasPricePriorityCmp, OrderIDCmp)<simulation_too_low_gas_price>);
+create_order_priority!(OrderMaxProfitPriority(OrderMaxProfitPriorityCmp, OrderIDCmp)<simulation_too_low_profit>);
+create_order_priority!(OrderTypePriority(OrderTypeCmp,OrderMaxProfitPriorityCmp, OrderIDCmp)<simulation_too_low_profit>);
+create_order_priority!(OrderLengthThreeMaxProfitPriority(OrderLengthThreeCmp,OrderMaxProfitPriorityCmp, OrderIDCmp)<simulation_too_low_profit>);
+create_order_priority!(OrderLengthThreeMevGasPricePriority(OrderLengthThreeCmp,OrderMevGasPricePriorityCmp, OrderIDCmp)<simulation_too_low_profit>);

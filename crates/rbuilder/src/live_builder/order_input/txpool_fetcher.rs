@@ -150,7 +150,7 @@ mod test {
         let sidecar = sidecar.build().unwrap();
 
         let gas_price = provider.get_gas_price().await.unwrap();
-        let eip1559_est = provider.estimate_eip1559_fees(None).await.unwrap();
+        let eip1559_est = provider.estimate_eip1559_fees().await.unwrap();
 
         let tx = TransactionRequest {
             max_fee_per_blob_gas: Some(gas_price),

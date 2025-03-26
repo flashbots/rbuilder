@@ -1,10 +1,9 @@
 use super::{BlockBuildingContext, BlockState, PartialBlockFork};
 use crate::primitives::{Order, OrderId};
-use alloy_primitives::Address;
+use alloy_primitives::{Address, U256};
 use itertools::Itertools;
 use reth::providers::StateProviderBox;
 use reth_provider::StateProvider;
-use revm_primitives::U256;
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,

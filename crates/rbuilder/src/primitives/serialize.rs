@@ -598,19 +598,31 @@ impl RawShareBundle {
         let mut result = inner_bundle_to_raw_bundle_no_blobs(inclusion, value.inner_bundle);
         result.metadata = value.signer.map(|signer| RawShareBundleMetadatada {
             signer: Some(signer),
-            replacement_nonce: None,
+            replacement_nonce: value.replacement_data.as_ref().map(|r| r.sequence_number),
             cancelled: false,
         });
+        result.replacement_uuid = value.replacement_data.map(|r| r.key.0.id);
         result
     }
 }
 
-fn create_revert_behavior(can_revert: bool, revert_mode: Option<String>) -> TxRevertBehavior {
+const TX_REVERT_NOT_ALLOWED: &str = "fail";
+const TX_REVERT_ALLOWED_INCLUDED: &str = "allow";
+const TX_REVERT_ALLOWED_EXCLUDED: &str = "drop";
+fn serialize_revert_behavior(revert: TxRevertBehavior) -> String {
+    match revert {
+        TxRevertBehavior::NotAllowed => TX_REVERT_NOT_ALLOWED.to_owned(),
+        TxRevertBehavior::AllowedIncluded => TX_REVERT_ALLOWED_INCLUDED.to_owned(),
+        TxRevertBehavior::AllowedExcluded => TX_REVERT_ALLOWED_EXCLUDED.to_owned(),
+    }
+}
+
+fn parse_revert_behavior(can_revert: bool, revert_mode: Option<String>) -> TxRevertBehavior {
     if let Some(revert_mode) = revert_mode {
         match revert_mode.as_str() {
-            "fail" => TxRevertBehavior::NotAllowed,
-            "allow" => TxRevertBehavior::AllowedIncluded,
-            "drop" => TxRevertBehavior::AllowedExcluded,
+            TX_REVERT_NOT_ALLOWED => TxRevertBehavior::NotAllowed,
+            TX_REVERT_ALLOWED_INCLUDED => TxRevertBehavior::AllowedIncluded,
+            TX_REVERT_ALLOWED_EXCLUDED => TxRevertBehavior::AllowedExcluded,
             _ => {
                 error!(?revert_mode, "Illegal revert mode");
                 TxRevertBehavior::NotAllowed
@@ -646,7 +658,7 @@ fn extract_inner_bundle(
                     tx_count += 1;
                     return Ok(ShareBundleBody::Tx(ShareBundleTx {
                         tx,
-                        revert_behavior: create_revert_behavior(body.can_revert, body.revert_mode),
+                        revert_behavior: parse_revert_behavior(body.can_revert, body.revert_mode),
                     }));
                 }
 
@@ -712,12 +724,17 @@ fn inner_bundle_to_raw_bundle_no_blobs(
                     inner,
                 ))),
             },
-            ShareBundleBody::Tx(sbundle_tx) => RawShareBundleBody {
-                tx: Some(sbundle_tx.tx.envelope_encoded_no_blobs()),
-                can_revert: sbundle_tx.revert_behavior.can_revert(),
-                revert_mode: None,
-                bundle: None,
-            },
+            ShareBundleBody::Tx(sbundle_tx) => {
+                // We don't really need this since revert_mode takes priority over can_revert but just in case...
+                let can_revert = sbundle_tx.revert_behavior.can_revert();
+                let revert_mode = Some(serialize_revert_behavior(sbundle_tx.revert_behavior));
+                RawShareBundleBody {
+                    tx: Some(sbundle_tx.tx.envelope_encoded_no_blobs()),
+                    can_revert,
+                    revert_mode,
+                    bundle: None,
+                }
+            }
         })
         .collect();
 
@@ -795,13 +812,12 @@ impl From<Order> for RawOrder {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
     use super::*;
+    use crate::primitives::ReplacementData;
     use alloy_consensus::Transaction;
     use alloy_eips::eip2718::Encodable2718;
-    use alloy_primitives::{address, fixed_bytes, keccak256, U256};
-    use revm_primitives::{b256, bytes};
+    use alloy_primitives::{address, b256, bytes, fixed_bytes, keccak256, U256};
+    use std::str::FromStr;
     use uuid::uuid;
 
     #[test]
@@ -1212,7 +1228,8 @@ mod tests {
         {
             "version": "v0.1",
             "inclusion": {
-              "block": "0x1"
+              "block": "0x1",
+              "maxBlock": "0x11"
             },
             "body": [
               {
@@ -1227,7 +1244,8 @@ mod tests {
                       "canRevert": true
                     },
                     {
-                      "tx": "0x02f8730180843b9aca00852ecc889a008288b894c10000000000000000000000000000000000000088016345785d8a000080c001a07c8890151fed9a826f241d5a37c84062ebc55ca7f5caef4683dcda6ac99dbffba069108de72e4051a764f69c51a6b718afeff4299107963a5d84d5207b2d6932a4"
+                      "tx": "0x02f8730180843b9aca00852ecc889a008288b894c10000000000000000000000000000000000000088016345785d8a000080c001a07c8890151fed9a826f241d5a37c84062ebc55ca7f5caef4683dcda6ac99dbffba069108de72e4051a764f69c51a6b718afeff4299107963a5d84d5207b2d6932a4",
+                      "revertMode": "drop"
                     }
                   ],
                   "validity": {
@@ -1259,8 +1277,10 @@ mod tests {
               ]
             },
             "metadata": {
-                "signer": "0x4696595f68034b47BbEc82dB62852B49a8EE7105"
-            }
+                "signer": "0x4696595f68034b47BbEc82dB62852B49a8EE7105",
+                "replacementNonce": 17
+            },
+            "replacementUuid": "3255ceb4-fdc5-592d-a501-2183727ca3df"
         }
         "#;
 
@@ -1271,12 +1291,10 @@ mod tests {
             .clone()
             .decode_new_bundle(TxEncoding::WithBlobData)
             .expect("failed to convert share bundle request to share bundle");
+        let bundle_clone = bundle.clone();
 
-        let bundle_roundtrip = RawShareBundle::encode_no_blobs(bundle.clone());
-        assert_eq!(bundle_request, bundle_roundtrip);
-
-        assert_eq!(bundle.block, 1);
-        assert_eq!(bundle.max_block, 1);
+        assert_eq!(bundle.block, 0x1);
+        assert_eq!(bundle.max_block, 0x11);
         assert_eq!(
             bundle
                 .flatten_txs()
@@ -1294,7 +1312,7 @@ mod tests {
                     fixed_bytes!(
                         "ba8dd77f4e9cf3c833399dc7f25408bb35fee78787a039e0ce3c80b04c537a71"
                     ),
-                    false
+                    true
                 ),
                 (
                     fixed_bytes!(
@@ -1335,7 +1353,13 @@ mod tests {
         let b = bundle.inner_bundle;
         assert_eq!(b.body.len(), 2);
         assert!(matches!(b.body[0], ShareBundleBody::Bundle(..)));
-        assert!(matches!(b.body[1], ShareBundleBody::Tx { .. }));
+        assert!(matches!(
+            b.body[1],
+            ShareBundleBody::Tx(ShareBundleTx {
+                revert_behavior: TxRevertBehavior::NotAllowed,
+                ..
+            })
+        ));
         assert_eq!(
             b.refund,
             vec![Refund {
@@ -1351,8 +1375,20 @@ mod tests {
             unreachable!()
         };
         assert_eq!(b.body.len(), 2);
-        assert!(matches!(b.body[0], ShareBundleBody::Tx { .. }));
-        assert!(matches!(b.body[1], ShareBundleBody::Tx { .. }));
+        assert!(matches!(
+            b.body[0],
+            ShareBundleBody::Tx(ShareBundleTx {
+                revert_behavior: TxRevertBehavior::AllowedIncluded,
+                ..
+            })
+        ));
+        assert!(matches!(
+            b.body[1],
+            ShareBundleBody::Tx(ShareBundleTx {
+                revert_behavior: TxRevertBehavior::AllowedExcluded,
+                ..
+            })
+        ));
         assert_eq!(
             b.refund,
             vec![Refund {
@@ -1367,6 +1403,25 @@ mod tests {
                 percent: 100
             }]
         );
+
+        assert_eq!(
+            bundle.replacement_data,
+            Some(ReplacementData {
+                key: ShareBundleReplacementKey::new(
+                    uuid!("3255ceb4-fdc5-592d-a501-2183727ca3df"),
+                    address!("4696595f68034b47BbEc82dB62852B49a8EE7105")
+                ),
+                sequence_number: 17,
+            })
+        );
+
+        // There are differences in json when decoding and encdoding bundle but we want our internal structures to match
+        let bundle_roundtrip = RawShareBundle::encode_no_blobs(bundle_clone.clone());
+        let bundle_roundtrip = bundle_roundtrip
+            .clone()
+            .decode_new_bundle(TxEncoding::WithBlobData)
+            .expect("failed to convert roundrrip share bundle request to share bundle");
+        assert_eq!(bundle_clone, bundle_roundtrip);
     }
 
     #[test]

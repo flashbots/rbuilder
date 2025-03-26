@@ -1,7 +1,6 @@
 use crate::primitives::{OrderId, TransactionSignedEcRecoveredWithBlobs};
-use alloy_primitives::{Address, B256, I256, U256};
+use alloy_primitives::{Address, PrimitiveSignature, B256, I256, U256};
 use reth_primitives::{Recovered, Transaction, TransactionSigned};
-use revm_primitives::PrimitiveSignature;
 
 pub fn order_id(id: u64) -> OrderId {
     OrderId::Tx(hash(id))

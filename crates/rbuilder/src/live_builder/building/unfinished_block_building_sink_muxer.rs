@@ -94,8 +94,6 @@ impl BestBlockState {
 
 #[cfg(test)]
 mod tests {
-    use revm_primitives::U256;
-
     use crate::{
         building::{
             builders::{
@@ -106,6 +104,7 @@ mod tests {
         },
         primitives::{AccountNonce, Order},
     };
+    use alloy_primitives::U256;
 
     use super::BestBlockState;
 

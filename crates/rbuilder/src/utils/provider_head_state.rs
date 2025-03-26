@@ -1,9 +1,8 @@
 //! Mod for gathering info about reth's head.
 
 use crate::provider::StateProviderFactory;
-use alloy_primitives::BlockNumber;
+use alloy_primitives::{BlockNumber, B256};
 use reth_errors::ProviderResult;
-use revm_primitives::B256;
 
 /// For debugging. Results of asking for block number + hash to a BlockHashReader+BlockNumReader
 #[derive(Debug)]

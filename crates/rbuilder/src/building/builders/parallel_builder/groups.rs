@@ -3,10 +3,8 @@ use crate::{
     primitives::{OrderId, SimulatedOrder},
 };
 use ahash::{HashMap, HashSet};
-use alloy_primitives::U256;
+use alloy_primitives::{Address, B256, U256};
 use itertools::Itertools;
-use revm_primitives::{Address, B256};
-
 use std::sync::Arc;
 
 /// ResolutionResult describes order of certain groups of orders.

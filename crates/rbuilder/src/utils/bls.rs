@@ -1,6 +1,6 @@
+use alloy_primitives::hex;
 use ethereum_consensus::crypto::SecretKey;
 use rand;
-use revm_primitives::hex;
 
 pub fn generate_random_bls_address() -> String {
     let mut rng = rand::thread_rng();

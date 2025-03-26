@@ -1,14 +1,12 @@
-use alloy_consensus::TxLegacy;
-use alloy_primitives::B256;
-use reth_primitives::{Recovered, Transaction, TransactionSigned};
-use revm_primitives::PrimitiveSignature;
-use uuid::Uuid;
-
 use super::{
     AccountNonce, Bundle, BundleReplacementData, BundledTxInfo, MempoolTx, Order, ShareBundle,
     ShareBundleBody, ShareBundleInner, ShareBundleReplacementData, ShareBundleTx,
     TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior, LAST_BUNDLE_VERSION,
 };
+use alloy_consensus::TxLegacy;
+use alloy_primitives::{PrimitiveSignature, B256};
+use reth_primitives::{Recovered, Transaction, TransactionSigned};
+use uuid::Uuid;
 
 /// TestDataGenerator for Orders.
 /// Generated orders are not intended to be executed since any data that is not on the create_xxx parameters if default (eg:to,value,input)

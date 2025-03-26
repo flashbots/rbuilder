@@ -1,14 +1,11 @@
-use crate::utils::fast_hash;
-use crate::utils::{hash_map_with_capacity, HashMap};
-use alloy_primitives::keccak256;
-use alloy_primitives::Bytes;
+use crate::utils::{fast_hash, hash_map_with_capacity, HashMap};
+use alloy_primitives::{keccak256, Bytes, B256};
 use alloy_rlp::Decodable;
 use alloy_trie::nodes::{
     BranchNode as AlloyBranchNode, ExtensionNode as AlloyExtensionNode, LeafNode as AlloyLeafNode,
     TrieNode as AlloyTrieNode,
 };
 use reth_trie::Nibbles;
-use revm_primitives::B256;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, Seq};
 use smallvec::SmallVec;

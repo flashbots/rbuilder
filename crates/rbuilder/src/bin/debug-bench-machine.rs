@@ -2,7 +2,6 @@
 //! This only works when reth node is stopped and the chain moved forward from its synced state
 //! It downloads block after the last one synced and re-executes all the txs in it.
 use alloy_provider::Provider;
-use alloy_rpc_types::BlockTransactionsKind;
 use clap::Parser;
 use eyre::Context;
 use itertools::Itertools;
@@ -48,7 +47,8 @@ async fn main() -> eyre::Result<()> {
     let last_block = provider_factory.last_block_number()?;
 
     let onchain_block = rpc
-        .get_block_by_number((last_block + 1).into(), BlockTransactionsKind::Full)
+        .get_block_by_number((last_block + 1).into())
+        .full()
         .await?
         .ok_or_else(|| eyre::eyre!("block not found on rpc"))?;
 

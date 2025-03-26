@@ -2,32 +2,31 @@ use super::{
     create_payout_tx, tracers::SimulationTracer, BlockBuildingContext, EstimatePayoutGasErr,
 };
 use crate::{
-    building::estimate_payout_gas_limit,
+    building::{
+        estimate_payout_gas_limit,
+        evm_inspector::{RBuilderEVMInspector, UsedStateTrace},
+    },
     primitives::{
         Bundle, Order, OrderId, RefundConfig, ShareBundle, ShareBundleBody, ShareBundleInner,
         TransactionSignedEcRecoveredWithBlobs,
     },
     utils::get_percent,
 };
-
 use ahash::HashSet;
-use alloy_primitives::{Address, B256, U256};
-
 use alloy_consensus::{constants::KECCAK_EMPTY, Transaction};
 use alloy_eips::eip4844::{DATA_GAS_PER_BLOB, MAX_DATA_GAS_PER_BLOCK};
+use alloy_primitives::{Address, B256, U256};
 use reth::revm::{cached::CachedReads, database::StateProviderDatabase};
 use reth_errors::ProviderError;
-use reth_primitives::{transaction::FillTxEnv, Receipt};
+use reth_evm::{EthEvmFactory, Evm, EvmEnv, EvmFactory};
+use reth_primitives::Receipt;
 use reth_provider::{StateProvider, StateProviderBox};
 use revm::{
-    db::{states::bundle_state::BundleRetention, BundleState},
-    inspector_handle_register,
-    primitives::{db::WrapDatabaseRef, EVMError, Env, ExecutionResult, InvalidTransaction, TxEnv},
-    Database, DatabaseCommit, State,
+    context::result::ResultAndState,
+    context_interface::result::{EVMError, ExecutionResult, InvalidTransaction},
+    database::{states::bundle_state::BundleRetention, BundleState, State, WrapDatabaseRef},
+    Database, DatabaseCommit,
 };
-use revm_primitives::{BlockEnv, CfgEnv, ResultAndState, SpecId};
-
-use crate::building::evm_inspector::{RBuilderEVMInspector, UsedStateTrace};
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 
@@ -412,10 +411,10 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
             .evm_env
             .block_env
             .gas_limit
-            .checked_sub(U256::from(cumulative_gas_used + gas_reserved))
+            .checked_sub(cumulative_gas_used + gas_reserved)
         {
             Some(gas_left) => {
-                if tx.gas_limit() > gas_left.to::<u64>() {
+                if tx.gas_limit() > gas_left {
                     return Ok(Err(TransactionErr::GasLeft));
                 }
             }
@@ -435,11 +434,10 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
         });
 
         let res = execute_evm(
+            &ctx.evm_factory,
+            ctx.evm_env.clone(),
             tx_with_blobs,
-            ctx.evm_env.cfg_env.clone(),
-            ctx.evm_env.block_env.clone(),
             used_state_tracer,
-            ctx.spec_id,
             db.as_mut(),
             &ctx.blocklist,
         )?;
@@ -471,16 +469,6 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
             success: res.result.is_success(),
             cumulative_gas_used,
             logs: res.result.logs().to_vec(),
-            // Necessary because rbuilder is one crate that requires deps to have all-or-nothing
-            // features. This can be removed when logic required for op-rbuilder is
-            // moved into a dedicated crate.
-            #[cfg(feature = "optimism")]
-            deposit_nonce: None,
-            // Necessary because rbuilder is one crate that requires deps to have all-or-nothing
-            // features. This can be removed when logic required for op-rbuilder is
-            // moved into a dedicated crate.
-            #[cfg(feature = "optimism")]
-            deposit_receipt_version: None,
         };
 
         Ok(Ok(TransactionOk {
@@ -505,7 +493,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
         cumulative_blob_gas_used: u64,
         allow_tx_skip: bool,
     ) -> Result<Result<BundleOk, BundleErr>, CriticalCommitOrderError> {
-        let current_block = ctx.evm_env.block_env.number.to::<u64>();
+        let current_block = ctx.evm_env.block_env.number;
         // None is good for any block
         if let Some(block) = bundle.block {
             if block != current_block {
@@ -520,7 +508,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
         let (min_ts, max_ts, block_ts) = (
             bundle.min_timestamp.unwrap_or(0),
             bundle.max_timestamp.unwrap_or(u64::MAX),
-            ctx.evm_env.block_env.timestamp.to::<u64>(),
+            ctx.evm_env.block_env.timestamp,
         );
         if !(min_ts <= block_ts && block_ts <= max_ts) {
             return Ok(Err(BundleErr::IncorrectTimestamp {
@@ -565,7 +553,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
                 return Err(BundleErr::EstimatePayoutGas(err));
             }
         };
-        let base_fee = ctx.evm_env.block_env.basefee * U256::from(gas_limit);
+        let base_fee = U256::from(ctx.evm_env.block_env.basefee) * U256::from(gas_limit);
         if base_fee > refundable_value {
             return Err(BundleErr::NotEnoughRefundForGas {
                 to,
@@ -668,7 +656,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
         };
         for tx_with_blobs in &bundle.txs {
             let tx_hash = tx_with_blobs.hash();
-            let coinbase_balance_before = self.state.balance(ctx.evm_env.block_env.coinbase)?;
+            let coinbase_balance_before = self.state.balance(ctx.evm_env.block_env.beneficiary)?;
             let rollback_point = self.rollback_point();
             let result = self.commit_tx(
                 tx_with_blobs,
@@ -691,7 +679,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
 
                     let coinbase_profit = {
                         let coinbase_balance_after =
-                            self.state.balance(ctx.evm_env.block_env.coinbase)?;
+                            self.state.balance(ctx.evm_env.block_env.beneficiary)?;
                         coinbase_balance_after.checked_sub(coinbase_balance_before)
                     };
                     if let Some(profit) = coinbase_profit {
@@ -751,7 +739,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
         cumulative_blob_gas_used: u64,
         allow_tx_skip: bool,
     ) -> Result<Result<BundleOk, BundleErr>, CriticalCommitOrderError> {
-        let current_block = ctx.evm_env.block_env.number.to::<u64>();
+        let current_block = ctx.evm_env.block_env.number;
         if !(bundle.block <= current_block && current_block <= bundle.max_block) {
             return Ok(Err(BundleErr::TargetBlockIncorrect {
                 block: current_block,
@@ -851,7 +839,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
             paid_kickbacks: Vec::new(),
             original_order_ids: Vec::new(),
         };
-        let coinbase_balance_before = self.state.balance(ctx.evm_env.block_env.coinbase)?;
+        let coinbase_balance_before = self.state.balance(ctx.evm_env.block_env.beneficiary)?;
         let refundable_elements = bundle
             .refund
             .iter()
@@ -865,7 +853,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
                     let rollback_point = self.rollback_point();
                     let tx = &sbundle_tx.tx;
                     let coinbase_balance_before =
-                        self.state.balance(ctx.evm_env.block_env.coinbase)?;
+                        self.state.balance(ctx.evm_env.block_env.beneficiary)?;
                     let result = self.commit_tx(
                         tx,
                         ctx,
@@ -890,7 +878,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
 
                             let coinbase_profit = {
                                 let coinbase_balance_after =
-                                    self.state.balance(ctx.evm_env.block_env.coinbase)?;
+                                    self.state.balance(ctx.evm_env.block_env.beneficiary)?;
                                 coinbase_balance_after.checked_sub(coinbase_balance_before)
                             };
                             if let Some(profit) = coinbase_profit {
@@ -1005,7 +993,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
         }
 
         let coinbase_diff_before_payouts = {
-            let coinbase_balance_after = self.state.balance(ctx.evm_env.block_env.coinbase)?;
+            let coinbase_balance_after = self.state.balance(ctx.evm_env.block_env.beneficiary)?;
             coinbase_balance_after
                 .checked_sub(coinbase_balance_before)
                 .unwrap_or_default()
@@ -1060,7 +1048,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
         cumulative_blob_gas_used: u64,
         allow_tx_skip: bool,
     ) -> Result<Result<OrderOk, OrderErr>, CriticalCommitOrderError> {
-        let coinbase_balance_before = self.state.balance(ctx.evm_env.block_env.coinbase)?;
+        let coinbase_balance_before = self.state.balance(ctx.evm_env.block_env.beneficiary)?;
         match order {
             Order::Tx(tx) => {
                 let res = self.commit_tx(
@@ -1075,7 +1063,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
                         // Builder does not sign txs in this code path, so allow negative coinbase
                         // profit.
                         let coinbase_balance_after =
-                            self.state.balance(ctx.evm_env.block_env.coinbase)?;
+                            self.state.balance(ctx.evm_env.block_env.beneficiary)?;
                         let coinbase_profit =
                             coinbase_balance_after.saturating_sub(coinbase_balance_before);
                         Ok(Ok(OrderOk {
@@ -1109,7 +1097,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
                         // Builder does not sign txs in this code path, so allow negative coinbase
                         // profit.
                         let coinbase_balance_after =
-                            self.state.balance(ctx.evm_env.block_env.coinbase)?;
+                            self.state.balance(ctx.evm_env.block_env.beneficiary)?;
                         let coinbase_profit =
                             coinbase_balance_after.saturating_sub(coinbase_balance_before);
                         Ok(Ok(OrderOk {
@@ -1141,7 +1129,7 @@ impl<'a, 'b, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, Tracer> {
                 match res {
                     Ok(ok) => {
                         let coinbase_balance_after =
-                            self.state.balance(ctx.evm_env.block_env.coinbase)?;
+                            self.state.balance(ctx.evm_env.block_env.beneficiary)?;
                         // Builder does sign txs in this code path, so do not allow negative coinbase
                         // profit.
                         let coinbase_profit = match coinbase_profit(
@@ -1226,44 +1214,26 @@ fn update_nonce_list_with_updates(
 /// Gas checks must be done before calling this methods
 /// thats why it can't return `TransactionErr::GasLeft` and  `TransactionErr::BlobGasLeft`
 fn execute_evm(
+    evm_factory: &EthEvmFactory,
+    evm_env: EvmEnv,
     tx_with_blobs: &TransactionSignedEcRecoveredWithBlobs,
-    cfg_env: CfgEnv,
-    block_env: BlockEnv,
     used_state_tracer: Option<&mut UsedStateTrace>,
-    spec_id: SpecId,
     db: impl Database<Error = ProviderError>,
     blocklist: &HashSet<Address>,
 ) -> Result<Result<ResultAndState, TransactionErr>, CriticalCommitOrderError> {
-    let mut tx_env = TxEnv::default();
-    let tx_signed = tx_with_blobs.internal_tx_unsecure();
-    tx_signed.fill_tx_env(&mut tx_env, tx_signed.signer());
-
-    let env = Env {
-        cfg: cfg_env,
-        block: block_env,
-        tx: tx_env,
-    };
-
     let tx = tx_with_blobs.internal_tx_unsecure();
     let mut rbuilder_inspector = RBuilderEVMInspector::new(tx, used_state_tracer);
 
-    let mut evm = revm::Evm::builder()
-        .with_spec_id(spec_id)
-        .with_env(Box::new(env))
-        .with_db(db)
-        .with_external_context(&mut rbuilder_inspector)
-        .append_handler_register(inspector_handle_register)
-        .build();
-    let res = match evm.transact() {
+    let mut evm = evm_factory.create_evm_with_inspector(db, evm_env, &mut rbuilder_inspector);
+    let res = match evm.transact(tx) {
         Ok(res) => res,
         Err(err) => match err {
             EVMError::Transaction(tx_err) => {
                 return Ok(Err(TransactionErr::InvalidTransaction(tx_err)))
             }
-            EVMError::Database(_)
-            | EVMError::Header(_)
-            | EVMError::Custom(_)
-            | EVMError::Precompile(_) => return Err(err.into()),
+            EVMError::Database(_) | EVMError::Header(_) | EVMError::Custom(_) => {
+                return Err(err.into())
+            }
         },
     };
     drop(evm);

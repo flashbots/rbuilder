@@ -6,18 +6,18 @@ pub mod mev_boost;
 
 use crate::{
     backtest::{
-        fetch::data_source::{BlockRef, DataSource},
-        BlockData,
+        fetch::{
+            data_source::{BlockRef, DataSource},
+            mev_boost::PayloadDeliveredFetcher,
+        },
+        BlockData, OrdersWithTimestamp,
     },
     mev_boost::BuilderBlockReceived,
     utils::timestamp_as_u64,
 };
-
 use alloy_provider::{Provider, RootProvider};
-use alloy_rpc_types::{Block, BlockId, BlockNumberOrTag, BlockTransactionsKind};
+use alloy_rpc_types::{Block, BlockId, BlockNumberOrTag};
 use eyre::Context;
-
-use crate::backtest::{fetch::mev_boost::PayloadDeliveredFetcher, OrdersWithTimestamp};
 use futures::TryStreamExt;
 use std::{
     collections::HashMap,
@@ -87,10 +87,8 @@ impl HistoricalDataFetcher {
     async fn get_onchain_block(&self, block_number: u64) -> eyre::Result<Block> {
         let block = self
             .eth_provider
-            .get_block_by_number(
-                BlockNumberOrTag::Number(block_number),
-                BlockTransactionsKind::Full,
-            )
+            .get_block_by_number(BlockNumberOrTag::Number(block_number))
+            .full()
             .await
             .wrap_err_with(|| format!("Failed to fetch block {}", block_number))?
             .ok_or_else(|| eyre::eyre!("Block {} not found", block_number))?;

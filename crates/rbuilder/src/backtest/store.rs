@@ -619,9 +619,10 @@ mod test {
             LAST_BUNDLE_VERSION,
         },
     };
-    use alloy_consensus::TxEnvelope;
+    use alloy_consensus::{EthereumTxEnvelope, Signed, TxEip1559};
     use alloy_primitives::{hex, Address, PrimitiveSignature, B256, U256, U64};
     use alloy_rpc_types::{Block, BlockTransactions, Header, Transaction};
+    use reth_primitives::Recovered;
     use time::OffsetDateTime;
 
     #[tokio::test]
@@ -742,7 +743,7 @@ mod test {
     }
 
     fn create_test_tx() -> Transaction {
-        let inner_tx = alloy_consensus::TxEip1559 {
+        let inner_tx = TxEip1559 {
             chain_id: 1,
             nonce: 2,
             gas_limit: 3,
@@ -751,17 +752,19 @@ mod test {
             value: U256::from(6),
             ..Default::default()
         };
-        let tx = alloy_consensus::Signed::new_unchecked(
+        let tx = Signed::new_unchecked(
             inner_tx,
             PrimitiveSignature::test_signature(),
             B256::default(),
         );
         Transaction {
-            inner: TxEnvelope::from(tx),
+            inner: Recovered::new_unchecked(
+                EthereumTxEnvelope::from(tx),
+                Address::with_last_byte(6),
+            ),
             block_hash: Some(B256::with_last_byte(3)),
             block_number: Some(4),
             transaction_index: Some(5),
-            from: Address::with_last_byte(6),
             effective_gas_price: Some(7),
         }
     }

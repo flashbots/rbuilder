@@ -226,10 +226,28 @@ fn prepare_block_data(
         eyre::bail!("Included block data not found");
     };
 
+    let orders_before_filtering = block_data.available_orders.len();
+
     block_data.filter_orders_by_end_timestamp(built_block_data.orders_closed_at);
     // @TODO filter cancellations properly, for this we need actual cancellations in the backtest data
     // filter bundles made out of mempool txs
     block_data.filter_bundles_from_mempool();
+
+    let filtered = orders_before_filtering - block_data.available_orders.len();
+
+    let mut txs = 0;
+    let mut bundles = 0;
+    let mut sbundles = 0;
+    for ts_order in &block_data.available_orders {
+        match &ts_order.order {
+            Order::Bundle(_) => bundles += 1,
+            Order::Tx(_) => txs += 1,
+            Order::ShareBundle(_) => sbundles += 1,
+        }
+    }
+    let total = txs + bundles + sbundles;
+
+    info!(total, txs, bundles, sbundles, filtered, "Available orders");
 
     let block_profit = if built_block_data.profit.is_positive() {
         built_block_data.profit.into_sign_and_abs().1
@@ -257,8 +275,8 @@ fn get_available_orders(
                 included_orders_available.insert(order.order.id(), order.clone());
             }
             None => {
-                if block_data.filtered_orders.contains(id) {
-                    info!(order = ?id, "Included order was filtered from available orders");
+                if let Some(reason) = block_data.filtered_orders.get(id) {
+                    info!(order = ?id, ?reason, "Included order was filtered from available orders");
                 } else {
                     warn!(order = ?id, "Included order not found in available orders");
                 }

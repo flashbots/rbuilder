@@ -1,8 +1,7 @@
 use alloy_network::{EthereumWallet, TransactionBuilder};
 use alloy_node_bindings::Anvil;
 use alloy_primitives::U256;
-use alloy_provider::Provider;
-use alloy_provider::ProviderBuilder;
+use alloy_provider::{Provider, ProviderBuilder};
 use alloy_rpc_types::TransactionRequest;
 use alloy_signer_local::PrivateKeySigner;
 use criterion::{criterion_group, Criterion};
@@ -36,7 +35,7 @@ async fn txpool_receive_util(count: u32) {
         .on_http(anvil.endpoint().parse().unwrap());
 
     let alice = anvil.addresses()[0];
-    let eip1559_est = provider.estimate_eip1559_fees(None).await.unwrap();
+    let eip1559_est = provider.estimate_eip1559_fees().await.unwrap();
 
     let tx = TransactionRequest::default()
         .with_to(alice)

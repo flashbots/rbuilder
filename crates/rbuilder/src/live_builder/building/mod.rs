@@ -1,7 +1,5 @@
 mod unfinished_block_building_sink_muxer;
 
-use std::{cell::RefCell, rc::Rc, sync::Arc, thread, time::Duration};
-
 use crate::{
     building::{
         builders::{
@@ -14,7 +12,8 @@ use crate::{
     primitives::{OrderId, SimulatedOrder},
     provider::StateProviderFactory,
 };
-use revm_primitives::Address;
+use alloy_primitives::Address;
+use std::{cell::RefCell, rc::Rc, sync::Arc, thread, time::Duration};
 use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, trace, warn};
@@ -102,7 +101,7 @@ where
         let order_replacement_manager = OrderReplacementManager::new(Box::new(sink));
         // sink removal is automatic via OrderSink::is_alive false
         let _block_sub = self.orderpool_subscriber.add_sink(
-            block_ctx.evm_env.block_env.number.to(),
+            block_ctx.evm_env.block_env.number,
             Box::new(order_replacement_manager),
         );
 
@@ -131,7 +130,7 @@ where
         let (broadcast_input, _) = broadcast::channel(10_000);
         let muxer = Arc::new(UnfinishedBlockBuildingSinkMuxer::new(builder_sink));
 
-        let block_number = ctx.evm_env.block_env.number.to::<u64>();
+        let block_number = ctx.evm_env.block_env.number;
 
         for builder in self.builders.iter() {
             let builder_name = builder.name();

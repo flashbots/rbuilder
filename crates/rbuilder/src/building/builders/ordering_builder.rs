@@ -161,7 +161,7 @@ where
     let use_suggested_fee_recipient_as_coinbase = ordering_config.coinbase_payment;
     let state_provider = input
         .provider
-        .history_by_block_number(input.ctx.evm_env.block_env.number.to::<u64>() - 1)?;
+        .history_by_block_number(input.ctx.evm_env.block_env.number - 1)?;
     let block_orders =
         block_orders_from_sim_orders::<OrderPriorityType>(input.sim_orders, &state_provider)?;
     let mut builder = OrderingBuilderContext::new(
@@ -407,11 +407,9 @@ fn simulation_too_low<OrderPriorityType: OrderPriority>(
 
 #[cfg(test)]
 mod tests {
-    use revm_primitives::U256;
-
-    use crate::building::order_priority::{OrderMaxProfitPriority, OrderMevGasPricePriority};
-
     use super::*;
+    use crate::building::order_priority::{OrderMaxProfitPriority, OrderMevGasPricePriority};
+    use alloy_primitives::U256;
 
     #[test]
     fn test_simulation_too_low_max_profit() {

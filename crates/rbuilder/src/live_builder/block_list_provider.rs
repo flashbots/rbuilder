@@ -1,9 +1,9 @@
 //! Different BlockListProvider flavors.
 //! Metrics are updated here, this is ugly.
 use ahash::HashSet;
+use alloy_primitives::{Address, B256};
 use itertools::Itertools;
 use parking_lot::{Mutex, MutexGuard};
-use revm_primitives::{Address, B256};
 use sha2::{Digest, Sha256};
 use std::{fs::read_to_string, path::PathBuf, sync::Arc, time::Duration};
 use time::OffsetDateTime;
@@ -227,6 +227,9 @@ pub fn blocklist_hash(blocklist: &BlockList) -> B256 {
 
 #[cfg(test)]
 pub mod test {
+    use super::{blocklist_hash, BlockList, BlockListProvider, HttpBlockListProvider};
+    use alloy_primitives::{Address, B256};
+    use lazy_static::lazy_static;
     use std::{
         io::{Read, Write},
         net::{TcpListener, TcpStream},
@@ -235,10 +238,6 @@ pub mod test {
         thread,
         time::Duration,
     };
-
-    use super::{blocklist_hash, BlockList, BlockListProvider, HttpBlockListProvider};
-    use lazy_static::lazy_static;
-    use revm_primitives::{Address, B256};
     use tokio_util::sync::CancellationToken;
     use url::Url;
 

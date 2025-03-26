@@ -1,28 +1,25 @@
-use crate::building::builders::mock_block_building_helper::MockRootHasher;
-use crate::live_builder::simulation::SimulatedOrderCommand;
-use crate::provider::{RootHasher, StateProviderFactory};
-use crate::roothash::{calculate_state_root, run_trie_prefetcher, RootHashContext, RootHashError};
-use crate::telemetry::{inc_provider_bad_reopen_counter, inc_provider_reopen_counter};
+use crate::{
+    building::builders::mock_block_building_helper::MockRootHasher,
+    live_builder::simulation::SimulatedOrderCommand,
+    provider::{RootHasher, StateProviderFactory},
+    roothash::{calculate_state_root, run_trie_prefetcher, RootHashContext, RootHashError},
+    telemetry::{inc_provider_bad_reopen_counter, inc_provider_reopen_counter},
+};
 use alloy_consensus::Header;
 use alloy_eips::BlockNumHash;
-use alloy_primitives::{BlockHash, BlockNumber};
+use alloy_primitives::{BlockHash, BlockNumber, B256};
 use eth_sparse_mpt::reth_sparse_trie::SparseTrieSharedCache;
 use parking_lot::Mutex;
-use reth::providers::ExecutionOutcome;
-use reth::providers::{BlockHashReader, ChainSpecProvider, ProviderFactory};
+use reth::providers::{BlockHashReader, ChainSpecProvider, ExecutionOutcome, ProviderFactory};
 use reth_db::DatabaseError;
 use reth_errors::{ProviderError, ProviderResult, RethResult};
 use reth_node_api::{NodePrimitives, NodeTypesWithDB};
 use reth_provider::{
     providers::{ProviderNodeTypes, StaticFileProvider},
-    BlockNumReader, HeaderProvider, StateProviderBox, StaticFileProviderFactory,
+    BlockNumReader, BlockReader, DatabaseProviderFactory, HashedPostStateProvider, HeaderProvider,
+    StateCommitmentProvider, StateProviderBox, StaticFileProviderFactory,
 };
-use reth_provider::{
-    BlockReader, DatabaseProviderFactory, HashedPostStateProvider, StateCommitmentProvider,
-};
-use revm_primitives::B256;
-use std::ops::DerefMut;
-use std::{path::PathBuf, sync::Arc};
+use std::{ops::DerefMut, path::PathBuf, sync::Arc};
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error};

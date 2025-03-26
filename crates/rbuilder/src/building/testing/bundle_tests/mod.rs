@@ -165,9 +165,16 @@ fn test_target_block() -> eyre::Result<()> {
 #[test]
 fn test_bundle_timestamp() -> eyre::Result<()> {
     {
-        let mut test_setup =
-            TestSetup::gen_test_setup(BlockArgs::default().number(11).timestamp(1000))?;
+        let block_args = BlockArgs::default().number(11);
+        let base_ts = block_args.timestamp;
+        // we cant't use 1000 since it's before Cancun, we must use the default (which we know executes ok) + 1000
+        let block_args = block_args.timestamp(base_ts + 1000);
+        let mut test_setup = TestSetup::gen_test_setup(block_args)?;
 
+        let adjust_ts = |ts: Option<i32>| match ts {
+            Some(delta) => Some(delta as u64 + base_ts),
+            None => None,
+        };
         let ok_timestamp_params = vec![
             (Some(1), Some(5000)),
             (None, Some(5000)),
@@ -179,7 +186,7 @@ fn test_bundle_timestamp() -> eyre::Result<()> {
 
         for (min_ts, max_ts) in ok_timestamp_params {
             test_setup.begin_bundle_order(11);
-            test_setup.set_bundle_timestamp(min_ts, max_ts);
+            test_setup.set_bundle_timestamp(adjust_ts(min_ts), adjust_ts(max_ts));
             test_setup.add_dummy_tx_0_1_no_rev()?;
             test_setup.commit_order_ok();
         }
@@ -188,7 +195,7 @@ fn test_bundle_timestamp() -> eyre::Result<()> {
 
         for (min_ts, max_ts) in bad_timestamps {
             test_setup.begin_bundle_order(11);
-            test_setup.set_bundle_timestamp(min_ts, max_ts);
+            test_setup.set_bundle_timestamp(adjust_ts(min_ts), adjust_ts(max_ts));
             test_setup.add_dummy_tx_0_1_no_rev()?;
             test_setup.commit_order_err_check_text("incorrect timestamp");
         }

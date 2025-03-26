@@ -1,13 +1,11 @@
-use alloy_primitives::Address;
-use reth_primitives::{transaction::FillTxEnv, Recovered, TransactionSigned};
-use revm::{inspector_handle_register, primitives::Env};
-use revm_primitives::TxEnv;
-
 use crate::building::{
     evm_inspector::{RBuilderEVMInspector, UsedStateTrace},
     testing::test_chain_state::{BlockArgs, NamedAddr, TestChainState, TestContracts, TxArgs},
     BlockState,
 };
+use alloy_primitives::Address;
+use reth_evm::{Evm, EvmFactory};
+use reth_primitives::{Recovered, TransactionSigned};
 
 #[derive(Debug)]
 pub struct TestSetup {
@@ -94,30 +92,13 @@ impl TestSetup {
 
         // execute transaction
         {
-            let mut tx_env = TxEnv::default();
-            tx.as_ref().fill_tx_env(&mut tx_env, tx.signer());
-            let mut evm = revm::Evm::builder()
-                .with_spec_id(self.test_chain.block_building_context().spec_id)
-                .with_env(Box::new(Env {
-                    cfg: self
-                        .test_chain
-                        .block_building_context()
-                        .evm_env
-                        .cfg_env
-                        .clone(),
-                    block: self
-                        .test_chain
-                        .block_building_context()
-                        .evm_env
-                        .block_env
-                        .clone(),
-                    tx: tx_env,
-                }))
-                .with_external_context(&mut inspector)
-                .with_db(db_ref.as_mut())
-                .append_handler_register(inspector_handle_register)
-                .build();
-            evm.transact()
+            let ctx = self.test_chain.block_building_context();
+            let mut evm = ctx.evm_factory.create_evm_with_inspector(
+                db_ref.as_mut(),
+                ctx.evm_env.clone(),
+                &mut inspector,
+            );
+            evm.transact(&tx)
                 .map_err(|e| eyre::eyre!("execution failure: {:?}", e))?;
         }
 

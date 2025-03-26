@@ -14,7 +14,7 @@ use crate::{
 };
 use alloy_primitives::{Address, TxHash};
 use reth::revm::cached::CachedReads;
-use revm::db::BundleState;
+use revm::database::states::BundleState;
 
 pub enum NonceValue {
     /// Fixed value

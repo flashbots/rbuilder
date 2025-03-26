@@ -1,13 +1,12 @@
 use alloy_consensus::Header;
 use alloy_eips::BlockNumHash;
-use alloy_primitives::{BlockHash, BlockNumber};
+use alloy_primitives::{BlockHash, BlockNumber, B256};
 use reth_errors::ProviderResult;
 use reth_node_api::{NodePrimitives, NodeTypes, NodeTypesWithDB};
 use reth_provider::{
     providers::ProviderNodeTypes, BlockHashReader, BlockNumReader, HeaderProvider, ProviderFactory,
     StateProviderBox,
 };
-use revm_primitives::B256;
 use tracing::error;
 
 use crate::{

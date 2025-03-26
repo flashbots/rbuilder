@@ -3,8 +3,11 @@ use alloy_consensus::Transaction;
 use alloy_primitives::{Address, B256, U256};
 use reth_primitives::{Recovered, TransactionSigned};
 use revm::{
-    interpreter::{opcode, CallInputs, CallOutcome, Interpreter},
-    Database, EvmContext, Inspector,
+    bytecode::opcode,
+    context::ContextTr,
+    inspector::JournalExt,
+    interpreter::{interpreter_types::Jumps, CallInputs, CallOutcome, Interpreter},
+    Inspector,
 };
 use revm_inspectors::access_list::AccessListInspector;
 
@@ -126,17 +129,17 @@ impl<'a> UsedStateEVMInspector<'a> {
     }
 }
 
-impl<DB> Inspector<DB> for UsedStateEVMInspector<'_>
+impl<CTX> Inspector<CTX> for UsedStateEVMInspector<'_>
 where
-    DB: Database,
+    CTX: ContextTr<Journal: JournalExt>,
 {
-    fn step(&mut self, interpreter: &mut Interpreter, _: &mut EvmContext<DB>) {
+    fn step(&mut self, interpreter: &mut Interpreter, _context: &mut CTX) {
         match std::mem::take(&mut self.next_step_action) {
             NextStepAction::ReadSloadKeyResult(slot) => {
                 if let Ok(value) = interpreter.stack.peek(0) {
                     let value = B256::from(value.to_be_bytes());
                     let key = SlotKey {
-                        address: interpreter.contract.target_address,
+                        address: interpreter.input.target_address,
                         key: slot,
                     };
                     self.used_state_trace
@@ -155,20 +158,20 @@ where
             }
             NextStepAction::None => {}
         }
-        match interpreter.current_opcode() {
+        match interpreter.bytecode.opcode() {
             opcode::SLOAD => {
-                if let Ok(slot) = interpreter.stack().peek(0) {
+                if let Ok(slot) = interpreter.stack.peek(0) {
                     let slot = B256::from(slot.to_be_bytes());
                     self.next_step_action = NextStepAction::ReadSloadKeyResult(slot);
                 }
             }
             opcode::SSTORE => {
                 if let (Ok(slot), Ok(value)) =
-                    (interpreter.stack().peek(0), interpreter.stack().peek(1))
+                    (interpreter.stack.peek(0), interpreter.stack.peek(1))
                 {
                     let written_value = B256::from(value.to_be_bytes());
                     let key = SlotKey {
-                        address: interpreter.contract.target_address,
+                        address: interpreter.input.target_address,
                         key: B256::from(slot.to_be_bytes()),
                     };
                     // if we write the same value that we read as the first read we don't have a write
@@ -184,20 +187,20 @@ where
                 }
             }
             opcode::BALANCE => {
-                if let Ok(addr) = interpreter.stack().peek(0) {
+                if let Ok(addr) = interpreter.stack.peek(0) {
                     let addr = Address::from_word(B256::from(addr.to_be_bytes()));
                     self.next_step_action = NextStepAction::ReadBalanceResult(addr);
                 }
             }
             opcode::SELFBALANCE => {
-                let addr = interpreter.contract().target_address;
+                let addr = interpreter.input.target_address;
                 self.next_step_action = NextStepAction::ReadBalanceResult(addr);
             }
             _ => (),
         }
     }
 
-    fn call(&mut self, _: &mut EvmContext<DB>, inputs: &mut CallInputs) -> Option<CallOutcome> {
+    fn call(&mut self, _context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
         if let Some(transfer_value) = inputs.transfer_value() {
             if !transfer_value.is_zero() {
                 *self
@@ -217,14 +220,13 @@ where
 
     fn create_end(
         &mut self,
-        _: &mut EvmContext<DB>,
+        _context: &mut CTX,
         _: &revm::interpreter::CreateInputs,
-        outcome: revm::interpreter::CreateOutcome,
-    ) -> revm::interpreter::CreateOutcome {
+        outcome: &mut revm::interpreter::CreateOutcome,
+    ) {
         if let Some(addr) = outcome.address {
             self.used_state_trace.created_contracts.push(addr);
         }
-        outcome
     }
 
     fn selfdestruct(&mut self, contract: Address, target: Address, value: U256) {
@@ -263,12 +265,8 @@ impl<'a> RBuilderEVMInspector<'a> {
         tx: &Recovered<TransactionSigned>,
         used_state_trace: Option<&'a mut UsedStateTrace>,
     ) -> Self {
-        let access_list_inspector = AccessListInspector::new(
-            tx.access_list().cloned().unwrap_or_default(),
-            tx.signer(),
-            tx.to().unwrap_or_default(),
-            None,
-        );
+        let access_list_inspector =
+            AccessListInspector::new(tx.access_list().cloned().unwrap_or_default());
 
         let mut used_state_inspector = used_state_trace.map(UsedStateEVMInspector::new);
         if let Some(i) = &mut used_state_inspector {
@@ -286,25 +284,21 @@ impl<'a> RBuilderEVMInspector<'a> {
     }
 }
 
-impl<'a, DB> Inspector<DB> for RBuilderEVMInspector<'a>
+impl<'a, CTX> Inspector<CTX> for RBuilderEVMInspector<'a>
 where
-    DB: Database,
-    UsedStateEVMInspector<'a>: Inspector<DB>,
+    CTX: ContextTr<Journal: JournalExt>,
+    UsedStateEVMInspector<'a>: Inspector<CTX>,
 {
     #[inline]
-    fn step(&mut self, interp: &mut Interpreter, data: &mut EvmContext<DB>) {
-        self.access_list_inspector.step(interp, data);
+    fn step(&mut self, interp: &mut Interpreter, context: &mut CTX) {
+        self.access_list_inspector.step(interp, context);
         if let Some(used_state_inspector) = &mut self.used_state_inspector {
-            used_state_inspector.step(interp, data);
+            used_state_inspector.step(interp, context);
         }
     }
 
     #[inline]
-    fn call(
-        &mut self,
-        context: &mut EvmContext<DB>,
-        inputs: &mut CallInputs,
-    ) -> Option<CallOutcome> {
+    fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
         if let Some(used_state_inspector) = &mut self.used_state_inspector {
             used_state_inspector.call(context, inputs)
         } else {
@@ -315,21 +309,19 @@ where
     #[inline]
     fn create_end(
         &mut self,
-        context: &mut EvmContext<DB>,
+        context: &mut CTX,
         inputs: &revm::interpreter::CreateInputs,
-        outcome: revm::interpreter::CreateOutcome,
-    ) -> revm::interpreter::CreateOutcome {
+        outcome: &mut revm::interpreter::CreateOutcome,
+    ) {
         if let Some(used_state_inspector) = &mut self.used_state_inspector {
-            used_state_inspector.create_end(context, inputs, outcome)
-        } else {
-            outcome
+            used_state_inspector.create_end(context, inputs, outcome);
         }
     }
 
     #[inline]
     fn selfdestruct(&mut self, contract: Address, target: Address, value: U256) {
         if let Some(used_state_inspector) = &mut self.used_state_inspector {
-            used_state_inspector.selfdestruct(contract, target, value)
+            used_state_inspector.selfdestruct(contract, target, value);
         }
     }
 }

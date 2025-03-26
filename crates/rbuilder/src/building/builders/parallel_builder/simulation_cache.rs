@@ -3,7 +3,7 @@ use ahash::HashMap;
 use alloy_primitives::U256;
 use parking_lot::RwLock as PLRwLock;
 use reth::revm::cached::CachedReads;
-use revm::db::BundleState;
+use revm::database::BundleState;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
@@ -186,10 +186,14 @@ impl Default for SharedSimulationCache {
 mod tests {
     use super::*;
     use alloy_primitives::{Address, B256, U256};
-    use revm::db::{states::StorageSlot, AccountStatus, BundleAccount};
-    use revm_primitives::AccountInfo;
+    use revm::{
+        database::states::{AccountStatus, BundleAccount, StorageSlot},
+        state::AccountInfo,
+    };
     use std::collections::HashMap;
+
     type AlloyHashMap<K, V> = HashMap<K, V, foldhash::fast::RandomState>;
+
     struct TestDataGenerator {
         last_used_id: u64,
     }

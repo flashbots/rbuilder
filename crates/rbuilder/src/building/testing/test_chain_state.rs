@@ -1,8 +1,10 @@
-use crate::live_builder::block_list_provider::BlockList;
-use crate::provider::RootHasher;
-use crate::roothash::RootHashContext;
-use crate::utils::RootHasherImpl;
-use crate::{building::BlockBuildingContext, utils::Signer};
+use crate::{
+    building::BlockBuildingContext,
+    live_builder::block_list_provider::BlockList,
+    provider::RootHasher,
+    roothash::RootHashContext,
+    utils::{RootHasherImpl, Signer},
+};
 use alloy_consensus::{Block, Header, TxEip1559};
 use alloy_primitives::{
     keccak256, utils::parse_ether, Address, BlockHash, Bytes, TxKind as TransactionKind, B256, B64,
@@ -15,12 +17,12 @@ use reth::{
     providers::ProviderFactory,
     rpc::types::{engine::PayloadAttributes, Withdrawal},
 };
-use reth_chainspec::{ChainSpec, MAINNET};
+use reth_chainspec::{ChainSpec, EthereumHardfork, MAINNET};
 use reth_db::{cursor::DbCursorRW, tables, transaction::DbTxMut};
 use reth_primitives::{Recovered, TransactionSigned};
 use reth_primitives_traits::Block as _;
 use reth_provider::test_utils::{create_test_provider_factory, MockNodeTypesWithDB};
-use revm_primitives::SpecId;
+use revm::primitives::hardfork::SpecId;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy)]
@@ -34,11 +36,23 @@ pub enum NamedAddr {
     Dummy,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct BlockArgs {
     pub number: u64,
     pub timestamp: u64,
     pub use_suggested_fee_recipient_as_coinbase: bool,
+}
+
+impl Default for BlockArgs {
+    fn default() -> Self {
+        Self {
+            number: 0,
+            timestamp: EthereumHardfork::Cancun
+                .mainnet_activation_timestamp()
+                .unwrap(),
+            use_suggested_fee_recipient_as_coinbase: false,
+        }
+    }
 }
 
 impl BlockArgs {
@@ -412,7 +426,7 @@ impl TxArgs {
             value: 0,
             max_fee_per_gas: 1,
             max_priority_fee: 0,
-            gas_limit: 100_000,
+            gas_limit: 1_000_000,
             input: Vec::new(),
         }
     }

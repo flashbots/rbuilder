@@ -1,16 +1,16 @@
-use crate::utils::Signer;
-
 use super::{BlockBuildingContext, BlockState};
+use crate::utils::Signer;
 use alloy_consensus::{constants::KECCAK_EMPTY, TxEip1559};
 use alloy_primitives::{Address, TxKind as TransactionKind, U256};
 use reth_chainspec::ChainSpec;
 use reth_errors::ProviderError;
-use reth_primitives::{transaction::FillTxEnv, Recovered, Transaction, TransactionSigned};
-use revm_primitives::{EVMError, Env, ExecutionResult, TxEnv};
+use reth_evm::{Evm, EvmFactory};
+use reth_primitives::{Recovered, Transaction, TransactionSigned};
+use revm::context::result::{EVMError, ExecutionResult};
 
 pub fn create_payout_tx(
     chain_spec: &ChainSpec,
-    basefee: U256,
+    basefee: u64,
     signer: &Signer,
     nonce: u64,
     to: Address,
@@ -21,7 +21,7 @@ pub fn create_payout_tx(
         chain_id: chain_spec.chain.id(),
         nonce,
         gas_limit,
-        max_fee_per_gas: basefee.to(),
+        max_fee_per_gas: basefee as u128,
         max_priority_fee_per_gas: 0,
         to: TransactionKind::Call(to),
         value: U256::from(value),
@@ -67,23 +67,9 @@ pub fn insert_test_payout_tx(
         0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF,
     )?;
 
-    let mut tx_env = TxEnv::default();
-    tx.fill_tx_env(&mut tx_env, tx.signer());
-
-    let env = Env {
-        cfg: cfg.clone(),
-        block: ctx.evm_env.block_env.clone(),
-        tx: tx_env,
-    };
-
     let mut db = state.new_db_ref();
-
-    let mut evm = revm::Evm::builder()
-        .with_spec_id(ctx.spec_id)
-        .with_env(Box::new(env))
-        .with_db(db.as_mut())
-        .build();
-    let res = evm.transact()?;
+    let mut evm = ctx.evm_factory.create_evm(db.as_mut(), ctx.evm_env.clone());
+    let res = evm.transact(&tx)?;
     match res.result {
         ExecutionResult::Success {
             gas_used,
@@ -118,9 +104,9 @@ pub fn estimate_payout_gas_limit(
         .evm_env
         .block_env
         .gas_limit
-        .checked_sub(U256::from(gas_used))
+        .checked_sub(gas_used)
         .unwrap_or_default();
-    let estimation = insert_test_payout_tx(to, ctx, state, gas_left.to())?
+    let estimation = insert_test_payout_tx(to, ctx, state, gas_left)?
         .ok_or(EstimatePayoutGasErr::FailedToEstimate)?;
 
     if insert_test_payout_tx(to, ctx, state, estimation)?.is_some() {
@@ -128,7 +114,7 @@ pub fn estimate_payout_gas_limit(
     }
 
     let mut left = estimation;
-    let mut right = gas_left.to::<u64>();
+    let mut right = gas_left;
 
     // binary search for perfect gas limit
     loop {

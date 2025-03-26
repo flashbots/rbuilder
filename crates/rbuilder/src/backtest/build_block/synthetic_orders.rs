@@ -1,6 +1,6 @@
+use alloy_primitives::B256;
 use clap::{command, Parser};
 use reth_provider::test_utils::MockNodeTypesWithDB;
-use revm_primitives::B256;
 use uuid::Uuid;
 
 use crate::{
