@@ -1,3 +1,4 @@
+use crate::provider::{BuilderStateProviderFactory, BuilderStateRootProvider};
 use crate::{
     generator::{BlockCell, BlockPayloadJobGenerator, BuildArguments, PayloadBuilder},
     metrics::OpRBuilderMetrics,
@@ -62,10 +63,7 @@ use reth_primitives_traits::Block;
 use reth_primitives_traits::RecoveredBlock;
 use reth_primitives_traits::SignedTransaction;
 use reth_provider::CanonStateSubscriptions;
-use reth_provider::{
-    HashedPostStateProvider, ProviderError, StateRootProvider,
-    StorageRootProvider,
-};
+use reth_provider::{HashedPostStateProvider, ProviderError, StorageRootProvider};
 use reth_revm::database::StateProviderDatabase;
 use reth_transaction_pool::BestTransactionsAttributes;
 use reth_transaction_pool::PoolTransaction;
@@ -80,7 +78,6 @@ use std::{fmt::Display, sync::Arc, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, trace, warn};
 use url::Url;
-use crate::provider::BuilderStateProviderFactory;
 
 #[derive(Debug, Clone, Default)]
 #[non_exhaustive]
@@ -317,7 +314,9 @@ impl<Pool, Client, EvmConfig, N: NodePrimitives>
 impl<EvmConfig, Pool, Client, N, Txs> PayloadBuilder
     for OpPayloadBuilderVanilla<Pool, Client, EvmConfig, N, Txs>
 where
-    Client: BuilderStateProviderFactory + ChainSpecProvider<ChainSpec: EthChainSpec + OpHardforks> + Clone,
+    Client: BuilderStateProviderFactory
+        + ChainSpecProvider<ChainSpec: EthChainSpec + OpHardforks>
+        + Clone,
     N: OpPayloadPrimitives<_TX = OpTransactionSigned>,
     Pool: TransactionPool<Transaction: PoolTransaction<Consensus = N::SignedTx>>,
     EvmConfig: ConfigureEvmFor<N>,
@@ -632,7 +631,7 @@ impl<Txs> OpBuilder<'_, Txs> {
         N: OpPayloadPrimitives<_TX = OpTransactionSigned>,
         Txs: PayloadTransactions<Transaction: PoolTransaction<Consensus = N::SignedTx>>,
         DB: Database<Error = ProviderError> + AsRef<P>,
-        P: StateRootProvider + HashedPostStateProvider + StorageRootProvider,
+        P: BuilderStateRootProvider + HashedPostStateProvider + StorageRootProvider,
     {
         let ExecutedPayload {
             info,

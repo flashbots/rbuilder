@@ -50,9 +50,7 @@ use reth_primitives_traits::Block as _;
 use reth_primitives_traits::SignedTransaction;
 use reth_provider::CanonStateSubscriptions;
 use reth_provider::StorageRootProvider;
-use reth_provider::{
-    HashedPostStateProvider, ProviderError, StateProviderFactory, StateRootProvider,
-};
+use reth_provider::{HashedPostStateProvider, ProviderError};
 use reth_revm::database::StateProviderDatabase;
 use reth_transaction_pool::PoolTransaction;
 use reth_transaction_pool::{BestTransactionsAttributes, TransactionPool};
@@ -77,6 +75,7 @@ use tokio_tungstenite::accept_async;
 use tokio_tungstenite::WebSocketStream;
 use url::Url;
 
+use crate::provider::{BuilderStateProviderFactory, BuilderStateRootProvider};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -312,7 +311,7 @@ impl<Pool, Client, EvmConfig, N: NodePrimitives> OpPayloadBuilder<Pool, Client, 
 impl<Pool, Client, EvmConfig, N> OpPayloadBuilder<Pool, Client, EvmConfig, N>
 where
     Pool: TransactionPool<Transaction: PoolTransaction<Consensus = N::SignedTx>>,
-    Client: StateProviderFactory + ChainSpecProvider<ChainSpec: EthChainSpec + OpHardforks>,
+    Client: BuilderStateProviderFactory + ChainSpecProvider<ChainSpec: EthChainSpec + OpHardforks>,
     N: OpPayloadPrimitives<_TX = OpTransactionSigned>,
     EvmConfig: ConfigureEvmFor<N>,
 {
@@ -463,7 +462,9 @@ where
 
 impl<EvmConfig, Pool, Client, N> PayloadBuilder for OpPayloadBuilder<Pool, Client, EvmConfig, N>
 where
-    Client: StateProviderFactory + ChainSpecProvider<ChainSpec: EthChainSpec + OpHardforks> + Clone,
+    Client: BuilderStateProviderFactory
+        + ChainSpecProvider<ChainSpec: EthChainSpec + OpHardforks>
+        + Clone,
     N: OpPayloadPrimitives<_TX = OpTransactionSigned>,
     Pool: TransactionPool<Transaction: PoolTransaction<Consensus = N::SignedTx>>,
     EvmConfig: ConfigureEvmFor<N>,
@@ -490,7 +491,7 @@ where
     ChainSpec: EthChainSpec + OpHardforks,
     N: OpPayloadPrimitives<_TX = OpTransactionSigned>,
     DB: Database<Error = ProviderError> + AsRef<P>,
-    P: StateRootProvider + HashedPostStateProvider + StorageRootProvider,
+    P: BuilderStateRootProvider + HashedPostStateProvider + StorageRootProvider,
 {
     let withdrawals_root = ctx.commit_withdrawals(&mut state)?;
 
