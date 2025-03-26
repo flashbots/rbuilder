@@ -193,7 +193,7 @@ impl HistoricalDataFetcher {
     }
 
     pub async fn fetch_historical_data(&self, block_number: u64) -> eyre::Result<BlockData> {
-        info!("Fetching historical data for block {}", block_number);
+        info!(block_number, "Fetching historical data for block");
 
         info!("Fetching payload delivered");
         let winning_bid_trace = self.get_payload_delivered_bid_trace(block_number).await?;
@@ -219,17 +219,14 @@ impl HistoricalDataFetcher {
             }
         }
 
-        info!("Fetched orders, unfiltered: {}", orders.len());
+        info!(count = orders.len(), "Fetched orders, unfiltered");
 
         let base_fee_per_gas = onchain_block.header.base_fee_per_gas.unwrap_or_default();
         self.filter_orders_by_base_fee(base_fee_per_gas as u128, &mut orders);
-        info!("Filtered orders by base fee, left: {}", orders.len());
+        info!(orders_left = orders.len(), "Filtered orders by base fee");
 
         let mut available_orders = self.filter_order_by_nonces(orders, block_number).await?;
-        info!(
-            "Filtered orders by nonces, left: {}",
-            available_orders.len()
-        );
+        info!(orders_left = available_orders.len(), "Filtered orders by nonces");
         available_orders.sort_by_key(|o| o.timestamp_ms);
 
         Ok(BlockData {

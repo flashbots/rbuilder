@@ -32,6 +32,8 @@ use std::{
 use tracing::{debug, error, info, info_span, trace, warn};
 use uuid::Uuid;
 
+use super::OrderFilteredReason;
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IdentityData {
@@ -307,13 +309,17 @@ fn get_available_orders(
             Some(order) => {
                 included_orders_available.insert(order.order.id(), order.clone());
             }
-            None => {
-                if let Some(reason) = block_data.filtered_orders.get(id) {
-                    info!(order = ?id, ?reason, "Included order was filtered from available orders");
-                } else {
-                    warn!(order = ?id, "Included order not found in available orders");
+            None => match block_data.filtered_orders.get(id) {
+                Some(OrderFilteredReason::MempoolTxs) => {
+                    info!(order = ?id, "Included order was filtered because all txs are from mempool");
                 }
-            }
+                Some(reason) => {
+                    error!(order = ?id, ?reason, "Included order was filtered from available orders");
+                }
+                None => {
+                    error!(order = ?id, "Included order not found in available orders");
+                }
+            },
         }
     }
     if distribute_to_mempool_txs {
@@ -738,7 +744,7 @@ where
                 .expect("order address not found");
             if address1 != address2 {
                 joint_contribution_todo.push((min(address1, address2), max(address1, address2)));
-                warn!(address1 = ?address1, order1 = ?order, address2 = ?address2, order2 = ?new_failed_order, "Possible identity conflict");
+                info!(address1 = ?address1, order1 = ?order, address2 = ?address2, order2 = ?new_failed_order, "Possible identity conflict");
             }
         }
     }
@@ -783,7 +789,7 @@ where
             .identity_exclusion(address2)
             .block_value_delta;
         if bvd1 + bvd2 > block_value_delta {
-            warn!(address1 = ?address1, address2 = ?address2, sum = format_ether(bvd1 + bvd2), joint=format_ether(block_value_delta), "Joint block value delta is smaller than sum of individual block value deltas");
+            info!(address1 = ?address1, address2 = ?address2, sum = format_ether(bvd1 + bvd2), joint=format_ether(block_value_delta), "Joint block value delta is smaller than sum of individual block value deltas");
         }
     }
 
