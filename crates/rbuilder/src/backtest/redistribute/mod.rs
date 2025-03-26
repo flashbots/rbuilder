@@ -257,17 +257,29 @@ where
 
     let mut txs = 0;
     let mut bundles = 0;
-    let mut sbundles = 0;
+    let mut share_bundles = 0;
     for ts_order in &block_data.available_orders {
         match &ts_order.order {
             Order::Bundle(_) => bundles += 1,
             Order::Tx(_) => txs += 1,
-            Order::ShareBundle(_) => sbundles += 1,
+            Order::ShareBundle(_) => share_bundles += 1,
         }
     }
-    let total = txs + bundles + sbundles;
+    let total = txs + bundles + share_bundles;
 
-    info!(total, txs, bundles, sbundles, filtered, "Available orders");
+    info!(
+        total,
+        txs, bundles, share_bundles, filtered, "Available orders"
+    );
+    if txs == 0 {
+        error!("Block has no mempool txs");
+    }
+    if bundles == 0 {
+        warn!("Block has no bundles");
+    }
+    if share_bundles == 0 {
+        warn!("Block has no share bundles");
+    }
 
     let block_profit = if built_block_data.profit.is_positive() {
         built_block_data.profit.into_sign_and_abs().1
@@ -314,6 +326,7 @@ fn get_available_orders(
     }
     let mut included_orders_available = included_orders_available.into_values().collect::<Vec<_>>();
     included_orders_available.sort_by_key(|order| order.order.id());
+
     included_orders_available
 }
 
