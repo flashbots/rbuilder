@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::ChangedAccountData;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ETHTrieChangeSet {
     pub account_trie_deletes: Vec<Bytes>,
 

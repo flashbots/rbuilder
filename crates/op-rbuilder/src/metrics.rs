@@ -18,8 +18,6 @@ pub struct OpRBuilderMetrics {
     pub total_block_built_duration: Histogram,
     /// Duration of fetching transactions from the pool
     pub transaction_pool_fetch_duration: Histogram,
-    /// Duration of state root calculation
-    pub state_root_calculation_duration: Histogram,
     /// Duration of sequencer transaction execution
     pub sequencer_tx_duration: Histogram,
     /// Duration of state merge transitions
@@ -69,5 +67,31 @@ impl OpRBuilderMetrics {
 
     pub fn set_builder_balance(&self, balance: f64) {
         self.builder_balance.set(balance);
+    }
+}
+
+/// Transaction pool metrics
+#[derive(Metrics)]
+#[metrics(scope = "payloads")]
+pub(crate) struct PayloadBuilderMetrics {
+    /// Total number of times an empty payload was returned because a built one was not ready.
+    pub(crate) requested_empty_payload: Counter,
+    /// Total number of initiated payload build attempts.
+    pub(crate) initiated_payload_builds: Counter,
+    /// Total number of failed payload build attempts.
+    pub(crate) failed_payload_builds: Counter,
+}
+
+impl PayloadBuilderMetrics {
+    pub(crate) fn inc_requested_empty_payload(&self) {
+        self.requested_empty_payload.increment(1);
+    }
+
+    pub(crate) fn inc_initiated_payload_builds(&self) {
+        self.initiated_payload_builds.increment(1);
+    }
+
+    pub(crate) fn inc_failed_payload_builds(&self) {
+        self.failed_payload_builds.increment(1);
     }
 }

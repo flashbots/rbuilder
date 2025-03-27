@@ -361,11 +361,7 @@ where
     // used in the optimism context. If further customisation is required in the future
     // this should be improved on.
     fn timings(&self) -> TimingsConfig {
-        if cfg!(feature = "optimism") {
-            TimingsConfig::optimism()
-        } else {
-            TimingsConfig::ethereum()
-        }
+        TimingsConfig::ethereum()
     }
 }
 

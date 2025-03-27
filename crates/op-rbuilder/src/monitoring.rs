@@ -10,18 +10,18 @@ use reth_primitives::{Block, RecoveredBlock};
 use reth_provider::{Chain, ExecutionOutcome};
 use tracing::{info, warn};
 
-use crate::{metrics::OpRBuilderMetrics, tx_signer::Signer};
+use crate::{metrics::OpRBuilderMetrics, tx_signer::OpSigner};
 
 const OP_BUILDER_TX_PREFIX: &[u8] = b"Block Number:";
 
 pub struct Monitoring {
-    builder_signer: Option<Signer>,
+    builder_signer: Option<OpSigner>,
     metrics: OpRBuilderMetrics,
     execution_outcome: ExecutionOutcome<OpReceipt>,
 }
 
 impl Monitoring {
-    pub fn new(builder_signer: Option<Signer>) -> Self {
+    pub fn new(builder_signer: Option<OpSigner>) -> Self {
         Self {
             builder_signer,
             metrics: Default::default(),
@@ -140,7 +140,7 @@ impl Monitoring {
 /// Decode chain of blocks and filter list to builder txs
 fn decode_chain_into_builder_txs(
     chain: &Chain<OpPrimitives>,
-    builder_signer: Option<Signer>,
+    builder_signer: Option<OpSigner>,
 ) -> Vec<(&RecoveredBlock<Block<OpTransactionSigned>>, bool)> {
     chain
         // Get all blocks and receipts
@@ -186,7 +186,7 @@ fn decode_chain_into_reverted_txs(chain: &Chain<OpPrimitives>) -> usize {
 /// Decode state and find the last builder balance
 fn decode_state_into_builder_balance(
     execution_outcome: &ExecutionOutcome<OpReceipt>,
-    builder_signer: Option<Signer>,
+    builder_signer: Option<OpSigner>,
 ) -> Option<U256> {
     builder_signer.and_then(|signer| {
         execution_outcome

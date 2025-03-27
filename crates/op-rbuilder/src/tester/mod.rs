@@ -1,12 +1,10 @@
-use crate::tx_signer::Signer;
-use alloy_eips::eip2718::Encodable2718;
 use alloy_eips::BlockNumberOrTag;
-use alloy_primitives::address;
+use alloy_eips::Encodable2718;
 use alloy_primitives::Address;
 use alloy_primitives::Bytes;
 use alloy_primitives::TxKind;
 use alloy_primitives::B256;
-use alloy_primitives::{hex, U256};
+use alloy_primitives::U256;
 use alloy_rpc_types_engine::ExecutionPayloadV1;
 use alloy_rpc_types_engine::ExecutionPayloadV2;
 use alloy_rpc_types_engine::PayloadAttributes;
@@ -30,6 +28,8 @@ use serde_json::Value;
 use std::str::FromStr;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
+
+use crate::tx_signer::OpSigner;
 
 /// Helper for engine api operations
 pub struct EngineApi {
@@ -186,7 +186,7 @@ pub async fn generate_genesis(output: Option<String>) -> eyre::Result<()> {
 // L1 block info for OP mainnet block 124665056 (stored in input of tx at index 0)
 //
 // https://optimistic.etherscan.io/tx/0x312e290cf36df704a2217b015d6455396830b0ce678b860ebfcc30f41403d7b1
-const FJORD_DATA: &[u8] = &hex!("440a5e200000146b000f79c500000000000000040000000066d052e700000000013ad8a3000000000000000000000000000000000000000000000000000000003ef1278700000000000000000000000000000000000000000000000000000000000000012fdf87b89884a61e74b322bbcf60386f543bfae7827725efaaf0ab1de2294a590000000000000000000000006887246668a3b87f54deb3b94ba47a6f63f32985");
+// const FJORD_DATA: &[u8] = &hex!("440a5e200000146b000f79c500000000000000040000000066d052e700000000013ad8a3000000000000000000000000000000000000000000000000000000003ef1278700000000000000000000000000000000000000000000000000000000000000012fdf87b89884a61e74b322bbcf60386f543bfae7827725efaaf0ab1de2294a590000000000000000000000006887246668a3b87f54deb3b94ba47a6f63f32985");
 
 /// A system that continuously generates blocks using the engine API
 pub struct BlockGenerator<'a> {
@@ -342,23 +342,24 @@ impl<'a> BlockGenerator<'a> {
         // in the block since it also includes this info as part of the result.
         // It does not matter if the to address (4200000000000000000000000000000000000015) is
         // not deployed on the L2 chain since Reth queries the block to get the info and not the contract.
-        let block_info_tx: Bytes = {
-            let deposit_tx = TxDeposit {
-                source_hash: B256::default(),
-                from: address!("DeaDDEaDDeAdDeAdDEAdDEaddeAddEAdDEAd0001"),
-                to: TxKind::Call(address!("4200000000000000000000000000000000000015")),
-                mint: None,
-                value: U256::default(),
-                gas_limit: 210000,
-                is_system_transaction: true,
-                input: FJORD_DATA.into(),
-            };
+        // let block_info_tx: Bytes = {
+        //     let deposit_tx = TxDeposit {
+        //         source_hash: B256::default(),
+        //         from: address!("DeaDDEaDDeAdDeAdDEAdDEaddeAddEAdDEAd0001"),
+        //         to: TxKind::Call(address!("4200000000000000000000000000000000000015")),
+        //         mint: None,
+        //         value: U256::default(),
+        //         gas_limit: 210000,
+        //         is_system_transaction: true,
+        //         input: FJORD_DATA.into(),
+        //     };
 
-            // Create a temporary signer for the deposit
-            let signer = Signer::random();
-            let signed_tx = signer.sign_tx(OpTypedTransaction::Deposit(deposit_tx))?;
-            signed_tx.encoded_2718().into()
-        };
+        //     // Create a temporary signer for the deposit
+        //     let signer = OpSigner::random();
+        //     let signed_tx = signer.sign_tx(OpTypedTransaction::Deposit(deposit_tx))?;
+        //     signed_tx.encoded_2718().into()
+        // };
+        let block_info_tx: Bytes = Bytes::default();
 
         let transactions = if let Some(transactions) = transactions {
             // prepend the block info transaction
@@ -476,7 +477,7 @@ impl<'a> BlockGenerator<'a> {
         };
 
         // Create a temporary signer for the deposit
-        let signer = Signer::random();
+        let signer = OpSigner::random();
         let signed_tx = signer.sign_tx(OpTypedTransaction::Deposit(deposit_tx))?;
         let signed_tx_rlp = signed_tx.encoded_2718();
 

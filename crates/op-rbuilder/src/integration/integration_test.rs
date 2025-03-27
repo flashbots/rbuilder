@@ -3,23 +3,13 @@ mod tests {
     use crate::{
         integration::{op_rbuilder::OpRbuilderConfig, op_reth::OpRethConfig, IntegrationFramework},
         tester::{BlockGenerator, EngineApi},
-        tx_signer::Signer,
     };
-    use alloy_consensus::{Transaction, TxEip1559};
+    use alloy_consensus::Transaction;
     use alloy_eips::{eip1559::MIN_PROTOCOL_BASE_FEE, eip2718::Encodable2718};
     use alloy_primitives::hex;
     use alloy_provider::{Identity, Provider, ProviderBuilder};
-    use alloy_rpc_types_eth::BlockTransactionsKind;
-    use futures_util::StreamExt;
-    use op_alloy_consensus::OpTypedTransaction;
     use op_alloy_network::Optimism;
-    use std::{
-        cmp::max,
-        path::PathBuf,
-        sync::{Arc, Mutex},
-        time::Duration,
-    };
-    use tokio_tungstenite::connect_async;
+    use std::{cmp::max, path::PathBuf};
     use uuid::Uuid;
 
     const BUILDER_PRIVATE_KEY: &str =
@@ -102,6 +92,10 @@ mod tests {
     async fn integration_test_revert_protection() -> eyre::Result<()> {
         // This is a simple test using the integration framework to test that the chain
         // produces blocks.
+
+        use alloy_rpc_types_eth::{TransactionInput, TransactionRequest};
+
+        use crate::tx_signer::OpSigner;
         let mut framework =
             IntegrationFramework::new("integration_test_revert_protection").unwrap();
 
@@ -150,33 +144,33 @@ mod tests {
         );
         for _ in 0..10 {
             // Get builder's address
-            let known_wallet = Signer::try_from_secret(BUILDER_PRIVATE_KEY.parse()?)?;
+            let known_wallet: OpSigner = OpSigner::try_from_secret(BUILDER_PRIVATE_KEY.parse()?)?;
             let builder_address = known_wallet.address;
             // Get current nonce from chain
             let nonce = provider.get_transaction_count(builder_address).await?;
             // Transaction from builder should succeed
-            let tx_request = OpTypedTransaction::Eip1559(TxEip1559 {
-                chain_id: 901,
-                nonce,
-                gas_limit: 210000,
-                max_fee_per_gas: base_fee.into(),
+            let tx_request = TransactionRequest {
+                chain_id: Some(901),
+                nonce: Some(nonce),
+                gas: Some(210000),
+                max_fee_per_gas: Some(base_fee.into()),
                 ..Default::default()
-            });
-            let signed_tx = known_wallet.sign_tx(tx_request)?;
+            };
+            let signed_tx = known_wallet.build_and_sign_tx(tx_request)?;
             let known_tx = provider
                 .send_raw_transaction(signed_tx.encoded_2718().as_slice())
                 .await?;
 
             // Create a reverting transaction
-            let tx_request = OpTypedTransaction::Eip1559(TxEip1559 {
-                chain_id: 901,
-                nonce: nonce + 1,
-                gas_limit: 300000,
-                max_fee_per_gas: base_fee.into(),
-                input: hex!("60006000fd").into(), // PUSH1 0x00 PUSH1 0x00 REVERT
+            let tx_request = TransactionRequest {
+                chain_id: Some(901),
+                nonce: Some(nonce + 1),
+                gas: Some(300000),
+                max_fee_per_gas: Some(base_fee.into()),
+                input: TransactionInput::new(hex!("60006000fd").into()), // PUSH1 0x00 PUSH1 0x00 REVERT
                 ..Default::default()
-            });
-            let signed_tx = known_wallet.sign_tx(tx_request)?;
+            };
+            let signed_tx = known_wallet.build_and_sign_tx(tx_request)?;
             let reverting_tx = provider
                 .send_raw_transaction(signed_tx.encoded_2718().as_slice())
                 .await?;
@@ -227,6 +221,12 @@ mod tests {
     #[cfg(not(feature = "flashblocks"))]
     async fn integration_test_fee_priority_ordering() -> eyre::Result<()> {
         // This test validates that transactions are ordered by fee priority in blocks
+
+        use alloy_rpc_types_eth::TransactionRequest;
+        use reth_optimism_primitives::OpPrimitives;
+        use reth_primitives::{Recovered, TxTy};
+
+        use crate::tx_signer::OpSigner;
         let mut framework =
             IntegrationFramework::new("integration_test_fee_priority_ordering").unwrap();
 
@@ -277,11 +277,11 @@ mod tests {
         // Create transactions with increasing fee values
         let priority_fees: [u128; 5] = [1, 3, 5, 2, 4]; // Deliberately not in order
         let signers = vec![
-            Signer::random(),
-            Signer::random(),
-            Signer::random(),
-            Signer::random(),
-            Signer::random(),
+            OpSigner::random(),
+            OpSigner::random(),
+            OpSigner::random(),
+            OpSigner::random(),
+            OpSigner::random(),
         ];
         let mut txs = Vec::new();
 
@@ -294,15 +294,16 @@ mod tests {
 
         // Send transactions in non-optimal fee order
         for (i, priority_fee) in priority_fees.iter().enumerate() {
-            let tx_request = OpTypedTransaction::Eip1559(TxEip1559 {
-                chain_id: 901,
-                nonce: 1,
-                gas_limit: 210000,
-                max_fee_per_gas: base_fee as u128 + *priority_fee,
-                max_priority_fee_per_gas: *priority_fee,
+            let tx_request = TransactionRequest {
+                chain_id: Some(901),
+                nonce: Some(1),
+                gas: Some(210000),
+                max_fee_per_gas: Some(base_fee as u128 + *priority_fee),
+                max_priority_fee_per_gas: Some(*priority_fee),
                 ..Default::default()
-            });
-            let signed_tx = signers[i].sign_tx(tx_request)?;
+            };
+            let signed_tx: Recovered<TxTy<OpPrimitives>> =
+                signers[i].build_and_sign_tx(tx_request)?;
             let tx = provider
                 .send_raw_transaction(signed_tx.encoded_2718().as_slice())
                 .await?;

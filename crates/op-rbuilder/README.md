@@ -14,7 +14,7 @@ To run op-rbuilder with the op-stack, you need:
 To run the op-rbuilder, run:
 
 ```bash
-cargo run -p op-rbuilder --bin op-rbuilder --features optimism -- node \
+cargo run -p op-rbuilder --bin op-rbuilder -- node \
     --chain /path/to/chain-config.json \
     --http \
     --authrpc.port 9551 \
@@ -24,7 +24,7 @@ cargo run -p op-rbuilder --bin op-rbuilder --features optimism -- node \
 To build the op-rbuilder, run:
 
 ```bash
-cargo build -p op-rbuilder --bin op-rbuilder --features optimism
+cargo build -p op-rbuilder --bin op-rbuilder
 ```
 
 ## Observability
@@ -50,13 +50,13 @@ To run the integration tests, run:
 
 ```bash
 # Generate a genesis file
-cargo run -p op-rbuilder --bin tester --features optimism -- genesis --output genesis.json
+cargo run -p op-rbuilder --bin tester -- genesis --output genesis.json
 
 # Build the op-rbuilder binary
-cargo build -p op-rbuilder --bin op-rbuilder --features optimism
+cargo build -p op-rbuilder --bin op-rbuilder
 
 # Run the integration tests
-cargo run -p op-rbuilder --bin tester --features optimism -- run
+cargo run -p op-rbuilder --bin tester -- run
 ```
 
 ## Local Devnet
@@ -86,7 +86,7 @@ make devnet-clean && make devnet-down && make devnet-up
 4. Run `op-rbuilder` in the `rbuilder` repo on port 8547:
 
 ```bash
-cargo run -p op-rbuilder --bin op-rbuilder --features optimism -- node \
+cargo run -p op-rbuilder --bin op-rbuilder -- node \
     --chain ../optimism/.devnet/genesis-l2.json \
     --http \
     --http.port 8547 \

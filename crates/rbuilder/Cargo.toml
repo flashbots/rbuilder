@@ -151,8 +151,6 @@ assert_matches = "1.5.0"
 criterion = { version = "0.5.1", features = ["html_reports", "async_tokio"] }
 
 [features]
-# TODO: remove?
-optimism = []
 redact-sensitive = []
 
 [[bench]]

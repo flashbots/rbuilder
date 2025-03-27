@@ -1,25 +1,74 @@
+use alloy_primitives::B256;
 use futures_util::Future;
 use futures_util::FutureExt;
+use reth::builder::BuilderContext;
 use reth::providers::BlockReaderIdExt;
 use reth::{providers::StateProviderFactory, tasks::TaskSpawner};
+use reth_basic_payload_builder::BasicPayloadJobGeneratorConfig;
+use reth_basic_payload_builder::BuildOutcome;
 use reth_basic_payload_builder::HeaderForPayload;
-use reth_basic_payload_builder::{BasicPayloadJobGeneratorConfig, PayloadConfig};
+use reth_basic_payload_builder::PayloadConfig;
+use reth_basic_payload_builder::PayloadState;
+use reth_basic_payload_builder::PayloadTaskGuard;
+use reth_basic_payload_builder::PendingPayload;
+use reth_basic_payload_builder::PrecachedState;
+use reth_basic_payload_builder::ResolveBestPayload;
+use reth_node_api::FullNodeTypes;
+use reth_node_api::NodeTypesWithEngine;
 use reth_node_api::PayloadBuilderAttributes;
 use reth_node_api::PayloadKind;
+use reth_node_api::PayloadTypes;
 use reth_payload_builder::PayloadJobGenerator;
 use reth_payload_builder::{KeepPayloadJobAlive, PayloadBuilderError, PayloadJob};
 use reth_payload_primitives::BuiltPayload;
 use reth_primitives_traits::HeaderTy;
 use reth_revm::cached::CachedReads;
+use reth_revm::cancelled::CancelOnDrop;
+use reth_transaction_pool::TransactionPool;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 use tokio::sync::oneshot;
 use tokio::sync::Notify;
 use tokio::time::Duration;
+use tokio::time::Instant;
+use tokio::time::Interval;
 use tokio::time::Sleep;
-use tokio_util::sync::CancellationToken;
+use tracing::debug;
 use tracing::info;
+use tracing::trace;
+
+/// A type that knows how to build a payload builder to plug into [`BasicPayloadServiceBuilder`].
+pub trait PayloadBuilderBuilder<Node: FullNodeTypes, Pool: TransactionPool>: Send + Sized {
+    /// Payload builder implementation.
+    type PayloadBuilder: PayloadBuilderFor<Node::Types> + Unpin + 'static;
+
+    /// Spawns the payload service and returns the handle to it.
+    ///
+    /// The [`BuilderContext`] is provided to allow access to the node's configuration.
+    fn build_payload_builder(
+        self,
+        ctx: &BuilderContext<Node>,
+        pool: Pool,
+    ) -> impl Future<Output = eyre::Result<Self::PayloadBuilder>> + Send;
+}
+
+/// Helper trait to bound [`PayloadBuilder`] to the node's engine types.
+pub trait PayloadBuilderFor<N: NodeTypesWithEngine>:
+    PayloadBuilder<
+    Attributes = <N::Engine as PayloadTypes>::PayloadBuilderAttributes,
+    BuiltPayload = <N::Engine as PayloadTypes>::BuiltPayload,
+>
+{
+}
+
+impl<T, N: NodeTypesWithEngine> PayloadBuilderFor<N> for T where
+    T: PayloadBuilder<
+        Attributes = <N::Engine as PayloadTypes>::PayloadBuilderAttributes,
+        BuiltPayload = <N::Engine as PayloadTypes>::BuiltPayload,
+    >
+{
+}
 
 /// A trait for building payloads that encapsulate Ethereum transactions.
 ///
@@ -50,8 +99,7 @@ pub trait PayloadBuilder: Send + Sync + Clone {
     fn try_build(
         &self,
         args: BuildArguments<Self::Attributes, Self::BuiltPayload>,
-        best_payload: BlockCell<Self::BuiltPayload>,
-    ) -> Result<(), PayloadBuilderError>;
+    ) -> Result<BuildOutcome<Self::BuiltPayload>, PayloadBuilderError>;
 }
 
 /// The generator type that creates new jobs that builds empty blocks.
@@ -63,36 +111,49 @@ pub struct BlockPayloadJobGenerator<Client, Tasks, Builder> {
     executor: Tasks,
     /// The configuration for the job generator.
     _config: BasicPayloadJobGeneratorConfig,
+    /// Restricts how many generator tasks can be executed at once.
+    payload_task_guard: PayloadTaskGuard,
     /// The type responsible for building payloads.
     ///
     /// See [PayloadBuilder]
     builder: Builder,
-    /// Whether to ensure only one payload is being processed at a time
-    ensure_only_one_payload: bool,
-    /// The last payload being processed
-    last_payload: Arc<Mutex<CancellationToken>>,
+    /// Stored `cached_reads` for new payload jobs.
+    pre_cached: Option<PrecachedState>,
 }
 
 // === impl EmptyBlockPayloadJobGenerator ===
 
 impl<Client, Tasks, Builder> BlockPayloadJobGenerator<Client, Tasks, Builder> {
-    /// Creates a new [EmptyBlockPayloadJobGenerator] with the given config and custom
-    /// [PayloadBuilder]
+    /// Creates a new [`BasicPayloadJobGenerator`] with the given config and custom
+    /// [`PayloadBuilder`]
     pub fn with_builder(
         client: Client,
         executor: Tasks,
         config: BasicPayloadJobGeneratorConfig,
         builder: Builder,
-        ensure_only_one_payload: bool,
     ) -> Self {
         Self {
             client,
             executor,
+            payload_task_guard: PayloadTaskGuard::new(3), // TODO: use configured value
             _config: config,
             builder,
-            ensure_only_one_payload,
-            last_payload: Arc::new(Mutex::new(CancellationToken::new())),
+            pre_cached: None,
         }
+    }
+
+    /// Returns a reference to the tasks type
+    pub const fn tasks(&self) -> &Tasks {
+        &self.executor
+    }
+
+    /// Returns the pre-cached reads for the given parent header if it matches the cached state's
+    /// block.
+    fn maybe_pre_cached(&self, parent: B256) -> Option<CachedReads> {
+        self.pre_cached
+            .as_ref()
+            .filter(|pc| pc.block == parent)
+            .map(|pc| pc.cached.clone())
     }
 }
 
@@ -117,33 +178,17 @@ where
         &self,
         attributes: <Builder as PayloadBuilder>::Attributes,
     ) -> Result<Self::Job, PayloadBuilderError> {
-        let cancel_token = if self.ensure_only_one_payload {
-            // Cancel existing payload
-            {
-                let last_payload = self.last_payload.lock().unwrap();
-                last_payload.cancel();
-            }
-
-            // Create and set new cancellation token with a fresh lock
-            let cancel_token = CancellationToken::new();
-            {
-                let mut last_payload = self.last_payload.lock().unwrap();
-                *last_payload = cancel_token.clone();
-            }
-            cancel_token
-        } else {
-            CancellationToken::new()
-        };
-
         let parent_header = if attributes.parent().is_zero() {
             // use latest block if parent is zero: genesis block
             self.client
-                .latest_header()?
+                .latest_header()
+                .map_err(PayloadBuilderError::from)?
                 .ok_or_else(|| PayloadBuilderError::MissingParentBlock(attributes.parent()))?
         } else {
             self.client
-                .sealed_header_by_hash(attributes.parent())?
-                .ok_or_else(|| PayloadBuilderError::MissingParentBlock(attributes.parent()))?
+                .sealed_header_by_hash(attributes.parent())
+                .map_err(PayloadBuilderError::from)?
+                .ok_or_else(|| PayloadBuilderError::MissingParentHeader(attributes.parent()))?
         };
 
         info!("Spawn block building job");
@@ -155,19 +200,25 @@ where
         // Adding 0.5 seconds as wiggle room since block times are shorter here.
         // TODO: A better long-term solution would be to implement cancellation logic
         // that cancels existing jobs when receiving new block building requests.
-        let deadline = job_deadline(attributes.timestamp()) + Duration::from_millis(500);
-
-        let deadline = Box::pin(tokio::time::sleep(deadline));
         let config = PayloadConfig::new(Arc::new(parent_header.clone()), attributes);
+
+        let until = job_deadline(config.attributes.timestamp()) + Duration::from_millis(500);
+        let deadline = Box::pin(tokio::time::sleep_until(until));
+
+        let cached_reads = self.maybe_pre_cached(parent_header.hash());
 
         let mut job = BlockPayloadJob {
             executor: self.executor.clone(),
             builder: self.builder.clone(),
             config,
-            cell: BlockCell::new(),
-            cancel: cancel_token,
             deadline,
-            build_complete: None,
+            // ticks immediately
+            interval: tokio::time::interval(Duration::from_secs(1)), // TODO: use configured value
+            best_payload: PayloadState::Missing,
+            pending_block: None,
+            cached_reads,
+            payload_task_guard: self.payload_task_guard.clone(),
+            metrics: Default::default(),
         };
 
         job.spawn_build_job();
@@ -181,25 +232,38 @@ use std::{
     task::{Context, Poll},
 };
 
+use crate::metrics::PayloadBuilderMetrics;
+
 /// A [PayloadJob] that builds empty blocks.
 pub struct BlockPayloadJob<Tasks, Builder>
 where
     Builder: PayloadBuilder,
 {
     /// The configuration for how the payload will be created.
-    pub(crate) config: PayloadConfig<Builder::Attributes, HeaderForPayload<Builder::BuiltPayload>>,
+    config: PayloadConfig<Builder::Attributes, HeaderForPayload<Builder::BuiltPayload>>,
     /// How to spawn building tasks
-    pub(crate) executor: Tasks,
+    executor: Tasks,
+    /// The deadline when this job should resolve.
+    deadline: Pin<Box<Sleep>>,
+    /// The interval at which the job should build a new payload after the last.
+    interval: Interval,
+    /// The best payload so far and its state.
+    best_payload: PayloadState<Builder::BuiltPayload>,
+    /// Receiver for the block that is currently being built.
+    pending_block: Option<PendingPayload<Builder::BuiltPayload>>,
+    /// Restricts how many generator tasks can be executed at once.
+    payload_task_guard: PayloadTaskGuard,
+    /// Caches all disk reads for the state the new payloads builds on
+    ///
+    /// This is used to avoid reading the same state over and over again when new attempts are
+    /// triggered, because during the building process we'll repeatedly execute the transactions.
+    cached_reads: Option<CachedReads>,
+    /// metrics for this type
+    metrics: PayloadBuilderMetrics,
     /// The type responsible for building payloads.
     ///
-    /// See [PayloadBuilder]
-    pub(crate) builder: Builder,
-    /// The cell that holds the built payload.
-    pub(crate) cell: BlockCell<Builder::BuiltPayload>,
-    /// Cancellation token for the running job
-    pub(crate) cancel: CancellationToken,
-    pub(crate) deadline: Pin<Box<Sleep>>, // Add deadline
-    pub(crate) build_complete: Option<oneshot::Receiver<Result<(), PayloadBuilderError>>>,
+    /// See [`PayloadBuilder`]
+    builder: Builder,
 }
 
 impl<Tasks, Builder> PayloadJob for BlockPayloadJob<Tasks, Builder>
@@ -210,11 +274,22 @@ where
     Builder::BuiltPayload: Unpin + Clone,
 {
     type PayloadAttributes = Builder::Attributes;
-    type ResolvePayloadFuture = ResolvePayload<Self::BuiltPayload>;
+    type ResolvePayloadFuture = ResolveBestPayload<Self::BuiltPayload>;
     type BuiltPayload = Builder::BuiltPayload;
 
     fn best_payload(&self) -> Result<Self::BuiltPayload, PayloadBuilderError> {
-        unimplemented!()
+        if let Some(payload) = self.best_payload.payload() {
+            Ok(payload.clone())
+        } else {
+            // No payload has been built yet, but we need to return something that the CL then
+            // can deliver, so we need to return an empty payload.
+            //
+            // Note: it is assumed that this is unlikely to happen, as the payload job is
+            // started right away and the first full block should have been
+            // built by the time CL is requesting the payload.
+            self.metrics.inc_requested_empty_payload();
+            Err(PayloadBuilderError::MissingPayload)
+        }
     }
 
     fn payload_attributes(&self) -> Result<Self::PayloadAttributes, PayloadBuilderError> {
@@ -225,13 +300,26 @@ where
         &mut self,
         kind: PayloadKind,
     ) -> (Self::ResolvePayloadFuture, KeepPayloadJobAlive) {
-        tracing::info!("Resolve kind {:?}", kind);
+        let best_payload = self.best_payload.payload().cloned();
+        if best_payload.is_none() && self.pending_block.is_none() {
+            // ensure we have a job scheduled if we don't have a best payload yet and none is active
+            self.spawn_build_job();
+        }
 
-        // check if self.cell has a payload
-        self.cancel.cancel();
+        let maybe_better = self.pending_block.take();
+        let empty_payload = None;
 
-        let resolve_future = ResolvePayload::new(self.cell.wait_for_value());
-        (resolve_future, KeepPayloadJobAlive::No)
+        if best_payload.is_none() {
+            info!(target: "payload_builder", id=%self.config.payload_id(), "no best payload yet to resolve");
+        }
+
+        let fut = ResolveBestPayload {
+            best_payload,
+            maybe_better,
+            empty_payload: empty_payload.filter(|_| kind != PayloadKind::WaitForPending),
+        };
+
+        (fut, KeepPayloadJobAlive::No)
     }
 }
 
@@ -241,7 +329,9 @@ pub struct BuildArguments<Attributes, Payload: BuiltPayload> {
     /// How to configure the payload.
     pub config: PayloadConfig<Attributes, HeaderTy<Payload::Primitives>>,
     /// A marker that can be used to cancel the job.
-    pub cancel: CancellationToken,
+    pub cancel: CancelOnDrop,
+    /// The best payload achieved so far.
+    pub best_payload: Option<Payload>,
 }
 
 /// A [PayloadJob] is a future that's being polled by the `PayloadBuilderService`
@@ -253,24 +343,30 @@ where
     Builder::BuiltPayload: Unpin + Clone,
 {
     pub fn spawn_build_job(&mut self) {
-        let builder = self.builder.clone();
-        let payload_config = self.config.clone();
-        let cell = self.cell.clone();
-        let cancel = self.cancel.clone();
-
+        trace!(target: "payload_builder", id = %self.config.payload_id(), "spawn new payload build task");
         let (tx, rx) = oneshot::channel();
-        self.build_complete = Some(rx);
-
+        let cancel = CancelOnDrop::default();
+        let _cancel = cancel.clone();
+        let guard = self.payload_task_guard.clone();
+        let payload_config = self.config.clone();
+        let best_payload = self.best_payload.payload().cloned();
+        self.metrics.inc_initiated_payload_builds();
+        let cached_reads = self.cached_reads.take().unwrap_or_default();
+        let builder = self.builder.clone();
         self.executor.spawn_blocking(Box::pin(async move {
+            // acquire the permit for executing the task
+            let _permit = guard.acquire().await;
             let args = BuildArguments {
-                cached_reads: Default::default(),
+                cached_reads,
                 config: payload_config,
                 cancel,
+                best_payload,
             };
-
-            let result = builder.try_build(args, cell);
+            let result = builder.try_build(args);
             let _ = tx.send(result);
         }));
+
+        self.pending_block = Some(PendingPayload::new(_cancel, rx));
     }
 }
 
@@ -288,17 +384,54 @@ where
         tracing::trace!("Polling job");
         let this = self.get_mut();
 
-        // Check if deadline is reached
+        // check if the deadline is reached
         if this.deadline.as_mut().poll(cx).is_ready() {
-            this.cancel.cancel();
-            tracing::debug!("Deadline reached");
+            trace!(target: "payload_builder", "payload building deadline reached");
             return Poll::Ready(Ok(()));
         }
 
-        // If cancelled via resolve_kind()
-        if this.cancel.is_cancelled() {
-            tracing::debug!("Job cancelled");
-            return Poll::Ready(Ok(()));
+        // check if the interval is reached
+        while this.interval.poll_tick(cx).is_ready() {
+            // start a new job if there is no pending block, we haven't reached the deadline,
+            // and the payload isn't frozen
+            if this.pending_block.is_none() && !this.best_payload.is_frozen() {
+                this.spawn_build_job();
+            }
+        }
+
+        // poll the pending block
+        if let Some(mut fut) = this.pending_block.take() {
+            match fut.poll_unpin(cx) {
+                Poll::Ready(Ok(outcome)) => match outcome {
+                    BuildOutcome::Better {
+                        payload,
+                        cached_reads,
+                    } => {
+                        this.cached_reads = Some(cached_reads);
+                        debug!(target: "payload_builder", value = %payload.fees(), "built better payload");
+                        this.best_payload = PayloadState::Best(payload);
+                    }
+                    BuildOutcome::Freeze(payload) => {
+                        debug!(target: "payload_builder", "payload frozen, no further building will occur");
+                        this.best_payload = PayloadState::Frozen(payload);
+                    }
+                    BuildOutcome::Aborted { fees, cached_reads } => {
+                        this.cached_reads = Some(cached_reads);
+                        trace!(target: "payload_builder", worse_fees = %fees, "skipped payload build of worse block");
+                    }
+                    BuildOutcome::Cancelled => {
+                        unreachable!("the cancel signal never fired")
+                    }
+                },
+                Poll::Ready(Err(error)) => {
+                    // job failed, but we simply try again next interval
+                    debug!(target: "payload_builder", %error, "payload build attempt failed");
+                    this.metrics.inc_failed_payload_builds();
+                }
+                Poll::Pending => {
+                    this.pending_block = Some(fut);
+                }
+            }
         }
 
         Poll::Pending
@@ -389,7 +522,7 @@ impl<T: Clone> Default for BlockCell<T> {
     }
 }
 
-fn job_deadline(unix_timestamp_secs: u64) -> std::time::Duration {
+fn job_deadline(unix_timestamp_secs: u64) -> Instant {
     let unix_now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -400,9 +533,9 @@ fn job_deadline(unix_timestamp_secs: u64) -> std::time::Duration {
 
     if duration_until == 0 {
         // Enforce a minimum block time of 1 second by rounding up any duration less than 1 second
-        Duration::from_secs(1)
+        Instant::now() + Duration::from_secs(1)
     } else {
-        Duration::from_secs(duration_until)
+        Instant::now() + Duration::from_secs(duration_until)
     }
 }
 
@@ -558,14 +691,13 @@ mod tests {
         fn try_build(
             &self,
             args: BuildArguments<Self::Attributes, Self::BuiltPayload>,
-            _best_payload: BlockCell<Self::BuiltPayload>,
-        ) -> Result<(), PayloadBuilderError> {
+        ) -> Result<BuildOutcome<Self::BuiltPayload>, PayloadBuilderError> {
             self.new_event(BlockEvent::Started);
 
             loop {
                 if args.cancel.is_cancelled() {
                     self.new_event(BlockEvent::Cancelled);
-                    return Ok(());
+                    return Ok(BuildOutcome::Cancelled);
                 }
 
                 // Small sleep to prevent tight loop
@@ -577,23 +709,28 @@ mod tests {
     #[tokio::test]
     async fn test_job_deadline() {
         // Test future deadline
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-        let future_timestamp = now + Duration::from_secs(2);
-        // 2 seconds from now
-        let deadline = job_deadline(future_timestamp.as_secs());
-        assert!(deadline <= Duration::from_secs(2));
-        assert!(deadline > Duration::from_secs(0));
+        let now = Instant::now();
+        // Get current Unix time
+        let current_unix_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        // 2 seconds in the future
+        let future_unix_timestamp = current_unix_time + 2;
+        let deadline = job_deadline(future_unix_timestamp);
+        assert!(deadline <= now + Duration::from_secs(2));
+        assert!(deadline > now);
 
         // Test past deadline
-        let past_timestamp = now - Duration::from_secs(10);
-        let deadline = job_deadline(past_timestamp.as_secs());
+        let past_unix_timestamp = current_unix_time - 10;
+        let deadline = job_deadline(past_unix_timestamp);
         // Should default to 1 second when timestamp is in the past
-        assert_eq!(deadline, Duration::from_secs(1));
+        assert_eq!(deadline, now + Duration::from_secs(1));
 
         // Test current timestamp
-        let deadline = job_deadline(now.as_secs());
+        let deadline = job_deadline(current_unix_time);
         // Should use 1 second when timestamp is current
-        assert_eq!(deadline, Duration::from_secs(1));
+        assert_eq!(deadline, now + Duration::from_secs(1));
     }
 
     #[tokio::test]
@@ -622,7 +759,6 @@ mod tests {
             executor,
             config,
             builder.clone(),
-            false,
         );
 
         // this is not nice but necessary

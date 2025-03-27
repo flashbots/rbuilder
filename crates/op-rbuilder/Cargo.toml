@@ -25,6 +25,7 @@ reth-chainspec.workspace = true
 reth-primitives.workspace = true
 reth-primitives-traits.workspace = true
 reth-node-api.workspace = true
+reth-node-builder.workspace = true
 reth-basic-payload-builder.workspace = true
 reth-payload-builder.workspace = true
 reth-node-ethereum.workspace = true
@@ -58,10 +59,12 @@ alloy-serde.workspace = true
 alloy-op-evm.workspace = true
 op-alloy-consensus.workspace = true
 op-alloy-rpc-types-engine.workspace = true
+op-alloy-rpc-types.workspace = true
 op-alloy-network.workspace = true
+op-revm.workspace = true
+alloy-op-hardforks.workspace = true
 
 revm.workspace = true
-op-revm.workspace = true
 
 tracing.workspace = true
 futures-util = "0.3.31"
@@ -79,6 +82,7 @@ derive_more.workspace = true
 metrics.workspace = true
 serde_json.workspace = true
 tokio-util.workspace = true
+thiserror.workspace = true
 
 time = { version = "0.3.36", features = ["macros", "formatting", "parsing"] }
 chrono = "0.4"
