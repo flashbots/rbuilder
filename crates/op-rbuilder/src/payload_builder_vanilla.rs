@@ -863,7 +863,7 @@ where
                 best_txs.mark_invalid(tx.signer(), tx.nonce());
                 if !is_recoverable {
                     // For some subset of errors we remove transaction from txpool
-                    info.invalid_tx_hashes.insert(*tx.tx_hash());
+                    // info.invalid_tx_hashes.insert(*tx.tx_hash());
                 }
                 continue;
             }
@@ -884,7 +884,7 @@ where
                         num_txs_simulated_fail += 1;
                         trace!(target: "payload_builder", ?tx, "skipping reverted transaction");
                         best_txs.mark_invalid(tx.signer(), tx.nonce());
-                        info.invalid_tx_hashes.insert(*tx.tx_hash());
+                        // info.invalid_tx_hashes.insert(*tx.tx_hash());
                     }
                 },
             ) {
