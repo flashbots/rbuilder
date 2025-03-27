@@ -93,6 +93,7 @@ mod tests {
         // This is a simple test using the integration framework to test that the chain
         // produces blocks.
 
+        use alloy_primitives::{Address, TxKind};
         use alloy_rpc_types_eth::{TransactionInput, TransactionRequest};
 
         use crate::tx_signer::OpSigner;
@@ -154,6 +155,8 @@ mod tests {
                 nonce: Some(nonce),
                 gas: Some(210000),
                 max_fee_per_gas: Some(base_fee.into()),
+                max_priority_fee_per_gas: Some(0),
+                to: Some(TxKind::Call(Address::ZERO)),
                 ..Default::default()
             };
             let signed_tx = known_wallet.build_and_sign_tx(tx_request)?;
@@ -167,6 +170,8 @@ mod tests {
                 nonce: Some(nonce + 1),
                 gas: Some(300000),
                 max_fee_per_gas: Some(base_fee.into()),
+                max_priority_fee_per_gas: Some(0),
+                to: Some(TxKind::Create),
                 input: TransactionInput::new(hex!("60006000fd").into()), // PUSH1 0x00 PUSH1 0x00 REVERT
                 ..Default::default()
             };
@@ -198,7 +203,8 @@ mod tests {
                     .transactions
                     .hashes()
                     .any(|hash| hash == *reverting_tx.tx_hash()),
-                "reverted transaction unexpectedly included in block"
+                "reverted transaction {:?} unexpectedly included in block",
+                reverting_tx.tx_hash()
             );
             for hash in block.transactions.hashes() {
                 let receipt = provider
@@ -222,6 +228,7 @@ mod tests {
     async fn integration_test_fee_priority_ordering() -> eyre::Result<()> {
         // This test validates that transactions are ordered by fee priority in blocks
 
+        use alloy_primitives::{Address, TxKind};
         use alloy_rpc_types_eth::TransactionRequest;
         use reth_optimism_primitives::OpPrimitives;
         use reth_primitives::{Recovered, TxTy};
@@ -300,6 +307,7 @@ mod tests {
                 gas: Some(210000),
                 max_fee_per_gas: Some(base_fee as u128 + *priority_fee),
                 max_priority_fee_per_gas: Some(*priority_fee),
+                to: Some(TxKind::Call(Address::ZERO)),
                 ..Default::default()
             };
             let signed_tx: Recovered<TxTy<OpPrimitives>> =
