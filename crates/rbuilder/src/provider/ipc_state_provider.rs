@@ -138,7 +138,7 @@ impl StateProviderFactory for IpcStateProviderFactory {
     /// Gets block header given block hash
     fn header(&self, block_hash: &BlockHash) -> ProviderResult<Option<Header>> {
         let header = rpc_call::<
-            _,
+            (&BlockHash, bool),
             Option<<alloy_network::Ethereum as alloy_network::Network>::BlockResponse>,
         >(
             &self.ipc_provider,
@@ -152,7 +152,7 @@ impl StateProviderFactory for IpcStateProviderFactory {
 
     /// Gets block hash given block number
     fn block_hash(&self, number: BlockNumber) -> ProviderResult<Option<B256>> {
-        let block_hash = rpc_call::<_, Option<B256>>(
+        let block_hash = rpc_call::<(BlockNumberOrTag,), Option<B256>>(
             &self.ipc_provider,
             "rbuilder_getBlockHash",
             (BlockNumberOrTag::Number(number),),
@@ -169,7 +169,7 @@ impl StateProviderFactory for IpcStateProviderFactory {
     /// Gets block header given block hash
     fn header_by_number(&self, num: u64) -> ProviderResult<Option<Header>> {
         let block = rpc_call::<
-            _,
+            (u64, bool),
             Option<<alloy_network::Ethereum as alloy_network::Network>::BlockResponse>,
         >(&self.ipc_provider, "eth_getBlockByNumber", (num, false))?
         .map(|b| b.header.inner);
@@ -179,7 +179,7 @@ impl StateProviderFactory for IpcStateProviderFactory {
 
     /// Gets block number of latest known block
     fn last_block_number(&self) -> ProviderResult<BlockNumber> {
-        Ok(rpc_call::<_, U64>(&self.ipc_provider, "eth_blockNumber", ())?.to::<u64>())
+        Ok(rpc_call::<(), U64>(&self.ipc_provider, "eth_blockNumber", ())?.to::<u64>())
     }
 
     /// Creates new root hasher - struct responsible for calculating root hash
@@ -270,7 +270,7 @@ impl StateProvider for IpcStateProvider {
             return Ok(Some(bytecode.clone()));
         }
 
-        let bytecode = rpc_call::<_, Option<Bytes>>(
+        let bytecode = rpc_call::<(&B256,), Option<Bytes>>(
             &self.ipc_provider,
             "rbuilder_getCodeByHash",
             (code_hash,),
@@ -293,7 +293,7 @@ impl BlockHashReader for IpcStateProvider {
             return Ok(Some(*hash));
         }
 
-        let block_hash = rpc_call::<_, Option<B256>>(
+        let block_hash = rpc_call::<(BlockNumberOrTag,), Option<B256>>(
             &self.ipc_provider,
             "rbuilder_getBlockHash",
             (BlockNumberOrTag::Number(number),),
@@ -324,7 +324,7 @@ impl AccountReader for IpcStateProvider {
             return Ok(*account);
         }
 
-        let account = rpc_call::<_, Option<AccountState>>(
+        let account = rpc_call::<(Address, BlockId), Option<AccountState>>(
             &self.ipc_provider,
             "rbuilder_getAccount",
             (*address, self.block_id),
@@ -453,7 +453,7 @@ impl RootHasher for StatRootHashCalculator {
             .map(|(address, diff)| (*address, diff.clone().into()))
             .collect();
 
-        let hash = rpc_call::<_, B256>(
+        let hash = rpc_call::<(BlockId, HashMap<Address, AccountDiff>), B256>(
             &self.remote_provider,
             "rbuilder_calculateStateRoot",
             (BlockId::Hash(self.parent_hash.into()), account_diff),
