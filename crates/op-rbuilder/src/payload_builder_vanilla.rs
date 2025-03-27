@@ -1,4 +1,5 @@
 use crate::{
+    executor::OpRbuilderEvmConfig,
     generator::{BlockPayloadJobGenerator, BuildArguments, PayloadBuilder, PayloadBuilderBuilder},
     metrics::OpRBuilderMetrics,
     primitives::{reth::ExecutionInfo, supervisor::SupervisorValidator},
@@ -34,7 +35,7 @@ use reth_node_builder::{
     BuilderContext,
 };
 use reth_optimism_chainspec::OpChainSpec;
-use reth_optimism_evm::{OpEvmConfig, OpNextBlockEnvAttributes};
+use reth_optimism_evm::OpNextBlockEnvAttributes;
 use reth_optimism_forks::OpHardforks;
 use reth_optimism_node::{txpool::OpPooledTx, OpEngineTypes};
 use reth_optimism_payload_builder::config::{OpBuilderConfig, OpDAConfig};
@@ -157,14 +158,14 @@ where
     Txs: OpPayloadTransactions<Pool::Transaction>,
     <Pool as TransactionPool>::Transaction: OpPooledTx,
 {
-    type PayloadBuilder = OpPayloadBuilderVanilla<Pool, Node::Provider, OpEvmConfig, Txs>;
+    type PayloadBuilder = OpPayloadBuilderVanilla<Pool, Node::Provider, OpRbuilderEvmConfig, Txs>;
 
     async fn build_payload_builder(
         self,
         ctx: &BuilderContext<Node>,
         pool: Pool,
     ) -> eyre::Result<Self::PayloadBuilder> {
-        self.build(OpEvmConfig::optimism(ctx.chain_spec()), ctx, pool)
+        self.build(OpRbuilderEvmConfig::optimism(ctx.chain_spec()), ctx, pool)
     }
 }
 

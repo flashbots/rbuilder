@@ -67,7 +67,6 @@ where
         let evm_config =
             OpRbuilderEvmConfig::new(ctx.chain_spec(), OpRethReceiptBuilder::default());
         let executor = BasicBlockExecutorProvider::new(evm_config.clone());
-
         Ok((evm_config, executor))
     }
 }
@@ -80,6 +79,13 @@ pub struct OpRbuilderEvmConfig<
 > {
     pub executor_factory: OpRbuilderBlockExecutorFactory<R, Arc<ChainSpec>>,
     inner: OpEvmConfig<ChainSpec, N, R>,
+}
+
+impl<ChainSpec> OpRbuilderEvmConfig<ChainSpec> {
+    /// Creates a new [`OpEvmConfig`] with the given chain spec for OP chains.
+    pub fn optimism(chain_spec: Arc<ChainSpec>) -> Self {
+        Self::new(chain_spec, OpRethReceiptBuilder::default())
+    }
 }
 
 impl<ChainSpec, N: NodePrimitives, R> OpRbuilderEvmConfig<ChainSpec, N, R>
