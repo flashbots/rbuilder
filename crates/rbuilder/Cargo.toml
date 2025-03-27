@@ -145,8 +145,6 @@ tempfile = "3.8"
 criterion = { version = "0.5.1", features = ["html_reports", "async_tokio"] }
 
 [features]
-# TODO: remove?
-optimism = []
 redact-sensitive = []
 
 [[bench]]

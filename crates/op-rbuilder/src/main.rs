@@ -1,4 +1,5 @@
 use clap::Parser;
+use executor::OpRbuilderExecutorBuilder;
 use monitoring::Monitoring;
 use reth::providers::CanonStateSubscriptions;
 use reth_optimism_cli::{chainspec::OpChainSpecParser, Cli};
@@ -7,12 +8,12 @@ use reth_optimism_node::OpNode;
 
 #[cfg(feature = "flashblocks")]
 use payload_builder::CustomOpPayloadBuilder;
-#[cfg(not(feature = "flashblocks"))]
 use payload_builder_vanilla::CustomOpPayloadBuilder;
 use reth_transaction_pool::TransactionPool;
 
 /// CLI argument parsing.
 pub mod args;
+mod executor;
 pub mod generator;
 #[cfg(test)]
 mod integration;
@@ -37,14 +38,22 @@ fn main() {
             let op_node = OpNode::new(rollup_args.clone());
             let handle = builder
                 .with_types::<OpNode>()
-                .with_components(op_node.components().payload(CustomOpPayloadBuilder::new(
-                    builder_args.builder_signer,
-                    builder_args.flashblocks_ws_url,
-                    builder_args.chain_block_time,
-                    builder_args.flashblock_block_time,
-                    builder_args.supervisor_url,
-                    builder_args.supervisor_safety_level,
-                )))
+                .with_components(
+                    op_node
+                        .components()
+                        .payload(
+                            CustomOpPayloadBuilder::new(
+                                builder_args.builder_signer,
+                                builder_args.flashblocks_ws_url,
+                                builder_args.chain_block_time,
+                                builder_args.flashblock_block_time,
+                                builder_args.supervisor_url,
+                                builder_args.supervisor_safety_level,
+                            )
+                            .with_da_config(op_node.da_config.clone()),
+                        )
+                        .executor(OpRbuilderExecutorBuilder::default()),
+                )
                 .with_add_ons(
                     OpAddOnsBuilder::default()
                         .with_sequencer(rollup_args.sequencer_http.clone())
@@ -53,7 +62,7 @@ fn main() {
                 )
                 .on_node_started(move |ctx| {
                     let new_canonical_blocks = ctx.provider().canonical_state_stream();
-                    let builder_signer = builder_args.builder_signer;
+                    // let builder_signer = builder_args.builder_signer;
 
                     if builder_args.log_pool_transactions {
                         tracing::info!("Logging pool transactions");
@@ -68,7 +77,7 @@ fn main() {
                     ctx.task_executor.spawn_critical(
                         "monitoring",
                         Box::pin(async move {
-                            let monitoring = Monitoring::new(builder_signer);
+                            let monitoring = Monitoring::new(builder_args.builder_signer);
                             let _ = monitoring.run_with_stream(new_canonical_blocks).await;
                         }),
                     );

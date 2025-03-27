@@ -5,7 +5,7 @@
 //! clap [Args](clap::Args) for optimism rollup configuration
 use reth_optimism_node::args::RollupArgs;
 
-use crate::tx_signer::Signer;
+use crate::tx_signer::OpSigner;
 use alloy_transport_http::reqwest::Url;
 
 /// Parameters for rollup configuration
@@ -17,7 +17,7 @@ pub struct OpRbuilderArgs {
     pub rollup_args: RollupArgs,
     /// Builder secret key for signing last transaction in block
     #[arg(long = "rollup.builder-secret-key", env = "BUILDER_SECRET_KEY")]
-    pub builder_signer: Option<Signer>,
+    pub builder_signer: Option<OpSigner>,
     /// Websocket port for flashblock payload builder
     #[arg(
         long = "rollup.flashblocks-ws-url",

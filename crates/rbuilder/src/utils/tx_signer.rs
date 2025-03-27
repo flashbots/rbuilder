@@ -1,7 +1,7 @@
 use alloy_consensus::SignableTransaction;
 use alloy_primitives::{Address, PrimitiveSignature as Signature, B256, U256};
 use reth_primitives::{public_key_to_address, Recovered, Transaction, TransactionSigned};
-use secp256k1::{Message, SecretKey, SECP256K1};
+use secp256k1::{ecdsa::RecoveryId, Message, SecretKey, SECP256K1};
 
 /// Simple struct to sign txs/messages.
 /// Mainly used to sign payout txs from the builder and to create test data.
@@ -28,7 +28,7 @@ impl Signer {
         let signature = Signature::new(
             U256::try_from_be_slice(&data[..32]).expect("The slice has at most 32 bytes"),
             U256::try_from_be_slice(&data[32..64]).expect("The slice has at most 32 bytes"),
-            i32::from(rec_id) != 0,
+            rec_id != RecoveryId::Zero,
         );
         Ok(signature)
     }
