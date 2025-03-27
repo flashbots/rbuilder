@@ -9,7 +9,9 @@ use std::{
 use alloy_consensus::{constants::KECCAK_EMPTY, Header};
 use alloy_eips::{BlockId, BlockNumHash, BlockNumberOrTag};
 use alloy_json_rpc::RpcSend;
-use alloy_primitives::{BlockHash, BlockNumber, StorageKey, StorageValue, U64};
+use alloy_primitives::{
+    Address, BlockHash, BlockNumber, Bytes, StorageKey, StorageValue, B256, U256, U64,
+};
 use dashmap::DashMap;
 use quick_cache::sync::Cache;
 use reipc::rpc_provider::RpcProvider;
@@ -23,8 +25,10 @@ use reth_trie::{
     updates::TrieUpdates, AccountProof, HashedPostState, HashedStorage, MultiProof,
     MultiProofTargets, StorageMultiProof, StorageProof, TrieInput,
 };
-use revm::db::{BundleAccount, BundleState};
-use revm_primitives::{map::B256HashMap, Address, Bytes, HashMap, B256, U256};
+use revm::{
+    database::{BundleAccount, BundleState},
+    primitives::HashMap,
+};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
@@ -410,11 +414,7 @@ impl StateProofProvider for IpcStateProvider {
         unimplemented!()
     }
 
-    fn witness(
-        &self,
-        _input: TrieInput,
-        _target: HashedPostState,
-    ) -> ProviderResult<B256HashMap<Bytes>> {
+    fn witness(&self, _input: TrieInput, _target: HashedPostState) -> ProviderResult<Vec<Bytes>> {
         unimplemented!()
     }
 }
@@ -515,7 +515,7 @@ fn rpc_call<Param, Resp>(
 ) -> ProviderResult<Resp>
 where
     Param: RpcSend,
-    Resp: DeserializeOwned + derive_more::Debug,
+    Resp: DeserializeOwned + derive_more::with_trait::Debug,
 {
     let span = trace_span!("rpc_call", rpc_method, id = rand::random::<u64>());
     let _guard = span.enter();
