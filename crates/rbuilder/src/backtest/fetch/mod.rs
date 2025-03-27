@@ -226,7 +226,10 @@ impl HistoricalDataFetcher {
         info!(orders_left = orders.len(), "Filtered orders by base fee");
 
         let mut available_orders = self.filter_order_by_nonces(orders, block_number).await?;
-        info!(orders_left = available_orders.len(), "Filtered orders by nonces");
+        info!(
+            orders_left = available_orders.len(),
+            "Filtered orders by nonces"
+        );
         available_orders.sort_by_key(|o| o.timestamp_ms);
 
         Ok(BlockData {

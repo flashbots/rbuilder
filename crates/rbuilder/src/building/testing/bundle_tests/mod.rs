@@ -171,10 +171,7 @@ fn test_bundle_timestamp() -> eyre::Result<()> {
         let block_args = block_args.timestamp(base_ts + 1000);
         let mut test_setup = TestSetup::gen_test_setup(block_args)?;
 
-        let adjust_ts = |ts: Option<i32>| match ts {
-            Some(delta) => Some(delta as u64 + base_ts),
-            None => None,
-        };
+        let adjust_ts = |ts: Option<i32>| ts.map(|delta| delta as u64 + base_ts);
         let ok_timestamp_params = vec![
             (Some(1), Some(5000)),
             (None, Some(5000)),
