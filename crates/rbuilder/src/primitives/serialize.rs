@@ -1009,6 +1009,7 @@ mod tests {
         assert_eq!(bundle.max_timestamp, None);
     }
 
+    /// maxTimestamp should be considered None
     #[test]
     fn test_correct_bundle_zero_timestamp_decoding_v1() {
         // raw json string
@@ -1079,6 +1080,7 @@ mod tests {
         }
     }
 
+    /// blockNumber should considered None
     #[test]
     fn test_correct_bundle_decoding_refunds_no_block_v2() {
         // raw json string
@@ -1118,6 +1120,69 @@ mod tests {
             })
         );
         assert_eq!(bundle.uuid, uuid!("e2bdb8cd-9473-5a1b-b425-57fa7ecfe2c1"));
+    }
+
+    /// Should default to last version.
+    #[test]
+    fn test_correct_bundle_decoding_no_version() {
+        // raw json string
+        let bundle_json = r#"
+        {
+            "txs": [
+                "0x02f86b83aa36a780800982520894f24a01ae29dec4629dfb4170647c4ed4efc392cd861ca62a4c95b880c080a07d37bb5a4da153a6fbe24cf1f346ef35748003d1d0fc59cf6c17fb22d49e42cea02c231ac233220b494b1ad501c440c8b1a34535cdb8ca633992d6f35b14428672"
+            ],
+            "blockNumber": 0,
+            "minTimestamp": 123,
+            "maxTimestamp": 1234
+        }"#;
+
+        let bundle_request: RawBundle =
+            serde_json::from_str(bundle_json).expect("failed to decode bundle");
+
+        let bundle = bundle_request
+            .clone()
+            .decode_new_bundle(TxEncoding::WithBlobData)
+            .expect("failed to convert bundle request to bundle");
+
+        assert_eq!(bundle.version, LAST_BUNDLE_VERSION);
+        assert_eq!(bundle.refund, None);
+    }
+
+    /// empty txs should generate a cancellation.
+    #[test]
+    fn test_correct_bundle_cancellation_decoding() {
+        // raw json string
+        let bundle_json = r#"
+        {
+            "txs": [],
+            "blockNumber": 0,
+            "minTimestamp": 123,
+            "maxTimestamp": 1234,
+            "replacementUuid": "3255ceb4-fdc5-592d-a501-2183727ca3df",
+            "replacementNonce": 49,
+            "signingAddress": "0x95222290dd7278aa3ddd389cc1e1d165cc4bafe5"
+        }"#;
+
+        let bundle_request: RawBundle =
+            serde_json::from_str(bundle_json).expect("failed to decode bundle");
+
+        let bundle = bundle_request
+            .clone()
+            .decode(TxEncoding::WithBlobData)
+            .expect("failed to convert bundle request to RawBundleDecodeResult");
+        if let RawBundleDecodeResult::CancelBundle(cancel) = bundle {
+            assert_eq!(
+                cancel.key.key().id,
+                uuid!("3255ceb4-fdc5-592d-a501-2183727ca3df")
+            );
+            assert_eq!(
+                cancel.key.key().signer.unwrap(),
+                address!("0x95222290dd7278aa3ddd389cc1e1d165cc4bafe5")
+            );
+            assert_eq!(cancel.sequence_number, 49);
+        } else {
+            panic!("Cancel RawBundle wrongly decoded");
+        }
     }
 
     #[test]
