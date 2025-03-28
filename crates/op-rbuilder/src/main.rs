@@ -1,18 +1,20 @@
 use clap::Parser;
+use custom_payload_builder::CustomOpPayloadBuilderBuilder;
 use monitoring::Monitoring;
 use reth::providers::CanonStateSubscriptions;
 use reth_optimism_cli::{chainspec::OpChainSpecParser, Cli};
 use reth_optimism_node::node::OpAddOnsBuilder;
 use reth_optimism_node::OpNode;
 
+#[cfg(not(feature = "flashblocks"))]
+use custom_payload_builder::CustomOpPayloadBuilder;
 #[cfg(feature = "flashblocks")]
 use payload_builder::CustomOpPayloadBuilder;
-#[cfg(not(feature = "flashblocks"))]
-use payload_builder_vanilla::CustomOpPayloadBuilder;
 use reth_transaction_pool::TransactionPool;
 
 /// CLI argument parsing.
 pub mod args;
+pub mod custom_payload_builder;
 pub mod generator;
 #[cfg(test)]
 mod integration;
@@ -39,7 +41,7 @@ fn main() {
                 .with_types::<OpNode>()
                 .with_components(
                     op_node.components().payload(
-                        CustomOpPayloadBuilder::new()
+                        CustomOpPayloadBuilderBuilder::new()
                             .builder_signer(builder_args.builder_signer)
                             .supervisor_url(builder_args.supervisor_url)
                             .supervisor_safety_level(builder_args.supervisor_safety_level)

@@ -1,3 +1,4 @@
+use crate::custom_payload_builder::CustomOpPayloadBuilder;
 use crate::{
     generator::{BlockCell, BlockPayloadJobGenerator, BuildArguments, PayloadBuilder},
     metrics::OpRBuilderMetrics,
@@ -80,64 +81,6 @@ use std::{fmt::Display, sync::Arc, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, trace, warn};
 use url::Url;
-
-#[derive(Debug, Clone, Default)]
-#[non_exhaustive]
-pub struct CustomOpPayloadBuilder {
-    builder_signer: Option<Signer>,
-    #[cfg(feature = "flashblocks")]
-    flashblocks_ws_url: String,
-    #[cfg(feature = "flashblocks")]
-    chain_block_time: u64,
-    #[cfg(feature = "flashblocks")]
-    flashblock_block_time: u64,
-    supervisor_url: Option<Url>,
-    supervisor_safety_level: Option<String>,
-}
-
-impl CustomOpPayloadBuilder {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn builder_signer(mut self, signer: Option<Signer>) -> Self {
-        self.builder_signer = signer;
-        self
-    }
-
-    pub fn supervisor_url(mut self, url: Option<Url>) -> Self {
-        self.supervisor_url = url;
-        self
-    }
-
-    pub fn supervisor_safety_level(mut self, level: Option<String>) -> Self {
-        self.supervisor_safety_level = level;
-        self
-    }
-
-    #[cfg(feature = "flashblocks")]
-    pub fn flashblocks_ws_url(mut self, url: String) -> Self {
-        self.flashblocks_ws_url = Some(url);
-        self
-    }
-
-    #[cfg(feature = "flashblocks")]
-    pub fn chain_block_time(mut self, time: u64) -> Self {
-        self.chain_block_time = Some(time);
-        self
-    }
-
-    #[cfg(feature = "flashblocks")]
-    pub fn flashblock_block_time(mut self, time: u64) -> Self {
-        self.flashblock_block_time = Some(time);
-        self
-    }
-
-    /// Finalize the builder by returning itself.
-    pub fn build(self) -> Self {
-        self
-    }
-}
 
 impl<Node, Pool> PayloadServiceBuilder<Node, Pool> for CustomOpPayloadBuilder
 where

@@ -69,6 +69,7 @@ use std::error::Error as StdError;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, trace, warn};
 
+use crate::custom_payload_builder::CustomOpPayloadBuilder;
 use futures_util::FutureExt;
 use futures_util::SinkExt;
 use tokio::net::{TcpListener, TcpStream};
@@ -84,40 +85,6 @@ struct FlashblocksMetadata<N: NodePrimitives> {
     receipts: HashMap<B256, N::Receipt>,
     new_account_balances: HashMap<Address, U256>,
     block_number: u64,
-}
-
-#[derive(Debug, Clone, Default)]
-#[non_exhaustive]
-pub struct CustomOpPayloadBuilder {
-    #[expect(dead_code)]
-    builder_signer: Option<Signer>,
-    flashblocks_ws_url: String,
-    chain_block_time: u64,
-    flashblock_block_time: u64,
-    #[expect(dead_code)]
-    supervisor_url: Option<Url>,
-    #[expect(dead_code)]
-    supervisor_safety_level: Option<String>,
-}
-
-impl CustomOpPayloadBuilder {
-    pub fn new(
-        builder_signer: Option<Signer>,
-        flashblocks_ws_url: String,
-        chain_block_time: u64,
-        flashblock_block_time: u64,
-        supervisor_url: Option<Url>,
-        supervisor_safety_level: Option<String>,
-    ) -> Self {
-        Self {
-            builder_signer,
-            flashblocks_ws_url,
-            chain_block_time,
-            flashblock_block_time,
-            supervisor_url,
-            supervisor_safety_level,
-        }
-    }
 }
 
 impl<Node, Pool> PayloadServiceBuilder<Node, Pool> for CustomOpPayloadBuilder
