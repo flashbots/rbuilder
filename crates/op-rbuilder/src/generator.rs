@@ -155,7 +155,15 @@ where
         // Adding 0.5 seconds as wiggle room since block times are shorter here.
         // TODO: A better long-term solution would be to implement cancellation logic
         // that cancels existing jobs when receiving new block building requests.
-        let deadline = job_deadline(attributes.timestamp()) + Duration::from_millis(500);
+        //
+        // When batcher's max channel duration is big enough (e.g. 10m), the
+        // batcher would be pushing its updates at specified intervals.  This
+        // causes the sequencer to send an avalanche of FCUs (and
+        // getBlockByNumber) that push safe head step-by-step.  As a consequence
+        // it can happen that the time b/w FCU and ensuing getPayload would be
+        // on the scale of ~2.5s.  This means that we should "remember" the
+        // payloads long enough to accommodate that corner-case.
+        let deadline = job_deadline(attributes.timestamp()) + Duration::from_millis(5000);
 
         let deadline = Box::pin(tokio::time::sleep(deadline));
         let config = PayloadConfig::new(Arc::new(parent_header.clone()), attributes);
