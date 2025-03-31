@@ -75,6 +75,8 @@ pub struct BuiltBlockData {
 pub enum OrderFilteredReason {
     /// Order was received late
     Timestamp,
+    /// Order was replaced
+    Replaced,
     /// Order is made of mempool txs
     MempoolTxs,
     /// Order id was explicitly filtered out
@@ -111,13 +113,26 @@ impl BlockData {
     }
 
     fn filter_orders_by_end_timestamp_ms(&mut self, final_timestamp_ms: u64) {
+        // we never filter included orders even by timestamp
+        let included_orders: HashSet<_> = self
+            .built_block_data
+            .as_ref()
+            .map(|d| d.included_orders.clone())
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+
         self.available_orders.retain(|orders| {
+            let id = orders.order.id();
+            if included_orders.contains(&id) {
+                return true;
+            }
             if orders.timestamp_ms <= final_timestamp_ms {
                 true
             } else {
-                trace!(order = ?orders.order.id(), "order filtered by end timestamp");
+                trace!(order = ?id, "order filtered by end timestamp");
                 self.filtered_orders
-                    .insert(orders.order.id(), OrderFilteredReason::Timestamp);
+                    .insert(id, OrderFilteredReason::Timestamp);
                 false
             }
         });
@@ -135,10 +150,17 @@ impl BlockData {
 
         self.available_orders.retain(|orders| {
             if let Some(key) = orders.order.replacement_key() {
-                if replacement_keys_seen.contains(&key) {
-                    trace!(order = ?orders.order.id(), "order filtered by end timestamp");
+                let id = orders.order.id();
+                let skip_order = if included_orders.contains(&id) {
+                    false
+                } else {
+                    replacement_keys_seen.contains(&key)
+                };
+
+                if skip_order {
+                    trace!(order = ?id, "order was replaced");
                     self.filtered_orders
-                        .insert(orders.order.id(), OrderFilteredReason::Timestamp);
+                        .insert(id, OrderFilteredReason::Replaced);
                     return false;
                 }
                 replacement_keys_seen.insert(key);

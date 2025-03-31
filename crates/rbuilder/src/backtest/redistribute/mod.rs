@@ -780,7 +780,7 @@ where
     for ((address1, address2), result) in &exclusion_results.joint_exclusion_result {
         let block_value_delta = result.block_value_delta;
         if !block_value_delta.is_positive() {
-            warn!(?address1, ?address2, newly_included_orders = ?result.new_orders_included, "Joint block value delta is not positive");
+            info!(?address1, ?address2, newly_included_orders = ?result.new_orders_included, "Joint block value delta is not positive");
         };
         let bvd1 = exclusion_results
             .identity_exclusion(address1)
@@ -817,7 +817,7 @@ fn apply_redistribution_formula(
 
             let realized_value = restored_landed_order.unique_coinbase_profit;
             if !realized_value.is_positive() {
-                warn!(identity = ?address, order = ?id, realized_value = format_ether(realized_value), "Order unique coinbase profit is not positive");
+                info!(identity = ?address, order = ?id, realized_value = format_ether(realized_value), "Order unique coinbase profit is not positive");
                 continue;
             }
             let realized_value = realized_value.into_sign_and_abs().1;
@@ -831,7 +831,7 @@ fn apply_redistribution_formula(
             .identity_exclusion(address)
             .block_value_delta;
         if !block_value_delta.is_positive() {
-            warn!(identity = ?address, block_value_delta = format_ether(block_value_delta), "Identity block value delta is not positive");
+            info!(identity = ?address, block_value_delta = format_ether(block_value_delta), "Identity block value delta is not positive");
             continue;
         }
         let block_value_delta = block_value_delta.into_sign_and_abs().1;
