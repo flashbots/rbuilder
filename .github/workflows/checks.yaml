@@ -87,7 +87,7 @@ jobs:
       - name: Download builder playground
         uses: flashbots/flashbots-toolchain@v0.1
         with:
-          builder-playground: latest
+          builder-playground: v1.0.3
 
       # https://github.com/swatinem/rust-cache
       - name: Run Swatinem/rust-cache@v2
@@ -181,7 +181,7 @@ jobs:
 
       - name: Build flashblocks rbuilder
         run: cargo build -p op-rbuilder --bin op-rbuilder --features flashblocks
-      
+
       - name: Run flashblocks builder integration tests
         run: cargo test --package op-rbuilder --lib --features integration,flashblocks -- integration::integration_test::tests
 
