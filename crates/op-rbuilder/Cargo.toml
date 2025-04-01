@@ -41,7 +41,7 @@ reth-transaction-pool.workspace = true
 reth-testing-utils.workspace = true
 reth-optimism-forks.workspace = true
 
-alloy-primitives.workspace = true
+alloy-primitives= { workspace = true, features = ["rlp"]}
 alloy-consensus.workspace = true
 alloy-eips.workspace = true
 alloy-rpc-types-beacon.workspace = true
@@ -53,6 +53,7 @@ alloy-transport.workspace = true
 alloy-network.workspace = true
 alloy-provider.workspace = true
 alloy-serde.workspace = true
+alloy-evm.workspace = true
 
 # op
 alloy-op-evm.workspace = true
@@ -89,7 +90,8 @@ rand = "0.8.5"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 
 # `flashblocks` branch
-rollup-boost = { git = "http://github.com/flashbots/rollup-boost", rev = "6b94e1037f41e0817f2bcb1f1ca5013a5359616a" }
+# TODO: replce back to flashbots once https://github.com/flashbots/rollup-boost/pull/162 is merged
+rollup-boost = { git = "http://github.com/SozinM/rollup-boost", rev = "e307d4922c7a5aaf59c44503c7af73c91bd3c9a6" }
 
 [target.'cfg(unix)'.dependencies]
 tikv-jemallocator = { version = "0.6", optional = true }
@@ -122,6 +124,7 @@ flashblocks = []
 name = "op-rbuilder"
 path = "src/main.rs"
 
-[[bin]]
-name = "tester"
-path = "src/tester/main.rs"
+# TODO: disabled because relies on this https://github.com/flashbots/rollup-boost/pull/98, we need this merged
+#[[bin]]
+#name = "tester"
+#path = "src/tester/main.rs"
