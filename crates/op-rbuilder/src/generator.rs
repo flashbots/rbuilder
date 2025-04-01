@@ -157,12 +157,13 @@ where
         // that cancels existing jobs when receiving new block building requests.
         //
         // When batcher's max channel duration is big enough (e.g. 10m), the
-        // batcher would be pushing its updates at specified intervals.  This
-        // causes the sequencer to send an avalanche of FCUs (and
-        // getBlockByNumber) that push safe head step-by-step.  As a consequence
-        // it can happen that the time b/w FCU and ensuing getPayload would be
-        // on the scale of ~2.5s.  This means that we should "remember" the
-        // payloads long enough to accommodate that corner-case.
+        // sequencer would send an avalanche of FCUs/getBlockByNumber on
+        // each batcher update (with 10m channel it's ~800 FCUs at once).
+        // At such moment it can happen that the time b/w FCU and ensuing
+        // getPayload would be on the scale of ~2.5s. Therefore we should
+        // "remember" the payloads long enough to accommodate this corner-case
+        // (without it we are losing blocks). Postponing the deadline for 5s
+        // (not just 0.5s) because of that.
         let deadline = job_deadline(attributes.timestamp()) + Duration::from_millis(5000);
 
         let deadline = Box::pin(tokio::time::sleep(deadline));
