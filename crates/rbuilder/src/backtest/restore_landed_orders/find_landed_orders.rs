@@ -166,7 +166,7 @@ fn multiply_inner_refunds(a: usize, b: usize) -> usize {
 }
 
 /// ExecutedBlockTx is data from the tx executed in the block
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ExecutedBlockTx {
     pub hash: B256,
     pub coinbase_profit: I256,
@@ -334,11 +334,18 @@ fn find_order_chunk(
     block_data: &ExecutedBlockData,
     chunk: &OrderChunk,
 ) -> Result<FoundChunkData, OrderIdentificationError> {
-    let mut txs = Vec::new();
-    let mut last_tx_idx = 0;
-
-    for (tx, revert) in &chunk.txs {
-        let (idx, tx_data) = if let Some((idx, tx_data)) = block_data.find_tx(*tx) {
+    // first we do a pass over chunk txs and try to exclude minimal subset so that resulting txs are in order
+    #[derive(Debug)]
+    struct FoundTxData {
+        block_idx: usize,
+        chunk_idx: usize,
+        tx: B256,
+        revert: TxRevertBehavior,
+        executed_block_tx: ExecutedBlockTx,
+    }
+    let mut found_txs = Vec::new();
+    for (chunk_idx, (tx, revert)) in chunk.txs.iter().enumerate() {
+        let (block_idx, tx_data) = if let Some((idx, tx_data)) = block_data.find_tx(*tx) {
             (idx, tx_data)
         } else {
             // tx was not found in the block
@@ -349,20 +356,38 @@ fn find_order_chunk(
                 continue;
             }
         };
-
-        if !tx_data.success && !revert.can_revert() {
-            return Err(OrderIdentificationError::TxReverted(*tx));
-        }
-        if idx < last_tx_idx {
-            if revert != &TxRevertBehavior::AllowedExcluded {
-                return Err(OrderIdentificationError::TxIsIncorrectPosition);
-            } else {
-                continue;
-            }
-        }
-        last_tx_idx = idx;
-        txs.push(*tx);
+        found_txs.push(FoundTxData {
+            block_idx,
+            chunk_idx,
+            tx: *tx,
+            revert: *revert,
+            executed_block_tx: tx_data.clone(),
+        });
     }
+    found_txs.sort_by_key(|txs| txs.block_idx);
+    let mut last_head_when_chunk_is_in_order = 0usize;
+    for i in 0..found_txs.len() {
+        if found_txs[i..].is_sorted_by_key(|d| d.chunk_idx) {
+            break;
+        }
+        last_head_when_chunk_is_in_order += 1;
+    }
+
+    for out_of_order_idx in 0..last_head_when_chunk_is_in_order {
+        let order_to_drop = &found_txs[out_of_order_idx];
+        if !order_to_drop.revert.can_revert() {
+            return Err(OrderIdentificationError::TxIsIncorrectPosition);
+        }
+    }
+    let found_txs = &found_txs[last_head_when_chunk_is_in_order..];
+
+    for found_tx in found_txs {
+        if !found_tx.executed_block_tx.success && !found_tx.revert.can_revert() {
+            return Err(OrderIdentificationError::TxReverted(found_tx.tx));
+        }
+    }
+    let txs = found_txs.iter().map(|d| d.tx).collect();
+    let last_tx_idx = found_txs.last().map(|d| d.block_idx).unwrap_or_default();
 
     Ok(FoundChunkData { txs, last_tx_idx })
 }
@@ -898,6 +923,74 @@ mod tests {
             None,
             vec![],
         )];
+        assert_result(executed_block, orders, results);
+    }
+
+    #[test]
+    fn test_backruns_recorvery_with_out_of_order_txs() {
+        // bundle_i column indicate index of tx inside bundle and allow status
+        //
+        // bundle_0                         bundle_1_idx              hash
+        // ----------------------------------------------------------
+        // bundle_0:1:allow_included        bundle_1:0:not_allowed    0x1
+        // bundle_0:0:allow_included        bundle_1:1:not_allowed    0x2
+        //                                  bundle_1:2:not_allowed    0x3
+        // bundle_0:2:allow_included                                  0x4
+        // bundle_0:3:not_allowed:backrun                             0x5
+        let executed_block = vec![
+            ExecutedBlockTx::new(hash(0x1), i256(0x1), true),
+            ExecutedBlockTx::new(hash(0x2), i256(0x2), true),
+            ExecutedBlockTx::new(hash(0x3), i256(0x3), true),
+            ExecutedBlockTx::new(hash(0x4), i256(0x4), true),
+            ExecutedBlockTx::new(hash(0x5), i256(10), true),
+        ];
+
+        let orders = vec![
+            SimplifiedOrder::new(
+                order_id(0xb0),
+                vec![
+                    OrderChunk::new(
+                        vec![
+                            (hash(0x2), TxRevertBehavior::AllowedIncluded),
+                            (hash(0x1), TxRevertBehavior::AllowedIncluded),
+                            (hash(0x4), TxRevertBehavior::AllowedIncluded),
+                        ],
+                        false,
+                        0,
+                    ),
+                    OrderChunk::new(vec![(hash(0x5), TxRevertBehavior::NotAllowed)], false, 50),
+                ],
+            ),
+            SimplifiedOrder::new(
+                order_id(0xb1),
+                vec![OrderChunk::new(
+                    vec![
+                        (hash(0x1), TxRevertBehavior::NotAllowed),
+                        (hash(0x2), TxRevertBehavior::NotAllowed),
+                        (hash(0x3), TxRevertBehavior::NotAllowed),
+                    ],
+                    false,
+                    0,
+                )],
+            ),
+        ];
+
+        let results = vec![
+            LandedOrderData::new(
+                order_id(0xb0),
+                i256(0x2 + 0x4 + 10 / 2),
+                i256(0x4 + 10 / 2),
+                None,
+                vec![((order_id(0xb1), hash(0x2)))],
+            ),
+            LandedOrderData::new(
+                order_id(0xb1),
+                i256(0x1 + 0x2 + 0x3),
+                i256(0x1 + 0x3),
+                None,
+                vec![((order_id(0xb0), hash(0x2)))],
+            ),
+        ];
         assert_result(executed_block, orders, results);
     }
 }
