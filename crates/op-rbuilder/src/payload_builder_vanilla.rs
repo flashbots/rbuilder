@@ -49,6 +49,7 @@ use reth_optimism_payload_builder::{
 use reth_optimism_primitives::{
     OpPrimitives, OpReceipt, OpTransactionSigned, ADDRESS_L2_TO_L1_MESSAGE_PASSER,
 };
+use reth_optimism_txpool::interop::MaybeInteropTransaction;
 use reth_optimism_txpool::OpPooledTx;
 use reth_payload_builder::PayloadBuilderService;
 use reth_payload_builder_primitives::PayloadBuilderError;
@@ -114,7 +115,7 @@ impl<Node, Pool> PayloadBuilderBuilder<Node, Pool> for CustomOpPayloadBuilder
 where
     Node: FullNodeTypes<
         Types: NodeTypesWithEngine<
-            Engine = OpEngineTypes,
+            Payload = OpEngineTypes,
             ChainSpec = OpChainSpec,
             Primitives = OpPrimitives,
         >,
@@ -144,7 +145,7 @@ impl<Node, Pool> PayloadServiceBuilder<Node, Pool> for CustomOpPayloadBuilder
 where
     Node: FullNodeTypes<
         Types: NodeTypesWithEngine<
-            Engine = OpEngineTypes,
+            Payload = OpEngineTypes,
             ChainSpec = OpChainSpec,
             Primitives = OpPrimitives,
         >,
@@ -158,7 +159,7 @@ where
         self,
         ctx: &BuilderContext<Node>,
         pool: Pool,
-    ) -> eyre::Result<PayloadBuilderHandle<<Node::Types as NodeTypesWithEngine>::Engine>> {
+    ) -> eyre::Result<PayloadBuilderHandle<<Node::Types as NodeTypesWithEngine>::Payload>> {
         tracing::info!("Spawning a custom payload builder");
         let payload_builder = self.build_payload_builder(ctx, pool).await?;
         let payload_job_config = BasicPayloadJobGeneratorConfig::default();
@@ -264,7 +265,9 @@ impl<Pool, Client> OpPayloadBuilderVanilla<Pool, Client> {
 impl<Pool, Client, Txs> PayloadBuilder for OpPayloadBuilderVanilla<Pool, Client, Txs>
 where
     Client: StateProviderFactory + ChainSpecProvider<ChainSpec: EthChainSpec + OpHardforks> + Clone,
-    Pool: TransactionPool<Transaction: PoolTransaction<Consensus = OpTransactionSigned>>,
+    Pool: TransactionPool<
+        Transaction: PoolTransaction<Consensus = OpTransactionSigned> + MaybeInteropTransaction,
+    >,
     Txs: OpPayloadTransactions<Pool::Transaction>,
 {
     type Attributes = OpPayloadBuilderAttributes<OpTransactionSigned>;
@@ -319,7 +322,9 @@ where
 
 impl<Pool, Client, T> OpPayloadBuilderVanilla<Pool, Client, T>
 where
-    Pool: TransactionPool<Transaction: PoolTransaction<Consensus = OpTransactionSigned>>,
+    Pool: TransactionPool<
+        Transaction: PoolTransaction<Consensus = OpTransactionSigned> + MaybeInteropTransaction,
+    >,
     Client: StateProviderFactory + ChainSpecProvider<ChainSpec: EthChainSpec + OpHardforks>,
 {
     /// Constructs an Optimism payload from the transactions sent via the
@@ -337,7 +342,9 @@ where
         remove_reverted: impl FnOnce(Vec<TxHash>),
     ) -> Result<BuildOutcome<OpBuiltPayload>, PayloadBuilderError>
     where
-        Txs: PayloadTransactions<Transaction: PoolTransaction<Consensus = OpTransactionSigned>>,
+        Txs: PayloadTransactions<
+            Transaction: PoolTransaction<Consensus = OpTransactionSigned> + MaybeInteropTransaction,
+        >,
     {
         let BuildArguments {
             mut cached_reads,
@@ -454,7 +461,9 @@ impl<Txs> OpBuilder<'_, Txs> {
     ) -> Result<BuildOutcomeKind<ExecutedPayload<N>>, PayloadBuilderError>
     where
         N: OpPayloadPrimitives<_TX = OpTransactionSigned>,
-        Txs: PayloadTransactions<Transaction: PoolTransaction<Consensus = N::SignedTx>>,
+        Txs: PayloadTransactions<
+            Transaction: PoolTransaction<Consensus = N::SignedTx> + MaybeInteropTransaction,
+        >,
         ChainSpec: EthChainSpec + OpHardforks,
         DB: Database<Error = ProviderError> + AsRef<P>,
         P: StorageRootProvider,
@@ -576,7 +585,9 @@ impl<Txs> OpBuilder<'_, Txs> {
     ) -> Result<BuildOutcomeKind<OpBuiltPayload>, PayloadBuilderError>
     where
         ChainSpec: EthChainSpec + OpHardforks,
-        Txs: PayloadTransactions<Transaction: PoolTransaction<Consensus = OpTransactionSigned>>,
+        Txs: PayloadTransactions<
+            Transaction: PoolTransaction<Consensus = OpTransactionSigned> + MaybeInteropTransaction,
+        >,
         DB: Database<Error = ProviderError> + AsRef<P>,
         P: StateRootProvider + HashedPostStateProvider + StorageRootProvider,
     {
@@ -734,7 +745,7 @@ pub trait OpPayloadTransactions<Transaction>: Clone + Send + Sync + Unpin + 'sta
     );
 }
 
-impl<T: PoolTransaction> OpPayloadTransactions<T> for () {
+impl<T: PoolTransaction + MaybeInteropTransaction> OpPayloadTransactions<T> for () {
     fn best_transactions<Pool: TransactionPool<Transaction = T>>(
         &self,
         pool: Pool,
@@ -1034,7 +1045,7 @@ where
         info: &mut ExecutionInfo<N>,
         db: &mut State<DB>,
         mut best_txs: impl PayloadTransactions<
-            Transaction: PoolTransaction<Consensus = OpTransactionSigned>,
+            Transaction: PoolTransaction<Consensus = OpTransactionSigned> + MaybeInteropTransaction,
         >,
         block_gas_limit: u64,
         block_da_limit: Option<u64>,
@@ -1052,6 +1063,7 @@ where
         let mut evm = self.evm_config.evm_with_env(&mut *db, self.evm_env.clone());
 
         while let Some(tx) = best_txs.next(()) {
+            let interop = tx.interop();
             let tx = tx.into_consensus();
             num_txs_considered += 1;
             // ensure we still have capacity for this transaction
@@ -1067,6 +1079,15 @@ where
             if tx.is_eip4844() || tx.is_deposit() {
                 best_txs.mark_invalid(tx.signer(), tx.nonce());
                 continue;
+            }
+
+            // We skip invalid cross chain txs, they would be removed on the next block update in
+            // the maintenance job
+            if let Some(interop) = interop {
+                if !interop.is_valid(self.config.attributes.timestamp()) {
+                    best_txs.mark_invalid(tx.signer(), tx.nonce());
+                    continue;
+                }
             }
 
             // check if the job was cancelled, if so we can exit early
