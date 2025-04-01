@@ -642,7 +642,7 @@ fn extract_inner_bundle(
     if depth > 5 {
         return Err(RawShareBundleConvertError::BundleTooDeep);
     }
-    if raw.version != "v0.1" && raw.version != "version-1" {
+    if raw.version != "v0.1" && raw.version != "version-1" && raw.version != "beta-1" {
         return Err(RawShareBundleConvertError::IncorrectVersion);
     }
 
