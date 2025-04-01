@@ -30,7 +30,7 @@ use reth_evm::{
     Database, Evm, EvmError, InvalidTxError,
 };
 use reth_execution_types::ExecutionOutcome;
-use reth_node_api::{NodePrimitives, NodeTypesWithEngine, TxTy};
+use reth_node_api::{NodePrimitives, NodeTypes, TxTy};
 use reth_optimism_chainspec::OpChainSpec;
 use reth_optimism_consensus::{calculate_receipt_root_no_memo_optimism, isthmus};
 use reth_optimism_evm::{OpEvmConfig, OpNextBlockEnvAttributes};
@@ -41,6 +41,7 @@ use reth_optimism_payload_builder::{
     payload::{OpBuiltPayload, OpPayloadBuilderAttributes},
 };
 use reth_optimism_primitives::{OpPrimitives, OpReceipt, OpTransactionSigned};
+use reth_optimism_txpool::interop::{is_valid_interop, MaybeInteropTransaction};
 use reth_optimism_txpool::OpPooledTx;
 use reth_payload_builder::PayloadBuilderService;
 use reth_payload_builder_primitives::PayloadBuilderError;
@@ -119,8 +120,8 @@ impl CustomOpPayloadBuilder {
 impl<Node, Pool> PayloadBuilderBuilder<Node, Pool> for CustomOpPayloadBuilder
 where
     Node: FullNodeTypes<
-        Types: NodeTypesWithEngine<
-            Engine = OpEngineTypes,
+        Types: NodeTypes<
+            Payload = OpEngineTypes,
             ChainSpec = OpChainSpec,
             Primitives = OpPrimitives,
         >,
@@ -150,8 +151,8 @@ where
 impl<Node, Pool> PayloadServiceBuilder<Node, Pool> for CustomOpPayloadBuilder
 where
     Node: FullNodeTypes<
-        Types: NodeTypesWithEngine<
-            Engine = OpEngineTypes,
+        Types: NodeTypes<
+            Payload = OpEngineTypes,
             ChainSpec = OpChainSpec,
             Primitives = OpPrimitives,
         >,
@@ -165,7 +166,7 @@ where
         self,
         ctx: &BuilderContext<Node>,
         pool: Pool,
-    ) -> eyre::Result<PayloadBuilderHandle<<Node::Types as NodeTypesWithEngine>::Engine>> {
+    ) -> eyre::Result<PayloadBuilderHandle<<Node::Types as NodeTypes>::Payload>> {
         tracing::info!("Spawning a custom payload builder");
         let payload_builder = self.build_payload_builder(ctx, pool).await?;
         let payload_job_config = BasicPayloadJobGeneratorConfig::default();
@@ -315,7 +316,9 @@ impl<Pool, Client> OpPayloadBuilder<Pool, Client> {
 
 impl<Pool, Client> OpPayloadBuilder<Pool, Client>
 where
-    Pool: TransactionPool<Transaction: PoolTransaction<Consensus = OpTransactionSigned>>,
+    Pool: TransactionPool<
+        Transaction: PoolTransaction<Consensus = OpTransactionSigned> + MaybeInteropTransaction,
+    >,
     Client: StateProviderFactory + ChainSpecProvider<ChainSpec: EthChainSpec + OpHardforks>,
 {
     /// Send a message to be published
@@ -525,7 +528,9 @@ where
 impl<Pool, Client> PayloadBuilder for OpPayloadBuilder<Pool, Client>
 where
     Client: StateProviderFactory + ChainSpecProvider<ChainSpec: EthChainSpec + OpHardforks> + Clone,
-    Pool: TransactionPool<Transaction: PoolTransaction<Consensus = OpTransactionSigned>>,
+    Pool: TransactionPool<
+        Transaction: PoolTransaction<Consensus = OpTransactionSigned> + MaybeInteropTransaction,
+    >,
 {
     type Attributes = OpPayloadBuilderAttributes<OpTransactionSigned>;
     type BuiltPayload = OpBuiltPayload;
@@ -1038,7 +1043,7 @@ where
         info: &mut ExecutionInfo<OpPrimitives>,
         db: &mut State<DB>,
         mut best_txs: impl PayloadTransactions<
-            Transaction: PoolTransaction<Consensus = OpTransactionSigned>,
+            Transaction: PoolTransaction<Consensus = OpTransactionSigned> + MaybeInteropTransaction,
         >,
         batch_gas_limit: u64,
     ) -> Result<Option<()>, PayloadBuilderError>
@@ -1050,6 +1055,7 @@ where
         let mut evm = self.evm_config.evm_with_env(&mut *db, self.evm_env.clone());
 
         while let Some(tx) = best_txs.next(()) {
+            let interop = tx.interop_deadline();
             let tx = tx.into_consensus();
             // check in info if the txn has been executed already
             if info.executed_transactions.contains(&tx) {
@@ -1070,6 +1076,15 @@ where
                 println!("B");
                 best_txs.mark_invalid(tx.signer(), tx.nonce());
                 continue;
+            }
+
+            // We skip invalid cross chain txs, they would be removed on the next block update in
+            // the maintenance job
+            if let Some(timeout) = interop {
+                if !is_valid_interop(timeout, self.config.attributes.timestamp()) {
+                    best_txs.mark_invalid(tx.signer(), tx.nonce());
+                    continue;
+                }
             }
 
             // check if the job was cancelled, if so we can exit early

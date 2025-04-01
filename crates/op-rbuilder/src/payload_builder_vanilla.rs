@@ -8,7 +8,7 @@ use alloy_consensus::{
     constants::EMPTY_WITHDRAWALS, transaction::Recovered, Eip658Value, Header, Transaction,
     TxEip1559, Typed2718, EMPTY_OMMER_ROOT_HASH,
 };
-use alloy_eips::merge::BEACON_NONCE;
+use alloy_eips::{eip7685::EMPTY_REQUESTS_HASH, merge::BEACON_NONCE};
 use alloy_op_evm::block::receipt_builder::OpReceiptBuilder;
 use alloy_primitives::{private::alloy_rlp::Encodable, Address, Bytes, TxHash, TxKind, U256};
 use alloy_rpc_types_engine::PayloadId;
@@ -34,7 +34,7 @@ use reth_evm::{
     Database, Evm, EvmError, InvalidTxError,
 };
 use reth_execution_types::ExecutionOutcome;
-use reth_node_api::{NodePrimitives, NodeTypesWithEngine, TxTy};
+use reth_node_api::{NodePrimitives, NodeTypes, TxTy};
 use reth_optimism_chainspec::OpChainSpec;
 use reth_optimism_consensus::calculate_receipt_root_no_memo_optimism;
 use reth_optimism_evm::{OpEvmConfig, OpNextBlockEnvAttributes};
@@ -49,6 +49,7 @@ use reth_optimism_payload_builder::{
 use reth_optimism_primitives::{
     OpPrimitives, OpReceipt, OpTransactionSigned, ADDRESS_L2_TO_L1_MESSAGE_PASSER,
 };
+use reth_optimism_txpool::interop::{is_valid_interop, MaybeInteropTransaction};
 use reth_optimism_txpool::OpPooledTx;
 use reth_payload_builder::PayloadBuilderService;
 use reth_payload_builder_primitives::PayloadBuilderError;
@@ -70,6 +71,9 @@ use revm::{
 use std::{sync::Arc, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::*;
+
+// From https://eips.ethereum.org/EIPS/eip-7623
+const TOTAL_COST_FLOOR_PER_TOKEN: u64 = 10;
 
 #[derive(Debug, Clone, Default)]
 #[non_exhaustive]
@@ -113,8 +117,8 @@ impl CustomOpPayloadBuilder {
 impl<Node, Pool> PayloadBuilderBuilder<Node, Pool> for CustomOpPayloadBuilder
 where
     Node: FullNodeTypes<
-        Types: NodeTypesWithEngine<
-            Engine = OpEngineTypes,
+        Types: NodeTypes<
+            Payload = OpEngineTypes,
             ChainSpec = OpChainSpec,
             Primitives = OpPrimitives,
         >,
@@ -143,8 +147,8 @@ where
 impl<Node, Pool> PayloadServiceBuilder<Node, Pool> for CustomOpPayloadBuilder
 where
     Node: FullNodeTypes<
-        Types: NodeTypesWithEngine<
-            Engine = OpEngineTypes,
+        Types: NodeTypes<
+            Payload = OpEngineTypes,
             ChainSpec = OpChainSpec,
             Primitives = OpPrimitives,
         >,
@@ -158,7 +162,7 @@ where
         self,
         ctx: &BuilderContext<Node>,
         pool: Pool,
-    ) -> eyre::Result<PayloadBuilderHandle<<Node::Types as NodeTypesWithEngine>::Engine>> {
+    ) -> eyre::Result<PayloadBuilderHandle<<Node::Types as NodeTypes>::Payload>> {
         tracing::info!("Spawning a custom payload builder");
         let payload_builder = self.build_payload_builder(ctx, pool).await?;
         let payload_job_config = BasicPayloadJobGeneratorConfig::default();
@@ -264,7 +268,9 @@ impl<Pool, Client> OpPayloadBuilderVanilla<Pool, Client> {
 impl<Pool, Client, Txs> PayloadBuilder for OpPayloadBuilderVanilla<Pool, Client, Txs>
 where
     Client: StateProviderFactory + ChainSpecProvider<ChainSpec: EthChainSpec + OpHardforks> + Clone,
-    Pool: TransactionPool<Transaction: PoolTransaction<Consensus = OpTransactionSigned>>,
+    Pool: TransactionPool<
+        Transaction: PoolTransaction<Consensus = OpTransactionSigned> + MaybeInteropTransaction,
+    >,
     Txs: OpPayloadTransactions<Pool::Transaction>,
 {
     type Attributes = OpPayloadBuilderAttributes<OpTransactionSigned>;
@@ -319,7 +325,9 @@ where
 
 impl<Pool, Client, T> OpPayloadBuilderVanilla<Pool, Client, T>
 where
-    Pool: TransactionPool<Transaction: PoolTransaction<Consensus = OpTransactionSigned>>,
+    Pool: TransactionPool<
+        Transaction: PoolTransaction<Consensus = OpTransactionSigned> + MaybeInteropTransaction,
+    >,
     Client: StateProviderFactory + ChainSpecProvider<ChainSpec: EthChainSpec + OpHardforks>,
 {
     /// Constructs an Optimism payload from the transactions sent via the
@@ -337,7 +345,9 @@ where
         remove_reverted: impl FnOnce(Vec<TxHash>),
     ) -> Result<BuildOutcome<OpBuiltPayload>, PayloadBuilderError>
     where
-        Txs: PayloadTransactions<Transaction: PoolTransaction<Consensus = OpTransactionSigned>>,
+        Txs: PayloadTransactions<
+            Transaction: PoolTransaction<Consensus = OpTransactionSigned> + MaybeInteropTransaction,
+        >,
     {
         let BuildArguments {
             mut cached_reads,
@@ -454,7 +464,9 @@ impl<Txs> OpBuilder<'_, Txs> {
     ) -> Result<BuildOutcomeKind<ExecutedPayload<N>>, PayloadBuilderError>
     where
         N: OpPayloadPrimitives<_TX = OpTransactionSigned>,
-        Txs: PayloadTransactions<Transaction: PoolTransaction<Consensus = N::SignedTx>>,
+        Txs: PayloadTransactions<
+            Transaction: PoolTransaction<Consensus = N::SignedTx> + MaybeInteropTransaction,
+        >,
         ChainSpec: EthChainSpec + OpHardforks,
         DB: Database<Error = ProviderError> + AsRef<P>,
         P: StorageRootProvider,
@@ -576,7 +588,9 @@ impl<Txs> OpBuilder<'_, Txs> {
     ) -> Result<BuildOutcomeKind<OpBuiltPayload>, PayloadBuilderError>
     where
         ChainSpec: EthChainSpec + OpHardforks,
-        Txs: PayloadTransactions<Transaction: PoolTransaction<Consensus = OpTransactionSigned>>,
+        Txs: PayloadTransactions<
+            Transaction: PoolTransaction<Consensus = OpTransactionSigned> + MaybeInteropTransaction,
+        >,
         DB: Database<Error = ProviderError> + AsRef<P>,
         P: StateRootProvider + HashedPostStateProvider + StorageRootProvider,
     {
@@ -641,6 +655,13 @@ impl<Txs> OpBuilder<'_, Txs> {
         let (excess_blob_gas, blob_gas_used) = ctx.blob_fields();
         let extra_data = ctx.extra_data()?;
 
+        // Isthmus require this param to be EMPTY_REQUESTS_HASH
+        let requests_hash = if ctx.is_isthmus_active() {
+            Some(EMPTY_REQUESTS_HASH)
+        } else {
+            None
+        };
+
         let header = Header {
             parent_hash: ctx.parent().hash(),
             ommers_hash: EMPTY_OMMER_ROOT_HASH,
@@ -662,7 +683,7 @@ impl<Txs> OpBuilder<'_, Txs> {
             parent_beacon_block_root: ctx.attributes().payload_attributes.parent_beacon_block_root,
             blob_gas_used,
             excess_blob_gas,
-            requests_hash: None,
+            requests_hash,
         };
 
         // seal the block
@@ -734,7 +755,7 @@ pub trait OpPayloadTransactions<Transaction>: Clone + Send + Sync + Unpin + 'sta
     );
 }
 
-impl<T: PoolTransaction> OpPayloadTransactions<T> for () {
+impl<T: PoolTransaction + MaybeInteropTransaction> OpPayloadTransactions<T> for () {
     fn best_transactions<Pool: TransactionPool<Transaction = T>>(
         &self,
         pool: Pool,
@@ -1034,7 +1055,7 @@ where
         info: &mut ExecutionInfo<N>,
         db: &mut State<DB>,
         mut best_txs: impl PayloadTransactions<
-            Transaction: PoolTransaction<Consensus = OpTransactionSigned>,
+            Transaction: PoolTransaction<Consensus = OpTransactionSigned> + MaybeInteropTransaction,
         >,
         block_gas_limit: u64,
         block_da_limit: Option<u64>,
@@ -1052,6 +1073,7 @@ where
         let mut evm = self.evm_config.evm_with_env(&mut *db, self.evm_env.clone());
 
         while let Some(tx) = best_txs.next(()) {
+            let interop = tx.interop_deadline();
             let tx = tx.into_consensus();
             num_txs_considered += 1;
             // ensure we still have capacity for this transaction
@@ -1067,6 +1089,15 @@ where
             if tx.is_eip4844() || tx.is_deposit() {
                 best_txs.mark_invalid(tx.signer(), tx.nonce());
                 continue;
+            }
+
+            // We skip invalid cross chain txs, they would be removed on the next block update in
+            // the maintenance job
+            if let Some(timeout) = interop {
+                if !is_valid_interop(timeout, self.config.attributes.timestamp()) {
+                    best_txs.mark_invalid(tx.signer(), tx.nonce());
+                    continue;
+                }
             }
 
             // check if the job was cancelled, if so we can exit early
@@ -1291,6 +1322,9 @@ fn estimate_gas_for_builder_tx(input: Vec<u8>) -> u64 {
     // Calculate gas cost (4 gas per zero byte, 16 gas per non-zero byte)
     let zero_cost = zero_bytes * 4;
     let nonzero_cost = nonzero_bytes * 16;
+    // Tx gas should be not less than floor gas https://eips.ethereum.org/EIPS/eip-7623
+    let tokens_in_calldata = zero_bytes + nonzero_bytes * 4;
+    let floor_gas = 21_000 + tokens_in_calldata * TOTAL_COST_FLOOR_PER_TOKEN;
 
-    zero_cost + nonzero_cost + 21_000
+    std::cmp::max(zero_cost + nonzero_cost + 21_000, floor_gas)
 }
