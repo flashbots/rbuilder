@@ -1,25 +1,24 @@
 use crate::{
     executor::OpRbuilderEvmConfig,
-    generator::{BlockPayloadJobGenerator, BuildArguments, PayloadBuilder, PayloadBuilderBuilder},
+    generator::{
+        BasicPayloadJobGeneratorConfig, BlockPayloadJobGenerator, BuildArguments, PayloadBuilder,
+        PayloadBuilderBuilder,
+    },
     metrics::OpRBuilderMetrics,
-    primitives::{reth::ExecutionInfo, supervisor::SupervisorValidator},
+    primitives::reth::ExecutionInfo,
     tx_signer::OpSigner,
 };
 use alloy_consensus::transaction::Recovered;
 use alloy_consensus::{Header, Transaction, Typed2718};
 use alloy_primitives::private::alloy_rlp::Encodable;
-use alloy_primitives::{Address, Bytes, TxHash, TxKind, B256, U256};
+use alloy_primitives::{Address, Bytes, TxHash, TxKind, U256};
 use alloy_rpc_types_engine::PayloadId;
 use alloy_rpc_types_eth::TransactionRequest;
-use jsonrpsee::http_client::HttpClientBuilder;
-use kona_interop::{ExecutingDescriptor, SafetyLevel};
-use kona_rpc::{InteropTxValidator, InteropTxValidatorError};
 use reth::builder::components::PayloadServiceBuilder;
 use reth::core::primitives::InMemorySize;
 use reth::payload::PayloadBuilderHandle;
 use reth_basic_payload_builder::{
-    is_better_payload, BasicPayloadJobGeneratorConfig, BuildOutcome, BuildOutcomeKind,
-    PayloadConfig,
+    is_better_payload, BuildOutcome, BuildOutcomeKind, PayloadConfig,
 };
 use reth_chain_state::{ExecutedBlock, ExecutedBlockWithTrieUpdates};
 use reth_chainspec::{ChainSpecProvider, EthChainSpec};
@@ -54,14 +53,13 @@ use reth_primitives::{BlockBody, SealedHeader};
 use reth_primitives_traits::{SignedTransaction, TxTy as PrimitivesTxTy};
 use reth_provider::{CanonStateSubscriptions, StateProvider};
 use reth_provider::{ProviderError, StateProviderFactory};
-use reth_revm::{cancelled::CancelOnDrop, database::StateProviderDatabase, State};
+use reth_revm::{cancelled::ManualCancel, database::StateProviderDatabase, State};
 use reth_transaction_pool::BestTransactionsAttributes;
 use reth_transaction_pool::PoolTransaction;
 use reth_transaction_pool::TransactionPool;
 use revm::context::{Block, BlockEnv};
 use std::{sync::Arc, time::Instant};
-use tracing::{error, info, trace, warn};
-use url::Url;
+use tracing::{info, trace, warn};
 
 #[derive(Debug, Clone, Default)]
 pub struct CustomOpPayloadBuilder<Txs = ()> {
@@ -73,10 +71,6 @@ pub struct CustomOpPayloadBuilder<Txs = ()> {
     pub da_config: OpDAConfig,
     /// The builder's signer key to use for an end of block tx
     pub builder_signer: Option<OpSigner>,
-    /// The URL of the supervisor for validation
-    pub supervisor_url: Option<Url>,
-    /// The safety level for the supervisor
-    pub supervisor_safety_level: Option<String>,
 }
 
 impl CustomOpPayloadBuilder {
@@ -90,8 +84,6 @@ impl CustomOpPayloadBuilder {
             best_transactions: (),
             da_config: OpDAConfig::default(),
             builder_signer,
-            supervisor_url,
-            supervisor_safety_level,
         }
     }
 
@@ -639,7 +631,7 @@ pub struct OpPayloadBuilderCtx<Evm: ConfigureEvm, ChainSpec> {
     /// How to build the payload.
     pub config: PayloadConfig<OpPayloadBuilderAttributes<PrimitivesTxTy<Evm::Primitives>>>,
     /// Marker to check whether the job has been cancelled.
-    pub cancel: CancelOnDrop,
+    pub cancel: ManualCancel,
     /// The currently best payload.
     pub best_payload: Option<OpBuiltPayload<Evm::Primitives>>,
     /// The builder signer
@@ -765,18 +757,6 @@ where
                 ));
             }
 
-            // Check transactions against supervisor if it's cross chain
-            if let (false, _) = self.is_cross_tx_valid(
-                sequencer_tx.value(),
-                self.supervisor_client.as_ref(),
-                self.supervisor_safety_level,
-                self.config.attributes.timestamp(),
-                &self.metrics,
-            ) {
-                // We skip this transaction because it's not possible to verify it's validity
-                continue;
-            }
-
             // Convert the transaction to a [RecoveredTx]. This is
             // purely for the purposes of utilizing the `evm_config.tx_env`` function.
             // Deposit transactions do not have signatures, so if the tx is a deposit, this
@@ -847,24 +827,6 @@ where
             // A sequencer's block should never contain blob or deposit transactions from the pool.
             if tx.is_eip4844() || tx.is_deposit() {
                 best_txs.mark_invalid(tx.signer(), tx.nonce());
-                continue;
-            }
-
-            // Check transactions against supervisor if it's cross chain
-            if let (false, is_recoverable) = self.is_cross_tx_valid(
-                tx.inner(),
-                self.supervisor_client.as_ref(),
-                self.supervisor_safety_level,
-                self.config.attributes.timestamp(),
-                &self.metrics,
-            ) {
-                // We mark the tx invalid to ensure that it won't clog out pipeline
-                // in case there is bug in supervisor.
-                best_txs.mark_invalid(tx.signer(), tx.nonce());
-                if !is_recoverable {
-                    // For some subset of errors we remove transaction from txpool
-                    // info.invalid_tx_hashes.insert(*tx.tx_hash());
-                }
                 continue;
             }
 

@@ -357,9 +357,6 @@ where
         Ok(())
     }
 
-    // Currently we only need two timings config, depending on whether rbuilder is being
-    // used in the optimism context. If further customisation is required in the future
-    // this should be improved on.
     fn timings(&self) -> TimingsConfig {
         TimingsConfig::ethereum()
     }

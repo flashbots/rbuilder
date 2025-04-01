@@ -8,6 +8,7 @@ use reth_optimism_node::OpNode;
 
 #[cfg(feature = "flashblocks")]
 use payload_builder::CustomOpPayloadBuilder;
+#[cfg(not(feature = "flashblocks"))]
 use payload_builder_vanilla::CustomOpPayloadBuilder;
 use reth_transaction_pool::TransactionPool;
 
@@ -22,7 +23,6 @@ mod monitor_tx_pool;
 mod monitoring;
 #[cfg(feature = "flashblocks")]
 pub mod payload_builder;
-#[cfg(not(feature = "flashblocks"))]
 mod payload_builder_vanilla;
 mod primitives;
 #[cfg(test)]

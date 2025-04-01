@@ -1,7 +1,9 @@
 use crate::{
-    generator::{BlockCell, BlockPayloadJobGenerator, BuildArguments, PayloadBuilder},
-    primitives::reth::ExecutionInfo,
-    tx_signer::Signer,
+    generator::{
+        BasicPayloadJobGeneratorConfig, BlockPayloadJobGenerator, BuildArguments, PayloadBuilder,
+    },
+    primitives::reth::ExecutedPayload,
+    tx_signer::OpSigner,
 };
 use alloy_consensus::{Eip658Value, Header, Transaction, Typed2718, EMPTY_OMMER_ROOT_HASH};
 use alloy_eips::{merge::BEACON_NONCE, Encodable2718};
@@ -20,7 +22,7 @@ use reth::{
     },
     payload::PayloadBuilderHandle,
 };
-use reth_basic_payload_builder::{BasicPayloadJobGeneratorConfig, BuildOutcome, PayloadConfig};
+use reth_basic_payload_builder::{BuildOutcome, PayloadConfig};
 use reth_chainspec::{ChainSpecProvider, EthChainSpec};
 use reth_evm::{
     env::EvmEnv, eth::receipt_builder::ReceiptBuilderCtx, execute::BlockBuilder, ConfigureEvm,
@@ -34,6 +36,7 @@ use reth_optimism_evm::{OpEvmConfig, OpNextBlockEnvAttributes};
 use reth_optimism_forks::OpHardforks;
 use reth_optimism_node::OpEngineTypes;
 use reth_optimism_payload_builder::{
+    config::OpDAConfig,
     error::OpPayloadBuilderError,
     payload::{OpBuiltPayload, OpPayloadBuilderAttributes},
 };
@@ -49,7 +52,10 @@ use reth_provider::{
     CanonStateSubscriptions, HashedPostStateProvider, ProviderError, StateProviderFactory,
     StateRootProvider, StorageRootProvider,
 };
-use reth_revm::database::StateProviderDatabase;
+use reth_revm::{
+    cancelled::{CancelOnDrop, ManualCancel},
+    database::StateProviderDatabase,
+};
 use reth_transaction_pool::{BestTransactionsAttributes, PoolTransaction, TransactionPool};
 use revm::{
     context::{result::ResultAndState, Block as _},
@@ -66,7 +72,6 @@ use tokio::{
     sync::mpsc,
 };
 use tokio_tungstenite::{accept_async, WebSocketStream};
-use tokio_util::sync::CancellationToken;
 use tracing::{debug, trace, warn};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -80,15 +85,18 @@ struct FlashblocksMetadata<N: NodePrimitives> {
 #[non_exhaustive]
 pub struct CustomOpPayloadBuilder {
     #[expect(dead_code)]
-    builder_signer: Option<Signer>,
+    builder_signer: Option<OpSigner>,
     flashblocks_ws_url: String,
     chain_block_time: u64,
     flashblock_block_time: u64,
+    /// This data availability configuration specifies constraints for the payload builder
+    /// when assembling payloads
+    da_config: OpDAConfig,
 }
 
 impl CustomOpPayloadBuilder {
     pub fn new(
-        builder_signer: Option<Signer>,
+        builder_signer: Option<OpSigner>,
         flashblocks_ws_url: String,
         chain_block_time: u64,
         flashblock_block_time: u64,
@@ -98,7 +106,14 @@ impl CustomOpPayloadBuilder {
             flashblocks_ws_url,
             chain_block_time,
             flashblock_block_time,
+            da_config: OpDAConfig::default(),
         }
+    }
+
+    /// Configure the data availability configuration for the OP payload builder.
+    pub fn with_da_config(mut self, da_config: OpDAConfig) -> Self {
+        self.da_config = da_config;
+        self
     }
 }
 
@@ -124,6 +139,7 @@ where
     ) -> eyre::Result<Self::PayloadBuilder> {
         Ok(OpPayloadBuilder::new(
             OpEvmConfig::optimism(ctx.chain_spec()),
+            self.da_config.clone(),
             pool,
             ctx.provider().clone(),
             self.flashblocks_ws_url.clone(),
@@ -154,14 +170,13 @@ where
     ) -> eyre::Result<PayloadBuilderHandle<<Node::Types as NodeTypesWithEngine>::Engine>> {
         tracing::info!("Spawning a custom payload builder");
         let payload_builder = self.build_payload_builder(ctx, pool).await?;
-        let payload_job_config = BasicPayloadJobGeneratorConfig::default();
+        let payload_job_config = BasicPayloadJobGeneratorConfig::default().max_payload_tasks(1);
 
         let payload_generator = BlockPayloadJobGenerator::with_builder(
             ctx.provider().clone(),
             ctx.task_executor().clone(),
             payload_job_config,
             payload_builder,
-            true,
         );
 
         let (payload_service, payload_builder) =
@@ -182,7 +197,7 @@ where
     Client: Clone + Send + Sync,
 {
     type Attributes = OpPayloadBuilderAttributes<OpTransactionSigned>;
-    type BuiltPayload = OpBuiltPayload;
+    type BuiltPayload = OpBuiltPayload<OpPrimitives>;
 
     fn try_build(
         &self,
@@ -207,6 +222,8 @@ where
 pub struct OpPayloadBuilder<Pool, Client> {
     /// The type responsible for creating the evm.
     pub evm_config: OpEvmConfig,
+    /// The data availability configuration for the payload builder
+    pub da_config: OpDAConfig,
     /// The transaction pool
     pub pool: Pool,
     /// Node client
@@ -223,6 +240,7 @@ impl<Pool, Client> OpPayloadBuilder<Pool, Client> {
     /// `OpPayloadBuilder` constructor.
     pub fn new(
         evm_config: OpEvmConfig,
+        da_config: OpDAConfig,
         pool: Pool,
         client: Client,
         flashblocks_ws_url: String,
@@ -240,6 +258,7 @@ impl<Pool, Client> OpPayloadBuilder<Pool, Client> {
 
         Self {
             evm_config,
+            da_config,
             pool,
             client,
             tx,
@@ -320,9 +339,13 @@ where
     fn build_payload(
         &self,
         args: BuildArguments<OpPayloadBuilderAttributes<OpTransactionSigned>, OpBuiltPayload>,
-        best_payload: BlockCell<OpBuiltPayload>,
-    ) -> Result<(), PayloadBuilderError> {
-        let BuildArguments { config, cancel, .. } = args;
+    ) -> Result<BuildOutcome<OpBuiltPayload<OpPrimitives>>, PayloadBuilderError> {
+        let BuildArguments {
+            config,
+            cancel,
+            mut cached_reads,
+            ..
+        } = args;
 
         let chain_spec = self.client.chain_spec();
         let timestamp = config.attributes.timestamp();
@@ -355,6 +378,7 @@ where
 
         let ctx = OpPayloadBuilderCtx {
             evm_config: self.evm_config.clone(),
+            da_config: self.da_config.clone(),
             chain_spec: self.client.chain_spec(),
             config,
             evm_env,
@@ -366,15 +390,14 @@ where
         let state = StateProviderDatabase::new(&state_provider);
 
         let mut db = State::builder()
-            .with_database(state)
+            .with_database(cached_reads.as_db_mut(state))
             .with_bundle_update()
             .build();
 
         // 1. execute the pre steps and seal an early block with that
         let mut info = execute_pre_steps(&mut db, &ctx)?;
-        let (payload, fb_payload, mut bundle_state) = build_block(db, &ctx, &mut info)?;
+        let (mut payload, fb_payload, mut bundle_state) = build_block(db, &ctx, &mut info)?;
 
-        best_payload.set(payload.clone());
         let _ = self.send_message(serde_json::to_string(&fb_payload).unwrap_or_default());
 
         tracing::info!(target: "payload_builder", "Fallback block built");
@@ -386,7 +409,10 @@ where
             );
 
             // return early since we don't need to build a block with transactions from the pool
-            return Ok(());
+            return Ok(BuildOutcome::Better {
+                payload,
+                cached_reads,
+            });
         }
 
         let gas_per_batch =
@@ -403,7 +429,10 @@ where
                     "Job cancelled, stopping payload building",
                 );
                 // if the job was cancelled, stop
-                return Ok(());
+                return Ok(BuildOutcome::Better {
+                    payload,
+                    cached_reads,
+                });
             }
 
             println!(
@@ -438,17 +467,19 @@ where
                     "Job cancelled, stopping payload building",
                 );
                 // if the job was cancelled, stop
-                return Ok(());
+                return Ok(BuildOutcome::Better {
+                    payload,
+                    cached_reads,
+                });
             }
 
-            let (payload, mut fb_payload, new_bundle_state) = build_block(db, &ctx, &mut info)?;
-
-            best_payload.set(payload.clone());
+            let (new_payload, mut fb_payload, new_bundle_state) = build_block(db, &ctx, &mut info)?;
 
             fb_payload.index = flashblock_count + 1; // we do this because the fallback block is index 0
             fb_payload.base = None;
             let _ = self.send_message(serde_json::to_string(&fb_payload).unwrap_or_default());
 
+            payload = new_payload;
             bundle_state = new_bundle_state;
             total_gas_per_batch += gas_per_batch;
             flashblock_count += 1;
@@ -469,16 +500,15 @@ where
     fn try_build(
         &self,
         args: BuildArguments<Self::Attributes, Self::BuiltPayload>,
-        best_payload: BlockCell<Self::BuiltPayload>,
-    ) -> Result<(), PayloadBuilderError> {
-        self.build_payload(args, best_payload)
+    ) -> Result<BuildOutcome<Self::BuiltPayload>, PayloadBuilderError> {
+        self.build_payload(args)
     }
 }
 
 pub fn build_block<ChainSpec, DB, P>(
     mut state: State<DB>,
     ctx: &OpPayloadBuilderCtx<ChainSpec>,
-    info: &mut ExecutionInfo<OpPrimitives>,
+    payload_info: &mut ExecutedPayload<OpPrimitives>,
 ) -> Result<(OpBuiltPayload, FlashblocksPayloadV1, BundleState), PayloadBuilderError>
 where
     ChainSpec: EthChainSpec + OpHardforks,
@@ -497,7 +527,7 @@ where
 
     let execution_outcome = ExecutionOutcome::new(
         new_bundle.clone(),
-        vec![info.receipts.clone()],
+        vec![payload_info.receipts.clone()],
         block_number,
         vec![],
     );
@@ -532,7 +562,7 @@ where
     };
 
     // create the block header
-    let transactions_root = proofs::calculate_transaction_root(&info.executed_transactions);
+    let transactions_root = proofs::calculate_transaction_root(&payload_info.executed_transactions);
 
     // OP doesn't support blobs/EIP-4844.
     // https://specs.optimism.io/protocol/exec-engine.html#ecotone-disable-blob-transactions
@@ -556,7 +586,7 @@ where
         number: ctx.parent().number + 1,
         gas_limit: ctx.block_gas_limit(),
         difficulty: U256::ZERO,
-        gas_used: info.cumulative_gas_used,
+        gas_used: payload_info.info.cumulative_gas_used,
         extra_data,
         parent_beacon_block_root: ctx.attributes().payload_attributes.parent_beacon_block_root,
         blob_gas_used,
@@ -568,7 +598,7 @@ where
     let block = alloy_consensus::Block::<OpTransactionSigned>::new(
         header,
         BlockBody {
-            transactions: info.executed_transactions.clone(),
+            transactions: payload_info.executed_transactions.clone(),
             ommers: vec![],
             withdrawals: ctx.withdrawals().cloned(),
         },
@@ -580,7 +610,8 @@ where
     let block_hash = sealed_block.hash();
 
     // pick the new transactions from the info field and update the last flashblock index
-    let new_transactions = info.executed_transactions[info.last_flashblock_index..].to_vec();
+    let new_transactions =
+        payload_info.executed_transactions[payload_info.info.last_flashblock_index..].to_vec();
 
     let new_transactions_encoded = new_transactions
         .clone()
@@ -588,8 +619,8 @@ where
         .map(|tx| tx.encoded_2718().into())
         .collect::<Vec<_>>();
 
-    let new_receipts = info.receipts[info.last_flashblock_index..].to_vec();
-    info.last_flashblock_index = info.executed_transactions.len();
+    let new_receipts = payload_info.receipts[payload_info.info.last_flashblock_index..].to_vec();
+    payload_info.info.last_flashblock_index = payload_info.executed_transactions.len();
     let receipts_with_hash = new_transactions
         .iter()
         .zip(new_receipts.iter())
@@ -630,7 +661,7 @@ where
             state_root,
             receipts_root,
             logs_bloom,
-            gas_used: info.cumulative_gas_used,
+            gas_used: payload_info.info.cumulative_gas_used,
             block_hash,
             transactions: new_transactions_encoded,
             withdrawals: ctx.withdrawals().cloned().unwrap_or_default().to_vec(),
@@ -642,7 +673,7 @@ where
         OpBuiltPayload::new(
             ctx.payload_id(),
             sealed_block,
-            info.total_fees,
+            payload_info.info.total_fees,
             // This must be set to NONE for now because we are doing merge transitions on every flashblock
             // when it should only happen once per block, thus, it returns a confusing state back to op-reth.
             // We can live without this for now because Op syncs up the executed block using new_payload
@@ -657,7 +688,7 @@ where
 fn execute_pre_steps<ChainSpec, DB>(
     state: &mut State<DB>,
     ctx: &OpPayloadBuilderCtx<ChainSpec>,
-) -> Result<ExecutionInfo<OpPrimitives>, PayloadBuilderError>
+) -> Result<ExecutedPayload<OpPrimitives>, PayloadBuilderError>
 where
     ChainSpec: EthChainSpec + OpHardforks,
     DB: Database<Error = ProviderError>,
@@ -669,9 +700,9 @@ where
         .apply_pre_execution_changes()?;
 
     // 3. execute sequencer transactions
-    let info = ctx.execute_sequencer_transactions(state)?;
+    let payload_info = ctx.execute_sequencer_transactions(state)?;
 
-    Ok(info)
+    Ok(payload_info)
 }
 
 /// A type that returns a the [`PayloadTransactions`] that should be included in the pool.
@@ -702,6 +733,8 @@ pub struct OpPayloadBuilderCtx<ChainSpec> {
     pub evm_config: OpEvmConfig,
     /// The chainspec
     pub chain_spec: Arc<ChainSpec>,
+    /// The data availability configuration for the payload builder
+    pub da_config: OpDAConfig,
     /// How to build the payload.
     pub config: PayloadConfig<OpPayloadBuilderAttributes<OpTransactionSigned>>,
     /// Evm Settings
@@ -709,7 +742,7 @@ pub struct OpPayloadBuilderCtx<ChainSpec> {
     /// Block env attributes for the current block.
     pub block_env_attributes: OpNextBlockEnvAttributes,
     /// Marker to check whether the job has been cancelled.
-    pub cancel: CancellationToken,
+    pub cancel: ManualCancel,
 }
 
 impl<ChainSpec> OpPayloadBuilderCtx<ChainSpec>
@@ -864,11 +897,12 @@ where
     pub fn execute_sequencer_transactions<DB>(
         &self,
         db: &mut State<DB>,
-    ) -> Result<ExecutionInfo<OpPrimitives>, PayloadBuilderError>
+    ) -> Result<ExecutedPayload<OpPrimitives>, PayloadBuilderError>
     where
         DB: Database<Error = ProviderError>,
     {
-        let mut info = ExecutionInfo::with_capacity(self.attributes().transactions.len());
+        let mut payload_info =
+            ExecutedPayload::<OpPrimitives>::with_capacity(self.attributes().transactions.len());
 
         let mut evm = self.evm_config.evm_with_env(&mut *db, self.evm_env.clone());
 
@@ -924,26 +958,30 @@ where
 
             // add gas used by the transaction to cumulative gas used, before creating the receipt
             let gas_used = result.gas_used();
-            info.cumulative_gas_used += gas_used;
+            payload_info.info.cumulative_gas_used += gas_used;
 
             let ctx = ReceiptBuilderCtx {
                 tx: sequencer_tx.inner(),
                 evm: &evm,
                 result,
                 state: &state,
-                cumulative_gas_used: info.cumulative_gas_used,
+                cumulative_gas_used: payload_info.info.cumulative_gas_used,
             };
-            info.receipts.push(self.build_receipt(ctx, depositor_nonce));
+            payload_info
+                .receipts
+                .push(self.build_receipt(ctx, depositor_nonce));
 
             // commit changes
             evm.db_mut().commit(state);
 
             // append sender and transaction to the respective lists
-            info.executed_senders.push(sequencer_tx.signer());
-            info.executed_transactions.push(sequencer_tx.into_inner());
+            payload_info.executed_senders.push(sequencer_tx.signer());
+            payload_info
+                .executed_transactions
+                .push(sequencer_tx.into_inner());
         }
 
-        Ok(info)
+        Ok(payload_info)
     }
 
     /// Executes the given best transactions and updates the execution info.
@@ -951,7 +989,7 @@ where
     /// Returns `Ok(Some(())` if the job was cancelled.
     pub fn execute_best_transactions<DB>(
         &self,
-        info: &mut ExecutionInfo<OpPrimitives>,
+        payload_info: &mut ExecutedPayload<OpPrimitives>,
         db: &mut State<DB>,
         mut best_txs: impl PayloadTransactions<
             Transaction: PoolTransaction<Consensus = OpTransactionSigned>,
@@ -973,17 +1011,19 @@ where
                 "gas limit: {:?}, batch gas limit: {:?} cummulative gas used: {:?}",
                 tx.gas_limit(),
                 batch_gas_limit,
-                info.cumulative_gas_used
+                payload_info.info.cumulative_gas_used
             );
-            // gas limit: 100816112, batch gas limit: 2500000000 cummulative gas used: 100062216
 
             // check in info if the txn has been executed already
-            if info.executed_transactions.contains(&tx) {
+            if payload_info.executed_transactions.contains(&tx) {
                 continue;
             }
 
             // ensure we still have capacity for this transaction
-            if info.is_tx_over_limits(tx.inner(), batch_gas_limit, None, None) {
+            if payload_info
+                .info
+                .is_tx_over_limits(tx.inner(), batch_gas_limit, None, None)
+            {
                 println!("A");
                 // we can't fit this transaction into the block, so we need to mark it as
                 // invalid which also removes all dependent transaction from
@@ -1031,16 +1071,16 @@ where
             // add gas used by the transaction to cumulative gas used, before creating the
             // receipt
             let gas_used = result.gas_used();
-            info.cumulative_gas_used += gas_used;
+            payload_info.info.cumulative_gas_used += gas_used;
 
             let ctx = ReceiptBuilderCtx {
                 tx: tx.inner(),
                 evm: &evm,
                 result,
                 state: &state,
-                cumulative_gas_used: info.cumulative_gas_used,
+                cumulative_gas_used: payload_info.info.cumulative_gas_used,
             };
-            info.receipts.push(self.build_receipt(ctx, None));
+            payload_info.receipts.push(self.build_receipt(ctx, None));
 
             // commit changes
             evm.db_mut().commit(state);
@@ -1049,11 +1089,11 @@ where
             let miner_fee = tx
                 .effective_tip_per_gas(base_fee)
                 .expect("fee is always valid; execution succeeded");
-            info.total_fees += U256::from(miner_fee) * U256::from(gas_used);
+            payload_info.info.total_fees += U256::from(miner_fee) * U256::from(gas_used);
 
             // append sender and transaction to the respective lists
-            info.executed_senders.push(tx.signer());
-            info.executed_transactions.push(tx.into_inner());
+            payload_info.executed_senders.push(tx.signer());
+            payload_info.executed_transactions.push(tx.into_inner());
         }
 
         Ok(None)

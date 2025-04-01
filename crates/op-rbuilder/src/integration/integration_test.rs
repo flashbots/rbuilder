@@ -8,9 +8,24 @@ mod tests {
     use alloy_eips::{eip1559::MIN_PROTOCOL_BASE_FEE, eip2718::Encodable2718};
     use alloy_primitives::hex;
     use alloy_provider::{Identity, Provider, ProviderBuilder};
+    use alloy_rpc_types_eth::BlockTransactionsKind;
+
+    use futures_util::StreamExt;
+    use op_alloy_consensus::OpTypedTransaction;
     use op_alloy_network::Optimism;
-    use std::{cmp::max, path::PathBuf};
+    use std::{
+        cmp::max,
+        path::PathBuf,
+        sync::{Arc, Mutex},
+        time::Duration,
+    };
+    use tokio_tungstenite::connect_async;
     use uuid::Uuid;
+
+    use alloy_primitives::{Address, TxKind};
+    use alloy_rpc_types_eth::{TransactionInput, TransactionRequest};
+
+    use crate::tx_signer::OpSigner;
 
     const BUILDER_PRIVATE_KEY: &str =
         "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
@@ -92,11 +107,6 @@ mod tests {
     async fn integration_test_revert_protection() -> eyre::Result<()> {
         // This is a simple test using the integration framework to test that the chain
         // produces blocks.
-
-        use alloy_primitives::{Address, TxKind};
-        use alloy_rpc_types_eth::{TransactionInput, TransactionRequest};
-
-        use crate::tx_signer::OpSigner;
         let mut framework =
             IntegrationFramework::new("integration_test_revert_protection").unwrap();
 

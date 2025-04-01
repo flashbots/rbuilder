@@ -1,10 +1,10 @@
+use alloy_eips::merge::SLOT_DURATION;
 use alloy_primitives::B256;
 use futures_util::Future;
 use futures_util::FutureExt;
 use reth::builder::BuilderContext;
 use reth::providers::BlockReaderIdExt;
 use reth::{providers::StateProviderFactory, tasks::TaskSpawner};
-use reth_basic_payload_builder::BasicPayloadJobGeneratorConfig;
 use reth_basic_payload_builder::BuildOutcome;
 use reth_basic_payload_builder::HeaderForPayload;
 use reth_basic_payload_builder::PayloadConfig;
@@ -24,6 +24,7 @@ use reth_payload_primitives::BuiltPayload;
 use reth_primitives_traits::HeaderTy;
 use reth_revm::cached::CachedReads;
 use reth_revm::cancelled::CancelOnDrop;
+use reth_revm::cancelled::ManualCancel;
 use reth_transaction_pool::TransactionPool;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
@@ -102,6 +103,60 @@ pub trait PayloadBuilder: Send + Sync + Clone {
     ) -> Result<BuildOutcome<Self::BuiltPayload>, PayloadBuilderError>;
 }
 
+/// Settings for the [`BasicPayloadJobGenerator`].
+#[derive(Debug, Clone)]
+pub struct BasicPayloadJobGeneratorConfig {
+    /// The interval at which the job should build a new payload after the last.
+    pub interval: Duration,
+    /// The deadline for when the payload builder job should resolve.
+    ///
+    /// By default this is [`SLOT_DURATION`]: 12s
+    pub deadline: Duration,
+    /// Maximum number of tasks to spawn for building a payload.
+    pub max_payload_tasks: usize,
+}
+
+// === impl BasicPayloadJobGeneratorConfig ===
+
+impl BasicPayloadJobGeneratorConfig {
+    /// Sets the interval at which the job should build a new payload after the last.
+    pub const fn interval(mut self, interval: Duration) -> Self {
+        self.interval = interval;
+        self
+    }
+
+    /// Sets the deadline when this job should resolve.
+    pub const fn deadline(mut self, deadline: Duration) -> Self {
+        self.deadline = deadline;
+        self
+    }
+
+    /// Sets the maximum number of tasks to spawn for building a payload(s).
+    ///
+    /// # Panics
+    ///
+    /// If `max_payload_tasks` is 0.
+    pub fn max_payload_tasks(mut self, max_payload_tasks: usize) -> Self {
+        assert!(
+            max_payload_tasks > 0,
+            "max_payload_tasks must be greater than 0"
+        );
+        self.max_payload_tasks = max_payload_tasks;
+        self
+    }
+}
+
+impl Default for BasicPayloadJobGeneratorConfig {
+    fn default() -> Self {
+        Self {
+            interval: Duration::from_secs(1),
+            // 12s slot time
+            deadline: SLOT_DURATION,
+            max_payload_tasks: 3,
+        }
+    }
+}
+
 /// The generator type that creates new jobs that builds empty blocks.
 #[derive(Debug)]
 pub struct BlockPayloadJobGenerator<Client, Tasks, Builder> {
@@ -110,7 +165,7 @@ pub struct BlockPayloadJobGenerator<Client, Tasks, Builder> {
     /// How to spawn building tasks
     executor: Tasks,
     /// The configuration for the job generator.
-    _config: BasicPayloadJobGeneratorConfig,
+    config: BasicPayloadJobGeneratorConfig,
     /// Restricts how many generator tasks can be executed at once.
     payload_task_guard: PayloadTaskGuard,
     /// The type responsible for building payloads.
@@ -135,8 +190,8 @@ impl<Client, Tasks, Builder> BlockPayloadJobGenerator<Client, Tasks, Builder> {
         Self {
             client,
             executor,
-            payload_task_guard: PayloadTaskGuard::new(3), // TODO: use configured value
-            _config: config,
+            payload_task_guard: PayloadTaskGuard::new(config.max_payload_tasks),
+            config,
             builder,
             pre_cached: None,
         }
@@ -173,7 +228,7 @@ where
     type Job = BlockPayloadJob<Tasks, Builder>;
 
     /// This is invoked when the node receives payload attributes from the beacon node via
-    /// `engine_forkchoiceUpdatedV1`
+    /// `engine_forkchoiceUpdated`
     fn new_payload_job(
         &self,
         attributes: <Builder as PayloadBuilder>::Attributes,
@@ -213,7 +268,7 @@ where
             config,
             deadline,
             // ticks immediately
-            interval: tokio::time::interval(Duration::from_secs(1)), // TODO: use configured value
+            _interval: tokio::time::interval(self.config.interval),
             best_payload: PayloadState::Missing,
             pending_block: None,
             cached_reads,
@@ -234,6 +289,12 @@ use std::{
 
 use crate::metrics::PayloadBuilderMetrics;
 
+#[derive(Debug)]
+pub struct PendingBlock<T> {
+    cancel: ManualCancel,
+    pending: PendingPayload<T>,
+}
+
 /// A [PayloadJob] that builds empty blocks.
 pub struct BlockPayloadJob<Tasks, Builder>
 where
@@ -246,11 +307,11 @@ where
     /// The deadline when this job should resolve.
     deadline: Pin<Box<Sleep>>,
     /// The interval at which the job should build a new payload after the last.
-    interval: Interval,
+    _interval: Interval,
     /// The best payload so far and its state.
     best_payload: PayloadState<Builder::BuiltPayload>,
     /// Receiver for the block that is currently being built.
-    pending_block: Option<PendingPayload<Builder::BuiltPayload>>,
+    pending_block: Option<PendingBlock<Builder::BuiltPayload>>,
     /// Restricts how many generator tasks can be executed at once.
     payload_task_guard: PayloadTaskGuard,
     /// Caches all disk reads for the state the new payloads builds on
@@ -306,7 +367,11 @@ where
             self.spawn_build_job();
         }
 
-        let maybe_better = self.pending_block.take();
+        let maybe_better = self.pending_block.take().map(|pending_block| {
+            // cancel any pending blocks
+            pending_block.cancel.cancel();
+            pending_block.pending
+        });
         let empty_payload = None;
 
         if best_payload.is_none() {
@@ -329,7 +394,7 @@ pub struct BuildArguments<Attributes, Payload: BuiltPayload> {
     /// How to configure the payload.
     pub config: PayloadConfig<Attributes, HeaderTy<Payload::Primitives>>,
     /// A marker that can be used to cancel the job.
-    pub cancel: CancelOnDrop,
+    pub cancel: ManualCancel,
     /// The best payload achieved so far.
     pub best_payload: Option<Payload>,
 }
@@ -345,8 +410,8 @@ where
     pub fn spawn_build_job(&mut self) {
         trace!(target: "payload_builder", id = %self.config.payload_id(), "spawn new payload build task");
         let (tx, rx) = oneshot::channel();
-        let cancel = CancelOnDrop::default();
-        let _cancel = cancel.clone();
+        let cancel = ManualCancel::default();
+        let cancel_clone = cancel.clone();
         let guard = self.payload_task_guard.clone();
         let payload_config = self.config.clone();
         let best_payload = self.best_payload.payload().cloned();
@@ -365,8 +430,10 @@ where
             let result = builder.try_build(args);
             let _ = tx.send(result);
         }));
-
-        self.pending_block = Some(PendingPayload::new(_cancel, rx));
+        self.pending_block = Some(PendingBlock {
+            cancel: cancel_clone,
+            pending: PendingPayload::new(CancelOnDrop::default(), rx),
+        });
     }
 }
 
@@ -383,24 +450,27 @@ where
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         tracing::trace!("Polling job");
         let this = self.get_mut();
-
+        let (cancel, pending) = this
+            .pending_block
+            .take()
+            .map(|pending_block| {
+                (
+                    Some(pending_block.cancel.clone()),
+                    Some(pending_block.pending),
+                )
+            })
+            .unwrap_or_default();
         // check if the deadline is reached
         if this.deadline.as_mut().poll(cx).is_ready() {
             trace!(target: "payload_builder", "payload building deadline reached");
+            if let Some(cancel) = cancel {
+                cancel.cancel();
+            }
             return Poll::Ready(Ok(()));
         }
 
-        // check if the interval is reached
-        while this.interval.poll_tick(cx).is_ready() {
-            // start a new job if there is no pending block, we haven't reached the deadline,
-            // and the payload isn't frozen
-            if this.pending_block.is_none() && !this.best_payload.is_frozen() {
-                this.spawn_build_job();
-            }
-        }
-
         // poll the pending block
-        if let Some(mut fut) = this.pending_block.take() {
+        if let Some(mut fut) = pending {
             match fut.poll_unpin(cx) {
                 Poll::Ready(Ok(outcome)) => match outcome {
                     BuildOutcome::Better {
@@ -429,7 +499,10 @@ where
                     this.metrics.inc_failed_payload_builds();
                 }
                 Poll::Pending => {
-                    this.pending_block = Some(fut);
+                    this.pending_block = Some(PendingBlock {
+                        cancel: cancel.unwrap(),
+                        pending: fut,
+                    });
                 }
             }
         }
@@ -548,14 +621,18 @@ mod tests {
     use reth::tasks::TokioTaskExecutor;
     use reth_chain_state::ExecutedBlockWithTrieUpdates;
     use reth_node_api::NodePrimitives;
+    use reth_optimism_node::{OpBuiltPayload, OpEngineTypes};
     use reth_optimism_payload_builder::payload::OpPayloadBuilderAttributes;
     use reth_optimism_payload_builder::OpPayloadPrimitives;
     use reth_optimism_primitives::OpPrimitives;
+    use reth_payload_builder::PayloadBuilderService;
     use reth_primitives::SealedBlock;
     use reth_provider::test_utils::MockEthProvider;
+    use reth_provider::CanonStateSubscriptions;
     use reth_testing_utils::generators::{random_block_range, BlockRangeParams};
     use tokio::task;
     use tokio::time::{sleep, Duration};
+    use tracing::Level;
 
     #[tokio::test]
     async fn test_block_cell_wait_for_value() {
@@ -649,32 +726,6 @@ mod tests {
         }
     }
 
-    #[derive(Clone, Debug, Default)]
-    struct MockPayload;
-
-    impl BuiltPayload for MockPayload {
-        type Primitives = OpPrimitives;
-
-        fn block(&self) -> &SealedBlock<<Self::Primitives as NodePrimitives>::Block> {
-            unimplemented!()
-        }
-
-        /// Returns the fees collected for the built block
-        fn fees(&self) -> U256 {
-            unimplemented!()
-        }
-
-        /// Returns the entire execution data for the built block, if available.
-        fn executed_block(&self) -> Option<ExecutedBlockWithTrieUpdates<Self::Primitives>> {
-            None
-        }
-
-        /// Returns the EIP-7865 requests for the payload if any.
-        fn requests(&self) -> Option<Requests> {
-            unimplemented!()
-        }
-    }
-
     #[derive(Debug, PartialEq, Clone)]
     enum BlockEvent {
         Started,
@@ -686,7 +737,7 @@ mod tests {
         N: OpPayloadPrimitives,
     {
         type Attributes = OpPayloadBuilderAttributes<N::SignedTx>;
-        type BuiltPayload = MockPayload;
+        type BuiltPayload = OpBuiltPayload<N>;
 
         fn try_build(
             &self,
@@ -718,28 +769,30 @@ mod tests {
         // 2 seconds in the future
         let future_unix_timestamp = current_unix_time + 2;
         let deadline = job_deadline(future_unix_timestamp);
-        assert!(deadline <= now + Duration::from_secs(2));
+        assert!(deadline.duration_since(now).as_secs() <= 2);
         assert!(deadline > now);
 
         // Test past deadline
         let past_unix_timestamp = current_unix_time - 10;
         let deadline = job_deadline(past_unix_timestamp);
         // Should default to 1 second when timestamp is in the past
-        assert_eq!(deadline, now + Duration::from_secs(1));
+        assert_eq!(deadline.duration_since(now).as_secs(), 1);
 
         // Test current timestamp
         let deadline = job_deadline(current_unix_time);
         // Should use 1 second when timestamp is current
-        assert_eq!(deadline, now + Duration::from_secs(1));
+        assert_eq!(deadline.duration_since(now).as_secs(), 1);
     }
 
     #[tokio::test]
     async fn test_payload_generator() -> eyre::Result<()> {
+        tracing::subscriber::set_global_default(tracing_subscriber::fmt().finish()).unwrap();
+
         let mut rng = thread_rng();
 
         let client = MockEthProvider::default();
         let executor = TokioTaskExecutor::default();
-        let config = BasicPayloadJobGeneratorConfig::default();
+        let config = BasicPayloadJobGeneratorConfig::default().max_payload_tasks(1);
         let builder = MockBuilder::<OpPrimitives>::new();
 
         let (start, count) = (1, 10);
@@ -761,32 +814,31 @@ mod tests {
             builder.clone(),
         );
 
+        let (payload_service, payload_service_handle) =
+            PayloadBuilderService::<_, _, OpEngineTypes>::new(
+                generator,
+                client.canonical_state_stream(),
+            );
+        tokio::spawn(async move {
+            let _ = payload_service.await;
+        });
+
         // this is not nice but necessary
         let mut attr = OpPayloadBuilderAttributes::default();
         attr.payload_attributes.parent = client.latest_header()?.unwrap().hash();
 
-        {
-            let job = generator.new_payload_job(attr.clone())?;
-            let _ = job.await;
+        let _ = payload_service_handle.send_new_payload(attr.clone()).await;
+        // job resolve triggers cancellations from the build task
+        let _ = payload_service_handle
+            .resolve_kind(attr.payload_id(), PayloadKind::Earliest)
+            .await;
+        let events = builder.get_events();
+        assert_eq!(events, vec![BlockEvent::Started, BlockEvent::Cancelled]);
 
-            // you need to give one second for the job to be dropped and cancelled the internal job
-            tokio::time::sleep(Duration::from_secs(1)).await;
-
-            let events = builder.get_events();
-            assert_eq!(events, vec![BlockEvent::Started, BlockEvent::Cancelled]);
-        }
-
-        {
-            // job resolve triggers cancellations from the build task
-            let mut job = generator.new_payload_job(attr.clone())?;
-            let _ = job.resolve();
-            let _ = job.await;
-
-            tokio::time::sleep(Duration::from_secs(1)).await;
-
-            let events = builder.get_events();
-            assert_eq!(events, vec![BlockEvent::Started, BlockEvent::Cancelled]);
-        }
+        let _ = payload_service_handle.send_new_payload(attr.clone()).await;
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        let events: Vec<BlockEvent> = builder.get_events();
+        assert_eq!(events, vec![BlockEvent::Started, BlockEvent::Cancelled]);
 
         Ok(())
     }

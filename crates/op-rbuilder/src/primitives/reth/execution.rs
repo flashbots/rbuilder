@@ -1,9 +1,43 @@
 //! Heavily influenced by [reth](https://github.com/paradigmxyz/reth/blob/1e965caf5fa176f244a31c0d2662ba1b590938db/crates/optimism/payload/src/builder.rs#L570)
 use alloy_consensus::Transaction;
 use alloy_primitives::private::alloy_rlp::Encodable;
-use alloy_primitives::{TxHash, U256};
+use alloy_primitives::{Address, TxHash, B256, U256};
+use reth_node_api::NodePrimitives;
+use revm::context::BlockEnv;
 use std::collections::HashSet;
 
+/// Holds the state after execution
+#[derive(Debug)]
+#[allow(dead_code)]
+pub struct ExecutedPayload<N: NodePrimitives> {
+    /// Tracked execution info
+    pub info: ExecutionInfo,
+    /// Withdrawal hash.
+    pub withdrawals_root: Option<B256>,
+    /// executed transactions
+    pub executed_transactions: Vec<N::SignedTx>,
+    /// executed senders
+    pub executed_senders: Vec<Address>,
+    /// The transaction receipts.
+    pub receipts: Vec<N::Receipt>,
+    /// The block env used during execution.
+    pub block_env: BlockEnv,
+}
+
+impl<N: NodePrimitives> ExecutedPayload<N> {
+    /// Create a new instance with allocated slots.
+    #[allow(dead_code)]
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            info: ExecutionInfo::new(),
+            withdrawals_root: None,
+            executed_transactions: Vec::with_capacity(capacity),
+            executed_senders: Vec::with_capacity(capacity),
+            receipts: Vec::with_capacity(capacity),
+            block_env: BlockEnv::default(),
+        }
+    }
+}
 #[derive(Default, Debug)]
 pub struct ExecutionInfo {
     /// All gas used so far
