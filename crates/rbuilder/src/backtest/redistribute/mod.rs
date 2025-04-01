@@ -28,6 +28,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     cmp::{max, min},
     sync::Arc,
+    time::Instant,
 };
 use tracing::{debug, error, info, info_span, trace, warn};
 use uuid::Uuid;
@@ -137,6 +138,7 @@ where
         warn!("Protect signers are not set");
     }
 
+    let start = Instant::now();
     let (onchain_block_profit, block_data, built_block_data) =
         prepare_block_data(config, block_data)?;
 
@@ -157,12 +159,18 @@ where
         distribute_to_mempool_txs,
     );
 
+    let time_preparation_s = start.elapsed().as_millis() as f64 / 1000.0;
+    let start = Instant::now();
+
     let results_without_exclusion = calculate_backtest_without_exclusion(
         provider.clone(),
         config,
         block_data.clone(),
         blocklist.clone(),
     )?;
+
+    let time_no_exclusion_s = start.elapsed().as_millis() as f64 / 1000.0;
+    let start = Instant::now();
 
     let exclusion_results = calculate_backtest_identity_and_order_exclusion(
         provider.clone(),
@@ -172,6 +180,9 @@ where
         &results_without_exclusion,
         blocklist.clone(),
     )?;
+
+    let time_single_exclusion_s = start.elapsed().as_millis() as f64 / 1000.0;
+    let start = Instant::now();
 
     let exclusion_results = calc_joint_exclusion_results(
         provider.clone(),
@@ -183,6 +194,9 @@ where
         distribute_to_mempool_txs,
         blocklist.clone(),
     )?;
+
+    let time_joint_exclusion_s = start.elapsed().as_millis() as f64 / 1000.0;
+    let start = Instant::now();
 
     let calculated_redistribution_result = apply_redistribution_formula(
         onchain_block_profit,
@@ -211,6 +225,25 @@ where
         .iter()
         .map(|o| o.redistribution_value_received)
         .sum::<U256>();
+
+    let time_result_s = start.elapsed().as_millis() as f64 / 1000.0;
+
+    let time_total_s = time_preparation_s
+        + time_no_exclusion_s
+        + time_single_exclusion_s
+        + time_joint_exclusion_s
+        + time_result_s;
+    info!(
+        block_profit = format_ether(onchain_block_profit),
+        redistributed = format_ether(redistributed_identity_value),
+        time_total_s,
+        time_preparation_s,
+        time_no_exclusion_s,
+        time_single_exclusion_s,
+        time_joint_exclusion_s,
+        time_result_s,
+        "Calculated redistribution"
+    );
 
     assert!(
         redistributed_identity_value <= onchain_block_profit,
