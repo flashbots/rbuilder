@@ -179,6 +179,25 @@ impl Bundle {
             .collect()
     }
 
+    pub fn list_txs_revert(
+        &self,
+    ) -> Vec<(&TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior)> {
+        self.txs
+            .iter()
+            .map(|tx| {
+                let hash = &tx.hash();
+                let revert = if self.reverting_tx_hashes.contains(hash) {
+                    TxRevertBehavior::AllowedIncluded
+                } else if self.dropping_tx_hashes.contains(hash) {
+                    TxRevertBehavior::AllowedExcluded
+                } else {
+                    TxRevertBehavior::NotAllowed
+                };
+                (tx, revert)
+            })
+            .collect()
+    }
+
     /// list_txs().len()
     fn list_txs_len(&self) -> usize {
         self.txs.len()
@@ -389,6 +408,20 @@ impl ShareBundleInner {
             .collect()
     }
 
+    pub fn list_txs_revert(
+        &self,
+    ) -> Vec<(&TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior)> {
+        self.body
+            .iter()
+            .flat_map(|b| match b {
+                ShareBundleBody::Tx(sbundle_tx) => {
+                    vec![(&sbundle_tx.tx, sbundle_tx.revert_behavior)]
+                }
+                ShareBundleBody::Bundle(bundle) => bundle.list_txs_revert(),
+            })
+            .collect()
+    }
+
     pub fn list_txs_len(&self) -> usize {
         self.body
             .iter()
@@ -547,6 +580,12 @@ impl ShareBundle {
 
     pub fn list_txs(&self) -> Vec<(&TransactionSignedEcRecoveredWithBlobs, bool)> {
         self.inner_bundle.list_txs()
+    }
+
+    pub fn list_txs_revert(
+        &self,
+    ) -> Vec<(&TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior)> {
+        self.inner_bundle.list_txs_revert()
     }
 
     /// @Pending: optimize by caching (we need to enforce inner_bundle immutability)
@@ -934,6 +973,16 @@ impl Order {
             Order::Bundle(bundle) => bundle.list_txs(),
             Order::Tx(tx) => vec![(&tx.tx_with_blobs, true)],
             Order::ShareBundle(bundle) => bundle.list_txs(),
+        }
+    }
+
+    pub fn list_txs_revert(
+        &self,
+    ) -> Vec<(&TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior)> {
+        match self {
+            Order::Bundle(bundle) => bundle.list_txs_revert(),
+            Order::Tx(tx) => vec![(&tx.tx_with_blobs, TxRevertBehavior::AllowedIncluded)],
+            Order::ShareBundle(bundle) => bundle.list_txs_revert(),
         }
     }
 

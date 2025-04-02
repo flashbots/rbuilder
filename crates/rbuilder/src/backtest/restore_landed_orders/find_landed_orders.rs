@@ -7,16 +7,33 @@ use crate::{
 use ahash::HashMap;
 use alloy_primitives::{B256, I256, U256};
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct OrderTxData {
+    pub hash: B256,
+    pub revert: TxRevertBehavior,
+    pub kickback_percent: usize,
+}
+
+impl OrderTxData {
+    fn new(hash: B256, revert: TxRevertBehavior, kickback_percent: usize) -> Self {
+        OrderTxData {
+            hash,
+            revert,
+            kickback_percent,
+        }
+    }
+}
+
 /// SimplifiedOrder represents unified form of the order
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct SimplifiedOrder {
     pub id: OrderId,
-    pub chunks: Vec<OrderChunk>,
+    pub txs: Vec<OrderTxData>,
 }
 
 impl SimplifiedOrder {
-    pub fn new(id: OrderId, chunks: Vec<OrderChunk>) -> Self {
-        SimplifiedOrder { id, chunks }
+    pub fn new(id: OrderId, txs: Vec<OrderTxData>) -> Self {
+        SimplifiedOrder { id, txs }
     }
 
     pub fn new_from_order(order: &Order) -> Self {
@@ -24,81 +41,67 @@ impl SimplifiedOrder {
         match order {
             Order::Tx(tx) => SimplifiedOrder::new(
                 id,
-                vec![OrderChunk::new(
-                    vec![(tx.tx_with_blobs.hash(), TxRevertBehavior::AllowedIncluded)],
-                    false,
+                vec![OrderTxData::new(
+                    tx.tx_with_blobs.hash(),
+                    TxRevertBehavior::AllowedIncluded,
                     0,
                 )],
             ),
             Order::Bundle(_) => {
                 let txs = order
-                    .list_txs()
+                    .list_txs_revert()
                     .into_iter()
-                    .map(|(tx, optional)| {
-                        let revert = if optional {
-                            TxRevertBehavior::AllowedExcluded
-                        } else {
-                            TxRevertBehavior::NotAllowed
-                        };
-                        (tx.hash(), revert)
-                    })
+                    .map(|(tx, revert)| OrderTxData::new(tx.hash(), revert, 0))
                     .collect();
-                SimplifiedOrder::new(id, vec![OrderChunk::new(txs, false, 0)])
+                SimplifiedOrder::new(id, txs)
             }
-            Order::ShareBundle(bundle) => SimplifiedOrder::new(
-                id,
-                OrderChunk::chunks_from_inner_share_bundle(bundle.inner_bundle()),
-            ),
+            Order::ShareBundle(bundle) => {
+                SimplifiedOrder::new(id, order_txs_from_inner_share_bundle(bundle.inner_bundle()))
+            }
         }
     }
 }
 
-/// OrderChunk is atomic set of txs
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct OrderChunk {
-    pub txs: Vec<(B256, TxRevertBehavior)>,
-    /// If true this chunk can be dropped from the Order
-    pub optional: bool,
-    pub kickback_percent: usize,
-}
+pub fn order_txs_from_inner_share_bundle(inner: &ShareBundleInner) -> Vec<OrderTxData> {
+    let total_refund_percent = inner.refund.iter().map(|r| r.percent).sum::<usize>();
 
-impl OrderChunk {
-    pub fn new(
-        txs: Vec<(B256, TxRevertBehavior)>,
-        optional: bool,
-        kickback_percent: usize,
-    ) -> Self {
-        OrderChunk {
-            txs,
-            optional,
-            kickback_percent,
-        }
-    }
+    let mut accumulated_txs = Vec::new();
 
-    pub fn chunks_from_inner_share_bundle(inner: &ShareBundleInner) -> Vec<Self> {
-        let total_refund_percent = inner.refund.iter().map(|r| r.percent).sum::<usize>();
+    let mut prev_element_paid_refund = false;
+    let mut current_chunk_txs = Vec::new();
 
-        let mut accumulated_chunks = Vec::new();
-
-        let mut prev_element_paid_refund = false;
-        let mut current_chunk_txs = Vec::new();
-
-        let release_chunk = |current_chunk_txs: &mut Vec<(B256, TxRevertBehavior)>,
-                             accumulated_chunks: &mut Vec<OrderChunk>,
-                             kickback_percent| {
-            if !current_chunk_txs.is_empty() {
-                accumulated_chunks.push(OrderChunk {
-                    txs: std::mem::take(current_chunk_txs),
-                    optional: inner.can_skip,
-                    kickback_percent,
-                })
+    let release_chunk = |current_chunk_txs: &mut Vec<(B256, TxRevertBehavior)>,
+                         accumulated_txs: &mut Vec<OrderTxData>,
+                         kickback_percent| {
+        if !current_chunk_txs.is_empty() {
+            for (hash, revert) in current_chunk_txs.drain(..) {
+                accumulated_txs.push(OrderTxData::new(hash, revert, kickback_percent));
             }
-        };
+        }
+    };
 
-        for (idx, body) in inner.body.iter().enumerate() {
-            let current_element_pays_refund = !inner.refund.iter().any(|r| r.body_idx == idx);
+    for (idx, body) in inner.body.iter().enumerate() {
+        let current_element_pays_refund = !inner.refund.iter().any(|r| r.body_idx == idx);
 
-            if prev_element_paid_refund != current_element_pays_refund {
+        if prev_element_paid_refund != current_element_pays_refund {
+            let chunk_refund_percent = if prev_element_paid_refund {
+                total_refund_percent
+            } else {
+                0
+            };
+            release_chunk(
+                &mut current_chunk_txs,
+                &mut accumulated_txs,
+                chunk_refund_percent,
+            );
+            prev_element_paid_refund = current_element_pays_refund;
+        }
+
+        match body {
+            ShareBundleBody::Tx(tx) => {
+                current_chunk_txs.push((tx.hash(), tx.revert_behavior));
+            }
+            ShareBundleBody::Bundle(inner_bundle) => {
                 let chunk_refund_percent = if prev_element_paid_refund {
                     total_refund_percent
                 } else {
@@ -106,58 +109,34 @@ impl OrderChunk {
                 };
                 release_chunk(
                     &mut current_chunk_txs,
-                    &mut accumulated_chunks,
+                    &mut accumulated_txs,
                     chunk_refund_percent,
                 );
-                prev_element_paid_refund = current_element_pays_refund;
-            }
 
-            match body {
-                ShareBundleBody::Tx(tx) => {
-                    current_chunk_txs.push((tx.hash(), tx.revert_behavior));
-                }
-                ShareBundleBody::Bundle(inner_bundle) => {
-                    let chunk_refund_percent = if prev_element_paid_refund {
-                        total_refund_percent
-                    } else {
-                        0
-                    };
-                    release_chunk(
-                        &mut current_chunk_txs,
-                        &mut accumulated_chunks,
-                        chunk_refund_percent,
-                    );
-
-                    let mut inner_chunks = Self::chunks_from_inner_share_bundle(inner_bundle);
-                    for chunk in &mut inner_chunks {
-                        if current_element_pays_refund {
-                            chunk.kickback_percent = multiply_inner_refunds(
-                                chunk.kickback_percent,
-                                chunk_refund_percent,
-                            );
-                        }
-                        if inner.can_skip {
-                            chunk.optional = true;
-                        }
+                let mut inner_txs = order_txs_from_inner_share_bundle(inner_bundle);
+                for tx in &mut inner_txs {
+                    if current_element_pays_refund {
+                        tx.kickback_percent =
+                            multiply_inner_refunds(tx.kickback_percent, chunk_refund_percent);
                     }
-                    accumulated_chunks.extend(inner_chunks);
                 }
+                accumulated_txs.extend(inner_txs);
             }
         }
-
-        let chunk_refund_percent = if prev_element_paid_refund {
-            total_refund_percent
-        } else {
-            0
-        };
-        release_chunk(
-            &mut current_chunk_txs,
-            &mut accumulated_chunks,
-            chunk_refund_percent,
-        );
-
-        accumulated_chunks
     }
+
+    let chunk_refund_percent = if prev_element_paid_refund {
+        total_refund_percent
+    } else {
+        0
+    };
+    release_chunk(
+        &mut current_chunk_txs,
+        &mut accumulated_txs,
+        chunk_refund_percent,
+    );
+
+    accumulated_txs
 }
 
 fn multiply_inner_refunds(a: usize, b: usize) -> usize {
@@ -327,90 +306,6 @@ pub fn restore_landed_orders(
 }
 
 #[derive(Debug)]
-struct FoundChunkData {
-    txs: Vec<B256>,
-    last_tx_idx: usize,
-}
-
-fn find_order_chunk(
-    block_data: &ExecutedBlockData,
-    chunk: &OrderChunk,
-) -> Result<FoundChunkData, OrderIdentificationError> {
-    // first we do a pass over chunk txs and try to locate all included txs
-    #[derive(Debug)]
-    struct FoundTxData {
-        block_idx: usize,
-        chunk_idx: usize,
-        tx: B256,
-        revert: TxRevertBehavior,
-        executed_block_tx: ExecutedBlockTx,
-    }
-    let mut found_txs = Vec::new();
-    for (chunk_idx, (tx, revert)) in chunk.txs.iter().enumerate() {
-        let (block_idx, tx_data) = if let Some((idx, tx_data)) = block_data.find_tx(*tx) {
-            (idx, tx_data)
-        } else {
-            // tx was not found in the block
-            if revert.can_revert() {
-                continue;
-            } else {
-                // tx not found
-                return Err(OrderIdentificationError::TxNotFound(*tx));
-            }
-        };
-        found_txs.push(FoundTxData {
-            block_idx,
-            chunk_idx,
-            tx: *tx,
-            revert: *revert,
-            executed_block_tx: tx_data.clone(),
-        });
-    }
-
-    found_txs.sort_by_key(|txs| txs.chunk_idx);
-    // check if non-optional txs are in order
-    let mut last_block_idx = 0;
-    let mut found_txs_block_locations: Vec<Option<usize>> = vec![None; chunk.txs.len()];
-    for found_tx in &found_txs {
-        if found_tx.revert.can_revert() {
-            continue;
-        }
-        if found_tx.block_idx < last_block_idx {
-            return Err(OrderIdentificationError::TxIsIncorrectPosition(found_tx.tx));
-        }
-        found_txs_block_locations[found_tx.chunk_idx] = Some(found_tx.block_idx);
-        last_block_idx = found_tx.block_idx;
-    }
-    // now go over all optional txs and try to locate them
-    let mut result = Vec::new();
-    for found_tx in found_txs {
-        if found_txs_block_locations[found_tx.chunk_idx].is_some() {
-            result.push(found_tx);
-            continue;
-        }
-        let allowed_block_range = find_allowed_range(
-            block_data.block_txs.len(),
-            found_tx.chunk_idx,
-            &found_txs_block_locations,
-        );
-        if allowed_block_range.contains(&found_tx.block_idx) {
-            found_txs_block_locations[found_tx.chunk_idx] = Some(found_tx.chunk_idx);
-            result.push(found_tx);
-        }
-    }
-
-    for found_tx in &result {
-        if !found_tx.executed_block_tx.success && !found_tx.revert.can_revert() {
-            return Err(OrderIdentificationError::TxReverted(found_tx.tx));
-        }
-    }
-    let txs = result.iter().map(|d| d.tx).collect();
-    let last_tx_idx = result.last().map(|d| d.block_idx).unwrap_or_default();
-
-    Ok(FoundChunkData { txs, last_tx_idx })
-}
-
-#[derive(Debug)]
 struct FoundOrderData {
     /// (tx_hash, kickback_percent)
     landed_txs: Vec<(B256, usize)>,
@@ -420,35 +315,79 @@ fn find_landed_order_data(
     block_data: &ExecutedBlockData,
     order: &SimplifiedOrder,
 ) -> Result<FoundOrderData, OrderIdentificationError> {
-    let mut landed_txs = Vec::new();
+    // first we do a pass over chunk txs and try to locate all included txs
+    #[derive(Debug)]
+    struct FoundTxData {
+        block_idx: usize,
+        order_idx: usize,
+        tx: OrderTxData,
+        executed_block_tx: ExecutedBlockTx,
+    }
+    let mut found_txs = Vec::new();
+    for (order_idx, tx) in order.txs.iter().enumerate() {
+        let (block_idx, tx_data) = if let Some((idx, tx_data)) = block_data.find_tx(tx.hash) {
+            (idx, tx_data)
+        } else {
+            // tx was not found in the block
+            if tx.revert.can_revert() {
+                continue;
+            } else {
+                // tx not found
+                return Err(OrderIdentificationError::TxNotFound(tx.hash));
+            }
+        };
+        found_txs.push(FoundTxData {
+            block_idx,
+            order_idx,
+            tx: tx.clone(),
+            executed_block_tx: tx_data.clone(),
+        });
+    }
 
-    let mut idx_past_last_chunk = 0;
-    for chunk in &order.chunks {
-        match find_order_chunk(block_data, chunk) {
-            Ok(data) => {
-                // we found the chunk
-                if data.last_tx_idx < idx_past_last_chunk {
-                    // chunks are messed up, order not found
-                    return Err(OrderIdentificationError::TxIsIncorrectPosition(
-                        chunk.txs.first().map(|t| t.0).unwrap_or_default(),
-                    ));
-                }
-                landed_txs.extend(data.txs.into_iter().map(|tx| (tx, chunk.kickback_percent)));
-                idx_past_last_chunk = data.last_tx_idx + 1;
-            }
-            Err(e) => {
-                if chunk.optional {
-                    continue;
-                }
-                return Err(e);
-            }
+    found_txs.sort_by_key(|txs| txs.order_idx);
+    // check if non-optional txs are in order
+    let mut last_block_idx = 0;
+    let mut found_txs_block_locations: Vec<Option<usize>> = vec![None; order.txs.len()];
+    for found_tx in &found_txs {
+        if found_tx.tx.revert.can_revert() {
+            continue;
+        }
+        if found_tx.block_idx < last_block_idx {
+            return Err(OrderIdentificationError::TxIsIncorrectPosition(
+                found_tx.tx.hash,
+            ));
+        }
+        found_txs_block_locations[found_tx.order_idx] = Some(found_tx.block_idx);
+        last_block_idx = found_tx.block_idx;
+    }
+    // now go over all optional txs and try to locate them
+    let mut result = Vec::new();
+    for found_tx in found_txs {
+        if found_txs_block_locations[found_tx.order_idx].is_some() {
+            result.push(found_tx);
+            continue;
+        }
+        let allowed_block_range = find_allowed_range(
+            block_data.block_txs.len(),
+            found_tx.order_idx,
+            &found_txs_block_locations,
+        );
+        if allowed_block_range.contains(&found_tx.block_idx) {
+            found_txs_block_locations[found_tx.order_idx] = Some(found_tx.block_idx);
+            result.push(found_tx);
         }
     }
 
-    if landed_txs.is_empty() {
-        return Err(OrderIdentificationError::NoOrderTxs);
+    for found_tx in &result {
+        if !found_tx.executed_block_tx.success && !found_tx.tx.revert.can_revert() {
+            return Err(OrderIdentificationError::TxReverted(found_tx.tx.hash));
+        }
     }
 
+    let landed_txs = result
+        .iter()
+        .map(|d| (d.tx.hash, d.tx.kickback_percent))
+        .collect();
     Ok(FoundOrderData { landed_txs })
 }
 
@@ -457,10 +396,7 @@ fn find_allowed_range(
     chunk_idx: usize,
     chunk_txs_block_idx: &[Option<usize>],
 ) -> Range<usize> {
-    let upper_bound = chunk_txs_block_idx[chunk_idx..]
-        .iter()
-        .find(|d| d.is_some())
-        .map(|d| d.unwrap());
+    let upper_bound = chunk_txs_block_idx[chunk_idx..].iter().find_map(|d| *d);
     let lower_bound = chunk_txs_block_idx[..chunk_idx]
         .iter()
         .rfind(|d| d.is_some())
@@ -531,31 +467,23 @@ mod tests {
             // bundle 1 with 1 tx
             SimplifiedOrder::new(
                 order_id(0xb1),
-                vec![OrderChunk::new(
-                    vec![(hash(2), TxRevertBehavior::NotAllowed)],
-                    false,
-                    0,
-                )],
+                vec![OrderTxData::new(hash(2), TxRevertBehavior::NotAllowed, 0)],
             ),
             // bundle 2 with 2/3 landed txs
             SimplifiedOrder::new(
                 order_id(0xb2),
-                vec![OrderChunk::new(
-                    vec![
-                        (hash(3), TxRevertBehavior::AllowedIncluded),
-                        (hash(33), TxRevertBehavior::NotAllowed),
-                        (hash(333), TxRevertBehavior::AllowedExcluded), // this tx never landed
-                    ],
-                    false,
-                    0,
-                )],
+                vec![
+                    OrderTxData::new(hash(3), TxRevertBehavior::AllowedIncluded, 0),
+                    OrderTxData::new(hash(33), TxRevertBehavior::NotAllowed, 0),
+                    OrderTxData::new(hash(333), TxRevertBehavior::AllowedExcluded, 0), // this tx never landed
+                ],
             ),
             // bundle with simple kickback
             SimplifiedOrder::new(
                 order_id(0xb3),
                 vec![
-                    OrderChunk::new(vec![(hash(5), TxRevertBehavior::AllowedIncluded)], false, 0),
-                    OrderChunk::new(vec![(hash(6), TxRevertBehavior::NotAllowed)], false, 90),
+                    OrderTxData::new(hash(5), TxRevertBehavior::AllowedIncluded, 0),
+                    OrderTxData::new(hash(6), TxRevertBehavior::NotAllowed, 90),
                 ],
             ),
         ];
@@ -589,27 +517,19 @@ mod tests {
         let orders = vec![
             SimplifiedOrder::new(
                 order_id(0xb1),
-                vec![OrderChunk::new(
-                    vec![
-                        (hash(0x11), TxRevertBehavior::NotAllowed),
-                        (hash(0xaa), TxRevertBehavior::NotAllowed),
-                        (hash(0x12), TxRevertBehavior::NotAllowed),
-                    ],
-                    false,
-                    0,
-                )],
+                vec![
+                    OrderTxData::new(hash(0x11), TxRevertBehavior::NotAllowed, 0),
+                    OrderTxData::new(hash(0xaa), TxRevertBehavior::NotAllowed, 0),
+                    OrderTxData::new(hash(0x12), TxRevertBehavior::NotAllowed, 0),
+                ],
             ),
             SimplifiedOrder::new(
                 order_id(0xb2),
-                vec![OrderChunk::new(
-                    vec![
-                        (hash(0x21), TxRevertBehavior::NotAllowed),
-                        (hash(0xaa), TxRevertBehavior::NotAllowed),
-                        (hash(0x22), TxRevertBehavior::NotAllowed),
-                    ],
-                    false,
-                    0,
-                )],
+                vec![
+                    OrderTxData::new(hash(0x21), TxRevertBehavior::NotAllowed, 0),
+                    OrderTxData::new(hash(0xaa), TxRevertBehavior::NotAllowed, 0),
+                    OrderTxData::new(hash(0x22), TxRevertBehavior::NotAllowed, 0),
+                ],
             ),
         ];
 
@@ -647,28 +567,25 @@ mod tests {
         let orders = vec![
             SimplifiedOrder::new(
                 order_id(0xb1),
-                vec![OrderChunk::new(
-                    vec![(hash(0x00), TxRevertBehavior::NotAllowed)],
-                    false,
+                vec![OrderTxData::new(
+                    hash(0x00),
+                    TxRevertBehavior::NotAllowed,
                     0,
                 )],
             ),
             SimplifiedOrder::new(
                 order_id(0xb2),
                 vec![
-                    OrderChunk::new(vec![(hash(0x00), TxRevertBehavior::NotAllowed)], false, 0),
-                    OrderChunk::new(vec![(hash(0x02), TxRevertBehavior::NotAllowed)], false, 90),
+                    OrderTxData::new(hash(0x00), TxRevertBehavior::NotAllowed, 0),
+                    OrderTxData::new(hash(0x02), TxRevertBehavior::NotAllowed, 90),
                 ],
             ),
             SimplifiedOrder::new(
                 order_id(0xb3),
                 vec![
-                    OrderChunk::new(
-                        vec![(hash(0x00), TxRevertBehavior::AllowedExcluded)],
-                        true,
-                        0,
-                    ), // this is how we merge backruns now
-                    OrderChunk::new(vec![(hash(0x03), TxRevertBehavior::NotAllowed)], false, 80),
+                    // this is how we merge backruns now
+                    OrderTxData::new(hash(0x00), TxRevertBehavior::AllowedExcluded, 0),
+                    OrderTxData::new(hash(0x03), TxRevertBehavior::NotAllowed, 80),
                 ],
             ),
         ];
@@ -710,42 +627,39 @@ mod tests {
         let orders = vec![
             SimplifiedOrder::new(
                 order_id(0xb1),
-                vec![OrderChunk::new(
-                    vec![(hash(0x01), TxRevertBehavior::NotAllowed)],
-                    false,
+                vec![OrderTxData::new(
+                    hash(0x01),
+                    TxRevertBehavior::NotAllowed,
                     0,
                 )],
             ),
             SimplifiedOrder::new(
                 order_id(0xb2),
                 vec![
-                    OrderChunk::new(vec![(hash(0x02), TxRevertBehavior::NotAllowed)], false, 0),
-                    OrderChunk::new(vec![(hash(0xAA), TxRevertBehavior::NotAllowed)], false, 90),
+                    OrderTxData::new(hash(0x02), TxRevertBehavior::NotAllowed, 0),
+                    OrderTxData::new(hash(0xAA), TxRevertBehavior::NotAllowed, 90),
                 ],
             ),
             SimplifiedOrder::new(
                 order_id(0xb3),
-                vec![OrderChunk::new(
-                    vec![
-                        (hash(0x03), TxRevertBehavior::NotAllowed),
-                        (hash(0x02), TxRevertBehavior::NotAllowed),
-                    ],
-                    false,
-                    0,
-                )],
+                vec![
+                    OrderTxData::new(hash(0x03), TxRevertBehavior::NotAllowed, 0),
+                    OrderTxData::new(hash(0x02), TxRevertBehavior::NotAllowed, 0),
+                ],
             ),
             SimplifiedOrder::new(
                 order_id(0xb4),
                 vec![
-                    OrderChunk::new(vec![(hash(0x03), TxRevertBehavior::NotAllowed)], true, 0), // this is how we merge backruns now
-                    OrderChunk::new(vec![(hash(0x02), TxRevertBehavior::NotAllowed)], false, 80),
+                    // this is how we merge backruns now
+                    OrderTxData::new(hash(0x03), TxRevertBehavior::NotAllowed, 0),
+                    OrderTxData::new(hash(0x02), TxRevertBehavior::NotAllowed, 80),
                 ],
             ),
             SimplifiedOrder::new(
                 order_id(0xb5),
-                vec![OrderChunk::new(
-                    vec![(hash(0x01), TxRevertBehavior::NotAllowed)],
-                    true,
+                vec![OrderTxData::new(
+                    hash(0x01),
+                    TxRevertBehavior::NotAllowed,
                     0,
                 )],
             ),
@@ -784,10 +698,159 @@ mod tests {
                 order_id(0xb5),
                 i256(0),
                 i256(0),
-                Some(OrderIdentificationError::NoOrderTxs),
+                Some(OrderIdentificationError::TxReverted(hash(0x01))),
                 vec![],
             ),
         ];
+        assert_result(executed_block, orders, results);
+    }
+
+    #[test]
+    fn test_out_of_order_droppable_txs() {
+        // bundle_1: tx1_1 (optional), tx1_2 (optional), tx1_3
+        // included txs: tx1_2, tx1_1, tx1_3
+        let executed_block = vec![
+            ExecutedBlockTx::new(hash(0x12), i256(0x12), true),
+            ExecutedBlockTx::new(hash(0x11), i256(0x11), true),
+            ExecutedBlockTx::new(hash(0x13), i256(0x13), true),
+        ];
+
+        let orders = vec![SimplifiedOrder::new(
+            order_id(0xb1),
+            vec![
+                OrderTxData::new(hash(0x11), TxRevertBehavior::AllowedExcluded, 0),
+                OrderTxData::new(hash(0x12), TxRevertBehavior::AllowedExcluded, 0),
+                OrderTxData::new(hash(0x13), TxRevertBehavior::NotAllowed, 0),
+            ],
+        )];
+
+        let results = vec![LandedOrderData::new(
+            order_id(0xb1),
+            i256(0x11 + 0x13),
+            i256(0x11 + 0x13),
+            None,
+            vec![],
+        )];
+        assert_result(executed_block, orders, results);
+    }
+
+    #[test]
+    fn test_backruns_recorvery_with_out_of_order_txs() {
+        // bundle_i column indicate index of tx inside bundle and allow status
+        //
+        // bundle_0                         bundle_1_idx              hash
+        // ----------------------------------------------------------
+        // bundle_0:1:allow_included        bundle_1:0:not_allowed    0x1
+        // bundle_0:0:allow_included        bundle_1:1:not_allowed    0x2
+        //                                  bundle_1:2:not_allowed    0x3
+        // bundle_0:2:allow_included                                  0x4
+        // bundle_0:3:not_allowed:backrun                             0x5
+        let executed_block = vec![
+            ExecutedBlockTx::new(hash(0x1), i256(0x1), true),
+            ExecutedBlockTx::new(hash(0x2), i256(0x2), true),
+            ExecutedBlockTx::new(hash(0x3), i256(0x3), true),
+            ExecutedBlockTx::new(hash(0x4), i256(0x4), true),
+            ExecutedBlockTx::new(hash(0x5), i256(10), true),
+        ];
+
+        let orders = vec![
+            SimplifiedOrder::new(
+                order_id(0xb0),
+                vec![
+                    OrderTxData::new(hash(0x2), TxRevertBehavior::AllowedIncluded, 0),
+                    OrderTxData::new(hash(0x1), TxRevertBehavior::AllowedIncluded, 0),
+                    OrderTxData::new(hash(0x4), TxRevertBehavior::AllowedIncluded, 0),
+                    OrderTxData::new(hash(0x5), TxRevertBehavior::NotAllowed, 50),
+                ],
+            ),
+            SimplifiedOrder::new(
+                order_id(0xb1),
+                vec![
+                    OrderTxData::new(hash(0x1), TxRevertBehavior::NotAllowed, 0),
+                    OrderTxData::new(hash(0x2), TxRevertBehavior::NotAllowed, 0),
+                    OrderTxData::new(hash(0x3), TxRevertBehavior::NotAllowed, 0),
+                ],
+            ),
+        ];
+
+        let results = vec![
+            LandedOrderData::new(
+                order_id(0xb0),
+                i256(0x2 + 0x4 + 10 / 2),
+                i256(0x4 + 10 / 2),
+                None,
+                vec![(order_id(0xb1), hash(0x2))],
+            ),
+            LandedOrderData::new(
+                order_id(0xb1),
+                i256(0x1 + 0x2 + 0x3),
+                i256(0x1 + 0x3),
+                None,
+                vec![(order_id(0xb0), hash(0x2))],
+            ),
+        ];
+        assert_result(executed_block, orders, results);
+    }
+
+    #[test]
+    fn test_backruns_recorvery_with_out_of_order_txs_case_2() {
+        // bundle_i column indicate index of tx inside bundle and allow status
+        //
+        // bundle_0                         bundle_1_idx                 hash
+        // -----------------------------------------------------------------
+        // bundle_0:1:not_allowed:backrun                                0x1
+        // bundle_0:0:allow_excluded        bundle_1:0:allow_excluded    0x2
+        let executed_block = vec![
+            ExecutedBlockTx::new(hash(0x1), i256(10), true),
+            ExecutedBlockTx::new(hash(0x2), i256(0x2), true),
+        ];
+
+        let orders = vec![
+            SimplifiedOrder::new(
+                order_id(0xb0),
+                vec![
+                    OrderTxData::new(hash(0x2), TxRevertBehavior::AllowedExcluded, 0),
+                    OrderTxData::new(hash(0x1), TxRevertBehavior::NotAllowed, 50),
+                ],
+            ),
+            SimplifiedOrder::new(
+                order_id(0xb1),
+                vec![OrderTxData::new(
+                    hash(0x2),
+                    TxRevertBehavior::AllowedExcluded,
+                    0,
+                )],
+            ),
+        ];
+
+        let results = vec![
+            LandedOrderData::new(order_id(0xb0), i256(10 / 2), i256(10 / 2), None, vec![]),
+            LandedOrderData::new(order_id(0xb1), i256(0x2), i256(0x2), None, vec![]),
+        ];
+        assert_result(executed_block, orders, results);
+    }
+
+    #[test]
+    fn test_allow_included_tx_dropped() {
+        // this case can happen if tx with AllowIncluded was dropped because nonce is invalid
+        // we must allow skipping these kind of txs
+        let executed_block = vec![ExecutedBlockTx::new(hash(0x1), i256(0x1), true)];
+
+        let orders = vec![SimplifiedOrder::new(
+            order_id(0xb1),
+            vec![
+                OrderTxData::new(hash(0xc), TxRevertBehavior::AllowedIncluded, 0),
+                OrderTxData::new(hash(0x1), TxRevertBehavior::NotAllowed, 0),
+            ],
+        )];
+
+        let results = vec![LandedOrderData::new(
+            order_id(0xb1),
+            i256(0x1),
+            i256(0x1),
+            None,
+            vec![],
+        )];
         assert_result(executed_block, orders, results);
     }
 
@@ -798,9 +861,9 @@ mod tests {
         });
         let expected = SimplifiedOrder::new(
             OrderId::Tx(hash(0x01)),
-            vec![OrderChunk::new(
-                vec![(hash(0x01), TxRevertBehavior::AllowedIncluded)],
-                false,
+            vec![OrderTxData::new(
+                hash(0x01),
+                TxRevertBehavior::AllowedIncluded,
                 0,
             )],
         );
@@ -828,14 +891,10 @@ mod tests {
         });
         let expected = SimplifiedOrder::new(
             OrderId::Bundle(uuid::uuid!("00000000-0000-0000-0000-ffff00000002")),
-            vec![OrderChunk::new(
-                vec![
-                    (hash(0x01), TxRevertBehavior::NotAllowed),
-                    (hash(0x02), TxRevertBehavior::AllowedExcluded),
-                ],
-                false,
-                0,
-            )],
+            vec![
+                OrderTxData::new(hash(0x01), TxRevertBehavior::NotAllowed, 0),
+                OrderTxData::new(hash(0x02), TxRevertBehavior::AllowedIncluded, 0),
+            ],
         );
 
         let got = SimplifiedOrder::new_from_order(&bundle);
@@ -918,201 +977,16 @@ mod tests {
         let expected = SimplifiedOrder::new(
             OrderId::ShareBundle(hash(0xb1)),
             vec![
-                OrderChunk::new(
-                    vec![
-                        (hash(0x01), TxRevertBehavior::NotAllowed),
-                        (hash(0x02), TxRevertBehavior::AllowedExcluded),
-                    ],
-                    false,
-                    0,
-                ),
-                OrderChunk::new(
-                    vec![(hash(0x03), TxRevertBehavior::AllowedIncluded)],
-                    false,
-                    60,
-                ),
-                OrderChunk::new(vec![(hash(0x11), TxRevertBehavior::NotAllowed)], true, 60),
-                OrderChunk::new(vec![(hash(0x12), TxRevertBehavior::NotAllowed)], true, 68),
-                OrderChunk::new(
-                    vec![(hash(0x04), TxRevertBehavior::AllowedIncluded)],
-                    false,
-                    0,
-                ),
+                OrderTxData::new(hash(0x01), TxRevertBehavior::NotAllowed, 0),
+                OrderTxData::new(hash(0x02), TxRevertBehavior::AllowedExcluded, 0),
+                OrderTxData::new(hash(0x03), TxRevertBehavior::AllowedIncluded, 60),
+                OrderTxData::new(hash(0x11), TxRevertBehavior::NotAllowed, 60),
+                OrderTxData::new(hash(0x12), TxRevertBehavior::NotAllowed, 68),
+                OrderTxData::new(hash(0x04), TxRevertBehavior::AllowedIncluded, 0),
             ],
         );
 
         let got = SimplifiedOrder::new_from_order(&bundle);
         assert_eq!(got, expected);
-    }
-
-    #[test]
-    fn test_out_of_order_droppable_txs() {
-        // bundle_1: tx1_1 (optional), tx1_2 (optional), tx1_3
-        // included txs: tx1_2, tx1_1, tx1_3
-        let executed_block = vec![
-            ExecutedBlockTx::new(hash(0x12), i256(0x12), true),
-            ExecutedBlockTx::new(hash(0x11), i256(0x11), true),
-            ExecutedBlockTx::new(hash(0x13), i256(0x13), true),
-        ];
-
-        let orders = vec![SimplifiedOrder::new(
-            order_id(0xb1),
-            vec![OrderChunk::new(
-                vec![
-                    (hash(0x11), TxRevertBehavior::AllowedExcluded),
-                    (hash(0x12), TxRevertBehavior::AllowedExcluded),
-                    (hash(0x13), TxRevertBehavior::NotAllowed),
-                ],
-                false,
-                0,
-            )],
-        )];
-
-        let results = vec![LandedOrderData::new(
-            order_id(0xb1),
-            i256(0x11 + 0x13),
-            i256(0x11 + 0x13),
-            None,
-            vec![],
-        )];
-        assert_result(executed_block, orders, results);
-    }
-
-    #[test]
-    fn test_backruns_recorvery_with_out_of_order_txs() {
-        // bundle_i column indicate index of tx inside bundle and allow status
-        //
-        // bundle_0                         bundle_1_idx              hash
-        // ----------------------------------------------------------
-        // bundle_0:1:allow_included        bundle_1:0:not_allowed    0x1
-        // bundle_0:0:allow_included        bundle_1:1:not_allowed    0x2
-        //                                  bundle_1:2:not_allowed    0x3
-        // bundle_0:2:allow_included                                  0x4
-        // bundle_0:3:not_allowed:backrun                             0x5
-        let executed_block = vec![
-            ExecutedBlockTx::new(hash(0x1), i256(0x1), true),
-            ExecutedBlockTx::new(hash(0x2), i256(0x2), true),
-            ExecutedBlockTx::new(hash(0x3), i256(0x3), true),
-            ExecutedBlockTx::new(hash(0x4), i256(0x4), true),
-            ExecutedBlockTx::new(hash(0x5), i256(10), true),
-        ];
-
-        let orders = vec![
-            SimplifiedOrder::new(
-                order_id(0xb0),
-                vec![
-                    OrderChunk::new(
-                        vec![
-                            (hash(0x2), TxRevertBehavior::AllowedIncluded),
-                            (hash(0x1), TxRevertBehavior::AllowedIncluded),
-                            (hash(0x4), TxRevertBehavior::AllowedIncluded),
-                        ],
-                        false,
-                        0,
-                    ),
-                    OrderChunk::new(vec![(hash(0x5), TxRevertBehavior::NotAllowed)], false, 50),
-                ],
-            ),
-            SimplifiedOrder::new(
-                order_id(0xb1),
-                vec![OrderChunk::new(
-                    vec![
-                        (hash(0x1), TxRevertBehavior::NotAllowed),
-                        (hash(0x2), TxRevertBehavior::NotAllowed),
-                        (hash(0x3), TxRevertBehavior::NotAllowed),
-                    ],
-                    false,
-                    0,
-                )],
-            ),
-        ];
-
-        let results = vec![
-            LandedOrderData::new(
-                order_id(0xb0),
-                i256(0x2 + 0x4 + 10 / 2),
-                i256(0x4 + 10 / 2),
-                None,
-                vec![((order_id(0xb1), hash(0x2)))],
-            ),
-            LandedOrderData::new(
-                order_id(0xb1),
-                i256(0x1 + 0x2 + 0x3),
-                i256(0x1 + 0x3),
-                None,
-                vec![((order_id(0xb0), hash(0x2)))],
-            ),
-        ];
-        assert_result(executed_block, orders, results);
-    }
-
-    #[test]
-    fn test_backruns_recorvery_with_out_of_order_txs_case_2() {
-        // bundle_i column indicate index of tx inside bundle and allow status
-        //
-        // bundle_0                         bundle_1_idx                 hash
-        // -----------------------------------------------------------------
-        // bundle_0:1:not_allowed:backrun                                0x1
-        // bundle_0:0:allow_excluded        bundle_1:0:allow_excluded    0x2
-        let executed_block = vec![
-            ExecutedBlockTx::new(hash(0x1), i256(10), true),
-            ExecutedBlockTx::new(hash(0x2), i256(0x2), true),
-        ];
-
-        let orders = vec![
-            SimplifiedOrder::new(
-                order_id(0xb0),
-                vec![
-                    OrderChunk::new(
-                        vec![(hash(0x2), TxRevertBehavior::AllowedExcluded)],
-                        false,
-                        0,
-                    ),
-                    OrderChunk::new(vec![(hash(0x1), TxRevertBehavior::NotAllowed)], false, 50),
-                ],
-            ),
-            SimplifiedOrder::new(
-                order_id(0xb1),
-                vec![OrderChunk::new(
-                    vec![(hash(0x2), TxRevertBehavior::AllowedExcluded)],
-                    false,
-                    0,
-                )],
-            ),
-        ];
-
-        let results = vec![
-            LandedOrderData::new(order_id(0xb0), i256(10 / 2), i256(10 / 2), None, vec![]),
-            LandedOrderData::new(order_id(0xb1), i256(0x2), i256(0x2), None, vec![]),
-        ];
-        assert_result(executed_block, orders, results);
-    }
-
-    #[test]
-    fn test_allow_included_tx_dropped() {
-        // this case can happen if tx with AllowIncluded was dropped because nonce is invalid
-        // we must allow skipping these kind of txs
-        let executed_block = vec![ExecutedBlockTx::new(hash(0x1), i256(0x1), true)];
-
-        let orders = vec![SimplifiedOrder::new(
-            order_id(0xb1),
-            vec![OrderChunk::new(
-                vec![
-                    (hash(0xc), TxRevertBehavior::AllowedIncluded),
-                    (hash(0x1), TxRevertBehavior::NotAllowed),
-                ],
-                false,
-                0,
-            )],
-        )];
-
-        let results = vec![LandedOrderData::new(
-            order_id(0xb1),
-            i256(0x1),
-            i256(0x1),
-            None,
-            vec![],
-        )];
-        assert_result(executed_block, orders, results);
     }
 }
