@@ -102,6 +102,7 @@ flate2.workspace = true
 mev-share-sse = { git = "https://github.com/paradigmxyz/mev-share-rs", rev = "9eb2b0138ab3202b9eb3af4b19c7b3bf40b0faa8", default-features = false }
 jsonrpsee = { version = "0.20.3", features = ["full"] }
 ssz_rs = { git = "https://github.com/ralexstokes/ssz-rs.git", version = "0.9.0" }
+# TODO: fix czkg
 beacon-api-client = { git = "https://github.com/ralexstokes/ethereum-consensus/", rev = "cf3c404043230559660810bc0c9d6d5a8498d819" }
 ethereum-consensus = { git = "https://github.com/ralexstokes/ethereum-consensus/", rev = "cf3c404043230559660810bc0c9d6d5a8498d819" }
 ssz_rs_derive = { git = "https://github.com/ralexstokes/ssz-rs.git", version = "0.9.0" }
@@ -137,6 +138,7 @@ parking_lot.workspace = true
 dashmap = "6.1.0"
 
 # IPC state provider deps
+# TODO: fix czkg
 reipc = { git = "https://github.com/nethermindeth/reipc.git", rev = "8a9c31f7a4b7dfdd828020222ae1ccdff802cbc9" }
 quick_cache = "0.6.11"
 
