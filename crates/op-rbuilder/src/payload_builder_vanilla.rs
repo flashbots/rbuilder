@@ -8,7 +8,7 @@ use alloy_consensus::{
     constants::EMPTY_WITHDRAWALS, transaction::Recovered, Eip658Value, Header, Transaction,
     TxEip1559, Typed2718, EMPTY_OMMER_ROOT_HASH,
 };
-use alloy_eips::merge::BEACON_NONCE;
+use alloy_eips::{eip7685::EMPTY_REQUESTS_HASH, merge::BEACON_NONCE};
 use alloy_op_evm::block::receipt_builder::OpReceiptBuilder;
 use alloy_primitives::{private::alloy_rlp::Encodable, Address, Bytes, TxHash, TxKind, U256};
 use alloy_rpc_types_engine::PayloadId;
@@ -652,6 +652,13 @@ impl<Txs> OpBuilder<'_, Txs> {
         let (excess_blob_gas, blob_gas_used) = ctx.blob_fields();
         let extra_data = ctx.extra_data()?;
 
+        // Isthmus require this param to be EMPTY_REQUESTS_HASH
+        let requests_hash = if ctx.is_isthmus_active() {
+            Some(EMPTY_REQUESTS_HASH)
+        } else {
+            None
+        };
+
         let header = Header {
             parent_hash: ctx.parent().hash(),
             ommers_hash: EMPTY_OMMER_ROOT_HASH,
@@ -673,7 +680,7 @@ impl<Txs> OpBuilder<'_, Txs> {
             parent_beacon_block_root: ctx.attributes().payload_attributes.parent_beacon_block_root,
             blob_gas_used,
             excess_blob_gas,
-            requests_hash: None,
+            requests_hash,
         };
 
         // seal the block
