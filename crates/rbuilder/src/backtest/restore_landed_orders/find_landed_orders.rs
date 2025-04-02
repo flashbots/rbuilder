@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use crate::{
     primitives::{Order, OrderId, ShareBundleBody, ShareBundleInner, TxRevertBehavior},
     utils::get_percent,
@@ -201,8 +203,8 @@ pub enum OrderIdentificationError {
     TxNotFound(B256),
     #[error("Tx reverted: {0}")]
     TxReverted(B256),
-    #[error("Tx is in incorrect position")]
-    TxIsIncorrectPosition,
+    #[error("Tx is in incorrect position: {0}")]
+    TxIsIncorrectPosition(B256),
     #[error("No landed txs found")]
     NoOrderTxs,
 }
@@ -334,7 +336,7 @@ fn find_order_chunk(
     block_data: &ExecutedBlockData,
     chunk: &OrderChunk,
 ) -> Result<FoundChunkData, OrderIdentificationError> {
-    // first we do a pass over chunk txs and try to exclude minimal subset so that resulting txs are in order
+    // first we do a pass over chunk txs and try to locate all included txs
     #[derive(Debug)]
     struct FoundTxData {
         block_idx: usize,
@@ -349,11 +351,11 @@ fn find_order_chunk(
             (idx, tx_data)
         } else {
             // tx was not found in the block
-            if revert != &TxRevertBehavior::AllowedExcluded {
+            if revert.can_revert() {
+                continue;
+            } else {
                 // tx not found
                 return Err(OrderIdentificationError::TxNotFound(*tx));
-            } else {
-                continue;
             }
         };
         found_txs.push(FoundTxData {
@@ -364,30 +366,46 @@ fn find_order_chunk(
             executed_block_tx: tx_data.clone(),
         });
     }
-    found_txs.sort_by_key(|txs| txs.block_idx);
-    let mut last_head_when_chunk_is_in_order = 0usize;
-    for i in 0..found_txs.len() {
-        if found_txs[i..].is_sorted_by_key(|d| d.chunk_idx) {
-            break;
-        }
-        last_head_when_chunk_is_in_order += 1;
-    }
 
-    for out_of_order_idx in 0..last_head_when_chunk_is_in_order {
-        let order_to_drop = &found_txs[out_of_order_idx];
-        if !order_to_drop.revert.can_revert() {
-            return Err(OrderIdentificationError::TxIsIncorrectPosition);
+    found_txs.sort_by_key(|txs| txs.chunk_idx);
+    // check if non-optional txs are in order
+    let mut last_block_idx = 0;
+    let mut found_txs_block_locations: Vec<Option<usize>> = vec![None; chunk.txs.len()];
+    for found_tx in &found_txs {
+        if found_tx.revert.can_revert() {
+            continue;
         }
+        if found_tx.block_idx < last_block_idx {
+            return Err(OrderIdentificationError::TxIsIncorrectPosition(found_tx.tx));
+        }
+        found_txs_block_locations[found_tx.chunk_idx] = Some(found_tx.block_idx);
+        last_block_idx = found_tx.block_idx;
     }
-    let found_txs = &found_txs[last_head_when_chunk_is_in_order..];
-
+    // now go over all optional txs and try to locate them
+    let mut result = Vec::new();
     for found_tx in found_txs {
+        if found_txs_block_locations[found_tx.chunk_idx].is_some() {
+            result.push(found_tx);
+            continue;
+        }
+        let allowed_block_range = find_allowed_range(
+            block_data.block_txs.len(),
+            found_tx.chunk_idx,
+            &found_txs_block_locations,
+        );
+        if allowed_block_range.contains(&found_tx.block_idx) {
+            found_txs_block_locations[found_tx.chunk_idx] = Some(found_tx.chunk_idx);
+            result.push(found_tx);
+        }
+    }
+
+    for found_tx in &result {
         if !found_tx.executed_block_tx.success && !found_tx.revert.can_revert() {
             return Err(OrderIdentificationError::TxReverted(found_tx.tx));
         }
     }
-    let txs = found_txs.iter().map(|d| d.tx).collect();
-    let last_tx_idx = found_txs.last().map(|d| d.block_idx).unwrap_or_default();
+    let txs = result.iter().map(|d| d.tx).collect();
+    let last_tx_idx = result.last().map(|d| d.block_idx).unwrap_or_default();
 
     Ok(FoundChunkData { txs, last_tx_idx })
 }
@@ -411,7 +429,9 @@ fn find_landed_order_data(
                 // we found the chunk
                 if data.last_tx_idx < idx_past_last_chunk {
                     // chunks are messed up, order not found
-                    return Err(OrderIdentificationError::TxIsIncorrectPosition);
+                    return Err(OrderIdentificationError::TxIsIncorrectPosition(
+                        chunk.txs.first().map(|t| t.0).unwrap_or_default(),
+                    ));
                 }
                 landed_txs.extend(data.txs.into_iter().map(|tx| (tx, chunk.kickback_percent)));
                 idx_past_last_chunk = data.last_tx_idx + 1;
@@ -432,6 +452,22 @@ fn find_landed_order_data(
     Ok(FoundOrderData { landed_txs })
 }
 
+fn find_allowed_range(
+    block_len: usize,
+    chunk_idx: usize,
+    chunk_txs_block_idx: &[Option<usize>],
+) -> Range<usize> {
+    let upper_bound = chunk_txs_block_idx[chunk_idx..]
+        .iter()
+        .find(|d| d.is_some())
+        .map(|d| d.unwrap());
+    let lower_bound = chunk_txs_block_idx[..chunk_idx]
+        .iter()
+        .rfind(|d| d.is_some())
+        .map(|d| d.unwrap() + 1);
+    lower_bound.unwrap_or_default()..upper_bound.unwrap_or(block_len)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -439,6 +475,22 @@ mod tests {
         primitives::{Bundle, MempoolTx, Refund, ShareBundle, ShareBundleTx, LAST_BUNDLE_VERSION},
         utils::test_utils::*,
     };
+
+    #[test]
+    fn test_find_allowed_range() {
+        let block_len = 100;
+        let cases: Vec<(usize, Vec<Option<usize>>, Range<usize>)> = vec![
+            (0, vec![None], 0..block_len),
+            (0, vec![None, Some(12)], 0..12),
+            (1, vec![Some(12), None], 13..block_len),
+            (1, vec![Some(12), None, Some(14)], 13..14),
+            (2, vec![Some(10), Some(12), None, Some(14)], 13..14),
+        ];
+        for (idx, (chunk_idx, chunk_txs_block_idx, expected)) in cases.into_iter().enumerate() {
+            let got = find_allowed_range(block_len, chunk_idx, &chunk_txs_block_idx);
+            assert_eq!(expected, got, "Test index: {}", idx);
+        }
+    }
 
     fn assert_result(
         executed_txs: Vec<ExecutedBlockTx>,
@@ -718,14 +770,14 @@ mod tests {
                 order_id(0xb3),
                 i256(0),
                 i256(0),
-                Some(OrderIdentificationError::TxIsIncorrectPosition),
+                Some(OrderIdentificationError::TxIsIncorrectPosition(hash(0x02))),
                 vec![],
             ),
             LandedOrderData::new(
                 order_id(0xb4),
                 i256(0),
                 i256(0),
-                Some(OrderIdentificationError::TxIsIncorrectPosition),
+                Some(OrderIdentificationError::TxIsIncorrectPosition(hash(0x02))),
                 vec![],
             ),
             LandedOrderData::new(
@@ -991,6 +1043,76 @@ mod tests {
                 vec![((order_id(0xb0), hash(0x2)))],
             ),
         ];
+        assert_result(executed_block, orders, results);
+    }
+
+    #[test]
+    fn test_backruns_recorvery_with_out_of_order_txs_case_2() {
+        // bundle_i column indicate index of tx inside bundle and allow status
+        //
+        // bundle_0                         bundle_1_idx                 hash
+        // -----------------------------------------------------------------
+        // bundle_0:1:not_allowed:backrun                                0x1
+        // bundle_0:0:allow_excluded        bundle_1:0:allow_excluded    0x2
+        let executed_block = vec![
+            ExecutedBlockTx::new(hash(0x1), i256(10), true),
+            ExecutedBlockTx::new(hash(0x2), i256(0x2), true),
+        ];
+
+        let orders = vec![
+            SimplifiedOrder::new(
+                order_id(0xb0),
+                vec![
+                    OrderChunk::new(
+                        vec![(hash(0x2), TxRevertBehavior::AllowedExcluded)],
+                        false,
+                        0,
+                    ),
+                    OrderChunk::new(vec![(hash(0x1), TxRevertBehavior::NotAllowed)], false, 50),
+                ],
+            ),
+            SimplifiedOrder::new(
+                order_id(0xb1),
+                vec![OrderChunk::new(
+                    vec![(hash(0x2), TxRevertBehavior::AllowedExcluded)],
+                    false,
+                    0,
+                )],
+            ),
+        ];
+
+        let results = vec![
+            LandedOrderData::new(order_id(0xb0), i256(10 / 2), i256(10 / 2), None, vec![]),
+            LandedOrderData::new(order_id(0xb1), i256(0x2), i256(0x2), None, vec![]),
+        ];
+        assert_result(executed_block, orders, results);
+    }
+
+    #[test]
+    fn test_allow_included_tx_dropped() {
+        // this case can happen if tx with AllowIncluded was dropped because nonce is invalid
+        // we must allow skipping these kind of txs
+        let executed_block = vec![ExecutedBlockTx::new(hash(0x1), i256(0x1), true)];
+
+        let orders = vec![SimplifiedOrder::new(
+            order_id(0xb1),
+            vec![OrderChunk::new(
+                vec![
+                    (hash(0xc), TxRevertBehavior::AllowedIncluded),
+                    (hash(0x1), TxRevertBehavior::NotAllowed),
+                ],
+                false,
+                0,
+            )],
+        )];
+
+        let results = vec![LandedOrderData::new(
+            order_id(0xb1),
+            i256(0x1),
+            i256(0x1),
+            None,
+            vec![],
+        )];
         assert_result(executed_block, orders, results);
     }
 }
