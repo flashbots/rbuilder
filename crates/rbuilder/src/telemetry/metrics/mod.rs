@@ -6,8 +6,8 @@
 //! When metric server is spawned is serves prometheus metrics at: /debug/metrics/prometheus
 
 #![allow(unexpected_cfgs)]
-use crate::building::BuiltBlockTrace;
 use crate::{
+    building::BuiltBlockTrace,
     live_builder::block_list_provider::{blocklist_hash, BlockList},
     primitives::mev_boost::MevBoostRelayID,
     utils::build_info::Version,
@@ -21,9 +21,10 @@ use prometheus::{
     Counter, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Opts,
     Registry,
 };
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
-use std::time::Instant;
+use std::{
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 use time::OffsetDateTime;
 use tracing::error;
 
@@ -177,6 +178,14 @@ register_metrics! {
         &["worker_id"]
     )
     .unwrap();
+    pub static SIMULATION_PRECOMPILE_CACHE_HITS: IntCounter = IntCounter::new(
+        "simulation_precompile_cache_hits",
+        "Precompile cache hits"
+    ).unwrap();
+    pub static SIMULATION_PRECOMPILE_CACHE_MISSES: IntCounter = IntCounter::new(
+        "simulation_precompile_cache_misses",
+        "Precompile cache misses"
+    ).unwrap();
     pub static PROVIDER_REOPEN_COUNTER: IntCounter = IntCounter::new(
         "provider_reopen_counter", "Counter of provider reopens").unwrap();
 
@@ -502,6 +511,14 @@ pub fn add_sim_thread_utilisation_timings(
     SIMULATION_THREAD_WAIT_TIME
         .with_label_values(&[&thread_id.to_string()])
         .inc_by(wait_time.as_micros() as u64);
+}
+
+pub fn inc_precompile_cache_hits() {
+    SIMULATION_PRECOMPILE_CACHE_HITS.inc();
+}
+
+pub fn inc_precompile_cache_misses() {
+    SIMULATION_PRECOMPILE_CACHE_MISSES.inc();
 }
 
 /// landed vs attempt

@@ -1,5 +1,4 @@
-use std::{num::NonZeroUsize, sync::Arc};
-
+use crate::telemetry::{inc_precompile_cache_hits, inc_precompile_cache_misses};
 use ahash::HashMap;
 use alloy_primitives::{Address, Bytes};
 use derive_more::{Deref, DerefMut};
@@ -17,6 +16,7 @@ use revm::{
     primitives::hardfork::SpecId,
     Context, Database, Inspector,
 };
+use std::{num::NonZeroUsize, sync::Arc};
 
 /// A precompile cache that stores precompile call results by precompile address.
 #[derive(Deref, DerefMut, Default, Debug)]
@@ -71,9 +71,12 @@ impl<CTX: ContextTr, P: PrecompileProvider<CTX, Output = InterpreterResult>> Pre
         // get the result if it exists
         if let Some(precompiles) = cache.get_mut(address) {
             if let Some(result) = precompiles.get(&key) {
+                inc_precompile_cache_hits();
                 return result.clone().map(Some);
             }
         }
+
+        inc_precompile_cache_misses();
 
         // call the precompile if cache miss
         let output = self.precompile.run(context, address, bytes, gas_limit);

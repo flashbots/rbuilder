@@ -94,13 +94,14 @@ impl SimulationJob {
         info!(
             ?self.orders_received,
             ?self.orders_simulated_ok,
-        bundles_with_replace = self.orders_with_replacement_key,
-        unique_replace_count = self.unique_replacement_key_bundles.len(),
-        bundles_with_replace_sim_ok = self.orders_with_replacement_key_sim_ok,
-        unique_replace_count_sim_ok = self.unique_replacement_key_bundles_sim_ok.len(),
-            "Stopping simulation job "
+            bundles_with_replace = self.orders_with_replacement_key,
+            unique_replace_count = self.unique_replacement_key_bundles.len(),
+            bundles_with_replace_sim_ok = self.orders_with_replacement_key_sim_ok,
+            unique_replace_count_sim_ok = self.unique_replacement_key_bundles_sim_ok.len(),
+            "Stopping simulation job"
         );
     }
+
     async fn run_no_trace(&mut self) {
         let mut new_commands = Vec::new();
         let mut new_sim_results = Vec::new();
@@ -186,8 +187,7 @@ impl SimulationJob {
         for sim_result in new_sim_results {
             trace!(order_id=?sim_result.simulated_order.order.id(),
             sim_duration_mus = sim_result.simulation_time.as_micros(),
-            profit = format_ether(sim_result.simulated_order.sim_value.coinbase_profit),
-            "Order simulated");
+            profit = format_ether(sim_result.simulated_order.sim_value.coinbase_profit), "Order simulated");
             self.orders_simulated_ok
                 .accumulate(&sim_result.simulated_order.order);
             if let Some(repl_key) = sim_result.simulated_order.order.replacement_key() {
