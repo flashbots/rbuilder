@@ -84,7 +84,7 @@ revm = { version = "20.0.0-alpha.6", features = [
     "secp256k1",
     "optional_balance_check",
 ], default-features = false }
-revm-inspectors = "0.17.0-alpha.1"
+revm-inspectors = { version = "0.17.0-alpha.1", default-features = false }
 op-revm = { version = "1.0.0-alpha.5", default-features = false }
 
 ethereum_ssz_derive = "0.8"

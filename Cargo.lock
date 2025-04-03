@@ -3623,7 +3623,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sha2 0.10.8",
- "ssz_rs 0.9.0 (git+https://github.com/ralexstokes/ssz-rs?rev=84ef2b71aa004f6767420badb42c902ad56b8b72)",
+ "ssz_rs",
  "thiserror 1.0.69",
  "tokio",
  "tokio-stream",
@@ -8573,19 +8573,14 @@ dependencies = [
  "alloy-node-bindings",
  "alloy-primitives 0.8.23",
  "alloy-provider",
- "alloy-pubsub",
  "alloy-rlp",
  "alloy-rpc-types",
  "alloy-rpc-types-beacon",
  "alloy-rpc-types-engine",
  "alloy-rpc-types-eth 0.12.6",
- "alloy-serde 0.12.6",
  "alloy-signer-local",
- "alloy-transport",
- "alloy-transport-http",
  "assert_matches",
  "async-trait",
- "atoi",
  "beacon-api-client",
  "bigdecimal 0.4.6",
  "built",
@@ -8593,7 +8588,6 @@ dependencies = [
  "criterion 0.5.1",
  "crossbeam",
  "crossbeam-queue",
- "csv",
  "ctor",
  "dashmap 6.1.0",
  "derivative",
@@ -8609,7 +8603,6 @@ dependencies = [
  "foldhash",
  "futures",
  "governor",
- "humantime",
  "integer-encoding",
  "itertools 0.11.0",
  "jsonrpsee 0.20.4",
@@ -8620,7 +8613,6 @@ dependencies = [
  "metrics_macros",
  "mev-share-sse",
  "mockall",
- "once_cell",
  "parking_lot",
  "primitive-types",
  "priority-queue",
@@ -8628,11 +8620,9 @@ dependencies = [
  "quick_cache",
  "rand 0.8.5",
  "rayon",
- "redis",
  "reipc",
  "reqwest 0.12.9",
  "reth",
- "reth-basic-payload-builder",
  "reth-chainspec",
  "reth-db",
  "reth-db-common",
@@ -8657,8 +8647,6 @@ dependencies = [
  "sha2 0.10.8",
  "shellexpand",
  "sqlx",
- "ssz_rs 0.9.0 (git+https://github.com/ralexstokes/ssz-rs.git)",
- "ssz_rs_derive 0.9.0 (git+https://github.com/ralexstokes/ssz-rs.git)",
  "sysperf",
  "tempfile",
  "test_utils",
@@ -8670,11 +8658,9 @@ dependencies = [
  "toml 0.8.19",
  "tracing",
  "tracing-subscriber",
- "tungstenite 0.23.0",
  "url",
  "uuid",
  "warp",
- "zip",
 ]
 
 [[package]]
@@ -8682,21 +8668,6 @@ name = "recvmsg"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3edd4d5d42c92f0a659926464d4cce56b562761267ecf0f469d85b7de384175"
-
-[[package]]
-name = "redis"
-version = "0.25.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e0d7a6955c7511f60f3ba9e86c6d02b3c3f144f8c24b288d1f4e18074ab8bbec"
-dependencies = [
- "combine",
- "itoa",
- "percent-encoding",
- "ryu",
- "sha1_smol",
- "socket2",
- "url",
-]
 
 [[package]]
 name = "redox_syscall"
@@ -13302,35 +13273,13 @@ dependencies = [
  "bitvec",
  "serde",
  "sha2 0.9.9",
- "ssz_rs_derive 0.9.0 (git+https://github.com/ralexstokes/ssz-rs?rev=84ef2b71aa004f6767420badb42c902ad56b8b72)",
-]
-
-[[package]]
-name = "ssz_rs"
-version = "0.9.0"
-source = "git+https://github.com/ralexstokes/ssz-rs.git#ec3073e2273b4d0873fcb6df68ff4eff79588e92"
-dependencies = [
- "alloy-primitives 0.8.23",
- "bitvec",
- "serde",
- "sha2 0.9.9",
- "ssz_rs_derive 0.9.0 (git+https://github.com/ralexstokes/ssz-rs.git)",
+ "ssz_rs_derive",
 ]
 
 [[package]]
 name = "ssz_rs_derive"
 version = "0.9.0"
 source = "git+https://github.com/ralexstokes/ssz-rs?rev=84ef2b71aa004f6767420badb42c902ad56b8b72#84ef2b71aa004f6767420badb42c902ad56b8b72"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
-
-[[package]]
-name = "ssz_rs_derive"
-version = "0.9.0"
-source = "git+https://github.com/ralexstokes/ssz-rs.git#ec3073e2273b4d0873fcb6df68ff4eff79588e92"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -14384,24 +14333,6 @@ dependencies = [
  "sha1",
  "thiserror 1.0.69",
  "url",
- "utf-8",
-]
-
-[[package]]
-name = "tungstenite"
-version = "0.23.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e2e2ce1e47ed2994fd43b04c8f618008d4cabdd5ee34027cf14f9d918edd9c8"
-dependencies = [
- "byteorder",
- "bytes",
- "data-encoding",
- "http 1.1.0",
- "httparse",
- "log",
- "rand 0.8.5",
- "sha1",
- "thiserror 1.0.69",
  "utf-8",
 ]
 
