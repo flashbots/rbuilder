@@ -18,11 +18,14 @@ use alloy_eips::eip4844::{DATA_GAS_PER_BLOB, MAX_DATA_GAS_PER_BLOCK};
 use alloy_primitives::{Address, B256, U256};
 use reth::revm::{cached::CachedReads, database::StateProviderDatabase};
 use reth_errors::ProviderError;
-use reth_evm::{EthEvmFactory, Evm, EvmEnv, EvmFactory};
+use reth_evm::{Evm, EvmEnv, EvmFactory};
 use reth_primitives::Receipt;
 use reth_provider::{StateProvider, StateProviderBox};
 use revm::{
-    context::result::ResultAndState,
+    context::{
+        result::{HaltReason, ResultAndState},
+        TxEnv,
+    },
     context_interface::result::{EVMError, ExecutionResult, InvalidTransaction},
     database::{states::bundle_state::BundleRetention, BundleState, State, WrapDatabaseRef},
     Database, DatabaseCommit,
@@ -1213,14 +1216,21 @@ fn update_nonce_list_with_updates(
 ///
 /// Gas checks must be done before calling this methods
 /// thats why it can't return `TransactionErr::GasLeft` and  `TransactionErr::BlobGasLeft`
-fn execute_evm(
-    evm_factory: &EthEvmFactory,
-    evm_env: EvmEnv,
+fn execute_evm<Factory>(
+    evm_factory: &Factory,
+    evm_env: EvmEnv<Factory::Spec>,
     tx_with_blobs: &TransactionSignedEcRecoveredWithBlobs,
     used_state_tracer: Option<&mut UsedStateTrace>,
     db: impl Database<Error = ProviderError>,
     blocklist: &HashSet<Address>,
-) -> Result<Result<ResultAndState, TransactionErr>, CriticalCommitOrderError> {
+) -> Result<Result<ResultAndState, TransactionErr>, CriticalCommitOrderError>
+where
+    Factory: EvmFactory<
+        Tx = TxEnv,
+        HaltReason = HaltReason,
+        Error<ProviderError> = EVMError<ProviderError>,
+    >,
+{
     let tx = tx_with_blobs.internal_tx_unsecure();
     let mut rbuilder_inspector = RBuilderEVMInspector::new(tx, used_state_tracer);
 

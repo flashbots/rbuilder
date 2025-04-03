@@ -1,21 +1,3 @@
-pub mod block_orders;
-pub mod builders;
-pub mod built_block_trace;
-#[cfg(test)]
-pub mod conflict;
-pub mod evm_inspector;
-pub mod fmt;
-pub mod order_commit;
-pub mod payout_tx;
-pub mod sim;
-pub mod testing;
-pub mod tracers;
-use alloy_consensus::{Header, EMPTY_OMMER_ROOT_HASH};
-use alloy_primitives::{Address, Bytes, U256};
-use builders::mock_block_building_helper::MockRootHasher;
-use reth_primitives::BlockBody;
-use reth_primitives_traits::{proofs, Block as _};
-
 use crate::{
     live_builder::{block_list_provider::BlockList, payload_events::InternalPayloadId},
     primitives::{Order, OrderId, SimValue, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs},
@@ -23,6 +5,7 @@ use crate::{
     roothash::RootHashError,
     utils::{a2r_withdrawal, default_cfg_env, timestamp_as_u64, Signer},
 };
+use alloy_consensus::{Header, EMPTY_OMMER_ROOT_HASH};
 use alloy_eips::{
     eip1559::{calculate_block_gas_limit, ETHEREUM_BLOCK_GAS_LIMIT_30M},
     eip4844::BlobTransactionSidecar,
@@ -32,9 +15,10 @@ use alloy_eips::{
     merge::BEACON_NONCE,
 };
 use alloy_evm::{block::system_calls::SystemCaller, env::EvmEnv, eth::eip6110};
-use alloy_primitives::B256;
+use alloy_primitives::{Address, Bytes, B256, U256};
 use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
 use jsonrpsee::core::Serialize;
+use precompile_cache::EthCachedEvmFactory;
 use reth::{
     payload::PayloadId,
     primitives::{Block, Receipt, SealedBlock},
@@ -43,10 +27,12 @@ use reth::{
 };
 use reth_chainspec::{ChainSpec, EthereumHardforks};
 use reth_errors::{BlockExecutionError, BlockValidationError, ProviderError};
-use reth_evm::{ConfigureEvm, EthEvmFactory, NextBlockEnvAttributes};
+use reth_evm::{ConfigureEvm, NextBlockEnvAttributes};
 use reth_evm_ethereum::{revm_spec_by_timestamp_and_block_number, EthEvmConfig};
 use reth_node_api::{EngineApiMessageVersion, PayloadBuilderAttributes};
 use reth_payload_builder::EthPayloadBuilderAttributes;
+use reth_primitives::BlockBody;
+use reth_primitives_traits::{proofs, Block as _};
 use revm::{
     context::BlockEnv,
     context_interface::{block::BlobExcessGasAndPrice, result::InvalidTransaction},
@@ -64,18 +50,31 @@ use std::{
 use thiserror::Error;
 use time::OffsetDateTime;
 
-use self::tracers::SimulationTracer;
-pub use block_orders::*;
-pub use built_block_trace::*;
+pub mod block_orders;
+pub mod builders;
+pub mod built_block_trace;
+#[cfg(test)]
+pub mod conflict;
+pub mod evm_inspector;
+pub mod fmt;
+pub mod order_commit;
+pub mod payout_tx;
+pub mod precompile_cache;
+pub mod sim;
+pub mod testing;
+pub mod tracers;
+
+pub use self::{
+    block_orders::*, builders::mock_block_building_helper::MockRootHasher, built_block_trace::*,
+    order_commit::*, payout_tx::*, sim::simulate_order, tracers::SimulationTracer,
+};
+
 #[cfg(test)]
 pub use conflict::*;
-pub use order_commit::*;
-pub use payout_tx::*;
-pub use sim::simulate_order;
 
 #[derive(Debug, Clone)]
 pub struct BlockBuildingContext {
-    pub evm_factory: EthEvmFactory,
+    pub evm_factory: EthCachedEvmFactory,
     pub evm_env: EvmEnv,
     pub attributes: EthPayloadBuilderAttributes,
     pub chain_spec: Arc<ChainSpec>,
@@ -164,7 +163,7 @@ impl BlockBuildingContext {
             )
         });
         Some(BlockBuildingContext {
-            evm_factory: EthEvmFactory::default(),
+            evm_factory: EthCachedEvmFactory::default(),
             evm_env,
             attributes,
             chain_spec,
@@ -247,7 +246,7 @@ impl BlockBuildingContext {
             )
         });
         BlockBuildingContext {
-            evm_factory: EthEvmFactory::default(),
+            evm_factory: EthCachedEvmFactory::default(),
             evm_env,
             attributes,
             chain_spec,
