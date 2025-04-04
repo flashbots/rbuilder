@@ -1,5 +1,5 @@
 use alloy_consensus::SignableTransaction;
-use alloy_primitives::{Address, PrimitiveSignature, B256, U256};
+use alloy_primitives::{Address, PrimitiveSignature as Signature, B256, U256};
 use reth_primitives::{public_key_to_address, Recovered, Transaction, TransactionSigned};
 use secp256k1::{Message, SecretKey, SECP256K1};
 
@@ -20,12 +20,12 @@ impl Signer {
         Ok(Self { address, secret })
     }
 
-    pub fn sign_message(&self, message: B256) -> Result<PrimitiveSignature, secp256k1::Error> {
+    pub fn sign_message(&self, message: B256) -> Result<Signature, secp256k1::Error> {
         let s = SECP256K1
             .sign_ecdsa_recoverable(&Message::from_digest_slice(&message[..])?, &self.secret);
         let (rec_id, data) = s.serialize_compact();
 
-        let signature = PrimitiveSignature::new(
+        let signature = Signature::new(
             U256::try_from_be_slice(&data[..32]).expect("The slice has at most 32 bytes"),
             U256::try_from_be_slice(&data[32..64]).expect("The slice has at most 32 bytes"),
             i32::from(rec_id) != 0,
