@@ -7,6 +7,7 @@ use alloy_consensus::{
     constants::EMPTY_WITHDRAWALS, Eip658Value, Header, Transaction, Typed2718,
     EMPTY_OMMER_ROOT_HASH,
 };
+use alloy_eips::eip7685::EMPTY_REQUESTS_HASH;
 use alloy_eips::{merge::BEACON_NONCE, Encodable2718};
 use alloy_op_evm::block::receipt_builder::OpReceiptBuilder;
 use alloy_primitives::{map::HashMap, Address, Bytes, B256, U256};
@@ -629,6 +630,13 @@ where
     let (excess_blob_gas, blob_gas_used) = ctx.blob_fields();
     let extra_data = ctx.extra_data()?;
 
+    // Isthmus require this param to be EMPTY_REQUESTS_HASH
+    let requests_hash = if ctx.is_isthmus_active() {
+        Some(EMPTY_REQUESTS_HASH)
+    } else {
+        None
+    };
+
     let header = Header {
         parent_hash: ctx.parent().hash(),
         ommers_hash: EMPTY_OMMER_ROOT_HASH,
@@ -650,7 +658,7 @@ where
         parent_beacon_block_root: ctx.attributes().payload_attributes.parent_beacon_block_root,
         blob_gas_used,
         excess_blob_gas,
-        requests_hash: None,
+        requests_hash,
     };
 
     // seal the block
@@ -910,6 +918,12 @@ where
     pub fn is_holocene_active(&self) -> bool {
         self.chain_spec
             .is_holocene_active_at_timestamp(self.attributes().timestamp())
+    }
+
+    /// Returns true if isthmus is active for the payload.
+    pub fn is_isthmus_active(&self) -> bool {
+        self.chain_spec
+            .is_isthmus_active_at_timestamp(self.attributes().timestamp())
     }
 }
 
