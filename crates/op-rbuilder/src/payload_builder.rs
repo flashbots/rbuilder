@@ -60,7 +60,7 @@ use revm::{
     database::{states::bundle_state::BundleRetention, BundleState, State},
     DatabaseCommit,
 };
-use rollup_boost::{
+use rollup_boost::primitives::{
     ExecutionPayloadBaseV1, ExecutionPayloadFlashblockDeltaV1, FlashblocksPayloadV1,
 };
 use serde::{Deserialize, Serialize};

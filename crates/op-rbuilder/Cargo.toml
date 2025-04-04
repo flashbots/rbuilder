@@ -90,8 +90,7 @@ rand = "0.8.5"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 
 # `flashblocks` branch
-# TODO: replce back to flashbots once https://github.com/flashbots/rollup-boost/pull/162 is merged
-rollup-boost = { git = "http://github.com/SozinM/rollup-boost", rev = "e307d4922c7a5aaf59c44503c7af73c91bd3c9a6" }
+rollup-boost = { git = "http://github.com/flashbots/rollup-boost", rev = "b4de9bf695b47497e678dc84045cbd1dc0f17cb2" }
 
 [target.'cfg(unix)'.dependencies]
 tikv-jemallocator = { version = "0.6", optional = true }
@@ -124,7 +123,6 @@ flashblocks = []
 name = "op-rbuilder"
 path = "src/main.rs"
 
-# TODO: disabled because relies on this https://github.com/flashbots/rollup-boost/pull/98, we need this merged
-#[[bin]]
-#name = "tester"
-#path = "src/tester/main.rs"
+[[bin]]
+name = "tester"
+path = "src/tester/main.rs"
