@@ -140,6 +140,19 @@ graph LR
     run_trie_prefetcher("🔄**run_trie_prefetcher**")
     run_trie_prefetcher--polls-->BrSimChannel
 ```
+## Best block selection / Block multiplexing
+It's important to note that, due to order cancellations, block `true block value` for a building algorithm can decrease over time.
+That means that we should not bid all the received blocks but only the best among all the running building algorithms.
+Example with 2 building algorithms A and B:
+|            | time |    |    |    |
+|------------|------|----|----|----| 
+|            | 1    | 2  | 3  | 4  |
+| A          | 1    | 4  | 4  | 2  |
+| B          | 0    | 2  | 3  | 3  |
+| UsedBlock  | 1(A) | 4(A)| 4(A)| 3(B)|
+
+Notice how at time 4, A went down so B started to win with an old block of `true block value` 3.
+This task is accomplished by the [UnfinishedBlockBuildingSinkMuxer](../crates/rbuilder/src/live_builder/building/unfinished_block_building_sink_muxer.rs) which is just another `UnfinishedBlockBuildingSink` receiving all the blocks and sending the best to a `UnfinishedBlockBuildingSink` in the next stage.
 
 ## Block sealing and bidding (specific for L1 bidding)
 
