@@ -20,7 +20,7 @@ jobs:
     strategy:
       matrix:
         toolchain:
-          - stable
+          - nightly
         features:
           - ""
     steps:
