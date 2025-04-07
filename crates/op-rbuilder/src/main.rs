@@ -2,8 +2,7 @@ use clap::Parser;
 use monitoring::Monitoring;
 use reth::providers::CanonStateSubscriptions;
 use reth_optimism_cli::{chainspec::OpChainSpecParser, Cli};
-use reth_optimism_node::node::OpAddOnsBuilder;
-use reth_optimism_node::OpNode;
+use reth_optimism_node::{node::OpAddOnsBuilder, OpNode};
 
 #[cfg(feature = "flashblocks")]
 use payload_builder::CustomOpPayloadBuilder;

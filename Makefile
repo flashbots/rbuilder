@@ -28,8 +28,12 @@ build: ## Build (debug version)
 	cargo build --features "$(FEATURES)"
 
 .PHONY: docker-image-rbuilder
-docker-image-rubilder: ## Build a rbuilder Docker image
+docker-image-rbuilder: ## Build a rbuilder Docker image
 	docker build --platform linux/amd64 --target rbuilder-runtime --build-arg FEATURES="$(FEATURES)"  . -t rbuilder
+
+.PHONY: docker-image-op-rbuilder
+docker-image-op-rbuilder: ## Build a rbuilder Docker image
+	docker build --platform linux/amd64 --target rbuilder-runtime --build-arg FEATURES="$(FEATURES)" --file Dockerfile.op-rbuilder . -t op-rbuilder
 
 .PHONY: docker-image-test-relay
 docker-image-test-relay: ## Build a test relay Docker image
@@ -39,9 +43,9 @@ docker-image-test-relay: ## Build a test relay Docker image
 
 .PHONY: lint
 lint: ## Run the linters
-	cargo fmt -- --check
-	cargo clippy --features "$(FEATURES)" -- -D warnings
-	cargo clippy -p op-rbuilder --features "$(FEATURES)" -- -D warnings
+	cargo +nightly fmt -- --check
+	cargo +nightly clippy --features "$(FEATURES)" -- -D warnings
+	cargo +nightly clippy -p op-rbuilder --features "$(FEATURES)" -- -D warnings
 
 .PHONY: test
 test: ## Run the tests for rbuilder and op-rbuilder
@@ -54,10 +58,10 @@ lt: lint test ## Run "lint" and "test"
 
 .PHONY: fmt
 fmt: ## Format the code
-	cargo fmt
-	cargo fix --allow-staged
-	cargo clippy --features "$(FEATURES)" --fix --allow-staged
-	cargo clippy -p op-rbuilder --features "$(FEATURES)" --fix --allow-staged
+	cargo +nightly fmt
+	cargo +nightly fix --allow-staged
+	cargo +nightly clippy --features "$(FEATURES)" --fix --allow-staged
+	cargo +nightly clippy -p op-rbuilder --features "$(FEATURES)" --fix --allow-staged
 
 .PHONY: bench
 bench: ## Run benchmarks

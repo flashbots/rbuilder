@@ -62,8 +62,8 @@ use reth_primitives::StaticFileSegment;
 use reth_provider::StaticFileProviderFactory;
 use serde::Deserialize;
 use serde_with::{serde_as, OneOrMany};
-use std::collections::HashMap;
 use std::{
+    collections::HashMap,
     fmt::Debug,
     path::{Path, PathBuf},
     str::FromStr,

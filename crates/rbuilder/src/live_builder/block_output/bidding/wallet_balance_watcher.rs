@@ -6,8 +6,10 @@ use time::{error, OffsetDateTime};
 use tracing::{error, info, warn};
 
 use super::interfaces::LandedBlockInfo;
-use crate::provider::StateProviderFactory;
-use crate::telemetry::{add_subsidy_value, inc_subsidized_blocks};
+use crate::{
+    provider::StateProviderFactory,
+    telemetry::{add_subsidy_value, inc_subsidized_blocks},
+};
 
 /// Allows to monitor the evolution of our wallet for the landed blocks.
 /// It's useful for bidders to detect profit and subsidies.

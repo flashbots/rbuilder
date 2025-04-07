@@ -1,5 +1,4 @@
-use crate::live_builder::simulation::SimulatedOrderCommand;
-use crate::roothash::RootHashError;
+use crate::{live_builder::simulation::SimulatedOrderCommand, roothash::RootHashError};
 use alloy_consensus::Header;
 use alloy_eips::BlockNumHash;
 use alloy_primitives::{BlockHash, BlockNumber, B256};

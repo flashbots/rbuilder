@@ -5,8 +5,7 @@ use crate::{
     sparse_mpt::{AddNodeError, FixedTrie},
     utils::HashMap,
 };
-use alloy_primitives::Bytes;
-use alloy_primitives::B256;
+use alloy_primitives::{Bytes, B256};
 use alloy_trie::Nibbles;
 
 /// SparseTrieSharedCache is a storage for fetched parts of the ethereum tries

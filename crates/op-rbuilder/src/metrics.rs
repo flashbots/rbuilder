@@ -1,4 +1,7 @@
-use reth_metrics::{metrics::Counter, metrics::Gauge, metrics::Histogram, Metrics};
+use reth_metrics::{
+    metrics::{Counter, Gauge, Histogram},
+    Metrics,
+};
 
 /// op-rbuilder metrics
 #[derive(Metrics, Clone)]

@@ -1,11 +1,11 @@
-use crate::roothash::RootHashContext;
-use crate::utils::RootHasherImpl;
+use crate::{roothash::RootHashContext, utils::RootHasherImpl};
 use alloy_consensus::Header;
 use alloy_eips::BlockNumHash;
 use alloy_primitives::{BlockHash, BlockNumber, B256};
 use reth_errors::ProviderResult;
-use reth_provider::{BlockReader, DatabaseProviderFactory, HeaderProvider};
-use reth_provider::{StateCommitmentProvider, StateProviderBox};
+use reth_provider::{
+    BlockReader, DatabaseProviderFactory, HeaderProvider, StateCommitmentProvider, StateProviderBox,
+};
 use tracing::error;
 
 use super::{RootHasher, StateProviderFactory};
