@@ -3,7 +3,7 @@ use ahash::HashMap;
 use alloy_primitives::{Address, Bytes};
 use derive_more::{Deref, DerefMut};
 use lru::LruCache;
-use parking_lot::RwLock;
+use parking_lot::Mutex;
 use reth_evm::{eth::EthEvmContext, EthEvm, EthEvmFactory, EvmEnv, EvmFactory};
 use revm::{
     context::{
@@ -31,7 +31,7 @@ pub struct WrappedPrecompile<P> {
     /// The precompile to wrap.
     precompile: P,
     /// The cache to use.
-    cache: Arc<RwLock<PrecompileCache>>,
+    cache: Arc<Mutex<PrecompileCache>>,
     /// The spec id to use.
     spec: SpecId,
 }
@@ -39,7 +39,7 @@ pub struct WrappedPrecompile<P> {
 impl<P> WrappedPrecompile<P> {
     /// Given a [`PrecompileProvider`] and cache for a specific precompiles, create a
     /// wrapper that can be used inside Evm.
-    pub fn new(precompile: P, cache: Arc<RwLock<PrecompileCache>>) -> Self {
+    pub fn new(precompile: P, cache: Arc<Mutex<PrecompileCache>>) -> Self {
         WrappedPrecompile {
             precompile,
             cache: cache.clone(),
@@ -65,11 +65,10 @@ impl<CTX: ContextTr, P: PrecompileProvider<CTX, Output = InterpreterResult>> Pre
         bytes: &Bytes,
         gas_limit: u64,
     ) -> Result<Option<Self::Output>, String> {
-        let mut cache = self.cache.write();
         let key = (self.spec, bytes.clone(), gas_limit);
 
         // get the result if it exists
-        if let Some(precompiles) = cache.get_mut(address) {
+        if let Some(precompiles) = self.cache.lock().get_mut(address) {
             if let Some(result) = precompiles.get(&key) {
                 inc_precompile_cache_hits();
                 return result.clone().map(Some);
@@ -83,7 +82,8 @@ impl<CTX: ContextTr, P: PrecompileProvider<CTX, Output = InterpreterResult>> Pre
 
         if let Some(output) = output.clone().transpose() {
             // insert the result into the cache
-            cache
+            self.cache
+                .lock()
                 .entry(*address)
                 .or_insert(PrecompileResultCache::new(NonZeroUsize::new(2048).unwrap()))
                 .put(key, output);
@@ -104,7 +104,7 @@ impl<CTX: ContextTr, P: PrecompileProvider<CTX, Output = InterpreterResult>> Pre
 #[derive(Debug, Clone, Default)]
 pub struct EthCachedEvmFactory {
     evm_factory: EthEvmFactory,
-    cache: Arc<RwLock<PrecompileCache>>,
+    cache: Arc<Mutex<PrecompileCache>>,
 }
 
 impl EvmFactory for EthCachedEvmFactory {
