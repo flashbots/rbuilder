@@ -77,7 +77,7 @@ jobs:
           # - target: aarch64-apple-darwin
           #   runner: warp-macos-14-arm64-6x
         features:
-          - ${{ github.event.inputs.features }}${{ github.event.inputs.features && ',' }}optimism
+          - ${{ github.event.inputs.features || '' }}
 
     steps:
       - name: Install dependencies
@@ -162,7 +162,7 @@ jobs:
     strategy:
       matrix:
         features:
-          - ${{ github.event.inputs.features }}${{ github.event.inputs.features && ',' }}optimism
+          - ${{ github.event.inputs.features || '' }}
     steps:
       - name: checkout sources
         uses: actions/checkout@v4
