@@ -14,8 +14,14 @@ pub struct OpRBuilderMetrics {
     pub builder_landed_blocks_missed: Gauge,
     /// Block built success
     pub block_built_success: Counter,
+    /// Number of flashblocks added to block (Total per block)
+    pub flashblock_count: Histogram,
+    /// Number of messages sent
+    pub messages_sent_count: Counter,
     /// Total duration of building a block
     pub total_block_built_duration: Histogram,
+    /// Number of invalid blocks
+    pub invalid_blocks_count: Counter,
     /// Duration of fetching transactions from the pool
     pub transaction_pool_fetch_duration: Histogram,
     /// Duration of state root calculation
