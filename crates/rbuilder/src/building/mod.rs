@@ -17,13 +17,13 @@ use alloy_eips::{
 use alloy_evm::{block::system_calls::SystemCaller, env::EvmEnv, eth::eip6110};
 use alloy_primitives::{Address, Bytes, B256, U256};
 use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
+use cached_reads::{LocalCachedReads, SharedCachedReads};
 use jsonrpsee::core::Serialize;
 use precompile_cache::EthCachedEvmFactory;
 use reth::{
     payload::PayloadId,
     primitives::{Block, Receipt, SealedBlock},
     providers::ExecutionOutcome,
-    revm::cached::CachedReads,
 };
 use reth_chainspec::{ChainSpec, EthereumHardforks};
 use reth_errors::{BlockExecutionError, BlockValidationError, ProviderError};
@@ -53,6 +53,7 @@ use time::OffsetDateTime;
 pub mod block_orders;
 pub mod builders;
 pub mod built_block_trace;
+pub mod cached_reads;
 #[cfg(test)]
 pub mod conflict;
 pub mod evm_inspector;
@@ -91,6 +92,7 @@ pub struct BlockBuildingContext {
     pub spec_id: SpecId,
     pub root_hasher: Arc<dyn RootHasher>,
     pub payload_id: InternalPayloadId,
+    pub shared_cached_reads: Arc<SharedCachedReads>,
 }
 
 impl BlockBuildingContext {
@@ -174,6 +176,7 @@ impl BlockBuildingContext {
             spec_id,
             root_hasher,
             payload_id,
+            shared_cached_reads: Default::default(),
         })
     }
 
@@ -257,6 +260,7 @@ impl BlockBuildingContext {
             spec_id,
             root_hasher,
             payload_id: 0,
+            shared_cached_reads: Default::default(),
         }
     }
 
@@ -293,6 +297,17 @@ impl BlockBuildingContext {
     pub fn coinbase_is_suggested_fee_recipient(&self) -> bool {
         self.evm_env.block_env.beneficiary == self.attributes.suggested_fee_recipient
     }
+}
+
+/// This context should be owned by one thread for the duration of the slot.
+/// For example, copy of this should be owned by each builder thread, top of block simulation, finalization thread.
+///
+/// Its important to not reuse this cache from one payload job to another.
+///
+/// Caches shared between threads should go to BlockBuildingContext.
+#[derive(Debug, Clone, Default)]
+pub struct ThreadBlockBuildingContext {
+    pub cached_reads: LocalCachedReads,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -439,7 +454,6 @@ impl ExecutionError {
 
 pub struct FinalizeResult {
     pub sealed_block: SealedBlock,
-    pub cached_reads: CachedReads,
     // sidecars for all txs in SealedBlock
     pub txs_blob_sidecars: Vec<Arc<BlobTransactionSidecar>>,
     /// The Pectra execution requests for this bid.
@@ -501,6 +515,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         &mut self,
         order: &SimulatedOrder,
         ctx: &BlockBuildingContext,
+        local_ctx: &mut ThreadBlockBuildingContext,
         state: &mut BlockState,
         result_filter: &dyn Fn(&SimValue) -> Result<(), ExecutionError>,
     ) -> Result<Result<ExecutionResult, ExecutionError>, CriticalCommitOrderError> {
@@ -511,11 +526,10 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             ))));
         }
 
-        let mut fork = PartialBlockFork::new(state).with_tracer(&mut self.tracer);
+        let mut fork = PartialBlockFork::new(state, ctx, local_ctx).with_tracer(&mut self.tracer);
         let rollback = fork.rollback_point();
         let exec_result = fork.commit_order(
             &order.order,
-            ctx,
             self.gas_used,
             self.gas_reserved,
             self.blob_gas_used,
@@ -579,6 +593,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         gas_limit: u64,
         value: U256,
         ctx: &BlockBuildingContext,
+        local_ctx: &mut ThreadBlockBuildingContext,
         state: &mut BlockState,
     ) -> Result<(), InsertPayoutTxErr> {
         let builder_signer = ctx
@@ -587,7 +602,11 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             .ok_or(InsertPayoutTxErr::NoSigner)?;
         self.free_reserved_gas();
         let nonce = state
-            .nonce(builder_signer.address)
+            .nonce(
+                builder_signer.address,
+                &ctx.shared_cached_reads,
+                &mut local_ctx.cached_reads,
+            )
             .map_err(CriticalCommitOrderError::Reth)?;
         let tx = create_payout_tx(
             ctx.chain_spec.as_ref(),
@@ -600,8 +619,8 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         )?;
         // payout tx has no blobs so it's safe to unwrap
         let tx = TransactionSignedEcRecoveredWithBlobs::new_no_blobs(tx).unwrap();
-        let mut fork = PartialBlockFork::new(state).with_tracer(&mut self.tracer);
-        let exec_result = fork.commit_tx(&tx, ctx, self.gas_used, 0, self.blob_gas_used)?;
+        let mut fork = PartialBlockFork::new(state, ctx, local_ctx).with_tracer(&mut self.tracer);
+        let exec_result = fork.commit_tx(&tx, self.gas_used, 0, self.blob_gas_used)?;
         let ok_result = exec_result?;
         if !ok_result.receipt.success {
             return Err(InsertPayoutTxErr::PayoutTxReverted);
@@ -620,8 +639,9 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         &self,
         state: &mut BlockState,
         ctx: &BlockBuildingContext,
+        local_ctx: &mut ThreadBlockBuildingContext,
     ) -> Result<(Option<Requests>, Option<B256>), FinalizeError> {
-        let mut db = state.new_db_ref();
+        let mut db = state.new_db_ref(&ctx.shared_cached_reads, &mut local_ctx.cached_reads);
 
         // Apply and gather execution requests
         let requests = if ctx
@@ -682,9 +702,10 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         self,
         state: &mut BlockState,
         ctx: &BlockBuildingContext,
+        local_ctx: &mut ThreadBlockBuildingContext,
     ) -> Result<FinalizeResult, FinalizeError> {
-        let (requests, withdrawals_root) = self.process_requests(state, ctx)?;
-        let (cached_reads, bundle) = state.clone_bundle_and_cache();
+        let (requests, withdrawals_root) = self.process_requests(state, ctx, local_ctx)?;
+        let bundle = state.clone_bundle();
         let block_number = ctx.evm_env.block_env.number;
 
         let requests_hash = requests.as_ref().map(|requests| requests.requests_hash());
@@ -785,7 +806,6 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
 
         Ok(FinalizeResult {
             sealed_block: block.seal_slow(),
-            cached_reads,
             txs_blob_sidecars,
             root_hash_time,
             execution_requests: requests.map(|er| er.take()).unwrap_or_default(),
@@ -795,9 +815,10 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
     pub fn pre_block_call(
         &mut self,
         ctx: &BlockBuildingContext,
+        local_ctx: &mut ThreadBlockBuildingContext,
         state: &mut BlockState,
     ) -> eyre::Result<()> {
-        let mut db = state.new_db_ref();
+        let mut db = state.new_db_ref(&ctx.shared_cached_reads, &mut local_ctx.cached_reads);
         let mut system_caller = SystemCaller::new(ctx.chain_spec.clone());
         let mut evm = EthEvmConfig::new(ctx.chain_spec.clone())
             .evm_with_env(db.as_mut(), ctx.evm_env.clone());

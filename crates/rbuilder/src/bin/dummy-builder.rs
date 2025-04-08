@@ -16,7 +16,7 @@ use rbuilder::{
             BlockBuildingAlgorithm, BlockBuildingAlgorithmInput, OrderConsumer,
             UnfinishedBlockBuildingSink, UnfinishedBlockBuildingSinkFactory,
         },
-        BlockBuildingContext, SimulatedOrderStore,
+        BlockBuildingContext, SimulatedOrderStore, ThreadBlockBuildingContext,
     },
     live_builder::{
         base_config::{
@@ -206,6 +206,7 @@ impl DummyBuildingAlgorithm {
     where
         P: StateProviderFactory + Clone + 'static,
     {
+        let mut local_ctx = ThreadBlockBuildingContext::default();
         let block_state = provider
             .history_by_block_hash(ctx.attributes.parent)?
             .into();
@@ -213,7 +214,7 @@ impl DummyBuildingAlgorithm {
         let mut block_building_helper = BlockBuildingHelperFromProvider::new(
             block_state,
             ctx.clone(),
-            None,
+            &mut local_ctx,
             BUILDER_NAME.to_string(),
             false,
             CancellationToken::new(),
@@ -221,7 +222,7 @@ impl DummyBuildingAlgorithm {
 
         for order in orders {
             // don't care about the result
-            let _ = block_building_helper.commit_order(&order, &|_| Ok(()))?;
+            let _ = block_building_helper.commit_order(&mut local_ctx, &order, &|_| Ok(()))?;
         }
         Ok(Box::new(block_building_helper))
     }

@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 
 use clap::Parser;
-use reth::revm::cached::CachedReads;
 use serde::de::DeserializeOwned;
 use std::fmt::Debug;
 use sysperf::{format_results, gather_system_info, run_all_benchmarks};
@@ -66,7 +65,7 @@ pub trait LiveBuilderConfig: Debug + DeserializeOwned + Sync {
         &self,
         building_algorithm_name: &str,
         input: BacktestSimulateBlockInput<'_, P>,
-    ) -> eyre::Result<(Block, CachedReads)>
+    ) -> eyre::Result<Block>
     where
         P: StateProviderFactory + Clone + 'static;
 }

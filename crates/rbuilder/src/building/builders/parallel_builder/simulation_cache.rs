@@ -2,7 +2,6 @@ use crate::primitives::OrderId;
 use ahash::HashMap;
 use alloy_primitives::U256;
 use parking_lot::RwLock as PLRwLock;
-use reth::revm::cached::CachedReads;
 use revm::database::BundleState;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
@@ -12,7 +11,6 @@ use std::sync::{
 /// An instance of a simulation result that has been cached.
 #[derive(Debug, Clone)]
 pub struct CachedSimulationState {
-    pub cached_reads: CachedReads,
     pub bundle_state: BundleState,
     pub total_profit: U256,
     pub per_order_profits: Vec<(OrderId, U256)>,
@@ -211,10 +209,8 @@ mod tests {
         }
 
         fn create_cached_simulation_state(&mut self) -> CachedSimulationState {
-            let mut cached_reads = CachedReads::default();
             let mut storage = AlloyHashMap::default();
             storage.insert(U256::from(self.last_used_id), U256::from(self.last_used_id));
-            cached_reads.insert_account(Address::random(), AccountInfo::default(), storage);
 
             let mut storage_bundle_account: AlloyHashMap<U256, StorageSlot> =
                 AlloyHashMap::default();
@@ -234,7 +230,6 @@ mod tests {
             bundle_state.state.insert(Address::random(), account);
 
             CachedSimulationState {
-                cached_reads,
                 bundle_state,
                 total_profit: U256::from(self.last_used_id),
                 per_order_profits: vec![(self.create_order_id(), U256::from(10))],
@@ -244,7 +239,7 @@ mod tests {
 
     /// This test verifies that we can store a cached simulation state for a specific ordering
     /// and then retrieve it correctly. It checks if the retrieved state matches the stored state,
-    /// including BundleState and CachedReads, and if the cached index is correct.
+    /// including BundleState, and if the cached index is correct.
     #[test]
     fn test_store_and_retrieve_cached_state() {
         let cache = SharedSimulationCache::new();

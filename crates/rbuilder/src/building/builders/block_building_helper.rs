@@ -1,5 +1,4 @@
 use alloy_primitives::{utils::format_ether, U256};
-use reth::revm::cached::CachedReads;
 use reth_provider::StateProvider;
 use std::{
     cmp::max,
@@ -15,7 +14,7 @@ use crate::{
         estimate_payout_gas_limit, tracers::GasUsedSimulationTracer, BlockBuildingContext,
         BlockState, BuiltBlockTrace, BuiltBlockTraceError, CriticalCommitOrderError,
         EstimatePayoutGasErr, ExecutionError, ExecutionResult, FinalizeError, FinalizeResult,
-        PartialBlock,
+        PartialBlock, ThreadBlockBuildingContext,
     },
     primitives::{SimValue, SimulatedOrder},
     telemetry::{self, add_block_fill_time, add_order_simulation_time},
@@ -39,6 +38,7 @@ pub trait BlockBuildingHelper: Send + Sync {
     /// See [PartialBlock::commit_order]
     fn commit_order(
         &mut self,
+        local_ctx: &mut ThreadBlockBuildingContext,
         order: &SimulatedOrder,
         result_filter: &dyn Fn(&SimValue) -> Result<(), ExecutionError>,
     ) -> Result<Result<&ExecutionResult, ExecutionError>, CriticalCommitOrderError>;
@@ -62,21 +62,16 @@ pub trait BlockBuildingHelper: Send + Sync {
     ///     This only works if can_add_payout_tx.
     fn finalize_block(
         self: Box<Self>,
+        local_ctx: &mut ThreadBlockBuildingContext,
         payout_tx_value: Option<U256>,
         seen_competition_bid: Option<U256>,
     ) -> Result<FinalizeBlockResult, BlockBuildingHelperError>;
-
-    /// Useful if we want to give away this object but keep on building some other way.
-    fn clone_cached_reads(&self) -> CachedReads;
 
     /// BuiltBlockTrace for current state.
     fn built_block_trace(&self) -> &BuiltBlockTrace;
 
     /// BlockBuildingContext used for building.
     fn building_context(&self) -> &BlockBuildingContext;
-
-    /// Updates the cached reads for the block state.
-    fn update_cached_reads(&mut self, cached_reads: CachedReads);
 
     /// Name of the builder that pregenerated this block.
     /// BE CAREFUL: Might be ambiguous if several building parts were involved...
@@ -182,8 +177,6 @@ impl BlockBuildingHelperError {
 
 pub struct FinalizeBlockResult {
     pub block: Block,
-    /// Since finalize_block eats the object we need the cached_reads in case we create a new
-    pub cached_reads: CachedReads,
 }
 
 impl BlockBuildingHelperFromProvider {
@@ -196,7 +189,7 @@ impl BlockBuildingHelperFromProvider {
     pub fn new(
         state_provider: Arc<dyn StateProvider>,
         building_ctx: BlockBuildingContext,
-        cached_reads: Option<CachedReads>,
+        local_ctx: &mut ThreadBlockBuildingContext,
         builder_name: String,
         discard_txs: bool,
         cancel_on_fatal_error: CancellationToken,
@@ -209,10 +202,9 @@ impl BlockBuildingHelperFromProvider {
             .unwrap_or_default();
         let mut partial_block =
             PartialBlock::new(discard_txs).with_tracer(GasUsedSimulationTracer::default());
-        let mut block_state =
-            BlockState::new_arc(state_provider).with_cached_reads(cached_reads.unwrap_or_default());
+        let mut block_state = BlockState::new_arc(state_provider);
         partial_block
-            .pre_block_call(&building_ctx, &mut block_state)
+            .pre_block_call(&building_ctx, local_ctx, &mut block_state)
             .map_err(|_| BlockBuildingHelperError::PreBlockCallFailed)?;
         let payout_tx_gas = if building_ctx.coinbase_is_suggested_fee_recipient() {
             None
@@ -220,6 +212,7 @@ impl BlockBuildingHelperFromProvider {
             let payout_tx_gas = estimate_payout_gas_limit(
                 building_ctx.attributes.suggested_fee_recipient,
                 &building_ctx,
+                local_ctx,
                 &mut block_state,
                 0,
             )?;
@@ -281,6 +274,7 @@ impl BlockBuildingHelperFromProvider {
     /// Inserts payout tx if necessary and updates built_block_trace.
     fn finalize_block_execution(
         &mut self,
+        local_ctx: &mut ThreadBlockBuildingContext,
         payout_tx_value: Option<U256>,
     ) -> Result<(), BlockBuildingHelperError> {
         self.built_block_trace.coinbase_reward = self.partial_block.coinbase_profit;
@@ -295,6 +289,7 @@ impl BlockBuildingHelperFromProvider {
                 payout_tx_gas,
                 payout_tx_value,
                 &self.building_ctx,
+                local_ctx,
                 &mut self.block_state,
             ) {
                 Ok(()) => (payout_tx_value, self.true_block_value()?),
@@ -309,9 +304,11 @@ impl BlockBuildingHelperFromProvider {
         };
         // Since some extra money might arrived directly the suggested_fee_recipient (when suggested_fee_recipient != coinbase)
         // we check the fee_recipient delta and make our bid include that! This is supposed to be what the relay will check.
-        let fee_recipient_balance_after = self
-            .block_state
-            .balance(self.building_ctx.attributes.suggested_fee_recipient)?;
+        let fee_recipient_balance_after = self.block_state.balance(
+            self.building_ctx.attributes.suggested_fee_recipient,
+            &self.building_ctx.shared_cached_reads,
+            &mut local_ctx.cached_reads,
+        )?;
         let fee_recipient_balance_diff = fee_recipient_balance_after
             .checked_sub(self._fee_recipient_balance_start)
             .unwrap_or_default();
@@ -337,6 +334,7 @@ impl BlockBuildingHelper for BlockBuildingHelperFromProvider {
     /// Forwards to partial_block and updates trace.
     fn commit_order(
         &mut self,
+        local_ctx: &mut ThreadBlockBuildingContext,
         order: &SimulatedOrder,
         result_filter: &dyn Fn(&SimValue) -> Result<(), ExecutionError>,
     ) -> Result<Result<&ExecutionResult, ExecutionError>, CriticalCommitOrderError> {
@@ -344,6 +342,7 @@ impl BlockBuildingHelper for BlockBuildingHelperFromProvider {
         let result = self.partial_block.commit_order(
             order,
             &self.building_ctx,
+            local_ctx,
             &mut self.block_state,
             result_filter,
         );
@@ -394,6 +393,7 @@ impl BlockBuildingHelper for BlockBuildingHelperFromProvider {
 
     fn finalize_block(
         mut self: Box<Self>,
+        local_ctx: &mut ThreadBlockBuildingContext,
         payout_tx_value: Option<U256>,
         seen_competition_bid: Option<U256>,
     ) -> Result<FinalizeBlockResult, BlockBuildingHelperError> {
@@ -402,30 +402,31 @@ impl BlockBuildingHelper for BlockBuildingHelperFromProvider {
         }
         let start_time = Instant::now();
 
-        self.finalize_block_execution(payout_tx_value)?;
+        self.finalize_block_execution(local_ctx, payout_tx_value)?;
         // This could be moved outside of this func (pre finalize) since I don´t think the payout tx can change much.
         self.built_block_trace
             .verify_bundle_consistency(&self.building_ctx.blocklist)?;
 
         let sim_gas_used = self.partial_block.tracer.used_gas;
         let block_number = self.building_context().block();
-        let finalized_block = match self
-            .partial_block
-            .finalize(&mut self.block_state, &self.building_ctx)
-        {
-            Ok(finalized_block) => finalized_block,
-            Err(err) => {
-                if err.is_consistent_db_view_err() {
-                    debug!(
-                        block_number,
-                        payload_id = self.building_ctx.payload_id,
-                        "Can't build on this head, cancelling slot"
-                    );
-                    self.cancel_on_fatal_error.cancel();
+        let finalized_block =
+            match self
+                .partial_block
+                .finalize(&mut self.block_state, &self.building_ctx, local_ctx)
+            {
+                Ok(finalized_block) => finalized_block,
+                Err(err) => {
+                    if err.is_consistent_db_view_err() {
+                        debug!(
+                            block_number,
+                            payload_id = self.building_ctx.payload_id,
+                            "Can't build on this head, cancelling slot"
+                        );
+                        self.cancel_on_fatal_error.cancel();
+                    }
+                    return Err(BlockBuildingHelperError::FinalizeError(err));
                 }
-                return Err(BlockBuildingHelperError::FinalizeError(err));
-            }
-        };
+            };
         self.built_block_trace.update_orders_sealed_at();
         self.built_block_trace.root_hash_time = finalized_block.root_hash_time;
         self.built_block_trace.finalize_time = start_time.elapsed();
@@ -445,14 +446,7 @@ impl BlockBuildingHelper for BlockBuildingHelperFromProvider {
             builder_name: self.builder_name.clone(),
             execution_requests: finalized_block.execution_requests,
         };
-        Ok(FinalizeBlockResult {
-            block,
-            cached_reads: finalized_block.cached_reads,
-        })
-    }
-
-    fn clone_cached_reads(&self) -> CachedReads {
-        self.block_state.clone_cached_reads()
+        Ok(FinalizeBlockResult { block })
     }
 
     fn built_block_trace(&self) -> &BuiltBlockTrace {
@@ -465,10 +459,6 @@ impl BlockBuildingHelper for BlockBuildingHelperFromProvider {
 
     fn box_clone(&self) -> Box<dyn BlockBuildingHelper> {
         Box::new(self.clone())
-    }
-
-    fn update_cached_reads(&mut self, cached_reads: CachedReads) {
-        self.block_state = self.block_state.clone().with_cached_reads(cached_reads);
     }
 
     fn builder_name(&self) -> &str {

@@ -18,7 +18,7 @@ use ahash::HashSet;
 use alloy_eips::eip4844::BlobTransactionSidecar;
 use alloy_primitives::{Address, Bytes};
 use block_building_helper::BiddableUnfinishedBlock;
-use reth::{primitives::SealedBlock, revm::cached::CachedReads};
+use reth::primitives::SealedBlock;
 use std::{fmt::Debug, sync::Arc};
 use tokio::sync::{
     broadcast,
@@ -236,7 +236,6 @@ pub struct BacktestSimulateBlockInput<'a, P> {
     pub builder_name: String,
     pub sim_orders: &'a Vec<Arc<SimulatedOrder>>,
     pub provider: P,
-    pub cached_reads: Option<CachedReads>,
 }
 
 /// Handles error from block filling stage.

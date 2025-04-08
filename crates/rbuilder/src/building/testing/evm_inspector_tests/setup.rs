@@ -1,4 +1,5 @@
 use crate::building::{
+    cached_reads::LocalCachedReads,
     evm_inspector::{RBuilderEVMInspector, UsedStateTrace},
     testing::test_chain_state::{BlockArgs, NamedAddr, TestChainState, TestContracts, TxArgs},
     BlockState,
@@ -84,11 +85,15 @@ impl TestSetup {
     ) -> eyre::Result<UsedStateTrace> {
         let mut used_state_trace = UsedStateTrace::default();
         let mut inspector = RBuilderEVMInspector::new(&tx, Some(&mut used_state_trace));
+        let mut local_cached_reads = LocalCachedReads::default();
 
         // block state
         let state_provider = self.test_chain.provider_factory().latest()?;
         let mut block_state = BlockState::new(state_provider);
-        let mut db_ref = block_state.new_db_ref();
+        let mut db_ref = block_state.new_db_ref(
+            &self.test_chain.block_building_context().shared_cached_reads,
+            &mut local_cached_reads,
+        );
 
         // execute transaction
         {

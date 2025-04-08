@@ -6,12 +6,14 @@ use clap::Parser;
 use eyre::Context;
 use itertools::Itertools;
 use rbuilder::{
-    building::{BlockBuildingContext, BlockState, PartialBlock, PartialBlockFork},
+    building::{
+        BlockBuildingContext, BlockState, PartialBlock, PartialBlockFork,
+        ThreadBlockBuildingContext,
+    },
     live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig, config::Config},
     provider::StateProviderFactory,
     utils::{extract_onchain_block_txs, find_suggested_fee_recipient, http_provider},
 };
-use reth::revm::cached::CachedReads;
 use reth_provider::StateProvider;
 use std::{path::PathBuf, sync::Arc, time::Instant};
 use tracing::{debug, info};
@@ -82,16 +84,15 @@ async fn main() -> eyre::Result<()> {
 
     let mut build_times_ms = Vec::new();
     let mut finalize_time_ms = Vec::new();
-    let mut cached_reads = Some(CachedReads::default());
     for _ in 0..cli.iters {
         let ctx = ctx.clone();
         let txs = txs.clone();
         let state_provider = state_provider.clone();
-        let (new_cached_reads, build_time, finalize_time) =
+        let (build_time, finalize_time) =
             tokio::task::spawn_blocking(move || -> eyre::Result<_> {
                 let partial_block = PartialBlock::new(true);
-                let mut state = BlockState::new_arc(state_provider)
-                    .with_cached_reads(cached_reads.unwrap_or_default());
+                let mut state = BlockState::new_arc(state_provider);
+                let mut local_ctx = ThreadBlockBuildingContext::default();
 
                 let build_time = Instant::now();
 
@@ -99,8 +100,8 @@ async fn main() -> eyre::Result<()> {
                 let mut cumulative_blob_gas_used = 0;
                 for (idx, tx) in txs.into_iter().enumerate() {
                     let result = {
-                        let mut fork = PartialBlockFork::new(&mut state);
-                        fork.commit_tx(&tx, &ctx, cumulative_gas_used, 0, cumulative_blob_gas_used)?
+                        let mut fork = PartialBlockFork::new(&mut state, &ctx, &mut local_ctx);
+                        fork.commit_tx(&tx, cumulative_gas_used, 0, cumulative_blob_gas_used)?
                             .with_context(|| {
                                 format!("Failed to commit tx: {} {:?}", idx, tx.hash())
                             })?
@@ -112,7 +113,7 @@ async fn main() -> eyre::Result<()> {
                 let build_time = build_time.elapsed();
 
                 let finalize_time = Instant::now();
-                let finalized_block = partial_block.finalize(&mut state, &ctx)?;
+                let finalized_block = partial_block.finalize(&mut state, &ctx, &mut local_ctx)?;
                 let finalize_time = finalize_time.elapsed();
 
                 debug!(
@@ -120,11 +121,10 @@ async fn main() -> eyre::Result<()> {
                     finalized_block.sealed_block.state_root
                 );
 
-                Ok((finalized_block.cached_reads, build_time, finalize_time))
+                Ok((build_time, finalize_time))
             })
             .await??;
 
-        cached_reads = Some(new_cached_reads);
         build_times_ms.push(build_time.as_millis());
         finalize_time_ms.push(finalize_time.as_millis());
     }

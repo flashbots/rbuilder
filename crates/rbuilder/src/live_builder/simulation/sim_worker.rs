@@ -1,14 +1,13 @@
 use crate::{
     building::{
         sim::{NonceKey, OrderSimResult, SimulatedResult},
-        simulate_order, BlockState,
+        simulate_order, BlockState, ThreadBlockBuildingContext,
     },
     live_builder::simulation::CurrentSimulationContexts,
     provider::StateProviderFactory,
     telemetry::{self, add_sim_thread_utilisation_timings, mark_order_simulation_end},
 };
 use parking_lot::Mutex;
-use reth::revm::cached::CachedReads;
 use std::{
     sync::Arc,
     thread::sleep,
@@ -46,7 +45,8 @@ pub fn run_sim_worker<P>(
             }
         };
 
-        let mut cached_reads = CachedReads::default();
+        let mut local_ctx = ThreadBlockBuildingContext::default();
+
         let mut last_sim_finished = Instant::now();
 
         let state_provider =
@@ -63,12 +63,12 @@ pub fn run_sim_worker<P>(
 
             let order_id = task.order.id();
             let start_time = Instant::now();
-            let mut block_state =
-                BlockState::new_arc(state_provider.clone()).with_cached_reads(cached_reads);
+            let mut block_state = BlockState::new_arc(state_provider.clone());
             let sim_result = simulate_order(
                 task.parents.clone(),
                 task.order,
                 &current_sim_context.block_ctx,
+                &mut local_ctx,
                 &mut block_state,
             );
             let sim_ok = match sim_result {
@@ -103,7 +103,6 @@ pub fn run_sim_worker<P>(
                     break;
                 }
             };
-            (cached_reads, _, _) = block_state.into_parts();
 
             mark_order_simulation_end(order_id, sim_ok);
             last_sim_finished = Instant::now();
