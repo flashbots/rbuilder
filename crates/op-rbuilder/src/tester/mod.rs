@@ -45,16 +45,16 @@ pub struct EngineApiBuilder {
 impl Default for EngineApiBuilder {
     fn default() -> Self {
         Self::new()
+            .with_jwt_secret("688f5d737bad920bdfb2fc2f488d6b6209eebda1dae949a8de91398d932c517a")
+            .with_url("http://localhost:8551")
     }
 }
 
 impl EngineApiBuilder {
     pub fn new() -> Self {
         Self {
-            url: String::from("http://localhost:8551"), // default value
-            jwt_secret: String::from(
-                "688f5d737bad920bdfb2fc2f488d6b6209eebda1dae949a8de91398d932c517a",
-            ), // default value
+            url: String::default(),
+            jwt_secret: String::default(),
         }
     }
 
@@ -63,7 +63,12 @@ impl EngineApiBuilder {
         self
     }
 
-    pub fn build(self) -> Result<EngineApi, Box<dyn std::error::Error>> {
+    pub fn with_jwt_secret(mut self, jwt_secret: &str) -> Self {
+        self.jwt_secret = jwt_secret.to_string();
+        self
+    }
+
+    pub fn build(&self) -> Result<EngineApi, Box<dyn std::error::Error>> {
         let secret_layer = AuthClientLayer::new(JwtSecret::from_str(&self.jwt_secret)?);
         let middleware = tower::ServiceBuilder::default().layer(secret_layer);
         let client = jsonrpsee::http_client::HttpClientBuilder::default()
@@ -78,14 +83,6 @@ impl EngineApiBuilder {
 }
 
 impl EngineApi {
-    pub fn builder() -> EngineApiBuilder {
-        EngineApiBuilder::new()
-    }
-
-    pub fn new(url: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        Self::builder().with_url(url).build()
-    }
-
     pub async fn get_payload_v3(
         &self,
         payload_id: PayloadId,
@@ -494,9 +491,17 @@ pub async fn run_system(
 ) -> eyre::Result<()> {
     println!("Validation: {}", validation);
 
-    let engine_api = EngineApi::new("http://localhost:4444").unwrap();
+    let engine_api = EngineApiBuilder::new()
+        .with_url("http://localhost:4444")
+        .build()
+        .unwrap();
     let validation_api = if validation {
-        Some(EngineApi::new("http://localhost:5555").unwrap())
+        Some(
+            EngineApiBuilder::new()
+                .with_url("http://localhost:5555")
+                .build()
+                .unwrap(),
+        )
     } else {
         None
     };
