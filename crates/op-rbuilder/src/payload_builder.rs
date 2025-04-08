@@ -417,7 +417,6 @@ where
             self.metrics
                 .total_block_built_duration
                 .record(block_build_start_time.elapsed());
-            self.metrics.block_built_success.increment(1);
 
             // return early since we don't need to build a block with transactions from the pool
             return Ok(());
@@ -489,6 +488,7 @@ where
                         flashblock_count,
                     );
 
+                    let flashblock_build_start_time = Instant::now();
                     let state = StateProviderDatabase::new(&state_provider);
 
                     let mut db = State::builder()
@@ -526,11 +526,11 @@ where
                         return Ok(());
                     }
 
-                    let state_merge_start_time = Instant::now();
+                    let total_block_built_duration = Instant::now();
                     let build_result = build_block(db, &ctx, &mut info);
                     ctx.metrics
-                        .state_transition_merge_duration
-                        .record(state_merge_start_time.elapsed());
+                        .total_block_built_duration
+                        .record(total_block_built_duration.elapsed());
 
                     // Handle build errors with match pattern
                     match build_result {
@@ -551,6 +551,10 @@ where
                                 error!(target: "payload_builder", "Failed to send flashblock message: {}", err);
                             }
 
+                            // Record flashblock build duration
+                            self.metrics
+                                .flashblock_build_duration
+                                .record(flashblock_build_start_time.elapsed());
                             ctx.metrics
                                 .payload_byte_size
                                 .record(new_payload.block().size() as f64);
@@ -569,9 +573,6 @@ where
                 }
                 None => {
                     // Exit loop if channel closed or cancelled
-                    self.metrics
-                        .total_block_built_duration
-                        .record(block_build_start_time.elapsed());
                     self.metrics.block_built_success.increment(1);
                     self.metrics
                         .flashblock_count

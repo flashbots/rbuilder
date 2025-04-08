@@ -20,6 +20,8 @@ pub struct OpRBuilderMetrics {
     pub messages_sent_count: Counter,
     /// Total duration of building a block
     pub total_block_built_duration: Histogram,
+    /// Flashblock build duration
+    pub flashblock_build_duration: Histogram,
     /// Number of invalid blocks
     pub invalid_blocks_count: Counter,
     /// Duration of fetching transactions from the pool
