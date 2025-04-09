@@ -109,7 +109,7 @@ where
     parallel_root_calculator.incremental_root()
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::result_large_err)]
 pub fn calculate_state_root<P, HasherType>(
     provider: P,
     hasher: &HasherType,

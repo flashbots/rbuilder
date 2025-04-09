@@ -48,6 +48,7 @@ pub trait RootHasher: std::fmt::Debug + Send + Sync {
         cancel: CancellationToken,
     );
 
+    #[expect(clippy::result_large_err)]
     /// State root for changes outcome on top of parent block.
     fn state_root(&self, outcome: &ExecutionOutcome) -> Result<B256, RootHashError>;
 }

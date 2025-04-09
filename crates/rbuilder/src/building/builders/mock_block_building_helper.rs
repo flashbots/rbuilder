@@ -1,17 +1,14 @@
-use crate::building::ThreadBlockBuildingContext;
-use crate::live_builder::simulation::SimulatedOrderCommand;
-use crate::primitives::SimValue;
-use crate::provider::RootHasher;
-use crate::roothash::RootHashError;
 use crate::{
     building::{
         BlockBuildingContext, BuiltBlockTrace, CriticalCommitOrderError, ExecutionError,
-        ExecutionResult,
+        ExecutionResult, ThreadBlockBuildingContext,
     },
-    primitives::SimulatedOrder,
+    live_builder::simulation::SimulatedOrderCommand,
+    primitives::{SimValue, SimulatedOrder},
+    provider::RootHasher,
+    roothash::RootHashError,
 };
-use alloy_primitives::B256;
-use alloy_primitives::U256;
+use alloy_primitives::{B256, U256};
 use reth::providers::ExecutionOutcome;
 use reth_primitives::SealedBlock;
 use time::OffsetDateTime;

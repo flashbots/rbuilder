@@ -54,6 +54,7 @@ pub enum RootHashError {
     HashingAccountsTrie { err: ErrSparseNodeNotFound },
 }
 
+#[expect(clippy::result_large_err)]
 impl EthSparseTries {
     pub fn calculate_root_hash(
         &mut self,
@@ -172,6 +173,7 @@ impl EthSparseTries {
     }
 }
 
+#[expect(clippy::result_large_err)]
 fn hash_storage_trie(
     storage_trie: &mut DiffTrie,
     account: &Bytes,

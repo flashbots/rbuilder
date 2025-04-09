@@ -46,7 +46,7 @@ impl Drop for OrderPrinter {
 }
 
 ///////////////////////
-
+#[expect(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum OrderPoolCommand {
     //OrderSink::insert_order

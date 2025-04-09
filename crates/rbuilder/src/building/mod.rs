@@ -635,6 +635,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
     }
 
     /// returns (requests, withdrawals_root)
+    #[expect(clippy::result_large_err)]
     pub fn process_requests(
         &self,
         state: &mut BlockState,
@@ -697,7 +698,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
     }
 
     /// Mostly based on reth's (v1.2) default_ethereum_payload_builder.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::result_large_err)]
     pub fn finalize(
         self,
         state: &mut BlockState,

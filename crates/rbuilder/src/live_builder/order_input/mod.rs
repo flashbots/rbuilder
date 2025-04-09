@@ -171,6 +171,7 @@ impl OrderInputConfig {
 }
 
 /// Commands we can get from RPC or mempool fetcher.
+#[expect(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum ReplaceableOrderPoolCommand {
     /// New or update order

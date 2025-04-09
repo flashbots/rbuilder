@@ -55,11 +55,13 @@ pub trait BlockBuildingHelper: Send + Sync {
     /// This is the maximum profit that can reach the final fee recipient (max bid!).
     /// Maximum payout_tx_value value to pass to finalize_block.
     /// The main reason to get an error is if profit is so low that we can't pay the payout tx (that would mean negative block value!).
+    #[expect(clippy::result_large_err)]
     fn true_block_value(&self) -> Result<U256, BlockBuildingHelperError>;
 
     /// Eats the BlockBuildingHelper since once it's finished you should not use it anymore.
     /// payout_tx_value: If Some, added at the end of the block from coinbase to the final fee recipient.
     ///     This only works if can_add_payout_tx.
+    #[expect(clippy::result_large_err)]
     fn finalize_block(
         self: Box<Self>,
         local_ctx: &mut ThreadBlockBuildingContext,
@@ -94,6 +96,7 @@ impl Clone for BiddableUnfinishedBlock {
 }
 
 impl BiddableUnfinishedBlock {
+    #[expect(clippy::result_large_err)]
     pub fn new(block: Box<dyn BlockBuildingHelper>) -> Result<Self, BlockBuildingHelperError> {
         let true_block_value = block.true_block_value()?;
         Ok(Self {
@@ -185,7 +188,7 @@ impl BlockBuildingHelperFromProvider {
     /// - Query fee_recipient_balance_start.
     /// - pre_block_call.
     /// - Estimate payout tx cost.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::result_large_err)]
     pub fn new(
         state_provider: Arc<dyn StateProvider>,
         building_ctx: BlockBuildingContext,
@@ -272,6 +275,7 @@ impl BlockBuildingHelperFromProvider {
     }
 
     /// Inserts payout tx if necessary and updates built_block_trace.
+    #[expect(clippy::result_large_err)]
     fn finalize_block_execution(
         &mut self,
         local_ctx: &mut ThreadBlockBuildingContext,

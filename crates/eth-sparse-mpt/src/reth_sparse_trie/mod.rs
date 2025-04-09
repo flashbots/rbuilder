@@ -77,6 +77,7 @@ impl ChangedAccountData {
     }
 }
 
+#[expect(clippy::result_large_err)]
 /// Prefetches data
 pub fn prefetch_tries_for_accounts<'a, Provider>(
     consistent_db_view: ConsistentDbView<Provider>,

@@ -339,6 +339,7 @@ impl ShareBundleTx {
 
 /// Body element of a mev share bundle.
 /// [`ShareBundleInner::body`] is formed by several of these.
+#[expect(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ShareBundleBody {
     Tx(ShareBundleTx),

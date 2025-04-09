@@ -22,6 +22,7 @@ use std::{
 };
 use tracing::{error, trace};
 
+#[expect(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum OrderSimResult {
     Success(SimulatedOrder, Vec<(Address, u64)>),
