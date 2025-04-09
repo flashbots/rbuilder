@@ -74,13 +74,30 @@ impl TxEncoding {
     }
 }
 
-fn deserialize_vec_b256_from_null_or_string<'de, D>(deserializer: D) -> Result<Vec<B256>, D::Error>
+fn deserialize_vec_from_null_or_string<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
 where
     D: Deserializer<'de>,
+    T: Deserialize<'de>,
 {
     // Option::deserialize handles null.S
     let opt = Option::deserialize(deserializer)?;
     Ok(opt.unwrap_or_default())
+}
+
+fn deserialize_vec_b256_from_null_or_string<'de, D>(deserializer: D) -> Result<Vec<B256>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    deserialize_vec_from_null_or_string(deserializer)
+}
+
+fn deserialize_vec_bytes_from_null_or_string<'de, D>(
+    deserializer: D,
+) -> Result<Vec<Bytes>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    deserialize_vec_from_null_or_string(deserializer)
 }
 
 /// Struct to de/serialize json Bundles from bundles APIs and from/db.
@@ -96,6 +113,10 @@ pub struct RawBundle {
     pub block_number: Option<U64>,
     /// txs `Array[String]`, A list of signed transactions to execute in an atomic bundle, list can
     /// be empty for bundle cancellations
+    #[serde(
+        default,
+        deserialize_with = "deserialize_vec_bytes_from_null_or_string"
+    )]
     pub txs: Vec<Bytes>,
     /// revertingTxHashes (Optional) `Array[String]`, A list of tx hashes that are allowed to
     /// revert
@@ -1148,40 +1169,43 @@ mod tests {
         assert_eq!(bundle.refund, None);
     }
 
-    /// empty txs should generate a cancellation.
+    /// empty txs,missing txs field or null should generate a cancellation.
     #[test]
     fn test_correct_bundle_cancellation_decoding() {
-        // raw json string
-        let bundle_json = r#"
-        {
-            "txs": [],
-            "blockNumber": 0,
-            "minTimestamp": 123,
-            "maxTimestamp": 1234,
-            "replacementUuid": "3255ceb4-fdc5-592d-a501-2183727ca3df",
-            "replacementNonce": 49,
-            "signingAddress": "0x95222290dd7278aa3ddd389cc1e1d165cc4bafe5"
-        }"#;
+        let txs_fields = ["\"txs\": [],", "\"txs\": null,", ""];
+        for txs_field in txs_fields {
+            // raw json string
+            let mut bundle_json = "{ ".to_string();
+            bundle_json += txs_field;
+            bundle_json += r#"
+                        "blockNumber": 0,
+                        "minTimestamp": 123,
+                        "maxTimestamp": 1234,
+                        "replacementUuid": "3255ceb4-fdc5-592d-a501-2183727ca3df",
+                        "replacementNonce": 49,
+                        "signingAddress": "0x95222290dd7278aa3ddd389cc1e1d165cc4bafe5"
+                    }"#;
 
-        let bundle_request: RawBundle =
-            serde_json::from_str(bundle_json).expect("failed to decode bundle");
+            let bundle_request: RawBundle =
+                serde_json::from_str(&bundle_json).expect("failed to decode bundle");
 
-        let bundle = bundle_request
-            .clone()
-            .decode(TxEncoding::WithBlobData)
-            .expect("failed to convert bundle request to RawBundleDecodeResult");
-        if let RawBundleDecodeResult::CancelBundle(cancel) = bundle {
-            assert_eq!(
-                cancel.key.key().id,
-                uuid!("3255ceb4-fdc5-592d-a501-2183727ca3df")
-            );
-            assert_eq!(
-                cancel.key.key().signer.unwrap(),
-                address!("0x95222290dd7278aa3ddd389cc1e1d165cc4bafe5")
-            );
-            assert_eq!(cancel.sequence_number, 49);
-        } else {
-            panic!("Cancel RawBundle wrongly decoded");
+            let bundle = bundle_request
+                .clone()
+                .decode(TxEncoding::WithBlobData)
+                .expect("failed to convert bundle request to RawBundleDecodeResult");
+            if let RawBundleDecodeResult::CancelBundle(cancel) = bundle {
+                assert_eq!(
+                    cancel.key.key().id,
+                    uuid!("3255ceb4-fdc5-592d-a501-2183727ca3df")
+                );
+                assert_eq!(
+                    cancel.key.key().signer.unwrap(),
+                    address!("0x95222290dd7278aa3ddd389cc1e1d165cc4bafe5")
+                );
+                assert_eq!(cancel.sequence_number, 49);
+            } else {
+                panic!("Cancel RawBundle wrongly decoded");
+            }
         }
     }
 
