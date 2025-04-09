@@ -32,6 +32,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.toolchain }}
+          components: "rustfmt,clippy"
 
       # https://github.com/swatinem/rust-cache
       - name: Run Swatinem/rust-cache@v2
