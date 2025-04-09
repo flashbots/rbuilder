@@ -324,8 +324,9 @@ where
 {
     /// Send a message to be published
     pub fn send_message(&self, message: String) -> Result<(), Box<dyn std::error::Error>> {
+        self.tx.send(message)?;
         self.metrics.messages_sent_count.increment(1);
-        self.tx.send(message).map_err(|e| e.into())
+        Ok(())
     }
 
     /// Constructs an Optimism payload from the transactions sent via the
@@ -537,7 +538,7 @@ where
                         Err(err) => {
                             // Track invalid/bad block
                             self.metrics.invalid_blocks_count.increment(1);
-                            error!(target: "payload_builder", "Failed to build flashblock {}: {}", flashblock_count, err);
+                            error!(target: "payload_builder", "Failed to build block {}, flashblock {}: {}", ctx.block_number(), flashblock_count, err);
                             // Return the error
                             return Err(err);
                         }
