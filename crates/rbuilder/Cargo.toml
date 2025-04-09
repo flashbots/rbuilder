@@ -91,9 +91,8 @@ flate2.workspace = true
 # Version required by ethereum-consensus beacon-api-client
 mev-share-sse = { git = "https://github.com/paradigmxyz/mev-share-rs", rev = "9eb2b0138ab3202b9eb3af4b19c7b3bf40b0faa8", default-features = false }
 jsonrpsee = { version = "0.20.3", features = ["full"] }
-# TODO: change repo once https://github.com/ralexstokes/ethereum-consensus/pull/416 merged
-beacon-api-client = { git = "https://github.com/NethermindEth/ethereum-consensus/", rev = "70cebeacd57f765a5984e26529744897319a9497" }
-ethereum-consensus = { git = "https://github.com/NethermindEth/ethereum-consensus/", rev = "70cebeacd57f765a5984e26529744897319a9497" }
+beacon-api-client = { git = "https://github.com/ralexstokes/ethereum-consensus/", rev = "70cebeacd57f765a5984e26529744897319a9497" }
+ethereum-consensus = { git = "https://github.com/ralexstokes/ethereum-consensus/", rev = "70cebeacd57f765a5984e26529744897319a9497" }
 uuid = { version = "1.6.1", features = ["serde", "v5", "v4"] }
 prometheus.workspace = true
 warp.workspace = true
