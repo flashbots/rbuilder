@@ -30,7 +30,7 @@ use reth_evm::{
     Database, Evm, EvmError, InvalidTxError,
 };
 use reth_execution_types::ExecutionOutcome;
-use reth_node_api::{NodePrimitives, NodeTypesWithEngine, TxTy};
+use reth_node_api::{NodePrimitives, NodeTypes, TxTy};
 use reth_optimism_chainspec::OpChainSpec;
 use reth_optimism_consensus::{calculate_receipt_root_no_memo_optimism, isthmus};
 use reth_optimism_evm::{OpEvmConfig, OpNextBlockEnvAttributes};
@@ -60,7 +60,7 @@ use revm::{
     DatabaseCommit,
 };
 use rollup_boost::{
-    ExecutionPayloadBaseV1, ExecutionPayloadFlashblockDeltaV1, FlashblocksPayloadV1,
+    primitives::{ExecutionPayloadBaseV1, ExecutionPayloadFlashblockDeltaV1, FlashblocksPayloadV1},
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -119,8 +119,8 @@ impl CustomOpPayloadBuilder {
 impl<Node, Pool> PayloadBuilderBuilder<Node, Pool> for CustomOpPayloadBuilder
 where
     Node: FullNodeTypes<
-        Types: NodeTypesWithEngine<
-            Engine = OpEngineTypes,
+        Types: NodeTypes<
+            Payload = OpEngineTypes,
             ChainSpec = OpChainSpec,
             Primitives = OpPrimitives,
         >,
@@ -150,8 +150,8 @@ where
 impl<Node, Pool> PayloadServiceBuilder<Node, Pool> for CustomOpPayloadBuilder
 where
     Node: FullNodeTypes<
-        Types: NodeTypesWithEngine<
-            Engine = OpEngineTypes,
+        Types: NodeTypes<
+            Payload = OpEngineTypes,
             ChainSpec = OpChainSpec,
             Primitives = OpPrimitives,
         >,
@@ -165,7 +165,7 @@ where
         self,
         ctx: &BuilderContext<Node>,
         pool: Pool,
-    ) -> eyre::Result<PayloadBuilderHandle<<Node::Types as NodeTypesWithEngine>::Engine>> {
+    ) -> eyre::Result<PayloadBuilderHandle<<Node::Types as NodeTypes>::Payload>> {
         tracing::info!("Spawning a custom payload builder");
         let payload_builder = self.build_payload_builder(ctx, pool).await?;
         let payload_job_config = BasicPayloadJobGeneratorConfig::default();
