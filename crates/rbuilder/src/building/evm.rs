@@ -1,6 +1,8 @@
 use crate::building::precompile_cache::{PrecompileCache, WrappedPrecompile};
 use parking_lot::Mutex;
-use reth_evm::{eth::EthEvmContext, EthEvm, Evm, EvmEnv};
+use reth_evm::{
+    eth::EthEvmContext, EthEvm, EthEvmFactory, Evm, EvmEnv, EvmFactory as RethEvmFactory,
+};
 use revm::{
     context::{
         result::{EVMError, HaltReason},
@@ -10,7 +12,7 @@ use revm::{
     inspector::NoOpInspector,
     interpreter::interpreter::EthInterpreter,
     primitives::hardfork::SpecId,
-    Context, Database, Inspector, MainBuilder, MainContext,
+    Database, Inspector,
 };
 use std::sync::Arc;
 
@@ -57,18 +59,14 @@ impl EvmFactory for EthCachedEvmFactory {
     where
         DB: Database<Error: Send + Sync + 'static>,
     {
-        EthEvm::new(
-            Context::mainnet()
-                .with_block(env.block_env)
-                .with_cfg(env.cfg_env)
-                .with_db(db)
-                .build_mainnet_with_inspector(NoOpInspector {})
-                .with_precompiles(WrappedPrecompile::new(
-                    EthPrecompiles::default(),
-                    self.cache.clone(),
-                )),
-            false,
-        )
+        let evm = EthEvmFactory::default()
+            .create_evm(db, env)
+            .into_inner()
+            .with_precompiles(WrappedPrecompile::new(
+                EthPrecompiles::default(),
+                self.cache.clone(),
+            ));
+        EthEvm::new(evm, false)
     }
 
     fn create_evm_with_inspector<DB, I>(
