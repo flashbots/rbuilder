@@ -2,8 +2,7 @@ use clap::Parser;
 use monitoring::Monitoring;
 use reth::providers::CanonStateSubscriptions;
 use reth_optimism_cli::{chainspec::OpChainSpecParser, Cli};
-use reth_optimism_node::node::OpAddOnsBuilder;
-use reth_optimism_node::OpNode;
+use reth_optimism_node::{node::OpAddOnsBuilder, OpNode};
 
 #[cfg(feature = "flashblocks")]
 use payload_builder::CustomOpPayloadBuilder;
@@ -30,6 +29,13 @@ mod tx_signer;
 use monitor_tx_pool::monitor_tx_pool;
 
 fn main() {
+    // Override the reth version check and print the op-rbuilder version
+    let args: Vec<String> = std::env::args().collect();
+    if args.contains(&"--version".to_string()) || args.contains(&"-V".to_string()) {
+        println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
+
     Cli::<OpChainSpecParser, args::OpRbuilderArgs>::parse()
         .run(|builder, builder_args| async move {
             let rollup_args = builder_args.rollup_args;
