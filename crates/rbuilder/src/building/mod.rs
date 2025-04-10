@@ -18,8 +18,8 @@ use alloy_evm::{block::system_calls::SystemCaller, env::EvmEnv, eth::eip6110};
 use alloy_primitives::{Address, Bytes, B256, U256};
 use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
 use cached_reads::{LocalCachedReads, SharedCachedReads};
+use evm::EthCachedEvmFactory;
 use jsonrpsee::core::Serialize;
-use precompile_cache::EthCachedEvmFactory;
 use reth::{
     payload::PayloadId,
     primitives::{Block, Receipt, SealedBlock},
@@ -56,6 +56,7 @@ pub mod built_block_trace;
 pub mod cached_reads;
 #[cfg(test)]
 pub mod conflict;
+pub mod evm;
 pub mod evm_inspector;
 pub mod fmt;
 pub mod order_commit;
