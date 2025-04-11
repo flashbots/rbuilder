@@ -12,7 +12,7 @@ use revm::{
     },
     handler::{EthPrecompiles, PrecompileProvider},
     inspector::NoOpInspector,
-    interpreter::{interpreter::EthInterpreter, InterpreterResult},
+    interpreter::{interpreter::EthInterpreter, InputsImpl, InterpreterResult},
     primitives::hardfork::SpecId,
     Context, Database, Inspector,
 };
@@ -43,7 +43,7 @@ impl<P> WrappedPrecompile<P> {
         WrappedPrecompile {
             precompile,
             cache: cache.clone(),
-            spec: SpecId::LATEST,
+            spec: SpecId::default(),
         }
     }
 }
@@ -53,19 +53,21 @@ impl<CTX: ContextTr, P: PrecompileProvider<CTX, Output = InterpreterResult>> Pre
 {
     type Output = P::Output;
 
-    fn set_spec(&mut self, spec: <CTX::Cfg as Cfg>::Spec) {
+    fn set_spec(&mut self, spec: <CTX::Cfg as Cfg>::Spec) -> bool {
         self.precompile.set_spec(spec.clone());
         self.spec = spec.into();
+        true
     }
 
     fn run(
         &mut self,
         context: &mut CTX,
         address: &Address,
-        bytes: &Bytes,
+        inputs: &InputsImpl,
+        is_static: bool,
         gas_limit: u64,
     ) -> Result<Option<Self::Output>, String> {
-        let key = (self.spec, bytes.clone(), gas_limit);
+        let key = (self.spec, inputs.input.clone(), gas_limit);
 
         // get the result if it exists
         if let Some(precompiles) = self.cache.lock().get_mut(address) {
@@ -78,7 +80,9 @@ impl<CTX: ContextTr, P: PrecompileProvider<CTX, Output = InterpreterResult>> Pre
         inc_precompile_cache_misses();
 
         // call the precompile if cache miss
-        let output = self.precompile.run(context, address, bytes, gas_limit);
+        let output = self
+            .precompile
+            .run(context, address, inputs, is_static, gas_limit);
 
         if let Some(output) = output.clone().transpose() {
             // insert the result into the cache
