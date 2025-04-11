@@ -159,7 +159,7 @@ pub fn timestamp_ms_to_offset_datetime(timestamp: u64) -> OffsetDateTime {
         .expect("failed to convert timestamp")
 }
 
-/// using u64 for us is safe since 2^64 ms = 2^64/1000/60/60/24/365 years = 584942 years.
+/// using u64 for us is safe since 2^64 us = 2^64/1000/60/60/24/365 years = 584942 years.
 pub fn offset_datetime_to_timestamp_us(date: OffsetDateTime) -> u64 {
     (date.unix_timestamp_nanos() / 1_000) as u64
 }
