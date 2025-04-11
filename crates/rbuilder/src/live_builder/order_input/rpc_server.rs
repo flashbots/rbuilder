@@ -282,12 +282,12 @@ async fn handle_cancel_bundle(
         cancel_bundle.replacement_uuid,
         Some(cancel_bundle.signing_address),
     );
-    let sequence_number = 0;
+    let sequence_number = u64::MAX;
     let replacement_data = BundleReplacementData {
         key,
         sequence_number,
     };
-    // @Pending nonce
+    // @Pending get sequence_number from RPC
     send_command(
         ReplaceableOrderPoolCommand::CancelBundle(replacement_data),
         &results,
