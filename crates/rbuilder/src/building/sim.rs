@@ -1,6 +1,6 @@
 use super::{
     tracers::{AccumulatorSimulationTracer, SimulationTracer},
-    OrderErr, PartialBlockFork,
+    OrderErr, PartialBlockFork, ThreadBlockBuildingContext,
 };
 use crate::{
     building::{BlockBuildingContext, BlockState, CriticalCommitOrderError},
@@ -12,7 +12,6 @@ use crate::{
 use ahash::{HashMap, HashSet};
 use alloy_primitives::Address;
 use rand::seq::SliceRandom;
-use reth::revm::cached::CachedReads;
 use reth_errors::ProviderError;
 use reth_provider::StateProvider;
 use std::{
@@ -329,7 +328,7 @@ where
     let mut sim_errors = Vec::new();
     let mut state_for_sim =
         Arc::<dyn StateProvider>::from(provider.history_by_block_hash(ctx.attributes.parent)?);
-    let mut cache_reads = Some(CachedReads::default());
+    let mut local_ctx = ThreadBlockBuildingContext::default();
     loop {
         // mix new orders into the sim_tree
         if randomize_insertion && !orders.is_empty() {
@@ -350,17 +349,16 @@ where
         let mut sim_results = Vec::new();
         for sim_task in sim_tasks {
             let start_time = Instant::now();
-            let mut block_state = BlockState::new_arc(state_for_sim)
-                .with_cached_reads(cache_reads.take().unwrap_or_default());
+            let mut block_state = BlockState::new_arc(state_for_sim);
             let sim_result = simulate_order(
                 sim_task.parents.clone(),
                 sim_task.order.clone(),
                 ctx,
+                &mut local_ctx,
                 &mut block_state,
             )?;
-            let (new_cache_reads, _, provider) = block_state.into_parts();
+            let (_, provider) = block_state.into_parts();
             state_for_sim = provider;
-            cache_reads = Some(new_cache_reads);
             match sim_result.result {
                 OrderSimResult::Failed(err) => {
                     trace!(
@@ -405,12 +403,13 @@ pub fn simulate_order(
     parent_orders: Vec<Order>,
     order: Order,
     ctx: &BlockBuildingContext,
+    local_ctx: &mut ThreadBlockBuildingContext,
     state: &mut BlockState,
 ) -> Result<OrderSimResultWithGas, CriticalCommitOrderError> {
     let mut tracer = AccumulatorSimulationTracer::new();
-    let mut fork = PartialBlockFork::new(state).with_tracer(&mut tracer);
+    let mut fork = PartialBlockFork::new(state, ctx, local_ctx).with_tracer(&mut tracer);
     let rollback_point = fork.rollback_point();
-    let sim_res = simulate_order_using_fork(parent_orders, order, ctx, &mut fork);
+    let sim_res = simulate_order_using_fork(parent_orders, order, &mut fork);
     fork.rollback(rollback_point);
     let sim_res = sim_res?;
     Ok(OrderSimResultWithGas {
@@ -423,15 +422,14 @@ pub fn simulate_order(
 pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
     parent_orders: Vec<Order>,
     order: Order,
-    ctx: &BlockBuildingContext,
-    fork: &mut PartialBlockFork<'_, '_, Tracer>,
+    fork: &mut PartialBlockFork<'_, '_, '_, '_, Tracer>,
 ) -> Result<OrderSimResult, CriticalCommitOrderError> {
     let start = Instant::now();
     // simulate parents
     let mut gas_used = 0;
     let mut blob_gas_used = 0;
     for parent in parent_orders {
-        let result = fork.commit_order(&parent, ctx, gas_used, 0, blob_gas_used, true)?;
+        let result = fork.commit_order(&parent, gas_used, 0, blob_gas_used, true)?;
         match result {
             Ok(res) => {
                 gas_used += res.gas_used;
@@ -445,7 +443,7 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
     }
 
     // simulate
-    let result = fork.commit_order(&order, ctx, gas_used, 0, blob_gas_used, true)?;
+    let result = fork.commit_order(&order, gas_used, 0, blob_gas_used, true)?;
     let sim_time = start.elapsed();
     add_order_simulation_time(sim_time, "sim", result.is_ok()); // we count parent sim time + order sim time time here
 

@@ -1,4 +1,7 @@
-use crate::live_builder::block_output::relay_submit::BlockBuildingSink;
+use crate::{
+    building::ThreadBlockBuildingContext,
+    live_builder::block_output::relay_submit::BlockBuildingSink,
+};
 use parking_lot::Mutex;
 use std::sync::Arc;
 use tokio::sync::Notify;
@@ -93,7 +96,10 @@ impl SequentialSealerBidMakerProcess {
             let block_number = block.building_context().block();
             let builder_name = block.builder_name().to_string();
             match tokio::task::spawn_blocking(move || {
-                block.finalize_block(payout_tx_val, seen_competition_bid)
+                // @todo better use of the local context
+                // finalize is not state intensive and it will still used shared cache from the context
+                let mut local_ctx = ThreadBlockBuildingContext::default();
+                block.finalize_block(&mut local_ctx, payout_tx_val, seen_competition_bid)
             })
             .await
             {

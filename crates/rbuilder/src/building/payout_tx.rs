@@ -1,4 +1,4 @@
-use super::{BlockBuildingContext, BlockState};
+use super::{BlockBuildingContext, BlockState, ThreadBlockBuildingContext};
 use crate::utils::Signer;
 use alloy_consensus::{constants::KECCAK_EMPTY, TxEip1559};
 use alloy_primitives::{Address, TxKind as TransactionKind, U256};
@@ -46,12 +46,17 @@ pub enum PayoutTxErr {
 pub fn insert_test_payout_tx(
     to: Address,
     ctx: &BlockBuildingContext,
+    local_ctx: &mut ThreadBlockBuildingContext,
     state: &mut BlockState,
     gas_limit: u64,
 ) -> Result<Option<u64>, PayoutTxErr> {
     let builder_signer = ctx.builder_signer.as_ref().ok_or(PayoutTxErr::NoSigner)?;
 
-    let nonce = state.nonce(builder_signer.address)?;
+    let nonce = state.nonce(
+        builder_signer.address,
+        &ctx.shared_cached_reads,
+        &mut local_ctx.cached_reads,
+    )?;
 
     let tx_value = 10u128.pow(18); // 10 ether
     let tx = create_payout_tx(
@@ -64,7 +69,7 @@ pub fn insert_test_payout_tx(
         U256::from(tx_value),
     )?;
 
-    let mut db = state.new_db_ref();
+    let mut db = state.new_db_ref(&ctx.shared_cached_reads, &mut local_ctx.cached_reads);
     let mut evm = ctx.evm_factory.create_evm(db.as_mut(), ctx.evm_env.clone());
 
     let cache_account = evm.db_mut().load_cache_account(builder_signer.address)?;
@@ -93,11 +98,12 @@ pub enum EstimatePayoutGasErr {
 pub fn estimate_payout_gas_limit(
     to: Address,
     ctx: &BlockBuildingContext,
+    local_ctx: &mut ThreadBlockBuildingContext,
     state: &mut BlockState,
     gas_used: u64,
 ) -> Result<u64, EstimatePayoutGasErr> {
     tracing::trace!(address = ?to, "Estimating payout gas");
-    if state.code_hash(to)? == KECCAK_EMPTY {
+    if state.code_hash(to, &ctx.shared_cached_reads, &mut local_ctx.cached_reads)? == KECCAK_EMPTY {
         return Ok(21_000);
     }
 
@@ -107,10 +113,10 @@ pub fn estimate_payout_gas_limit(
         .gas_limit
         .checked_sub(gas_used)
         .unwrap_or_default();
-    let estimation = insert_test_payout_tx(to, ctx, state, gas_left)?
+    let estimation = insert_test_payout_tx(to, ctx, local_ctx, state, gas_left)?
         .ok_or(EstimatePayoutGasErr::FailedToEstimate)?;
 
-    if insert_test_payout_tx(to, ctx, state, estimation)?.is_some() {
+    if insert_test_payout_tx(to, ctx, local_ctx, state, estimation)?.is_some() {
         return Ok(estimation);
     }
 
@@ -124,7 +130,7 @@ pub fn estimate_payout_gas_limit(
             return Ok(right);
         }
 
-        if insert_test_payout_tx(to, ctx, state, mid)?.is_some() {
+        if insert_test_payout_tx(to, ctx, local_ctx, state, mid)?.is_some() {
             right = mid;
         } else {
             left = mid;
@@ -188,8 +194,10 @@ mod tests {
             Arc::new(MockRootHasher {}),
         );
         let mut state = BlockState::new(provider_factory.latest().unwrap());
+        let mut local_ctx = ThreadBlockBuildingContext::default();
 
-        let estimate_result = estimate_payout_gas_limit(proposer, &ctx, &mut state, 0);
+        let estimate_result =
+            estimate_payout_gas_limit(proposer, &ctx, &mut local_ctx, &mut state, 0);
         assert_matches!(estimate_result, Ok(_));
         assert_eq!(estimate_result.unwrap(), 21_000);
     }

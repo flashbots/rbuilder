@@ -36,7 +36,6 @@ use crate::{
     },
     provider::StateProviderFactory,
 };
-use reth::revm::cached::CachedReads;
 
 use self::{
     block_building_result_assembler::BlockBuildingResultAssembler,
@@ -282,7 +281,7 @@ fn run_order_intake(
 pub fn parallel_build_backtest<P>(
     input: BacktestSimulateBlockInput<'_, P>,
     config: ParallelBuilderConfig,
-) -> Result<(Block, CachedReads)>
+) -> Result<Block>
 where
     P: StateProviderFactory + Clone + 'static,
 {
@@ -339,7 +338,7 @@ where
 
     // Block building result assembler creation
     let assembler_start = Instant::now();
-    let block_building_result_assembler = BlockBuildingResultAssembler::new(
+    let mut block_building_result_assembler = BlockBuildingResultAssembler::new(
         &config,
         Arc::clone(&best_results),
         block_state.clone(),
@@ -372,7 +371,11 @@ where
     } else {
         Some(block_building_helper.true_block_value()?)
     };
-    let finalize_block_result = block_building_helper.finalize_block(payout_tx_value, None)?;
+    let finalize_block_result = block_building_helper.finalize_block(
+        &mut block_building_result_assembler.local_ctx,
+        payout_tx_value,
+        None,
+    )?;
     let building_duration = building_start.elapsed();
     let total_duration = start_time.elapsed();
 
@@ -384,10 +387,7 @@ where
     trace!("Block building time: {:?}", building_duration);
     trace!("Total time taken: {:?}", total_duration);
 
-    Ok((
-        finalize_block_result.block,
-        finalize_block_result.cached_reads,
-    ))
+    Ok(finalize_block_result.block)
 }
 
 #[derive(Debug)]

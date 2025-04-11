@@ -1,7 +1,7 @@
 use crate::{
     building::{
         evm_inspector::SlotKey, tracers::AccumulatorSimulationTracer, BlockBuildingContext,
-        BlockState, PartialBlock, PartialBlockFork,
+        BlockState, PartialBlock, PartialBlockFork, ThreadBlockBuildingContext,
     },
     provider::StateProviderFactory,
     utils::{extract_onchain_block_txs, find_suggested_fee_recipient, signed_uint_delta},
@@ -55,12 +55,14 @@ where
         Arc::from(provider.root_hasher(parent_num_hash)?),
     );
 
+    let mut local_ctx = ThreadBlockBuildingContext::default();
+
     let state_provider = provider.history_by_block_hash(ctx.attributes.parent)?;
     let mut partial_block = PartialBlock::new(true);
     let mut state = BlockState::new(state_provider);
 
     partial_block
-        .pre_block_call(&ctx, &mut state)
+        .pre_block_call(&ctx, &mut local_ctx, &mut state)
         .with_context(|| "Failed to pre_block_call")?;
 
     let mut cumulative_gas_used = 0;
@@ -68,14 +70,23 @@ where
     let mut written_slots: HashMap<SlotKey, Vec<B256>> = HashMap::default();
 
     for (idx, tx) in txs.into_iter().enumerate() {
-        let coinbase_balance_before = state.balance(coinbase)?;
+        let coinbase_balance_before = state.balance(
+            coinbase,
+            &ctx.shared_cached_reads,
+            &mut local_ctx.cached_reads,
+        )?;
         let mut accumulator_tracer = AccumulatorSimulationTracer::default();
         let result = {
-            let mut fork = PartialBlockFork::new(&mut state).with_tracer(&mut accumulator_tracer);
-            fork.commit_tx(&tx, &ctx, cumulative_gas_used, 0, cumulative_blob_gas_used)?
+            let mut fork = PartialBlockFork::new(&mut state, &ctx, &mut local_ctx)
+                .with_tracer(&mut accumulator_tracer);
+            fork.commit_tx(&tx, cumulative_gas_used, 0, cumulative_blob_gas_used)?
                 .with_context(|| format!("Failed to commit tx: {} {:?}", idx, tx.hash()))?
         };
-        let coinbase_balance_after = state.balance(coinbase)?;
+        let coinbase_balance_after = state.balance(
+            coinbase,
+            &ctx.shared_cached_reads,
+            &mut local_ctx.cached_reads,
+        )?;
         let coinbase_profit = signed_uint_delta(coinbase_balance_after, coinbase_balance_before);
 
         cumulative_gas_used += result.gas_used;

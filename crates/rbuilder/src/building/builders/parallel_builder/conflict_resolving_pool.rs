@@ -117,7 +117,6 @@ where
             state,
             ctx.clone(),
             cancellation_token.clone(),
-            None,
             simulation_cache,
         );
         let task_id = task.group_idx;

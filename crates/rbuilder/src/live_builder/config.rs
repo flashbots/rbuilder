@@ -54,7 +54,6 @@ use ethereum_consensus::{
 };
 use eyre::Context;
 use lazy_static::lazy_static;
-use reth::revm::cached::CachedReads;
 use reth_chainspec::{Chain, ChainSpec, NamedChain};
 use reth_db::DatabaseEnv;
 use reth_node_api::NodeTypesWithDBAdapter;
@@ -405,7 +404,7 @@ impl LiveBuilderConfig for Config {
         &self,
         building_algorithm_name: &str,
         input: BacktestSimulateBlockInput<'_, P>,
-    ) -> eyre::Result<(Block, CachedReads)>
+    ) -> eyre::Result<Block>
     where
         P: StateProviderFactory + Clone + 'static,
     {

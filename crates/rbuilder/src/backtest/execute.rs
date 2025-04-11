@@ -12,7 +12,6 @@ use crate::{
 };
 use alloy_eips::BlockNumHash;
 use alloy_primitives::{Address, U256};
-use reth::revm::cached::CachedReads;
 use reth_chainspec::ChainSpec;
 use serde::{Deserialize, Serialize};
 use std::{cell::RefCell, rc::Rc, sync::Arc};
@@ -180,19 +179,15 @@ where
     let simulated_total_gas = sim_orders.iter().map(|o| o.sim_value.gas_used).sum();
     let mut builder_outputs = Vec::new();
 
-    let mut cached_reads = Some(CachedReads::default());
     for building_algorithm_name in builders_names {
         let input = BacktestSimulateBlockInput {
             ctx: ctx.clone(),
             builder_name: building_algorithm_name.clone(),
             sim_orders: &sim_orders,
             provider: provider.clone(),
-            cached_reads,
         };
 
-        let (block, new_cached_reads) =
-            config.build_backtest_block(&building_algorithm_name, input)?;
-        cached_reads = Some(new_cached_reads);
+        let block = config.build_backtest_block(&building_algorithm_name, input)?;
         builder_outputs.push(BacktestBuilderOutput {
             orders_included: block.trace.included_orders.len(),
             builder_name: building_algorithm_name,

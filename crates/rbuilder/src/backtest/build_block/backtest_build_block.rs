@@ -117,14 +117,13 @@ where
                     builder_name: builder_name.clone(),
                     sim_orders: &sim_orders,
                     provider: provider_factory.clone(),
-                    cached_reads: None,
                 };
                 let build_res = config.build_backtest_block(builder_name, input);
                 if let Err(err) = &build_res {
                     println!("Error building block: {:?}", err);
                     return None;
                 }
-                let (block, _) = build_res.ok()?;
+                let block = build_res.ok()?;
                 println!(
                     "Built block {} with builder: {:?}",
                     ctx.block(),

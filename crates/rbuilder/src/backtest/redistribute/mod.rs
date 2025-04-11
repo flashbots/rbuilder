@@ -492,6 +492,7 @@ fn split_orders_by_identities(
 
     let mut protect_signer_seen = false;
 
+    let mut included_without_address = HashSet::default();
     for order in &included_orders_available {
         let order_id = order.order.id();
         let address = match order_redistribution_address(&order.order, protect_signers) {
@@ -502,7 +503,8 @@ fn split_orders_by_identities(
                 address
             }
             None => {
-                warn!(order = ?order_id, "Included order redistribution address not found");
+                error!(order = ?order_id, "Included order redistribution address not found");
+                included_without_address.insert(order_id);
                 continue;
             }
         };
@@ -511,6 +513,10 @@ fn split_orders_by_identities(
         orders.push(order_id);
         orders_id_to_address.insert(order_id, address);
     }
+    let included_orders_available = included_orders_available
+        .into_iter()
+        .filter(|o| !included_without_address.contains(&o.order.id()))
+        .collect();
 
     for order in &block_data.available_orders {
         let id = order.order.id();

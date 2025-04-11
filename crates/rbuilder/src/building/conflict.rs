@@ -1,4 +1,4 @@
-use super::{BlockBuildingContext, BlockState, PartialBlockFork};
+use super::{BlockBuildingContext, BlockState, PartialBlockFork, ThreadBlockBuildingContext};
 use crate::primitives::{Order, OrderId};
 use alloy_primitives::{Address, U256};
 use itertools::Itertools;
@@ -30,12 +30,13 @@ pub fn find_conflict_slow(
     orders: &[Order],
 ) -> eyre::Result<HashMap<(OrderId, OrderId), Conflict>> {
     let mut state_provider = Arc::<dyn StateProvider>::from(state_provider);
+    let mut local_ctx = ThreadBlockBuildingContext::default();
     let profits_alone = {
         let mut profits_alone = HashMap::new();
         for order in orders {
             let mut state = BlockState::new_arc(state_provider);
-            let mut fork = PartialBlockFork::new(&mut state);
-            if let Ok(res) = fork.commit_order(order, ctx, 0, 0, 0, true)? {
+            let mut fork = PartialBlockFork::new(&mut state, ctx, &mut local_ctx);
+            if let Ok(res) = fork.commit_order(order, 0, 0, 0, true)? {
                 profits_alone.insert(order.id(), res.coinbase_profit);
             };
             state_provider = state.into_provider();
@@ -72,10 +73,10 @@ pub fn find_conflict_slow(
         }
 
         let mut state = BlockState::new_arc(state_provider);
-        let mut fork = PartialBlockFork::new(&mut state);
+        let mut fork = PartialBlockFork::new(&mut state, ctx, &mut local_ctx);
         let mut gas_used = 0;
         let mut blob_gas_used = 0;
-        match fork.commit_order(order1, ctx, gas_used, 0, blob_gas_used, true)? {
+        match fork.commit_order(order1, gas_used, 0, blob_gas_used, true)? {
             Ok(res) => {
                 gas_used += res.gas_used;
                 blob_gas_used += res.blob_gas_used;
@@ -84,7 +85,7 @@ pub fn find_conflict_slow(
                 results.insert(pair, Conflict::Fatal);
             }
         };
-        match fork.commit_order(order2, ctx, gas_used, 0, blob_gas_used, true)? {
+        match fork.commit_order(order2, gas_used, 0, blob_gas_used, true)? {
             Ok(re) => {
                 let profit_alone = *profits_alone.get(&order2.id()).unwrap();
                 let profit_with_conflict = re.coinbase_profit;

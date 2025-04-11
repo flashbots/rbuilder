@@ -4,7 +4,7 @@ use derivative::Derivative;
 use eyre::Result;
 use itertools::Itertools;
 use rand::{seq::SliceRandom, SeedableRng};
-use reth::{providers::StateProvider, revm::cached::CachedReads};
+use reth::providers::StateProvider;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 use tracing::trace;
@@ -15,7 +15,10 @@ use super::{
 };
 
 use crate::{
-    building::{BlockBuildingContext, BlockState, ExecutionError, ExecutionResult, PartialBlock},
+    building::{
+        BlockBuildingContext, BlockState, ExecutionError, ExecutionResult, PartialBlock,
+        ThreadBlockBuildingContext,
+    },
     primitives::{OrderId, SimulatedOrder},
 };
 
@@ -28,7 +31,6 @@ pub struct ResolverContext {
     pub state: Arc<dyn StateProvider>,
     pub ctx: BlockBuildingContext,
     pub cancellation_token: CancellationToken,
-    pub cache: Option<CachedReads>,
     pub simulation_cache: Arc<SharedSimulationCache>,
 }
 
@@ -46,14 +48,12 @@ impl ResolverContext {
         state: Arc<dyn StateProvider>,
         ctx: BlockBuildingContext,
         cancellation_token: CancellationToken,
-        cache: Option<CachedReads>,
         simulation_cache: Arc<SharedSimulationCache>,
     ) -> Self {
         ResolverContext {
             state,
             ctx,
             cancellation_token,
-            cache,
             simulation_cache,
         }
     }
@@ -82,12 +82,9 @@ impl ResolverContext {
         };
 
         for sequence_of_orders in sequence_to_try {
-            let (resolution_result, state) =
+            let (resolution_result, _state) =
                 self.process_sequence_of_orders(sequence_of_orders, &task, self.state.clone())?;
             self.update_best_result(resolution_result, &mut best_resolution_result);
-
-            let (new_cached_reads, _, _) = state.into_parts();
-            self.cache = Some(new_cached_reads);
         }
 
         trace!(
@@ -133,6 +130,9 @@ impl ResolverContext {
         task: &ConflictTask,
         state_provider: Arc<dyn StateProvider>,
     ) -> Result<(ResolutionResult, BlockState)> {
+        // @todo actually reuse it for the duration of the block
+        let mut local_ctx = ThreadBlockBuildingContext::default();
+
         let order_id_to_index = self.initialize_order_id_to_index_map(task);
         let full_sequence_of_orders = self.initialize_full_order_ids_vec(&sequence_of_orders, task);
 
@@ -143,8 +143,8 @@ impl ResolverContext {
 
         // Initialize state and partial block
         let mut partial_block = PartialBlock::new(true);
-        let mut state = self.initialize_block_state(&cached_state_option, state_provider);
-        partial_block.pre_block_call(&self.ctx, &mut state)?;
+        let mut state = self.initialize_block_state(state_provider);
+        partial_block.pre_block_call(&self.ctx, &mut local_ctx, &mut state)?;
 
         // Initialize sequenced_order_result
         let mut sequenced_order_result =
@@ -171,7 +171,13 @@ impl ResolverContext {
             }
 
             let sim_order = &task.group.orders[order_idx];
-            match partial_block.commit_order(sim_order, &self.ctx, &mut state, &|_| Ok(()))? {
+            match partial_block.commit_order(
+                sim_order,
+                &self.ctx,
+                &mut local_ctx,
+                &mut state,
+                &|_| Ok(()),
+            )? {
                 Ok(res) => self.handle_successful_commit(
                     res,
                     sim_order,
@@ -279,24 +285,8 @@ impl ResolverContext {
     }
 
     /// Initializes the block state, using a cached state if available.
-    fn initialize_block_state(
-        &mut self,
-        cached_state_option: &Option<Arc<CachedSimulationState>>,
-        state_provider: Arc<dyn StateProvider>,
-    ) -> BlockState {
-        if let Some(cached_state) = &cached_state_option {
-            // Use cached state
-            BlockState::new_arc(state_provider.clone())
-                .with_cached_reads(cached_state.cached_reads.clone())
-                .with_bundle_state(cached_state.bundle_state.clone())
-        } else {
-            // If we don't have a cached state from the simulation cache, we use the cached reads from the block state in some cases
-            if let Some(cache) = &self.cache {
-                BlockState::new_arc(state_provider).with_cached_reads(cache.clone())
-            } else {
-                BlockState::new_arc(state_provider)
-            }
-        }
+    fn initialize_block_state(&mut self, state_provider: Arc<dyn StateProvider>) -> BlockState {
+        BlockState::new_arc(state_provider)
     }
 
     /// Stores the simulation state in the cache.
@@ -307,9 +297,8 @@ impl ResolverContext {
         total_profit: U256,
         per_order_profits: &[(OrderId, U256)],
     ) {
-        let (cached_reads, bundle_state, _) = state.clone().into_parts();
+        let (bundle_state, _) = state.clone().into_parts();
         let cached_simulation_state = CachedSimulationState {
-            cached_reads,
             bundle_state,
             total_profit,
             per_order_profits: per_order_profits.to_owned(),
