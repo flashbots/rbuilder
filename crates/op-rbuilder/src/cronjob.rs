@@ -208,9 +208,9 @@ impl CronJob {
             }
         }
 
-        // for hash in hashes_to_remove {
-        //     self.scheduled_transactions.remove(&hash);
-        // }
+        for hash in hashes_to_remove {
+            self.scheduled_transactions.remove(&hash);
+        }
 
         Ok(())
     }
