@@ -10,6 +10,7 @@ repository.workspace = true
 [dependencies]
 reth.workspace = true
 reth-optimism-node.workspace = true
+reth-optimism-rpc.workspace = true
 reth-optimism-cli.workspace = true
 reth-optimism-chainspec.workspace = true
 reth-optimism-payload-builder.workspace = true
@@ -40,7 +41,7 @@ reth-payload-util.workspace = true
 reth-transaction-pool.workspace = true
 reth-testing-utils.workspace = true
 reth-optimism-forks.workspace = true
-
+reth-db.workspace = true
 alloy-primitives.workspace = true
 alloy-consensus.workspace = true
 alloy-eips.workspace = true
@@ -81,6 +82,7 @@ serde_json.workspace = true
 tokio-util.workspace = true
 thiserror.workspace = true
 
+
 time = { version = "0.3.36", features = ["macros", "formatting", "parsing"] }
 chrono = "0.4"
 uuid = { version = "1.6.1", features = ["serde", "v5", "v4"] }
@@ -90,6 +92,9 @@ tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 
 # `flashblocks` branch
 rollup-boost = { git = "http://github.com/flashbots/rollup-boost", rev = "6b94e1037f41e0817f2bcb1f1ca5013a5359616a" }
+
+# hackathon
+alloy-sol-types  = { version = "0.8", features = ["json"] }
 
 [target.'cfg(unix)'.dependencies]
 tikv-jemallocator = { version = "0.6", optional = true }

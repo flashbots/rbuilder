@@ -1,6 +1,8 @@
 use clap::Parser;
+use cronjob::CronJob;
 use monitoring::Monitoring;
-use reth::providers::CanonStateSubscriptions;
+use reth::{providers::CanonStateSubscriptions, rpc::eth::EthApiServer};
+use reth_chainspec::EthChainSpec;
 use reth_optimism_cli::{chainspec::OpChainSpecParser, Cli};
 use reth_optimism_node::node::OpAddOnsBuilder;
 use reth_optimism_node::OpNode;
@@ -9,6 +11,7 @@ use reth_optimism_node::OpNode;
 use payload_builder::CustomOpPayloadBuilder;
 #[cfg(not(feature = "flashblocks"))]
 use payload_builder_vanilla::CustomOpPayloadBuilder;
+use reth_provider::{BlockNumReader, ChainSpecProvider};
 use reth_transaction_pool::TransactionPool;
 
 /// CLI argument parsing.
@@ -19,6 +22,7 @@ mod integration;
 mod metrics;
 mod monitor_tx_pool;
 mod monitoring;
+mod cronjob;
 #[cfg(feature = "flashblocks")]
 pub mod payload_builder;
 #[cfg(not(feature = "flashblocks"))]
@@ -33,7 +37,6 @@ fn main() {
     Cli::<OpChainSpecParser, args::OpRbuilderArgs>::parse()
         .run(|builder, builder_args| async move {
             let rollup_args = builder_args.rollup_args;
-
             let op_node = OpNode::new(rollup_args.clone());
             let handle = builder
                 .with_types::<OpNode>()
@@ -50,8 +53,12 @@ fn main() {
                         .build(),
                 )
                 .on_node_started(move |ctx| {
-                    let new_canonical_blocks = ctx.provider().canonical_state_stream();
+                    let provider = ctx.provider().clone();
+                    let pool = ctx.pool.clone();
+                    let eth_api = ctx.eth_api().clone();
+                    let new_canonical_blocks = provider.canonical_state_stream();
                     let builder_signer = builder_args.builder_signer;
+                    let chain_id = provider.chain_spec().chain_id();
 
                     if builder_args.log_pool_transactions {
                         tracing::info!("Logging pool transactions");
@@ -68,6 +75,17 @@ fn main() {
                         Box::pin(async move {
                             let monitoring = Monitoring::new(builder_signer);
                             let _ = monitoring.run_with_stream(new_canonical_blocks).await;
+                        }),
+                    );
+
+                    let new_canonical_blocks = provider.canonical_state_stream();
+                    ctx.task_executor.spawn_critical(
+                        "cronjob",
+                        Box::pin(async move {
+                            println!("Starting cronjob");
+                            println!("builder_signer: {:?}", builder_signer);
+                            let cronjob = CronJob::new(builder_signer.unwrap(), pool, eth_api, chain_id);
+                            let _ = cronjob.run_with_stream(new_canonical_blocks).await;
                         }),
                     );
 

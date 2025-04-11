@@ -92,6 +92,7 @@ reth-optimism-node = { git = "https://github.com/paradigmxyz/reth", tag = "v1.3.
 reth-optimism-payload-builder = { git = "https://github.com/paradigmxyz/reth", tag = "v1.3.4" }
 reth-optimism-chainspec = { git = "https://github.com/paradigmxyz/reth", tag = "v1.3.4" }
 reth-optimism-txpool = { git = "https://github.com/paradigmxyz/reth", tag = "v1.3.4" }
+reth-optimism-rpc = { git = "https://github.com/paradigmxyz/reth", tag = "v1.3.4" }
 
 # compatible with reth "v1.3.3" dependencies
 revm = { version = "20.0.0-alpha.6", features = [

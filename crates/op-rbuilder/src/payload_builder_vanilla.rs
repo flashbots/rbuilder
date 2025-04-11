@@ -528,7 +528,7 @@ impl<Txs> OpBuilder<'_, Txs> {
         }
 
         // Add builder tx to the block
-        ctx.add_builder_tx(&mut info, state, builder_tx_gas, message);
+        // ctx.add_builder_tx(&mut info, state, builder_tx_gas, message);
 
         let state_merge_start_time = Instant::now();
 

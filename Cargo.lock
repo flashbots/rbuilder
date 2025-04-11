@@ -883,6 +883,7 @@ version = "0.8.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3b9bd22d0bba90e40f40c625c33d39afb7d62b22192476a2ce1dcf8409dce880"
 dependencies = [
+ "alloy-json-abi",
  "alloy-sol-macro-input",
  "const-hex",
  "heck 0.5.0",
@@ -901,12 +902,14 @@ version = "0.8.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05ae4646e8123ec2fd10f9c22e361ffe4365c42811431829c2eabae528546bcc"
 dependencies = [
+ "alloy-json-abi",
  "const-hex",
  "dunce",
  "heck 0.5.0",
  "macro-string",
  "proc-macro2",
  "quote",
+ "serde_json",
  "syn 2.0.100",
  "syn-solidity",
 ]
@@ -7058,6 +7061,7 @@ dependencies = [
  "alloy-rpc-types-engine",
  "alloy-rpc-types-eth 0.12.6",
  "alloy-serde 0.12.6",
+ "alloy-sol-types",
  "alloy-transport",
  "alloy-transport-http",
  "async-trait",
@@ -7079,6 +7083,7 @@ dependencies = [
  "reth-chain-state",
  "reth-chainspec",
  "reth-cli-util",
+ "reth-db",
  "reth-evm",
  "reth-execution-types",
  "reth-exex",
@@ -7093,6 +7098,7 @@ dependencies = [
  "reth-optimism-node",
  "reth-optimism-payload-builder",
  "reth-optimism-primitives",
+ "reth-optimism-rpc",
  "reth-optimism-txpool",
  "reth-payload-builder",
  "reth-payload-builder-primitives",
