@@ -6,12 +6,11 @@ use crate::{
     live_builder::payload_events::MevBoostSlotData,
     provider::StateProviderFactory,
 };
-use alloy_primitives::U256;
 use std::{fmt::Debug, sync::Arc};
 use tracing::error;
 
 use super::{
-    bid_value_source::interfaces::{BidValueObs, BidValueSource},
+    bid_value_source::interfaces::{BidValueObs, BidValueSource, CompetitionBid},
     bidding::{
         interfaces::{BiddingService, SlotBidder},
         sequential_sealer_bid_maker::SequentialSealerBidMaker,
@@ -71,7 +70,7 @@ struct SlotBidderToBidValueObs {
 }
 
 impl BidValueObs for SlotBidderToBidValueObs {
-    fn update_new_bid(&self, bid: U256) {
+    fn update_new_bid(&self, bid: CompetitionBid) {
         self.bidder.update_new_bid(bid);
     }
 }
