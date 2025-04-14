@@ -78,7 +78,7 @@ go run main.go cook opstack --external-builder http://host.docker.internal:4444
 4. Run `op-rbuilder` in the `rbuilder` repo on port 4444:
 
 ```bash
-cargo run -p op-rbuilder --bin op-rbuilder --features flashblocks -- node \
+cargo run -p op-rbuilder --bin op-rbuilder -- node \
     --chain $HOME/.playground/devnet/l2-genesis.json \
     --http --http.port 2222 \
     --authrpc.port 4444 --authrpc.jwtsecret $HOME/.playground/devnet/jwtsecret \
