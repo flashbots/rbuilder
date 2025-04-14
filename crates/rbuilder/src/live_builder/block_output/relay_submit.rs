@@ -23,7 +23,7 @@ use reth_chainspec::ChainSpec;
 use std::sync::Arc;
 use tokio::{sync::Notify, time::Instant};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info_span, trace, warn, Instrument};
+use tracing::{error, info, info_span, trace, warn, Instrument};
 
 use super::{
     bid_observer::BidObserver,
@@ -228,7 +228,7 @@ async fn run_submit_to_relays_job(
             fill_time_ms = block.trace.fill_time.as_millis(),
             finalize_time_ms = block.trace.finalize_time.as_millis(),
         );
-        debug!(
+        info!(
             parent: &submission_span,
             "Submitting bid",
         );
