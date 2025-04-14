@@ -18,6 +18,10 @@ impl CompetitionBid {
         }
     }
 
+    pub fn new_for_deserialization(bid: U256, creation_time: OffsetDateTime) -> Self {
+        Self { bid, creation_time }
+    }
+
     pub fn bid(&self) -> U256 {
         self.bid
     }
