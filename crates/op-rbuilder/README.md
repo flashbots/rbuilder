@@ -75,7 +75,7 @@ go run main.go cook opstack --external-builder http://host.docker.internal:4444
 - Windows: `{FOLDERID_RoamingAppData}/reth/`
 - macOS: `$HOME/Library/Application Support/reth/`
 
-4. Run `op-rbuilder` in the `rbuilder` repo on port 4444:
+3. Run `op-rbuilder` in the `rbuilder` repo on port 4444:
 
 ```bash
 cargo run -p op-rbuilder --bin op-rbuilder -- node \
@@ -88,16 +88,19 @@ cargo run -p op-rbuilder --bin op-rbuilder -- node \
     --trusted-peers enode://3479db4d9217fb5d7a8ed4d61ac36e120b05d36c2eefb795dc42ff2e971f251a2315f5649ea1833271e020b9adc98d5db9973c7ed92d6b2f1f2223088c3d852f@127.0.0.1:30304
 ```
 
-5. Init `mev-flood`:
+4. Init `contender`:
 
 ```bash
-docker run -v ${PWD}:/app/cli/deployments flashbots/mev-flood init -r http://host.docker.internal:2222 -s local.json
+git clone https://github.com/flashbots/contender
+cd contender
+contender setup 
+cargo run -- setup ./scenarios/simple.toml http://localhost:2222
 ```
 
-6. Run `mev-flood`:
+6. Run `contender`:
 
 ```bash
-docker run --init -v ${PWD}:/app/cli/deployments flashbots/mev-flood spam -p 3 -t 5 -r http://host.docker.internal:2222 -l local.json
+cargo run -- spam ./scenarios/simple.toml http://localhost:2222 --tpb 10 --duration 10
 ```
 
-And you should start to see blocks being built and landed on-chain with `mev-flood` transactions.
+And you should start to see blocks being built and landed on-chain with `contender` transactions.
