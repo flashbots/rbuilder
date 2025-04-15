@@ -8,7 +8,7 @@ use alloy_consensus::{
     constants::EMPTY_WITHDRAWALS, Eip658Value, Header, Transaction, Typed2718,
     EMPTY_OMMER_ROOT_HASH,
 };
-use alloy_eips::{merge::BEACON_NONCE, Encodable2718};
+use alloy_eips::{merge::BEACON_NONCE, Encodable2718, eip7685::EMPTY_REQUESTS_HASH};
 use alloy_op_evm::block::receipt_builder::OpReceiptBuilder;
 use alloy_primitives::{map::HashMap, Address, Bytes, B256, U256};
 use alloy_rpc_types_engine::PayloadId;
@@ -667,10 +667,14 @@ where
         .state_root_calculation_duration
         .record(state_root_start_time.elapsed());
 
+    let mut requests_hash = None;
     let withdrawals_root = if ctx
         .chain_spec
         .is_isthmus_active_at_timestamp(ctx.attributes().timestamp())
     {
+        // always empty requests hash post isthmus
+        requests_hash = Some(EMPTY_REQUESTS_HASH);
+
         // withdrawals root field in block header is used for storage root of L2 predeploy
         // `l2tol1-message-passer`
         Some(
@@ -716,7 +720,7 @@ where
         parent_beacon_block_root: ctx.attributes().payload_attributes.parent_beacon_block_root,
         blob_gas_used,
         excess_blob_gas,
-        requests_hash: None,
+        requests_hash: requests_hash,
     };
 
     // seal the block
