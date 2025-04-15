@@ -267,6 +267,12 @@ impl OrderingBuilderContext {
         let mut order_attempts: HashMap<OrderId, usize> = HashMap::default();
         // @Perf when gas left is too low we should break.
         while let Some(sim_order) = block_orders.pop_order() {
+            // @Todo we drop such bundles instead of failing simulation for them
+            // because share bundle merging depends on allowing no txs bundles into the block
+            if sim_order.sim_value.gas_used == 0 {
+                continue;
+            }
+
             if let Some(deadline) = self.config.build_duration_deadline() {
                 if build_start.elapsed() > deadline {
                     break;
