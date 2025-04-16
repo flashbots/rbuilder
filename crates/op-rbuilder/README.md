@@ -93,7 +93,6 @@ cargo run -p op-rbuilder --bin op-rbuilder -- node \
 ```bash
 git clone https://github.com/flashbots/contender
 cd contender
-contender setup 
 cargo run -- setup ./scenarios/simple.toml http://localhost:2222
 ```
 
