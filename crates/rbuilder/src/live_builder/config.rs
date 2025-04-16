@@ -125,12 +125,15 @@ pub struct L1Config {
     /// Bids above this value will always be submitted in non-optimistic mode.
     pub optimistic_max_bid_value_eth: String,
 
-    ///Name kept singular for backwards compatibility
+    /// Name kept singular for backwards compatibility
     #[serde_as(deserialize_as = "OneOrMany<EnvOrValue<String>>")]
     pub cl_node_url: Vec<EnvOrValue<String>>,
 
     /// Genesis fork version for the chain. If not provided it will be fetched from the beacon client.
     pub genesis_fork_version: Option<String>,
+
+    /// Bids above this value will only go to fast relays.
+    pub fast_bid_threshold_eth: String,
 }
 
 impl Default for L1Config {
@@ -144,6 +147,7 @@ impl Default for L1Config {
             optimistic_max_bid_value_eth: "0.0".to_string(),
             cl_node_url: vec![EnvOrValue::from("http://127.0.0.1:3500")],
             genesis_fork_version: None,
+            fast_bid_threshold_eth: "0".to_owned(),
         }
     }
 }
@@ -691,6 +695,7 @@ lazy_static! {
                 authorization_header: None,
                 builder_id_header: None,
                 api_token_header: None,
+                is_fast: None,
             },
         );
         map.insert(
@@ -709,6 +714,7 @@ lazy_static! {
                 authorization_header: None,
                 builder_id_header: None,
                 api_token_header: None,
+                is_fast: None,
             },
         );
         map.insert(
@@ -727,6 +733,7 @@ lazy_static! {
                 authorization_header: None,
                 builder_id_header: None,
                 api_token_header: None,
+                is_fast: None,
             },
         );
         map.insert(
@@ -744,6 +751,7 @@ lazy_static! {
                 authorization_header: None,
                 builder_id_header: None,
                 api_token_header: None,
+                is_fast: None,
             },
         );
         map.insert(
@@ -762,6 +770,7 @@ lazy_static! {
                 authorization_header: None,
                 builder_id_header: None,
                 api_token_header: None,
+                is_fast: None,
             },
         );
         map

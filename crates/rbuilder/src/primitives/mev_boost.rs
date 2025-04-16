@@ -61,6 +61,8 @@ pub struct RelayConfig {
     pub submit_config: Option<RelaySubmitConfig>,
     /// Deprecated field that is not used
     pub priority: Option<usize>,
+    /// critical blocks go only to fast relays. None -> true
+    pub is_fast: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
