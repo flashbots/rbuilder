@@ -7477,7 +7477,7 @@ dependencies = [
  "op-alloy-network",
  "op-alloy-rpc-types-engine",
  "op-revm",
- "rand 0.8.5",
+ "rand 0.9.0",
  "reth",
  "reth-basic-payload-builder",
  "reth-chain-state",
