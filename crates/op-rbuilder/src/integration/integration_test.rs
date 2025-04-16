@@ -491,7 +491,6 @@ mod tests {
         Ok(())
     }
 
-
     #[tokio::test]
     #[cfg(feature = "flashblocks")]
     async fn integration_test_flashblocks_respects_gas_limit() -> eyre::Result<()> {
@@ -565,7 +564,9 @@ mod tests {
 
         // check there's no more than 10 flashblocks log lines (2000ms / 200ms)
         op_rbuilder.find_log_line("Building flashblock 9").await?;
-        op_rbuilder.find_log_line("Skipping flashblock reached target=10 idx=10").await?;
+        op_rbuilder
+            .find_log_line("Skipping flashblock reached target=10 idx=10")
+            .await?;
 
         Ok(())
     }
