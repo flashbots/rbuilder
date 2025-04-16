@@ -620,7 +620,7 @@ mod test {
         },
     };
     use alloy_consensus::{EthereumTxEnvelope, Signed, TxEip1559};
-    use alloy_primitives::{hex, Address, PrimitiveSignature, B256, U256, U64};
+    use alloy_primitives::{hex, Address, Signature, B256, U256, U64};
     use alloy_rpc_types::{Block, BlockTransactions, Header, Transaction};
     use reth_primitives::Recovered;
     use time::OffsetDateTime;
@@ -752,11 +752,7 @@ mod test {
             value: U256::from(6),
             ..Default::default()
         };
-        let tx = Signed::new_unchecked(
-            inner_tx,
-            PrimitiveSignature::test_signature(),
-            B256::default(),
-        );
+        let tx = Signed::new_unchecked(inner_tx, Signature::test_signature(), B256::default());
         Transaction {
             inner: Recovered::new_unchecked(
                 EthereumTxEnvelope::from(tx),

@@ -439,7 +439,7 @@ mod tests {
             Recovered::new_unchecked(
                 TransactionSigned::new(
                     Transaction::Legacy(TxLegacy::default()),
-                    alloy_primitives::PrimitiveSignature::test_signature(),
+                    alloy_primitives::Signature::test_signature(),
                     self.create_hash(),
                 ),
                 Address::default(),

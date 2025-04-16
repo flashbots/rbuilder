@@ -1230,7 +1230,7 @@ fn can_execute_with_block_base_fee<Transaction: AsRef<TransactionSigned>>(
 mod tests {
     use super::*;
     use alloy_consensus::TxLegacy;
-    use alloy_primitives::{fixed_bytes, PrimitiveSignature};
+    use alloy_primitives::{fixed_bytes, Signature};
     use reth_primitives::{Transaction, TransactionSigned};
     use uuid::uuid;
 
@@ -1244,7 +1244,7 @@ mod tests {
                     gas_price: needed_base_gas,
                     ..Default::default()
                 }),
-                PrimitiveSignature::test_signature(),
+                Signature::test_signature(),
                 Default::default(),
             ),
             Address::default(),
