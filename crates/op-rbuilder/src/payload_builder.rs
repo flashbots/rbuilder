@@ -8,7 +8,7 @@ use alloy_consensus::{
     constants::EMPTY_WITHDRAWALS, Eip658Value, Header, Transaction, Typed2718,
     EMPTY_OMMER_ROOT_HASH,
 };
-use alloy_eips::{merge::BEACON_NONCE, Encodable2718, eip7685::EMPTY_REQUESTS_HASH};
+use alloy_eips::{eip7685::EMPTY_REQUESTS_HASH, merge::BEACON_NONCE, Encodable2718};
 use alloy_op_evm::block::receipt_builder::OpReceiptBuilder;
 use alloy_primitives::{map::HashMap, Address, Bytes, B256, U256};
 use alloy_rpc_types_engine::PayloadId;
@@ -60,8 +60,8 @@ use revm::{
     database::{states::bundle_state::BundleRetention, BundleState, State},
     DatabaseCommit,
 };
-use rollup_boost::{
-    primitives::{ExecutionPayloadBaseV1, ExecutionPayloadFlashblockDeltaV1, FlashblocksPayloadV1},
+use rollup_boost::primitives::{
+    ExecutionPayloadBaseV1, ExecutionPayloadFlashblockDeltaV1, FlashblocksPayloadV1,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -752,7 +752,7 @@ where
     let receipts_with_hash = new_transactions
         .iter()
         .zip(new_receipts.iter())
-        .map(|(tx, receipt)| (B256::from(*tx.tx_hash()), receipt.clone()))
+        .map(|(tx, receipt)| (tx.tx_hash(), receipt.clone()))
         .collect::<HashMap<B256, OpReceipt>>();
     let new_account_balances = new_bundle
         .state
@@ -1194,7 +1194,7 @@ where
                 num_txs_simulated_fail += 1;
                 trace!(target: "payload_builder", ?tx, "skipping reverted transaction");
                 best_txs.mark_invalid(tx.signer(), tx.nonce());
-                info.invalid_tx_hashes.insert(B256::from(*tx.tx_hash()));
+                info.invalid_tx_hashes.insert(tx.tx_hash());
                 continue;
             }
 

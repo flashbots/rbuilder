@@ -41,7 +41,7 @@ reth-transaction-pool.workspace = true
 reth-testing-utils.workspace = true
 reth-optimism-forks.workspace = true
 
-alloy-primitives= { workspace = true, features = ["rlp"]}
+alloy-primitives.workspace = true
 alloy-consensus.workspace = true
 alloy-eips.workspace = true
 alloy-rpc-types-beacon.workspace = true
@@ -53,7 +53,6 @@ alloy-transport.workspace = true
 alloy-network.workspace = true
 alloy-provider.workspace = true
 alloy-serde.workspace = true
-alloy-evm.workspace = true
 
 # op
 alloy-op-evm.workspace = true
