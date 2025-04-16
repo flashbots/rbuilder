@@ -1106,8 +1106,9 @@ where
             } else {
                 num_txs_simulated_fail += 1;
                 trace!(target: "payload_builder", ?tx, "skipping reverted transaction");
-                best_txs.mark_invalid(tx.signer(), tx.nonce());
-                info.invalid_tx_hashes.insert(*tx.tx_hash());
+                // TODO: why queued transactions considered reverting being marked invalid
+                // best_txs.mark_invalid(tx.signer(), tx.nonce());
+                // info.invalid_tx_hashes.insert(*tx.tx_hash());
                 continue;
             }
 
