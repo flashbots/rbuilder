@@ -188,31 +188,6 @@ We plan to cut a stable release at least once a month, but this may vary dependi
 
 ## Contributing
 
-We welcome contributions to rbuilder! Our contributor guidelines can be found in [`CONTRIBUTING.md`](./CONTRIBUTING.md).
-
-
-Start by cloning the repo, and running a few common commands:
-
-```bash
-git clone git@github.com:flashbots/rbuilder.git
-cd rbuilder
-
-# Run linter
-make lint
-
-# Run tests
-make test
-
-# Run benchmarks and open the report
-make bench
-make bench-report-open
-```
-Please ensure all the test passed before submite a pull request.
-Note: some test instances might rely on other components:
-[`install foundry-toolchain`]https://book.getfoundry.sh/getting-started/installation
-
-## Contributing
-
 We welcome contributions to **rbuilder**! Please follow our contributor guidelines outlined in [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
 ### Getting Started
