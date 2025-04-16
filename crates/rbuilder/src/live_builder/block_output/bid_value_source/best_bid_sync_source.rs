@@ -1,4 +1,4 @@
-use super::interfaces::{BidValueObs, BidValueSource};
+use super::interfaces::{BidValueObs, BidValueSource, CompetitionBid};
 use alloy_primitives::U256;
 use parking_lot::Mutex;
 use std::sync::Arc;
@@ -31,17 +31,21 @@ impl BestBidSyncSource {
     }
 
     pub fn best_bid_value(&self) -> Option<U256> {
-        *self.best_bid_source_inner.best_bid.lock()
+        self.best_bid_source_inner
+            .best_bid
+            .lock()
+            .as_ref()
+            .map(|bid| bid.bid())
     }
 }
 
 #[derive(Debug, Default)]
 struct BestBidSyncSourceInner {
-    best_bid: Mutex<Option<U256>>,
+    best_bid: Mutex<Option<CompetitionBid>>,
 }
 
 impl BidValueObs for BestBidSyncSourceInner {
-    fn update_new_bid(&self, bid: U256) {
+    fn update_new_bid(&self, bid: CompetitionBid) {
         *self.best_bid.lock() = Some(bid);
     }
 }

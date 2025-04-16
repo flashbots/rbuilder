@@ -5,9 +5,8 @@ use crate::{
     building::builders::{
         block_building_helper::BiddableUnfinishedBlock, UnfinishedBlockBuildingSink,
     },
-    live_builder::block_output::bid_value_source::interfaces::BidValueObs,
+    live_builder::block_output::bid_value_source::interfaces::{BidValueObs, CompetitionBid},
 };
-use alloy_primitives::U256;
 use std::sync::Arc;
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
@@ -74,7 +73,7 @@ impl UnfinishedBlockBuildingSink for TrueBlockValueBidder {
 }
 
 impl BidValueObs for TrueBlockValueBidder {
-    fn update_new_bid(&self, _bid: U256) {}
+    fn update_new_bid(&self, _bid: CompetitionBid) {}
 }
 
 #[derive(Debug)]
