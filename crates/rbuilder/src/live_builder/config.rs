@@ -188,6 +188,7 @@ impl L1Config {
                     relay_config.name.clone(),
                     submit_config,
                     relay_config.mode == RelayMode::Test,
+                    relay_config.is_fast(),
                 ));
             } else {
                 eyre::bail!(
@@ -305,6 +306,7 @@ impl L1Config {
             signer,
             optimistic_config,
             bid_observer,
+            fast_bid_threshold: parse_ether(&self.fast_bid_threshold_eth)?,
         })
     }
 

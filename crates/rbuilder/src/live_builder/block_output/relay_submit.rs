@@ -6,7 +6,10 @@ use crate::{
         submission::{BidMetadata, BidValueMetadata, SubmitBlockRequestWithMetadata},
         BLSBlockSigner, RelayError, SubmitBlockErr,
     },
-    primitives::mev_boost::{MevBoostRelayBidSubmitter, MevBoostRelayID},
+    primitives::{
+        mev_boost::{MevBoostRelayBidSubmitter, MevBoostRelayID},
+        Order,
+    },
     telemetry::{
         add_relay_submit_time, add_subsidy_value, inc_conn_relay_errors,
         inc_failed_block_simulations, inc_initiated_submissions, inc_other_relay_errors,
@@ -23,7 +26,7 @@ use reth_chainspec::ChainSpec;
 use std::sync::Arc;
 use tokio::{sync::Notify, time::Instant};
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info, info_span, trace, warn, Instrument};
+use tracing::{error, info, info_span, trace, warn, Instrument, Span};
 
 use super::{
     bid_observer::BidObserver,
@@ -101,6 +104,8 @@ pub struct SubmissionConfig {
 
     pub optimistic_config: Option<OptimisticConfig>,
     pub bid_observer: Box<dyn BidObserver + Send + Sync>,
+    /// Bids above this value will only go to fast relays.
+    pub fast_bid_threshold: U256,
 }
 
 /// Configuration for optimistic block submission to relays.
@@ -232,7 +237,8 @@ async fn run_submit_to_relays_job(
             parent: &submission_span,
             "Submitting bid",
         );
-        inc_initiated_submissions(optimistic_config.is_some());
+        let send_to_slow_relays = can_send_to_slow_relay(&block, config.fast_bid_threshold);
+        inc_initiated_submissions(optimistic_config.is_some(), send_to_slow_relays);
 
         let (normal_signed_submission, optimistic_signed_submission) = {
             let normal_signed_submission = match sign_block_for_relay(
@@ -286,47 +292,34 @@ async fn run_submit_to_relays_job(
         };
 
         mark_submission_start_time(block.trace.orders_sealed_at);
-
-        for relay in &normal_relays {
-            let span = info_span!(parent: &submission_span, "relay_submit", relay = &relay.id(), optimistic = false);
-            let relay = relay.clone();
-            let cancel = cancel.clone();
-            let submission = normal_signed_submission.clone();
-            tokio::spawn(
-                async move {
-                    submit_bid_to_the_relay(&relay, cancel.clone(), submission, false).await;
-                }
-                .instrument(span),
-            );
-        }
+        submit_block_to_relays(
+            &normal_relays,
+            &normal_signed_submission,
+            send_to_slow_relays,
+            false,
+            &submission_span,
+            &cancel,
+        );
 
         if let Some((optimistic_signed_submission, _)) = &optimistic_signed_submission {
-            for relay in &optimistic_relays {
-                let span = info_span!(parent: &submission_span, "relay_submit", relay = &relay.id(), optimistic = true);
-                let relay = relay.clone();
-                let cancel = cancel.clone();
-                let submission = optimistic_signed_submission.clone();
-                tokio::spawn(
-                    async move {
-                        submit_bid_to_the_relay(&relay, cancel.clone(), submission, true).await;
-                    }
-                    .instrument(span),
-                );
-            }
+            submit_block_to_relays(
+                &optimistic_relays,
+                optimistic_signed_submission,
+                send_to_slow_relays,
+                true,
+                &submission_span,
+                &cancel,
+            );
         } else {
             // non-optimistic submission to optimistic relays
-            for relay in &optimistic_relays {
-                let span = info_span!(parent: &submission_span, "relay_submit", relay = &relay.id(), optimistic = false);
-                let relay = relay.clone();
-                let cancel = cancel.clone();
-                let submission = normal_signed_submission.clone();
-                tokio::spawn(
-                    async move {
-                        submit_bid_to_the_relay(&relay, cancel.clone(), submission, false).await;
-                    }
-                    .instrument(span),
-                );
-            }
+            submit_block_to_relays(
+                &optimistic_relays,
+                &normal_signed_submission,
+                send_to_slow_relays,
+                false,
+                &submission_span,
+                &cancel,
+            );
         }
 
         submission_span.in_scope(|| {
@@ -340,6 +333,46 @@ async fn run_submit_to_relays_job(
             );
         })
     }
+}
+
+fn submit_block_to_relays(
+    relays: &Vec<MevBoostRelayBidSubmitter>,
+    submission: &SubmitBlockRequestWithMetadata,
+    send_to_slow_relays: bool,
+    optimistic: bool,
+    submission_span: &Span,
+    cancel: &CancellationToken,
+) {
+    for relay in relays {
+        if relay.is_fast() || send_to_slow_relays {
+            let span = info_span!(parent: submission_span, "relay_submit", relay = &relay.id(), optimistic);
+            let relay = relay.clone();
+            let cancel = cancel.clone();
+            let submission = submission.clone();
+            tokio::spawn(
+                async move {
+                    submit_bid_to_the_relay(&relay, cancel.clone(), submission, optimistic).await;
+                }
+                .instrument(span),
+            );
+        }
+    }
+}
+
+/// can send only cheap blocks with no bundle replacement data.
+fn can_send_to_slow_relay(block: &Block, fast_bid_threshold: U256) -> bool {
+    let has_replacement_uuid = block
+        .trace
+        .included_orders
+        .iter()
+        .flat_map(|exec_res| exec_res.order.original_orders())
+        .any(|o| match o {
+            Order::Bundle(bundle) => bundle.replacement_data.is_some(),
+            Order::Tx(_) => false,
+            Order::ShareBundle(_) => false,
+        });
+    let is_expensive_block = block.trace.bid_value > fast_bid_threshold;
+    !has_replacement_uuid && !is_expensive_block
 }
 
 pub async fn run_submit_to_relays_job_and_metrics(

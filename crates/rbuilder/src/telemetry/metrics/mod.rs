@@ -133,9 +133,10 @@ register_metrics! {
             "initiated_submissions",
             "Number of initiated submissions to the relays"
         ),
-        &["optimistic"],
+        &["optimistic","sent_to_slow"],
     )
     .unwrap();
+
     pub static RELAY_SUBMIT_TIME: HistogramVec = HistogramVec::new(
         HistogramOpts::new("relay_submit_time", "Time to send bid to the relay (ms)")
             .buckets(linear_buckets_range(0.0, 3000.0, 50)),
@@ -298,6 +299,7 @@ register_metrics! {
         &[]
     )
     .unwrap();
+
 }
 
 // This function should be called periodically to reset histogram metrics.
@@ -466,10 +468,10 @@ pub fn inc_active_slots() {
     ACTIVE_SLOTS.inc();
 }
 
-pub fn inc_initiated_submissions(optimistic: bool) {
+pub fn inc_initiated_submissions(optimistic: bool, sent_to_slow_relays: bool) {
     INITIATED_SUBMISSIONS
-        .with_label_values(&[&optimistic.to_string()])
-        .inc()
+        .with_label_values(&[&optimistic.to_string(), &sent_to_slow_relays.to_string()])
+        .inc();
 }
 
 pub fn add_relay_submit_time(relay: &MevBoostRelayID, duration: Duration) {
