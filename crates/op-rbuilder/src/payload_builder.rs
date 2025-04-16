@@ -720,7 +720,7 @@ where
         parent_beacon_block_root: ctx.attributes().payload_attributes.parent_beacon_block_root,
         blob_gas_used,
         excess_blob_gas,
-        requests_hash: requests_hash,
+        requests_hash,
     };
 
     // seal the block
@@ -752,7 +752,7 @@ where
     let receipts_with_hash = new_transactions
         .iter()
         .zip(new_receipts.iter())
-        .map(|(tx, receipt)| (*tx.tx_hash(), receipt.clone()))
+        .map(|(tx, receipt)| (B256::from(*tx.tx_hash()), receipt.clone()))
         .collect::<HashMap<B256, OpReceipt>>();
     let new_account_balances = new_bundle
         .state
@@ -1194,7 +1194,7 @@ where
                 num_txs_simulated_fail += 1;
                 trace!(target: "payload_builder", ?tx, "skipping reverted transaction");
                 best_txs.mark_invalid(tx.signer(), tx.nonce());
-                info.invalid_tx_hashes.insert(*tx.tx_hash());
+                info.invalid_tx_hashes.insert(B256::from(*tx.tx_hash()));
                 continue;
             }
 

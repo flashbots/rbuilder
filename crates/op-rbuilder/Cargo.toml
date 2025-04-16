@@ -90,7 +90,7 @@ rand = "0.8.5"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 
 # `flashblocks` branch
-rollup-boost = { git = "http://github.com/flashbots/rollup-boost", rev = "e20dbc5c3d7b5223fc2a3a6cfe4c99ed9692caf7" }
+rollup-boost = { git = "http://github.com/flashbots/rollup-boost", rev = "dac67b08761ef2db7a923b3ea0df7129574bda04" }
 
 [target.'cfg(unix)'.dependencies]
 tikv-jemallocator = { version = "0.6", optional = true }
