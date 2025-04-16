@@ -1,5 +1,5 @@
 use alloy_consensus::SignableTransaction;
-use alloy_primitives::{Address, PrimitiveSignature as Signature, B256, U256};
+use alloy_primitives::{Address, Signature, B256, U256};
 use reth_primitives::{public_key_to_address, Recovered, Transaction, TransactionSigned};
 use secp256k1::{Message, SecretKey, SECP256K1};
 

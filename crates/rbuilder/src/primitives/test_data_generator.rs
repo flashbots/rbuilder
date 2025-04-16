@@ -4,7 +4,7 @@ use super::{
     TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior, LAST_BUNDLE_VERSION,
 };
 use alloy_consensus::TxLegacy;
-use alloy_primitives::{PrimitiveSignature, B256};
+use alloy_primitives::{Signature, B256};
 use reth_primitives::{Recovered, Transaction, TransactionSigned};
 use uuid::Uuid;
 
@@ -27,7 +27,7 @@ impl TestDataGenerator {
                     nonce: sender_nonce.nonce,
                     ..TxLegacy::default()
                 }),
-                PrimitiveSignature::test_signature(),
+                Signature::test_signature(),
                 self.base.create_tx_hash(),
             ),
             sender_nonce.account,
