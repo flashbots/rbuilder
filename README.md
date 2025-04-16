@@ -207,6 +207,35 @@ make test
 make bench
 make bench-report-open
 ```
+Please ensure all the test passed before submite a pull request.
+Note: some test instances might rely on other components:
+[`install foundry-toolchain`]https://book.getfoundry.sh/getting-started/installation
+
+## Contributing
+
+We welcome contributions to **rbuilder**! Please follow our contributor guidelines outlined in [`CONTRIBUTING.md`](./CONTRIBUTING.md).
+
+### Getting Started
+
+To get started with **rbuilder**, clone the repository and run these common commands:
+
+```bash
+git clone git@github.com:flashbots/rbuilder.git
+cd rbuilder
+
+# Run linter
+make lint
+
+# Run tests
+make test
+
+# Run benchmarks and open the report
+make bench
+make bench-report-open
+```
+
+Before submitting a pull request, ensure that all tests pass successfully. 
+Note that some test instances may rely on other components, such as the [foundry-toolchain](https://book.getfoundry.sh/getting-started/installation).
 
 ---
 
