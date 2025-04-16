@@ -1,13 +1,39 @@
 #!/bin/bash
 
-# Download the op-reth release
-wget https://github.com/paradigmxyz/reth/releases/download/v1.3.4/op-reth-v1.3.4-x86_64-unknown-linux-gnu.tar.gz
+VERSION=${VERSION:-1.3.9}
+
+ARCH=$(uname -m)
+case $ARCH in
+    "x86_64")
+        if [[ "$(uname)" == "Darwin" ]]; then
+            ARCH_STRING="x86_64-apple-darwin"
+        else
+            ARCH_STRING="x86_64-unknown-linux-gnu"
+        fi
+        ;;
+    "arm64" | "aarch64")
+        if [[ "$(uname)" == "Darwin" ]]; then
+            ARCH_STRING="aarch64-apple-darwin"
+        else
+            ARCH_STRING="aarch64-unknown-linux-gnu"
+        fi
+        ;;
+    *)
+        echo "Unsupported architecture: $ARCH"
+        exit 1
+        ;;
+esac
+
+FILENAME="op-reth-v${VERSION}-${ARCH_STRING}.tar.gz"
+echo "Downloading ${FILENAME}"
+
+wget -q "https://github.com/paradigmxyz/reth/releases/download/v${VERSION}/${FILENAME}"
 
 # Extract the tar.gz file
-tar -xzf op-reth-v1.3.4-x86_64-unknown-linux-gnu.tar.gz
+tar -xzf "${FILENAME}"
 
 # Make the binary executable
 chmod +x op-reth
 
 # Clean up the tar.gz file (optional)
-rm op-reth-v1.3.4-x86_64-unknown-linux-gnu.tar.gz
+rm "${FILENAME}"
