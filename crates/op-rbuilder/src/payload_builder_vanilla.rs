@@ -4,12 +4,12 @@ use crate::{
     primitives::reth::{ExecutedPayload, ExecutionInfo},
     tx_signer::Signer,
 };
-use alloy_op_evm::block::receipt_builder::OpReceiptBuilder;
 use alloy_consensus::{
     constants::EMPTY_WITHDRAWALS, transaction::Recovered, Eip658Value, Header, Transaction,
     TxEip1559, Typed2718, EMPTY_OMMER_ROOT_HASH,
 };
 use alloy_eips::merge::BEACON_NONCE;
+use alloy_op_evm::block::receipt_builder::OpReceiptBuilder;
 use alloy_primitives::{private::alloy_rlp::Encodable, Address, Bytes, TxHash, TxKind, U256};
 use alloy_rpc_types_engine::PayloadId;
 use alloy_rpc_types_eth::Withdrawals;

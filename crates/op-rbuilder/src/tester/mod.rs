@@ -190,7 +190,6 @@ pub struct BlockGenerator<'a> {
     latest_hash: B256,
     no_tx_pool: bool,
     block_time_secs: u64,
-
     // flashblocks service
     // flashblocks_endpoint: Option<String>,
     // flashblocks_service: Option<FlashblocksService>,
@@ -232,10 +231,10 @@ impl<'a> BlockGenerator<'a> {
         //         flashblocks_endpoint
         //     );
 
-            // self.flashblocks_service = Some(Flashblocks::run(
-            //     flashblocks_endpoint.to_string(),
-            //     "127.0.0.1:1112".to_string(), // output address for the preconfirmations from rb
-            // )?);
+        // self.flashblocks_service = Some(Flashblocks::run(
+        //     flashblocks_endpoint.to_string(),
+        //     "127.0.0.1:1112".to_string(), // output address for the preconfirmations from rb
+        // )?);
         // }
 
         Ok(latest_block)
@@ -401,9 +400,9 @@ impl<'a> BlockGenerator<'a> {
         }
 
         // let payload = if let Some(flashblocks_service) = &self.flashblocks_service {
-            // flashblocks_service.get_best_payload().await?.unwrap()
+        // flashblocks_service.get_best_payload().await?.unwrap()
         // } else {
-            // self.engine_api.get_payload_v3(payload_id).await?
+        // self.engine_api.get_payload_v3(payload_id).await?
         // };
 
         let payload = self.engine_api.get_payload_v3(payload_id).await?;
