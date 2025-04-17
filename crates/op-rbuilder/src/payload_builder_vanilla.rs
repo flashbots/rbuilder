@@ -71,6 +71,9 @@ use std::{sync::Arc, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::*;
 
+// From https://eips.ethereum.org/EIPS/eip-7623
+const TOTAL_COST_FLOOR_PER_TOKEN: u64 = 10;
+
 #[derive(Debug, Clone, Default)]
 #[non_exhaustive]
 pub struct CustomOpPayloadBuilder {
@@ -1292,5 +1295,9 @@ fn estimate_gas_for_builder_tx(input: Vec<u8>) -> u64 {
     let zero_cost = zero_bytes * 4;
     let nonzero_cost = nonzero_bytes * 16;
 
-    zero_cost + nonzero_cost + 21_000
+    // Tx gas should be not less than floor gas https://eips.ethereum.org/EIPS/eip-7623
+    let tokens_in_calldata = zero_bytes + nonzero_bytes * 4;
+    let floor_gas = 21_000 + tokens_in_calldata * TOTAL_COST_FLOOR_PER_TOKEN;
+
+    std::cmp::max(zero_cost + nonzero_cost + 21_000, floor_gas)
 }
