@@ -19,8 +19,6 @@ use reth_optimism_node::OpEngineTypes;
 use reth_payload_builder::PayloadId;
 use reth_rpc_layer::{AuthClientLayer, AuthClientService, JwtSecret};
 use rollup_boost::{Flashblocks, FlashblocksService};
-// use rollup_boost::Flashblocks;
-// use rollup_boost::FlashblocksService;
 use serde_json::Value;
 use std::{
     str::FromStr,
