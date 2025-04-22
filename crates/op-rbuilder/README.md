@@ -50,7 +50,7 @@ To run the integration tests, run:
 
 ```bash
 # Ensure you have op-reth installed in your path,
-# you can download it with the command below and move it to a locaiton in your path
+# you can download it with the command below and move it to a location in your path
 ./scripts/ci/download-op-reth.sh
 
 # Generate a genesis file
