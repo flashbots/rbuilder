@@ -90,7 +90,7 @@ impl TxCacheEntry {
             return;
         }
 
-        if trace_is_not_cachable(&result.used_state_trace, &result.coinbase) {
+        if trace_is_not_cacheable(&result.used_state_trace, &result.coinbase) {
             self.never_cache.store(true, Ordering::Relaxed);
             return;
         }
@@ -375,7 +375,7 @@ fn checked_add_balance(balance: &mut U256, delta: &I256) -> bool {
 
 // check if given execution trace actually read coinbase balance or writes to coinbase storage
 // if so we can't cache this tx as it can mess cache
-fn trace_is_not_cachable(used_state_trace: &UsedStateTrace, coinbase: &Address) -> bool {
+fn trace_is_not_cacheable(used_state_trace: &UsedStateTrace, coinbase: &Address) -> bool {
     let reads_balance = used_state_trace.read_balances.contains_key(coinbase);
     let writes_slots = used_state_trace
         .written_slot_values
