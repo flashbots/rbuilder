@@ -153,11 +153,18 @@ async fn run_submit_to_relays_job(
 
     let mut last_bid_hash = None;
     'submit: loop {
-        if cancel.is_cancelled() {
-            break 'submit res;
-        }
+        tokio::select! {
+            _ = cancel.cancelled() => {
+                info!(
+                    block = slot_data.block(),
+                    "run_submit_to_relays_job cancelled"
+                );
+                break 'submit res;
+            },
+            _ = pending_bid.wait_for_change() => {
+            }
+        };
 
-        pending_bid.wait_for_change().await;
         let block = if let Some(new_block) = pending_bid.take_pending_block() {
             if last_bid_hash
                 .is_none_or(|last_bid_hash| last_bid_hash != new_block.sealed_block.hash())
