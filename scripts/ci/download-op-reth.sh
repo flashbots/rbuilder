@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VERSION=${VERSION:-1.3.9}
+VERSION=${VERSION:-1.3.12}
 
 ARCH=$(uname -m)
 case $ARCH in
