@@ -42,33 +42,34 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
-    let cli = Cli::parse();
+    // let cli = Cli::parse();
 
-    match cli.command {
-        Commands::Genesis { output } => generate_genesis(output).await,
-        Commands::Run {
-            validation,
-            no_tx_pool,
-            block_time_secs,
-            flashblocks_endpoint,
-        } => {
-            run_system(
-                validation,
-                no_tx_pool,
-                block_time_secs,
-                flashblocks_endpoint,
-            )
-            .await
-        }
-        Commands::Deposit { address, amount } => {
-            let engine_api = EngineApi::builder().build().unwrap();
-            let mut generator = BlockGenerator::new(&engine_api, None, false, 1, None);
+    // match cli.command {
+    //     Commands::Genesis { output } => generate_genesis(output).await,
+    //     Commands::Run {
+    //         validation,
+    //         no_tx_pool,
+    //         block_time_secs,
+    //         flashblocks_endpoint,
+    //     } => {
+    //         run_system(
+    //             validation,
+    //             no_tx_pool,
+    //             block_time_secs,
+    //             flashblocks_endpoint,
+    //         )
+    //         .await
+    //     }
+    //     Commands::Deposit { address, amount } => {
+    //         let engine_api = EngineApi::builder().build().unwrap();
+    //         let mut generator = BlockGenerator::new(&engine_api, None, false, 1, None);
 
-            generator.init().await?;
+    //         generator.init().await?;
 
-            let block_hash = generator.deposit(address, amount).await?;
-            println!("Deposit transaction included in block: {}", block_hash);
-            Ok(())
-        }
-    }
+    //         let block_hash = generator.deposit(address, amount).await?;
+    //         println!("Deposit transaction included in block: {}", block_hash);
+    //         Ok(())
+    //     }
+    // }
+    Ok(())
 }

@@ -1101,7 +1101,7 @@ where
                 num_txs_simulated_success += 1;
             } else {
                 num_txs_simulated_fail += 1;
-                trace!(target: "payload_builder", ?tx, "skipping reverted transaction");
+                info!(target: "payload_builder", "skipping reverted transaction: {:?}", tx.tx_hash());
                 best_txs.mark_invalid(tx.signer(), tx.nonce());
                 info.invalid_tx_hashes.insert(tx.tx_hash());
                 continue;
