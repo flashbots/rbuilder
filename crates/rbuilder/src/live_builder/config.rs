@@ -46,7 +46,7 @@ use crate::{
 use alloy_chains::ChainKind;
 use alloy_primitives::{
     utils::{format_ether, parse_ether},
-    FixedBytes, B256,
+    FixedBytes, B256, U256,
 };
 use ethereum_consensus::{
     builder::compute_builder_domain, crypto::SecretKey, primitives::Version,
@@ -105,7 +105,15 @@ pub struct Config {
 
     /// selected builder configurations
     pub builders: Vec<BuilderConfig>,
+
+    /// When the sample bidder (see TrueBlockValueBiddingService) will start bidding.
+    /// Usually a negative number.
+    pub slot_delta_to_start_bidding_ms: Option<i64>,
+    /// Value added to the bids (see TrueBlockValueBiddingService).
+    pub subsidy: Option<String>,
 }
+
+const DEFAULT_SLOT_DELTA_TO_START_BIDDING_MS: i64 = -8000;
 
 #[serde_as]
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -362,8 +370,19 @@ impl LiveBuilderConfig for Config {
             self.base_config.coinbase_signer()?.address,
             WALLET_INIT_HISTORY_SIZE,
         )?;
-        let bidding_service: Box<dyn BiddingService> =
-            Box::new(TrueBlockValueBiddingService::new(&wallet_history));
+        let subsidy = self
+            .subsidy
+            .as_ref()
+            .map(|s| parse_ether(s))
+            .unwrap_or(Ok(U256::ZERO))?;
+        let bidding_service: Box<dyn BiddingService> = Box::new(TrueBlockValueBiddingService::new(
+            &wallet_history,
+            time::Duration::milliseconds(
+                self.slot_delta_to_start_bidding_ms
+                    .unwrap_or(DEFAULT_SLOT_DELTA_TO_START_BIDDING_MS),
+            ),
+            subsidy,
+        ));
 
         let sink_factory = Box::new(BlockSealingBidderFactory::new(
             bidding_service,
@@ -537,6 +556,8 @@ impl Default for Config {
                     }),
                 },
             ],
+            slot_delta_to_start_bidding_ms: None,
+            subsidy: None,
         }
     }
 }
