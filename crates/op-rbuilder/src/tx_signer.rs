@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use alloy_consensus::SignableTransaction;
-use alloy_primitives::{Address, Signature, B256, U256};
+use alloy_primitives::{Address, PrimitiveSignature as Signature, B256, U256};
 use op_alloy_consensus::OpTypedTransaction;
 use reth_optimism_primitives::OpTransactionSigned;
 use reth_primitives::{public_key_to_address, Recovered};
@@ -49,7 +49,7 @@ impl Signer {
             OpTypedTransaction::Deposit(_) => B256::ZERO,
         };
         let signature = self.sign_message(signature_hash)?;
-        let signed = tx.into_signed(signature).into();
+        let signed = OpTransactionSigned::new_unhashed(tx, signature);
         Ok(Recovered::new_unchecked(signed, self.address))
     }
 
