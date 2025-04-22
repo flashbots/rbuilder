@@ -504,6 +504,9 @@ mod tests {
         genesis_path.push("../../genesis.json");
         assert!(genesis_path.exists());
 
+        let block_time_ms = 1000;
+        let flashblock_time_ms = 100;
+
         // create the builder
         let builder_data_dir = std::env::temp_dir().join(Uuid::new_v4().to_string());
         let op_rbuilder_config = OpRbuilderConfig::new()
@@ -514,8 +517,8 @@ mod tests {
             .http_port(1248)
             .with_builder_private_key(BUILDER_PRIVATE_KEY)
             .with_flashblocks_ws_url("localhost:1249")
-            .with_chain_block_time(2000)
-            .with_flashbots_block_time(200);
+            .with_chain_block_time(block_time_ms)
+            .with_flashbots_block_time(flashblock_time_ms);
 
         // create the validation reth node
         let reth_data_dir = std::env::temp_dir().join(Uuid::new_v4().to_string());
@@ -535,27 +538,32 @@ mod tests {
         let engine_api = EngineApi::new("http://localhost:1244").unwrap();
         let validation_api = EngineApi::new("http://localhost:1246").unwrap();
 
-        let mut generator = BlockGenerator::new(&engine_api, Some(&validation_api), false, 2, None);
+        let mut generator = BlockGenerator::new(
+            &engine_api,
+            Some(&validation_api),
+            false,
+            block_time_ms / 1000,
+            None,
+        );
         generator.init().await?;
 
         let provider = ProviderBuilder::<Identity, Identity, Optimism>::default()
             .on_http("http://localhost:1248".parse()?);
 
-        for _ in 0..12 {
-            let block_hash = generator.generate_block().await?;
+        // Delay the payload building by 4s, ensure that the correct number of flashblocks are built
+        let block_hash = generator.generate_block_with_delay(4).await?;
 
-            // query the block and the transactions inside the block
-            let block = provider
-                .get_block_by_hash(block_hash)
+        // query the block and the transactions inside the block
+        let block = provider
+            .get_block_by_hash(block_hash)
+            .await?
+            .expect("block");
+
+        for hash in block.transactions.hashes() {
+            let _ = provider
+                .get_transaction_receipt(hash)
                 .await?
-                .expect("block");
-
-            for hash in block.transactions.hashes() {
-                let _ = provider
-                    .get_transaction_receipt(hash)
-                    .await?
-                    .expect("receipt");
-            }
+                .expect("receipt");
         }
 
         op_rbuilder
