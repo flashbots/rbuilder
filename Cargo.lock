@@ -9376,8 +9376,8 @@ dependencies = [
 
 [[package]]
 name = "reth"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -9449,8 +9449,8 @@ dependencies = [
 
 [[package]]
 name = "reth-basic-payload-builder"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -9473,8 +9473,8 @@ dependencies = [
 
 [[package]]
 name = "reth-chain-state"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -9503,8 +9503,8 @@ dependencies = [
 
 [[package]]
 name = "reth-chainspec"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-chains",
  "alloy-consensus 0.13.0",
@@ -9523,8 +9523,8 @@ dependencies = [
 
 [[package]]
 name = "reth-cli"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-genesis",
  "clap 4.5.36",
@@ -9537,8 +9537,8 @@ dependencies = [
 
 [[package]]
 name = "reth-cli-commands"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "ahash",
  "alloy-consensus 0.13.0",
@@ -9597,8 +9597,8 @@ dependencies = [
 
 [[package]]
 name = "reth-cli-runner"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "reth-tasks",
  "tokio",
@@ -9607,8 +9607,8 @@ dependencies = [
 
 [[package]]
 name = "reth-cli-util"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-eips 0.13.0",
  "alloy-primitives 0.8.25",
@@ -9625,8 +9625,8 @@ dependencies = [
 
 [[package]]
 name = "reth-codecs"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -9645,8 +9645,8 @@ dependencies = [
 
 [[package]]
 name = "reth-codecs-derive"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "convert_case 0.7.1",
  "proc-macro2",
@@ -9656,8 +9656,8 @@ dependencies = [
 
 [[package]]
 name = "reth-config"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "eyre",
  "humantime-serde",
@@ -9670,8 +9670,8 @@ dependencies = [
 
 [[package]]
 name = "reth-consensus"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-primitives 0.8.25",
@@ -9683,8 +9683,8 @@ dependencies = [
 
 [[package]]
 name = "reth-consensus-common"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -9695,8 +9695,8 @@ dependencies = [
 
 [[package]]
 name = "reth-consensus-debug-client"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -9718,8 +9718,8 @@ dependencies = [
 
 [[package]]
 name = "reth-db"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-primitives 0.8.25",
  "derive_more 2.0.1",
@@ -9744,8 +9744,8 @@ dependencies = [
 
 [[package]]
 name = "reth-db-api"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-genesis",
@@ -9772,8 +9772,8 @@ dependencies = [
 
 [[package]]
 name = "reth-db-common"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-genesis",
@@ -9801,8 +9801,8 @@ dependencies = [
 
 [[package]]
 name = "reth-db-models"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-eips 0.13.0",
  "alloy-primitives 0.8.25",
@@ -9816,8 +9816,8 @@ dependencies = [
 
 [[package]]
 name = "reth-discv4"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-primitives 0.8.25",
  "alloy-rlp",
@@ -9842,8 +9842,8 @@ dependencies = [
 
 [[package]]
 name = "reth-discv5"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-primitives 0.8.25",
  "alloy-rlp",
@@ -9866,8 +9866,8 @@ dependencies = [
 
 [[package]]
 name = "reth-dns-discovery"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-primitives 0.8.25",
  "data-encoding",
@@ -9890,8 +9890,8 @@ dependencies = [
 
 [[package]]
 name = "reth-downloaders"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -9920,8 +9920,8 @@ dependencies = [
 
 [[package]]
 name = "reth-ecies"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "aes",
  "alloy-primitives 0.8.25",
@@ -9951,8 +9951,8 @@ dependencies = [
 
 [[package]]
 name = "reth-engine-local"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-primitives 0.8.25",
@@ -9982,8 +9982,8 @@ dependencies = [
 
 [[package]]
 name = "reth-engine-primitives"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-primitives 0.8.25",
@@ -10006,8 +10006,8 @@ dependencies = [
 
 [[package]]
 name = "reth-engine-service"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "futures",
  "pin-project",
@@ -10029,8 +10029,8 @@ dependencies = [
 
 [[package]]
 name = "reth-engine-tree"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -10040,7 +10040,6 @@ dependencies = [
  "alloy-rpc-types-engine 0.13.0",
  "derive_more 2.0.1",
  "futures",
- "itertools 0.14.0",
  "metrics",
  "mini-moka",
  "parking_lot",
@@ -10075,8 +10074,8 @@ dependencies = [
 
 [[package]]
 name = "reth-engine-util"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-rpc-types-engine 0.13.0",
@@ -10102,8 +10101,8 @@ dependencies = [
 
 [[package]]
 name = "reth-errors"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "reth-consensus",
  "reth-execution-errors",
@@ -10114,8 +10113,8 @@ dependencies = [
 
 [[package]]
 name = "reth-eth-wire"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-chains",
  "alloy-primitives 0.8.25",
@@ -10142,8 +10141,8 @@ dependencies = [
 
 [[package]]
 name = "reth-eth-wire-types"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-chains",
  "alloy-consensus 0.13.0",
@@ -10163,8 +10162,8 @@ dependencies = [
 
 [[package]]
 name = "reth-ethereum-cli"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "eyre",
  "reth-chainspec",
@@ -10173,8 +10172,8 @@ dependencies = [
 
 [[package]]
 name = "reth-ethereum-consensus"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -10189,8 +10188,8 @@ dependencies = [
 
 [[package]]
 name = "reth-ethereum-engine-primitives"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-eips 0.13.0",
  "alloy-primitives 0.8.25",
@@ -10206,8 +10205,8 @@ dependencies = [
 
 [[package]]
 name = "reth-ethereum-forks"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-eip2124 0.1.0",
  "alloy-hardforks",
@@ -10220,8 +10219,8 @@ dependencies = [
 
 [[package]]
 name = "reth-ethereum-payload-builder"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -10247,8 +10246,8 @@ dependencies = [
 
 [[package]]
 name = "reth-ethereum-primitives"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -10272,8 +10271,8 @@ dependencies = [
 
 [[package]]
 name = "reth-etl"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "rayon",
  "reth-db-api",
@@ -10282,8 +10281,8 @@ dependencies = [
 
 [[package]]
 name = "reth-evm"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -10308,8 +10307,8 @@ dependencies = [
 
 [[package]]
 name = "reth-evm-ethereum"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -10326,8 +10325,8 @@ dependencies = [
 
 [[package]]
 name = "reth-execution-errors"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-evm",
  "alloy-primitives 0.8.25",
@@ -10339,8 +10338,8 @@ dependencies = [
 
 [[package]]
 name = "reth-execution-types"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -10357,8 +10356,8 @@ dependencies = [
 
 [[package]]
 name = "reth-exex"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -10395,8 +10394,8 @@ dependencies = [
 
 [[package]]
 name = "reth-exex-types"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-eips 0.13.0",
  "alloy-primitives 0.8.25",
@@ -10409,8 +10408,8 @@ dependencies = [
 
 [[package]]
 name = "reth-fs-util"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "serde",
  "serde_json",
@@ -10419,8 +10418,8 @@ dependencies = [
 
 [[package]]
 name = "reth-invalid-block-hooks"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-primitives 0.8.25",
@@ -10445,8 +10444,8 @@ dependencies = [
 
 [[package]]
 name = "reth-ipc"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "async-trait",
  "bytes",
@@ -10466,8 +10465,8 @@ dependencies = [
 
 [[package]]
 name = "reth-libmdbx"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "bitflags 2.9.0",
  "byteorder",
@@ -10483,8 +10482,8 @@ dependencies = [
 
 [[package]]
 name = "reth-mdbx-sys"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "bindgen 0.70.1",
  "cc",
@@ -10492,8 +10491,8 @@ dependencies = [
 
 [[package]]
 name = "reth-metrics"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "futures",
  "metrics",
@@ -10504,16 +10503,16 @@ dependencies = [
 
 [[package]]
 name = "reth-net-banlist"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-primitives 0.8.25",
 ]
 
 [[package]]
 name = "reth-net-nat"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "futures-util",
  "if-addrs",
@@ -10526,8 +10525,8 @@ dependencies = [
 
 [[package]]
 name = "reth-network"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -10580,8 +10579,8 @@ dependencies = [
 
 [[package]]
 name = "reth-network-api"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-primitives 0.8.25",
  "alloy-rpc-types-admin",
@@ -10603,8 +10602,8 @@ dependencies = [
 
 [[package]]
 name = "reth-network-p2p"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -10626,8 +10625,8 @@ dependencies = [
 
 [[package]]
 name = "reth-network-peers"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-primitives 0.8.25",
  "alloy-rlp",
@@ -10641,8 +10640,8 @@ dependencies = [
 
 [[package]]
 name = "reth-network-types"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-eip2124 0.1.0",
  "humantime-serde",
@@ -10655,8 +10654,8 @@ dependencies = [
 
 [[package]]
 name = "reth-nippy-jar"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "anyhow",
  "bincode",
@@ -10672,8 +10671,8 @@ dependencies = [
 
 [[package]]
 name = "reth-node-api"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-rpc-types-engine 0.13.0",
  "eyre",
@@ -10696,8 +10695,8 @@ dependencies = [
 
 [[package]]
 name = "reth-node-builder"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -10759,8 +10758,8 @@ dependencies = [
 
 [[package]]
 name = "reth-node-core"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -10809,8 +10808,8 @@ dependencies = [
 
 [[package]]
 name = "reth-node-ethereum"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-eips 0.13.0",
  "alloy-rpc-types-engine 0.13.0",
@@ -10845,8 +10844,8 @@ dependencies = [
 
 [[package]]
 name = "reth-node-events"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -10869,8 +10868,8 @@ dependencies = [
 
 [[package]]
 name = "reth-node-metrics"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "eyre",
  "http 1.3.1",
@@ -10890,8 +10889,8 @@ dependencies = [
 
 [[package]]
 name = "reth-node-types"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "reth-chainspec",
  "reth-db-api",
@@ -10903,8 +10902,8 @@ dependencies = [
 
 [[package]]
 name = "reth-optimism-chainspec"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-chains",
  "alloy-consensus 0.13.0",
@@ -10925,8 +10924,8 @@ dependencies = [
 
 [[package]]
 name = "reth-optimism-cli"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -10972,8 +10971,8 @@ dependencies = [
 
 [[package]]
 name = "reth-optimism-consensus"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -10997,8 +10996,8 @@ dependencies = [
 
 [[package]]
 name = "reth-optimism-evm"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -11022,8 +11021,8 @@ dependencies = [
 
 [[package]]
 name = "reth-optimism-forks"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-op-hardforks",
  "alloy-primitives 0.8.25",
@@ -11033,8 +11032,8 @@ dependencies = [
 
 [[package]]
 name = "reth-optimism-node"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-primitives 0.8.25",
@@ -11078,8 +11077,8 @@ dependencies = [
 
 [[package]]
 name = "reth-optimism-payload-builder"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -11116,8 +11115,8 @@ dependencies = [
 
 [[package]]
 name = "reth-optimism-primitives"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -11145,8 +11144,8 @@ dependencies = [
 
 [[package]]
 name = "reth-optimism-rpc"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -11201,8 +11200,8 @@ dependencies = [
 
 [[package]]
 name = "reth-optimism-txpool"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -11236,8 +11235,8 @@ dependencies = [
 
 [[package]]
 name = "reth-payload-builder"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-rpc-types",
@@ -11256,8 +11255,8 @@ dependencies = [
 
 [[package]]
 name = "reth-payload-builder-primitives"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "pin-project",
  "reth-payload-primitives",
@@ -11268,8 +11267,8 @@ dependencies = [
 
 [[package]]
 name = "reth-payload-primitives"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-eips 0.13.0",
  "alloy-primitives 0.8.25",
@@ -11287,8 +11286,8 @@ dependencies = [
 
 [[package]]
 name = "reth-payload-util"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-primitives 0.8.25",
@@ -11297,8 +11296,8 @@ dependencies = [
 
 [[package]]
 name = "reth-payload-validator"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-rpc-types-engine 0.13.0",
@@ -11307,8 +11306,8 @@ dependencies = [
 
 [[package]]
 name = "reth-primitives"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "arbitrary",
@@ -11322,8 +11321,8 @@ dependencies = [
 
 [[package]]
 name = "reth-primitives-traits"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -11355,8 +11354,8 @@ dependencies = [
 
 [[package]]
 name = "reth-provider"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -11402,8 +11401,8 @@ dependencies = [
 
 [[package]]
 name = "reth-prune"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -11430,8 +11429,8 @@ dependencies = [
 
 [[package]]
 name = "reth-prune-types"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-primitives 0.8.25",
  "arbitrary",
@@ -11463,8 +11462,8 @@ dependencies = [
 
 [[package]]
 name = "reth-ress-protocol"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-primitives 0.8.25",
@@ -11482,8 +11481,8 @@ dependencies = [
 
 [[package]]
 name = "reth-ress-provider"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-primitives 0.8.25",
@@ -11508,8 +11507,8 @@ dependencies = [
 
 [[package]]
 name = "reth-revm"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-primitives 0.8.25",
  "reth-primitives-traits",
@@ -11521,8 +11520,8 @@ dependencies = [
 
 [[package]]
 name = "reth-rpc"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-dyn-abi",
@@ -11594,8 +11593,8 @@ dependencies = [
 
 [[package]]
 name = "reth-rpc-api"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-eips 0.13.0",
  "alloy-genesis",
@@ -11620,8 +11619,8 @@ dependencies = [
 
 [[package]]
 name = "reth-rpc-builder"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-network",
  "alloy-provider",
@@ -11657,8 +11656,8 @@ dependencies = [
 
 [[package]]
 name = "reth-rpc-engine-api"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-eips 0.13.0",
  "alloy-primitives 0.8.25",
@@ -11688,8 +11687,8 @@ dependencies = [
 
 [[package]]
 name = "reth-rpc-eth-api"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-dyn-abi",
@@ -11731,8 +11730,8 @@ dependencies = [
 
 [[package]]
 name = "reth-rpc-eth-types"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -11773,8 +11772,8 @@ dependencies = [
 
 [[package]]
 name = "reth-rpc-layer"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-rpc-types-engine 0.13.0",
  "http 1.3.1",
@@ -11787,8 +11786,8 @@ dependencies = [
 
 [[package]]
 name = "reth-rpc-server-types"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-eips 0.13.0",
  "alloy-primitives 0.8.25",
@@ -11803,8 +11802,8 @@ dependencies = [
 
 [[package]]
 name = "reth-rpc-types-compat"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-primitives 0.8.25",
@@ -11816,8 +11815,8 @@ dependencies = [
 
 [[package]]
 name = "reth-stages"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -11858,8 +11857,8 @@ dependencies = [
 
 [[package]]
 name = "reth-stages-api"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-eips 0.13.0",
  "alloy-primitives 0.8.25",
@@ -11885,8 +11884,8 @@ dependencies = [
 
 [[package]]
 name = "reth-stages-types"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-primitives 0.8.25",
  "arbitrary",
@@ -11899,8 +11898,8 @@ dependencies = [
 
 [[package]]
 name = "reth-static-file"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-primitives 0.8.25",
  "parking_lot",
@@ -11919,8 +11918,8 @@ dependencies = [
 
 [[package]]
 name = "reth-static-file-types"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-primitives 0.8.25",
  "clap 4.5.36",
@@ -11931,8 +11930,8 @@ dependencies = [
 
 [[package]]
 name = "reth-storage-api"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -11955,8 +11954,8 @@ dependencies = [
 
 [[package]]
 name = "reth-storage-errors"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-eips 0.13.0",
  "alloy-primitives 0.8.25",
@@ -11971,8 +11970,8 @@ dependencies = [
 
 [[package]]
 name = "reth-tasks"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "auto_impl",
  "dyn-clone",
@@ -11989,8 +11988,8 @@ dependencies = [
 
 [[package]]
 name = "reth-testing-utils"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -12004,8 +12003,8 @@ dependencies = [
 
 [[package]]
 name = "reth-tokio-util"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "tokio",
  "tokio-stream",
@@ -12014,8 +12013,8 @@ dependencies = [
 
 [[package]]
 name = "reth-tracing"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "clap 4.5.36",
  "eyre",
@@ -12029,8 +12028,8 @@ dependencies = [
 
 [[package]]
 name = "reth-transaction-pool"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -12067,8 +12066,8 @@ dependencies = [
 
 [[package]]
 name = "reth-trie"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-eips 0.13.0",
@@ -12092,8 +12091,8 @@ dependencies = [
 
 [[package]]
 name = "reth-trie-common"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-consensus 0.13.0",
  "alloy-primitives 0.8.25",
@@ -12118,8 +12117,8 @@ dependencies = [
 
 [[package]]
 name = "reth-trie-db"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-primitives 0.8.25",
  "reth-db-api",
@@ -12131,8 +12130,8 @@ dependencies = [
 
 [[package]]
 name = "reth-trie-parallel"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-primitives 0.8.25",
  "alloy-rlp",
@@ -12156,8 +12155,8 @@ dependencies = [
 
 [[package]]
 name = "reth-trie-sparse"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "alloy-primitives 0.8.25",
  "alloy-rlp",
@@ -12173,8 +12172,8 @@ dependencies = [
 
 [[package]]
 name = "reth-zstd-compressors"
-version = "1.3.8"
-source = "git+https://github.com/avalonche/reth?rev=1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030#1f3125fc3fdddaadc13e30ee8d1eacc1a5e2d030"
+version = "1.3.5"
+source = "git+https://github.com/avalonche/reth?rev=2b16868657bbe0283fddc42268773604de173b72#2b16868657bbe0283fddc42268773604de173b72"
 dependencies = [
  "zstd 0.13.3",
 ]
