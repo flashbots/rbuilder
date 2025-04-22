@@ -57,10 +57,12 @@ To run the integration tests, run:
 cargo run -p op-rbuilder --bin tester -- genesis --output genesis.json
 
 # Build the op-rbuilder binary
+# To test flashblocks add flashblocks as a feature
 cargo build -p op-rbuilder --bin op-rbuilder
 
 # Run the integration tests
-cargo run -p op-rbuilder --bin tester -- run
+# To test flashblocks add flashblocks as a feature
+cargo test --package op-rbuilder --lib --features integration -- integration::integration_test::tests
 ```
 
 ## Local Devnet
