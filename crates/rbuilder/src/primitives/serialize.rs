@@ -174,7 +174,7 @@ pub struct RawBundle {
 
 #[derive(Error, Debug)]
 pub enum RawBundleConvertError {
-    #[error("Failed to decode transaction, idx: {0}, error: {0}")]
+    #[error("Failed to decode transaction, idx: {0}, error: {1}")]
     FailedToDecodeTransaction(usize, TxWithBlobsCreateError),
     #[error("Incorrect replacement data")]
     IncorrectReplacementData,
