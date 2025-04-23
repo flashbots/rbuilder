@@ -564,6 +564,8 @@ impl<Txs> OpBuilder<'_, Txs> {
             (None, None)
         };
 
+        ctx.metrics
+            .inc_num_removed_invalid_tx(info.invalid_tx_hashes.len());
         remove_invalid(info.invalid_tx_hashes.iter().copied().collect());
 
         let payload = ExecutedPayload {

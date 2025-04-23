@@ -56,11 +56,18 @@ pub struct OpRBuilderMetrics {
     pub tx_byte_size: Histogram,
     /// Number of reverted transactions
     pub num_reverted_tx: Counter,
+    /// Number of invalid txs being removed
+    pub num_removed_invalid_tx: Counter,
 }
 
 impl OpRBuilderMetrics {
     pub fn inc_num_reverted_tx(&self, num_reverted_tx: usize) {
         self.num_reverted_tx.increment(num_reverted_tx as u64);
+    }
+
+    pub fn inc_num_removed_invalid_tx(&self, num_removed_invalid_tx: usize) {
+        self.num_removed_invalid_tx
+            .increment(num_removed_invalid_tx as u64);
     }
 
     pub fn inc_builder_landed_blocks(&self) {
