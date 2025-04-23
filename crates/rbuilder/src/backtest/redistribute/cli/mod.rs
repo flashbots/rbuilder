@@ -10,6 +10,7 @@ use crate::{
         cli::LiveBuilderConfig,
     },
     provider::StateProviderFactory,
+    utils::ProviderFactoryReopener,
 };
 use alloy_primitives::utils::format_ether;
 use clap::Parser;
@@ -68,6 +69,9 @@ where
         HistoricalDataStorage::new_from_path(&config.base_config().backtest_fetch_output_file)
             .await?;
     let provider = config.base_config().create_reth_provider_factory(true)?;
+    // this sets testing mode to true so we can skip consistency checks
+    let provider =
+        ProviderFactoryReopener::new_from_existing(provider.provider_factory_unchecked(), None)?;
     let csv_writer = cli
         .csv
         .map(|path| -> io::Result<_> { CSVResultWriter::new(path) })
