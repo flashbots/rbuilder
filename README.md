@@ -65,7 +65,7 @@ Additionally, you can:
 Running:
 1. Prepare config file based on the `config-live-example.toml`
 2. Run `rbuilder run PATH_TO_CONFIG_FILE`
-
+See [`config file fields`](./docs/CONFIG.md) for more detailed info.
 **Warning**: Even if they are rare, before running a builder you should be aware of [`reorg losses`](./docs/REORG_LOSSES.md).
 
 ### Benchmarking
