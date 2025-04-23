@@ -22,6 +22,7 @@ use crate::{
 use ahash::{HashMap, HashSet};
 use alloy_primitives::{utils::format_ether, Address, B256, I256, U256};
 pub use cli::run_backtest_redistribute;
+use itertools::Itertools;
 use rayon::prelude::*;
 use reth_chainspec::ChainSpec;
 use serde::{Deserialize, Serialize};
@@ -410,7 +411,21 @@ where
             simplified_orders.push(SimplifiedOrder::new_from_order(&available_order.order));
         }
     }
-    Ok(restore_landed_orders(block_txs, simplified_orders))
+    let result = restore_landed_orders(block_txs, simplified_orders);
+    {
+        for (order, result) in result.iter().sorted_by_key(|(o, _)| *o) {
+            trace!(
+            ?order,
+                   total_coinbase_profit = format_ether(result.total_coinbase_profit),
+                   unique_coinbase_profit = format_ether(result.unique_coinbase_profit),
+                   error = ?result.error,
+                   tx_hashes = ?result.tx_hashes,
+                   overlapping_txs = ?result.overlapping_txs,
+                   "Restored landed order"
+                )
+        }
+    }
+    Ok(result)
 }
 
 #[derive(Debug)]
@@ -849,7 +864,7 @@ fn apply_redistribution_formula(
                 .get(id)
                 .expect("order is not restored");
             if let Some(error) = &restored_landed_order.error {
-                warn!(identity = ?address, order = ?id, err = ?error, "Landed order is not properly recovered");
+                error!(identity = ?address, order = ?id, err = ?error, "Landed order is not properly recovered");
                 continue;
             }
             debug!(identity = ?address, order = ?id, "Landed order is properly recovered");

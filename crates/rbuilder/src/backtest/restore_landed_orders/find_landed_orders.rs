@@ -174,6 +174,7 @@ pub struct LandedOrderData {
     pub unique_coinbase_profit: I256,
     pub error: Option<OrderIdentificationError>,
     pub overlapping_txs: Vec<(OrderId, B256)>,
+    pub tx_hashes: Vec<B256>,
 }
 
 #[derive(Debug, Clone, thiserror::Error, Eq, PartialEq)]
@@ -195,6 +196,7 @@ impl LandedOrderData {
         unique_coinbase_profit: I256,
         error: Option<OrderIdentificationError>,
         overlapping_txs: Vec<(OrderId, B256)>,
+        tx_hashes: Vec<B256>,
     ) -> Self {
         LandedOrderData {
             order,
@@ -202,6 +204,7 @@ impl LandedOrderData {
             unique_coinbase_profit,
             error,
             overlapping_txs,
+            tx_hashes,
         }
     }
 }
@@ -239,6 +242,12 @@ pub fn restore_landed_orders(
     block_txs: Vec<ExecutedBlockTx>,
     orders: Vec<SimplifiedOrder>,
 ) -> HashMap<OrderId, LandedOrderData> {
+    let tx_to_index: HashMap<B256, usize> = block_txs
+        .iter()
+        .enumerate()
+        .map(|(idx, tx)| (tx.hash, idx))
+        .collect();
+
     let executed_block_data = ExecutedBlockData::new_from_txs(block_txs);
 
     let mut result = HashMap::default();
@@ -258,7 +267,14 @@ pub fn restore_landed_orders(
             Err(e) => {
                 result.insert(
                     order.id,
-                    LandedOrderData::new(order.id, I256::ZERO, I256::ZERO, Some(e), Vec::new()),
+                    LandedOrderData::new(
+                        order.id,
+                        I256::ZERO,
+                        I256::ZERO,
+                        Some(e),
+                        Vec::new(),
+                        Vec::new(),
+                    ),
                 );
             }
         }
@@ -274,7 +290,9 @@ pub fn restore_landed_orders(
                 I256::ZERO,
                 None,
                 Vec::new(),
+                Vec::new(),
             ));
+            entry.tx_hashes.push(tx);
             let profit = if *kickback == 0 {
                 profit
             } else {
@@ -300,6 +318,9 @@ pub fn restore_landed_orders(
 
     for landed_data in result.values_mut() {
         landed_data.overlapping_txs.sort_by_key(|(d, _)| *d);
+        landed_data
+            .tx_hashes
+            .sort_by_key(|tx| tx_to_index.get(tx).unwrap());
     }
 
     result
@@ -490,11 +511,32 @@ mod tests {
 
         let results = vec![
             // bundle 1 with 1 tx
-            LandedOrderData::new(order_id(0xb1), i256(12), i256(12), None, vec![]),
+            LandedOrderData::new(
+                order_id(0xb1),
+                i256(12),
+                i256(12),
+                None,
+                vec![],
+                vec![hash(2)],
+            ),
             // bundle 2 with 2/3 landed txs
-            LandedOrderData::new(order_id(0xb2), i256(13 + 14), i256(13 + 14), None, vec![]),
+            LandedOrderData::new(
+                order_id(0xb2),
+                i256(13 + 14),
+                i256(13 + 14),
+                None,
+                vec![],
+                vec![hash(3), hash(33)],
+            ),
             // bundle with simple kickback
-            LandedOrderData::new(order_id(0xb3), i256(15 + 2), i256(15 + 2), None, vec![]),
+            LandedOrderData::new(
+                order_id(0xb3),
+                i256(15 + 2),
+                i256(15 + 2),
+                None,
+                vec![],
+                vec![hash(5), hash(6)],
+            ),
         ];
         assert_result(executed_block, orders, results);
     }
@@ -540,6 +582,7 @@ mod tests {
                 i256(0x11 + 0x12),
                 None,
                 vec![(order_id(0xb2), hash(0xaa))],
+                vec![hash(0x11), hash(0xaa), hash(0x12)],
             ),
             LandedOrderData::new(
                 order_id(0xb2),
@@ -547,6 +590,7 @@ mod tests {
                 i256(0x21 + 0x22),
                 None,
                 vec![(order_id(0xb1), hash(0xaa))],
+                vec![hash(0x21), hash(0xaa), hash(0x22)],
             ),
         ];
         assert_result(executed_block, orders, results);
@@ -597,6 +641,7 @@ mod tests {
                 i256(0),
                 None,
                 vec![(order_id(0xb2), hash(0x00)), (order_id(0xb3), hash(0x00))],
+                vec![hash(0x00)],
             ),
             LandedOrderData::new(
                 order_id(0xb2),
@@ -604,6 +649,7 @@ mod tests {
                 i256(100),
                 None,
                 vec![(order_id(0xb1), hash(0x00)), (order_id(0xb3), hash(0x00))],
+                vec![hash(0x00), hash(0x02)],
             ),
             LandedOrderData::new(
                 order_id(0xb3),
@@ -611,6 +657,7 @@ mod tests {
                 i256(400),
                 None,
                 vec![(order_id(0xb1), hash(0x00)), (order_id(0xb2), hash(0x00))],
+                vec![hash(0x00), hash(0x03)],
             ),
         ];
         assert_result(executed_block, orders, results);
@@ -672,12 +719,14 @@ mod tests {
                 i256(0),
                 Some(OrderIdentificationError::TxReverted(hash(0x01))),
                 vec![],
+                vec![],
             ),
             LandedOrderData::new(
                 order_id(0xb2),
                 i256(0),
                 i256(0),
                 Some(OrderIdentificationError::TxNotFound(hash(0xAA))),
+                vec![],
                 vec![],
             ),
             LandedOrderData::new(
@@ -686,6 +735,7 @@ mod tests {
                 i256(0),
                 Some(OrderIdentificationError::TxIsIncorrectPosition(hash(0x02))),
                 vec![],
+                vec![],
             ),
             LandedOrderData::new(
                 order_id(0xb4),
@@ -693,12 +743,14 @@ mod tests {
                 i256(0),
                 Some(OrderIdentificationError::TxIsIncorrectPosition(hash(0x02))),
                 vec![],
+                vec![],
             ),
             LandedOrderData::new(
                 order_id(0xb5),
                 i256(0),
                 i256(0),
                 Some(OrderIdentificationError::TxReverted(hash(0x01))),
+                vec![],
                 vec![],
             ),
         ];
@@ -730,6 +782,7 @@ mod tests {
             i256(0x11 + 0x13),
             None,
             vec![],
+            vec![hash(0x11), hash(0x13)],
         )];
         assert_result(executed_block, orders, results);
     }
@@ -780,6 +833,7 @@ mod tests {
                 i256(0x4 + 10 / 2),
                 None,
                 vec![(order_id(0xb1), hash(0x2))],
+                vec![hash(0x2), hash(0x4), hash(0x5)],
             ),
             LandedOrderData::new(
                 order_id(0xb1),
@@ -787,6 +841,7 @@ mod tests {
                 i256(0x1 + 0x3),
                 None,
                 vec![(order_id(0xb0), hash(0x2))],
+                vec![hash(0x1), hash(0x2), hash(0x3)],
             ),
         ];
         assert_result(executed_block, orders, results);
@@ -824,8 +879,22 @@ mod tests {
         ];
 
         let results = vec![
-            LandedOrderData::new(order_id(0xb0), i256(10 / 2), i256(10 / 2), None, vec![]),
-            LandedOrderData::new(order_id(0xb1), i256(0x2), i256(0x2), None, vec![]),
+            LandedOrderData::new(
+                order_id(0xb0),
+                i256(10 / 2),
+                i256(10 / 2),
+                None,
+                vec![],
+                vec![hash(0x1)],
+            ),
+            LandedOrderData::new(
+                order_id(0xb1),
+                i256(0x2),
+                i256(0x2),
+                None,
+                vec![],
+                vec![hash(0x2)],
+            ),
         ];
         assert_result(executed_block, orders, results);
     }
@@ -850,6 +919,7 @@ mod tests {
             i256(0x1),
             None,
             vec![],
+            vec![hash(0x1)],
         )];
         assert_result(executed_block, orders, results);
     }
