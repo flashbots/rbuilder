@@ -16,7 +16,7 @@ This implementation caches only disk access, all storage and main trie hashes ar
 ```
 reth parallel root hash:
 
-first iteraton : 220 ms
+first iteration : 220 ms
 next iterations: 140 ms (median, stable)
 
 eth-sparse-mpt:
