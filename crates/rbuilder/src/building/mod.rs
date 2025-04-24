@@ -25,7 +25,7 @@ use reth::{
     primitives::{Block, Receipt, SealedBlock},
     providers::ExecutionOutcome,
 };
-use reth_chainspec::{ChainSpec, EthereumHardforks};
+use reth_chainspec::{ChainSpec, EthChainSpec, EthereumHardforks};
 use reth_errors::{BlockExecutionError, BlockValidationError, ProviderError};
 use reth_evm::{ConfigureEvm, NextBlockEnvAttributes};
 use reth_evm_ethereum::{revm_spec_by_timestamp_and_block_number, EthEvmConfig};
@@ -82,6 +82,8 @@ pub struct BlockBuildingContext {
     pub evm_env: EvmEnv,
     pub attributes: EthPayloadBuilderAttributes,
     pub chain_spec: Arc<ChainSpec>,
+    /// cached chain_spec.blob_params_at_timestamp(attributes.timestamp()).max_blob_gas_per_block()
+    max_blob_gas_per_block: u64,
     /// Signer to sign builder payoffs (end of block and mev-share).
     /// Is Option to avoid any possible bug (losing money!) with payoffs.
     /// None: coinbase = attributes.suggested_fee_recipient. No payoffs allowed.
@@ -169,6 +171,8 @@ impl BlockBuildingContext {
                 parent.number + 1,
             )
         });
+        let max_blob_gas_per_block =
+            Self::max_blob_gas_per_block_at(&chain_spec, attributes.timestamp());
         Some(BlockBuildingContext {
             evm_factory: EthCachedEvmFactory::default(),
             evm_env,
@@ -183,7 +187,15 @@ impl BlockBuildingContext {
             payload_id,
             shared_cached_reads: Default::default(),
             tx_execution_cache: Arc::new(TxExecutionCache::new(evm_caching_enable)),
+            max_blob_gas_per_block,
         })
+    }
+
+    fn max_blob_gas_per_block_at(chain_spec: &ChainSpec, timestamp: u64) -> u64 {
+        chain_spec
+            .blob_params_at_timestamp(timestamp)
+            .map(|params| params.max_blob_gas_per_block())
+            .unwrap_or(0)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -255,6 +267,8 @@ impl BlockBuildingContext {
                 onchain_block.header.number,
             )
         });
+        let max_blob_gas_per_block =
+            Self::max_blob_gas_per_block_at(&chain_spec, attributes.timestamp());
         BlockBuildingContext {
             evm_factory: EthCachedEvmFactory::default(),
             evm_env,
@@ -269,9 +283,13 @@ impl BlockBuildingContext {
             payload_id: 0,
             shared_cached_reads: Default::default(),
             tx_execution_cache: Arc::new(TxExecutionCache::new(evm_caching_enable)),
+            max_blob_gas_per_block,
         }
     }
 
+    pub fn max_blob_gas_per_block(&self) -> u64 {
+        self.max_blob_gas_per_block
+    }
     /// Useless BlockBuildingContext for testing in contexts where we can't avoid having a BlockBuildingContext.
     pub fn dummy_for_testing() -> Self {
         let mut onchain_block: alloy_rpc_types::Block = Default::default();

@@ -19,7 +19,7 @@ use crate::{
 };
 use ahash::HashSet;
 use alloy_consensus::{constants::KECCAK_EMPTY, Transaction};
-use alloy_eips::eip4844::{DATA_GAS_PER_BLOB, MAX_DATA_GAS_PER_BLOCK};
+use alloy_eips::eip4844::DATA_GAS_PER_BLOB;
 use alloy_primitives::{Address, B256, U256};
 use itertools::Itertools;
 use reth::revm::database::StateProviderDatabase;
@@ -402,7 +402,7 @@ impl<'a, 'b, 'c, 'd, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, 'd, 
     ) -> Result<Result<TransactionOk, TransactionErr>, CriticalCommitOrderError> {
         // Use blobs.len() instead of checking for tx type just in case in the future some other new txs have blobs
         let blob_gas_used = tx_with_blobs.blobs_sidecar.blobs.len() as u64 * DATA_GAS_PER_BLOB;
-        if cumulative_blob_gas_used + blob_gas_used > MAX_DATA_GAS_PER_BLOCK {
+        if cumulative_blob_gas_used + blob_gas_used > self.ctx.max_blob_gas_per_block() {
             return Ok(Err(TransactionErr::BlobGasLeft));
         }
 
