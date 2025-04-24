@@ -14,12 +14,12 @@ Every field has a default if omitted.
 |log_color|bool||false|
 |log_enable_dynamic| bool|Enables dynamic logging (saving logs to a file). RPC doc for this pending.|false|
 |error_storage_path|optional string| Path to a sqlite file that will store info for some critical errors|None|
-|coinbase_secret_key|optional env/string|If now key is provided a random one is generated. Format is "0x121232432...."|None|
+|coinbase_secret_key|optional env/string|If no key is provided a random one is generated. Format is "0x121232432...."|None|
 |el_node_ipc_path|optional string| Path for Ipc communication with reth's mempool, Usually something like "/tmp/reth.ipc". If not set mempool will not be used as a source of txs|None|
 |jsonrpc_server_port| int| |8645|
 |jsonrpc_server_ip|string||"0.0.0.0"|
 |ignore_cancellable_orders|bool|If true any order with replacement id will be dropped|true|
-|ignore_blobs|bool|If true txs with blobs will be ignoted|false|
+|ignore_blobs|bool|If true txs with blobs will be ignored|false|
 |chain|string| |"mainnet"|
 |reth_datadir|optional string|It will assume default child dirs "db"/"static_files".<br> **It's mandatory to set reth_datadir or reth_db_path+reth_static_files_path or ipc_provider**|"/mnt/data/reth"|
 |reth_db_path|optional string|**It's mandatory to set reth_datadir or reth_db_path+reth_static_files_path or ipc_provider**|None|
