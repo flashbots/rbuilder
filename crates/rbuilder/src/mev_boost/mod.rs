@@ -47,6 +47,16 @@ const SIM_FAILED_NON_CRITICAL_ERRORS: &[&str] = &[
     "block is too old, outside validation window", // Generated from time to time from agnostic relay in the end of the slot
 ];
 
+/// If the bid we send is below a non cancellable bid from the competition agnostics answers this.
+const AGNOSTIC_RELAY_ACCEPTED_BID_BELOW_FLOOR_TXT: &str =
+    "accepted bid below floor, skipped validation";
+const AGNOSTIC_RELAY_ACCEPTED_BID_BELOW_FLOOR_CODE: StatusCode = StatusCode::ACCEPTED;
+
+fn is_ignorable_relay_error(code: StatusCode, text: &str) -> bool {
+    code == AGNOSTIC_RELAY_ACCEPTED_BID_BELOW_FLOOR_CODE
+        && text.contains(AGNOSTIC_RELAY_ACCEPTED_BID_BELOW_FLOOR_TXT)
+}
+
 // @Org consolidate with primitives::mev_boost
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -635,7 +645,11 @@ impl RelayClient {
                     return Ok(());
                 }
                 let data_string = String::from_utf8_lossy(&data).to_string();
-                Err(RelayError::UnknownRelayError(status, data_string).into())
+                if is_ignorable_relay_error(status, &data_string) {
+                    Ok(())
+                } else {
+                    Err(RelayError::UnknownRelayError(status, data_string).into())
+                }
             }
         }
     }
