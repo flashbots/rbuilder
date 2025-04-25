@@ -114,7 +114,6 @@ where
     telemetry::servers::full::spawn(
         config.base_config().full_telemetry_server_address(),
         config.version_for_telemetry(),
-        config.base_config().log_enable_dynamic,
     )
     .await?;
     if config.base_config().ipc_provider.is_some() {

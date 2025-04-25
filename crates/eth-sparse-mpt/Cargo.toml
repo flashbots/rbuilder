@@ -17,6 +17,8 @@ rustc-hash = "2.0.0"
 rayon = "1.10.0"
 smallvec = "1.13.2"
 
+tracing.workspace = true
+
 # reth
 reth-errors.workspace = true
 reth-execution-errors.workspace = true

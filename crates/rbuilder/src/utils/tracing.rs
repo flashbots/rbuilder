@@ -13,3 +13,29 @@ macro_rules! dynamic_event {
 }
 
 pub use dynamic_event;
+use tracing_subscriber::EnvFilter;
+
+#[derive(Debug, Clone)]
+pub struct LoggerConfig {
+    pub env_filter: String,
+    pub log_json: bool,
+    pub log_color: bool,
+}
+
+pub fn setup_tracing_subscriber(config: LoggerConfig) -> eyre::Result<()> {
+    let env = EnvFilter::try_new(&config.env_filter)?;
+    if config.log_json {
+        tracing_subscriber::fmt()
+            .json()
+            .with_env_filter(env)
+            .try_init()
+            .map_err(|err| eyre::format_err!("{}", err))?;
+    } else {
+        tracing_subscriber::fmt()
+            .with_env_filter(env)
+            .with_ansi(config.log_color)
+            .try_init()
+            .map_err(|err| eyre::format_err!("{}", err))?;
+    }
+    Ok(())
+}

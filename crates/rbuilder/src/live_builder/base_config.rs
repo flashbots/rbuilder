@@ -8,7 +8,7 @@ use crate::{
         StateProviderFactory,
     },
     roothash::RootHashContext,
-    telemetry::{setup_reloadable_tracing_subscriber, LoggerConfig},
+    utils::tracing::{setup_tracing_subscriber, LoggerConfig},
     utils::{
         constants::{MINS_PER_HOUR, SECS_PER_MINUTE},
         http_provider, ProviderFactoryReopener, Signer,
@@ -70,7 +70,7 @@ pub struct BaseConfig {
     pub log_json: bool,
     log_level: EnvOrValue<String>,
     pub log_color: bool,
-    /// Enables dynamic logging (saving logs to a file)
+    /// Deprecated
     pub log_enable_dynamic: bool,
 
     pub error_storage_path: Option<PathBuf>,
@@ -185,11 +185,10 @@ impl BaseConfig {
         let log_level = self.log_level.value()?;
         let config = LoggerConfig {
             env_filter: log_level,
-            file: None,
             log_json: self.log_json,
             log_color: self.log_color,
         };
-        setup_reloadable_tracing_subscriber(config)?;
+        setup_tracing_subscriber(config)?;
         Ok(())
     }
 

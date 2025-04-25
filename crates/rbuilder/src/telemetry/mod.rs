@@ -4,9 +4,7 @@
 //! to expose full and redacted data differently in tdx builders. e.g. redacted data
 //! immediately avaliable, and full data avaliable after a delay or some seperate sanitisation.
 
-mod dynamic_logs;
 mod metrics;
 pub mod servers;
 
-pub use dynamic_logs::*;
 pub use metrics::*;

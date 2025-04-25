@@ -1,5 +1,8 @@
+use std::time::Instant;
+
 use crate::utils::{hash_map_with_capacity, HashMap, HashSet};
 use alloy_primitives::map::HashSet as AlloyHashSet;
+use tracing::trace;
 
 use alloy_primitives::{Bytes, B256};
 use alloy_trie::Nibbles;
@@ -74,14 +77,24 @@ where
         let proofs: Vec<_> = targets
             .into_par_iter()
             .map(|targets| -> Result<MultiProof, FetchNodeError> {
+                let start = Instant::now();
                 let provider = self.consistent_db_view.provider_ro()?;
                 let proof = Proof::new(
                     DatabaseTrieCursorFactory::new(provider.tx_ref()),
                     DatabaseHashedCursorFactory::new(provider.tx_ref()),
                 );
+                let targets_accounts = targets.len();
+                let targets_slots = targets.values().map(|v| v.len()).sum::<usize>();
 
                 let reth_multiproof = proof.multiproof(targets)?;
                 let result = convert_reth_multiproof(reth_multiproof, &all_requested_accounts);
+                let time_ms = start.elapsed().as_micros() as f64 / 1000.0;
+                trace!(
+                    time_ms,
+                    targets_accounts,
+                    targets_slots,
+                    "Proofs for sparse trie fetched"
+                );
                 Ok(result)
             })
             .collect();
