@@ -238,7 +238,7 @@ async fn run_submit_to_relays_job(
             bundles,
             builder_name = block.builder_name,
             fill_time_ms = block.trace.fill_time.as_micros() as f64 / 1000.0,
-            finalize_time_ms = block.trace.finalize_time.as_millis(),
+            finalize_time_ms = block.trace.finalize_time.as_micros() as f64 / 1000.0,
         );
         info!(
             parent: &submission_span,

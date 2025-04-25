@@ -240,13 +240,13 @@ register_metrics! {
     .unwrap();
     pub static BLOCK_FINALIZE_TIME: HistogramVec = HistogramVec::new(
         HistogramOpts::new("block_finalize_time", "Block Finalize Times (ms)")
-            .buckets(exponential_buckets_range(1.0, 3000.0, 100)),
+            .buckets(exponential_buckets_range(0.01, 3000.0, 200)),
         &[]
     )
     .unwrap();
     pub static BLOCK_ROOT_HASH_TIME: HistogramVec = HistogramVec::new(
         HistogramOpts::new("block_root_hash_time", "Block Root Hash Time (ms)")
-            .buckets(exponential_buckets_range(1.0, 2000.0, 100)),
+            .buckets(exponential_buckets_range(0.01, 2000.0, 200)),
         &[]
     )
     .unwrap();
