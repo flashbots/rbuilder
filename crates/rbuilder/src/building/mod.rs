@@ -3,7 +3,11 @@ use crate::{
     primitives::{Order, OrderId, SimValue, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs},
     provider::RootHasher,
     roothash::RootHashError,
-    utils::{a2r_withdrawal, default_cfg_env, timestamp_as_u64, Signer},
+    utils::{
+        a2r_withdrawal, default_cfg_env,
+        receipts::{calculate_receipt_root_and_block_logs_bloom, BloomCache},
+        timestamp_as_u64, Signer,
+    },
 };
 use alloy_consensus::{Header, EMPTY_OMMER_ROOT_HASH};
 use alloy_eips::{
@@ -49,6 +53,7 @@ use std::{
 };
 use thiserror::Error;
 use time::OffsetDateTime;
+use tracing::trace;
 use tx_sim_cache::TxExecutionCache;
 
 pub mod block_orders;
@@ -335,6 +340,7 @@ impl BlockBuildingContext {
 #[derive(Debug, Clone, Default)]
 pub struct ThreadBlockBuildingContext {
     pub cached_reads: LocalCachedReads,
+    pub bloom_cache: BloomCache,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -727,15 +733,22 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
     #[allow(clippy::too_many_arguments)]
     pub fn finalize(
         self,
-        state: &mut BlockState,
+        mut state: BlockState,
         ctx: &BlockBuildingContext,
         local_ctx: &mut ThreadBlockBuildingContext,
     ) -> Result<FinalizeResult, FinalizeError> {
-        let (requests, withdrawals_root) = self.process_requests(state, ctx, local_ctx)?;
-        let bundle = state.clone_bundle();
+        let start = Instant::now();
+
+        let step_start = Instant::now();
+        let (requests, withdrawals_root) = self.process_requests(&mut state, ctx, local_ctx)?;
         let block_number = ctx.evm_env.block_env.number;
 
+        let request_processsing_time_ms = step_start.elapsed().as_micros() as f64 / 1000.0;
+        let step_start = Instant::now();
+
         let requests_hash = requests.as_ref().map(|requests| requests.requests_hash());
+
+        let (bundle, _) = state.into_parts();
         let execution_outcome = ExecutionOutcome::new(
             bundle,
             vec![self.receipts],
@@ -743,21 +756,29 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             vec![requests.clone().unwrap_or_default()],
         );
 
-        // @TODO: Check ethereum_receipts_root since it could fail on Op. Check reth crates/optimism/payload/src/builder.rs?
-        let receipts_root = execution_outcome
-            .ethereum_receipts_root(block_number)
-            .expect("Number is in range");
-        let logs_bloom = execution_outcome
-            .block_logs_bloom(block_number)
-            .expect("Number is in range");
+        let exec_outcome_time_ms = step_start.elapsed().as_micros() as f64 / 1000.0;
+        let step_start = Instant::now();
+
+        let (receipts_root, logs_bloom) = calculate_receipt_root_and_block_logs_bloom(
+            execution_outcome.receipts_by_block(block_number),
+            &mut local_ctx.bloom_cache,
+        );
+
+        let bloom_time_ms = step_start.elapsed().as_micros() as f64 / 1000.0;
+        let step_start = Instant::now();
 
         // calculate the state root
-        let start = Instant::now();
         let state_root = ctx.root_hasher.state_root(&execution_outcome)?;
-        let root_hash_time = start.elapsed();
+        let root_hash_time = step_start.elapsed();
+
+        let root_hash_time_ms = step_start.elapsed().as_micros() as f64 / 1000.0;
+        let step_start = Instant::now();
 
         // create the block header
         let transactions_root = proofs::calculate_transaction_root(&self.executed_tx);
+
+        let transactions_root_time_ms = step_start.elapsed().as_micros() as f64 / 1000.0;
+        let step_start = Instant::now();
 
         // double check blocked txs
         for tx_with_blob in &self.executed_tx {
@@ -787,6 +808,9 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         } else {
             (None, None)
         };
+
+        let blobs_time_ms = step_start.elapsed().as_micros() as f64 / 1000.0;
+        let step_start = Instant::now();
 
         let header = Header {
             parent_hash: ctx.attributes.parent,
@@ -830,13 +854,30 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
                 withdrawals,
             },
         };
-
-        Ok(FinalizeResult {
+        let result = FinalizeResult {
             sealed_block: block.seal_slow(),
             txs_blob_sidecars,
             root_hash_time,
             execution_requests: requests.map(|er| er.take()).unwrap_or_default(),
-        })
+        };
+
+        let block_seal_time_ms = step_start.elapsed().as_micros() as f64 / 1000.0;
+
+        let total_time_ms = start.elapsed().as_micros() as f64 / 1000.0;
+
+        trace!(
+            total_time_ms,
+            exec_outcome_time_ms,
+            bloom_time_ms,
+            request_processsing_time_ms,
+            root_hash_time_ms,
+            transactions_root_time_ms,
+            blobs_time_ms,
+            block_seal_time_ms,
+            "Partial block finalized block"
+        );
+
+        Ok(result)
     }
 
     pub fn pre_block_call(

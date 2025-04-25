@@ -114,7 +114,7 @@ async fn main() -> eyre::Result<()> {
                 let build_time = build_time.elapsed();
 
                 let finalize_time = Instant::now();
-                let finalized_block = partial_block.finalize(&mut state, &ctx, &mut local_ctx)?;
+                let finalized_block = partial_block.finalize(state, &ctx, &mut local_ctx)?;
                 let finalize_time = finalize_time.elapsed();
 
                 debug!(

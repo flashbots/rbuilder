@@ -1,12 +1,18 @@
 use crate::{
-    building::ThreadBlockBuildingContext,
+    building::{
+        builders::block_building_helper::{
+            BlockBuildingHelper, BlockBuildingHelperError, FinalizeBlockResult,
+        },
+        ThreadBlockBuildingContext,
+    },
     live_builder::block_output::relay_submit::BlockBuildingSink,
 };
+use alloy_primitives::U256;
 use parking_lot::Mutex;
 use std::sync::Arc;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
-use tracing::error;
+use tracing::{error, info};
 
 use super::interfaces::{Bid, BidMaker};
 
@@ -56,15 +62,25 @@ impl PendingBid {
 impl SequentialSealerBidMaker {
     pub fn new(sink: Arc<dyn BlockBuildingSink>, cancel: CancellationToken) -> Self {
         let pending_bid = Arc::new(PendingBid::new());
+        let (sender, receiver) = flume::unbounded();
         let mut sealing_process = SequentialSealerBidMakerProcess {
             sink,
             cancel,
             pending_bid: pending_bid.clone(),
+            worker_tasks: sender,
         };
 
         tokio::task::spawn(async move {
             sealing_process.run().await;
         });
+
+        std::thread::Builder::new()
+            .name("finalize_worker".into())
+            .spawn(move || {
+                run_finalize_worker(receiver);
+            })
+            .expect("spawn finalize_worker");
+
         Self { pending_bid }
     }
 }
@@ -75,6 +91,7 @@ struct SequentialSealerBidMakerProcess {
     sink: Arc<dyn BlockBuildingSink>,
     cancel: CancellationToken,
     pending_bid: Arc<PendingBid>,
+    worker_tasks: flume::Sender<FinalizeTask>,
 }
 
 impl SequentialSealerBidMakerProcess {
@@ -95,33 +112,81 @@ impl SequentialSealerBidMakerProcess {
             let block = bid.block();
             let block_number = block.building_context().block();
             let builder_name = block.builder_name().to_string();
-            match tokio::task::spawn_blocking(move || {
-                // @todo better use of the local context
-                // finalize is not state intensive and it will still used shared cache from the context
-                let mut local_ctx = ThreadBlockBuildingContext::default();
-                block.finalize_block(&mut local_ctx, payout_tx_val, seen_competition_bid)
-            })
-            .await
-            {
-                Ok(finalize_res) => match finalize_res {
-                    Ok(res) => self.sink.new_block(res.block),
-                    Err(err) => {
-                        if err.is_critical() {
-                            error!(
-                                builder_name,
-                                block = block_number,
-                                ?err,
-                                "Error on finalize_block on SequentialSealerBidMaker"
-                            )
-                        }
+
+            let (result_sender, result_receiver) = flume::unbounded();
+            let task = FinalizeTask {
+                block,
+                payout_tx_val,
+                seen_competition_bid,
+                result_sender,
+            };
+            match self.worker_tasks.send_async(task).await {
+                Ok(()) => {}
+                Err(err) => {
+                    error!(
+                        ?err,
+                        "Error sending finalize_block task to the worker thread"
+                    );
+                    return;
+                }
+            }
+            let finalize_res = match result_receiver.recv_async().await {
+                Ok(ok) => ok,
+                Err(err) => {
+                    error!(
+                        ?err,
+                        "Error receiving finalize_block task from the worker thread"
+                    );
+                    return;
+                }
+            };
+
+            match finalize_res {
+                Ok(res) => self.sink.new_block(res.block),
+                Err(err) => {
+                    if err.is_critical() {
+                        error!(
+                            builder_name,
+                            block = block_number,
+                            ?err,
+                            "Error on finalize_block on SequentialSealerBidMaker"
+                        )
                     }
-                },
-                Err(err) => error!(
-                    block = block_number,
-                    ?err,
-                    "Error on join finalize_block on SequentialSealerBidMaker"
-                ),
+                }
             }
         }
     }
+}
+
+struct FinalizeTask {
+    block: Box<dyn BlockBuildingHelper>,
+    payout_tx_val: Option<U256>,
+    seen_competition_bid: Option<U256>,
+
+    result_sender: flume::Sender<Result<FinalizeBlockResult, BlockBuildingHelperError>>,
+}
+
+// run finalize worken in a separate thread so we can keep local ctx
+fn run_finalize_worker(tasks: flume::Receiver<FinalizeTask>) {
+    let mut local_ctx = ThreadBlockBuildingContext::default();
+    loop {
+        let FinalizeTask {
+            block,
+            payout_tx_val,
+            seen_competition_bid,
+            result_sender,
+        } = match tasks.recv() {
+            Ok(task) => task,
+            Err(flume::RecvError::Disconnected) => {
+                break;
+            }
+        };
+
+        let result = block.finalize_block(&mut local_ctx, payout_tx_val, seen_competition_bid);
+        result_sender.send(result).unwrap_or_default();
+    }
+    info!(
+        bloom_cache_len = local_ctx.bloom_cache.len(),
+        "Bloom caching"
+    );
 }

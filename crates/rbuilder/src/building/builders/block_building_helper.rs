@@ -401,18 +401,22 @@ impl BlockBuildingHelper for BlockBuildingHelperFromProvider {
             return Err(BlockBuildingHelperError::PayoutTxNotAllowed);
         }
         let start_time = Instant::now();
+        let step_start = Instant::now();
 
         self.finalize_block_execution(local_ctx, payout_tx_value)?;
         // This could be moved outside of this func (pre finalize) since I don´t think the payout tx can change much.
         self.built_block_trace
             .verify_bundle_consistency(&self.building_ctx.blocklist)?;
 
+        let finalize_prep_time_ms = step_start.elapsed().as_micros() as f64 / 1000.0;
+        let step_start = Instant::now();
+
         let sim_gas_used = self.partial_block.tracer.used_gas;
         let block_number = self.building_context().block();
         let finalized_block =
             match self
                 .partial_block
-                .finalize(&mut self.block_state, &self.building_ctx, local_ctx)
+                .finalize(self.block_state, &self.building_ctx, local_ctx)
             {
                 Ok(finalized_block) => finalized_block,
                 Err(err) => {
@@ -427,6 +431,15 @@ impl BlockBuildingHelper for BlockBuildingHelperFromProvider {
                     return Err(BlockBuildingHelperError::FinalizeError(err));
                 }
             };
+
+        let finalize_block_time_ms = step_start.elapsed().as_micros() as f64 / 1000.0;
+        let finalize_time_ms = start_time.elapsed().as_micros() as f64 / 1000.0;
+        trace!(
+            finalize_time_ms,
+            finalize_prep_time_ms,
+            finalize_block_time_ms,
+            "Block building helper finalized block"
+        );
         self.built_block_trace.update_orders_sealed_at();
         self.built_block_trace.root_hash_time = finalized_block.root_hash_time;
         self.built_block_trace.finalize_time = start_time.elapsed();
