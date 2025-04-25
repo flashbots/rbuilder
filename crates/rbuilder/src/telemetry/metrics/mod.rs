@@ -17,12 +17,13 @@ use bigdecimal::num_traits::Pow;
 use ctor::ctor;
 use lazy_static::lazy_static;
 use metrics_macros::register_metrics;
+use parking_lot::Mutex;
 use prometheus::{
     Counter, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Opts,
     Registry,
 };
 use std::{
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::{Duration, Instant},
 };
 use time::OffsetDateTime;
@@ -313,7 +314,7 @@ pub fn reset_histogram_metrics() {
     }
 
     let now = Instant::now();
-    let mut last_reset = LAST_RESET.lock().unwrap();
+    let mut last_reset = LAST_RESET.lock();
     if now.duration_since(*last_reset) < HISTOGRAM_METRIC_RESET_PERIOD {
         return;
     }
