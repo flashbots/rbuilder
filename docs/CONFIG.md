@@ -14,7 +14,7 @@ Every field has a default if omitted.
 |log_color|bool||false|
 |log_enable_dynamic| bool|Enables dynamic logging (saving logs to a file). RPC doc for this pending.|false|
 |error_storage_path|optional string| Path to a sqlite file that will store info for some critical errors|None|
-|coinbase_secret_key|optional env/string|If now key is provided a random one is generated. Format is "0x121232432...."|None|
+|coinbase_secret_key|optional env/string|If no key is provided a random one is generated. Format is "0x121232432...."|None|
 |el_node_ipc_path|optional string| Path for Ipc communication with reth's mempool, Usually something like "/tmp/reth.ipc". If not set mempool will not be used as a source of txs|None|
 |jsonrpc_server_port| int| |8645|
 |jsonrpc_server_ip|string||"0.0.0.0"|
@@ -38,7 +38,7 @@ Every field has a default if omitted.
 |root_hash_use_sparse_trie|bool| Uses cached sparse trie for root hash (much faster)|false|
 |root_hash_compare_sparse_trie|bool| If using sparse trie also computes against reth's native version to check the hash is ok|false|
 |root_hash_threads| int|Threads used when using reth's native root hash calculation. If 0 global rayon pool is used| 0
-| watchdog_timeout_sec| optional int| If now block building is started in this period rbuilder exits.|None|
+| watchdog_timeout_sec| optional int| If no block building is started in this period rbuilder exits.|None|
 |live_builders|vec[string]| List of `builders` to be used for live building.<br>Notice that you can define on **builders** some builders and select only a few here.|["mgp-ordering","mp-ordering"]|
 |evm_caching_enable|bool|Experimental. If enabled per block EVM execution will be enabled|false|
 |backtest_fetch_mempool_data_dir|env/string|Dir used to store mempool data used in backtesting|"/mnt/data/mempool"|
