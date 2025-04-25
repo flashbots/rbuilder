@@ -12,7 +12,6 @@ Every field has a default if omitted.
 |log_json|bool|JSON vs Raw|false|
 |log_level|env/string| Defines the log level (EnvFilter) for each mod. See https://docs.rs/tracing-subscriber/latest/tracing_subscriber/index.html for more info on this.|"info"
 |log_color|bool||false|
-|log_enable_dynamic| bool|Enables dynamic logging (saving logs to a file). RPC doc for this pending.|false|
 |error_storage_path|optional string| Path to a sqlite file that will store info for some critical errors|None|
 |coinbase_secret_key|optional env/string|If now key is provided a random one is generated. Format is "0x121232432...."|None|
 |el_node_ipc_path|optional string| Path for Ipc communication with reth's mempool, Usually something like "/tmp/reth.ipc". If not set mempool will not be used as a source of txs|None|
