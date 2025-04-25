@@ -5,7 +5,7 @@ use rbuilder::{
     beacon_api_client::Client,
     mev_boost::RelayClient,
     primitives::mev_boost::MevBoostRelaySlotInfoProvider,
-    telemetry::{setup_reloadable_tracing_subscriber, LoggerConfig},
+    utils::tracing::{setup_tracing_subscriber, LoggerConfig},
 };
 use relay::spawn_relay_server;
 use std::net::SocketAddr;
@@ -84,11 +84,10 @@ async fn main() -> eyre::Result<()> {
 
     let config = LoggerConfig {
         env_filter: cli.rust_log,
-        file: None,
         log_json: cli.log_json,
         log_color: false,
     };
-    setup_reloadable_tracing_subscriber(config)?;
+    setup_tracing_subscriber(config)?;
 
     spawn_metrics_server(cli.metrics_address);
 
