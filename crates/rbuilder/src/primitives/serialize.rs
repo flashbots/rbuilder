@@ -1202,6 +1202,37 @@ mod tests {
         }
     }
 
+    /// More than 1 refundTxHashes should fail.
+    #[test]
+    fn test_fail_bundle_decoding_2_refund_hashes() {
+        // raw json string
+        let bundle_json = r#"
+        {
+            "version": "v2",
+            "txs": [
+                "0x02f86b83aa36a780800982520894f24a01ae29dec4629dfb4170647c4ed4efc392cd861ca62a4c95b880c080a07d37bb5a4da153a6fbe24cf1f346ef35748003d1d0fc59cf6c17fb22d49e42cea02c231ac233220b494b1ad501c440c8b1a34535cdb8ca633992d6f35b14428672"
+            ],
+            "blockNumber": 0,
+            "minTimestamp": 123,
+            "maxTimestamp": 1234,
+            "revertingTxHashes": ["0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"],
+            "droppingTxHashes": ["0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+            "refundPercent": 1,
+            "refundRecipient": "0x95222290dd7278aa3ddd389cc1e1d165cc4bafe5",
+            "refundTxHashes": ["0x84310f7f7860f0cd65407fe340d471ca008d0c58976746a560312d4aebba3f4a","0x84310f7f7860f0cd65407fe340d471ca008d0c58976746a560312d4aebba3f4a"]
+        }
+        "#;
+        let bundle_request: RawBundle =
+            serde_json::from_str(bundle_json).expect("failed to decode bundle");
+
+        assert!(matches!(
+            bundle_request
+                .clone()
+                .decode_new_bundle(TxEncoding::WithBlobData),
+            Err(RawBundleConvertError::MoreThanOneRefundTxHash)
+        ));
+    }
+
     /// Should default to last version.
     #[test]
     fn test_correct_bundle_decoding_no_version() {
