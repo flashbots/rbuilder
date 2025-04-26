@@ -109,9 +109,9 @@ pub struct BundleRefund {
     pub percent: u8,
     /// Address where to refund to.
     pub recipient: Address,
-    /// A list of transaction hashes to refund.
-    /// This means that part (percent%) of the profit from the execution these txs goes to refund.recipient
-    pub tx_hashes: Vec<TxHash>,
+    /// Transaction hash to refund.
+    /// This means that part (percent%) of the profit from the execution this txs goes to refund.recipient
+    pub tx_hash: TxHash,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -206,10 +206,7 @@ impl Bundle {
     /// Returns `true` if the provided transaction hash is refundable.
     /// This means that part the profit from this execution goes to the self.refund.recipient
     pub fn is_tx_refundable(&self, hash: &B256) -> bool {
-        self.refund
-            .as_ref()
-            .map(|r| r.tx_hashes.contains(hash))
-            .unwrap_or_default()
+        self.refund.as_ref().is_some_and(|r| r.tx_hash == *hash)
     }
 
     fn uuid_v1(&mut self) -> Uuid {
@@ -250,7 +247,11 @@ impl Bundle {
                 + 32
                 + 32 * (self.reverting_tx_hashes.len()
                     + self.dropping_tx_hashes.len()
-                    + self.refund.as_ref().map(|r| r.tx_hashes.len()).unwrap_or(0))
+                    + if self.refund.is_some() {
+                        1usize
+                    } else {
+                        0usize
+                    })
                 + size_of::<char>()
                 + size_of::<Address>(),
         );
@@ -271,11 +272,9 @@ impl Bundle {
         if let Some(refund) = &mut self.refund {
             buff.push(refund.percent);
             buff.extend_from_slice(refund.recipient.as_slice());
-            refund.tx_hashes.sort();
-            buff.append(&mut (refund.tx_hashes.len() as u64).encode_var_vec());
-            for tx_hash in &refund.tx_hashes {
-                buff.extend_from_slice(tx_hash.as_slice());
-            }
+            // We used to allow multiple hashes and encode the len, we keep the 1 to be backwards compatible.
+            buff.append(&mut (1u64).encode_var_vec());
+            buff.extend_from_slice(refund.tx_hash.as_slice());
         }
         Self::uuid_from_buffer(buff)
     }

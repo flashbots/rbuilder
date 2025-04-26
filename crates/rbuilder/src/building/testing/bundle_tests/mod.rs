@@ -344,7 +344,7 @@ fn test_bundle_ok_refunds() -> eyre::Result<()> {
     test_setup.set_bundle_refund(BundleRefund {
         percent,
         recipient,
-        tx_hashes: vec![profit_tx_hash],
+        tx_hash: profit_tx_hash,
     });
     let result = test_setup.commit_order_ok();
     let recipient_balance_after = test_setup.balance(recipient_named_address)?;

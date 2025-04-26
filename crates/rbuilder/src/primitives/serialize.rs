@@ -190,6 +190,8 @@ pub enum RawBundleConvertError {
     UnsupportedVersion(String),
     #[error("Field {0} not supported by version {1:?}")]
     FieldNotSupportedByVersion(String, BundleVersion),
+    #[error("More than one refund tx hash not supported")]
+    MoreThanOneRefundTxHash,
 }
 
 /// Since we use the same API (eth_sendBundle) to get new bundles and also to cancel them we need this struct.
@@ -333,13 +335,22 @@ impl RawBundle {
         if let Some(percent) = refund_percent {
             // Refund can be configured only if bundle is not empty.
             // If bundle contains only one transaction, first == last.
+            // If refund_tx_hashes is empty we use the last tx.
             if let Some((first_tx, last_tx)) = txs.first().zip(txs.last()) {
+                let tx_hash = if let Some(refund_tx_hashes) = refund_tx_hashes {
+                    if refund_tx_hashes.len() > 1 {
+                        return Err(RawBundleConvertError::MoreThanOneRefundTxHash);
+                    }
+                    refund_tx_hashes.first().copied()
+                } else {
+                    None
+                }
+                .unwrap_or(last_tx.hash());
+
                 refund = Some(BundleRefund {
                     percent,
                     recipient: refund_recipient.unwrap_or_else(|| first_tx.signer()),
-                    tx_hashes: refund_tx_hashes
-                        .filter(|tx_hashes| !tx_hashes.is_empty())
-                        .unwrap_or_else(|| Vec::from([last_tx.hash()])),
+                    tx_hash,
                 });
             }
         }
@@ -411,7 +422,7 @@ impl RawBundle {
             replacement_nonce,
             refund_percent: value.refund.as_ref().map(|br| br.percent),
             refund_recipient: value.refund.as_ref().map(|br| br.recipient),
-            refund_tx_hashes: value.refund.map(|br| br.tx_hashes),
+            refund_tx_hashes: value.refund.map(|br| vec![br.tx_hash]),
             first_seen_at: None,
             version: Some(Self::encode_version(value.version)),
         }
@@ -1128,19 +1139,67 @@ mod tests {
             .clone()
             .decode_new_bundle(TxEncoding::WithBlobData)
             .expect("failed to convert bundle request to bundle");
-
+        println!("{}", bundle.txs[0].hash());
         assert_eq!(bundle.block, None);
         assert_eq!(
             bundle.refund,
             Some(BundleRefund {
                 percent: 1,
                 recipient: Address::from_str("0x95222290dd7278aa3ddd389cc1e1d165cc4bafe5").unwrap(),
-                tx_hashes: Vec::from([b256!(
+                tx_hash: b256!(
                     "0x75662ab9cb6d1be7334723db5587435616352c7e581a52867959ac24006ac1fe"
-                )]),
+                ),
             })
         );
         assert_eq!(bundle.uuid, uuid!("e2bdb8cd-9473-5a1b-b425-57fa7ecfe2c1"));
+    }
+
+    /// If refundTxHashes is missing it should use the last tx and the id should be the same.
+    #[test]
+    fn test_correct_bundle_decoding_refund_hash_missing() {
+        // raw json string
+        let base_bundle_json = r#"
+        {
+            "version": "v2",
+            "txs": [
+                "0x02f86b83aa36a780800982520894f24a01ae29dec4629dfb4170647c4ed4efc392cd861ca62a4c95b880c080a07d37bb5a4da153a6fbe24cf1f346ef35748003d1d0fc59cf6c17fb22d49e42cea02c231ac233220b494b1ad501c440c8b1a34535cdb8ca633992d6f35b14428672"
+            ],
+            "blockNumber": 0,
+            "minTimestamp": 123,
+            "maxTimestamp": 1234,
+            "revertingTxHashes": ["0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"],
+            "droppingTxHashes": ["0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+            "refundPercent": 1,
+            "refundRecipient": "0x95222290dd7278aa3ddd389cc1e1d165cc4bafe5"
+        "#;
+        let bundles = [
+            base_bundle_json.to_owned() + "}",
+            base_bundle_json.to_owned()
+                + r#","refundTxHashes": ["0x84310f7f7860f0cd65407fe340d471ca008d0c58976746a560312d4aebba3f4a"]}"#,
+        ];
+
+        for bundle_json in bundles {
+            let bundle_request: RawBundle =
+                serde_json::from_str(&bundle_json).expect("failed to decode bundle");
+
+            let bundle = bundle_request
+                .clone()
+                .decode_new_bundle(TxEncoding::WithBlobData)
+                .expect("failed to convert bundle request to bundle");
+            assert_eq!(bundle.block, None);
+            assert_eq!(
+                bundle.refund,
+                Some(BundleRefund {
+                    percent: 1,
+                    recipient: Address::from_str("0x95222290dd7278aa3ddd389cc1e1d165cc4bafe5")
+                        .unwrap(),
+                    tx_hash: b256!(
+                        "0x84310f7f7860f0cd65407fe340d471ca008d0c58976746a560312d4aebba3f4a"
+                    ),
+                })
+            );
+            assert_eq!(bundle.uuid, uuid!("ea9954e1-b7be-5af0-9c39-6b11c9d24c05"));
+        }
     }
 
     /// Should default to last version.
