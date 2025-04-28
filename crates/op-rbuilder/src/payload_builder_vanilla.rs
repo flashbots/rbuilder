@@ -125,9 +125,9 @@ where
         + 'static,
     <Pool as TransactionPool>::Transaction: OpPooledTx,
     Evm: ConfigureEvm<
-        Primitives = PrimitivesTy<Node::Types>,
-        NextBlockEnvCtx = OpNextBlockEnvAttributes,
-    > + 'static,
+            Primitives = PrimitivesTy<Node::Types>,
+            NextBlockEnvCtx = OpNextBlockEnvAttributes,
+        > + 'static,
 {
     type PayloadBuilder = OpPayloadBuilderVanilla<Pool, Node::Provider>;
 
@@ -160,9 +160,9 @@ where
         + 'static,
     <Pool as TransactionPool>::Transaction: OpPooledTx,
     Evm: ConfigureEvm<
-        Primitives = PrimitivesTy<Node::Types>,
-        NextBlockEnvCtx = OpNextBlockEnvAttributes,
-    > + 'static,
+            Primitives = PrimitivesTy<Node::Types>,
+            NextBlockEnvCtx = OpNextBlockEnvAttributes,
+        > + 'static,
 {
     async fn spawn_payload_builder_service(
         self,

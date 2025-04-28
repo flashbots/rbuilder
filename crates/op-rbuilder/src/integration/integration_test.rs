@@ -8,7 +8,7 @@ mod tests {
     use alloy_consensus::{Transaction, TxEip1559};
     use alloy_eips::{eip1559::MIN_PROTOCOL_BASE_FEE, eip2718::Encodable2718};
     use alloy_primitives::hex;
-    use alloy_provider::{Identity, Provider, ProviderBuilder};
+    use alloy_provider::{ext::TxPoolApi, Identity, Provider, ProviderBuilder};
     use alloy_rpc_types_eth::BlockTransactionsKind;
     use futures_util::StreamExt;
     use op_alloy_consensus::OpTypedTransaction;
@@ -181,7 +181,32 @@ mod tests {
                 .send_raw_transaction(signed_tx.encoded_2718().as_slice())
                 .await?;
 
+            // Create a second reverting transaction
+            let tx_request = OpTypedTransaction::Eip1559(TxEip1559 {
+                chain_id: 901,
+                nonce: nonce + 2,
+                gas_limit: 300000,
+                max_fee_per_gas: base_fee.into(),
+                input: hex!("60006000fd").into(), // PUSH1 0x00 PUSH1 0x00 REVERT
+                ..Default::default()
+            });
+            let signed_tx = known_wallet.sign_tx(tx_request)?;
+            let reverting_tx_2 = provider
+                .send_raw_transaction(signed_tx.encoded_2718().as_slice())
+                .await?;
+
+            let pool = provider.txpool_status().await?;
+
+            // Before block we should have 3 txs in pool, because they all valid
+            assert_eq!(pool.pending, 3, "all txs should be in pending pool");
+            assert_eq!(pool.queued, 0, "queued pool should be empty");
+
             let block_hash = generator.generate_block().await?;
+
+            // After block is produced  we will remove one of the reverting txs and place another
+            // in queue pool because we have nonce gap
+            assert_eq!(pool.pending, 0, "pending pool should be empty");
+            assert_eq!(pool.queued, 1, "queued pool should contain 1 tx");
 
             // query the block and the transactions inside the block
             let block = provider
@@ -198,12 +223,11 @@ mod tests {
                 "successful transaction missing from block"
             );
 
-            // Verify reverted transaction is NOT included
+            // Verify reverted transactions are NOT included
             assert!(
-                !block
-                    .transactions
-                    .hashes()
-                    .any(|hash| hash == *reverting_tx.tx_hash()),
+                !block.transactions.hashes().any(
+                    |hash| hash == *reverting_tx.tx_hash() || hash == *reverting_tx_2.tx_hash()
+                ),
                 "reverted transaction unexpectedly included in block"
             );
             for hash in block.transactions.hashes() {

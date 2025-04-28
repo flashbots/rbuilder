@@ -639,6 +639,7 @@ dependencies = [
  "alloy-pubsub",
  "alloy-rpc-client",
  "alloy-rpc-types-eth 0.15.6",
+ "alloy-rpc-types-txpool",
  "alloy-signer",
  "alloy-sol-types 1.0.0",
  "alloy-transport",
