@@ -384,7 +384,7 @@ where
             evm_env,
             block_env_attributes,
             cancel,
-            metrics: Default::default(),
+            metrics: self.metrics.clone(),
         };
 
         let state_provider = self.client.state_by_block_hash(ctx.parent().hash())?;
@@ -418,7 +418,7 @@ where
                 "No transaction pool, skipping transaction pool processing",
             );
 
-            self.metrics
+            ctx.metrics
                 .total_block_built_duration
                 .record(block_build_start_time.elapsed());
 
