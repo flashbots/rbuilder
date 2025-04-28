@@ -222,7 +222,7 @@ impl OrderingBuilderContext {
     }
 
     /// use_suggested_fee_recipient_as_coinbase: all the mev profit goes directly to the slot suggested_fee_recipient so we avoid the payout tx.
-    ///     This mode disables mev-share orders since the builder has to receive the mev profit to give some portion back to the mev-share user.
+    /// This mode disables mev-share orders since the builder has to receive the mev profit to give some portion back to the mev-share user.
     /// !use_suggested_fee_recipient_as_coinbase: all the mev profit goes to the builder and at the end of the block we pay to the suggested_fee_recipient.
     pub fn build_block<OrderPriorityType: OrderPriority>(
         &mut self,

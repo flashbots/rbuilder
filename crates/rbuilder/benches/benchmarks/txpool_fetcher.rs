@@ -32,7 +32,7 @@ async fn txpool_receive_util(count: u32) {
 
     let provider = ProviderBuilder::new()
         .wallet(wallet)
-        .on_http(anvil.endpoint().parse().unwrap());
+        .connect_http(anvil.endpoint().parse().unwrap());
 
     let alice = anvil.addresses()[0];
     let eip1559_est = provider.estimate_eip1559_fees().await.unwrap();

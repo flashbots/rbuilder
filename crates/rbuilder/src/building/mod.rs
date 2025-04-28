@@ -536,8 +536,8 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
     }
 
     /// result_filter: little hack to allow "cancel" the execution depending no the SimValue result. Ideally it would be nicer to split commit_order
-    ///     in 2 parts, one that executes but does not apply (returns state changes) and then another one that applies the changes.
-    ///     You can always pass &|_| Ok(()) if you don't need the filter.
+    /// in 2 parts, one that executes but does not apply (returns state changes) and then another one that applies the changes.
+    /// You can always pass &|_| Ok(()) if you don't need the filter.
     pub fn commit_order(
         &mut self,
         order: &SimulatedOrder,

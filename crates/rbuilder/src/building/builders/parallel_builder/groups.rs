@@ -428,7 +428,7 @@ mod tests {
 
         pub fn create_tx(&mut self) -> Recovered<TransactionSigned> {
             Recovered::new_unchecked(
-                TransactionSigned::new(
+                TransactionSigned::new_unchecked(
                     Transaction::Legacy(TxLegacy::default()),
                     alloy_primitives::Signature::test_signature(),
                     self.create_hash(),

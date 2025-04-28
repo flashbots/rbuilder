@@ -59,7 +59,7 @@ pub trait BlockBuildingHelper: Send + Sync {
 
     /// Eats the BlockBuildingHelper since once it's finished you should not use it anymore.
     /// payout_tx_value: If Some, added at the end of the block from coinbase to the final fee recipient.
-    ///     This only works if can_add_payout_tx.
+    /// This only works if can_add_payout_tx.
     fn finalize_block(
         self: Box<Self>,
         local_ctx: &mut ThreadBlockBuildingContext,

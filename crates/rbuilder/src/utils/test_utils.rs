@@ -24,7 +24,7 @@ pub fn i256(i: i64) -> I256 {
 
 pub fn tx(tx_hash: u64) -> TransactionSignedEcRecoveredWithBlobs {
     TransactionSignedEcRecoveredWithBlobs::new_for_testing(Recovered::new_unchecked(
-        TransactionSigned::new(
+        TransactionSigned::new_unchecked(
             Transaction::Legacy(Default::default()),
             Signature::test_signature(),
             hash(tx_hash),

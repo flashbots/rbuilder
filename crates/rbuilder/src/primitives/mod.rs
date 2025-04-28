@@ -702,10 +702,10 @@ impl TransactionSignedEcRecoveredWithBlobs {
         metadata: Option<Metadata>,
     ) -> Result<Self, TxWithBlobsCreateError> {
         // Check for an eip4844 tx passed without blobs
-        if tx.transaction().blob_versioned_hashes().is_some() && blob_sidecar.is_none() {
+        if tx.inner().blob_versioned_hashes().is_some() && blob_sidecar.is_none() {
             Err(TxWithBlobsCreateError::Eip4844MissingBlobSidecar)
         // Check for a non-eip4844 tx passed with blobs
-        } else if blob_sidecar.is_some() && tx.transaction().blob_versioned_hashes().is_none() {
+        } else if blob_sidecar.is_some() && tx.inner().blob_versioned_hashes().is_none() {
             Err(TxWithBlobsCreateError::BlobsMissingEip4844)
         // Groovy!
         } else {
@@ -812,8 +812,11 @@ impl TransactionSignedEcRecoveredWithBlobs {
             PooledTransaction::Eip4844(blob_tx) => {
                 let (blob_tx, signature, hash) = blob_tx.into_parts();
                 let (blob_tx, sidecar) = blob_tx.into_parts();
-                let tx_signed =
-                    TransactionSigned::new(Transaction::Eip4844(blob_tx), signature, hash);
+                let tx_signed = TransactionSigned::new_unchecked(
+                    Transaction::Eip4844(blob_tx),
+                    signature,
+                    hash,
+                );
                 Ok(TransactionSignedEcRecoveredWithBlobs {
                     tx: tx_signed.with_signer(signer),
                     blobs_sidecar: Arc::new(sidecar),
@@ -1239,7 +1242,7 @@ mod tests {
     fn can_execute_single_optional_tx() {
         let needed_base_gas: u128 = 100000;
         let tx = Recovered::new_unchecked(
-            TransactionSigned::new(
+            TransactionSigned::new_unchecked(
                 Transaction::Legacy(TxLegacy {
                     gas_price: needed_base_gas,
                     ..Default::default()
