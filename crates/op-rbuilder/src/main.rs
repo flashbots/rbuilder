@@ -24,8 +24,8 @@ pub mod payload_builder;
 #[cfg(not(feature = "flashblocks"))]
 mod payload_builder_vanilla;
 mod primitives;
-// #[cfg(test)]
-// mod tester;
+#[cfg(test)]
+mod tester;
 mod tx_signer;
 use monitor_tx_pool::monitor_tx_pool;
 
