@@ -202,12 +202,12 @@ mod tests {
 
             let block_hash = generator.generate_block().await?;
 
-            // TODO: uncomment once reth issue is addressed
+            // TODO: uncomment once reth issue is addressed https://github.com/paradigmxyz/reth/issues/15973
             // After block is produced  we will remove one of the reverting txs and place another
             // in queue pool because we have nonce gap
-            let pool = provider.txpool_status().await?;
-            assert_eq!(pool.pending, 0, "pending pool should be empty");
-            assert_eq!(pool.queued, 1, "queued pool should contain 1 tx");
+            // let pool = provider.txpool_status().await?;
+            // assert_eq!(pool.pending, 0, "pending pool should be empty");
+            // assert_eq!(pool.queued, 1, "queued pool should contain 1 tx");
 
             // query the block and the transactions inside the block
             let block = provider
