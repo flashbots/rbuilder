@@ -70,7 +70,7 @@ mod tests {
         generator.init().await?;
 
         let provider = ProviderBuilder::<Identity, Identity, Optimism>::default()
-            .on_http("http://localhost:1238".parse()?);
+            .connect_http("http://localhost:1238".parse()?);
 
         for _ in 0..10 {
             let block_hash = generator.generate_block().await?;
@@ -142,7 +142,7 @@ mod tests {
         let latest_block = generator.init().await?;
 
         let provider = ProviderBuilder::<Identity, Identity, Optimism>::default()
-            .on_http("http://localhost:1248".parse()?);
+            .connect_http("http://localhost:1248".parse()?);
 
         let mut base_fee = max(
             latest_block.header.base_fee_per_gas.unwrap(),
@@ -202,6 +202,7 @@ mod tests {
 
             let block_hash = generator.generate_block().await?;
 
+            // TODO: uncomment once reth issue is addressed
             // After block is produced  we will remove one of the reverting txs and place another
             // in queue pool because we have nonce gap
             let pool = provider.txpool_status().await?;
@@ -291,7 +292,7 @@ mod tests {
         let latest_block = generator.init().await?;
 
         let provider = ProviderBuilder::<Identity, Identity, Optimism>::default()
-            .on_http("http://localhost:1268".parse()?);
+            .connect_http("http://localhost:1268".parse()?);
 
         let base_fee = max(
             latest_block.header.base_fee_per_gas.unwrap(),
@@ -438,7 +439,7 @@ mod tests {
         generator.init().await?;
 
         let provider = ProviderBuilder::<Identity, Identity, Optimism>::default()
-            .on_http("http://localhost:1238".parse()?);
+            .connect_http("http://localhost:1238".parse()?);
 
         for _ in 0..10 {
             let block_hash = generator.generate_block().await?;
