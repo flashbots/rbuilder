@@ -31,7 +31,7 @@ use reth_evm::{
     Database, Evm, EvmError, InvalidTxError,
 };
 use reth_execution_types::ExecutionOutcome;
-use reth_node_api::{NodePrimitives, NodeTypes, TxTy};
+use reth_node_api::{NodePrimitives, NodeTypes, PrimitivesTy, TxTy};
 use reth_optimism_chainspec::OpChainSpec;
 use reth_optimism_consensus::{calculate_receipt_root_no_memo_optimism, isthmus};
 use reth_optimism_evm::{OpEvmConfig, OpNextBlockEnvAttributes};
@@ -117,7 +117,7 @@ impl CustomOpPayloadBuilder {
     }
 }
 
-impl<Node, Pool> PayloadBuilderBuilder<Node, Pool> for CustomOpPayloadBuilder
+impl<Node, Pool, Evm> PayloadBuilderBuilder<Node, Pool, Evm> for CustomOpPayloadBuilder
 where
     Node: FullNodeTypes<
         Types: NodeTypes<
@@ -129,6 +129,10 @@ where
     Pool: TransactionPool<Transaction: PoolTransaction<Consensus = TxTy<Node::Types>>>
         + Unpin
         + 'static,
+    Evm: ConfigureEvm<
+            Primitives = PrimitivesTy<Node::Types>,
+            NextBlockEnvCtx = OpNextBlockEnvAttributes,
+        > + 'static,
 {
     type PayloadBuilder = OpPayloadBuilder<Pool, Node::Provider>;
 
@@ -136,6 +140,7 @@ where
         self,
         ctx: &BuilderContext<Node>,
         pool: Pool,
+        _evm_config: Evm,
     ) -> eyre::Result<Self::PayloadBuilder> {
         Ok(OpPayloadBuilder::new(
             OpEvmConfig::optimism(ctx.chain_spec()),
@@ -148,7 +153,7 @@ where
     }
 }
 
-impl<Node, Pool> PayloadServiceBuilder<Node, Pool> for CustomOpPayloadBuilder
+impl<Node, Pool, Evm> PayloadServiceBuilder<Node, Pool, Evm> for CustomOpPayloadBuilder
 where
     Node: FullNodeTypes<
         Types: NodeTypes<
@@ -161,14 +166,19 @@ where
         + Unpin
         + 'static,
     <Pool as TransactionPool>::Transaction: OpPooledTx,
+    Evm: ConfigureEvm<
+            Primitives = PrimitivesTy<Node::Types>,
+            NextBlockEnvCtx = OpNextBlockEnvAttributes,
+        > + 'static,
 {
     async fn spawn_payload_builder_service(
         self,
         ctx: &BuilderContext<Node>,
         pool: Pool,
+        evm_config: Evm,
     ) -> eyre::Result<PayloadBuilderHandle<<Node::Types as NodeTypes>::Payload>> {
         tracing::info!("Spawning a custom payload builder");
-        let payload_builder = self.build_payload_builder(ctx, pool).await?;
+        let payload_builder = self.build_payload_builder(ctx, pool, evm_config).await?;
         let payload_job_config = BasicPayloadJobGeneratorConfig::default();
 
         let payload_generator = BlockPayloadJobGenerator::with_builder(
