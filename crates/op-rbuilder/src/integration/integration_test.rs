@@ -195,9 +195,8 @@ mod tests {
                 .send_raw_transaction(signed_tx.encoded_2718().as_slice())
                 .await?;
 
-            let pool = provider.txpool_status().await?;
-
             // Before block we should have 3 txs in pool, because they all valid
+            let pool = provider.txpool_status().await?;
             assert_eq!(pool.pending, 3, "all txs should be in pending pool");
             assert_eq!(pool.queued, 0, "queued pool should be empty");
 
@@ -205,6 +204,7 @@ mod tests {
 
             // After block is produced  we will remove one of the reverting txs and place another
             // in queue pool because we have nonce gap
+            let pool = provider.txpool_status().await?;
             assert_eq!(pool.pending, 0, "pending pool should be empty");
             assert_eq!(pool.queued, 1, "queued pool should contain 1 tx");
 
