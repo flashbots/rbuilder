@@ -28,7 +28,7 @@ build: ## Build (debug version)
 	cargo build --features "$(FEATURES)"
 
 .PHONY: docker-image-rbuilder
-docker-image-rubilder: ## Build a rbuilder Docker image
+docker-image-rbuilder: ## Build a rbuilder Docker image
 	docker build --platform linux/amd64 --target rbuilder-runtime --build-arg FEATURES="$(FEATURES)"  . -t rbuilder
 
 .PHONY: docker-image-test-relay
