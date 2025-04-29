@@ -12,7 +12,7 @@ mod tests {
     use alloy_rpc_types_eth::BlockTransactionsKind;
     use futures_util::StreamExt;
     use op_alloy_consensus::OpTypedTransaction;
-    use op_alloy_network::Optimism;
+    use op_alloy_network::{Optimism, TransactionResponse};
     use std::{
         cmp::max,
         path::PathBuf,
@@ -22,8 +22,13 @@ mod tests {
     use tokio_tungstenite::connect_async;
     use uuid::Uuid;
 
+    /// Key used by builder
     const BUILDER_PRIVATE_KEY: &str =
         "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
+
+    /// Key used in tests, so builder txs won't affect them
+    const CUSTOM_PRIVATE_KEY: &str =
+        "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 
     #[tokio::test]
     #[cfg(not(feature = "flashblocks"))]
@@ -97,6 +102,7 @@ mod tests {
         Ok(())
     }
 
+    /// Caution: this test could be brittle to change because of queued pool checks
     #[tokio::test]
     #[cfg(not(feature = "flashblocks"))]
     async fn integration_test_revert_protection() -> eyre::Result<()> {
@@ -149,65 +155,109 @@ mod tests {
             MIN_PROTOCOL_BASE_FEE,
         );
         for _ in 0..10 {
+            // We check queued pool to see if it already has tx we sent earlier
+            // We do this in the beginning, because once we insert valid tx the queued tx would move
+            // to pending pool, because nonce gap would be fixed.
+            let mut queued_hash = None;
+            let mut pool_content = provider.txpool_content().await?;
+            if !pool_content.queued.is_empty() {
+                // We are on the non-first, so we have 1 tx in queue pool
+                assert_eq!(
+                    pool_content.queued.len(),
+                    1,
+                    "Queued pool should contain only 1 transaction"
+                );
+                queued_hash = Some(
+                    pool_content
+                        .queued
+                        .pop_first()
+                        .unwrap()
+                        .1
+                        .pop_first()
+                        .unwrap()
+                        .1
+                        .tx_hash(),
+                );
+            }
+
+            let known_wallet = Signer::try_from_secret(CUSTOM_PRIVATE_KEY.parse()?)?;
             // Get builder's address
-            let known_wallet = Signer::try_from_secret(BUILDER_PRIVATE_KEY.parse()?)?;
-            let builder_address = known_wallet.address;
+            let custom_address = known_wallet.address;
             // Get current nonce from chain
-            let nonce = provider.get_transaction_count(builder_address).await?;
-            // Transaction from builder should succeed
-            let tx_request = OpTypedTransaction::Eip1559(TxEip1559 {
-                chain_id: 901,
-                nonce,
-                gas_limit: 210000,
-                max_fee_per_gas: base_fee.into(),
-                ..Default::default()
-            });
-            let signed_tx = known_wallet.sign_tx(tx_request)?;
-            let known_tx = provider
-                .send_raw_transaction(signed_tx.encoded_2718().as_slice())
-                .await?;
+            let nonce = provider.get_transaction_count(custom_address).await?;
 
-            // Create a reverting transaction
-            let tx_request = OpTypedTransaction::Eip1559(TxEip1559 {
-                chain_id: 901,
-                nonce: nonce + 1,
-                gas_limit: 300000,
-                max_fee_per_gas: base_fee.into(),
-                input: hex!("60006000fd").into(), // PUSH1 0x00 PUSH1 0x00 REVERT
-                ..Default::default()
-            });
-            let signed_tx = known_wallet.sign_tx(tx_request)?;
-            let reverting_tx = provider
-                .send_raw_transaction(signed_tx.encoded_2718().as_slice())
-                .await?;
+            // Send valid tx that must be included in the block
+            let valid_tx = {
+                let tx_request = OpTypedTransaction::Eip1559(TxEip1559 {
+                    chain_id: 901,
+                    nonce,
+                    gas_limit: 210000,
+                    max_fee_per_gas: base_fee.into(),
+                    ..Default::default()
+                });
+                let signed_tx = known_wallet.sign_tx(tx_request)?;
+                let known_tx = provider
+                    .send_raw_transaction(signed_tx.encoded_2718().as_slice())
+                    .await?;
+                known_tx.tx_hash().to_owned()
+            };
 
-            // Create a second reverting transaction
-            let tx_request = OpTypedTransaction::Eip1559(TxEip1559 {
-                chain_id: 901,
-                nonce: nonce + 2,
-                gas_limit: 300000,
-                max_fee_per_gas: base_fee.into(),
-                input: hex!("60006000fd").into(), // PUSH1 0x00 PUSH1 0x00 REVERT
-                ..Default::default()
-            });
-            let signed_tx = known_wallet.sign_tx(tx_request)?;
-            let reverting_tx_2 = provider
-                .send_raw_transaction(signed_tx.encoded_2718().as_slice())
-                .await?;
+            // If we don't have reverting tx in the queued pool we send one. This send occurs only
+            // on first cycle iteration
+            let revert_tx_1 = if queued_hash.is_none() {
+                // Reverting tx that would be removed
+                let tx_request = OpTypedTransaction::Eip1559(TxEip1559 {
+                    chain_id: 901,
+                    nonce: nonce + 1,
+                    gas_limit: 300000,
+                    max_fee_per_gas: base_fee.into(),
+                    input: hex!("60006000fd").into(), // PUSH1 0x00 PUSH1 0x00 REVERT
+                    ..Default::default()
+                });
+                let signed_tx = known_wallet.sign_tx(tx_request)?;
+                let reverting_tx = provider
+                    .send_raw_transaction(signed_tx.encoded_2718().as_slice())
+                    .await?;
+                reverting_tx.tx_hash().to_owned()
+            } else {
+                queued_hash.unwrap()
+            };
 
-            // Before block we should have 3 txs in pool, because they all valid
+            // We send second reverting tx
+            let revert_tx_2 = {
+                // Reverting tx that would be places in queue pool, then it would be placed in the
+                // pending pool in the next interation (after the nonce gap is fixed be sending
+                // valid tx) and removed
+                let tx_request = OpTypedTransaction::Eip1559(TxEip1559 {
+                    chain_id: 901,
+                    nonce: nonce + 2,
+                    gas_limit: 300000,
+                    max_fee_per_gas: base_fee.into(),
+                    input: hex!("60006000fd").into(), // PUSH1 0x00 PUSH1 0x00 REVERT
+                    ..Default::default()
+                });
+                let signed_tx = known_wallet.sign_tx(tx_request)?;
+                let reverting_tx_2 = provider
+                    .send_raw_transaction(signed_tx.encoded_2718().as_slice())
+                    .await?;
+                reverting_tx_2.tx_hash().to_owned()
+            };
+
+            // All txs should be in pending pool.
+            // 2 cases:
+            // - we sent all 3 txs
+            // - we sent 2 txs and one got promoted from queue pool
             let pool = provider.txpool_status().await?;
             assert_eq!(pool.pending, 3, "all txs should be in pending pool");
             assert_eq!(pool.queued, 0, "queued pool should be empty");
 
             let block_hash = generator.generate_block().await?;
 
-            // TODO: uncomment once reth issue is addressed https://github.com/paradigmxyz/reth/issues/15973
             // After block is produced  we will remove one of the reverting txs and place another
             // in queue pool because we have nonce gap
-            // let pool = provider.txpool_status().await?;
-            // assert_eq!(pool.pending, 0, "pending pool should be empty");
-            // assert_eq!(pool.queued, 1, "queued pool should contain 1 tx");
+            let pool = provider.txpool_status().await?;
+            assert_eq!(pool.pending, 0, "pending pool should be empty");
+            assert_eq!(pool.queued, 1, "queued pool should contain 1 tx");
 
             // query the block and the transactions inside the block
             let block = provider
@@ -215,20 +265,18 @@ mod tests {
                 .await?
                 .expect("block");
 
-            // Verify known transaction is included
+            // Verify valid transaction is included
             assert!(
-                block
-                    .transactions
-                    .hashes()
-                    .any(|hash| hash == *known_tx.tx_hash()),
+                block.transactions.hashes().any(|hash| hash == *valid_tx),
                 "successful transaction missing from block"
             );
 
-            // Verify reverted transactions are NOT included
+            // Verify reverting transactions are NOT included
             assert!(
-                !block.transactions.hashes().any(
-                    |hash| hash == *reverting_tx.tx_hash() || hash == *reverting_tx_2.tx_hash()
-                ),
+                !block
+                    .transactions
+                    .hashes()
+                    .any(|hash| hash == *revert_tx_1 || hash == *revert_tx_2),
                 "reverted transaction unexpectedly included in block"
             );
             for hash in block.transactions.hashes() {
