@@ -27,6 +27,7 @@ on:
         options:
           - ''
           - 'redact-sensitive'
+          - 'flashblocks'
         required: false
         type: choice
 
