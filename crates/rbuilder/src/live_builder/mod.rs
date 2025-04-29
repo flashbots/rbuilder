@@ -21,6 +21,7 @@ use crate::{
     },
     primitives::{MempoolTx, Order, TransactionSignedEcRecoveredWithBlobs},
     provider::StateProviderFactory,
+    reputation::reputation_block_start,
     telemetry::{inc_active_slots, mark_building_started, reset_histogram_metrics},
     utils::{
         error_storage::spawn_error_storage_writer, format_offset_datetime_rfc3339,
@@ -284,6 +285,8 @@ where
             }
 
             inc_active_slots();
+
+            reputation_block_start();
 
             let root_hasher =
                 Arc::from(self.provider.root_hasher(payload.parent_block_num_hash())?);

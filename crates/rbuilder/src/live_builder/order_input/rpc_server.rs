@@ -7,6 +7,7 @@ use crate::{
         },
         BundleReplacementData, BundleReplacementKey, MempoolTx, Order, OrderId,
     },
+    reputation::reputation_is_order_high_priority,
     telemetry::mark_command_received,
 };
 use alloy_primitives::{Address, Bytes};
@@ -221,12 +222,14 @@ async fn handle_mev_send_bundle(
 }
 
 async fn send_order(
-    order: Order,
+    mut order: Order,
     channel: &mpsc::Sender<ReplaceableOrderPoolCommand>,
     timeout: Duration,
     received_at: OffsetDateTime,
     first_seen_at: Option<OffsetDateTime>,
 ) {
+    order.metadata_mut().high_priority = reputation_is_order_high_priority(&order);
+
     send_command(
         ReplaceableOrderPoolCommand::Order(order),
         channel,

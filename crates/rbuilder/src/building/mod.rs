@@ -18,6 +18,7 @@ use alloy_evm::{block::system_calls::SystemCaller, env::EvmEnv, eth::eip6110};
 use alloy_primitives::{Address, Bytes, B256, U256};
 use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
 use cached_reads::{LocalCachedReads, SharedCachedReads};
+use dashmap::DashMap;
 use evm::EthCachedEvmFactory;
 use jsonrpsee::core::Serialize;
 use reth::{
@@ -44,7 +45,10 @@ use std::{
     collections::HashMap,
     hash::Hash,
     str::FromStr,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
     time::{Duration, Instant},
 };
 use thiserror::Error;
@@ -99,6 +103,7 @@ pub struct BlockBuildingContext {
     pub payload_id: InternalPayloadId,
     pub shared_cached_reads: Arc<SharedCachedReads>,
     pub tx_execution_cache: Arc<TxExecutionCache>,
+    pub order_execution_stats: Arc<OrderExecutionStats>,
 }
 
 impl BlockBuildingContext {
@@ -187,6 +192,7 @@ impl BlockBuildingContext {
             payload_id,
             shared_cached_reads: Default::default(),
             tx_execution_cache: Arc::new(TxExecutionCache::new(evm_caching_enable)),
+            order_execution_stats: Default::default(),
             max_blob_gas_per_block,
         })
     }
@@ -283,6 +289,7 @@ impl BlockBuildingContext {
             payload_id: 0,
             shared_cached_reads: Default::default(),
             tx_execution_cache: Arc::new(TxExecutionCache::new(evm_caching_enable)),
+            order_execution_stats: Default::default(),
             max_blob_gas_per_block,
         }
     }
@@ -882,4 +889,28 @@ pub enum FillOrdersError {
     CriticalCommitOrderError(#[from] CriticalCommitOrderError),
     #[error("Payout tx error: {0}")]
     PayoutTxErr(#[from] InsertPayoutTxErr),
+}
+
+#[derive(Debug, Default)]
+pub struct OrderExecutionStats {
+    ok_simulations: DashMap<OrderId, Arc<AtomicUsize>>,
+}
+
+impl OrderExecutionStats {
+    fn get_entry(&self, id: &OrderId) -> Arc<AtomicUsize> {
+        if let Some(entry) = self.ok_simulations.get(id) {
+            return entry.clone();
+        }
+        self.ok_simulations.entry(id.clone()).or_default().clone()
+    }
+
+    pub fn inc_ok_simulation(&self, id: &OrderId) {
+        let entry = self.get_entry(id);
+        entry.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn get_ok_simulation(&self, id: &OrderId) -> usize {
+        let entry = self.get_entry(id);
+        entry.load(Ordering::Relaxed)
+    }
 }

@@ -108,19 +108,32 @@ pub fn mark_command_received(
                 .observe((received_at_us - first_seen_at_us) as f64 / 1000.0);
         }
     }
-    let kind = match command {
+    let (kind, priority) = match command {
         ReplaceableOrderPoolCommand::Order(order) => {
             mark_order_received(order.id(), received_at);
-            match order {
-                Order::Bundle(_) => "bundle",
-                Order::Tx(_) => "tx",
-                Order::ShareBundle(_) => "sbundle",
-            }
+
+            let priority = if order.metadata().high_priority {
+                "high"
+            } else {
+                "low"
+            };
+
+            (
+                match order {
+                    Order::Bundle(_) => "bundle",
+                    Order::Tx(_) => "tx",
+                    Order::ShareBundle(_) => "sbundle",
+                },
+                priority,
+            )
         }
+        // replacements priority is not a well defined concept, they are processed without any simulation
         ReplaceableOrderPoolCommand::CancelShareBundle(_)
-        | ReplaceableOrderPoolCommand::CancelBundle(_) => "replacement",
+        | ReplaceableOrderPoolCommand::CancelBundle(_) => ("replacement", "low"),
     };
-    ORDERPOOL_ORDERS_RECEIVED.with_label_values(&[kind]).inc();
+    ORDERPOOL_ORDERS_RECEIVED
+        .with_label_values(&[kind, priority])
+        .inc();
 }
 
 fn mark_order_received(id: OrderId, received_at: OffsetDateTime) {

@@ -36,12 +36,14 @@ use uuid::Uuid;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Metadata {
     pub received_at_timestamp: time::OffsetDateTime,
+    pub high_priority: bool,
 }
 
 impl Metadata {
     pub fn with_current_received_at() -> Self {
         Self {
             received_at_timestamp: time::OffsetDateTime::now_utc(),
+            high_priority: false,
         }
     }
 }
@@ -1045,6 +1047,14 @@ impl Order {
             Order::Bundle(bundle) => &bundle.metadata,
             Order::Tx(tx) => &tx.tx_with_blobs.metadata,
             Order::ShareBundle(bundle) => &bundle.metadata,
+        }
+    }
+
+    pub fn metadata_mut(&mut self) -> &mut Metadata {
+        match self {
+            Order::Bundle(bundle) => &mut bundle.metadata,
+            Order::Tx(tx) => &mut tx.tx_with_blobs.metadata,
+            Order::ShareBundle(bundle) => &mut bundle.metadata,
         }
     }
 }

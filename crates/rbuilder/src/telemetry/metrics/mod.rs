@@ -110,7 +110,7 @@ register_metrics! {
 
     pub static ORDERPOOL_ORDERS_RECEIVED: IntCounterVec = IntCounterVec::new(
         Opts::new("orderpool_commands_received", "counter of orders received"),
-        &["kind"]
+        &["kind", "high_priority"]
     )
     .unwrap();
 

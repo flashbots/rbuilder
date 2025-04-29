@@ -16,6 +16,7 @@ use crate::{
     },
     primitives::{AccountNonce, OrderId, SimValue},
     provider::StateProviderFactory,
+    reputation::reputation_add_order_simulation_result,
     telemetry::mark_builder_considers_order,
     utils::NonceCache,
 };
@@ -57,6 +58,9 @@ pub struct OrderingBuilderConfig {
     /// Amount of time allocated for EVM execution while building block.
     #[serde(default)]
     pub build_duration_deadline_ms: Option<u64>,
+    /// If set to true builder will only include high priority orders or orders that was successfull in other builders
+    #[serde(default)]
+    pub prefer_high_priority_orders: bool,
 }
 
 impl OrderingBuilderConfig {
@@ -267,6 +271,17 @@ impl OrderingBuilderContext {
         let mut order_attempts: HashMap<OrderId, usize> = HashMap::default();
         // @Perf when gas left is too low we should break.
         while let Some(sim_order) = block_orders.pop_order() {
+            if self.config.prefer_high_priority_orders && !sim_order.order.metadata().high_priority
+            {
+                let ok_sims = self
+                    .ctx
+                    .order_execution_stats
+                    .get_ok_simulation(&sim_order.id());
+                if ok_sims == 0 {
+                    continue;
+                }
+            }
+
             // @Todo we drop such bundles instead of failing simulation for them
             // because share bundle merging depends on allowing no txs bundles into the block
             if sim_order.sim_value.gas_used == 0 {
@@ -296,6 +311,12 @@ impl OrderingBuilderContext {
             let mut execution_error = None;
             let mut reinserted = false;
             let success = commit_result.is_ok();
+            if success {
+                self.ctx
+                    .order_execution_stats
+                    .inc_ok_simulation(&sim_order.id());
+            }
+            reputation_add_order_simulation_result(&sim_order, &commit_result, order_commit_time);
             match commit_result {
                 Ok(res) => {
                     gas_used = res.gas_used;

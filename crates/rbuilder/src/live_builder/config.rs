@@ -507,6 +507,7 @@ impl Default for Config {
                         drop_failed_orders: true,
                         coinbase_payment: false,
                         build_duration_deadline_ms: None,
+                        prefer_high_priority_orders: false,
                     }),
                 },
                 BuilderConfig {
@@ -518,6 +519,7 @@ impl Default for Config {
                         drop_failed_orders: true,
                         coinbase_payment: false,
                         build_duration_deadline_ms: None,
+                        prefer_high_priority_orders: false,
                     }),
                 },
                 BuilderConfig {
@@ -529,6 +531,7 @@ impl Default for Config {
                         drop_failed_orders: true,
                         coinbase_payment: false,
                         build_duration_deadline_ms: Some(30),
+                        prefer_high_priority_orders: false,
                     }),
                 },
                 BuilderConfig {
@@ -540,6 +543,7 @@ impl Default for Config {
                         drop_failed_orders: true,
                         coinbase_payment: true,
                         build_duration_deadline_ms: None,
+                        prefer_high_priority_orders: false,
                     }),
                 },
                 BuilderConfig {
@@ -551,6 +555,7 @@ impl Default for Config {
                         drop_failed_orders: false,
                         coinbase_payment: false,
                         build_duration_deadline_ms: None,
+                        prefer_high_priority_orders: false,
                     }),
                 },
                 BuilderConfig {
