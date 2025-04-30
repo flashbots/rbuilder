@@ -63,7 +63,7 @@ pub struct RelayConfig {
     pub priority: Option<usize>,
     /// Critical blocks (containing bundles with replacement ids) go only to fast relays. None -> true
     pub is_fast: Option<bool>,
-    /// Big blocks (bid > [L1Config::independent_bid_threshold_eth]) go only to independent relay. None -> true
+    /// Big blocks (bid > [L1Config::independent_bid_threshold_eth]) go only to independent relays. None -> true
     pub is_independent: Option<bool>,
 }
 
