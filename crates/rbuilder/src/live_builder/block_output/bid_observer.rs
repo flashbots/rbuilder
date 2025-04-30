@@ -9,9 +9,9 @@ pub trait BidObserver: std::fmt::Debug {
     /// This should NOT block since it's executed in the submitting thread.
     fn block_submitted(
         &self,
-        sealed_block: SealedBlock,
-        submit_block_request: SubmitBlockRequest,
-        built_block_trace: BuiltBlockTrace,
+        sealed_block: &SealedBlock,
+        submit_block_request: &SubmitBlockRequest,
+        built_block_trace: &BuiltBlockTrace,
         builder_name: String,
         best_bid_value: U256,
     );
@@ -23,9 +23,9 @@ pub struct NullBidObserver {}
 impl BidObserver for NullBidObserver {
     fn block_submitted(
         &self,
-        _sealed_block: SealedBlock,
-        _submit_block_request: SubmitBlockRequest,
-        _built_block_trace: BuiltBlockTrace,
+        _sealed_block: &SealedBlock,
+        _submit_block_request: &SubmitBlockRequest,
+        _built_block_trace: &BuiltBlockTrace,
         _builder_name: String,
         _best_bid_value: U256,
     ) {
