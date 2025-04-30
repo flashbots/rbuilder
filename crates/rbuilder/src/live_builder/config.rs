@@ -114,6 +114,7 @@ pub struct Config {
 }
 
 const DEFAULT_SLOT_DELTA_TO_START_BIDDING_MS: i64 = -8000;
+const DEFAULT_INDEPENDENT_BID_THRESHOLD_ETH: &str = "0";
 
 #[serde_as]
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -140,8 +141,8 @@ pub struct L1Config {
     /// Genesis fork version for the chain. If not provided it will be fetched from the beacon client.
     pub genesis_fork_version: Option<String>,
 
-    /// Bids above this value will only go to fast relays.
-    pub fast_bid_threshold_eth: String,
+    /// Bids above this value will only go to independent relays.
+    pub independent_bid_threshold_eth: String,
 }
 
 impl Default for L1Config {
@@ -155,7 +156,7 @@ impl Default for L1Config {
             optimistic_max_bid_value_eth: "0.0".to_string(),
             cl_node_url: vec![EnvOrValue::from("http://127.0.0.1:3500")],
             genesis_fork_version: None,
-            fast_bid_threshold_eth: "0".to_owned(),
+            independent_bid_threshold_eth: DEFAULT_INDEPENDENT_BID_THRESHOLD_ETH.to_owned(),
         }
     }
 }
@@ -197,6 +198,7 @@ impl L1Config {
                     submit_config,
                     relay_config.mode == RelayMode::Test,
                     relay_config.is_fast(),
+                    relay_config.is_independent(),
                 ));
             } else {
                 eyre::bail!(
@@ -314,7 +316,7 @@ impl L1Config {
             signer,
             optimistic_config,
             bid_observer,
-            fast_bid_threshold: parse_ether(&self.fast_bid_threshold_eth)?,
+            independent_bid_threshold: parse_ether(&self.independent_bid_threshold_eth)?,
         })
     }
 
@@ -719,6 +721,7 @@ lazy_static! {
                 builder_id_header: None,
                 api_token_header: None,
                 is_fast: None,
+                is_independent: None,
             },
         );
         map.insert(
@@ -738,6 +741,7 @@ lazy_static! {
                 builder_id_header: None,
                 api_token_header: None,
                 is_fast: None,
+                is_independent: None,
             },
         );
         map.insert(
@@ -757,6 +761,7 @@ lazy_static! {
                 builder_id_header: None,
                 api_token_header: None,
                 is_fast: None,
+                is_independent: None,
             },
         );
         map.insert(
@@ -775,6 +780,7 @@ lazy_static! {
                 builder_id_header: None,
                 api_token_header: None,
                 is_fast: None,
+                is_independent: None,
             },
         );
         map.insert(
@@ -794,6 +800,7 @@ lazy_static! {
                 builder_id_header: None,
                 api_token_header: None,
                 is_fast: None,
+                is_independent: None,
             },
         );
         map
