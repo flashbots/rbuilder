@@ -41,4 +41,16 @@ pub struct OpRbuilderArgs {
     /// Signals whether to log pool transaction events
     #[arg(long = "builder.log-pool-transactions", default_value = "false")]
     pub log_pool_transactions: bool,
+    /// OpenTelemetry endpoint for metrics
+    #[cfg(feature = "telemetry")]
+    #[arg(long, value_name = "TRACING")]
+    pub tracing: bool,
+    /// OpenTelemetry endpoint for metrics
+    #[cfg(feature = "telemetry")]
+    #[arg(
+        long,
+        value_name = "TRACING_ENDPOINT",
+        default_value = "http://localhost:4317"
+    )]
+    pub tracing_endpoint: String,
 }
