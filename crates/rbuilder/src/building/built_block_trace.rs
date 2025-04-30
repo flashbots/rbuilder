@@ -101,20 +101,10 @@ impl BuiltBlockTrace {
         &self,
         blocklist: &HashSet<Address>,
     ) -> Result<(), BuiltBlockTraceError> {
-        let mut replacement_data_count: HashSet<_> = HashSet::default();
         let mut bundle_txs_scratchpad = HashMap::default();
         let mut executed_tx_hashes_scratchpad = Vec::new();
 
         for res in &self.included_orders {
-            for order in res.order.original_orders() {
-                if let Some(data) = order.replacement_key() {
-                    if replacement_data_count.contains(&data) {
-                        return Err(BuiltBlockTraceError::DuplicateReplacementData(data));
-                    }
-                    replacement_data_count.insert(data);
-                }
-            }
-
             if res.txs.len() != res.receipts.len() {
                 return Err(BuiltBlockTraceError::DifferentTxsAndReceipts);
             }
