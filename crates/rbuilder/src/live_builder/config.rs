@@ -114,7 +114,7 @@ pub struct Config {
 }
 
 const DEFAULT_SLOT_DELTA_TO_START_BIDDING_MS: i64 = -8000;
-
+const DEFAULT_FAST_BID_THRESHOLD_ETH: &str = "0";
 #[serde_as]
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
@@ -155,7 +155,7 @@ impl Default for L1Config {
             optimistic_max_bid_value_eth: "0.0".to_string(),
             cl_node_url: vec![EnvOrValue::from("http://127.0.0.1:3500")],
             genesis_fork_version: None,
-            fast_bid_threshold_eth: "0".to_owned(),
+            fast_bid_threshold_eth: DEFAULT_FAST_BID_THRESHOLD_ETH.to_owned(),
         }
     }
 }
