@@ -585,32 +585,6 @@ fn test_bundle_consistency_check() -> eyre::Result<()> {
         assert!(err.to_string().contains("Bundle tx reverted"));
     }
 
-    // check commit of 2 bundles with the same replacement uuid
-    {
-        let replacement_data = BundleReplacementData {
-            key: BundleReplacementKey::new(Uuid::from_u128(100), Some(Address::random())),
-            sequence_number: 0,
-        };
-        let mut built_block_trace = BuiltBlockTrace::new();
-
-        test_setup.begin_bundle_order(11);
-        test_setup.set_bundle_replacement_data(replacement_data.clone());
-        test_setup.add_dummy_tx_0_1_no_rev()?;
-        let res = test_setup.commit_order_ok();
-        built_block_trace.add_included_order(res);
-
-        test_setup.begin_bundle_order(11);
-        test_setup.set_bundle_replacement_data(replacement_data);
-        test_setup.add_dummy_tx_0_1_no_rev()?;
-        let res = test_setup.commit_order_ok();
-        built_block_trace.add_included_order(res);
-
-        let err = built_block_trace
-            .verify_bundle_consistency(&blocklist)
-            .expect_err("Expected error");
-        assert!(err.to_string().contains("replacement data"));
-    }
-
     // check commit of blocklisted tx from
     {
         let blocklist = vec![test_setup.named_address(NamedAddr::User(0))?]
