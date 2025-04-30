@@ -18,7 +18,7 @@ use crate::{
     live_builder::{block_list_provider::BlockList, cli::LiveBuilderConfig},
     primitives::{Order, OrderId},
     provider::StateProviderFactory,
-    utils::{signed_uint_delta, u256decimal_serde_helper},
+    utils::{elapsed_s, signed_uint_delta, u256decimal_serde_helper},
 };
 use ahash::{HashMap, HashSet};
 use alloy_primitives::{utils::format_ether, Address, B256, I256, U256};
@@ -170,7 +170,7 @@ where
         config.base_config().evm_caching_enable,
     )?;
 
-    let time_preparation_s = start.elapsed().as_millis() as f64 / 1000.0;
+    let time_preparation_s = elapsed_s(start);
     let start = Instant::now();
 
     let results_without_exclusion = calculate_backtest_without_exclusion(
@@ -180,7 +180,7 @@ where
         block_data.clone(),
     )?;
 
-    let time_no_exclusion_s = start.elapsed().as_millis() as f64 / 1000.0;
+    let time_no_exclusion_s = elapsed_s(start);
     let start = Instant::now();
 
     let exclusion_results = calculate_backtest_identity_and_order_exclusion(
@@ -192,7 +192,7 @@ where
         &results_without_exclusion,
     )?;
 
-    let time_single_exclusion_s = start.elapsed().as_millis() as f64 / 1000.0;
+    let time_single_exclusion_s = elapsed_s(start);
     let start = Instant::now();
 
     let exclusion_results = calc_joint_exclusion_results(
@@ -206,7 +206,7 @@ where
         distribute_to_mempool_txs,
     )?;
 
-    let time_joint_exclusion_s = start.elapsed().as_millis() as f64 / 1000.0;
+    let time_joint_exclusion_s = elapsed_s(start);
     let start = Instant::now();
 
     let calculated_redistribution_result = apply_redistribution_formula(
@@ -237,7 +237,7 @@ where
         .map(|o| o.redistribution_value_received)
         .sum::<U256>();
 
-    let time_result_s = start.elapsed().as_millis() as f64 / 1000.0;
+    let time_result_s = elapsed_s(start);
 
     let time_total_s = time_preparation_s
         + time_no_exclusion_s

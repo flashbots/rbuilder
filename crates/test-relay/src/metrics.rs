@@ -2,8 +2,9 @@ use ctor::ctor;
 use lazy_static::lazy_static;
 use metrics_macros::register_metrics;
 use prometheus::{HistogramOpts, HistogramVec, IntCounterVec, Opts, Registry};
-use rbuilder::telemetry::{
-    exponential_buckets_range, gather_prometheus_metrics, linear_buckets_range,
+use rbuilder::{
+    telemetry::{exponential_buckets_range, gather_prometheus_metrics, linear_buckets_range},
+    utils::duration_ms,
 };
 use std::{net::SocketAddr, time::Duration};
 use warp::{reject::Rejection, reply::Reply, Filter};
@@ -97,13 +98,13 @@ pub fn add_winning_bid(builder: &str, advantage: f64) {
 pub fn add_payload_processing_time(duration: Duration) {
     PAYLOAD_PROCESSING_TIME
         .with_label_values(&[])
-        .observe(duration.as_micros() as f64 / 1000.0);
+        .observe(duration_ms(duration));
 }
 
 pub fn add_payload_validation_time(duration: Duration) {
     PAYLOAD_VALIDATION_TIME
         .with_label_values(&[])
-        .observe(duration.as_micros() as f64 / 1000.0);
+        .observe(duration_ms(duration));
 }
 
 pub fn spawn_metrics_server(address: SocketAddr) {

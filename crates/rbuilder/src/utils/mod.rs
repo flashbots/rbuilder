@@ -1,5 +1,7 @@
 //! a2r prefix = alloy to reth conversion
 
+use std::time::{Duration, Instant};
+
 use crate::primitives::{
     serialize::{RawTx, TxEncoding},
     TransactionSignedEcRecoveredWithBlobs,
@@ -217,6 +219,21 @@ pub fn format_offset_datetime_rfc3339(datetime: &OffsetDateTime) -> String {
     datetime
         .format(&Rfc3339)
         .expect("failed to format datetime")
+}
+
+#[inline]
+pub fn elapsed_ms(start: Instant) -> f64 {
+    duration_ms(start.elapsed())
+}
+
+#[inline]
+pub fn elapsed_s(start: Instant) -> f64 {
+    duration_ms(start.elapsed()) / 1000.0
+}
+
+#[inline]
+pub fn duration_ms(duration: Duration) -> f64 {
+    duration.as_micros() as f64 / 1000.0
 }
 
 #[cfg(test)]

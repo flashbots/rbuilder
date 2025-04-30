@@ -18,7 +18,7 @@ use crate::{
     },
     primitives::{SimValue, SimulatedOrder},
     telemetry::{self, add_block_fill_time, add_order_simulation_time},
-    utils::{check_block_hash_reader_health, HistoricalBlockError},
+    utils::{check_block_hash_reader_health, elapsed_ms, HistoricalBlockError},
 };
 
 use super::Block;
@@ -408,7 +408,7 @@ impl BlockBuildingHelper for BlockBuildingHelperFromProvider {
         self.built_block_trace
             .verify_bundle_consistency(&self.building_ctx.blocklist)?;
 
-        let finalize_prep_time_ms = step_start.elapsed().as_micros() as f64 / 1000.0;
+        let finalize_prep_time_ms = elapsed_ms(step_start);
         let step_start = Instant::now();
 
         let sim_gas_used = self.partial_block.tracer.used_gas;
@@ -432,8 +432,8 @@ impl BlockBuildingHelper for BlockBuildingHelperFromProvider {
                 }
             };
 
-        let finalize_block_time_ms = step_start.elapsed().as_micros() as f64 / 1000.0;
-        let finalize_time_ms = start_time.elapsed().as_micros() as f64 / 1000.0;
+        let finalize_block_time_ms = elapsed_ms(step_start);
+        let finalize_time_ms = elapsed_ms(start_time);
         trace!(
             finalize_time_ms,
             finalize_prep_time_ms,

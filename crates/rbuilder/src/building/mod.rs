@@ -4,7 +4,7 @@ use crate::{
     provider::RootHasher,
     roothash::RootHashError,
     utils::{
-        a2r_withdrawal, default_cfg_env,
+        a2r_withdrawal, default_cfg_env, elapsed_ms,
         receipts::{calculate_receipt_root_and_block_logs_bloom, BloomCache},
         timestamp_as_u64, Signer,
     },
@@ -743,7 +743,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         let (requests, withdrawals_root) = self.process_requests(&mut state, ctx, local_ctx)?;
         let block_number = ctx.evm_env.block_env.number;
 
-        let request_processsing_time_ms = step_start.elapsed().as_micros() as f64 / 1000.0;
+        let request_processsing_time_ms = elapsed_ms(step_start);
         let step_start = Instant::now();
 
         let requests_hash = requests.as_ref().map(|requests| requests.requests_hash());
@@ -756,7 +756,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             vec![requests.clone().unwrap_or_default()],
         );
 
-        let exec_outcome_time_ms = step_start.elapsed().as_micros() as f64 / 1000.0;
+        let exec_outcome_time_ms = elapsed_ms(step_start);
         let step_start = Instant::now();
 
         let (receipts_root, logs_bloom) = calculate_receipt_root_and_block_logs_bloom(
@@ -764,20 +764,20 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             &mut local_ctx.bloom_cache,
         );
 
-        let bloom_time_ms = step_start.elapsed().as_micros() as f64 / 1000.0;
+        let bloom_time_ms = elapsed_ms(step_start);
         let step_start = Instant::now();
 
         // calculate the state root
         let state_root = ctx.root_hasher.state_root(&execution_outcome)?;
         let root_hash_time = step_start.elapsed();
 
-        let root_hash_time_ms = step_start.elapsed().as_micros() as f64 / 1000.0;
+        let root_hash_time_ms = elapsed_ms(step_start);
         let step_start = Instant::now();
 
         // create the block header
         let transactions_root = proofs::calculate_transaction_root(&self.executed_tx);
 
-        let transactions_root_time_ms = step_start.elapsed().as_micros() as f64 / 1000.0;
+        let transactions_root_time_ms = elapsed_ms(step_start);
         let step_start = Instant::now();
 
         // double check blocked txs
@@ -809,7 +809,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             (None, None)
         };
 
-        let blobs_time_ms = step_start.elapsed().as_micros() as f64 / 1000.0;
+        let blobs_time_ms = elapsed_ms(step_start);
         let step_start = Instant::now();
 
         let header = Header {
@@ -861,9 +861,9 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             execution_requests: requests.map(|er| er.take()).unwrap_or_default(),
         };
 
-        let block_seal_time_ms = step_start.elapsed().as_micros() as f64 / 1000.0;
+        let block_seal_time_ms = elapsed_ms(step_start);
 
-        let total_time_ms = start.elapsed().as_micros() as f64 / 1000.0;
+        let total_time_ms = elapsed_ms(start);
 
         trace!(
             total_time_ms,

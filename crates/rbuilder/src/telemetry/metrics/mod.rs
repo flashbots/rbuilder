@@ -10,7 +10,7 @@ use crate::{
     building::BuiltBlockTrace,
     live_builder::block_list_provider::{blocklist_hash, BlockList},
     primitives::mev_boost::MevBoostRelayID,
-    utils::build_info::Version,
+    utils::{build_info::Version, duration_ms},
 };
 use alloy_primitives::{utils::Unit, U256};
 use bigdecimal::num_traits::Pow;
@@ -420,10 +420,10 @@ pub fn add_finalized_block_metrics(
 
     BLOCK_FINALIZE_TIME
         .with_label_values(&[])
-        .observe(built_block_trace.finalize_time.as_micros() as f64 / 1000.0);
+        .observe(duration_ms(built_block_trace.finalize_time));
     BLOCK_ROOT_HASH_TIME
         .with_label_values(&[])
-        .observe(built_block_trace.root_hash_time.as_micros() as f64 / 1000.0);
+        .observe(duration_ms(built_block_trace.root_hash_time));
 
     BLOCK_BUILT_TXS
         .with_label_values(&[builder_name])
@@ -456,13 +456,13 @@ pub fn add_block_fill_time(
     }
     BLOCK_FILL_TIME
         .with_label_values(&[builder_name])
-        .observe(duration.as_micros() as f64 / 1000.0);
+        .observe(duration_ms(duration));
 }
 
 pub fn add_block_validation_time(duration: Duration) {
     BLOCK_VALIDATION_TIME
         .with_label_values(&[])
-        .observe(duration.as_millis() as f64);
+        .observe(duration_ms(duration));
 }
 
 pub fn inc_active_slots() {
@@ -478,7 +478,7 @@ pub fn inc_initiated_submissions(optimistic: bool, sent_to_slow_relays: bool) {
 pub fn add_relay_submit_time(relay: &MevBoostRelayID, duration: Duration) {
     RELAY_SUBMIT_TIME
         .with_label_values(&[relay.as_str()])
-        .observe(duration.as_millis() as f64);
+        .observe(duration_ms(duration));
 }
 
 pub fn inc_relay_accepted_submissions(relay: &MevBoostRelayID, optimistic: bool) {
@@ -490,7 +490,7 @@ pub fn inc_relay_accepted_submissions(relay: &MevBoostRelayID, optimistic: bool)
 pub fn add_txfetcher_time_to_query(duration: Duration) {
     TXFETCHER_TRANSACTION_QUERY_TIME
         .with_label_values(&[])
-        .observe(duration.as_millis() as f64);
+        .observe(duration_ms(duration));
 
     TXFETCHER_TRANSACTION_COUNTER.inc();
 }
@@ -560,7 +560,7 @@ fn sim_status(success: bool) -> &'static str {
 pub fn add_order_simulation_time(duration: Duration, builder_name: &str, success: bool) {
     ORDER_SIMULATION_TIME
         .with_label_values(&[builder_name, sim_status(success)])
-        .observe(duration.as_micros() as f64 / 1000.0);
+        .observe(duration_ms(duration));
 }
 
 pub fn mark_submission_start_time(block_sealed_at: OffsetDateTime) {

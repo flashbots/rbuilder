@@ -21,6 +21,7 @@ use crate::{
         BlockBuildingContext, ThreadBlockBuildingContext,
     },
     telemetry::mark_builder_considers_order,
+    utils::elapsed_ms,
 };
 
 /// Assembles block building results from the best orderings of order groups.
@@ -139,7 +140,7 @@ impl BlockBuildingResultAssembler {
                     trace!(
                         run_id = self.run_id,
                         version = version,
-                        time_ms = time_start.elapsed().as_millis(),
+                        time_ms = elapsed_ms(time_start),
                         profit = format_ether(value),
                         "Parallel builder built new block",
                     );

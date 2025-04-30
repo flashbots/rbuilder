@@ -35,6 +35,7 @@ use crate::{
         LiveBuilderInput,
     },
     provider::StateProviderFactory,
+    utils::elapsed_ms,
 };
 
 use self::{
@@ -269,7 +270,7 @@ fn run_order_intake(
                 trace!(
                     new_orders_count = len,
                     groups_count = conflict_finder.get_order_groups().len(),
-                    time_taken_ms = %time_start.elapsed().as_millis(),
+                    time_taken_ms = %elapsed_ms(time_start),
                     "Order intake: added new orders and processing groups"
                 );
                 conflict_task_generator.process_groups(conflict_finder.get_order_groups());

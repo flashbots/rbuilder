@@ -15,8 +15,8 @@ use super::{
     simulation_cache::SharedSimulationCache, ConflictGroup, ConflictResolutionResultPerGroup,
     ConflictTask, GroupId, ResolutionResult, TaskPriority,
 };
-use crate::building::BlockBuildingContext;
 use crate::provider::StateProviderFactory;
+use crate::{building::BlockBuildingContext, utils::elapsed_ms};
 
 pub type TaskQueue = Arc<SegQueue<ConflictTask>>;
 
@@ -83,18 +83,18 @@ where
                             match group_result_sender.send((task_id, result)) {
                                 Ok(_) => {
                                     trace!(
-                                        task_id = %task_id,
-                                        time_taken_ms = %task_start.elapsed().as_millis(),
-                                        "Conflict resolving: successfully sent group result"
-                                    );
+                                                        task_id = %task_id,
+                                    time_taken_ms = %elapsed_ms(task_start),
+                                                        "Conflict resolving: successfully sent group result"
+                                                    );
                                 }
                                 Err(err) => {
                                     warn!(
-                                        task_id = %task_id,
-                                        error = ?err,
-                                        time_taken_ms = %task_start.elapsed().as_millis(),
-                                        "Conflict resolving: failed to send group result"
-                                    );
+                                                        task_id = %task_id,
+                                                        error = ?err,
+                                    time_taken_ms = %elapsed_ms(task_start),
+                                                        "Conflict resolving: failed to send group result"
+                                                    );
                                     return;
                                 }
                             }

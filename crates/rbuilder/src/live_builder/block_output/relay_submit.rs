@@ -16,7 +16,7 @@ use crate::{
         inc_relay_accepted_submissions, inc_subsidized_blocks, inc_too_many_req_relay_errors,
         mark_submission_start_time,
     },
-    utils::error_storage::store_error_event,
+    utils::{duration_ms, error_storage::store_error_event},
 };
 use ahash::HashMap;
 use alloy_primitives::{utils::format_ether, U256};
@@ -237,8 +237,8 @@ async fn run_submit_to_relays_job(
             txs = block.sealed_block.body().transactions.len(),
             bundles,
             builder_name = block.builder_name,
-            fill_time_ms = block.trace.fill_time.as_micros() as f64 / 1000.0,
-            finalize_time_ms = block.trace.finalize_time.as_micros() as f64 / 1000.0,
+            fill_time_ms = duration_ms(block.trace.fill_time),
+            finalize_time_ms = duration_ms(block.trace.finalize_time),
         );
         info!(
             parent: &submission_span,
