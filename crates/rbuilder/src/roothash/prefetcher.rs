@@ -18,7 +18,10 @@ use tokio::sync::broadcast::{
 use tokio_util::sync::CancellationToken;
 use tracing::{error, trace, warn};
 
-use crate::{building::evm_inspector::SlotKey, live_builder::simulation::SimulatedOrderCommand};
+use crate::{
+    building::evm_inspector::SlotKey, live_builder::simulation::SimulatedOrderCommand,
+    telemetry::inc_root_hash_prefetch_count, utils::elapsed_ms,
+};
 
 const CONSUME_SIM_ORDERS_BATCH: usize = 128;
 
@@ -143,12 +146,12 @@ pub fn run_trie_prefetcher<P>(
         }
 
         let start = Instant::now();
-        match prefetch_tries_for_accounts(
+        let metrics = match prefetch_tries_for_accounts(
             consistent_db_view.clone(),
             shared_sparse_mpt_cache.clone(),
             fetch_request.values(),
         ) {
-            Ok(()) => {}
+            Ok(metrics) => metrics,
             Err(SparseTrieError::FetchNode(FetchNodeError::Provider(
                 ProviderError::ConsistentView(_),
             ))) => {
@@ -158,11 +161,14 @@ pub fn run_trie_prefetcher<P>(
                 if !err.is_db_consistency_error() {
                     error!(?err, "Error while prefetching trie nodes");
                 }
+                continue;
             }
-        }
+        };
+        inc_root_hash_prefetch_count(metrics.fetched_nodes);
+
         trace!(
-            time_ms = start.elapsed().as_millis(),
-            accounts = fetch_request.len(),
+            time_ms = elapsed_ms(start),
+            ?metrics,
             "Prefetched trie nodes"
         );
     }

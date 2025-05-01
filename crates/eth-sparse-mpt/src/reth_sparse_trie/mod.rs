@@ -80,24 +80,40 @@ pub fn prefetch_tries_for_accounts<'a, Provider>(
     consistent_db_view: ConsistentDbView<Provider>,
     shared_cache: SparseTrieSharedCache,
     changed_data: impl Iterator<Item = &'a ChangedAccountData>,
-) -> Result<(), SparseTrieError>
+) -> Result<SparseTrieMetrics, SparseTrieError>
 where
     Provider: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync,
     Provider: StateCommitmentProvider,
 {
+    let mut metrics = SparseTrieMetrics::default();
+
+    let start = Instant::now();
     let change_set = prepare_change_set_for_prefetch(changed_data);
+    metrics.change_set_time += start.elapsed();
 
     let fetcher = TrieFetcher::new(consistent_db_view);
 
     for _ in 0..3 {
+        let start = Instant::now();
         let gather_result = shared_cache.gather_tries_for_changes(&change_set);
+        metrics.gather_nodes_time += start.elapsed();
 
         let missing_nodes = match gather_result {
-            Ok(_) => return Ok(()),
+            Ok(_) => return Ok(metrics),
             Err(missing_nodes) => missing_nodes,
         };
+        metrics.missing_nodes += missing_nodes.len();
+
+        let start = Instant::now();
         let multiproof = fetcher.fetch_missing_nodes(missing_nodes)?;
+
+        metrics.fetch_iterations += 1;
+        metrics.fetch_nodes_time += start.elapsed();
+        metrics.fetched_nodes += multiproof.len();
+
+        let start = Instant::now();
         shared_cache.update_cache_with_fetched_nodes(multiproof)?;
+        metrics.fill_cache_time += start.elapsed();
     }
 
     Err(SparseTrieError::FailedToFetchData)

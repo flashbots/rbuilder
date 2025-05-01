@@ -1,19 +1,15 @@
 pub mod setup;
 
-use alloy_primitives::{Address, B256, U256};
+use alloy_primitives::{B256, U256};
 use itertools::Itertools;
 use std::collections::HashSet;
-use uuid::Uuid;
 
 use crate::{
     building::{
         testing::bundle_tests::setup::NonceValue, BuiltBlockTrace, BundleErr, OrderErr,
         TransactionErr,
     },
-    primitives::{
-        Bundle, BundleRefund, BundleReplacementData, BundleReplacementKey, Order, OrderId, Refund,
-        RefundConfig, TxRevertBehavior,
-    },
+    primitives::{Bundle, BundleRefund, Order, OrderId, Refund, RefundConfig, TxRevertBehavior},
     utils::{constants::BASE_TX_GAS, int_percentage},
 };
 

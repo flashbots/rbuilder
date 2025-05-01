@@ -20,6 +20,8 @@ use tracing::trace;
 
 pub use prefetcher::run_trie_prefetcher;
 
+use crate::telemetry::inc_root_hash_finalize_count;
+
 #[derive(Debug, Clone, Copy)]
 pub enum RootHashMode {
     /// Makes correct root hash calculation on the correct parent state.
@@ -156,6 +158,7 @@ where
             sparse_trie_shared_cache,
             &config.thread_pool,
         );
+        inc_root_hash_finalize_count(metrics.fetched_nodes);
         trace!(?metrics, "Sparse trie metrics");
         root?
     } else {

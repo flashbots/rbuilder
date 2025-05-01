@@ -43,6 +43,9 @@ const RELAY_ERROR_OTHER: &str = "other";
 const SIM_STATUS_OK: &str = "sim_success";
 const SIM_STATUS_FAIL: &str = "sim_fail";
 
+const ROOT_HASH_PREFETCH_STEP: &str = "prefetcher";
+const ROOT_HASH_FINALIZE_STEP: &str = "finalize";
+
 /// We record timestamps only for blocks built within interval of the block timestamp
 const BLOCK_METRICS_TIMESTAMP_LOWER_DELTA: time::Duration = time::Duration::seconds(3);
 /// We record timestamps only for blocks built within interval of the block timestamp
@@ -96,6 +99,16 @@ register_metrics! {
         HistogramOpts::new("block_validation_time", "Block Validation Times (ms)")
             .buckets(exponential_buckets_range(1.0, 3000.0, 100)),
         &[]
+    )
+    .unwrap();
+
+
+    pub static ROOT_HASH_FETCHES: IntCounterVec = IntCounterVec::new(
+        Opts::new(
+            "rbuilder_sparse_mpt_root_hash_fetches",
+            "Number of nodes fetched in a finalize or prefetch step"
+        ),
+        &["step"],
     )
     .unwrap();
 
@@ -570,6 +583,24 @@ pub fn mark_submission_start_time(block_sealed_at: OffsetDateTime) {
     BLOCK_SEAL_END_SUBMIT_START_TIME
         .with_label_values(&[])
         .observe(value);
+}
+
+pub fn inc_root_hash_prefetch_count(fetched_nodes: usize) {
+    if fetched_nodes == 0 {
+        return;
+    }
+    ROOT_HASH_FETCHES
+        .with_label_values(&[ROOT_HASH_PREFETCH_STEP])
+        .inc_by(fetched_nodes.try_into().unwrap_or_default());
+}
+
+pub fn inc_root_hash_finalize_count(fetched_nodes: usize) {
+    if fetched_nodes == 0 {
+        return;
+    }
+    ROOT_HASH_FETCHES
+        .with_label_values(&[ROOT_HASH_FINALIZE_STEP])
+        .inc_by(fetched_nodes.try_into().unwrap_or_default());
 }
 
 pub fn gather_prometheus_metrics(registry: &Registry) -> String {
