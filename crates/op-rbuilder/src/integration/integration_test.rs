@@ -11,9 +11,17 @@ mod tests {
     use alloy_eips::{eip1559::MIN_PROTOCOL_BASE_FEE, eip2718::Encodable2718};
     use alloy_primitives::hex;
     use alloy_provider::{Identity, Provider, ProviderBuilder};
+    use alloy_rpc_types_eth::BlockTransactionsKind;
+    use futures_util::StreamExt;
     use op_alloy_consensus::OpTypedTransaction;
     use op_alloy_network::Optimism;
-    use std::{cmp::max, path::PathBuf};
+    use std::{
+        cmp::max,
+        path::PathBuf,
+        sync::{Arc, Mutex},
+        time::Duration,
+    };
+    use tokio_tungstenite::connect_async;
     use uuid::Uuid;
 
     const BUILDER_PRIVATE_KEY: &str =
@@ -423,7 +431,7 @@ mod tests {
         let engine_api = EngineApi::new("http://localhost:1234").unwrap();
         let validation_api = EngineApi::new("http://localhost:1236").unwrap();
 
-        let mut generator = BlockGenerator::new(&engine_api, Some(&validation_api), false, 2, None);
+        let mut generator = BlockGenerator::new(engine_api, Some(validation_api), false, 2, None);
         generator.init().await?;
 
         let provider = ProviderBuilder::<Identity, Identity, Optimism>::default()
@@ -552,8 +560,8 @@ mod tests {
         let validation_api = EngineApi::new("http://localhost:1246").unwrap();
 
         let mut generator = BlockGenerator::new(
-            &engine_api,
-            Some(&validation_api),
+            engine_api,
+            Some(validation_api),
             false,
             block_time_ms / 1000,
             None,
