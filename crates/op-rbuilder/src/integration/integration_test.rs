@@ -1,8 +1,9 @@
 #[cfg(all(test, feature = "integration"))]
 mod tests {
-    use crate::integration::TestHarness;
     use crate::{
-        integration::{op_rbuilder::OpRbuilderConfig, op_reth::OpRethConfig, IntegrationFramework},
+        integration::{
+            op_rbuilder::OpRbuilderConfig, op_reth::OpRethConfig, IntegrationFramework, TestHarness,
+        },
         tester::{BlockGenerator, EngineApi},
         tx_signer::Signer,
     };
@@ -12,13 +13,7 @@ mod tests {
     use alloy_provider::{Identity, Provider, ProviderBuilder};
     use op_alloy_consensus::OpTypedTransaction;
     use op_alloy_network::Optimism;
-    use std::{
-        cmp::max,
-        path::PathBuf,
-        sync::{Arc, Mutex},
-        time::Duration,
-    };
-    use tokio_tungstenite::connect_async;
+    use std::{cmp::max, path::PathBuf};
     use uuid::Uuid;
 
     const BUILDER_PRIVATE_KEY: &str =

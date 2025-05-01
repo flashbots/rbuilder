@@ -1,5 +1,4 @@
-use alloy_consensus::{Transaction, TxEip1559};
-use alloy_eips::eip4844::builder;
+use alloy_consensus::TxEip1559;
 use alloy_eips::BlockNumberOrTag;
 use alloy_eips::{eip1559::MIN_PROTOCOL_BASE_FEE, eip2718::Encodable2718};
 use alloy_provider::{Identity, Provider, ProviderBuilder};
@@ -217,8 +216,8 @@ impl Drop for IntegrationFramework {
 const BUILDER_PRIVATE_KEY: &str =
     "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
 
-struct TestHarness {
-    framework: IntegrationFramework,
+pub struct TestHarness {
+    _framework: IntegrationFramework,
     builder_auth_rpc_port: u16,
     builder_http_port: u16,
     validator_auth_rpc_port: u16,
@@ -226,7 +225,7 @@ struct TestHarness {
 
 impl TestHarness {
     pub async fn new(name: &str) -> Self {
-        let mut framework = IntegrationFramework::new(&name).unwrap();
+        let mut framework = IntegrationFramework::new(name).unwrap();
 
         // we are going to use a genesis file pre-generated before the test
         let mut genesis_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -263,7 +262,7 @@ impl TestHarness {
             .unwrap();
 
         Self {
-            framework,
+            _framework: framework,
             builder_auth_rpc_port,
             builder_http_port,
             validator_auth_rpc_port,
