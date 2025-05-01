@@ -1,5 +1,6 @@
 #[cfg(all(test, feature = "integration"))]
 mod tests {
+    use crate::integration::TestHarness;
     use crate::{
         integration::{op_rbuilder::OpRbuilderConfig, op_reth::OpRethConfig, IntegrationFramework},
         tester::{BlockGenerator, EngineApi},
@@ -9,8 +10,6 @@ mod tests {
     use alloy_eips::{eip1559::MIN_PROTOCOL_BASE_FEE, eip2718::Encodable2718};
     use alloy_primitives::hex;
     use alloy_provider::{Identity, Provider, ProviderBuilder};
-    use alloy_rpc_types_eth::BlockTransactionsKind;
-    use futures_util::StreamExt;
     use op_alloy_consensus::OpTypedTransaction;
     use op_alloy_network::Optimism;
     use std::{
@@ -66,7 +65,7 @@ mod tests {
         let engine_api = EngineApi::new("http://localhost:1234").unwrap();
         let validation_api = EngineApi::new("http://localhost:1236").unwrap();
 
-        let mut generator = BlockGenerator::new(&engine_api, Some(&validation_api), false, 1, None);
+        let mut generator = BlockGenerator::new(engine_api, Some(validation_api), false, 1, None);
         generator.init().await?;
 
         let provider = ProviderBuilder::<Identity, Identity, Optimism>::default()
@@ -138,7 +137,7 @@ mod tests {
         let engine_api = EngineApi::new("http://localhost:1244").unwrap();
         let validation_api = EngineApi::new("http://localhost:1246").unwrap();
 
-        let mut generator = BlockGenerator::new(&engine_api, Some(&validation_api), false, 1, None);
+        let mut generator = BlockGenerator::new(engine_api, Some(validation_api), false, 1, None);
         let latest_block = generator.init().await?;
 
         let provider = ProviderBuilder::<Identity, Identity, Optimism>::default()
@@ -263,7 +262,7 @@ mod tests {
         let engine_api = EngineApi::new("http://localhost:1264").unwrap();
         let validation_api = EngineApi::new("http://localhost:1266").unwrap();
 
-        let mut generator = BlockGenerator::new(&engine_api, Some(&validation_api), false, 1, None);
+        let mut generator = BlockGenerator::new(engine_api, Some(validation_api), false, 1, None);
         let latest_block = generator.init().await?;
 
         let provider = ProviderBuilder::<Identity, Identity, Optimism>::default()
@@ -345,6 +344,25 @@ mod tests {
                 tx_fees
             );
         }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[cfg(not(feature = "flashblocks"))]
+    async fn integration_test_get_payload_close_to_fcu() -> eyre::Result<()> {
+        let test_harness = TestHarness::new("integration_test_get_payload_close_to_fcu").await;
+        let mut block_generator = test_harness.block_generator().await?;
+
+        // add some transactions to the pool so that the builder is busy when we send the fcu/getPayload requests
+        for _ in 0..10 {
+            // Note, for this test it is okay if they are not valid
+            test_harness.send_valid_transaction().await?;
+        }
+
+        // TODO: In the fail case scenario, this hangs forever, but it should return an error
+        // Figure out how to do timeout (i.e. 1s) on the engine api.
+        block_generator.submit_payload(None, 0, true).await?;
 
         Ok(())
     }

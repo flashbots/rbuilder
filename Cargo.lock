@@ -7469,6 +7469,7 @@ dependencies = [
  "op-alloy-network",
  "op-alloy-rpc-types-engine",
  "op-revm",
+ "parking_lot",
  "rand 0.9.0",
  "reth",
  "reth-basic-payload-builder",
