@@ -370,6 +370,9 @@ fn submit_block_to_relays(
 }
 
 /// Creates a Fn to decide if the block should go to a relay.
+/// The cfg defines 2 flags on relays: fast and independent.
+/// If a block has replacement ids it should NOT go to a relay that is not fast since it needs fast cancellations.
+/// If a block is expensive it should NOT go to a non independent relay.
 fn get_relay_filter_and_update_metrics(
     block: &Block,
     optimistic: bool,
@@ -391,10 +394,10 @@ fn get_relay_filter_and_update_metrics(
     inc_initiated_submissions(optimistic, !only_fast, !only_independent);
     move |relay: &MevBoostRelayBidSubmitter| {
         if only_independent && !relay.is_independent() {
-            return false;
+            return false; // Sorry relay but this block is expensive and you are not independent :(
         }
         if only_fast && !relay.is_fast() {
-            return false;
+            return false; // Sorry relay but this block contains replacements and you are slow :(
         }
         true
     }
