@@ -12,6 +12,8 @@ mod tests;
 
 pub use nodes::*;
 
+use super::cached_ops::DiffTrieBreadcrumbs;
+
 #[serde_as]
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DiffTrie {
@@ -19,6 +21,7 @@ pub struct DiffTrie {
     pub nodes: HashMap<u64, DiffTrieNode>,
     pub head: u64,
     pub ptrs: u64,
+    pub breadcrumbs: DiffTrieBreadcrumbs,
 }
 
 impl DiffTrie {
@@ -30,6 +33,7 @@ impl DiffTrie {
             nodes: [(0, DiffTrieNode::new_null())].into_iter().collect(),
             head: 0,
             ptrs: 0,
+            breadcrumbs: Default::default(),
         }
     }
 }
@@ -107,6 +111,8 @@ pub fn get_new_ptr(ptrs: &mut u64) -> u64 {
 
 impl DiffTrie {
     pub fn insert(&mut self, key: Bytes, value: Bytes) -> Result<(), ErrSparseNodeNotFound> {
+        self.breadcrumbs.begin_insert(&key, &value);
+
         let key = Nibbles::unpack(key);
         let mut c = NodeCursor::new(key, self.head);
 
@@ -114,6 +120,8 @@ impl DiffTrie {
 
         loop {
             let node = try_get_node_mut(&mut self.nodes, c.current_node, &c.current_path)?;
+            self.breadcrumbs
+                .mark_node_as_modified(c.current_node, &node);
             match &mut node.kind {
                 DiffTrieNodeKind::Null => {
                     let new_node = DiffTrieNode::new_leaf(c.path_left, value);
@@ -258,6 +266,7 @@ impl DiffTrie {
     }
 
     pub fn delete(&mut self, key: Bytes) -> Result<(), DeletionError> {
+        self.breadcrumbs.begin_delete();
         let key = Nibbles::unpack(key);
         let mut c = NodeCursor::new(key, self.head);
 
@@ -266,6 +275,8 @@ impl DiffTrie {
         loop {
             let node = try_get_node_mut(&mut self.nodes, c.current_node, &c.current_path)
                 .map_err(DeletionError::NodeNotFound)?;
+            self.breadcrumbs
+                .mark_node_as_modified(c.current_node, &node);
 
             match &mut node.kind {
                 DiffTrieNodeKind::Null => {

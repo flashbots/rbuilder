@@ -9,13 +9,17 @@ use reth_trie::Nibbles;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, Seq};
 use smallvec::SmallVec;
-use std::{cmp::max, sync::Arc};
+use std::{
+    cmp::max,
+    collections::{hash_map::Entry, HashSet},
+    sync::Arc,
+};
 
 use crate::utils::strip_first_nibble_mut;
 
 use super::{
-    get_new_ptr, DiffBranchNode, DiffChildPtr, DiffExtensionNode, DiffLeafNode, DiffTrie,
-    DiffTrieNode, DiffTrieNodeKind, NodeCursor,
+    cached_ops::TrieChangesCache, get_new_ptr, DiffBranchNode, DiffChildPtr, DiffExtensionNode,
+    DiffLeafNode, DiffTrie, DiffTrieNode, DiffTrieNodeKind, NodeCursor,
 };
 
 const NULL_NODE_BYTES: Bytes = Bytes::from_static(&[0x80]);
@@ -153,6 +157,7 @@ pub struct FixedTrie {
     pub nodes_inserted: HashMap<u64, u64>,
     // used for preallocations, wrong value will not influence correctness
     pub height: usize,
+    pub changes_cache: TrieChangesCache,
 }
 
 impl FixedTrie {
@@ -473,6 +478,172 @@ impl FixedTrie {
 
         if missing_nodes.is_empty() {
             Ok(result)
+        } else {
+            Err(missing_nodes)
+        }
+    }
+
+    pub fn gather_subtrie_for_changes(
+        &self,
+        changed_keys: &[(Bytes, Bytes)],
+        deleted_keys: &[Bytes],
+    ) -> Result<(DiffTrie, HashSet<Bytes>), Vec<Nibbles>> {
+        let mut missing_nodes = Vec::new();
+        let mut result = DiffTrie::default();
+        result.nodes =
+            hash_map_with_capacity(self.height * (changed_keys.len() + deleted_keys.len()));
+        result.head = self.head;
+        result.ptrs = self.ptrs;
+
+        let mut iter = Vec::new();
+        for (key, value) in changed_keys {
+            // @assert changed_keys can't have duplicate key, otherwise it breaks caching
+            let has_cached_nodes = self.changes_cache.has_cached_nodes_for_insert(key, value);
+            let delete = false;
+            iter.push((key.clone(), value.clone(), delete, has_cached_nodes));
+        }
+        for key in deleted_keys {
+            let has_cached_nodes = false;
+            let delete = true;
+            iter.push((key.clone(), Default::default(), delete, has_cached_nodes));
+        }
+        if iter.is_empty() {
+            iter.push((Bytes::new(), Bytes::new(), false, false))
+        }
+        // now we sort iter so cached ops are behind non-cached ops
+        iter.sort_by_key(|(_, _, _, has_cached_nodes)| *has_cached_nodes);
+
+        let mut nodes_took_from_cache: HashSet<u64> = Default::default();
+        let mut inserted_keys_that_were_took_from_cache: HashSet<Bytes> = Default::default();
+
+        for (changed_key, changed_value, delete, has_cached_nodes) in iter {
+            // dbg!(&changed_key, &changed_value, &delete, &has_cached_nodes);
+            let mut c = NodeCursor::new(Nibbles::unpack(&changed_key), self.head);
+            loop {
+                let node = match self.nodes.get(&c.current_node) {
+                    Some(node) => node,
+                    None => {
+                        missing_nodes.push(Nibbles::unpack(&changed_key));
+                        break;
+                    }
+                };
+                let diff_node = match result.nodes.entry(c.current_node) {
+                    Entry::Occupied(occupied_entry) => {
+                        // we are doing something with node that was already inserted, lets make sure that this node is not cached, otherwise code breaks
+                        assert!(
+                            !nodes_took_from_cache.contains(&c.current_node),
+                            "gather: visiting cached node"
+                        );
+                        occupied_entry.into_mut()
+                    }
+                    Entry::Vacant(vacant_entry) => {
+                        if has_cached_nodes {
+                            // lets see if we can take this node from cache
+                            if let Some(node) = self.changes_cache.get_cached_node_for_insert(
+                                &changed_key,
+                                &changed_value,
+                                c.current_node,
+                            ) {
+                                // dbg!(&c.current_path);
+                                inserted_keys_that_were_took_from_cache.insert(changed_key.clone());
+                                nodes_took_from_cache.insert(c.current_node);
+                                vacant_entry.insert(node);
+                                // break here because this trie path does not need to be filled anymore
+                                break;
+                            } else {
+                                vacant_entry.insert(node.create_diff_node())
+                            }
+                        } else {
+                            vacant_entry.insert(node.create_diff_node())
+                        }
+                    }
+                };
+                match (node, &mut diff_node.kind) {
+                    (FixedTrieNode::Null, DiffTrieNodeKind::Null) => {
+                        // this is empty trie, we have everything to return
+                        return Ok((result, Default::default()));
+                    }
+                    (FixedTrieNode::Leaf(_), DiffTrieNodeKind::Leaf(_)) => {
+                        break;
+                    }
+                    (
+                        FixedTrieNode::Extension { child_ptr, .. },
+                        DiffTrieNodeKind::Extension(extension),
+                    ) => {
+                        if c.path_left.starts_with(extension.key()) {
+                            extension.child.ptr = *child_ptr;
+                            // go deeper
+                            c.step_into_extension(extension);
+                            continue;
+                        }
+                        break;
+                    }
+                    (
+                        FixedTrieNode::Branch {
+                            child_ptrs,
+                            node: fixed_branch,
+                        },
+                        DiffTrieNodeKind::Branch(branch),
+                    ) => {
+                        if c.path_left.is_empty() {
+                            break;
+                        }
+                        let nibble = c.next_nibble();
+                        if fixed_branch.children[nibble as usize].is_none() {
+                            break;
+                        }
+                        let fixed_child_ptr = get_child_ptr(child_ptrs, nibble);
+                        branch.insert_diff_child(
+                            nibble,
+                            DiffChildPtr {
+                                rlp_pointer: None,
+                                ptr: fixed_child_ptr,
+                            },
+                        );
+                        c.step_into_branch(branch);
+                        if delete {
+                            branch.aux_bits &= !(1 << nibble);
+                            if branch.aux_bits.count_ones() == 1 {
+                                let orphan_nibble = branch.aux_bits.trailing_zeros() as u8;
+                                if branch.get_diff_child(orphan_nibble).is_none() {
+                                    // that means that might be orphan was not added to the diff trie
+                                    if let Some(orphan_ptr) =
+                                        get_child_ptr(child_ptrs, orphan_nibble)
+                                    {
+                                        branch.insert_diff_child(
+                                            orphan_nibble,
+                                            DiffChildPtr {
+                                                rlp_pointer: None,
+                                                ptr: Some(orphan_ptr),
+                                            },
+                                        );
+                                        let orphan_node =
+                                            self.nodes.get(&orphan_ptr).expect("must be in trie");
+                                        result
+                                            .nodes
+                                            .insert(orphan_ptr, orphan_node.create_diff_node());
+                                    } else {
+                                        // orphan node is missing
+                                        // we stepped into child above so the path is the path of current child and orphan child differs
+                                        // only in last nibble
+                                        let mut path = c.current_path.clone();
+                                        path.as_mut_vec_unchecked()
+                                            .last_mut()
+                                            .map(|n| *n = orphan_nibble)
+                                            .unwrap();
+                                        missing_nodes.push(path);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    _ => unreachable!(),
+                }
+            }
+        }
+
+        if missing_nodes.is_empty() {
+            Ok((result, inserted_keys_that_were_took_from_cache))
         } else {
             Err(missing_nodes)
         }

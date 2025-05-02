@@ -1,3 +1,4 @@
+pub mod cached_ops;
 pub mod diff_trie;
 pub mod fixed_trie;
 

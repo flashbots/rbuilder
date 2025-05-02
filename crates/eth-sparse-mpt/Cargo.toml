@@ -64,3 +64,7 @@ harness = false
 name = "trie_example_bench"
 harness = false
 
+
+[[bench]]
+name = "trie_caching_bench"
+harness = false
