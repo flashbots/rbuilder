@@ -1180,6 +1180,10 @@ fn order_redistribution_address(
     order: &Order,
     protect_signers: &[Address],
 ) -> Option<(Address, bool)> {
+    if let Some(refund_identity) = order.metadata().refund_identity {
+        return Some((refund_identity, false));
+    }
+
     let signer = match order.signer() {
         Some(signer) => signer,
         None => {

@@ -36,12 +36,14 @@ use uuid::Uuid;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Metadata {
     pub received_at_timestamp: time::OffsetDateTime,
+    pub refund_identity: Option<Address>,
 }
 
 impl Metadata {
     pub fn with_current_received_at() -> Self {
         Self {
             received_at_timestamp: time::OffsetDateTime::now_utc(),
+            refund_identity: None,
         }
     }
 }
