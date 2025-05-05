@@ -2,6 +2,7 @@ use clap::Parser;
 use eyre::Result;
 use monitoring::Monitoring;
 use reth::providers::CanonStateSubscriptions;
+use reth::CliRunner;
 use reth_optimism_cli::{chainspec::OpChainSpecParser, Cli};
 use reth_optimism_node::node::OpAddOnsBuilder;
 use reth_optimism_node::OpNode;
@@ -34,10 +35,12 @@ use monitor_tx_pool::monitor_tx_pool;
 
 fn main() -> Result<()> {
     let cli = Cli::<OpChainSpecParser, args::OpRbuilderArgs>::parse();
-    cli.run(|builder, builder_args| async move {
-        #[cfg(feature = "telemetry")]
-        let mut provider = telemetry::TelemetryControl::init_with_args(&builder_args)?;
 
+    let runner = CliRunner::try_default_runtime()?;
+    #[cfg(feature = "telemetry")]
+    let mut provider = telemetry::TelemetryControl::init_from_commands(&cli.command)?;
+
+    cli.with_runner(runner, |builder, builder_args| async move {
         // Wrap the main execution in a span
         let span = tracing::info_span!("op-rbuilder");
         let _enter = span.enter();
@@ -88,11 +91,11 @@ fn main() -> Result<()> {
 
         handle.node_exit_future.await?;
 
-        #[cfg(feature = "telemetry")]
-        provider.shutdown()?;
-
         Ok(())
     })?;
+
+    #[cfg(feature = "telemetry")]
+    provider.shutdown()?;
 
     Ok(())
 }

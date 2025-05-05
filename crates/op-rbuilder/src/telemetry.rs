@@ -7,6 +7,8 @@ use opentelemetry_semantic_conventions::{
     resource::{SERVICE_NAME, SERVICE_VERSION},
     SCHEMA_URL,
 };
+use reth_optimism_cli::chainspec::OpChainSpecParser;
+use reth_optimism_cli::commands::Commands;
 use tracing::Level;
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -17,6 +19,16 @@ pub struct TelemetryControl {
 }
 
 impl TelemetryControl {
+    pub fn init_from_commands(
+        commands: &Commands<OpChainSpecParser, OpRbuilderArgs>,
+    ) -> Result<Self> {
+        if let Commands::Node(command) = commands {
+            Self::init_with_args(&command.ext)
+        } else {
+            Ok(Self::default())
+        }
+    }
+
     pub fn init_with_args(args: &OpRbuilderArgs) -> Result<Self> {
         if args.tracing {
             Self::init(&args.tracing_endpoint)
