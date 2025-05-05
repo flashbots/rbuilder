@@ -2,7 +2,10 @@ use crate::args::OpRbuilderArgs;
 use eyre::Result;
 use opentelemetry::{trace::TracerProvider, KeyValue};
 use opentelemetry_otlp::WithExportConfig;
-use opentelemetry_sdk::{trace::SdkTracerProvider, Resource};
+use opentelemetry_sdk::{
+    trace::{RandomIdGenerator, Sampler, SdkTracerProvider},
+    Resource,
+};
 use opentelemetry_semantic_conventions::{
     resource::{SERVICE_NAME, SERVICE_VERSION},
     SCHEMA_URL,
@@ -41,16 +44,20 @@ impl TelemetryControl {
     pub fn init(tracing_endpoint: &str) -> Result<Self> {
         let exporter = opentelemetry_otlp::SpanExporter::builder()
             .with_tonic()
-            .with_endpoint(tracing_endpoint)
+            // .with_endpoint(tracing_endpoint)
             .build()?;
 
         let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
+            .with_sampler(Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(
+                1.0,
+            ))))
+            .with_id_generator(RandomIdGenerator::default())
             .with_resource(resource())
             .with_simple_exporter(exporter)
             .build();
 
-        opentelemetry::global::set_tracer_provider(provider.clone());
-        let tracer = provider.tracer("tracing-otel-subscriber");
+        // opentelemetry::global::set_tracer_provider(provider.clone());
+        let tracer = provider.tracer("tracing-op-rbuilder");
         tracing_subscriber::registry()
             .with(tracing_subscriber::filter::LevelFilter::from_level(
                 Level::INFO,
