@@ -37,6 +37,7 @@ use reth_optimism_consensus::{calculate_receipt_root_no_memo_optimism, isthmus};
 use reth_optimism_evm::{OpEvmConfig, OpNextBlockEnvAttributes};
 use reth_optimism_forks::OpHardforks;
 use reth_optimism_node::OpEngineTypes;
+use reth_optimism_payload_builder::config::{OpBuilderConfig, OpDAConfig};
 use reth_optimism_payload_builder::{
     error::OpPayloadBuilderError,
     payload::{OpBuiltPayload, OpPayloadBuilderAttributes},
@@ -96,6 +97,7 @@ struct FlashblocksMetadata<N: NodePrimitives> {
 pub struct CustomOpPayloadBuilder {
     #[expect(dead_code)]
     builder_signer: Option<Signer>,
+    builder_config: OpBuilderConfig,
     flashblocks_ws_url: String,
     chain_block_time: u64,
     flashblock_block_time: u64,
@@ -104,12 +106,14 @@ pub struct CustomOpPayloadBuilder {
 impl CustomOpPayloadBuilder {
     pub fn new(
         builder_signer: Option<Signer>,
+        builder_config: OpBuilderConfig,
         flashblocks_ws_url: String,
         chain_block_time: u64,
         flashblock_block_time: u64,
     ) -> Self {
         Self {
             builder_signer,
+            builder_config,
             flashblocks_ws_url,
             chain_block_time,
             flashblock_block_time,
@@ -139,6 +143,7 @@ where
     ) -> eyre::Result<Self::PayloadBuilder> {
         Ok(OpPayloadBuilder::new(
             OpEvmConfig::optimism(ctx.chain_spec()),
+            self.builder_config,
             pool,
             ctx.provider().clone(),
             self.flashblocks_ws_url.clone(),
@@ -226,6 +231,8 @@ pub struct OpPayloadBuilder<Pool, Client> {
     pub pool: Pool,
     /// Node client
     pub client: Client,
+    /// Settings for the builder, e.g. DA settings.
+    pub config: OpBuilderConfig,
     /// Channel sender for publishing messages
     pub tx: mpsc::UnboundedSender<String>,
     /// chain block time
@@ -242,6 +249,7 @@ impl<Pool, Client> OpPayloadBuilder<Pool, Client> {
     /// `OpPayloadBuilder` constructor.
     pub fn new(
         evm_config: OpEvmConfig,
+        builder_config: OpBuilderConfig,
         pool: Pool,
         client: Client,
         flashblocks_ws_url: String,
@@ -259,6 +267,7 @@ impl<Pool, Client> OpPayloadBuilder<Pool, Client> {
 
         Self {
             evm_config,
+            config: builder_config,
             pool,
             client,
             tx,
@@ -380,6 +389,7 @@ where
         let ctx = OpPayloadBuilderCtx {
             evm_config: self.evm_config.clone(),
             chain_spec: self.client.chain_spec(),
+            da_config: self.config.da_config.clone(),
             config,
             evm_env,
             block_env_attributes,
@@ -873,6 +883,8 @@ impl<T: PoolTransaction> OpPayloadTransactions<T> for () {
 pub struct OpPayloadBuilderCtx<ChainSpec> {
     /// The type that knows how to perform system calls and configure the evm.
     pub evm_config: OpEvmConfig,
+    /// The DA config for the payload builder
+    pub da_config: OpDAConfig,
     /// The chainspec
     pub chain_spec: Arc<ChainSpec>,
     /// How to build the payload.

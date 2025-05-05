@@ -76,6 +76,7 @@ const TOTAL_COST_FLOOR_PER_TOKEN: u64 = 10;
 #[non_exhaustive]
 pub struct CustomOpPayloadBuilder {
     builder_signer: Option<Signer>,
+    config: OpBuilderConfig,
     #[cfg(feature = "flashblocks")]
     flashblocks_ws_url: String,
     #[cfg(feature = "flashblocks")]
@@ -88,12 +89,14 @@ impl CustomOpPayloadBuilder {
     #[cfg(feature = "flashblocks")]
     pub fn new(
         builder_signer: Option<Signer>,
+        config: OpBuilderConfig,
         flashblocks_ws_url: String,
         chain_block_time: u64,
         flashblock_block_time: u64,
     ) -> Self {
         Self {
             builder_signer,
+            config,
             flashblocks_ws_url,
             chain_block_time,
             flashblock_block_time,
@@ -103,11 +106,15 @@ impl CustomOpPayloadBuilder {
     #[cfg(not(feature = "flashblocks"))]
     pub fn new(
         builder_signer: Option<Signer>,
+        config: OpBuilderConfig,
         _flashblocks_ws_url: String,
         _chain_block_time: u64,
         _flashblock_block_time: u64,
     ) -> Self {
-        Self { builder_signer }
+        Self {
+            builder_signer,
+            config,
+        }
     }
 }
 
@@ -135,6 +142,7 @@ where
         Ok(OpPayloadBuilderVanilla::new(
             OpEvmConfig::optimism(ctx.chain_spec()),
             self.builder_signer,
+            self.config,
             pool,
             ctx.provider().clone(),
         ))
@@ -237,18 +245,9 @@ impl<Pool, Client> OpPayloadBuilderVanilla<Pool, Client> {
     pub fn new(
         evm_config: OpEvmConfig,
         builder_signer: Option<Signer>,
-        pool: Pool,
-        client: Client,
-    ) -> Self {
-        Self::with_builder_config(evm_config, builder_signer, pool, client, Default::default())
-    }
-
-    pub fn with_builder_config(
-        evm_config: OpEvmConfig,
-        builder_signer: Option<Signer>,
-        pool: Pool,
-        client: Client,
         config: OpBuilderConfig,
+        pool: Pool,
+        client: Client,
     ) -> Self {
         Self {
             pool,
