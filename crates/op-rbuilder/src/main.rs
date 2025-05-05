@@ -36,9 +36,14 @@ use monitor_tx_pool::monitor_tx_pool;
 fn main() -> Result<()> {
     let cli = Cli::<OpChainSpecParser, args::OpRbuilderArgs>::parse();
 
-    let runner = CliRunner::try_default_runtime()?;
+    let rt = tokio::runtime::Runtime::new()?;
+
     #[cfg(feature = "telemetry")]
-    let mut provider = telemetry::TelemetryControl::init_from_commands(&cli.command)?;
+    let mut provider = rt
+        .handle()
+        .block_on(async { telemetry::TelemetryControl::init_from_commands(&cli.command) })?;
+
+    let runner = CliRunner::from_runtime(rt);
 
     cli.with_runner(runner, |builder, builder_args| async move {
         // Wrap the main execution in a span

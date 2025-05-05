@@ -39,7 +39,6 @@ impl TelemetryControl {
 
     /// Initialize OpenTelemetry tracing with OTLP exporter
     pub fn init(tracing_endpoint: &str) -> Result<Self> {
-        tracing::info!("Initialize OTLP");
         let exporter = opentelemetry_otlp::SpanExporter::builder()
             .with_tonic()
             .with_endpoint(tracing_endpoint)
@@ -50,7 +49,7 @@ impl TelemetryControl {
             .with_simple_exporter(exporter)
             .build();
 
-        // opentelemetry::global::set_tracer_provider(provider.clone());
+        opentelemetry::global::set_tracer_provider(provider.clone());
         let tracer = provider.tracer("tracing-otel-subscriber");
         tracing_subscriber::registry()
             .with(tracing_subscriber::filter::LevelFilter::from_level(
@@ -59,6 +58,8 @@ impl TelemetryControl {
             .with(tracing_subscriber::fmt::layer())
             .with(OpenTelemetryLayer::new(tracer))
             .try_init()?;
+
+        tracing::info!("OTLP Initalized");
 
         Ok(Self {
             provider: Some(provider),
