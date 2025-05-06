@@ -6,6 +6,7 @@ use reth::CliRunner;
 use reth_optimism_cli::{chainspec::OpChainSpecParser, Cli};
 use reth_optimism_node::node::OpAddOnsBuilder;
 use reth_optimism_node::OpNode;
+use tokio::runtime::Runtime;
 
 #[cfg(feature = "flashblocks")]
 use payload_builder::CustomOpPayloadBuilder;
@@ -36,12 +37,13 @@ use monitor_tx_pool::monitor_tx_pool;
 fn main() -> Result<()> {
     let cli = Cli::<OpChainSpecParser, args::OpRbuilderArgs>::parse();
 
-    let rt = tokio::runtime::Runtime::new()?;
+    // Create runtime in the outer scope
+    let rt = Runtime::new()?;
+    // let _guard = rt.enter();
 
     #[cfg(feature = "telemetry")]
-    let mut provider = rt
-        .handle()
-        .block_on(async { telemetry::TelemetryControl::init_from_commands(&cli.command) })?;
+    let mut provider =
+        rt.block_on(async { telemetry::TelemetryControl::init_from_commands(&cli.command) })?;
 
     let runner = CliRunner::from_runtime(rt);
 
@@ -98,9 +100,6 @@ fn main() -> Result<()> {
 
         Ok(())
     })?;
-
-    #[cfg(feature = "telemetry")]
-    provider.shutdown()?;
 
     Ok(())
 }

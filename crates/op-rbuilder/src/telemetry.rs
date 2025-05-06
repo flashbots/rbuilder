@@ -3,7 +3,7 @@ use eyre::Result;
 use opentelemetry::{trace::TracerProvider, KeyValue};
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{
-    trace::{RandomIdGenerator, Sampler, SdkTracerProvider},
+    trace::{RandomIdGenerator, Sampler, SdkTracer, SdkTracerProvider},
     Resource,
 };
 use opentelemetry_semantic_conventions::{
@@ -18,6 +18,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Default)]
 pub struct TelemetryControl {
+    tracer: Option<SdkTracer>,
     provider: Option<SdkTracerProvider>,
 }
 
@@ -48,10 +49,6 @@ impl TelemetryControl {
             .build()?;
 
         let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
-            .with_sampler(Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(
-                1.0,
-            ))))
-            .with_id_generator(RandomIdGenerator::default())
             .with_resource(resource())
             .with_simple_exporter(exporter)
             .build();
@@ -68,7 +65,9 @@ impl TelemetryControl {
 
         tracing::info!("OTLP Initalized");
 
+        let tracer = provider.tracer("tracing-op-rbuilder-root");
         Ok(Self {
+            tracer: Some(tracer),
             provider: Some(provider),
         })
     }
