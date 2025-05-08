@@ -136,6 +136,7 @@ op-alloy-rpc-types-engine = { version = "0.14.1", default-features = false }
 op-alloy-rpc-jsonrpsee = { version = "0.14.1", default-features = false }
 op-alloy-network = { version = "0.14.1", default-features = false }
 op-alloy-consensus = { version = "0.14.1", default-features = false }
+op-alloy-flz = { version = "0.13.0", default-features = false }
 
 async-trait = { version = "0.1.83" }
 clap = { version = "4.4.3", features = ["derive", "env"] }

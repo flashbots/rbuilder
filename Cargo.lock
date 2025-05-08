@@ -7466,6 +7466,7 @@ dependencies = [
  "jsonrpsee 0.24.9",
  "metrics",
  "op-alloy-consensus",
+ "op-alloy-flz",
  "op-alloy-network",
  "op-alloy-rpc-types-engine",
  "op-revm",
