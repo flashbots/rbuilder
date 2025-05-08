@@ -87,7 +87,8 @@ pub fn insert_test_payout_tx(
     let mut evm = ctx.evm_factory.create_evm(db.as_mut(), ctx.evm_env.clone());
 
     let cache_account = evm.db_mut().load_cache_account(builder_signer.address)?;
-    cache_account.increment_balance(tx_value * 2); // double to cover tx value and fee
+    let gas_fee = ctx.evm_env.block_env.basefee as u128 * gas_limit as u128;
+    cache_account.increment_balance((tx_value + gas_fee) * 2); // double for luck
 
     let res = evm.transact(&tx)?;
     match res.result {
