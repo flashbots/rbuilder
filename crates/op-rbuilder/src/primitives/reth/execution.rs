@@ -2,8 +2,10 @@
 use alloy_consensus::Transaction;
 use alloy_eips::Encodable2718;
 use alloy_primitives::{Address, TxHash, U256};
+use op_revm::OpHaltReason;
 use reth_node_api::NodePrimitives;
 use reth_optimism_primitives::OpReceipt;
+use revm::context::result::ExecutionResult;
 use std::collections::HashSet;
 
 /// Holds the state after execution
@@ -84,6 +86,17 @@ impl<N: NodePrimitives> ExecutionInfo<N> {
 
         false
     }
+
+    /// Increments the current usage trackers (gas, DA) for a transaction that has been included.
+    pub fn track_transaction_resource_usage(
+        &mut self,
+        tx: &N::SignedTx,
+        result: &ExecutionResult<OpHaltReason>,
+    ) {
+        self.cumulative_gas_used += result.gas_used();
+        self.cumulative_da_bytes_used +=
+            op_alloy_flz::flz_compress_len(tx.encoded_2718().as_slice()) as u64;
+    }
 }
 
 #[cfg(test)]
@@ -92,9 +105,11 @@ mod tests {
     use alloy_consensus::{SignableTransaction, TxEip1559};
     use alloy_eips::Encodable2718;
     use alloy_primitives::private::alloy_rlp::Encodable;
-    use alloy_primitives::Signature;
+    use alloy_primitives::{Bytes, Signature};
     use rand::RngCore;
+    use reth::revm::context::result::SuccessReason;
     use reth_optimism_primitives::{OpPrimitives, OpTransactionSigned};
+    use revm::context::result::Output;
 
     #[test]
     fn test_block_gas_limit() {
@@ -250,5 +265,42 @@ mod tests {
             true,
             info.is_tx_over_limits(&large_but_compressable, 1000, None, Some(block_data_limit))
         );
+    }
+
+    #[test]
+    pub fn test_track_resource_usage() {
+        let txn_gas_limit = 250;
+
+        let txn: OpTransactionSigned = TxEip1559 {
+            input: vec![0u8; 2000].into(),
+            gas_limit: txn_gas_limit,
+            ..TxEip1559::default()
+        }
+        .into_signed(Signature::test_signature())
+        .into();
+
+        let expected_compressed_size: u64 = 112;
+        assert_eq!(
+            expected_compressed_size,
+            op_alloy_flz::flz_compress_len(txn.encoded_2718().as_slice()) as u64
+        );
+
+        let mut info = ExecutionInfo::<OpPrimitives>::with_capacity(10);
+
+        let result = &ExecutionResult::<OpHaltReason>::Success {
+            reason: SuccessReason::Return,
+            gas_used: 100,
+            gas_refunded: 0,
+            logs: vec![],
+            output: Output::Call(Bytes(vec![].into())),
+        };
+
+        assert_eq!(0, info.cumulative_gas_used);
+        assert_eq!(0, info.cumulative_da_bytes_used);
+
+        info.track_transaction_resource_usage(&txn, &result);
+
+        assert_eq!(100, info.cumulative_gas_used);
+        assert_eq!(expected_compressed_size, info.cumulative_da_bytes_used);
     }
 }

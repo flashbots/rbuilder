@@ -1097,9 +1097,7 @@ where
                 }
             };
 
-            // add gas used by the transaction to cumulative gas used, before creating the receipt
-            let gas_used = result.gas_used();
-            info.cumulative_gas_used += gas_used;
+            info.track_transaction_resource_usage(sequencer_tx.inner(), &result);
 
             let ctx = ReceiptBuilderCtx {
                 tx: sequencer_tx.inner(),
@@ -1164,7 +1162,7 @@ where
 
             // A sequencer's block should never contain blob or deposit transactions from the pool.
             if tx.is_eip4844() || tx.is_deposit() {
-                println!("B");
+                warn!(target: "payload_builder", ?tx, "Unexpected transaction type.");
                 best_txs.mark_invalid(tx.signer(), tx.nonce());
                 continue;
             }
@@ -1209,9 +1207,8 @@ where
                 trace!(target: "payload_builder", ?tx, "reverted transaction");
             }
 
-            // add gas used by the transaction to cumulative gas used, before creating the receipt
+            info.track_transaction_resource_usage(tx.inner(), &result);
             let gas_used = result.gas_used();
-            info.cumulative_gas_used += gas_used;
 
             let ctx = ReceiptBuilderCtx {
                 tx: tx.inner(),
