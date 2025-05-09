@@ -438,7 +438,9 @@ mod tests {
             .await?;
 
         // check there's 10 flashblocks log lines (2000ms / 200ms)
-        op_rbuilder.find_log_line("Building flashblock 9").await?;
+        op_rbuilder
+            .find_log_line("Building flashblock idx=9")
+            .await?;
 
         // Process websocket messages
         let timeout_duration = Duration::from_secs(10);
@@ -571,7 +573,9 @@ mod tests {
             .await?;
 
         // check there's no more than 10 flashblocks log lines (2000ms / 200ms)
-        op_rbuilder.find_log_line("Building flashblock 9").await?;
+        op_rbuilder
+            .find_log_line("Building flashblock idx=9")
+            .await?;
         op_rbuilder
             .find_log_line("Skipping flashblock reached target=10 idx=10")
             .await?;

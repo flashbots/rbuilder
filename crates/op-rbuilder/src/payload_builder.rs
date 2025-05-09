@@ -437,8 +437,14 @@ where
         }
 
         let gas_per_batch = ctx.block_gas_limit() / self.flashblocks_per_block;
-
         let mut total_gas_per_batch = gas_per_batch;
+
+        let da_per_batch = if let Some(da_limit) = ctx.da_config.max_da_block_size() {
+            Some(da_limit / self.flashblocks_per_block)
+        } else {
+            None
+        };
+        let mut total_da_per_batch = da_per_batch;
 
         let mut flashblock_count = 0;
         // Create a channel to coordinate flashblock building
@@ -505,12 +511,14 @@ where
                         continue;
                     }
 
-                    // Continue with flashblock building
                     tracing::info!(
                         target: "payload_builder",
-                        "Building flashblock {} {}",
+                        "Building flashblock idx={} target_gas={} gas_used={} taget_da={} da_used={}",
                         flashblock_count,
                         total_gas_per_batch,
+                        info.cumulative_gas_used,
+                        total_da_per_batch.unwrap_or(0),
+                        info.cumulative_da_bytes_used
                     );
 
                     let flashblock_build_start_time = Instant::now();
@@ -537,6 +545,7 @@ where
                         &mut db,
                         best_txs,
                         total_gas_per_batch.min(ctx.block_gas_limit()),
+                        total_da_per_batch,
                     )?;
                     ctx.metrics
                         .payload_tx_simulation_duration
@@ -591,6 +600,9 @@ where
                             // Update bundle_state for next iteration
                             bundle_state = new_bundle_state;
                             total_gas_per_batch += gas_per_batch;
+                            if let Some(da_limit) = da_per_batch {
+                                total_da_per_batch = Some(total_da_per_batch.unwrap() + da_limit);
+                            }
                             flashblock_count += 1;
                             tracing::info!(target: "payload_builder", "Flashblock {} built", flashblock_count);
                         }
@@ -1144,6 +1156,7 @@ where
             Transaction: PoolTransaction<Consensus = OpTransactionSigned>,
         >,
         batch_gas_limit: u64,
+        block_da_limit: Option<u64>,
     ) -> Result<Option<()>, PayloadBuilderError>
     where
         DB: Database<Error = ProviderError>,
@@ -1153,7 +1166,7 @@ where
         let mut num_txs_simulated = 0;
         let mut num_txs_simulated_success = 0;
         let mut num_txs_simulated_fail = 0;
-
+        let tx_da_limit = self.da_config.max_da_tx_size();
         let mut evm = self.evm_config.evm_with_env(&mut *db, self.evm_env.clone());
 
         while let Some(tx) = best_txs.next(()) {
@@ -1166,7 +1179,7 @@ where
             }
 
             // ensure we still have capacity for this transaction
-            if info.is_tx_over_limits(tx.inner(), batch_gas_limit, None, None) {
+            if info.is_tx_over_limits(tx.inner(), batch_gas_limit, tx_da_limit, block_da_limit) {
                 // we can't fit this transaction into the block, so we need to mark it as
                 // invalid which also removes all dependent transaction from
                 // the iterator before we can continue
