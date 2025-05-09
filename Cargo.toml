@@ -40,6 +40,7 @@ unarray.opt-level = 3
 [profile.debug-fast]
 inherits = "release"
 debug = true
+lto = "thin"
 
 [profile.maxperf]
 inherits = "release"
