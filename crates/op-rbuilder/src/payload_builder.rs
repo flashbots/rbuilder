@@ -513,12 +513,10 @@ where
 
                     tracing::info!(
                         target: "payload_builder",
-                        "Building flashblock idx={} target_gas={} gas_used={} taget_da={} da_used={}",
+                        "Building flashblock idx={} target_gas={} taget_da={}",
                         flashblock_count,
                         total_gas_per_batch,
-                        info.cumulative_gas_used,
                         total_da_per_batch.unwrap_or(0),
-                        info.cumulative_da_bytes_used
                     );
 
                     let flashblock_build_start_time = Instant::now();
@@ -596,6 +594,15 @@ where
                                 .payload_num_tx
                                 .record(info.executed_transactions.len() as f64);
 
+                            tracing::info!(
+                                target: "payload_builder",
+                                "Built flashblock idx={} target_gas={} gas_used={} taget_da={} da_used={}", flashblock_count,
+                                total_gas_per_batch,
+                                info.cumulative_gas_used,
+                                total_da_per_batch.unwrap_or(0),
+                                info.cumulative_da_bytes_used
+                            );
+
                             best_payload.set(new_payload.clone());
                             // Update bundle_state for next iteration
                             bundle_state = new_bundle_state;
@@ -604,7 +611,6 @@ where
                                 total_da_per_batch = Some(total_da_per_batch.unwrap() + da_limit);
                             }
                             flashblock_count += 1;
-                            tracing::info!(target: "payload_builder", "Flashblock {} built", flashblock_count);
                         }
                     }
                 }
