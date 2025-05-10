@@ -104,7 +104,7 @@ pub struct SubmissionConfig {
 
     pub optimistic_config: Option<OptimisticConfig>,
     pub bid_observer: Box<dyn BidObserver + Send + Sync>,
-    /// Bids above this value will only go to fast relays.
+    /// Bids above this value will only go to independent relays.
     pub independent_bid_threshold: U256,
 }
 
