@@ -10,7 +10,6 @@ exclude = [".github/"]
 [workspace]
 members = [
     "crates/rbuilder",
-    "crates/op-rbuilder",
     "crates/reth-rbuilder",
     "crates/rbuilder/src/test_utils",
     "crates/rbuilder/src/telemetry/metrics_macros",
