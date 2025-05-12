@@ -8,7 +8,7 @@ use super::{
 use crate::{
     building::{
         estimate_payout_gas_limit,
-        evm::EvmFactory,
+        evm::{Evm, EvmFactory},
         evm_inspector::{RBuilderEVMInspector, UsedStateTrace},
     },
     primitives::{
@@ -24,7 +24,7 @@ use alloy_primitives::{Address, B256, U256};
 use itertools::Itertools;
 use reth::revm::database::StateProviderDatabase;
 use reth_errors::ProviderError;
-use reth_evm::{Evm, EvmEnv};
+use reth_evm::EvmEnv;
 use reth_primitives::Receipt;
 use reth_provider::{StateProvider, StateProviderBox};
 use revm::{
@@ -1286,17 +1286,14 @@ fn update_nonce_list_with_updates(
 ///
 /// Gas checks must be done before calling this methods
 /// thats why it can't return `TransactionErr::GasLeft` and  `TransactionErr::BlobGasLeft`
-fn execute_evm<Factory>(
-    evm_factory: &Factory,
+fn execute_evm(
+    evm_factory: &impl EvmFactory,
     evm_env: EvmEnv,
     tx_with_blobs: &TransactionSignedEcRecoveredWithBlobs,
     used_state_tracer: Option<&mut UsedStateTrace>,
     db: impl Database<Error = ProviderError>,
     blocklist: &HashSet<Address>,
-) -> Result<Result<ResultAndState, TransactionErr>, CriticalCommitOrderError>
-where
-    Factory: EvmFactory,
-{
+) -> Result<Result<ResultAndState, TransactionErr>, CriticalCommitOrderError> {
     let tx = tx_with_blobs.internal_tx_unsecure();
     let mut rbuilder_inspector = RBuilderEVMInspector::new(tx, used_state_tracer);
 

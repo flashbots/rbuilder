@@ -1,20 +1,46 @@
 use crate::building::precompile_cache::{PrecompileCache, WrappedPrecompile};
 use parking_lot::Mutex;
 use reth_evm::{
-    eth::EthEvmContext, EthEvm, EthEvmFactory, Evm, EvmEnv, EvmFactory as RethEvmFactory,
+    eth::EthEvmContext, EthEvm, EthEvmFactory, Evm as RethEvm, EvmEnv,
+    EvmFactory as RethEvmFactory, IntoTxEnv,
 };
 use revm::{
     context::{
-        result::{EVMError, HaltReason},
+        result::{EVMError, HaltReason, ResultAndState},
         TxEnv,
     },
     handler::EthPrecompiles,
-    inspector::NoOpInspector,
     interpreter::interpreter::EthInterpreter,
     primitives::hardfork::SpecId,
     Database, Inspector,
 };
 use std::sync::Arc;
+
+pub trait Evm<DB: Database> {
+    fn transact(
+        &mut self,
+        tx: impl IntoTxEnv<TxEnv>,
+    ) -> Result<ResultAndState<HaltReason>, EVMError<DB::Error>>;
+}
+
+impl<DB, EVM> Evm<DB> for EVM
+where
+    DB: Database<Error: Send + Sync + 'static>,
+    EVM: RethEvm<
+        DB = DB,
+        Tx = TxEnv,
+        Error = EVMError<DB::Error>,
+        HaltReason = HaltReason,
+        Spec = SpecId,
+    >,
+{
+    fn transact(
+        &mut self,
+        tx: impl IntoTxEnv<TxEnv>,
+    ) -> Result<ResultAndState<HaltReason>, EVMError<DB::Error>> {
+        EVM::transact(self, tx)
+    }
+}
 
 /// Custom trait to abstract over EVM construction with a cleaner and more concrete
 /// interface than the `Evm` trait from `alloy-revm`.
@@ -31,29 +57,13 @@ use std::sync::Arc;
 /// See [`EthCachedEvmFactory`] for an implementation that integrates precompile
 /// caching and uses `reth_evm::EthEvm` internally.
 pub trait EvmFactory {
-    type Evm<DB, I>: Evm<
-        DB = DB,
-        Tx = TxEnv,
-        HaltReason = HaltReason,
-        Error = EVMError<DB::Error>,
-        Spec = SpecId,
-    >
-    where
-        DB: Database<Error: Send + Sync + 'static>,
-        I: Inspector<EthEvmContext<DB>>;
-
     /// Create an EVM instance with default (no-op) inspector.
-    fn create_evm<DB>(&self, db: DB, env: EvmEnv) -> Self::Evm<DB, NoOpInspector>
+    fn create_evm<DB>(&self, db: DB, env: EvmEnv) -> impl Evm<DB>
     where
         DB: Database<Error: Send + Sync + 'static>;
 
     /// Create an EVM instance with a provided inspector.
-    fn create_evm_with_inspector<DB, I>(
-        &self,
-        db: DB,
-        env: EvmEnv,
-        inspector: I,
-    ) -> Self::Evm<DB, I>
+    fn create_evm_with_inspector<DB, I>(&self, db: DB, env: EvmEnv, inspector: I) -> impl Evm<DB>
     where
         DB: Database<Error: Send + Sync + 'static>,
         I: Inspector<EthEvmContext<DB>, EthInterpreter>;
@@ -73,13 +83,7 @@ pub struct EthCachedEvmFactory {
 /// It also integrates precompile caching using the [`PrecompileCache`] and
 /// [`WrappedPrecompile`] types.
 impl EvmFactory for EthCachedEvmFactory {
-    type Evm<DB, I>
-        = EthEvm<DB, I, WrappedPrecompile<EthPrecompiles>>
-    where
-        DB: Database<Error: Send + Sync + 'static>,
-        I: Inspector<EthEvmContext<DB>>;
-
-    fn create_evm<DB>(&self, db: DB, env: EvmEnv) -> Self::Evm<DB, NoOpInspector>
+    fn create_evm<DB>(&self, db: DB, env: EvmEnv) -> impl Evm<DB>
     where
         DB: Database<Error: Send + Sync + 'static>,
     {
@@ -95,21 +99,21 @@ impl EvmFactory for EthCachedEvmFactory {
         EthEvm::new(evm, false)
     }
 
-    fn create_evm_with_inspector<DB, I>(
-        &self,
-        db: DB,
-        input: EvmEnv,
-        inspector: I,
-    ) -> Self::Evm<DB, I>
+    fn create_evm_with_inspector<DB, I>(&self, db: DB, env: EvmEnv, inspector: I) -> impl Evm<DB>
     where
         DB: Database<Error: Send + Sync + 'static>,
         I: Inspector<EthEvmContext<DB>, EthInterpreter>,
     {
-        EthEvm::new(
-            self.create_evm(db, input)
-                .into_inner()
-                .with_inspector(inspector),
-            true,
-        )
+        let evm = self
+            .evm_factory
+            .create_evm(db, env)
+            .into_inner()
+            .with_precompiles(WrappedPrecompile::new(
+                EthPrecompiles::default(),
+                self.cache.clone(),
+            ))
+            .with_inspector(inspector);
+
+        EthEvm::new(evm, true)
     }
 }

@@ -1,10 +1,12 @@
-use super::{evm::EvmFactory, BlockBuildingContext, BlockState, ThreadBlockBuildingContext};
+use super::{
+    evm::{Evm, EvmFactory},
+    BlockBuildingContext, BlockState, ThreadBlockBuildingContext,
+};
 use crate::utils::Signer;
 use alloy_consensus::{constants::KECCAK_EMPTY, TxEip1559};
 use alloy_primitives::{Address, TxKind as TransactionKind, U256};
 use reth_chainspec::ChainSpec;
 use reth_errors::ProviderError;
-use reth_evm::Evm;
 use reth_primitives::{Recovered, Transaction, TransactionSigned};
 use revm::context::result::{EVMError, ExecutionResult};
 
@@ -84,10 +86,11 @@ pub fn insert_test_payout_tx(
     )?;
 
     let mut db = state.new_db_ref(&ctx.shared_cached_reads, &mut local_ctx.cached_reads);
-    let mut evm = ctx.evm_factory.create_evm(db.as_mut(), ctx.evm_env.clone());
+    let cache_account = db.as_mut().load_cache_account(builder_signer.address)?;
 
-    let cache_account = evm.db_mut().load_cache_account(builder_signer.address)?;
     cache_account.increment_balance(tx_value * 2); // double to cover tx value and fee
+
+    let mut evm = ctx.evm_factory.create_evm(db.as_mut(), ctx.evm_env.clone());
 
     let res = evm.transact(&tx)?;
     match res.result {
