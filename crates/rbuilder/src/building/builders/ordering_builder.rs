@@ -1,41 +1,42 @@
-//! This builder just inserts orders in some order discarding everything that failed
+//! Implementation of BlockBuildingAlgorithm that sorts the SimulatedOrders by some criteria.
+//! After sorting it starts from an empty block and tries to add the SimulatedOrders one by one keeping on the block only the successful ones.
+//! If a SimulatedOrder gives less profit than the value it gave on the top of block simulation is considered as failed (ExecutionError::LowerInsertedValue)
+//! but it can be later reused.
+//! The described algorithm is ran continuously adding new SimulatedOrders (they arrive on real time!) on each iteration until we run out of time (slot ends).
+//! Sorting criteria are described on [`Sorting`].
+//! For some more details see [`OrderingBuilderConfig`]
 use crate::{
     building::{
         block_orders_from_sim_orders,
-        builders::{LiveBuilderInput, OrderIntakeConsumer},
-        estimate_payout_gas_limit, BlockBuildingContext, BlockOrders, BlockState, BuiltBlockTrace,
-        ExecutionError, PartialBlock, Sorting,
+        builders::{
+            block_building_helper::BlockBuildingHelper, LiveBuilderInput, OrderIntakeConsumer,
+        },
+        BlockBuildingContext, ExecutionError, OrderPriority, PrioritizedOrderStore,
+        SimulatedOrderSink, Sorting, ThreadBlockBuildingContext,
     },
-    primitives::{AccountNonce, OrderId},
-    telemetry,
-    utils::is_provider_factory_health_error,
+    primitives::{AccountNonce, OrderId, SimValue, SimulatedOrder},
+    provider::StateProviderFactory,
+    telemetry::mark_builder_considers_order,
+    utils::NonceCache,
 };
 use ahash::{HashMap, HashSet};
-use alloy_primitives::{utils::format_ether, Address, U256};
-use reth::providers::{BlockNumReader, ProviderFactory};
-use reth_db::database::Database;
+use alloy_primitives::U256;
+use derivative::Derivative;
 use reth_provider::StateProvider;
-
-use super::{
-    add_bottom_preconf, finalize_block_execution, insert_self_payout_tx,
-    BacktestSimulateBlockInput, Block, BlockBuildingAlgorithm, BlockBuildingAlgorithmInput,
-    BlockBuildingSink,
-};
-use crate::primitives::SimulatedOrder;
-use crate::{
-    building::tracers::GasUsedSimulationTracer, live_builder::bidding::SlotBidder,
-    roothash::RootHashMode, utils::check_provider_factory_health,
-};
-use reth::tasks::pool::BlockingTaskPool;
-use reth_payload_builder::database::CachedReads;
 use serde::Deserialize;
 use std::{
-    // cmp::max,
+    marker::PhantomData,
     sync::Arc,
     time::{Duration, Instant},
 };
-use time::OffsetDateTime;
-use tracing::{debug, error, info_span, trace, warn};
+use tokio_util::sync::CancellationToken;
+use tracing::{error, info_span, trace};
+
+use super::{
+    block_building_helper::{BiddableUnfinishedBlock, BlockBuildingHelperFromProvider},
+    handle_building_error, BacktestSimulateBlockInput, Block, BlockBuildingAlgorithm,
+    BlockBuildingAlgorithmInput,
+};
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -46,7 +47,7 @@ pub struct OrderingBuilderConfig {
     pub discard_txs: bool,
     pub sorting: Sorting,
     /// Only when a tx fails because the profit was worst than expected: Number of time an order can fail during a single block building iteration.
-    /// When thi happens it gets reinserted in the BlockStore with the new simulated profit (the one that failed).
+    /// When thi happens it gets reinserted in the PrioritizedOrderStore with the new simulated profit (the one that failed).
     pub failed_order_retries: usize,
     /// if a tx fails in a block building iteration it's dropped so next iterations will not use it.
     pub drop_failed_orders: bool,
@@ -64,414 +65,39 @@ impl OrderingBuilderConfig {
         self.build_duration_deadline_ms.map(Duration::from_millis)
     }
 }
-#[derive(Debug)]
-pub struct OrderingBuilderContext<DB> {
-    provider_factory: ProviderFactory<DB>,
-    root_hash_task_pool: BlockingTaskPool,
-    builder_name: String,
-    ctx: BlockBuildingContext,
-    config: OrderingBuilderConfig,
-    root_hash_mode: RootHashMode,
-    slot_bidder: Arc<dyn SlotBidder>,
 
-    // caches
-    cached_reads: Option<CachedReads>,
-
-    // scratchpad
-    failed_orders: HashSet<OrderId>,
-    order_attempts: HashMap<OrderId, usize>,
-}
-
-impl<DB: Database + Clone + 'static> OrderingBuilderContext<DB> {
-    pub fn new(
-        provider_factory: ProviderFactory<DB>,
-        slot_bidder: Arc<dyn SlotBidder>,
-        root_hash_task_pool: BlockingTaskPool,
-        builder_name: String,
-        ctx: BlockBuildingContext,
-        config: OrderingBuilderConfig,
-    ) -> Self {
-        Self {
-            provider_factory,
-            root_hash_task_pool,
-            builder_name,
-            ctx,
-            config,
-            root_hash_mode: RootHashMode::CorrectRoot,
-            slot_bidder,
-            cached_reads: None,
-            failed_orders: HashSet::default(),
-            order_attempts: HashMap::default(),
-        }
-    }
-
-    /// Should be used only in backtest
-    pub fn with_skip_root_hash(self) -> Self {
-        Self {
-            root_hash_mode: RootHashMode::SkipRootHash,
-            ..self
-        }
-    }
-
-    pub fn with_cached_reads(self, cached_reads: CachedReads) -> Self {
-        Self {
-            cached_reads: Some(cached_reads),
-            ..self
-        }
-    }
-
-    pub fn take_cached_reads(&mut self) -> Option<CachedReads> {
-        self.cached_reads.take()
-    }
-
-    /// use_suggested_fee_recipient_as_coinbase: all the mev profit goes directly to the slot suggested_fee_recipient so we avoid the payout tx.
-    ///     This mode disables mev-share orders since the builder has to receive the mev profit to give some portion back to the mev-share user.
-    /// !use_suggested_fee_recipient_as_coinbase: all the mev profit goes to the builder and at the end of the block we pay to the suggested_fee_recipient.
-    pub fn build_block(
-        &mut self,
-        mut block_orders: BlockOrders,
-        use_suggested_fee_recipient_as_coinbase: bool,
-        preconf_reserved_gas: u64,
-    ) -> eyre::Result<Option<Block>> {
-        let forced_empty_block = U256::from(preconf_reserved_gas).eq(&self.ctx.block_env.gas_limit);
-        let contains_preconf = block_orders.contains_preconf();
-        let enabled_self_payout = forced_empty_block && !contains_preconf;
-        let enabled_coinbase_payout = !enabled_self_payout
-            && use_suggested_fee_recipient_as_coinbase
-            && self.slot_bidder.is_pay_to_coinbase_allowed();
-
-        let build_attempt_id: u32 = rand::random();
-        let span = info_span!("build_run", build_attempt_id);
-        let _guard = span.enter();
-
-        // trace!(
-        //     "enabled_coinbase_payout: {:?} -> enabled_self_payout: {:?}(forced_empty_block: {:?}, contains_preconf: {:?}), use_suggested_fee_recipient_as_coinbase: {:?}, slot_bidder.is_pay_to_coinbase_allowed: {:?}",
-        //     enabled_coinbase_payout,
-        //     enabled_self_payout,
-        //     forced_empty_block,
-        //     contains_preconf,
-        //     use_suggested_fee_recipient_as_coinbase,
-        //     self.slot_bidder.is_pay_to_coinbase_allowed()
-        // );
-        check_provider_factory_health(self.ctx.block(), &self.provider_factory)?;
-
-        let build_start = Instant::now();
-        let orders_closed_at = OffsetDateTime::now_utc();
-
-        // Create a new ctx to remove builder_signer if necessary
-        let mut new_ctx = self.ctx.clone();
-        if enabled_coinbase_payout {
-            new_ctx.modify_use_suggested_fee_recipient_as_coinbase();
-        }
-        let ctx = &new_ctx;
-
-        self.failed_orders.clear();
-        self.order_attempts.clear();
-
-        // @Maybe an issue - we have 2 db txs here (one for hash and one for finalize)
-        let state_provider = self
-            .provider_factory
-            .history_by_block_hash(ctx.attributes.parent)?;
-        let fee_recipient_balance_before = state_provider
-            .account_balance(ctx.attributes.suggested_fee_recipient)?
-            .unwrap_or_default();
-
-        let (mut built_block_trace, state, partial_block) = {
-            let mut partial_block =
-                PartialBlock::new(self.config.discard_txs, self.config.sorting.into())
-                    .with_tracer(GasUsedSimulationTracer::default());
-            let mut state = BlockState::new(&state_provider)
-                .with_cached_reads(self.cached_reads.take().unwrap_or_default());
-            partial_block.pre_block_call(ctx, &mut state)?;
-            let mut built_block_trace = BuiltBlockTrace::new();
-
-            let mut order_attempts: HashMap<OrderId, usize> = HashMap::default();
-
-            let payout_tx_gas = if enabled_coinbase_payout {
-                None
-            } else {
-                let payout_tx_gas = estimate_payout_gas_limit(
-                    ctx.attributes.suggested_fee_recipient,
-                    ctx,
-                    &mut state,
-                    0,
-                )?;
-                Some(payout_tx_gas)
-            };
-            let bottom_gas = block_orders.get_preconf_bottom_gas();
-            // reserve payout_tx_gas + empty gas space
-            let reserved_gas = payout_tx_gas.unwrap_or(0) + preconf_reserved_gas + bottom_gas;
-            // debug!("partial block reserved gas amount: {:?}", reserved_gas);
-            partial_block.reserve_gas(reserved_gas);
-            let mut bottom_preconf: Option<SimulatedOrder> = None;
-            // @Perf when gas left is too low we should break.
-            while let Some(sim_order) = block_orders.pop_order() {
-                if sim_order.is_bottom_preconf() {
-                    // ignore bottom preconf order first, will insert back after finalized
-                    bottom_preconf = Some(sim_order);
-                    continue;
-                }
-                if let Some(deadline) = self.config.build_duration_deadline() {
-                    if build_start.elapsed() > deadline {
-                        break;
-                    }
-                }
-                let start_time = Instant::now();
-                let commit_result = partial_block.commit_order(&sim_order, ctx, &mut state)?;
-                let order_commit_time = start_time.elapsed();
-                let mut gas_used = 0;
-                let mut execution_error = None;
-                let mut reinserted = false;
-                let success = commit_result.is_ok();
-                match commit_result {
-                    Ok(res) => {
-                        gas_used = res.gas_used;
-                        // This intermediate step is needed until we replace all (Address, u64) for AccountNonce
-                        let nonces_updated: Vec<_> = res
-                            .nonces_updated
-                            .iter()
-                            .map(|(account, nonce)| AccountNonce {
-                                account: *account,
-                                nonce: *nonce,
-                            })
-                            .collect();
-                        block_orders.update_onchain_nonces(&nonces_updated);
-                        built_block_trace.add_included_order(res);
-                    }
-                    Err(err) => {
-                        built_block_trace.modify_payment_when_no_signer_error(&err);
-                        if let ExecutionError::LowerInsertedValue { inplace, .. } = &err {
-                            // try to reinsert order into the map
-                            let order_attempts = order_attempts.entry(sim_order.id()).or_insert(0);
-                            if *order_attempts < self.config.failed_order_retries {
-                                let mut new_order = sim_order.clone();
-                                new_order.sim_value = inplace.clone();
-                                block_orders.readd_order(new_order);
-                                *order_attempts += 1;
-                                reinserted = true;
-                            }
-                        }
-                        if !reinserted {
-                            self.failed_orders.insert(sim_order.id());
-                        }
-                        execution_error = Some(err);
-                    }
-                }
-                trace!(
-                    order_id = ?sim_order.id(),
-                    success,
-                    order_commit_time_mus = order_commit_time.as_micros(),
-                    gas_used,
-                    ?execution_error,
-                    reinserted,
-                    "Executed order"
-                );
-            }
-            if bottom_preconf.is_some() {
-                match add_bottom_preconf(
-                    ctx,
-                    &mut partial_block,
-                    &mut state,
-                    &bottom_preconf.unwrap(),
-                    bottom_gas,
-                ) {
-                    Ok(res) => {
-                        let nonces_updated: Vec<_> = res
-                            .nonces_updated
-                            .iter()
-                            .map(|(account, nonce)| AccountNonce {
-                                account: *account,
-                                nonce: *nonce,
-                            })
-                            .collect();
-                        block_orders.update_onchain_nonces(&nonces_updated);
-                        built_block_trace.add_included_order(res);
-                    }
-                    Err(e) => {
-                        error!(
-                            "cannot finalize block execution due to bottom preconf: {:?}",
-                            e
-                        );
-                        return Ok(None);
-                    }
-                }
-            }
-            if enabled_self_payout {
-                debug!("inserting preconf transfer tx...");
-                let inserted = insert_self_payout_tx(ctx, &mut partial_block, &mut state);
-                if inserted {
-                    debug!("preconf transfer tx is inserted.");
-                } else {
-                    error!("cannot finalize block execution due to preconf transfer.");
-                }
-            }
-            let fee_recipient_balance_after = state_provider
-                .account_balance(ctx.attributes.suggested_fee_recipient)?
-                .unwrap_or_default();
-
-            let mut fee_recipient_balance_diff = fee_recipient_balance_after
-                .checked_sub(fee_recipient_balance_before)
-                .unwrap_or_default();
-
-            if contains_preconf && fee_recipient_balance_diff < U256::ZERO {
-                // block may contain fee recipient tx that causes the diff to be negative
-                fee_recipient_balance_diff = U256::ZERO;
-            }
-
-            let should_finalize = enabled_self_payout
-                || finalize_block_execution(
-                    ctx,
-                    &mut partial_block,
-                    &mut state,
-                    &mut built_block_trace,
-                    payout_tx_gas,
-                    self.slot_bidder.as_ref(),
-                    fee_recipient_balance_diff,
-                )
-                .unwrap_or_else(|err| {
-                    error!("cannot finalize block execution: {:?}", err);
-                    false
-                });
-
-            if !should_finalize {
-                trace!(
-                    block = ctx.block_env.number.to::<u64>(),
-                    builder_name = self.builder_name,
-                    enabled_coinbase_payout,
-                    "Skipped block finalization",
-                );
-                return Ok(None);
-            }
-
-            built_block_trace.verify_bundle_consistency(&ctx.blocklist)?;
-            (built_block_trace, state, partial_block)
-        };
-
-        let build_time = build_start.elapsed();
-
-        built_block_trace.fill_time = build_time;
-
-        let start = Instant::now();
-
-        let sim_gas_used = partial_block.tracer.used_gas;
-        let finalized_block = partial_block.finalize(
-            state,
-            ctx,
-            self.provider_factory.clone(),
-            self.root_hash_mode,
-            self.root_hash_task_pool.clone(),
-        )?;
-
-        built_block_trace.update_orders_timestamps_after_block_sealed(orders_closed_at);
-
-        self.cached_reads = Some(finalized_block.cached_reads);
-
-        let finalize_time = start.elapsed();
-
-        built_block_trace.finalize_time = finalize_time;
-
-        let txs = finalized_block.sealed_block.body.len();
-        let gas_used = finalized_block.sealed_block.gas_used;
-        let blobs = finalized_block.txs_blob_sidecars.len();
-
-        telemetry::add_built_block_metrics(
-            build_time,
-            finalize_time,
-            txs,
-            blobs,
-            gas_used,
-            sim_gas_used,
-            &self.builder_name,
-            ctx.timestamp(),
-        );
-
-        trace!(
-            block = ctx.block_env.number.to::<u64>(),
-            build_time_mus = build_time.as_micros(),
-            finalize_time_mus = finalize_time.as_micros(),
-            profit = format_ether(built_block_trace.bid_value),
-            builder_name = self.builder_name,
-            txs,
-            blobs,
-            gas_used,
-            sim_gas_used,
-            enabled_coinbase_payout,
-            "Built block",
-        );
-
-        Ok(Some(Block {
-            trace: built_block_trace,
-            sealed_block: finalized_block.sealed_block,
-            txs_blobs_sidecars: finalized_block.txs_blob_sidecars,
-            builder_name: self.builder_name.clone(),
-        }))
-    }
-}
-#[derive(Debug)]
-pub struct OrderingBuildingAlgorithm {
-    root_hash_task_pool: BlockingTaskPool,
-    sbundle_mergeabe_signers: Vec<Address>,
-    config: OrderingBuilderConfig,
-    name: String,
-}
-
-impl OrderingBuildingAlgorithm {
-    pub fn new(
-        root_hash_task_pool: BlockingTaskPool,
-        sbundle_mergeabe_signers: Vec<Address>,
-        config: OrderingBuilderConfig,
-        name: String,
-    ) -> Self {
-        Self {
-            root_hash_task_pool,
-            sbundle_mergeabe_signers,
-            config,
-            name,
-        }
-    }
-}
-impl<DB: Database + Clone + 'static, SinkType: BlockBuildingSink>
-    BlockBuildingAlgorithm<DB, SinkType> for OrderingBuildingAlgorithm
-{
-    fn name(&self) -> String {
-        self.name.clone()
-    }
-
-    fn build_blocks(&self, input: BlockBuildingAlgorithmInput<DB, SinkType>) {
-        let live_input = LiveBuilderInput {
-            provider_factory: input.provider_factory,
-            root_hash_task_pool: self.root_hash_task_pool.clone(),
-            ctx: input.ctx.clone(),
-            input: input.input,
-            sink: input.sink,
-            builder_name: self.name.clone(),
-            slot_bidder: input.slot_bidder,
-            cancel: input.cancel,
-            sbundle_mergeabe_signers: self.sbundle_mergeabe_signers.clone(),
-            preconf_reserved_gas: input.preconf_reserved_gas,
-        };
-        run_ordering_builder(live_input, &self.config);
-    }
-}
-
-pub fn run_ordering_builder<DB: Database + Clone + 'static, SinkType: BlockBuildingSink>(
-    input: LiveBuilderInput<DB, SinkType>,
+pub fn run_ordering_builder<P, OrderPriorityType>(
+    input: LiveBuilderInput<P>,
     config: &OrderingBuilderConfig,
-) {
-    let block_number = input.ctx.block_env.number.to::<u64>();
-    // input.input is sim orders
-    let mut order_intake_consumer = OrderIntakeConsumer::new(
-        input.provider_factory.clone(),
-        input.input,
-        input.ctx.attributes.parent,
-        config.sorting,
-        &input.sbundle_mergeabe_signers,
-    );
+) where
+    P: StateProviderFactory + Clone + 'static,
+    OrderPriorityType: OrderPriority,
+{
+    let payload_id = input.ctx.payload_id;
+
+    let block_state: Arc<dyn StateProvider> = match input
+        .provider
+        .history_by_block_hash(input.ctx.attributes.parent)
+    {
+        Ok(state) => Arc::from(state),
+        Err(err) => {
+            error!(
+                ?err,
+                payload_id,
+                builder = input.builder_name,
+                "Failed to get history_by_block_hash, cancelling builder job"
+            );
+            return;
+        }
+    };
+
+    let nonces = NonceCache::new(block_state.clone());
+
+    let mut order_intake_consumer =
+        OrderIntakeConsumer::<OrderPriorityType>::new(nonces, input.input);
 
     let mut builder = OrderingBuilderContext::new(
-        input.provider_factory.clone(),
-        input.slot_bidder,
-        input.root_hash_task_pool,
+        block_state.clone(),
         input.builder_name,
         input.ctx,
         config.clone(),
@@ -480,13 +106,12 @@ pub fn run_ordering_builder<DB: Database + Clone + 'static, SinkType: BlockBuild
     // this is a hack to mark used orders until built block trace is implemented as a sane thing
     let mut removed_orders = Vec::new();
     let mut use_suggested_fee_recipient_as_coinbase = config.coinbase_payment;
-
     'building: loop {
         if input.cancel.is_cancelled() {
             break 'building;
         }
 
-        match order_intake_consumer.consume_next_batch() {
+        match order_intake_consumer.blocking_consume_next_batch() {
             Ok(ok) => {
                 if !ok {
                     break 'building;
@@ -499,42 +124,24 @@ pub fn run_ordering_builder<DB: Database + Clone + 'static, SinkType: BlockBuild
         }
 
         let orders = order_intake_consumer.current_block_orders();
-        // trace!("orders: {:?}", orders); //empty
         match builder.build_block(
             orders,
-            use_suggested_fee_recipient_as_coinbase,
+            use_suggested_fee_recipient_as_coinbase
+                && input.sink.can_use_suggested_fee_recipient_as_coinbase(),
+            input.cancel.clone(),
             input.preconf_reserved_gas,
         ) {
-            Ok(Some(block)) => {
-                if block.trace.got_no_signer_error {
+            Ok(block) => {
+                if block.built_block_trace().got_no_signer_error {
                     use_suggested_fee_recipient_as_coinbase = false;
                 }
-                input.sink.new_block(block);
+                if let Ok(block) = BiddableUnfinishedBlock::new(block) {
+                    input.sink.new_block(block);
+                }
             }
-            Ok(None) => {}
             Err(err) => {
-                // @Types
-                let err_str = err.to_string();
-                if err_str.contains("failed to initialize consistent view") {
-                    let last_block_number = input
-                        .provider_factory
-                        .last_block_number()
-                        .unwrap_or_default();
-                    debug!(
-                        err_str,
-                        block_number,
-                        last_block_number,
-                        "Can't build on this head, cancelling slot"
-                    );
-                    input.cancel.cancel();
+                if !handle_building_error(err, payload_id) {
                     break 'building;
-                } else if !err_str.contains("Profit too low") {
-                    if is_provider_factory_health_error(&err) {
-                        error!(?err, "Cancelling building due to provider factory error");
-                        break 'building;
-                    } else {
-                        warn!(?err, "Error filling orders");
-                    }
                 }
             }
         }
@@ -545,32 +152,464 @@ pub fn run_ordering_builder<DB: Database + Clone + 'static, SinkType: BlockBuild
     }
 }
 
-pub fn backtest_simulate_block<DB: Database + Clone + 'static>(
+pub fn backtest_simulate_block<P, OrderPriorityType: OrderPriority>(
     ordering_config: OrderingBuilderConfig,
-    input: BacktestSimulateBlockInput<'_, DB>,
-) -> eyre::Result<(Block, CachedReads)> {
+    input: BacktestSimulateBlockInput<'_, P>,
+) -> eyre::Result<Block>
+where
+    P: StateProviderFactory + Clone + 'static,
+{
     let use_suggested_fee_recipient_as_coinbase = ordering_config.coinbase_payment;
     let state_provider = input
-        .provider_factory
-        .history_by_block_number(input.ctx.block_env.number.to::<u64>() - 1)?;
-    let block_orders = block_orders_from_sim_orders(
-        input.sim_orders,
-        ordering_config.sorting,
-        &state_provider,
-        &input.sbundle_mergeabe_signers,
-    )?;
+        .provider
+        .history_by_block_number(input.ctx.evm_env.block_env.number - 1)?;
+    let block_orders =
+        block_orders_from_sim_orders::<OrderPriorityType>(input.sim_orders, &state_provider)?;
+    let mut local_ctx = ThreadBlockBuildingContext::default();
+    let preconf_reserved_gas = block_orders.get_bottom_preconf_gas() + block_orders.get_payout_preconf_gas();
     let mut builder = OrderingBuilderContext::new(
-        input.provider_factory.clone(),
-        Arc::new(()),
-        BlockingTaskPool::build()?,
+        Arc::from(state_provider),
         input.builder_name,
         input.ctx.clone(),
         ordering_config,
-    )
-    .with_skip_root_hash()
-    .with_cached_reads(input.cached_reads.unwrap_or_default());
-    let block = builder
-        .build_block(block_orders, use_suggested_fee_recipient_as_coinbase, 0)?
-        .ok_or_else(|| eyre::eyre!("No block built"))?;
-    Ok((block, builder.take_cached_reads().unwrap_or_default()))
+    );
+    let block_builder = builder.build_block(
+        block_orders,
+        use_suggested_fee_recipient_as_coinbase,
+        CancellationToken::new(),
+        preconf_reserved_gas,
+    )?;
+
+    let payout_tx_value = if use_suggested_fee_recipient_as_coinbase {
+        None
+    } else {
+        Some(block_builder.true_block_value()?)
+    };
+    let finalize_block_result =
+        block_builder.finalize_block(&mut local_ctx, payout_tx_value, None)?;
+    Ok(finalize_block_result.block)
+}
+
+#[derive(Derivative)]
+#[derivative(Debug)]
+pub struct OrderingBuilderContext {
+    #[derivative(Debug = "ignore")]
+    state: Arc<dyn StateProvider>,
+    builder_name: String,
+    ctx: BlockBuildingContext,
+    config: OrderingBuilderConfig,
+
+    // caches
+    local_ctx: ThreadBlockBuildingContext,
+
+    // scratchpad
+    failed_orders: HashSet<OrderId>,
+    order_attempts: HashMap<OrderId, usize>,
+}
+
+impl OrderingBuilderContext {
+    pub fn new(
+        state: Arc<dyn StateProvider>,
+        builder_name: String,
+        ctx: BlockBuildingContext,
+        config: OrderingBuilderConfig,
+    ) -> Self {
+        Self {
+            state,
+            builder_name,
+            ctx,
+            local_ctx: Default::default(),
+            config,
+            failed_orders: HashSet::default(),
+            order_attempts: HashMap::default(),
+        }
+    }
+
+    /// use_suggested_fee_recipient_as_coinbase: all the mev profit goes directly to the slot suggested_fee_recipient so we avoid the payout tx.
+    ///     This mode disables mev-share orders since the builder has to receive the mev profit to give some portion back to the mev-share user.
+    /// !use_suggested_fee_recipient_as_coinbase: all the mev profit goes to the builder and at the end of the block we pay to the suggested_fee_recipient.
+    pub fn build_block<OrderPriorityType: OrderPriority>(
+        &mut self,
+        block_orders: PrioritizedOrderStore<OrderPriorityType>,
+        use_suggested_fee_recipient_as_coinbase: bool,
+        cancel_block: CancellationToken,
+        preconf_reserved_gas: u64,
+    ) -> eyre::Result<Box<dyn BlockBuildingHelper>> {
+        let gas_limit = U256::from(self.ctx.evm_env.block_env.gas_limit);
+        let forced_empty_block = U256::from(preconf_reserved_gas).eq(&gas_limit);
+        let contains_preconf = block_orders.contains_preconf();
+        let enabled_self_payout = forced_empty_block && !contains_preconf;
+        let enabled_coinbase_payout =
+            !enabled_self_payout && use_suggested_fee_recipient_as_coinbase;
+
+        trace!(
+            "enabled_coinbase_payout: {:?} -> enabled_self_payout: {:?}(forced_empty_block: {:?}, contains_preconf: {:?}), use_suggested_fee_recipient_as_coinbase: {:?}",
+            enabled_coinbase_payout,
+            enabled_self_payout,
+            forced_empty_block,
+            contains_preconf,
+            use_suggested_fee_recipient_as_coinbase
+        );
+
+        let build_attempt_id: u32 = rand::random();
+        let span = info_span!("build_run", build_attempt_id);
+        let _guard = span.enter();
+
+        let build_start = Instant::now();
+
+        // Create a new ctx to remove builder_signer if necessary
+        let mut new_ctx = self.ctx.clone();
+        if enabled_coinbase_payout {
+            trace!("call modify_use_suggested_fee_recipient_as_coinbase");
+            new_ctx.modify_use_suggested_fee_recipient_as_coinbase();
+        }
+        self.failed_orders.clear();
+        self.order_attempts.clear();
+        let bottom_preconf_gas = block_orders.get_bottom_preconf_gas();
+        let payout_preconf_gas = block_orders.get_payout_preconf_gas();
+
+        let reserved_gas = preconf_reserved_gas + bottom_preconf_gas + payout_preconf_gas;
+        trace!(
+            "reserved_gas: {:?} = preconf_reserved_gas: {:?}, bottom_preconf_gas: {:?}, payout_preconf_gas: {:?}",
+            reserved_gas,
+            preconf_reserved_gas,
+            bottom_preconf_gas,
+            payout_preconf_gas
+        );
+        let mut block_building_helper = BlockBuildingHelperFromProvider::new(
+            self.state.clone(),
+            new_ctx,
+            &mut self.local_ctx,
+            self.builder_name.clone(),
+            self.config.discard_txs,
+            reserved_gas,
+            enabled_self_payout,
+            cancel_block,
+        )?;
+
+        self.fill_orders(&mut block_building_helper, block_orders, bottom_preconf_gas, payout_preconf_gas, build_start).expect("fill_orders should not fail");
+        block_building_helper.set_trace_fill_time(build_start.elapsed());
+        Ok(Box::new(block_building_helper))
+    }
+
+    fn fill_orders<OrderPriorityType: OrderPriority>(
+        &mut self,
+        block_building_helper: &mut dyn BlockBuildingHelper,
+        mut block_orders: PrioritizedOrderStore<OrderPriorityType>,
+        bottom_preconf_gas: u64,
+        payout_preconf_gas: u64,
+        build_start: Instant,
+    ) -> eyre::Result<()> {
+        let mut bottom_preconf: Option<Arc<SimulatedOrder>> = None;
+        let mut payout_preconf: Option<Arc<SimulatedOrder>> = None;
+        let mut order_attempts: HashMap<OrderId, usize> = HashMap::default();
+        // @Perf when gas left is too low, we should break.
+        while let Some(sim_order) = block_orders.pop_order() {
+            if sim_order.is_bottom_preconf() {
+                // ignore bottom preconf order first, will insert back after finalized
+                bottom_preconf = Some(sim_order);
+                continue;
+            } else if sim_order.is_payout_preconf() {
+                // ignore payout preconf order first, will insert back after finalized
+                payout_preconf = Some(sim_order);
+                continue;
+            }
+            // @Todo we drop such bundles instead of failing simulation for them
+            // because share bundle merging depends on allowing no txs bundles into the block
+            if sim_order.sim_value.gas_used == 0 {
+                continue;
+            }
+
+            if let Some(deadline) = self.config.build_duration_deadline() {
+                if build_start.elapsed() > deadline {
+                    break;
+                }
+            }
+            mark_builder_considers_order(
+                sim_order.id(),
+                &block_building_helper.built_block_trace().orders_closed_at,
+                block_building_helper.builder_name(),
+            );
+            let start_time = Instant::now();
+            let commit_result = block_building_helper.commit_order(
+                &mut self.local_ctx,
+                &sim_order,
+                &|sim_result| {
+                    simulation_too_low::<OrderPriorityType>(&sim_order.sim_value, sim_result)
+                },
+            )?;
+            let order_commit_time = start_time.elapsed();
+            let mut gas_used = 0;
+            let mut execution_error = None;
+            let mut reinserted = false;
+            let success = commit_result.is_ok();
+            match commit_result {
+                Ok(res) => {
+                    gas_used = res.gas_used;
+                    // This intermediate step is needed until we replace all (Address, u64) for AccountNonce
+                    let nonces_updated: Vec<_> = res
+                        .nonces_updated
+                        .iter()
+                        .map(|(account, nonce)| AccountNonce {
+                            account: *account,
+                            nonce: *nonce,
+                        })
+                        .collect();
+                    block_orders.update_onchain_nonces(&nonces_updated);
+                }
+                Err(err) => {
+                    if let ExecutionError::LowerInsertedValue { inplace, .. } = &err {
+                        // try to reinsert order into the map
+                        let order_attempts = order_attempts.entry(sim_order.id()).or_insert(0);
+                        if *order_attempts < self.config.failed_order_retries {
+                            let mut new_order = (*sim_order).clone();
+                            new_order.sim_value = inplace.clone();
+                            block_orders.insert_order(Arc::new(new_order));
+                            *order_attempts += 1;
+                            reinserted = true;
+                        }
+                    }
+                    if !reinserted {
+                        self.failed_orders.insert(sim_order.id());
+                    }
+                    execution_error = Some(err);
+                }
+            }
+            trace!(
+                order_id = ?sim_order.id(),
+                success,
+                order_commit_time_mus = order_commit_time.as_micros(),
+                gas_used,
+                ?execution_error,
+                reinserted,
+                "Executed order"
+            );
+        }
+        if bottom_preconf.is_some() {
+            self.refill_preconf_order(
+                block_building_helper,
+                &mut block_orders,
+                bottom_preconf.unwrap(),
+                bottom_preconf_gas,
+            ).expect("bottom preconf order should not fail");
+        }
+        if payout_preconf.is_some() {
+            self.refill_preconf_order(
+                block_building_helper,
+                &mut block_orders,
+                payout_preconf.unwrap(),
+                payout_preconf_gas,
+            ).expect("payout preconf order should not fail");
+        }
+        Ok(())
+    }
+
+    fn refill_preconf_order<OrderPriorityType: OrderPriority>(
+        &mut self,
+        block_building_helper: &mut dyn BlockBuildingHelper,
+        block_orders: &mut PrioritizedOrderStore<OrderPriorityType>,
+        preconf_order: Arc<SimulatedOrder>,
+        gas_limit: u64,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        mark_builder_considers_order(
+            preconf_order.id(),
+            &block_building_helper.built_block_trace().orders_closed_at,
+            block_building_helper.builder_name(),
+        );
+        block_building_helper.deduct_reserve_gas(gas_limit);
+        let start_time = Instant::now();
+        let commit_result = block_building_helper.commit_order(
+            &mut self.local_ctx,
+            &preconf_order,
+            &|sim_result| {
+                simulation_too_low::<OrderPriorityType>(&preconf_order.sim_value, sim_result)
+            },
+        )?;
+        let order_commit_time = start_time.elapsed();
+        let mut preconf_gas_used = 0;
+        let mut preconf_execution_error = None;
+        let success = commit_result.is_ok();
+        match commit_result {
+            Ok(res) => {
+                preconf_gas_used = res.gas_used;
+                // This intermediate step is needed until we replace all (Address, u64) for AccountNonce
+                let nonces_updated: Vec<_> = res
+                    .nonces_updated
+                    .iter()
+                    .map(|(account, nonce)| AccountNonce {
+                        account: *account,
+                        nonce: *nonce,
+                    })
+                    .collect();
+                block_orders.update_onchain_nonces(&nonces_updated);
+            }
+            Err(err) => {
+                preconf_execution_error = Some(err);
+            }
+        }
+        trace!(
+            order_id = ?preconf_order.id(),
+            success,
+            order_commit_time_mus = order_commit_time.as_micros(),
+            preconf_gas_used,
+            ?preconf_execution_error,
+            "Executed preconf order"
+        );
+        if preconf_execution_error.is_some() {
+            error!(
+                "Failed to execute preconf order(id={}): {}",
+                preconf_order.id(),
+                preconf_execution_error.unwrap().to_string()
+            );
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct OrderingBuildingAlgorithm<OrderPriorityType> {
+    config: OrderingBuilderConfig,
+    name: String,
+    /// The ordering priority type used to sort simulated orders.
+    order_priority: PhantomData<OrderPriorityType>,
+}
+
+impl<OrderPriorityType> OrderingBuildingAlgorithm<OrderPriorityType> {
+    pub fn new(config: OrderingBuilderConfig, name: String) -> Self {
+        Self {
+            config,
+            name,
+            order_priority: PhantomData,
+        }
+    }
+}
+
+impl<P, OrderPriorityType> BlockBuildingAlgorithm<P>
+    for OrderingBuildingAlgorithm<OrderPriorityType>
+where
+    P: StateProviderFactory + Clone + 'static,
+    OrderPriorityType: OrderPriority,
+{
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn build_blocks(&self, input: BlockBuildingAlgorithmInput<P>) {
+        let live_input = LiveBuilderInput {
+            provider: input.provider,
+            ctx: input.ctx.clone(),
+            input: input.input,
+            sink: input.sink,
+            builder_name: self.name.clone(),
+            cancel: input.cancel,
+            preconf_reserved_gas: input.preconf_reserved_gas,
+        };
+        run_ordering_builder::<P, OrderPriorityType>(live_input, &self.config);
+    }
+}
+
+// Check that new simulation results during block building are not much lower (defined by OrderPriority) than the top-of-block simulation results
+// @Opt is large err OK here
+#[allow(clippy::result_large_err)]
+fn simulation_too_low<OrderPriorityType: OrderPriority>(
+    original_sim_result: &SimValue,
+    new_sim_result: &SimValue,
+) -> Result<(), ExecutionError> {
+    if OrderPriorityType::simulation_too_low(original_sim_result, new_sim_result) {
+        Err(ExecutionError::LowerInsertedValue {
+            before: original_sim_result.clone(),
+            inplace: new_sim_result.clone(),
+        })
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::building::order_priority::{OrderMaxProfitPriority, OrderMevGasPricePriority};
+    use alloy_primitives::U256;
+
+    #[test]
+    fn test_simulation_too_low_max_profit() {
+        let sim_result = &SimValue {
+            coinbase_profit: U256::from(100),
+            mev_gas_price: U256::from(0),
+            ..Default::default()
+        };
+        let inplace_sim_result = &SimValue {
+            coinbase_profit: U256::from(94),
+            mev_gas_price: U256::from(0),
+            ..Default::default()
+        };
+
+        // Lower than 95% of the original value
+        assert!(
+            simulation_too_low::<OrderMaxProfitPriority>(sim_result, inplace_sim_result).is_err()
+        );
+
+        // Equal to original value
+        let inplace_sim_result = &SimValue {
+            coinbase_profit: U256::from(100),
+            mev_gas_price: U256::from(0),
+            ..Default::default()
+        };
+        assert!(
+            simulation_too_low::<OrderMaxProfitPriority>(sim_result, inplace_sim_result).is_ok()
+        );
+
+        // Higher than original value
+        let inplace_sim_result = &SimValue {
+            coinbase_profit: U256::from(105),
+            mev_gas_price: U256::from(0),
+            ..Default::default()
+        };
+        assert!(
+            simulation_too_low::<OrderMaxProfitPriority>(sim_result, inplace_sim_result).is_ok()
+        );
+    }
+
+    #[test]
+    fn test_simulation_too_low_mev_gas_price() {
+        let sim_result = &SimValue {
+            coinbase_profit: U256::from(0),
+            mev_gas_price: U256::from(100),
+            gas_used: 100,
+            ..Default::default()
+        };
+
+        // Lower than 95% of the original value
+        let inplace_sim_result = &SimValue {
+            coinbase_profit: U256::from(0),
+            mev_gas_price: U256::from(94),
+            gas_used: 94,
+            ..Default::default()
+        };
+        assert!(
+            simulation_too_low::<OrderMevGasPricePriority>(sim_result, inplace_sim_result).is_err()
+        );
+
+        // Equal to original value
+        let inplace_sim_result = &SimValue {
+            coinbase_profit: U256::from(0),
+            mev_gas_price: U256::from(100),
+            gas_used: 105,
+            ..Default::default()
+        };
+        assert!(
+            simulation_too_low::<OrderMevGasPricePriority>(sim_result, inplace_sim_result).is_ok()
+        );
+
+        // Higher than original value
+        let inplace_sim_result = &SimValue {
+            coinbase_profit: U256::from(0),
+            mev_gas_price: U256::from(105),
+            gas_used: 105,
+            ..Default::default()
+        };
+        assert!(
+            simulation_too_low::<OrderMevGasPricePriority>(sim_result, inplace_sim_result).is_ok()
+        );
+    }
 }

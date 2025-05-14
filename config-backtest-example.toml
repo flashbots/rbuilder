@@ -8,9 +8,7 @@ backtest_fetch_eth_rpc_parallel = 400
 backtest_fetch_output_file = "~/.rbuilder/backtest/main.sqlite"
 backtest_fetch_mempool_data_dir = "~/.rbuilder/mempool-data"
 
-#flashbots_db = "postgres://USER:PASSWORD@HOST:5432"  # todo: delete before open sourcing
-
-sbundle_mergeabe_signers = []
+sbundle_mergeable_signers = []
 
 backtest_builders = ["mp-ordering", "mgp-ordering"]
 
@@ -30,3 +28,8 @@ sorting = "max-profit"
 failed_order_retries = 1
 drop_failed_orders = true
 
+[[builders]]
+name = "parallel"
+algo = "parallel-builder"
+discard_txs = true
+num_threads = 25

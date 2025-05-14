@@ -1,0 +1,64 @@
+[package]
+name = "eth-sparse-mpt"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+
+[dependencies]
+thiserror = "1.0.61"
+serde = { version = "1.0.203", features = ["derive"] }
+serde_json = "1.0.117"
+serde_with = "3.9.0"
+rustc-hash = "2.0.0"
+rayon = "1.10.0"
+smallvec = "1.13.2"
+
+# reth
+reth-errors.workspace = true
+reth-execution-errors.workspace = true
+reth-trie.workspace = true
+reth-trie-db.workspace = true
+reth-provider.workspace = true
+
+# revm
+revm.workspace = true
+
+# alloy
+alloy-primitives.workspace = true
+alloy-rlp.workspace = true
+alloy-trie.workspace = true
+
+# other
+parking_lot.workspace = true
+
+# test deps
+hash-db = { version = "0.15.2", optional = true }
+triehash = { version = "0.8.4", optional = true }
+flate2 = { workspace = true, optional = true }
+eyre = { workspace = true, optional = true}
+
+[features]
+benchmark-utils = ["dep:hash-db", "dep:triehash", "dep:flate2", "dep:eyre"]
+
+[dev-dependencies]
+criterion = { version = "0.4", features = ["html_reports"] }
+rand = { version = "0.8.5", features = ["small_rng"] }
+proptest = "1.5.0"
+eth-sparse-mpt = { path = ".", features = ["benchmark-utils"] }
+
+[[bench]]
+name = "trie_insert_bench"
+harness = false
+
+[[bench]]
+name = "trie_nodes_benches"
+harness = false
+
+[[bench]]
+name = "trie_example_bench"
+harness = false
+

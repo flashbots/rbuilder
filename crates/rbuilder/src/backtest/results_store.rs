@@ -6,6 +6,8 @@ use std::path::Path;
 
 const VERSION: i64 = 2;
 
+/// Storage of simulations (mainly BlockBacktestValue) to be able to compare different versions of our code
+/// Store via BacktestResultsStorage::store_backtest_results and load via BacktestResultsStorage::load_latest_backtest_result to compare.
 #[derive(Debug)]
 pub struct BacktestResultsStorage {
     conn: SqliteConnection,
@@ -77,12 +79,12 @@ impl BacktestResultsStorage {
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS backtest_results (
-                block INTERGER NOT NULL,
+                block INTEGER NOT NULL,
                 timestamp INTEGER NOT NULL,
                 rbuilder_version TEXT NOT NULL,
                 backtest_result TEXT NOT NULL
             );
-            
+
             CREATE TABLE IF NOT EXISTS version (
                 version INTEGER NOT NULL
             );
@@ -161,22 +163,26 @@ impl BacktestResultsStorage {
 mod tests {
     use super::*;
     use crate::backtest::execute::BacktestBuilderOutput;
-    use alloy_primitives::U256;
+
+    use crate::utils::test_utils::*;
+
     #[tokio::test]
     async fn test_store_backtest_result() {
         let backtest_value = BlockBacktestValue {
             block_number: 13,
-            winning_bid_value: U256::from(17u64),
+            winning_bid_value: u256(17),
             simulated_orders_count: 19,
             simulated_total_gas: 1000,
             filtered_orders_blocklist_count: 21,
             simulated_orders_with_refund: 22,
-            simulated_refunds_paid: U256::from(23u64),
+            simulated_refunds_paid: u256(23),
             extra_data: "extra".to_string(),
             builder_outputs: vec![BacktestBuilderOutput {
                 orders_included: 7,
                 builder_name: "builder".to_string(),
-                our_bid_value: U256::from(19u64),
+                our_bid_value: u256(19),
+                included_orders: vec![order_id(1)],
+                included_order_profits: vec![u256(100)],
             }],
         };
 

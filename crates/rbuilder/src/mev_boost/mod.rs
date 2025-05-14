@@ -1,26 +1,32 @@
+mod error;
 pub mod fake_mev_boost_relay;
 pub mod rpc;
 pub mod sign_payload;
+pub mod submission;
 
 use super::utils::u256decimal_serde_helper;
 
-use alloy_primitives::{Address, BlockHash, Bloom, Bytes, B256, U256};
-use ethereum_consensus::ssz::prelude::serialize;
+use alloy_primitives::{Address, BlockHash, Bytes, U256};
 use flate2::{write::GzEncoder, Compression};
+use itertools::Itertools;
 use primitive_types::H384;
 use reqwest::{
     header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_ENCODING, CONTENT_TYPE},
     Body, Response, StatusCode,
 };
-use reth::primitives::BlobTransactionSidecar;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
-use std::{io::Write, str::FromStr, sync::Arc};
-use thiserror::Error;
+use ssz::Encode;
+use std::{io::Write, str::FromStr};
+use submission::{SubmitBlockRequest, SubmitBlockRequestNoBlobs, SubmitBlockRequestWithMetadata};
 use url::Url;
 
-pub use rpc::*;
+pub use error::*;
 pub use sign_payload::*;
+
+const TOTAL_PAYMENT_HEADER: &str = "Total-Payment";
+const BUNDLE_HASHES_HEADER: &str = "Bundle-Hashes";
+const TOP_BID_HEADER: &str = "Top-Bid";
 
 const JSON_CONTENT_TYPE: &str = "application/json";
 const SSZ_CONTENT_TYPE: &str = "application/octet-stream";
@@ -28,6 +34,18 @@ const GZIP_CONTENT_ENCODING: &str = "gzip";
 
 const BUILDER_ID_HEADER: &str = "X-Builder-Id";
 const API_TOKEN_HEADER: &str = "X-Api-Token";
+
+/// We don't have nice error codes for relay errors so we have to parse looking for substrings :(
+/// Simulation error base.
+const SIM_FAILED_SUBSTRING: &str = "simulation failed";
+/// Any error containing SIM_FAILED_SUBSTRING and any of SIM_FAILED_NON_CRITICAL_ERRORS is not critical so we should not stop block building.
+const SIM_FAILED_NON_CRITICAL_ERRORS: &[&str] = &[
+    "blacklisted address", // Generated block is good but contains a blacklisted address. This happens if we don't use an blacklist but the relay does.
+    "unknown ancestor",
+    "missing trie node",
+    "parent block not found", // Generated from time to time from agnostic relay "simulation failed: parent block not found"
+    "block is too old, outside validation window", // Generated from time to time from agnostic relay in the end of the slot
+];
 
 // @Org consolidate with primitives::mev_boost
 
@@ -110,6 +128,9 @@ impl FromStr for KnownRelay {
     }
 }
 
+/// Client to access part of relay APIs. See:
+/// https://ethereum.github.io/builder-specs/#/Builder
+/// https://flashbots.github.io/relay-specs/
 #[derive(Debug, Clone)]
 pub struct RelayClient {
     url: Url,
@@ -207,48 +228,14 @@ pub struct ValidatorRegistration {
     pub signature: Bytes,
 }
 
-#[derive(Error, Debug)]
-pub enum RelayError {
-    #[error("Request error: {0}")]
-    RequestError(#[from] reqwest::Error),
-    #[error("Header error")]
-    InvalidHeader,
-    #[error("Relay error: {0}")]
-    RelayError(#[from] RelayErrorResponse),
-    #[error("Unknown relay response, status: {0}, body: {1}")]
-    UnknownRelayError(StatusCode, String),
-    #[error("Too many requests")]
-    TooManyRequests,
-    #[error("Connection error")]
-    ConnectionError,
-    #[error("Internal Error")]
-    InternalError,
-}
-
-#[derive(Error, Debug, Clone, Serialize, Deserialize)]
-pub struct RelayErrorResponse {
-    code: Option<u64>,
-    message: String,
-}
-
-impl std::fmt::Display for RelayErrorResponse {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Relay error: (code: {}, message: {})",
-            self.code.unwrap_or_default(),
-            self.message
-        )
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum RelayResponse<T> {
     Ok(T),
-    Error(RelayErrorResponse),
+    Error(RedactableRelayErrorResponse),
 }
 
+/// Info about a registered validator selected as proposer for a slot.
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Hash)]
 pub struct ValidatorSlotData {
@@ -257,21 +244,6 @@ pub struct ValidatorSlotData {
     #[serde_as(as = "DisplayFromStr")]
     pub validator_index: u64,
     pub entry: ValidatorRegistration,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
-pub struct TipTransaction {
-    pub gas_limit: U256,
-    pub from: Address,
-    pub to: Address,
-    pub pre_pay: U256,
-    pub after_pay: U256,
-    pub nonce: U256,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
-pub struct InclusionMetaData {
-    starting_block_number: U256,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -300,7 +272,7 @@ pub enum Error {
     TooManyProofs,
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(thiserror::Error)]
 pub enum SubmitBlockErr {
     #[error("Relay error: {0}")]
     RelayError(#[from] RelayError),
@@ -312,17 +284,31 @@ pub enum SubmitBlockErr {
     PayloadDelivered,
     #[error("Bid below floor")]
     BidBelowFloor,
-    #[error("Simulation Error")]
+    #[cfg_attr(not(feature = "redact-sensitive"), error("Simulation Error: {0}"))]
+    #[cfg_attr(feature = "redact-sensitive", error("Simulation Error: [REDACTED]"))]
     SimError(String),
     #[error("RPC conversion Error")]
     /// RPC validates the submissions (eg: limit of txs) much more that our model.
-    RPCConversionError(rpc::Error),
-    #[error("RPC serialization failed {0}")]
+    RPCConversionError(Error),
+    #[cfg_attr(
+        not(feature = "redact-sensitive"),
+        error("RPC serialization failed: {0}")
+    )]
+    #[cfg_attr(
+        feature = "redact-sensitive",
+        error("RPC serialization failed: [REDACTED]")
+    )]
     RPCSerializationError(String),
     #[error("Invalid header")]
     InvalidHeader,
     #[error("Block known")]
     BlockKnown,
+}
+
+impl std::fmt::Debug for SubmitBlockErr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self)
+    }
 }
 
 // Data API
@@ -440,6 +426,8 @@ impl RelayClient {
         }
     }
 
+    /// Calls /relay/v1/builder/validators to get "validator registrations for validators scheduled to propose in the current and next epoch."
+    /// The result will contain the validators for each slot.
     pub async fn get_current_epoch_validators(&self) -> Result<Vec<ValidatorSlotData>, RelayError> {
         let url = {
             let mut url = self.url.clone();
@@ -466,35 +454,46 @@ impl RelayClient {
     }
 
     /// Mainly takes care of ssz/json raw/gzip
-    #[allow(clippy::too_many_arguments)]
     async fn call_relay_submit_block(
         &self,
-        data: &SubmitBlockRequest,
+        submission_with_metadata: &SubmitBlockRequestWithMetadata,
         ssz: bool,
         gzip: bool,
+        fake_relay: bool,
+        cancellations: bool,
     ) -> Result<Response, SubmitBlockErr> {
         let url = {
             let mut url = self.url.clone();
             url.set_path("/relay/v1/builder/blocks");
+            url.query_pairs_mut()
+                .append_pair("cancellations", if cancellations { "1" } else { "0" });
             url
         };
-
-        let data =
-            marshal_submit_block_request(data).map_err(SubmitBlockErr::RPCConversionError)?;
 
         let mut builder = self.client.post(url.clone());
         let mut headers = HeaderMap::new();
         // SSZ vs JSON
         let (mut body_data, content_type) = if ssz {
             (
-                serialize(&data)
-                    .map_err(|e| SubmitBlockErr::RPCSerializationError(e.to_string()))?,
+                match &submission_with_metadata.submission {
+                    SubmitBlockRequest::Capella(data) => data.0.as_ssz_bytes(),
+                    SubmitBlockRequest::Deneb(data) => data.0.as_ssz_bytes(),
+                    SubmitBlockRequest::Electra(data) => data.0.as_ssz_bytes(),
+                },
                 SSZ_CONTENT_TYPE,
             )
         } else {
+            let json_result = if fake_relay {
+                // For the fake relay we remove the blobs
+                serde_json::to_vec(&SubmitBlockRequestNoBlobs(
+                    &submission_with_metadata.submission,
+                ))
+            } else {
+                serde_json::to_vec(&submission_with_metadata.submission)
+            };
+
             (
-                serde_json::to_vec(&data)
-                    .map_err(|e| SubmitBlockErr::RPCSerializationError(e.to_string()))?,
+                json_result.map_err(|e| SubmitBlockErr::RPCSerializationError(e.to_string()))?,
                 JSON_CONTENT_TYPE,
             )
         };
@@ -502,7 +501,7 @@ impl RelayClient {
         self.add_auth_headers(&mut headers)
             .map_err(|_| SubmitBlockErr::InvalidHeader)?;
 
-        //GZIP
+        // GZIP
         if gzip {
             headers.insert(
                 CONTENT_ENCODING,
@@ -518,18 +517,64 @@ impl RelayClient {
         }
 
         builder = builder.headers(headers).body(Body::from(body_data));
+        if fake_relay {
+            builder = builder.header(
+                TOTAL_PAYMENT_HEADER,
+                submission_with_metadata
+                    .metadata
+                    .value
+                    .coinbase_reward
+                    .to_string(),
+            );
+            if let Some(top_competitor_bid) =
+                submission_with_metadata.metadata.value.top_competitor_bid
+            {
+                builder = builder.header(TOP_BID_HEADER, top_competitor_bid.to_string());
+            }
+            if !submission_with_metadata.metadata.order_ids.is_empty() {
+                const MAX_BUNDLE_IDS: usize = 150;
+                let bundle_ids: Vec<_> = submission_with_metadata
+                    .metadata
+                    .order_ids
+                    .iter()
+                    .filter_map(|or| match or {
+                        crate::primitives::OrderId::Tx(_fixed_bytes) => None,
+                        crate::primitives::OrderId::Bundle(uuid) => Some(uuid),
+                        crate::primitives::OrderId::ShareBundle(_fixed_bytes) => None,
+                    })
+                    .collect();
+                let total_bundles = bundle_ids.len();
+                let mut bundle_ids = bundle_ids
+                    .iter()
+                    .take(MAX_BUNDLE_IDS)
+                    .map(|uuid| format!("{:?}", uuid));
+                let bundle_ids = if total_bundles > MAX_BUNDLE_IDS {
+                    bundle_ids.join(",") + ",CAPPED"
+                } else {
+                    bundle_ids.join(",")
+                };
+                builder = builder.header(BUNDLE_HASHES_HEADER, bundle_ids);
+            }
+        }
 
-        Ok(builder.send().await.map_err(RelayError::RequestError)?)
+        Ok(builder
+            .send()
+            .await
+            .map_err(|e| RelayError::RequestError(e.into()))?)
     }
 
-    #[allow(clippy::too_many_arguments)]
+    /// Submits the block (call_relay_submit_block) and processes some special errors.
     pub async fn submit_block(
         &self,
-        data: &SubmitBlockRequest,
+        data: &SubmitBlockRequestWithMetadata,
         ssz: bool,
         gzip: bool,
+        fake_relay: bool,
+        cancellations: bool,
     ) -> Result<(), SubmitBlockErr> {
-        let resp = self.call_relay_submit_block(data, ssz, gzip).await?;
+        let resp = self
+            .call_relay_submit_block(data, ssz, gzip, fake_relay, cancellations)
+            .await?;
         let status = resp.status();
 
         if status == StatusCode::TOO_MANY_REQUESTS {
@@ -539,7 +584,10 @@ impl RelayClient {
             return Err(RelayError::ConnectionError.into());
         }
 
-        let data = resp.bytes().await.map_err(RelayError::RequestError)?;
+        let data = resp
+            .bytes()
+            .await
+            .map_err(|e| RelayError::RequestError(e.into()))?;
 
         if status == StatusCode::OK && data.as_ref() == b"" {
             return Ok(());
@@ -564,8 +612,11 @@ impl RelayClient {
                     }
                     "block already received" => Err(SubmitBlockErr::BlockKnown),
                     _ if msg.contains("read tcp") => Err(RelayError::ConnectionError.into()),
-                    _ if msg.contains("simulation failed") => {
-                        if msg.contains("unknown ancestor") | msg.contains("missing trie node") {
+                    _ if msg.contains(SIM_FAILED_SUBSTRING) => {
+                        if SIM_FAILED_NON_CRITICAL_ERRORS
+                            .iter()
+                            .any(|pat| msg.contains(*pat))
+                        {
                             Err(RelayError::InternalError.into())
                         } else {
                             Err(SubmitBlockErr::SimError(msg.to_string()))
@@ -609,107 +660,11 @@ impl RelayClient {
     }
 }
 
-#[serde_as]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct BidTrace {
-    #[serde_as(as = "DisplayFromStr")]
-    pub slot: u64,
-    pub parent_hash: BlockHash,
-    pub block_hash: BlockHash,
-    pub builder_pubkey: H384,
-    pub proposer_pubkey: H384,
-    pub proposer_fee_recipient: Address,
-    #[serde_as(as = "DisplayFromStr")]
-    pub gas_limit: u64,
-    #[serde_as(as = "DisplayFromStr")]
-    pub gas_used: u64,
-    #[serde(with = "u256decimal_serde_helper")]
-    pub value: U256,
-}
-
-#[serde_as]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct CapellaExecutionPayload {
-    pub parent_hash: BlockHash,
-    pub fee_recipient: Address,
-    pub state_root: B256,
-    pub receipts_root: B256,
-    pub logs_bloom: Bloom,
-    pub prev_randao: B256,
-    #[serde_as(as = "DisplayFromStr")]
-    pub block_number: u64,
-    #[serde_as(as = "DisplayFromStr")]
-    pub gas_limit: u64,
-    #[serde_as(as = "DisplayFromStr")]
-    pub gas_used: u64,
-    #[serde_as(as = "DisplayFromStr")]
-    pub timestamp: u64,
-    pub extra_data: Bytes,
-    #[serde(with = "u256decimal_serde_helper")]
-    pub base_fee_per_gas: U256,
-    pub block_hash: BlockHash,
-    pub transactions: Vec<Bytes>,
-    pub withdrawals: Vec<Withdrawal>,
-}
-
-#[serde_as]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DenebExecutionPayload {
-    #[serde(flatten)]
-    pub capella_payload: CapellaExecutionPayload,
-    #[serde_as(as = "DisplayFromStr")]
-    pub blob_gas_used: u64,
-    #[serde_as(as = "DisplayFromStr")]
-    pub excess_blob_gas: u64,
-}
-
-#[serde_as]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Withdrawal {
-    #[serde_as(as = "DisplayFromStr")]
-    index: u64,
-    #[serde_as(as = "DisplayFromStr")]
-    validator_index: u64,
-    address: Address,
-    #[serde_as(as = "DisplayFromStr")]
-    amount: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct CapellaSubmitBlockRequest {
-    pub message: BidTrace,
-    pub execution_payload: CapellaExecutionPayload,
-    pub signature: Bytes,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DenebSubmitBlockRequest {
-    pub message: BidTrace,
-    pub execution_payload: DenebExecutionPayload,
-    /// Sidecars for the txs included in execution_payload
-    pub txs_blobs_sidecars: Vec<Arc<BlobTransactionSidecar>>,
-    pub signature: Bytes,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(untagged)]
-pub enum SubmitBlockRequest {
-    Capella(CapellaSubmitBlockRequest),
-    Deneb(DenebSubmitBlockRequest),
-}
-
-impl SubmitBlockRequest {
-    pub fn bid_trace(&self) -> BidTrace {
-        match self {
-            SubmitBlockRequest::Capella(req) => req.message.clone(),
-            SubmitBlockRequest::Deneb(req) => req.message.clone(),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use submission::{BidMetadata, BidValueMetadata};
+
+    use super::{rpc::TestDataGenerator, *};
     use crate::mev_boost::fake_mev_boost_relay::FakeMevBoostRelay;
 
     use std::str::FromStr;
@@ -841,6 +796,7 @@ mod tests {
         println!("result[0]: {:#?}", result[0]);
     }
 
+    #[ignore]
     #[tokio::test]
     async fn test_send_payload_to_mevboost() {
         let srv = match FakeMevBoostRelay::new().spawn() {
@@ -855,9 +811,19 @@ mod tests {
 
         let relay_url = Url::from_str(&srv.endpoint()).unwrap();
         let relay = RelayClient::from_url(relay_url, None, None, None);
-        let sub_relay = SubmitBlockRequest::Deneb(generator.create_deneb_submit_block_request());
+        let submission = SubmitBlockRequest::Deneb(generator.create_deneb_submit_block_request());
+        let sub_relay = SubmitBlockRequestWithMetadata {
+            submission,
+            metadata: BidMetadata {
+                value: BidValueMetadata {
+                    coinbase_reward: Default::default(),
+                    top_competitor_bid: None,
+                },
+                order_ids: vec![],
+            },
+        };
         relay
-            .submit_block(&sub_relay, true, true)
+            .submit_block(&sub_relay, true, true, false, false)
             .await
             .expect("OPS!");
     }

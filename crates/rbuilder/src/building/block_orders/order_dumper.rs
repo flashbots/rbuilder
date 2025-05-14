@@ -1,12 +1,12 @@
 //! Soon to be replaced my mockall
 
-use std::collections::VecDeque;
+use std::{collections::VecDeque, sync::Arc};
 
 use crate::primitives::{OrderId, SimulatedOrder};
 
 use super::SimulatedOrderSink;
 pub enum OrderStoreAction {
-    Insert(SimulatedOrder),
+    Insert(Arc<SimulatedOrder>),
     Remove(OrderId),
 }
 
@@ -20,11 +20,11 @@ pub struct OrderDumper {
 }
 
 impl SimulatedOrderSink for OrderDumper {
-    fn insert_order(&mut self, order: SimulatedOrder) {
+    fn insert_order(&mut self, order: Arc<SimulatedOrder>) {
         self.actions.push_back(OrderStoreAction::Insert(order));
     }
 
-    fn remove_order(&mut self, id: OrderId) -> Option<SimulatedOrder> {
+    fn remove_order(&mut self, id: OrderId) -> Option<Arc<SimulatedOrder>> {
         self.actions.push_back(OrderStoreAction::Remove(id));
         None
     }
@@ -40,7 +40,7 @@ impl Drop for OrderDumper {
 impl OrderDumper {
     /// # Panics
     /// empty or first not insert
-    pub fn pop_insert(&mut self) -> SimulatedOrder {
+    pub fn pop_insert(&mut self) -> Arc<SimulatedOrder> {
         if self.actions.is_empty() {
             panic!("No actions, expected insert");
         }

@@ -1,6 +1,6 @@
+use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
 use beacon_api_client::{mainnet::Client as bClient, Error, Topic};
 use mev_share_sse::client::EventStream;
-use reth::rpc::types::beacon::events::PayloadAttributesEvent;
 use serde::Deserialize;
 use std::{collections::HashMap, fmt::Debug};
 use url::Url;

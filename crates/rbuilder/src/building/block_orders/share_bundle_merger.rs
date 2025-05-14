@@ -3,6 +3,7 @@ use std::{
     cmp::Ordering,
     collections::{hash_map::Entry, BTreeMap},
     rc::Rc,
+    sync::Arc,
 };
 
 use ahash::HashMap;
@@ -20,7 +21,7 @@ use super::SimulatedOrderSink;
 #[derive(Debug, Clone)]
 struct BrokenDownShareBundle {
     /// sim order containing the ShareBundle as received
-    sim_order: SimulatedOrder,
+    sim_order: Arc<SimulatedOrder>,
     /// hash of the user inner bundle. This is the identity of the user txs
     user_bundle_hash: B256,
     /// extracted from self.sbundle.sim_value.paid_kickbacks
@@ -107,7 +108,7 @@ impl<SinkType: SimulatedOrderSink> MultiBackrunManager<SinkType> {
 
     /// Merge all orders in a single ShareBundle containing all other ShareBundle as skippable items.
     /// All other info for the SimulatedOrder is taken from the first ShareBundle.
-    fn merge_orders(&self) -> Option<SimulatedOrder> {
+    fn merge_orders(&self) -> Option<Arc<SimulatedOrder>> {
         if self.sorted_orders.is_empty() {
             return None;
         }
@@ -118,7 +119,7 @@ impl<SinkType: SimulatedOrderSink> MultiBackrunManager<SinkType> {
         let mut original_orders = Vec::new();
         for broken_order in self.sorted_orders.values() {
             if let Some(sbundle) = broken_order.sbundle() {
-                let mut inner_bundle = sbundle.inner_bundle.clone();
+                let mut inner_bundle = sbundle.inner_bundle().clone();
                 inner_bundle.can_skip = true;
                 inner_bundle.original_order_id = Some(broken_order.sim_order.id());
                 body.push(ShareBundleBody::Bundle(inner_bundle));
@@ -133,24 +134,21 @@ impl<SinkType: SimulatedOrderSink> MultiBackrunManager<SinkType> {
             can_skip: false,
             original_order_id: None,
         };
-        let mut sbundle = ShareBundle {
-            hash: Default::default(),
-            block: highest_payback_order_bundle.block,
-            max_block: highest_payback_order_bundle.max_block,
+        let sbundle = ShareBundle::new(
+            highest_payback_order_bundle.block,
+            highest_payback_order_bundle.max_block,
             inner_bundle,
-            signer: highest_payback_order_bundle.signer,
-            replacement_data: None, //replacement_data get lost since we merge many sbundles
+            highest_payback_order_bundle.signer,
+            None, //replacement_data get lost since we merge many sbundles
             original_orders,
             // We take parent order submission time
-            metadata: highest_payback_order.sim_order.order.metadata().clone(),
-        };
-        sbundle.hash_slow();
-        Some(SimulatedOrder {
+            highest_payback_order.sim_order.order.metadata().clone(),
+        );
+        Some(Arc::new(SimulatedOrder {
             order: Order::ShareBundle(sbundle),
             sim_value: highest_payback_order.sim_order.sim_value.clone(),
-            prev_order: None,
             used_state_trace: highest_payback_order.sim_order.used_state_trace.clone(),
-        })
+        }))
     }
 
     /// On changes calls regenerate_multi_order
@@ -167,7 +165,7 @@ impl<SinkType: SimulatedOrderSink> MultiBackrunManager<SinkType> {
     }
 
     /// On changes calls regenerate_multi_order
-    fn remove_order(&mut self, id: OrderId) -> Option<SimulatedOrder> {
+    fn remove_order(&mut self, id: OrderId) -> Option<Arc<SimulatedOrder>> {
         let user_kickback = self.order_kickbacks.remove(&id).or_else(|| {
             error!(order_id = ?id, "remove_order for not inserted order");
             None
@@ -181,7 +179,7 @@ impl<SinkType: SimulatedOrderSink> MultiBackrunManager<SinkType> {
             self.regenerate_multi_order();
             return Some(order.sim_order);
         }
-        error!("sorted order not found for {:?}", key);
+        error!(?key, "sorted order not found");
         None
     }
 
@@ -198,10 +196,7 @@ impl<SinkType: SimulatedOrderSink> MultiBackrunManager<SinkType> {
         }
         let merged_order = self.merge_orders();
         if merged_order.is_none() {
-            error!(
-                "Failed to generate order for user bundle {:?}",
-                self.user_bundle_hash
-            );
+            error!(bundle_hash = ?self.user_bundle_hash, "Failed to generate order for user bundle");
             return;
         }
         let merged_order = merged_order.unwrap();
@@ -214,12 +209,12 @@ impl<SinkType: SimulatedOrderSink> MultiBackrunManager<SinkType> {
 /// We expect 2 types of sbundles:
 /// - UserTxs: It contains only top level tx with no refund since there is no backrun.  (see [`ShareBundleMerger::break_down_user_tx_bundle`] for a clearer definition)
 /// - Backruns: It contains a sub bundle with the user txs followed by backrunner sub bundles. (see [`ShareBundleMerger::break_down_backrun_bundle`] for a clearer definition)
-/// Merging example: SBundle(Bundle(tx)+br1) + SBundle(Bundle(tx)+br2) will become SBundle(Bundle(Bundle(tx)+br1),Bundle(Bundle(tx)+br2)).
-/// User Bundle may contain more that one tx (for the case approve + swap).
-/// This means what when we insert/remove orders (sbundles) we insert/remove the virtual bundles we generate and and not the original orders.
-/// We ONLY use this special flow for orders with some particular structure (see [`ShareBundleMerger::break_down_bundle`]).
-/// SBundle not complying with that will pass through and use the standard handling.
-/// @Pending evaluate if we can avoid to send changes no every order update and "flush" changes all together (since orders are usually processed on batches)
+///   Merging example: SBundle(Bundle(tx)+br1) + SBundle(Bundle(tx)+br2) will become SBundle(Bundle(Bundle(tx)+br1),Bundle(Bundle(tx)+br2)).
+///   User Bundle may contain more that one tx (for the case approve + swap).
+///   This means what when we insert/remove orders (sbundles) we insert/remove the virtual bundles we generate and not the original orders.
+///   We ONLY use this special flow for orders with some particular structure (see [`ShareBundleMerger::break_down_bundle`]).
+///   SBundle not complying with that will pass through and use the standard handling.
+///   @Pending evaluate if we can avoid to send changes no every order update and "flush" changes all together (since orders are usually processed on batches)
 #[derive(Debug)]
 pub struct ShareBundleMerger<SinkType> {
     /// user_tx -> MultiBackrunManagers
@@ -268,14 +263,14 @@ impl<SinkType: SimulatedOrderSink> ShareBundleMerger<SinkType> {
     const USER_BUNDLE_INDEX: usize = 0;
     /// Tries to analyze if the order is a mergeable sbundle by looking at its structure to check if this is a user txs or a backrun sbundle
     /// Only check here is if Signer is in selected_signers
-    fn break_down_bundle(&self, order: &SimulatedOrder) -> Option<BrokenDownShareBundle> {
-        let sbundle = if let Order::ShareBundle(sbundle) = order.order.clone() {
+    fn break_down_bundle(&self, order: &Arc<SimulatedOrder>) -> Option<BrokenDownShareBundle> {
+        let sbundle = if let Order::ShareBundle(sbundle) = &order.order {
             sbundle
         } else {
             return None;
         };
-        let first_item = sbundle.inner_bundle.body.first().or_else(|| {
-            error!("Empty sbundle {:?}", sbundle);
+        let first_item = sbundle.inner_bundle().body.first().or_else(|| {
+            error!(?sbundle, "Empty sbundle");
             None
         })?;
 
@@ -287,11 +282,11 @@ impl<SinkType: SimulatedOrderSink> ShareBundleMerger<SinkType> {
 
     /// This should contain only ShareBundleBody::Tx with no refund (but it can contain refund_info)
     fn break_down_user_tx_bundle(
-        sbundle: ShareBundle,
-        sim_order: &SimulatedOrder,
+        sbundle: &ShareBundle,
+        sim_order: &Arc<SimulatedOrder>,
     ) -> Option<BrokenDownShareBundle> {
         let got_bundles = sbundle
-            .inner_bundle
+            .inner_bundle()
             .body
             .iter()
             .any(|item| matches!(item, ShareBundleBody::Bundle(_)));
@@ -301,7 +296,7 @@ impl<SinkType: SimulatedOrderSink> ShareBundleMerger<SinkType> {
             );
             return None;
         }
-        if !sbundle.inner_bundle.refund.is_empty() {
+        if !sbundle.inner_bundle().refund.is_empty() {
             warn!(hash = ?sbundle.hash,
                 "sbundle for user txs should not contain refunds"
             );
@@ -318,11 +313,11 @@ impl<SinkType: SimulatedOrderSink> ShareBundleMerger<SinkType> {
     /// - Must contain one refund pointing to the user bundle.
     /// - The first (USER_BUNDLE_INDEX) item (the user bundle) should be a sub bundle with no refund.
     fn break_down_backrun_bundle(
-        sbundle: ShareBundle,
-        sim_order: &SimulatedOrder,
+        sbundle: &ShareBundle,
+        sim_order: &Arc<SimulatedOrder>,
     ) -> Option<BrokenDownShareBundle> {
-        let user_bundle_hash = Self::check_and_get_user_bundle_hash_from_backrun(&sbundle)?;
-        if !Self::check_refunds_from_backrun_ok(&sbundle) {
+        let user_bundle_hash = Self::check_and_get_user_bundle_hash_from_backrun(sbundle)?;
+        if !Self::check_refunds_from_backrun_ok(sbundle) {
             return None;
         }
         let mut user_kickback = U256::ZERO;
@@ -339,7 +334,7 @@ impl<SinkType: SimulatedOrderSink> ShareBundleMerger<SinkType> {
     /// Checks also that it contains no refund stuff
     fn check_and_get_user_bundle_hash_from_backrun(sbundle: &ShareBundle) -> Option<B256> {
         let user_bundle = sbundle
-            .inner_bundle
+            .inner_bundle()
             .body
             .get(Self::USER_BUNDLE_INDEX)
             .or_else(|| {
@@ -371,15 +366,15 @@ impl<SinkType: SimulatedOrderSink> ShareBundleMerger<SinkType> {
 
     /// - Have a single inner_bundle.refund (user tx) with body_idx == 0
     fn check_refunds_from_backrun_ok(sbundle: &ShareBundle) -> bool {
-        if sbundle.inner_bundle.refund.len() != 1 {
+        if sbundle.inner_bundle().refund.len() != 1 {
             warn!(
                 hash = ?sbundle.hash,
                 "sbundle should have a single refund but has {}",
-                sbundle.inner_bundle.refund.len()
+                sbundle.inner_bundle().refund.len()
             );
             return false;
         }
-        let first_body_idx = sbundle.inner_bundle.refund[0].body_idx;
+        let first_body_idx = sbundle.inner_bundle().refund[0].body_idx;
         if first_body_idx != Self::USER_BUNDLE_INDEX {
             warn!(
                 hash = ?sbundle.hash,
@@ -396,7 +391,7 @@ impl<SinkType: SimulatedOrderSink> ShareBundleMerger<SinkType> {
 impl<SinkType: SimulatedOrderSink> SimulatedOrderSink for ShareBundleMerger<SinkType> {
     /// if we can manage the SimulatedOrder send it to the MultiBackrunManager
     /// if not just forward downstream
-    fn insert_order(&mut self, order: SimulatedOrder) {
+    fn insert_order(&mut self, order: Arc<SimulatedOrder>) {
         if let Some(broken_down_sbundle) = self.break_down_bundle(&order) {
             let handler = self
                 .multi_backrun_managers
@@ -414,7 +409,7 @@ impl<SinkType: SimulatedOrderSink> SimulatedOrderSink for ShareBundleMerger<Sink
     }
 
     /// give to handler or forward downstream
-    fn remove_order(&mut self, id: OrderId) -> Option<SimulatedOrder> {
+    fn remove_order(&mut self, id: OrderId) -> Option<Arc<SimulatedOrder>> {
         match self.order_id_2_multi_backrun_managers.entry(id) {
             Entry::Occupied(handler) => handler.get().borrow_mut().remove_order(id),
             Entry::Vacant(_) => self.order_sink.borrow_mut().remove_order(id),
@@ -460,11 +455,12 @@ mod test {
     /// more than a inner_bundle.refund should pass as is
     fn test_2_refunds() {
         let mut context = new_test_context();
-        let mut sbundle = context.create_sbundle_tx_br();
-        sbundle
-            .inner_bundle
+        let sbundle = context.create_sbundle_tx_br();
+        let mut new_inner_bundle = sbundle.inner_bundle().clone();
+        new_inner_bundle
             .refund
-            .push(sbundle.inner_bundle.refund[0].clone());
+            .push(sbundle.inner_bundle().refund[0].clone());
+        let sbundle = sbundle.with_inner_bundle(new_inner_bundle);
         context.assert_passes_as_is(Order::ShareBundle(sbundle));
     }
 

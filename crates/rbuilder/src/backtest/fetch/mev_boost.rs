@@ -1,6 +1,6 @@
 use crate::{
     mev_boost::{BuilderBlockReceived, RelayClient, RelayError, RELAYS},
-    primitives::mev_boost::{MevBoostRelay, MevBoostRelayID},
+    primitives::mev_boost::{MevBoostRelayID, MevBoostRelaySlotInfoProvider},
 };
 use futures::{stream::FuturesUnordered, StreamExt};
 use std::collections::HashMap;
@@ -22,26 +22,23 @@ impl PayloadDeliveredResult {
     }
 }
 
+/// Struct that allows to get the delivered payloads for a block from several relays via RPC using [RelayClient]
 #[derive(Debug, Clone)]
 pub struct PayloadDeliveredFetcher {
     relays: HashMap<MevBoostRelayID, RelayClient>,
 }
 
+/// Uses some predefined relays ([RELAYS])
 impl Default for PayloadDeliveredFetcher {
     fn default() -> Self {
         let relays = RELAYS
             .clone()
             .into_iter()
             .map(|r| {
-                MevBoostRelay {
-                    id: r.name(),
-                    client: RelayClient::from_known_relay(r),
-                    priority: 0,
-                    use_ssz_for_submit: false, //Don't use submit so don't care
-                    use_gzip_for_submit: false, //Don't use submit so don't care
-                    optimistic: false,
-                    submission_rate_limiter: None,
-                }
+                MevBoostRelaySlotInfoProvider::new(
+                    RelayClient::from_known_relay(r.clone()),
+                    r.name(),
+                )
             })
             .collect::<Vec<_>>();
 
@@ -50,10 +47,10 @@ impl Default for PayloadDeliveredFetcher {
 }
 
 impl PayloadDeliveredFetcher {
-    pub fn from_relays(relays: &[MevBoostRelay]) -> Self {
+    pub fn from_relays(relays: &[MevBoostRelaySlotInfoProvider]) -> Self {
         let mut result = HashMap::new();
-        for relay in relays.iter().cloned() {
-            result.insert(relay.id, relay.client);
+        for relay in relays {
+            result.insert(relay.id().clone(), relay.client());
         }
         Self { relays: result }
     }

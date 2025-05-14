@@ -4,13 +4,14 @@ use crate::preconf::{
     PreconfReservedInfo, PreconfState,
 };
 use crate::primitives::{
-    Bundle, BundleReplacementData, BundleReplacementKey, Metadata, Order,
+    Bundle, BundleReplacementData, BundleReplacementKey, BundleVersion, Metadata, Order,
     TransactionSignedEcRecoveredWithBlobs,
 };
 use alloy_primitives::{hex, keccak256, Bytes, B256};
-use ethers::core::k256::ecdsa::SigningKey;
-use ethers::prelude::transaction::eip712::TypedData;
-use ethers::signers::{Signer, Wallet};
+use alloy_dyn_abi::eip712::TypedData;
+use alloy_signer::Signer;
+use alloy_signer_local::PrivateKeySigner;
+
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, USER_AGENT};
 use reqwest::Response;
 use serde::{Deserialize, Serialize};
@@ -56,31 +57,31 @@ struct LoginResponse {
 // struct EIP712Message {
 //     types: EIP712Types,
 //     primary_type: String,
-//     message: Message,
+//     message: TypedMessage,
 //     domain: Domain,
 // }
-
+//
 // #[derive(Debug, Deserialize)]
 // struct EIP712Types {
 //     #[serde(rename = "EIP712Domain")]
 //     eip712_domain: Vec<Field>,
 //     data: Vec<Field>,
 // }
-
+//
 // #[derive(Debug, Deserialize)]
 // struct Field {
 //     name: String,
 //     #[serde(rename = "type")]
 //     field_type: String,
 // }
-
+//
 // #[derive(Debug, Deserialize)]
-// struct Message {
+// struct TypedMessage {
 //     hash: String,
 //     message: String,
 //     domain: String,
 // }
-
+//
 // #[derive(Debug, Deserialize)]
 // #[serde(rename_all = "camelCase")]
 // struct Domain {
@@ -250,8 +251,8 @@ impl PreconfApiClient {
                 AUTHORIZATION,
                 HeaderValue::from_str(authorization_header.as_str()).unwrap(),
             );
-            headers.insert(USER_AGENT, HeaderValue::from_str("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36").unwrap());
         }
+        headers.insert(USER_AGENT, HeaderValue::from_str("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36").unwrap());
         headers
     }
 
@@ -268,24 +269,20 @@ impl PreconfApiClient {
 
     pub async fn login(&mut self) -> bool {
         let mut is_logged_in = false;
-        let wallet: Wallet<SigningKey> =
-            match Wallet::from_bytes(&hex::hex::decode(self.relay_secret_key.as_str()).unwrap()) {
-                Ok(wallet) => wallet,
-                Err(e) => {
-                    error!("Failed to create wallet: {}", e);
-                    return is_logged_in;
-                }
-            };
-        let address = format!("0x{:x}", wallet.address());
+
+        let secret_key_bytes = hex::decode(self.relay_secret_key.as_str())
+            .expect("Failed to decode secret key for preconf login");
+        let signer: PrivateKeySigner = PrivateKeySigner::from_slice(secret_key_bytes.as_ref())
+            .expect("Failed to create signer from secret key for preconf login");
+        let address = format!("0x{:x}", signer.address());
+        let login_headers = self.get_headers().await;
 
         let login_url = format!("{}api/v1/user/login", self.api_url);
-
         let login_response = match self
             .client
             .post(&login_url)
-            .form(&[
-                ("addr", address.as_str()),
-            ])
+            .headers(login_headers)
+            .form(&[("addr", address.clone())])
             .send()
             .await
         {
@@ -308,20 +305,23 @@ impl PreconfApiClient {
                 if !login_resp.nonce_hash.is_empty() && !login_resp.eip712_message.is_empty() {
                     let eip712_msg: TypedData = serde_json::from_str(&login_resp.eip712_message)
                         .expect("Failed to parse EIP712 message into typed data");
-                    let signature = wallet
-                        .sign_typed_data(&eip712_msg)
+                    let signature = signer
+                        .sign_dynamic_typed_data(&eip712_msg)
                         .await
-                        .expect("Failed to sign message");
-                    // debug!("Generated signature: {}", signature);
+                        .expect("Failed to sign EIP712 message");
+                    let signature_hex_str = format!("0x{}", hex::encode(signature.as_bytes()));
+                    let verify_headers = self.get_headers().await;
+                    // debug!("Generated signature: {}", signature_hex_str);
 
                     // Send the signature back to complete verification
                     let verify_response = match self
                         .client
                         .post(format!("{}api/v1/user/login/verify", self.api_url))
+                        .headers(verify_headers)
                         .form(&[
-                            ("addr", address.as_str()),
-                            ("signature", &signature.to_string()),
-                            ("nonceHash", &login_resp.nonce_hash),
+                            ("addr", address.clone()),
+                            ("signature", signature_hex_str),
+                            ("nonceHash", login_resp.nonce_hash),
                         ])
                         .send()
                         .await
@@ -336,7 +336,7 @@ impl PreconfApiClient {
                     if verify_response.status().is_success() {
                         let (refresh_token, refresh_token_exp) =
                             self.extract_refresh_token(&verify_response);
-                        trace!("Refresh token: {:?}", refresh_token);
+                        trace!("refresh token: {:?}", refresh_token);
                         if let ApiData::Verify(verify_resp) = verify_response
                             .json::<ApiResponse>()
                             .await
@@ -426,11 +426,13 @@ impl PreconfApiClient {
                 return;
             }
         }
+        let refresh_headers = self.get_headers().await;
         let refresh_url = format!("{}api/v1/user/login/refresh", self.api_url);
         let refresh_token = self.refresh_token.clone().unwrap();
         let refresh_response = self
             .client
             .post(&refresh_url)
+            .headers(refresh_headers)
             .form(&[("refreshToken", refresh_token.as_str())])
             .send()
             .await
@@ -540,8 +542,10 @@ impl PreconfApiClient {
             "{}api/v1/slot/bundles?slot={}",
             self.api_url, preconf_info.slot
         );
-        let headers = self.get_headers().await;
-        match self.client.get(&url).headers(headers).send().await {
+        let get_headers = self.get_headers().await;
+        match self.client.get(&url)
+            .headers(get_headers)
+            .send().await {
             Ok(response) => {
                 match response.json::<ApiResponse>().await {
                     Ok(resp) => {
@@ -670,7 +674,7 @@ fn generate_order_from_api_preconf(
         .collect();
 
     let replacement_data = BundleReplacementData {
-        key: BundleReplacementKey::new(bundle_uuid, signer.unwrap()),
+        key: BundleReplacementKey::new(bundle_uuid, Some(signer.unwrap())),
         sequence_number: 0,
     };
     let bundle_hash = keccak256(raw_bundle_hash);
@@ -681,16 +685,19 @@ fn generate_order_from_api_preconf(
             metadata.preconf_bid_price = Some(p);
             metadata.preconf_ordering = Some(preconf_ordering);
             Ok(Order::Bundle(Bundle {
-                block,
+                version: BundleVersion::V1,
+                block: Some(block),
                 min_timestamp: Some(timestamp),
                 max_timestamp: None,
                 txs: trxs,
                 reverting_tx_hashes,
+                dropping_tx_hashes: vec![],
                 hash: bundle_hash,
                 uuid: bundle_uuid,
                 replacement_data: Some(replacement_data),
                 signer,
                 metadata,
+                refund: None,
             }))
         }
         Err(e) => Err(PreconfError::PreconfConvertError(format!(

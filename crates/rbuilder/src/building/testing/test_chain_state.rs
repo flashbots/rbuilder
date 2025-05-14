@@ -1,25 +1,29 @@
-use ahash::HashSet;
-use alloy_primitives::{keccak256, utils::parse_ether, Address, BlockHash, Bytes, B256, U256};
+use crate::{
+    building::BlockBuildingContext,
+    live_builder::block_list_provider::BlockList,
+    provider::RootHasher,
+    roothash::RootHashContext,
+    utils::{RootHasherImpl, Signer},
+};
+use alloy_consensus::{Block, Header, TxEip1559};
+use alloy_primitives::{
+    keccak256, utils::parse_ether, Address, BlockHash, Bytes, TxKind as TransactionKind, B256, B64,
+    U256,
+};
+use alloy_rpc_types_beacon::events::{PayloadAttributesData, PayloadAttributesEvent};
 use lazy_static::lazy_static;
 use reth::{
-    primitives::{
-        Account, BlockBody, Bytecode, ChainSpec, Header, SealedBlock, TransactionKind,
-        TransactionSignedEcRecovered, TxEip1559, MAINNET,
-    },
-    providers::{test_utils::create_test_provider_factory, ProviderFactory},
-    rpc::types::{
-        beacon::events::{PayloadAttributesData, PayloadAttributesEvent},
-        engine::PayloadAttributes,
-        Withdrawal,
-    },
+    primitives::{Account, BlockBody, Bytecode},
+    providers::ProviderFactory,
+    rpc::types::{engine::PayloadAttributes, Withdrawal},
 };
-use reth_db::{
-    cursor::DbCursorRW, tables, test_utils::TempDatabase, transaction::DbTxMut, DatabaseEnv,
-};
-use revm::primitives::SpecId;
+use reth_chainspec::{ChainSpec, EthereumHardfork, MAINNET};
+use reth_db::{cursor::DbCursorRW, tables, transaction::DbTxMut};
+use reth_primitives::{Recovered, TransactionSigned};
+use reth_primitives_traits::Block as _;
+use reth_provider::test_utils::{create_test_provider_factory, MockNodeTypesWithDB};
+use revm::primitives::hardfork::SpecId;
 use std::sync::Arc;
-
-use crate::{building::BlockBuildingContext, utils::Signer};
 
 #[derive(Debug, Clone, Copy)]
 pub enum NamedAddr {
@@ -32,11 +36,23 @@ pub enum NamedAddr {
     Dummy,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct BlockArgs {
     pub number: u64,
     pub timestamp: u64,
     pub use_suggested_fee_recipient_as_coinbase: bool,
+}
+
+impl Default for BlockArgs {
+    fn default() -> Self {
+        Self {
+            number: 0,
+            timestamp: EthereumHardfork::Cancun
+                .mainnet_activation_timestamp()
+                .unwrap(),
+            use_suggested_fee_recipient_as_coinbase: false,
+        }
+    }
 }
 
 impl BlockArgs {
@@ -69,11 +85,38 @@ pub struct TestChainState {
     dummy_test_address: Address, //NamedAddr::Dummy
     blocklisted_address: Signer, //NamedAddr::BlockedAddress
     chain_spec: Arc<ChainSpec>,
-    provider_factory: ProviderFactory<Arc<TempDatabase<DatabaseEnv>>>,
+    provider_factory: ProviderFactory<MockNodeTypesWithDB>,
     block_building_context: BlockBuildingContext,
 }
+pub struct ContractData {
+    address: Address,
+    code: Bytes,
+    code_hash: B256,
+}
+
+impl ContractData {
+    pub fn new(code: &Bytes, address: Address) -> Self {
+        let code_hash = keccak256(code);
+        ContractData {
+            address,
+            code: code.clone(),
+            code_hash,
+        }
+    }
+}
+
 impl TestChainState {
     pub fn new(block_args: BlockArgs) -> eyre::Result<Self> {
+        Self::new_with_balances_and_contracts(block_args, Default::default(), Default::default())
+    }
+
+    /// balances_to_increase this addresses start with that initial balances.
+    /// extra_contracts are deploy along with the default mev_test.
+    pub fn new_with_balances_and_contracts(
+        block_args: BlockArgs,
+        balances_to_increase: Vec<(Address, u128)>,
+        extra_contracts: Vec<ContractData>,
+    ) -> eyre::Result<Self> {
         let blocklisted_address = Signer::random();
         let builder = Signer::random();
         let fee_recipient = Signer::random();
@@ -88,16 +131,18 @@ impl TestChainState {
         let mev_test_address = Address::random();
         let dummy_test_address = Address::random();
         let test_contracts = TestContracts::load();
-        let (mev_test_hash, mev_test_code) = test_contracts.mev_test();
+
+        let mut contracts = extra_contracts;
+        contracts.push(test_contracts.mev_test(mev_test_address));
+
         let genesis_header = chain_spec.sealed_genesis_header();
         let provider_factory = create_test_provider_factory();
         {
             let provider = provider_factory.provider_rw()?;
             provider.insert_historical_block(
-                SealedBlock::new(genesis_header.clone(), BlockBody::default())
-                    .try_seal_with_senders()
+                Block::new(genesis_header.header().clone(), BlockBody::default())
+                    .try_into_recovered()
                     .unwrap(),
-                None,
             )?;
 
             {
@@ -116,39 +161,67 @@ impl TestChainState {
                 for address in user_addresses {
                     cursor.upsert(
                         address,
-                        Account {
+                        &Account {
                             nonce: 0,
                             balance: parse_ether("1.0")?,
                             bytecode_hash: None,
                         },
                     )?;
                 }
+                // Failed to map user_addresses and chain it with balances_to_increase :(
+                for (address, balance) in balances_to_increase {
+                    cursor.upsert(
+                        address,
+                        &Account {
+                            nonce: 0,
+                            balance: U256::from(balance),
+                            bytecode_hash: None,
+                        },
+                    )?;
+                }
 
-                cursor.upsert(
-                    mev_test_address,
-                    Account {
-                        nonce: 0,
-                        balance: U256::ZERO,
-                        bytecode_hash: Some(mev_test_hash),
-                    },
-                )?;
+                for contract in &contracts {
+                    cursor.upsert(
+                        contract.address,
+                        &Account {
+                            nonce: 0,
+                            balance: U256::ZERO,
+                            bytecode_hash: Some(contract.code_hash),
+                        },
+                    )?;
+                }
             }
             {
                 let mut cursor = provider
                     .tx_ref()
                     .cursor_write::<tables::Bytecodes>()
                     .unwrap();
-                cursor.upsert(mev_test_hash, Bytecode::new_raw(mev_test_code))?;
+                for contract in &contracts {
+                    cursor.upsert(
+                        contract.code_hash,
+                        &Bytecode::new_raw(contract.code.clone()),
+                    )?;
+                }
             }
             provider.commit()?;
         }
+
+        let root_hasher = Arc::from(RootHasherImpl::new(
+            genesis_header.num_hash(),
+            None,
+            RootHashContext::new(true, false, None),
+            provider_factory.clone(),
+            provider_factory.clone(),
+        ));
+
         let ctx = TestBlockContextBuilder::new(
             block_args,
-            builder.clone(),
+            builder,
             fee_recipient.address,
             chain_spec.clone(),
             blocklisted_address.address,
             genesis_header.hash(),
+            root_hasher,
         )
         .build();
 
@@ -166,16 +239,17 @@ impl TestChainState {
     }
 
     // returns signed transaction
-    pub fn sign_tx(&self, args: TxArgs) -> eyre::Result<TransactionSignedEcRecovered> {
+    pub fn sign_tx(&self, args: TxArgs) -> eyre::Result<Recovered<TransactionSigned>> {
         let tx = TxEip1559 {
             chain_id: self.chain_spec.chain.id(),
             nonce: args.nonce,
             gas_limit: args.gas_limit,
             max_fee_per_gas: args.max_fee_per_gas,
             max_priority_fee_per_gas: args.max_priority_fee,
-            to: TransactionKind::Call(
-                self.named_address(args.to.ok_or_else(|| eyre::eyre!("missing to address"))?)?,
-            ),
+            to: match args.to {
+                Some(named_addr) => TransactionKind::Call(self.named_address(named_addr)?),
+                None => TransactionKind::Create,
+            },
             value: U256::from(args.value),
             access_list: Default::default(),
             input: args.input.into(),
@@ -216,7 +290,7 @@ impl TestChainState {
         &self.block_building_context
     }
 
-    pub fn provider_factory(&self) -> &ProviderFactory<Arc<TempDatabase<DatabaseEnv>>> {
+    pub fn provider_factory(&self) -> &ProviderFactory<MockNodeTypesWithDB> {
         &self.provider_factory
     }
 }
@@ -235,9 +309,10 @@ struct TestBlockContextBuilder {
     parent_gas_used: u64,
     parent_hash: BlockHash,
     chain_spec: Arc<ChainSpec>,
-    blocklist: HashSet<Address>,
+    blocklist: BlockList,
     prefer_gas_limit: Option<u64>,
     use_suggested_fee_recipient_as_coinbase: bool,
+    root_hasher: Arc<dyn RootHasher>,
 }
 
 impl TestBlockContextBuilder {
@@ -248,6 +323,7 @@ impl TestBlockContextBuilder {
         chain_spec: Arc<ChainSpec>,
         blocklisted: Address,
         parent_hash: BlockHash,
+        root_hasher: Arc<dyn RootHasher>,
     ) -> Self {
         TestBlockContextBuilder {
             parent_gas_limit: 30_000_000,
@@ -266,6 +342,7 @@ impl TestBlockContextBuilder {
             prefer_gas_limit: None,
             use_suggested_fee_recipient_as_coinbase: block_args
                 .use_suggested_fee_recipient_as_coinbase,
+            root_hasher,
         }
     }
 
@@ -303,20 +380,24 @@ impl TestBlockContextBuilder {
                 gas_used: self.parent_gas_used,
                 timestamp: self.parent_timestamp,
                 mix_hash: Default::default(),
-                nonce: 0,
+                nonce: B64::ZERO,
                 base_fee_per_gas: Some(self.parent_base_fee_per_gas),
                 blob_gas_used: None,
                 excess_blob_gas: None,
                 parent_beacon_block_root: None,
                 extra_data: Default::default(),
+                requests_hash: Default::default(),
             },
-            self.builder_signer.clone(),
+            self.builder_signer,
             self.chain_spec,
             self.blocklist,
             self.prefer_gas_limit,
             vec![],
             Some(SpecId::SHANGHAI),
-        );
+            self.root_hasher,
+            0,
+        )
+        .unwrap();
         if self.use_suggested_fee_recipient_as_coinbase {
             res.modify_use_suggested_fee_recipient_as_coinbase();
         }
@@ -345,7 +426,7 @@ impl TxArgs {
             value: 0,
             max_fee_per_gas: 1,
             max_priority_fee: 0,
-            gas_limit: 100_000,
+            gas_limit: 1_000_000,
             input: Vec::new(),
         }
     }
@@ -390,6 +471,35 @@ impl TxArgs {
             .value(value)
     }
 
+    /// This transaction for test purpose only, it reads balance of addr and the contract
+    pub fn new_test_read_balance(from: NamedAddr, nonce: u64, addr: Address, value: u64) -> Self {
+        Self::new(from, nonce)
+            .to(NamedAddr::MevTest)
+            .input(
+                [
+                    (*TEST_READ_BALANCE).into(),
+                    B256::left_padding_from(addr.as_slice()).to_vec(),
+                ]
+                .concat(),
+            )
+            .value(value)
+    }
+
+    /// This transaction for test purpose only, it deploys a contract and let it selfdestruct within the tx.
+    pub fn new_test_ephemeral_contract_destruct(
+        from: NamedAddr,
+        nonce: u64,
+        refund_addr: Address,
+    ) -> Self {
+        Self::new(from, nonce).to(NamedAddr::MevTest).input(
+            [
+                (*TEST_EPHEMERAL_CONTRACT_DESTRUCT).into(),
+                B256::left_padding_from(refund_addr.as_slice()).to_vec(),
+            ]
+            .concat(),
+        )
+    }
+
     pub fn to(self, to: NamedAddr) -> Self {
         Self {
             to: Some(to),
@@ -429,12 +539,16 @@ impl TxArgs {
     }
 }
 
+/// This contract was generated from mev-test-contract/src/MevTest.sol
 static TEST_CONTRACTS: &str = include_str!("./contracts.json");
 
 #[derive(Debug, serde::Deserialize)]
-struct TestContracts {
+pub struct TestContracts {
     #[serde(rename = "MevTest")]
     mev_test: Bytes,
+
+    #[serde(rename = "MevTestInitBytecode")]
+    pub mev_test_init_bytecode: Bytes,
 }
 
 fn selector(func_signature: &str) -> [u8; 4] {
@@ -447,15 +561,17 @@ lazy_static! {
     static ref SENT_TO_SELECTOR: [u8; 4] = selector("sendTo(address)");
     static ref SEND_TO_COINBASE_SELECTOR: [u8; 4] = selector("sendToCoinbase()");
     static ref REVERT_SELECTOR: [u8; 4] = selector("revert()");
+    static ref TEST_READ_BALANCE: [u8; 4] = selector("testReadBalance(address)");
+    static ref TEST_EPHEMERAL_CONTRACT_DESTRUCT: [u8; 4] =
+        selector("testEphemeralContractDestruct(address)");
 }
 
 impl TestContracts {
-    fn load() -> Self {
+    pub fn load() -> Self {
         serde_json::from_str(TEST_CONTRACTS).expect("failed to load test contracts")
     }
 
-    fn mev_test(&self) -> (B256, Bytes) {
-        let hash = keccak256(&self.mev_test);
-        (hash, self.mev_test.clone())
+    fn mev_test(&self, address: Address) -> ContractData {
+        ContractData::new(&self.mev_test, address)
     }
 }

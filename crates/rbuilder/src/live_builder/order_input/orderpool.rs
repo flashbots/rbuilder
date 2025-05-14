@@ -1,10 +1,10 @@
 use crate::primitives::{
-    serialize::CancelShareBundle, BundleReplacementKey, Order, OrderId, OrderReplacementKey,
-    ShareBundleReplacementKey,
+    serialize::CancelShareBundle, BundleReplacementData, Order, OrderId, ShareBundleReplacementKey,
 };
 use ahash::HashMap;
+use alloy_eips::merge::SLOT_DURATION;
 use lru::LruCache;
-use reth::{primitives::constants::SLOT_DURATION, providers::StateProviderBox};
+use reth::providers::StateProviderBox;
 use std::{
     collections::VecDeque,
     num::NonZeroUsize,
@@ -70,8 +70,10 @@ pub struct OrderPoolSubscriptionId(u64);
 pub struct OrderPool {
     mempool_txs: Vec<(Order, Instant)>,
     /// cancelled bundle, cancellation arrival time
-    bundle_cancellations: VecDeque<(BundleReplacementKey, Instant)>,
+    bundle_cancellations: VecDeque<(BundleReplacementData, Instant)>,
     bundles_by_target_block: HashMap<u64, BundleBlockStore>,
+    /// Bundles with block == None. Always returned and cleaned on head_updated.
+    bundles_for_current_block: Vec<Order>,
     known_orders: LruCache<(OrderId, u64), ()>,
     sinks: HashMap<OrderPoolSubscriptionId, SinkSubscription>,
     next_sink_id: u64,
@@ -88,6 +90,7 @@ impl OrderPool {
         OrderPool {
             mempool_txs: Vec::new(),
             bundles_by_target_block: HashMap::default(),
+            bundles_for_current_block: Default::default(),
             known_orders: LruCache::new(NonZeroUsize::new(10_000).unwrap()),
             sinks: Default::default(),
             next_sink_id: 0,
@@ -100,6 +103,9 @@ impl OrderPool {
     }
 
     fn process_order(&mut self, order: &Order) {
+        if order.is_preconf() {
+            debug!("orderpool received preconf order(id={})", order.id());
+        }
         let target_block = order.target_block();
         let order_id = order.id();
         if self
@@ -117,14 +123,20 @@ impl OrderPool {
                 (order, None)
             }
             Order::Bundle(bundle) => {
-                debug!(?order_id, "Adding bundle order");
                 let target_block = bundle.block;
-                let bundles_store = self
-                    .bundles_by_target_block
-                    .entry(target_block)
-                    .or_default();
-                bundles_store.bundles.push(order.clone());
-                (order, Some(target_block))
+                match target_block {
+                    Some(target_block) => {
+                        let bundles_store = self
+                            .bundles_by_target_block
+                            .entry(target_block)
+                            .or_default();
+                        bundles_store.bundles.push(order.clone());
+                    }
+                    None => {
+                        self.bundles_for_current_block.push(order.clone());
+                    }
+                };
+                (order, target_block)
             }
             Order::ShareBundle(bundle) => {
                 let target_block = bundle.block;
@@ -148,8 +160,9 @@ impl OrderPool {
         bundles_store.cancelled_sbundles.push(cancellation.key);
     }
 
-    fn process_remove_bundle(&mut self, key: &BundleReplacementKey) {
-        self.bundle_cancellations.push_back((*key, Instant::now()));
+    fn process_remove_bundle(&mut self, key: &BundleReplacementData) {
+        self.bundle_cancellations
+            .push_back((key.clone(), Instant::now()));
     }
 
     fn process_command(&mut self, command: ReplaceableOrderPoolCommand) {
@@ -165,14 +178,12 @@ impl OrderPool {
             }
             if target_block.is_none() || target_block == Some(sub.block_number) {
                 let send_ok = match command.clone() {
-                    ReplaceableOrderPoolCommand::Order(o) => {
-                        sub.sink.insert_order(o)
-                    },
-                    ReplaceableOrderPoolCommand::CancelShareBundle(cancel) => sub
-                        .sink
-                        .remove_bundle(OrderReplacementKey::ShareBundle(cancel.key)),
-                    ReplaceableOrderPoolCommand::CancelBundle(key) => {
-                        sub.sink.remove_bundle(OrderReplacementKey::Bundle(key))
+                    ReplaceableOrderPoolCommand::Order(o) => sub.sink.insert_order(o),
+                    ReplaceableOrderPoolCommand::CancelShareBundle(cancel) => {
+                        sub.sink.remove_sbundle(cancel.key)
+                    }
+                    ReplaceableOrderPoolCommand::CancelBundle(replacement_data) => {
+                        sub.sink.remove_bundle(replacement_data)
                     }
                 };
                 if !send_ok {
@@ -192,18 +203,23 @@ impl OrderPool {
         for order in self.mempool_txs.iter().map(|(order, _)| order.clone()) {
             sink.insert_order(order);
         }
-        for cancellation_key in self.bundle_cancellations.iter().map(|(key, _)| key) {
-            sink.remove_bundle(OrderReplacementKey::Bundle(*cancellation_key));
+        for replacement_data in self.bundle_cancellations.iter().map(|(key, _)| key) {
+            sink.remove_bundle(replacement_data.clone());
         }
 
         if let Some(bundle_store) = self.bundles_by_target_block.get(&block_number) {
             for order in bundle_store.bundles.iter().cloned() {
                 sink.insert_order(order);
             }
-            for order_id in bundle_store.cancelled_sbundles.iter().cloned() {
-                sink.remove_bundle(OrderReplacementKey::ShareBundle(order_id));
+            for key in bundle_store.cancelled_sbundles.iter().cloned() {
+                sink.remove_sbundle(key);
             }
         }
+
+        for bundle in self.bundles_for_current_block.iter().cloned() {
+            sink.insert_order(bundle);
+        }
+
         let res = OrderPoolSubscriptionId(self.next_sink_id);
         self.next_sink_id += 1;
         self.sinks
@@ -219,13 +235,14 @@ impl OrderPool {
         self.sinks.remove(id).map(|s| s.sink)
     }
 
-    /// Should be called when last block is updated
-    /// Its slow but since it only happens at the start of the block it does now matter.
+    /// Should be called when last block is updated.
+    /// It's slow but since it only happens at the start of the block it does now matter.
+    /// It clears old txs from the mempool and old bundle_cancellations.
     pub fn head_updated(&mut self, new_block_number: u64, new_state: &StateProviderBox) {
         // remove from bundles by target block
         self.bundles_by_target_block
             .retain(|block_number, _| *block_number > new_block_number);
-
+        self.bundles_for_current_block.clear();
         // remove mempool txs by nonce, time
         self.mempool_txs.retain(|(order, time)| {
             if time.elapsed() > TIME_TO_KEEP_TXS {
@@ -236,7 +253,7 @@ impl OrderPool {
                     continue;
                 }
                 let onchain_nonce = new_state
-                    .account_nonce(nonce.address)
+                    .account_nonce(&nonce.address)
                     .map_err(|e| error!("Failed to get a nonce: {}", e))
                     .unwrap_or_default()
                     .unwrap_or_default();

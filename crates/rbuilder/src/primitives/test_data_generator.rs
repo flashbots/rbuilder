@@ -1,12 +1,12 @@
-use alloy_primitives::B256;
-use reth::primitives::{Transaction, TransactionSigned, TransactionSignedEcRecovered, TxLegacy};
-use uuid::Uuid;
-
 use super::{
     AccountNonce, Bundle, BundleReplacementData, BundledTxInfo, MempoolTx, Order, ShareBundle,
     ShareBundleBody, ShareBundleInner, ShareBundleReplacementData, ShareBundleTx,
-    TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior,
+    TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior, LAST_BUNDLE_VERSION,
 };
+use alloy_consensus::TxLegacy;
+use alloy_primitives::{Signature, B256};
+use reth_primitives::{Recovered, Transaction, TransactionSigned};
+use uuid::Uuid;
 
 /// TestDataGenerator for Orders.
 /// Generated orders are not intended to be executed since any data that is not on the create_xxx parameters if default (eg:to,value,input)
@@ -16,20 +16,20 @@ pub struct TestDataGenerator {
 }
 
 impl TestDataGenerator {
-    pub fn create_tx(&mut self) -> TransactionSignedEcRecovered {
+    pub fn create_tx(&mut self) -> Recovered<TransactionSigned> {
         self.create_tx_nonce(AccountNonce::default())
     }
 
-    pub fn create_tx_nonce(&mut self, sender_nonce: AccountNonce) -> TransactionSignedEcRecovered {
-        TransactionSignedEcRecovered::from_signed_transaction(
-            TransactionSigned {
-                hash: self.base.create_tx_hash(),
-                transaction: Transaction::Legacy(TxLegacy {
+    pub fn create_tx_nonce(&mut self, sender_nonce: AccountNonce) -> Recovered<TransactionSigned> {
+        Recovered::new_unchecked(
+            TransactionSigned::new(
+                Transaction::Legacy(TxLegacy {
                     nonce: sender_nonce.nonce,
                     ..TxLegacy::default()
                 }),
-                ..Default::default()
-            },
+                Signature::test_signature(),
+                self.base.create_tx_hash(),
+            ),
             sender_nonce.account,
         )
     }
@@ -50,7 +50,7 @@ impl TestDataGenerator {
         replacement_data: Option<BundleReplacementData>,
     ) -> Bundle {
         let mut res = Bundle {
-            block,
+            block: Some(block),
             min_timestamp: None,
             max_timestamp: None,
             txs: vec![self.create_tx_with_blobs_nonce(sender_nonce)],
@@ -58,8 +58,11 @@ impl TestDataGenerator {
             hash: B256::default(),
             uuid: Uuid::default(),
             replacement_data: replacement_data.clone(),
-            signer: replacement_data.map(|r| r.key.key().signer),
+            signer: replacement_data.as_ref().and_then(|r| r.key.key().signer),
             metadata: Default::default(),
+            dropping_tx_hashes: vec![],
+            refund: None,
+            version: LAST_BUNDLE_VERSION,
         };
         res.hash_slow();
         res
@@ -83,18 +86,15 @@ impl TestDataGenerator {
             can_skip: true,
             original_order_id: None,
         };
-        let mut res = ShareBundle {
-            hash: Default::default(),
+        ShareBundle::new(
             block,
-            max_block: block,
+            block,
             inner_bundle,
-            signer: replacement_data.as_ref().map(|r| r.key.key().signer),
+            replacement_data.as_ref().and_then(|r| r.key.key().signer),
             replacement_data,
-            original_orders: Vec::new(),
-            metadata: Default::default(),
-        };
-        res.hash_slow();
-        res
+            Vec::new(),
+            Default::default(),
+        )
     }
 
     /// Creates a bundle with a multiple txs
@@ -111,11 +111,10 @@ impl TestDataGenerator {
             if tx_info.optional {
                 reverting_tx_hashes.push(tx1.hash());
             }
-            println!("adding tx({})...", tx1.hash().to_string());
             txs.push(tx1);
         }
         let mut bundle = Bundle {
-            block,
+            block: Some(block),
             min_timestamp: None,
             max_timestamp: None,
             txs,
@@ -123,8 +122,11 @@ impl TestDataGenerator {
             hash: B256::default(),
             uuid: Uuid::default(),
             replacement_data: replacement_data.clone(),
-            signer: replacement_data.map(|r| r.key.key().signer),
+            signer: replacement_data.as_ref().and_then(|r| r.key.key().signer),
             metadata: Default::default(),
+            dropping_tx_hashes: Default::default(),
+            refund: None,
+            version: LAST_BUNDLE_VERSION,
         };
         bundle.hash_slow();
         bundle

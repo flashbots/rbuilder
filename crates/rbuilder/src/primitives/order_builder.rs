@@ -1,11 +1,12 @@
 use std::mem;
 
 use super::{
-    Bundle, BundleReplacementData, MempoolTx, Order, Refund, RefundConfig, ShareBundle,
-    ShareBundleBody, ShareBundleInner, ShareBundleTx, TransactionSignedEcRecoveredWithBlobs,
-    TxRevertBehavior,
+    Bundle, BundleRefund, BundleReplacementData, MempoolTx, Order, OrderId, Refund, RefundConfig,
+    ShareBundle, ShareBundleBody, ShareBundleInner, ShareBundleTx,
+    TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior, LAST_BUNDLE_VERSION,
 };
 
+/// Helper object to build Orders for testing.
 #[derive(Debug)]
 pub enum OrderBuilder {
     MempoolTx(Option<TransactionSignedEcRecoveredWithBlobs>),
@@ -65,7 +66,7 @@ impl OrderBuilder {
                 *opt = Some(tx_with_blobs);
             }
             OrderBuilder::Bundle(builder) => {
-                builder.add_tx(tx_with_blobs, revert_behavior.can_revert());
+                builder.add_tx(tx_with_blobs, revert_behavior);
             }
             OrderBuilder::ShareBundle(builder) => {
                 builder.add_tx(tx_with_blobs, revert_behavior);
@@ -123,10 +124,28 @@ impl OrderBuilder {
         }
     }
 
+    pub fn set_bundle_refund(&mut self, refund: BundleRefund) {
+        match self {
+            OrderBuilder::Bundle(builder) => {
+                builder.set_bundle_refund(refund);
+            }
+            _ => panic!("Only Bundle can have BundleRefund"),
+        }
+    }
+
     pub fn set_inner_bundle_refund_config(&mut self, refund_config: Vec<RefundConfig>) {
         match self {
             OrderBuilder::ShareBundle(builder) => {
                 builder.set_inner_bundle_refund_config(refund_config);
+            }
+            _ => panic!("Only ShareBundle can have refund config"),
+        }
+    }
+
+    pub fn set_inner_bundle_original_order_id(&mut self, original_order_id: OrderId) {
+        match self {
+            OrderBuilder::ShareBundle(builder) => {
+                builder.set_inner_bundle_original_order_id(original_order_id);
             }
             _ => panic!("Only ShareBundle can have refund config"),
         }
@@ -136,10 +155,11 @@ impl OrderBuilder {
 #[derive(Debug)]
 pub struct BundleBuilder {
     block: u64,
-    txs: Vec<(TransactionSignedEcRecoveredWithBlobs, bool)>,
+    txs: Vec<(TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior)>,
     min_timestamp: Option<u64>,
     max_timestamp: Option<u64>,
     replacement_data: Option<BundleReplacementData>,
+    refund: Option<BundleRefund>,
 }
 
 impl BundleBuilder {
@@ -150,6 +170,7 @@ impl BundleBuilder {
             min_timestamp: None,
             max_timestamp: None,
             replacement_data: None,
+            refund: None,
         }
     }
 
@@ -162,17 +183,28 @@ impl BundleBuilder {
         self.replacement_data = Some(data);
     }
 
+    fn set_bundle_refund(&mut self, refund: BundleRefund) {
+        self.refund = Some(refund);
+    }
+
     fn build(self) -> Bundle {
         let mut reverting_tx_hashes = Vec::new();
+        let mut dropping_tx_hashes = Vec::new();
         let mut txs = Vec::new();
-        for (tx_with_blobs, opt) in self.txs {
-            if opt {
-                reverting_tx_hashes.push(tx_with_blobs.tx.hash);
+        for (tx_with_blobs, revert_behavior) in self.txs {
+            match revert_behavior {
+                TxRevertBehavior::NotAllowed => {}
+                TxRevertBehavior::AllowedIncluded => {
+                    reverting_tx_hashes.push(*tx_with_blobs.tx.hash())
+                }
+                TxRevertBehavior::AllowedExcluded => {
+                    dropping_tx_hashes.push(*tx_with_blobs.tx.hash())
+                }
             }
             txs.push(tx_with_blobs);
         }
         let mut bundle = Bundle {
-            block: self.block,
+            block: Some(self.block),
             min_timestamp: self.min_timestamp,
             max_timestamp: self.max_timestamp,
             txs,
@@ -182,13 +214,20 @@ impl BundleBuilder {
             replacement_data: self.replacement_data,
             signer: None,
             metadata: Default::default(),
+            dropping_tx_hashes,
+            refund: self.refund,
+            version: LAST_BUNDLE_VERSION,
         };
         bundle.hash_slow();
         bundle
     }
 
-    fn add_tx(&mut self, tx_with_blobs: TransactionSignedEcRecoveredWithBlobs, can_revert: bool) {
-        self.txs.push((tx_with_blobs, can_revert));
+    fn add_tx(
+        &mut self,
+        tx_with_blobs: TransactionSignedEcRecoveredWithBlobs,
+        revert_behavior: TxRevertBehavior,
+    ) {
+        self.txs.push((tx_with_blobs, revert_behavior));
     }
 }
 
@@ -201,33 +240,26 @@ pub struct ShareBundleBuilder {
 
 impl ShareBundleBuilder {
     fn new(block: u64, max_block: u64) -> Self {
-        Self {
+        let mut res = Self {
             block,
             max_block,
-            inner_bundle_stack: vec![ShareBundleInner {
-                body: vec![],
-                refund: vec![],
-                refund_config: vec![],
-                can_skip: false,
-                original_order_id: None,
-            }],
-        }
+            inner_bundle_stack: Vec::new(),
+        };
+        res.start_inner_bundle(false);
+        res
     }
 
     fn build(mut self) -> ShareBundle {
         let inner_bundle = self.inner_bundle_stack.pop().unwrap();
-        let mut bundle = ShareBundle {
-            hash: Default::default(),
-            block: self.block,
-            max_block: self.max_block,
+        ShareBundle::new(
+            self.block,
+            self.max_block,
             inner_bundle,
-            signer: None,
-            replacement_data: None,
-            original_orders: Vec::new(),
-            metadata: Default::default(),
-        };
-        bundle.hash_slow();
-        bundle
+            None,
+            None,
+            Vec::new(),
+            Default::default(),
+        )
     }
 
     fn start_inner_bundle(&mut self, can_skip: bool) {
@@ -248,6 +280,11 @@ impl ShareBundleBuilder {
     fn set_inner_bundle_refund_config(&mut self, refund_config: Vec<RefundConfig>) {
         let last = self.inner_bundle_stack.last_mut().unwrap();
         last.refund_config = refund_config;
+    }
+
+    fn set_inner_bundle_original_order_id(&mut self, original_order_id: OrderId) {
+        let last = self.inner_bundle_stack.last_mut().unwrap();
+        last.original_order_id = Some(original_order_id);
     }
 
     fn finish_inner_bundle(&mut self) {

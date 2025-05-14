@@ -1,12 +1,15 @@
-use alloy_primitives::{hex, BlockHash, U256};
-use alloy_rlp::Decodable;
+use alloy_consensus::{Block, Header};
+use alloy_eips::eip4844::BlobTransactionSidecar;
+use alloy_primitives::U256;
 use criterion::{criterion_group, Criterion};
 use primitive_types::H384;
 use rbuilder::mev_boost::{
-    rpc::TestDataGenerator, sign_block_for_relay, BLSBlockSigner, DenebSubmitBlockRequest,
+    rpc::TestDataGenerator, sign_block_for_relay, submission::DenebSubmitBlockRequest,
+    BLSBlockSigner,
 };
-use reth::primitives::{BlobTransactionSidecar, SealedBlock, SEPOLIA};
-use reth_primitives::SealedHeader;
+use reth::primitives::SealedBlock;
+use reth_chainspec::SEPOLIA;
+use reth_primitives::kzg::Blob;
 use std::{fs, path::PathBuf, sync::Arc};
 
 fn mev_boost_serialize_submit_block(data: DenebSubmitBlockRequest) {
@@ -43,13 +46,27 @@ fn bench_mevboost_serialization(c: &mut Criterion) {
 fn bench_mevboost_sign(c: &mut Criterion) {
     let mut generator = TestDataGenerator::default();
 
-    let blob_rlp = fs::read_to_string(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("benches/blob_data/blob1.txt"),
+    let json_content = fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("benches/blob_data/blob1.json"),
     )
-        .unwrap();
+    .unwrap();
 
-    let blob_rlp = hex::decode(blob_rlp).unwrap();
-    let blob = BlobTransactionSidecar::decode(&mut blob_rlp.as_slice()).unwrap();
+    // Parse the JSON contents into a serde_json::Value
+    let json_value: serde_json::Value =
+        serde_json::from_str(&json_content).expect("Failed to deserialize JSON");
+
+    // Extract blob data from JSON and convert it to Blob
+    let blobs: Vec<Blob> = vec![Blob::from_hex(
+        json_value
+            .get("data")
+            .unwrap()
+            .as_str()
+            .expect("Data is not a valid string"),
+    )
+    .unwrap()];
+
+    // Generate a BlobTransactionSidecar from the blobs
+    let blob = BlobTransactionSidecar::try_from_blobs(blobs).unwrap();
 
     let sealed_block = SealedBlock::default();
     let signer = BLSBlockSigner::test_signer();
@@ -70,23 +87,28 @@ fn bench_mevboost_sign(c: &mut Criterion) {
                 &signer,
                 &sealed_block,
                 &blobs,
+                &Vec::new(),
                 &chain_spec,
                 &payload,
                 H384::default(),
                 U256::default(),
+                payload.payload_attributes.suggested_fee_recipient,
             )
-                .unwrap();
+            .unwrap();
         })
     });
 
     // Create a sealed block that is after the Cancun hard fork in Sepolia
     // this is, a timestamp higher than 1706655072
-    let mut sealed_block_deneb = SealedBlock::default();
-    let mut header = sealed_block_deneb.header().clone();
-    header.timestamp = 2706655072;
-    header.blob_gas_used = Some(64);
-    header.excess_blob_gas = Some(64);
-    sealed_block_deneb.header = SealedHeader::new(header.clone(), BlockHash::default());
+    let sealed_block_deneb = SealedBlock::new_unhashed(Block::new(
+        Header {
+            timestamp: 2706655072,
+            blob_gas_used: Some(64),
+            excess_blob_gas: Some(64),
+            ..Default::default()
+        },
+        Default::default(),
+    ));
 
     group.bench_function("Deneb", |b| {
         b.iter(|| {
@@ -94,12 +116,14 @@ fn bench_mevboost_sign(c: &mut Criterion) {
                 &signer,
                 &sealed_block_deneb,
                 &blobs,
+                &Vec::new(),
                 &chain_spec,
                 &payload,
                 H384::default(),
                 U256::default(),
+                payload.payload_attributes.suggested_fee_recipient,
             )
-                .unwrap();
+            .unwrap();
         })
     });
 

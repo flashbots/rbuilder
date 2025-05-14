@@ -1,4 +1,5 @@
 pub mod sim_worker;
+mod simulation_job;
 
 use crate::{
     building::{
@@ -6,21 +7,17 @@ use crate::{
         BlockBuildingContext,
     },
     live_builder::order_input::orderpool::OrdersForBlock,
-    primitives::{Order, OrderId, SimulatedOrder},
-    utils::{gen_uid, ProviderFactoryReopener},
+    primitives::{OrderId, SimulatedOrder},
+    provider::StateProviderFactory,
+    utils::{gen_uid, NonceCache, Signer},
 };
-use ahash::{HashMap, HashSet};
-use alloy_primitives::utils::format_ether;
-use reth_db::database::Database;
-use std::{
-    fmt,
-    sync::{Arc, Mutex},
-};
+use ahash::HashMap;
+use parking_lot::Mutex;
+use simulation_job::SimulationJob;
+use std::sync::Arc;
 use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, info_span, trace, warn, Instrument};
-
-use super::order_input::order_sink::OrderPoolCommand;
+use tracing::{error, info_span, Instrument};
 
 #[derive(Debug)]
 pub struct SlotOrderSimResults {
@@ -29,292 +26,53 @@ pub struct SlotOrderSimResults {
 
 type BlockContextId = u64;
 
-#[derive(Debug)]
-pub struct OrderSimulationPool<DB> {
-    provider_factory: ProviderFactoryReopener<DB>,
-    running_tasks: Arc<Mutex<Vec<JoinHandle<()>>>>,
-    current_contexts: Arc<Mutex<CurrentSimulationContexts>>,
-    worker_threads: Vec<std::thread::JoinHandle<()>>,
-}
-
+/// Struct representing the need of order simulation for a particular block.
 #[derive(Debug, Clone)]
 pub struct SimulationContext {
     pub block_ctx: BlockBuildingContext,
+    /// Simulation requests come in through this channel.
     pub requests: flume::Receiver<SimulationRequest>,
+    /// Simulation results go out through this channel.
     pub results: mpsc::Sender<SimulatedResult>,
 }
 
+/// All active SimulationContexts
 #[derive(Debug)]
 pub struct CurrentSimulationContexts {
     pub contexts: HashMap<BlockContextId, SimulationContext>,
 }
 
-#[derive(Default)]
-struct OrderCounter {
-    mempool_txs: usize,
-    bundles: usize,
-    share_bundles: usize,
+/// Struct that creates several [`sim_worker::run_sim_worker`] threads to allow concurrent simulation for the same block.
+/// Usage:
+/// 1 Create a single instance via [`OrderSimulationPool::new`] which receives the input.
+/// 2 For each block call [`OrderSimulationPool::spawn_simulation_job`] which will spawn a task to run the simulations.
+/// 3 Poll the results via the [`SlotOrderSimResults::orders`].
+/// 4 IMPORTANT: When done with the simulations signal the provided block_cancellation.
+
+#[derive(Debug)]
+pub struct OrderSimulationPool<P> {
+    provider: P,
+    running_tasks: Arc<Mutex<Vec<JoinHandle<()>>>>,
+    current_contexts: Arc<Mutex<CurrentSimulationContexts>>,
+    worker_threads: Vec<std::thread::JoinHandle<()>>,
 }
 
-impl fmt::Debug for OrderCounter {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "OrderCounter {{ total: {}, mempool_txs: {}, bundles {}, share_bundles {} }}",
-            self.total(),
-            self.mempool_txs,
-            self.bundles,
-            self.share_bundles
-        )
-    }
-}
-
-impl OrderCounter {
-    fn accumulate(&mut self, order: &Order) {
-        match order {
-            Order::Tx(_) => self.mempool_txs += 1,
-            Order::Bundle(_) => self.bundles += 1,
-            Order::ShareBundle(_) => self.share_bundles += 1,
-        }
-    }
-    fn total(&self) -> usize {
-        self.mempool_txs + self.bundles + self.share_bundles
-    }
-}
-
-/// struct that continuously simulates orders.
-/// The flow is:
-/// 1 new orders are polled from new_order_sub and inserted en the SimTree
-/// 2 SimTree is polled for nonce-ready orders and are sent to be simulated (sent to  sim_req_sender)
-/// 3 simulation results are polled from sim_results_receiver and sent to slot_sim_results_sender
-/// Cancellation flow: we add every order we start to process to in_flight_orders.
-/// If we get a cancellation and the order is not in in_flight_orders we forward the cancellation.
-/// If we get a cancellation and the order is in in_flight_orders we just remove it from in_flight_orders.
-/// Only SimulatedOrders still in in_flight_orders are delivered.
-/// @Pending: implement cancellations in the SimTree.
-struct SimulationJob<DB> {
-    block_cancellation: CancellationToken,
-    /// Input orders to be simulated
-    new_order_sub: mpsc::UnboundedReceiver<OrderPoolCommand>,
-    /// Here we send requests to the simulator pool
-    sim_req_sender: flume::Sender<SimulationRequest>,
-    /// Here we receive the results we asked to sim_req_sender
-    sim_results_receiver: mpsc::Receiver<SimulatedResult>,
-    /// Output of the simulations
-    slot_sim_results_sender: mpsc::Sender<SimulatedOrderCommand>,
-    sim_tree: SimTree<DB>,
-
-    pub orders_received: OrderCounter,
-    pub orders_simulated_ok: OrderCounter,
-
-    /// Orders we got via new_order_sub and are still being processed (they could be inside the SimTree or in the sim queue)
-    /// and were not cancelled.
-    in_flight_orders: HashSet<OrderId>,
-}
-
+/// Result of a simulation.
 #[derive(Clone, Debug)]
 pub enum SimulatedOrderCommand {
-    /// New or update order
-    Simulation(SimulatedOrder),
+    /// New simulation.
+    Simulation(Arc<SimulatedOrder>),
+    /// Forwarded cancellation from the order source.
     Cancellation(OrderId),
 }
 
-/// Runner of the simulations.
-/// Create and call run()
-/// 1- Gets the orders orders/cancellations from new_order_sub
-/// 2- Using a SisTree checks when the orders re ready for simulation (nonce problems) and simulates them
-/// 3- Send simulation results via sim_results_receiver
-/// Also handles ShareBundle version replacements or cancellations (maybe this logic could be moved to an external object?):
-/// - Always send simulations with increasing `sequence_number`
-/// - When replacing an order we always send a cancellation for the previous one.
-/// - When we gat a cancellation we propagate it and never again send an update.
-impl<DB: Database + Clone + Send + 'static> SimulationJob<DB> {
-    async fn run(&mut self) {
-        let mut new_commands = Vec::new();
-        let mut new_sim_results = Vec::new();
-        loop {
-            self.send_new_tasks_for_simulation();
-            // tokio::select appears to be fair so no channel will be polled more than the other
-            tokio::select! {
-                n = self.new_order_sub.recv_many(&mut new_commands, 1024) => {
-                    if n != 0 {
-                        if !self.process_new_commands(&new_commands).await {
-                            debug!("Processing new commands failed, stopping simulation job");
-                            return;
-                        }
-                        new_commands.clear();
-                    } else {
-                        trace!("New order sub is closed");
-                        return;
-                    }
-                }
-                n = self.sim_results_receiver.recv_many(&mut new_sim_results, 1024) => {
-                    if n != 0 {
-                        if !self.process_new_simulations(&mut new_sim_results).await {
-                            debug!("Processing new simulations failed, stopping simulation job");
-                            return;
-                        }
-                        new_sim_results.clear();
-                    }
-                }
-                _ = self.block_cancellation.cancelled() => {
-                    debug!("Simulation job cancelled");
-                    return;
-                }
-            }
-        }
-    }
-
-    /// Cancelled orders will return false
-    fn order_still_valid(&self, order_id: &OrderId) -> bool {
-        self.in_flight_orders.contains(order_id)
-    }
-
-    /// Pops tasks from SimTree and sends them for simulation
-    fn send_new_tasks_for_simulation(&mut self) {
-        // submit sim tasks loop
-        loop {
-            let mut new_sim_request = self.sim_tree.pop_simulation_tasks(1024);
-            if new_sim_request.is_empty() {
-                break;
-            }
-            // filter out cancelled orders
-            new_sim_request.retain(|s| self.order_still_valid(&s.order.id()));
-
-            for sim_request in new_sim_request {
-                let order_id = sim_request.order.id();
-                let delivered = match self.sim_req_sender.try_send(sim_request) {
-                    Ok(()) => true,
-                    Err(flume::TrySendError::Full(_)) => {
-                        warn!("Sim channel is full, dropping order");
-                        false
-                        // @Metric
-                    }
-                    Err(flume::TrySendError::Disconnected(_)) => {
-                        error!("Sim channel is closed, dropping order");
-                        false
-                        // @Metric
-                    }
-                };
-                if !delivered {
-                    // Small bug, if a cancel arrives we are going to propagate it.
-                    self.in_flight_orders.remove(&order_id);
-                }
-            }
-        }
-    }
-
-    /// updates the sim_tree and notifies new orders
-    /// ONLY not cancelled are considered
-    /// return if everything went OK
-    async fn process_new_simulations(
-        &mut self,
-        new_sim_results: &mut Vec<SimulatedResult>,
-    ) -> bool {
-        // Log the number of new simulation results received
-        debug!("Processing {} new simulation results", new_sim_results.len());
-        // trace!("new_sim_results: {:?}", new_sim_results); //it dose have shit inside
-
-        // send results
-        let mut valid_simulated_orders = Vec::new();
-        for sim_result in new_sim_results {
-            trace!(order_id=?sim_result.simulated_order.order.id(),
-            sim_duration_mus = sim_result.simulation_time.as_micros(),
-            profit = format_ether(sim_result.simulated_order.sim_value.coinbase_profit),
-            "Order simulated");
-            self.orders_simulated_ok
-                .accumulate(&sim_result.simulated_order.order);
-            // Skip cancelled orders and remove from in_flight_orders
-            if self
-                .in_flight_orders
-                .remove(&sim_result.simulated_order.id())
-            {
-                valid_simulated_orders.push(sim_result.clone());
-                if self
-                    .slot_sim_results_sender
-                    .send(SimulatedOrderCommand::Simulation(
-                        sim_result.simulated_order.clone(),
-                    ))
-                    .await
-                    .is_err()
-                {
-                    return false; //receiver closed :(
-                }
-            } else {
-                // Log if the order was cancelled
-                debug!(order_id=?sim_result.simulated_order.order.id(), "Order was cancelled, skipping.");
-            }
-        }
-        // update simtree
-        if let Err(err) = self
-            .sim_tree
-            .submit_simulation_tasks_results(valid_simulated_orders)
-        {
-            error!(?err, "Failed to push order sim results into the sim tree");
-            // @Metric
-            return false;
-        }
-        true
-    }
-
-    /// return if everything went OK
-    async fn send_cancel(&mut self, id: &OrderId) -> bool {
-        self.slot_sim_results_sender
-            .send(SimulatedOrderCommand::Cancellation(*id))
-            .await
-            .is_ok()
-    }
-
-    /// return if everything went OK
-    async fn process_order_cancellation(&mut self, cancellation_id: &OrderId) -> bool {
-        if !self.in_flight_orders.remove(cancellation_id) {
-            // if we removed from in_flight_orders it was never sent so there is no need to cancel
-            return self.send_cancel(cancellation_id).await;
-        }
-        true
-    }
-
-    /// feeding the sim tree.
-    fn process_new_order(&mut self, order: Order) -> bool {
-        self.orders_received.accumulate(&order);
-        let order_id = order.id();
-        if let Err(err) = self.sim_tree.push_orders(vec![order]) {
-            error!(?err, "Failed to push order into the sim tree");
-            // @Metric
-            return false;
-        }
-        self.in_flight_orders.insert(order_id);
-        true
-    }
-
-    async fn process_new_commands(&mut self, new_commands: &[OrderPoolCommand]) -> bool {
-        for new_command in new_commands {
-            match new_command {
-                OrderPoolCommand::Insert(order) => {
-                    if !self.process_new_order(order.clone()) {
-                        return false;
-                    }
-                }
-                OrderPoolCommand::Remove(order_id) => {
-                    if !self.process_order_cancellation(order_id).await {
-                        return false;
-                    }
-                }
-            }
-        }
-        true
-    }
-}
-
-// input new slot and a
-impl<DB: Database + Clone + Send + 'static> OrderSimulationPool<DB> {
-    pub fn new(
-        provider_factory: ProviderFactoryReopener<DB>,
-        num_workers: usize,
-        global_cancellation: CancellationToken,
-    ) -> Self {
+impl<P> OrderSimulationPool<P>
+where
+    P: StateProviderFactory + Clone + 'static,
+{
+    pub fn new(provider: P, num_workers: usize, global_cancellation: CancellationToken) -> Self {
         let mut result = Self {
-            provider_factory,
+            provider,
             running_tasks: Arc::new(Mutex::new(Vec::new())),
             current_contexts: Arc::new(Mutex::new(CurrentSimulationContexts {
                 contexts: HashMap::default(),
@@ -323,7 +81,7 @@ impl<DB: Database + Clone + Send + 'static> OrderSimulationPool<DB> {
         };
         for i in 0..num_workers {
             let ctx = Arc::clone(&result.current_contexts);
-            let provider = result.provider_factory.clone();
+            let provider = result.provider.clone();
             let cancel = global_cancellation.clone();
             let handle = std::thread::Builder::new()
                 .name(format!("sim_thread:{}", i))
@@ -336,6 +94,11 @@ impl<DB: Database + Clone + Send + 'static> OrderSimulationPool<DB> {
         result
     }
 
+    /// Prepares the context to run a SimulationJob and spawns a task with it.
+    /// The returned SlotOrderSimResults can be polled to the simulation stream.
+    /// IMPORTANT: By calling spawn_simulation_job we lock some worker threads on the given block.
+    ///     When we are done we MUST call block_cancellation so the threads can be freed for the next block.
+    /// @Pending: Not properly working to be used with several blocks at the same time (forks!).
     pub fn spawn_simulation_job(
         &self,
         ctx: BlockBuildingContext,
@@ -344,21 +107,42 @@ impl<DB: Database + Clone + Send + 'static> OrderSimulationPool<DB> {
     ) -> SlotOrderSimResults {
         let (slot_sim_results_sender, slot_sim_results_receiver) = mpsc::channel(10_000);
 
-        let provider = self.provider_factory.provider_factory_unchecked();
+        let ctx = {
+            // use random coinbase for simulations to make top of the block simulation bypass harder
+            let mut ctx = ctx;
+            let signer = Signer::random();
+            ctx.evm_env.block_env.beneficiary = signer.address;
+            ctx.builder_signer = Some(signer);
+            ctx
+        };
 
+        let provider = self.provider.clone();
         let current_contexts = Arc::clone(&self.current_contexts);
         let block_context: BlockContextId = gen_uid();
-        let span = info_span!("sim_ctx", block = ctx.block_env.number.to::<u64>(), parent = ?ctx.attributes.parent);
+        let span = info_span!("sim_ctx", block = ctx.evm_env.block_env.number, parent = ?ctx.attributes.parent);
 
         let handle = tokio::spawn(
             async move {
-                debug!("Starting simulation job for parent block");
-                let sim_tree = SimTree::new(provider, ctx.attributes.parent);
+                let nonces = {
+                    let state = match provider.history_by_block_hash(ctx.attributes.parent) {
+                        Ok(state) => state,
+                        Err(err) => {
+                            error!(
+                                ?err,
+                                "Failed to get history_by_block_hash, cancelling simulation job"
+                            );
+                            return;
+                        }
+                    };
+                    NonceCache::new(state.into())
+                };
+
+                let sim_tree = SimTree::new(nonces);
                 let new_order_sub = input.new_order_sub;
                 let (sim_req_sender, sim_req_receiver) = flume::unbounded();
                 let (sim_results_sender, sim_results_receiver) = mpsc::channel(1024);
                 {
-                    let mut contexts = current_contexts.lock().unwrap();
+                    let mut contexts = current_contexts.lock();
                     let sim_context = SimulationContext {
                         block_ctx: ctx,
                         requests: sim_req_receiver,
@@ -366,42 +150,95 @@ impl<DB: Database + Clone + Send + 'static> OrderSimulationPool<DB> {
                     };
                     contexts.contexts.insert(block_context, sim_context);
                 }
-                let mut simulation_job = SimulationJob {
+                let mut simulation_job = SimulationJob::new(
+                    block_cancellation,
                     new_order_sub,
                     sim_req_sender,
                     sim_results_receiver,
                     slot_sim_results_sender,
                     sim_tree,
-                    block_cancellation,
-                    orders_received: OrderCounter::default(),
-                    orders_simulated_ok: OrderCounter::default(),
-                    in_flight_orders: Default::default(),
-                };
+                );
 
                 simulation_job.run().await;
 
                 // clean up
                 {
-                    let mut contexts = current_contexts.lock().unwrap();
+                    let mut contexts = current_contexts.lock();
                     contexts.contexts.remove(&block_context);
                 }
-                info!(
-                    ?simulation_job.orders_received,
-                    ?simulation_job.orders_simulated_ok,
-                    "Stopping simulation job "
-                );
             }
             .instrument(span),
         );
 
         {
-            let mut tasks = self.running_tasks.lock().unwrap();
+            let mut tasks = self.running_tasks.lock();
             tasks.retain(|handle| !handle.is_finished());
             tasks.push(handle);
         }
 
         SlotOrderSimResults {
             orders: slot_sim_results_receiver,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        building::testing::test_chain_state::{BlockArgs, NamedAddr, TestChainState, TxArgs},
+        live_builder::order_input::order_sink::OrderPoolCommand,
+        primitives::{MempoolTx, Order, TransactionSignedEcRecoveredWithBlobs},
+        utils::ProviderFactoryReopener,
+    };
+    use alloy_primitives::U256;
+
+    #[tokio::test]
+    async fn test_simulate_order_to_coinbase() {
+        let test_context = TestChainState::new(BlockArgs::default().number(11)).unwrap();
+
+        // Create simulation core
+        let cancel = CancellationToken::new();
+        let provider_factory_reopener = ProviderFactoryReopener::new_from_existing(
+            test_context.provider_factory().clone(),
+            None,
+        )
+        .unwrap();
+
+        let sim_pool = OrderSimulationPool::new(provider_factory_reopener, 4, cancel.clone());
+        let (order_sender, order_receiver) = mpsc::unbounded_channel();
+        let orders_for_block = OrdersForBlock {
+            new_order_sub: order_receiver,
+        };
+
+        let mut sim_results = sim_pool.spawn_simulation_job(
+            test_context.block_building_context().clone(),
+            orders_for_block,
+            cancel.clone(),
+        );
+
+        // Create a simple tx that sends to coinbase 5 wei.
+        let coinbase_profit = 5;
+        // max_priority_fee will be 0
+        let tx_args = TxArgs::new_send_to_coinbase(NamedAddr::User(1), 0, coinbase_profit);
+        let tx = test_context.sign_tx(tx_args).unwrap();
+        let tx = TransactionSignedEcRecoveredWithBlobs::new_no_blobs(tx).unwrap();
+        order_sender
+            .send(OrderPoolCommand::Insert(Order::Tx(MempoolTx::new(tx))))
+            .unwrap();
+
+        // We expect to receive the simulation giving a profit of coinbase_profit since that's what we sent directly to coinbase.
+        // and we are not paying any priority fee
+        if let Some(command) = sim_results.orders.recv().await {
+            match command {
+                SimulatedOrderCommand::Simulation(sim_order) => {
+                    assert_eq!(
+                        sim_order.sim_value.coinbase_profit,
+                        U256::from(coinbase_profit)
+                    );
+                }
+                SimulatedOrderCommand::Cancellation(_) => panic!("Cancellation not expected"),
+            };
         }
     }
 }

@@ -1,42 +1,47 @@
 log_json = false
 log_level = "info,rbuilder=debug"
-
-telemetry_port = 6060
-telemetry_ip = "0.0.0.0"
+#log_file_path = "<project path>/preconf-builder/logs/rbuilder.log"
+redacted_telemetry_server_port = 6061
+redacted_telemetry_server_ip = "0.0.0.0"
+full_telemetry_server_port = 6060
+full_telemetry_server_ip = "0.0.0.0"
 
 chain = ""
 reth_datadir = ""
-relay_secret_key = ""
-coinbase_secret_key = ""
-cl_node_url = ["http://localhost:3500"]
+
+coinbase_secret_key = "env:COINBASE_SECRET_KEY"
+relay_secret_key = "env:RELAY_SECRET_KEY"
+optimistic_relay_secret_key = "env:OPTIMISTIC_RELAY_SECRET_KEY"
+
+
+# cl_node_url can be a single value, array of values, or passed by an environment variables with values separated with a comma
+# cl_node_url = "http://localhost:3500"
+cl_node_url = ["env:CL_NODE_URL"]
 jsonrpc_server_port = 8645
 jsonrpc_server_ip = "0.0.0.0"
 el_node_ipc_path = "/tmp/reth.ipc"
 extra_data = "ETHGas www.ethgas.com"
 
-dry_run = false
+#blocklist_file_path = "./blocklist.json"
 
-ignore_cancellable_orders = true
+ignore_cancellable_orders = false
+
+# watchdog_timeout_sec = 600
+# simulation_threads = 1
+
+# genesis_fork_version = "0x00112233"
 
 sbundle_mergeabe_signers = []
+live_builders = ["preconf-ordering"]
+
+enabled_relays = ["custom"]
+
 
 # EthGas API domain
 preconf_api_url = "https://"
 # EthGas WebSocket domain
 preconf_ws_url = "wss://"
-fallback_fee_recipient=""
-simulation_threads = 1
-#### slot_delta_to_start_submits_ms ####
-# Delta relative to slot_time at which we start to submit blocks.
-# Usually negative since we need to start submitting BEFORE the slot time. (default: -8000, example: -5000)
-########################################
-slot_delta_to_start_submits_ms = -1000
-#### min_time_between_block_check_ms ####
-# run_submit_to_relays_job waits at least min_time_between_block_check_ms (default: MIN_TIME_BETWEEN_BLOCK_CHECK = 5ms) between new block polls to avoid 100% CPU usage.
-########################################
-min_time_between_block_check_ms = 100
-
-live_builders = ["preconf-ordering"]
+fallback_fee_recipient = ""
 
 [[relays]]
 name = "custom"

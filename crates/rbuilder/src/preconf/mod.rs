@@ -1,7 +1,7 @@
 pub mod preconf_api_client;
 pub mod preconf_ws_client;
 
-use crate::live_builder::base_config::BaseConfig;
+use crate::live_builder::config::{Config};
 use crate::preconf::preconf_api_client::PreconfApiClient;
 use crate::preconf::preconf_ws_client::PreconfWsClient;
 use crate::primitives::Order;
@@ -32,9 +32,10 @@ pub enum PreconfHealthStatus {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum PreconfOrdering {
-    TopPreconf = 3,
-    RegularPreconf = 1,
-    BottomPreconf = 2,
+    TopPreconf = 4,
+    BottomPreconf = 3,
+    RegularPreconf = 2,
+    PayoutPreconf = 1,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -145,12 +146,12 @@ impl PreconfConfig {
             relay_secret_key,
         }
     }
-    pub fn from_config(config: &BaseConfig) -> Self {
+    pub fn from_config(config: &Config) -> Self {
         PreconfConfig {
-            preconf_api_url: config.preconf_api_url.clone(),
-            preconf_ws_url: config.preconf_ws_url.clone(),
-            fallback_fee_recipient: config.fallback_fee_recipient.clone(),
-            relay_secret_key: config.get_relay_secret_key().unwrap(),
+            preconf_api_url: config.base_config.preconf_api_url.clone(),
+            preconf_ws_url: config.base_config.preconf_ws_url.clone(),
+            fallback_fee_recipient: config.base_config.fallback_fee_recipient.clone(),
+            relay_secret_key: config.l1_config.get_relay_secret_key().unwrap(),
         }
     }
 }
@@ -303,12 +304,13 @@ pub fn assign_preconf_ordering(ordering: Option<i8>) -> U256 {
     match ordering {
         Some(1) => U256::from(PreconfOrdering::TopPreconf as u64),
         Some(-1) => U256::from(PreconfOrdering::BottomPreconf as u64),
+        Some(-2) => U256::from(PreconfOrdering::PayoutPreconf as u64),
         _ => U256::from(PreconfOrdering::RegularPreconf as u64),
     }
 }
 
 pub fn convert_timestamp_ns(timestamp: u64) -> OffsetDateTime {
-    let ts = timestamp / 1000; // timestamp is in milliseconds
+    let ts = timestamp / 1000; // the timestamp is in milliseconds
     OffsetDateTime::from_unix_timestamp(ts as i64).unwrap()
 }
 

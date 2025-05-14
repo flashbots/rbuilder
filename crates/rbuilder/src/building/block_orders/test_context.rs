@@ -1,6 +1,6 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, rc::Rc, sync::Arc};
 
-use reth_primitives::{Address, B256, U256};
+use alloy_primitives::{Address, U256};
 
 use crate::{
     primitives::{
@@ -16,7 +16,7 @@ use super::{order_dumper::OrderDumper, SimulatedOrderSink, TestDataGenerator};
 /// Usage:
 /// - Create orders via funcs like create_multiple_sbundle_tx_br
 /// - Call  insert_order/remove_order
-/// - Call expected results (pop_insert/pop_remove) in the expected order.
+/// - Check expected results (pop_insert/pop_remove) in the expected order.
 pub struct TestContext<TestedSinkType> {
     pub data_gen: TestDataGenerator,
     pub dumper: Rc<RefCell<OrderDumper>>,
@@ -44,15 +44,15 @@ impl<TestedSinkType: SimulatedOrderSink> TestContext<TestedSinkType> {
         }
     }
 
-    pub fn insert_order(&mut self, order: SimulatedOrder) {
+    pub fn insert_order(&mut self, order: Arc<SimulatedOrder>) {
         self.tested_sink.insert_order(order);
     }
 
-    pub fn remove_order(&mut self, id: OrderId) -> Option<SimulatedOrder> {
+    pub fn remove_order(&mut self, id: OrderId) -> Option<Arc<SimulatedOrder>> {
         self.tested_sink.remove_order(id)
     }
 
-    pub fn pop_insert(&mut self) -> SimulatedOrder {
+    pub fn pop_insert(&mut self) -> Arc<SimulatedOrder> {
         self.dumper.borrow_mut().pop_insert()
     }
 
@@ -72,7 +72,7 @@ impl<TestedSinkType: SimulatedOrderSink> TestContext<TestedSinkType> {
         }]
     }
 
-    // DEFAULT_REFUND for tx at index 0
+    // DEFAULT_REFUND applies to the tx at index 0
     fn default_tx_br_refund() -> Vec<Refund> {
         vec![Refund {
             body_idx: 0,
@@ -132,7 +132,7 @@ impl<TestedSinkType: SimulatedOrderSink> TestContext<TestedSinkType> {
         &mut self,
         hi_signer: Option<Address>,
         low_signer: Option<Address>,
-    ) -> (SimulatedOrder, SimulatedOrder) {
+    ) -> (Arc<SimulatedOrder>, Arc<SimulatedOrder>) {
         let mut backruns = self.create_multiple_sbundle_tx_br(2);
         backruns[0].signer = hi_signer;
         backruns[1].signer = low_signer;
@@ -160,7 +160,7 @@ impl<TestedSinkType: SimulatedOrderSink> TestContext<TestedSinkType> {
         order: Order,
         coinbase_profit: u64,
         mev_gas_price: u64,
-    ) -> SimulatedOrder {
+    ) -> Arc<SimulatedOrder> {
         let sim_value = SimValue {
             coinbase_profit: U256::from(coinbase_profit),
             mev_gas_price: U256::from(mev_gas_price),
@@ -170,12 +170,11 @@ impl<TestedSinkType: SimulatedOrderSink> TestContext<TestedSinkType> {
             )],
             ..Default::default()
         };
-        SimulatedOrder {
+        Arc::new(SimulatedOrder {
             order,
             sim_value,
-            prev_order: None,
             used_state_trace: None,
-        }
+        })
     }
 
     /// creates a basic bundle with body and refund/refund_config.
@@ -194,18 +193,15 @@ impl<TestedSinkType: SimulatedOrderSink> TestContext<TestedSinkType> {
             can_skip: false,
             original_order_id: None,
         };
-        let mut sbundle = ShareBundle {
-            hash: B256::default(),
-            block: DONT_CARE_BLOCK,
-            max_block: DONT_CARE_BLOCK,
-            inner_bundle: inner,
+        ShareBundle::new(
+            DONT_CARE_BLOCK,
+            DONT_CARE_BLOCK,
+            inner,
             signer,
-            replacement_data: None,
-            original_orders: Vec::new(),
-            metadata: Default::default(),
-        };
-        sbundle.hash_slow();
-        sbundle
+            None,
+            Vec::new(),
+            Default::default(),
+        )
     }
 
     fn as_inner(item: &ShareBundleBody) -> &ShareBundleInner {
@@ -229,24 +225,28 @@ impl<TestedSinkType: SimulatedOrderSink> TestContext<TestedSinkType> {
     /// - concatenated_sbundle is composed of all the ShareBundleInner of the sbundles in that order and made skippable.
     /// - the concatenated_sbundle has no refunds.
     /// - SimValue of concatenated_order is the same as the first of sbundles (current expected behavior of merging)
-    /// self is not used buf simplifies the call since the static func would need the types specified.
+    ///
+    /// self is not used but simplifies the call since the static function would need the types specified.
     pub fn assert_concatenated_sbundles_ok(
         &self,
-        concatenated_order: &SimulatedOrder,
-        sbundles: &[SimulatedOrder],
+        concatenated_order: &Arc<SimulatedOrder>,
+        sbundles: &[Arc<SimulatedOrder>],
     ) {
         let concatenated_sbundle = Self::as_sbundle(&concatenated_order.order);
-        assert_eq!(concatenated_sbundle.inner_bundle.body.len(), sbundles.len());
-        assert!(concatenated_sbundle.inner_bundle.refund.is_empty());
-        assert!(concatenated_sbundle.inner_bundle.refund_config.is_empty());
+        assert_eq!(
+            concatenated_sbundle.inner_bundle().body.len(),
+            sbundles.len()
+        );
+        assert!(concatenated_sbundle.inner_bundle().refund.is_empty());
+        assert!(concatenated_sbundle.inner_bundle().refund_config.is_empty());
         let concatenated_sbundle_inners = concatenated_sbundle
-            .inner_bundle
+            .inner_bundle()
             .body
             .iter()
             .map(Self::as_inner);
         let sbundles_inners = sbundles
             .iter()
-            .map(|sb| &Self::as_sbundle(&sb.order).inner_bundle);
+            .map(|sb| Self::as_sbundle(&sb.order).inner_bundle());
         concatenated_sbundle_inners
             .zip(sbundles_inners)
             .for_each(|(conc_sbundle, sbundle)| {
@@ -264,7 +264,7 @@ impl<TestedSinkType: SimulatedOrderSink> TestContext<TestedSinkType> {
     pub fn assert_passes_as_is(&mut self, order: Order) {
         let sim_order =
             self.data_gen
-                .create_sim_order(order, DONT_CARE_PROFIT, DONT_CARE_GAS_PRICE, None, None);
+                .create_sim_order(order, DONT_CARE_PROFIT, DONT_CARE_GAS_PRICE);
         self.insert_order(sim_order.clone());
         assert!(self.pop_insert() == sim_order);
     }

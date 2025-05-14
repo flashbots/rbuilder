@@ -1,10 +1,11 @@
-use std::ops::Add;
 use super::{BundleErr, ExecutionError, ExecutionResult, OrderErr};
-use crate::primitives::Order;
-use ahash::{HashMap, HashSet};
-use alloy_primitives::{Address, U256};
-use std::time::Duration;
+use crate::primitives::{Order, OrderId, OrderReplacementKey};
+use ahash::{AHasher, HashMap, HashSet};
+use alloy_primitives::{Address, TxHash, U256};
+use std::{collections::hash_map, hash::Hasher, time::Duration};
+use std::ops::Add;
 use time::OffsetDateTime;
+use tracing::{trace};
 
 /// Structs for recording data about a built block, such as what bundles were included, and where txs came from.
 /// Trace can be used to verify bundle invariants.
@@ -14,15 +15,23 @@ pub struct BuiltBlockTrace {
     pub included_orders: Vec<ExecutionResult>,
     /// How much we bid (pay to the validator)
     pub bid_value: U256,
+    /// coinbase balance delta before the payout tx.
+    pub coinbase_reward: U256,
     /// True block value (coinbase balance delta) excluding the cost of the payout to validator
     pub true_bid_value: U256,
     /// Some bundle failed with BundleErr::NoSigner, we might want to switch to !use_suggested_fee_recipient_as_coinbase
     pub got_no_signer_error: bool,
+    /// Timestamp of the moment we stopped considering new orders for this block.
     pub orders_closed_at: OffsetDateTime,
+    /// Timestamp when this block was fully sealed and ready for submission.
     pub orders_sealed_at: OffsetDateTime,
     pub fill_time: Duration,
     pub finalize_time: Duration,
+    pub root_hash_time: Duration,
+    /// Value we saw in the competition when we decided to make this bid.
+    pub seen_competition_bid: Option<U256>,
     pub preconf_bundle_count: i32,
+    pub fee_recepient: Address,
 }
 
 impl Default for BuiltBlockTrace {
@@ -31,38 +40,55 @@ impl Default for BuiltBlockTrace {
     }
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum BuiltBlockTraceError {
+    #[error("More than one order is included with the same replacement data: {0:?}")]
+    DuplicateReplacementData(OrderReplacementKey),
+    #[error("Included order had different number of txs and receipts")]
+    DifferentTxsAndReceipts,
+    #[error("Included order had tx from or to blocked address")]
+    BlockedAddress,
+    #[error(
+        "Bundle tx reverted that is not revertable, order: {order_id:?}, tx_hash: {tx_hash:?}"
+    )]
+    BundleTxReverted { order_id: OrderId, tx_hash: TxHash },
+}
+
 impl BuiltBlockTrace {
     pub fn new() -> Self {
         Self {
             included_orders: Vec::new(),
             bid_value: U256::from(0),
+            coinbase_reward: U256::from(0),
             true_bid_value: U256::from(0),
             got_no_signer_error: false,
             orders_closed_at: OffsetDateTime::now_utc(),
             orders_sealed_at: OffsetDateTime::now_utc(),
             fill_time: Duration::from_secs(0),
             finalize_time: Duration::from_secs(0),
+            root_hash_time: Duration::from_secs(0),
+            seen_competition_bid: None,
             preconf_bundle_count: 0,
+            fee_recepient: Address::default(),
         }
     }
 
     /// Should be called after block is sealed
     /// Sets:
     /// orders_sealed_at to the current time
-    /// orders_closed_at to the given time
-    pub fn update_orders_timestamps_after_block_sealed(
-        &mut self,
-        orders_closed_at: OffsetDateTime,
-    ) {
-        self.orders_closed_at = orders_closed_at;
+    pub fn update_orders_sealed_at(&mut self) {
         self.orders_sealed_at = OffsetDateTime::now_utc();
+    }
+    
+    pub fn set_fee_recepient(&mut self, fee_recepient: Address) {
+        self.fee_recepient = fee_recepient;
     }
 
     /// Call after a commit_order ok
     pub fn add_included_order(&mut self, execution_result: ExecutionResult) {
         if execution_result.order.is_preconf() {
             self.preconf_bundle_count = self.preconf_bundle_count.add(1);
-            // trace!("added preconf bundle (id={}) to included orders.", execution_result.order.id());
+            trace!("added preconf bundle (id={}) to included orders.", execution_result.order.id());
         }
         self.included_orders.push(execution_result);
     }
@@ -85,52 +111,86 @@ impl BuiltBlockTrace {
             })
     }
 
-    pub fn verify_bundle_consistency(&self, blocklist: &HashSet<Address>) -> eyre::Result<()> {
+    pub fn verify_bundle_consistency(
+        &self,
+        blocklist: &HashSet<Address>,
+    ) -> Result<(), BuiltBlockTraceError> {
         let mut replacement_data_count: HashSet<_> = HashSet::default();
+        let mut bundle_txs_scratchpad = HashMap::default();
+        let mut executed_tx_hashes_scratchpad = Vec::new();
 
         for res in &self.included_orders {
             for order in res.order.original_orders() {
                 if let Some(data) = order.replacement_key() {
                     if replacement_data_count.contains(&data) {
-                        eyre::bail!(
-                            "More than one order is included with the same replacement data: {:?}",
-                            data
-                        );
+                        return Err(BuiltBlockTraceError::DuplicateReplacementData(data));
                     }
                     replacement_data_count.insert(data);
                 }
             }
 
             if res.txs.len() != res.receipts.len() {
-                eyre::bail!("Included order had different number of txs and receipts");
+                return Err(BuiltBlockTraceError::DifferentTxsAndReceipts);
             }
 
-            let mut executed_tx_hashes = Vec::with_capacity(res.txs.len());
+            let executed_tx_hashes = {
+                executed_tx_hashes_scratchpad.clear();
+                &mut executed_tx_hashes_scratchpad
+            };
             for (tx, receipt) in res.txs.iter().zip(res.receipts.iter()) {
-                let tx = &tx.tx;
                 executed_tx_hashes.push((tx.hash(), receipt.success));
                 if blocklist.contains(&tx.signer())
                     || tx.to().map(|to| blocklist.contains(&to)).unwrap_or(false)
                 {
-                    eyre::bail!("Included order had tx from or to blocked address");
+                    return Err(BuiltBlockTraceError::BlockedAddress);
                 }
             }
 
-            let bundle_txs = res
-                .order
-                .list_txs()
-                .into_iter()
-                .map(|(tx, can_revert)| (tx.hash(), can_revert))
-                .collect::<HashMap<_, _>>();
+            let bundle_txs = {
+                // we can have the same tx in the list_txs() multiple times(share bundle merging)
+                // sometimes that tx is marked as revertible and sometimes not
+                // if tx is marked as revertible in one sub-bundle but not another we consider that tx as revertible
+                bundle_txs_scratchpad.clear();
+                for (tx, can_revert) in res.order.list_txs() {
+                    let hash = tx.hash();
+                    match bundle_txs_scratchpad.entry(hash) {
+                        hash_map::Entry::Vacant(entry) => {
+                            entry.insert(can_revert);
+                        }
+                        hash_map::Entry::Occupied(mut entry) => {
+                            let can_revert_stored = entry.get();
+                            if !can_revert_stored && can_revert {
+                                entry.insert(can_revert);
+                            }
+                        }
+                    }
+                }
+                &bundle_txs_scratchpad
+            };
             for (executed_hash, success) in executed_tx_hashes {
-                if let Some(can_revert) = bundle_txs.get(&executed_hash) {
-                    if !success && !can_revert {
-                        eyre::bail!("Bundle tx reverted that is not revertable");
+                if let Some(can_revert) = bundle_txs.get(executed_hash) {
+                    if !*success && !can_revert {
+                        return Err(BuiltBlockTraceError::BundleTxReverted {
+                            order_id: res.order.id(),
+                            tx_hash: *executed_hash,
+                        });
                     }
                 }
             }
         }
 
         Ok(())
+    }
+
+    /// Generates a cheap hash to identify the tx content.
+    pub fn transactions_hash(&self) -> u64 {
+        let mut hasher = AHasher::default();
+        for execution_result in &self.included_orders {
+            for tx in &execution_result.txs {
+                let tx_hash = tx.hash();
+                hasher.write(tx_hash.as_slice());
+            }
+        }
+        hasher.finish()
     }
 }

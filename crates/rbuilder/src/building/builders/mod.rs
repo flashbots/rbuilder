@@ -1,37 +1,33 @@
 //! builders is a subprocess that builds a block
+pub mod block_building_helper;
+pub mod mock_block_building_helper;
 pub mod ordering_builder;
+pub mod parallel_builder;
 
 use crate::{
-    building::{
-        tracers::SimulationTracer, BlockBuildingContext, BlockOrders, BlockState, BuiltBlockTrace,
-        InsertPayoutTxErr, PartialBlock, SimulatedOrderSink, Sorting,
-    },
+    building::{BlockBuildingContext, BuiltBlockTrace, SimulatedOrderSink},
     live_builder::{
-        bidding::{SealInstruction, SlotBidder},
-        payload_events::MevBoostSlotData,
+        payload_events::{InternalPayloadId, MevBoostSlotData},
         simulation::SimulatedOrderCommand,
     },
     primitives::{AccountNonce, OrderId, SimulatedOrder},
-    utils::NonceCache,
+    provider::StateProviderFactory,
+    utils::{is_provider_factory_health_error, NonceCache},
 };
 use ahash::HashSet;
-use alloy_primitives::{Address, B256, U256};
-use reth::{
-    primitives::{BlobTransactionSidecar, SealedBlock},
-    providers::ProviderFactory,
-    tasks::pool::BlockingTaskPool,
+use alloy_eips::eip4844::BlobTransactionSidecar;
+use alloy_primitives::{Address, Bytes};
+use block_building_helper::BiddableUnfinishedBlock;
+use reth::primitives::SealedBlock;
+use std::{fmt::Debug, sync::Arc};
+use tokio::sync::{
+    broadcast,
+    broadcast::error::{RecvError, TryRecvError},
 };
-use reth_db::database::Database;
-use reth_payload_builder::database::CachedReads;
-use std::{
-    cmp::max,
-    sync::{Arc, Mutex},
-};
-use tokio::sync::{broadcast, broadcast::error::TryRecvError};
 use tokio_util::sync::CancellationToken;
-use tracing::{warn};
-use tracing::log::error;
-use crate::building::{BundleErr, ExecutionError, ExecutionResult, OrderErr};
+use tracing::{info, warn};
+
+use super::{simulated_order_command_to_sink, OrderPriority, PrioritizedOrderStore};
 
 /// Block we built
 #[derive(Debug, Clone)]
@@ -40,69 +36,23 @@ pub struct Block {
     pub sealed_block: SealedBlock,
     /// Sidecars for the txs included in SealedBlock
     pub txs_blobs_sidecars: Vec<Arc<BlobTransactionSidecar>>,
+    /// The Pectra execution requests for this bid.
+    pub execution_requests: Vec<Bytes>,
     pub builder_name: String,
-}
-
-/// Contains the best block so far.
-/// Building updates via compare_and_update while relay submitter polls via take_best_block
-#[derive(Debug, Clone)]
-pub struct BestBlockCell {
-    val: Arc<Mutex<Option<Block>>>,
-}
-
-impl Default for BestBlockCell {
-    fn default() -> Self {
-        Self {
-            val: Arc::new(Mutex::new(None)),
-        }
-    }
-}
-
-impl BlockBuildingSink for BestBlockCell {
-    fn new_block(&self, block: Block) {
-        self.compare_and_update(block);
-    }
-}
-
-impl BestBlockCell {
-    pub fn compare_and_update(&self, block: Block) {
-        let mut best_block = self.val.lock().unwrap();
-        let old_value = best_block
-            .as_ref()
-            .map(|b| b.trace.bid_value)
-            .unwrap_or_default();
-        let old_preconf_bundle_count = best_block
-            .as_ref()
-            .map(|b| b.trace.preconf_bundle_count)
-            .unwrap_or_default();
-        // preconf block bid value usually be zero
-        if block.trace.bid_value > old_value {
-            *best_block = Some(block);
-        } else if block.trace.preconf_bundle_count >= old_preconf_bundle_count {
-            *best_block = Some(block);
-        }
-    }
-
-    pub fn take_best_block(&self) -> Option<Block> {
-        self.val.lock().unwrap().take()
-    }
 }
 
 #[derive(Debug)]
-pub struct LiveBuilderInput<DB: Database, SinkType: BlockBuildingSink> {
-    pub provider_factory: ProviderFactory<DB>,
-    pub root_hash_task_pool: BlockingTaskPool,
+pub struct LiveBuilderInput<P> {
+    pub provider: P,
     pub ctx: BlockBuildingContext,
     pub input: broadcast::Receiver<SimulatedOrderCommand>,
-    pub sink: SinkType,
+    pub sink: Arc<dyn UnfinishedBlockBuildingSink>,
     pub builder_name: String,
-    pub slot_bidder: Arc<dyn SlotBidder>,
     pub cancel: CancellationToken,
-    pub sbundle_mergeabe_signers: Vec<Address>,
     pub preconf_reserved_gas: u64,
 }
 
-/// Struct that helps reading new orders/cancelations
+/// Struct that helps reading new orders/cancellations
 /// Call consume_next_commands, check the new_commands() and then consume them via apply_new_commands.
 /// Call consume_next_cancellations and use cancel_data
 #[derive(Debug)]
@@ -123,7 +73,17 @@ impl OrderConsumer {
     /// Returns true if success, on false builder should stop
     /// New commands are accumulatd in self.new_commands
     /// Call apply_new_commands to easily consume them.
-    pub fn consume_next_commands(&mut self) -> eyre::Result<bool> {
+    /// This method will block until the first command is received
+    pub fn blocking_consume_next_commands(&mut self) -> eyre::Result<bool> {
+        match self.orders.blocking_recv() {
+            Ok(order) => self.new_commands.push(order),
+            Err(RecvError::Closed) => {
+                return Ok(false);
+            }
+            Err(RecvError::Lagged(msg)) => {
+                warn!(msg, "Builder thread lagging on sim orders channel");
+            }
+        }
         for _ in 0..1024 {
             match self.orders.try_recv() {
                 Ok(order) => self.new_commands.push(order),
@@ -134,7 +94,7 @@ impl OrderConsumer {
                     return Ok(false);
                 }
                 Err(TryRecvError::Lagged(msg)) => {
-                    warn!("Builder thread lagging on sim orders channel: {}", msg);
+                    warn!(msg, "Builder thread lagging on sim orders channel");
                     break;
                 }
             }
@@ -149,49 +109,41 @@ impl OrderConsumer {
     // Apply insertions and sbundle cancellations on sink
     pub fn apply_new_commands<SinkType: SimulatedOrderSink>(&mut self, sink: &mut SinkType) {
         for order_command in self.new_commands.drain(..) {
-            match order_command {
-                SimulatedOrderCommand::Simulation(sim_order) => sink.insert_order(sim_order),
-                SimulatedOrderCommand::Cancellation(id) => {
-                    let _ = sink.remove_order(id);
-                }
-            };
+            simulated_order_command_to_sink(order_command, sink);
         }
     }
 }
 
 #[derive(Debug)]
-pub struct OrderIntakeConsumer<DB> {
-    nonce_cache: NonceCache<DB>,
+pub struct OrderIntakeConsumer<OrderPriorityType> {
+    nonces: NonceCache,
 
-    block_orders: BlockOrders,
+    block_orders: PrioritizedOrderStore<OrderPriorityType>,
     onchain_nonces_updated: HashSet<Address>,
 
     order_consumer: OrderConsumer,
 }
 
-impl<DB: Database + Clone> OrderIntakeConsumer<DB> {
+impl<OrderPriorityType: OrderPriority> OrderIntakeConsumer<OrderPriorityType> {
     /// See [`ShareBundleMerger`] for sbundle_merger_selected_signers
-    pub fn new(
-        provider_factory: ProviderFactory<DB>,
-        orders: broadcast::Receiver<SimulatedOrderCommand>,
-        parent_block: B256,
-        sorting: Sorting,
-        sbundle_merger_selected_signers: &[Address],
-    ) -> Self {
-        let nonce_cache = NonceCache::new(provider_factory, parent_block);
-
+    pub fn new(nonces: NonceCache, orders: broadcast::Receiver<SimulatedOrderCommand>) -> Self {
         Self {
-            nonce_cache,
-            block_orders: BlockOrders::new(sorting, vec![], sbundle_merger_selected_signers),
+            nonces,
+            block_orders: PrioritizedOrderStore::new(vec![]),
             onchain_nonces_updated: HashSet::default(),
             order_consumer: OrderConsumer::new(orders),
         }
     }
 
     /// Returns true if success, on false builder should stop
-    pub fn consume_next_batch(&mut self) -> eyre::Result<bool> {
-        self.order_consumer.consume_next_commands()?;
-        self.update_onchain_nonces()?;
+    /// Blocks until the first item in the next batch is available.
+    pub fn blocking_consume_next_batch(&mut self) -> eyre::Result<bool> {
+        if !self.order_consumer.blocking_consume_next_commands()? {
+            return Ok(false);
+        }
+        if !self.update_onchain_nonces()? {
+            return Ok(false);
+        }
 
         self.order_consumer
             .apply_new_commands(&mut self.block_orders);
@@ -208,14 +160,13 @@ impl<DB: Database + Clone> OrderIntakeConsumer<DB> {
                 SimulatedOrderCommand::Simulation(sim_order) => Some(sim_order),
                 SimulatedOrderCommand::Cancellation(_) => None,
             });
-        let nonce_db_ref = self.nonce_cache.get_ref()?;
         let mut nonces = Vec::new();
         for new_order in new_orders {
             for nonce in new_order.order.nonces() {
                 if self.onchain_nonces_updated.contains(&nonce.address) {
                     continue;
                 }
-                let onchain_nonce = nonce_db_ref.nonce(nonce.address)?;
+                let onchain_nonce = self.nonces.nonce(nonce.address)?;
                 nonces.push(AccountNonce {
                     account: nonce.address,
                     nonce: onchain_nonce,
@@ -227,136 +178,34 @@ impl<DB: Database + Clone> OrderIntakeConsumer<DB> {
         Ok(true)
     }
 
-    pub fn current_block_orders(&self) -> BlockOrders {
+    pub fn current_block_orders(&self) -> PrioritizedOrderStore<OrderPriorityType> {
         self.block_orders.clone()
     }
 
     pub fn remove_orders(
         &mut self,
         orders: impl IntoIterator<Item = OrderId>,
-    ) -> Vec<SimulatedOrder> {
+    ) -> Vec<Arc<SimulatedOrder>> {
         self.block_orders.remove_orders(orders)
     }
 }
-//region original finalize_block_execution
-// pub fn finalize_block_execution(
-//     ctx: &BlockBuildingContext,
-//     partial_block: &mut PartialBlock<impl SimulationTracer>,
-//     state: &mut BlockState,
-//     built_block_trace: &mut BuiltBlockTrace,
-//     payout_tx_gas: Option<u64>,
-//     bidder: &dyn SlotBidder,
-//     fee_recipient_balance_diff: U256,
-// ) -> Result<bool, InsertPayoutTxErr> {
-//     let (bid_value, true_value) = if let Some(payout_tx_gas) = payout_tx_gas {
-//         let available_value = partial_block.get_proposer_payout_tx_value(payout_tx_gas, ctx)?;
-//         let value = match bidder.seal_instruction(available_value) {
-//             SealInstruction::Value(value) => value,
-//             SealInstruction::Skip => return Ok(false),
-//         };
-//         match partial_block.insert_proposer_payout_tx(payout_tx_gas, value, ctx, state) {
-//             Ok(()) => (value, available_value),
-//             Err(InsertPayoutTxErr::ProfitTooLow) => return Ok(false),
-//             Err(err) => return Err(err),
-//         }
-//     } else {
-//         (partial_block.coinbase_profit, partial_block.coinbase_profit)
-//     };
-//     built_block_trace.bid_value = max(bid_value, fee_recipient_balance_diff);
-//     built_block_trace.true_bid_value = true_value;
-//
-//     Ok(true)
-// }
-//endregion
-pub fn add_bottom_preconf(
-    ctx: &BlockBuildingContext,
-    partial_block: &mut PartialBlock<impl SimulationTracer>,
-    state: &mut BlockState,
-    bottom_preconf: &SimulatedOrder,
-    bottom_preconf_gas: u64
-) -> Result<ExecutionResult, ExecutionError> {
-    if ctx.builder_signer.is_none() && !bottom_preconf.sim_value.paid_kickbacks.is_empty() {
-        // Return here to avoid wasting time on a call to fork.commit_order that 99% will fail
-        return Err(ExecutionError::OrderError(OrderErr::Bundle(
-            BundleErr::NoSigner,
-        )));
-    }
-    match partial_block.insert_bottom_preconf(bottom_preconf, bottom_preconf_gas, ctx, state) {
-        Ok(res) => {
-            // debug!("added bottom preconf back on block {}.", ctx.block_env.number);
-            res
-        }
-        Err(e) => {
-            Err(ExecutionError::OrderError(e))
-        }
-    }
-}
 
-pub fn insert_self_payout_tx(
-    ctx: &BlockBuildingContext,
-    partial_block: &mut PartialBlock<impl SimulationTracer>,
-    state: &mut BlockState,
-) -> bool {
-    if ctx.builder_signer.is_none() {
-        // Return here to avoid wasting time on a call to fork.commit_order that 99% will fail
-        error!("No signer for self payout tx");
-        return false;
-    }
-    partial_block.insert_self_payout_tx(21000, U256::ZERO, ctx, state).expect("insert self payout tx in partial block");
-    true
-}
+/// Output of the BlockBuildingAlgorithm.
+pub trait UnfinishedBlockBuildingSink: std::fmt::Debug + Send + Sync {
+    fn new_block(&self, block: BiddableUnfinishedBlock);
 
-pub fn finalize_block_execution(
-    ctx: &BlockBuildingContext,
-    partial_block: &mut PartialBlock<impl SimulationTracer>,
-    _state: &mut BlockState,
-    built_block_trace: &mut BuiltBlockTrace,
-    payout_tx_gas: Option<u64>,
-    bidder: &dyn SlotBidder,
-    fee_recipient_balance_diff: U256,
-) -> Result<bool, InsertPayoutTxErr> {
-    if built_block_trace.preconf_bundle_count > 0 {
-        // let one: Uint<256, 4> = parse_units("1", 24).unwrap().into(); //100000ETH
-        // built_block_trace.bid_value = built_block_trace.bid_value + one;
-        // built_block_trace.true_bid_value = built_block_trace.true_bid_value + one;
-        return Ok(true);
-    }
-    let (bid_value, true_value) = if let Some(payout_tx_gas) = payout_tx_gas {
-        let available_value = partial_block.get_proposer_payout_tx_value(payout_tx_gas, ctx)?;
-        let value = match bidder.seal_instruction(available_value) {
-            SealInstruction::Value(value) => value,
-            SealInstruction::Skip => return Ok(false),
-        };
-        (value, available_value)
-        // skip the payout tx
-        // match partial_block.insert_proposer_payout_tx(payout_tx_gas, value, ctx, state) {
-        //     Ok(()) => (value, available_value),
-        //     Err(InsertPayoutTxErr::ProfitTooLow) => return Ok(false),
-        //     Err(err) => return Err(err),
-        // }
-    } else {
-        (partial_block.coinbase_profit, partial_block.coinbase_profit)
-    };
-    built_block_trace.bid_value = max(bid_value, fee_recipient_balance_diff);
-    built_block_trace.true_bid_value = true_value;
-
-    Ok(true)
-}
-
-/// Output of the BlockBuildingAlgorithm
-pub trait BlockBuildingSink: std::fmt::Debug + Clone + Send + Sync {
-    fn new_block(&self, block: Block);
+    /// The sink may not like blocks where coinbase is the final fee_recipient (eg: this does not allows us to take profit!).
+    /// Not sure this is the right place for this func. Might move somewhere else.
+    fn can_use_suggested_fee_recipient_as_coinbase(&self) -> bool;
 }
 
 #[derive(Debug)]
-pub struct BlockBuildingAlgorithmInput<DB: Database, SinkType: BlockBuildingSink> {
-    pub provider_factory: ProviderFactory<DB>,
+pub struct BlockBuildingAlgorithmInput<P> {
+    pub provider: P,
     pub ctx: BlockBuildingContext,
     pub input: broadcast::Receiver<SimulatedOrderCommand>,
     /// output for the blocks
-    pub sink: SinkType,
-    /// Needed to add the pay to validator tx (the bid!)
-    pub slot_bidder: Arc<dyn SlotBidder>,
+    pub sink: Arc<dyn UnfinishedBlockBuildingSink>,
     pub cancel: CancellationToken,
     pub preconf_reserved_gas: u64,
 }
@@ -364,32 +213,49 @@ pub struct BlockBuildingAlgorithmInput<DB: Database, SinkType: BlockBuildingSink
 /// Algorithm to build blocks
 /// build_blocks should send block to input.sink until  input.cancel is cancelled.
 /// slot_bidder should be used to decide how much to bid.
-pub trait BlockBuildingAlgorithm<DB: Database, SinkType: BlockBuildingSink>:
-    std::fmt::Debug + Send + Sync
+pub trait BlockBuildingAlgorithm<P>: Debug + Send + Sync
+where
+    P: StateProviderFactory,
 {
     fn name(&self) -> String;
-    fn build_blocks(&self, input: BlockBuildingAlgorithmInput<DB, SinkType>);
+    fn build_blocks(&self, input: BlockBuildingAlgorithmInput<P>);
 }
 
-/// Factory used to create BlockBuildingSink for builders when we are targeting blocks for slots.
-pub trait BuilderSinkFactory {
-    type SinkType: BlockBuildingSink + Clone;
-    /// # Arguments
-    /// slot_bidder: Not always needed but simplifies the design.
-    fn create_builder_sink(
-        &self,
+/// Factory used to create UnfinishedBlockBuildingSink for builders.
+pub trait UnfinishedBlockBuildingSinkFactory: Debug + Send + Sync {
+    /// Creates an UnfinishedBlockBuildingSink to receive block for slot_data.
+    /// cancel: If this is signaled the sink should cancel. If any unrecoverable situation is found signal cancel.
+    fn create_sink(
+        &mut self,
         slot_data: MevBoostSlotData,
-        slot_bidder: Arc<dyn SlotBidder>,
         cancel: CancellationToken,
-    ) -> Self::SinkType;
+    ) -> Arc<dyn UnfinishedBlockBuildingSink>;
 }
 
 /// Basic configuration to run a single block building with a BlockBuildingAlgorithm
-pub struct BacktestSimulateBlockInput<'a, DB> {
+pub struct BacktestSimulateBlockInput<'a, P> {
     pub ctx: BlockBuildingContext,
     pub builder_name: String,
-    pub sbundle_mergeabe_signers: Vec<Address>,
-    pub sim_orders: &'a Vec<SimulatedOrder>,
-    pub provider_factory: ProviderFactory<DB>,
-    pub cached_reads: Option<CachedReads>,
+    pub sim_orders: &'a Vec<Arc<SimulatedOrder>>,
+    pub provider: P,
+}
+
+/// Handles error from block filling stage.
+/// Answers if block filling should continue.
+pub fn handle_building_error(err: eyre::Report, payload_id: InternalPayloadId) -> bool {
+    // @Types
+    let err_str = err.to_string();
+    if !err_str.contains("Profit too low") {
+        if is_provider_factory_health_error(&err) {
+            info!(
+                payload_id,
+                ?err,
+                "Cancelling building due to provider factory error"
+            );
+            return false;
+        } else {
+            warn!(?err, "Error filling orders");
+        }
+    }
+    true
 }

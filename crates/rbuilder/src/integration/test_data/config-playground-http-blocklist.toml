@@ -1,0 +1,14 @@
+
+chain = "$HOME/.playground/devnet/genesis.json"
+reth_datadir = "$HOME/.playground/devnet/data_reth"
+relay_secret_key = "5eae315483f028b5cdd5d1090ff0c7618b18737ea9bf3c35047189db22835c48"
+el_node_ipc_path = "$HOME/.playground/devnet/reth.ipc"
+live_builders = ["mgp-ordering"]
+enabled_relays = ["playground"]
+log_level = "info,rbuilder=debug"
+coinbase_secret_key = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+blocklist_url_max_age_secs = 5
+watchdog_timeout_sec = 15
+blocklist = "http://127.0.0.1:1934"
+root_hash_use_sparse_trie = true
+root_hash_compare_sparse_trie = false

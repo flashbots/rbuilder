@@ -7,7 +7,7 @@ use core::fmt::Debug;
 
 /// Receiver of order commands.
 /// No replacement/cancellation (or version checking) is considered here.
-/// Orders are assumed to be immutable so there is no update
+/// Orders are assumed to be immutable so there is no update.
 /// insert_order/remove_order return a bool indicating if the operation was successful.
 /// This bool allows the source to cancel notifications on errors if needed.
 #[automock]
@@ -55,14 +55,14 @@ pub enum OrderPoolCommand {
     Remove(OrderId),
 }
 
-/// Adapts push Order flow to pull flow
+/// Adapts push Order flow to pull flow.
 #[derive(Debug)]
 pub struct OrderSender2OrderSink {
     sender: mpsc::UnboundedSender<OrderPoolCommand>,
 }
 
 impl OrderSender2OrderSink {
-    /// returns the OrderSender2OrderSink to get the flow and the UnboundedReceiver to poll the flow
+    /// returns the OrderSender2OrderSink to get the flow and the UnboundedReceiver to poll the flow.
     pub fn new() -> (Self, mpsc::UnboundedReceiver<OrderPoolCommand>) {
         let (sender, receiver) = mpsc::unbounded_channel();
         (Self { sender }, receiver)

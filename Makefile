@@ -5,6 +5,8 @@
 GIT_VER ?= $(shell git describe --tags --always --dirty="-dev")
 GIT_TAG ?= $(shell git describe --tags --abbrev=0)
 
+FEATURES ?=
+
 ##@ Help
 
 .PHONY: help
@@ -23,22 +25,29 @@ clean: ## Clean up
 
 .PHONY: build
 build: ## Build (debug version)
-	cargo build
+	cargo build --features "$(FEATURES)"
 
-.PHONY: docker-image
-docker-image: ## Build a rbuilder Docker image
-	docker build --platform linux/amd64 . -t rbuilder
+.PHONY: docker-image-rbuilder
+docker-image-rubilder: ## Build a rbuilder Docker image
+	docker build --platform linux/amd64 --target rbuilder-runtime --build-arg FEATURES="$(FEATURES)"  . -t rbuilder
+
+.PHONY: docker-image-test-relay
+docker-image-test-relay: ## Build a test relay Docker image
+	docker build --platform linux/amd64 --target test-relay-runtime --build-arg FEATURES="$(FEATURES)" . -t test-relay
 
 ##@ Dev
 
 .PHONY: lint
 lint: ## Run the linters
 	cargo fmt -- --check
-	cargo clippy -- -D warnings
+	cargo clippy --features "$(FEATURES)" -- -D warnings
+	cargo clippy -p op-rbuilder --features "$(FEATURES)" -- -D warnings
 
 .PHONY: test
-test: ## Run the tests
-	cargo test --verbose
+test: ## Run the tests for rbuilder and op-rbuilder
+	cargo test --verbose --features "$(FEATURES)"
+	cargo test -p op-rbuilder --verbose --features "$(FEATURES)"
+	cargo test -p op-rbuilder --verbose --features "$(FEATURES),flashblocks"
 
 .PHONY: lt
 lt: lint test ## Run "lint" and "test"
@@ -47,12 +56,12 @@ lt: lint test ## Run "lint" and "test"
 fmt: ## Format the code
 	cargo fmt
 	cargo fix --allow-staged
-	cargo clippy --fix --allow-staged
+	cargo clippy --features "$(FEATURES)" --fix --allow-staged
+	cargo clippy -p op-rbuilder --features "$(FEATURES)" --fix --allow-staged
 
 .PHONY: bench
 bench: ## Run benchmarks
-	cargo bench --bench bench_main
-#	 cargo bench --bench bench_main -- --verbose
+	cargo bench --features "$(FEATURES)" --workspace
 
 .PHONY: bench-report-open
 bench-report-open: ## Open last benchmark report in the browser
@@ -74,3 +83,8 @@ bench-prettify: ## Prettifies the latest Criterion report
 	./scripts/ci/criterion-prettify-report.sh target/criterion target/benchmark-html-dev
 	@echo "\nopen target/benchmark-html-dev/report/index.html"
 
+.PHONY: validate-config
+validate-config: ## Validate the correctness of the configuration files
+	@for CONFIG in $(shell ls config-*.toml); do \
+		cargo run --bin validate-config -- --config $$CONFIG; \
+	done

@@ -1,9 +1,6 @@
 use crate::live_builder::order_input::preconf_fetcher::WS_READ_TIMEOUT_PERIOD;
 use crate::preconf::{assign_preconf_ordering, convert_str_to_address, convert_timestamp_ns, eth_to_wei, string_to_uuid, PreconfBundleType, PreconfError, PreconfHealthStatus, PreconfInfo, PreconfReservedInfo, PreconfState};
-use crate::primitives::{
-    Bundle, BundleReplacementData, BundleReplacementKey, Metadata, Order,
-    TransactionSignedEcRecoveredWithBlobs,
-};
+use crate::primitives::{Bundle, BundleReplacementData, BundleReplacementKey, BundleVersion, Metadata, Order, TransactionSignedEcRecoveredWithBlobs};
 use alloy_primitives::{hex, keccak256, Bytes, B256};
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
@@ -564,6 +561,7 @@ pub async fn process_preconf_bundles(
             debug!("received preconf transactions is empty");
             return;
         }
+        debug!("ws: generate_order_from_preconf");
         match generate_order_from_ws_preconf(
             preconf_info.block_number,
             preconf_info.timestamp.unwrap(),
@@ -622,7 +620,7 @@ pub fn generate_order_from_ws_preconf(
         .collect();
 
     let replacement_data = BundleReplacementData {
-        key: BundleReplacementKey::new(bundle_uuid, signer.unwrap()),
+        key: BundleReplacementKey::new(bundle_uuid, Some(signer.unwrap())),
         sequence_number: 0,
     };
     let bundle_hash = keccak256(raw_bundle_hash);
@@ -633,16 +631,19 @@ pub fn generate_order_from_ws_preconf(
             metadata.preconf_bid_price = Some(p);
             metadata.preconf_ordering = Some(preconf_ordering);
             Ok(Order::Bundle(Bundle {
-                block,
+                version: BundleVersion::V1,
+                block: Some(block),
                 min_timestamp: Some(timestamp),
                 max_timestamp: None,
                 txs: trxs,
                 reverting_tx_hashes,
+                dropping_tx_hashes: vec![],
                 hash: bundle_hash,
                 uuid: bundle_uuid,
                 replacement_data: Some(replacement_data),
                 signer,
                 metadata,
+                refund: None,
             }))
         }
         Err(e) => Err(PreconfError::PreconfConvertError(format!(

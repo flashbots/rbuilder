@@ -1,15 +1,18 @@
 pub mod setup;
 
-use alloy_primitives::{Address, U256};
+use alloy_primitives::{Address, B256, U256};
 use itertools::Itertools;
 use std::collections::HashSet;
 use uuid::Uuid;
 
 use crate::{
-    building::{testing::bundle_tests::setup::NonceValue, BuiltBlockTrace, BundleErr, OrderErr},
+    building::{
+        testing::bundle_tests::setup::NonceValue, BuiltBlockTrace, BundleErr, OrderErr,
+        TransactionErr,
+    },
     primitives::{
-        Bundle, BundleReplacementData, BundleReplacementKey, Order, Refund, RefundConfig,
-        TxRevertBehavior,
+        Bundle, BundleRefund, BundleReplacementData, BundleReplacementKey, Order, OrderId, Refund,
+        RefundConfig, TxRevertBehavior,
     },
     utils::{constants::BASE_TX_GAS, int_percentage},
 };
@@ -19,6 +22,13 @@ use self::setup::TestSetup;
 use super::test_chain_state::{BlockArgs, NamedAddr};
 
 pub const CURR_NONCE: NonceValue = NonceValue::Relative(0);
+
+#[macro_export]
+macro_rules! commit_order_err_matches {
+    ($expression:expr, $pattern:pat $(if $guard:expr)? $(,)?) => {
+        $expression.commit_order_err_check(|err| assert!(matches!(err, $pattern)));
+    };
+}
 
 #[test]
 fn test_blocklist() -> eyre::Result<()> {
@@ -38,7 +48,7 @@ fn test_blocklist() -> eyre::Result<()> {
         0,
         TxRevertBehavior::AllowedIncluded,
     )?;
-    test_setup.commit_order_err("blocklist");
+    commit_order_err_matches!(test_setup, OrderErr::Transaction(TransactionErr::Blocklist));
 
     // send from the blocked address
     test_setup.begin_mempool_tx_order();
@@ -48,7 +58,7 @@ fn test_blocklist() -> eyre::Result<()> {
         0,
         TxRevertBehavior::AllowedIncluded,
     )?;
-    test_setup.commit_order_err("blocklist");
+    commit_order_err_matches!(test_setup, OrderErr::Transaction(TransactionErr::Blocklist));
 
     // send to the blocked address using proxy contract
     test_setup.begin_mempool_tx_order();
@@ -58,7 +68,7 @@ fn test_blocklist() -> eyre::Result<()> {
         1,
         TxRevertBehavior::AllowedIncluded,
     )?;
-    test_setup.commit_order_err("blocklist");
+    commit_order_err_matches!(test_setup, OrderErr::Transaction(TransactionErr::Blocklist));
 
     // send to the blocked address using proxy contract with value 0
     test_setup.begin_mempool_tx_order();
@@ -68,49 +78,85 @@ fn test_blocklist() -> eyre::Result<()> {
         0,
         TxRevertBehavior::AllowedIncluded,
     )?;
-    test_setup.commit_order_err("blocklist");
+    commit_order_err_matches!(test_setup, OrderErr::Transaction(TransactionErr::Blocklist));
 
     Ok(())
 }
 
 #[test]
 fn test_target_block() -> eyre::Result<()> {
+    const BUILT_BLOCK_NUMBER: u64 = 11;
+    const NEXT_BUILT_BLOCK_NUMBER: u64 = BUILT_BLOCK_NUMBER + 1;
+    const PREV_BUILT_BLOCK_NUMBER: u64 = BUILT_BLOCK_NUMBER - 1;
+    const NEXT_NEXT_BUILT_BLOCK_NUMBER: u64 = BUILT_BLOCK_NUMBER + 2;
+    const PREV_PREV_BUILT_BLOCK_NUMBER: u64 = BUILT_BLOCK_NUMBER - 2;
+
     {
-        let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().number(11))?;
-        test_setup.begin_bundle_order(11);
+        let mut test_setup =
+            TestSetup::gen_test_setup(BlockArgs::default().number(BUILT_BLOCK_NUMBER))?;
+        test_setup.begin_bundle_order(BUILT_BLOCK_NUMBER);
         test_setup.add_dummy_tx_0_1_no_rev()?;
         test_setup.commit_order_ok();
 
-        test_setup.begin_bundle_order(12);
+        test_setup.begin_bundle_order(NEXT_BUILT_BLOCK_NUMBER);
         test_setup.add_dummy_tx_0_1_no_rev()?;
-        test_setup.commit_order_err("incorrect block");
+        commit_order_err_matches!(
+            test_setup,
+            OrderErr::Bundle(BundleErr::TargetBlockIncorrect {
+                block: BUILT_BLOCK_NUMBER,
+                target_block: NEXT_BUILT_BLOCK_NUMBER,
+                target_max_block: NEXT_BUILT_BLOCK_NUMBER
+            })
+        );
 
-        test_setup.begin_bundle_order(10);
+        test_setup.begin_bundle_order(PREV_BUILT_BLOCK_NUMBER);
         test_setup.add_dummy_tx_0_1_no_rev()?;
-        test_setup.commit_order_err("incorrect block");
+        commit_order_err_matches!(
+            test_setup,
+            OrderErr::Bundle(BundleErr::TargetBlockIncorrect {
+                block: BUILT_BLOCK_NUMBER,
+                target_block: PREV_BUILT_BLOCK_NUMBER,
+                target_max_block: PREV_BUILT_BLOCK_NUMBER
+            })
+        );
     }
 
     {
-        let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().number(11))?;
-        test_setup.begin_share_bundle_order(10, 12);
+        let mut test_setup =
+            TestSetup::gen_test_setup(BlockArgs::default().number(BUILT_BLOCK_NUMBER))?;
+        test_setup.begin_share_bundle_order(PREV_BUILT_BLOCK_NUMBER, NEXT_BUILT_BLOCK_NUMBER);
         test_setup.add_dummy_tx_0_1_no_rev()?;
         test_setup.commit_order_ok();
 
-        test_setup.begin_share_bundle_order(11, 11);
+        test_setup.begin_share_bundle_order(BUILT_BLOCK_NUMBER, BUILT_BLOCK_NUMBER);
         test_setup.add_dummy_tx_0_1_no_rev()?;
         test_setup.commit_order_ok();
 
-        test_setup.begin_share_bundle_order(11, 12);
+        test_setup.begin_share_bundle_order(BUILT_BLOCK_NUMBER, NEXT_BUILT_BLOCK_NUMBER);
         test_setup.add_dummy_tx_0_1_no_rev()?;
         test_setup.commit_order_ok();
 
-        test_setup.begin_share_bundle_order(9, 10);
+        test_setup.begin_share_bundle_order(PREV_PREV_BUILT_BLOCK_NUMBER, PREV_BUILT_BLOCK_NUMBER);
         test_setup.add_dummy_tx_0_1_no_rev()?;
-        test_setup.commit_order_err("incorrect block");
+        commit_order_err_matches!(
+            test_setup,
+            OrderErr::Bundle(BundleErr::TargetBlockIncorrect {
+                block: BUILT_BLOCK_NUMBER,
+                target_block: PREV_PREV_BUILT_BLOCK_NUMBER,
+                target_max_block: PREV_BUILT_BLOCK_NUMBER
+            })
+        );
 
-        test_setup.begin_share_bundle_order(12, 13);
+        test_setup.begin_share_bundle_order(NEXT_BUILT_BLOCK_NUMBER, NEXT_NEXT_BUILT_BLOCK_NUMBER);
         test_setup.add_dummy_tx_0_1_no_rev()?;
-        test_setup.commit_order_err("incorrect block");
+        commit_order_err_matches!(
+            test_setup,
+            OrderErr::Bundle(BundleErr::TargetBlockIncorrect {
+                block: BUILT_BLOCK_NUMBER,
+                target_block: NEXT_BUILT_BLOCK_NUMBER,
+                target_max_block: NEXT_NEXT_BUILT_BLOCK_NUMBER
+            })
+        );
     }
 
     Ok(())
@@ -119,9 +165,13 @@ fn test_target_block() -> eyre::Result<()> {
 #[test]
 fn test_bundle_timestamp() -> eyre::Result<()> {
     {
-        let mut test_setup =
-            TestSetup::gen_test_setup(BlockArgs::default().number(11).timestamp(1000))?;
+        let block_args = BlockArgs::default().number(11);
+        let base_ts = block_args.timestamp;
+        // we cant't use 1000 since it's before Cancun, we must use the default (which we know executes ok) + 1000
+        let block_args = block_args.timestamp(base_ts + 1000);
+        let mut test_setup = TestSetup::gen_test_setup(block_args)?;
 
+        let adjust_ts = |ts: Option<i32>| ts.map(|delta| delta as u64 + base_ts);
         let ok_timestamp_params = vec![
             (Some(1), Some(5000)),
             (None, Some(5000)),
@@ -133,7 +183,7 @@ fn test_bundle_timestamp() -> eyre::Result<()> {
 
         for (min_ts, max_ts) in ok_timestamp_params {
             test_setup.begin_bundle_order(11);
-            test_setup.set_bundle_timestamp(min_ts, max_ts);
+            test_setup.set_bundle_timestamp(adjust_ts(min_ts), adjust_ts(max_ts));
             test_setup.add_dummy_tx_0_1_no_rev()?;
             test_setup.commit_order_ok();
         }
@@ -142,9 +192,9 @@ fn test_bundle_timestamp() -> eyre::Result<()> {
 
         for (min_ts, max_ts) in bad_timestamps {
             test_setup.begin_bundle_order(11);
-            test_setup.set_bundle_timestamp(min_ts, max_ts);
+            test_setup.set_bundle_timestamp(adjust_ts(min_ts), adjust_ts(max_ts));
             test_setup.add_dummy_tx_0_1_no_rev()?;
-            test_setup.commit_order_err("incorrect timestamp");
+            test_setup.commit_order_err_check_text("incorrect timestamp");
         }
     }
     Ok(())
@@ -174,12 +224,12 @@ fn bundle_revert_tests(
     test_setup
         .add_mev_test_increment_value_tx_no_rev(NonceValue::Fixed(1000), current_slot_value)?;
 
-    test_setup.commit_order_err("NonceTooHigh");
+    test_setup.commit_order_err_check_text("NonceTooHigh");
 
     // this bundle has tx that revert
     begin_bundle(test_setup);
     test_setup.add_mev_test_increment_value_tx_no_rev(CURR_NONCE, current_slot_value + 1)?;
-    test_setup.commit_order_err("transaction reverted");
+    test_setup.commit_order_err_check_text("transaction reverted");
 
     // this bundle has 2 txs one ok other reverts
     begin_bundle(test_setup);
@@ -188,7 +238,7 @@ fn bundle_revert_tests(
         NonceValue::Relative(1),
         current_slot_value + 100,
     )?;
-    test_setup.commit_order_err("transaction reverted");
+    test_setup.commit_order_err_check_text("transaction reverted");
 
     // this bundle has 2 txs one ok other reverts but its optional
     begin_bundle(test_setup);
@@ -240,7 +290,7 @@ fn bundle_revert_tests(
         )?;
 
         test_setup.finish_inner_bundle();
-        test_setup.commit_order_err("Transaction reverted");
+        test_setup.commit_order_err_check_text("Transaction reverted");
 
         // this bundle with 1 optional inner tx that fails
         test_setup.begin_share_bundle_order(target_block, target_block);
@@ -275,6 +325,38 @@ fn test_share_bundle_revert() -> eyre::Result<()> {
 
     bundle_revert_tests(&mut test_setup, target_block, true)?;
 
+    Ok(())
+}
+
+#[test]
+fn test_bundle_ok_refunds() -> eyre::Result<()> {
+    let target_block = 11;
+    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().number(target_block))?;
+    let profit: u64 = 100_000;
+    let percent: u8 = 90;
+    let refundable_value = int_percentage(profit, percent as usize);
+    let recipient_named_address = NamedAddr::User(2);
+    let recipient = test_setup.named_address(recipient_named_address)?;
+    let recipient_balance_before = test_setup.balance(recipient_named_address)?;
+    test_setup.begin_bundle_order(target_block);
+    test_setup.add_dummy_tx_0_1_no_rev()?;
+    let profit_tx_hash = test_setup.add_send_to_coinbase_tx(NamedAddr::User(1), profit)?;
+    test_setup.set_bundle_refund(BundleRefund {
+        percent,
+        recipient,
+        tx_hashes: vec![profit_tx_hash],
+    });
+    let result = test_setup.commit_order_ok();
+    let recipient_balance_after = test_setup.balance(recipient_named_address)?;
+    let expected_refund = refundable_value - BASE_TX_GAS;
+    assert_eq!(
+        recipient_balance_after - recipient_balance_before,
+        expected_refund as i128
+    );
+    assert_eq!(
+        result.paid_kickbacks,
+        vec![(recipient, U256::from(expected_refund))]
+    );
     Ok(())
 }
 
@@ -427,7 +509,16 @@ fn test_mev_share_failed_refunds() -> eyre::Result<()> {
         body_idx: 0,
         percent: 90,
     }]);
-    test_setup.commit_order_err("Not enough refund for gas");
+    test_setup.commit_order_err_check(|err| {
+        assert!(matches!(
+            err,
+            OrderErr::Bundle(BundleErr::NotEnoughRefundForGas {
+                to: _,
+                refundable_value: _,
+                needed_value: _,
+            })
+        ))
+    });
 
     // this bundle tries to go into the builder balance by having really high refund config percent
     test_setup.begin_share_bundle_order(11, 11);
@@ -443,7 +534,7 @@ fn test_mev_share_failed_refunds() -> eyre::Result<()> {
         body_idx: 0,
         percent: 50,
     }]);
-    test_setup.commit_order_err("Negative profit");
+    test_setup.commit_order_err_check(|err| assert!(matches!(err, OrderErr::NegativeProfit(_))));
 
     // this bundle tries to go into the builder balance by having high refund percentage
     test_setup.begin_share_bundle_order(11, 11);
@@ -453,7 +544,7 @@ fn test_mev_share_failed_refunds() -> eyre::Result<()> {
         body_idx: 0,
         percent: 101,
     }]);
-    test_setup.commit_order_err("Negative profit");
+    test_setup.commit_order_err_check(|err| assert!(matches!(err, OrderErr::NegativeProfit(_))));
 
     Ok(())
 }
@@ -497,7 +588,7 @@ fn test_bundle_consistency_check() -> eyre::Result<()> {
     // check commit of 2 bundles with the same replacement uuid
     {
         let replacement_data = BundleReplacementData {
-            key: BundleReplacementKey::new(Uuid::from_u128(100), Address::random()),
+            key: BundleReplacementKey::new(Uuid::from_u128(100), Some(Address::random())),
             sequence_number: 0,
         };
         let mut built_block_trace = BuiltBlockTrace::new();
@@ -583,7 +674,9 @@ fn test_mev_share_use_suggested_fee_recipient_as_coinbase() -> eyre::Result<()> 
         body_idx: 0,
         percent: DONT_CARE_PERCENTAGE,
     }]);
-    test_setup.commit_order_err_order_error(&OrderErr::Bundle(BundleErr::NoSigner));
+    test_setup.commit_order_err_check(|err| {
+        assert!(matches!(err, OrderErr::Bundle(BundleErr::NoSigner)))
+    });
 
     // Mev share without refunds is ok
     test_setup.begin_share_bundle_order(target_block, target_block);
@@ -602,39 +695,60 @@ fn test_mev_share_use_suggested_fee_recipient_as_coinbase() -> eyre::Result<()> 
 #[test]
 ///Checks TxRevertBehavior::AllowedInclude/AllowedExcluded by checking the consumed gas.
 fn test_bundle_revert_modes() -> eyre::Result<()> {
+    bundle_revert_modes_tests(false)?;
+    bundle_revert_modes_tests(true)?;
+    Ok(())
+}
+
+///Checks TxRevertBehavior::AllowedInclude/AllowedExcluded by checking the consumed gas.
+fn bundle_revert_modes_tests(share_bundle: bool) -> eyre::Result<()> {
     let target_block = 11;
     // 2 users to avoid caring about nonces
     let tx_sender0 = NamedAddr::User(0);
     let tx_sender1 = NamedAddr::User(1);
     let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().number(target_block))?;
+    let begin_bundle = |test_setup: &mut TestSetup| {
+        if share_bundle {
+            test_setup.begin_share_bundle_order(target_block, target_block);
+        } else {
+            test_setup.begin_bundle_order(target_block);
+        }
+    };
 
     // Single revert tx AllowedExcluded -> NO GAS
-    test_setup.begin_share_bundle_order(target_block, target_block);
+    begin_bundle(&mut test_setup);
     test_setup.add_revert(tx_sender0, TxRevertBehavior::AllowedExcluded)?;
-    let res = test_setup.commit_order_ok();
-    assert_eq!(res.gas_used, 0);
+    // Bundles behave different to sbundles on empty execution
+    if share_bundle {
+        let res = test_setup.commit_order_ok();
+        assert_eq!(res.gas_used, 0);
+    } else {
+        test_setup.commit_order_err_check(|err| {
+            assert!(matches!(err, OrderErr::Bundle(BundleErr::EmptyBundle)));
+        });
+    }
 
     // Measure simple tx
-    test_setup.begin_share_bundle_order(target_block, target_block);
+    begin_bundle(&mut test_setup);
     test_setup.add_revert(tx_sender0, TxRevertBehavior::AllowedIncluded)?;
     let res = test_setup.commit_order_ok();
     let reverting_gas = res.gas_used;
 
     // Measure reverting tx
-    test_setup.begin_share_bundle_order(target_block, target_block);
+    begin_bundle(&mut test_setup);
     test_setup.add_send_to_coinbase_tx(tx_sender0, 0)?;
     let res = test_setup.commit_order_ok();
     let send_gas = res.gas_used;
 
     // send + rev on AllowedIncluded pay both gases
-    test_setup.begin_share_bundle_order(target_block, target_block);
+    begin_bundle(&mut test_setup);
     test_setup.add_send_to_coinbase_tx(tx_sender1, 0)?;
     test_setup.add_revert(tx_sender0, TxRevertBehavior::AllowedIncluded)?;
     let res = test_setup.commit_order_ok();
     assert_eq!(res.gas_used, send_gas + reverting_gas);
 
     // send + rev on AllowedExcluded pay send
-    test_setup.begin_share_bundle_order(target_block, target_block);
+    begin_bundle(&mut test_setup);
     test_setup.add_send_to_coinbase_tx(tx_sender0, 0)?;
     test_setup.add_revert(tx_sender1, TxRevertBehavior::AllowedExcluded)?;
     let res = test_setup.commit_order_ok();
@@ -662,9 +776,16 @@ fn test_subbundle_skip() -> eyre::Result<()> {
     test_setup.add_send_to_coinbase_tx(tx_sender1, 0)?;
     test_setup.finish_inner_bundle();
 
-    test_setup.commit_order_err_order_error(&OrderErr::Bundle(BundleErr::TransactionReverted(
-        revert_hash,
-    )));
+    test_setup.commit_order_err_check(|err| {
+        if let OrderErr::Bundle(BundleErr::TransactionReverted(hash)) = err {
+            assert_eq!(hash, revert_hash);
+        } else {
+            panic!(
+                "got {} while expecting OrderErr::Bundle(BundleErr::TransactionReverted)",
+                err
+            );
+        }
+    });
 
     // First bundle skipable , it fails -> life goes on
     test_setup.begin_share_bundle_order(target_block, target_block);
@@ -737,5 +858,35 @@ fn test_mergeable_multibackrun() -> eyre::Result<()> {
             U256::from(expected_kickback)
         )]
     );
+    Ok(())
+}
+
+#[test]
+/// Test the proper propagation of original_order_id on execution
+fn test_original_order_id() -> eyre::Result<()> {
+    let target_block = 11;
+    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().number(target_block))?;
+    let original_order_id = OrderId::ShareBundle(B256::with_last_byte(123));
+    // Simple good tx with bundle order it should report the order id
+    test_setup.begin_share_bundle_order(target_block, target_block);
+    test_setup.start_inner_bundle(true);
+    test_setup.set_inner_bundle_original_order_id(original_order_id);
+    test_setup.add_dummy_tx_0_1_no_rev()?;
+    test_setup.finish_inner_bundle();
+    let result = test_setup.commit_order_ok();
+    assert_eq!(result.original_order_ids, vec![original_order_id]);
+
+    // Reverting tx will leave an empty execution so order id should not pass
+    test_setup.begin_share_bundle_order(target_block, target_block);
+    test_setup.start_inner_bundle(true);
+    test_setup.set_inner_bundle_original_order_id(original_order_id);
+    test_setup.add_revert(
+        NamedAddr::User(0), /*don't care*/
+        TxRevertBehavior::AllowedExcluded,
+    )?;
+    test_setup.finish_inner_bundle();
+    let result = test_setup.commit_order_ok();
+    assert_eq!(result.original_order_ids, Vec::new());
+
     Ok(())
 }

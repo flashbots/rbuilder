@@ -1,37 +1,34 @@
 //! Config should always be deserializable, default values should be used
 //!
-use crate::live_builder::bidding::DummyBiddingService;
-use crate::live_builder::building::relay_submit::RelaySubmitSinkFactory;
-use crate::live_builder::order_input::{OrderInputConfig};
-use crate::live_builder::LiveBuilder;
 use crate::{
-    flashbots::BlocksProcessorClient,
-    live_builder::building::SubmissionConfig,
-    mev_boost::BLSBlockSigner,
-    primitives::mev_boost::MevBoostRelay,
+    preconf::PreconfConfig,
+    building::builders::UnfinishedBlockBuildingSinkFactory,
+    live_builder::{order_input::OrderInputConfig, LiveBuilder},
+    provider::{
+        ipc_state_provider::{IpcProviderConfig, IpcStateProviderFactory},
+        StateProviderFactory,
+    },
+    roothash::RootHashContext,
     telemetry::{setup_reloadable_tracing_subscriber, LoggerConfig},
-    utils::{http_provider, BoxedProvider, ProviderFactoryReopener, Signer},
-    validation_api_client::ValidationAPIClient,
+    utils::{
+        constants::{MINS_PER_HOUR, SECS_PER_MINUTE},
+        http_provider, ProviderFactoryReopener, Signer,
+    },
 };
-use ahash::HashSet;
-use alloy_chains::ChainKind;
-use alloy_primitives::{utils::parse_ether, Address, FixedBytes, B256};
-use ethereum_consensus::{
-    state_transition::Context as ContextEth,
-    builder::compute_builder_domain, crypto::SecretKey};
+use alloy_primitives::{Address, B256};
+use alloy_provider::RootProvider;
+use eth_sparse_mpt::RootHashThreadPool;
 use eyre::{eyre, Context};
 use jsonrpsee::RpcModule;
-use lazy_static::lazy_static;
-use reth::{
-    args::utils::chain_spec_value_parser,
-    primitives::{Chain, ChainSpec, NamedChain, StaticFileSegment},
-    tasks::pool::BlockingTaskPool,
-};
+use reth::chainspec::chain_value_parser;
+use reth_chainspec::ChainSpec;
 use reth_db::DatabaseEnv;
-use reth_primitives::{format_ether, fs, AllGenesisFormats};
-use serde::Deserialize;
-use serde_with::{serde_as, OneOrMany};
-use sqlx::PgPool;
+use reth_node_api::NodeTypesWithDBAdapter;
+use reth_node_ethereum::EthereumNode;
+use reth_primitives::StaticFileSegment;
+use reth_provider::StaticFileProviderFactory;
+use serde::{Deserialize, Deserializer};
+use serde_with::{serde_as, DeserializeAs};
 use std::{
     env::var,
     fs::read_to_string,
@@ -41,16 +38,20 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use ethereum_consensus::altair::Version;
-use tracing::{info, warn};
+use tokio::sync::mpsc;
+use tracing::{error, warn};
 use url::Url;
-use crate::beacon_api_client::Client;
-use crate::preconf::PreconfConfig;
 
-/// From experience (Vitaly's) all generated blocks before slot_time-8sec end loosing (due to last moment orders?)
-const DEFAULT_SLOT_DELTA_TO_START_SUBMITS: time::Duration = time::Duration::milliseconds(-8000);
-/// run_submit_to_relays_job waits at least MIN_TIME_BETWEEN_BLOCK_CHECK between new block polls to avoid 100% CPU
-const MIN_TIME_BETWEEN_BLOCK_CHECK: Duration = Duration::from_millis(5);
+use super::{
+    block_list_provider::{
+        BlockListProvider, HttpBlockListProvider, NullBlockListProvider,
+        StaticFileBlockListProvider,
+    },
+    SlotSource,
+};
+
+/// Prefix for env variables in config
+const ENV_PREFIX: &str = "env:";
 
 /// Base config to be used by all builders.
 /// It allows us to create a base LiveBuilder with no algorithms or custom bidding.
@@ -59,25 +60,30 @@ const MIN_TIME_BETWEEN_BLOCK_CHECK: Duration = Duration::from_millis(5);
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct BaseConfig {
-    pub telemetry_port: u16,
-    pub telemetry_ip: Option<String>,
+    pub full_telemetry_server_port: u16,
+    #[serde(default = "default_ip")]
+    pub full_telemetry_server_ip: Ipv4Addr,
+
+    pub redacted_telemetry_server_port: u16,
+    #[serde(default = "default_ip")]
+    pub redacted_telemetry_server_ip: Ipv4Addr,
     pub log_file_path: Option<String>,
     pub log_json: bool,
-    log_level: EnvOrInplaceValue,
+    log_level: EnvOrValue<String>,
     pub log_color: bool,
+    /// Enables dynamic logging (saving logs to a file)
+    pub log_enable_dynamic: bool,
 
-    pub error_storage_path: PathBuf,
+    pub error_storage_path: Option<PathBuf>,
 
-    coinbase_secret_key: EnvOrInplaceValue,
+    coinbase_secret_key: Option<EnvOrValue<String>>,
 
-    pub flashbots_db: Option<EnvOrInplaceValue>,
+    pub flashbots_db: Option<EnvOrValue<String>>,
 
-    pub el_node_ipc_path: PathBuf,
-    ///Name kept singular for backwards compatibility
-    #[serde_as(deserialize_as = "OneOrMany<_>")]
-    pub cl_node_url: Vec<String>,
+    pub el_node_ipc_path: Option<PathBuf>,
     pub jsonrpc_server_port: u16,
-    pub jsonrpc_server_ip: Option<String>,
+    #[serde(default = "default_ip")]
+    pub jsonrpc_server_ip: Ipv4Addr,
 
     pub ignore_cancellable_orders: bool,
     pub ignore_blobs: bool,
@@ -86,29 +92,51 @@ pub struct BaseConfig {
     pub reth_datadir: Option<PathBuf>,
     pub reth_db_path: Option<PathBuf>,
     pub reth_static_files_path: Option<PathBuf>,
-    pub cl_network_config_dir: Option<String>,
 
+    /// Backwards compatibility. Downloads blocklist from a file.
+    /// Same as setting a file name on blocklist.
     pub blocklist_file_path: Option<PathBuf>,
-    pub extra_data: String,
 
-    // Relay Submission configuration
-    pub relays: Vec<RelayConfig>,
-    pub dry_run: bool,
-    #[serde_as(deserialize_as = "OneOrMany<_>")]
-    pub dry_run_validation_url: Vec<String>,
-    /// Secret key that will be used to sign normal submissions to the relay.
-    relay_secret_key: EnvOrInplaceValue,
-    /// Secret key that will be used to sign optimistic submissions to the relay.
-    optimistic_relay_secret_key: EnvOrInplaceValue,
-    /// When enabled builder will make optimistic submissions to optimistic relays
-    /// influenced by `optimistic_max_bid_value_eth` and `optimistic_prevalidate_optimistic_blocks`
-    pub optimistic_enabled: bool,
-    /// Bids above this value will always be submitted in non-optimistic mode.
-    pub optimistic_max_bid_value_eth: String,
-    /// If true all optimistic submissions will be validated on nodes specified in `dry_run_validation_url`
-    pub optimistic_prevalidate_optimistic_blocks: bool,
-    pub blocks_processor_url: Option<String>,
+    /// Can contain an url or a file name.
+    /// If it's a url download blocklist from url and updates periodically.
+    /// If it's a filename just loads the file (no updates).
+    pub blocklist: Option<String>,
 
+    /// If the downloaded file get older than this we abort.
+    pub blocklist_url_max_age_hours: Option<u64>,
+
+    /// Like blocklist_url_max_age_hours but in secs for integration tests.
+    pub blocklist_url_max_age_secs: Option<u64>,
+
+    /// if true will not allow to start without a blocklist or with an empty blocklist.
+    pub require_non_empty_blocklist: Option<bool>,
+
+    #[serde(deserialize_with = "deserialize_extra_data")]
+    pub extra_data: Vec<u8>,
+
+    /// mev-share bundles coming from this address are treated in a special way(see [`ShareBundleMerger`])
+    pub sbundle_mergeable_signers: Option<Vec<Address>>,
+
+    /// Backwards compatible typo soon to be removed.
+    pub sbundle_mergeabe_signers: Option<Vec<Address>>,
+
+    /// Number of threads used for incoming order simulation
+    pub simulation_threads: usize,
+
+    /// uses cached sparse trie for root hash
+    pub root_hash_use_sparse_trie: bool,
+    /// compares result of root hash using sparse trie and reference root hash
+    pub root_hash_compare_sparse_trie: bool,
+    /// number of threads used for root hash thread pool
+    /// if 0 global rayon pool is used
+    root_hash_threads: usize,
+
+    pub watchdog_timeout_sec: Option<u64>,
+
+    /// List of `builders` to be used for live building
+    pub live_builders: Vec<String>,
+
+    /// Preconf
     // preconf api
     pub preconf_api_url: Option<String>,
 
@@ -117,41 +145,22 @@ pub struct BaseConfig {
 
     pub fallback_fee_recipient: Option<String>,
 
-    /// mev-share bundles coming from this address are treated in a special way(see [`ShareBundleMerger`])
-    pub sbundle_mergeabe_signers: Option<Vec<Address>>,
-
-    /// Number of threads used for incoming order simulation
-    pub simulation_threads: usize,
-
-    pub root_hash_task_pool_threads: usize,
-
-    pub watchdog_timeout_sec: u64,
-
-    /// List of `builders` to be used for live building
-    pub live_builders: Vec<String>,
+    /// Config for IPC state provider
+    pub ipc_provider: Option<IpcProviderConfig>,
 
     // backtest config
-    backtest_fetch_mempool_data_dir: EnvOrInplaceValue,
+    backtest_fetch_mempool_data_dir: EnvOrValue<String>,
     pub backtest_fetch_eth_rpc_url: String,
     pub backtest_fetch_eth_rpc_parallel: usize,
     pub backtest_fetch_output_file: PathBuf,
     /// List of `builders` to be used in backtest run
     pub backtest_builders: Vec<String>,
     pub backtest_results_store_path: PathBuf,
-
-    // See [`SubmissionConfig`]
-    slot_delta_to_start_submits_ms: Option<i64>,
-    min_time_between_block_check_ms: Option<u64>,
+    pub backtest_protect_bundle_signers: Vec<Address>,
 }
 
-lazy_static! {
-    pub static ref DEFAULT_IP: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
-}
-
-fn parse_ip(ip: &Option<String>) -> Ipv4Addr {
-    ip.as_ref().map_or(*DEFAULT_IP, |s| {
-        s.parse::<Ipv4Addr>().unwrap_or(*DEFAULT_IP)
-    })
+pub fn default_ip() -> Ipv4Addr {
+    Ipv4Addr::new(0, 0, 0, 0)
 }
 
 /// Loads config from toml file, some values can be loaded from env variables with the following syntax
@@ -179,7 +188,7 @@ pub fn load_config_toml_and_env<T: serde::de::DeserializeOwned>(
 }
 
 impl BaseConfig {
-    pub fn setup_tracing_subsriber(&self) -> eyre::Result<()> {
+    pub fn setup_tracing_subscriber(&self) -> eyre::Result<()> {
         let log_level = self.log_level.value()?;
         let log_file_path: Option<PathBuf> = match self.log_file_path {
             Some(ref path) => Some(PathBuf::from(path)),
@@ -195,304 +204,256 @@ impl BaseConfig {
         Ok(())
     }
 
-    pub fn telemetry_address(&self) -> SocketAddr {
-        SocketAddr::V4(SocketAddrV4::new(self.telemetry_ip(), self.telemetry_port))
+    pub fn redacted_telemetry_server_address(&self) -> SocketAddr {
+        SocketAddr::V4(SocketAddrV4::new(
+            self.redacted_telemetry_server_ip,
+            self.redacted_telemetry_server_port,
+        ))
     }
 
-    /// WARN: opens reth db
-    pub async fn create_builder(
+    pub fn full_telemetry_server_address(&self) -> SocketAddr {
+        SocketAddr::V4(SocketAddrV4::new(
+            self.full_telemetry_server_ip,
+            self.full_telemetry_server_port,
+        ))
+    }
+
+    pub fn root_hash_thread_pool(&self) -> eyre::Result<Option<RootHashThreadPool>> {
+        let root_hash_thread_pool = if self.root_hash_threads > 0 {
+            Some(RootHashThreadPool::try_new(self.root_hash_threads)?)
+        } else {
+            None
+        };
+        Ok(root_hash_thread_pool)
+    }
+
+    /// Allows instantiating a [`LiveBuilder`] with an existing provider factory
+    pub async fn create_builder_with_provider_factory<P, SlotSourceType>(
         &self,
         cancellation_token: tokio_util::sync::CancellationToken,
-    ) -> eyre::Result<
-        super::LiveBuilder<Arc<DatabaseEnv>, super::building::relay_submit::RelaySubmitSinkFactory>,
-    > {
-        let submission_config = self.submission_config()?;
-        info!(
-            "Builder mev boost normal relay pubkey: {:?}",
-            submission_config.signer.pub_key()
-        );
-        info!(
-            "Builder mev boost optimistic relay pubkey: {:?}",
-            submission_config.optimistic_signer.pub_key()
-        );
-        info!(
-            "Optimistic mode, enabled: {}, prevalidate: {}, max_value: {}",
-            submission_config.optimistic_enabled,
-            submission_config.optimistic_prevalidate_optimistic_blocks,
-            format_ether(submission_config.optimistic_max_bid_value),
-        );
-
-        let provider_factory = self.provider_factory()?;
-
-        let relays = self.relays()?;
-        let sink_factory = RelaySubmitSinkFactory::new(self.submission_config()?, relays.clone());
-
-        Ok(LiveBuilder::<Arc<DatabaseEnv>, RelaySubmitSinkFactory> {
-            cl_urls: self.cl_node_url.clone(),
-            relays,
+        sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
+        slot_source: SlotSourceType,
+        preconf_config: PreconfConfig,
+        provider: P,
+        blocklist_provider: Arc<dyn BlockListProvider>,
+    ) -> eyre::Result<super::LiveBuilder<P, SlotSourceType>>
+    where
+        P: StateProviderFactory,
+        SlotSourceType: SlotSource,
+    {
+        let order_input_config = OrderInputConfig::from_config(self)?;
+        let (orderpool_sender, orderpool_receiver) =
+            mpsc::channel(order_input_config.input_channel_buffer_size);
+        Ok(LiveBuilder::<P, SlotSourceType> {
             watchdog_timeout: self.watchdog_timeout(),
             error_storage_path: self.error_storage_path.clone(),
             simulation_threads: self.simulation_threads,
-            order_input_config: OrderInputConfig::from_config(self),
-
-            preconf_config: PreconfConfig::from_config(self),
+            order_input_config,
+            preconf_config,
+            blocks_source: slot_source,
             chain_chain_spec: self.chain_spec()?,
-            provider_factory,
+            provider,
 
             coinbase_signer: self.coinbase_signer()?,
-            extra_data: self.extra_data()?,
-            blocklist: self.blocklist()?,
+            extra_data: self.extra_data.clone(),
+            blocklist_provider,
 
             global_cancellation: cancellation_token,
 
-            bidding_service: Box::new(DummyBiddingService {}),
             extra_rpc: RpcModule::new(()),
             sink_factory,
             builders: Vec::new(),
+
+            run_sparse_trie_prefetcher: self.root_hash_use_sparse_trie,
+
+            orderpool_sender,
+            orderpool_receiver,
+            sbundle_merger_selected_signers: Arc::new(self.sbundle_mergeable_signers()),
         })
-    }
-
-    pub fn jsonrpc_server_ip(&self) -> Ipv4Addr {
-        parse_ip(&self.jsonrpc_server_ip)
-    }
-
-    pub fn telemetry_ip(&self) -> Ipv4Addr {
-        parse_ip(&self.telemetry_ip)
     }
 
     pub fn chain_spec(&self) -> eyre::Result<Arc<ChainSpec>> {
-        Self::genesis_value_parser(&self.chain)
+        chain_value_parser(&self.chain)
     }
 
-    pub fn beacon_clients(&self) -> eyre::Result<Vec<Client>> {
-        self.cl_node_url
-            .iter()
-            .map(|url| {
-                let url = Url::parse(url)?;
-                Ok(Client::new(url))
-            })
-            .collect()
-    }
-
-    pub fn genesis_value_parser(s: &str) -> eyre::Result<Arc<ChainSpec>, eyre::Error> {
-        Ok(match s {
-            "mainnet" => chain_spec_value_parser(s)?,
-            "goerli" => chain_spec_value_parser(s)?,
-            "sepolia" => chain_spec_value_parser(s)?,
-            "holesky" => chain_spec_value_parser(s)?,
-            "dev" => chain_spec_value_parser(s)?,
-            _ => {
-                // try to read json from path first
-                let raw = match fs::read_to_string(PathBuf::from(shellexpand::full(s)?.into_owned())) {
-                    Ok(raw) => raw,
-                    Err(io_err) => {
-                        // valid json may start with "\n", but must contain "{"
-                        if s.contains('{') {
-                            s.to_string()
-                        } else {
-                            return Err(io_err.into()); // assume invalid path
-                        }
-                    }
-                };
-
-                // both serialized Genesis and ChainSpec structs supported
-                let genesis: AllGenesisFormats = serde_json::from_str(&raw)?;
-
-                Arc::new(genesis.into())
+    pub fn sbundle_mergeable_signers(&self) -> Vec<Address> {
+        if let Some(sbundle_mergeable_signers) = &self.sbundle_mergeable_signers {
+            if self.sbundle_mergeabe_signers.is_some() {
+                error!("sbundle_mergeable_signers and sbundle_mergeabe_signers found. Will use bundle_mergeable_signers");
             }
-        })
-    }
-
-    pub fn sbundle_mergeabe_signers(&self) -> Vec<Address> {
-        if self.sbundle_mergeabe_signers.is_none() {
-            warn!("Defaulting sbundle_mergeabe_signers to empty. We may not comply with order flow rules.");
+            sbundle_mergeable_signers.clone()
+        } else if let Some(sbundle_mergeable_signers) = &self.sbundle_mergeabe_signers {
+            warn!("sbundle_mergeable_signers missing but found sbundle_mergeabe_signers. sbundle_mergeabe_signers will be used but this will be deprecated soon");
+            sbundle_mergeable_signers.clone()
+        } else {
+            warn!("Defaulting sbundle_mergeable_signers to empty. We may not comply with order flow rules.");
+            Vec::default()
         }
-
-        self.sbundle_mergeabe_signers.clone().unwrap_or_default()
-    }
-
-    pub fn relays(&self) -> eyre::Result<Vec<MevBoostRelay>> {
-        let mut results = Vec::new();
-        for relay in &self.relays {
-            let authorization_header =
-                if let Some(authorization_header) = &relay.authorization_header {
-                    Some(authorization_header.value()?)
-                } else {
-                    None
-                };
-
-            let builder_id_header = if let Some(builder_id_header) = &relay.builder_id_header {
-                Some(builder_id_header.value()?)
-            } else {
-                None
-            };
-
-            let api_token_header = if let Some(api_token_header) = &relay.api_token_header {
-                Some(api_token_header.value()?)
-            } else {
-                None
-            };
-
-            let interval_between_submissions = relay
-                .interval_between_submissions_ms
-                .map(Duration::from_millis);
-
-            results.push(MevBoostRelay::try_from_name_or_url(
-                &relay.name,
-                &relay.url,
-                relay.priority,
-                relay.use_ssz_for_submit,
-                relay.use_gzip_for_submit,
-                relay.optimistic,
-                authorization_header,
-                builder_id_header,
-                api_token_header,
-                interval_between_submissions,
-            )?);
-        }
-        Ok(results)
     }
 
     /// Open reth db and DB should be opened once per process but it can be cloned and moved to different threads.
-    pub fn provider_factory(&self) -> eyre::Result<ProviderFactoryReopener<Arc<DatabaseEnv>>> {
+    /// skip_root_hash -> will create a mock roothasher. Used on backtesting since reth can't compute roothashes on the past.
+    pub fn create_reth_provider_factory(
+        &self,
+        skip_root_hash: bool,
+    ) -> eyre::Result<ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>>
+    {
         create_provider_factory(
             self.reth_datadir.as_deref(),
             self.reth_db_path.as_deref(),
             self.reth_static_files_path.as_deref(),
             self.chain_spec()?,
+            false,
+            if skip_root_hash {
+                None
+            } else {
+                Some(self.live_root_hash_config()?)
+            },
         )
     }
 
-    /// Creates threadpool for root hash calculation, should be created once per process.
-    pub fn root_hash_task_pool(&self) -> eyre::Result<BlockingTaskPool> {
-        Ok(BlockingTaskPool::new(
-            BlockingTaskPool::builder()
-                .num_threads(self.root_hash_task_pool_threads)
-                .build()?,
+    /// Opens IPC connection to node that will provide the sate
+    pub fn create_ipc_provider_factory(&self) -> eyre::Result<IpcStateProviderFactory> {
+        let ipc_provider_config = self
+            .ipc_provider
+            .as_ref()
+            .ok_or_else(|| eyre::eyre!("IPC provider not configured"))?;
+
+        Ok(IpcStateProviderFactory::new(
+            &ipc_provider_config.ipc_path,
+            Duration::from_millis(ipc_provider_config.request_timeout_ms),
         ))
     }
 
-    pub fn get_relay_secret_key(&self) -> eyre::Result<String> {
-        if self.optimistic_enabled {
-            return self.optimistic_relay_secret_key.value();
+    /// live_root_hash_config creates a root hash thread pool
+    /// so it should be called once on the startup and cloned if needed
+    pub fn live_root_hash_config(&self) -> eyre::Result<RootHashContext> {
+        if self.root_hash_compare_sparse_trie && !self.root_hash_use_sparse_trie {
+            eyre::bail!(
+                "root_hash_compare_sparse_trie can't be set without root_hash_use_sparse_trie"
+            );
         }
-        self.relay_secret_key.value()
-    }
-
-    pub fn bls_signer(&self) -> eyre::Result<BLSBlockSigner> {
-        let chain_spec = self.chain_spec()?;
-        let signing_domain =
-            get_signing_domain(chain_spec.chain, self.cl_network_config_dir.clone(), self.beacon_clients()?)?;
-        let secret_key = self.relay_secret_key.value()?;
-        let secret_key = SecretKey::try_from(secret_key)
-            .map_err(|e| eyre::eyre!("Failed to parse relay key: {:?}", e.to_string()))?;
-        // builder
-        BLSBlockSigner::new(secret_key, signing_domain)
-    }
-
-    pub fn bls_optimistic_signer(&self) -> eyre::Result<BLSBlockSigner> {
-        let chain_spec = self.chain_spec()?;
-        let signing_domain =
-            get_signing_domain(chain_spec.chain, self.cl_network_config_dir.clone(), self.beacon_clients()?)?;
-        let secret_key = self.optimistic_relay_secret_key.value()?;
-        let secret_key = SecretKey::try_from(secret_key).map_err(|e| {
-            eyre::eyre!("Failed to parse optimistic relay key: {:?}", e.to_string())
-        })?;
-
-        BLSBlockSigner::new(secret_key, signing_domain)
+        // temporary guard until reth is fixed
+        if !self.root_hash_use_sparse_trie || self.root_hash_compare_sparse_trie {
+            eyre::bail!("root_hash_use_sparse_trie=true and root_hash_compare_sparse_trie=false must be set, otherwise node will produce incorrect blocks or confusing error messages. These settings are enforced temporarily because upstream parallel root hash implementation is not correct.")
+        }
+        let thread_pool = self.root_hash_thread_pool()?;
+        Ok(RootHashContext::new(
+            self.root_hash_use_sparse_trie,
+            self.root_hash_compare_sparse_trie,
+            thread_pool,
+        ))
     }
 
     pub fn coinbase_signer(&self) -> eyre::Result<Signer> {
-        coinbase_signer_from_secret_key(&self.coinbase_secret_key.value()?)
-    }
-
-    pub fn extra_data(&self) -> eyre::Result<Vec<u8>> {
-        let extra_data = self.extra_data.clone().into_bytes();
-        if extra_data.len() > 32 {
-            return Err(eyre::eyre!("Extra data is too long"));
+        if let Some(secret_key) = &self.coinbase_secret_key {
+            return coinbase_signer_from_secret_key(&secret_key.value()?);
         }
-        Ok(extra_data)
+        warn!("No coinbase secret key provided. A random key will be generated.");
+        warn!(
+            "Caution: If this node wins any block, you wont be able to access the rewards for it."
+        );
+        let new_signer = Signer::random();
+        Ok(new_signer)
     }
 
-    pub fn blocklist(&self) -> eyre::Result<HashSet<Address>> {
-        if let Some(path) = &self.blocklist_file_path {
-            let blocklist_file = read_to_string(path).context("blocklist file")?;
-            let blocklist: Vec<Address> =
-                serde_json::from_str(&blocklist_file).context("blocklist file")?;
-            return Ok(blocklist.into_iter().collect());
+    pub async fn blocklist_provider(
+        &self,
+        cancellation_token: tokio_util::sync::CancellationToken,
+    ) -> eyre::Result<Arc<dyn BlockListProvider>> {
+        if self.blocklist.is_some() && self.blocklist_file_path.is_some() {
+            eyre::bail!("You can't use blocklist AND blocklist_file_path")
         }
-        Ok(HashSet::default())
-    }
 
-    pub async fn flashbots_db(&self) -> eyre::Result<Option<PgPool>> {
-        if let Some(url) = &self.flashbots_db {
-            let url = url.value()?;
-            let pool = PgPool::connect(&url).await?;
-            Ok(Some(pool))
-        } else {
-            Ok(None)
+        let require_non_empty_blocklist = self
+            .require_non_empty_blocklist
+            .unwrap_or(DEFAULT_REQUIRE_NON_EMPTY_BLOCKLIST);
+        if self.blocklist_file_path.is_none()
+            && self.blocklist.is_none()
+            && require_non_empty_blocklist
+        {
+            eyre::bail!("require_non_empty_blocklist = true but no blocklist used (blocklist_file_path/blocklist are not set)");
         }
+
+        if let Some(blocklist) = &self.blocklist {
+            // First try url loading
+            match Url::parse(blocklist) {
+                Ok(url) => {
+                    return self
+                        .blocklist_provider_from_url(
+                            url,
+                            require_non_empty_blocklist,
+                            cancellation_token,
+                        )
+                        .await;
+                }
+                Err(_) => {
+                    // second try file loading
+                    return self.blocklist_provider_from_file(
+                        &blocklist.into(),
+                        require_non_empty_blocklist,
+                    );
+                }
+            }
+        }
+
+        // Backwards compatibility
+        if let Some(blocklist_file_path) = &self.blocklist_file_path {
+            warn!("blocklist_file_path is deprecated please use blocklist");
+            return self
+                .blocklist_provider_from_file(blocklist_file_path, require_non_empty_blocklist);
+        }
+
+        // default to empty
+        Ok(Arc::new(NullBlockListProvider::new()))
     }
 
-    pub fn eth_rpc_provider(&self) -> eyre::Result<BoxedProvider> {
+    pub fn blocklist_provider_from_file(
+        &self,
+        blocklist_file_path: &PathBuf,
+        validate_blocklist: bool,
+    ) -> eyre::Result<Arc<dyn BlockListProvider>> {
+        Ok(Arc::new(StaticFileBlockListProvider::new(
+            blocklist_file_path,
+            validate_blocklist,
+        )?))
+    }
+
+    pub async fn blocklist_provider_from_url(
+        &self,
+        blocklist_url: Url,
+        validate_blocklist: bool,
+        cancellation_token: tokio_util::sync::CancellationToken,
+    ) -> eyre::Result<Arc<dyn BlockListProvider>> {
+        let max_allowed_age_secs =
+            if let Some(max_allowed_age_hours) = self.blocklist_url_max_age_hours {
+                max_allowed_age_hours * SECS_PER_MINUTE * MINS_PER_HOUR
+            } else if let Some(blocklist_url_max_age_secs) = self.blocklist_url_max_age_secs {
+                blocklist_url_max_age_secs
+            } else {
+                DEFAULT_BLOCKLIST_URL_MAX_AGE_HOURS * SECS_PER_MINUTE * MINS_PER_HOUR
+            };
+        let max_allowed_age = Duration::from_secs(max_allowed_age_secs);
+        let provider = HttpBlockListProvider::new(
+            blocklist_url,
+            max_allowed_age,
+            validate_blocklist,
+            cancellation_token,
+        )
+        .await?;
+        Ok(Arc::new(provider))
+    }
+
+    pub fn eth_rpc_provider(&self) -> eyre::Result<RootProvider> {
         Ok(http_provider(self.backtest_fetch_eth_rpc_url.parse()?))
     }
 
-    pub fn watchdog_timeout(&self) -> Duration {
-        Duration::from_secs(self.watchdog_timeout_sec)
-    }
-
-    pub fn submission_config(&self) -> eyre::Result<SubmissionConfig> {
-        if (self.dry_run || self.optimistic_prevalidate_optimistic_blocks)
-            && self.dry_run_validation_url.is_empty()
-        {
-            eyre::bail!(
-                "Dry run or optimistic prevalidation enabled but no validation urls provided"
-            );
+    pub fn watchdog_timeout(&self) -> Option<Duration> {
+        match self.watchdog_timeout_sec {
+            Some(0) => None,
+            Some(sec) => Some(Duration::from_secs(sec)),
+            None => None,
         }
-        let validation_api = {
-            let urls = self
-                .dry_run_validation_url
-                .iter()
-                .map(|s| s.as_str())
-                .collect::<Vec<_>>();
-
-            ValidationAPIClient::new(urls.as_slice())?
-        };
-
-        let optimistic_signer = match self.bls_optimistic_signer() {
-            Ok(signer) => signer,
-            Err(err) => {
-                if self.optimistic_enabled {
-                    eyre::bail!(
-                        "Optimistic mode enabled but no valid optimistic signer: {}",
-                        err
-                    );
-                } else {
-                    // we don't care about the actual value
-                    self.bls_signer()?
-                }
-            }
-        };
-
-        Ok(SubmissionConfig {
-            chain_spec: self.chain_spec()?,
-            signer: self.bls_signer()?,
-            dry_run: self.dry_run,
-            validation_api,
-            optimistic_enabled: self.optimistic_enabled,
-            optimistic_signer,
-            optimistic_max_bid_value: parse_ether(&self.optimistic_max_bid_value_eth)?,
-            optimistic_prevalidate_optimistic_blocks: self.optimistic_prevalidate_optimistic_blocks,
-            blocks_processor: if let Some(url) = &self.blocks_processor_url {
-                let client = BlocksProcessorClient::try_from(url)?;
-                Some(client)
-            } else {
-                None
-            },
-            slot_delta_to_start_submits: self.slot_delta_to_start_submits(),
-            min_time_between_block_check_ms: self.min_time_between_block_check_ms(),
-        })
     }
 
     pub fn backtest_fetch_mempool_data_dir(&self) -> eyre::Result<PathBuf> {
@@ -501,140 +462,188 @@ impl BaseConfig {
 
         Ok(path_expanded.parse()?)
     }
-
-    pub fn slot_delta_to_start_submits(&self) -> time::Duration {
-        self.slot_delta_to_start_submits_ms
-            .map(time::Duration::milliseconds)
-            .unwrap_or(DEFAULT_SLOT_DELTA_TO_START_SUBMITS)
-    }
-
-    pub fn min_time_between_block_check_ms(&self) -> Duration {
-        self.min_time_between_block_check_ms
-            .map(Duration::from_millis)
-            .unwrap_or(MIN_TIME_BETWEEN_BLOCK_CHECK)
-    }
 }
 
-/// Load value from env variable or use inplace value
-/// To load value from env use the following syntax `env:ENV_VARIABLE_NAME`
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
-pub struct EnvOrInplaceValue(String);
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnvOrValue<T>(String, std::marker::PhantomData<T>);
 
-impl EnvOrInplaceValue {
+impl<T: FromStr> EnvOrValue<T> {
     pub fn value(&self) -> eyre::Result<String> {
         let value = &self.0;
-        if value.starts_with("env:") {
-            let var_name = value.trim_start_matches("env:");
-            var(var_name).context(format!("Env variable: {} not set", var_name))
+        if value.starts_with(ENV_PREFIX) {
+            let var_name = value.trim_start_matches(ENV_PREFIX);
+            var(var_name).map_err(|_| eyre::eyre!("Env variable: {} not set", var_name))
         } else {
             Ok(value.to_string())
         }
     }
 }
 
-impl From<&str> for EnvOrInplaceValue {
+impl<T> From<&str> for EnvOrValue<T> {
     fn from(s: &str) -> Self {
-        Self(s.to_string())
+        Self(s.to_string(), std::marker::PhantomData)
     }
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct RelayConfig {
-    pub name: String,
-    pub url: String,
-    pub priority: usize,
-    // true->ssz false->json
-    #[serde(default)]
-    pub use_ssz_for_submit: bool,
-    #[serde(default)]
-    pub use_gzip_for_submit: bool,
-    #[serde(default)]
-    pub optimistic: bool,
-    #[serde(default)]
-    pub authorization_header: Option<EnvOrInplaceValue>,
-    #[serde(default)]
-    pub builder_id_header: Option<EnvOrInplaceValue>,
-    #[serde(default)]
-    pub api_token_header: Option<EnvOrInplaceValue>,
-    #[serde(default)]
-    pub interval_between_submissions_ms: Option<u64>,
+impl<'de, T: FromStr> Deserialize<'de> for EnvOrValue<T> {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Ok(Self(s, std::marker::PhantomData))
+    }
 }
 
-pub const DEFAULT_ERROR_STORAGE_PATH: &str = "/tmp/rbuilder-error.sqlite";
+// Helper function to resolve Vec<EnvOrValue<T>> to Vec<T>
+pub fn resolve_env_or_values<T: FromStr>(values: &[EnvOrValue<T>]) -> eyre::Result<Vec<T>> {
+    values
+        .iter()
+        .try_fold(Vec::new(), |mut acc, v| -> eyre::Result<Vec<T>> {
+            let value = v.value()?;
+            if v.0.starts_with(ENV_PREFIX) {
+                // If it's an environment variable, split by comma
+                let parsed: eyre::Result<Vec<T>> = value
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(|s| {
+                        T::from_str(s).map_err(|_| eyre::eyre!("Failed to parse value: {}", s))
+                    })
+                    .collect();
+                acc.extend(parsed?);
+            } else {
+                // If it's not an environment variable, just return the single value
+                acc.push(
+                    T::from_str(&value)
+                        .map_err(|_| eyre::eyre!("Failed to parse value: {}", value))?,
+                );
+            }
+            Ok(acc)
+        })
+}
+
+impl<'de, T> DeserializeAs<'de, EnvOrValue<T>> for EnvOrValue<T>
+where
+    T: FromStr,
+    String: Deserialize<'de>,
+{
+    fn deserialize_as<D>(deserializer: D) -> Result<EnvOrValue<T>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Ok(EnvOrValue(s, std::marker::PhantomData))
+    }
+}
+
 pub const DEFAULT_CL_NODE_URL: &str = "http://127.0.0.1:3500";
 pub const DEFAULT_EL_NODE_IPC_PATH: &str = "/tmp/reth.ipc";
 pub const DEFAULT_INCOMING_BUNDLES_PORT: u16 = 8645;
 pub const DEFAULT_RETH_DB_PATH: &str = "/mnt/data/reth";
+/// This will update every 2.4 hours, super reasonable.
+pub const DEFAULT_BLOCKLIST_URL_MAX_AGE_HOURS: u64 = 24;
+pub const DEFAULT_REQUIRE_NON_EMPTY_BLOCKLIST: bool = false;
 
 impl Default for BaseConfig {
     fn default() -> Self {
         Self {
-            telemetry_port: 6069,
-            telemetry_ip: None,
+            full_telemetry_server_port: 6069,
+            full_telemetry_server_ip: default_ip(),
+            redacted_telemetry_server_port: 6070,
+            redacted_telemetry_server_ip: default_ip(),
             log_json: false,
             log_level: "info".into(),
             log_color: false,
             log_file_path: None,
-            error_storage_path: DEFAULT_ERROR_STORAGE_PATH.parse().unwrap(),
-            coinbase_secret_key: "".into(),
-            relay_secret_key: "".into(),
-            optimistic_relay_secret_key: "".into(),
-            optimistic_enabled: false,
-            optimistic_max_bid_value_eth: "0.0".to_string(),
+            log_enable_dynamic: false,
+            error_storage_path: None,
+            coinbase_secret_key: None,
             flashbots_db: None,
-            blocks_processor_url: None,
-            el_node_ipc_path: "/tmp/reth.ipc".parse().unwrap(),
-            cl_node_url: vec!["http://127.0.0.1:3500".to_string()],
+            el_node_ipc_path: None,
             jsonrpc_server_port: DEFAULT_INCOMING_BUNDLES_PORT,
-            jsonrpc_server_ip: None,
+            jsonrpc_server_ip: default_ip(),
             ignore_cancellable_orders: true,
             ignore_blobs: false,
             chain: "mainnet".to_string(),
             reth_datadir: Some(DEFAULT_RETH_DB_PATH.parse().unwrap()),
             reth_db_path: None,
             reth_static_files_path: None,
-            cl_network_config_dir: None,
             blocklist_file_path: None,
-            extra_data: "extra_data_change_me".to_string(),
-            relays: vec![],
-            dry_run: false,
-            dry_run_validation_url: vec![],
-            root_hash_task_pool_threads: 1,
-            watchdog_timeout_sec: 60 * 3,
+            blocklist: None,
+            blocklist_url_max_age_hours: None,
+            blocklist_url_max_age_secs: None,
+            extra_data: b"extra_data_change_me".to_vec(),
+            root_hash_use_sparse_trie: false,
+            root_hash_compare_sparse_trie: false,
+            root_hash_threads: 0,
+            watchdog_timeout_sec: None,
             backtest_fetch_mempool_data_dir: "/mnt/data/mempool".into(),
             backtest_fetch_eth_rpc_url: "http://127.0.0.1:8545".to_string(),
             backtest_fetch_eth_rpc_parallel: 1,
             backtest_fetch_output_file: "/tmp/rbuilder-backtest.sqlite".parse().unwrap(),
             backtest_results_store_path: "/tmp/rbuilder-backtest-results.sqlite".parse().unwrap(),
+            backtest_protect_bundle_signers: vec![],
             backtest_builders: Vec::new(),
-            live_builders: vec!["mgp-ordering".to_string(), "mp-ordering".to_string(), "preconf-ordering".to_string()],
-            optimistic_prevalidate_optimistic_blocks: false,
+            live_builders: vec!["mgp-ordering".to_string(), "mp-ordering".to_string()],
             simulation_threads: 1,
+            sbundle_mergeable_signers: None,
             sbundle_mergeabe_signers: None,
-            slot_delta_to_start_submits_ms: None,
+            require_non_empty_blocklist: Some(DEFAULT_REQUIRE_NON_EMPTY_BLOCKLIST),
+            ipc_provider: None,
             preconf_api_url: None,
             preconf_ws_url: None,
             fallback_fee_recipient: None,
-            min_time_between_block_check_ms: None,
         }
     }
 }
 
+fn deserialize_extra_data<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    let bytes = s.into_bytes();
+    if bytes.len() > 32 {
+        return Err(serde::de::Error::custom(
+            "Extra data is too long (max 32 bytes)",
+        ));
+    }
+    Ok(bytes)
+}
+
 /// Open reth db and DB should be opened once per process but it can be cloned and moved to different threads.
+/// root_hash_config None -> MockRootHasher used
 pub fn create_provider_factory(
     reth_datadir: Option<&Path>,
     reth_db_path: Option<&Path>,
     reth_static_files_path: Option<&Path>,
     chain_spec: Arc<ChainSpec>,
-) -> eyre::Result<ProviderFactoryReopener<Arc<DatabaseEnv>>> {
-    let reth_db_path = match (reth_db_path, reth_datadir) {
+    rw: bool,
+    root_hash_config: Option<RootHashContext>,
+) -> eyre::Result<ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>> {
+    // shellexpand the reth datadir
+    let reth_datadir = if let Some(reth_datadir) = reth_datadir {
+        let reth_datadir = reth_datadir
+            .to_str()
+            .ok_or_else(|| eyre::eyre!("Invalid UTF-8 in path"))?;
+
+        Some(PathBuf::from(shellexpand::full(reth_datadir)?.into_owned()))
+    } else {
+        None
+    };
+
+    let reth_db_path = match (reth_db_path, reth_datadir.clone()) {
         (Some(reth_db_path), _) => PathBuf::from(reth_db_path),
         (None, Some(reth_datadir)) => reth_datadir.join("db"),
         (None, None) => eyre::bail!("Either reth_db_path or reth_datadir must be provided"),
     };
 
-    let db = open_reth_db(&reth_db_path)?;
+    let db = if rw {
+        open_reth_db_rw(&reth_db_path)
+    } else {
+        open_reth_db(&reth_db_path)
+    }?;
 
     let reth_static_files_path = match (reth_static_files_path, reth_datadir) {
         (Some(reth_static_files_path), _) => PathBuf::from(reth_static_files_path),
@@ -645,7 +654,7 @@ pub fn create_provider_factory(
     };
 
     let provider_factory_reopener =
-        ProviderFactoryReopener::new(db, chain_spec, reth_static_files_path)?;
+        ProviderFactoryReopener::new(db, chain_spec, reth_static_files_path, root_hash_config)?;
 
     if provider_factory_reopener
         .provider_factory_unchecked()
@@ -665,58 +674,28 @@ fn open_reth_db(reth_db_path: &Path) -> eyre::Result<Arc<DatabaseEnv>> {
     ))
 }
 
+fn open_reth_db_rw(reth_db_path: &Path) -> eyre::Result<Arc<DatabaseEnv>> {
+    Ok(Arc::new(
+        reth_db::open_db(reth_db_path, Default::default()).context("DB open error")?,
+    ))
+}
+
 pub fn coinbase_signer_from_secret_key(secret_key: &str) -> eyre::Result<Signer> {
     let secret_key = B256::from_str(secret_key)?;
     Ok(Signer::try_from_secret(secret_key)?)
 }
 
-fn get_signing_domain(chain: Chain, _cl_network_config_dir: Option<String>, beacon_clients: Vec<Client>) -> eyre::Result<B256> {
-    let cl_context = match chain.kind() {
-        ChainKind::Named(NamedChain::Mainnet) => ContextEth::for_mainnet(),
-        ChainKind::Named(NamedChain::Sepolia) => ContextEth::for_sepolia(),
-        ChainKind::Named(NamedChain::Goerli) => ContextEth::for_goerli(),
-        ChainKind::Named(NamedChain::Holesky) => ContextEth::for_holesky(),
-        _ => {
-            let client = beacon_clients
-                .first()
-                .ok_or_else(|| eyre::eyre!("No beacon clients provided"))?;
-
-            let spec = tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(client.get_spec())
-            })?;
-
-            let genesis_fork_version = spec
-                .get("GENESIS_FORK_VERSION")
-                .ok_or_else(|| eyre::eyre!("GENESIS_FORK_VERSION not found in spec"))?;
-
-            let version: FixedBytes<4> = FixedBytes::from_str(genesis_fork_version)
-                .map_err(|e| eyre::eyre!("Failed to parse genesis fork version: {:?}", e))?;
-
-            let version = Version::from(version);
-
-            // use the mainnet one and update the genesis fork version since it is the
-            // only thing required by 'compute_builder_domain'. We do this because
-            // there is no default in Context.
-            let mut network = ContextEth::for_mainnet();
-            network.genesis_fork_version = version;
-
-            network
-        }
-    };
-    Ok(B256::from(&compute_builder_domain(&cl_context)?))
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
+    use reth::args::DatadirArgs;
+    use reth_chainspec::{Chain, SEPOLIA};
     use reth_db::init_db;
-    use reth_node_core::{
-        dirs::{DataDirPath, MaybePlatformPath},
-        init::init_genesis,
-    };
-    use reth_primitives::{Chain, SEPOLIA};
-    use reth_provider::ProviderFactory;
+    use reth_db_common::init::init_genesis;
+    use reth_node_core::dirs::{DataDirPath, MaybePlatformPath};
+    use reth_provider::{providers::StaticFileProvider, ProviderFactory};
     use tempfile::TempDir;
+    use tokio_util::sync::CancellationToken;
 
     #[test]
     fn test_default_config() {
@@ -726,53 +705,74 @@ mod test {
         assert_eq!(config, config_default);
     }
 
+    #[tokio::test]
+    async fn test_require_non_empty_blocklist() {
+        let config = BaseConfig {
+            blocklist: None,
+            blocklist_file_path: None,
+            require_non_empty_blocklist: Some(true),
+            ..Default::default()
+        };
+        assert!(config
+            .blocklist_provider(CancellationToken::new())
+            .await
+            .is_err());
+    }
+
     #[test]
     fn test_reth_db() {
         // Setup and initialize a temp reth db (with static files)
         let tempdir = TempDir::with_prefix_in("rbuilder-", "/tmp").unwrap();
 
         let data_dir = MaybePlatformPath::<DataDirPath>::from(tempdir.into_path());
-        let data_dir = data_dir.unwrap_or_chain_default(Chain::mainnet());
+        let data_dir = data_dir.unwrap_or_chain_default(Chain::mainnet(), DatadirArgs::default());
 
-        let db = init_db(data_dir.db_path().as_path(), Default::default()).unwrap();
-        let provider_factory =
-            ProviderFactory::new(db, SEPOLIA.clone(), data_dir.static_files_path()).unwrap();
-        init_genesis(provider_factory).unwrap();
+        let db = Arc::new(init_db(data_dir.data_dir(), Default::default()).unwrap());
+        let provider_factory = ProviderFactory::<NodeTypesWithDBAdapter<EthereumNode, _>>::new(
+            db,
+            SEPOLIA.clone(),
+            StaticFileProvider::read_write(data_dir.static_files().as_path()).unwrap(),
+        );
+        init_genesis(&provider_factory).unwrap();
 
         // Create longer-lived PathBuf values
-        let data_dir_path = data_dir.data_dir_path().to_path_buf();
-        let db_path = data_dir.db_path().to_path_buf();
-        let static_files_path = data_dir.static_files_path().to_path_buf();
+        let data_dir_path = data_dir.data_dir();
+        let db_path = data_dir.db();
+        let static_files_path = data_dir.static_files();
 
         let test_cases = [
             // use main dir to resolve reth_db and static_files
-            (Some(data_dir_path.as_path()), None, None, true),
+            (Some(data_dir_path), None, None, true),
             // use main dir to resolve reth_db and provide static_files
             (
-                Some(data_dir_path.as_path()),
+                Some(data_dir_path),
                 None,
-                Some(static_files_path.as_path()),
+                Some(static_files_path.clone()),
                 true,
             ),
             // provide both reth_db and static_files
             (
                 None,
                 Some(db_path.as_path()),
-                Some(static_files_path.as_path()),
+                Some(static_files_path.clone()),
                 true,
             ),
             // fail to provide main dir to resolve empty static_files
             (None, Some(db_path.as_path()), None, false),
             // fail to provide main dir to resolve empty reth_db
-            (None, None, Some(static_files_path.as_path()), false),
+            (None, None, Some(static_files_path), false),
         ];
 
-        for (reth_db, reth_db_path, reth_static_files_path, should_succeed) in test_cases.iter() {
+        for (reth_datadir_path, reth_db_path, reth_static_files_path, should_succeed) in
+            test_cases.iter()
+        {
             let result = create_provider_factory(
-                reth_db.as_deref(),
+                reth_datadir_path.as_deref(),
                 reth_db_path.as_deref(),
                 reth_static_files_path.as_deref(),
                 Default::default(),
+                true,
+                None,
             );
 
             if *should_succeed {

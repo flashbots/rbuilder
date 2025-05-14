@@ -1,10 +1,10 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 use ahash::HashMap;
-use reth_primitives::Address;
+use alloy_primitives::Address;
 use tracing::error;
 
-use crate::primitives::OrderId;
+use crate::primitives::{OrderId, SimulatedOrder};
 
 use super::{share_bundle_merger::ShareBundleMerger, SimulatedOrderSink};
 
@@ -76,16 +76,13 @@ impl<SinkType: SimulatedOrderSink> MultiShareBundleMerger<SinkType> {
 }
 
 impl<SinkType: SimulatedOrderSink> SimulatedOrderSink for MultiShareBundleMerger<SinkType> {
-    fn insert_order(&mut self, order: crate::primitives::SimulatedOrder) {
+    fn insert_order(&mut self, order: Arc<SimulatedOrder>) {
         let signer = order.order.signer();
         self.inserted_orders_signers.insert(order.id(), signer);
         self.get_merger(&signer).borrow_mut().insert_order(order);
     }
 
-    fn remove_order(
-        &mut self,
-        id: crate::primitives::OrderId,
-    ) -> Option<crate::primitives::SimulatedOrder> {
+    fn remove_order(&mut self, id: crate::primitives::OrderId) -> Option<Arc<SimulatedOrder>> {
         match self.inserted_orders_signers.get(&id).cloned() {
             Some(signer) => self.get_merger(&signer).borrow_mut().remove_order(id),
             None => {
@@ -102,8 +99,8 @@ mod test {
 
     use super::MultiShareBundleMerger;
 
+    use alloy_primitives::Address;
     use lazy_static::lazy_static;
-    use reth_primitives::Address;
     lazy_static! {
         static ref SIGNER_1: Address = Address::random();
         static ref SIGNER_2: Address = Address::random();
@@ -126,7 +123,7 @@ mod test {
         let generated_order = context.pop_insert();
         context.assert_concatenated_sbundles_ok(&generated_order, &[br_hi.clone()]);
 
-        // for second expect a cancelation and a new megabundle with both
+        // for second expect a cancellation and a new megabundle with both
         context.insert_order(br_low.clone());
 
         assert_eq!(context.pop_remove(), generated_order.id());
@@ -168,7 +165,7 @@ mod test {
         let generated_order = context.pop_insert();
         context.assert_concatenated_sbundles_ok(&generated_order, &[br_hi.clone()]);
 
-        // for second expect a cancelation and a new megabundle with both
+        // for second expect a cancellation and a new megabundle with both
         context.insert_order(br_low.clone());
 
         assert_eq!(context.pop_remove(), generated_order.id());

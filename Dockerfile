@@ -6,13 +6,37 @@
 #
 # Based on https://depot.dev/blog/rust-dockerfile-best-practices
 #
-FROM rust:1.82 as base
+ARG FEATURES
+ARG RBUILDER_BIN="rbuilder"
 
-RUN cargo install sccache --version ^0.8
-RUN cargo install cargo-chef --version ^0.1
+FROM rust:1.85 AS base
+ARG TARGETPLATFORM
 
 RUN apt-get update \
     && apt-get install -y clang libclang-dev
+
+RUN rustup component add clippy rustfmt
+
+
+# We manually download sccache, because compilation is resource-intensive
+RUN set -eux; \
+    case "$TARGETPLATFORM" in \
+      "linux/amd64")  ARCH_TAG="x86_64-unknown-linux-musl" ;; \
+      "linux/arm64")  ARCH_TAG="aarch64-unknown-linux-musl" ;; \
+      *) \
+        echo "Unsupported platform: $TARGETPLATFORM"; \
+        exit 1 \
+        ;; \
+    esac; \
+    wget -O /tmp/sccache.tar.gz \
+      "https://github.com/mozilla/sccache/releases/download/v0.8.2/sccache-v0.8.2-${ARCH_TAG}.tar.gz"; \
+    tar -xf /tmp/sccache.tar.gz -C /tmp; \
+    mv /tmp/sccache-v0.8.2-${ARCH_TAG}/sccache /usr/local/bin/sccache; \
+    chmod +x /usr/local/bin/sccache; \
+    rm -rf /tmp/sccache.tar.gz /tmp/sccache-v0.8.2-${ARCH_TAG}
+
+RUN cargo install cargo-chef --version ^0.1
+
 
 ENV CARGO_HOME=/usr/local/cargo
 ENV RUSTC_WRAPPER=sccache
@@ -23,12 +47,7 @@ ENV SCCACHE_DIR=/sccache
 #
 FROM base AS planner
 WORKDIR /app
-
-COPY ./Cargo.lock ./Cargo.lock
-COPY ./Cargo.toml ./Cargo.toml
-COPY ./.git ./.git
-COPY ./crates/ ./crates/
-
+COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
@@ -37,36 +56,42 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 #
 # Builder container (running "cargo chef cook" and "cargo build --release")
 #
-FROM base as builder
+FROM base AS builder
 WORKDIR /app
-
 COPY --from=planner /app/recipe.json recipe.json
-
-RUN --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
-    cargo chef cook --release --recipe-path recipe.json
-
-COPY ./Cargo.lock ./Cargo.lock
-COPY ./Cargo.toml ./Cargo.toml
-COPY ./.git ./.git
-COPY ./crates/ ./crates/
-
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
-    cargo build --release
+    cargo chef cook --release --recipe-path recipe.json
+COPY . .
 
-#
-# Runtime container
-#
-FROM gcr.io/distroless/cc-debian12
 
+FROM builder AS rbuilder
+ARG RBUILDER_BIN
+ARG FEATURES
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
+    cargo build --release --features="$FEATURES" --package=${RBUILDER_BIN}
+
+FROM builder AS test-relay
+ARG FEATURES
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
+    cargo build --release --features="$FEATURES" --package=test-relay
+
+
+# Runtime container for test-relay
+FROM gcr.io/distroless/cc-debian12 AS test-relay-runtime
 WORKDIR /app
+COPY --from=test-relay /app/target/release/test-relay /app/test-relay
+ENTRYPOINT ["/app/test-relay"]
 
-# RUN apk add libssl3 ca-certificates
-# RUN apt-get update \
-#     && apt-get install -y libssl3 ca-certificates \
-#     && rm -rf /var/lib/apt/lists/*
-
-COPY --from=builder /app/target/release/rbuilder /app/rbuilder
-
+# Runtime container for rbuilder
+FROM gcr.io/distroless/cc-debian12 AS rbuilder-runtime
+ARG RBUILDER_BIN
+WORKDIR /app
+COPY --from=rbuilder /app/target/release/${RBUILDER_BIN} /app/rbuilder
 ENTRYPOINT ["/app/rbuilder"]
+
