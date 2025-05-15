@@ -107,7 +107,7 @@ async fn main() -> eyre::Result<()> {
                                 format!("Failed to commit tx: {} {:?}", idx, tx.hash())
                             })?
                     };
-                    cumulative_gas_used += result.gas_used;
+                    cumulative_gas_used += result.tx_info.gas_used;
                     cumulative_blob_gas_used += result.blob_gas_used;
                 }
 

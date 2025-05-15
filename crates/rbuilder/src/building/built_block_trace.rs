@@ -40,8 +40,6 @@ impl Default for BuiltBlockTrace {
 pub enum BuiltBlockTraceError {
     #[error("More than one order is included with the same replacement data: {0:?}")]
     DuplicateReplacementData(OrderReplacementKey),
-    #[error("Included order had different number of txs and receipts")]
-    DifferentTxsAndReceipts,
     #[error("Included order had tx from or to blocked address")]
     BlockedAddress,
     #[error(
@@ -105,18 +103,18 @@ impl BuiltBlockTrace {
         let mut executed_tx_hashes_scratchpad = Vec::new();
 
         for res in &self.included_orders {
-            if res.txs.len() != res.receipts.len() {
-                return Err(BuiltBlockTraceError::DifferentTxsAndReceipts);
-            }
-
             let executed_tx_hashes = {
                 executed_tx_hashes_scratchpad.clear();
                 &mut executed_tx_hashes_scratchpad
             };
-            for (tx, receipt) in res.txs.iter().zip(res.receipts.iter()) {
-                executed_tx_hashes.push((tx.hash(), receipt.success));
-                if blocklist.contains(&tx.signer())
-                    || tx.to().map(|to| blocklist.contains(&to)).unwrap_or(false)
+            for tx_info in &res.tx_infos {
+                executed_tx_hashes.push((tx_info.tx.hash(), tx_info.receipt.success));
+                if blocklist.contains(&tx_info.tx.signer())
+                    || tx_info
+                        .tx
+                        .to()
+                        .map(|to| blocklist.contains(&to))
+                        .unwrap_or(false)
                 {
                     return Err(BuiltBlockTraceError::BlockedAddress);
                 }
@@ -162,7 +160,7 @@ impl BuiltBlockTrace {
     pub fn transactions_hash(&self) -> u64 {
         let mut hasher = AHasher::default();
         for execution_result in &self.included_orders {
-            for tx in &execution_result.txs {
+            for tx in execution_result.tx_infos.iter().map(|info| &info.tx) {
                 let tx_hash = tx.hash();
                 hasher.write(tx_hash.as_slice());
             }

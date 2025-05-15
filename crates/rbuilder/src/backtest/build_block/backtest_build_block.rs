@@ -142,7 +142,7 @@ where
                         format_ether(order_result.coinbase_profit),
                     );
                     if let Order::Bundle(_) | Order::ShareBundle(_) = order_result.order {
-                        for tx in &order_result.txs {
+                        for tx in order_result.tx_infos.iter().map(|info| &info.tx) {
                             println!("      ↳ {:?}", tx.hash());
                         }
 

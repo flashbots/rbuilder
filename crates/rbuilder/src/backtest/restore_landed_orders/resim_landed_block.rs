@@ -90,7 +90,7 @@ where
         )?;
         let coinbase_profit = signed_uint_delta(coinbase_balance_after, coinbase_balance_before);
 
-        cumulative_gas_used += result.gas_used;
+        cumulative_gas_used += result.tx_info.gas_used;
         cumulative_blob_gas_used += result.blob_gas_used;
 
         let mut conflicting_txs: HashMap<B256, Vec<SlotKey>> = HashMap::default();
@@ -121,7 +121,7 @@ where
 
         results.push(ExecutedTxs {
             tx: tx.into_internal_tx_unsecure(),
-            receipt: result.receipt,
+            receipt: result.tx_info.receipt,
             coinbase_profit,
             conflicting_txs,
         })

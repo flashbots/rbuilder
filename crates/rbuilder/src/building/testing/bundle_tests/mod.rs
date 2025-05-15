@@ -246,9 +246,9 @@ fn bundle_revert_tests(
         current_slot_value + 100,
     )?;
     let result = test_setup.commit_order_ok();
-    assert_eq!(result.receipts.len(), 2);
-    assert!(result.receipts[0].success);
-    assert!(!result.receipts[1].success);
+    assert_eq!(result.tx_infos.len(), 2);
+    assert!(result.tx_infos[0].receipt.success);
+    assert!(!result.tx_infos[1].receipt.success);
 
     // this bundle has 2 txs one ok other has incorrect nonce
     begin_bundle(test_setup);
@@ -260,8 +260,8 @@ fn bundle_revert_tests(
         current_slot_value,
     )?;
     let result = test_setup.commit_order_ok();
-    assert_eq!(result.receipts.len(), 1);
-    assert!(result.receipts[0].success);
+    assert_eq!(result.tx_infos.len(), 1);
+    assert!(result.tx_infos[0].receipt.success);
 
     // for share bundle also try nested bundles
     if share_bundle {
