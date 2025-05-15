@@ -357,6 +357,26 @@ fn test_bundle_ok_refunds() -> eyre::Result<()> {
 }
 
 #[test]
+fn test_bundle_ok_inner_tx_profits() -> eyre::Result<()> {
+    let target_block = 11;
+    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().number(target_block))?;
+    let profits = [100_000u64, 200_000u64, 10u64];
+    let mut tx_hashes = Vec::default();
+    test_setup.begin_bundle_order(target_block);
+    for (index, profit) in profits.iter().enumerate() {
+        tx_hashes.push(test_setup.add_send_to_coinbase_tx(NamedAddr::User(index), *profit)?);
+    }
+    let result = test_setup.commit_order_ok();
+    let executed_profits = result
+        .tx_infos
+        .iter()
+        .map(|info| u64::try_from(info.coinbase_profit).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(profits, executed_profits.as_slice());
+    Ok(())
+}
+
+#[test]
 fn test_mev_share_ok_refunds() -> eyre::Result<()> {
     let target_block = 11;
     let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().number(target_block))?;
