@@ -347,7 +347,7 @@ impl BlockBuildingResultAssembler {
                 .any(|(order_idx, _)| {
                     !order_group.orders[*order_idx]
                         .sim_value
-                        .paid_kickbacks
+                        .paid_kickbacks()
                         .is_empty()
                 })
         })

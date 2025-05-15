@@ -244,7 +244,7 @@ mod tests {
             match command {
                 SimulatedOrderCommand::Simulation(sim_order) => {
                     assert_eq!(
-                        sim_order.sim_value.coinbase_profit,
+                        sim_order.sim_value.full_profit_info().coinbase_profit(),
                         U256::from(coinbase_profit)
                     );
                 }

@@ -24,11 +24,9 @@ impl TestDataGenerator {
         coinbase_profit: u64,
         mev_gas_price: u64,
     ) -> Arc<SimulatedOrder> {
-        let sim_value = SimValue {
-            coinbase_profit: U256::from(coinbase_profit),
-            mev_gas_price: U256::from(mev_gas_price),
-            ..Default::default()
-        };
+        let sim_value =
+            SimValue::new_test_no_gas(U256::from(coinbase_profit), U256::from(mev_gas_price));
+
         Arc::new(SimulatedOrder {
             order,
             sim_value,

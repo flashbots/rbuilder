@@ -68,19 +68,23 @@ struct OrderMevGasPricePriorityCmp {}
 impl OrderMevGasPricePriorityCmp {
     #[inline]
     fn eq(a: &SimulatedOrder, b: &SimulatedOrder) -> bool {
-        a.sim_value.mev_gas_price == b.sim_value.mev_gas_price
+        a.sim_value.full_profit_info().mev_gas_price()
+            == b.sim_value.full_profit_info().mev_gas_price()
     }
 
     #[inline]
     fn cmp(a: &SimulatedOrder, b: &SimulatedOrder) -> Ordering {
-        a.sim_value.mev_gas_price.cmp(&b.sim_value.mev_gas_price)
+        a.sim_value
+            .full_profit_info()
+            .mev_gas_price()
+            .cmp(&b.sim_value.full_profit_info().mev_gas_price())
     }
 }
 #[inline]
 fn simulation_too_low_gas_price(original_sim_value: &SimValue, new_sim_value: &SimValue) -> bool {
     new_sim_value_too_low(
-        original_sim_value.mev_gas_price,
-        new_sim_value.mev_gas_price,
+        original_sim_value.full_profit_info().mev_gas_price(),
+        new_sim_value.full_profit_info().mev_gas_price(),
     )
 }
 
@@ -89,21 +93,23 @@ struct OrderMaxProfitPriorityCmp {}
 impl OrderMaxProfitPriorityCmp {
     #[inline]
     fn eq(a: &SimulatedOrder, b: &SimulatedOrder) -> bool {
-        a.sim_value.coinbase_profit == b.sim_value.coinbase_profit
+        a.sim_value.full_profit_info().coinbase_profit()
+            == b.sim_value.full_profit_info().coinbase_profit()
     }
 
     #[inline]
     fn cmp(a: &SimulatedOrder, b: &SimulatedOrder) -> Ordering {
         a.sim_value
-            .coinbase_profit
-            .cmp(&b.sim_value.coinbase_profit)
+            .full_profit_info()
+            .coinbase_profit()
+            .cmp(&b.sim_value.full_profit_info().coinbase_profit())
     }
 }
 #[inline]
 fn simulation_too_low_profit(original_sim_value: &SimValue, new_sim_value: &SimValue) -> bool {
     new_sim_value_too_low(
-        original_sim_value.coinbase_profit,
-        new_sim_value.coinbase_profit,
+        original_sim_value.full_profit_info().coinbase_profit(),
+        new_sim_value.full_profit_info().coinbase_profit(),
     )
 }
 

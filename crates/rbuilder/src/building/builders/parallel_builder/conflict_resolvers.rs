@@ -402,8 +402,8 @@ fn generate_greedy_sequence(task: &ConflictTask, reverse: bool) -> Vec<Vec<usize
     };
 
     vec![
-        create_sequence(|sim_order| sim_order.sim_value.coinbase_profit),
-        create_sequence(|sim_order| sim_order.sim_value.mev_gas_price),
+        create_sequence(|sim_order| sim_order.sim_value.full_profit_info().coinbase_profit()),
+        create_sequence(|sim_order| sim_order.sim_value.full_profit_info().mev_gas_price()),
     ]
 }
 
@@ -429,7 +429,7 @@ fn generate_length_based_sequence(task: &ConflictTask) -> Vec<Vec<usize>> {
             (
                 idx,
                 order.order.list_txs().len(),
-                order.sim_value.coinbase_profit,
+                order.sim_value.full_profit_info().coinbase_profit(),
             )
         })
         .collect();
@@ -513,11 +513,7 @@ mod tests {
                 );
             }
 
-            let sim_value = SimValue {
-                coinbase_profit,
-                mev_gas_price,
-                ..Default::default()
-            };
+            let sim_value = SimValue::new_test_no_gas(coinbase_profit, mev_gas_price);
 
             let bundle = Bundle {
                 block: Some(0),

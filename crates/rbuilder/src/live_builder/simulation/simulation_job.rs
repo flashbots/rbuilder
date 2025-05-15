@@ -187,7 +187,7 @@ impl SimulationJob {
         for sim_result in new_sim_results {
             trace!(order_id=?sim_result.simulated_order.order.id(),
             sim_duration_mus = sim_result.simulation_time.as_micros(),
-            profit = format_ether(sim_result.simulated_order.sim_value.coinbase_profit), "Order simulated");
+            profit = format_ether(sim_result.simulated_order.sim_value.full_profit_info().coinbase_profit()), "Order simulated");
             self.orders_simulated_ok
                 .accumulate(&sim_result.simulated_order.order);
             if let Some(repl_key) = sim_result.simulated_order.order.replacement_key() {

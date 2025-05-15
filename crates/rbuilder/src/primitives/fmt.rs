@@ -63,12 +63,21 @@ pub fn write_sim_value<Buffer: Write>(
     std::fmt::write(
         buf,
         format_args!(
-            "coinbase_profit {} mev_gas_price {}",
-            sim_value.coinbase_profit, sim_value.mev_gas_price
+            "full coinbase_profit {} full mev_gas_price {}",
+            sim_value.full_profit_info().coinbase_profit(),
+            sim_value.full_profit_info().mev_gas_price()
+        ),
+    )?;
+    std::fmt::write(
+        buf,
+        format_args!(
+            "non mempool coinbase_profit {} non mempool mev_gas_price {}",
+            sim_value.non_mempool_profit_info().coinbase_profit(),
+            sim_value.non_mempool_profit_info().mev_gas_price()
         ),
     )?;
     buf.write_str(" Kickbacks ")?;
-    for kb in &sim_value.paid_kickbacks {
+    for kb in sim_value.paid_kickbacks() {
         buf.write_str(&format!("{}->{},", kb.0, kb.1))?;
     }
     buf.write_str("\n")

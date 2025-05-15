@@ -1,10 +1,12 @@
 use super::{
+    create_sim_value,
     tracers::{AccumulatorSimulationTracer, SimulationTracer},
     OrderErr, PartialBlockFork, ThreadBlockBuildingContext,
 };
 use crate::{
     building::{BlockBuildingContext, BlockState, CriticalCommitOrderError},
-    primitives::{Order, OrderId, SimValue, SimulatedOrder},
+    live_builder::order_input::mempool_txs_detector::MempoolTxsDetector,
+    primitives::{Order, OrderId, SimulatedOrder},
     provider::StateProviderFactory,
     telemetry::{add_order_simulation_time, mark_order_pending_nonce},
     utils::NonceCache,
@@ -233,9 +235,16 @@ impl SimTree {
                             .expect("we never delete sims")
                             .simulated_order
                             .sim_value
-                            .coinbase_profit
+                            .full_profit_info()
+                            .coinbase_profit()
                     };
-                    if result.simulated_order.sim_value.coinbase_profit > current_sim_profit {
+                    if result
+                        .simulated_order
+                        .sim_value
+                        .full_profit_info()
+                        .coinbase_profit()
+                        > current_sim_profit
+                    {
                         entry.insert(result.id);
                     }
                 }
@@ -409,7 +418,8 @@ pub fn simulate_order(
     let mut tracer = AccumulatorSimulationTracer::new();
     let mut fork = PartialBlockFork::new(state, ctx, local_ctx).with_tracer(&mut tracer);
     let rollback_point = fork.rollback_point();
-    let sim_res = simulate_order_using_fork(parent_orders, order, &mut fork);
+    let sim_res =
+        simulate_order_using_fork(parent_orders, order, &mut fork, &ctx.mempool_tx_detector);
     fork.rollback(rollback_point);
     let sim_res = sim_res?;
     Ok(OrderSimResultWithGas {
@@ -423,6 +433,7 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
     parent_orders: Vec<Order>,
     order: Order,
     fork: &mut PartialBlockFork<'_, '_, '_, '_, Tracer>,
+    mempool_tx_detector: &MempoolTxsDetector,
 ) -> Result<OrderSimResult, CriticalCommitOrderError> {
     let start = Instant::now();
     // simulate parents
@@ -449,12 +460,7 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
 
     match result {
         Ok(res) => {
-            let sim_value = SimValue::new(
-                res.coinbase_profit,
-                res.gas_used,
-                res.blob_gas_used,
-                res.paid_kickbacks,
-            );
+            let sim_value = create_sim_value(&res, mempool_tx_detector);
             let new_nonces = res.nonces_updated.into_iter().collect::<Vec<_>>();
             Ok(OrderSimResult::Success(
                 SimulatedOrder {

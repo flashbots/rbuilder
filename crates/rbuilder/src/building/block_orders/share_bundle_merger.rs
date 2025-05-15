@@ -321,7 +321,7 @@ impl<SinkType: SimulatedOrderSink> ShareBundleMerger<SinkType> {
             return None;
         }
         let mut user_kickback = U256::ZERO;
-        for (_, kickback) in &sim_order.sim_value.paid_kickbacks {
+        for (_, kickback) in sim_order.sim_value.paid_kickbacks() {
             user_kickback += kickback;
         }
         Some(BrokenDownShareBundle {

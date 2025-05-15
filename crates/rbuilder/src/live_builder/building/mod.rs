@@ -30,6 +30,7 @@ use super::{
     simulation::{OrderSimulationPool, SimulatedOrderCommand},
 };
 
+/// Struct to connect the pipeline for block building.
 #[derive(Debug)]
 pub struct BlockBuildingPool<P> {
     provider: P,
@@ -99,10 +100,16 @@ where
         let (orders_for_block, sink) = OrdersForBlock::new_with_sink();
         // add OrderReplacementManager to manage replacements and cancellations
         let order_replacement_manager = OrderReplacementManager::new(Box::new(sink));
+
+        let mempool_txs_detector_sniffer =
+            order_input::mempool_txs_detector::ReplaceableOrderStreamSniffer::new(
+                Box::new(order_replacement_manager),
+                block_ctx.mempool_tx_detector.clone(),
+            );
         // sink removal is automatic via OrderSink::is_alive false
         let _block_sub = self.orderpool_subscriber.add_sink(
             block_ctx.evm_env.block_env.number,
-            Box::new(order_replacement_manager),
+            Box::new(mempool_txs_detector_sniffer),
         );
 
         let simulations_for_block = self.order_simulation_pool.spawn_simulation_job(
@@ -175,8 +182,6 @@ where
                 &sbundle_merger_selected_signers,
             )
         });
-
-        //        tokio::spawn();
     }
 }
 

@@ -161,15 +161,12 @@ impl<TestedSinkType: SimulatedOrderSink> TestContext<TestedSinkType> {
         coinbase_profit: u64,
         mev_gas_price: u64,
     ) -> Arc<SimulatedOrder> {
-        let sim_value = SimValue {
-            coinbase_profit: U256::from(coinbase_profit),
-            mev_gas_price: U256::from(mev_gas_price),
-            paid_kickbacks: vec![(
-                Self::default_refund_recipient(),
-                U256::from(int_percentage(coinbase_profit, DEFAULT_REFUND)),
-            )],
-            ..Default::default()
-        };
+        let sim_value =
+            SimValue::new_test_no_gas(U256::from(coinbase_profit), U256::from(mev_gas_price))
+                .with_kickbacks(vec![(
+                    Self::default_refund_recipient(),
+                    U256::from(int_percentage(coinbase_profit, DEFAULT_REFUND)),
+                )]);
         Arc::new(SimulatedOrder {
             order,
             sim_value,

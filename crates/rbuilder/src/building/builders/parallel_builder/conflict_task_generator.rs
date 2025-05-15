@@ -180,8 +180,17 @@ impl ConflictTaskGenerator {
     /// * `group` - The `ConflictGroup` to process.
     fn process_single_order_group(&mut self, group_id: GroupId, group: &ConflictGroup) {
         let sequence_of_orders = ResolutionResult {
-            total_profit: group.orders[0].sim_value.coinbase_profit,
-            sequence_of_orders: vec![(0, group.orders[0].sim_value.coinbase_profit)],
+            total_profit: group.orders[0]
+                .sim_value
+                .full_profit_info()
+                .coinbase_profit(),
+            sequence_of_orders: vec![(
+                0,
+                group.orders[0]
+                    .sim_value
+                    .full_profit_info()
+                    .coinbase_profit(),
+            )],
         };
         // We ignore the error since it means "receiver disconnected" and we expect the caller will detect the cancellation and stop calling us.
         let _ = self
@@ -271,7 +280,7 @@ impl ConflictTaskGenerator {
     fn sum_top_n_profits(&self, orders: &[Arc<SimulatedOrder>], n: usize) -> U256 {
         orders
             .iter()
-            .map(|o| o.sim_value.coinbase_profit)
+            .map(|o| o.sim_value.full_profit_info().coinbase_profit())
             .sorted_by(|a, b| b.cmp(a))
             .take(n)
             .sum()
@@ -464,10 +473,7 @@ mod tests {
                     .insert(write.clone(), self.create_b256());
             }
 
-            let sim_value = SimValue {
-                coinbase_profit,
-                ..Default::default()
-            };
+            let sim_value = SimValue::new_test_no_gas(coinbase_profit, U256::ZERO);
 
             Arc::new(SimulatedOrder {
                 order: Order::Tx(MempoolTx {

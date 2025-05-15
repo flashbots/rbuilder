@@ -1049,26 +1049,16 @@ impl Order {
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct SimValue {
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
+pub struct ProfitInfo {
     /// profit as coinbase delta after executing an Order
-    pub coinbase_profit: U256,
-    pub gas_used: u64,
-    #[serde(default)]
-    pub blob_gas_used: u64,
+    coinbase_profit: U256,
     /// This is computed as coinbase_profit/gas_used so it includes not only gas tip but also payments made directly to coinbase
-    pub mev_gas_price: U256,
-    /// Kickbacks paid during simulation as (receiver, amount)
-    pub paid_kickbacks: Vec<(Address, U256)>,
+    mev_gas_price: U256,
 }
 
-impl SimValue {
-    pub fn new(
-        coinbase_profit: U256,
-        gas_used: u64,
-        blob_gas_used: u64,
-        paid_kickbacks: Vec<(Address, U256)>,
-    ) -> Self {
+impl ProfitInfo {
+    pub fn new(coinbase_profit: U256, gas_used: u64) -> Self {
         let mev_gas_price = if gas_used != 0 {
             coinbase_profit / U256::from(gas_used)
         } else {
@@ -1076,11 +1066,95 @@ impl SimValue {
         };
         Self {
             coinbase_profit,
+            mev_gas_price,
+        }
+    }
+
+    /// For testing specific values ignoring gas.
+    pub fn new_test(coinbase_profit: U256, mev_gas_price: U256) -> Self {
+        Self {
+            coinbase_profit,
+            mev_gas_price,
+        }
+    }
+
+    pub fn coinbase_profit(&self) -> U256 {
+        self.coinbase_profit
+    }
+
+    pub fn mev_gas_price(&self) -> U256 {
+        self.mev_gas_price
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
+pub struct SimValue {
+    /// ProfitInfo considering profit from all txs on the s/bundles.
+    full_profit_info: ProfitInfo,
+    /// ProfitInfo considering profit only from non mempool txs on the s/bundles.
+    /// For mempool orders it should match ProfitInfo
+    non_mempool_profit_info: ProfitInfo,
+    gas_used: u64,
+    blob_gas_used: u64,
+    /// Kickbacks paid during simulation as (receiver, amount)
+    paid_kickbacks: Vec<(Address, U256)>,
+}
+
+impl SimValue {
+    pub fn new(
+        // full profit
+        full_coinbase_profit: U256,
+        // for s/bundles profit from non-mempool txs.
+        non_mempool_coinbase_profit: U256,
+        gas_used: u64,
+        blob_gas_used: u64,
+        paid_kickbacks: Vec<(Address, U256)>,
+    ) -> Self {
+        Self {
+            full_profit_info: ProfitInfo::new(full_coinbase_profit, gas_used),
+            non_mempool_profit_info: ProfitInfo::new(non_mempool_coinbase_profit, gas_used),
             gas_used,
             blob_gas_used,
-            mev_gas_price,
             paid_kickbacks,
         }
+    }
+
+    /// For testing specific coinbase_profit/mev_gas_price values ignoring gas.
+    pub fn new_test_no_gas(
+        // full profit
+        coinbase_profit: U256,
+        mev_gas_price: U256,
+    ) -> Self {
+        Self {
+            full_profit_info: ProfitInfo::new_test(coinbase_profit, mev_gas_price),
+            non_mempool_profit_info: ProfitInfo::new_test(coinbase_profit, mev_gas_price),
+            ..Default::default()
+        }
+    }
+
+    pub fn full_profit_info(&self) -> &ProfitInfo {
+        &self.full_profit_info
+    }
+
+    pub fn non_mempool_profit_info(&self) -> &ProfitInfo {
+        &self.non_mempool_profit_info
+    }
+
+    pub fn gas_used(&self) -> u64 {
+        self.gas_used
+    }
+
+    pub fn blob_gas_used(&self) -> u64 {
+        self.blob_gas_used
+    }
+
+    pub fn paid_kickbacks(&self) -> &Vec<(Address, U256)> {
+        &self.paid_kickbacks
+    }
+
+    pub fn with_kickbacks(mut self, kickbacks: Vec<(Address, U256)>) -> Self {
+        self.paid_kickbacks = kickbacks;
+        self
     }
 }
 
