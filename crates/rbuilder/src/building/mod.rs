@@ -578,7 +578,8 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             }
         };
 
-        let inplace_sim_result = create_sim_value(&ok_result, &ctx.mempool_tx_detector);
+        let inplace_sim_result =
+            create_sim_value(&order.order, &ok_result, &ctx.mempool_tx_detector);
 
         match result_filter(&inplace_sim_result) {
             Ok(()) => {}
@@ -931,26 +932,31 @@ pub enum FillOrdersError {
     PayoutTxErr(#[from] InsertPayoutTxErr),
 }
 
-pub fn create_sim_value(order_ok: &OrderOk, mempool_detector: &MempoolTxsDetector) -> SimValue {
-    let non_mempool_coinbase_profit = order_ok
-        .tx_infos
-        .iter()
-        .filter(|tx_info| !mempool_detector.is_mempool(&tx_info.tx))
-        .map(|tx_info| tx_info.coinbase_profit)
-        .sum::<I256>();
-    let non_mempool_coinbase_profit = if non_mempool_coinbase_profit.is_positive() {
-        non_mempool_coinbase_profit.unsigned_abs()
+pub fn create_sim_value(
+    order: &Order,
+    order_ok: &OrderOk,
+    mempool_detector: &MempoolTxsDetector,
+) -> SimValue {
+    let non_mempool_coinbase_profit = if let Order::Tx(_) = order {
+        // We don't filter for mempool txs.
+        order_ok.coinbase_profit
     } else {
-        error!(
+        let non_mempool_coinbase_profit = order_ok
+            .tx_infos
+            .iter()
+            .filter(|tx_info| !mempool_detector.is_mempool(&tx_info.tx))
+            .map(|tx_info| tx_info.coinbase_profit)
+            .sum::<I256>();
+        if non_mempool_coinbase_profit.is_positive() {
+            non_mempool_coinbase_profit.unsigned_abs()
+        } else {
+            error!(
             non_mempool_coinbase_profit = format_ether(non_mempool_coinbase_profit),
-            "Non mempool orders have always positive profit, how did we got a negative value????"
-        );
-        U256::ZERO
+            "Non mempool orders have always positive profit, how did we got a negative value????");
+            U256::ZERO
+        }
     };
 
-    for tx_info in &order_ok.tx_infos {
-        if !mempool_detector.is_mempool(&tx_info.tx) {}
-    }
     SimValue::new(
         order_ok.coinbase_profit,
         non_mempool_coinbase_profit,
@@ -1008,7 +1014,13 @@ mod test {
             paid_kickbacks: Default::default(),
             used_state_trace: Default::default(),
         };
-        let sim_value = create_sim_value(&order_ok, &detector);
+        // dummy bundle just to let know create_sim_value this is a bundle.
+        let dummy_bundle = Order::Bundle(data_gen.create_bundle(
+            Default::default(),
+            Default::default(),
+            Default::default(),
+        ));
+        let sim_value = create_sim_value(&dummy_bundle, &order_ok, &detector);
         assert_eq!(
             sim_value.non_mempool_profit_info().coinbase_profit(),
             profit_2.unsigned_abs()

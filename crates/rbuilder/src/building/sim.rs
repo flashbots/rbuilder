@@ -460,7 +460,7 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
 
     match result {
         Ok(res) => {
-            let sim_value = create_sim_value(&res, mempool_tx_detector);
+            let sim_value = create_sim_value(&order, &res, mempool_tx_detector);
             let new_nonces = res.nonces_updated.into_iter().collect::<Vec<_>>();
             Ok(OrderSimResult::Success(
                 SimulatedOrder {
