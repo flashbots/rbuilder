@@ -979,7 +979,7 @@ mod test {
     /// Create a bundle with 2 txs, one from mempool and the other not.
     /// sim_value.non_mempool_profit_info().coinbase_profit() should only sum the profit for the second.
     #[test]
-    fn test_create_sim_value_non_mempool_coinbase_profit() {
+    fn test_create_sim_value_bundle_non_mempool_coinbase_profit() {
         let detector = MempoolTxsDetector::new();
         let mut data_gen = TestDataGenerator::default();
         let tx1 = data_gen.create_tx_with_blobs_nonce(Default::default());
@@ -1024,6 +1024,46 @@ mod test {
         assert_eq!(
             sim_value.non_mempool_profit_info().coinbase_profit(),
             profit_2.unsigned_abs()
+        );
+    }
+
+    /// Create a tx from mempool.
+    /// sim_value.non_mempool_profit_info().coinbase_profit() should be the same as full_profit_info = tx profit
+    #[test]
+    fn test_create_sim_value_tx_non_mempool_coinbase_profit() {
+        let detector = MempoolTxsDetector::new();
+        let mut data_gen = TestDataGenerator::default();
+        let tx = data_gen.create_tx_with_blobs_nonce(Default::default());
+        let order = Order::Tx(MempoolTx {
+            tx_with_blobs: tx.clone(),
+        });
+        detector.add_tx(&order);
+        let profit = I256::unchecked_from(1000);
+        let order_ok = OrderOk {
+            coinbase_profit: profit.unsigned_abs(),
+            gas_used: Default::default(),
+            cumulative_gas_used: Default::default(),
+            blob_gas_used: Default::default(),
+            cumulative_blob_gas_used: Default::default(),
+            tx_infos: vec![TransactionExecutionInfo {
+                tx,
+                receipt: Default::default(),
+                gas_used: Default::default(),
+                coinbase_profit: profit,
+            }],
+            original_order_ids: Default::default(),
+            nonces_updated: Default::default(),
+            paid_kickbacks: Default::default(),
+            used_state_trace: Default::default(),
+        };
+        let sim_value = create_sim_value(&order, &order_ok, &detector);
+        assert_eq!(
+            sim_value.non_mempool_profit_info().coinbase_profit(),
+            profit.unsigned_abs()
+        );
+        assert_eq!(
+            sim_value.non_mempool_profit_info().coinbase_profit(),
+            sim_value.full_profit_info().coinbase_profit(),
         );
     }
 }
