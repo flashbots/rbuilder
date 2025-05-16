@@ -22,7 +22,7 @@ use alloy_eips::{
     merge::BEACON_NONCE,
 };
 use alloy_evm::{block::system_calls::SystemCaller, env::EvmEnv, eth::eip6110};
-use alloy_primitives::{Address, Bytes, B256, U256};
+use alloy_primitives::{utils::format_ether, Address, Bytes, B256, I256, U256};
 use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
 use cached_reads::{LocalCachedReads, SharedCachedReads};
 use evm::EthCachedEvmFactory;
@@ -56,7 +56,7 @@ use std::{
 };
 use thiserror::Error;
 use time::OffsetDateTime;
-use tracing::trace;
+use tracing::{error, trace};
 use tx_sim_cache::TxExecutionCache;
 
 pub mod block_orders;
@@ -937,7 +937,16 @@ pub fn create_sim_value(order_ok: &OrderOk, mempool_detector: &MempoolTxsDetecto
         .iter()
         .filter(|tx_info| !mempool_detector.is_mempool(&tx_info.tx))
         .map(|tx_info| tx_info.coinbase_profit)
-        .sum::<U256>();
+        .sum::<I256>();
+    let non_mempool_coinbase_profit = if non_mempool_coinbase_profit.is_positive() {
+        non_mempool_coinbase_profit.unsigned_abs()
+    } else {
+        error!(
+            non_mempool_coinbase_profit = format_ether(non_mempool_coinbase_profit),
+            "Non mempool orders have always positive profit, how did we got a negative value????"
+        );
+        U256::ZERO
+    };
 
     for tx_info in &order_ok.tx_infos {
         if !mempool_detector.is_mempool(&tx_info.tx) {}
@@ -952,7 +961,7 @@ pub fn create_sim_value(order_ok: &OrderOk, mempool_detector: &MempoolTxsDetecto
 }
 #[cfg(test)]
 mod test {
-    use alloy_primitives::U256;
+    use alloy_primitives::I256;
 
     use crate::{
         live_builder::order_input::mempool_txs_detector::MempoolTxsDetector,
@@ -972,8 +981,8 @@ mod test {
             tx_with_blobs: tx1.clone(),
         }));
         let tx2 = data_gen.create_tx_with_blobs_nonce(Default::default());
-        let profit_1 = U256::from(1000);
-        let profit_2 = U256::from(10000);
+        let profit_1 = I256::unchecked_from(1000);
+        let profit_2 = I256::unchecked_from(10000);
         let order_ok = OrderOk {
             coinbase_profit: Default::default(),
             gas_used: Default::default(),
@@ -1002,7 +1011,7 @@ mod test {
         let sim_value = create_sim_value(&order_ok, &detector);
         assert_eq!(
             sim_value.non_mempool_profit_info().coinbase_profit(),
-            profit_2
+            profit_2.unsigned_abs()
         );
     }
 }
