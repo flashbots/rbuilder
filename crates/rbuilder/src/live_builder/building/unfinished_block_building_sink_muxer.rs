@@ -104,7 +104,7 @@ mod tests {
         },
         primitives::{AccountNonce, Order},
     };
-    use alloy_primitives::U256;
+    use alloy_primitives::{I256, U256};
 
     use super::BestBlockState;
 
@@ -141,7 +141,7 @@ mod tests {
                         tx,
                         receipt: Default::default(),
                         gas_used: 0,
-                        coinbase_profit: U256::ZERO,
+                        coinbase_profit: I256::ZERO,
                     }],
                     original_order_ids: Default::default(),
                     nonces_updated: Default::default(),

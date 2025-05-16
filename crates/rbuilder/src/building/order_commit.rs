@@ -20,7 +20,7 @@ use crate::{
 use ahash::HashSet;
 use alloy_consensus::{constants::KECCAK_EMPTY, Transaction};
 use alloy_eips::eip4844::DATA_GAS_PER_BLOB;
-use alloy_primitives::{Address, B256, U256};
+use alloy_primitives::{Address, B256, I256, U256};
 use itertools::Itertools;
 use reth::revm::database::StateProviderDatabase;
 use reth_errors::ProviderError;
@@ -187,8 +187,8 @@ pub struct TransactionExecutionInfo {
     pub tx: TransactionSignedEcRecoveredWithBlobs,
     pub receipt: Receipt,
     pub gas_used: u64,
-    /// On loss capped to 0
-    pub coinbase_profit: U256,
+    /// coinbase balance after tx - before.
+    pub coinbase_profit: I256,
 }
 #[derive(Debug, Clone)]
 pub struct TransactionOk {
@@ -276,6 +276,8 @@ pub enum BundleErr {
 
 #[derive(Debug, Clone)]
 pub struct OrderOk {
+    /// Profit used for sorting orders on building algorithms.
+    /// Real profit for s/bundles (they fail on negative profit) and capped to 0 for txs with negative profit.
     pub coinbase_profit: U256,
     pub gas_used: u64,
     pub cumulative_gas_used: u64,
@@ -335,6 +337,9 @@ pub enum CriticalCommitOrderError {
     Reth(#[from] ProviderError),
     #[error("EVM error: {0}")]
     EVM(#[from] EVMError<ProviderError>),
+    /// This could happen if we can't fit a balance in a I256 (unlikely/impossible since the ETH total supply is several orders of magnitude bellow I256::max)
+    #[error("BigIntConversionError error: {0}")]
+    BigIntConversionError(#[from] alloy_primitives::BigIntConversionError),
 }
 
 /// For all funcs allow_tx_skip means:
@@ -417,7 +422,7 @@ impl<'a, 'b, 'c, 'd, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, 'd, 
         gas_reserved: u64,
         mut cumulative_blob_gas_used: u64,
     ) -> Result<Result<TransactionOk, TransactionErr>, CriticalCommitOrderError> {
-        let coinbase_balance_before = self.coinbase_balance()?;
+        let coinbase_balance_before = I256::try_from(self.coinbase_balance()?)?;
         // Use blobs.len() instead of checking for tx type just in case in the future some other new txs have blobs
         let blob_gas_used = tx_with_blobs.blobs_sidecar.blobs.len() as u64 * DATA_GAS_PER_BLOB;
         if cumulative_blob_gas_used + blob_gas_used > self.ctx.max_blob_gas_per_block() {
@@ -545,7 +550,7 @@ impl<'a, 'b, 'c, 'd, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, 'd, 
             cumulative_gas_used,
             logs: res.result.logs().to_vec(),
         };
-
+        let coinbase_balance_after = I256::try_from(self.coinbase_balance()?)?;
         Ok(Ok(TransactionOk {
             exec_result: res.result,
             blob_gas_used,
@@ -555,7 +560,7 @@ impl<'a, 'b, 'c, 'd, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, 'd, 
                 tx: tx_with_blobs.clone(),
                 receipt,
                 gas_used,
-                coinbase_profit: self.saturating_coinbase_delta(coinbase_balance_before)?,
+                coinbase_profit: coinbase_balance_after - coinbase_balance_before,
             },
             nonce_updated: (tx.signer(), tx.nonce() + 1),
         }))
@@ -749,8 +754,10 @@ impl<'a, 'b, 'c, 'd, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, 'd, 
                             return Ok(Err(BundleErr::TransactionReverted(tx_hash)));
                         }
                     }
-                    if !res.tx_info.coinbase_profit.is_zero() && bundle.is_tx_refundable(&tx_hash) {
-                        refundable_profit += res.tx_info.coinbase_profit;
+                    if res.tx_info.coinbase_profit.is_positive()
+                        && bundle.is_tx_refundable(&tx_hash)
+                    {
+                        refundable_profit += res.tx_info.coinbase_profit.unsigned_abs();
                     }
                     Self::accumulate_tx_execution(res, &mut insert);
                 }
@@ -925,10 +932,10 @@ impl<'a, 'b, 'c, 'd, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, 'd, 
                                     }
                                 }
                             }
-                            if !res.tx_info.coinbase_profit.is_zero()
+                            if res.tx_info.coinbase_profit.is_positive()
                                 && !refundable_elements.contains_key(&idx)
                             {
-                                refundable_profit += res.tx_info.coinbase_profit;
+                                refundable_profit += res.tx_info.coinbase_profit.unsigned_abs();
                             }
                             Self::accumulate_tx_execution(res, &mut insert);
                         }
@@ -1092,18 +1099,25 @@ impl<'a, 'b, 'c, 'd, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, 'd, 
                     cumulative_blob_gas_used,
                 )?;
                 match res {
-                    Ok(ok) => Ok(Ok(OrderOk {
-                        coinbase_profit: ok.tx_info.coinbase_profit,
-                        gas_used: ok.tx_info.gas_used,
-                        cumulative_gas_used: ok.cumulative_gas_used,
-                        blob_gas_used: ok.blob_gas_used,
-                        cumulative_blob_gas_used: ok.cumulative_blob_gas_used,
-                        tx_infos: vec![ok.tx_info],
-                        nonces_updated: vec![ok.nonce_updated],
-                        paid_kickbacks: Vec::new(),
-                        used_state_trace: self.get_used_state_trace(),
-                        original_order_ids: Vec::new(),
-                    })),
+                    Ok(ok) => {
+                        let coinbase_profit = if ok.tx_info.coinbase_profit.is_positive() {
+                            ok.tx_info.coinbase_profit.unsigned_abs()
+                        } else {
+                            U256::ZERO
+                        };
+                        Ok(Ok(OrderOk {
+                            coinbase_profit,
+                            gas_used: ok.tx_info.gas_used,
+                            cumulative_gas_used: ok.cumulative_gas_used,
+                            blob_gas_used: ok.blob_gas_used,
+                            cumulative_blob_gas_used: ok.cumulative_blob_gas_used,
+                            tx_infos: vec![ok.tx_info],
+                            nonces_updated: vec![ok.nonce_updated],
+                            paid_kickbacks: Vec::new(),
+                            used_state_trace: self.get_used_state_trace(),
+                            original_order_ids: Vec::new(),
+                        }))
+                    }
                     Err(err) => Ok(Err(err.into())),
                 }
             }
