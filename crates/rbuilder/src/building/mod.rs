@@ -932,6 +932,9 @@ pub enum FillOrdersError {
     PayoutTxErr(#[from] InsertPayoutTxErr),
 }
 
+/// Create the sim value from the order_ok.
+/// non_mempool_coinbase_profit for s/bundles will filter tx profit.
+/// non_mempool_coinbase_profitm for txs is the same as full_coinbase_profit.
 pub fn create_sim_value(
     order: &Order,
     order_ok: &OrderOk,
