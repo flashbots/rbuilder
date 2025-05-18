@@ -1120,14 +1120,20 @@ impl SimValue {
     }
 
     /// For testing specific coinbase_profit/mev_gas_price values ignoring gas.
-    pub fn new_test_no_gas(
-        // full profit
-        coinbase_profit: U256,
-        mev_gas_price: U256,
-    ) -> Self {
+    /// coinbase_profit is the same for full_profit_info/non_mempool_profit_info
+    pub fn new_test_no_gas(coinbase_profit: U256, mev_gas_price: U256) -> Self {
         Self {
             full_profit_info: ProfitInfo::new_test(coinbase_profit, mev_gas_price),
             non_mempool_profit_info: ProfitInfo::new_test(coinbase_profit, mev_gas_price),
+            ..Default::default()
+        }
+    }
+
+    pub fn new_test(full_coinbase_profit: U256, non_mempool_profit: U256, gas_used: u64) -> Self {
+        Self {
+            full_profit_info: ProfitInfo::new(full_coinbase_profit, gas_used),
+            non_mempool_profit_info: ProfitInfo::new(non_mempool_profit, gas_used),
+            gas_used,
             ..Default::default()
         }
     }

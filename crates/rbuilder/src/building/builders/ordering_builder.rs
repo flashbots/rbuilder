@@ -57,6 +57,9 @@ pub struct OrderingBuilderConfig {
     /// Amount of time allocated for EVM execution while building block.
     #[serde(default)]
     pub build_duration_deadline_ms: Option<u64>,
+    #[serde(default)]
+    /// Use SimValue::non_mempool_profit_info instead of full_profit_info when comparing Orders.
+    pub ignore_mempool_profit_on_bundles: bool,
 }
 
 impl OrderingBuilderConfig {
@@ -403,7 +406,9 @@ fn simulation_too_low<OrderPriorityType: OrderPriority>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::building::order_priority::{OrderMaxProfitPriority, OrderMevGasPricePriority};
+    use crate::building::order_priority::{
+        FullProfitInfoGetter, OrderMaxProfitPriority, OrderMevGasPricePriority,
+    };
     use alloy_primitives::U256;
 
     #[test]
@@ -413,19 +418,31 @@ mod tests {
 
         // Lower than 95% of the original value
         assert!(
-            simulation_too_low::<OrderMaxProfitPriority>(sim_result, inplace_sim_result).is_err()
+            simulation_too_low::<OrderMaxProfitPriority::<FullProfitInfoGetter>>(
+                sim_result,
+                inplace_sim_result
+            )
+            .is_err()
         );
 
         // Equal to original value
         let inplace_sim_result = &SimValue::new_test_no_gas(U256::from(100), U256::from(0));
         assert!(
-            simulation_too_low::<OrderMaxProfitPriority>(sim_result, inplace_sim_result).is_ok()
+            simulation_too_low::<OrderMaxProfitPriority::<FullProfitInfoGetter>>(
+                sim_result,
+                inplace_sim_result
+            )
+            .is_ok()
         );
 
         // Higher than original value
         let inplace_sim_result = &SimValue::new_test_no_gas(U256::from(105), U256::from(0));
         assert!(
-            simulation_too_low::<OrderMaxProfitPriority>(sim_result, inplace_sim_result).is_ok()
+            simulation_too_low::<OrderMaxProfitPriority::<FullProfitInfoGetter>>(
+                sim_result,
+                inplace_sim_result
+            )
+            .is_ok()
         );
     }
 
@@ -436,19 +453,31 @@ mod tests {
         let inplace_sim_result = &SimValue::new_test_no_gas(U256::from(0), U256::from(94));
 
         assert!(
-            simulation_too_low::<OrderMevGasPricePriority>(sim_result, inplace_sim_result).is_err()
+            simulation_too_low::<OrderMevGasPricePriority::<FullProfitInfoGetter>>(
+                sim_result,
+                inplace_sim_result
+            )
+            .is_err()
         );
 
         // Equal to original value
         let inplace_sim_result = &SimValue::new_test_no_gas(U256::from(0), U256::from(100));
         assert!(
-            simulation_too_low::<OrderMevGasPricePriority>(sim_result, inplace_sim_result).is_ok()
+            simulation_too_low::<OrderMevGasPricePriority::<FullProfitInfoGetter>>(
+                sim_result,
+                inplace_sim_result
+            )
+            .is_ok()
         );
 
         // Higher than original value
         let inplace_sim_result = &SimValue::new_test_no_gas(U256::from(0), U256::from(105));
         assert!(
-            simulation_too_low::<OrderMevGasPricePriority>(sim_result, inplace_sim_result).is_ok()
+            simulation_too_low::<OrderMevGasPricePriority::<FullProfitInfoGetter>>(
+                sim_result,
+                inplace_sim_result
+            )
+            .is_ok()
         );
     }
 }

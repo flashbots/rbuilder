@@ -25,8 +25,9 @@ use crate::{
             BacktestSimulateBlockInput, Block, BlockBuildingAlgorithm,
         },
         order_priority::{
-            OrderLengthThreeMaxProfitPriority, OrderLengthThreeMevGasPricePriority,
-            OrderMaxProfitPriority, OrderMevGasPricePriority, OrderTypePriority,
+            FullProfitInfoGetter, NonMempoolProfitInfoGetter, OrderLengthThreeMaxProfitPriority,
+            OrderLengthThreeMevGasPricePriority, OrderMaxProfitPriority, OrderMevGasPricePriority,
+            OrderTypePriority, ProfitInfoGetter,
         },
         Sorting,
     },
@@ -437,41 +438,59 @@ impl LiveBuilderConfig for Config {
     {
         let builder_cfg = self.builder(building_algorithm_name)?;
         match builder_cfg.builder {
-            SpecificBuilderConfig::OrderingBuilder(config) => match config.sorting {
-                Sorting::MevGasPrice => {
-                    crate::building::builders::ordering_builder::backtest_simulate_block::<
-                        P,
-                        OrderMevGasPricePriority,
-                    >(config, input)
+            SpecificBuilderConfig::OrderingBuilder(config) => {
+                if config.ignore_mempool_profit_on_bundles {
+                    build_backtest_block_ordering_builder::<P, NonMempoolProfitInfoGetter>(
+                        config, input,
+                    )
+                } else {
+                    build_backtest_block_ordering_builder::<P, FullProfitInfoGetter>(config, input)
                 }
-                Sorting::MaxProfit => {
-                    crate::building::builders::ordering_builder::backtest_simulate_block::<
-                        P,
-                        OrderMaxProfitPriority,
-                    >(config, input)
-                }
-                Sorting::TypeMaxProfit => {
-                    crate::building::builders::ordering_builder::backtest_simulate_block::<
-                        P,
-                        OrderTypePriority,
-                    >(config, input)
-                }
-                Sorting::LengthThreeMaxProfit => {
-                    crate::building::builders::ordering_builder::backtest_simulate_block::<
-                        P,
-                        OrderLengthThreeMaxProfitPriority,
-                    >(config, input)
-                }
-                Sorting::LengthThreeMevGasPrice => {
-                    crate::building::builders::ordering_builder::backtest_simulate_block::<
-                        P,
-                        OrderLengthThreeMevGasPricePriority,
-                    >(config, input)
-                }
-            },
+            }
             SpecificBuilderConfig::ParallelBuilder(config) => {
                 parallel_build_backtest::<P>(input, config)
             }
+        }
+    }
+}
+
+fn build_backtest_block_ordering_builder<P, ProfitInfoGetterType: ProfitInfoGetter + 'static>(
+    config: OrderingBuilderConfig,
+    input: BacktestSimulateBlockInput<'_, P>,
+) -> eyre::Result<Block>
+where
+    P: StateProviderFactory + Clone + 'static,
+{
+    match config.sorting {
+        Sorting::MevGasPrice => {
+            crate::building::builders::ordering_builder::backtest_simulate_block::<
+                P,
+                OrderMevGasPricePriority<ProfitInfoGetterType>,
+            >(config, input)
+        }
+        Sorting::MaxProfit => {
+            crate::building::builders::ordering_builder::backtest_simulate_block::<
+                P,
+                OrderMaxProfitPriority<ProfitInfoGetterType>,
+            >(config, input)
+        }
+        Sorting::TypeMaxProfit => {
+            crate::building::builders::ordering_builder::backtest_simulate_block::<
+                P,
+                OrderTypePriority<ProfitInfoGetterType>,
+            >(config, input)
+        }
+        Sorting::LengthThreeMaxProfit => {
+            crate::building::builders::ordering_builder::backtest_simulate_block::<
+                P,
+                OrderLengthThreeMaxProfitPriority<ProfitInfoGetterType>,
+            >(config, input)
+        }
+        Sorting::LengthThreeMevGasPrice => {
+            crate::building::builders::ordering_builder::backtest_simulate_block::<
+                P,
+                OrderLengthThreeMevGasPricePriority<ProfitInfoGetterType>,
+            >(config, input)
         }
     }
 }
@@ -509,6 +528,7 @@ impl Default for Config {
                         drop_failed_orders: true,
                         coinbase_payment: false,
                         build_duration_deadline_ms: None,
+                        ignore_mempool_profit_on_bundles: false,
                     }),
                 },
                 BuilderConfig {
@@ -520,6 +540,7 @@ impl Default for Config {
                         drop_failed_orders: true,
                         coinbase_payment: false,
                         build_duration_deadline_ms: None,
+                        ignore_mempool_profit_on_bundles: false,
                     }),
                 },
                 BuilderConfig {
@@ -531,6 +552,7 @@ impl Default for Config {
                         drop_failed_orders: true,
                         coinbase_payment: false,
                         build_duration_deadline_ms: Some(30),
+                        ignore_mempool_profit_on_bundles: false,
                     }),
                 },
                 BuilderConfig {
@@ -542,6 +564,7 @@ impl Default for Config {
                         drop_failed_orders: true,
                         coinbase_payment: true,
                         build_duration_deadline_ms: None,
+                        ignore_mempool_profit_on_bundles: false,
                     }),
                 },
                 BuilderConfig {
@@ -553,6 +576,7 @@ impl Default for Config {
                         drop_failed_orders: false,
                         coinbase_payment: false,
                         build_duration_deadline_ms: None,
+                        ignore_mempool_profit_on_bundles: false,
                     }),
                 },
                 BuilderConfig {
@@ -632,26 +656,42 @@ where
     P: StateProviderFactory + Clone + 'static,
 {
     match cfg.builder {
-        SpecificBuilderConfig::OrderingBuilder(order_cfg) => match order_cfg.sorting {
-            Sorting::MevGasPrice => Arc::new(
-                OrderingBuildingAlgorithm::<OrderMevGasPricePriority>::new(order_cfg, cfg.name),
-            ),
-            Sorting::MaxProfit => Arc::new(
-                OrderingBuildingAlgorithm::<OrderMaxProfitPriority>::new(order_cfg, cfg.name),
-            ),
-            Sorting::TypeMaxProfit => Arc::new(
-                OrderingBuildingAlgorithm::<OrderTypePriority>::new(order_cfg, cfg.name),
-            ),
-            Sorting::LengthThreeMaxProfit => Arc::new(OrderingBuildingAlgorithm::<
-                OrderLengthThreeMaxProfitPriority,
-            >::new(order_cfg, cfg.name)),
-            Sorting::LengthThreeMevGasPrice => Arc::new(OrderingBuildingAlgorithm::<
-                OrderLengthThreeMevGasPricePriority,
-            >::new(order_cfg, cfg.name)),
-        },
+        SpecificBuilderConfig::OrderingBuilder(order_cfg) => {
+            if order_cfg.ignore_mempool_profit_on_bundles {
+                create_ordering_builder::<P, NonMempoolProfitInfoGetter>(order_cfg, cfg.name)
+            } else {
+                create_ordering_builder::<P, FullProfitInfoGetter>(order_cfg, cfg.name)
+            }
+        }
         SpecificBuilderConfig::ParallelBuilder(parallel_cfg) => {
             Arc::new(ParallelBuildingAlgorithm::new(parallel_cfg, cfg.name))
         }
+    }
+}
+
+fn create_ordering_builder<P, ProfitInfoGetterType: ProfitInfoGetter + 'static>(
+    cfg: OrderingBuilderConfig,
+    name: String,
+) -> Arc<dyn BlockBuildingAlgorithm<P>>
+where
+    P: StateProviderFactory + Clone + 'static,
+{
+    match cfg.sorting {
+        Sorting::MevGasPrice => Arc::new(OrderingBuildingAlgorithm::<
+            OrderMevGasPricePriority<ProfitInfoGetterType>,
+        >::new(cfg, name)),
+        Sorting::MaxProfit => Arc::new(OrderingBuildingAlgorithm::<
+            OrderMaxProfitPriority<ProfitInfoGetterType>,
+        >::new(cfg, name)),
+        Sorting::TypeMaxProfit => Arc::new(OrderingBuildingAlgorithm::<
+            OrderTypePriority<ProfitInfoGetterType>,
+        >::new(cfg, name)),
+        Sorting::LengthThreeMaxProfit => Arc::new(OrderingBuildingAlgorithm::<
+            OrderLengthThreeMaxProfitPriority<ProfitInfoGetterType>,
+        >::new(cfg, name)),
+        Sorting::LengthThreeMevGasPrice => Arc::new(OrderingBuildingAlgorithm::<
+            OrderLengthThreeMevGasPricePriority<ProfitInfoGetterType>,
+        >::new(cfg, name)),
     }
 }
 
