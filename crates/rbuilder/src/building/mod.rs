@@ -950,7 +950,7 @@ pub fn create_sim_value(
             .filter(|tx_info| !mempool_detector.is_mempool(&tx_info.tx))
             .map(|tx_info| tx_info.coinbase_profit)
             .sum::<I256>();
-        if non_mempool_coinbase_profit.is_positive() {
+        if non_mempool_coinbase_profit.is_zero() || non_mempool_coinbase_profit.is_positive() {
             non_mempool_coinbase_profit.unsigned_abs()
         } else {
             error!(
