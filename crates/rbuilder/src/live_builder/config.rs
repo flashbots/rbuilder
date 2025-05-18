@@ -454,7 +454,7 @@ impl LiveBuilderConfig for Config {
     }
 }
 
-fn build_backtest_block_ordering_builder<P, ProfitInfoGetterType: ProfitInfoGetter + 'static>(
+pub fn build_backtest_block_ordering_builder<P, ProfitInfoGetterType: ProfitInfoGetter + 'static>(
     config: OrderingBuilderConfig,
     input: BacktestSimulateBlockInput<'_, P>,
 ) -> eyre::Result<Block>
