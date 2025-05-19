@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use ahash::HashSet;
+use ahash::RandomState;
 use alloy_primitives::TxHash;
-use parking_lot::Mutex;
+use dashmap::DashSet;
 
 use crate::primitives::{
     BundleReplacementData, Order, ShareBundleReplacementKey, TransactionSignedEcRecoveredWithBlobs,
@@ -50,7 +50,7 @@ impl ReplaceableOrderSink for ReplaceableOrderStreamSniffer {
 /// Current implementation is super simple, it just checks the tx hash against a set of hashes.
 #[derive(Debug)]
 pub struct MempoolTxsDetector {
-    mempool_txs: Mutex<HashSet<TxHash>>,
+    mempool_txs: DashSet<TxHash, RandomState>,
 }
 
 impl MempoolTxsDetector {
@@ -62,14 +62,12 @@ impl MempoolTxsDetector {
 
     pub fn add_tx(&self, order: &Order) {
         if let Order::Tx(mempool_tx) = order {
-            self.mempool_txs
-                .lock()
-                .insert(mempool_tx.tx_with_blobs.hash());
+            self.mempool_txs.insert(mempool_tx.tx_with_blobs.hash());
         }
     }
 
     pub fn is_mempool(&self, tx: &TransactionSignedEcRecoveredWithBlobs) -> bool {
-        self.mempool_txs.lock().contains(&tx.hash())
+        self.mempool_txs.contains(&tx.hash())
     }
 }
 
