@@ -953,9 +953,7 @@ pub fn create_sim_value(
         if non_mempool_coinbase_profit.is_zero() || non_mempool_coinbase_profit.is_positive() {
             non_mempool_coinbase_profit.unsigned_abs()
         } else {
-            error!(
-            non_mempool_coinbase_profit = format_ether(non_mempool_coinbase_profit),
-            "Non mempool orders have always positive profit but a negative value was found on a OrderOk");
+            // This could be a bundle which was positive thanks to the inclusion of mempool txs.
             U256::ZERO
         }
     };
