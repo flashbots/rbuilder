@@ -955,7 +955,7 @@ pub fn create_sim_value(
         } else {
             error!(
             non_mempool_coinbase_profit = format_ether(non_mempool_coinbase_profit),
-            "Non mempool orders have always positive profit, how did we got a negative value????");
+            "Non mempool orders have always positive profit but a negative value was found on a OrderOk");
             U256::ZERO
         }
     };
