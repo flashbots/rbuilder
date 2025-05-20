@@ -22,7 +22,7 @@ use alloy_eips::{
     merge::BEACON_NONCE,
 };
 use alloy_evm::{block::system_calls::SystemCaller, env::EvmEnv, eth::eip6110};
-use alloy_primitives::{utils::format_ether, Address, Bytes, B256, I256, U256};
+use alloy_primitives::{Address, Bytes, B256, I256, U256};
 use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
 use cached_reads::{LocalCachedReads, SharedCachedReads};
 use evm::EthCachedEvmFactory;
