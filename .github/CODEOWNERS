@@ -1,6 +1,6 @@
 # These owners will be the default owners for everything in
 # the repo. Unless a later match takes precedence,
 # they will be requested for review when someone opens a pull request.
-*         @dvush @ZanCorDX @ferranbt
-/crates/  @dvush @ZanCorDX @ferranbt
-/.github/ @dvush @ZanCorDX @ferranbt @metachris @sukoneck
+*         @dvush @ZanCorDX
+/crates/  @dvush @ZanCorDX
+/.github/ @dvush @ZanCorDX @metachris @sukoneck
