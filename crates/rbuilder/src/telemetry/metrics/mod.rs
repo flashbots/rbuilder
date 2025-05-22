@@ -29,10 +29,9 @@ use std::{
 use time::OffsetDateTime;
 use tracing::error;
 
+pub mod scope_meter;
 mod tracing_metrics;
-
 pub use tracing_metrics::*;
-
 const SUBSIDY_ATTEMPT: &str = "attempt";
 const SUBSIDY_LANDED: &str = "landed";
 
@@ -157,6 +156,15 @@ register_metrics! {
         &["relay"],
     )
     .unwrap();
+
+    pub static RPC_PROCESSING_TIME: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("rpc_processing_time", "Time spend in RPC handlers (us)")
+            .buckets(linear_buckets_range(0.0, 2000.0, 50)),
+        &["api"],
+    )
+    .unwrap();
+
+
     pub static VERSION: IntGaugeVec = IntGaugeVec::new(
         Opts::new("version", "Version of the builder"),
         &["git", "git_ref", "build_time_utc"]
@@ -500,6 +508,12 @@ pub fn add_relay_submit_time(relay: &MevBoostRelayID, duration: Duration) {
     RELAY_SUBMIT_TIME
         .with_label_values(&[relay.as_str()])
         .observe(duration_ms(duration));
+}
+
+pub fn add_rpc_processing_time(api: &str, duration: Duration) {
+    RPC_PROCESSING_TIME
+        .with_label_values(&[api])
+        .observe(duration.as_micros() as f64);
 }
 
 pub fn inc_relay_accepted_submissions(relay: &MevBoostRelayID, optimistic: bool) {

@@ -7,7 +7,7 @@ use crate::{
         },
         BundleReplacementData, BundleReplacementKey, MempoolTx, Order, OrderId,
     },
-    telemetry::mark_command_received,
+    telemetry::{add_rpc_processing_time, mark_command_received, scope_meter::ScopeMeter},
 };
 use alloy_primitives::{Address, Bytes};
 use jsonrpsee::{server::Server, types::ErrorObject, RpcModule};
@@ -62,6 +62,7 @@ pub async fn start_server_accepting_bundles(
 
     let results_clone = results.clone();
     module.register_async_method("eth_sendRawTransaction", move |params, _| {
+        let _scope_meter = ScopeMeter::new(|dur| add_rpc_processing_time("eth_sendRawTransaction", dur));
         let results = results_clone.clone();
         async move {
 	    let received_at = OffsetDateTime::now_utc();
@@ -119,6 +120,7 @@ async fn handle_eth_send_bundle(
     timeout: Duration,
     params: jsonrpsee::types::Params<'static>,
 ) {
+    let _scope_meter = ScopeMeter::new(|dur| add_rpc_processing_time("eth_sendBundle", dur));
     let received_at = OffsetDateTime::now_utc();
     let start = Instant::now();
     let raw_bundle: RawBundle = match params.one() {
@@ -180,6 +182,7 @@ async fn handle_mev_send_bundle(
     timeout: Duration,
     params: jsonrpsee::types::Params<'static>,
 ) {
+    let _scope_meter = ScopeMeter::new(|dur| add_rpc_processing_time("mev_sendBundle", dur));
     let received_at = OffsetDateTime::now_utc();
     let start = Instant::now();
     let raw_bundle: RawShareBundle = match params.one() {
@@ -269,6 +272,7 @@ async fn handle_cancel_bundle(
     timeout: Duration,
     params: jsonrpsee::types::Params<'static>,
 ) {
+    let _scope_meter = ScopeMeter::new(|dur| add_rpc_processing_time("eth_cancelBundle", dur));
     let received_at = OffsetDateTime::now_utc();
     let cancel_bundle: RawCancelBundle = match params.one() {
         Ok(cancel_bundle) => cancel_bundle,
