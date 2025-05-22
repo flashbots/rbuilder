@@ -31,7 +31,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, trace, warn};
 use uuid::Uuid;
 
-/// Register a new asynchronous RPC method, which computes the response with the given callback.
+/// Adds metrics to the callback and registers via module.register_async_method.
 pub fn register_metered_async_method<'a, R, Fun, Fut>(
     module: &'a mut RpcModule<()>,
     method_name: &'static str,
