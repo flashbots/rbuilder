@@ -43,10 +43,13 @@ where
     Fun: (Fn(Params<'static>, Arc<()>) -> Fut) + Clone + Send + Sync + 'static,
 {
     module.register_async_method(method_name, move |params, ctx| {
-        let data_size = params.len_bytes();
-        let _scope_meter =
-            ScopeMeter::new(|dur| add_rpc_processing_time(method_name, dur, data_size));
-        callback(params, ctx)
+        let callback = callback.clone();
+        async move {
+            let data_size = params.len_bytes();
+            let _scope_meter =
+                ScopeMeter::new(|dur| add_rpc_processing_time(method_name, dur, data_size));
+            callback(params, ctx).await;
+        }
     })
 }
 

@@ -159,7 +159,7 @@ register_metrics! {
 
     pub static RPC_PROCESSING_TIME: HistogramVec = HistogramVec::new(
         HistogramOpts::new("rpc_processing_time", "Time spend in RPC handlers (us)")
-            .buckets(linear_buckets_range(0.0, 2000.0, 50)),
+            .buckets(exponential_buckets_range(10.0, 50000.0, 100)),
         &["api","size"],
     )
     .unwrap();
