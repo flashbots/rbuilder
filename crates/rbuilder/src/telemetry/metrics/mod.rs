@@ -160,10 +160,9 @@ register_metrics! {
     pub static RPC_PROCESSING_TIME: HistogramVec = HistogramVec::new(
         HistogramOpts::new("rpc_processing_time", "Time spend in RPC handlers (us)")
             .buckets(linear_buckets_range(0.0, 2000.0, 50)),
-        &["api"],
+        &["api","size"],
     )
     .unwrap();
-
 
     pub static VERSION: IntGaugeVec = IntGaugeVec::new(
         Opts::new("version", "Version of the builder"),
@@ -510,9 +509,19 @@ pub fn add_relay_submit_time(relay: &MevBoostRelayID, duration: Duration) {
         .observe(duration_ms(duration));
 }
 
-pub fn add_rpc_processing_time(api: &str, duration: Duration) {
+const BIG_RPC_DATA_THRESHOLD: usize = 50000;
+const BIG_RPC_DATA_TEXT: &str = ">50K";
+const SMALL_RPC_DATA_TEXT: &str = "<=50K";
+pub fn add_rpc_processing_time(api: &str, duration: Duration, data_len: usize) {
     RPC_PROCESSING_TIME
-        .with_label_values(&[api])
+        .with_label_values(&[
+            api,
+            if data_len > BIG_RPC_DATA_THRESHOLD {
+                BIG_RPC_DATA_TEXT
+            } else {
+                SMALL_RPC_DATA_TEXT
+            },
+        ])
         .observe(duration.as_micros() as f64);
 }
 
