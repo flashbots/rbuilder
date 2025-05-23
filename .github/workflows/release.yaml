@@ -144,7 +144,7 @@ jobs:
           apt install --yes \
             build-essential \
             curl \
-	    gcc-riscv64-linux-gnu \
+            gcc-riscv64-linux-gnu \
             git \
             libclang-dev \
             libssl-dev:riscv64 \
