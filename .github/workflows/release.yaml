@@ -21,6 +21,11 @@ on:
         description: "Build Binary"
         required: false
         type: boolean
+      cross-build-binary:
+        default: true
+        description: "Cross-build Binary"
+        required: false
+        type: boolean
       features:
         default: ''
         description: "Binary Compilation Features"
@@ -113,10 +118,66 @@ jobs:
           name: reth-rbuilder-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
           path: target/${{ matrix.configs.target }}/release/reth-rbuilder
 
+  cross-build-binary:
+    name: Cross-build binary
+    needs: extract-version
+    if: ${{ github.event.inputs.cross-build-binary == 'true' || github.event_name == 'push'}} # when manually triggered or version tagged
+    runs-on: warp-ubuntu-2404-x64-32x
+    container:
+      image: ubuntu:22.04
+    permissions:
+      contents: write
+      packages: write
+    env:
+       target: riscv64gc-unknown-linux-gnu
+    strategy:
+      matrix:
+        features:
+          - ${{ github.event.inputs.features || '' }}
+    steps:
+      - name: Install dependencies
+        run: |
+          dpkg --add-architecture riscv64
+          echo "deb [arch=riscv64] http://ports.ubuntu.com/ noble main multiverse universe" >> /etc/apt/sources.list
+          echo "deb [arch=riscv64] http://ports.ubuntu.com/ noble-updates main multiverse universe" >> /etc/apt/sources.list
+          apt update
+          apt install --yes \
+            build-essential \
+            curl \
+            git \
+            libclang-dev \
+            libssl-dev:riscv64 \
+            pkg-config
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+
+      - uses: actions/checkout@v4 # must install git before checkout and set safe.directory after checkout because of container
+
+      - name: Build rbuilder binary
+        run: |
+          git config --global --add safe.directory "$(pwd)"
+          . $HOME/.cargo/env
+          rustup target add riscv64gc-unknown-linux-gnu
+          export CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_LINKER="riscv64-linux-gnu-gcc"
+          export OPENSSL_LIB_DIR="/usr/lib/riscv64-linux-gnu/"
+          export OPENSSL_INCLUDE_DIR="/usr/include/riscv64-linux-gnu/"
+          cargo build --release --features=${{ matrix.features }} --target ${{ env.target }}
+
+      - name: Upload rbuilder artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rbuilder-${{ needs.extract-version.outputs.VERSION }}-${{ env.target }}${{ matrix.features && '-' }}${{ matrix.features }}
+          path: target/${{ env.target }}/release/rbuilder
+
+      - name: Upload reth-rbuilder artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: reth-rbuilder-${{ needs.extract-version.outputs.VERSION }}-${{ env.target }}${{ matrix.features && '-' }}${{ matrix.features }}
+          path: target/${{ env.target }}/release/reth-rbuilder
+
   draft-release:
     name: Draft release
     if: ${{ github.event.inputs.draft-release == 'true' || github.event_name == 'push'}} # when manually triggered or version tagged
-    needs: [extract-version, build-binary]
+    needs: [extract-version, build-binary, cross-build-binary]
     runs-on: warp-ubuntu-latest-x64-16x
     env:
       VERSION: ${{ needs.extract-version.outputs.VERSION }}
