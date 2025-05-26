@@ -22,6 +22,7 @@ pub struct ConflictTaskGenerator {
     existing_groups: HashMap<GroupId, ConflictGroup>,
     task_queue: TaskQueue,
     group_result_sender: std_mpsc::Sender<ConflictResolutionResultPerGroup>,
+    safe_sorting_only: bool,
 }
 
 impl ConflictTaskGenerator {
@@ -32,10 +33,12 @@ impl ConflictTaskGenerator {
     /// * `task_queue` - The queue to store the generated tasks.
     /// * `group_result_sender` - The sender to send the results of the conflict resolution.
     pub fn new(
+        safe_sorting_only: bool,
         task_queue: TaskQueue,
         group_result_sender: std_mpsc::Sender<ConflictResolutionResultPerGroup>,
     ) -> Self {
         Self {
+            safe_sorting_only,
             existing_groups: HashMap::default(),
             task_queue,
             group_result_sender,
@@ -333,7 +336,7 @@ impl ConflictTaskGenerator {
     /// * `new_group` - The `ConflictGroup` to create tasks for.
     /// * `priority` - The priority to assign to the tasks.
     fn create_new_tasks(&mut self, new_group: &ConflictGroup, priority: TaskPriority) {
-        let tasks = get_tasks_for_group(new_group, priority);
+        let tasks = get_tasks_for_group(new_group, priority, self.safe_sorting_only);
         for task in tasks {
             self.task_queue.push(task);
         }
@@ -346,11 +349,16 @@ impl ConflictTaskGenerator {
 ///
 /// * `group` - The `ConflictGroup` to create tasks for.
 /// * `priority` - The priority to assign to the tasks.
+/// * `safe_sorting_only` - See [ParallelBuilderConfig::safe_sorting_only]
 ///
 /// # Returns
 ///
 /// A vector of `ConflictTask`s for the given group.
-pub fn get_tasks_for_group(group: &ConflictGroup, priority: TaskPriority) -> Vec<ConflictTask> {
+pub fn get_tasks_for_group(
+    group: &ConflictGroup,
+    priority: TaskPriority,
+    safe_sorting_only: bool,
+) -> Vec<ConflictTask> {
     let mut tasks = vec![];
 
     let created_at = Instant::now();
@@ -364,7 +372,7 @@ pub fn get_tasks_for_group(group: &ConflictGroup, priority: TaskPriority) -> Vec
     });
 
     // Then, we can push lower priority tasks that have a low chance, but a chance, of finding a better result
-    if group.orders.len() <= MAX_LENGTH_FOR_ALL_PERMUTATIONS {
+    if group.orders.len() <= MAX_LENGTH_FOR_ALL_PERMUTATIONS && !safe_sorting_only {
         // AllPermutations
         tasks.push(ConflictTask {
             group_idx: group.id,
@@ -374,17 +382,19 @@ pub fn get_tasks_for_group(group: &ConflictGroup, priority: TaskPriority) -> Vec
             created_at,
         });
     } else {
-        // Random
-        tasks.push(ConflictTask {
-            group_idx: group.id,
-            algorithm: Algorithm::Random {
-                seed: group.id as u64,
-                count: NUMBER_OF_RANDOM_TASKS,
-            },
-            priority: TaskPriority::Low,
-            group: group.clone(),
-            created_at,
-        });
+        if !safe_sorting_only {
+            // Random
+            tasks.push(ConflictTask {
+                group_idx: group.id,
+                algorithm: Algorithm::Random {
+                    seed: group.id as u64,
+                    count: NUMBER_OF_RANDOM_TASKS,
+                },
+                priority: TaskPriority::Low,
+                group: group.clone(),
+                created_at,
+            });
+        }
         tasks.push(ConflictTask {
             group_idx: group.id,
             algorithm: Algorithm::Length,
@@ -392,13 +402,15 @@ pub fn get_tasks_for_group(group: &ConflictGroup, priority: TaskPriority) -> Vec
             group: group.clone(),
             created_at,
         });
-        tasks.push(ConflictTask {
-            group_idx: group.id,
-            algorithm: Algorithm::ReverseGreedy,
-            priority: TaskPriority::Low,
-            group: group.clone(),
-            created_at,
-        });
+        if !safe_sorting_only {
+            tasks.push(ConflictTask {
+                group_idx: group.id,
+                algorithm: Algorithm::ReverseGreedy,
+                priority: TaskPriority::Low,
+                group: group.clone(),
+                created_at,
+            });
+        }
     }
 
     tasks

@@ -585,6 +585,7 @@ impl Default for Config {
                         discard_txs: true,
                         num_threads: 25,
                         coinbase_payment: false,
+                        safe_sorting_only: true,
                     }),
                 },
             ],

@@ -28,15 +28,18 @@ pub struct ConflictResolvingPool<P> {
     provider: P,
     simulation_cache: Arc<SharedSimulationCache>,
     num_threads: usize,
+    safe_sorting_only: bool,
 }
 
 impl<P> ConflictResolvingPool<P>
 where
     P: StateProviderFactory + Clone + 'static,
 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         num_threads: usize,
         task_queue: TaskQueue,
+        safe_sorting_only: bool,
         group_result_sender: std_mpsc::Sender<ConflictResolutionResultPerGroup>,
         cancellation_token: CancellationToken,
         ctx: BlockBuildingContext,
@@ -46,6 +49,7 @@ where
         Self {
             task_queue,
             group_result_sender,
+            safe_sorting_only,
             cancellation_token,
             ctx,
             provider,
@@ -158,7 +162,7 @@ where
     ) -> Vec<(GroupId, (ResolutionResult, ConflictGroup))> {
         let mut results = Vec::new();
         for new_group in new_groups {
-            let tasks = get_tasks_for_group(&new_group, TaskPriority::High);
+            let tasks = get_tasks_for_group(&new_group, TaskPriority::High, self.safe_sorting_only);
             for task in tasks {
                 let simulation_cache = Arc::clone(&simulation_cache);
                 let result = Self::process_task(

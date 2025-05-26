@@ -49,11 +49,14 @@ pub type ConflictResolutionResultPerGroup = (GroupId, (ResolutionResult, Conflic
 /// ParallelBuilderConfig configures parallel builder.
 /// * `num_threads` - number of threads to use for merging.
 /// * `merge_wait_time_ms` - time to wait for merging to finish before consuming new orders.
+/// * `safe_sorting_only` - Will only use sort modes that don't risk breaking the "best refund for user" since we don't megabundle the bundles (only the sbundles).
+///   This flag is just to test the algo until we solve every issue.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ParallelBuilderConfig {
     pub discard_txs: bool,
     pub num_threads: usize,
+    pub safe_sorting_only: bool,
     #[serde(default)]
     pub coinbase_payment: bool,
 }
@@ -100,6 +103,7 @@ where
         let conflict_finder = ConflictFinder::new();
 
         let conflict_task_generator = ConflictTaskGenerator::new(
+            config.safe_sorting_only,
             Arc::clone(&task_queue),
             group_result_sender_for_task_generator,
         );
@@ -107,6 +111,7 @@ where
         let conflict_resolving_pool = ConflictResolvingPool::new(
             config.num_threads,
             Arc::clone(&task_queue),
+            config.safe_sorting_only,
             group_result_sender,
             input.cancel.clone(),
             input.ctx.clone(),
@@ -312,6 +317,7 @@ where
     let mut conflict_resolving_pool = ConflictResolvingPool::new(
         config.num_threads,
         Arc::clone(&task_queue),
+        config.safe_sorting_only,
         group_result_sender,
         CancellationToken::new(),
         input.ctx.clone(),
