@@ -97,6 +97,9 @@ where
         .iter()
         .map(|order| order.order.clone())
         .collect::<Vec<_>>();
+    for order in &orders {
+        ctx.mempool_tx_detector.add_tx(order);
+    }
 
     let (sim_orders, sim_errors) =
         simulate_all_orders_with_sim_tree(provider, &ctx, &orders, false)?;
