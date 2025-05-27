@@ -115,6 +115,7 @@ async fn main() -> eyre::Result<()> {
         sbundle_merger_selected_signers: Default::default(),
         evm_caching_enable: false,
         simulation_use_random_coinbase: true,
+        faster_finalize: false,
     };
 
     let ctrlc = tokio::spawn(async move {

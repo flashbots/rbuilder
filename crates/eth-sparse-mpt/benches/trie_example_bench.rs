@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use eth_sparse_mpt::{
-    reth_sparse_trie::{change_set::ETHTrieChangeSet, hash::EthSparseTries},
     test_utils::deserialize_from_json_gzip,
+    v1::reth_sparse_trie::{change_set::ETHTrieChangeSet, hash::EthSparseTries},
     RootHashThreadPool,
 };
 use std::time::Instant;

@@ -44,6 +44,7 @@ pub fn strip_first_nibble_mut(p: &mut Nibbles) -> u8 {
     nibble
 }
 
+#[inline]
 pub fn extract_prefix_and_suffix(p1: &Nibbles, p2: &Nibbles) -> (Nibbles, Nibbles, Nibbles) {
     let prefix_len = p1.common_prefix_length(p2);
     let prefix = Nibbles::from_nibbles_unchecked(&p1[..prefix_len]);
@@ -53,7 +54,8 @@ pub fn extract_prefix_and_suffix(p1: &Nibbles, p2: &Nibbles) -> (Nibbles, Nibble
     (prefix, suffix1, suffix2)
 }
 
-pub fn encode_leaf(key: &Nibbles, value: &[u8], out: &mut Vec<u8>) {
+#[inline]
+pub fn encode_leaf(key: &Nibbles, value: &[u8], out: &mut dyn BufMut) {
     LeafNodeRef { key, value }.encode(out)
 }
 
@@ -61,7 +63,8 @@ pub fn encode_len_leaf(key: &Nibbles, value: &[u8]) -> usize {
     LeafNodeRef { key, value }.length()
 }
 
-pub fn encode_extension(key: &Nibbles, child_rlp_pointer: &[u8], out: &mut Vec<u8>) {
+#[inline]
+pub fn encode_extension(key: &Nibbles, child_rlp_pointer: &[u8], out: &mut dyn BufMut) {
     ExtensionNodeRef {
         key,
         child: child_rlp_pointer,
@@ -77,7 +80,8 @@ pub fn encode_len_extension(key: &Nibbles, child_rlp_pointer: &[u8]) -> usize {
     .length()
 }
 
-pub fn encode_branch_node(child_rlp_pointers: &[Option<&[u8]>; 16], out: &mut Vec<u8>) {
+#[inline]
+pub fn encode_branch_node(child_rlp_pointers: &[Option<&[u8]>; 16], out: &mut dyn BufMut) {
     let mut payload_length = 1;
     for i in 0..16 {
         if let Some(child) = child_rlp_pointers[i] {
@@ -117,4 +121,20 @@ pub fn encode_len_branch_node(child_rlp_pointers: &[Option<&[u8]>; 16]) -> usize
 
 pub fn encode_null_node(out: &mut Vec<u8>) {
     out.push(EMPTY_STRING_CODE)
+}
+
+#[inline]
+pub fn mismatch(xs: &[u8], ys: &[u8]) -> usize {
+    mismatch_chunks::<8>(xs, ys)
+}
+
+#[inline]
+fn mismatch_chunks<const N: usize>(xs: &[u8], ys: &[u8]) -> usize {
+    let off = std::iter::zip(xs.chunks_exact(N), ys.chunks_exact(N))
+        .take_while(|(x, y)| x == y)
+        .count()
+        * N;
+    off + std::iter::zip(&xs[off..], &ys[off..])
+        .take_while(|(x, y)| x == y)
+        .count()
 }

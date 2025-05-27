@@ -2,8 +2,8 @@ use std::sync::{Arc, RwLock};
 
 use super::{change_set::ETHTrieChangeSet, hash::EthSparseTries, trie_fetcher::MultiProof};
 use crate::{
-    sparse_mpt::{AddNodeError, FixedTrie},
     utils::HashMap,
+    v1::sparse_mpt::{AddNodeError, FixedTrie},
 };
 use alloy_primitives::Bytes;
 use alloy_primitives::B256;
@@ -17,7 +17,7 @@ pub struct SparseTrieSharedCache {
 }
 
 impl SparseTrieSharedCache {
-    pub fn new_with_parent_hash(parent_root_hash: B256) -> Self {
+    pub fn new_with_parent_state_root(parent_root_hash: B256) -> Self {
         let mut internal = RethSparseTrieShareCacheInternal::default();
         internal.account_trie.expected_root_hash = parent_root_hash;
         Self {

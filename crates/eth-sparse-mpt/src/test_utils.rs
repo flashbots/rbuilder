@@ -6,8 +6,8 @@ use rustc_hash::FxHasher;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::{
-    reth_sparse_trie::{change_set::ETHTrieChangeSet, trie_fetcher::MultiProof},
-    sparse_mpt::DiffTrie,
+    v1::reth_sparse_trie::{change_set::ETHTrieChangeSet, trie_fetcher::MultiProof},
+    v1::sparse_mpt::DiffTrie,
 };
 
 pub fn deserialize_from_json_gzip<T: DeserializeOwned>(path: impl AsRef<Path>) -> eyre::Result<T> {
@@ -32,6 +32,10 @@ impl hash_db::Hasher for KeccakHasher {
 }
 
 pub fn reference_trie_hash(data: &[(Bytes, Bytes)]) -> B256 {
+    triehash::trie_root::<KeccakHasher, _, _, _>(data.to_vec())
+}
+
+pub fn reference_trie_hash_vec(data: &[(Vec<u8>, Vec<u8>)]) -> B256 {
     triehash::trie_root::<KeccakHasher, _, _, _>(data.to_vec())
 }
 

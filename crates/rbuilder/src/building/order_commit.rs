@@ -28,8 +28,8 @@ use reth_evm::{Evm, EvmEnv};
 use reth_primitives::Receipt;
 use reth_provider::{StateProvider, StateProviderBox};
 use revm::{
-    context::result::ResultAndState,
-    context_interface::result::{EVMError, ExecutionResult, InvalidTransaction},
+    context::result::{ExecutionResult, ResultAndState},
+    context_interface::result::{EVMError, InvalidTransaction},
     database::{states::bundle_state::BundleRetention, BundleState, State},
     Database, DatabaseCommit,
 };
@@ -544,9 +544,10 @@ impl<'a, 'b, 'c, 'd, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, 'd, 
         cumulative_gas_used += gas_used;
         cumulative_blob_gas_used += blob_gas_used;
 
+        let success = res.result.is_success();
         let receipt = Receipt {
             tx_type: tx.tx_type(),
-            success: res.result.is_success(),
+            success,
             cumulative_gas_used,
             logs: res.result.logs().to_vec(),
         };

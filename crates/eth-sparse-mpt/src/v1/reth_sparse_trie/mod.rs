@@ -1,12 +1,10 @@
-use alloy_primitives::{Address, B256};
+use alloy_primitives::B256;
 use change_set::{prepare_change_set, prepare_change_set_for_prefetch};
 use hash::RootHashError;
-use rayon::{ThreadPoolBuildError, ThreadPoolBuilder};
 use reth_provider::{
     providers::ConsistentDbView, BlockReader, DatabaseProviderFactory, ExecutionOutcome,
     StateCommitmentProvider,
 };
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 pub mod change_set;
@@ -14,7 +12,8 @@ pub mod hash;
 pub mod shared_cache;
 pub mod trie_fetcher;
 
-use crate::sparse_mpt::AddNodeError;
+use crate::v1::sparse_mpt::AddNodeError;
+use crate::ChangedAccountData;
 
 use self::trie_fetcher::*;
 
@@ -55,23 +54,6 @@ impl SparseTrieError {
             self,
             SparseTrieError::FailedToUpdateSharedCache(AddNodeError::InconsistentProofs)
         )
-    }
-}
-#[derive(Debug)]
-pub struct ChangedAccountData {
-    pub address: Address,
-    pub account_deleted: bool,
-    /// (slot, deleted)
-    pub slots: Vec<(B256, bool)>,
-}
-
-impl ChangedAccountData {
-    pub fn new(address: Address, account_deleted: bool) -> Self {
-        Self {
-            address,
-            account_deleted,
-            slots: Vec::new(),
-        }
     }
 }
 
@@ -119,53 +101,10 @@ where
     Err(SparseTrieError::FailedToFetchData)
 }
 
-#[derive(Clone, Debug)]
-pub struct RootHashThreadPool {
-    pub rayon_pool: Arc<rayon::ThreadPool>,
-}
-
-impl RootHashThreadPool {
-    pub fn try_new(threads: usize) -> Result<RootHashThreadPool, ThreadPoolBuildError> {
-        let rayon_pool = ThreadPoolBuilder::new()
-            .num_threads(threads)
-            .thread_name(|idx| format!("sparse_mpt:{}", idx))
-            .build()?;
-        Ok(RootHashThreadPool {
-            rayon_pool: Arc::new(rayon_pool),
-        })
-    }
-}
-
-impl Default for RootHashThreadPool {
-    fn default() -> Self {
-        let cpus = rayon::current_num_threads();
-        Self::try_new(cpus).expect("failed to create default root hash threadpool")
-    }
-}
-
 /// Calculate root hash for the given outcome on top of the block defined by consistent_db_view.
 /// * shared_cache should be created once for each parent block and it stores fetched parts of the trie
 /// * It uses rayon for parallelism and the thread pool should be configured from outside.
 pub fn calculate_root_hash_with_sparse_trie<Provider>(
-    consistent_db_view: ConsistentDbView<Provider>,
-    outcome: &ExecutionOutcome,
-    shared_cache: SparseTrieSharedCache,
-    thread_pool: &Option<RootHashThreadPool>,
-) -> (Result<B256, SparseTrieError>, SparseTrieMetrics)
-where
-    Provider: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync,
-    Provider: StateCommitmentProvider,
-{
-    if let Some(thread_pool) = thread_pool {
-        thread_pool.rayon_pool.install(|| {
-            calculate_root_hash_with_sparse_trie_internal(consistent_db_view, outcome, shared_cache)
-        })
-    } else {
-        calculate_root_hash_with_sparse_trie_internal(consistent_db_view, outcome, shared_cache)
-    }
-}
-
-fn calculate_root_hash_with_sparse_trie_internal<Provider>(
     consistent_db_view: ConsistentDbView<Provider>,
     outcome: &ExecutionOutcome,
     shared_cache: SparseTrieSharedCache,

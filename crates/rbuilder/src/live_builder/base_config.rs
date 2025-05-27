@@ -16,7 +16,7 @@ use crate::{
 };
 use alloy_primitives::{Address, B256};
 use alloy_provider::RootProvider;
-use eth_sparse_mpt::RootHashThreadPool;
+use eth_sparse_mpt::{ETHSpareMPTVersion, RootHashThreadPool};
 use eyre::{eyre, Context};
 use jsonrpsee::RpcModule;
 use reth::chainspec::chain_value_parser;
@@ -123,6 +123,8 @@ pub struct BaseConfig {
 
     /// uses cached sparse trie for root hash
     pub root_hash_use_sparse_trie: bool,
+    /// uses cached sparse trie for root hash
+    pub root_hash_sparse_trie_version: String,
     /// compares result of root hash using sparse trie and reference root hash
     pub root_hash_compare_sparse_trie: bool,
     /// number of threads used for root hash thread pool
@@ -138,6 +140,8 @@ pub struct BaseConfig {
     pub ipc_provider: Option<IpcProviderConfig>,
 
     pub evm_caching_enable: bool,
+    /// Use experimental code for faster finalize
+    pub faster_finalize: bool,
 
     // backtest config
     backtest_fetch_mempool_data_dir: EnvOrValue<String>,
@@ -256,6 +260,7 @@ impl BaseConfig {
 
             evm_caching_enable: self.evm_caching_enable,
             simulation_use_random_coinbase: self.simulation_use_random_coinbase,
+            faster_finalize: self.faster_finalize,
         })
     }
 
@@ -325,10 +330,16 @@ impl BaseConfig {
             eyre::bail!("root_hash_use_sparse_trie=true and root_hash_compare_sparse_trie=false must be set, otherwise node will produce incorrect blocks or confusing error messages. These settings are enforced temporarily because upstream parallel root hash implementation is not correct.")
         }
         let thread_pool = self.root_hash_thread_pool()?;
+        let version = match self.root_hash_sparse_trie_version.as_str() {
+            "v1" => ETHSpareMPTVersion::V1,
+            "v2" => ETHSpareMPTVersion::V2,
+            _ => eyre::bail!("root_hash_sparse_trie_version can be v1 or v2"),
+        };
         Ok(RootHashContext::new(
             self.root_hash_use_sparse_trie,
             self.root_hash_compare_sparse_trie,
             thread_pool,
+            version,
         ))
     }
 
@@ -560,6 +571,7 @@ impl Default for BaseConfig {
             blocklist_url_max_age_secs: None,
             extra_data: b"extra_data_change_me".to_vec(),
             root_hash_use_sparse_trie: false,
+            root_hash_sparse_trie_version: "v1".to_string(),
             root_hash_compare_sparse_trie: false,
             root_hash_threads: 0,
             watchdog_timeout_sec: None,
@@ -578,6 +590,7 @@ impl Default for BaseConfig {
             require_non_empty_blocklist: Some(DEFAULT_REQUIRE_NON_EMPTY_BLOCKLIST),
             ipc_provider: None,
             evm_caching_enable: false,
+            faster_finalize: false,
         }
     }
 }

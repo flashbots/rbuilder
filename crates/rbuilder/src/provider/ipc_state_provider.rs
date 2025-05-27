@@ -34,7 +34,9 @@ use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use tracing::{trace, trace_span};
 
-use crate::live_builder::simulation::SimulatedOrderCommand;
+use crate::{
+    building::ThreadBlockBuildingContext, live_builder::simulation::SimulatedOrderCommand,
+};
 
 use super::{RootHasher, StateProviderFactory};
 
@@ -445,6 +447,7 @@ impl RootHasher for StatRootHashCalculator {
     fn state_root(
         &self,
         outcome: &reth_provider::ExecutionOutcome,
+        _local_ctx: &mut ThreadBlockBuildingContext,
     ) -> Result<B256, crate::roothash::RootHashError> {
         let account_diff: HashMap<Address, AccountDiff> = outcome
             .bundle
@@ -458,7 +461,7 @@ impl RootHasher for StatRootHashCalculator {
             "rbuilder_calculateStateRoot",
             (BlockId::Hash(self.parent_hash.into()), account_diff),
         )
-        .map_err(|_| crate::roothash::RootHashError::RpcStateRootFailed)?;
+        .map_err(|err| crate::roothash::RootHashError::Other(err.into()))?;
 
         Ok(hash)
     }

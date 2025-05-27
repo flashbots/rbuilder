@@ -125,6 +125,7 @@ where
     pub sbundle_merger_selected_signers: Arc<Vec<Address>>,
 
     pub evm_caching_enable: bool,
+    pub faster_finalize: bool,
     pub simulation_use_random_coinbase: bool,
 }
 
@@ -300,6 +301,7 @@ where
                 root_hasher,
                 payload.payload_id,
                 self.evm_caching_enable,
+                self.faster_finalize,
             ) {
                 mark_building_started(block_ctx.timestamp());
                 builder_pool.start_block_building(

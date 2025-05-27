@@ -137,7 +137,11 @@ impl RootHasher for MockRootHasher {
     ) {
     }
 
-    fn state_root(&self, _outcome: &ExecutionOutcome) -> Result<B256, RootHashError> {
+    fn state_root(
+        &self,
+        _outcome: &ExecutionOutcome,
+        _local_ctx: &mut ThreadBlockBuildingContext,
+    ) -> Result<B256, RootHashError> {
         Ok(B256::default())
     }
 }

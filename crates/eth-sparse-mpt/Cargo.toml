@@ -36,15 +36,17 @@ alloy-trie.workspace = true
 
 # other
 parking_lot.workspace = true
+eyre = { workspace = true }
+arrayvec = "0.7.6"
+dashmap = { version = "6.1.0", features = ["rayon"] }
 
 # test deps
 hash-db = { version = "0.15.2", optional = true }
 triehash = { version = "0.8.4", optional = true }
 flate2 = { workspace = true, optional = true }
-eyre = { workspace = true, optional = true}
 
 [features]
-benchmark-utils = ["dep:hash-db", "dep:triehash", "dep:flate2", "dep:eyre"]
+benchmark-utils = ["dep:hash-db", "dep:triehash", "dep:flate2"]
 
 [dev-dependencies]
 criterion = { version = "0.4", features = ["html_reports"] }
@@ -62,5 +64,9 @@ harness = false
 
 [[bench]]
 name = "trie_example_bench"
+harness = false
+
+[[bench]]
+name = "trie_do_bench"
 harness = false
 

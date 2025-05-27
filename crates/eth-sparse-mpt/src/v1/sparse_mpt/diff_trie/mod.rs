@@ -32,6 +32,13 @@ impl DiffTrie {
             ptrs: 0,
         }
     }
+
+    pub fn clear_empty(&mut self) {
+        self.nodes.clear();
+        self.head = 0;
+        self.ptrs = 0;
+        self.nodes.insert(0, DiffTrieNode::new_null());
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

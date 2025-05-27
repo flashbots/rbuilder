@@ -11,6 +11,7 @@ use alloy_primitives::{
     U256,
 };
 use alloy_rpc_types_beacon::events::{PayloadAttributesData, PayloadAttributesEvent};
+use eth_sparse_mpt::ETHSpareMPTVersion::V2;
 use lazy_static::lazy_static;
 use reth::{
     primitives::{Account, BlockBody, Bytecode},
@@ -209,7 +210,7 @@ impl TestChainState {
         let root_hasher = Arc::from(RootHasherImpl::new(
             genesis_header.num_hash(),
             None,
-            RootHashContext::new(true, false, None),
+            RootHashContext::new(true, false, None, V2),
             provider_factory.clone(),
             provider_factory.clone(),
         ));
@@ -396,6 +397,7 @@ impl TestBlockContextBuilder {
             Some(SpecId::SHANGHAI),
             self.root_hasher,
             0,
+            true,
             true,
         )
         .unwrap();

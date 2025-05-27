@@ -1,8 +1,8 @@
 use super::*;
 use crate::{
-    sparse_mpt::*,
     test_utils::{reference_trie_hash, StoredFailureCase},
     utils::HashSet,
+    v1::sparse_mpt::*,
 };
 use alloy_primitives::{Bytes, B256};
 use eyre::Context;

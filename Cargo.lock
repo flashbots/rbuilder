@@ -3172,6 +3172,7 @@ dependencies = [
  "lock_api",
  "once_cell",
  "parking_lot_core",
+ "rayon",
 ]
 
 [[package]]
@@ -3796,7 +3797,9 @@ dependencies = [
  "alloy-primitives 1.0.0",
  "alloy-rlp",
  "alloy-trie 0.8.1",
+ "arrayvec",
  "criterion 0.4.0",
+ "dashmap 6.1.0",
  "eth-sparse-mpt",
  "eyre",
  "flate2",
@@ -8609,6 +8612,7 @@ dependencies = [
  "tempfile",
  "test_utils",
  "thiserror 1.0.69",
+ "tikv-jemallocator",
  "time",
  "tokio",
  "tokio-stream",

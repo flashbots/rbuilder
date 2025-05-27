@@ -8,7 +8,10 @@ use crate::{
     roothash::RootHashError,
     utils::{
         a2r_withdrawal, default_cfg_env, elapsed_ms,
-        receipts::{calculate_receipt_root_and_block_logs_bloom, BloomCache},
+        receipts::{
+            calculate_receipt_root_and_block_logs_bloom, calculate_transactions_root, BloomCache,
+            TransactionRootCache,
+        },
         timestamp_as_u64, Signer,
     },
 };
@@ -25,6 +28,7 @@ use alloy_evm::{block::system_calls::SystemCaller, env::EvmEnv, eth::eip6110};
 use alloy_primitives::{Address, Bytes, B256, I256, U256};
 use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
 use cached_reads::{LocalCachedReads, SharedCachedReads};
+use eth_sparse_mpt::SparseTrieLocalCache;
 use evm::EthCachedEvmFactory;
 use jsonrpsee::core::Serialize;
 use reth::{
@@ -108,6 +112,7 @@ pub struct BlockBuildingContext {
     pub shared_cached_reads: Arc<SharedCachedReads>,
     pub tx_execution_cache: Arc<TxExecutionCache>,
     pub mempool_tx_detector: Arc<MempoolTxsDetector>,
+    pub faster_finalize: bool,
 }
 
 impl BlockBuildingContext {
@@ -126,6 +131,7 @@ impl BlockBuildingContext {
         root_hasher: Arc<dyn RootHasher>,
         payload_id: InternalPayloadId,
         evm_caching_enable: bool,
+        faster_finalize: bool,
     ) -> Option<BlockBuildingContext> {
         let attributes = EthPayloadBuilderAttributes::try_new(
             attributes.data.parent_block_hash,
@@ -198,6 +204,7 @@ impl BlockBuildingContext {
             tx_execution_cache: Arc::new(TxExecutionCache::new(evm_caching_enable)),
             max_blob_gas_per_block,
             mempool_tx_detector: Arc::new(MempoolTxsDetector::new()),
+            faster_finalize,
         })
     }
 
@@ -295,6 +302,7 @@ impl BlockBuildingContext {
             tx_execution_cache: Arc::new(TxExecutionCache::new(evm_caching_enable)),
             max_blob_gas_per_block,
             mempool_tx_detector: Arc::new(MempoolTxsDetector::new()),
+            faster_finalize: true,
         }
     }
 
@@ -347,6 +355,8 @@ impl BlockBuildingContext {
 pub struct ThreadBlockBuildingContext {
     pub cached_reads: LocalCachedReads,
     pub bloom_cache: BloomCache,
+    pub tx_root_cache: TransactionRootCache,
+    pub root_hash_calculator: SparseTrieLocalCache,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -746,43 +756,37 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
 
         let requests_hash = requests.as_ref().map(|requests| requests.requests_hash());
 
-        let (bundle, _) = state.into_parts();
-        let execution_outcome = ExecutionOutcome::new(
-            bundle,
-            vec![self
-                .executed_tx_infos
-                .iter()
-                .map(|info| info.receipt.clone())
-                .collect()],
-            block_number,
-            vec![requests.clone().unwrap_or_default()],
-        );
-
         let exec_outcome_time_ms = elapsed_ms(step_start);
         let step_start = Instant::now();
 
         let (receipts_root, logs_bloom) = calculate_receipt_root_and_block_logs_bloom(
-            execution_outcome.receipts_by_block(block_number),
             &mut local_ctx.bloom_cache,
+            &self.executed_tx_infos,
+            ctx.faster_finalize,
         );
 
         let bloom_time_ms = elapsed_ms(step_start);
         let step_start = Instant::now();
 
         // calculate the state root
-        let state_root = ctx.root_hasher.state_root(&execution_outcome)?;
+        let state_root = {
+            let (bundle, _) = state.into_parts();
+            // we use execution outcome here only for interface compatibility, its just a wrapper around bundle
+            let execution_outcome =
+                ExecutionOutcome::new(bundle, Vec::new(), block_number, Vec::new());
+            ctx.root_hasher.state_root(&execution_outcome, local_ctx)?
+        };
         let root_hash_time = step_start.elapsed();
 
         let root_hash_time_ms = elapsed_ms(step_start);
         let step_start = Instant::now();
 
         // create the block header
-        let transactions_root = proofs::calculate_transaction_root(
-            &self
-                .executed_tx_infos
-                .iter()
-                .map(|info| &info.tx)
-                .collect::<Vec<_>>(),
+        // let transactions_root = proofs::calculate_transaction_root(&self.executed_tx);
+        let transactions_root = calculate_transactions_root(
+            &mut local_ctx.tx_root_cache,
+            &self.executed_tx_infos,
+            ctx.faster_finalize,
         );
 
         let transactions_root_time_ms = elapsed_ms(step_start);

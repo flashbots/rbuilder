@@ -123,6 +123,8 @@ dashmap = "6.1.0"
 reipc = { git = "https://github.com/nethermindeth/reipc.git", rev = "3837f3539201f948dd1c2c96a85a60d589feb4c6" }
 quick_cache = "0.6.11"
 
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = "0.6"
 
 
 [build-dependencies]
