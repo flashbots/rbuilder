@@ -20,7 +20,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use time::OffsetDateTime;
 use tokio::sync::{mpsc, watch};
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, info, trace, warn};
 use url::Url;
 
 #[derive(Debug, Deserialize)]
@@ -38,7 +38,8 @@ impl std::fmt::Display for ApiResponse {
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 enum ApiData {
-    PreconfMarkets(PreconfMarkets),
+    InclusionPreconfMarket(InclusionPreconfMarket),
+    InclusionPreconfMarkets(InclusionPreconfMarkets),
     PreconfBundles(PreconfBundles),
     Login(LoginResponse),
     Verify(VerifyResponse),
@@ -164,13 +165,18 @@ pub struct PayloadUser {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct PreconfMarkets {
-    markets: Vec<PreconfMarket>,
+struct InclusionPreconfMarkets {
+    markets: Vec<PreconfMarketInfo>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct InclusionPreconfMarket {
+    market: PreconfMarketInfo,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct PreconfMarket {
+struct PreconfMarketInfo {
     // market_id: u64,
     slot: u64,
     // proposer_account_id: u64,
@@ -258,10 +264,16 @@ impl PreconfApiClient {
 
     pub async fn re_login(&mut self) -> bool {
         let mut logged_in = false;
-        for _ in 0..3 {
+        let mut retry_count = 0;
+        loop {
             if self.login().await {
                 logged_in = true;
+                info!("ETHGas re-logged in.");
                 break;
+            }
+            retry_count += 1;
+            if retry_count % 5 == 0 {
+                error!("Failed to login ETHGas, continue to retry login...");
             }
         }
         logged_in
@@ -290,7 +302,7 @@ impl PreconfApiClient {
             Err(e) => {
                 let mut guard = self.state.health_status.write().await;
                 *guard = PreconfHealthStatus::ServerFailed;
-                error!("Failed to login: {}", e);
+                error!("Failed to login ETHGas: {}", e);
                 return is_logged_in;
             }
         };
@@ -299,7 +311,7 @@ impl PreconfApiClient {
             if let ApiData::Login(login_resp) = login_response
                 .json::<ApiResponse>()
                 .await
-                .expect("Failed to decode login response")
+                .expect("Failed to decode ETHGas login response")
                 .data
             {
                 if !login_resp.nonce_hash.is_empty() && !login_resp.eip712_message.is_empty() {
@@ -356,7 +368,7 @@ impl PreconfApiClient {
                         }
                     } else {
                         error!(
-                            "Failed to verify signature, Err: {:?}",
+                            "Failed to verify ETHGas login signature, Err: {:?}",
                             verify_response.text().await
                         );
                     }
@@ -488,45 +500,117 @@ impl PreconfApiClient {
             reader.get(&slot).cloned()
         } else {
             // Try to get the market info from the map or load it if it's not present.
-            self.get_inclusion_preconf_market_info(slot).await
+            let mut market_t = self.get_active_inclusion_preconf_market_info(slot).await;
+            if market_t.is_none() {
+                market_t = self.get_inclusion_preconf_market_info(slot).await;
+            }
+            if market_t.is_none() {
+                warn!("cannot get the market info from the map or load it when it's not present on slot({})", slot);
+            }
+            market_t
         }
     }
 
     async fn get_inclusion_preconf_market_info(&self, curr_slot: u64) -> Option<OffsetDateTime> {
+        let url = format!(
+            "{}api/v1/p/inclusion-preconf/market?slot={}",
+            self.api_url,
+            curr_slot.clone()
+        );
+        match self.client.get(&url).send().await {
+            Ok(r) => {
+                let market_resp = r.text().await.unwrap();
+                debug!(
+                    "Raw inclusion preconf market api response: {:?}",
+                    market_resp
+                );
+                match serde_json::from_str::<ApiResponse>(&market_resp) {
+                    Ok(api_resp) => {
+                        let mut market_expiry: Option<OffsetDateTime> = None;
+                        if !api_resp.success {
+                            error!(
+                                "Inclusion preconf market api response is failed: {}",
+                                api_resp
+                            );
+                        } else if let ApiData::InclusionPreconfMarket(info) = api_resp.data {
+                            if curr_slot == info.market.slot {
+                                let datetime = convert_timestamp_ns(info.market.trx_submit_time);
+                                market_expiry = Some(datetime);
+                            }
+                            let market_info = Arc::clone(&self.state.market_info);
+                            tokio::spawn(async move {
+                                let mut writer = market_info.write().await;
+                                let datetime = convert_timestamp_ns(info.market.trx_submit_time);
+                                writer.insert(info.market.slot, datetime);
+                            });
+                        }
+                        market_expiry
+                    }
+                    Err(err) => {
+                        error!("Failed to parse market info api response: {}", err);
+                        None
+                    }
+                }
+            }
+            Err(err) => {
+                let mut guard = self.state.health_status.write().await;
+                *guard = PreconfHealthStatus::ServerFailed;
+                error!("Cannot fetch market info from exchange: {}", err);
+                None
+            }
+        }
+    }
+
+    async fn get_active_inclusion_preconf_market_info(
+        &self,
+        curr_slot: u64,
+    ) -> Option<OffsetDateTime> {
         let url = format!("{}api/v1/p/inclusion-preconf/markets", self.api_url);
         match self.client.get(&url).send().await {
-            Ok(r) => match r.json::<ApiResponse>().await {
-                Ok(api_resp) => {
-                    let mut market_expiry: Option<OffsetDateTime> = None;
-                    if !api_resp.success {
-                        error!("market info api response is failed: {}", api_resp);
-                    } else if let ApiData::PreconfMarkets(market_data) = api_resp.data {
-                        for i in 0..market_data.markets.len() {
-                            let market = &market_data.markets[i];
-                            if i == 0 && curr_slot < market.slot {
-                                break;
-                            } else if curr_slot == market.slot {
-                                let datetime = convert_timestamp_ns(market.trx_submit_time);
-                                market_expiry = Some(datetime);
-                                break;
+            Ok(r) => {
+                let market_resp = r.text().await.unwrap();
+                debug!(
+                    "Raw active inclusion preconf markets api response: {:?}",
+                    market_resp
+                );
+                match serde_json::from_str::<ApiResponse>(&market_resp) {
+                    Ok(api_resp) => {
+                        let mut market_expiry: Option<OffsetDateTime> = None;
+                        if !api_resp.success {
+                            error!(
+                                "Active inclusion preconf markets api response is failed: {}",
+                                api_resp
+                            );
+                        } else if let ApiData::InclusionPreconfMarkets(market_data) = api_resp.data
+                        {
+                            let len = market_data.markets.len();
+                            if len > 0 {
+                                for i in 0..len {
+                                    let market = &market_data.markets[i];
+                                    if curr_slot == market.slot {
+                                        let datetime = convert_timestamp_ns(market.trx_submit_time);
+                                        market_expiry = Some(datetime);
+                                        break;
+                                    }
+                                }
+                                let market_info = Arc::clone(&self.state.market_info);
+                                tokio::spawn(async move {
+                                    let mut writer = market_info.write().await;
+                                    for market in market_data.markets {
+                                        let datetime = convert_timestamp_ns(market.trx_submit_time);
+                                        writer.insert(market.slot, datetime);
+                                    }
+                                });
                             }
                         }
-                        let market_info = Arc::clone(&self.state.market_info);
-                        tokio::spawn(async move {
-                            let mut writer = market_info.write().await;
-                            for market in market_data.markets {
-                                let datetime = convert_timestamp_ns(market.trx_submit_time);
-                                writer.insert(market.slot, datetime);
-                            }
-                        });
+                        market_expiry
                     }
-                    market_expiry
+                    Err(err) => {
+                        error!("Failed to parse market info api response: {}", err);
+                        None
+                    }
                 }
-                Err(err) => {
-                    error!("Failed to parse market info api response: {}", err);
-                    None
-                }
-            },
+            }
             Err(err) => {
                 let mut guard = self.state.health_status.write().await;
                 *guard = PreconfHealthStatus::ServerFailed;
@@ -543,11 +627,11 @@ impl PreconfApiClient {
             self.api_url, preconf_info.slot
         );
         let get_headers = self.get_headers().await;
-        match self.client.get(&url)
-            .headers(get_headers)
-            .send().await {
-            Ok(response) => {
-                match response.json::<ApiResponse>().await {
+        match self.client.get(&url).headers(get_headers).send().await {
+            Ok(r) => {
+                let preconf_resp = r.text().await.unwrap();
+                debug!("Raw fetch preconfs api response: {:?}", preconf_resp);
+                match serde_json::from_str::<ApiResponse>(&preconf_resp) {
                     Ok(resp) => {
                         if !resp.success {
                             error!("Failed to fetch inclusion preconf from server: {}", resp);
