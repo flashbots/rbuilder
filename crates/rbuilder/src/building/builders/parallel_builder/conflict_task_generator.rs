@@ -519,7 +519,7 @@ mod tests {
 
     fn create_task_generator() -> ConflictTaskGenerator {
         let (sender, _receiver) = mpsc::channel();
-        ConflictTaskGenerator::new(create_task_queue(), sender)
+        ConflictTaskGenerator::new(false, create_task_queue(), sender)
     }
 
     #[test]

@@ -33,3 +33,4 @@ name = "parallel"
 algo = "parallel-builder"
 discard_txs = true
 num_threads = 25
+safe_sorting_only = false
