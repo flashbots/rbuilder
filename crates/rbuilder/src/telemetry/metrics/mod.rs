@@ -126,6 +126,11 @@ register_metrics! {
     )
     .unwrap();
 
+    pub static ORDER_INPUT_RPC_ERROR: IntCounterVec = IntCounterVec::new(
+    Opts::new("rbuilder_order_input_rpc_errors", "counter of errors when receiving orders on RPC"),
+    &["kind"],
+    ).unwrap();
+
     pub static RELAY_ERRORS: IntCounterVec = IntCounterVec::new(
         Opts::new("relay_errors", "counter of relay errors"),
         &["relay", "kind"]
@@ -422,6 +427,10 @@ pub fn inc_simulation_gas_used(gas: u64) {
 pub fn set_ordepool_count(txs: usize, bundles: usize) {
     ORDERPOOL_TXS.set(txs as i64);
     ORDERPOOL_BUNDLES.set(bundles as i64);
+}
+
+pub fn inc_order_input_rpc_errors(method: &str) {
+    ORDER_INPUT_RPC_ERROR.with_label_values(&[method]).inc();
 }
 
 #[allow(clippy::too_many_arguments)]

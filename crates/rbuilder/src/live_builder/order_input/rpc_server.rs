@@ -7,7 +7,10 @@ use crate::{
         },
         BundleReplacementData, BundleReplacementKey, MempoolTx, Order, OrderId,
     },
-    telemetry::{add_rpc_processing_time, mark_command_received, scope_meter::ScopeMeter},
+    telemetry::{
+        add_rpc_processing_time, inc_order_input_rpc_errors, mark_command_received,
+        scope_meter::ScopeMeter,
+    },
 };
 use alloy_primitives::{Address, Bytes};
 use jsonrpsee::{
@@ -30,6 +33,11 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use tracing::{info, trace, warn};
 use uuid::Uuid;
+
+const ETH_SEND_BUNDLE: &str = "eth_sendBundle";
+const MEV_SEND_BUNDLE: &str = "mev_sendBundle";
+const ETH_CANCEL_BUNDLE: &str = "eth_cancelBundle";
+const ETH_SEND_RAW_TRANSACTION: &str = "eth_sendRawTransaction";
 
 /// Adds metrics to the callback and registers via module.register_async_method.
 pub fn register_metered_async_method<'a, R, Fun, Fut>(
@@ -74,22 +82,22 @@ pub async fn start_server_accepting_bundles(
     let mut module = RpcModule::new(());
 
     let results_clone = results.clone();
-    register_metered_async_method(&mut module, "eth_sendBundle", move |params, _| {
+    register_metered_async_method(&mut module, ETH_SEND_BUNDLE, move |params, _| {
         handle_eth_send_bundle(results_clone.clone(), timeout, params)
     })?;
 
     let results_clone = results.clone();
-    register_metered_async_method(&mut module, "mev_sendBundle", move |params, _| {
+    register_metered_async_method(&mut module, MEV_SEND_BUNDLE, move |params, _| {
         handle_mev_send_bundle(results_clone.clone(), timeout, params)
     })?;
 
     let results_clone = results.clone();
-    register_metered_async_method(&mut module, "eth_cancelBundle", move |params, _| {
+    register_metered_async_method(&mut module, ETH_CANCEL_BUNDLE, move |params, _| {
         handle_cancel_bundle(results_clone.clone(), timeout, params)
     })?;
 
     let results_clone = results.clone();
-    register_metered_async_method(&mut module, "eth_sendRawTransaction", move |params, _| {
+    register_metered_async_method(&mut module, ETH_SEND_RAW_TRANSACTION, move |params, _| {
         let results = results_clone.clone();
         async move {
             let received_at = OffsetDateTime::now_utc();
@@ -98,7 +106,7 @@ pub async fn start_server_accepting_bundles(
                 Ok(raw_tx) => raw_tx,
                 Err(err) => {
                     warn!(?err, "Failed to parse raw transaction");
-                    // @Metric
+                    inc_order_input_rpc_errors(ETH_SEND_RAW_TRANSACTION);
                     return Err(err);
                 }
             };
@@ -108,7 +116,7 @@ pub async fn start_server_accepting_bundles(
                 Ok(tx) => tx,
                 Err(err) => {
                     warn!(?err, "Failed to decode raw transaction");
-                    // @Metric
+                    inc_order_input_rpc_errors(ETH_SEND_RAW_TRANSACTION);
                     return Err(ErrorObject::owned(
                         -32602,
                         "failed to verify transaction",
@@ -157,7 +165,7 @@ async fn handle_eth_send_bundle(
         Ok(raw_bundle) => raw_bundle,
         Err(err) => {
             warn!(?err, "Failed to parse raw bundle");
-            // @Metric
+            inc_order_input_rpc_errors(ETH_SEND_BUNDLE);
             return;
         }
     };
@@ -170,7 +178,7 @@ async fn handle_eth_send_bundle(
         Ok(bundle_res) => bundle_res,
         Err(err) => {
             warn!(?err, "Failed to decode raw bundle");
-            // @Metric
+            inc_order_input_rpc_errors(ETH_SEND_BUNDLE);
             return;
         }
     };
@@ -185,6 +193,7 @@ async fn handle_eth_send_bundle(
                     max_timestamp = bundle.max_timestamp,
                     "Bundle has timestamp 0"
                 );
+                inc_order_input_rpc_errors(ETH_SEND_BUNDLE);
             }
             let order = Order::Bundle(bundle);
             let parse_duration = start.elapsed();
@@ -218,7 +227,7 @@ async fn handle_mev_send_bundle(
         Ok(raw_bundle) => raw_bundle,
         Err(err) => {
             warn!(?err, "Failed to parse raw share bundle");
-            // @Metric
+            inc_order_input_rpc_errors(MEV_SEND_BUNDLE);
             return;
         }
     };
@@ -226,7 +235,7 @@ async fn handle_mev_send_bundle(
         Ok(res) => res,
         Err(err) => {
             warn!(?err, "Failed to decode raw share bundle");
-            // @Metric
+            inc_order_input_rpc_errors(MEV_SEND_BUNDLE);
             return;
         }
     };
@@ -282,6 +291,7 @@ async fn send_command(
         Ok(()) => {}
         Err(SendTimeoutError::Timeout(_)) => {
             warn!("Failed to sent order, timeout");
+            inc_order_input_rpc_errors("other");
         }
         Err(SendTimeoutError::Closed(_)) => {}
     };
@@ -306,7 +316,7 @@ async fn handle_cancel_bundle(
         Ok(cancel_bundle) => cancel_bundle,
         Err(err) => {
             warn!(?err, "Failed to parse cancel bundle");
-            // @Metric
+            inc_order_input_rpc_errors(ETH_CANCEL_BUNDLE);
             return;
         }
     };
