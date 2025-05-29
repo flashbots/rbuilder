@@ -7,7 +7,7 @@ use tracing::{error, info, warn};
 
 use super::interfaces::LandedBlockInfo;
 use crate::provider::StateProviderFactory;
-use crate::telemetry::{add_subsidy_value, inc_subsidized_blocks};
+use crate::telemetry::{add_subsidy_value, inc_subsidized_blocks, set_builder_balance};
 
 /// Allows to monitor the evolution of our wallet for the landed blocks.
 /// It's useful for bidders to detect profit and subsidies.
@@ -169,6 +169,7 @@ where
             }
             self.balance = landed_block_info.builder_balance;
             self.block_number = landed_block_info.block_number;
+            set_builder_balance(self.balance);
         }
         Ok(res)
     }

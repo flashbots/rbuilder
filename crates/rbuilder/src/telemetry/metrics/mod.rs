@@ -12,6 +12,7 @@ use crate::{
     primitives::mev_boost::MevBoostRelayID,
     utils::{build_info::Version, duration_ms},
 };
+use alloy_consensus::constants::GWEI_TO_WEI;
 use alloy_primitives::{utils::Unit, U256};
 use bigdecimal::num_traits::Pow;
 use ctor::ctor;
@@ -19,8 +20,8 @@ use lazy_static::lazy_static;
 use metrics_macros::register_metrics;
 use parking_lot::Mutex;
 use prometheus::{
-    Counter, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Opts,
-    Registry,
+    Counter, Gauge, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
+    Opts, Registry,
 };
 use std::{
     sync::Arc,
@@ -231,6 +232,8 @@ register_metrics! {
      /////////////////////////////////
      // SUBSIDY
      /////////////////////////////////
+
+    pub static BUILDER_BALANCE: Gauge = Gauge::new("rbuilder_coinbase_balance", "balance of builder coinbase").unwrap();
 
     /// We decide this at the end of the submission to relays
     pub static SUBSIDIZED_BLOCK_COUNT: IntCounterVec = IntCounterVec::new(
@@ -600,6 +603,13 @@ pub fn add_subsidy_value(value: U256, landed: bool) {
     if landed {
         TOTAL_LANDED_SUBSIDIES_SUM.inc_by(value_float);
     }
+}
+
+pub fn set_builder_balance(balance: U256) {
+    let gwei_balance = balance / U256::from(GWEI_TO_WEI);
+    let u64_gwei_balance: u64 = gwei_balance.try_into().unwrap_or(0);
+    let f64_eth_balance = u64_gwei_balance as f64 / 1_000_000_000.0;
+    BUILDER_BALANCE.set(f64_eth_balance);
 }
 
 fn sim_status(success: bool) -> &'static str {
