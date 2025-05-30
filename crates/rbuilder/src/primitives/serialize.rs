@@ -526,7 +526,7 @@ pub struct RawShareBundleMetadatada {
 
 #[derive(Error, Debug)]
 pub enum RawShareBundleConvertError {
-    #[error("Failed to decode transaction, idx: {0}, error: {0}")]
+    #[error("Failed to decode transaction, idx: {0}, error: {1}")]
     FailedToDecodeTransaction(usize, TxWithBlobsCreateError),
     #[error("Bundle too deep")]
     BundleTooDeep,
