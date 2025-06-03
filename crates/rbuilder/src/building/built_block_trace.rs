@@ -1,5 +1,7 @@
 use super::{BundleErr, ExecutionError, ExecutionResult, OrderErr};
-use crate::primitives::{Order, OrderId, OrderReplacementKey};
+use crate::primitives::{
+    order_statistics::OrderStatistics, Order, OrderId, OrderReplacementKey, SimulatedOrder,
+};
 use ahash::{AHasher, HashMap, HashSet};
 use alloy_primitives::{Address, TxHash, U256};
 use std::{collections::hash_map, hash::Hasher, time::Duration};
@@ -8,7 +10,7 @@ use time::OffsetDateTime;
 /// Structs for recording data about a built block, such as what bundles were included, and where txs came from.
 /// Trace can be used to verify bundle invariants.
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct BuiltBlockTrace {
     pub included_orders: Vec<ExecutionResult>,
     /// How much we bid (pay to the validator)
@@ -28,6 +30,12 @@ pub struct BuiltBlockTrace {
     pub root_hash_time: Duration,
     /// Value we saw in the competition when we decided to make this bid.
     pub seen_competition_bid: Option<U256>,
+    /// Orders we had available to build the block (we might have not use all of them because of timeouts)
+    pub available_orders_statistics: OrderStatistics,
+    /// Every call to BlockBuildingHelper::commit_order impacts here.
+    pub considered_orders_statistics: OrderStatistics,
+    /// Anything we call BlockBuildingHelper::commit_order on but didn't include (redundant with considered_orders_statistics-included_orders)
+    pub failed_orders_statistics: OrderStatistics,
 }
 
 impl Default for BuiltBlockTrace {
@@ -62,6 +70,9 @@ impl BuiltBlockTrace {
             finalize_time: Duration::from_secs(0),
             root_hash_time: Duration::from_secs(0),
             seen_competition_bid: None,
+            considered_orders_statistics: Default::default(),
+            failed_orders_statistics: Default::default(),
+            available_orders_statistics: Default::default(),
         }
     }
 
@@ -75,6 +86,16 @@ impl BuiltBlockTrace {
     /// Call after a commit_order ok
     pub fn add_included_order(&mut self, execution_result: ExecutionResult) {
         self.included_orders.push(execution_result);
+    }
+
+    /// Call before commit_order
+    pub fn add_considered_order(&mut self, sim_order: &SimulatedOrder) {
+        self.considered_orders_statistics.add(&sim_order.order);
+    }
+
+    /// Call after a commit_order Err
+    pub fn add_failed_order(&mut self, sim_order: &SimulatedOrder) {
+        self.failed_orders_statistics.add(&sim_order.order);
     }
 
     /// Call after a commit_order error

@@ -34,7 +34,9 @@ use rbuilder::{
         LiveBuilder,
     },
     mev_boost::RelayClient,
-    primitives::{mev_boost::MevBoostRelaySlotInfoProvider, SimulatedOrder},
+    primitives::{
+        mev_boost::MevBoostRelaySlotInfoProvider, order_statistics::OrderStatistics, SimulatedOrder,
+    },
     provider::StateProviderFactory,
     utils::{ProviderFactoryReopener, Signer},
 };
@@ -213,13 +215,17 @@ impl DummyBuildingAlgorithm {
         let block_state = provider
             .history_by_block_hash(ctx.attributes.parent)?
             .into();
-
+        let mut order_statistics = OrderStatistics::new();
+        for sim_order in &orders {
+            order_statistics.add(&sim_order.order);
+        }
         let mut block_building_helper = BlockBuildingHelperFromProvider::new(
             block_state,
             ctx.clone(),
             &mut local_ctx,
             BUILDER_NAME.to_string(),
             false,
+            order_statistics,
             CancellationToken::new(),
         )?;
 

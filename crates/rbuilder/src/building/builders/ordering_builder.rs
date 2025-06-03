@@ -253,6 +253,7 @@ impl OrderingBuilderContext {
             &mut self.local_ctx,
             self.builder_name.clone(),
             self.config.discard_txs,
+            block_orders.orders_statistics(),
             cancel_block,
         )?;
 

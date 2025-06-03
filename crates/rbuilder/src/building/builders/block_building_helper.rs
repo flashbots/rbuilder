@@ -16,7 +16,7 @@ use crate::{
         EstimatePayoutGasErr, ExecutionError, ExecutionResult, FinalizeError, FinalizeResult,
         PartialBlock, ThreadBlockBuildingContext,
     },
-    primitives::{SimValue, SimulatedOrder},
+    primitives::{order_statistics::OrderStatistics, SimValue, SimulatedOrder},
     telemetry::{self, add_block_fill_time, add_order_simulation_time},
     utils::{check_block_hash_reader_health, elapsed_ms, HistoricalBlockError},
 };
@@ -192,6 +192,7 @@ impl BlockBuildingHelperFromProvider {
         local_ctx: &mut ThreadBlockBuildingContext,
         builder_name: String,
         discard_txs: bool,
+        available_orders_statistics: OrderStatistics,
         cancel_on_fatal_error: CancellationToken,
     ) -> Result<Self, BlockBuildingHelperError> {
         let last_committed_block = building_ctx.block() - 1;
@@ -220,6 +221,8 @@ impl BlockBuildingHelperFromProvider {
             Some(payout_tx_gas)
         };
 
+        let mut built_block_trace = BuiltBlockTrace::new();
+        built_block_trace.available_orders_statistics = available_orders_statistics;
         Ok(Self {
             _fee_recipient_balance_start: fee_recipient_balance_start,
             block_state,
@@ -227,7 +230,7 @@ impl BlockBuildingHelperFromProvider {
             payout_tx_gas,
             builder_name,
             building_ctx,
-            built_block_trace: BuiltBlockTrace::new(),
+            built_block_trace,
             cancel_on_fatal_error,
         })
     }
@@ -338,6 +341,7 @@ impl BlockBuildingHelper for BlockBuildingHelperFromProvider {
         order: &SimulatedOrder,
         result_filter: &dyn Fn(&SimValue) -> Result<(), ExecutionError>,
     ) -> Result<Result<&ExecutionResult, ExecutionError>, CriticalCommitOrderError> {
+        self.built_block_trace.add_considered_order(order);
         let start = Instant::now();
         let result = self.partial_block.commit_order(
             order,
@@ -359,6 +363,7 @@ impl BlockBuildingHelper for BlockBuildingHelperFromProvider {
                 Err(err) => {
                     self.built_block_trace
                         .modify_payment_when_no_signer_error(&err);
+                    self.built_block_trace.add_failed_order(order);
                     (Ok(Err(err)), false)
                 }
             },

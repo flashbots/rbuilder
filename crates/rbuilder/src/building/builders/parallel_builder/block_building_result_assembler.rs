@@ -20,6 +20,7 @@ use crate::{
         },
         BlockBuildingContext, ThreadBlockBuildingContext,
     },
+    primitives::order_statistics::OrderStatistics,
     telemetry::mark_builder_considers_order,
     utils::elapsed_ms,
 };
@@ -200,6 +201,7 @@ impl BlockBuildingResultAssembler {
             &mut self.local_ctx,
             self.builder_name.clone(),
             self.discard_txs,
+            OrderStatistics::default(),
             self.cancellation_token.clone(),
         )?;
         block_building_helper.set_trace_orders_closed_at(orders_closed_at);
@@ -272,6 +274,7 @@ impl BlockBuildingResultAssembler {
             &mut self.local_ctx,
             String::from("backtest_builder"),
             self.discard_txs,
+            OrderStatistics::default(),
             CancellationToken::new(),
         )?;
 

@@ -242,6 +242,9 @@ async fn run_submit_to_relays_job(
         );
         info!(
             parent: &submission_span,
+            available_orders_statistics = ?block.trace.available_orders_statistics,
+            considered_orders_statistics = ?block.trace.considered_orders_statistics,
+            failed_orders_statistics = ?block.trace.failed_orders_statistics,
             "Submitting bid",
         );
         let relay_filter = get_relay_filter_and_update_metrics(
