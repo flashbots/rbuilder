@@ -16,11 +16,11 @@ use super::{OrderPriority, SimulatedOrderSink};
 /// Order must implement BlockOrdersOrder which has priority(). This priority is used to sort the simulated orders.
 /// Usage:
 /// - Add new order (a little bit complex):
-///     ALWAYS BE SURE THAT YOU CALLED update_onchain_nonces and updated the current state of all the needed nonces by the order
-///     call insert_order
+///   ALWAYS BE SURE THAT YOU CALLED update_onchain_nonces and updated the current state of all the needed nonces by the order
+///   call insert_order
 /// - Get best order to execute
-///     call pop_order to get the best order
-///     if the order is executed call update_onchain_nonces to update all the changed nonces.
+///   call pop_order to get the best order
+///   if the order is executed call update_onchain_nonces to update all the changed nonces.
 /// - Remove orders: remove_orders. This is useful if we think this orders are no really good (failed to execute to often)
 #[derive(Debug, Clone)]
 pub struct PrioritizedOrderStore<OrderPriorityType> {
