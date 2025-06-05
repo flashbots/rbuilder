@@ -361,66 +361,6 @@ impl Trie {
         self.delete_nibbles_key(&n)
     }
 
-    pub fn get(&mut self, key: &[u8]) -> Option<&[u8]> {
-        let n = Nibbles::unpack(key);
-        self.get_nibbles_key(&n)
-    }
-
-    pub fn get_nibbles_key(&mut self, nibbles_key: &Nibbles) -> Option<&[u8]> {
-        let get_key = nibbles_key.as_slice();
-        self.walk_path.clear();
-
-        let mut current_node = 0;
-        let mut path_walked = 0;
-
-        loop {
-            let node = self.nodes.get(current_node)?;
-
-            match node {
-                DiffTrieNode::Branch { children } => {
-                    // deleting from branch, key not found
-                    if get_key.len() == path_walked {
-                        return None;
-                    }
-
-                    let children = *children;
-
-                    let n = get_key[path_walked];
-                    self.walk_path.push((current_node, n));
-                    path_walked += 1;
-
-                    if let Some(child_ptr) = self.branch_node_children[children][n as usize] {
-                        current_node = child_ptr.local_ptr()?;
-                        continue;
-                    } else {
-                        return None;
-                    }
-                }
-                DiffTrieNode::Extension { key, next_node } => {
-                    let key = key.clone();
-                    let next_node = *next_node;
-
-                    if get_key[path_walked..].starts_with(&self.keys[key.clone()]) {
-                        self.walk_path.push((current_node, 0));
-                        path_walked += key.len();
-                        current_node = next_node.local_ptr()?;
-                        continue;
-                    }
-
-                    return None;
-                }
-                DiffTrieNode::Leaf { key, value } => {
-                    if self.keys[key.clone()] == get_key[path_walked..] {
-                        self.walk_path.push((current_node, 0));
-                        return Some(b"test");
-                    }
-                    return None;
-                }
-                DiffTrieNode::Null => return None,
-            }
-        }
-    }
-
     pub fn delete_nibbles_key(
         &mut self,
         nibbles_key: &Nibbles,
