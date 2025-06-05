@@ -68,7 +68,7 @@ impl ConflictTaskGenerator {
             self.add_processed_groups(&new_group, &mut processed_groups);
 
             // Remove all subset groups
-            if new_group.conflicting_group_ids.len() > 0 {
+            if !new_group.conflicting_group_ids.is_empty() {
                 self.remove_conflicting_subset_groups(&new_group);
             }
         }

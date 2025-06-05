@@ -31,11 +31,11 @@ pub async fn subscribe_to_txpool_with_blobs(
     let provider = match mempool {
         MempoolSource::Ipc(path) => {
             let ipc = IpcConnect::new(path);
-            ProviderBuilder::new().on_ipc(ipc).await?
+            ProviderBuilder::new().connect_ipc(ipc).await?
         }
         MempoolSource::Ws(url) => {
             let ws_conn = alloy_provider::WsConnect::new(url);
-            ProviderBuilder::new().on_ws(ws_conn).await?
+            ProviderBuilder::new().connect_ws(ws_conn).await?
         }
     };
 

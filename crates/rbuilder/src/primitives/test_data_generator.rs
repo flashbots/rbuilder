@@ -22,7 +22,7 @@ impl TestDataGenerator {
 
     pub fn create_tx_nonce(&mut self, sender_nonce: AccountNonce) -> Recovered<TransactionSigned> {
         Recovered::new_unchecked(
-            TransactionSigned::new(
+            TransactionSigned::new_unchecked(
                 Transaction::Legacy(TxLegacy {
                     nonce: sender_nonce.nonce,
                     ..TxLegacy::default()

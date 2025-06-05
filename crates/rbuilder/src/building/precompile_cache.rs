@@ -61,7 +61,7 @@ impl<CTX: ContextTr, P: PrecompileProvider<CTX, Output = InterpreterResult>> Pre
         is_static: bool,
         gas_limit: u64,
     ) -> Result<Option<Self::Output>, String> {
-        let key = (self.spec, inputs.input.clone(), gas_limit);
+        let key = (self.spec, inputs.input.bytes(context), gas_limit);
 
         // get the result if it exists
         if let Some(precompiles) = self.cache.lock().get_mut(address) {
