@@ -45,6 +45,9 @@ hash-db = { version = "0.15.2", optional = true }
 triehash = { version = "0.8.4", optional = true }
 flate2 = { workspace = true, optional = true }
 
+quickcheck = { workspace = true }
+rand = { workspace = true }
+
 [features]
 benchmark-utils = ["dep:hash-db", "dep:triehash", "dep:flate2"]
 
@@ -69,4 +72,3 @@ harness = false
 [[bench]]
 name = "trie_do_bench"
 harness = false
-

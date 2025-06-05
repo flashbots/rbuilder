@@ -15,6 +15,8 @@ use reth_provider::{
     StateCommitmentProvider,
 };
 
+pub mod model_test;
+
 #[cfg(any(test, feature = "benchmark-utils"))]
 pub mod test_utils;
 pub mod utils;
