@@ -31,7 +31,7 @@ impl FixedKey {
     }
 
     fn from_string(s: &str) -> Self {
-        Self(keccak256("a"))
+        Self(keccak256(s))
     }
 
     fn from_bytes(bytes: [u8; 32]) -> Self {
