@@ -1,5 +1,6 @@
 //! builders is a subprocess that builds a block
 pub mod block_building_helper;
+pub mod block_building_helper_stats_logger;
 pub mod mock_block_building_helper;
 pub mod ordering_builder;
 pub mod parallel_builder;

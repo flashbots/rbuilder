@@ -9,7 +9,9 @@ use crate::{
     building::{
         block_orders_from_sim_orders,
         builders::{
-            block_building_helper::BlockBuildingHelper, LiveBuilderInput, OrderIntakeConsumer,
+            block_building_helper::BlockBuildingHelper,
+            block_building_helper_stats_logger::BlockBuildingHelperStatsLogger, LiveBuilderInput,
+            OrderIntakeConsumer,
         },
         BlockBuildingContext, ExecutionError, OrderPriority, PrioritizedOrderStore,
         SimulatedOrderSink, Sorting, ThreadBlockBuildingContext,
@@ -237,6 +239,7 @@ impl OrderingBuilderContext {
         let span = info_span!("build_run", build_attempt_id);
         let _guard = span.enter();
 
+        let all_orders = block_orders.get_all_orders();
         let build_start = Instant::now();
 
         // Create a new ctx to remove builder_signer if necessary
@@ -257,8 +260,16 @@ impl OrderingBuilderContext {
             cancel_block,
         )?;
 
-        self.fill_orders(&mut block_building_helper, block_orders, build_start)?;
-        block_building_helper.set_trace_fill_time(build_start.elapsed());
+        {
+            let mut block_building_helper =
+                BlockBuildingHelperStatsLogger::new(&mut block_building_helper);
+
+            self.fill_orders(&mut block_building_helper, block_orders, build_start)?;
+            block_building_helper.set_trace_fill_time(build_start.elapsed());
+
+            block_building_helper.print(all_orders);
+        };
+
         Ok(Box::new(block_building_helper))
     }
 

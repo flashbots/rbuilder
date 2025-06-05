@@ -33,7 +33,7 @@ use revm::{
     database::{states::bundle_state::BundleRetention, BundleState, State},
     Database, DatabaseCommit,
 };
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Instant};
 use thiserror::Error;
 
 #[derive(Clone)]
@@ -414,8 +414,35 @@ impl<'a, 'b, 'c, 'd, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, 'd, 
         Ok(res)
     }
 
-    /// The state is updated ONLY when we return Ok(Ok)
     pub fn commit_tx(
+        &mut self,
+        tx_with_blobs: &TransactionSignedEcRecoveredWithBlobs,
+        mut cumulative_gas_used: u64,
+        gas_reserved: u64,
+        mut cumulative_blob_gas_used: u64,
+    ) -> Result<Result<TransactionOk, TransactionErr>, CriticalCommitOrderError> {
+        let start = Instant::now();
+        let res = self.commit_tx2(
+            tx_with_blobs,
+            cumulative_gas_used,
+            gas_reserved,
+            cumulative_blob_gas_used,
+        );
+        let marker = if let Ok(Ok(_)) = res {
+            "OK    "
+        } else {
+            "ERROR "
+        };
+        /*println!(
+            "{marker} TX EXECUTED {:?} {:?} {:?}",
+            start.elapsed(),
+            tx_with_blobs.hash(),
+            res,
+        );*/
+        res
+    }
+    /// The state is updated ONLY when we return Ok(Ok)
+    pub fn commit_tx2(
         &mut self,
         tx_with_blobs: &TransactionSignedEcRecoveredWithBlobs,
         mut cumulative_gas_used: u64,

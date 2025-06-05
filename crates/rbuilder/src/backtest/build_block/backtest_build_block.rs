@@ -133,7 +133,7 @@ where
                     block.trace.included_orders.len()
                 );
 
-                println!("Used orders:");
+                //println!("Used orders:");
                 for order_result in &block.trace.included_orders {
                     println!(
                         "{:>74} gas: {:>8} profit: {}",
