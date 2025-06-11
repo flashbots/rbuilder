@@ -3,7 +3,12 @@
 //! It does not sends blocks to any relay, it just logs the generated blocks.
 //! The algorithm is really dummy, it just adds some txs it receives and generates a single block.
 //! This is NOT intended to be run in production so it has no nice configuration, poor error checking and some hardcoded values.
-use std::{path::PathBuf, sync::Arc, thread::sleep, time::Duration};
+use std::{
+    path::PathBuf,
+    sync::{atomic::AtomicBool, Arc},
+    thread::sleep,
+    time::Duration,
+};
 
 use jsonrpsee::RpcModule;
 use rbuilder::{
@@ -125,7 +130,7 @@ async fn main() -> eyre::Result<()> {
         cancel.cancel()
     });
 
-    builder.run().await?;
+    builder.run(Arc::new(AtomicBool::new(false))).await?;
     ctrlc.await.unwrap_or_default();
     Ok(())
 }
