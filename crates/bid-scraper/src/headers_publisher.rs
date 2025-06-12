@@ -17,7 +17,6 @@ use ethers::{
     abi::{AbiDecode, AbiEncode},
     prelude::*,
 };
-use runng::{protocol::Pub0, SendSocket};
 use tokio::time::timeout;
 
 #[derive(Clone)]
