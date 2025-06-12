@@ -87,14 +87,12 @@ pub trait Service<CfgType: CfgWithSimpleRelayPublisherConfig>: Clone + Sized + S
         }
     }
 
-    /// On errors will cancel via cancellation_token
     async fn relay_refresh(
         self,
         relay_name: String,
         relay_endpoint: String,
         bids_seen: Arc<Mutex<LruCache<BlockBid, ()>>>,
         client: Arc<reqwest::Client>,
-        cancellation_token: CancellationToken,
     );
 
     async fn new<'a>(
@@ -166,7 +164,7 @@ pub trait Service<CfgType: CfgWithSimpleRelayPublisherConfig>: Clone + Sized + S
 
     /// Loop until cancelled querying the relay for the bids via Self::relay_refresh.
     /// On error return a string.
-    /// Does not call cancellation_token.cancel() but Self::relay_refresh might.
+    /// Does not call cancellation_token.cancel()
     async fn relay_subscriber(
         self,
         relay_name: String,
@@ -227,14 +225,12 @@ pub trait Service<CfgType: CfgWithSimpleRelayPublisherConfig>: Clone + Sized + S
                 .await;
                 continue;
             }
-            let cancellation_token_clone = cancellation_token.clone();
             tokio::spawn(Self::relay_refresh(
                 self.clone(),
                 relay_name.clone(),
                 relay_params.url.clone(),
                 headers_seen.clone(),
                 client.clone(),
-                cancellation_token_clone,
             ));
 
             // sleep until we need to do our next request

@@ -55,7 +55,6 @@ impl Service<RelayBidsPublisherConfig> for BidsPublisherService {
         relay_endpoint: String,
         bids_seen: Arc<Mutex<LruCache<BlockBid, ()>>>,
         client: Arc<reqwest::Client>,
-        _cancellation_token: CancellationToken,
     ) {
         let mut new_bids = 0;
 

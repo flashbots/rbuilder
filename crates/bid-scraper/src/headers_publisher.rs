@@ -58,7 +58,6 @@ impl Service<RelayHeadersPublisherConfig> for HeadersPublisherService {
         relay_endpoint: String,
         headers_seen: Arc<Mutex<LruCache<BlockBid, ()>>>,
         client: Arc<reqwest::Client>,
-        _cancellation_token: CancellationToken,
     ) {
         let header = match self.get_header(&relay_name, &relay_endpoint, &client).await {
             Ok(Some(r)) => r,
