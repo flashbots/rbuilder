@@ -1,38 +1,52 @@
 use crate::{
-    get_timestamp_f64, slot, types::BlockBid, Args, DynResult, Service, ServiceInner, RPC_TIMEOUT,
+    bid_sender::BidSender,
+    config::{CfgWithSimpleRelayPublisherConfig, RelayBidsPublisherConfig},
+    get_timestamp_f64, slot,
+    types::BlockBid,
+    DynResult, Service, ServiceInner, RPC_TIMEOUT,
 };
 use async_trait::async_trait;
-use clap::Parser;
 use ethers::{
     abi::{AbiDecode, AbiEncode},
     prelude::*,
 };
 use lru::LruCache;
-use runng::{protocol::Pub0, SendSocket};
-use std::{
-    str::FromStr,
-    sync::{Arc, Mutex, MutexGuard},
-};
+use parking_lot::{Mutex, MutexGuard};
+use std::{str::FromStr, sync::Arc};
 use tokio::time::timeout;
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, trace, warn};
 
 #[derive(Clone)]
 pub struct BidsPublisherService {
-    nng_publisher_socket: Pub0,
-    inner: Arc<Mutex<ServiceInner>>,
+    sender: Arc<BidSender>,
+    inner: Arc<Mutex<ServiceInner<RelayBidsPublisherConfig>>>,
+    name: String,
+    cancellation_token: CancellationToken,
 }
 
 #[async_trait]
-impl Service for BidsPublisherService {
-    fn inner(&self) -> MutexGuard<'_, ServiceInner> {
+impl Service<RelayBidsPublisherConfig> for BidsPublisherService {
+    fn inner(&self) -> MutexGuard<'_, ServiceInner<RelayBidsPublisherConfig>> {
         trace!("mutex locking service");
-        self.inner.lock().expect("service mutex poisoned")
+        self.inner.lock()
     }
 
-    fn new_(nng_publisher_socket: Pub0, inner: Arc<Mutex<ServiceInner>>) -> Self {
+    fn cancellation_token(&self) -> CancellationToken {
+        self.cancellation_token.clone()
+    }
+
+    fn new_(
+        name: String,
+        sender: Arc<BidSender>,
+        inner: Arc<Mutex<ServiceInner<RelayBidsPublisherConfig>>>,
+        cancellation_token: CancellationToken,
+    ) -> Self {
         Self {
-            nng_publisher_socket,
+            sender,
             inner,
+            name,
+            cancellation_token,
         }
     }
     async fn relay_refresh(
@@ -41,6 +55,7 @@ impl Service for BidsPublisherService {
         relay_endpoint: String,
         bids_seen: Arc<Mutex<LruCache<BlockBid, ()>>>,
         client: Arc<reqwest::Client>,
+        _cancellation_token: CancellationToken,
     ) {
         let mut new_bids = 0;
 
@@ -54,7 +69,7 @@ impl Service for BidsPublisherService {
 
         for bid in bids {
             {
-                let mut b = bids_seen.lock().unwrap();
+                let mut b = bids_seen.lock();
                 if b.get(&bid).is_some() {
                     continue;
                 }
@@ -62,11 +77,9 @@ impl Service for BidsPublisherService {
             }
 
             debug!("Got new bid from relay {}: {:?}", &relay_name, &bid);
-
-            self.nng_publisher_socket
-                .send(&serde_json::to_vec(&bid).unwrap())
-                .expect("unable to send message");
-
+            if self.sender.send(bid).is_err() {
+                return;
+            }
             new_bids += 1;
         }
 
@@ -78,29 +91,37 @@ impl Service for BidsPublisherService {
         }
     }
 
-    async fn new_blocks_subscriber(self) {
-        let eth_provider_uri = self.inner().args.eth_provider_uri.clone();
-        let provider = timeout(RPC_TIMEOUT, Provider::<Ws>::connect(eth_provider_uri))
-            .await
-            .expect("could not connect to node in time")
-            .expect("unable to connect to node?");
+    async fn new_blocks_subscriber(self) -> Result<(), String> {
+        let eth_provider_uri = self
+            .inner()
+            .cfg
+            .simple_relay_publisher_config()
+            .eth_provider_uri
+            .clone();
+        let provider = timeout(
+            RPC_TIMEOUT,
+            Provider::<Ws>::connect(eth_provider_uri.clone()),
+        )
+        .await
+        .map_err(|_| "could not connect to node in time")?
+        .map_err(|_| "unable to connect to node?")?;
+
         let mut subscription = provider
             .subscribe_blocks()
             .await
-            .expect("unable to subscribe to blocks");
-
+            .map_err(|_| "unable to subscribe to blocks")?;
         info!("New blocks subscriber connected and ready. Waiting for the first block...");
-
-        loop {
+        let cancel_token = self.cancellation_token();
+        while !cancel_token.is_cancelled() {
             let block = timeout(RPC_TIMEOUT, subscription.next())
                 .await
-                .expect("didn't receive a new block in time")
-                .expect("didn't receive a new block");
+                .map_err(|_| "didn't receive a new block in time")?
+                .ok_or("didn't receive a new block")?;
             {
                 trace!("got block {:?}", block);
                 let mut inner = self.inner();
-                inner.last_block_number = block.number.expect("no block number").as_u64();
-                inner.last_block_hash = block.hash.expect("no block hash").encode_hex();
+                inner.last_block_number = block.number.ok_or("no block number")?.as_u64();
+                inner.last_block_hash = block.hash.ok_or("no block hash")?.encode_hex();
                 inner.last_slot = slot::get_slot_number(block.timestamp.as_u64());
                 info!(
                     "New block {} ({}).",
@@ -108,6 +129,7 @@ impl Service for BidsPublisherService {
                 );
             }
         }
+        Ok(())
     }
 }
 
@@ -140,11 +162,9 @@ impl BidsPublisherService {
         let mut json_bids: Vec<serde_json::Value> = response.json().await?;
 
         let mut bids = Vec::with_capacity(json_bids.len());
-        info!(url, "----------------BIDS---------------");
         for json_bid in json_bids.iter_mut() {
-            info!(json_bid=?json_bid,"BID");
             let bid = BlockBid {
-                publisher_name: self.inner().args.publisher_name.clone(),
+                publisher_name: self.name.clone(),
                 publisher_type: "bids".to_owned(),
                 builder_pubkey: Some(
                     json_bid["builder_pubkey"]
@@ -210,24 +230,4 @@ impl BidsPublisherService {
 
         Ok(bids)
     }
-}
-
-#[tokio::main]
-async fn main() {
-    tracing_subscriber::fmt::init();
-
-    // when one task crashes we crash the whole program
-    let orig_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |panic_info| {
-        orig_hook(panic_info);
-        std::process::exit(1);
-    }));
-
-    let args = Args::parse();
-
-    info!("Initializing service...");
-    let service = BidsPublisherService::new(args.clone()).await;
-    info!("Service initialized!");
-
-    service.run().await;
 }

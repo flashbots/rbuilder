@@ -1,63 +1,119 @@
+use bid_scraper::bid_sender::BidSender;
 use bid_scraper::bids_publisher::BidsPublisherService;
-use bid_scraper::{Args, Service};
-use clap::Parser;
+use bid_scraper::code_from_rbuilder::{
+    load_config_toml_and_env, setup_tracing_subscriber, LoggerConfig,
+};
+use bid_scraper::config::{
+    Config, PublisherConfig, RelayBidsPublisherConfig, RelayHeadersPublisherConfig,
+};
+use bid_scraper::headers_publisher::HeadersPublisherService;
+use bid_scraper::Service;
+use runng::protocol::Pub0;
+use runng::Listen;
+use std::env;
 use std::time::Duration;
 use tokio::signal::ctrl_c;
-use tokio::task::JoinHandle;
+use tokio::time::timeout;
+use tokio_util::sync::CancellationToken;
 use tracing::info;
 
-async fn supervisor() {
-    loop {
-        let handle = tokio::spawn(your_task());
+#[tokio::main]
+async fn main() -> eyre::Result<()> {
+    let args: Vec<String> = env::args().collect();
+    if args.len() != 2 {
+        println!("Man, it's not that hard. It's a single parameter: the config file name. Something like:\n{} /home/cool_user_name/some_dir_to_keep_things_nice/some_other_dir_since_im_OCD/another_one/why_are_you_stil_reading_this_question_mark/stop_reading_and_fix_your_command_line/config_file.toml",args[0]);
+        return Ok(());
+    }
 
-        match handle.await {
-            Ok(_) => {
-                println!("Task completed normally");
-                break; // Exit if task completes successfully
+    let config: Config = load_config_toml_and_env(args[1].clone())?;
+
+    let log_config = LoggerConfig {
+        env_filter: config.log_level.clone(),
+        log_json: config.log_json,
+        log_color: config.log_color,
+    };
+    setup_tracing_subscriber(log_config)?;
+
+    let global_cancel = CancellationToken::new();
+    let global_cancel_clone = global_cancel.clone();
+    let ctrlc = tokio::spawn(async move {
+        ctrl_c().await.unwrap_or_default();
+        global_cancel_clone.cancel()
+    });
+
+    let runng_factory = runng::factory::latest::ProtocolFactory::default();
+    let mut nng_publisher_socket = runng_factory
+        .publisher_open()
+        .expect("unable to create NNG publisher");
+    nng_publisher_socket
+        .listen(&config.publisher_url)
+        .expect("unable to have the NNG publisher listen");
+
+    println!("{:?}", config.clone());
+    for named_publisher in config.publishers {
+        match named_publisher.publisher {
+            PublisherConfig::RelayBids(cfg) => {
+                tokio::spawn(start_relay_bids_publisher(
+                    cfg,
+                    named_publisher.name,
+                    nng_publisher_socket.clone(),
+                    global_cancel.clone(),
+                ));
             }
-            Err(e) if e.is_panic() => {
-                println!("Task panicked: {:?}", e);
-                println!("Restarting task...");
-                // Optional: add delay before restart
-                tokio::time::sleep(Duration::from_secs(1)).await;
+            PublisherConfig::RelayHeaders(cfg) => {
+                tokio::spawn(start_relay_headers_publisher(
+                    cfg,
+                    named_publisher.name,
+                    nng_publisher_socket.clone(),
+                    global_cancel.clone(),
+                ));
             }
-            Err(e) => {
-                println!("Task cancelled: {:?}", e);
-                break; // Exit on cancellation
-            }
-        }
+        };
+    }
+    ctrlc.await.unwrap_or_default();
+    Ok(())
+}
+
+async fn start_relay_bids_publisher(
+    cfg: RelayBidsPublisherConfig,
+    name: String,
+    nng_publisher_socket: Pub0,
+    global_cancel: CancellationToken,
+) {
+    while !global_cancel.is_cancelled() {
+        info!("Initializing service...");
+        let session_cancel = global_cancel.child_token();
+        let sender = BidSender::new(
+            nng_publisher_socket.clone(),
+            global_cancel.clone(),
+            session_cancel.clone(),
+        );
+        let service =
+            BidsPublisherService::new(cfg.clone(), name.clone(), sender, session_cancel).await;
+        info!("Service initialized!");
+        service.run().await;
+        let _ = timeout(Duration::from_secs(10), global_cancel.cancelled()).await;
     }
 }
 
-async fn your_task() {
-    println!("TASK HOLA!");
-    tokio::time::sleep(Duration::from_secs(3)).await;
-    panic!("CHAU");
-}
-
-#[tokio::main]
-async fn main() {
-    println!("Hello, world!");
-    /*tokio::select! {
-    _= supervisor()=>{},
-    _=ctrl_c()=>{}
-    }*/
-    tracing_subscriber::fmt::init();
-
-    // when one task crashes we crash the whole program
-    let orig_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |panic_info| {
-        orig_hook(panic_info);
-        std::process::exit(1);
-    }));
-
-    let args = Args::parse();
-
-    info!("Initializing service...");
-    let service = BidsPublisherService::new(args.clone()).await;
-    info!("Service initialized!");
-
-    service.run().await;
-
-    println!("Bye!!!!");
+async fn start_relay_headers_publisher(
+    cfg: RelayHeadersPublisherConfig,
+    name: String,
+    nng_publisher_socket: Pub0,
+    global_cancel: CancellationToken,
+) {
+    while !global_cancel.is_cancelled() {
+        info!("Initializing service...");
+        let session_cancel = global_cancel.child_token();
+        let sender = BidSender::new(
+            nng_publisher_socket.clone(),
+            global_cancel.clone(),
+            session_cancel.clone(),
+        );
+        let service =
+            HeadersPublisherService::new(cfg.clone(), name.clone(), sender, session_cancel).await;
+        info!("Service initialized!");
+        service.run().await;
+        let _ = timeout(Duration::from_secs(10), global_cancel.cancelled()).await;
+    }
 }

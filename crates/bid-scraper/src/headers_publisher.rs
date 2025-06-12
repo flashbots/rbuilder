@@ -1,16 +1,16 @@
 extern crate lru;
-mod slot;
+use crate::{
+    bid_sender::BidSender,
+    config::{CfgWithSimpleRelayPublisherConfig, RelayHeadersPublisherConfig},
+    get_timestamp_f64, slot,
+    types::BlockBid,
+    DynResult, Service, ServiceInner, REQUEST_TIMEOUT, RPC_TIMEOUT,
+};
 use async_trait::async_trait;
-use clap::Parser;
 use lru::LruCache;
-use relay_bids_publisher::{
-    get_timestamp_f64, types::BlockBid, Args, DynResult, Service, ServiceInner, REQUEST_TIMEOUT,
-    RPC_TIMEOUT,
-};
-use std::{
-    str::FromStr,
-    sync::{Arc, Mutex, MutexGuard},
-};
+use parking_lot::{Mutex, MutexGuard};
+use std::{str::FromStr, sync::Arc};
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, trace, warn};
 
 use ethers::{
@@ -22,21 +22,34 @@ use tokio::time::timeout;
 
 #[derive(Clone)]
 pub struct HeadersPublisherService {
-    nng_publisher_socket: Pub0,
-    inner: Arc<Mutex<ServiceInner>>,
+    sender: Arc<BidSender>,
+    inner: Arc<Mutex<ServiceInner<RelayHeadersPublisherConfig>>>,
+    name: String,
+    cancellation_token: CancellationToken,
 }
 
 #[async_trait]
-impl Service for HeadersPublisherService {
-    fn inner(&self) -> MutexGuard<'_, ServiceInner> {
+impl Service<RelayHeadersPublisherConfig> for HeadersPublisherService {
+    fn inner(&self) -> MutexGuard<'_, ServiceInner<RelayHeadersPublisherConfig>> {
         trace!("mutex locking service");
-        self.inner.lock().expect("service mutex poisoned")
+        self.inner.lock()
     }
 
-    fn new_(nng_publisher_socket: Pub0, inner: Arc<Mutex<ServiceInner>>) -> Self {
+    fn cancellation_token(&self) -> CancellationToken {
+        self.cancellation_token.clone()
+    }
+
+    fn new_(
+        name: String,
+        sender: Arc<BidSender>,
+        inner: Arc<Mutex<ServiceInner<RelayHeadersPublisherConfig>>>,
+        cancellation_token: CancellationToken,
+    ) -> Self {
         Self {
-            nng_publisher_socket,
+            sender,
             inner,
+            name,
+            cancellation_token,
         }
     }
 
@@ -46,6 +59,7 @@ impl Service for HeadersPublisherService {
         relay_endpoint: String,
         headers_seen: Arc<Mutex<LruCache<BlockBid, ()>>>,
         client: Arc<reqwest::Client>,
+        _cancellation_token: CancellationToken,
     ) {
         let header = match self.get_header(&relay_name, &relay_endpoint, &client).await {
             Ok(Some(r)) => r,
@@ -59,7 +73,7 @@ impl Service for HeadersPublisherService {
         };
 
         {
-            let mut h = headers_seen.lock().unwrap();
+            let mut h = headers_seen.lock();
             if h.get(&header).is_some() {
                 return;
             }
@@ -68,51 +82,51 @@ impl Service for HeadersPublisherService {
 
         debug!("Got new header from relay {}: {:?}", &relay_name, &header);
 
-        self.nng_publisher_socket
-            .send(&serde_json::to_vec(&header).unwrap())
-            .expect("unable to send message");
+        let _ = self.sender.send(header);
     }
 
-    async fn new_blocks_subscriber(self) {
-        let builder_uri = self.inner().args.builder_uri.clone();
-        let provider = timeout(RPC_TIMEOUT, Provider::<Ws>::connect(builder_uri))
-            .await
-            .expect("could not connect to node in time")
-            .expect("unable to connect to node?");
+    async fn new_blocks_subscriber(self) -> Result<(), String> {
+        let eth_provider_uri = self
+            .inner()
+            .cfg
+            .simple_relay_publisher_config()
+            .eth_provider_uri
+            .clone();
+        let provider = timeout(
+            RPC_TIMEOUT,
+            Provider::<Ws>::connect(eth_provider_uri.clone()),
+        )
+        .await
+        .map_err(|_| "could not connect to node in time")?
+        .map_err(|_| "unable to connect to node?")?;
+
         let mut subscription = provider
             .subscribe_blocks()
             .await
-            .expect("unable to subscribe to blocks");
+            .map_err(|_| "unable to subscribe to blocks")?;
         let client = reqwest::Client::builder()
             .timeout(REQUEST_TIMEOUT)
             .build()
-            .expect("unable to build client");
+            .map_err(|_| "unable to build client")?;
 
         info!("New blocks subscriber connected and ready. Waiting for the first block...");
-
-        loop {
+        let cancel_token = self.cancellation_token();
+        while !cancel_token.is_cancelled() {
             let block = timeout(RPC_TIMEOUT, subscription.next())
                 .await
-                .expect("didn't receive a new block in time")
-                .expect("didn't receive a new block");
+                .map_err(|_| "didn't receive a new block in time")?
+                .ok_or("didn't receive a new block")?;
             trace!("got block {:?}", block);
             let (beacon_node_uri, next_slot) = {
                 let mut inner = self.inner();
-                inner.last_block_number = block.number.expect("no block number").as_u64();
-                inner.last_block_hash = block.hash.expect("no block hash").encode_hex();
+                inner.last_block_number = block.number.ok_or("no block number")?.as_u64();
+                inner.last_block_hash = block.hash.ok_or("no block hash")?.encode_hex();
                 inner.last_slot = slot::get_slot_number(block.timestamp.as_u64());
                 info!(
                     "New block {} ({}).",
                     inner.last_block_number, inner.last_block_hash,
                 );
-                (
-                    inner
-                        .args
-                        .beacon_node_uri
-                        .clone()
-                        .expect("you need to set a beacon node uri!"),
-                    inner.last_slot + 1,
-                )
+                (inner.cfg.beacon_node_uri.clone(), inner.last_slot + 1)
             };
 
             let duties: serde_json::Value = client
@@ -123,32 +137,33 @@ impl Service for HeadersPublisherService {
                 ))
                 .send()
                 .await
-                .expect("Unable to fetch next validator duties")
+                .map_err(|_| "Unable to fetch next validator duties")?
                 .json()
                 .await
-                .expect("unable to parse next validator duties");
+                .map_err(|_| "unable to parse next validator duties")?;
 
-            let next_validator_pubkeys: Vec<_> = duties["data"]
+            let mut next_validator_pubkeys: Vec<&str> = Vec::new();
+            for record in duties["data"]
                 .as_array()
-                .expect("duties is not an array")
+                .ok_or("duties is not an array")?
                 .iter()
-                .filter_map(|record| {
-                    if record["slot"]
-                        .as_str()
-                        .expect("slot is not str")
-                        .parse::<u64>()
-                        .expect("unable to parse slot")
-                        == next_slot
-                    {
-                        Some(record["pubkey"].as_str().expect("pubkey is not str"))
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            assert_eq!(next_validator_pubkeys.len(), 1);
+            {
+                let slot = record["slot"]
+                    .as_str()
+                    .ok_or("slot is not str")?
+                    .parse::<u64>()
+                    .map_err(|_| "unable to parse slot")?;
+                if slot == next_slot {
+                    next_validator_pubkeys
+                        .push(record["pubkey"].as_str().ok_or("pubkey is not str")?);
+                }
+            }
+            if next_validator_pubkeys.len() != 1 {
+                return Err("next_validator_pubkeys.len()!= 1".to_owned());
+            }
             self.inner().next_validator_pubkey = next_validator_pubkeys[0].to_owned();
         }
+        Ok(())
     }
 }
 
@@ -198,7 +213,7 @@ impl HeadersPublisherService {
         let msg = &json_header["data"]["message"];
 
         let header = BlockBid {
-            publisher_name: self.inner().args.publisher_name.clone(),
+            publisher_name: self.name.clone(),
             publisher_type: "headers".to_owned(),
             relay_name: relay_name.to_string(),
             slot_number: U64::from(next_slot),
@@ -251,24 +266,4 @@ impl HeadersPublisherService {
 
         Ok(Some(header))
     }
-}
-
-#[tokio::main]
-async fn main() {
-    tracing_subscriber::fmt::init();
-
-    // when one task crashes we crash the whole program
-    let orig_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |panic_info| {
-        orig_hook(panic_info);
-        std::process::exit(1);
-    }));
-
-    let args = Args::parse();
-
-    info!("Initializing service...");
-    let service = HeadersPublisherService::new(args.clone()).await;
-    info!("Service initialized!");
-
-    service.run().await;
 }

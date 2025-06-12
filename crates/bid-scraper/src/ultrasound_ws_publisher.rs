@@ -1,9 +1,9 @@
-use clap::Parser;
-use futures_util::{SinkExt, StreamExt};
-use relay_bids_publisher::{
+use crate::{
     types::{block_bid_from_update, TopBidUpdate},
     RPC_TIMEOUT,
 };
+use clap::Parser;
+use futures_util::{SinkExt, StreamExt};
 use runng::{protocol::Pub0, Listen, SendSocket};
 use ssz::Decode;
 use std::collections::HashMap;

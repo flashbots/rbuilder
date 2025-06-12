@@ -1,21 +1,23 @@
 use async_trait::async_trait;
-use clap::Parser;
 use lru::LruCache;
-use runng::{protocol::Pub0, Listen};
-use std::{
-    collections::HashMap,
-    fmt::Debug,
-    num::NonZeroUsize,
-    sync::{Arc, Mutex, MutexGuard},
-    time::Duration,
-};
+use parking_lot::{Mutex, MutexGuard};
+use std::{collections::HashMap, fmt::Debug, num::NonZeroUsize, sync::Arc, time::Duration};
 use tokio::time::timeout;
-use tracing::info;
+use tokio_util::sync::CancellationToken;
+use tracing::{error, info};
 pub mod bids_publisher;
+pub mod bloxroute_ws_publisher;
 mod slot;
+pub mod ultrasound_ws_publisher;
 
+pub mod bid_sender;
+pub mod code_from_rbuilder;
+pub mod config;
+pub mod headers_publisher;
 pub mod types;
 use types::BlockBid;
+
+use crate::{bid_sender::BidSender, config::CfgWithSimpleRelayPublisherConfig};
 
 pub type DynResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -29,58 +31,6 @@ pub fn get_timestamp_f64() -> f64 {
         .as_secs_f64()
 }
 
-fn try_parse_custom_request_interval(s: &str) -> Result<(String, f64), clap::error::Error> {
-    // TODO: return a proper clap error.
-    let mut split = s.split('=');
-    let relay_name = split
-        .next()
-        .expect("custom request interval format is relay_name=interval")
-        .to_string();
-    let interval = split
-        .next()
-        .expect("custom request interval format is relay_name=interval")
-        .parse::<f64>()
-        .expect("interval need to be a float");
-    assert!(split.next().is_none());
-    Ok((relay_name, interval))
-}
-
-#[derive(Parser, Clone)]
-pub struct Args {
-    #[clap(long)]
-    pub eth_provider_uri: String,
-    #[clap(long)]
-    pub beacon_node_uri: Option<String>,
-    #[clap(long, help = "Path to the relays file.")]
-    pub relays_file: String,
-    #[clap(
-        long,
-        help = "By default we publish bids for all relays in file, we can choose to exclude some. Specify relays to remove: e.g. `--exclude-relay flashbots --exclude-relay blocknative`"
-    )]
-    pub exclude_relay: Vec<String>,
-    #[clap(long)]
-    pub publisher_url: String,
-    #[clap(long)]
-    pub request_interval_s: f64,
-    #[clap(
-        long,
-        help = "Int between [0; --time-offset-count[. We'll initiate our requests at exactly this time proportionally in the slot. Imagine you have 3 instances in 3 servers, you pass --time-offset-count 3 and then the first instance will have --time-offset-index 0, the second 1, and the third 2."
-    )]
-    pub time_offset_index: u64,
-    #[clap(long)]
-    pub time_offset_count: u64,
-    #[clap(
-        long,
-        default_value = "6.0",
-        help = "When these jobs should start to query for bids, in each slot. It's then shifted using time_offset_index/time_offset_count."
-    )]
-    pub request_start_s: f64,
-    #[clap(long, parse(try_from_str = try_parse_custom_request_interval), help="Override the request interval for a specific relay. Use like this: `--custom_request_interval relay_name=0.8`")]
-    pub custom_request_interval_s: Vec<(String, f64)>,
-    #[clap(long)]
-    pub publisher_name: String,
-}
-
 #[derive(Debug, Clone)]
 pub struct RelayParams {
     pub url: String,
@@ -90,8 +40,8 @@ pub struct RelayParams {
     pub request_interval_s: f64,
 }
 
-pub struct ServiceInner {
-    pub args: Args,
+pub struct ServiceInner<CfgType> {
+    pub cfg: CfgType,
     pub relays: HashMap<String, RelayParams>,
     pub last_block_number: u64,
     pub last_block_hash: String,
@@ -100,75 +50,79 @@ pub struct ServiceInner {
 }
 
 #[async_trait]
-pub trait Service: Clone + Sized + Sync {
-    fn inner(&self) -> MutexGuard<'_, ServiceInner>;
-    fn new_(nng_publisher_socket: Pub0, inner: Arc<Mutex<ServiceInner>>) -> Self;
-    async fn new_blocks_subscriber(self);
+pub trait Service<CfgType: CfgWithSimpleRelayPublisherConfig>: Clone + Sized + Sync {
+    fn inner(&self) -> MutexGuard<'_, ServiceInner<CfgType>>;
+    fn cancellation_token(&self) -> CancellationToken;
+    fn new_(
+        name: String,
+        sender: Arc<BidSender>,
+        inner: Arc<Mutex<ServiceInner<CfgType>>>,
+        cancel: CancellationToken,
+    ) -> Self;
+    // On error just return a string to log
+    async fn new_blocks_subscriber(self) -> Result<(), String>;
 
     async fn run(self)
     where
         Self: 'static,
     {
-        for relay_name in self.inner().relays.keys() {
-            tokio::spawn(Service::relay_subscriber(
-                self.to_owned(),
-                relay_name.clone(),
-            ));
+        let relays = self.inner().relays.clone();
+        for (relay_name, relay_params) in relays {
+            let cancel = self.cancellation_token();
+            let self_clone = self.to_owned();
+            tokio::spawn(async move {
+                if let Err(err) =
+                    Service::relay_subscriber(self_clone, relay_name, relay_params, cancel.clone())
+                        .await
+                {
+                    error!(err, "Service::relay_subscriber failed. Cancelling.");
+                    cancel.cancel();
+                }
+            });
         }
 
-        Service::new_blocks_subscriber(self.clone()).await;
+        if let Err(err) = Service::new_blocks_subscriber(self.clone()).await {
+            error!(err, "new_blocks_subscriber failed. Cancelling.");
+            self.cancellation_token().cancel();
+        }
     }
 
+    /// On errors will cancel via cancellation_token
     async fn relay_refresh(
         self,
         relay_name: String,
         relay_endpoint: String,
         bids_seen: Arc<Mutex<LruCache<BlockBid, ()>>>,
         client: Arc<reqwest::Client>,
+        cancellation_token: CancellationToken,
     );
 
-    async fn new(args: Args) -> Self {
-        let runng_factory = runng::factory::latest::ProtocolFactory::default();
-        let mut nng_publisher_socket = runng_factory
-            .publisher_open()
-            .expect("unable to create NNG publisher");
-        nng_publisher_socket
-            .listen(&args.publisher_url)
-            .expect("unable to have the NNG publisher listen");
-
+    async fn new<'a>(
+        cfg: CfgType,
+        name: String,
+        sender: BidSender,
+        cancel: CancellationToken,
+    ) -> Self
+    where
+        CfgType: 'a,
+    {
         let relays_file =
-            std::fs::File::open(args.relays_file.clone()).expect("file should open read only");
-        let mut relay_urls: HashMap<String, String> =
+            std::fs::File::open(cfg.simple_relay_publisher_config().relays_file.clone())
+                .expect("file should open read only");
+        let relay_urls: HashMap<String, String> =
             serde_json::from_reader(relays_file).expect("file should be proper JSON");
-
-        for relay_name in args.exclude_relay.iter() {
-            assert!(relay_urls.remove(relay_name).is_some());
-        }
         assert!(
-            !relay_urls.is_empty(),
-            "You need to pass at least one relay."
+            cfg.simple_relay_publisher_config().time_offset_index
+                < cfg.simple_relay_publisher_config().time_offset_count
         );
-
-        let relay_custom_interval_s: HashMap<String, f64> =
-            HashMap::from_iter(args.custom_request_interval_s.iter().cloned());
-        for relay_name in relay_custom_interval_s.keys() {
-            assert!(
-                relay_urls.contains_key(relay_name),
-                "You specified a custom interval for relay {relay_name} but we don't have it!"
-            );
-        }
-
-        assert!(args.time_offset_index < args.time_offset_count);
 
         let mut relays: HashMap<String, RelayParams> = HashMap::new();
         for (relay_name, relay_url) in relay_urls {
-            let request_interval_s = relay_custom_interval_s
-                .get(&relay_name)
-                .cloned()
-                .unwrap_or(args.request_interval_s);
-            let request_start_s = args.request_start_s
+            let request_interval_s = cfg.simple_relay_publisher_config().request_interval_s;
+            let request_start_s = cfg.simple_relay_publisher_config().request_start_s
                 + request_interval_s
-                    * (args.time_offset_index as f64 / args.time_offset_count as f64);
+                    * (cfg.simple_relay_publisher_config().time_offset_index as f64
+                        / cfg.simple_relay_publisher_config().time_offset_count as f64);
             info!(
                 "Relay {}: start at {} seconds in slot, request every {} seconds.",
                 relay_name, request_start_s, request_interval_s
@@ -184,32 +138,50 @@ pub trait Service: Clone + Sized + Sync {
         }
 
         Self::new_(
-            nng_publisher_socket,
-            Arc::new(Mutex::new(ServiceInner {
-                args,
+            name,
+            Arc::new(sender),
+            Arc::new(Mutex::new(ServiceInner::<CfgType> {
+                cfg,
                 relays,
                 last_block_number: 0,
                 last_block_hash: String::new(),
                 last_slot: 0,
                 next_validator_pubkey: String::new(),
             })),
+            cancel,
         )
     }
 
-    async fn wait_until_ready(&self) {
+    async fn wait_until_ready(&self, cancellation_token: &CancellationToken) {
         info!("Waiting for a new block...");
         while self.inner().last_slot == 0 {
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            if timeout(Duration::from_millis(10), cancellation_token.cancelled())
+                .await
+                .is_ok()
+            {
+                return;
+            }
         }
     }
 
-    async fn relay_subscriber(self, relay_name: String)
+    /// Loop until cancelled querying the relay for the bids via Self::relay_refresh.
+    /// On error return a string.
+    /// Does not call cancellation_token.cancel() but Self::relay_refresh might.
+    async fn relay_subscriber(
+        self,
+        relay_name: String,
+        relay_params: RelayParams,
+        cancellation_token: CancellationToken,
+    ) -> Result<(), String>
     where
         Self: 'static,
     {
-        timeout(RPC_TIMEOUT, self.wait_until_ready())
+        timeout(RPC_TIMEOUT, self.wait_until_ready(&cancellation_token))
             .await
-            .expect("Not ready after the timeout.");
+            .map_err(|_| "Not ready after the timeout.")?;
+        if cancellation_token.is_cancelled() {
+            return Ok(());
+        }
 
         let headers_seen: Arc<Mutex<LruCache<BlockBid, ()>>> =
             Arc::new(Mutex::new(LruCache::new(NonZeroUsize::new(4096).unwrap())));
@@ -218,9 +190,8 @@ pub trait Service: Clone + Sized + Sync {
                 .user_agent("axios/0.27.2") // lulz
                 .timeout(REQUEST_TIMEOUT)
                 .build()
-                .expect("unable to build client"),
+                .map_err(|_| "unable to build client.")?,
         );
-        let relay_params = self.inner().relays.get(&relay_name).unwrap().clone();
         let request_interval = Duration::from_secs_f64(relay_params.request_interval_s);
 
         info!(
@@ -228,17 +199,16 @@ pub trait Service: Clone + Sized + Sync {
             &relay_name,
         );
 
-        loop {
+        while !cancellation_token.is_cancelled() {
             let start_timestamp = get_timestamp_f64();
 
             // This is so that we keep refreshing even if we are >12 seconds into the slot, some
             // validators may request late.
             let seconds_in_slot =
                 slot::get_seconds_in_specific_slot(start_timestamp, self.inner().last_slot);
-            assert!(
-                (-1. ..600.).contains(&seconds_in_slot),
-                "We are at second {seconds_in_slot} in slot. Doesn't make sense. Is our node synced?"
-            );
+            if !(-1. ..600.).contains(&seconds_in_slot) {
+                return Err("We are at second {seconds_in_slot} in slot. Doesn't make sense. Is our node synced?".to_owned());
+            }
 
             // requesting headers until 8/9 seconds into the block is useless
             // because 99% of blocks get mined after 9 seconds
@@ -250,24 +220,27 @@ pub trait Service: Clone + Sized + Sync {
                     relay_params.request_start_s - seconds_in_slot
                 );
                 // we sleep until we can start requesting headers
-                tokio::time::sleep(Duration::from_secs_f64(
-                    relay_params.request_start_s - seconds_in_slot,
-                ))
+                let _ = timeout(
+                    Duration::from_secs_f64(relay_params.request_start_s - seconds_in_slot),
+                    cancellation_token.cancelled(),
+                )
                 .await;
                 continue;
             }
-
+            let cancellation_token_clone = cancellation_token.clone();
             tokio::spawn(Self::relay_refresh(
                 self.clone(),
                 relay_name.clone(),
                 relay_params.url.clone(),
                 headers_seen.clone(),
                 client.clone(),
+                cancellation_token_clone,
             ));
 
             // sleep until we need to do our next request
             // this ensures we request exactly every `request_interval` seconds
-            tokio::time::sleep(request_interval).await;
+            let _ = timeout(request_interval, cancellation_token.cancelled()).await;
         }
+        Ok(())
     }
 }

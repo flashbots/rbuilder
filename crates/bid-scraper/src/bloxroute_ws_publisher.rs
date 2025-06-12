@@ -1,7 +1,7 @@
+use crate::{get_timestamp_f64, types::BlockBid, DynResult, RPC_TIMEOUT};
 use clap::Parser;
 use ethers::prelude::*;
 use futures_util::SinkExt;
-use relay_bids_publisher::{get_timestamp_f64, types::BlockBid, DynResult, RPC_TIMEOUT};
 use runng::{protocol::Pub0, Listen, SendSocket};
 use serde::Deserialize;
 use serde_json::json;
