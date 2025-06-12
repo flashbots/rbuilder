@@ -4,7 +4,8 @@ use bid_scraper::code_from_rbuilder::{
     load_config_toml_and_env, setup_tracing_subscriber, LoggerConfig,
 };
 use bid_scraper::config::{
-    Config, PublisherConfig, RelayBidsPublisherConfig, RelayHeadersPublisherConfig,
+    CfgWithSimpleRelayPublisherConfig, Config, PublisherConfig, RelayBidsPublisherConfig,
+    RelayHeadersPublisherConfig,
 };
 use bid_scraper::headers_publisher::HeadersPublisherService;
 use bid_scraper::Service;
@@ -53,7 +54,10 @@ async fn main() -> eyre::Result<()> {
     for named_publisher in config.publishers {
         match named_publisher.publisher {
             PublisherConfig::RelayBids(cfg) => {
-                tokio::spawn(start_relay_bids_publisher(
+                tokio::spawn(start_relay_publisher::<
+                    RelayBidsPublisherConfig,
+                    BidsPublisherService,
+                >(
                     cfg,
                     named_publisher.name,
                     nng_publisher_socket.clone(),
@@ -61,7 +65,10 @@ async fn main() -> eyre::Result<()> {
                 ));
             }
             PublisherConfig::RelayHeaders(cfg) => {
-                tokio::spawn(start_relay_headers_publisher(
+                tokio::spawn(start_relay_publisher::<
+                    RelayHeadersPublisherConfig,
+                    HeadersPublisherService,
+                >(
                     cfg,
                     named_publisher.name,
                     nng_publisher_socket.clone(),
@@ -74,46 +81,27 @@ async fn main() -> eyre::Result<()> {
     Ok(())
 }
 
-async fn start_relay_bids_publisher(
-    cfg: RelayBidsPublisherConfig,
+async fn start_relay_publisher<
+    CfgType: CfgWithSimpleRelayPublisherConfig + Clone,
+    ServiceType: Service<CfgType> + Send + Sync + 'static,
+>(
+    cfg: CfgType,
     name: String,
     nng_publisher_socket: Pub0,
     global_cancel: CancellationToken,
 ) {
     while !global_cancel.is_cancelled() {
-        info!("Initializing service...");
+        info!(name, "Initializing service...");
         let session_cancel = global_cancel.child_token();
         let sender = BidSender::new(
             nng_publisher_socket.clone(),
             global_cancel.clone(),
             session_cancel.clone(),
         );
-        let service =
-            BidsPublisherService::new(cfg.clone(), name.clone(), sender, session_cancel).await;
-        info!("Service initialized!");
+        let service = ServiceType::new(cfg.clone(), name.clone(), sender, session_cancel).await;
+        info!(name, "Service initialized!");
         service.run().await;
-        let _ = timeout(Duration::from_secs(10), global_cancel.cancelled()).await;
-    }
-}
-
-async fn start_relay_headers_publisher(
-    cfg: RelayHeadersPublisherConfig,
-    name: String,
-    nng_publisher_socket: Pub0,
-    global_cancel: CancellationToken,
-) {
-    while !global_cancel.is_cancelled() {
-        info!("Initializing service...");
-        let session_cancel = global_cancel.child_token();
-        let sender = BidSender::new(
-            nng_publisher_socket.clone(),
-            global_cancel.clone(),
-            session_cancel.clone(),
-        );
-        let service =
-            HeadersPublisherService::new(cfg.clone(), name.clone(), sender, session_cancel).await;
-        info!("Service initialized!");
-        service.run().await;
+        info!(name, "Service died waiting to restart it");
         let _ = timeout(Duration::from_secs(10), global_cancel.cancelled()).await;
     }
 }
