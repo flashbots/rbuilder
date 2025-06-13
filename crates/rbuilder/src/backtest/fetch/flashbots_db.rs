@@ -1,6 +1,6 @@
 use crate::{
     backtest::{
-        fetch::data_source::{BlockRef, DataSource, DatasourceData},
+        fetch::data_source::{BlockRef, DataSource, DatasourceData, FullSlotDatasourceData},
         BuiltBlockData, OrdersWithTimestamp,
     },
     primitives::{
@@ -370,6 +370,10 @@ impl DataSource for RelayDB {
                 .collect(),
             built_block_data,
         })
+    }
+
+    async fn get_full_slot_data(&self, _block: BlockRef) -> eyre::Result<FullSlotDatasourceData> {
+        unimplemented!("DEPRECATED")
     }
 
     fn clone_box(&self) -> Box<dyn DataSource> {

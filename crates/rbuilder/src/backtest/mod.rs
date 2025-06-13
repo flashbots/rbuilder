@@ -3,6 +3,7 @@ pub mod execute;
 pub mod fetch;
 
 pub mod build_block;
+pub mod full_slot_block_data;
 pub mod redistribute;
 pub mod restore_landed_orders;
 mod results_store;
@@ -85,7 +86,7 @@ pub enum OrderFilteredReason {
     Signer,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct BlockData {
     pub block_number: u64,
     /// Extra info for landed block (not contained on onchain_block).
@@ -95,6 +96,7 @@ pub struct BlockData {
     pub onchain_block: alloy_rpc_types::Block,
     /// Orders we had at the moment of building the block.
     /// This might be an approximation depending on DataSources used.
+    /// BE CAREFUL: Depending on the source/order-type orders might be preprocessed for uuid replacements (you may have several orders with the same replacement id)
     pub available_orders: Vec<OrdersWithTimestamp>,
     pub filtered_orders: HashMap<OrderId, OrderFilteredReason>,
     pub built_block_data: Option<BuiltBlockData>,

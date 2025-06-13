@@ -2,7 +2,10 @@
 //! It downloads all the needed parquet files and keeps them cached for future use.
 use crate::{
     backtest::{
-        fetch::data_source::{BlockRef, DataSource, DatasourceData},
+        fetch::data_source::{
+            get_full_slot_data_from_data, BlockRef, DataSource, DatasourceData,
+            FullSlotDatasourceData,
+        },
         OrdersWithTimestamp,
     },
     primitives::{
@@ -132,6 +135,10 @@ impl DataSource for MempoolDumpsterDatasource {
             orders: mempool_txs,
             built_block_data: None,
         })
+    }
+
+    async fn get_full_slot_data(&self, block: BlockRef) -> eyre::Result<FullSlotDatasourceData> {
+        get_full_slot_data_from_data(self, block).await
     }
 
     fn clone_box(&self) -> Box<dyn DataSource> {
