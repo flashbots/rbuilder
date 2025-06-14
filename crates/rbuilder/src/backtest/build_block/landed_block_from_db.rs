@@ -163,7 +163,10 @@ async fn read_block_data(
     let mut historical_data_storage =
         HistoricalDataStorage::new_from_path(backtest_fetch_output_file).await?;
 
-    let mut block_data = historical_data_storage.read_block_data(block).await?;
+    let mut block_data = historical_data_storage
+        .read_block_data(block)
+        .await?
+        .snapshot_at_built_time()?;
 
     if !only_order_ids.is_empty() {
         block_data.filter_orders_by_ids(&only_order_ids);

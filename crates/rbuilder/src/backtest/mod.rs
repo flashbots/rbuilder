@@ -15,10 +15,7 @@ use std::collections::HashSet;
 
 use crate::{
     mev_boost::BuilderBlockReceived,
-    primitives::{
-        serialize::{RawOrder, RawOrderConvertError, TxEncoding},
-        AccountNonce, Order, OrderId, OrderReplacementKey,
-    },
+    primitives::{serialize::RawOrder, AccountNonce, Order, OrderId, OrderReplacementKey},
     utils::offset_datetime_to_timestamp_ms,
 };
 use alloy_consensus::Transaction as TransactionTrait;
@@ -44,15 +41,6 @@ impl From<OrdersWithTimestamp> for RawOrdersWithTimestamp {
             timestamp_ms: orders.timestamp_ms,
             order: orders.order.into(),
         }
-    }
-}
-
-impl RawOrdersWithTimestamp {
-    fn decode(self, encoding: TxEncoding) -> Result<OrdersWithTimestamp, RawOrderConvertError> {
-        Ok(OrdersWithTimestamp {
-            timestamp_ms: self.timestamp_ms,
-            order: self.order.decode(encoding)?,
-        })
     }
 }
 

@@ -1,4 +1,3 @@
-mod cli;
 mod redistribution_algo;
 
 use crate::{
@@ -22,7 +21,6 @@ use crate::{
 };
 use ahash::{HashMap, HashSet};
 use alloy_primitives::{utils::format_ether, Address, B256, I256, U256};
-pub use cli::run_backtest_redistribute;
 use itertools::Itertools;
 use rayon::prelude::*;
 use reth_chainspec::ChainSpec;

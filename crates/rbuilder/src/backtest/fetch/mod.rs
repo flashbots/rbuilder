@@ -10,6 +10,7 @@ use crate::{
             data_source::{BlockRef, DataSource},
             mev_boost::PayloadDeliveredFetcher,
         },
+        full_slot_block_data::{FullSlotBlockData, ReplaceableOrderPoolCommandWithTimestamp},
         BlockData, OrdersWithTimestamp,
     },
     mev_boost::BuilderBlockReceived,
@@ -192,7 +193,11 @@ impl HistoricalDataFetcher {
             .collect())
     }
 
-    pub async fn fetch_historical_data(&self, block_number: u64) -> eyre::Result<BlockData> {
+    /// Fetches the non DataSource related data
+    async fn fetch_basic_historical_data(
+        &self,
+        block_number: u64,
+    ) -> eyre::Result<(BlockRef, Block, BuilderBlockReceived)> {
         info!(block_number, "Fetching historical data for block");
 
         info!("Fetching payload delivered");
@@ -203,14 +208,20 @@ impl HistoricalDataFetcher {
 
         let block_timestamp: u64 = timestamp_as_u64(&onchain_block);
 
-        let mut orders: Vec<OrdersWithTimestamp> = vec![];
-        let mut built_block_data = None;
         let block_ref = BlockRef::new(
             block_number,
             block_timestamp,
             Some(onchain_block.header.hash),
         );
+        Ok((block_ref, onchain_block, winning_bid_trace))
+    }
 
+    pub async fn fetch_historical_data(&self, block_number: u64) -> eyre::Result<BlockData> {
+        let (block_ref, onchain_block, winning_bid_trace) =
+            self.fetch_basic_historical_data(block_number).await?;
+
+        let mut orders: Vec<OrdersWithTimestamp> = vec![];
+        let mut built_block_data = None;
         for datasource in &self.data_sources {
             let mut data = datasource.get_data(block_ref).await?;
             orders.append(&mut data.orders);
@@ -240,5 +251,32 @@ impl HistoricalDataFetcher {
             built_block_data,
             filtered_orders: Default::default(),
         })
+    }
+
+    pub async fn fetch_full_slot_historical_data(
+        &self,
+        block_number: u64,
+    ) -> eyre::Result<FullSlotBlockData> {
+        let (block_ref, onchain_block, winning_bid_trace) =
+            self.fetch_basic_historical_data(block_number).await?;
+
+        let mut built_block_data = None;
+        let mut available_orders: Vec<ReplaceableOrderPoolCommandWithTimestamp> = vec![];
+        for datasource in &self.data_sources {
+            let mut data = datasource.get_full_slot_data(block_ref).await?;
+            available_orders.append(&mut data.orders);
+            if built_block_data.is_none() && data.built_block_data.is_some() {
+                built_block_data = data.built_block_data;
+            }
+        }
+        info!(count = available_orders.len(), "Fetched available_orders");
+
+        Ok(FullSlotBlockData::new(
+            block_number,
+            winning_bid_trace,
+            onchain_block,
+            available_orders,
+            built_block_data,
+        ))
     }
 }

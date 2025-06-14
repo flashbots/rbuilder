@@ -17,6 +17,7 @@ pub struct DatasourceData {
 
 #[derive(Debug, Clone)]
 pub struct FullSlotDatasourceData {
+    /// Orders are NOT guarantied to be sorted by timestamp.
     pub orders: Vec<ReplaceableOrderPoolCommandWithTimestamp>,
     pub built_block_data: Option<BuiltBlockData>,
 }

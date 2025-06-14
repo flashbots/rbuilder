@@ -544,7 +544,7 @@ pub enum RawShareBundleConvertError {
     CancelError,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CancelShareBundle {
     pub block: u64,
     pub key: ShareBundleReplacementKey,
