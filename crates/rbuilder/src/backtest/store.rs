@@ -16,8 +16,9 @@ use crate::{
 use ahash::{HashMap, HashSet};
 use alloy_primitives::{
     utils::{format_ether, parse_ether, ParseUnits, Unit},
-    Address, B256, I256, U256,
+    I256,
 };
+use alloy_primitives::{Address, B256, U256};
 use lz4_flex::{block::DecompressError, compress_prepend_size, decompress_size_prepended};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -629,22 +630,87 @@ fn group_rows_into_block_data(
     Ok(res)
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum RawReplaceableOrderPoolCommand {
+    /// New or update order
+    Order(RawOrder),
+    /// Cancellation for sbundle
+    CancelShareBundle(CancelShareBundle),
+    CancelBundle(BundleReplacementData),
+}
+
+impl From<ReplaceableOrderPoolCommand> for RawReplaceableOrderPoolCommand {
+    fn from(command: ReplaceableOrderPoolCommand) -> Self {
+        match command {
+            ReplaceableOrderPoolCommand::Order(order) => {
+                RawReplaceableOrderPoolCommand::Order(order.into())
+            }
+            ReplaceableOrderPoolCommand::CancelShareBundle(cancel_share_bundle) => {
+                RawReplaceableOrderPoolCommand::CancelShareBundle(cancel_share_bundle)
+            }
+            ReplaceableOrderPoolCommand::CancelBundle(replacement_data) => {
+                RawReplaceableOrderPoolCommand::CancelBundle(replacement_data)
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RawReplaceableOrderPoolCommandWithTimestamp {
+    pub timestamp_ms: u64,
+    pub command: RawReplaceableOrderPoolCommand,
+}
+
+impl From<ReplaceableOrderPoolCommandWithTimestamp>
+    for RawReplaceableOrderPoolCommandWithTimestamp
+{
+    fn from(command_ts: ReplaceableOrderPoolCommandWithTimestamp) -> Self {
+        RawReplaceableOrderPoolCommandWithTimestamp {
+            timestamp_ms: command_ts.timestamp_ms,
+            command: command_ts.command.into(),
+        }
+    }
+}
+
+impl RawReplaceableOrderPoolCommandWithTimestamp {
+    fn decode(
+        self,
+        encoding: TxEncoding,
+    ) -> Result<ReplaceableOrderPoolCommandWithTimestamp, RawOrderConvertError> {
+        Ok(ReplaceableOrderPoolCommandWithTimestamp {
+            timestamp_ms: self.timestamp_ms,
+            command: match self.command {
+                RawReplaceableOrderPoolCommand::Order(raw_order) => {
+                    ReplaceableOrderPoolCommand::Order(raw_order.decode(encoding)?)
+                }
+                RawReplaceableOrderPoolCommand::CancelShareBundle(cancel_share_bundle) => {
+                    ReplaceableOrderPoolCommand::CancelShareBundle(cancel_share_bundle)
+                }
+                RawReplaceableOrderPoolCommand::CancelBundle(replacement_data) => {
+                    ReplaceableOrderPoolCommand::CancelBundle(replacement_data)
+                }
+            },
+        })
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
     use crate::{
-        backtest::{full_slot_block_data::FullSlotBlockData, RawOrdersWithTimestamp},
+        backtest::full_slot_block_data::FullSlotBlockData,
         mev_boost::BuilderBlockReceived,
         primitives::{
             serialize::{RawBundle, RawTx},
-            LAST_BUNDLE_VERSION,
+            BundleReplacementKey, ShareBundleReplacementKey, LAST_BUNDLE_VERSION,
         },
     };
     use alloy_consensus::{EthereumTxEnvelope, Signed, TxEip1559};
-    use alloy_primitives::{hex, Address, Signature, B256, U256, U64};
+    use alloy_primitives::{address, hex, Address, Signature, B256, U256, U64};
     use alloy_rpc_types::{Block, BlockTransactions, Header, Transaction};
     use reth_primitives::Recovered;
     use time::OffsetDateTime;
+    use uuid::uuid;
 
     #[tokio::test]
     async fn test_create_tables() {
@@ -689,6 +755,26 @@ mod test {
             }
             .decode(TxEncoding::WithBlobData)
             .unwrap(),
+            ReplaceableOrderPoolCommandWithTimestamp {
+                timestamp_ms: 1234,
+                command: ReplaceableOrderPoolCommand::CancelBundle(BundleReplacementData {
+                    key: BundleReplacementKey::new(
+                        uuid!("12345678-1234-1234-1234-123456789abc"),
+                        Some(address!("f39Fd6e51aad88F6F4ce6aB8827279cffFb92266")),
+                    ),
+                    sequence_number: 876,
+                }),
+            },
+            ReplaceableOrderPoolCommandWithTimestamp {
+                timestamp_ms: 1234,
+                command: ReplaceableOrderPoolCommand::CancelShareBundle(CancelShareBundle {
+                    key: ShareBundleReplacementKey::new(
+                        uuid!("12345678-1234-1234-1234-123456789abc"),
+                        address!("f39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
+                    ),
+                    block: 12,
+                }),
+            },
         ];
 
         let winning_bid_trace = BuilderBlockReceived {
@@ -783,69 +869,5 @@ mod test {
             transaction_index: Some(5),
             effective_gas_price: Some(7),
         }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum RawReplaceableOrderPoolCommand {
-    /// New or update order
-    Order(RawOrder),
-    /// Cancellation for sbundle
-    CancelShareBundle(CancelShareBundle),
-    CancelBundle(BundleReplacementData),
-}
-
-impl From<ReplaceableOrderPoolCommand> for RawReplaceableOrderPoolCommand {
-    fn from(command: ReplaceableOrderPoolCommand) -> Self {
-        match command {
-            ReplaceableOrderPoolCommand::Order(order) => {
-                RawReplaceableOrderPoolCommand::Order(order.into())
-            }
-            ReplaceableOrderPoolCommand::CancelShareBundle(cancel_share_bundle) => {
-                RawReplaceableOrderPoolCommand::CancelShareBundle(cancel_share_bundle)
-            }
-            ReplaceableOrderPoolCommand::CancelBundle(replacement_data) => {
-                RawReplaceableOrderPoolCommand::CancelBundle(replacement_data)
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RawReplaceableOrderPoolCommandWithTimestamp {
-    pub timestamp_ms: u64,
-    pub command: RawReplaceableOrderPoolCommand,
-}
-
-impl From<ReplaceableOrderPoolCommandWithTimestamp>
-    for RawReplaceableOrderPoolCommandWithTimestamp
-{
-    fn from(command_ts: ReplaceableOrderPoolCommandWithTimestamp) -> Self {
-        RawReplaceableOrderPoolCommandWithTimestamp {
-            timestamp_ms: command_ts.timestamp_ms,
-            command: command_ts.command.into(),
-        }
-    }
-}
-
-impl RawReplaceableOrderPoolCommandWithTimestamp {
-    fn decode(
-        self,
-        encoding: TxEncoding,
-    ) -> Result<ReplaceableOrderPoolCommandWithTimestamp, RawOrderConvertError> {
-        Ok(ReplaceableOrderPoolCommandWithTimestamp {
-            timestamp_ms: self.timestamp_ms,
-            command: match self.command {
-                RawReplaceableOrderPoolCommand::Order(raw_order) => {
-                    ReplaceableOrderPoolCommand::Order(raw_order.decode(encoding)?)
-                }
-                RawReplaceableOrderPoolCommand::CancelShareBundle(cancel_share_bundle) => {
-                    ReplaceableOrderPoolCommand::CancelShareBundle(cancel_share_bundle)
-                }
-                RawReplaceableOrderPoolCommand::CancelBundle(replacement_data) => {
-                    ReplaceableOrderPoolCommand::CancelBundle(replacement_data)
-                }
-            },
-        })
     }
 }
