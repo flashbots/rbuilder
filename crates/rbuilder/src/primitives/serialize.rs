@@ -545,6 +545,7 @@ pub enum RawShareBundleConvertError {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct CancelShareBundle {
     pub block: u64,
     pub key: ShareBundleReplacementKey,

@@ -20,6 +20,7 @@ use crate::{
 
 /// A ReplaceableOrderPoolCommand + timestamp to be able to reproduce the orderflow timeline.
 #[derive(Debug, Clone)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct ReplaceableOrderPoolCommandWithTimestamp {
     pub timestamp_ms: u64,
     pub command: ReplaceableOrderPoolCommand,
@@ -36,6 +37,7 @@ impl From<OrdersWithTimestamp> for ReplaceableOrderPoolCommandWithTimestamp {
 
 /// All the information needed to replay a slot.
 #[derive(Debug, Clone)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct FullSlotBlockData {
     pub block_number: u64,
     /// Extra info for landed block (not contained on onchain_block).

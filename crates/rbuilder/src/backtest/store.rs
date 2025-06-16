@@ -657,17 +657,17 @@ mod test {
         let tx = hex!("02f9037b018203cd8405f5e1008503692da370830388ba943fc91a3afd70395cd496c647d5a6cc9d4b2b7fad8780e531581b77c4b903043593564c000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000a00000000000000000000000000000000000000000000000000000000064f390d300000000000000000000000000000000000000000000000000000000000000030b090c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000c000000000000000000000000000000000000000000000000000000000000001e0000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000080e531581b77c400000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000009184e72a0000000000000000000000000000000000000000000000000000080e531581b77c400000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000c02aaa39b223fe8d0a0e5c4f27ead9083c756cc2000000000000000000000000b5ea574dd8f2b735424dfc8c4e16760fc44a931b000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000c001a0a9ea84ad107d335afd5e5d2ddcc576f183be37386a9ac6c9d4469d0329c22e87a06a51ea5a0809f43bf72d0156f1db956da3a9f3da24b590b7eed01128ff84a2c1").to_vec();
 
         let orders: Vec<ReplaceableOrderPoolCommandWithTimestamp> = vec![
-            RawOrdersWithTimestamp {
+            RawReplaceableOrderPoolCommandWithTimestamp {
                 timestamp_ms: 10,
-                order: RawOrder::Tx(RawTx {
+                command: RawReplaceableOrderPoolCommand::Order(RawOrder::Tx(RawTx {
                     tx: tx.clone().into(),
-                }),
+                })),
             }
             .decode(TxEncoding::WithBlobData)
             .unwrap(),
-            RawOrdersWithTimestamp {
+            RawReplaceableOrderPoolCommandWithTimestamp {
                 timestamp_ms: 11,
-                order: RawOrder::Bundle(RawBundle {
+                command: RawReplaceableOrderPoolCommand::Order(RawOrder::Bundle(RawBundle {
                     block_number: Some(U64::from(12)),
                     txs: vec![tx.clone().into()],
                     reverting_tx_hashes: vec![],
@@ -685,11 +685,10 @@ mod test {
                     refund_tx_hashes: None,
                     first_seen_at: None,
                     version: Some(RawBundle::encode_version(LAST_BUNDLE_VERSION)),
-                }),
+                })),
             }
             .decode(TxEncoding::WithBlobData)
-            .unwrap()
-            .into(),
+            .unwrap(),
         ];
 
         let winning_bid_trace = BuilderBlockReceived {
@@ -716,13 +715,13 @@ mod test {
             sealed_at: OffsetDateTime::from_unix_timestamp_nanos(1719845355123000000).unwrap(),
             profit: I256::try_from(42).unwrap(),
         };
-        let block_data = FullSlotBlockData {
-            block_number: 12,
+        let block_data = FullSlotBlockData::new(
+            12,
             winning_bid_trace,
             onchain_block,
-            available_orders: orders,
-            built_block_data: Some(built_block_data),
-        };
+            orders,
+            Some(built_block_data),
+        );
 
         let mut storage = HistoricalDataStorage::new_from_memory().await.unwrap();
         storage.create_tables().await.unwrap();

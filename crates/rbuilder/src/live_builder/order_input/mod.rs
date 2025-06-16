@@ -167,6 +167,7 @@ impl OrderInputConfig {
 
 /// Commands we can get from RPC or mempool fetcher.
 #[derive(Debug, Clone)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub enum ReplaceableOrderPoolCommand {
     /// New or update order
     Order(Order),

@@ -1326,7 +1326,7 @@ mod tests {
     fn can_execute_single_optional_tx() {
         let needed_base_gas: u128 = 100000;
         let tx = Recovered::new_unchecked(
-            TransactionSigned::new(
+            TransactionSigned::new_unchecked(
                 Transaction::Legacy(TxLegacy {
                     gas_price: needed_base_gas,
                     ..Default::default()
