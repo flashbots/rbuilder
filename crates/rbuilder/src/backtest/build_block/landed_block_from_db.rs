@@ -166,7 +166,7 @@ async fn read_block_data(
     let mut block_data = historical_data_storage
         .read_block_data(block)
         .await?
-        .snapshot_at_built_time()?;
+        .snapshot_at_built_time_best_effort()?;
 
     if !only_order_ids.is_empty() {
         block_data.filter_orders_by_ids(&only_order_ids);

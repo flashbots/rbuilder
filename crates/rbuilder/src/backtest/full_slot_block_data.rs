@@ -1,6 +1,6 @@
 //! We include here all the info to reproduce everything that happened during the slot.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use ahash::{HashMap, HashSet};
 use parking_lot::Mutex;
@@ -15,7 +15,7 @@ use crate::{
         ReplaceableOrderPoolCommand,
     },
     mev_boost::BuilderBlockReceived,
-    utils::offset_datetime_to_timestamp_ms,
+    utils::{offset_datetime_to_timestamp_ms, timestamp_ms_to_offset_datetime},
 };
 
 /// A ReplaceableOrderPoolCommand + timestamp to be able to reproduce the orderflow timeline.
@@ -52,6 +52,9 @@ pub struct FullSlotBlockData {
     /// Only available if we landed the block.
     pub built_block_data: Option<BuiltBlockData>,
 }
+
+/// Usually getheader is called before slot time + 2 secs.
+const DEFAULT_CUTOFF_PAST_SLOT: Duration = Duration::from_secs(2);
 
 #[derive(Debug, thiserror::Error)]
 pub enum FullSlotBlockDataError {
@@ -96,6 +99,19 @@ impl FullSlotBlockData {
 
     pub fn built_by_us(&self) -> bool {
         self.built_block_data.is_some()
+    }
+
+    /// If we built the block it will call snapshot_at_built_time
+    /// if not it will take a cutoff way passed the probable get header time (DEFAULT_CUTOFF_PAST_SLOT)
+    pub fn snapshot_at_built_time_best_effort(&self) -> Result<BlockData, FullSlotBlockDataError> {
+        if self.built_by_us() {
+            self.snapshot_at_built_time()
+        } else {
+            let block_time =
+                timestamp_ms_to_offset_datetime(self.onchain_block.header.timestamp * 1000)
+                    + DEFAULT_CUTOFF_PAST_SLOT;
+            Ok(self.snapshot(block_time))
+        }
     }
 
     /// ONLY works if built_by_us()
