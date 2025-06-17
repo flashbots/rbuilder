@@ -423,21 +423,23 @@ fn spawn_block_fetcher(
             };
             let blocks = blocks
                 .iter()
-                .flat_map(|full_block| match full_block.snapshot_at_built_time() {
-                    Ok(mut block) => {
-                        block.filter_out_ignored_signers(&ignored_signers);
-                        block.filter_late_orders(build_block_lag_ms);
-                        Some(block)
-                    }
-                    Err(err) => {
-                        error!(
-                            err = ?err,
-                            block = full_block.block_number,
-                            "Unable to take built snapshot"
-                        );
-                        None
-                    }
-                })
+                .flat_map(
+                    |full_block| match full_block.snapshot_at_built_time_best_effort() {
+                        Ok(mut block) => {
+                            block.filter_out_ignored_signers(&ignored_signers);
+                            block.filter_late_orders(build_block_lag_ms);
+                            Some(block)
+                        }
+                        Err(err) => {
+                            error!(
+                                err = ?err,
+                                block = full_block.block_number,
+                                "Unable to take built snapshot"
+                            );
+                            None
+                        }
+                    },
+                )
                 .collect();
             match sender.send(blocks).await {
                 Ok(_) => {}
