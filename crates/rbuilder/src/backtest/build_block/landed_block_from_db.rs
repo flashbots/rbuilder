@@ -151,7 +151,7 @@ impl<ConfigType: LiveBuilderConfig>
 
 /// Reads from HistoricalDataStorage the BlockData for block.
 /// only_order_ids: if not empty returns only the given order ids.
-/// block_building_time_ms: If not 0, time it took to build the block. It allows us to filter out orders that arrived after we started building the block (filter_late_orders).
+/// block_building_time_ms: If not 0, time it took to build the block. It allows us to filter out orders that arrived after we started building the block.
 /// show_missing: show on-chain orders that weren't available to us at building time.
 async fn read_block_data(
     backtest_fetch_output_file: &PathBuf,
