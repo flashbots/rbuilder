@@ -14,6 +14,15 @@ jobs:
   codspeed:
     name: Run benchmarks
     runs-on: ubuntu-latest
+    env:
+      # Set features for the Makefile
+      FEATURES: ${{ matrix.features }}
+    strategy:
+      matrix:
+        toolchain:
+          - stable
+        features:
+          - ""
     steps:
       - uses: actions/checkout@v4
 
