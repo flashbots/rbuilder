@@ -13,10 +13,11 @@ on:
 jobs:
   codspeed:
     name: Run benchmarks
-    runs-on: warp-ubuntu-latest-x64-16x
+    runs-on: warp-ubuntu-latest-x64-32x
     env:
       # Set features for the Makefile
       FEATURES: ${{ matrix.features }}
+      RUSTFLAGS: "-Awarnings"
     strategy:
       matrix:
         toolchain:
