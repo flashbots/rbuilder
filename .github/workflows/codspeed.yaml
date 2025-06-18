@@ -13,7 +13,7 @@ on:
 jobs:
   codspeed:
     name: Run benchmarks
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-16x
     env:
       # Set features for the Makefile
       FEATURES: ${{ matrix.features }}
