@@ -3,28 +3,56 @@ name: CodSpeed
 on:
   push:
     branches:
-      - "develop"
-	  - "codspeed"
-  # Run on pull requests
+      - "main"
+      - "codspeed"
   pull_request:
   # `workflow_dispatch` allows CodSpeed to trigger backtest
   # performance analysis in order to generate initial data.
   workflow_dispatch:
 
 jobs:
-  benchmarks:
+  codspeed:
     name: Run benchmarks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-	  - name: Setup rust toolchain
+      - name: Setup rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.toolchain }}
 
-      - name: Run benchmarks
+      - name: Download builder playground
+        uses: flashbots/flashbots-toolchain@v0.1
+        with:
+          builder-playground: v0.1.3
+
+      # https://github.com/swatinem/rust-cache
+      - name: Run Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      # https://github.com/Mozilla-Actions/sccache-action
+      - name: Run sccache-action
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Set sccache env vars
+        run: |
+          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
+          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+
+      - name: Build the rbuilder
+        run: cargo build --features="${{ matrix.features }}"
+
+      - name: Run the playground
+        run: builder-playground &
+
+      - name: Build the benchmark target(s)
+        run: cargo codspeed build
+
+      - name: Run the benchmarks
         uses: CodSpeedHQ/action@v3
         with:
+          run: cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
-          run: "cargo bench"
