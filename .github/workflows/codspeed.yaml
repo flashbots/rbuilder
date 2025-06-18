@@ -62,7 +62,7 @@ jobs:
         run: cargo install cargo-codspeed
 
       - name: Build the benchmark target(s)
-        run: cargo codspeed build
+        run: cargo codspeed build --package rbuilder
 
       - name: Run the benchmarks
         uses: CodSpeedHQ/action@v3
