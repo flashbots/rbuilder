@@ -64,7 +64,7 @@ jobs:
       - name: Set Swap Space
         uses: pierotofy/set-swap-space@master
         with:
-          swap-size-gb: 64
+          swap-size-gb: 256
 
       - name: Build the benchmark target(s)
         run: cargo codspeed build --package rbuilder
