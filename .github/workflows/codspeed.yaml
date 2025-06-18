@@ -58,7 +58,7 @@ jobs:
         run: builder-playground &
 
       - name: Install codspeed
-        run: cargo install codspeed
+        run: cargo install cargo-codspeed
 
       - name: Build the benchmark target(s)
         run: cargo codspeed build
