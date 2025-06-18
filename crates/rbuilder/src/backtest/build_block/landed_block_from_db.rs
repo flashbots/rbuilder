@@ -26,7 +26,7 @@ use crate::{
         base_config::load_config_toml_and_env, block_list_provider::BlockList,
         cli::LiveBuilderConfig,
     },
-    utils::{timestamp_as_u64, ProviderFactoryReopener},
+    utils::{timestamp_as_u64, timestamp_ms_to_offset_datetime, ProviderFactoryReopener},
 };
 use clap::Parser;
 use std::{path::PathBuf, sync::Arc};
@@ -163,17 +163,14 @@ async fn read_block_data(
     let mut historical_data_storage =
         HistoricalDataStorage::new_from_path(backtest_fetch_output_file).await?;
 
-    let mut block_data = historical_data_storage
-        .read_block_data(block)
-        .await?
-        .snapshot_at_built_time_best_effort()?;
-
+    let full_block_data = historical_data_storage.read_block_data(block).await?;
+    let mut block_data =
+        full_block_data.snapshot_including_landed(timestamp_ms_to_offset_datetime(
+            (full_block_data.winning_bid_trace.timestamp_ms as i64 - block_building_time_ms) as u64,
+        ))?;
     if !only_order_ids.is_empty() {
         block_data.filter_orders_by_ids(&only_order_ids);
     }
-
-    block_data.filter_late_orders(block_building_time_ms);
-
     if show_missing {
         show_missing_txs(&block_data);
     }

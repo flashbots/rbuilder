@@ -1,10 +1,6 @@
 //! We include here all the info to reproduce everything that happened during the slot.
 
-use std::{sync::Arc, time::Duration};
-
-use ahash::{HashMap, HashSet};
-use parking_lot::Mutex;
-use time::OffsetDateTime;
+use std::sync::Arc;
 
 use crate::{
     backtest::{BlockData, BuiltBlockData, OrdersWithTimestamp},
@@ -15,8 +11,11 @@ use crate::{
         ReplaceableOrderPoolCommand,
     },
     mev_boost::BuilderBlockReceived,
-    utils::{offset_datetime_to_timestamp_ms, timestamp_ms_to_offset_datetime},
+    utils::offset_datetime_to_timestamp_ms,
 };
+use ahash::{HashMap, HashSet};
+use parking_lot::Mutex;
+use time::OffsetDateTime;
 
 /// A ReplaceableOrderPoolCommand + timestamp to be able to reproduce the orderflow timeline.
 #[derive(Debug, Clone)]
@@ -52,9 +51,6 @@ pub struct FullSlotBlockData {
     /// Only available if we landed the block.
     pub built_block_data: Option<BuiltBlockData>,
 }
-
-/// Usually getheader is called before slot time + 2 secs.
-const DEFAULT_CUTOFF_PAST_SLOT: Duration = Duration::from_secs(2);
 
 #[derive(Debug, thiserror::Error)]
 pub enum FullSlotBlockDataError {
@@ -101,70 +97,54 @@ impl FullSlotBlockData {
         self.built_block_data.is_some()
     }
 
-    /// If we built the block it will call snapshot_at_built_time
-    /// if not it will take a cutoff way passed the probable get header time (DEFAULT_CUTOFF_PAST_SLOT)
-    pub fn snapshot_at_built_time_best_effort(&self) -> Result<BlockData, FullSlotBlockDataError> {
-        if self.built_by_us() {
-            self.snapshot_at_built_time()
-        } else {
-            let block_time =
-                timestamp_ms_to_offset_datetime(self.onchain_block.header.timestamp * 1000)
-                    + DEFAULT_CUTOFF_PAST_SLOT;
-            Ok(self.snapshot(block_time))
-        }
-    }
-
-    /// ONLY works if built_by_us()
-    /// The snapshot will filter the orders at the built_block_data.orders_closed_at time but will force the inclusion of
-    /// any landed order (correcting errors by timestamp inaccuracy)
-    pub fn snapshot_at_built_time(&self) -> Result<BlockData, FullSlotBlockDataError> {
-        let Some(built_block_data) = &self.built_block_data else {
-            return Err(FullSlotBlockDataError::BlockNotWonByUs);
-        };
-
-        // Gather included orders
-        let mut included_orders_ids =
-            HashSet::from_iter(built_block_data.included_orders.iter().cloned());
-        let included_orders_ids_clone = included_orders_ids.clone();
-        let included_orders: Vec<_> = self
-            .available_orders
-            .iter()
-            .flat_map(|command_ts| match &command_ts.command {
-                ReplaceableOrderPoolCommand::Order(order) => {
-                    if included_orders_ids.remove(&order.id()) {
-                        Some(OrdersWithTimestamp {
-                            timestamp_ms: command_ts.timestamp_ms,
-                            order: order.clone(),
-                        })
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
-            })
-            .collect();
-        if !included_orders_ids.is_empty() {
-            return Err(FullSlotBlockDataError::IncludedOrderNotFound);
-        }
-
-        // Gather replacement_keys
-        let included_orders_replacement_keys = HashSet::from_iter(
-            included_orders
+    /// Creates a snapshot via snapshot and if we landed the block, adds any missing order from the landed orders
+    pub fn snapshot_including_landed(
+        &self,
+        cutoff: OffsetDateTime,
+    ) -> Result<BlockData, FullSlotBlockDataError> {
+        let mut res = self.snapshot(cutoff);
+        if let Some(built_block_data) = &self.built_block_data {
+            // Gather included orders
+            let mut included_orders_ids =
+                HashSet::from_iter(built_block_data.included_orders.iter().cloned());
+            let included_orders_ids_clone = included_orders_ids.clone();
+            let included_orders: Vec<_> = self
+                .available_orders
                 .iter()
-                .flat_map(|o| o.order.replacement_key()),
-        );
-
-        let mut res = self.snapshot(built_block_data.orders_closed_at);
-        // Remove every order with matching id (to avoid dedup later) or replacement key.
-        res.available_orders.retain(|o| {
-            !included_orders_ids_clone.contains(&o.order.id())
-                && if let Some(rep_key) = o.order.replacement_key() {
-                    !included_orders_replacement_keys.contains(&rep_key)
-                } else {
-                    true
-                }
-        });
-        res.available_orders.extend(included_orders);
+                .flat_map(|command_ts| match &command_ts.command {
+                    ReplaceableOrderPoolCommand::Order(order) => {
+                        if included_orders_ids.remove(&order.id()) {
+                            Some(OrdersWithTimestamp {
+                                timestamp_ms: command_ts.timestamp_ms,
+                                order: order.clone(),
+                            })
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                })
+                .collect();
+            if !included_orders_ids.is_empty() {
+                return Err(FullSlotBlockDataError::IncludedOrderNotFound);
+            }
+            // Gather replacement_keys
+            let included_orders_replacement_keys = HashSet::from_iter(
+                included_orders
+                    .iter()
+                    .flat_map(|o| o.order.replacement_key()),
+            );
+            // Remove every order with matching id (to avoid dedup later) or replacement key.
+            res.available_orders.retain(|o| {
+                !included_orders_ids_clone.contains(&o.order.id())
+                    && if let Some(rep_key) = o.order.replacement_key() {
+                        !included_orders_replacement_keys.contains(&rep_key)
+                    } else {
+                        true
+                    }
+            });
+            res.available_orders.extend(included_orders);
+        }
         Ok(res)
     }
 

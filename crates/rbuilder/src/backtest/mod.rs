@@ -92,16 +92,19 @@ pub struct BlockData {
 
 impl BlockData {
     /// Filters orders that arrived after we started building the block.
+    /// DANGEROUS: Filtering should not be done after replacement resolution.
     pub fn filter_late_orders(&mut self, build_block_lag_ms: i64) {
         let final_timestamp_ms = self.winning_bid_trace.timestamp_ms as i64 - build_block_lag_ms;
         self.filter_orders_by_end_timestamp_ms(final_timestamp_ms as u64);
     }
 
+    /// DANGEROUS: Filtering should not be done after replacement resolution.
     pub fn filter_orders_by_end_timestamp(&mut self, final_timestamp: OffsetDateTime) {
         let final_timestamp_ms = offset_datetime_to_timestamp_ms(final_timestamp);
         self.filter_orders_by_end_timestamp_ms(final_timestamp_ms);
     }
 
+    /// DANGEROUS: Filtering should not be done after replacement resolution.
     fn filter_orders_by_end_timestamp_ms(&mut self, final_timestamp_ms: u64) {
         // we never filter included orders even by timestamp
         let included_orders: HashSet<_> = self

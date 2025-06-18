@@ -18,6 +18,7 @@ use crate::{
         BacktestResultsStorage, BlockData, HistoricalDataStorage, StoredBacktestResult,
     },
     live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig},
+    utils::timestamp_ms_to_offset_datetime,
 };
 use alloy_primitives::{utils::format_ether, Address, U256};
 use clap::Parser;
@@ -423,11 +424,13 @@ fn spawn_block_fetcher(
             };
             let blocks = blocks
                 .iter()
-                .flat_map(
-                    |full_block| match full_block.snapshot_at_built_time_best_effort() {
+                .flat_map(|full_block| {
+                    match full_block.snapshot_including_landed(timestamp_ms_to_offset_datetime(
+                        (full_block.winning_bid_trace.timestamp_ms as i64 - build_block_lag_ms)
+                            as u64,
+                    )) {
                         Ok(mut block) => {
                             block.filter_out_ignored_signers(&ignored_signers);
-                            block.filter_late_orders(build_block_lag_ms);
                             Some(block)
                         }
                         Err(err) => {
@@ -438,8 +441,8 @@ fn spawn_block_fetcher(
                             );
                             None
                         }
-                    },
-                )
+                    }
+                })
                 .collect();
             match sender.send(blocks).await {
                 Ok(_) => {}
