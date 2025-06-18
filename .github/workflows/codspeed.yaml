@@ -61,6 +61,11 @@ jobs:
       - name: Install codspeed
         run: cargo install cargo-codspeed
 
+      - name: Set Swap Space
+        uses: pierotofy/set-swap-space@master
+        with:
+          swap-size-gb: 64
+
       - name: Build the benchmark target(s)
         run: cargo codspeed build --package rbuilder
 
