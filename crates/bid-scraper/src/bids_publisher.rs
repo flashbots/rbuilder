@@ -1,8 +1,9 @@
 use crate::{
     bid_sender::BidSender,
-    config::{CfgWithSimpleRelayPublisherConfig, RelayBidsPublisherConfig},
     get_timestamp_f64,
-    relay_api_publisher::{Service, ServiceInner},
+    relay_api_publisher::{
+        CfgWithSimpleRelayPublisherConfig, Service, ServiceInner, SimpleRelayPublisherConfig,
+    },
     slot,
     types::{BlockBid, PublisherType},
     DynResult, RPC_TIMEOUT,
@@ -14,10 +15,23 @@ use ethers::{
 };
 use lru::LruCache;
 use parking_lot::{Mutex, MutexGuard};
+use serde::Deserialize;
 use std::{str::FromStr, sync::Arc};
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, trace, warn};
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RelayBidsPublisherConfig {
+    #[serde(flatten)]
+    pub simple_relay_cfg: SimpleRelayPublisherConfig,
+}
+
+impl CfgWithSimpleRelayPublisherConfig for RelayBidsPublisherConfig {
+    fn simple_relay_publisher_config(&self) -> &SimpleRelayPublisherConfig {
+        &self.simple_relay_cfg
+    }
+}
 
 /// Publisher that scraps a relay by calling /relay/v1/data/bidtraces/builder_blocks_received
 #[derive(Clone)]

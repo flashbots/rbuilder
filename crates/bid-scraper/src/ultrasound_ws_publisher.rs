@@ -1,15 +1,26 @@
 use crate::{
     bid_sender::BidSender,
-    config::UltrasoundWsPublisherConfig,
     types::{block_bid_from_update, PublisherType, TopBidUpdate},
     RPC_TIMEOUT,
 };
 use futures_util::{SinkExt, StreamExt};
+use serde::Deserialize;
 use ssz::Decode;
 use tokio::time::timeout;
 use tokio_tungstenite::tungstenite::{client::IntoClientRequest, protocol::Message};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info};
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UltrasoundWsPublisherConfig {
+    pub ultrasound_url: String,
+    /// Be sure to use unique names. Maybe we can take it from the ultrasound_url?
+    pub relay_name: String,
+    /// Used as header X-Builder-Id, for use with ultrasound builder direct endpoint
+    pub builder_id: Option<String>,
+    /// used as header X-Api-Token, for use with ultrasound builder direct endpoint
+    pub api_token: Option<String>,
+}
 
 pub struct Service {
     cfg: UltrasoundWsPublisherConfig,

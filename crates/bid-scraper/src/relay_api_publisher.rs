@@ -3,14 +3,36 @@ use std::{collections::HashMap, num::NonZeroUsize, sync::Arc, time::Duration};
 use async_trait::async_trait;
 use lru::LruCache;
 use parking_lot::{Mutex, MutexGuard};
+use serde::Deserialize;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
 use crate::{
-    bid_sender::BidSender, config::CfgWithSimpleRelayPublisherConfig, get_timestamp_f64, slot,
-    types::BlockBid, REQUEST_TIMEOUT, RPC_TIMEOUT,
+    bid_sender::BidSender, get_timestamp_f64, slot, types::BlockBid, REQUEST_TIMEOUT, RPC_TIMEOUT,
 };
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SimpleRelayPublisherConfig {
+    /// Endpoint for an EL client. Example:"ws://127.0.0.1:8545"
+    pub eth_provider_uri: String,
+
+    /// File containing a json list of relays like { "flashbots": "https://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@boost-relay.flashbots.net" }
+    pub relays_file: String,
+    /// Int between [0; --time-offset-count) . We'll initiate our requests at exactly this time proportionally in the slot. Imagine you have 3 instances in 3 servers, you pass --time-offset-count 3 and then the first instance will have --time-offset-index 0, the second 1, and the third 2."
+    pub request_interval_s: f64,
+    pub time_offset_index: u64,
+    pub time_offset_count: u64,
+    /// When these jobs should start to query for bids, in each slot. It's then shifted using time_offset_index/time_offset_count.
+    /// default_value = "6.0",
+    pub request_start_s: f64,
+    //#[clap(long, parse(try_from_str = try_parse_custom_request_interval), help="Override the request interval for a specific relay. Use like this: `--custom_request_interval relay_name=0.8`")]
+    //pub custom_request_interval_s: Vec<(String, f64)>,
+}
+
+pub trait CfgWithSimpleRelayPublisherConfig: Send + Sync {
+    fn simple_relay_publisher_config(&self) -> &SimpleRelayPublisherConfig;
+}
 
 #[derive(Debug, Clone)]
 pub struct RelayParams {

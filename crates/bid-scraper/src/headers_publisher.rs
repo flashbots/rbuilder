@@ -1,9 +1,10 @@
 extern crate lru;
 use crate::{
     bid_sender::BidSender,
-    config::{CfgWithSimpleRelayPublisherConfig, RelayHeadersPublisherConfig},
     get_timestamp_f64,
-    relay_api_publisher::{Service, ServiceInner},
+    relay_api_publisher::{
+        CfgWithSimpleRelayPublisherConfig, Service, ServiceInner, SimpleRelayPublisherConfig,
+    },
     slot,
     types::{BlockBid, PublisherType},
     DynResult, REQUEST_TIMEOUT, RPC_TIMEOUT,
@@ -11,6 +12,7 @@ use crate::{
 use async_trait::async_trait;
 use lru::LruCache;
 use parking_lot::{Mutex, MutexGuard};
+use serde::Deserialize;
 use std::{str::FromStr, sync::Arc};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, trace, warn};
@@ -20,6 +22,20 @@ use ethers::{
     prelude::*,
 };
 use tokio::time::timeout;
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RelayHeadersPublisherConfig {
+    /// Endpoint for an EL client. Example:"ws://127.0.0.1:8545"
+    pub beacon_node_uri: String,
+    #[serde(flatten)]
+    pub simple_relay_cfg: SimpleRelayPublisherConfig,
+}
+
+impl CfgWithSimpleRelayPublisherConfig for RelayHeadersPublisherConfig {
+    fn simple_relay_publisher_config(&self) -> &SimpleRelayPublisherConfig {
+        &self.simple_relay_cfg
+    }
+}
 
 /// Publisher that scraps a relay by calling /eth/v1/builder/header/
 #[derive(Clone)]

@@ -1,13 +1,12 @@
 use bid_scraper::bid_sender::BidSender;
-use bid_scraper::bids_publisher::BidsPublisherService;
+use bid_scraper::bids_publisher::{BidsPublisherService, RelayBidsPublisherConfig};
 use bid_scraper::code_from_rbuilder::{
     load_config_toml_and_env, setup_tracing_subscriber, LoggerConfig,
 };
-use bid_scraper::config::{
-    CfgWithSimpleRelayPublisherConfig, Config, PublisherConfig, RelayBidsPublisherConfig,
-    RelayHeadersPublisherConfig, UltrasoundWsPublisherConfig,
-};
-use bid_scraper::headers_publisher::HeadersPublisherService;
+use bid_scraper::config::{Config, PublisherConfig};
+use bid_scraper::headers_publisher::{HeadersPublisherService, RelayHeadersPublisherConfig};
+use bid_scraper::relay_api_publisher::CfgWithSimpleRelayPublisherConfig;
+use bid_scraper::ultrasound_ws_publisher::UltrasoundWsPublisherConfig;
 use runng::protocol::Pub0;
 use runng::Listen;
 use std::env;
