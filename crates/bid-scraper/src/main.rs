@@ -183,6 +183,13 @@ async fn main() -> eyre::Result<()> {
     Ok(())
 }
 
+/// How much time we wait when the creation of a publisher fails.
+/// This should be a big value since unlikely that this get's fixed soon.
+const WAIT_TIME_ON_CREATION_ERROR_SECS: u64 = 60;
+/// How much time we wait when the run returns.
+/// This usually happens on any unexpected error so the value should not be very high.
+const WAIT_TIME_ON_RUN_ERROR_SECS: u64 = 10;
+
 async fn start_publisher<CfgType, PublisherType, PublisherFactoryType>(
     cfg: CfgType,
     name: String,
@@ -212,11 +219,11 @@ async fn start_publisher<CfgType, PublisherType, PublisherFactoryType>(
                 info!(name, "Service initialized!");
                 PublisherFactoryType::run(service).await;
                 info!(name, "Service died waiting to restart it");
-                10
+                WAIT_TIME_ON_RUN_ERROR_SECS
             }
             Err(err) => {
                 error!(err=?err, name, "Unable to create publisher");
-                60
+                WAIT_TIME_ON_CREATION_ERROR_SECS
             }
         };
         let _ = timeout(Duration::from_secs(timeout_secs), global_cancel.cancelled()).await;
