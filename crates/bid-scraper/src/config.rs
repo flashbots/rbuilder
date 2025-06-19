@@ -6,6 +6,7 @@ use serde_with::serde_as;
 pub enum PublisherConfig {
     RelayBids(RelayBidsPublisherConfig),
     RelayHeaders(RelayHeadersPublisherConfig),
+    UltrasoundWs(UltrasoundWsPublisherConfig),
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -62,6 +63,17 @@ impl CfgWithSimpleRelayPublisherConfig for RelayHeadersPublisherConfig {
     fn simple_relay_publisher_config(&self) -> &SimpleRelayPublisherConfig {
         &self.simple_relay_cfg
     }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UltrasoundWsPublisherConfig {
+    pub ultrasound_url: String,
+    /// Be sure to use unique names. Maybe we can take it from the ultrasound_url?
+    pub relay_name: String,
+    /// Used as header X-Builder-Id, for use with ultrasound builder direct endpoint
+    pub builder_id: Option<String>,
+    /// used as header X-Api-Token, for use with ultrasound builder direct endpoint
+    pub api_token: Option<String>,
 }
 
 #[serde_as]

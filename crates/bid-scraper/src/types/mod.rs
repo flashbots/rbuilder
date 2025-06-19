@@ -1,7 +1,7 @@
 use crate::get_timestamp_f64;
 
-mod bid;
-pub use bid::BlockBid;
+pub mod bid;
+pub use bid::{BlockBid, PublisherType};
 
 mod bid_update;
 pub use bid_update::TopBidUpdate;
@@ -10,7 +10,7 @@ pub fn block_bid_from_update(
     update: TopBidUpdate,
     relay_name: &str,
     publisher_name: &str,
-    publisher_type: &str,
+    publisher_type: PublisherType,
 ) -> BlockBid {
     let builder_pubkey = format!("0x{}", hex::encode(&update.builder_pubkey[..]));
     debug_assert_eq!(builder_pubkey.len(), 98);

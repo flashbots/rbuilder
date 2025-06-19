@@ -5,10 +5,9 @@ use bid_scraper::code_from_rbuilder::{
 };
 use bid_scraper::config::{
     CfgWithSimpleRelayPublisherConfig, Config, PublisherConfig, RelayBidsPublisherConfig,
-    RelayHeadersPublisherConfig,
+    RelayHeadersPublisherConfig, UltrasoundWsPublisherConfig,
 };
 use bid_scraper::headers_publisher::HeadersPublisherService;
-use bid_scraper::Service;
 use runng::protocol::Pub0;
 use runng::Listen;
 use std::env;
@@ -16,7 +15,7 @@ use std::time::Duration;
 use tokio::signal::ctrl_c;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{error, info};
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
@@ -75,15 +74,53 @@ async fn main() -> eyre::Result<()> {
                     global_cancel.clone(),
                 ));
             }
+            PublisherConfig::UltrasoundWs(cfg) => {
+                tokio::spawn(start_ultrasound_publisher(
+                    cfg,
+                    named_publisher.name,
+                    nng_publisher_socket.clone(),
+                    global_cancel.clone(),
+                ));
+            }
         };
     }
     ctrlc.await.unwrap_or_default();
     Ok(())
 }
 
+async fn start_ultrasound_publisher(
+    cfg: UltrasoundWsPublisherConfig,
+    name: String,
+    nng_publisher_socket: Pub0,
+    global_cancel: CancellationToken,
+) {
+    while !global_cancel.is_cancelled() {
+        info!(name, "Initializing service...");
+        let session_cancel = global_cancel.child_token();
+        let sender = BidSender::new(
+            nng_publisher_socket.clone(),
+            global_cancel.clone(),
+            session_cancel.clone(),
+        );
+
+        let service = bid_scraper::ultrasound_ws_publisher::Service::new(
+            cfg.clone(),
+            name.clone(),
+            sender,
+            session_cancel,
+        )
+        .await;
+        info!(name, "Service initialized!");
+        service.run().await;
+
+        info!(name, "Service died waiting to restart it");
+        let _ = timeout(Duration::from_secs(10), global_cancel.cancelled()).await;
+    }
+}
+
 async fn start_relay_publisher<
     CfgType: CfgWithSimpleRelayPublisherConfig + Clone,
-    ServiceType: Service<CfgType> + Send + Sync + 'static,
+    ServiceType: bid_scraper::relay_api_publisher::Service<CfgType> + Send + Sync + 'static,
 >(
     cfg: CfgType,
     name: String,
@@ -98,10 +135,19 @@ async fn start_relay_publisher<
             global_cancel.clone(),
             session_cancel.clone(),
         );
-        let service = ServiceType::new(cfg.clone(), name.clone(), sender, session_cancel).await;
-        info!(name, "Service initialized!");
-        service.run().await;
-        info!(name, "Service died waiting to restart it");
-        let _ = timeout(Duration::from_secs(10), global_cancel.cancelled()).await;
+        let timeout_secs =
+            match ServiceType::new(cfg.clone(), name.clone(), sender, session_cancel).await {
+                Ok(service) => {
+                    info!(name, "Service initialized!");
+                    service.run().await;
+                    info!(name, "Service died waiting to restart it");
+                    10
+                }
+                Err(err) => {
+                    error!(err, name, "Unable to create publisher");
+                    60
+                }
+            };
+        let _ = timeout(Duration::from_secs(timeout_secs), global_cancel.cancelled()).await;
     }
 }

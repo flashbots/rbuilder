@@ -1,6 +1,34 @@
 use derivative::Derivative;
 use ethers::types::{Address, H256, U256, U64};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+
+/// Id for each type of scraping method.
+#[derive(Debug, Clone, Serialize, Deserialize, Hash, PartialEq, Eq)]
+pub enum PublisherType {
+    /// BidsPublisherService
+    #[serde(rename = "bids")]
+    RelayBids,
+    /// HeadersPublisherService
+    #[serde(rename = "headers")]
+    RelayHeaders,
+    #[serde(rename = "ultrasound_ws")]
+    UltrasoundWs,
+    #[serde(rename = "bloxroute_ws")]
+    BloxrouteWs,
+}
+
+impl PublisherType {
+    /// true: The source will publish only the current winning bid
+    /// false: he source will publish every bid it receives.
+    pub fn publishes_only_top_bid(&self) -> bool {
+        match self {
+            PublisherType::RelayBids => false,
+            PublisherType::RelayHeaders => false,
+            PublisherType::UltrasoundWs => true,
+            PublisherType::BloxrouteWs => true,
+        }
+    }
+}
 
 /// Represents a single block bid scraped from the relay.
 ///
@@ -14,13 +42,14 @@ pub struct BlockBid {
     #[derivative(PartialEq = "ignore")]
     #[derivative(Hash = "ignore")]
     pub seen_time: f64,
+    /// Specific instance id a the publisher_type running. Eg: we can have "ultrasound-us" and "ultrasound-eu" both of type PublisherType::UltrasoundWs
     pub publisher_name: String,
-    pub publisher_type: String,
+    pub publisher_type: PublisherType,
     // time that the relay gives us, from when it received the bid.
     #[derivative(Hash = "ignore")]
     pub relay_time: Option<f64>,
 
-    // from known_relays.
+    /// Source of the bid (a single publisher can query multiple relays)
     pub relay_name: String,
 
     pub block_hash: H256,

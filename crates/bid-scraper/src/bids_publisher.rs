@@ -1,9 +1,11 @@
 use crate::{
     bid_sender::BidSender,
     config::{CfgWithSimpleRelayPublisherConfig, RelayBidsPublisherConfig},
-    get_timestamp_f64, slot,
-    types::BlockBid,
-    DynResult, Service, ServiceInner, RPC_TIMEOUT,
+    get_timestamp_f64,
+    relay_api_publisher::{Service, ServiceInner},
+    slot,
+    types::{BlockBid, PublisherType},
+    DynResult, RPC_TIMEOUT,
 };
 use async_trait::async_trait;
 use ethers::{
@@ -17,6 +19,7 @@ use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, trace, warn};
 
+/// Publisher that scraps a relay by calling /relay/v1/data/bidtraces/builder_blocks_received
 #[derive(Clone)]
 pub struct BidsPublisherService {
     sender: Arc<BidSender>,
@@ -164,7 +167,7 @@ impl BidsPublisherService {
         for json_bid in json_bids.iter_mut() {
             let bid = BlockBid {
                 publisher_name: self.name.clone(),
-                publisher_type: "bids".to_owned(),
+                publisher_type: PublisherType::RelayBids,
                 builder_pubkey: Some(
                     json_bid["builder_pubkey"]
                         .as_str()

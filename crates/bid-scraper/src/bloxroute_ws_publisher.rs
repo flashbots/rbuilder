@@ -1,4 +1,8 @@
-use crate::{get_timestamp_f64, types::BlockBid, DynResult, RPC_TIMEOUT};
+use crate::{
+    get_timestamp_f64,
+    types::{BlockBid, PublisherType},
+    DynResult, RPC_TIMEOUT,
+};
 use clap::Parser;
 use ethers::prelude::*;
 use futures_util::SinkExt;
@@ -93,7 +97,7 @@ impl Service {
 
         let bid = BlockBid {
             publisher_name: self.args.publisher_name.clone(),
-            publisher_type: "bloxroute_ws".to_owned(),
+            publisher_type: PublisherType::BloxrouteWs,
             builder_pubkey: Some(parsed.builder_pubkey.to_lowercase()),
             relay_name,
             parent_hash: parsed.parent_hash,

@@ -5,6 +5,7 @@ use ssz_types::{typenum, FixedVector};
 /// Top bid update published by ultrasound and titan relays.
 #[derive(Debug, Decode)]
 pub struct TopBidUpdate {
+    /// Millisecond timestamp at which this became the top bid
     pub timestamp: u64,
     pub slot: u64,
     pub block_number: u64,

@@ -24,3 +24,10 @@ request_interval_s = 1.0
 time_offset_index = 0
 time_offset_count = 3
 request_start_s = 5
+
+[[publishers]]
+type = "ultrasound-ws"
+name = "ultrasound-us"
+ultrasound_url = "ws://relay-builders-eu.ultrasound.money/ws/v1/top_bid"
+relay_name = "ultrasound-us"
+

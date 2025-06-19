@@ -4,7 +4,7 @@ use tracing::error;
 
 use crate::types::BlockBid;
 
-/// Struct publish the bids to the network.
+/// Struct that publish the bids to the network.
 /// signals json_cancel/communication_cancel on errors.
 /// Typically json_cancel will kill a single sub service and communication_cancel will kill the whole service.
 pub struct BidSender {

@@ -2,9 +2,11 @@ extern crate lru;
 use crate::{
     bid_sender::BidSender,
     config::{CfgWithSimpleRelayPublisherConfig, RelayHeadersPublisherConfig},
-    get_timestamp_f64, slot,
-    types::BlockBid,
-    DynResult, Service, ServiceInner, REQUEST_TIMEOUT, RPC_TIMEOUT,
+    get_timestamp_f64,
+    relay_api_publisher::{Service, ServiceInner},
+    slot,
+    types::{BlockBid, PublisherType},
+    DynResult, REQUEST_TIMEOUT, RPC_TIMEOUT,
 };
 use async_trait::async_trait;
 use lru::LruCache;
@@ -19,6 +21,7 @@ use ethers::{
 };
 use tokio::time::timeout;
 
+/// Publisher that scraps a relay by calling /eth/v1/builder/header/
 #[derive(Clone)]
 pub struct HeadersPublisherService {
     sender: Arc<BidSender>,
@@ -212,7 +215,7 @@ impl HeadersPublisherService {
 
         let header = BlockBid {
             publisher_name: self.name.clone(),
-            publisher_type: "headers".to_owned(),
+            publisher_type: PublisherType::RelayHeaders,
             relay_name: relay_name.to_string(),
             slot_number: U64::from(next_slot),
             parent_hash: H256::decode_hex(
