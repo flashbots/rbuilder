@@ -1,6 +1,6 @@
 use crate::{
     types::{block_bid_from_update, BlockBid, PublisherType, TopBidUpdate},
-    ws_publisher::ConnectionHandler,
+    ws_publisher::{ConnectionHandler, Service},
 };
 use eyre::{eyre, Context};
 use futures::stream::{SplitSink, SplitStream};
@@ -80,3 +80,5 @@ impl ConnectionHandler for UltrasoundWsConnectionHandler {
         }
     }
 }
+
+pub type UltrasoundWsPublisher = Service<UltrasoundWsConnectionHandler>;

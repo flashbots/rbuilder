@@ -1,16 +1,15 @@
 use bid_scraper::bid_sender::BidSender;
 use bid_scraper::bids_publisher::{BidsPublisherService, RelayBidsPublisherConfig};
 use bid_scraper::bloxroute_ws_publisher::{
-    BloxrouteWsConnectionHandler, BloxrouteWsPublisherConfig,
+    BloxrouteWsConnectionHandler, BloxrouteWsPublisher, BloxrouteWsPublisherConfig,
 };
 use bid_scraper::code_from_rbuilder::{
     load_config_toml_and_env, setup_tracing_subscriber, LoggerConfig,
 };
 use bid_scraper::config::{Config, PublisherConfig};
 use bid_scraper::headers_publisher::{HeadersPublisherService, RelayHeadersPublisherConfig};
-use bid_scraper::relay_api_publisher::CfgWithSimpleRelayPublisherConfig;
 use bid_scraper::ultrasound_ws_publisher::{
-    UltrasoundWsConnectionHandler, UltrasoundWsPublisherConfig,
+    UltrasoundWsConnectionHandler, UltrasoundWsPublisher, UltrasoundWsPublisherConfig,
 };
 use runng::protocol::Pub0;
 use runng::Listen;
@@ -20,6 +19,96 @@ use tokio::signal::ctrl_c;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
+
+trait PublisherFactory<CfgType, PublisherType> {
+    async fn create_publisher(
+        cfg: CfgType,
+        name: String,
+        sender: BidSender,
+        cancel: CancellationToken,
+    ) -> eyre::Result<PublisherType>;
+    async fn run(publisher: PublisherType);
+}
+
+struct UltrasoundWsFactory;
+impl PublisherFactory<UltrasoundWsPublisherConfig, UltrasoundWsPublisher> for UltrasoundWsFactory {
+    async fn create_publisher(
+        cfg: UltrasoundWsPublisherConfig,
+        name: String,
+        sender: BidSender,
+        cancel: CancellationToken,
+    ) -> eyre::Result<UltrasoundWsPublisher> {
+        Ok(UltrasoundWsPublisher::new(
+            UltrasoundWsConnectionHandler::new(cfg.clone(), name.clone()),
+            sender,
+            cancel,
+        )
+        .await)
+    }
+    async fn run(publisher: UltrasoundWsPublisher) {
+        publisher.run().await
+    }
+}
+
+struct BloxrouteWsFactory;
+impl PublisherFactory<BloxrouteWsPublisherConfig, BloxrouteWsPublisher> for BloxrouteWsFactory {
+    async fn create_publisher(
+        cfg: BloxrouteWsPublisherConfig,
+        name: String,
+        sender: BidSender,
+        cancel: CancellationToken,
+    ) -> eyre::Result<BloxrouteWsPublisher> {
+        Ok(BloxrouteWsPublisher::new(
+            BloxrouteWsConnectionHandler::new(cfg.clone(), name.clone()),
+            sender,
+            cancel,
+        )
+        .await)
+    }
+    async fn run(publisher: BloxrouteWsPublisher) {
+        publisher.run().await
+    }
+}
+
+struct BidsPublisherServiceFactory;
+impl PublisherFactory<RelayBidsPublisherConfig, BidsPublisherService>
+    for BidsPublisherServiceFactory
+{
+    async fn create_publisher(
+        cfg: RelayBidsPublisherConfig,
+        name: String,
+        sender: BidSender,
+        cancel: CancellationToken,
+    ) -> eyre::Result<BidsPublisherService> {
+        <BidsPublisherService as bid_scraper::relay_api_publisher::Service<
+            RelayBidsPublisherConfig,
+        >>::new(cfg.clone(), name.clone(), sender, cancel)
+        .await
+    }
+    async fn run(publisher: BidsPublisherService) {
+        bid_scraper::relay_api_publisher::Service::run(publisher).await
+    }
+}
+
+struct HeadersPublisherServiceFactory;
+impl PublisherFactory<RelayHeadersPublisherConfig, HeadersPublisherService>
+    for HeadersPublisherServiceFactory
+{
+    async fn create_publisher(
+        cfg: RelayHeadersPublisherConfig,
+        name: String,
+        sender: BidSender,
+        cancel: CancellationToken,
+    ) -> eyre::Result<HeadersPublisherService> {
+        <HeadersPublisherService as bid_scraper::relay_api_publisher::Service<
+            RelayHeadersPublisherConfig,
+        >>::new(cfg.clone(), name.clone(), sender, cancel)
+        .await
+    }
+    async fn run(publisher: HeadersPublisherService) {
+        bid_scraper::relay_api_publisher::Service::run(publisher).await
+    }
+}
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
@@ -57,42 +146,36 @@ async fn main() -> eyre::Result<()> {
     for named_publisher in config.publishers {
         match named_publisher.publisher {
             PublisherConfig::RelayBids(cfg) => {
-                tokio::spawn(start_relay_publisher::<
-                    RelayBidsPublisherConfig,
-                    BidsPublisherService,
-                >(
+                tokio::spawn(start_publisher::<_, _, BidsPublisherServiceFactory>(
                     cfg,
                     named_publisher.name,
                     nng_publisher_socket.clone(),
                     global_cancel.clone(),
-                ));
+                ))
             }
             PublisherConfig::RelayHeaders(cfg) => {
-                tokio::spawn(start_relay_publisher::<
-                    RelayHeadersPublisherConfig,
-                    HeadersPublisherService,
-                >(
+                tokio::spawn(start_publisher::<_, _, HeadersPublisherServiceFactory>(
                     cfg,
                     named_publisher.name,
                     nng_publisher_socket.clone(),
                     global_cancel.clone(),
-                ));
+                ))
             }
             PublisherConfig::UltrasoundWs(cfg) => {
-                tokio::spawn(start_ultrasound_publisher(
+                tokio::spawn(start_publisher::<_, _, UltrasoundWsFactory>(
                     cfg,
                     named_publisher.name,
                     nng_publisher_socket.clone(),
                     global_cancel.clone(),
-                ));
+                ))
             }
             PublisherConfig::BloxrouteWs(cfg) => {
-                tokio::spawn(start_bloxroute_publisher(
+                tokio::spawn(start_publisher::<_, _, BloxrouteWsFactory>(
                     cfg,
                     named_publisher.name,
                     nng_publisher_socket.clone(),
                     global_cancel.clone(),
-                ));
+                ))
             }
         };
     }
@@ -100,73 +183,15 @@ async fn main() -> eyre::Result<()> {
     Ok(())
 }
 
-async fn start_bloxroute_publisher(
-    cfg: BloxrouteWsPublisherConfig,
-    name: String,
-    nng_publisher_socket: Pub0,
-    global_cancel: CancellationToken,
-) {
-    while !global_cancel.is_cancelled() {
-        info!(name, "Initializing service...");
-        let session_cancel = global_cancel.child_token();
-        let sender = BidSender::new(
-            nng_publisher_socket.clone(),
-            global_cancel.clone(),
-            session_cancel.clone(),
-        );
-
-        let service = bid_scraper::ws_publisher::Service::new(
-            BloxrouteWsConnectionHandler::new(cfg.clone(), name.clone()),
-            sender,
-            session_cancel,
-        )
-        .await;
-        info!(name, "Service initialized!");
-        service.run().await;
-
-        info!(name, "Service died waiting to restart it");
-        let _ = timeout(Duration::from_secs(10), global_cancel.cancelled()).await;
-    }
-}
-
-async fn start_ultrasound_publisher(
-    cfg: UltrasoundWsPublisherConfig,
-    name: String,
-    nng_publisher_socket: Pub0,
-    global_cancel: CancellationToken,
-) {
-    while !global_cancel.is_cancelled() {
-        info!(name, "Initializing service...");
-        let session_cancel = global_cancel.child_token();
-        let sender = BidSender::new(
-            nng_publisher_socket.clone(),
-            global_cancel.clone(),
-            session_cancel.clone(),
-        );
-
-        let service = bid_scraper::ws_publisher::Service::new(
-            UltrasoundWsConnectionHandler::new(cfg.clone(), name.clone()),
-            sender,
-            session_cancel,
-        )
-        .await;
-        info!(name, "Service initialized!");
-        service.run().await;
-
-        info!(name, "Service died waiting to restart it");
-        let _ = timeout(Duration::from_secs(10), global_cancel.cancelled()).await;
-    }
-}
-
-async fn start_relay_publisher<
-    CfgType: CfgWithSimpleRelayPublisherConfig + Clone,
-    ServiceType: bid_scraper::relay_api_publisher::Service<CfgType> + Send + Sync + 'static,
->(
+async fn start_publisher<CfgType, PublisherType, PublisherFactoryType>(
     cfg: CfgType,
     name: String,
     nng_publisher_socket: Pub0,
     global_cancel: CancellationToken,
-) {
+) where
+    CfgType: Clone,
+    PublisherFactoryType: PublisherFactory<CfgType, PublisherType>,
+{
     while !global_cancel.is_cancelled() {
         info!(name, "Initializing service...");
         let session_cancel = global_cancel.child_token();
@@ -175,19 +200,25 @@ async fn start_relay_publisher<
             global_cancel.clone(),
             session_cancel.clone(),
         );
-        let timeout_secs =
-            match ServiceType::new(cfg.clone(), name.clone(), sender, session_cancel).await {
-                Ok(service) => {
-                    info!(name, "Service initialized!");
-                    service.run().await;
-                    info!(name, "Service died waiting to restart it");
-                    10
-                }
-                Err(err) => {
-                    error!(err=?err, name, "Unable to create publisher");
-                    60
-                }
-            };
+        let timeout_secs = match PublisherFactoryType::create_publisher(
+            cfg.clone(),
+            name.clone(),
+            sender,
+            session_cancel,
+        )
+        .await
+        {
+            Ok(service) => {
+                info!(name, "Service initialized!");
+                PublisherFactoryType::run(service).await;
+                info!(name, "Service died waiting to restart it");
+                10
+            }
+            Err(err) => {
+                error!(err=?err, name, "Unable to create publisher");
+                60
+            }
+        };
         let _ = timeout(Duration::from_secs(timeout_secs), global_cancel.cancelled()).await;
     }
 }

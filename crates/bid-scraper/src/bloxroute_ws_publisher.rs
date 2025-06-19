@@ -2,7 +2,7 @@ use crate::{
     code_from_rbuilder::EnvOrValue,
     get_timestamp_f64,
     types::{BlockBid, PublisherType},
-    ws_publisher::ConnectionHandler,
+    ws_publisher::{ConnectionHandler, Service},
     DynResult, RPC_TIMEOUT,
 };
 use ethers::prelude::*;
@@ -184,3 +184,5 @@ mod tests {
         assert!(serde_json::from_str::<BloxrouteWsBid>(raw).is_ok());
     }
 }
+
+pub type BloxrouteWsPublisher = Service<BloxrouteWsConnectionHandler>;
