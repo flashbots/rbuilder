@@ -1,6 +1,7 @@
 use std::{collections::HashMap, num::NonZeroUsize, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
+use eyre::Context;
 use lru::LruCache;
 use parking_lot::{Mutex, MutexGuard};
 use serde::Deserialize;
@@ -64,7 +65,7 @@ pub trait Service<CfgType: CfgWithSimpleRelayPublisherConfig>: Clone + Sized + S
         cancel: CancellationToken,
     ) -> Self;
     // On error just return a string to log
-    async fn new_blocks_subscriber(self) -> Result<(), String>;
+    async fn new_blocks_subscriber(self) -> eyre::Result<()>;
 
     async fn run(self)
     where
@@ -79,14 +80,14 @@ pub trait Service<CfgType: CfgWithSimpleRelayPublisherConfig>: Clone + Sized + S
                     Service::relay_subscriber(self_clone, relay_name, relay_params, cancel.clone())
                         .await
                 {
-                    error!(err, "Service::relay_subscriber failed. Cancelling.");
+                    error!(err=?err, "Service::relay_subscriber failed. Cancelling.");
                     cancel.cancel();
                 }
             });
         }
 
         if let Err(err) = Service::new_blocks_subscriber(self.clone()).await {
-            error!(err, "new_blocks_subscriber failed. Cancelling.");
+            error!(err=?err, "new_blocks_subscriber failed. Cancelling.");
             self.cancellation_token().cancel();
         }
     }
@@ -104,19 +105,19 @@ pub trait Service<CfgType: CfgWithSimpleRelayPublisherConfig>: Clone + Sized + S
         name: String,
         sender: BidSender,
         cancel: CancellationToken,
-    ) -> Result<Self, String>
+    ) -> eyre::Result<Self>
     where
         CfgType: 'a,
     {
         let relays_file =
             std::fs::File::open(cfg.simple_relay_publisher_config().relays_file.clone())
-                .map_err(|_| "file should open read only")?;
+                .wrap_err("file should open read only")?;
         let relay_urls: HashMap<String, String> =
-            serde_json::from_reader(relays_file).map_err(|_| "file should be proper JSON")?;
+            serde_json::from_reader(relays_file).wrap_err("file should be proper JSON")?;
         if cfg.simple_relay_publisher_config().time_offset_index
             >= cfg.simple_relay_publisher_config().time_offset_count
         {
-            return Err("time_offset_index >= time_offset_count".to_owned());
+            eyre::bail!("time_offset_index >= time_offset_count");
         }
 
         let mut relays: HashMap<String, RelayParams> = HashMap::new();
@@ -174,13 +175,13 @@ pub trait Service<CfgType: CfgWithSimpleRelayPublisherConfig>: Clone + Sized + S
         relay_name: String,
         relay_params: RelayParams,
         cancellation_token: CancellationToken,
-    ) -> Result<(), String>
+    ) -> eyre::Result<()>
     where
         Self: 'static,
     {
         timeout(RPC_TIMEOUT, self.wait_until_ready(&cancellation_token))
             .await
-            .map_err(|_| "Not ready after the timeout.")?;
+            .wrap_err("Not ready after the timeout.")?;
         if cancellation_token.is_cancelled() {
             return Ok(());
         }
@@ -192,7 +193,7 @@ pub trait Service<CfgType: CfgWithSimpleRelayPublisherConfig>: Clone + Sized + S
                 .user_agent("axios/0.27.2") // lulz
                 .timeout(REQUEST_TIMEOUT)
                 .build()
-                .map_err(|_| "unable to build client.")?,
+                .wrap_err("unable to build client.")?,
         );
         let request_interval = Duration::from_secs_f64(relay_params.request_interval_s);
 
@@ -209,7 +210,7 @@ pub trait Service<CfgType: CfgWithSimpleRelayPublisherConfig>: Clone + Sized + S
             let seconds_in_slot =
                 slot::get_seconds_in_specific_slot(start_timestamp, self.inner().last_slot);
             if !(-1. ..600.).contains(&seconds_in_slot) {
-                return Err("We are at second {seconds_in_slot} in slot. Doesn't make sense. Is our node synced?".to_owned());
+                eyre::bail!("We are at second {seconds_in_slot} in slot. Doesn't make sense. Is our node synced?");
             }
 
             // requesting headers until 8/9 seconds into the block is useless

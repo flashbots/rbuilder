@@ -1,34 +1,25 @@
 use crate::{
+    bid_sender::BidSender,
+    code_from_rbuilder::EnvOrValue,
     get_timestamp_f64,
     types::{BlockBid, PublisherType},
     DynResult, RPC_TIMEOUT,
 };
-use clap::Parser;
 use ethers::prelude::*;
 use futures_util::SinkExt;
-use runng::{protocol::Pub0, Listen, SendSocket};
 use serde::Deserialize;
 use serde_json::json;
-use std::collections::{HashMap, HashSet};
 use tokio::time::timeout;
 use tokio_tungstenite::tungstenite::{client::IntoClientRequest, protocol::Message};
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info};
 
-#[derive(Parser, Clone)]
-pub struct Args {
-    #[clap(long)]
+#[derive(Debug, Clone, Deserialize)]
+pub struct BloxrouteWsPublisherConfig {
     pub bloxroute_url: String,
-    #[clap(long)]
-    pub auth_header: String,
-    #[clap(long)]
-    pub publisher_url: String,
-    #[clap(
-        long,
-        help = "Path to the relays file. For sanity checking the relay_name is in there."
-    )]
-    pub relays_file: String,
-    #[clap(long)]
-    pub publisher_name: String,
+    /// Be sure to use unique names. Maybe we can take it from the ultrasound_url?
+    pub relay_name: String,
+    pub auth_header: EnvOrValue<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -47,33 +38,25 @@ struct BloxrouteWsBid {
     optimistic_submission: Option<bool>,
 }
 
-#[derive(Clone)]
 pub struct Service {
-    args: Args,
-    nng_publisher_socket: Pub0,
-    relay_names: HashSet<String>,
+    cfg: BloxrouteWsPublisherConfig,
+    name: String,
+    sender: BidSender,
+    cancel: CancellationToken,
 }
 
 impl Service {
-    pub async fn new(args: Args) -> Self {
-        let relays_file =
-            std::fs::File::open(args.relays_file.clone()).expect("file should open read only");
-        let relay_urls: HashMap<String, String> =
-            serde_json::from_reader(relays_file).expect("file should be proper JSON");
-        let relay_names: HashSet<String> = HashSet::from_iter(relay_urls.into_keys());
-
-        let runng_factory = runng::factory::latest::ProtocolFactory::default();
-        let mut nng_publisher_socket = runng_factory
-            .publisher_open()
-            .expect("unable to create NNG publisher");
-        nng_publisher_socket
-            .listen(&args.publisher_url)
-            .expect("unable to have the NNG publisher listen");
-
+    pub async fn new(
+        cfg: BloxrouteWsPublisherConfig,
+        name: String,
+        sender: BidSender,
+        cancel: CancellationToken,
+    ) -> Self {
         Self {
-            args,
-            nng_publisher_socket,
-            relay_names,
+            cfg,
+            name,
+            sender,
+            cancel,
         }
     }
 
@@ -87,16 +70,9 @@ impl Service {
         };
 
         let relay_name = format!("bloxroute-{}", parsed.relay_type);
-        if !self.relay_names.contains(&relay_name) {
-            return Err(format!(
-                "Relay name {} should be in our list of relays: {:?}",
-                &relay_name, &self.relay_names
-            )
-            .into());
-        }
 
         let bid = BlockBid {
-            publisher_name: self.args.publisher_name.clone(),
+            publisher_name: self.name.clone(),
             publisher_type: PublisherType::BloxrouteWs,
             builder_pubkey: Some(parsed.builder_pubkey.to_lowercase()),
             relay_name,
@@ -119,14 +95,23 @@ impl Service {
     }
 
     pub async fn run(self) {
+        if let Err(err) = self.run_with_error().await {
+            error!(err, "UltrasoundWs failed");
+        }
+    }
+
+    pub async fn run_with_error(self) -> Result<(), String> {
         let mut request = self
-            .args
+            .cfg
             .bloxroute_url
             .clone()
             .into_client_request()
             .unwrap();
         let headers = request.headers_mut();
-        headers.insert("Authorization", self.args.auth_header.parse().unwrap());
+        headers.insert(
+            "Authorization",
+            self.cfg.auth_header.value().unwrap().parse().unwrap(),
+        );
         let (ws_stream, _) = timeout(RPC_TIMEOUT, tokio_tungstenite::connect_async(request))
             .await
             .expect("timeout when connecting to bloxroute")
@@ -178,9 +163,7 @@ impl Service {
                         .parse_bid(&json_bid["params"]["result"])
                         .expect("unable to parse bid")
                     {
-                        self.nng_publisher_socket
-                            .send(&serde_json::to_vec(&bid).unwrap())
-                            .expect("unable to send message");
+                        let _ = self.sender.send(bid);
                     }
                 }
                 Message::Ping(data) => {
@@ -201,7 +184,7 @@ impl Service {
     }
 }
 
-#[tokio::main]
+/*#[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
 
@@ -219,7 +202,7 @@ async fn main() {
     info!("Service initialized!");
 
     service.run().await;
-}
+}*/
 
 #[cfg(test)]
 mod tests {

@@ -3,6 +3,7 @@ use crate::{
     types::{block_bid_from_update, PublisherType, TopBidUpdate},
     RPC_TIMEOUT,
 };
+use eyre::{eyre, Context};
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use ssz::Decode;
@@ -46,30 +47,30 @@ impl Service {
 
     pub async fn run(self) {
         if let Err(err) = self.run_with_error().await {
-            error!(err, "UltrasoundWs failed");
+            error!(err=?err, "UltrasoundWs failed");
         }
     }
 
-    async fn run_with_error(self) -> Result<(), String> {
+    async fn run_with_error(self) -> eyre::Result<()> {
         let mut request = self
             .cfg
             .ultrasound_url
             .clone()
             .into_client_request()
-            .map_err(|_| "Unable to create request")?;
+            .wrap_err("Unable to create request")?;
         if let (Some(builder_id), Some(api_token)) = (&self.cfg.builder_id, &self.cfg.api_token) {
             let headers = request.headers_mut();
             let builder_id_header_value = reqwest::header::HeaderValue::from_str(builder_id)
-                .map_err(|_| "Invalid header value for 'X-Builder-Id'")?;
+                .wrap_err("Invalid header value for 'X-Builder-Id'")?;
             headers.insert("X-Builder-Id", builder_id_header_value);
             let api_token_header_value = reqwest::header::HeaderValue::from_str(api_token)
-                .map_err(|_| "Invalid header value for 'X-Api-Token'")?;
+                .wrap_err("Invalid header value for 'X-Api-Token'")?;
             headers.insert("X-Api-Token", api_token_header_value);
         }
         let (ws_stream, _) = timeout(RPC_TIMEOUT, tokio_tungstenite::connect_async(request))
             .await
-            .map_err(|_| "timeout when connecting to ultrasound")?
-            .map_err(|_| "unable to connect to ultrasound")?;
+            .wrap_err("timeout when connecting to ultrasound")?
+            .wrap_err("unable to connect to ultrasound")?;
 
         let (mut write, mut read) = ws_stream.split();
 
@@ -77,9 +78,9 @@ impl Service {
         loop {
             let message = tokio::select! {
                 message = timeout(RPC_TIMEOUT, read.next()) => {
-                    message.map_err(|_| "reading message timed out")?
-                    .ok_or("can't read message")?
-                    .map_err(|_| "can't parse message")?
+                    message.wrap_err( "reading message timed out")?
+                    .ok_or(eyre!("can't read message"))?
+                    .wrap_err( "can't parse message")?
                 }
                 _ = self.cancel.cancelled() =>{
                     return Ok(());
@@ -87,8 +88,8 @@ impl Service {
             };
             match message {
                 Message::Binary(data) => {
-                    let update =
-                        TopBidUpdate::from_ssz_bytes(&data).map_err(|_| "unable to deserialize")?;
+                    let update = TopBidUpdate::from_ssz_bytes(&data)
+                        .map_err(|_| eyre!("unable to deserialize"))?;
                     debug!("Got message: {:?}", update);
                     let bid = block_bid_from_update(
                         update,
@@ -104,14 +105,14 @@ impl Service {
                     info!("Got ping (size {}), sending pong.", data.len());
                     timeout(RPC_TIMEOUT, write.send(Message::Pong(data)))
                         .await
-                        .map_err(|_| "timeout while sending pong")?
-                        .map_err(|_| "unable to send pong")?;
+                        .wrap_err("timeout while sending pong")?
+                        .wrap_err("unable to send pong")?;
                 }
                 Message::Pong(data) => {
                     info!("Got pong (size {}).", data.len());
                 }
                 _ => {
-                    return Err(format!("Unhandled WS message: {:?}", message));
+                    eyre::bail!("Unhandled WS message: {:?}", message);
                 }
             }
         }

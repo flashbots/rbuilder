@@ -13,6 +13,7 @@ use ethers::{
     abi::{AbiDecode, AbiEncode},
     prelude::*,
 };
+use eyre::{eyre, Context};
 use lru::LruCache;
 use parking_lot::{Mutex, MutexGuard};
 use serde::Deserialize;
@@ -107,7 +108,7 @@ impl Service<RelayBidsPublisherConfig> for BidsPublisherService {
         }
     }
 
-    async fn new_blocks_subscriber(self) -> Result<(), String> {
+    async fn new_blocks_subscriber(self) -> eyre::Result<()> {
         let eth_provider_uri = self
             .inner()
             .cfg
@@ -119,25 +120,25 @@ impl Service<RelayBidsPublisherConfig> for BidsPublisherService {
             Provider::<Ws>::connect(eth_provider_uri.clone()),
         )
         .await
-        .map_err(|_| "could not connect to node in time")?
-        .map_err(|_| "unable to connect to node?")?;
+        .wrap_err("could not connect to node in time")?
+        .wrap_err("unable to connect to node?")?;
 
         let mut subscription = provider
             .subscribe_blocks()
             .await
-            .map_err(|_| "unable to subscribe to blocks")?;
+            .wrap_err("unable to subscribe to blocks")?;
         info!("New blocks subscriber connected and ready. Waiting for the first block...");
         let cancel_token = self.cancellation_token();
         while !cancel_token.is_cancelled() {
             let block = timeout(RPC_TIMEOUT, subscription.next())
                 .await
-                .map_err(|_| "didn't receive a new block in time")?
-                .ok_or("didn't receive a new block")?;
+                .wrap_err("didn't receive a new block in time")?
+                .ok_or(eyre!("didn't receive a new block"))?;
             {
                 trace!("got block {:?}", block);
                 let mut inner = self.inner();
-                inner.last_block_number = block.number.ok_or("no block number")?.as_u64();
-                inner.last_block_hash = block.hash.ok_or("no block hash")?.encode_hex();
+                inner.last_block_number = block.number.ok_or(eyre!("no block number"))?.as_u64();
+                inner.last_block_hash = block.hash.ok_or(eyre!("no block hash"))?.encode_hex();
                 inner.last_slot = slot::get_slot_number(block.timestamp.as_u64());
                 info!(
                     "New block {} ({}).",

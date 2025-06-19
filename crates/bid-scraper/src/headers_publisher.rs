@@ -10,6 +10,7 @@ use crate::{
     DynResult, REQUEST_TIMEOUT, RPC_TIMEOUT,
 };
 use async_trait::async_trait;
+use eyre::{eyre, Context};
 use lru::LruCache;
 use parking_lot::{Mutex, MutexGuard};
 use serde::Deserialize;
@@ -102,7 +103,7 @@ impl Service<RelayHeadersPublisherConfig> for HeadersPublisherService {
         let _ = self.sender.send(header);
     }
 
-    async fn new_blocks_subscriber(self) -> Result<(), String> {
+    async fn new_blocks_subscriber(self) -> eyre::Result<()> {
         let eth_provider_uri = self
             .inner()
             .cfg
@@ -114,30 +115,30 @@ impl Service<RelayHeadersPublisherConfig> for HeadersPublisherService {
             Provider::<Ws>::connect(eth_provider_uri.clone()),
         )
         .await
-        .map_err(|_| "could not connect to node in time")?
-        .map_err(|_| "unable to connect to node?")?;
+        .wrap_err("could not connect to node in time")?
+        .wrap_err("unable to connect to node?")?;
 
         let mut subscription = provider
             .subscribe_blocks()
             .await
-            .map_err(|_| "unable to subscribe to blocks")?;
+            .wrap_err("unable to subscribe to blocks")?;
         let client = reqwest::Client::builder()
             .timeout(REQUEST_TIMEOUT)
             .build()
-            .map_err(|_| "unable to build client")?;
+            .wrap_err("unable to build client")?;
 
         info!("New blocks subscriber connected and ready. Waiting for the first block...");
         let cancel_token = self.cancellation_token();
         while !cancel_token.is_cancelled() {
             let block = timeout(RPC_TIMEOUT, subscription.next())
                 .await
-                .map_err(|_| "didn't receive a new block in time")?
-                .ok_or("didn't receive a new block")?;
+                .wrap_err("didn't receive a new block in time")?
+                .ok_or(eyre!("didn't receive a new block"))?;
             trace!("got block {:?}", block);
             let (beacon_node_uri, next_slot) = {
                 let mut inner = self.inner();
-                inner.last_block_number = block.number.ok_or("no block number")?.as_u64();
-                inner.last_block_hash = block.hash.ok_or("no block hash")?.encode_hex();
+                inner.last_block_number = block.number.ok_or(eyre!("no block number"))?.as_u64();
+                inner.last_block_hash = block.hash.ok_or(eyre!("no block hash"))?.encode_hex();
                 inner.last_slot = slot::get_slot_number(block.timestamp.as_u64());
                 info!(
                     "New block {} ({}).",
@@ -154,29 +155,32 @@ impl Service<RelayHeadersPublisherConfig> for HeadersPublisherService {
                 ))
                 .send()
                 .await
-                .map_err(|_| "Unable to fetch next validator duties")?
+                .wrap_err("Unable to fetch next validator duties")?
                 .json()
                 .await
-                .map_err(|_| "unable to parse next validator duties")?;
+                .wrap_err("unable to parse next validator duties")?;
 
             let mut next_validator_pubkeys: Vec<&str> = Vec::new();
             for record in duties["data"]
                 .as_array()
-                .ok_or("duties is not an array")?
+                .ok_or(eyre!("duties is not an array"))?
                 .iter()
             {
                 let slot = record["slot"]
                     .as_str()
-                    .ok_or("slot is not str")?
+                    .ok_or(eyre!("slot is not str"))?
                     .parse::<u64>()
-                    .map_err(|_| "unable to parse slot")?;
+                    .wrap_err("unable to parse slot")?;
                 if slot == next_slot {
-                    next_validator_pubkeys
-                        .push(record["pubkey"].as_str().ok_or("pubkey is not str")?);
+                    next_validator_pubkeys.push(
+                        record["pubkey"]
+                            .as_str()
+                            .ok_or(eyre!("pubkey is not str"))?,
+                    );
                 }
             }
             if next_validator_pubkeys.len() != 1 {
-                return Err("next_validator_pubkeys.len()!= 1".to_owned());
+                eyre::bail!("next_validator_pubkeys.len()!= 1");
             }
             self.inner().next_validator_pubkey = next_validator_pubkeys[0].to_owned();
         }
