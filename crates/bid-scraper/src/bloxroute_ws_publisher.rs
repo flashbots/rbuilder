@@ -1,17 +1,20 @@
 use crate::{
-    bid_sender::BidSender,
     code_from_rbuilder::EnvOrValue,
     get_timestamp_f64,
     types::{BlockBid, PublisherType},
+    ws_publisher::ConnectionHandler,
     DynResult, RPC_TIMEOUT,
 };
 use ethers::prelude::*;
+use futures::stream::{SplitSink, SplitStream};
 use futures_util::SinkExt;
 use serde::Deserialize;
 use serde_json::json;
-use tokio::time::timeout;
-use tokio_tungstenite::tungstenite::{client::IntoClientRequest, protocol::Message};
-use tokio_util::sync::CancellationToken;
+use tokio::{net::TcpStream, time::timeout};
+use tokio_tungstenite::{
+    tungstenite::{http::Request, protocol::Message},
+    MaybeTlsStream, WebSocketStream,
+};
 use tracing::{debug, error, info};
 
 #[derive(Debug, Clone, Deserialize)]
@@ -38,26 +41,14 @@ struct BloxrouteWsBid {
     optimistic_submission: Option<bool>,
 }
 
-pub struct Service {
+pub struct BloxrouteWsConnectionHandler {
     cfg: BloxrouteWsPublisherConfig,
     name: String,
-    sender: BidSender,
-    cancel: CancellationToken,
 }
 
-impl Service {
-    pub async fn new(
-        cfg: BloxrouteWsPublisherConfig,
-        name: String,
-        sender: BidSender,
-        cancel: CancellationToken,
-    ) -> Self {
-        Self {
-            cfg,
-            name,
-            sender,
-            cancel,
-        }
+impl BloxrouteWsConnectionHandler {
+    pub fn new(cfg: BloxrouteWsPublisherConfig, name: String) -> Self {
+        Self { cfg, name }
     }
 
     fn parse_bid(&self, json_bid: &serde_json::Value) -> DynResult<Option<BlockBid>> {
@@ -93,32 +84,27 @@ impl Service {
 
         Ok(Some(bid))
     }
+}
 
-    pub async fn run(self) {
-        if let Err(err) = self.run_with_error().await {
-            error!(err, "UltrasoundWs failed");
-        }
+impl ConnectionHandler for BloxrouteWsConnectionHandler {
+    fn url(&self) -> String {
+        self.cfg.bloxroute_url.clone()
     }
 
-    pub async fn run_with_error(self) -> Result<(), String> {
-        let mut request = self
-            .cfg
-            .bloxroute_url
-            .clone()
-            .into_client_request()
-            .unwrap();
+    fn configure_request(&self, request: &mut Request<()>) -> eyre::Result<()> {
         let headers = request.headers_mut();
         headers.insert(
             "Authorization",
             self.cfg.auth_header.value().unwrap().parse().unwrap(),
         );
-        let (ws_stream, _) = timeout(RPC_TIMEOUT, tokio_tungstenite::connect_async(request))
-            .await
-            .expect("timeout when connecting to bloxroute")
-            .expect("unable to connect to bloxroute");
+        Ok(())
+    }
 
-        let (mut write, mut read) = ws_stream.split();
-
+    async fn init_connection(
+        &self,
+        write: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+        read: &mut SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
+    ) -> eyre::Result<()> {
         write
             .send(tokio_tungstenite::tungstenite::protocol::Message::Text(
                 serde_json::to_string(&json!(
@@ -132,7 +118,6 @@ impl Service {
             ))
             .await
             .expect("unable to send first message");
-
         info!(
             "Got first message: {:?}",
             timeout(RPC_TIMEOUT, read.next())
@@ -140,69 +125,28 @@ impl Service {
                 .expect("reading first message timed out")
                 .expect("can't read first message")
         );
+        Ok(())
+    }
 
-        info!("All ready, will publish bloxroute bids.");
+    fn parse(&self, message: Message) -> eyre::Result<Option<BlockBid>> {
+        match message {
+            Message::Text(data) => {
+                let json_bid: serde_json::Value =
+                    serde_json::from_str(&data).expect("unable to parse message as json");
+                debug!("Got message: {}", json_bid);
 
-        loop {
-            let message = timeout(RPC_TIMEOUT, read.next())
-                .await
-                .expect("reading message timed out")
-                .expect("can't read message")
-                .expect("can't parse message");
+                assert!(!json_bid["params"]["subscription"].is_null());
 
-            match message {
-                Message::Text(data) => {
-                    let json_bid: serde_json::Value =
-                        serde_json::from_str(&data).expect("unable to parse message as json");
-
-                    debug!("Got message: {}", json_bid);
-
-                    assert!(!json_bid["params"]["subscription"].is_null());
-
-                    if let Some(bid) = self
-                        .parse_bid(&json_bid["params"]["result"])
-                        .expect("unable to parse bid")
-                    {
-                        let _ = self.sender.send(bid);
-                    }
-                }
-                Message::Ping(data) => {
-                    info!("Got ping (size {}), sending pong.", data.len());
-                    timeout(RPC_TIMEOUT, write.send(Message::Pong(data)))
-                        .await
-                        .expect("timeout while sending pong")
-                        .expect("unable to send pong");
-                }
-                Message::Pong(data) => {
-                    info!("Got pong (size {}).", data.len());
-                }
-                _ => {
-                    panic!("Unhandled WS message: {:?}", message);
-                }
+                Ok(self
+                    .parse_bid(&json_bid["params"]["result"])
+                    .expect("unable to parse bid"))
+            }
+            _ => {
+                eyre::bail!("Unhandled bloxroute WS message: {:?}", message);
             }
         }
     }
 }
-
-/*#[tokio::main]
-async fn main() {
-    tracing_subscriber::fmt::init();
-
-    // when one task crashes we crash the whole program
-    let orig_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |panic_info| {
-        orig_hook(panic_info);
-        std::process::exit(1);
-    }));
-
-    let args = Args::parse();
-
-    info!("Initializing service...");
-    let service = Service::new(args.clone()).await;
-    info!("Service initialized!");
-
-    service.run().await;
-}*/
 
 #[cfg(test)]
 mod tests {
@@ -214,7 +158,7 @@ mod tests {
         let raw = r#"{
             "blockHash": "0x79d966e4620001684016497f0d0d0938ec3bc72f98e07005b186e112f6401edb",
             "blockNumber": 19674664,
-            "blockValue": 15071706065904500_u128,
+            "blockValue": 15071706065904500,
             "builderPubkey": "0x95c8cc31f8d4e54eddb0603b8f12d59d466f656f374bde2073e321bdd16082d420e3eef4d62467a7ea6b83818381f742",
             "gasUsed": 13741841,
             "parentHash": "0x970aaa4627296e44da4db0a055242b79e4c1aedd98fa63e884e6b8f09cfaf08c",
@@ -222,7 +166,7 @@ mod tests {
             "relayType": "max-profit",
             "slotNumber": 8877207,
             "timestampMs": 1713350506069
-        "#;
+        }"#;
         assert!(serde_json::from_str::<BloxrouteWsBid>(raw).is_ok());
 
         // without gas used
@@ -236,7 +180,7 @@ mod tests {
             "relayType": "max-profit",
             "slotNumber": 8877207,
             "timestampMs": 1713350506085
-        "#;
+        }"#;
         assert!(serde_json::from_str::<BloxrouteWsBid>(raw).is_ok());
     }
 }

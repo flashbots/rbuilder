@@ -23,9 +23,9 @@ impl PublisherType {
     pub fn publishes_only_top_bid(&self) -> bool {
         match self {
             PublisherType::RelayBids => false,
-            PublisherType::RelayHeaders => false,
+            PublisherType::RelayHeaders => true,
             PublisherType::UltrasoundWs => true,
-            PublisherType::BloxrouteWs => true,
+            PublisherType::BloxrouteWs => false,
         }
     }
 }
@@ -74,17 +74,30 @@ mod tests {
     use proptest::prelude::*;
     use std::hash::{DefaultHasher, Hash, Hasher};
 
+    impl Arbitrary for PublisherType {
+        type Parameters = ();
+        type Strategy = proptest::strategy::BoxedStrategy<PublisherType>;
+
+        fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+            prop_oneof![
+                Just(PublisherType::RelayBids),
+                Just(PublisherType::RelayHeaders),
+                Just(PublisherType::UltrasoundWs),
+                Just(PublisherType::BloxrouteWs),
+            ]
+            .boxed()
+        }
+    }
     // TODO: derive `Arbitrary` instead
     impl Arbitrary for BlockBid {
         type Parameters = ();
         type Strategy = proptest::strategy::BoxedStrategy<BlockBid>;
-
         fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
             any::<(
                 (
                     f64,
                     String,
-                    String,
+                    PublisherType,
                     Option<f64>,
                     String,
                     [u8; 32],

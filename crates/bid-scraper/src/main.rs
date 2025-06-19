@@ -1,13 +1,17 @@
 use bid_scraper::bid_sender::BidSender;
 use bid_scraper::bids_publisher::{BidsPublisherService, RelayBidsPublisherConfig};
-use bid_scraper::bloxroute_ws_publisher::BloxrouteWsPublisherConfig;
+use bid_scraper::bloxroute_ws_publisher::{
+    BloxrouteWsConnectionHandler, BloxrouteWsPublisherConfig,
+};
 use bid_scraper::code_from_rbuilder::{
     load_config_toml_and_env, setup_tracing_subscriber, LoggerConfig,
 };
 use bid_scraper::config::{Config, PublisherConfig};
 use bid_scraper::headers_publisher::{HeadersPublisherService, RelayHeadersPublisherConfig};
 use bid_scraper::relay_api_publisher::CfgWithSimpleRelayPublisherConfig;
-use bid_scraper::ultrasound_ws_publisher::UltrasoundWsPublisherConfig;
+use bid_scraper::ultrasound_ws_publisher::{
+    UltrasoundWsConnectionHandler, UltrasoundWsPublisherConfig,
+};
 use runng::protocol::Pub0;
 use runng::Listen;
 use std::env;
@@ -111,9 +115,8 @@ async fn start_bloxroute_publisher(
             session_cancel.clone(),
         );
 
-        let service = bid_scraper::bloxroute_ws_publisher::Service::new(
-            cfg.clone(),
-            name.clone(),
+        let service = bid_scraper::ws_publisher::Service::new(
+            BloxrouteWsConnectionHandler::new(cfg.clone(), name.clone()),
             sender,
             session_cancel,
         )
@@ -141,9 +144,8 @@ async fn start_ultrasound_publisher(
             session_cancel.clone(),
         );
 
-        let service = bid_scraper::ultrasound_ws_publisher::Service::new(
-            cfg.clone(),
-            name.clone(),
+        let service = bid_scraper::ws_publisher::Service::new(
+            UltrasoundWsConnectionHandler::new(cfg.clone(), name.clone()),
             sender,
             session_cancel,
         )

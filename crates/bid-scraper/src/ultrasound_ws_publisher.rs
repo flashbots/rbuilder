@@ -1,16 +1,17 @@
 use crate::{
-    bid_sender::BidSender,
-    types::{block_bid_from_update, PublisherType, TopBidUpdate},
-    RPC_TIMEOUT,
+    types::{block_bid_from_update, BlockBid, PublisherType, TopBidUpdate},
+    ws_publisher::ConnectionHandler,
 };
 use eyre::{eyre, Context};
-use futures_util::{SinkExt, StreamExt};
+use futures::stream::{SplitSink, SplitStream};
 use serde::Deserialize;
 use ssz::Decode;
-use tokio::time::timeout;
-use tokio_tungstenite::tungstenite::{client::IntoClientRequest, protocol::Message};
-use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info};
+use tokio::net::TcpStream;
+use tokio_tungstenite::{
+    tungstenite::{http::Request, protocol::Message},
+    MaybeTlsStream, WebSocketStream,
+};
+use tracing::debug;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct UltrasoundWsPublisherConfig {
@@ -23,41 +24,22 @@ pub struct UltrasoundWsPublisherConfig {
     pub api_token: Option<String>,
 }
 
-pub struct Service {
+pub struct UltrasoundWsConnectionHandler {
     cfg: UltrasoundWsPublisherConfig,
     name: String,
-    sender: BidSender,
-    cancel: CancellationToken,
 }
 
-impl Service {
-    pub async fn new(
-        cfg: UltrasoundWsPublisherConfig,
-        name: String,
-        sender: BidSender,
-        cancel: CancellationToken,
-    ) -> Self {
-        Self {
-            cfg,
-            name,
-            sender,
-            cancel,
-        }
+impl UltrasoundWsConnectionHandler {
+    pub fn new(cfg: UltrasoundWsPublisherConfig, name: String) -> Self {
+        Self { cfg, name }
     }
+}
 
-    pub async fn run(self) {
-        if let Err(err) = self.run_with_error().await {
-            error!(err=?err, "UltrasoundWs failed");
-        }
+impl ConnectionHandler for UltrasoundWsConnectionHandler {
+    fn url(&self) -> String {
+        self.cfg.ultrasound_url.clone()
     }
-
-    async fn run_with_error(self) -> eyre::Result<()> {
-        let mut request = self
-            .cfg
-            .ultrasound_url
-            .clone()
-            .into_client_request()
-            .wrap_err("Unable to create request")?;
+    fn configure_request(&self, request: &mut Request<()>) -> eyre::Result<()> {
         if let (Some(builder_id), Some(api_token)) = (&self.cfg.builder_id, &self.cfg.api_token) {
             let headers = request.headers_mut();
             let builder_id_header_value = reqwest::header::HeaderValue::from_str(builder_id)
@@ -67,53 +49,33 @@ impl Service {
                 .wrap_err("Invalid header value for 'X-Api-Token'")?;
             headers.insert("X-Api-Token", api_token_header_value);
         }
-        let (ws_stream, _) = timeout(RPC_TIMEOUT, tokio_tungstenite::connect_async(request))
-            .await
-            .wrap_err("timeout when connecting to ultrasound")?
-            .wrap_err("unable to connect to ultrasound")?;
+        Ok(())
+    }
 
-        let (mut write, mut read) = ws_stream.split();
+    async fn init_connection(
+        &self,
+        _write: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+        _read: &mut SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
+    ) -> eyre::Result<()> {
+        Ok(())
+    }
 
-        info!("All ready, listening to bids.");
-        loop {
-            let message = tokio::select! {
-                message = timeout(RPC_TIMEOUT, read.next()) => {
-                    message.wrap_err( "reading message timed out")?
-                    .ok_or(eyre!("can't read message"))?
-                    .wrap_err( "can't parse message")?
-                }
-                _ = self.cancel.cancelled() =>{
-                    return Ok(());
-                }
-            };
-            match message {
-                Message::Binary(data) => {
-                    let update = TopBidUpdate::from_ssz_bytes(&data)
-                        .map_err(|_| eyre!("unable to deserialize"))?;
-                    debug!("Got message: {:?}", update);
-                    let bid = block_bid_from_update(
-                        update,
-                        &self.cfg.relay_name,
-                        &self.name,
-                        PublisherType::UltrasoundWs,
-                    );
-                    debug!("Found bid: {bid:?}");
-
-                    let _ = self.sender.send(bid);
-                }
-                Message::Ping(data) => {
-                    info!("Got ping (size {}), sending pong.", data.len());
-                    timeout(RPC_TIMEOUT, write.send(Message::Pong(data)))
-                        .await
-                        .wrap_err("timeout while sending pong")?
-                        .wrap_err("unable to send pong")?;
-                }
-                Message::Pong(data) => {
-                    info!("Got pong (size {}).", data.len());
-                }
-                _ => {
-                    eyre::bail!("Unhandled WS message: {:?}", message);
-                }
+    fn parse(&self, message: Message) -> eyre::Result<Option<BlockBid>> {
+        match message {
+            Message::Binary(data) => {
+                let update = TopBidUpdate::from_ssz_bytes(&data)
+                    .map_err(|_| eyre!("unable to deserialize"))?;
+                debug!("Got message: {:?}", update);
+                let bid = block_bid_from_update(
+                    update,
+                    &self.cfg.relay_name,
+                    &self.name,
+                    PublisherType::UltrasoundWs,
+                );
+                Ok(Some(bid))
+            }
+            _ => {
+                eyre::bail!("Unhandled ultrasound WS message: {:?}", message);
             }
         }
     }

@@ -7,7 +7,7 @@ publisher_url ="tcp://0.0.0.0:5555"
 type = "relay-bids"
 name = "relay-bids-1"
 relays_file = "/home/daniel/fb/rbuilder/crates/bid-scraper/relays.json"
-eth_provider_uri = "ws://127.0.0.1:8545"
+eth_provider_uri = "ws://localhost:8545"
 request_interval_s = 1.0
 time_offset_index = 0
 time_offset_count = 3
@@ -30,4 +30,12 @@ type = "ultrasound-ws"
 name = "ultrasound-us"
 ultrasound_url = "ws://relay-builders-eu.ultrasound.money/ws/v1/top_bid"
 relay_name = "ultrasound-us"
+
+
+[[publishers]]
+type = "bloxroute-ws"
+name = "bloxroute"
+bloxroute_url = "wss://mev-eth.blxrbdn.com/ws"
+relay_name = "bloxroute"
+auth_header = "env:BLOXROUTE_AUTH_HEADER"
 

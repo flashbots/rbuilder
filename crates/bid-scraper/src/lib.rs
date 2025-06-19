@@ -11,6 +11,7 @@ pub mod config;
 pub mod headers_publisher;
 pub mod relay_api_publisher;
 pub mod types;
+pub mod ws_publisher;
 
 pub type DynResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
