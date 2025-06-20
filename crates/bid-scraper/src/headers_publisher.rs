@@ -237,7 +237,7 @@ impl HeadersPublisherService {
             publisher_name: self.name.clone(),
             publisher_type: PublisherType::RelayHeaders,
             relay_name: relay_name.to_string(),
-            slot_number: U64::from(next_slot),
+            slot_number: next_slot,
             parent_hash: H256::decode_hex(
                 msg["header"]["parent_hash"]
                     .as_str()
@@ -254,24 +254,22 @@ impl HeadersPublisherService {
                     .as_str()
                     .ok_or("block_hash not str")?,
             )?,
-            block_number: Some(U64::from(
-                msg["header"]["block_number"]
-                    .as_str()
-                    .ok_or("block_number not str")?
-                    .parse::<u64>()?,
-            )),
+            block_number: msg["header"]["block_number"]
+                .as_str()
+                .ok_or("block_number not str")?
+                .parse::<u64>()?,
             extra_data: Some(
                 msg["header"]["extra_data"]
                     .as_str()
                     .ok_or("extra_data not str")?
                     .to_owned(),
             ),
-            gas_used: Some(U64::from(
+            gas_used: Some(
                 msg["header"]["gas_used"]
                     .as_str()
                     .ok_or("gas_used not str")?
                     .parse::<u64>()?,
-            )),
+            ),
             value: U256::from(
                 msg["value"]
                     .as_str()

@@ -158,11 +158,10 @@ impl BidsPublisherService {
         client: &reqwest::Client,
     ) -> DynResult<Vec<BlockBid>> {
         debug!("Getting bids for relay {relay_name}");
-
+        let block_number = self.inner().last_block_number + 1;
         let url = format!(
             "{}/relay/v1/data/bidtraces/builder_blocks_received?block_number={}&order_by=-value",
-            relay_endpoint,
-            self.inner().last_block_number + 1
+            relay_endpoint, block_number
         );
         // By default it's ordered by slot (so, no effect). So we order by decreasing value
         // instead, it's more interesting to us.
@@ -219,18 +218,16 @@ impl BidsPublisherService {
                         .ok_or("unable to parse value")?
                         .parse::<u128>()?,
                 ),
-                slot_number: U64::from(
-                    json_bid["slot"]
-                        .as_str()
-                        .ok_or("unable to parse slot")?
-                        .parse::<u64>()?,
-                ),
-                gas_used: Some(U64::from(
+                slot_number: json_bid["slot"]
+                    .as_str()
+                    .ok_or("unable to parse slot")?
+                    .parse::<u64>()?,
+                gas_used: Some(
                     json_bid["gas_used"]
                         .as_str()
                         .ok_or("unable to parse gas_used")?
                         .parse::<u64>()?,
-                )),
+                ),
                 proposer_fee_recipient: Some(Address::from_str(
                     json_bid["proposer_fee_recipient"]
                         .as_str()
@@ -238,7 +235,7 @@ impl BidsPublisherService {
                 )?),
                 fee_recipient: None,
                 optimistic_submission: json_bid["optimistic_submission"].as_bool(),
-                block_number: None,
+                block_number,
                 extra_data: None,
             };
             debug!("Found bid: {bid:?}");

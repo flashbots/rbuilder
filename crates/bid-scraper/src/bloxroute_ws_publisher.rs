@@ -36,6 +36,7 @@ struct BloxrouteWsBid {
     block_hash: H256,
     timestamp_ms: u64,
     block_value: u128,
+    block_number: u64,
     slot_number: u64,
     #[serde(default)]
     gas_used: u64,
@@ -74,12 +75,12 @@ impl BloxrouteWsConnectionHandler {
             seen_time: get_timestamp_f64(),
             relay_time: Some(parsed.timestamp_ms as f64 / 1000.),
             value: U256::from(parsed.block_value),
-            slot_number: U64::from(parsed.slot_number),
-            gas_used: Some(U64::from(parsed.gas_used)),
+            slot_number: parsed.slot_number,
+            gas_used: Some(parsed.gas_used),
             proposer_fee_recipient: Some(parsed.proposer_fee_recipient),
             fee_recipient: None,
             optimistic_submission: parsed.optimistic_submission,
-            block_number: None,
+            block_number: parsed.block_number,
             extra_data: None,
         };
         debug!("Found bid: {bid:?}");

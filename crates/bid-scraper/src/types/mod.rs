@@ -29,7 +29,7 @@ pub fn block_bid_from_update(
         fee_recipient: Some(update.fee_recipient),
         proposer_fee_recipient: None,
         optimistic_submission: None,
-        block_number: Some(update.block_number.into()),
+        block_number: update.block_number,
         extra_data: None,
     }
 }

@@ -1,5 +1,5 @@
 use derivative::Derivative;
-use ethers::types::{Address, H256, U256, U64};
+use ethers::types::{Address, H256, U256};
 use serde::{Deserialize, Serialize};
 
 /// Id for each type of scraping method.
@@ -56,15 +56,15 @@ pub struct BlockBid {
     pub parent_hash: H256,
     pub value: U256,
 
-    pub slot_number: U64,
-    pub block_number: Option<U64>,
+    pub slot_number: u64,
+    pub block_number: u64,
 
     pub builder_pubkey: Option<String>,
     pub extra_data: Option<String>,
     pub fee_recipient: Option<Address>,          // block COINBASE
     pub proposer_fee_recipient: Option<Address>, // validator address
 
-    pub gas_used: Option<U64>,
+    pub gas_used: Option<u64>,
     pub optimistic_submission: Option<bool>,
 }
 
@@ -105,7 +105,7 @@ mod tests {
                     [u8; 32],
                 ),
                 u64,
-                Option<u64>,
+                u64,
                 Option<String>,
                 Option<String>,
                 Option<[u8; 20]>,
@@ -143,13 +143,13 @@ mod tests {
                         block_hash: H256::from_slice(&block_hash),
                         parent_hash: H256::from_slice(&parent_hash),
                         value: U256::from(&value),
-                        slot_number: U64::from(slot_number),
-                        block_number: block_number.map(U64::from),
+                        slot_number,
+                        block_number,
                         builder_pubkey,
                         extra_data,
                         fee_recipient: fee_recipient.map(Address::from),
                         proposer_fee_recipient: proposer_fee_recipient.map(Address::from),
-                        gas_used: gas_used.map(U64::from),
+                        gas_used,
                         optimistic_submission,
                     }
                 },
