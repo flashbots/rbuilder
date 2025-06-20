@@ -26,8 +26,8 @@ resolver = "2"
 # Uncomment this section if you're using a debugger.
 [profile.dev]
 # https://davidlattimore.github.io/posts/2024/02/04/speeding-up-the-rust-edit-build-run-cycle.html
-# debug = "line-tables-only"
-# split-debuginfo = "unpacked"
+debug = "line-tables-only"
+split-debuginfo = "unpacked"
 
 # Speed up tests.
 [profile.dev.package]
