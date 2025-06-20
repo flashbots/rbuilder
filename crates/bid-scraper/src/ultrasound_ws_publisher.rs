@@ -15,6 +15,7 @@ use tracing::debug;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct UltrasoundWsPublisherConfig {
+    /// Url to connect to. Example: "ws://relay-builders-eu.ultrasound.money/ws/v1/top_bid"
     pub ultrasound_url: String,
     /// Be sure to use unique names. Maybe we can take it from the ultrasound_url?
     pub relay_name: String,

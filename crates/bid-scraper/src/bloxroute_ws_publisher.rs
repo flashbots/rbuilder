@@ -19,9 +19,11 @@ use tracing::{debug, error, info};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct BloxrouteWsPublisherConfig {
+    /// Url to connect to. Example: "wss://mev-eth.blxrbdn.com/ws"
     pub bloxroute_url: String,
-    /// Be sure to use unique names. Maybe we can take it from the ultrasound_url?
+    /// Be sure to use unique names. Maybe we can take it from the bloxroute_url?
     pub relay_name: String,
+    /// Added as "Authorization" header.
     pub auth_header: EnvOrValue<String>,
 }
 

@@ -20,13 +20,13 @@ pub struct SimpleRelayPublisherConfig {
 
     /// File containing a json list of relays like { "flashbots": "https://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@boost-relay.flashbots.net" }
     pub relays_file: String,
-    /// Int between [0; --time-offset-count) . We'll initiate our requests at exactly this time proportionally in the slot. Imagine you have 3 instances in 3 servers, you pass --time-offset-count 3 and then the first instance will have --time-offset-index 0, the second 1, and the third 2."
-    pub request_interval_s: f64,
+    /// Int between [0; time_offset_count) . We'll initiate our requests at exactly this time proportionally in the slot. Imagine you have 3 instances in 3 servers, you pass --time-offset-count 3 and then the first instance will have --time-offset-index 0, the second 1, and the third 2."
     pub time_offset_index: u64,
     pub time_offset_count: u64,
-    /// When these jobs should start to query for bids, in each slot. It's then shifted using time_offset_index/time_offset_count.
-    /// default_value = "6.0",
+    /// When should start to query (in seconds) for bids in each slot. It's then shifted using time_offset_index/time_offset_count.
     pub request_start_s: f64,
+    /// How often query for bids (in seconds), once we started.
+    pub request_interval_s: f64,
     //#[clap(long, parse(try_from_str = try_parse_custom_request_interval), help="Override the request interval for a specific relay. Use like this: `--custom_request_interval relay_name=0.8`")]
     //pub custom_request_interval_s: Vec<(String, f64)>,
 }

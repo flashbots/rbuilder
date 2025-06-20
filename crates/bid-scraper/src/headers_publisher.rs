@@ -26,7 +26,7 @@ use tokio::time::timeout;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct RelayHeadersPublisherConfig {
-    /// Endpoint for an EL client. Example:"ws://127.0.0.1:8545"
+    /// Endpoint for an CL client. Example:"ws://127.0.0.1:8545"
     pub beacon_node_uri: String,
     #[serde(flatten)]
     pub simple_relay_cfg: SimpleRelayPublisherConfig,
