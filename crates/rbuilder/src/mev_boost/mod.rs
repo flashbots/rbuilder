@@ -7,6 +7,7 @@ pub mod submission;
 use super::utils::u256decimal_serde_helper;
 
 use alloy_primitives::{Address, BlockHash, Bytes, U256};
+use alloy_rpc_types_beacon::relay::SubmitBlockRequest;
 use flate2::{write::GzEncoder, Compression};
 use itertools::Itertools;
 use primitive_types::H384;
@@ -18,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use ssz::Encode;
 use std::{io::Write, str::FromStr};
-use submission::{SubmitBlockRequest, SubmitBlockRequestNoBlobs, SubmitBlockRequestWithMetadata};
+use submission::{SubmitBlockRequestNoBlobs, SubmitBlockRequestWithMetadata};
 use url::Url;
 
 pub use error::*;
@@ -486,9 +487,9 @@ impl RelayClient {
         let (mut body_data, content_type) = if ssz {
             (
                 match &submission_with_metadata.submission {
-                    SubmitBlockRequest::Capella(data) => data.0.as_ssz_bytes(),
-                    SubmitBlockRequest::Deneb(data) => data.0.as_ssz_bytes(),
-                    SubmitBlockRequest::Electra(data) => data.0.as_ssz_bytes(),
+                    SubmitBlockRequest::Capella(data) => data.as_ssz_bytes(),
+                    SubmitBlockRequest::Deneb(data) => data.as_ssz_bytes(),
+                    SubmitBlockRequest::Electra(data) => data.as_ssz_bytes(),
                 },
                 SSZ_CONTENT_TYPE,
             )
@@ -825,7 +826,7 @@ mod tests {
 
         let relay_url = Url::from_str(&srv.endpoint()).unwrap();
         let relay = RelayClient::from_url(relay_url, None, None, None);
-        let submission = SubmitBlockRequest::Deneb(generator.create_deneb_submit_block_request());
+        let submission = SubmitBlockRequest::Deneb(generator.create_deneb_submit_block_request().0);
         let sub_relay = SubmitBlockRequestWithMetadata {
             submission,
             metadata: BidMetadata {

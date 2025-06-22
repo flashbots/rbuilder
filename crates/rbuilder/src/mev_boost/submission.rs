@@ -1,12 +1,15 @@
 use alloy_primitives::U256;
 use alloy_rpc_types_beacon::{
-    relay::{BidTrace, SignedBidSubmissionV2, SignedBidSubmissionV3, SignedBidSubmissionV4},
+    relay::{
+        BidTrace, SignedBidSubmissionV2, SignedBidSubmissionV3, SignedBidSubmissionV4,
+        SubmitBlockRequest,
+    },
     requests::ExecutionRequestsV4,
     BlsSignature,
 };
 use alloy_rpc_types_engine::{BlobsBundleV1, ExecutionPayloadV3};
 use serde::{Deserialize, Serialize};
-use ssz::{Decode, DecodeError, Encode};
+use ssz::Encode;
 
 use crate::primitives::OrderId;
 
@@ -24,40 +27,6 @@ impl DenebSubmitBlockRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CapellaSubmitBlockRequest(pub SignedBidSubmissionV2);
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum SubmitBlockRequest {
-    Capella(CapellaSubmitBlockRequest),
-    Deneb(DenebSubmitBlockRequest),
-    Electra(ElectraSubmitBlockRequest),
-}
-
-impl SubmitBlockRequest {
-    pub fn bid_trace(&self) -> &BidTrace {
-        match self {
-            SubmitBlockRequest::Capella(req) => &req.0.message,
-            SubmitBlockRequest::Deneb(req) => &req.0.message,
-            SubmitBlockRequest::Electra(req) => &req.0.message,
-        }
-    }
-
-    pub fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
-        if let Ok(result) = SignedBidSubmissionV4::from_ssz_bytes(bytes) {
-            return Ok(SubmitBlockRequest::Electra(ElectraSubmitBlockRequest(
-                result,
-            )));
-        }
-        if let Ok(result) = SignedBidSubmissionV3::from_ssz_bytes(bytes) {
-            return Ok(SubmitBlockRequest::Deneb(DenebSubmitBlockRequest(result)));
-        }
-
-        let result = SignedBidSubmissionV2::from_ssz_bytes(bytes)?;
-        Ok(SubmitBlockRequest::Capella(CapellaSubmitBlockRequest(
-            result,
-        )))
-    }
-}
 
 #[derive(Clone, Debug)]
 pub struct BidMetadata {
@@ -99,10 +68,10 @@ impl serde::Serialize for SubmitBlockRequestNoBlobs<'_> {
                 }
 
                 SignedBidSubmissionV3Ref {
-                    message: &v3.0.message,
-                    execution_payload: &v3.0.execution_payload,
+                    message: &v3.message,
+                    execution_payload: &v3.execution_payload,
                     blobs_bundle: &BlobsBundleV1::new([]), // override blobs bundle with empty one
-                    signature: &v3.0.signature,
+                    signature: &v3.signature,
                 }
                 .serialize(serializer)
             }
@@ -118,11 +87,11 @@ impl serde::Serialize for SubmitBlockRequestNoBlobs<'_> {
                 }
 
                 SignedBidSubmissionV4Ref {
-                    message: &v4.0.message,
-                    execution_payload: &v4.0.execution_payload,
+                    message: &v4.message,
+                    execution_payload: &v4.execution_payload,
                     blobs_bundle: &BlobsBundleV1::new([]), // override blobs bundle with empty one
-                    signature: &v4.0.signature,
-                    execution_requests: &v4.0.execution_requests,
+                    signature: &v4.signature,
+                    execution_requests: &v4.execution_requests,
                 }
                 .serialize(serializer)
             }

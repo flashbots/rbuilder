@@ -1,9 +1,10 @@
 use alloy_json_rpc::{ErrorPayload, RpcError};
+use alloy_rpc_types_beacon::relay::SubmitBlockRequest;
 use std::{fmt::Debug, sync::Arc};
 
 use alloy_primitives::B256;
 use alloy_provider::{Provider, RootProvider};
-use rbuilder::{mev_boost::submission::SubmitBlockRequest, utils::http_provider};
+use rbuilder::utils::http_provider;
 use serde::Serialize;
 use serde_with::{serde_as, DisplayFromStr};
 use tokio::sync::mpsc;
