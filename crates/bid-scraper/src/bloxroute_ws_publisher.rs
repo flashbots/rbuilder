@@ -6,6 +6,7 @@ use crate::{
     DynResult, RPC_TIMEOUT,
 };
 use alloy_primitives::{Address, BlockHash, U256};
+use alloy_rpc_types_beacon::BlsPublicKey;
 use futures::{
     stream::{SplitSink, SplitStream},
     StreamExt,
@@ -13,6 +14,7 @@ use futures::{
 use futures_util::SinkExt;
 use serde::Deserialize;
 use serde_json::json;
+use std::str::FromStr;
 use tokio::{net::TcpStream, time::timeout};
 use tokio_tungstenite::{
     tungstenite::{http::Request, protocol::Message},
@@ -71,7 +73,7 @@ impl BloxrouteWsConnectionHandler {
         let bid = BlockBid {
             publisher_name: self.name.clone(),
             publisher_type: PublisherType::BloxrouteWs,
-            builder_pubkey: Some(parsed.builder_pubkey.to_lowercase()),
+            builder_pubkey: Some(BlsPublicKey::from_str(&parsed.builder_pubkey)?),
             relay_name,
             parent_hash: parsed.parent_hash,
             block_hash: parsed.block_hash,

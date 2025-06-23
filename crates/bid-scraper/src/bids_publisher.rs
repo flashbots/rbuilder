@@ -10,6 +10,7 @@ use crate::{
 };
 use alloy_primitives::{Address, BlockHash, U256};
 use alloy_provider::{Provider, ProviderBuilder};
+use alloy_rpc_types_beacon::BlsPublicKey;
 use async_trait::async_trait;
 use eyre::Context;
 use lru::LruCache;
@@ -178,12 +179,11 @@ impl BidsPublisherService {
             let bid = BlockBid {
                 publisher_name: self.name.clone(),
                 publisher_type: PublisherType::RelayBids,
-                builder_pubkey: Some(
+                builder_pubkey: Some(BlsPublicKey::from_str(
                     json_bid["builder_pubkey"]
                         .as_str()
-                        .ok_or("unable to parse builder_pubkey")?
-                        .to_lowercase(),
-                ),
+                        .ok_or("unable to parse builder_pubkey")?,
+                )?),
                 relay_name: relay_name.to_string(),
                 parent_hash: BlockHash::from_str(
                     json_bid["parent_hash"]

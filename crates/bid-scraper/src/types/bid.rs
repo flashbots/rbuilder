@@ -1,4 +1,5 @@
 use alloy_primitives::{Address, BlockHash, U256};
+use alloy_rpc_types_beacon::BlsPublicKey;
 use derivative::Derivative;
 use serde::{Deserialize, Serialize};
 
@@ -59,7 +60,7 @@ pub struct BlockBid {
     pub slot_number: u64,
     pub block_number: u64,
 
-    pub builder_pubkey: Option<String>,
+    pub builder_pubkey: Option<BlsPublicKey>,
     pub extra_data: Option<String>,
     pub fee_recipient: Option<Address>,          // block COINBASE
     pub proposer_fee_recipient: Option<Address>, // validator address

@@ -12,12 +12,10 @@ pub fn block_bid_from_update(
     publisher_name: &str,
     publisher_type: PublisherType,
 ) -> BlockBid {
-    let builder_pubkey = format!("0x{}", hex::encode(&update.builder_pubkey[..]));
-    debug_assert_eq!(builder_pubkey.len(), 98);
     BlockBid {
         publisher_name: publisher_name.to_owned(),
         publisher_type: publisher_type.to_owned(),
-        builder_pubkey: Some(builder_pubkey),
+        builder_pubkey: Some(update.builder_pubkey),
         relay_name: relay_name.to_owned(),
         parent_hash: update.parent_hash,
         block_hash: update.block_hash,
