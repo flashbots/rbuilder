@@ -5,6 +5,7 @@ redacted_telemetry_server_ip = "0.0.0.0"
 full_telemetry_server_port = 6060
 full_telemetry_server_ip = "0.0.0.0"
 
+
 chain = "mainnet"
 reth_datadir = "/mnt/data/reth"
 
@@ -19,6 +20,8 @@ jsonrpc_server_port = 8645
 jsonrpc_server_ip = "0.0.0.0"
 el_node_ipc_path = "/tmp/reth.ipc"
 extra_data = "⚡🤖"
+
+scraped_bids_publisher_url = "tcp://0.0.0.0:5555"
 
 blocklist_file_path = "./blocklist.json"
 

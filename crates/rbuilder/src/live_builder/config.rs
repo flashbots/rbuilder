@@ -49,6 +49,7 @@ use alloy_primitives::{
     utils::{format_ether, parse_ether},
     FixedBytes, B256, U256,
 };
+use bid_scraper::bid_scraper_client::run_nng_subscriber_with_retries;
 use ethereum_consensus::{
     builder::compute_builder_domain, crypto::SecretKey, primitives::Version,
     state_transition::Context as ContextEth,
@@ -79,6 +80,11 @@ use url::Url;
 pub const WALLET_INIT_HISTORY_SIZE: Duration = Duration::from_secs(60 * 60 * 24);
 /// 1 is easier for debugging.
 pub const DEFAULT_MAX_CONCURRENT_SEALS: u64 = 1;
+
+/// More than 2 blocks. This could happen normally every 1000 blocks approx since there is a 10% chance of non-boost blocks.
+pub const BID_SOURCE_TIMEOUT_SECS: u64 = 28;
+/// Don't want to waste too much time in case i failed to non-boost block.
+pub const BID_SOURCE_WAIT_TIME_SECS: u64 = 2;
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(tag = "algo", rename_all = "kebab-case", deny_unknown_fields)]
@@ -116,6 +122,7 @@ pub struct Config {
 
 const DEFAULT_SLOT_DELTA_TO_START_BIDDING_MS: i64 = -8000;
 const DEFAULT_INDEPENDENT_BID_THRESHOLD_ETH: &str = "0";
+const DEFAULT_SCRAPED_BIDS_PUBLISHER_URL: &str = "tcp://0.0.0.0:5555";
 
 #[serde_as]
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -144,6 +151,9 @@ pub struct L1Config {
 
     /// Bids above this value will only go to independent relays.
     pub independent_bid_threshold_eth: String,
+
+    /// Where the bids scraper publishes the bids. Example:"tcp://0.0.0.0:5555"
+    pub scraped_bids_publisher_url: String,
 }
 
 impl Default for L1Config {
@@ -158,6 +168,7 @@ impl Default for L1Config {
             cl_node_url: vec![EnvOrValue::from("http://127.0.0.1:3500")],
             genesis_fork_version: None,
             independent_bid_threshold_eth: DEFAULT_INDEPENDENT_BID_THRESHOLD_ETH.to_owned(),
+            scraped_bids_publisher_url: DEFAULT_SCRAPED_BIDS_PUBLISHER_URL.to_owned(),
         }
     }
 }
@@ -384,7 +395,8 @@ impl LiveBuilderConfig for Config {
             .as_ref()
             .map(|s| parse_ether(s))
             .unwrap_or(Ok(U256::ZERO))?;
-        let bidding_service: Box<dyn BiddingService> = Box::new(TrueBlockValueBiddingService::new(
+
+        let bidding_service: Arc<dyn BiddingService> = Arc::new(TrueBlockValueBiddingService::new(
             &wallet_history,
             time::Duration::milliseconds(
                 self.slot_delta_to_start_bidding_ms
@@ -392,6 +404,16 @@ impl LiveBuilderConfig for Config {
             ),
             subsidy,
         ));
+
+        let bidding_service_clone = bidding_service.clone();
+        let _ = tokio::spawn(run_nng_subscriber_with_retries(
+            bidding_service_clone,
+            cancellation_token.clone(),
+            self.l1_config.scraped_bids_publisher_url.clone(),
+            Duration::from_secs(BID_SOURCE_TIMEOUT_SECS),
+            Duration::from_secs(BID_SOURCE_WAIT_TIME_SECS),
+        ))
+        .await;
 
         let sink_factory = Box::new(BlockSealingBidderFactory::new(
             bidding_service,

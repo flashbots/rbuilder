@@ -11,16 +11,21 @@ use tracing::info;
 
 use crate::types::BlockBid;
 
-pub trait ScrapedBidsObs {
+/// Sink for scraped bids.
+pub trait ScrapedBidsObs: Send + Sync {
+    /// Be careful, we don't assume any kind of filtering here so bid may contain our own bids.
     fn update_new_bid(&self, bid: BlockBid);
 }
 
 /// NNG subscriber with infinite retries.
+/// timeout: if we don't get a new bid in this time we reconnect.
+/// retry_wait: time we wait to reconnect.
 pub async fn run_nng_subscriber_with_retries(
-    obs: Arc<dyn ScrapedBidsObs + Send + Sync>,
+    obs: Arc<dyn ScrapedBidsObs>,
     cancel: CancellationToken,
     publisher_url: String,
     timeout: Duration,
+    retry_wait: Duration,
 ) {
     let url = publisher_url.clone(); // for reuse in error handler
     tokio::select! {
@@ -28,7 +33,7 @@ pub async fn run_nng_subscriber_with_retries(
             move || run_nng_subscriber(obs.clone(), publisher_url.clone(), timeout),
             move |error: Box<dyn std::error::Error>| {
                 tracing::error!("Subscriber to {url} returned an error: {error:?}");
-                RetryPolicy::<()>::WaitRetry(timeout)
+                RetryPolicy::<()>::WaitRetry(retry_wait)
             },
         ) => {
             let attempts = match result {
@@ -45,7 +50,7 @@ pub async fn run_nng_subscriber_with_retries(
 
 /// NNG subscriber that forwards bids to the channel.
 async fn run_nng_subscriber(
-    obs: Arc<dyn ScrapedBidsObs + Send + Sync>,
+    obs: Arc<dyn ScrapedBidsObs>,
     publisher_url: String,
     timeout: Duration,
 ) -> Result<(), Box<dyn std::error::Error>> {

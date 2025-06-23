@@ -46,11 +46,11 @@ async fn main() -> eyre::Result<()> {
     });
     let publisher_url = args[1].clone();
     println!("Connecting to publishers..");
-    let obs: Arc<dyn ScrapedBidsObs + Send + Sync> = Arc::new(ScrapedBidsPrinter {});
     let _ = tokio::spawn(run_nng_subscriber_with_retries(
-        obs,
+        Arc::new(ScrapedBidsPrinter {}),
         cancel,
         publisher_url,
+        Duration::from_secs(10),
         Duration::from_secs(10),
     ))
     .await;

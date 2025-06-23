@@ -1,19 +1,14 @@
 use crate::{
-    building::builders::{
-        block_building_helper::BiddableUnfinishedBlock, UnfinishedBlockBuildingSink,
-        UnfinishedBlockBuildingSinkFactory,
-    },
-    live_builder::payload_events::MevBoostSlotData,
-    provider::StateProviderFactory,
+    building::builders::UnfinishedBlockBuildingSinkFactory,
+    live_builder::payload_events::MevBoostSlotData, provider::StateProviderFactory,
 };
 use std::{fmt::Debug, sync::Arc};
 use tracing::error;
 
 use super::{
-    bid_value_source::interfaces::{BidValueObs, BidValueSource, CompetitionBid},
+    bid_value_source::interfaces::BidValueSource,
     bidding::{
-        interfaces::{BiddingService, SlotBidder},
-        sequential_sealer_bid_maker::SequentialSealerBidMaker,
+        interfaces::BiddingService, sequential_sealer_bid_maker::SequentialSealerBidMaker,
         wallet_balance_watcher::WalletBalanceWatcher,
     },
     relay_submit::BuilderSinkFactory,
@@ -26,7 +21,7 @@ use super::{
 /// SlotBidder is subscribed to the BidValueSource.
 pub struct BlockSealingBidderFactory<P> {
     /// Factory for the SlotBidder for blocks.
-    bidding_service: Box<dyn BiddingService>,
+    bidding_service: Arc<dyn BiddingService>,
     /// Factory for the final destination for blocks.
     block_sink_factory: Box<dyn BuilderSinkFactory>,
     /// SlotBidder are subscribed to the proper block in the bid_value_source.
@@ -37,7 +32,7 @@ pub struct BlockSealingBidderFactory<P> {
 impl<P> Debug for BlockSealingBidderFactory<P> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BlockSealingBidderFactory")
-            .field("bidding_service", &"Box<dyn BiddingService>")
+            .field("bidding_service", &"Arc<dyn BiddingService>")
             .field("block_sink_factory", &"Box<dyn BuilderSinkFactory>")
             .field(
                 "competition_bid_value_source",
@@ -49,7 +44,7 @@ impl<P> Debug for BlockSealingBidderFactory<P> {
 
 impl<P> BlockSealingBidderFactory<P> {
     pub fn new(
-        bidding_service: Box<dyn BiddingService>,
+        bidding_service: Arc<dyn BiddingService>,
         block_sink_factory: Box<dyn BuilderSinkFactory>,
         competition_bid_value_source: Arc<dyn BidValueSource + Send + Sync>,
         wallet_balance_watcher: WalletBalanceWatcher<P>,
@@ -60,18 +55,6 @@ impl<P> BlockSealingBidderFactory<P> {
             competition_bid_value_source,
             wallet_balance_watcher,
         }
-    }
-}
-
-/// Struct to solve trait upcasting not supported in rust stable.
-#[derive(Debug)]
-struct SlotBidderToBidValueObs {
-    bidder: Arc<dyn SlotBidder>,
-}
-
-impl BidValueObs for SlotBidderToBidValueObs {
-    fn update_new_bid(&self, bid: CompetitionBid) {
-        self.bidder.update_new_bid(bid);
     }
 }
 
@@ -108,79 +91,12 @@ where
             cancel.clone(),
         ));
 
-        let slot_bidder: Arc<dyn SlotBidder> = self.bidding_service.create_slot_bidder(
+        self.bidding_service.create_slot_bidder(
             slot_data.block(),
             slot_data.slot(),
             slot_data.timestamp(),
             sealer,
             cancel.clone(),
-        );
-
-        let res = BlockSealingBidder::new(
-            slot_data,
-            slot_bidder,
-            self.competition_bid_value_source.clone(),
-        );
-
-        Arc::new(res)
-    }
-}
-
-/// Helper object containing the bidder.
-/// It just forwards new blocks and new competitions bids (via SlotBidderToBidValueObs) to the bidder.
-struct BlockSealingBidder {
-    /// Used to unsubscribe on drop.
-    bid_value_source_to_unsubscribe: Arc<dyn BidValueObs + Send + Sync>,
-    /// Used to unsubscribe on drop.
-    competition_bid_value_source: Arc<dyn BidValueSource + Send + Sync>,
-    /// We forward best block and competition bids to the bidder.
-    /// It will bid with the BidMaker it received on creation.
-    bidder: Arc<dyn SlotBidder>,
-}
-
-impl BlockSealingBidder {
-    pub fn new(
-        slot_data: MevBoostSlotData,
-        bidder: Arc<dyn SlotBidder>,
-        competition_bid_value_source: Arc<dyn BidValueSource + Send + Sync>,
-    ) -> Self {
-        let slot_bidder_to_bid_value_obs: Arc<dyn BidValueObs + Send + Sync> =
-            Arc::new(SlotBidderToBidValueObs {
-                bidder: bidder.clone(),
-            });
-
-        competition_bid_value_source.subscribe(
-            slot_data.block(),
-            slot_data.slot(),
-            slot_bidder_to_bid_value_obs.clone(),
-        );
-
-        Self {
-            bid_value_source_to_unsubscribe: slot_bidder_to_bid_value_obs,
-            competition_bid_value_source,
-            bidder,
-        }
-    }
-}
-
-impl UnfinishedBlockBuildingSink for BlockSealingBidder {
-    fn new_block(&self, biddable_block: BiddableUnfinishedBlock) {
-        self.bidder.new_block(biddable_block);
-    }
-    fn can_use_suggested_fee_recipient_as_coinbase(&self) -> bool {
-        self.bidder.can_use_suggested_fee_recipient_as_coinbase()
-    }
-}
-
-impl Drop for BlockSealingBidder {
-    fn drop(&mut self) {
-        self.competition_bid_value_source
-            .unsubscribe(self.bid_value_source_to_unsubscribe.clone());
-    }
-}
-
-impl Debug for BlockSealingBidder {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("BlockSealingBidder").finish()
+        )
     }
 }
