@@ -8,12 +8,10 @@ use crate::{
     types::{BlockBid, PublisherType},
     DynResult, RPC_TIMEOUT,
 };
+use alloy_primitives::{Address, BlockHash, U256};
+use alloy_provider::{Provider, ProviderBuilder};
 use async_trait::async_trait;
-use ethers::{
-    abi::{AbiDecode, AbiEncode},
-    prelude::*,
-};
-use eyre::{eyre, Context};
+use eyre::Context;
 use lru::LruCache;
 use parking_lot::{Mutex, MutexGuard};
 use serde::Deserialize;
@@ -115,13 +113,11 @@ impl Service<RelayBidsPublisherConfig> for BidsPublisherService {
             .simple_relay_publisher_config()
             .eth_provider_uri
             .clone();
-        let provider = timeout(
-            RPC_TIMEOUT,
-            Provider::<Ws>::connect(eth_provider_uri.clone()),
-        )
-        .await
-        .wrap_err("could not connect to node in time")?
-        .wrap_err("unable to connect to node?")?;
+        let ws_conn = alloy_provider::WsConnect::new(eth_provider_uri);
+        let provider = timeout(RPC_TIMEOUT, ProviderBuilder::new().connect_ws(ws_conn))
+            .await
+            .wrap_err("could not connect to node in time")?
+            .wrap_err("unable to connect to node?")?;
 
         let mut subscription = provider
             .subscribe_blocks()
@@ -130,16 +126,16 @@ impl Service<RelayBidsPublisherConfig> for BidsPublisherService {
         info!("New blocks subscriber connected and ready. Waiting for the first block...");
         let cancel_token = self.cancellation_token();
         while !cancel_token.is_cancelled() {
-            let block = timeout(RPC_TIMEOUT, subscription.next())
+            let block = timeout(RPC_TIMEOUT, subscription.recv())
                 .await
                 .wrap_err("didn't receive a new block in time")?
-                .ok_or(eyre!("didn't receive a new block"))?;
+                .wrap_err("didn't receive a new block")?;
             {
                 trace!("got block {:?}", block);
                 let mut inner = self.inner();
-                inner.last_block_number = block.number.ok_or(eyre!("no block number"))?.as_u64();
-                inner.last_block_hash = block.hash.ok_or(eyre!("no block hash"))?.encode_hex();
-                inner.last_slot = slot::get_slot_number(block.timestamp.as_u64());
+                inner.last_block_number = block.number;
+                inner.last_block_hash = block.hash.to_string();
+                inner.last_slot = slot::get_slot_number(block.timestamp);
                 info!(
                     "New block {} ({}).",
                     inner.last_block_number, inner.last_block_hash,
@@ -189,12 +185,12 @@ impl BidsPublisherService {
                         .to_lowercase(),
                 ),
                 relay_name: relay_name.to_string(),
-                parent_hash: H256::decode_hex(
+                parent_hash: BlockHash::from_str(
                     json_bid["parent_hash"]
                         .as_str()
                         .ok_or("unable to parse parent_hash")?,
                 )?,
-                block_hash: H256::decode_hex(
+                block_hash: BlockHash::from_str(
                     json_bid["block_hash"]
                         .as_str()
                         .ok_or("unable to parse block_hash")?,

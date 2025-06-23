@@ -24,7 +24,7 @@ pub fn block_bid_from_update(
         seen_time: get_timestamp_f64(),
         relay_time: Some(update.timestamp as f64 / 1000.),
         value: update.value,
-        slot_number: update.slot.into(),
+        slot_number: update.slot,
         gas_used: None,
         fee_recipient: Some(update.fee_recipient),
         proposer_fee_recipient: None,

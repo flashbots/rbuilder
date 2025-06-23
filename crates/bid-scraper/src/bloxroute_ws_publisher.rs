@@ -5,8 +5,11 @@ use crate::{
     ws_publisher::{ConnectionHandler, Service},
     DynResult, RPC_TIMEOUT,
 };
-use ethers::prelude::*;
-use futures::stream::{SplitSink, SplitStream};
+use alloy_primitives::{Address, BlockHash, U256};
+use futures::{
+    stream::{SplitSink, SplitStream},
+    StreamExt,
+};
 use futures_util::SinkExt;
 use serde::Deserialize;
 use serde_json::json;
@@ -32,8 +35,8 @@ pub struct BloxrouteWsPublisherConfig {
 struct BloxrouteWsBid {
     relay_type: String,
     builder_pubkey: String,
-    parent_hash: H256,
-    block_hash: H256,
+    parent_hash: BlockHash,
+    block_hash: BlockHash,
     timestamp_ms: u64,
     block_value: u128,
     block_number: u64,

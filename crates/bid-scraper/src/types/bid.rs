@@ -1,5 +1,5 @@
+use alloy_primitives::{Address, BlockHash, U256};
 use derivative::Derivative;
-use ethers::types::{Address, H256, U256};
 use serde::{Deserialize, Serialize};
 
 /// Id for each type of scraping method.
@@ -52,8 +52,8 @@ pub struct BlockBid {
     /// Source of the bid (a single publisher can query multiple relays)
     pub relay_name: String,
 
-    pub block_hash: H256,
-    pub parent_hash: H256,
+    pub block_hash: BlockHash,
+    pub parent_hash: BlockHash,
     pub value: U256,
 
     pub slot_number: u64,
