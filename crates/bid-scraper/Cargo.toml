@@ -20,6 +20,7 @@ serde = { workspace = true }
 serde_with = { version = "3.9.0", features = ["time_0_3"] }
 chrono = "^0.4"
 futures = "^0.3"
+futures-retry = "0.6"
 rand = "^0.8"
 runng = "^0.3"
 reqwest = { version = "^0.11", default-features = false, features = ["rustls", "gzip", "brotli", "deflate", "json", "rustls-tls"] }

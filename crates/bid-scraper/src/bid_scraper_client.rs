@@ -1,0 +1,64 @@
+use futures_retry::{FutureRetry, RetryPolicy};
+use runng::{
+    asyncio::{AsyncSocket, ReadAsync},
+    latest::ProtocolFactory,
+    protocol::Subscribe,
+    Dial,
+};
+use std::{sync::Arc, time::Duration};
+use tokio_util::sync::CancellationToken;
+use tracing::info;
+
+use crate::types::BlockBid;
+
+pub trait ScrapedBidsObs {
+    fn update_new_bid(&self, bid: BlockBid);
+}
+
+/// NNG subscriber with infinite retries.
+pub async fn run_nng_subscriber_with_retries(
+    obs: Arc<dyn ScrapedBidsObs + Send + Sync>,
+    cancel: CancellationToken,
+    publisher_url: String,
+    timeout: Duration,
+) {
+    let url = publisher_url.clone(); // for reuse in error handler
+    tokio::select! {
+        result = FutureRetry::new(
+            move || run_nng_subscriber(obs.clone(), publisher_url.clone(), timeout),
+            move |error: Box<dyn std::error::Error>| {
+                tracing::error!("Subscriber to {url} returned an error: {error:?}");
+                RetryPolicy::<()>::WaitRetry(timeout)
+            },
+        ) => {
+            let attempts = match result {
+                Ok((_, attempts)) => attempts,
+                Err((_, attempts)) => attempts,
+            };
+            unreachable!("NNG subscription exited after {attempts} attempts")
+        }
+        _ = cancel.cancelled() => {
+            info!("bid scraper NNG subscription cancelled");
+        }
+    }
+}
+
+/// NNG subscriber that forwards bids to the channel.
+async fn run_nng_subscriber(
+    obs: Arc<dyn ScrapedBidsObs + Send + Sync>,
+    publisher_url: String,
+    timeout: Duration,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut socket = ProtocolFactory::default().subscriber_open()?;
+    socket.dial(&publisher_url)?;
+    socket.subscribe_str("").expect("failed to subscribe");
+
+    let mut nng_reader = socket.create_async()?;
+    tracing::info!(target: "bidder", publisher_url, "Created nanomsg socket and subscribed");
+
+    loop {
+        let msg = tokio::time::timeout(timeout, nng_reader.receive()).await??;
+        let block_bid: BlockBid = serde_json::from_slice(msg.body())?;
+        obs.update_new_bid(block_bid);
+    }
+}

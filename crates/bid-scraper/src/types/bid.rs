@@ -36,7 +36,7 @@ impl PublisherType {
 /// Trait implementations:
 /// `PartialEq` - we voluntarily omit `seen_time` as it is metadata we add
 /// `Hash` - we voluntarily omit `seen_time` (metadata that we add) and `relay_time` (not hashable and we don't care about it)
-#[derive(Debug, Clone, Derivative, Serialize)]
+#[derive(Debug, Clone, Derivative, Serialize, Deserialize)]
 #[derivative(Hash, PartialEq, Eq)]
 pub struct BlockBid {
     // time when the bids-publisher saw & sent it.
