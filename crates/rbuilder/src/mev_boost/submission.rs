@@ -1,9 +1,6 @@
 use alloy_primitives::U256;
 use alloy_rpc_types_beacon::{
-    relay::{
-        BidTrace, SignedBidSubmissionV2, SignedBidSubmissionV3, SignedBidSubmissionV4,
-        SubmitBlockRequest,
-    },
+    relay::{BidTrace, SignedBidSubmissionV3, SubmitBlockRequest},
     requests::ExecutionRequestsV4,
     BlsSignature,
 };
@@ -14,9 +11,6 @@ use ssz::Encode;
 use crate::primitives::OrderId;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ElectraSubmitBlockRequest(pub SignedBidSubmissionV4);
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DenebSubmitBlockRequest(pub SignedBidSubmissionV3);
 
 impl DenebSubmitBlockRequest {
@@ -24,9 +18,6 @@ impl DenebSubmitBlockRequest {
         self.0.as_ssz_bytes()
     }
 }
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct CapellaSubmitBlockRequest(pub SignedBidSubmissionV2);
 
 #[derive(Clone, Debug)]
 pub struct BidMetadata {
