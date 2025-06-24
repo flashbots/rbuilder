@@ -1,6 +1,6 @@
-use crate::roothash::RootHashError;
 use crate::{
     building::ThreadBlockBuildingContext, live_builder::simulation::SimulatedOrderCommand,
+    roothash::RootHashError,
 };
 use alloy_consensus::Header;
 use alloy_eips::BlockNumHash;

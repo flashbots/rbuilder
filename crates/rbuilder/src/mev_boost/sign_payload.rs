@@ -1,15 +1,13 @@
-use super::submission::{
-    CapellaSubmitBlockRequest, DenebSubmitBlockRequest, ElectraSubmitBlockRequest,
-    SubmitBlockRequest,
-};
 use crate::utils::u256decimal_serde_helper;
-use alloy_eips::eip7685::Requests;
-use alloy_eips::{eip2718::Encodable2718, eip4844::BlobTransactionSidecar};
+use alloy_eips::{eip2718::Encodable2718, eip4844::BlobTransactionSidecar, eip7685::Requests};
 use alloy_primitives::{Address, BlockHash, Bytes, FixedBytes, B256, U256};
-use alloy_rpc_types_beacon::requests::ExecutionRequestsV4;
 use alloy_rpc_types_beacon::{
     events::PayloadAttributesData,
-    relay::{BidTrace, SignedBidSubmissionV2, SignedBidSubmissionV3, SignedBidSubmissionV4},
+    relay::{
+        BidTrace, SignedBidSubmissionV2, SignedBidSubmissionV3, SignedBidSubmissionV4,
+        SubmitBlockRequest,
+    },
+    requests::ExecutionRequestsV4,
     BlsPublicKey,
 };
 use alloy_rpc_types_engine::{
@@ -200,28 +198,28 @@ pub fn sign_block_for_relay(
         let execution_requests =
             ExecutionRequestsV4::try_from(Requests::new(execution_requests.to_vec()))?;
         if chain_spec.is_prague_active_at_timestamp(sealed_block.timestamp) {
-            SubmitBlockRequest::Electra(ElectraSubmitBlockRequest(SignedBidSubmissionV4 {
+            SubmitBlockRequest::Electra(SignedBidSubmissionV4 {
                 message,
                 execution_payload,
                 blobs_bundle,
                 signature,
                 execution_requests,
-            }))
+            })
         } else {
-            SubmitBlockRequest::Deneb(DenebSubmitBlockRequest(SignedBidSubmissionV3 {
+            SubmitBlockRequest::Deneb(SignedBidSubmissionV3 {
                 message,
                 execution_payload,
                 blobs_bundle,
                 signature,
-            }))
+            })
         }
     } else {
         let execution_payload = capella_payload;
-        SubmitBlockRequest::Capella(CapellaSubmitBlockRequest(SignedBidSubmissionV2 {
+        SubmitBlockRequest::Capella(SignedBidSubmissionV2 {
             message,
             execution_payload,
             signature,
-        }))
+        })
     };
 
     Ok(submit_block_request)

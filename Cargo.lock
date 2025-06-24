@@ -14391,6 +14391,7 @@ dependencies = [
  "alloy-json-rpc 1.0.9",
  "alloy-primitives 1.2.0",
  "alloy-provider",
+ "alloy-rpc-types-beacon",
  "clap 4.5.36",
  "clap_builder",
  "ctor",

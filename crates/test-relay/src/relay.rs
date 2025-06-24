@@ -8,6 +8,7 @@ use crate::{
 use ahash::HashMap;
 use alloy_consensus::proofs::calculate_withdrawals_root;
 use alloy_primitives::{bytes::Bytes, utils::format_ether, B256, U256};
+use alloy_rpc_types_beacon::relay::SubmitBlockRequest;
 use flate2::bufread::GzDecoder;
 use parking_lot::Mutex;
 use rbuilder::{
@@ -16,19 +17,23 @@ use rbuilder::{
         block_list_provider::NullBlockListProvider,
         payload_events::{MevBoostSlotData, MevBoostSlotDataGenerator},
     },
-    mev_boost::submission::SubmitBlockRequest,
     primitives::mev_boost::MevBoostRelaySlotInfoProvider,
 };
 use serde::{Deserialize, Serialize};
-use std::time::Instant;
-use std::{collections::hash_map::Entry, sync::Arc, time::Duration};
-use std::{io::Read, net::SocketAddr};
+use ssz::Decode;
+use std::{
+    collections::hash_map::Entry,
+    io::Read,
+    net::SocketAddr,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use time::OffsetDateTime;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
-use warp::body;
 use warp::{
+    body,
     http::status::StatusCode,
     query,
     reply::{self, Reply},

@@ -20,6 +20,7 @@ alloy-json-rpc.workspace = true
 alloy-primitives.workspace = true
 alloy-provider.workspace = true
 alloy-consensus.workspace = true
+alloy-rpc-types-beacon.workspace = true
 serde.workspace = true
 serde_with.workspace = true
 serde_json.workspace = true

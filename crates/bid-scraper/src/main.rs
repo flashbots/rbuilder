@@ -1,22 +1,19 @@
-use bid_scraper::bid_sender::BidSender;
-use bid_scraper::bids_publisher::{BidsPublisherService, RelayBidsPublisherConfig};
-use bid_scraper::bloxroute_ws_publisher::{
-    BloxrouteWsConnectionHandler, BloxrouteWsPublisher, BloxrouteWsPublisherConfig,
+use bid_scraper::{
+    bid_sender::BidSender,
+    bids_publisher::{BidsPublisherService, RelayBidsPublisherConfig},
+    bloxroute_ws_publisher::{
+        BloxrouteWsConnectionHandler, BloxrouteWsPublisher, BloxrouteWsPublisherConfig,
+    },
+    code_from_rbuilder::{load_config_toml_and_env, setup_tracing_subscriber, LoggerConfig},
+    config::{Config, PublisherConfig},
+    headers_publisher::{HeadersPublisherService, RelayHeadersPublisherConfig},
+    ultrasound_ws_publisher::{
+        UltrasoundWsConnectionHandler, UltrasoundWsPublisher, UltrasoundWsPublisherConfig,
+    },
 };
-use bid_scraper::code_from_rbuilder::{
-    load_config_toml_and_env, setup_tracing_subscriber, LoggerConfig,
-};
-use bid_scraper::config::{Config, PublisherConfig};
-use bid_scraper::headers_publisher::{HeadersPublisherService, RelayHeadersPublisherConfig};
-use bid_scraper::ultrasound_ws_publisher::{
-    UltrasoundWsConnectionHandler, UltrasoundWsPublisher, UltrasoundWsPublisherConfig,
-};
-use runng::protocol::Pub0;
-use runng::Listen;
-use std::env;
-use std::time::Duration;
-use tokio::signal::ctrl_c;
-use tokio::time::timeout;
+use runng::{protocol::Pub0, Listen};
+use std::{env, time::Duration};
+use tokio::{signal::ctrl_c, time::timeout};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 

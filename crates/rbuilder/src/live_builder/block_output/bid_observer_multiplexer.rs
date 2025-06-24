@@ -1,9 +1,7 @@
+use alloy_rpc_types_beacon::relay::SubmitBlockRequest;
 use reth_primitives::SealedBlock;
 
-use crate::{
-    building::BuiltBlockTrace, live_builder::payload_events::MevBoostSlotData,
-    mev_boost::submission::SubmitBlockRequest,
-};
+use crate::{building::BuiltBlockTrace, live_builder::payload_events::MevBoostSlotData};
 
 use super::bid_observer::BidObserver;
 
