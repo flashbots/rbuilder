@@ -148,6 +148,8 @@ pub struct RelayClient {
     authorization_header: Option<String>,
     builder_id_header: Option<String>,
     api_token_header: Option<String>,
+    /// Adds "filtering=true" as query
+    ask_for_filtering_validators: bool,
 }
 
 impl RelayClient {
@@ -156,6 +158,7 @@ impl RelayClient {
         authorization_header: Option<String>,
         builder_id_header: Option<String>,
         api_token_header: Option<String>,
+        ask_for_filtering_validators: bool,
     ) -> Self {
         Self {
             url,
@@ -163,11 +166,12 @@ impl RelayClient {
             authorization_header,
             builder_id_header,
             api_token_header,
+            ask_for_filtering_validators,
         }
     }
 
     pub fn from_known_relay(relay: KnownRelay) -> Self {
-        Self::from_url(relay.url(), None, None, None)
+        Self::from_url(relay.url(), None, None, None, false)
     }
 }
 
@@ -442,14 +446,15 @@ impl RelayClient {
         let url = {
             let mut url = self.url.clone();
             url.set_path("/relay/v1/builder/validators");
+            if self.ask_for_filtering_validators {
+                url.set_query(Some("filtering=true"));
+            }
             url
         };
-
         let req = self.client.get(url);
         let mut headers = HeaderMap::new();
         self.add_auth_headers(&mut headers)
             .map_err(|_| RelayError::InvalidHeader)?;
-
         let validators = req
             .headers(headers)
             .send()
@@ -824,7 +829,7 @@ mod tests {
         let mut generator = TestDataGenerator::default();
 
         let relay_url = Url::from_str(&srv.endpoint()).unwrap();
-        let relay = RelayClient::from_url(relay_url, None, None, None);
+        let relay = RelayClient::from_url(relay_url, None, None, None, false);
         let submission = SubmitBlockRequest::Deneb(generator.create_deneb_submit_block_request());
         let sub_relay = SubmitBlockRequestWithMetadata {
             submission,
