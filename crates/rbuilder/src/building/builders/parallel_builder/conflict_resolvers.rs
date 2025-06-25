@@ -491,7 +491,7 @@ mod tests {
                 ..Default::default()
             };
             Recovered::new_unchecked(
-                TransactionSigned::new(
+                TransactionSigned::new_unchecked(
                     Transaction::Legacy(tx_legacy),
                     alloy_primitives::Signature::test_signature(),
                     self.create_hash(),

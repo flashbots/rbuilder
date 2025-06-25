@@ -1,9 +1,12 @@
+use ahash::HashMap;
 use mockall::automock;
+use parking_lot::Mutex;
 use tokio::sync::mpsc;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::primitives::{Order, OrderId};
 use core::fmt::Debug;
+use std::sync::Arc;
 
 /// Receiver of order commands.
 /// No replacement/cancellation (or version checking) is considered here.
@@ -80,5 +83,80 @@ impl OrderSink for OrderSender2OrderSink {
 
     fn is_alive(&self) -> bool {
         !self.sender.is_closed()
+    }
+}
+
+/// Implement OrderSink executing all commands and give the current orders.
+/// Usage: create, call OrderSink funcs and call into_orders/orders to get the current orders.
+#[derive(Debug)]
+pub struct OrderStore {
+    orders: HashMap<OrderId, Order>,
+}
+
+impl OrderStore {
+    pub fn new() -> Self {
+        Self {
+            orders: Default::default(),
+        }
+    }
+
+    pub fn into_orders(self) -> Vec<Order> {
+        self.orders.into_values().collect()
+    }
+
+    pub fn orders(&self) -> Vec<Order> {
+        self.orders.values().cloned().collect()
+    }
+}
+
+impl Default for OrderStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl OrderSink for OrderStore {
+    fn insert_order(&mut self, order: Order) -> bool {
+        if let Some(old_order) = self.orders.insert(order.id(), order) {
+            warn!(id =?old_order.id(), "Replacing an already inserted order");
+        }
+        true
+    }
+
+    fn remove_order(&mut self, id: OrderId) -> bool {
+        if self.orders.remove(&id).is_none() {
+            warn!(id =?id, "Order to remove not found");
+        }
+        true
+    }
+
+    fn is_alive(&self) -> bool {
+        true
+    }
+}
+
+/// Allows to share an OrderSink (adds a mutex) since sometimes you need to give away ownership on an Box
+#[derive(Debug)]
+pub struct ShareableOrderSink<OrderSinkType> {
+    pub sink: Arc<Mutex<OrderSinkType>>,
+}
+
+impl<OrderSinkType: OrderSink> ShareableOrderSink<OrderSinkType> {
+    pub fn new(sink: Arc<Mutex<OrderSinkType>>) -> Self {
+        Self { sink }
+    }
+}
+
+impl<OrderSinkType: OrderSink> OrderSink for ShareableOrderSink<OrderSinkType> {
+    fn insert_order(&mut self, order: Order) -> bool {
+        self.sink.lock().insert_order(order)
+    }
+
+    fn remove_order(&mut self, id: OrderId) -> bool {
+        self.sink.lock().remove_order(id)
+    }
+
+    fn is_alive(&self) -> bool {
+        self.sink.lock().is_alive()
     }
 }

@@ -52,7 +52,6 @@ mod test {
     use super::*;
     use alloy_consensus::TxEip1559;
     use alloy_primitives::{address, fixed_bytes, TxKind as TransactionKind};
-    use reth_node_core::primitives::SignedTransaction;
     use reth_primitives_traits::SignerRecoverable;
     #[test]
     fn test_sign_transaction() {
