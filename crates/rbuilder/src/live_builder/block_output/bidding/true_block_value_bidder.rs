@@ -3,10 +3,12 @@ use crate::{
     building::builders::{
         block_building_helper::BiddableUnfinishedBlock, UnfinishedBlockBuildingSink,
     },
-    live_builder::block_output::bid_value_source::interfaces::{BidValueObs, CompetitionBid},
+    live_builder::block_output::{
+        bid_value_source::interfaces::{BidValueObs, CompetitionBid},
+        bidding::{block_bid_with_stats::BlockBidWithStats, interfaces::BlockBidWithStatsObs},
+    },
 };
 use alloy_primitives::U256;
-use bid_scraper::{bid_scraper_client::ScrapedBidsObs, types::BlockBid};
 use parking_lot::Mutex;
 use std::sync::Arc;
 use time::OffsetDateTime;
@@ -36,10 +38,10 @@ impl TrueBlockValueBiddingService {
     }
 }
 
-impl ScrapedBidsObs for TrueBlockValueBiddingService {
-    fn update_new_bid(&self, bid: BlockBid) {
+impl BlockBidWithStatsObs for TrueBlockValueBiddingService {
+    fn update_new_bid(&self, bid_with_stats: BlockBidWithStats) {
         trace!(
-            bid_value = alloy_primitives::utils::format_ether(bid.value),
+            bid_value = alloy_primitives::utils::format_ether(bid_with_stats.bid.value),
             "New (ignored) bid"
         );
     }

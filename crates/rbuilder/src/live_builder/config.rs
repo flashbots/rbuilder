@@ -32,8 +32,13 @@ use crate::{
         Sorting,
     },
     live_builder::{
-        base_config::EnvOrValue, block_output::relay_submit::BuilderSinkFactory,
-        cli::LiveBuilderConfig, payload_events::MevBoostSlotDataGenerator,
+        base_config::EnvOrValue,
+        block_output::{
+            bidding::block_bid_with_stats::ScrapedBids2BlockBidWithStatsObs,
+            relay_submit::BuilderSinkFactory,
+        },
+        cli::LiveBuilderConfig,
+        payload_events::MevBoostSlotDataGenerator,
     },
     mev_boost::{BLSBlockSigner, RelayClient},
     primitives::mev_boost::{
@@ -405,9 +410,11 @@ impl LiveBuilderConfig for Config {
             subsidy,
         ));
 
-        let bidding_service_clone = bidding_service.clone();
+        let bidding_service_bids_obs = Arc::new(ScrapedBids2BlockBidWithStatsObs::new(
+            bidding_service.clone(),
+        ));
         let _ = tokio::spawn(run_nng_subscriber_with_retries(
-            bidding_service_clone,
+            bidding_service_bids_obs,
             cancellation_token.clone(),
             self.l1_config.scraped_bids_publisher_url.clone(),
             Duration::from_secs(BID_SOURCE_TIMEOUT_SECS),

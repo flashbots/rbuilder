@@ -1,11 +1,13 @@
 use std::sync::Arc;
 
-use crate::building::builders::{
-    block_building_helper::{BiddableUnfinishedBlock, BlockBuildingHelper},
-    UnfinishedBlockBuildingSink,
+use crate::{
+    building::builders::{
+        block_building_helper::{BiddableUnfinishedBlock, BlockBuildingHelper},
+        UnfinishedBlockBuildingSink,
+    },
+    live_builder::block_output::bidding::block_bid_with_stats::BlockBidWithStats,
 };
 use alloy_primitives::{BlockNumber, U256};
-use bid_scraper::bid_scraper_client::ScrapedBidsObs;
 use mockall::automock;
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
@@ -71,13 +73,19 @@ pub struct LandedBlockInfo {
     pub beneficiary_is_builder: bool,
 }
 
+/// Sink for BlockBidWithStats
+pub trait BlockBidWithStatsObs: Send + Sync {
+    /// Be careful, we don't assume any kind of filtering here so bid may contain our own bids.
+    fn update_new_bid(&self, bid_with_stats: BlockBidWithStats);
+}
+
 /// Trait in charge of bidding.
 /// After BiddingService creation the builder will try to feed it all the needed update_new_landed_block_detected from the DB history.
 /// To avoid exposing how much info the BiddingService uses we don't ask it anything and feed it the max history we are willing to read.
 /// After that the builder will update each block via update_new_landed_block_detected.
 /// We use one for the whole execution and ask for a [SlotBidder] for each particular slot.
 /// We must feed any bid seen via update_new_seen_bid.
-pub trait BiddingService: ScrapedBidsObs + std::fmt::Debug + Send + Sync {
+pub trait BiddingService: BlockBidWithStatsObs + std::fmt::Debug + Send + Sync {
     fn create_slot_bidder(
         &self,
         block: u64,
