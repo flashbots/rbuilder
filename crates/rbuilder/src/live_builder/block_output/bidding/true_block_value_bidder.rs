@@ -3,9 +3,9 @@ use crate::{
     building::builders::{
         block_building_helper::BiddableUnfinishedBlock, UnfinishedBlockBuildingSink,
     },
-    live_builder::block_output::{
-        bid_value_source::interfaces::{BidValueObs, CompetitionBid},
-        bidding::{block_bid_with_stats::BlockBidWithStats, interfaces::BlockBidWithStatsObs},
+    live_builder::block_output::bidding::{
+        block_bid_with_stats::BlockBidWithStats,
+        interfaces::{BlockBidWithStatsObs, SlotBlockId},
     },
 };
 use alloy_primitives::U256;
@@ -50,8 +50,7 @@ impl BlockBidWithStatsObs for TrueBlockValueBiddingService {
 impl BiddingService for TrueBlockValueBiddingService {
     fn create_slot_bidder(
         &self,
-        _block: u64,
-        _slot: u64,
+        _slot_block_id: SlotBlockId,
         slot_timestamp: OffsetDateTime,
         bid_maker: Box<dyn BidMaker + Send + Sync>,
         cancel: CancellationToken,
@@ -150,11 +149,6 @@ impl UnfinishedBlockBuildingSink for TrueBlockValueBidder {
         false
     }
 }
-
-impl BidValueObs for TrueBlockValueBidder {
-    fn update_new_bid(&self, _bid: CompetitionBid) {}
-}
-
 #[derive(Debug)]
 struct TrueBlockValueBiddingServiceWinControl {}
 

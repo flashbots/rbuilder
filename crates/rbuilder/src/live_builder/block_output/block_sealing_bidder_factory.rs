@@ -1,6 +1,9 @@
 use crate::{
     building::builders::UnfinishedBlockBuildingSinkFactory,
-    live_builder::payload_events::MevBoostSlotData, provider::StateProviderFactory,
+    live_builder::{
+        block_output::bidding::interfaces::SlotBlockId, payload_events::MevBoostSlotData,
+    },
+    provider::StateProviderFactory,
 };
 use std::{fmt::Debug, sync::Arc};
 use tracing::error;
@@ -92,8 +95,11 @@ where
         ));
 
         self.bidding_service.create_slot_bidder(
-            slot_data.block(),
-            slot_data.slot(),
+            SlotBlockId::new(
+                slot_data.slot(),
+                slot_data.block(),
+                slot_data.parent_block_hash(),
+            ),
             slot_data.timestamp(),
             sealer,
             cancel.clone(),
