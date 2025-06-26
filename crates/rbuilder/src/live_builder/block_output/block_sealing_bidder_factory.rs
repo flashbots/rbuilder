@@ -9,7 +9,6 @@ use std::{fmt::Debug, sync::Arc};
 use tracing::error;
 
 use super::{
-    bid_value_source::interfaces::BidValueSource,
     bidding::{
         interfaces::BiddingService, sequential_sealer_bid_maker::SequentialSealerBidMaker,
         wallet_balance_watcher::WalletBalanceWatcher,
@@ -18,17 +17,14 @@ use super::{
 };
 
 /// UnfinishedBlockBuildingSinkFactory to bid blocks against the competition.
-/// Blocks are given to a SlotBidder (created per block).
-/// SlotBidder bids using a SequentialSealerBidMaker (created per block).
+/// Blocks are given to a slot bidder (UnfinishedBlockBuildingSink created per block by the BiddingService).
+/// Slot bidder bids using a SequentialSealerBidMaker (created per block).
 /// SequentialSealerBidMaker sends the bids to a BlockBuildingSink (created per block).
-/// SlotBidder is subscribed to the BidValueSource.
 pub struct BlockSealingBidderFactory<P> {
     /// Factory for the SlotBidder for blocks.
     bidding_service: Arc<dyn BiddingService>,
     /// Factory for the final destination for blocks.
     block_sink_factory: Box<dyn BuilderSinkFactory>,
-    /// SlotBidder are subscribed to the proper block in the bid_value_source.
-    competition_bid_value_source: Arc<dyn BidValueSource + Send + Sync>,
     wallet_balance_watcher: WalletBalanceWatcher<P>,
 }
 
@@ -37,10 +33,6 @@ impl<P> Debug for BlockSealingBidderFactory<P> {
         f.debug_struct("BlockSealingBidderFactory")
             .field("bidding_service", &"Arc<dyn BiddingService>")
             .field("block_sink_factory", &"Box<dyn BuilderSinkFactory>")
-            .field(
-                "competition_bid_value_source",
-                &self.competition_bid_value_source,
-            )
             .finish()
     }
 }
@@ -49,13 +41,11 @@ impl<P> BlockSealingBidderFactory<P> {
     pub fn new(
         bidding_service: Arc<dyn BiddingService>,
         block_sink_factory: Box<dyn BuilderSinkFactory>,
-        competition_bid_value_source: Arc<dyn BidValueSource + Send + Sync>,
         wallet_balance_watcher: WalletBalanceWatcher<P>,
     ) -> Self {
         Self {
             bidding_service,
             block_sink_factory,
-            competition_bid_value_source,
             wallet_balance_watcher,
         }
     }
@@ -84,11 +74,9 @@ where
             }
         }
 
-        let finished_block_sink = self.block_sink_factory.create_builder_sink(
-            slot_data.clone(),
-            self.competition_bid_value_source.clone(),
-            cancel.clone(),
-        );
+        let finished_block_sink = self
+            .block_sink_factory
+            .create_builder_sink(slot_data.clone(), cancel.clone());
         let sealer = Box::new(SequentialSealerBidMaker::new(
             Arc::from(finished_block_sink),
             cancel.clone(),
