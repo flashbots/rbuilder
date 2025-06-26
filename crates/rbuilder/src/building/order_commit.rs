@@ -15,7 +15,7 @@ use crate::{
         Bundle, Order, OrderId, RefundConfig, ShareBundle, ShareBundleBody, ShareBundleInner,
         TransactionSignedEcRecoveredWithBlobs,
     },
-    utils::get_percent,
+    utils::{constants::BASE_TX_GAS, get_percent},
 };
 use ahash::HashSet;
 use alloy_consensus::{constants::KECCAK_EMPTY, Transaction};
@@ -793,7 +793,7 @@ impl<'a, 'b, 'c, 'd, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, 'd, 
             };
 
             let gas_limit = self.ctx.evm_env.block_env.gas_limit;
-            if payout.gas_limit == 21_000
+            if payout.gas_limit == BASE_TX_GAS
                 && gas_limit
                     .checked_sub(insert.cumulative_gas_used + gas_reserved)
                     .is_some_and(|remaining| remaining > payout.gas_limit)

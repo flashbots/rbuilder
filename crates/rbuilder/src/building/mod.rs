@@ -7,7 +7,9 @@ use crate::{
     provider::RootHasher,
     roothash::RootHashError,
     utils::{
-        a2r_withdrawal, default_cfg_env, elapsed_ms,
+        a2r_withdrawal,
+        constants::BASE_TX_GAS,
+        default_cfg_env, elapsed_ms,
         receipts::{
             calculate_receipt_root_and_block_logs_bloom, calculate_transactions_root, BloomCache,
             TransactionRootCache,
@@ -15,7 +17,7 @@ use crate::{
         timestamp_as_u64, Signer,
     },
 };
-use alloy_consensus::{Header, EMPTY_OMMER_ROOT_HASH};
+use alloy_consensus::{constants::KECCAK_EMPTY, Header, EMPTY_OMMER_ROOT_HASH};
 use alloy_eips::{
     eip1559::{calculate_block_gas_limit, ETHEREUM_BLOCK_GAS_LIMIT_30M},
     eip4844::BlobTransactionSidecar,
@@ -673,13 +675,26 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         let mut fork = PartialBlockFork::new(state, ctx, local_ctx).with_tracer(&mut self.tracer);
 
         for (refund_recipient, refund_amount) in &self.delayed_refunds {
+            let refund_recipient_code_hash = fork
+                .state
+                .code_hash(
+                    *refund_recipient,
+                    &ctx.shared_cached_reads,
+                    &mut fork.local_ctx.cached_reads,
+                )
+                .map_err(CriticalCommitOrderError::Reth)?;
+            if refund_recipient_code_hash != KECCAK_EMPTY {
+                error!(%refund_recipient_code_hash, %refund_recipient, %refund_amount, "Refund recipient has code, skipping refund");
+                continue;
+            }
+
             let refund_tx = TransactionSignedEcRecoveredWithBlobs::new_no_blobs(create_payout_tx(
                 ctx.chain_spec.as_ref(),
                 ctx.evm_env.block_env.basefee,
                 builder_signer,
                 nonce,
                 *refund_recipient,
-                21_000,
+                BASE_TX_GAS,
                 *refund_amount,
             )?)
             .unwrap();
@@ -1062,6 +1077,7 @@ mod test {
                     coinbase_profit: profit_2,
                 },
             ],
+            delayed_kickback: None,
             original_order_ids: Default::default(),
             nonces_updated: Default::default(),
             paid_kickbacks: Default::default(),
@@ -1104,6 +1120,7 @@ mod test {
                 gas_used: Default::default(),
                 coinbase_profit: profit,
             }],
+            delayed_kickback: None,
             original_order_ids: Default::default(),
             nonces_updated: Default::default(),
             paid_kickbacks: Default::default(),
