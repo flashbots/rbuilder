@@ -288,7 +288,7 @@ impl BlockBuildingHelperFromProvider {
             (self.payout_tx_gas, payout_tx_value)
         {
             use_last_tx_payment = true;
-            match self.partial_block.insert_proposer_payout_tx(
+            match self.partial_block.insert_refunds_and_proposer_payout_tx(
                 payout_tx_gas,
                 payout_tx_value,
                 &self.building_ctx,

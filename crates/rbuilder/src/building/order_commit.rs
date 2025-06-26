@@ -224,6 +224,7 @@ pub struct BundleOk {
     /// nonces_updates has a set of deduplicated final nonces of the txs in the order
     pub nonces_updated: Vec<(Address, u64)>,
     pub paid_kickbacks: Vec<(Address, U256)>,
+    pub delayed_kickback: Option<(Address, ReservedPayout)>,
     /// Only for sbundles we accumulate ShareBundleInner::original_order_id that executed ok.
     /// Its original use is for only one level or orders with original_order_id but if nesting happens the parent order original_order_id goes before its children (pre-order DFS)
     /// Fully dropped orders (TxRevertBehavior::AllowedExcluded allows it!) are not included.
@@ -289,6 +290,7 @@ pub struct OrderOk {
     /// nonces_updates has a set of deduplicated final nonces of the txs in the order
     pub nonces_updated: Vec<(Address, u64)>,
     pub paid_kickbacks: Vec<(Address, U256)>,
+    pub delayed_kickback: Option<(Address, ReservedPayout)>,
     pub used_state_trace: Option<UsedStateTrace>,
 }
 
@@ -733,6 +735,7 @@ impl<'a, 'b, 'c, 'd, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, 'd, 
             tx_infos: Vec::new(),
             nonces_updated: Vec::new(),
             paid_kickbacks: Vec::new(),
+            delayed_kickback: None,
             original_order_ids: Vec::new(),
         };
         for tx_with_blobs in &bundle.txs {
@@ -788,7 +791,15 @@ impl<'a, 'b, 'c, 'd, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, 'd, 
                 Ok(payout) => payout,
                 Err(err) => return Ok(Err(err)),
             };
-            if let Err(err) = self.insert_refund_payout_tx(
+
+            let gas_limit = self.ctx.evm_env.block_env.gas_limit;
+            if payout.gas_limit == 21_000
+                && gas_limit
+                    .checked_sub(insert.cumulative_gas_used + gas_reserved)
+                    .is_some_and(|remaining| remaining > payout.gas_limit)
+            {
+                insert.delayed_kickback = Some((refunds_cfg.recipient, payout));
+            } else if let Err(err) = self.insert_refund_payout_tx(
                 payout,
                 refunds_cfg.recipient,
                 gas_reserved,
@@ -898,6 +909,7 @@ impl<'a, 'b, 'c, 'd, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, 'd, 
             tx_infos: Vec::new(),
             nonces_updated: Vec::new(),
             paid_kickbacks: Vec::new(),
+            delayed_kickback: None,
             original_order_ids: Vec::new(),
         };
         let coinbase_balance_before = self.coinbase_balance()?;
@@ -1115,6 +1127,7 @@ impl<'a, 'b, 'c, 'd, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, 'd, 
                             tx_infos: vec![ok.tx_info],
                             nonces_updated: vec![ok.nonce_updated],
                             paid_kickbacks: Vec::new(),
+                            delayed_kickback: None,
                             used_state_trace: self.get_used_state_trace(),
                             original_order_ids: Vec::new(),
                         }))
@@ -1154,13 +1167,19 @@ impl<'a, 'b, 'c, 'd, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, 'd, 
     ) -> Result<Result<OrderOk, OrderErr>, CriticalCommitOrderError> {
         match bundle_result {
             Ok(ok) => {
+                let delayed_refund_value = ok
+                    .delayed_kickback
+                    .as_ref()
+                    .map_or(U256::ZERO, |(_, p)| p.total_refundable_value);
+
                 // Builder does sign txs in this code path, so do not allow negative coinbase
                 // profit.
-                let coinbase_profit =
-                    match self.coinbase_profit_when_refunds(coinbase_balance_before)? {
-                        Ok(profit) => profit,
-                        Err(err) => return Ok(Err(err)),
-                    };
+                let coinbase_profit = match self
+                    .coinbase_profit_when_refunds(coinbase_balance_before, delayed_refund_value)?
+                {
+                    Ok(profit) => profit,
+                    Err(err) => return Ok(Err(err)),
+                };
 
                 Ok(Ok(OrderOk {
                     coinbase_profit,
@@ -1171,6 +1190,7 @@ impl<'a, 'b, 'c, 'd, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, 'd, 
                     tx_infos: ok.tx_infos,
                     nonces_updated: ok.nonces_updated,
                     paid_kickbacks: ok.paid_kickbacks,
+                    delayed_kickback: ok.delayed_kickback,
                     used_state_trace: self.get_used_state_trace(),
                     original_order_ids: ok.original_order_ids,
                 }))
@@ -1183,13 +1203,15 @@ impl<'a, 'b, 'c, 'd, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, 'd, 
     fn coinbase_profit_when_refunds(
         &mut self,
         initial_balance: U256,
+        delayed_refund_value: U256,
     ) -> Result<Result<U256, OrderErr>, CriticalCommitOrderError> {
         let coinbase_balance_after = self.coinbase_balance()?;
-        if coinbase_balance_after >= initial_balance {
-            Ok(Ok(coinbase_balance_after - initial_balance))
+        let min_balance = initial_balance + delayed_refund_value;
+        if coinbase_balance_after >= min_balance {
+            Ok(Ok(coinbase_balance_after - min_balance))
         } else {
             Ok(Err(OrderErr::NegativeProfit(
-                initial_balance - coinbase_balance_after,
+                min_balance - coinbase_balance_after,
             )))
         }
     }

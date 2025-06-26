@@ -52,7 +52,7 @@ use revm::{
 };
 use serde::Deserialize;
 use std::{
-    collections::HashMap,
+    collections::{hash_map, HashMap},
     hash::Hash,
     str::FromStr,
     sync::Arc,
@@ -427,6 +427,8 @@ pub struct PartialBlock<Tracer: SimulationTracer> {
     pub coinbase_profit: U256,
     /// Tx execution info belonging to successfully executed orders.
     pub executed_tx_infos: Vec<TransactionExecutionInfo>,
+    /// Delayed refunds.
+    pub delayed_refunds: HashMap<Address, U256>,
     pub tracer: Tracer,
 }
 
@@ -450,6 +452,8 @@ pub enum InsertPayoutTxErr {
     CriticalCommitError(#[from] CriticalCommitOrderError),
     #[error("Profit too low to insert payout tx")]
     ProfitTooLow,
+    #[error("Delayed refund tx reverted")]
+    DelayedRefundTxReverted,
     #[error("Payout tx reverted")]
     PayoutTxReverted,
     #[error("Signer error: {0}")]
@@ -542,6 +546,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             blob_gas_used: self.blob_gas_used,
             coinbase_profit: self.coinbase_profit,
             executed_tx_infos: self.executed_tx_infos,
+            delayed_refunds: self.delayed_refunds,
             tracer,
         }
     }
@@ -603,6 +608,22 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         self.blob_gas_used += ok_result.blob_gas_used;
         self.coinbase_profit += ok_result.coinbase_profit;
         self.executed_tx_infos.extend(ok_result.tx_infos.clone());
+
+        // Update delayed refunds
+        if let Some((address, payout)) = ok_result.delayed_kickback {
+            match self.delayed_refunds.entry(address) {
+                hash_map::Entry::Occupied(mut entry) => {
+                    // Add full refundable value as we already accounted for the tx cost.
+                    *entry.get_mut() += payout.total_refundable_value;
+                }
+                hash_map::Entry::Vacant(entry) => {
+                    // Use discounted value to account for tx cost and reserve gas for the payout.
+                    entry.insert(payout.tx_value);
+                    self.gas_reserved += 21_000;
+                }
+            }
+        }
+
         Ok(Ok(ExecutionResult {
             coinbase_profit: ok_result.coinbase_profit,
             inplace_sim: inplace_sim_result,
@@ -628,7 +649,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
 
     /// Inserts payout tx to ctx.attributes.suggested_fee_recipient (should be called at the end of the block)
     /// Returns the paid value (block profit after subtracting the burned basefee of the payout tx)
-    pub fn insert_proposer_payout_tx(
+    pub fn insert_refunds_and_proposer_payout_tx(
         &mut self,
         gas_limit: u64,
         value: U256,
@@ -641,13 +662,40 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             .as_ref()
             .ok_or(InsertPayoutTxErr::NoSigner)?;
         self.free_reserved_gas();
-        let nonce = state
+        let mut nonce = state
             .nonce(
                 builder_signer.address,
                 &ctx.shared_cached_reads,
                 &mut local_ctx.cached_reads,
             )
             .map_err(CriticalCommitOrderError::Reth)?;
+
+        let mut fork = PartialBlockFork::new(state, ctx, local_ctx).with_tracer(&mut self.tracer);
+
+        for (refund_recipient, refund_amount) in &self.delayed_refunds {
+            let refund_tx = TransactionSignedEcRecoveredWithBlobs::new_no_blobs(create_payout_tx(
+                ctx.chain_spec.as_ref(),
+                ctx.evm_env.block_env.basefee,
+                builder_signer,
+                nonce,
+                *refund_recipient,
+                21_000,
+                *refund_amount,
+            )?)
+            .unwrap();
+            let refund_result =
+                fork.commit_tx(&refund_tx, self.gas_used, 0, self.blob_gas_used)??;
+            if !refund_result.tx_info.receipt.success {
+                return Err(InsertPayoutTxErr::DelayedRefundTxReverted);
+            }
+
+            self.gas_used += refund_result.tx_info.gas_used;
+            self.blob_gas_used += refund_result.blob_gas_used;
+            self.executed_tx_infos.push(refund_result.tx_info);
+
+            nonce += 1;
+        }
+
         let tx = create_payout_tx(
             ctx.chain_spec.as_ref(),
             ctx.evm_env.block_env.basefee,
@@ -659,7 +707,6 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         )?;
         // payout tx has no blobs so it's safe to unwrap
         let tx = TransactionSignedEcRecoveredWithBlobs::new_no_blobs(tx).unwrap();
-        let mut fork = PartialBlockFork::new(state, ctx, local_ctx).with_tracer(&mut self.tracer);
         let exec_result = fork.commit_tx(&tx, self.gas_used, 0, self.blob_gas_used)?;
         let ok_result = exec_result?;
         if !ok_result.tx_info.receipt.success {
@@ -919,6 +966,7 @@ impl PartialBlock<()> {
             blob_gas_used: 0,
             coinbase_profit: U256::ZERO,
             executed_tx_infos: Vec::new(),
+            delayed_refunds: HashMap::default(),
             tracer: (),
         }
     }
