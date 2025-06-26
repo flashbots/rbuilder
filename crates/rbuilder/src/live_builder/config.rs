@@ -5,7 +5,6 @@ use super::{
     base_config::BaseConfig,
     block_output::{
         bid_observer::{BidObserver, NullBidObserver},
-        bid_value_source::null_bid_value_source::NullBidValueSource,
         bidding::{
             interfaces::BiddingService, true_block_value_bidder::TrueBlockValueBiddingService,
             wallet_balance_watcher::WalletBalanceWatcher,
@@ -23,6 +22,7 @@ use crate::{
                 parallel_build_backtest, ParallelBuilderConfig, ParallelBuildingAlgorithm,
             },
             BacktestSimulateBlockInput, Block, BlockBuildingAlgorithm,
+            UnfinishedBlockBuildingSinkFactory,
         },
         order_priority::{
             FullProfitInfoGetter, NonMempoolProfitInfoGetter, OrderLengthThreeMaxProfitPriority,
@@ -34,7 +34,10 @@ use crate::{
     live_builder::{
         base_config::EnvOrValue,
         block_output::{
-            bidding::block_bid_with_stats::ScrapedBids2BlockBidWithStatsObs,
+            bidding::{
+                block_bid_with_stats::ScrapedBids2BlockBidWithStatsObs,
+                interfaces::{BiddingServiceWinControl, LandedBlockInfo},
+            },
             relay_submit::BuilderSinkFactory,
         },
         cli::LiveBuilderConfig,
@@ -69,7 +72,7 @@ use reth_primitives::StaticFileSegment;
 use reth_provider::StaticFileProviderFactory;
 use serde::Deserialize;
 use serde_with::{serde_as, OneOrMany};
-use std::collections::HashMap;
+use std::{collections::HashMap, future::Future, pin::Pin};
 use std::{
     fmt::Debug,
     path::{Path, PathBuf},
@@ -77,6 +80,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
+use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use url::Url;
 
@@ -385,70 +389,51 @@ impl LiveBuilderConfig for Config {
     where
         P: StateProviderFactory + Clone + 'static,
     {
-        let (sink_sealed_factory, relays) = self.l1_config.create_relays_sealed_sink_factory(
-            self.base_config.chain_spec()?,
-            Box::new(NullBidObserver {}),
-        )?;
+        let subsidy = self.subsidy.clone();
+        let slot_delta_to_start_bidding_ms = self.slot_delta_to_start_bidding_ms;
+        // Create the bidding service factory
+        let bidding_service_factory = |landed_blocks: &[LandedBlockInfo]| {
+            // Clone the data you need for the async block
+            let landed_blocks = landed_blocks.to_vec();
+            // Return a pinned boxed future
+            Box::pin(async move {
+                let subsidy = subsidy
+                    .as_ref()
+                    .map(|s| parse_ether(s))
+                    .unwrap_or(Ok(U256::ZERO))?;
+                let bidding_service: Arc<dyn BiddingService> =
+                    Arc::new(TrueBlockValueBiddingService::new(
+                        &landed_blocks,
+                        time::Duration::milliseconds(
+                            slot_delta_to_start_bidding_ms
+                                .unwrap_or(DEFAULT_SLOT_DELTA_TO_START_BIDDING_MS),
+                        ),
+                        subsidy,
+                    ));
+                Ok(bidding_service)
+            })
+                as Pin<Box<dyn Future<Output = eyre::Result<Arc<dyn BiddingService>>> + Send>>
+        };
 
-        let (wallet_balance_watcher, wallet_history) = WalletBalanceWatcher::new(
+        let (sink_factory, slot_info_provider, _) = create_sink_factory_and_relays(
+            &self.base_config,
+            &self.l1_config,
             provider.clone(),
-            self.base_config.coinbase_signer()?.address,
-            WALLET_INIT_HISTORY_SIZE,
-        )?;
-        let subsidy = self
-            .subsidy
-            .as_ref()
-            .map(|s| parse_ether(s))
-            .unwrap_or(Ok(U256::ZERO))?;
-
-        let bidding_service: Arc<dyn BiddingService> = Arc::new(TrueBlockValueBiddingService::new(
-            &wallet_history,
-            time::Duration::milliseconds(
-                self.slot_delta_to_start_bidding_ms
-                    .unwrap_or(DEFAULT_SLOT_DELTA_TO_START_BIDDING_MS),
-            ),
-            subsidy,
-        ));
-
-        let bidding_service_bids_obs = Arc::new(ScrapedBids2BlockBidWithStatsObs::new(
-            bidding_service.clone(),
-        ));
-        let _ = tokio::spawn(run_nng_subscriber_with_retries(
-            bidding_service_bids_obs,
+            Box::new(NullBidObserver {}),
+            bidding_service_factory,
             cancellation_token.clone(),
-            self.l1_config.scraped_bids_publisher_url.clone(),
-            Duration::from_secs(BID_SOURCE_TIMEOUT_SECS),
-            Duration::from_secs(BID_SOURCE_WAIT_TIME_SECS),
-        ))
-        .await;
+        )
+        .await?;
 
-        let sink_factory = Box::new(BlockSealingBidderFactory::new(
-            bidding_service,
-            sink_sealed_factory,
-            Arc::new(NullBidValueSource {}),
-            wallet_balance_watcher,
-        ));
-
-        let blocklist_provider = self
-            .base_config
-            .blocklist_provider(cancellation_token.clone())
-            .await?;
-        let payload_event = MevBoostSlotDataGenerator::new(
-            self.l1_config.beacon_clients()?,
-            relays,
-            blocklist_provider.clone(),
-            cancellation_token.clone(),
-        );
-        let live_builder = self
-            .base_config
-            .create_builder_with_provider_factory(
-                cancellation_token,
-                sink_factory,
-                payload_event,
-                provider,
-                blocklist_provider,
-            )
-            .await?;
+        let live_builder = create_builder_from_sink(
+            &self.base_config,
+            &self.l1_config,
+            provider,
+            sink_factory,
+            slot_info_provider,
+            cancellation_token,
+        )
+        .await?;
         let builders = create_builders(self.live_builders()?);
         Ok(live_builder.with_builders(builders))
     }
@@ -875,6 +860,104 @@ lazy_static! {
         );
         map
     };
+}
+
+/// Creates the end of the building pipeline which takes the UnfinishedBlocks.
+/// Connects BlockSealingBidderFactory-(using BiddingService)->RelaySubmitSinkFactory
+/// Creates the WalletBalanceWatcher needed for subsidies.
+/// Creates the competition bid source to feed the bidding service.
+/// RelaySubmitSinkFactory: submits final blocks to relays
+/// BlockSealingBidderFactory: performs sealing/bidding. Sends bids to the RelaySubmitSinkFactory
+/// Returns also the Vec<MevBoostRelaySlotInfoProvider> as a side effect of parsing the relays.
+#[allow(clippy::type_complexity)]
+pub async fn create_sink_factory_and_relays<P, BiddingServiceFactoryType>(
+    base_config: &BaseConfig,
+    l1_config: &L1Config,
+    provider: P,
+    bid_observer: Box<dyn BidObserver + Send + Sync>,
+    bidding_service_factory: BiddingServiceFactoryType,
+    cancellation_token: CancellationToken,
+) -> eyre::Result<(
+    Box<dyn UnfinishedBlockBuildingSinkFactory>,
+    Vec<MevBoostRelaySlotInfoProvider>,
+    Arc<dyn BiddingServiceWinControl>,
+)>
+where
+    P: StateProviderFactory + Clone + 'static,
+    BiddingServiceFactoryType: FnOnce(
+        &[LandedBlockInfo],
+    ) -> Pin<
+        Box<dyn Future<Output = eyre::Result<Arc<dyn BiddingService>>> + Send>,
+    >,
+{
+    let (sink_sealed_factory, slot_info_provider) =
+        l1_config.create_relays_sealed_sink_factory(base_config.chain_spec()?, bid_observer)?;
+
+    // BlockSealingBidderFactory
+    let (wallet_balance_watcher, wallet_history) = WalletBalanceWatcher::new(
+        provider,
+        base_config.coinbase_signer()?.address,
+        WALLET_INIT_HISTORY_SIZE,
+    )?;
+
+    let bidding_service = bidding_service_factory(&wallet_history).await?;
+    let bidding_service_win_control = bidding_service.win_control();
+
+    // Create a ScrapedBids2BlockBidWithStatsObs that will forward bids from run_nng_subscriber_with_retries to the bidding service.
+    let bidding_service_bids_obs = Arc::new(ScrapedBids2BlockBidWithStatsObs::new(
+        bidding_service.clone(),
+    ));
+    tokio::spawn(run_nng_subscriber_with_retries(
+        bidding_service_bids_obs,
+        cancellation_token.clone(),
+        l1_config.scraped_bids_publisher_url.clone(),
+        Duration::from_secs(BID_SOURCE_TIMEOUT_SECS),
+        Duration::from_secs(BID_SOURCE_WAIT_TIME_SECS),
+    ));
+
+    let sink_factory = Box::new(BlockSealingBidderFactory::new(
+        bidding_service,
+        sink_sealed_factory,
+        wallet_balance_watcher,
+    ));
+
+    Ok((
+        sink_factory,
+        slot_info_provider,
+        bidding_service_win_control,
+    ))
+}
+
+/// Take the end of the pipeline (sink_factory) + pre-created slot_info_provider and creates an empty builder (it still needs the with_builders to be called)
+pub async fn create_builder_from_sink<P>(
+    base_config: &BaseConfig,
+    l1_config: &L1Config,
+    provider: P,
+    sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
+    slot_info_provider: Vec<MevBoostRelaySlotInfoProvider>,
+    cancellation_token: CancellationToken,
+) -> eyre::Result<super::LiveBuilder<P, MevBoostSlotDataGenerator>>
+where
+    P: StateProviderFactory,
+{
+    let blocklist_provider = base_config
+        .blocklist_provider(cancellation_token.clone())
+        .await?;
+    let payload_event = MevBoostSlotDataGenerator::new(
+        l1_config.beacon_clients()?,
+        slot_info_provider,
+        blocklist_provider.clone(),
+        cancellation_token.clone(),
+    );
+    base_config
+        .create_builder_with_provider_factory(
+            cancellation_token,
+            sink_factory,
+            payload_event,
+            provider,
+            blocklist_provider,
+        )
+        .await
 }
 
 #[cfg(test)]
