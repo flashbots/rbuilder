@@ -20,6 +20,7 @@ use reth::{
 };
 use reth_chainspec::{ChainSpec, EthereumHardfork, MAINNET};
 use reth_db::{cursor::DbCursorRW, tables, transaction::DbTxMut};
+use reth_errors::ProviderResult;
 use reth_primitives::{Recovered, TransactionSigned};
 use reth_primitives_traits::Block as _;
 use reth_provider::test_utils::{create_test_provider_factory, MockNodeTypesWithDB};
@@ -293,6 +294,28 @@ impl TestChainState {
 
     pub fn provider_factory(&self) -> &ProviderFactory<MockNodeTypesWithDB> {
         &self.provider_factory
+    }
+
+    pub fn upsert_contract(&self, address: Address, bytecode: Bytecode) -> ProviderResult<()> {
+        let code_hash = bytecode.hash_slow();
+        let provider = self.provider_factory.provider_rw()?;
+        provider
+            .tx_ref()
+            .cursor_write::<tables::PlainAccountState>()?
+            .upsert(
+                address,
+                &Account {
+                    nonce: 1,
+                    balance: U256::ZERO,
+                    bytecode_hash: Some(code_hash),
+                },
+            )?;
+        provider
+            .tx_ref()
+            .cursor_write::<tables::Bytecodes>()?
+            .upsert(code_hash, &bytecode)?;
+        provider.commit()?;
+        Ok(())
     }
 }
 

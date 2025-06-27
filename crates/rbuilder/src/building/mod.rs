@@ -429,8 +429,8 @@ pub struct PartialBlock<Tracer: SimulationTracer> {
     pub coinbase_profit: U256,
     /// Tx execution info belonging to successfully executed orders.
     pub executed_tx_infos: Vec<TransactionExecutionInfo>,
-    /// Delayed refunds.
-    pub delayed_refunds: HashMap<Address, U256>,
+    /// Combined refunds.
+    pub combined_refunds: HashMap<Address, U256>,
     pub tracer: Tracer,
 }
 
@@ -454,8 +454,8 @@ pub enum InsertPayoutTxErr {
     CriticalCommitError(#[from] CriticalCommitOrderError),
     #[error("Profit too low to insert payout tx")]
     ProfitTooLow,
-    #[error("Delayed refund tx reverted")]
-    DelayedRefundTxReverted,
+    #[error("Combined refund tx reverted")]
+    CombinedRefundTxReverted,
     #[error("Payout tx reverted")]
     PayoutTxReverted,
     #[error("Signer error: {0}")]
@@ -548,7 +548,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             blob_gas_used: self.blob_gas_used,
             coinbase_profit: self.coinbase_profit,
             executed_tx_infos: self.executed_tx_infos,
-            delayed_refunds: self.delayed_refunds,
+            combined_refunds: self.combined_refunds,
             tracer,
         }
     }
@@ -611,9 +611,9 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         self.coinbase_profit += ok_result.coinbase_profit;
         self.executed_tx_infos.extend(ok_result.tx_infos.clone());
 
-        // Update delayed refunds
+        // Update combined refunds
         if let Some((address, payout)) = ok_result.delayed_kickback {
-            match self.delayed_refunds.entry(address) {
+            match self.combined_refunds.entry(address) {
                 hash_map::Entry::Occupied(mut entry) => {
                     // Add full refundable value as we already accounted for the tx cost.
                     *entry.get_mut() += payout.total_refundable_value;
@@ -674,7 +674,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
 
         let mut fork = PartialBlockFork::new(state, ctx, local_ctx).with_tracer(&mut self.tracer);
 
-        for (refund_recipient, refund_amount) in &self.delayed_refunds {
+        for (refund_recipient, refund_amount) in &self.combined_refunds {
             let refund_recipient_code_hash = fork
                 .state
                 .code_hash(
@@ -701,7 +701,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             let refund_result =
                 fork.commit_tx(&refund_tx, self.gas_used, 0, self.blob_gas_used)??;
             if !refund_result.tx_info.receipt.success {
-                return Err(InsertPayoutTxErr::DelayedRefundTxReverted);
+                return Err(InsertPayoutTxErr::CombinedRefundTxReverted);
             }
 
             self.gas_used += refund_result.tx_info.gas_used;
@@ -981,7 +981,7 @@ impl PartialBlock<()> {
             blob_gas_used: 0,
             coinbase_profit: U256::ZERO,
             executed_tx_infos: Vec::new(),
-            delayed_refunds: HashMap::default(),
+            combined_refunds: HashMap::default(),
             tracer: (),
         }
     }
