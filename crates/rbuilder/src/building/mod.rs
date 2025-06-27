@@ -587,6 +587,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             self.gas_reserved,
             self.blob_gas_used,
             self.discard_txs,
+            &self.combined_refunds,
         )?;
         let ok_result = match exec_result {
             Ok(ok) => ok,
@@ -612,18 +613,14 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         self.executed_tx_infos.extend(ok_result.tx_infos.clone());
 
         // Update combined refunds
-        if let Some((address, payout)) = ok_result.delayed_kickback {
-            match self.combined_refunds.entry(address) {
-                hash_map::Entry::Occupied(mut entry) => {
-                    // Add full refundable value as we already accounted for the tx cost.
-                    *entry.get_mut() += payout.total_refundable_value;
-                }
-                hash_map::Entry::Vacant(entry) => {
-                    // Use discounted value to account for tx cost and reserve gas for the payout.
-                    entry.insert(payout.tx_value);
-                    self.gas_reserved += 21_000;
-                }
+        if let Some((address, refund_value)) = ok_result.delayed_kickback {
+            let entry = self.combined_refunds.entry(address);
+            if matches!(entry, hash_map::Entry::Vacant(_)) {
+                // This is the first refund for the recipient,
+                // so we need to reserve the gas for the refund tx.
+                self.gas_reserved += 21_000;
             }
+            *entry.or_default() += refund_value;
         }
 
         Ok(Ok(ExecutionResult {
