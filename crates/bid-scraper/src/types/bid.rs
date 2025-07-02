@@ -2,9 +2,10 @@ use alloy_primitives::{Address, BlockHash, U256};
 use alloy_rpc_types_beacon::BlsPublicKey;
 use derivative::Derivative;
 use serde::{Deserialize, Serialize};
+use strum::EnumIter;
 
 /// Id for each type of scraping method.
-#[derive(Debug, Clone, Serialize, Deserialize, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Hash, PartialEq, Eq, EnumIter)]
 pub enum PublisherType {
     /// BidsPublisherService
     #[serde(rename = "bids")]
@@ -51,8 +52,8 @@ pub struct BlockBid {
     pub relay_time: Option<f64>,
 
     /// Source of the bid (a single publisher can query multiple relays)
+    
     pub relay_name: String,
-
     pub block_hash: BlockHash,
     pub parent_hash: BlockHash,
     pub value: U256,
