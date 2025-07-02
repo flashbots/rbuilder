@@ -83,8 +83,8 @@ pub trait BlockBidWithStatsObs: Send + Sync {
 #[derive(Eq, PartialEq, Clone, Debug, Hash)]
 pub struct SlotBlockId {
     slot: u64,
-    block: u64,
     /// Redundant with block_parent_hash... think about removing.
+    block: u64,
     parent_block_hash: BlockHash,
 }
 
