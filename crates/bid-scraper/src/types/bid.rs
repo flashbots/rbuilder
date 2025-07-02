@@ -52,7 +52,6 @@ pub struct BlockBid {
     pub relay_time: Option<f64>,
 
     /// Source of the bid (a single publisher can query multiple relays)
-    
     pub relay_name: String,
     pub block_hash: BlockHash,
     pub parent_hash: BlockHash,

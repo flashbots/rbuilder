@@ -4,7 +4,10 @@ use bid_scraper::{bid_scraper_client::ScrapedBidsObs, types::BlockBid};
 use derivative::Derivative;
 use time::OffsetDateTime;
 
-use crate::live_builder::block_output::bidding::interfaces::BlockBidWithStatsObs;
+use crate::{
+    live_builder::block_output::bidding::interfaces::BlockBidWithStatsObs,
+    telemetry::inc_bids_received,
+};
 
 /// BlockBid + extra info needed to measure bis travel times on the bidding service.
 #[derive(Derivative, Clone, Debug)]
@@ -45,6 +48,7 @@ impl ScrapedBids2BlockBidWithStatsObs {
 
 impl ScrapedBidsObs for ScrapedBids2BlockBidWithStatsObs {
     fn update_new_bid(&self, bid: BlockBid) {
+        inc_bids_received(&bid);
         self.obs.update_new_bid(BlockBidWithStats::new(bid));
     }
 }
