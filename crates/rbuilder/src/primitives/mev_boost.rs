@@ -65,6 +65,10 @@ pub struct RelayConfig {
     pub is_fast: Option<bool>,
     /// Big blocks (bid > [L1Config::independent_bid_threshold_eth]) go only to independent relays. None -> true
     pub is_independent: Option<bool>,
+    /// Adds "filtering=true" as query to the call relay/v1/builder/validators to get all validators (including those filtering OFAC)
+    /// On 2025/06/24 (my birthday!) only supported by ultrasound.
+    /// None -> false
+    pub ask_for_filtering_validators: Option<bool>,
 }
 
 const IS_FAST_DEFAULT: bool = true;

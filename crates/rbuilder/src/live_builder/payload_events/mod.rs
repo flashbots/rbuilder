@@ -177,6 +177,13 @@ impl MevBoostSlotDataGenerator {
                     continue;
                 };
 
+                info!(
+                    payload_id,
+                    ?slot_data,
+                    ?relays,
+                    "Slot data from relays received"
+                );
+
                 let mut correct_event = event;
                 correct_event
                     .data
