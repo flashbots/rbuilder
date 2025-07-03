@@ -152,7 +152,7 @@ register_metrics! {
             "initiated_submissions",
             "Number of initiated submissions to the relays"
         ),
-        &["optimistic","sent_to_slow","send_to_non_independent"],
+        &["optimistic"],
     )
     .unwrap();
 
@@ -501,17 +501,9 @@ pub fn inc_active_slots() {
     ACTIVE_SLOTS.inc();
 }
 
-pub fn inc_initiated_submissions(
-    optimistic: bool,
-    sent_to_slow_relays: bool,
-    send_to_non_independent: bool,
-) {
+pub fn inc_initiated_submissions(optimistic: bool) {
     INITIATED_SUBMISSIONS
-        .with_label_values(&[
-            &optimistic.to_string(),
-            &sent_to_slow_relays.to_string(),
-            &send_to_non_independent.to_string(),
-        ])
+        .with_label_values(&[&optimistic.to_string()])
         .inc();
 }
 

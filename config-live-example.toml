@@ -35,10 +35,11 @@ live_builders = ["mp-ordering", "mgp-ordering", "parallel"]
 enabled_relays = ["flashbots"]
 
 # This can be used with test-relay
-# [[relays]]
-# name = "flashbots_test"
-# url = "http://localhost:80"
-# priority = 0
+[[relays]]
+name = "flashbots_test"
+url = "http://localhost:80"
+mode = "full"
+max_bid_eth = "0.05"
 
 [[builders]]
 name = "mgp-ordering"

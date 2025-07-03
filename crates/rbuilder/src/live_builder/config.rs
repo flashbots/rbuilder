@@ -115,8 +115,6 @@ pub struct Config {
 }
 
 const DEFAULT_SLOT_DELTA_TO_START_BIDDING_MS: i64 = -8000;
-const DEFAULT_INDEPENDENT_BID_THRESHOLD_ETH: &str = "0";
-const DEFAULT_IGNORE_FAST_BID_THRESHOLD_ETH: &str = "0";
 const DEFAULT_ASK_FOR_FILTERING_VALIDATORS: bool = false;
 
 #[serde_as]
@@ -143,12 +141,6 @@ pub struct L1Config {
 
     /// Genesis fork version for the chain. If not provided it will be fetched from the beacon client.
     pub genesis_fork_version: Option<String>,
-
-    /// Bids above this value will only go to independent relays.
-    pub independent_bid_threshold_eth: String,
-
-    /// For bids below this value we ignore RelayConfig::is_fast (it's like is_fast is true for all relays)
-    pub ignore_fast_bid_threshold_eth: String,
 }
 
 impl Default for L1Config {
@@ -162,8 +154,6 @@ impl Default for L1Config {
             optimistic_max_bid_value_eth: "0.0".to_string(),
             cl_node_url: vec![EnvOrValue::from("http://127.0.0.1:3500")],
             genesis_fork_version: None,
-            independent_bid_threshold_eth: DEFAULT_INDEPENDENT_BID_THRESHOLD_ETH.to_owned(),
-            ignore_fast_bid_threshold_eth: DEFAULT_IGNORE_FAST_BID_THRESHOLD_ETH.to_owned(),
         }
     }
 }
@@ -204,9 +194,7 @@ impl L1Config {
                     relay_config.name.clone(),
                     submit_config,
                     relay_config.mode == RelayMode::Test,
-                    relay_config.is_fast(),
-                    relay_config.is_independent(),
-                ));
+                )?);
             } else {
                 eyre::bail!(
                     "Relay {} in mode {:?} has no submit config",
@@ -326,8 +314,6 @@ impl L1Config {
             signer,
             optimistic_config,
             bid_observer,
-            independent_bid_threshold: parse_ether(&self.independent_bid_threshold_eth)?,
-            ignore_fast_bid_threshold: parse_ether(&self.ignore_fast_bid_threshold_eth)?,
         })
     }
 
@@ -766,13 +752,12 @@ lazy_static! {
                     use_gzip_for_submit: false,
                     optimistic: false,
                     interval_between_submissions_ms: Some(250),
+                    max_bid_eth: None,
                 }),
                 priority: Some(0),
                 authorization_header: None,
                 builder_id_header: None,
                 api_token_header: None,
-                is_fast: None,
-                is_independent: None,
                 ask_for_filtering_validators: None,
             },
         );
@@ -787,13 +772,12 @@ lazy_static! {
                     use_gzip_for_submit: true,
                     optimistic: true,
                     interval_between_submissions_ms: None,
+                    max_bid_eth: None,
                 }),
                 priority: Some(0),
                 authorization_header: None,
                 builder_id_header: None,
                 api_token_header: None,
-                is_fast: None,
-                is_independent: None,
                 ask_for_filtering_validators: None,
             },
         );
@@ -808,13 +792,12 @@ lazy_static! {
                     use_gzip_for_submit: true,
                     optimistic: true,
                     interval_between_submissions_ms: None,
+                    max_bid_eth: None,
                 }),
                 priority: Some(0),
                 authorization_header: None,
                 builder_id_header: None,
                 api_token_header: None,
-                is_fast: None,
-                is_independent: None,
                 ask_for_filtering_validators: None,
             },
         );
@@ -829,12 +812,11 @@ lazy_static! {
                     use_gzip_for_submit: true,
                     optimistic: true,
                     interval_between_submissions_ms: None,
+                    max_bid_eth: None,
                 }),                priority: Some(0),
                 authorization_header: None,
                 builder_id_header: None,
                 api_token_header: None,
-                is_fast: None,
-                is_independent: None,
                 ask_for_filtering_validators: None,
             },
         );
@@ -849,13 +831,12 @@ lazy_static! {
                     use_gzip_for_submit: false,
                     optimistic: false,
                     interval_between_submissions_ms: None,
+                    max_bid_eth: None,
                 }),
                 priority: Some(0),
                 authorization_header: None,
                 builder_id_header: None,
                 api_token_header: None,
-                is_fast: None,
-                is_independent: None,
                 ask_for_filtering_validators: None,
             },
         );
