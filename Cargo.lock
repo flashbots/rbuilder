@@ -1940,6 +1940,7 @@ dependencies = [
  "serde_json",
  "serde_with",
  "ssz_types",
+ "strum 0.25.0",
  "thiserror 1.0.69",
  "tokio",
  "tokio-tungstenite 0.19.0",
@@ -13454,6 +13455,15 @@ name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
+
+[[package]]
+name = "strum"
+version = "0.25.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "290d54ea6f91c969195bdbcd7442c8c2a2ba87da8bf60a7ee86a235d4bc1e125"
+dependencies = [
+ "strum_macros 0.25.3",
+]
 
 [[package]]
 name = "strum"
