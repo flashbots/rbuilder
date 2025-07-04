@@ -116,6 +116,8 @@ pub struct Config {
 
 const DEFAULT_SLOT_DELTA_TO_START_BIDDING_MS: i64 = -8000;
 const DEFAULT_INDEPENDENT_BID_THRESHOLD_ETH: &str = "0";
+const DEFAULT_IGNORE_FAST_BID_THRESHOLD_ETH: &str = "0";
+const DEFAULT_ASK_FOR_FILTERING_VALIDATORS: bool = false;
 
 #[serde_as]
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -144,6 +146,9 @@ pub struct L1Config {
 
     /// Bids above this value will only go to independent relays.
     pub independent_bid_threshold_eth: String,
+
+    /// For bids below this value we ignore RelayConfig::is_fast (it's like is_fast is true for all relays)
+    pub ignore_fast_bid_threshold_eth: String,
 }
 
 impl Default for L1Config {
@@ -158,6 +163,7 @@ impl Default for L1Config {
             cl_node_url: vec![EnvOrValue::from("http://127.0.0.1:3500")],
             genesis_fork_version: None,
             independent_bid_threshold_eth: DEFAULT_INDEPENDENT_BID_THRESHOLD_ETH.to_owned(),
+            ignore_fast_bid_threshold_eth: DEFAULT_IGNORE_FAST_BID_THRESHOLD_ETH.to_owned(),
         }
     }
 }
@@ -253,6 +259,9 @@ impl L1Config {
                         relay_config.authorization_header.clone(),
                         relay_config.builder_id_header.clone(),
                         relay_config.api_token_header.clone(),
+                        relay_config
+                            .ask_for_filtering_validators
+                            .unwrap_or(DEFAULT_ASK_FOR_FILTERING_VALIDATORS),
                     );
                     Self::create_relay_sub_objects(
                         relay_config,
@@ -318,6 +327,7 @@ impl L1Config {
             optimistic_config,
             bid_observer,
             independent_bid_threshold: parse_ether(&self.independent_bid_threshold_eth)?,
+            ignore_fast_bid_threshold: parse_ether(&self.ignore_fast_bid_threshold_eth)?,
         })
     }
 
@@ -763,6 +773,7 @@ lazy_static! {
                 api_token_header: None,
                 is_fast: None,
                 is_independent: None,
+                ask_for_filtering_validators: None,
             },
         );
         map.insert(
@@ -783,6 +794,7 @@ lazy_static! {
                 api_token_header: None,
                 is_fast: None,
                 is_independent: None,
+                ask_for_filtering_validators: None,
             },
         );
         map.insert(
@@ -803,6 +815,7 @@ lazy_static! {
                 api_token_header: None,
                 is_fast: None,
                 is_independent: None,
+                ask_for_filtering_validators: None,
             },
         );
         map.insert(
@@ -822,6 +835,7 @@ lazy_static! {
                 api_token_header: None,
                 is_fast: None,
                 is_independent: None,
+                ask_for_filtering_validators: None,
             },
         );
         map.insert(
@@ -842,6 +856,7 @@ lazy_static! {
                 api_token_header: None,
                 is_fast: None,
                 is_independent: None,
+                ask_for_filtering_validators: None,
             },
         );
         map

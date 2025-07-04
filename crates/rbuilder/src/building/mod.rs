@@ -7,7 +7,9 @@ use crate::{
     provider::RootHasher,
     roothash::RootHashError,
     utils::{
-        a2r_withdrawal, default_cfg_env, elapsed_ms,
+        a2r_withdrawal,
+        constants::BASE_TX_GAS,
+        default_cfg_env, elapsed_ms,
         receipts::{
             calculate_receipt_root_and_block_logs_bloom, calculate_transactions_root, BloomCache,
             TransactionRootCache,
@@ -15,7 +17,7 @@ use crate::{
         timestamp_as_u64, Signer,
     },
 };
-use alloy_consensus::{Header, EMPTY_OMMER_ROOT_HASH};
+use alloy_consensus::{constants::KECCAK_EMPTY, Header, EMPTY_OMMER_ROOT_HASH};
 use alloy_eips::{
     eip1559::{calculate_block_gas_limit, ETHEREUM_BLOCK_GAS_LIMIT_30M},
     eip4844::BlobTransactionSidecar,
@@ -52,7 +54,7 @@ use revm::{
 };
 use serde::Deserialize;
 use std::{
-    collections::HashMap,
+    collections::{hash_map, HashMap},
     hash::Hash,
     str::FromStr,
     sync::Arc,
@@ -427,6 +429,8 @@ pub struct PartialBlock<Tracer: SimulationTracer> {
     pub coinbase_profit: U256,
     /// Tx execution info belonging to successfully executed orders.
     pub executed_tx_infos: Vec<TransactionExecutionInfo>,
+    /// Combined refunds.
+    pub combined_refunds: HashMap<Address, U256>,
     pub tracer: Tracer,
 }
 
@@ -450,6 +454,8 @@ pub enum InsertPayoutTxErr {
     CriticalCommitError(#[from] CriticalCommitOrderError),
     #[error("Profit too low to insert payout tx")]
     ProfitTooLow,
+    #[error("Combined refund tx reverted")]
+    CombinedRefundTxReverted,
     #[error("Payout tx reverted")]
     PayoutTxReverted,
     #[error("Signer error: {0}")]
@@ -542,6 +548,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             blob_gas_used: self.blob_gas_used,
             coinbase_profit: self.coinbase_profit,
             executed_tx_infos: self.executed_tx_infos,
+            combined_refunds: self.combined_refunds,
             tracer,
         }
     }
@@ -580,6 +587,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             self.gas_reserved,
             self.blob_gas_used,
             self.discard_txs,
+            &self.combined_refunds,
         )?;
         let ok_result = match exec_result {
             Ok(ok) => ok,
@@ -603,6 +611,18 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         self.blob_gas_used += ok_result.blob_gas_used;
         self.coinbase_profit += ok_result.coinbase_profit;
         self.executed_tx_infos.extend(ok_result.tx_infos.clone());
+
+        // Update combined refunds
+        if let Some((address, refund_value)) = ok_result.delayed_kickback {
+            let entry = self.combined_refunds.entry(address);
+            if matches!(entry, hash_map::Entry::Vacant(_)) {
+                // This is the first refund for the recipient,
+                // so we need to reserve the gas for the refund tx.
+                self.gas_reserved += 21_000;
+            }
+            *entry.or_default() += refund_value;
+        }
+
         Ok(Ok(ExecutionResult {
             coinbase_profit: ok_result.coinbase_profit,
             inplace_sim: inplace_sim_result,
@@ -628,7 +648,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
 
     /// Inserts payout tx to ctx.attributes.suggested_fee_recipient (should be called at the end of the block)
     /// Returns the paid value (block profit after subtracting the burned basefee of the payout tx)
-    pub fn insert_proposer_payout_tx(
+    pub fn insert_refunds_and_proposer_payout_tx(
         &mut self,
         gas_limit: u64,
         value: U256,
@@ -641,13 +661,53 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             .as_ref()
             .ok_or(InsertPayoutTxErr::NoSigner)?;
         self.free_reserved_gas();
-        let nonce = state
+        let mut nonce = state
             .nonce(
                 builder_signer.address,
                 &ctx.shared_cached_reads,
                 &mut local_ctx.cached_reads,
             )
             .map_err(CriticalCommitOrderError::Reth)?;
+
+        let mut fork = PartialBlockFork::new(state, ctx, local_ctx).with_tracer(&mut self.tracer);
+
+        for (refund_recipient, refund_amount) in &self.combined_refunds {
+            let refund_recipient_code_hash = fork
+                .state
+                .code_hash(
+                    *refund_recipient,
+                    &ctx.shared_cached_reads,
+                    &mut fork.local_ctx.cached_reads,
+                )
+                .map_err(CriticalCommitOrderError::Reth)?;
+            if refund_recipient_code_hash != KECCAK_EMPTY {
+                error!(%refund_recipient_code_hash, %refund_recipient, %refund_amount, "Refund recipient has code, skipping refund");
+                continue;
+            }
+
+            let refund_tx = TransactionSignedEcRecoveredWithBlobs::new_no_blobs(create_payout_tx(
+                ctx.chain_spec.as_ref(),
+                ctx.evm_env.block_env.basefee,
+                builder_signer,
+                nonce,
+                *refund_recipient,
+                BASE_TX_GAS,
+                *refund_amount,
+            )?)
+            .unwrap();
+            let refund_result =
+                fork.commit_tx(&refund_tx, self.gas_used, 0, self.blob_gas_used)??;
+            if !refund_result.tx_info.receipt.success {
+                return Err(InsertPayoutTxErr::CombinedRefundTxReverted);
+            }
+
+            self.gas_used += refund_result.tx_info.gas_used;
+            self.blob_gas_used += refund_result.blob_gas_used;
+            self.executed_tx_infos.push(refund_result.tx_info);
+
+            nonce += 1;
+        }
+
         let tx = create_payout_tx(
             ctx.chain_spec.as_ref(),
             ctx.evm_env.block_env.basefee,
@@ -659,7 +719,6 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         )?;
         // payout tx has no blobs so it's safe to unwrap
         let tx = TransactionSignedEcRecoveredWithBlobs::new_no_blobs(tx).unwrap();
-        let mut fork = PartialBlockFork::new(state, ctx, local_ctx).with_tracer(&mut self.tracer);
         let exec_result = fork.commit_tx(&tx, self.gas_used, 0, self.blob_gas_used)?;
         let ok_result = exec_result?;
         if !ok_result.tx_info.receipt.success {
@@ -919,6 +978,7 @@ impl PartialBlock<()> {
             blob_gas_used: 0,
             coinbase_profit: U256::ZERO,
             executed_tx_infos: Vec::new(),
+            combined_refunds: HashMap::default(),
             tracer: (),
         }
     }
@@ -1014,6 +1074,7 @@ mod test {
                     coinbase_profit: profit_2,
                 },
             ],
+            delayed_kickback: None,
             original_order_ids: Default::default(),
             nonces_updated: Default::default(),
             paid_kickbacks: Default::default(),
@@ -1056,6 +1117,7 @@ mod test {
                 gas_used: Default::default(),
                 coinbase_profit: profit,
             }],
+            delayed_kickback: None,
             original_order_ids: Default::default(),
             nonces_updated: Default::default(),
             paid_kickbacks: Default::default(),

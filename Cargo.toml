@@ -16,6 +16,7 @@ members = [
     "crates/eth-sparse-mpt",
     "crates/sysperf",
     "crates/test-relay",
+    "crates/bid-scraper",
 ]
 default-members = ["crates/rbuilder", "crates/reth-rbuilder", "crates/test-relay"]
 resolver = "2"

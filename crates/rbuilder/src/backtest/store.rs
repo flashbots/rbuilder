@@ -1,27 +1,32 @@
 // store orders in the sqlite database
 
 use crate::{
-    backtest::{BlockData, BuiltBlockData, OrdersWithTimestamp, RawOrdersWithTimestamp},
+    backtest::{
+        full_slot_block_data::{FullSlotBlockData, ReplaceableOrderPoolCommandWithTimestamp},
+        BuiltBlockData,
+    },
+    live_builder::order_input::ReplaceableOrderPoolCommand,
     mev_boost::BuilderBlockReceived,
     primitives::{
-        serialize::{RawOrder, TxEncoding},
-        OrderId,
+        serialize::{CancelShareBundle, RawOrder, RawOrderConvertError, TxEncoding},
+        BundleReplacementData, OrderId,
     },
     utils::timestamp_ms_to_offset_datetime,
 };
 use ahash::{HashMap, HashSet};
 use alloy_primitives::{
     utils::{format_ether, parse_ether, ParseUnits, Unit},
-    Address, B256, I256, U256,
+    I256,
 };
+use alloy_primitives::{Address, B256, U256};
 use lz4_flex::{block::DecompressError, compress_prepend_size, decompress_size_prepended};
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqliteRow},
     ConnectOptions, Connection, Executor, Row, SqliteConnection,
 };
 use std::{
-    default::Default,
     ffi::OsString,
     path::{Path, PathBuf},
     str::FromStr,
@@ -29,9 +34,9 @@ use std::{
 
 /// Version of the data/format on the DB.
 /// Since we don't have backwards compatibility every time this is increased we must re-create the DB (manually delete the sqlite)
-const VERSION: i64 = 11;
+const VERSION: i64 = 12;
 
-/// Storage of BlockData.
+/// Storage of FullSlotBlockData.
 /// It allows us to locally cache (using a SQLite DB) all the info we need for backtesting so we don't have to
 /// go to the mempool dumpster (or any other source) every time we simulate a block.
 pub struct HistoricalDataStorage {
@@ -162,7 +167,7 @@ impl HistoricalDataStorage {
         Ok(())
     }
 
-    pub async fn write_block_data(&mut self, block_data: BlockData) -> eyre::Result<()> {
+    pub async fn write_block_data(&mut self, block_data: FullSlotBlockData) -> eyre::Result<()> {
         self.conn.transaction(|conn| Box::pin(async move {
             // check if block is already in the database
             let block_exists = sqlx::query(
@@ -238,9 +243,13 @@ impl HistoricalDataStorage {
                 .execute(conn.as_mut())
                 .await?;
 
-            for order in block_data.available_orders {
-                let raw_order: RawOrdersWithTimestamp = order.clone().into();
-                let order_id = order.order.id().to_string();
+            for order in block_data.available_orders() {
+                let raw_order: RawReplaceableOrderPoolCommandWithTimestamp = order.clone().into();
+                let order_id = match &order.command {
+                    ReplaceableOrderPoolCommand::Order(order) => Some( order.id().to_string()),
+                    ReplaceableOrderPoolCommand::CancelShareBundle(_) => None,
+                    ReplaceableOrderPoolCommand::CancelBundle(_) => None,
+                };
                 let order_json = compress_data(&serde_json::to_vec(&raw_order)?);
                 sqlx::query(
                     r#"
@@ -249,7 +258,7 @@ impl HistoricalDataStorage {
                 "#,
                 ).bind(block_data.block_number as i64)
                     .bind(order.timestamp_ms as i64)
-                    .bind(order_type(&raw_order.order))
+                    .bind(order_type(&raw_order.command))
                     .bind(order_id)
                     .bind(order_json)
                     .execute(conn.as_mut())
@@ -293,7 +302,7 @@ impl HistoricalDataStorage {
         Ok(())
     }
 
-    pub async fn read_block_data(&mut self, block_number: u64) -> eyre::Result<BlockData> {
+    pub async fn read_block_data(&mut self, block_number: u64) -> eyre::Result<FullSlotBlockData> {
         let block_data = sqlx::query(
             r#"
         SELECT block_number, winning_bid_trace, onchain_block FROM blocks_data
@@ -347,9 +356,9 @@ impl HistoricalDataStorage {
         .map(|mut v| v.remove(0))
     }
 
-    /// Returns BlockData for the given block, if some blocks are missing error is not returned.
+    /// Returns FullSlotBlockData for the given block, if some blocks are missing error is not returned.
     /// WARN: will load into memory everything for blocks in range: min(blocks), max(blocks)
-    pub async fn read_blocks(&mut self, blocks: &[u64]) -> eyre::Result<Vec<BlockData>> {
+    pub async fn read_blocks(&mut self, blocks: &[u64]) -> eyre::Result<Vec<FullSlotBlockData>> {
         let min_block = blocks.iter().min().copied().unwrap_or_default() as i64;
         let max_block = blocks.iter().max().copied().unwrap_or_default() as i64;
 
@@ -490,11 +499,15 @@ impl HistoricalDataStorage {
     }
 }
 
-fn order_type(order: &RawOrder) -> &'static str {
-    match order {
-        RawOrder::Bundle(_) => "bundle",
-        RawOrder::Tx(_) => "tx",
-        RawOrder::ShareBundle(_) => "sbundle",
+fn order_type(command: &RawReplaceableOrderPoolCommand) -> &'static str {
+    match command {
+        RawReplaceableOrderPoolCommand::Order(raw_order) => match raw_order {
+            RawOrder::Bundle(_) => "bundle",
+            RawOrder::Tx(_) => "tx",
+            RawOrder::ShareBundle(_) => "sbundle",
+        },
+        RawReplaceableOrderPoolCommand::CancelShareBundle(_) => "cancel_sbundle",
+        RawReplaceableOrderPoolCommand::CancelBundle(_) => "cancel_bundle",
     }
 }
 
@@ -511,10 +524,10 @@ fn group_rows_into_block_data(
     orders: Vec<SqliteRow>,
     built_block_data: Vec<SqliteRow>,
     built_block_included_orders: Vec<SqliteRow>,
-) -> eyre::Result<Vec<BlockData>> {
+) -> eyre::Result<Vec<FullSlotBlockData>> {
     let mut block_data_by_block = blocks_data
         .into_par_iter()
-        .map(|block_data| -> eyre::Result<(u64, BlockData)> {
+        .map(|block_data| -> eyre::Result<(u64, FullSlotBlockData)> {
             let block_number = block_data.try_get::<i64, _>("block_number")? as u64;
             let winning_bid_trace: BuilderBlockReceived = serde_json::from_slice(
                 &decompress_data(&block_data.try_get::<Vec<u8>, _>("winning_bid_trace")?)?,
@@ -524,14 +537,13 @@ fn group_rows_into_block_data(
             )?)?;
             Ok((
                 block_number,
-                BlockData {
+                FullSlotBlockData::new(
                     block_number,
                     winning_bid_trace,
                     onchain_block,
-                    available_orders: Vec::new(),
-                    built_block_data: None,
-                    filtered_orders: Default::default(),
-                },
+                    Vec::new(),
+                    None,
+                ),
             ))
         })
         .collect::<Result<Vec<_>, _>>()?
@@ -586,44 +598,119 @@ fn group_rows_into_block_data(
 
     let orders_by_blocks = orders
         .into_par_iter()
-        .map(|row| -> eyre::Result<(u64, OrdersWithTimestamp)> {
-            let order_data = decompress_data(&row.try_get::<Vec<u8>, _>("order_data")?)?;
-            let block_number = row.try_get::<i64, _>("block_number")? as u64;
-            let raw_order: RawOrdersWithTimestamp = serde_json::from_slice(&order_data)?;
-            let order: OrdersWithTimestamp = raw_order.decode(TxEncoding::NoBlobData)?;
-            Ok((block_number, order))
-        })
+        .map(
+            |row| -> eyre::Result<(u64, ReplaceableOrderPoolCommandWithTimestamp)> {
+                let order_data = decompress_data(&row.try_get::<Vec<u8>, _>("order_data")?)?;
+                let block_number = row.try_get::<i64, _>("block_number")? as u64;
+                let raw_order: RawReplaceableOrderPoolCommandWithTimestamp =
+                    serde_json::from_slice(&order_data)?;
+                let order: ReplaceableOrderPoolCommandWithTimestamp =
+                    raw_order.decode(TxEncoding::NoBlobData)?;
+                Ok((block_number, order))
+            },
+        )
         .collect::<Result<Vec<_>, _>>()?;
-
+    let mut block_orders_by_block = HashMap::default();
     for (block, order) in orders_by_blocks {
-        block_data_by_block
-            .get_mut(&block)
-            .ok_or_else(|| eyre::eyre!("Block {} not found", block))?
-            .available_orders
-            .push(order);
+        let block_orders = block_orders_by_block.entry(block).or_insert(Vec::new());
+        block_orders.push(order);
     }
 
-    let mut res = block_data_by_block.into_values().collect::<Vec<_>>();
+    let mut res: Vec<_> = block_data_by_block
+        .into_values()
+        .map(|block_data| {
+            if let Some(orders) = block_orders_by_block.get(&block_data.block_number) {
+                block_data.with_available_orders(orders.clone())
+            } else {
+                block_data
+            }
+        })
+        .collect();
     res.sort_by_key(|v| v.block_number);
     Ok(res)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum RawReplaceableOrderPoolCommand {
+    /// New or update order
+    Order(RawOrder),
+    /// Cancellation for sbundle
+    CancelShareBundle(CancelShareBundle),
+    CancelBundle(BundleReplacementData),
+}
+
+impl From<ReplaceableOrderPoolCommand> for RawReplaceableOrderPoolCommand {
+    fn from(command: ReplaceableOrderPoolCommand) -> Self {
+        match command {
+            ReplaceableOrderPoolCommand::Order(order) => {
+                RawReplaceableOrderPoolCommand::Order(order.into())
+            }
+            ReplaceableOrderPoolCommand::CancelShareBundle(cancel_share_bundle) => {
+                RawReplaceableOrderPoolCommand::CancelShareBundle(cancel_share_bundle)
+            }
+            ReplaceableOrderPoolCommand::CancelBundle(replacement_data) => {
+                RawReplaceableOrderPoolCommand::CancelBundle(replacement_data)
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RawReplaceableOrderPoolCommandWithTimestamp {
+    pub timestamp_ms: u64,
+    pub command: RawReplaceableOrderPoolCommand,
+}
+
+impl From<ReplaceableOrderPoolCommandWithTimestamp>
+    for RawReplaceableOrderPoolCommandWithTimestamp
+{
+    fn from(command_ts: ReplaceableOrderPoolCommandWithTimestamp) -> Self {
+        RawReplaceableOrderPoolCommandWithTimestamp {
+            timestamp_ms: command_ts.timestamp_ms,
+            command: command_ts.command.into(),
+        }
+    }
+}
+
+impl RawReplaceableOrderPoolCommandWithTimestamp {
+    fn decode(
+        self,
+        encoding: TxEncoding,
+    ) -> Result<ReplaceableOrderPoolCommandWithTimestamp, RawOrderConvertError> {
+        Ok(ReplaceableOrderPoolCommandWithTimestamp {
+            timestamp_ms: self.timestamp_ms,
+            command: match self.command {
+                RawReplaceableOrderPoolCommand::Order(raw_order) => {
+                    ReplaceableOrderPoolCommand::Order(raw_order.decode(encoding)?)
+                }
+                RawReplaceableOrderPoolCommand::CancelShareBundle(cancel_share_bundle) => {
+                    ReplaceableOrderPoolCommand::CancelShareBundle(cancel_share_bundle)
+                }
+                RawReplaceableOrderPoolCommand::CancelBundle(replacement_data) => {
+                    ReplaceableOrderPoolCommand::CancelBundle(replacement_data)
+                }
+            },
+        })
+    }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
     use crate::{
-        backtest::RawOrdersWithTimestamp,
+        backtest::full_slot_block_data::FullSlotBlockData,
         mev_boost::BuilderBlockReceived,
         primitives::{
             serialize::{RawBundle, RawTx},
-            LAST_BUNDLE_VERSION,
+            BundleReplacementKey, ShareBundleReplacementKey, LAST_BUNDLE_VERSION,
         },
     };
     use alloy_consensus::{EthereumTxEnvelope, Signed, TxEip1559};
-    use alloy_primitives::{hex, Address, Signature, B256, U256, U64};
+    use alloy_primitives::{address, hex, Address, Signature, B256, U256, U64};
     use alloy_rpc_types::{Block, BlockTransactions, Header, Transaction};
     use reth_primitives::Recovered;
     use time::OffsetDateTime;
+    use uuid::uuid;
 
     #[tokio::test]
     async fn test_create_tables() {
@@ -635,18 +722,18 @@ mod test {
     async fn test_write_block_data() {
         let tx = hex!("02f9037b018203cd8405f5e1008503692da370830388ba943fc91a3afd70395cd496c647d5a6cc9d4b2b7fad8780e531581b77c4b903043593564c000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000a00000000000000000000000000000000000000000000000000000000064f390d300000000000000000000000000000000000000000000000000000000000000030b090c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000c000000000000000000000000000000000000000000000000000000000000001e0000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000080e531581b77c400000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000009184e72a0000000000000000000000000000000000000000000000000000080e531581b77c400000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000c02aaa39b223fe8d0a0e5c4f27ead9083c756cc2000000000000000000000000b5ea574dd8f2b735424dfc8c4e16760fc44a931b000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000c001a0a9ea84ad107d335afd5e5d2ddcc576f183be37386a9ac6c9d4469d0329c22e87a06a51ea5a0809f43bf72d0156f1db956da3a9f3da24b590b7eed01128ff84a2c1").to_vec();
 
-        let orders: Vec<OrdersWithTimestamp> = vec![
-            RawOrdersWithTimestamp {
+        let orders: Vec<ReplaceableOrderPoolCommandWithTimestamp> = vec![
+            RawReplaceableOrderPoolCommandWithTimestamp {
                 timestamp_ms: 10,
-                order: RawOrder::Tx(RawTx {
+                command: RawReplaceableOrderPoolCommand::Order(RawOrder::Tx(RawTx {
                     tx: tx.clone().into(),
-                }),
+                })),
             }
             .decode(TxEncoding::WithBlobData)
             .unwrap(),
-            RawOrdersWithTimestamp {
+            RawReplaceableOrderPoolCommandWithTimestamp {
                 timestamp_ms: 11,
-                order: RawOrder::Bundle(RawBundle {
+                command: RawReplaceableOrderPoolCommand::Order(RawOrder::Bundle(RawBundle {
                     block_number: Some(U64::from(12)),
                     txs: vec![tx.clone().into()],
                     reverting_tx_hashes: vec![],
@@ -664,10 +751,30 @@ mod test {
                     refund_tx_hashes: None,
                     first_seen_at: None,
                     version: Some(RawBundle::encode_version(LAST_BUNDLE_VERSION)),
-                }),
+                })),
             }
             .decode(TxEncoding::WithBlobData)
             .unwrap(),
+            ReplaceableOrderPoolCommandWithTimestamp {
+                timestamp_ms: 1234,
+                command: ReplaceableOrderPoolCommand::CancelBundle(BundleReplacementData {
+                    key: BundleReplacementKey::new(
+                        uuid!("12345678-1234-1234-1234-123456789abc"),
+                        Some(address!("f39Fd6e51aad88F6F4ce6aB8827279cffFb92266")),
+                    ),
+                    sequence_number: 876,
+                }),
+            },
+            ReplaceableOrderPoolCommandWithTimestamp {
+                timestamp_ms: 1234,
+                command: ReplaceableOrderPoolCommand::CancelShareBundle(CancelShareBundle {
+                    key: ShareBundleReplacementKey::new(
+                        uuid!("12345678-1234-1234-1234-123456789abc"),
+                        address!("f39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
+                    ),
+                    block: 12,
+                }),
+            },
         ];
 
         let winning_bid_trace = BuilderBlockReceived {
@@ -694,14 +801,13 @@ mod test {
             sealed_at: OffsetDateTime::from_unix_timestamp_nanos(1719845355123000000).unwrap(),
             profit: I256::try_from(42).unwrap(),
         };
-        let block_data = BlockData {
-            block_number: 12,
+        let block_data = FullSlotBlockData::new(
+            12,
             winning_bid_trace,
             onchain_block,
-            available_orders: orders,
-            built_block_data: Some(built_block_data),
-            filtered_orders: Default::default(),
-        };
+            orders,
+            Some(built_block_data),
+        );
 
         let mut storage = HistoricalDataStorage::new_from_memory().await.unwrap();
         storage.create_tables().await.unwrap();

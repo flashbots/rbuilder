@@ -22,7 +22,11 @@ use reth_provider::{
     HeaderProvider, StateCommitmentProvider,
 };
 use reth_transaction_pool::{blobstore::DiskFileBlobStore, EthTransactionPool};
-use std::{path::PathBuf, process};
+use std::{
+    path::PathBuf,
+    process,
+    sync::{atomic::AtomicBool, Arc},
+};
 use tokio::task;
 use tracing::error;
 
@@ -91,9 +95,11 @@ fn spawn_rbuilder<P>(
         let result = async {
             let config: Config = load_config_toml_and_env(config_path)?;
 
+            let ready_to_build = Arc::new(AtomicBool::new(false));
             // Spawn redacted server that is safe for tdx builders to expose
             telemetry::servers::redacted::spawn(
                 config.base_config().redacted_telemetry_server_address(),
+                ready_to_build.clone(),
             )
             .await?;
 
@@ -114,7 +120,7 @@ fn spawn_rbuilder<P>(
                 )
                 .await?;
             builder.connect_to_transaction_pool(pool).await?;
-            builder.run().await?;
+            builder.run(ready_to_build).await?;
 
             Ok::<(), eyre::Error>(())
         }

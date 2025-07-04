@@ -1,0 +1,42 @@
+[package]
+name = "bid-scraper"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+exclude.workspace = true
+
+[dependencies]
+ethers = { version = "^2", default-features = false, features = ["ws", "rustls"] }
+tokio = { version = "1.40", default-features = false, features = ["rt", "rt-multi-thread", "macros","signal"] }
+tokio-util = "0.7.12"
+tracing = "0.1.37"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
+log = "^0.4"
+clap = { version = "^3.2", features = ["derive"] }
+serde_json = { workspace = true }
+serde = { workspace = true }
+serde_with = { version = "3.9.0", features = ["time_0_3"] }
+chrono = "^0.4"
+futures = "^0.3"
+rand = "^0.8"
+runng = "^0.3"
+reqwest = { version = "^0.11", default-features = false, features = ["rustls", "gzip", "brotli", "deflate", "json"] }
+lru = "^0.10"
+async-trait = "^0.1"
+tokio-tungstenite = { version = "^0.19", features = ["rustls-tls-native-roots"] }
+futures-util = "^0.3"
+ethereum_ssz = "^0.5"
+ethereum_ssz_derive = "^0.5"
+ssz_types = "^0.5"
+hex = "^0.4"
+derivative = "2.2"
+toml = "0.8.8"
+eyre = "0.6.12"
+thiserror = { version = "1.0.64" }
+parking_lot = { version = "0.12.3" }
+
+[dev-dependencies]
+proptest = "1.4"

@@ -110,7 +110,7 @@ pub async fn run_backtest_fetch<
                 HistoricalDataStorage::new_from_path(backtest_fetch_output_file_buf).await?;
 
             for block in blocks_to_fetch {
-                let block_data = match fetcher.fetch_historical_data(block).await {
+                let block_data = match fetcher.fetch_full_slot_historical_data(block).await {
                     Ok(block_data) => block_data,
                     Err(err) => {
                         error!("Failed to fetch block: {}, error: {}", block, err);

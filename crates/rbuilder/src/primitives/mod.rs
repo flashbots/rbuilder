@@ -87,7 +87,7 @@ pub struct Nonce {
 }
 
 /// Information regarding a new/update replaceable Bundle/ShareBundle.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ReplacementData<KeyType> {
     pub key: KeyType,
     /// Due to simulation async problems Bundle updates can arrive out of order.
@@ -476,7 +476,7 @@ impl ShareBundleInner {
 }
 
 /// Uniquely identifies a replaceable sbundle or bundle
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Copy, Serialize, Deserialize)]
 pub struct ReplacementKey {
     pub id: Uuid,
     /// None means we don't have signer so the identity will be only by uuid.
@@ -883,7 +883,7 @@ pub enum Order {
 }
 
 /// Uniquely identifies a replaceable sbundle
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ShareBundleReplacementKey(ReplacementKey);
 impl ShareBundleReplacementKey {
     pub fn new(id: Uuid, signer: Address) -> Self {
@@ -899,7 +899,7 @@ impl ShareBundleReplacementKey {
 }
 
 /// Uniquely identifies a replaceable bundle
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct BundleReplacementKey(ReplacementKey);
 impl BundleReplacementKey {
     pub fn new(id: Uuid, signer: Option<Address>) -> Self {
@@ -1326,7 +1326,7 @@ mod tests {
     fn can_execute_single_optional_tx() {
         let needed_base_gas: u128 = 100000;
         let tx = Recovered::new_unchecked(
-            TransactionSigned::new(
+            TransactionSigned::new_unchecked(
                 Transaction::Legacy(TxLegacy {
                     gas_price: needed_base_gas,
                     ..Default::default()

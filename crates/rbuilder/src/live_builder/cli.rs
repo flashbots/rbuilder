@@ -1,4 +1,7 @@
-use std::path::PathBuf;
+use std::{
+    path::PathBuf,
+    sync::{atomic::AtomicBool, Arc},
+};
 
 use clap::Parser;
 use serde::de::DeserializeOwned;
@@ -106,9 +109,13 @@ where
     let config: ConfigType = load_config_toml_and_env(cli.config)?;
     config.base_config().setup_tracing_subscriber()?;
 
+    let ready_to_build = Arc::new(AtomicBool::new(false));
     // Spawn redacted server that is safe for tdx builders to expose
-    telemetry::servers::redacted::spawn(config.base_config().redacted_telemetry_server_address())
-        .await?;
+    telemetry::servers::redacted::spawn(
+        config.base_config().redacted_telemetry_server_address(),
+        ready_to_build.clone(),
+    )
+    .await?;
 
     // Spawn debug server that exposes detailed operational information
     telemetry::servers::full::spawn(
@@ -118,10 +125,10 @@ where
     .await?;
     if config.base_config().ipc_provider.is_some() {
         let provider = config.base_config().create_ipc_provider_factory()?;
-        run_builder(provider, config, on_run).await
+        run_builder(provider, config, on_run, ready_to_build).await
     } else {
         let provider = config.base_config().create_reth_provider_factory(false)?;
-        run_builder(provider, config, on_run).await
+        run_builder(provider, config, on_run, ready_to_build).await
     }
 }
 
@@ -129,6 +136,7 @@ async fn run_builder<P, ConfigType>(
     provider: P,
     config: ConfigType,
     on_run: Option<fn()>,
+    ready_to_build: Arc<AtomicBool>,
 ) -> eyre::Result<()>
 where
     ConfigType: LiveBuilderConfig,
@@ -144,7 +152,7 @@ where
     if let Some(on_run) = on_run {
         on_run();
     }
-    builder.run().await?;
+    builder.run(ready_to_build).await?;
     ctrlc.await.unwrap_or_default();
     Ok(())
 }

@@ -3,6 +3,7 @@ pub mod execute;
 pub mod fetch;
 
 pub mod build_block;
+pub mod full_slot_block_data;
 pub mod redistribute;
 pub mod restore_landed_orders;
 mod results_store;
@@ -14,10 +15,7 @@ use std::collections::HashSet;
 
 use crate::{
     mev_boost::BuilderBlockReceived,
-    primitives::{
-        serialize::{RawOrder, RawOrderConvertError, TxEncoding},
-        AccountNonce, Order, OrderId, OrderReplacementKey,
-    },
+    primitives::{serialize::RawOrder, AccountNonce, Order, OrderId, OrderReplacementKey},
     utils::offset_datetime_to_timestamp_ms,
 };
 use alloy_consensus::Transaction as TransactionTrait;
@@ -43,15 +41,6 @@ impl From<OrdersWithTimestamp> for RawOrdersWithTimestamp {
             timestamp_ms: orders.timestamp_ms,
             order: orders.order.into(),
         }
-    }
-}
-
-impl RawOrdersWithTimestamp {
-    fn decode(self, encoding: TxEncoding) -> Result<OrdersWithTimestamp, RawOrderConvertError> {
-        Ok(OrdersWithTimestamp {
-            timestamp_ms: self.timestamp_ms,
-            order: self.order.decode(encoding)?,
-        })
     }
 }
 
@@ -85,7 +74,7 @@ pub enum OrderFilteredReason {
     Signer,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct BlockData {
     pub block_number: u64,
     /// Extra info for landed block (not contained on onchain_block).
@@ -95,6 +84,7 @@ pub struct BlockData {
     pub onchain_block: alloy_rpc_types::Block,
     /// Orders we had at the moment of building the block.
     /// This might be an approximation depending on DataSources used.
+    /// BE CAREFUL: Depending on the source/order-type orders might be preprocessed for uuid replacements (you may have several orders with the same replacement id)
     pub available_orders: Vec<OrdersWithTimestamp>,
     pub filtered_orders: HashMap<OrderId, OrderFilteredReason>,
     pub built_block_data: Option<BuiltBlockData>,
@@ -102,16 +92,19 @@ pub struct BlockData {
 
 impl BlockData {
     /// Filters orders that arrived after we started building the block.
+    /// DANGEROUS: Filtering should not be done after replacement resolution.
     pub fn filter_late_orders(&mut self, build_block_lag_ms: i64) {
         let final_timestamp_ms = self.winning_bid_trace.timestamp_ms as i64 - build_block_lag_ms;
         self.filter_orders_by_end_timestamp_ms(final_timestamp_ms as u64);
     }
 
+    /// DANGEROUS: Filtering should not be done after replacement resolution.
     pub fn filter_orders_by_end_timestamp(&mut self, final_timestamp: OffsetDateTime) {
         let final_timestamp_ms = offset_datetime_to_timestamp_ms(final_timestamp);
         self.filter_orders_by_end_timestamp_ms(final_timestamp_ms);
     }
 
+    /// DANGEROUS: Filtering should not be done after replacement resolution.
     fn filter_orders_by_end_timestamp_ms(&mut self, final_timestamp_ms: u64) {
         // we never filter included orders even by timestamp
         let included_orders: HashSet<_> = self

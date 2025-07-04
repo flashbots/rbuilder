@@ -100,7 +100,7 @@ impl RelaysForSlotData {
             let _span_guard = span.enter();
             let relay_data = match res {
                 Ok(Some(res)) => {
-                    trace!("Got slot data from the relay");
+                    trace!(?res, "Got slot data from the relay");
                     res
                 }
                 Ok(None) => {

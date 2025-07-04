@@ -1,0 +1,41 @@
+log_json = true
+log_level = "info"
+log_color = false
+publisher_url ="tcp://0.0.0.0:5555"
+
+[[publishers]]
+type = "relay-bids"
+name = "relay-bids-1"
+relays_file = "/home/daniel/fb/rbuilder/crates/bid-scraper/relays.json"
+eth_provider_uri = "ws://localhost:8545"
+request_interval_s = 1.0
+time_offset_index = 0
+time_offset_count = 3
+request_start_s = 5
+
+
+[[publishers]]
+type = "relay-headers"
+name = "relay-headers-1"
+beacon_node_uri = "http://localhost:3500"
+relays_file = "/home/daniel/fb/rbuilder/crates/bid-scraper/relays.json"
+eth_provider_uri = "ws://127.0.0.1:8545"
+request_interval_s = 1.0
+time_offset_index = 0
+time_offset_count = 3
+request_start_s = 5
+
+[[publishers]]
+type = "ultrasound-ws"
+name = "ultrasound-us"
+ultrasound_url = "ws://relay-builders-eu.ultrasound.money/ws/v1/top_bid"
+relay_name = "ultrasound-us"
+
+
+[[publishers]]
+type = "bloxroute-ws"
+name = "bloxroute"
+bloxroute_url = "wss://mev-eth.blxrbdn.com/ws"
+relay_name = "bloxroute"
+auth_header = "env:BLOXROUTE_AUTH_HEADER"
+

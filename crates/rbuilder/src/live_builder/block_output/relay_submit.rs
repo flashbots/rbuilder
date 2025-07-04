@@ -106,6 +106,8 @@ pub struct SubmissionConfig {
     pub bid_observer: Box<dyn BidObserver + Send + Sync>,
     /// Bids above this value will only go to independent relays.
     pub independent_bid_threshold: U256,
+    /// For bids below this value we ignore RelayConfig::is_fast (it's like is_fast is true for all relays)
+    pub ignore_fast_bid_threshold: U256,
 }
 
 /// Configuration for optimistic block submission to relays.
@@ -251,6 +253,7 @@ async fn run_submit_to_relays_job(
             &block,
             optimistic_config.is_some(),
             config.independent_bid_threshold,
+            config.ignore_fast_bid_threshold,
         );
 
         let (normal_signed_submission, optimistic_signed_submission) = {
@@ -381,20 +384,22 @@ fn get_relay_filter_and_update_metrics(
     block: &Block,
     optimistic: bool,
     independent_bid_threshold: U256,
+    ignore_fast_bid_threshold: U256,
 ) -> impl Fn(&MevBoostRelayBidSubmitter) -> bool {
     // only_independent = expensive blocks.
     let only_independent = block.trace.bid_value > independent_bid_threshold;
-    // only_fast = blocks with replaceable orders.
-    let only_fast = block
-        .trace
-        .included_orders
-        .iter()
-        .flat_map(|exec_res| exec_res.order.original_orders())
-        .any(|o| match o {
-            Order::Bundle(bundle) => bundle.replacement_data.is_some(),
-            Order::Tx(_) => false,
-            Order::ShareBundle(_) => false,
-        });
+    // only_fast = bid > ignore_fast_bid_threshold && blocks with replaceable orders
+    let only_fast = block.trace.bid_value > ignore_fast_bid_threshold
+        && block
+            .trace
+            .included_orders
+            .iter()
+            .flat_map(|exec_res| exec_res.order.original_orders())
+            .any(|o| match o {
+                Order::Bundle(bundle) => bundle.replacement_data.is_some(),
+                Order::Tx(_) => false,
+                Order::ShareBundle(_) => false,
+            });
     inc_initiated_submissions(optimistic, !only_fast, !only_independent);
     move |relay: &MevBoostRelayBidSubmitter| {
         if only_independent && !relay.is_independent() {

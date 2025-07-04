@@ -47,11 +47,23 @@ impl SimplifiedOrder {
                     0,
                 )],
             ),
-            Order::Bundle(_) => {
+            Order::Bundle(bundle) => {
+                let (refund_percent, receiver_hash) = if let Some(refund) = &bundle.refund {
+                    (refund.percent as usize, Some(refund.tx_hash))
+                } else {
+                    (0, None)
+                };
                 let txs = order
                     .list_txs_revert()
                     .into_iter()
-                    .map(|(tx, revert)| OrderTxData::new(tx.hash(), revert, 0))
+                    .map(|(tx, revert)| {
+                        let tx_refund_percent = if Some(tx.hash()) == receiver_hash {
+                            0
+                        } else {
+                            refund_percent
+                        };
+                        OrderTxData::new(tx.hash(), revert, tx_refund_percent)
+                    })
                     .collect();
                 SimplifiedOrder::new(id, txs)
             }
@@ -429,7 +441,10 @@ fn find_allowed_range(
 mod tests {
     use super::*;
     use crate::{
-        primitives::{Bundle, MempoolTx, Refund, ShareBundle, ShareBundleTx, LAST_BUNDLE_VERSION},
+        primitives::{
+            Bundle, BundleRefund, MempoolTx, Refund, ShareBundle, ShareBundleTx,
+            LAST_BUNDLE_VERSION,
+        },
         utils::test_utils::*,
     };
 
@@ -964,6 +979,39 @@ mod tests {
             vec![
                 OrderTxData::new(hash(0x01), TxRevertBehavior::NotAllowed, 0),
                 OrderTxData::new(hash(0x02), TxRevertBehavior::AllowedIncluded, 0),
+            ],
+        );
+
+        let got = SimplifiedOrder::new_from_order(&bundle);
+        assert_eq!(expected, got);
+    }
+
+    #[test]
+    fn test_simplified_order_conversion_bundle_with_refund() {
+        let bundle = Order::Bundle(Bundle {
+            block: Some(0),
+            min_timestamp: None,
+            max_timestamp: None,
+            txs: vec![tx(0x01), tx(0x02)],
+            reverting_tx_hashes: vec![hash(0x02)],
+            hash: Default::default(),
+            uuid: uuid::uuid!("00000000-0000-0000-0000-ffff00000002"),
+            replacement_data: None,
+            signer: None,
+            metadata: Default::default(),
+            dropping_tx_hashes: Default::default(),
+            refund: Some(BundleRefund {
+                percent: 10,
+                recipient: Default::default(),
+                tx_hash: hash(0x01),
+            }),
+            version: LAST_BUNDLE_VERSION,
+        });
+        let expected = SimplifiedOrder::new(
+            OrderId::Bundle(uuid::uuid!("00000000-0000-0000-0000-ffff00000002")),
+            vec![
+                OrderTxData::new(hash(0x01), TxRevertBehavior::NotAllowed, 0),
+                OrderTxData::new(hash(0x02), TxRevertBehavior::AllowedIncluded, 10),
             ],
         );
 
