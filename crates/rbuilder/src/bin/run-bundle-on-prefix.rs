@@ -1,4 +1,5 @@
 use alloy_primitives::{b256, TxHash};
+use alloy_rpc_types::Block;
 use clap::Parser;
 use itertools::Itertools;
 use rbuilder::{
@@ -51,12 +52,18 @@ impl LandedBlockInfo {
             HistoricalDataStorage::new_from_path(&config.base_config().backtest_fetch_output_file)
                 .await?;
         let block_data = historical_data_storage.read_block_data(block).await?;
+        let cut_off_time = block_data
+            .built_block_data
+            .as_ref()
+            .unwrap()
+            .orders_closed_at;
+        let block_data = block_data.snapshot_including_landed(cut_off_time)?;
         let onchain_block = block_data.onchain_block.clone();
         let landed_txs = extract_onchain_block_txs(&onchain_block)?;
         let building_cxt_original_coinbase =
-            Self::create_building_context(&config, &block_data, &landed_txs, true)?;
+            Self::create_building_context(&config, &block_data.onchain_block, &landed_txs, true)?;
         let building_cxt_cfg_coinbase =
-            Self::create_building_context(&config, &block_data, &landed_txs, false)?;
+            Self::create_building_context(&config, &block_data.onchain_block, &landed_txs, false)?;
         Ok(Self {
             config,
             block_data,
@@ -109,11 +116,10 @@ impl LandedBlockInfo {
 
     fn create_building_context(
         config: &Config,
-        block_data: &BlockData,
+        onchain_block: &Block,
         txs: &[TransactionSignedEcRecoveredWithBlobs],
         use_original_coinbase: bool,
     ) -> eyre::Result<BlockBuildingContext> {
-        let onchain_block = block_data.onchain_block.clone();
         let suggested_fee_recipient = find_suggested_fee_recipient(&onchain_block, txs);
         let signer = config.base_config().coinbase_signer()?;
         // If we put the real coinbase we cant create a signer and we can't pay kickbacks
@@ -123,7 +129,7 @@ impl LandedBlockInfo {
             signer.address
         };
         Ok(BlockBuildingContext::from_onchain_block(
-            onchain_block,
+            onchain_block.clone(),
             config.base_config().chain_spec()?,
             None,
             Default::default(),
