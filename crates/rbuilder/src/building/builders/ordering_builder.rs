@@ -9,12 +9,11 @@ use crate::{
     building::{
         block_orders_from_sim_orders,
         builders::{
-            block_building_helper::BlockBuildingHelper,
-            block_building_helper_stats_logger::BlockBuildingHelperStatsLogger, LiveBuilderInput,
-            OrderIntakeConsumer,
+            block_building_helper::BlockBuildingHelper, LiveBuilderInput, OrderIntakeConsumer,
         },
-        BlockBuildingContext, ExecutionError, OrderPriority, PrioritizedOrderStore,
-        SimulatedOrderSink, Sorting, ThreadBlockBuildingContext,
+        BlockBuildingContext, ExecutionError, NullPartialBlockExecutionTracer, OrderPriority,
+        PartialBlockExecutionTracer, PrioritizedOrderStore, SimulatedOrderSink, Sorting,
+        ThreadBlockBuildingContext,
     },
     primitives::{AccountNonce, OrderId, SimValue},
     provider::StateProviderFactory,
@@ -155,9 +154,14 @@ pub fn run_ordering_builder<P, OrderPriorityType>(
     }
 }
 
-pub fn backtest_simulate_block<P, OrderPriorityType: OrderPriority>(
+pub fn backtest_simulate_block<
+    P,
+    OrderPriorityType: OrderPriority,
+    PartialBlockExecutionTracerType: PartialBlockExecutionTracer + Clone + Send + Sync + 'static,
+>(
     ordering_config: OrderingBuilderConfig,
     input: BacktestSimulateBlockInput<'_, P>,
+    partial_block_execution_tracer: PartialBlockExecutionTracerType,
 ) -> eyre::Result<Block>
 where
     P: StateProviderFactory + Clone + 'static,
@@ -175,10 +179,11 @@ where
         input.ctx.clone(),
         ordering_config,
     );
-    let block_builder = builder.build_block(
+    let block_builder = builder.build_block_with_execution_tracer(
         block_orders,
         use_suggested_fee_recipient_as_coinbase,
         CancellationToken::new(),
+        partial_block_execution_tracer,
     )?;
 
     let payout_tx_value = if use_suggested_fee_recipient_as_coinbase {
@@ -226,20 +231,37 @@ impl OrderingBuilderContext {
         }
     }
 
-    /// use_suggested_fee_recipient_as_coinbase: all the mev profit goes directly to the slot suggested_fee_recipient so we avoid the payout tx.
-    ///     This mode disables mev-share orders since the builder has to receive the mev profit to give some portion back to the mev-share user.
-    /// !use_suggested_fee_recipient_as_coinbase: all the mev profit goes to the builder and at the end of the block we pay to the suggested_fee_recipient.
     pub fn build_block<OrderPriorityType: OrderPriority>(
         &mut self,
         block_orders: PrioritizedOrderStore<OrderPriorityType>,
         use_suggested_fee_recipient_as_coinbase: bool,
         cancel_block: CancellationToken,
     ) -> eyre::Result<Box<dyn BlockBuildingHelper>> {
+        self.build_block_with_execution_tracer(
+            block_orders,
+            use_suggested_fee_recipient_as_coinbase,
+            cancel_block,
+            NullPartialBlockExecutionTracer {},
+        )
+    }
+
+    /// use_suggested_fee_recipient_as_coinbase: all the mev profit goes directly to the slot suggested_fee_recipient so we avoid the payout tx.
+    ///     This mode disables mev-share orders since the builder has to receive the mev profit to give some portion back to the mev-share user.
+    /// !use_suggested_fee_recipient_as_coinbase: all the mev profit goes to the builder and at the end of the block we pay to the suggested_fee_recipient.
+    pub fn build_block_with_execution_tracer<
+        OrderPriorityType: OrderPriority,
+        PartialBlockExecutionTracerType: PartialBlockExecutionTracer + Clone + Send + Sync + 'static,
+    >(
+        &mut self,
+        block_orders: PrioritizedOrderStore<OrderPriorityType>,
+        use_suggested_fee_recipient_as_coinbase: bool,
+        cancel_block: CancellationToken,
+        partial_block_execution_tracer: PartialBlockExecutionTracerType,
+    ) -> eyre::Result<Box<dyn BlockBuildingHelper>> {
         let build_attempt_id: u32 = rand::random();
         let span = info_span!("build_run", build_attempt_id);
         let _guard = span.enter();
 
-        let all_orders = block_orders.get_all_orders();
         let build_start = Instant::now();
 
         // Create a new ctx to remove builder_signer if necessary
@@ -250,7 +272,7 @@ impl OrderingBuilderContext {
         self.failed_orders.clear();
         self.order_attempts.clear();
 
-        let mut block_building_helper = BlockBuildingHelperFromProvider::new(
+        let mut block_building_helper = BlockBuildingHelperFromProvider::new_with_execution_tracer(
             self.state.clone(),
             new_ctx,
             &mut self.local_ctx,
@@ -258,17 +280,11 @@ impl OrderingBuilderContext {
             self.config.discard_txs,
             block_orders.orders_statistics(),
             cancel_block,
+            partial_block_execution_tracer,
         )?;
 
-        {
-            let mut block_building_helper =
-                BlockBuildingHelperStatsLogger::new(&mut block_building_helper);
-
-            self.fill_orders(&mut block_building_helper, block_orders, build_start)?;
-            block_building_helper.set_trace_fill_time(build_start.elapsed());
-
-            block_building_helper.print(all_orders);
-        };
+        self.fill_orders(&mut block_building_helper, block_orders, build_start)?;
+        block_building_helper.set_trace_fill_time(build_start.elapsed());
 
         Ok(Box::new(block_building_helper))
     }

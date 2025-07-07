@@ -14,7 +14,8 @@ use crate::{
         estimate_payout_gas_limit, tracers::GasUsedSimulationTracer, BlockBuildingContext,
         BlockState, BuiltBlockTrace, BuiltBlockTraceError, CriticalCommitOrderError,
         EstimatePayoutGasErr, ExecutionError, ExecutionResult, FinalizeError, FinalizeResult,
-        PartialBlock, ThreadBlockBuildingContext,
+        NullPartialBlockExecutionTracer, PartialBlock, PartialBlockExecutionTracer,
+        ThreadBlockBuildingContext,
     },
     primitives::{order_statistics::OrderStatistics, SimValue, SimulatedOrder},
     telemetry::{self, add_block_fill_time, add_order_simulation_time},
@@ -122,12 +123,14 @@ impl BiddableUnfinishedBlock {
 
 /// Implementation of BlockBuildingHelper based on a generic Provider
 #[derive(Clone)]
-pub struct BlockBuildingHelperFromProvider {
+pub struct BlockBuildingHelperFromProvider<
+    PartialBlockExecutionTracerType: PartialBlockExecutionTracer + Clone + Send + Sync + 'static,
+> {
     /// Balance of fee recipient before we stared building.
     _fee_recipient_balance_start: U256,
     /// Accumulated changes for the block (due to commit_order calls).
     block_state: BlockState,
-    partial_block: PartialBlock<GasUsedSimulationTracer>,
+    partial_block: PartialBlock<GasUsedSimulationTracer, PartialBlockExecutionTracerType>,
     /// Gas reserved for the final payout txs from coinbase to fee recipient.
     /// None means we don't need this final tx since coinbase == fee recipient.
     payout_tx_gas: Option<u64>,
@@ -179,13 +182,7 @@ pub struct FinalizeBlockResult {
     pub block: Block,
 }
 
-impl BlockBuildingHelperFromProvider {
-    /// allow_tx_skip: see [`PartialBlockFork`]
-    /// Performs initialization:
-    /// - Query fee_recipient_balance_start.
-    /// - pre_block_call.
-    /// - Estimate payout tx cost.
-    #[allow(clippy::too_many_arguments)]
+impl BlockBuildingHelperFromProvider<NullPartialBlockExecutionTracer> {
     pub fn new(
         state_provider: Arc<dyn StateProvider>,
         building_ctx: BlockBuildingContext,
@@ -195,6 +192,39 @@ impl BlockBuildingHelperFromProvider {
         available_orders_statistics: OrderStatistics,
         cancel_on_fatal_error: CancellationToken,
     ) -> Result<Self, BlockBuildingHelperError> {
+        BlockBuildingHelperFromProvider::new_with_execution_tracer(
+            state_provider,
+            building_ctx,
+            local_ctx,
+            builder_name,
+            discard_txs,
+            available_orders_statistics,
+            cancel_on_fatal_error,
+            NullPartialBlockExecutionTracer {},
+        )
+    }
+}
+
+impl<
+        PartialBlockExecutionTracerType: PartialBlockExecutionTracer + Clone + Send + Sync + 'static,
+    > BlockBuildingHelperFromProvider<PartialBlockExecutionTracerType>
+{
+    /// allow_tx_skip: see [`PartialBlockFork`]
+    /// Performs initialization:
+    /// - Query fee_recipient_balance_start.
+    /// - pre_block_call.
+    /// - Estimate payout tx cost.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_execution_tracer(
+        state_provider: Arc<dyn StateProvider>,
+        building_ctx: BlockBuildingContext,
+        local_ctx: &mut ThreadBlockBuildingContext,
+        builder_name: String,
+        discard_txs: bool,
+        available_orders_statistics: OrderStatistics,
+        cancel_on_fatal_error: CancellationToken,
+        partial_block_execution_tracer: PartialBlockExecutionTracerType,
+    ) -> Result<Self, BlockBuildingHelperError> {
         let last_committed_block = building_ctx.block() - 1;
         check_block_hash_reader_health(last_committed_block, &state_provider)?;
 
@@ -202,7 +232,8 @@ impl BlockBuildingHelperFromProvider {
             .account_balance(&building_ctx.attributes.suggested_fee_recipient)?
             .unwrap_or_default();
         let mut partial_block =
-            PartialBlock::new(discard_txs).with_tracer(GasUsedSimulationTracer::default());
+            PartialBlock::new_with_execution_tracer(discard_txs, partial_block_execution_tracer)
+                .with_tracer(GasUsedSimulationTracer::default());
         let mut block_state = BlockState::new_arc(state_provider);
         partial_block
             .pre_block_call(&building_ctx, local_ctx, &mut block_state)
@@ -333,7 +364,10 @@ impl BlockBuildingHelperFromProvider {
     }
 }
 
-impl BlockBuildingHelper for BlockBuildingHelperFromProvider {
+impl<
+        PartialBlockExecutionTracerType: PartialBlockExecutionTracer + Clone + Send + Sync + 'static,
+    > BlockBuildingHelper for BlockBuildingHelperFromProvider<PartialBlockExecutionTracerType>
+{
     /// Forwards to partial_block and updates trace.
     fn commit_order(
         &mut self,

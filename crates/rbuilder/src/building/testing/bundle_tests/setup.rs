@@ -6,8 +6,8 @@ use crate::{
     building::{
         cached_reads::{LocalCachedReads, SharedCachedReads},
         testing::test_chain_state::{BlockArgs, NamedAddr, TestChainState, TxArgs},
-        BlockState, ExecutionError, ExecutionResult, OrderErr, PartialBlock,
-        ThreadBlockBuildingContext,
+        BlockState, ExecutionError, ExecutionResult, NullPartialBlockExecutionTracer, OrderErr,
+        PartialBlock, ThreadBlockBuildingContext,
     },
     primitives::{
         order_builder::OrderBuilder, BundleRefund, BundleReplacementData, OrderId, Refund,
@@ -28,7 +28,7 @@ pub enum NonceValue {
 
 #[derive(Debug)]
 pub struct TestSetup {
-    partial_block: PartialBlock<()>,
+    partial_block: PartialBlock<(), NullPartialBlockExecutionTracer>,
     order_builder: OrderBuilder,
     bundle_state: Option<BundleState>,
     test_chain: TestChainState,
@@ -45,7 +45,7 @@ impl TestSetup {
     }
 
     /// Return a reference to a partial block.
-    pub fn partial_block(&self) -> &PartialBlock<()> {
+    pub fn partial_block(&self) -> &PartialBlock<(), NullPartialBlockExecutionTracer> {
         &self.partial_block
     }
 

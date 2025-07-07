@@ -10,8 +10,8 @@ use rbuilder::{
     building::{
         builders::block_building_helper::{BlockBuildingHelper, BlockBuildingHelperFromProvider},
         order_priority::{FullProfitInfoGetter, OrderMaxProfitPriority},
-        BlockBuildingContext, ExecutionError, MockRootHasher, OrderPriority,
-        ThreadBlockBuildingContext,
+        BlockBuildingContext, ExecutionError, MockRootHasher, NullPartialBlockExecutionTracer,
+        OrderPriority, ThreadBlockBuildingContext,
     },
     live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig, config::Config},
     primitives::{
@@ -144,7 +144,7 @@ impl LandedBlockInfo {
     pub fn create_building_helper(
         &mut self,
         use_original_coinbase: bool,
-    ) -> eyre::Result<BlockBuildingHelperFromProvider> {
+    ) -> eyre::Result<BlockBuildingHelperFromProvider<NullPartialBlockExecutionTracer>> {
         let ctx = self.get_context(use_original_coinbase);
         let provider = self
             .config

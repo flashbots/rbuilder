@@ -13,7 +13,9 @@ use crate::{
         execute::{backtest_prepare_orders_from_building_context, BacktestBlockInput},
         OrdersWithTimestamp,
     },
-    building::{builders::BacktestSimulateBlockInput, BlockBuildingContext},
+    building::{
+        builders::BacktestSimulateBlockInput, BlockBuildingContext, NullPartialBlockExecutionTracer,
+    },
     live_builder::cli::LiveBuilderConfig,
     primitives::{Order, OrderId, SimulatedOrder},
     provider::StateProviderFactory,
@@ -116,7 +118,11 @@ where
                     sim_orders: &sim_orders,
                     provider: provider_factory.clone(),
                 };
-                let build_res = config.build_backtest_block(builder_name, input);
+                let build_res = config.build_backtest_block(
+                    builder_name,
+                    input,
+                    crate::backtest::build_block::full_partial_block_execution_tracer::FullPartialBlockExecutionTracer::new(),
+                );
                 if let Err(err) = &build_res {
                     println!("Error building block: {:?}", err);
                     return None;

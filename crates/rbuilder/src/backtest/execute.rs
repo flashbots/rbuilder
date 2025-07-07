@@ -2,8 +2,9 @@ use crate::{
     backtest::BlockData,
     building::{
         builders::BacktestSimulateBlockInput, multi_share_bundle_merger::MultiShareBundleMerger,
-        sim::simulate_all_orders_with_sim_tree, BlockBuildingContext, BundleErr, OrderErr,
-        SimulatedOrderSink, SimulatedOrderStore, TransactionErr,
+        sim::simulate_all_orders_with_sim_tree, BlockBuildingContext, BundleErr,
+        NullPartialBlockExecutionTracer, OrderErr, SimulatedOrderSink, SimulatedOrderStore,
+        TransactionErr,
     },
     live_builder::{block_list_provider::BlockList, cli::LiveBuilderConfig},
     primitives::{OrderId, SimulatedOrder},
@@ -212,7 +213,11 @@ where
             provider: provider.clone(),
         };
 
-        let block = config.build_backtest_block(&building_algorithm_name, input)?;
+        let block = config.build_backtest_block(
+            &building_algorithm_name,
+            input,
+            NullPartialBlockExecutionTracer {},
+        )?;
         builder_outputs.push(BacktestBuilderOutput {
             orders_included: block.trace.included_orders.len(),
             builder_name: building_algorithm_name,
