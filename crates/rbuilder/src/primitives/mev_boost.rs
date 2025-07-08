@@ -66,6 +66,9 @@ pub struct RelayConfig {
     /// On 2025/06/24 (my birthday!) only supported by ultrasound.
     /// None -> false
     pub ask_for_filtering_validators: Option<bool>,
+    /// If we submit a block with a different gas than the one the validator registered with in this relay the relay does not mind.
+    /// None -> false
+    pub can_ignore_gas_limit: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
@@ -220,6 +223,10 @@ impl MevBoostRelaySlotInfoProvider {
 
     pub async fn get_current_epoch_validators(&self) -> Result<Vec<ValidatorSlotData>, RelayError> {
         self.client.get_current_epoch_validators().await
+    }
+
+    pub fn can_ignore_gas_limit(&self) -> bool {
+        self.client.can_ignore_gas_limit()
     }
 }
 

@@ -116,6 +116,7 @@ pub struct Config {
 
 const DEFAULT_SLOT_DELTA_TO_START_BIDDING_MS: i64 = -8000;
 const DEFAULT_ASK_FOR_FILTERING_VALIDATORS: bool = false;
+const DEFAULT_CAN_IGNORE_GAS_LIMIT: bool = false;
 
 #[serde_as]
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -250,6 +251,9 @@ impl L1Config {
                         relay_config
                             .ask_for_filtering_validators
                             .unwrap_or(DEFAULT_ASK_FOR_FILTERING_VALIDATORS),
+                        relay_config
+                            .can_ignore_gas_limit
+                            .unwrap_or(DEFAULT_CAN_IGNORE_GAS_LIMIT),
                     );
                     Self::create_relay_sub_objects(
                         relay_config,
@@ -759,6 +763,7 @@ lazy_static! {
                 builder_id_header: None,
                 api_token_header: None,
                 ask_for_filtering_validators: None,
+                can_ignore_gas_limit: None,
             },
         );
         map.insert(
@@ -779,6 +784,7 @@ lazy_static! {
                 builder_id_header: None,
                 api_token_header: None,
                 ask_for_filtering_validators: None,
+                can_ignore_gas_limit: None,
             },
         );
         map.insert(
@@ -799,6 +805,7 @@ lazy_static! {
                 builder_id_header: None,
                 api_token_header: None,
                 ask_for_filtering_validators: None,
+                can_ignore_gas_limit: None,
             },
         );
         map.insert(
@@ -818,6 +825,7 @@ lazy_static! {
                 builder_id_header: None,
                 api_token_header: None,
                 ask_for_filtering_validators: None,
+                can_ignore_gas_limit: None,
             },
         );
         map.insert(
@@ -838,6 +846,7 @@ lazy_static! {
                 builder_id_header: None,
                 api_token_header: None,
                 ask_for_filtering_validators: None,
+                can_ignore_gas_limit: None,
             },
         );
         map
