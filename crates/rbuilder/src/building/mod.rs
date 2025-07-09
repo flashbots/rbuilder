@@ -613,7 +613,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         self.executed_tx_infos.extend(ok_result.tx_infos.clone());
 
         // Update combined refunds
-        if let Some((address, refund_value)) = ok_result.delayed_kickback {
+        if let Some((address, refund_value, _)) = ok_result.delayed_kickback {
             let entry = self.combined_refunds.entry(address);
             if matches!(entry, hash_map::Entry::Vacant(_)) {
                 // This is the first refund for the recipient,
