@@ -613,14 +613,19 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         self.executed_tx_infos.extend(ok_result.tx_infos.clone());
 
         // Update combined refunds
-        if let Some((address, refund_value, _)) = ok_result.delayed_kickback {
-            let entry = self.combined_refunds.entry(address);
+        if let Some(DelayedKickback {
+            recipient,
+            payout_value,
+            ..
+        }) = ok_result.delayed_kickback
+        {
+            let entry = self.combined_refunds.entry(recipient);
             if matches!(entry, hash_map::Entry::Vacant(_)) {
                 // This is the first refund for the recipient,
                 // so we need to reserve the gas for the refund tx.
                 self.gas_reserved += 21_000;
             }
-            *entry.or_default() += refund_value;
+            *entry.or_default() += payout_value;
         }
 
         Ok(Ok(ExecutionResult {

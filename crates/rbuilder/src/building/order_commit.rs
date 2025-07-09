@@ -215,6 +215,13 @@ pub enum TransactionErr {
 }
 
 #[derive(Debug, Clone)]
+pub struct DelayedKickback {
+    pub recipient: Address,
+    pub payout_value: U256,
+    pub payout_tx_fee: U256,
+}
+
+#[derive(Debug, Clone)]
 pub struct BundleOk {
     pub gas_used: u64,
     pub cumulative_gas_used: u64,
@@ -225,7 +232,7 @@ pub struct BundleOk {
     pub nonces_updated: Vec<(Address, u64)>,
     pub paid_kickbacks: Vec<(Address, U256)>,
     /// The refund amount to accrue per recipient and be paid at the end of the block and tx fee value that is deducted from the profit of the first delayed refund bundle for the recipient in the block
-    pub delayed_kickback: Option<(Address, U256, U256)>,
+    pub delayed_kickback: Option<DelayedKickback>,
     /// Only for sbundles we accumulate ShareBundleInner::original_order_id that executed ok.
     /// Its original use is for only one level or orders with original_order_id but if nesting happens the parent order original_order_id goes before its children (pre-order DFS)
     /// Fully dropped orders (TxRevertBehavior::AllowedExcluded allows it!) are not included.
@@ -291,7 +298,7 @@ pub struct OrderOk {
     /// nonces_updates has a set of deduplicated final nonces of the txs in the order
     pub nonces_updated: Vec<(Address, u64)>,
     pub paid_kickbacks: Vec<(Address, U256)>,
-    pub delayed_kickback: Option<(Address, U256, U256)>,
+    pub delayed_kickback: Option<DelayedKickback>,
     pub used_state_trace: Option<UsedStateTrace>,
 }
 
@@ -799,8 +806,11 @@ impl<'a, 'b, 'c, 'd, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, 'd, 
                 // We already determined that refund for this recipient will cost [`BASE_TX_GAS`]
                 // and previously inserted a bundle that is capable of paying this cost.
                 // The recipient will be awarded full refund value for the current bundle.
-                insert.delayed_kickback =
-                    Some((refunds_cfg.recipient, refundable_value, U256::ZERO));
+                insert.delayed_kickback = Some(DelayedKickback {
+                    recipient: refunds_cfg.recipient,
+                    payout_value: refundable_value,
+                    payout_tx_fee: U256::ZERO,
+                });
                 break 'refund;
             }
 
@@ -821,8 +831,11 @@ impl<'a, 'b, 'c, 'd, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, 'd, 
                     .is_some_and(|remaining| remaining > payout.gas_limit)
             {
                 // This refund recipient is eligible for a combined refund at the end of the block.
-                insert.delayed_kickback =
-                    Some((refunds_cfg.recipient, payout.tx_value, payout.base_fee));
+                insert.delayed_kickback = Some(DelayedKickback {
+                    recipient: refunds_cfg.recipient,
+                    payout_value: payout.tx_value,
+                    payout_tx_fee: payout.base_fee,
+                });
                 break 'refund;
             }
 
@@ -1203,7 +1216,7 @@ impl<'a, 'b, 'c, 'd, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, 'd, 
                 let delayed_refund_cost = ok
                     .delayed_kickback
                     .as_ref()
-                    .map(|(_, value, fee)| value + fee)
+                    .map(|r| r.payout_value + r.payout_tx_fee)
                     .unwrap_or_default();
 
                 // Builder does sign txs in this code path, so do not allow negative coinbase
