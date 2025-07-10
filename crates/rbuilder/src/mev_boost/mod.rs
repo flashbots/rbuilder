@@ -45,6 +45,7 @@ const SIM_FAILED_NON_CRITICAL_ERRORS: &[&str] = &[
     "missing trie node",
     "parent block not found", // Generated from time to time from agnostic relay "simulation failed: parent block not found"
     "block is too old, outside validation window", // Generated from time to time from agnostic relay in the end of the slot
+    "block gas limit mismatch", // Generated from time to time from ultrasounds relay when we ignore the gas limit.
 ];
 
 /// If the bid we send is below a non cancellable bid from the competition agnostics answers this.
