@@ -45,6 +45,7 @@ const SIM_FAILED_NON_CRITICAL_ERRORS: &[&str] = &[
     "missing trie node",
     "parent block not found", // Generated from time to time from agnostic relay "simulation failed: parent block not found"
     "block is too old, outside validation window", // Generated from time to time from agnostic relay in the end of the slot
+    "block gas limit mismatch", // Generated from time to time from ultrasounds relay when we ignore the gas limit.
 ];
 
 /// If the bid we send is below a non cancellable bid from the competition agnostics answers this.
@@ -150,6 +151,8 @@ pub struct RelayClient {
     api_token_header: Option<String>,
     /// Adds "filtering=true" as query
     ask_for_filtering_validators: bool,
+    /// If we submit a block with a different gas than the one the validator registered with in this relay the relay does not mind.
+    can_ignore_gas_limit: bool,
 }
 
 impl RelayClient {
@@ -159,6 +162,7 @@ impl RelayClient {
         builder_id_header: Option<String>,
         api_token_header: Option<String>,
         ask_for_filtering_validators: bool,
+        can_ignore_gas_limit: bool,
     ) -> Self {
         Self {
             url,
@@ -167,11 +171,16 @@ impl RelayClient {
             builder_id_header,
             api_token_header,
             ask_for_filtering_validators,
+            can_ignore_gas_limit,
         }
     }
 
     pub fn from_known_relay(relay: KnownRelay) -> Self {
-        Self::from_url(relay.url(), None, None, None, false)
+        Self::from_url(relay.url(), None, None, None, false, false)
+    }
+
+    pub fn can_ignore_gas_limit(&self) -> bool {
+        self.can_ignore_gas_limit
     }
 }
 
@@ -829,7 +838,7 @@ mod tests {
         let mut generator = TestDataGenerator::default();
 
         let relay_url = Url::from_str(&srv.endpoint()).unwrap();
-        let relay = RelayClient::from_url(relay_url, None, None, None, false);
+        let relay = RelayClient::from_url(relay_url, None, None, None, false, false);
         let submission = SubmitBlockRequest::Deneb(generator.create_deneb_submit_block_request());
         let sub_relay = SubmitBlockRequestWithMetadata {
             submission,

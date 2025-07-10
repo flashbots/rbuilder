@@ -44,9 +44,20 @@ impl TestSetup {
         })
     }
 
+    /// Return a reference to a partial block.
+    pub fn partial_block(&self) -> &PartialBlock<()> {
+        &self.partial_block
+    }
+
+    /// Return a mutable reference to the chain state.
+    pub fn chain_state_mut(&mut self) -> &mut TestChainState {
+        &mut self.test_chain
+    }
+
     pub fn named_address(&self, named_addr: NamedAddr) -> eyre::Result<Address> {
         self.test_chain.named_address(named_addr)
     }
+
     // Build order methods
 
     pub fn begin_mempool_tx_order(&mut self) {
