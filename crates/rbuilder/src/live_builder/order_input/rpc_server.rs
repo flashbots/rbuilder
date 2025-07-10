@@ -56,7 +56,7 @@ where
             let data_size = params.len_bytes();
             let _scope_meter =
                 ScopeMeter::new(|dur| add_rpc_processing_time(method_name, dur, data_size));
-            callback(params, ctx).await;
+            callback(params, ctx).await
         }
     })
 }
