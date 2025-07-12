@@ -106,7 +106,7 @@ op-revm = { version = "5.0.0", default-features = false }
 ethereum_ssz_derive = "0.9.0"
 ethereum_ssz = "0.9.0"
 
-alloy-primitives = { version = "1.1.0", default-features = false }
+alloy-primitives = { version = "1.1.0", default-features = false, features = ["getrandom"] }
 alloy-rlp = "0.3.10"
 alloy-chains = "0.2.0"
 alloy-evm = { version = "0.10", default-features = false }

@@ -2,7 +2,8 @@ use serde::Deserialize;
 use serde_with::serde_as;
 
 use crate::{
-    bids_publisher::RelayBidsPublisherConfig, bloxroute_ws_publisher::BloxrouteWsPublisherConfig,
+    best_bid_ws_connector::ExternalWsPublisherConfig, bids_publisher::RelayBidsPublisherConfig,
+    bloxroute_ws_publisher::BloxrouteWsPublisherConfig,
     headers_publisher::RelayHeadersPublisherConfig,
     ultrasound_ws_publisher::UltrasoundWsPublisherConfig,
 };
@@ -14,6 +15,7 @@ pub enum PublisherConfig {
     RelayHeaders(RelayHeadersPublisherConfig),
     UltrasoundWs(UltrasoundWsPublisherConfig),
     BloxrouteWs(BloxrouteWsPublisherConfig),
+    ExternalWs(ExternalWsPublisherConfig),
 }
 
 #[derive(Debug, Clone, Deserialize)]

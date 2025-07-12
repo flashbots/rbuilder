@@ -1,3 +1,8 @@
+use alloy_primitives::{Address, BlockHash};
+use alloy_rpc_types_beacon::BlsPublicKey;
+use bid_scraper::best_bid_ws_connector::{
+    BestBidValue, BestBidValueSink, BestBidWSConnector, ExternalWsPublisherConfig,
+};
 use bid_scraper::bid_sender::BidSender;
 use bid_scraper::bids_publisher::{BidsPublisherService, RelayBidsPublisherConfig};
 use bid_scraper::bloxroute_ws_publisher::{
@@ -7,7 +12,9 @@ use bid_scraper::code_from_rbuilder::{
     load_config_toml_and_env, setup_tracing_subscriber, LoggerConfig,
 };
 use bid_scraper::config::{Config, PublisherConfig};
+use bid_scraper::get_timestamp_f64;
 use bid_scraper::headers_publisher::{HeadersPublisherService, RelayHeadersPublisherConfig};
+use bid_scraper::types::{BlockBid, PublisherType};
 use bid_scraper::ultrasound_ws_publisher::{
     UltrasoundWsConnectionHandler, UltrasoundWsPublisher, UltrasoundWsPublisherConfig,
 };
@@ -151,7 +158,7 @@ async fn main() -> eyre::Result<()> {
                     named_publisher.name,
                     nng_publisher_socket.clone(),
                     global_cancel.clone(),
-                ))
+                ));
             }
             PublisherConfig::RelayHeaders(cfg) => {
                 tokio::spawn(start_publisher::<_, _, HeadersPublisherServiceFactory>(
@@ -159,7 +166,7 @@ async fn main() -> eyre::Result<()> {
                     named_publisher.name,
                     nng_publisher_socket.clone(),
                     global_cancel.clone(),
-                ))
+                ));
             }
             PublisherConfig::UltrasoundWs(cfg) => {
                 tokio::spawn(start_publisher::<_, _, UltrasoundWsFactory>(
@@ -167,7 +174,7 @@ async fn main() -> eyre::Result<()> {
                     named_publisher.name,
                     nng_publisher_socket.clone(),
                     global_cancel.clone(),
-                ))
+                ));
             }
             PublisherConfig::BloxrouteWs(cfg) => {
                 tokio::spawn(start_publisher::<_, _, BloxrouteWsFactory>(
@@ -175,7 +182,15 @@ async fn main() -> eyre::Result<()> {
                     named_publisher.name,
                     nng_publisher_socket.clone(),
                     global_cancel.clone(),
-                ))
+                ));
+            }
+            PublisherConfig::ExternalWs(external_ws_publisher_config) => {
+                start_external_ws_publisher(
+                    external_ws_publisher_config,
+                    named_publisher.name,
+                    nng_publisher_socket.clone(),
+                    global_cancel.clone(),
+                );
             }
         };
     }
@@ -190,6 +205,7 @@ const WAIT_TIME_ON_CREATION_ERROR_SECS: u64 = 60;
 /// This usually happens on any unexpected error so the value should not be very high.
 const WAIT_TIME_ON_RUN_ERROR_SECS: u64 = 10;
 
+/// Start a publisher that will be restarted if it fails.
 async fn start_publisher<CfgType, PublisherType, PublisherFactoryType>(
     cfg: CfgType,
     name: String,
@@ -228,4 +244,81 @@ async fn start_publisher<CfgType, PublisherType, PublisherFactoryType>(
         };
         let _ = timeout(Duration::from_secs(timeout_secs), global_cancel.cancelled()).await;
     }
+}
+
+/// Start a BestBidWSConnector which auto reconnects.
+fn start_external_ws_publisher(
+    external_ws_publisher_config: ExternalWsPublisherConfig,
+    name: String,
+    nng_publisher_socket: Pub0,
+    global_cancel: CancellationToken,
+) {
+    let session_cancel = global_cancel.child_token();
+    let sender = BidSender::new(
+        nng_publisher_socket.clone(),
+        global_cancel.clone(),
+        session_cancel.clone(),
+    );
+    match create_best_bid_ws_connector(external_ws_publisher_config, sender, name.clone()) {
+        Ok(ws_connector) => {
+            tokio::spawn(async move { ws_connector.run_ws_stream(global_cancel).await });
+        }
+        Err(err) => {
+            error!(?err, name, "Unable to create publisher");
+        }
+    }
+}
+
+struct BidSender2BestBidValueSink {
+    sender: BidSender,
+    name: String,
+    fake_fee_recipient: Address,
+    fake_builder_pubkey: BlsPublicKey,
+}
+
+impl BidSender2BestBidValueSink {
+    fn new(sender: BidSender, name: String) -> Self {
+        Self {
+            sender,
+            name,
+            fake_fee_recipient: Address::random(),
+            fake_builder_pubkey: BlsPublicKey::random(),
+        }
+    }
+}
+
+impl BestBidValueSink for BidSender2BestBidValueSink {
+    fn send(&self, bid: BestBidValue) {
+        let bid = BlockBid {
+            seen_time: get_timestamp_f64(),
+            publisher_name: self.name.clone(),
+            publisher_type: PublisherType::ExternalWs,
+            relay_time: None,
+            relay_name: "external_ws_publisher".to_string(),
+            block_hash: BlockHash::random(),
+            block_number: bid.block_number,
+            slot_number: bid.slot_number,
+            parent_hash: bid.parent_hash,
+            value: bid.block_top_bid,
+            builder_pubkey: Some(self.fake_builder_pubkey),
+            extra_data: None,
+            fee_recipient: Some(self.fake_fee_recipient),
+            proposer_fee_recipient: None,
+            gas_used: None,
+            optimistic_submission: None,
+        };
+        let _ = self.sender.send(bid);
+    }
+}
+
+fn create_best_bid_ws_connector(
+    external_ws_publisher_config: ExternalWsPublisherConfig,
+    sender: BidSender,
+    name: String,
+) -> eyre::Result<BestBidWSConnector<BidSender2BestBidValueSink>> {
+    BestBidWSConnector::new(
+        &external_ws_publisher_config.url,
+        &external_ws_publisher_config.auth_header.value()?,
+        BidSender2BestBidValueSink::new(sender, name),
+    )
 }

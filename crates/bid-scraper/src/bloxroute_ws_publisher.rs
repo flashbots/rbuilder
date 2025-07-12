@@ -101,10 +101,7 @@ impl ConnectionHandler for BloxrouteWsConnectionHandler {
 
     fn configure_request(&self, request: &mut Request<()>) -> eyre::Result<()> {
         let headers = request.headers_mut();
-        headers.insert(
-            "Authorization",
-            self.cfg.auth_header.value().unwrap().parse().unwrap(),
-        );
+        headers.insert("Authorization", self.cfg.auth_header.value()?.parse()?);
         Ok(())
     }
 
@@ -121,8 +118,8 @@ impl ConnectionHandler for BloxrouteWsConnectionHandler {
                         "method": "subscribe",
                         "params": ["MEVBlockValue", {"include": []}],
                     }
-                ))
-                .unwrap(),
+                ))?
+                .into(),
             ))
             .await
             .expect("unable to send first message");

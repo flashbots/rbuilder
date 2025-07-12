@@ -32,7 +32,7 @@ pub async fn run_nng_subscriber_with_retries(
         result = FutureRetry::new(
             move || run_nng_subscriber(obs.clone(), publisher_url.clone(), timeout),
             move |error: Box<dyn std::error::Error>| {
-                tracing::error!("Subscriber to {url} returned an error: {error:?}");
+                tracing::error!(url,?error, "Subscriber returned an error");
                 RetryPolicy::<()>::WaitRetry(retry_wait)
             },
         ) => {
@@ -59,7 +59,7 @@ async fn run_nng_subscriber(
     socket.subscribe_str("").expect("failed to subscribe");
 
     let mut nng_reader = socket.create_async()?;
-    tracing::info!(target: "bidder", publisher_url, "Created nanomsg socket and subscribed");
+    tracing::info!(publisher_url, "Created nanomsg socket and subscribed");
 
     loop {
         let msg = tokio::time::timeout(timeout, nng_reader.receive()).await??;

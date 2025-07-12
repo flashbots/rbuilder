@@ -17,6 +17,8 @@ pub enum PublisherType {
     UltrasoundWs,
     #[serde(rename = "bloxroute_ws")]
     BloxrouteWs,
+    #[serde(rename = "external_ws")]
+    ExternalWs,
 }
 
 impl PublisherType {
@@ -28,6 +30,7 @@ impl PublisherType {
             PublisherType::RelayHeaders => true,
             PublisherType::UltrasoundWs => true,
             PublisherType::BloxrouteWs => false,
+            PublisherType::ExternalWs => true,
         }
     }
 }
