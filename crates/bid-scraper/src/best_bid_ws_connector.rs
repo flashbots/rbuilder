@@ -154,7 +154,7 @@ async fn run_command<BestBidValueSinkType: BestBidValueSink>(
         let bid_value: BestBidValue = match serde_json::from_slice(data) {
             Ok(value) => value,
             Err(err) => {
-                // error!(?err, "Failed to parse best bid value");
+                error!(?err, "Failed to parse best bid value");
                 continue;
             }
         };
