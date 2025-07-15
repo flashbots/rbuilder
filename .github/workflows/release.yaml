@@ -62,7 +62,7 @@ jobs:
     if: ${{ github.event.inputs.build-binary == 'true' || github.event_name == 'push'}} # when manually triggered or version tagged
     runs-on: ${{ matrix.configs.runner }}
     container:
-      image: ubuntu:22.04
+      image: ubuntu:24.04
     permissions:
       contents: write
       packages: write
@@ -85,6 +85,7 @@ jobs:
           apt-get update
           apt-get install -y \
             build-essential \
+            cmake \
             curl \
             git \
             libclang-dev \
