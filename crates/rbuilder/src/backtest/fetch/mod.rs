@@ -26,7 +26,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 use tokio::sync::Mutex;
-use tracing::{info, trace};
+use tracing::{info, trace, warn};
 
 /// Struct that brings block information ([BlockData]) from several [DataSource]s
 /// Filters txs already landed (onchain nonce > tx nonce)
@@ -43,6 +43,7 @@ pub struct HistoricalDataFetcher {
     eth_rpc_parallel: usize,
     data_sources: Vec<Box<dyn DataSource>>,
     payload_delivered_fetcher: PayloadDeliveredFetcher,
+    require_delivered_payload_from_relays: bool,
 }
 
 impl HistoricalDataFetcher {
@@ -52,6 +53,14 @@ impl HistoricalDataFetcher {
             eth_rpc_parallel,
             data_sources: vec![],
             payload_delivered_fetcher: PayloadDeliveredFetcher::default(),
+            require_delivered_payload_from_relays: true,
+        }
+    }
+
+    pub fn with_require_delivered_payload_from_relays(self, require: bool) -> Self {
+        Self {
+            require_delivered_payload_from_relays: require,
+            ..self
         }
     }
 
@@ -135,13 +144,26 @@ impl HistoricalDataFetcher {
     ) -> eyre::Result<(BlockRef, Block, BuilderBlockReceived)> {
         info!(block_number, "Fetching historical data for block");
 
-        info!("Fetching payload delivered");
-        let winning_bid_trace = self.get_payload_delivered_bid_trace(block_number).await?;
-
         info!("Fetching block from eth provider");
         let onchain_block = self.get_onchain_block(block_number).await?;
 
         let block_timestamp: u64 = timestamp_as_u64(&onchain_block);
+
+        info!("Fetching payload delivered");
+        let winning_bid_trace = match self.get_payload_delivered_bid_trace(block_number).await {
+            Ok(res) => res,
+            Err(err) => {
+                if self.require_delivered_payload_from_relays {
+                    return Err(err);
+                } else {
+                    warn!(
+                        ?err,
+                        "Failed to fetch payload from the relay, using fake payload"
+                    );
+                    generate_fake_delivered_payload(&onchain_block)
+                }
+            }
+        };
 
         let block_ref = BlockRef::new(
             block_number,
@@ -296,4 +318,27 @@ pub async fn filter_order_by_nonces(
         .enumerate()
         .filter_map(|(idx, order)| if retain[idx] { Some(order) } else { None })
         .collect())
+}
+
+fn generate_fake_delivered_payload(block: &Block) -> BuilderBlockReceived {
+    BuilderBlockReceived {
+        slot: 0,
+        parent_hash: block.header.parent_hash,
+        block_hash: block.header.hash,
+        builder_pubkey: Default::default(),
+        proposer_pubkey: Default::default(),
+        // insignificant random address
+        proposer_fee_recipient: alloy_primitives::address!(
+            "4e577795E42e1Df9234dc7F572aFd8Cc2777F739"
+        ),
+        gas_limit: block.header.gas_limit,
+        gas_used: block.header.gas_used,
+        value: Default::default(),
+        num_tx: block.transactions.len() as u64,
+        block_number: block.header.number,
+        timestamp: block.header.timestamp,
+        // assume that payload is generated 3 seconds after the slot timestamp
+        timestamp_ms: (block.header.timestamp + 3) * 1000,
+        optimistic_submission: false,
+    }
 }
