@@ -14,7 +14,6 @@ use crate::{
 };
 use alloy_consensus::constants::GWEI_TO_WEI;
 use alloy_primitives::{utils::Unit, U256};
-use bid_scraper::types::BlockBid;
 use bigdecimal::num_traits::Pow;
 use ctor::ctor;
 use lazy_static::lazy_static;
@@ -113,14 +112,7 @@ register_metrics! {
     )
     .unwrap();
 
-    pub static BIDS_RECEIVED: IntCounterVec = IntCounterVec::new(
-        Opts::new(
-            "bids_received",
-            "Number of bids received from bid-scraper"
-        ),
-        &["relay_name", "publisher_name", "publisher_type"]
-    )
-    .unwrap();
+
 
     pub static CURRENT_BLOCK: IntGauge =
         IntGauge::new("current_block", "Current Block").unwrap();
@@ -642,21 +634,6 @@ pub fn inc_root_hash_prefetch_count(fetched_nodes: usize) {
     ROOT_HASH_FETCHES
         .with_label_values(&[ROOT_HASH_PREFETCH_STEP])
         .inc_by(fetched_nodes.try_into().unwrap_or_default());
-}
-
-pub fn inc_bids_received(bid: &BlockBid) {
-    let relay_name = bid.relay_name.as_str();
-    let publisher_name = bid.publisher_name.as_str();
-    let publisher_type = match bid.publisher_type {
-        bid_scraper::types::PublisherType::RelayBids => "relay_bids",
-        bid_scraper::types::PublisherType::RelayHeaders => "relay_headers",
-        bid_scraper::types::PublisherType::UltrasoundWs => "ultrasound_ws",
-        bid_scraper::types::PublisherType::BloxrouteWs => "bloxroute_ws",
-        bid_scraper::types::PublisherType::ExternalWs => "external_ws",
-    };
-    BIDS_RECEIVED
-        .with_label_values(&[relay_name, publisher_name, publisher_type])
-        .inc();
 }
 
 pub fn inc_root_hash_finalize_count(fetched_nodes: usize) {

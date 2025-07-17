@@ -43,13 +43,11 @@ impl ConnectionHandler for UltrasoundWsConnectionHandler {
     fn configure_request(&self, request: &mut Request<()>) -> eyre::Result<()> {
         if let (Some(builder_id), Some(api_token)) = (&self.cfg.builder_id, &self.cfg.api_token) {
             let headers = request.headers_mut();
-            let builder_id_header_value =
-                tokio_tungstenite::tungstenite::http::HeaderValue::from_str(builder_id)
-                    .wrap_err("Invalid header value for 'X-Builder-Id'")?;
+            let builder_id_header_value = reqwest::header::HeaderValue::from_str(builder_id)
+                .wrap_err("Invalid header value for 'X-Builder-Id'")?;
             headers.insert("X-Builder-Id", builder_id_header_value);
-            let api_token_header_value =
-                tokio_tungstenite::tungstenite::http::HeaderValue::from_str(api_token)
-                    .wrap_err("Invalid header value for 'X-Api-Token'")?;
+            let api_token_header_value = reqwest::header::HeaderValue::from_str(api_token)
+                .wrap_err("Invalid header value for 'X-Api-Token'")?;
             headers.insert("X-Api-Token", api_token_header_value);
         }
         Ok(())

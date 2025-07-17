@@ -1,11 +1,9 @@
-use alloy_primitives::{Address, BlockHash, U256};
-use alloy_rpc_types_beacon::BlsPublicKey;
 use derivative::Derivative;
+use ethers::types::{Address, H256, U256, U64};
 use serde::{Deserialize, Serialize};
-use strum::EnumIter;
 
 /// Id for each type of scraping method.
-#[derive(Debug, Clone, Serialize, Deserialize, Hash, PartialEq, Eq, EnumIter)]
+#[derive(Debug, Clone, Serialize, Deserialize, Hash, PartialEq, Eq)]
 pub enum PublisherType {
     /// BidsPublisherService
     #[serde(rename = "bids")]
@@ -17,8 +15,6 @@ pub enum PublisherType {
     UltrasoundWs,
     #[serde(rename = "bloxroute_ws")]
     BloxrouteWs,
-    #[serde(rename = "external_ws")]
-    ExternalWs,
 }
 
 impl PublisherType {
@@ -30,7 +26,6 @@ impl PublisherType {
             PublisherType::RelayHeaders => true,
             PublisherType::UltrasoundWs => true,
             PublisherType::BloxrouteWs => false,
-            PublisherType::ExternalWs => true,
         }
     }
 }
@@ -40,7 +35,7 @@ impl PublisherType {
 /// Trait implementations:
 /// `PartialEq` - we voluntarily omit `seen_time` as it is metadata we add
 /// `Hash` - we voluntarily omit `seen_time` (metadata that we add) and `relay_time` (not hashable and we don't care about it)
-#[derive(Debug, Clone, Derivative, Serialize, Deserialize)]
+#[derive(Debug, Clone, Derivative, Serialize)]
 #[derivative(Hash, PartialEq, Eq)]
 pub struct BlockBid {
     // time when the bids-publisher saw & sent it.
@@ -56,19 +51,20 @@ pub struct BlockBid {
 
     /// Source of the bid (a single publisher can query multiple relays)
     pub relay_name: String,
-    pub block_hash: BlockHash,
-    pub parent_hash: BlockHash,
+
+    pub block_hash: H256,
+    pub parent_hash: H256,
     pub value: U256,
 
-    pub slot_number: u64,
-    pub block_number: u64,
+    pub slot_number: U64,
+    pub block_number: Option<U64>,
 
-    pub builder_pubkey: Option<BlsPublicKey>,
+    pub builder_pubkey: Option<String>,
     pub extra_data: Option<String>,
     pub fee_recipient: Option<Address>,          // block COINBASE
     pub proposer_fee_recipient: Option<Address>, // validator address
 
-    pub gas_used: Option<u64>,
+    pub gas_used: Option<U64>,
     pub optimistic_submission: Option<bool>,
 }
 
@@ -109,8 +105,8 @@ mod tests {
                     [u8; 32],
                 ),
                 u64,
-                u64,
-                Option<[u8; 48]>,
+                Option<u64>,
+                Option<String>,
                 Option<String>,
                 Option<[u8; 20]>,
                 Option<[u8; 20]>,
@@ -144,16 +140,16 @@ mod tests {
                         publisher_type,
                         relay_time,
                         relay_name,
-                        block_hash: block_hash.into(),
-                        parent_hash: parent_hash.into(),
-                        value: U256::from_le_bytes(value),
-                        slot_number,
-                        block_number,
-                        builder_pubkey: builder_pubkey.map(|k| k.into()),
+                        block_hash: H256::from_slice(&block_hash),
+                        parent_hash: H256::from_slice(&parent_hash),
+                        value: U256::from(&value),
+                        slot_number: U64::from(slot_number),
+                        block_number: block_number.map(U64::from),
+                        builder_pubkey,
                         extra_data,
                         fee_recipient: fee_recipient.map(Address::from),
                         proposer_fee_recipient: proposer_fee_recipient.map(Address::from),
-                        gas_used,
+                        gas_used: gas_used.map(U64::from),
                         optimistic_submission,
                     }
                 },

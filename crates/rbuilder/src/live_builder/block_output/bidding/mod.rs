@@ -1,4 +1,3 @@
-pub mod block_bid_with_stats;
 pub mod interfaces;
 pub mod sequential_sealer_bid_maker;
 pub mod true_block_value_bidder;

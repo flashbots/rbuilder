@@ -114,13 +114,6 @@ jobs:
           name: reth-rbuilder-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
           path: target/${{ matrix.configs.target }}/release/reth-rbuilder
 
-      - name: Upload bid-scraper artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: bid-scraper-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
-          path: target/${{ matrix.configs.target }}/release/bid-scraper
-
-
   draft-release:
     name: Draft release
     if: ${{ github.event.inputs.draft-release == 'true' || github.event_name == 'push'}} # when manually triggered or version tagged

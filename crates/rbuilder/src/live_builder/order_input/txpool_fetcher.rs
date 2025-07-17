@@ -150,7 +150,7 @@ mod test {
 
         let provider = ProviderBuilder::new()
             .wallet(wallet)
-            .connect_http(anvil.endpoint().parse().unwrap());
+            .on_http(anvil.endpoint().parse().unwrap());
 
         let alice = anvil.addresses()[0];
 

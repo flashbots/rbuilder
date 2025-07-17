@@ -9,17 +9,20 @@ use crate::{
     types::{BlockBid, PublisherType},
     DynResult, REQUEST_TIMEOUT, RPC_TIMEOUT,
 };
-use alloy_primitives::{Address, BlockHash, U256};
-use alloy_provider::{Provider, ProviderBuilder};
 use async_trait::async_trait;
 use eyre::{eyre, Context};
 use lru::LruCache;
 use parking_lot::{Mutex, MutexGuard};
 use serde::Deserialize;
 use std::{str::FromStr, sync::Arc};
-use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, trace, warn};
+
+use ethers::{
+    abi::{AbiDecode, AbiEncode},
+    prelude::*,
+};
+use tokio::time::timeout;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct RelayHeadersPublisherConfig {
@@ -107,11 +110,13 @@ impl Service<RelayHeadersPublisherConfig> for HeadersPublisherService {
             .simple_relay_publisher_config()
             .eth_provider_uri
             .clone();
-        let ws_conn = alloy_provider::WsConnect::new(eth_provider_uri);
-        let provider = timeout(RPC_TIMEOUT, ProviderBuilder::new().connect_ws(ws_conn))
-            .await
-            .wrap_err("could not connect to node in time")?
-            .wrap_err("unable to connect to node?")?;
+        let provider = timeout(
+            RPC_TIMEOUT,
+            Provider::<Ws>::connect(eth_provider_uri.clone()),
+        )
+        .await
+        .wrap_err("could not connect to node in time")?
+        .wrap_err("unable to connect to node?")?;
 
         let mut subscription = provider
             .subscribe_blocks()
@@ -123,19 +128,18 @@ impl Service<RelayHeadersPublisherConfig> for HeadersPublisherService {
             .wrap_err("unable to build client")?;
 
         info!("New blocks subscriber connected and ready. Waiting for the first block...");
-
         let cancel_token = self.cancellation_token();
         while !cancel_token.is_cancelled() {
-            let block = timeout(RPC_TIMEOUT, subscription.recv())
+            let block = timeout(RPC_TIMEOUT, subscription.next())
                 .await
                 .wrap_err("didn't receive a new block in time")?
-                .wrap_err("didn't receive a new block")?;
+                .ok_or(eyre!("didn't receive a new block"))?;
             trace!("got block {:?}", block);
             let (beacon_node_uri, next_slot) = {
                 let mut inner = self.inner();
-                inner.last_block_number = block.number;
-                inner.last_block_hash = block.hash.to_string();
-                inner.last_slot = slot::get_slot_number(block.timestamp);
+                inner.last_block_number = block.number.ok_or(eyre!("no block number"))?.as_u64();
+                inner.last_block_hash = block.hash.ok_or(eyre!("no block hash"))?.encode_hex();
+                inner.last_slot = slot::get_slot_number(block.timestamp.as_u64());
                 info!(
                     "New block {} ({}).",
                     inner.last_block_number, inner.last_block_hash,
@@ -233,8 +237,8 @@ impl HeadersPublisherService {
             publisher_name: self.name.clone(),
             publisher_type: PublisherType::RelayHeaders,
             relay_name: relay_name.to_string(),
-            slot_number: next_slot,
-            parent_hash: BlockHash::from_str(
+            slot_number: U64::from(next_slot),
+            parent_hash: H256::decode_hex(
                 msg["header"]["parent_hash"]
                     .as_str()
                     .ok_or("parent_hash not str")?,
@@ -245,27 +249,29 @@ impl HeadersPublisherService {
                     .as_str()
                     .ok_or("fee_recipient not str")?,
             )?),
-            block_hash: BlockHash::from_str(
+            block_hash: H256::decode_hex(
                 msg["header"]["block_hash"]
                     .as_str()
                     .ok_or("block_hash not str")?,
             )?,
-            block_number: msg["header"]["block_number"]
-                .as_str()
-                .ok_or("block_number not str")?
-                .parse::<u64>()?,
+            block_number: Some(U64::from(
+                msg["header"]["block_number"]
+                    .as_str()
+                    .ok_or("block_number not str")?
+                    .parse::<u64>()?,
+            )),
             extra_data: Some(
                 msg["header"]["extra_data"]
                     .as_str()
                     .ok_or("extra_data not str")?
                     .to_owned(),
             ),
-            gas_used: Some(
+            gas_used: Some(U64::from(
                 msg["header"]["gas_used"]
                     .as_str()
                     .ok_or("gas_used not str")?
                     .parse::<u64>()?,
-            ),
+            )),
             value: U256::from(
                 msg["value"]
                     .as_str()

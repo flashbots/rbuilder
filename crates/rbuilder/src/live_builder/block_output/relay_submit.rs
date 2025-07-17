@@ -1,6 +1,6 @@
 use crate::{
     building::builders::Block,
-    live_builder::{block_output::bid_observer::BidObserver, payload_events::MevBoostSlotData},
+    live_builder::payload_events::MevBoostSlotData,
     mev_boost::{
         sign_block_for_relay,
         submission::{BidMetadata, BidValueMetadata, SubmitBlockRequestWithMetadata},
@@ -24,6 +24,11 @@ use std::sync::Arc;
 use tokio::{sync::Notify, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, info_span, trace, warn, Instrument, Span};
+
+use super::{
+    bid_observer::BidObserver,
+    bid_value_source::{best_bid_sync_source::BestBidSyncSource, interfaces::BidValueSource},
+};
 
 const SIM_ERROR_CATEGORY: &str = "submit_block_simulation";
 
@@ -84,6 +89,7 @@ pub trait BuilderSinkFactory: std::fmt::Debug + Send + Sync {
     fn create_builder_sink(
         &self,
         slot_data: MevBoostSlotData,
+        competition_bid_value_source: Arc<dyn BidValueSource + Send + Sync>,
         cancel: CancellationToken,
     ) -> Box<dyn BlockBuildingSink>;
 }
@@ -123,7 +129,13 @@ async fn run_submit_to_relays_job(
     relays: Vec<MevBoostRelayBidSubmitter>,
     config: Arc<SubmissionConfig>,
     cancel: CancellationToken,
+    competition_bid_value_source: Arc<dyn BidValueSource + Send + Sync>,
 ) -> Option<BuiltBlockInfo> {
+    let best_bid_sync_source = BestBidSyncSource::new(
+        competition_bid_value_source,
+        slot_data.block(),
+        slot_data.slot(),
+    );
     let mut res = None;
 
     let (normal_relays, optimistic_relays) = {
@@ -205,9 +217,11 @@ async fn run_submit_to_relays_job(
             order_ids: executed_orders.map(|o| o.id()).collect(),
         };
 
+        let best_bid_value = best_bid_sync_source.best_bid_value();
         let submission_span = info_span!(
             "bid",
             bid_value = format_ether(block.trace.bid_value),
+            best_bid_value = format_ether(best_bid_value.unwrap_or_default()),
             true_bid_value = format_ether(block.trace.true_bid_value),
             seen_competition_bid = format_ether(block.trace.seen_competition_bid.unwrap_or_default()),
             block = block.sealed_block.number,
@@ -367,9 +381,17 @@ pub async fn run_submit_to_relays_job_and_metrics(
     relays: Vec<MevBoostRelayBidSubmitter>,
     config: Arc<SubmissionConfig>,
     cancel: CancellationToken,
+    competition_bid_value_source: Arc<dyn BidValueSource + Send + Sync>,
 ) {
-    let last_build_block_info =
-        run_submit_to_relays_job(pending_bid, slot_data, relays, config, cancel).await;
+    let last_build_block_info = run_submit_to_relays_job(
+        pending_bid,
+        slot_data,
+        relays,
+        config,
+        cancel,
+        competition_bid_value_source,
+    )
+    .await;
     if let Some(last_build_block_info) = last_build_block_info {
         if last_build_block_info.bid_value > last_build_block_info.true_bid_value {
             inc_subsidized_blocks(false);
@@ -499,6 +521,7 @@ impl BuilderSinkFactory for RelaySubmitSinkFactory {
     fn create_builder_sink(
         &self,
         slot_data: MevBoostSlotData,
+        competition_bid_value_source: Arc<dyn BidValueSource + Send + Sync>,
         cancel: CancellationToken,
     ) -> Box<dyn BlockBuildingSink> {
         let pending_block_cell = Arc::new(PendingBlockCell::default());
@@ -516,6 +539,7 @@ impl BuilderSinkFactory for RelaySubmitSinkFactory {
             relays,
             self.submission_config.clone(),
             cancel,
+            competition_bid_value_source,
         ));
         Box::new(PendingBlockCellToBlockBuildingSink { pending_block_cell })
     }

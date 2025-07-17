@@ -5,12 +5,19 @@ use crate::{
         block_building_helper::{BiddableUnfinishedBlock, BlockBuildingHelper},
         UnfinishedBlockBuildingSink,
     },
-    live_builder::block_output::bidding::block_bid_with_stats::BlockBidWithStats,
+    live_builder::block_output::bid_value_source::interfaces::BidValueObs,
 };
-use alloy_primitives::{BlockHash, BlockNumber, U256};
+use alloy_primitives::{BlockNumber, U256};
 use mockall::automock;
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
+
+/// Trait in charge of bidding blocks.
+/// It is created for each block / slot.
+/// Via UnfinishedBlockBuildingSink it gets the new biddable blocks.
+/// Via BidValueObs it gets the competition bids that it should improve when possible.
+/// On creation the concrete SlotBidder will get a BidMaker to make the bids.
+pub trait SlotBidder: UnfinishedBlockBuildingSink + BidValueObs {}
 
 /// Bid we want to make.
 pub struct Bid {
@@ -73,58 +80,20 @@ pub struct LandedBlockInfo {
     pub beneficiary_is_builder: bool,
 }
 
-/// Sink for BlockBidWithStats
-pub trait BlockBidWithStatsObs: Send + Sync {
-    /// Be careful, we don't assume any kind of filtering here so bid may contain our own bids.
-    fn update_new_bid(&self, bid_with_stats: BlockBidWithStats);
-}
-
-/// Uniquely identifies the head of the chain we are bidding.
-#[derive(Eq, PartialEq, Clone, Debug, Hash)]
-pub struct SlotBlockId {
-    slot: u64,
-    /// Redundant with block_parent_hash... think about removing.
-    block: u64,
-    parent_block_hash: BlockHash,
-}
-
-impl SlotBlockId {
-    /// Creates a new SlotBlockId instance.
-    pub fn new(slot: u64, block: u64, parent_block_hash: BlockHash) -> Self {
-        Self {
-            slot,
-            block,
-            parent_block_hash,
-        }
-    }
-
-    pub fn slot(&self) -> u64 {
-        self.slot
-    }
-
-    pub fn block(&self) -> u64 {
-        self.block
-    }
-
-    pub fn parent_block_hash(&self) -> &BlockHash {
-        &self.parent_block_hash
-    }
-}
-
 /// Trait in charge of bidding.
+/// We use one for the whole execution and ask for a [SlotBidder] for each particular slot.
 /// After BiddingService creation the builder will try to feed it all the needed update_new_landed_block_detected from the DB history.
 /// To avoid exposing how much info the BiddingService uses we don't ask it anything and feed it the max history we are willing to read.
 /// After that the builder will update each block via update_new_landed_block_detected.
-/// We use one for the whole execution and ask for a [SlotBidder] for each particular slot.
-/// We must feed any bid seen via update_new_seen_bid.
-pub trait BiddingService: BlockBidWithStatsObs + std::fmt::Debug + Send + Sync {
+pub trait BiddingService: std::fmt::Debug + Send + Sync {
     fn create_slot_bidder(
-        &self,
-        slot_block_id: SlotBlockId,
+        &mut self,
+        block: u64,
+        slot: u64,
         slot_timestamp: OffsetDateTime,
         bid_maker: Box<dyn BidMaker + Send + Sync>,
         cancel: CancellationToken,
-    ) -> Arc<dyn UnfinishedBlockBuildingSink>;
+    ) -> Arc<dyn SlotBidder>;
 
     /// Access to BiddingServiceWinControl::must_win_block.
     fn win_control(&self) -> Arc<dyn BiddingServiceWinControl>;
@@ -132,10 +101,10 @@ pub trait BiddingService: BlockBidWithStatsObs + std::fmt::Debug + Send + Sync {
     /// We are notified about some landed blocks.
     /// They are sorted in ascending order.
     /// Consecutive calls will have consecutive block numbers.
-    fn update_new_landed_blocks_detected(&self, landed_blocks: &[LandedBlockInfo]);
+    fn update_new_landed_blocks_detected(&mut self, landed_blocks: &[LandedBlockInfo]);
 
     /// We let the BiddingService know we had some problem reading landed blocks just in case we wants to change his strategy (eg: stop bidding until next update_new_landed_blocks_detected)
-    fn update_failed_reading_new_landed_blocks(&self);
+    fn update_failed_reading_new_landed_blocks(&mut self);
 }
 
 /// Trait to control the must_win_block feature of the BiddingService.

@@ -1,12 +1,11 @@
-use super::interfaces::{Bid, BidMaker, BiddingService, BiddingServiceWinControl, LandedBlockInfo};
+use super::interfaces::{
+    Bid, BidMaker, BiddingService, BiddingServiceWinControl, LandedBlockInfo, SlotBidder,
+};
 use crate::{
     building::builders::{
         block_building_helper::BiddableUnfinishedBlock, UnfinishedBlockBuildingSink,
     },
-    live_builder::block_output::bidding::{
-        block_bid_with_stats::BlockBidWithStats,
-        interfaces::{BlockBidWithStatsObs, SlotBlockId},
-    },
+    live_builder::block_output::bid_value_source::interfaces::{BidValueObs, CompetitionBid},
 };
 use alloy_primitives::U256;
 use parking_lot::Mutex;
@@ -14,7 +13,6 @@ use std::sync::Arc;
 use time::OffsetDateTime;
 use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
-use tracing::trace;
 
 /// Bidding service giving a TrueBlockValueBidder.
 /// This is just an example not really suitable for production since it gives away all the profit!.
@@ -38,23 +36,15 @@ impl TrueBlockValueBiddingService {
     }
 }
 
-impl BlockBidWithStatsObs for TrueBlockValueBiddingService {
-    fn update_new_bid(&self, bid_with_stats: BlockBidWithStats) {
-        trace!(
-            bid_value = alloy_primitives::utils::format_ether(bid_with_stats.bid.value),
-            "New (ignored) bid"
-        );
-    }
-}
-
 impl BiddingService for TrueBlockValueBiddingService {
     fn create_slot_bidder(
-        &self,
-        _slot_block_id: SlotBlockId,
+        &mut self,
+        _block: u64,
+        _slot: u64,
         slot_timestamp: OffsetDateTime,
         bid_maker: Box<dyn BidMaker + Send + Sync>,
         cancel: CancellationToken,
-    ) -> Arc<dyn UnfinishedBlockBuildingSink> {
+    ) -> Arc<dyn SlotBidder> {
         let bid_start = slot_timestamp + self.slot_delta_to_start_bidding;
         let delay = core::time::Duration::try_from(bid_start - OffsetDateTime::now_utc());
         let inner = if let Ok(delay) = delay {
@@ -93,11 +83,11 @@ impl BiddingService for TrueBlockValueBiddingService {
         Arc::new(TrueBlockValueBiddingServiceWinControl {})
     }
 
-    fn update_new_landed_blocks_detected(&self, _landed_blocks: &[LandedBlockInfo]) {
+    fn update_new_landed_blocks_detected(&mut self, _landed_blocks: &[LandedBlockInfo]) {
         // No special behavior for landed blocks in this simple implementation.
     }
 
-    fn update_failed_reading_new_landed_blocks(&self) {
+    fn update_failed_reading_new_landed_blocks(&mut self) {
         // No special behavior for landed blocks in this simple implementation.
     }
 }
@@ -121,6 +111,8 @@ impl std::fmt::Debug for TrueBlockValueBidderInner {
 struct TrueBlockValueBidder {
     inner: Arc<Mutex<TrueBlockValueBidderInner>>,
 }
+
+impl SlotBidder for TrueBlockValueBidder {}
 
 fn send_block(
     block: BiddableUnfinishedBlock,
@@ -149,6 +141,11 @@ impl UnfinishedBlockBuildingSink for TrueBlockValueBidder {
         false
     }
 }
+
+impl BidValueObs for TrueBlockValueBidder {
+    fn update_new_bid(&self, _bid: CompetitionBid) {}
+}
+
 #[derive(Debug)]
 struct TrueBlockValueBiddingServiceWinControl {}
 

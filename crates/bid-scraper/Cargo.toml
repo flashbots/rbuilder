@@ -9,6 +9,7 @@ repository.workspace = true
 exclude.workspace = true
 
 [dependencies]
+ethers = { version = "^2", default-features = false, features = ["ws", "rustls"] }
 tokio = { version = "1.40", default-features = false, features = ["rt", "rt-multi-thread", "macros","signal"] }
 tokio-util = "0.7.12"
 tracing = "0.1.37"
@@ -20,17 +21,15 @@ serde = { workspace = true }
 serde_with = { version = "3.9.0", features = ["time_0_3"] }
 chrono = "^0.4"
 futures = "^0.3"
-futures-retry = "0.6"
 rand = "^0.8"
 runng = "^0.3"
-reqwest = { version = "^0.11", default-features = false, features = ["rustls", "gzip", "brotli", "deflate", "json", "rustls-tls"] }
+reqwest = { version = "^0.11", default-features = false, features = ["rustls", "gzip", "brotli", "deflate", "json"] }
 lru = "^0.10"
 async-trait = "^0.1"
-tokio-tungstenite = { version = "0.26.2", features = ["rustls-tls-native-roots"] }
-tokio-stream = "0.1.16"
+tokio-tungstenite = { version = "^0.19", features = ["rustls-tls-native-roots"] }
 futures-util = "^0.3"
-ethereum_ssz_derive = "0.9"
-ethereum_ssz = "0.9"
+ethereum_ssz = "^0.5"
+ethereum_ssz_derive = "^0.5"
 ssz_types = "^0.5"
 hex = "^0.4"
 derivative = "2.2"
@@ -38,11 +37,6 @@ toml = "0.8.8"
 eyre = "0.6.12"
 thiserror = { version = "1.0.64" }
 parking_lot = { version = "0.12.3" }
-strum = { version = "0.25", features = ["derive"] }
-exponential-backoff = "1.2.0"
-alloy-primitives.workspace = true
-alloy-provider.workspace = true
-alloy-rpc-types-beacon.workspace = true
 
 [dev-dependencies]
 proptest = "1.4"
