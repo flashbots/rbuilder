@@ -194,7 +194,7 @@ pub fn mark_order_simulation_end(id: OrderId, success: bool) {
         .observe(received_to_sim_end_time_ms);
 }
 
-/// mark_order_not_ready_for_immediate_inclusion should be called if order can't be included immediatly.
+/// mark_order_not_ready_for_immediate_inclusion should be called if order can't be included immediately.
 /// For example, if it was invalidated by nonce by other order inclusion.
 pub fn mark_order_not_ready_for_immediate_inclusion(order_id: &OrderId) {
     let now = OffsetDateTime::now_utc();

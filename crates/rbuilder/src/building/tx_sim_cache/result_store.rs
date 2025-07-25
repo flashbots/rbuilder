@@ -232,7 +232,7 @@ mod tests {
         cached_data.push((trace, 2));
         let trace = vec![account(0x0, 1), account(0x1, 0), storage(0x1, 1, 2)];
         cached_data.push((trace.clone(), 3));
-        cached_data.push((trace, 3)); // insert the same result again, shoudl be noop
+        cached_data.push((trace, 3)); // insert the same result again, should be noop
 
         for (trace, result) in &cached_data {
             store.insert_result(trace.clone(), *result);
