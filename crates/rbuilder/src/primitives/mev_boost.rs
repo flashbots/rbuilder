@@ -2,7 +2,7 @@ use crate::mev_boost::{
     submission::SubmitBlockRequestWithMetadata, RelayClient, RelayError, SubmitBlockErr,
     ValidatorSlotData,
 };
-use alloy_primitives::{utils::parse_ether, U256};
+use alloy_primitives::{utils::parse_ether, Address, U256};
 use governor::{DefaultDirectRateLimiter, Quota, RateLimiter};
 use serde::{Deserialize, Deserializer};
 use std::{env, sync::Arc, time::Duration};
@@ -56,6 +56,8 @@ pub struct RelayConfig {
     /// mode defines the need of submit_config
     #[serde(default)]
     pub mode: RelayMode,
+    /// Bid adjustment fee payer address.
+    pub adjustment_fee_payer: Option<Address>,
     #[serde(flatten)]
     /// Submit specific info.
     /// Used only for Full and Fake mode.

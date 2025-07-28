@@ -63,8 +63,8 @@ use reth_primitives::StaticFileSegment;
 use reth_provider::StaticFileProviderFactory;
 use serde::Deserialize;
 use serde_with::{serde_as, OneOrMany};
-use std::collections::HashMap;
 use std::{
+    collections::HashMap,
     fmt::Debug,
     path::{Path, PathBuf},
     str::FromStr,
@@ -762,6 +762,7 @@ lazy_static! {
                 authorization_header: None,
                 builder_id_header: None,
                 api_token_header: None,
+                adjustment_fee_payer: None,
                 ask_for_filtering_validators: None,
                 can_ignore_gas_limit: None,
             },
@@ -783,6 +784,7 @@ lazy_static! {
                 authorization_header: None,
                 builder_id_header: None,
                 api_token_header: None,
+                adjustment_fee_payer: None,
                 ask_for_filtering_validators: None,
                 can_ignore_gas_limit: None,
             },
@@ -804,6 +806,7 @@ lazy_static! {
                 authorization_header: None,
                 builder_id_header: None,
                 api_token_header: None,
+                adjustment_fee_payer: None,
                 ask_for_filtering_validators: None,
                 can_ignore_gas_limit: None,
             },
@@ -824,6 +827,7 @@ lazy_static! {
                 authorization_header: None,
                 builder_id_header: None,
                 api_token_header: None,
+                adjustment_fee_payer: None,
                 ask_for_filtering_validators: None,
                 can_ignore_gas_limit: None,
             },
@@ -845,6 +849,7 @@ lazy_static! {
                 authorization_header: None,
                 builder_id_header: None,
                 api_token_header: None,
+                adjustment_fee_payer: None,
                 ask_for_filtering_validators: None,
                 can_ignore_gas_limit: None,
             },
