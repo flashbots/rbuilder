@@ -1,3 +1,4 @@
+pub mod adjustment;
 mod error;
 pub mod fake_mev_boost_relay;
 pub mod rpc;
@@ -18,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use ssz::Encode;
 use std::{io::Write, str::FromStr};
-use submission::{SubmitBlockRequest, SubmitBlockRequestNoBlobs, SubmitBlockRequestWithMetadata};
+use submission::{SubmitBlockRequestNoBlobs, SubmitBlockRequestWithMetadata};
 use url::Url;
 
 pub use error::*;
@@ -500,11 +501,7 @@ impl RelayClient {
         // SSZ vs JSON
         let (mut body_data, content_type) = if ssz {
             (
-                match &submission_with_metadata.submission {
-                    SubmitBlockRequest::Capella(data) => data.0.as_ssz_bytes(),
-                    SubmitBlockRequest::Deneb(data) => data.0.as_ssz_bytes(),
-                    SubmitBlockRequest::Electra(data) => data.0.as_ssz_bytes(),
-                },
+                submission_with_metadata.submission.as_ssz_bytes(),
                 SSZ_CONTENT_TYPE,
             )
         } else {
@@ -694,7 +691,9 @@ mod tests {
     use submission::{BidMetadata, BidValueMetadata};
 
     use super::{rpc::TestDataGenerator, *};
-    use crate::mev_boost::fake_mev_boost_relay::FakeMevBoostRelay;
+    use crate::mev_boost::{
+        fake_mev_boost_relay::FakeMevBoostRelay, submission::SubmitBlockRequest,
+    };
 
     use std::str::FromStr;
 

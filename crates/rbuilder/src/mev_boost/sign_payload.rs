@@ -3,13 +3,12 @@ use super::submission::{
     SubmitBlockRequest,
 };
 use crate::utils::u256decimal_serde_helper;
-use alloy_eips::eip7685::Requests;
-use alloy_eips::{eip2718::Encodable2718, eip4844::BlobTransactionSidecar};
+use alloy_eips::{eip2718::Encodable2718, eip4844::BlobTransactionSidecar, eip7685::Requests};
 use alloy_primitives::{Address, BlockHash, Bytes, FixedBytes, B256, U256};
-use alloy_rpc_types_beacon::requests::ExecutionRequestsV4;
 use alloy_rpc_types_beacon::{
     events::PayloadAttributesData,
     relay::{BidTrace, SignedBidSubmissionV2, SignedBidSubmissionV3, SignedBidSubmissionV4},
+    requests::ExecutionRequestsV4,
     BlsPublicKey,
 };
 use alloy_rpc_types_engine::{
@@ -127,6 +126,9 @@ pub fn sign_block_for_relay(
     pubkey: H384,
     value: U256,
 ) -> eyre::Result<SubmitBlockRequest> {
+    // TODO: add support for bid adjustments
+    let adjustment_data = None;
+
     let message = BidTrace {
         slot: attrs.proposal_slot,
         parent_hash: attrs.parent_block_hash,
@@ -185,7 +187,7 @@ pub fn sign_block_for_relay(
             .unwrap_or_default(),
     };
 
-    let submit_block_request = if chain_spec.is_cancun_active_at_timestamp(sealed_block.timestamp) {
+    let request = if chain_spec.is_cancun_active_at_timestamp(sealed_block.timestamp) {
         let execution_payload = ExecutionPayloadV3 {
             payload_inner: capella_payload,
             blob_gas_used: sealed_block
@@ -200,31 +202,33 @@ pub fn sign_block_for_relay(
         let execution_requests =
             ExecutionRequestsV4::try_from(Requests::new(execution_requests.to_vec()))?;
         if chain_spec.is_prague_active_at_timestamp(sealed_block.timestamp) {
-            SubmitBlockRequest::Electra(ElectraSubmitBlockRequest(SignedBidSubmissionV4 {
+            let submission = SignedBidSubmissionV4 {
                 message,
                 execution_payload,
                 blobs_bundle,
                 signature,
                 execution_requests,
-            }))
+            };
+            SubmitBlockRequest::electra(ElectraSubmitBlockRequest::new(submission, adjustment_data))
         } else {
-            SubmitBlockRequest::Deneb(DenebSubmitBlockRequest(SignedBidSubmissionV3 {
+            let submission = SignedBidSubmissionV3 {
                 message,
                 execution_payload,
                 blobs_bundle,
                 signature,
-            }))
+            };
+            SubmitBlockRequest::deneb(DenebSubmitBlockRequest::new(submission, adjustment_data))
         }
     } else {
-        let execution_payload = capella_payload;
-        SubmitBlockRequest::Capella(CapellaSubmitBlockRequest(SignedBidSubmissionV2 {
+        let submission = SignedBidSubmissionV2 {
             message,
-            execution_payload,
+            execution_payload: capella_payload,
             signature,
-        }))
+        };
+        SubmitBlockRequest::capella(CapellaSubmitBlockRequest::new(submission, adjustment_data))
     };
 
-    Ok(submit_block_request)
+    Ok(request)
 }
 
 fn flatten_marshal<Source>(
