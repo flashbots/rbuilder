@@ -288,6 +288,20 @@ impl BlockBuildingHelperFromProvider {
             (self.payout_tx_gas, payout_tx_value)
         {
             use_last_tx_payment = true;
+
+            let builder_signer = self
+                .building_ctx
+                .builder_signer
+                .as_ref()
+                .ok_or(InsertPayoutTxErr::NoSigner)?;
+            let builder_balance_before_payout = self.block_state.balance(
+                builder_signer.address,
+                &self.building_ctx.shared_cached_reads,
+                &mut local_ctx.cached_reads,
+            )?;
+            // Use the minimum of payout value or builder balance
+            let payout_tx_value = std::cmp::min(payout_tx_value, builder_balance_before_payout);
+
             match self.partial_block.insert_refunds_and_proposer_payout_tx(
                 payout_tx_gas,
                 payout_tx_value,
@@ -317,7 +331,12 @@ impl BlockBuildingHelperFromProvider {
             .unwrap_or_default();
 
         if use_last_tx_payment {
-            self.built_block_trace.bid_value = max(bid_value, fee_recipient_balance_diff);
+            // Use the minimum of bid value or the builder balance.
+            self.built_block_trace.bid_value = min(
+                // Use the maximum reward or computed bid value.
+                max(bid_value, fee_recipient_balance_diff),
+                fee_recipient_balance_after,
+            );
         } else {
             // When the coinbase address is the fee recipient, we exclusively use fee_recipient_balance_diff
             // since this is the value used by validation nodes
