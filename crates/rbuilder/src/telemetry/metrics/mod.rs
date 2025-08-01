@@ -385,6 +385,8 @@ pub fn reset_histogram_metrics() {
     ORDER_SIM_END_TO_FIRST_BUILD_STARTED_MIN_TIME.reset();
     BLOCK_FILL_START_SEAL_END_TIME.reset();
     BLOCK_SEAL_END_SUBMIT_START_TIME.reset();
+    RELAY_SUBMIT_BLOCK_SIZE.reset();
+    RELAY_SUBMIT_REQUEST_STEP_TIME.reset();
 }
 
 pub(super) fn set_version(version: Version) {
