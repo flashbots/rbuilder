@@ -4,7 +4,7 @@ use metrics_macros::register_metrics;
 use prometheus::{HistogramOpts, HistogramVec, IntCounterVec, Opts, Registry};
 use rbuilder::{
     telemetry::{exponential_buckets_range, gather_prometheus_metrics, linear_buckets_range},
-    utils::duration_ms,
+    utils::{duration_ms},
 };
 use std::{net::SocketAddr, time::Duration};
 use warp::{reject::Rejection, reply::Reply, Filter};
@@ -69,6 +69,12 @@ register_metrics! {
             .buckets(exponential_buckets_range(1.0, 3000.0, 100)),
         &[],
     ).unwrap();
+
+    pub static TIME_TO_RECEIVE: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("time_to_receive", "Time from builder to relay receiving block (ms)")
+            .buckets(exponential_buckets_range(1.0, 10000.0, 500)),
+        &["builder", "kind"],
+    ).unwrap();
 }
 
 pub fn inc_payloads_received(builder: &str) {
@@ -105,6 +111,15 @@ pub fn add_payload_validation_time(duration: Duration) {
     PAYLOAD_VALIDATION_TIME
         .with_label_values(&[])
         .observe(duration_ms(duration));
+}
+
+
+pub fn add_time_to_receive(delta_us: u64, builder: &str, kind: &str) {
+    if delta_us == 0 {
+	return;
+    }
+
+    TIME_TO_RECEIVE.with_label_values(&[builder, kind]).observe(delta_us as f64 / 1000.0);
 }
 
 pub fn spawn_metrics_server(address: SocketAddr) {

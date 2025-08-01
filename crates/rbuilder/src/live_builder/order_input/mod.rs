@@ -20,7 +20,10 @@ use jsonrpsee::RpcModule;
 use parking_lot::Mutex;
 use std::{net::Ipv4Addr, path::PathBuf, sync::Arc, time::Duration};
 use std::{path::Path, time::Instant};
-use tokio::{sync::mpsc, task::JoinHandle};
+use tokio::{
+    sync::mpsc,
+    task::{spawn_blocking, JoinHandle},
+};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, trace, warn};
 
@@ -202,7 +205,7 @@ pub async fn start_orderpool_jobs<P>(
     header_receiver: mpsc::Receiver<Header>,
 ) -> eyre::Result<(JoinHandle<()>, OrderPoolSubscriber)>
 where
-    P: StateProviderFactory + 'static,
+    P: StateProviderFactory + Clone + 'static,
 {
     if config.ignore_cancellable_orders {
         warn!("ignore_cancellable_orders is set to true, some order input is ignored");
@@ -332,7 +335,7 @@ async fn spawn_clean_orderpool_job<P>(
     global_cancellation: CancellationToken,
 ) -> eyre::Result<JoinHandle<()>>
 where
-    P: StateProviderFactory + 'static,
+    P: StateProviderFactory + Clone + 'static,
 {
     let mut header_receiver: mpsc::Receiver<Header> = header_receiver;
 
@@ -343,32 +346,38 @@ where
             tokio::select! {
                 header = header_receiver.recv() => {
                     if let Some(header) = header {
-                        let current_block = header.number;
-                        set_current_block(current_block);
-                        let state = match provider_factory.latest() {
-                            Ok(state) => state,
-                            Err(err) => {
-                                error!("Failed to get latest state: {}", err);
-                                // @Metric error count
-                                continue;
-                            }
-                        };
+            let provider_factory = provider_factory.clone();
+            let orderpool = orderpool.clone();
+            let res = spawn_blocking(move || {
+                            let current_block = header.number;
+                            set_current_block(current_block);
+                            let state = match provider_factory.latest() {
+                Ok(state) => state,
+                Err(err) => {
+                                    error!(?err, "Failed to get latest state");
+                    return;
+                }
+                            };
 
-                        let mut orderpool = orderpool.lock();
-                        let start = Instant::now();
+                            let mut orderpool = orderpool.lock();
+                            let start = Instant::now();
 
-                        orderpool.head_updated(current_block, &state);
+                            orderpool.head_updated(current_block, &state);
 
-                        let update_time = start.elapsed();
-                        let (tx_count, bundle_count) = orderpool.content_count();
-                        set_ordepool_count(tx_count, bundle_count);
-                        debug!(
-                            current_block,
-                            tx_count,
-                            bundle_count,
-                            update_time_ms = update_time.as_millis(),
-                            "Cleaned orderpool",
-                        );
+                            let update_time = start.elapsed();
+                            let (tx_count, bundle_count) = orderpool.content_count();
+                            set_ordepool_count(tx_count, bundle_count);
+                            debug!(
+                current_block,
+                tx_count,
+                bundle_count,
+                update_time_ms = update_time.as_millis(),
+                "Cleaned orderpool",
+                            );
+            }).await;
+            if let Err(err) = res {
+                error!(?err, "Clean orderpool error");
+            }
                     } else {
                         info!("Clean orderpool job: channel ended");
                         if !global_cancellation.is_cancelled(){

@@ -113,6 +113,13 @@ pub fn timestamp_now_ms() -> u64 {
         .unwrap_or_default()
 }
 
+/// Returns unix timestamp in microseconds
+pub fn timestamp_now_us() -> u64 {
+    (time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000)
+        .try_into()
+        .unwrap_or_default()
+}
+
 pub fn gen_uid() -> u64 {
     rand::random()
 }

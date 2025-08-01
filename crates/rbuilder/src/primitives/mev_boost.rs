@@ -1,6 +1,6 @@
 use crate::mev_boost::{
-    submission::SubmitBlockRequestWithMetadata, RelayClient, RelayError, SubmitBlockErr,
-    ValidatorSlotData,
+    submission::SubmitBlockRequestWithMetadata, RelayClient, RelayError, RelaySubmitStats,
+    SubmitBlockErr, ValidatorSlotData,
 };
 use alloy_primitives::{utils::parse_ether, Address, U256};
 use governor::{DefaultDirectRateLimiter, Quota, RateLimiter};
@@ -189,7 +189,7 @@ impl MevBoostRelayBidSubmitter {
     pub async fn submit_block(
         &self,
         data: &SubmitBlockRequestWithMetadata,
-    ) -> Result<(), SubmitBlockErr> {
+    ) -> Result<RelaySubmitStats, SubmitBlockErr> {
         self.client
             .submit_block(
                 data,

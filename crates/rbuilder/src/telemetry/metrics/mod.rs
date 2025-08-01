@@ -9,6 +9,7 @@
 use crate::{
     building::BuiltBlockTrace,
     live_builder::block_list_provider::{blocklist_hash, BlockList},
+    mev_boost::RelaySubmitStats,
     primitives::mev_boost::MevBoostRelayID,
     utils::{build_info::Version, duration_ms},
 };
@@ -329,6 +330,23 @@ register_metrics! {
     )
     .unwrap();
 
+    /// Relay submission request
+
+    pub static RELAY_SUBMIT_BLOCK_SIZE: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("relay_submit_block_size", "Size of the block that is submitted to the relay before and after compression. (bytes)")
+            .buckets(linear_buckets_range(1.0, 5_000_000.0, 500)),
+        &["compression"]
+    )
+    .unwrap();
+
+
+    pub static RELAY_SUBMIT_REQUEST_STEP_TIME: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("relay_submit_request_step_time", "Time for different steps when doing request to the relay")
+            .buckets(exponential_buckets_range(0.01, 3000.0, 300)),
+        &["relay", "step"]
+    )
+    .unwrap();
+
 }
 
 // This function should be called periodically to reset histogram metrics.
@@ -511,6 +529,27 @@ pub fn add_relay_submit_time(relay: &MevBoostRelayID, duration: Duration) {
     RELAY_SUBMIT_TIME
         .with_label_values(&[relay.as_str()])
         .observe(duration_ms(duration));
+}
+
+pub fn add_relay_submission_stats(relay: &MevBoostRelayID, stats: RelaySubmitStats) {
+    RELAY_SUBMIT_BLOCK_SIZE
+        .with_label_values(&["false"])
+        .observe(stats.original_payload_size as f64);
+    RELAY_SUBMIT_BLOCK_SIZE
+        .with_label_values(&["true"])
+        .observe(stats.sent_payload_size as f64);
+    RELAY_SUBMIT_REQUEST_STEP_TIME
+        .with_label_values(&[relay.as_str(), "preparation"])
+        .observe(duration_ms(stats.send_preparation_time));
+    RELAY_SUBMIT_REQUEST_STEP_TIME
+        .with_label_values(&[relay.as_str(), "compression"])
+        .observe(duration_ms(stats.send_compression_time));
+    RELAY_SUBMIT_REQUEST_STEP_TIME
+        .with_label_values(&[relay.as_str(), "write"])
+        .observe(duration_ms(stats.send_write_request_time));
+    RELAY_SUBMIT_REQUEST_STEP_TIME
+        .with_label_values(&[relay.as_str(), "read"])
+        .observe(duration_ms(stats.send_read_request_time));
 }
 
 const BIG_RPC_DATA_THRESHOLD: usize = 50000;

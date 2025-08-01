@@ -8,10 +8,10 @@ use crate::{
     },
     primitives::mev_boost::{MevBoostRelayBidSubmitter, MevBoostRelayID},
     telemetry::{
-        add_relay_submit_time, add_subsidy_value, inc_conn_relay_errors,
-        inc_failed_block_simulations, inc_initiated_submissions, inc_other_relay_errors,
-        inc_relay_accepted_submissions, inc_subsidized_blocks, inc_too_many_req_relay_errors,
-        mark_submission_start_time,
+        add_relay_submission_stats, add_relay_submit_time, add_subsidy_value,
+        inc_conn_relay_errors, inc_failed_block_simulations, inc_initiated_submissions,
+        inc_other_relay_errors, inc_relay_accepted_submissions, inc_subsidized_blocks,
+        inc_too_many_req_relay_errors, mark_submission_start_time,
     },
     utils::{duration_ms, error_storage::store_error_event},
 };
@@ -215,6 +215,7 @@ async fn run_submit_to_relays_job(
                 top_competitor_bid: block.trace.seen_competition_bid,
             },
             order_ids: executed_orders.map(|o| o.id()).collect(),
+            sealed_at: block.trace.orders_sealed_at,
         };
 
         let best_bid_value = best_bid_sync_source.best_bid_value();
@@ -424,10 +425,11 @@ async fn submit_bid_to_the_relay(
     };
     let submit_time = submit_start.elapsed();
     match relay_result {
-        Ok(()) => {
+        Ok(stats) => {
             trace!("Block submitted to the relay successfully");
             add_relay_submit_time(relay.id(), submit_time);
             inc_relay_accepted_submissions(relay.id(), optimistic);
+            add_relay_submission_stats(relay.id(), stats);
         }
         Err(SubmitBlockErr::PayloadDelivered | SubmitBlockErr::PastSlot) => {
             trace!("Block already delivered by the relay, cancelling");

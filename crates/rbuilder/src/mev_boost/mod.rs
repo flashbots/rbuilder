@@ -5,6 +5,8 @@ pub mod rpc;
 pub mod sign_payload;
 pub mod submission;
 
+use crate::utils::{offset_datetime_to_timestamp_us, timestamp_now_us};
+
 use super::utils::u256decimal_serde_helper;
 
 use alloy_primitives::{Address, BlockHash, Bytes, U256};
@@ -18,8 +20,13 @@ use reqwest::{
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use ssz::Encode;
-use std::{io::Write, str::FromStr};
+use std::{
+    io::Write,
+    str::FromStr,
+    time::{Duration, Instant},
+};
 use submission::{SubmitBlockRequestNoBlobs, SubmitBlockRequestWithMetadata};
+use tokio::task::spawn_blocking;
 use url::Url;
 
 pub use error::*;
@@ -28,6 +35,8 @@ pub use sign_payload::*;
 const TOTAL_PAYMENT_HEADER: &str = "Total-Payment";
 const BUNDLE_HASHES_HEADER: &str = "Bundle-Hashes";
 const TOP_BID_HEADER: &str = "Top-Bid";
+const SUBMIT_START_TIME_US: &str = "Submit-Start-Time-Us";
+const BLOCK_SEAL_TIME_US: &str = "Block-Seal-Time-Us";
 
 const JSON_CONTENT_TYPE: &str = "application/json";
 const SSZ_CONTENT_TYPE: &str = "application/octet-stream";
@@ -336,6 +345,22 @@ impl std::fmt::Debug for SubmitBlockErr {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct RelaySubmitStats {
+    /// time spent between starting submission and doing request
+    pub send_preparation_time: Duration,
+    /// time spent compressing payload using gzip, its counted in send_preparation_time
+    pub send_compression_time: Duration,
+    /// time spent writing request
+    pub send_write_request_time: Duration,
+    /// time spent reading response
+    pub send_read_request_time: Duration,
+    /// size in bytes of original payload (before compression if present)
+    pub original_payload_size: usize,
+    /// size in bytes of sent payload (after compression if present)
+    pub sent_payload_size: usize,
+}
+
 // Data API
 impl RelayClient {
     async fn get_one_delivered_payload(
@@ -487,7 +512,9 @@ impl RelayClient {
         gzip: bool,
         fake_relay: bool,
         cancellations: bool,
+        stats: &mut RelaySubmitStats,
     ) -> Result<Response, SubmitBlockErr> {
+        let preparation_start = Instant::now();
         let url = {
             let mut url = self.url.clone();
             url.set_path("/relay/v1/builder/blocks");
@@ -523,20 +550,28 @@ impl RelayClient {
         self.add_auth_headers(&mut headers)
             .map_err(|_| SubmitBlockErr::InvalidHeader)?;
 
+        stats.original_payload_size = body_data.len();
+        let compression_start = Instant::now();
         // GZIP
         if gzip {
             headers.insert(
                 CONTENT_ENCODING,
                 HeaderValue::from_static(GZIP_CONTENT_ENCODING),
             );
-            let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-            encoder
-                .write_all(&body_data)
-                .map_err(|e| SubmitBlockErr::RPCSerializationError(e.to_string()))?;
-            body_data = encoder
-                .finish()
-                .map_err(|e| SubmitBlockErr::RPCSerializationError(e.to_string()))?;
+            body_data = spawn_blocking(move || {
+                let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+                encoder
+                    .write_all(&body_data)
+                    .map_err(|e| SubmitBlockErr::RPCSerializationError(e.to_string()))?;
+                encoder
+                    .finish()
+                    .map_err(|e| SubmitBlockErr::RPCSerializationError(e.to_string()))
+            })
+            .await
+            .map_err(|e| SubmitBlockErr::RPCSerializationError(e.to_string()))??;
         }
+        stats.sent_payload_size = body_data.len();
+        stats.send_compression_time = compression_start.elapsed();
 
         builder = builder.headers(headers).body(Body::from(body_data));
         if fake_relay {
@@ -577,12 +612,24 @@ impl RelayClient {
                 };
                 builder = builder.header(BUNDLE_HASHES_HEADER, bundle_ids);
             }
+
+            builder = builder
+                .header(SUBMIT_START_TIME_US, timestamp_now_us().to_string())
+                .header(
+                    BLOCK_SEAL_TIME_US,
+                    offset_datetime_to_timestamp_us(submission_with_metadata.metadata.sealed_at),
+                );
         }
 
-        Ok(builder
+        stats.send_preparation_time = preparation_start.elapsed();
+        let send_start = Instant::now();
+        let response = builder
             .send()
             .await
-            .map_err(|e| RelayError::RequestError(e.into()))?)
+            .map_err(|e| RelayError::RequestError(e.into()))?;
+        stats.send_write_request_time = send_start.elapsed();
+
+        Ok(response)
     }
 
     /// Submits the block (call_relay_submit_block) and processes some special errors.
@@ -593,11 +640,18 @@ impl RelayClient {
         gzip: bool,
         fake_relay: bool,
         cancellations: bool,
-    ) -> Result<(), SubmitBlockErr> {
+    ) -> Result<RelaySubmitStats, SubmitBlockErr> {
+        let mut stats = RelaySubmitStats::default();
         let resp = self
-            .call_relay_submit_block(data, ssz, gzip, fake_relay, cancellations)
+            .call_relay_submit_block(data, ssz, gzip, fake_relay, cancellations, &mut stats)
             .await?;
+
+        let read_start = Instant::now();
         let status = resp.status();
+
+        // always read full body to reuse TCP connection
+        let body_result = resp.bytes().await;
+        stats.send_read_request_time = read_start.elapsed();
 
         if status == StatusCode::TOO_MANY_REQUESTS {
             return Err(RelayError::TooManyRequests.into());
@@ -606,17 +660,14 @@ impl RelayClient {
             return Err(RelayError::ConnectionError.into());
         }
 
-        let data = resp
-            .bytes()
-            .await
-            .map_err(|e| RelayError::RequestError(e.into()))?;
+        let data = body_result.map_err(|e| RelayError::RequestError(e.into()))?;
 
         if status == StatusCode::OK && data.as_ref() == b"" {
-            return Ok(());
+            return Ok(stats);
         }
 
         match serde_json::from_slice::<RelayResponse<()>>(&data) {
-            Ok(RelayResponse::Ok(_)) => Ok(()),
+            Ok(RelayResponse::Ok(_)) => Ok(stats),
             Ok(RelayResponse::Error(error)) => {
                 let msg = error.message.as_str();
                 match msg {
@@ -654,11 +705,11 @@ impl RelayClient {
                 // bloxroute returns empty response in this format which we handle here because its not valid
                 // jsonrpc response
                 if data.as_ref() == b"{}\n" {
-                    return Ok(());
+                    return Ok(stats);
                 }
                 let data_string = String::from_utf8_lossy(&data).to_string();
                 if is_ignorable_relay_error(status, &data_string) {
-                    Ok(())
+                    Ok(stats)
                 } else {
                     Err(RelayError::UnknownRelayError(status, data_string).into())
                 }
@@ -689,6 +740,7 @@ impl RelayClient {
 #[cfg(test)]
 mod tests {
     use submission::{BidMetadata, BidValueMetadata};
+    use time::OffsetDateTime;
 
     use super::{rpc::TestDataGenerator, *};
     use crate::mev_boost::{
@@ -848,6 +900,7 @@ mod tests {
                     top_competitor_bid: None,
                 },
                 order_ids: vec![],
+                sealed_at: OffsetDateTime::now_utc(),
             },
         };
         relay

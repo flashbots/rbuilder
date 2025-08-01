@@ -1,7 +1,6 @@
 use crate::{
     metrics::{
-        add_payload_processing_time, add_payload_validation_time, add_winning_bid,
-        inc_payload_validation_errors, inc_payloads_received, inc_relay_errors,
+        add_payload_processing_time, add_payload_validation_time,  add_time_to_receive, add_winning_bid, inc_payload_validation_errors, inc_payloads_received, inc_relay_errors
     },
     validation_api_client::{ValidationAPIClient, ValidationError},
 };
@@ -17,7 +16,7 @@ use rbuilder::{
         payload_events::{MevBoostSlotData, MevBoostSlotDataGenerator},
     },
     mev_boost::submission::SubmitBlockRequest,
-    primitives::mev_boost::MevBoostRelaySlotInfoProvider,
+    primitives::mev_boost::MevBoostRelaySlotInfoProvider, utils::timestamp_now_us,
 };
 use serde::{Deserialize, Serialize};
 use ssz::Decode as _;
@@ -129,10 +128,18 @@ pub fn spawn_relay_server(
         .and(body::bytes())
         .and(warp::header::<String>("content-type"))
         .and(warp::header::optional::<String>("content-encoding"))
+        .and(warp::header::optional::<u64>("Submit-Start-Time-Us"))
+        .and(warp::header::optional::<u64>("Block-Seal-Time-Us"))
         .then(
-            |state: RelayState, query, body, content_type, content_encoding| async move {
+            |state: RelayState,
+             query,
+             body,
+             content_type,
+             content_encoding,
+             submit_start_timestamp_us,
+             block_seal_timestamp_us| async move {
                 state
-                    .handle_block(query, body, content_type, content_encoding)
+                    .handle_block(query, body, content_type, content_encoding, submit_start_timestamp_us, block_seal_timestamp_us)
                     .await
             },
         );
@@ -176,8 +183,14 @@ impl RelayState {
         body: Bytes,
         content_type: String,
         content_encoding: Option<String>,
+        submit_start_timestamp_us: Option<u64>,
+        block_seal_timestamp_us: Option<u64>,
     ) -> Box<dyn Reply> {
         let processing_start = Instant::now();
+	let start_timestamp_us = timestamp_now_us();
+
+
+
         let cancel = match query.cancellations {
             Some(1) => true,
             Some(0) | None => false,
@@ -239,6 +252,13 @@ impl RelayState {
         );
 
         inc_payloads_received(&builder_id);
+
+	if let Some(builder_ts) = block_seal_timestamp_us {
+	    add_time_to_receive(start_timestamp_us.checked_sub(builder_ts).unwrap_or_default(), &builder_id, "seal_end");
+	}
+	if let Some(builder_ts) = submit_start_timestamp_us {
+	    add_time_to_receive(start_timestamp_us.checked_sub(builder_ts).unwrap_or_default(), &builder_id, "submit_start");
+	}
 
         let (withdrawals_root, registered_gas_limit, parent_beacon_block_root) = {
             let pending_slot = self.pending_slot_data.lock();

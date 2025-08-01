@@ -8,6 +8,7 @@ use alloy_rpc_types_engine::{BlobsBundleV1, ExecutionPayloadV2, ExecutionPayload
 use derive_more::Deref;
 use serde::{Deserialize, Serialize};
 use ssz::DecodeError;
+use time::OffsetDateTime;
 
 use super::adjustment::BidAdjustmentData;
 use crate::primitives::OrderId;
@@ -367,6 +368,7 @@ impl ssz::Decode for CapellaSubmitBlockRequest {
 pub struct BidMetadata {
     pub value: BidValueMetadata,
     pub order_ids: Vec<OrderId>,
+    pub sealed_at: OffsetDateTime,
 }
 
 #[derive(Clone, Copy, Default, Debug)]
