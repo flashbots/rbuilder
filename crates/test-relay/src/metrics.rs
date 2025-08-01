@@ -4,7 +4,7 @@ use metrics_macros::register_metrics;
 use prometheus::{HistogramOpts, HistogramVec, IntCounterVec, Opts, Registry};
 use rbuilder::{
     telemetry::{exponential_buckets_range, gather_prometheus_metrics, linear_buckets_range},
-    utils::{duration_ms},
+    utils::duration_ms,
 };
 use std::{net::SocketAddr, time::Duration};
 use warp::{reject::Rejection, reply::Reply, Filter};
@@ -113,13 +113,14 @@ pub fn add_payload_validation_time(duration: Duration) {
         .observe(duration_ms(duration));
 }
 
-
 pub fn add_time_to_receive(delta_us: u64, builder: &str, kind: &str) {
     if delta_us == 0 {
-	return;
+        return;
     }
 
-    TIME_TO_RECEIVE.with_label_values(&[builder, kind]).observe(delta_us as f64 / 1000.0);
+    TIME_TO_RECEIVE
+        .with_label_values(&[builder, kind])
+        .observe(delta_us as f64 / 1000.0);
 }
 
 pub fn spawn_metrics_server(address: SocketAddr) {
@@ -129,4 +130,11 @@ pub fn spawn_metrics_server(address: SocketAddr) {
 
 async fn metrics_handler() -> Result<impl Reply, Rejection> {
     Ok(gather_prometheus_metrics(&REGISTRY))
+}
+
+pub fn reset_histogram_metrics_test_relay() {
+    WINNER_ADVANTAGE.reset();
+    PAYLOAD_PROCESSING_TIME.reset();
+    PAYLOAD_VALIDATION_TIME.reset();
+    TIME_TO_RECEIVE.reset();
 }

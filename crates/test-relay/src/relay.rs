@@ -1,6 +1,7 @@
 use crate::{
     metrics::{
-        add_payload_processing_time, add_payload_validation_time,  add_time_to_receive, add_winning_bid, inc_payload_validation_errors, inc_payloads_received, inc_relay_errors
+        add_payload_processing_time, add_payload_validation_time, add_time_to_receive,
+        add_winning_bid, inc_payload_validation_errors, inc_payloads_received, inc_relay_errors,
     },
     validation_api_client::{ValidationAPIClient, ValidationError},
 };
@@ -16,7 +17,8 @@ use rbuilder::{
         payload_events::{MevBoostSlotData, MevBoostSlotDataGenerator},
     },
     mev_boost::submission::SubmitBlockRequest,
-    primitives::mev_boost::MevBoostRelaySlotInfoProvider, utils::timestamp_now_us,
+    primitives::mev_boost::MevBoostRelaySlotInfoProvider,
+    utils::timestamp_now_us,
 };
 use serde::{Deserialize, Serialize};
 use ssz::Decode as _;
@@ -139,7 +141,14 @@ pub fn spawn_relay_server(
              submit_start_timestamp_us,
              block_seal_timestamp_us| async move {
                 state
-                    .handle_block(query, body, content_type, content_encoding, submit_start_timestamp_us, block_seal_timestamp_us)
+                    .handle_block(
+                        query,
+                        body,
+                        content_type,
+                        content_encoding,
+                        submit_start_timestamp_us,
+                        block_seal_timestamp_us,
+                    )
                     .await
             },
         );
@@ -187,9 +196,7 @@ impl RelayState {
         block_seal_timestamp_us: Option<u64>,
     ) -> Box<dyn Reply> {
         let processing_start = Instant::now();
-	let start_timestamp_us = timestamp_now_us();
-
-
+        let start_timestamp_us = timestamp_now_us();
 
         let cancel = match query.cancellations {
             Some(1) => true,
@@ -253,12 +260,24 @@ impl RelayState {
 
         inc_payloads_received(&builder_id);
 
-	if let Some(builder_ts) = block_seal_timestamp_us {
-	    add_time_to_receive(start_timestamp_us.checked_sub(builder_ts).unwrap_or_default(), &builder_id, "seal_end");
-	}
-	if let Some(builder_ts) = submit_start_timestamp_us {
-	    add_time_to_receive(start_timestamp_us.checked_sub(builder_ts).unwrap_or_default(), &builder_id, "submit_start");
-	}
+        if let Some(builder_ts) = block_seal_timestamp_us {
+            add_time_to_receive(
+                start_timestamp_us
+                    .checked_sub(builder_ts)
+                    .unwrap_or_default(),
+                &builder_id,
+                "seal_end",
+            );
+        }
+        if let Some(builder_ts) = submit_start_timestamp_us {
+            add_time_to_receive(
+                start_timestamp_us
+                    .checked_sub(builder_ts)
+                    .unwrap_or_default(),
+                &builder_id,
+                "submit_start",
+            );
+        }
 
         let (withdrawals_root, registered_gas_limit, parent_beacon_block_root) = {
             let pending_slot = self.pending_slot_data.lock();

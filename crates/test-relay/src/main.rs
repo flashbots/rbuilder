@@ -1,6 +1,6 @@
 use crate::validation_api_client::ValidationAPIClient;
 use ahash::HashMap;
-use metrics::spawn_metrics_server;
+use metrics::{reset_histogram_metrics_test_relay, spawn_metrics_server};
 use rbuilder::{
     beacon_api_client::Client,
     mev_boost::RelayClient,
@@ -8,7 +8,7 @@ use rbuilder::{
     utils::tracing::{setup_tracing_subscriber, LoggerConfig},
 };
 use relay::spawn_relay_server;
-use std::net::SocketAddr;
+use std::{net::SocketAddr, time::Duration};
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
@@ -18,6 +18,8 @@ use tokio::signal::ctrl_c;
 pub mod metrics;
 pub mod relay;
 pub mod validation_api_client;
+
+const HISTOGRAM_RESET_TIME: Duration = Duration::from_secs(60 * 10); // 10 min
 
 #[derive(Parser, Debug)]
 struct Cli {
@@ -88,6 +90,11 @@ async fn main() -> eyre::Result<()> {
         log_color: false,
     };
     setup_tracing_subscriber(config)?;
+
+    tokio::spawn(async {
+        tokio::time::sleep(HISTOGRAM_RESET_TIME).await;
+        reset_histogram_metrics_test_relay();
+    });
 
     spawn_metrics_server(cli.metrics_address);
 
