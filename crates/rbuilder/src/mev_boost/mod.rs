@@ -559,7 +559,7 @@ impl RelayClient {
                 HeaderValue::from_static(GZIP_CONTENT_ENCODING),
             );
             body_data = spawn_blocking(move || {
-                let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+                let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
                 encoder
                     .write_all(&body_data)
                     .map_err(|e| SubmitBlockErr::RPCSerializationError(e.to_string()))?;
