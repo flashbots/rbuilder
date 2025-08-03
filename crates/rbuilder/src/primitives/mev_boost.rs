@@ -64,6 +64,9 @@ pub struct RelayConfig {
     pub submit_config: Option<RelaySubmitConfig>,
     /// Deprecated field that is not used
     pub priority: Option<usize>,
+    /// Set to `true` for bloxroute relays.
+    #[serde(default)]
+    pub is_bloxroute: bool,
     /// Adds "filtering=true" as query to the call relay/v1/builder/validators to get all validators (including those filtering OFAC)
     /// On 2025/06/24 (my birthday!) only supported by ultrasound.
     /// None -> false

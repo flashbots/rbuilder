@@ -28,6 +28,8 @@ pub use sign_payload::*;
 const TOTAL_PAYMENT_HEADER: &str = "Total-Payment";
 const BUNDLE_HASHES_HEADER: &str = "Bundle-Hashes";
 const TOP_BID_HEADER: &str = "Top-Bid";
+const BLOXROUTE_SHARE_HEADER: &str = "share";
+const BLOXROUTE_BUILDER_VALUE_HEADER: &str = "builder-value";
 
 const JSON_CONTENT_TYPE: &str = "application/json";
 const SSZ_CONTENT_TYPE: &str = "application/octet-stream";
@@ -119,6 +121,13 @@ impl KnownRelay {
         }
         .to_string()
     }
+
+    pub fn is_bloxroute(&self) -> bool {
+        matches!(
+            self,
+            Self::BloxrouteMaxProfit | Self::BloxrouteEthical | Self::BloxrouteRegulated
+        )
+    }
 }
 
 impl FromStr for KnownRelay {
@@ -151,6 +160,8 @@ pub struct RelayClient {
     authorization_header: Option<String>,
     builder_id_header: Option<String>,
     api_token_header: Option<String>,
+    /// Flag indicating whether this is the bloxroute relay.
+    is_bloxroute: bool,
     /// Adds "filtering=true" as query
     ask_for_filtering_validators: bool,
     /// If we submit a block with a different gas than the one the validator registered with in this relay the relay does not mind.
@@ -163,6 +174,7 @@ impl RelayClient {
         authorization_header: Option<String>,
         builder_id_header: Option<String>,
         api_token_header: Option<String>,
+        is_bloxroute: bool,
         ask_for_filtering_validators: bool,
         can_ignore_gas_limit: bool,
     ) -> Self {
@@ -172,13 +184,22 @@ impl RelayClient {
             authorization_header,
             builder_id_header,
             api_token_header,
+            is_bloxroute,
             ask_for_filtering_validators,
             can_ignore_gas_limit,
         }
     }
 
     pub fn from_known_relay(relay: KnownRelay) -> Self {
-        Self::from_url(relay.url(), None, None, None, false, false)
+        Self::from_url(
+            relay.url(),
+            None,
+            None,
+            None,
+            relay.is_bloxroute(),
+            false,
+            false,
+        )
     }
 
     pub fn can_ignore_gas_limit(&self) -> bool {
@@ -536,6 +557,21 @@ impl RelayClient {
             body_data = encoder
                 .finish()
                 .map_err(|e| SubmitBlockErr::RPCSerializationError(e.to_string()))?;
+        }
+
+        // Set bloxroute specific headers.
+        if self.is_bloxroute {
+            headers.insert(BLOXROUTE_SHARE_HEADER, HeaderValue::from_static("na"));
+            headers.insert(
+                BLOXROUTE_BUILDER_VALUE_HEADER,
+                submission_with_metadata
+                    .metadata
+                    .value
+                    .coinbase_reward
+                    .to_string()
+                    .parse()
+                    .map_err(|_| RelayError::InvalidHeader)?,
+            );
         }
 
         builder = builder.headers(headers).body(Body::from(body_data));
