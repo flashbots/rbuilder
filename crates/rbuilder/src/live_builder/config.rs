@@ -72,14 +72,15 @@ use reth_primitives::StaticFileSegment;
 use reth_provider::StaticFileProviderFactory;
 use serde::Deserialize;
 use serde_with::{serde_as, OneOrMany};
-use std::{collections::HashMap, future::Future, pin::Pin};
 use std::{
+    collections::HashMap,
     fmt::Debug,
     path::{Path, PathBuf},
     str::FromStr,
     sync::Arc,
     time::Duration,
 };
+use std::{future::Future, pin::Pin};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use url::Url;
@@ -775,6 +776,7 @@ lazy_static! {
                 authorization_header: None,
                 builder_id_header: None,
                 api_token_header: None,
+                adjustment_fee_payer: None,
                 ask_for_filtering_validators: None,
                 can_ignore_gas_limit: None,
             },
@@ -796,6 +798,7 @@ lazy_static! {
                 authorization_header: None,
                 builder_id_header: None,
                 api_token_header: None,
+                adjustment_fee_payer: None,
                 ask_for_filtering_validators: None,
                 can_ignore_gas_limit: None,
             },
@@ -817,6 +820,7 @@ lazy_static! {
                 authorization_header: None,
                 builder_id_header: None,
                 api_token_header: None,
+                adjustment_fee_payer: None,
                 ask_for_filtering_validators: None,
                 can_ignore_gas_limit: None,
             },
@@ -837,6 +841,7 @@ lazy_static! {
                 authorization_header: None,
                 builder_id_header: None,
                 api_token_header: None,
+                adjustment_fee_payer: None,
                 ask_for_filtering_validators: None,
                 can_ignore_gas_limit: None,
             },
@@ -858,6 +863,7 @@ lazy_static! {
                 authorization_header: None,
                 builder_id_header: None,
                 api_token_header: None,
+                adjustment_fee_payer: None,
                 ask_for_filtering_validators: None,
                 can_ignore_gas_limit: None,
             },
