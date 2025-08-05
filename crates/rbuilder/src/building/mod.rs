@@ -103,6 +103,9 @@ pub struct BlockBuildingContext {
     /// None: coinbase = attributes.suggested_fee_recipient. No payoffs allowed.
     /// Some(signer): coinbase = signer.
     pub builder_signer: Option<Signer>,
+    /// The real coinbase signer used for sponsorship transactions
+    /// This is always the actual coinbase signer, never randomized
+    pub coinbase_signer: Option<Signer>,
     pub blocklist: BlockList,
     pub extra_data: Vec<u8>,
     /// Excess blob gas calculated from the parent block header
@@ -196,6 +199,7 @@ impl BlockBuildingContext {
             attributes,
             chain_spec,
             builder_signer: Some(signer),
+            coinbase_signer: Some(signer),
             blocklist,
             extra_data,
             excess_blob_gas,
@@ -294,6 +298,7 @@ impl BlockBuildingContext {
             attributes,
             chain_spec,
             builder_signer,
+            coinbase_signer: builder_signer,
             blocklist,
             extra_data: Vec::new(),
             excess_blob_gas: onchain_block.header.excess_blob_gas,
@@ -322,7 +327,7 @@ impl BlockBuildingContext {
             Default::default(),
             Default::default(),
             Default::default(),
-            Default::default(),
+            Some(Signer::random()), // Provide a signer for sponsorship
             Arc::new(MockRootHasher {}),
             false,
         )

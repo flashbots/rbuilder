@@ -35,6 +35,14 @@ use revm::{
 };
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
+use tracing::trace;
+
+/// Maximum amount that can be sponsored in a single transaction (2 ETH)
+const MAX_SPONSOR_AMOUNT: U256 = U256::from_limbs([2_000_000_000_000_000_000, 0, 0, 0]); // 2 * 10^18 wei = 2 ETH
+
+/// Safety buffer for sponsorship transactions to account for gas price changes,
+/// timing differences, and EVM precision issues (0.001 ETH)
+const SPONSORSHIP_SAFETY_BUFFER: U256 = U256::from_limbs([1_000_000_000_000_000, 0, 0, 0]); // 0.001 ETH
 
 #[derive(Clone)]
 pub struct BlockState {
@@ -322,6 +330,7 @@ pub struct PartialBlockFork<'a, 'b, 'c, 'd, Tracer: SimulationTracer> {
     tmp_used_state_tracer: UsedStateTrace,
 }
 
+#[derive(Clone)]
 pub struct PartialBlockRollobackPoint {
     rollobacks: usize,
 }
@@ -740,6 +749,7 @@ impl<'a, 'b, 'c, 'd, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, 'd, 
         combined_refunds: &HashMap<Address, U256>,
     ) -> Result<Result<BundleOk, BundleErr>, CriticalCommitOrderError> {
         let mut refundable_profit = U256::ZERO;
+        let coinbase_balance_before = self.coinbase_balance()?;
         let mut insert = BundleOk {
             gas_used: 0,
             cumulative_gas_used,
@@ -754,6 +764,215 @@ impl<'a, 'b, 'c, 'd, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, 'd, 
         for tx_with_blobs in &bundle.txs {
             let tx_hash = tx_with_blobs.hash();
             let rollback_point = self.rollback_point();
+
+            // ------- fast sponsorship pre-check ---------------------------------
+            // Before simulating the tx we check if the sender lacks funds and, if
+            // possible, inject a sponsor transfer up-front. This avoids one extra
+            // EVM execution per under-funded tx.
+            {
+                let tx_inner = tx_with_blobs.internal_tx_unsecure();
+                let sender = tx_inner.signer();
+
+                // Read sender balance once.
+                let sender_balance = self.state.balance(
+                    sender,
+                    &self.ctx.shared_cached_reads,
+                    &mut self.local_ctx.cached_reads,
+                )?;
+
+                let effective_gas_price = tx_inner.max_fee_per_gas();
+                let required_funds = U256::from(tx_inner.gas_limit())
+                    * U256::from(effective_gas_price)
+                    + tx_inner.value();
+
+                let shortfall = required_funds.saturating_sub(sender_balance);
+
+                // Add a fixed safety buffer to account for gas price variations and timing issues
+                let safety_buffer = SPONSORSHIP_SAFETY_BUFFER;
+                let total_sponsor_amount = shortfall + safety_buffer;
+
+                if shortfall > U256::ZERO {
+                    // Check if shortfall exceeds the maximum sponsor amount
+                    if total_sponsor_amount > MAX_SPONSOR_AMOUNT {
+                        continue;
+                    }
+
+                    if let Some(builder_signer) = &self.ctx.builder_signer {
+                        // For sponsorship transactions, use the coinbase_signer
+                        // This ensures sponsorship works identically in simulation and real building
+                        let sponsor_signer =
+                            self.ctx.coinbase_signer.as_ref().unwrap_or(builder_signer);
+
+                        let builder_balance = self.state.balance(
+                            sponsor_signer.address,
+                            &self.ctx.shared_cached_reads,
+                            &mut self.local_ctx.cached_reads,
+                        )?;
+
+                        if builder_balance < total_sponsor_amount {
+                            // Skip sponsorship if builder balance is insufficient
+                            continue;
+                        }
+
+                        // Get the correct nonce accounting for previous sponsor transactions in this bundle
+                        let builder_nonce = {
+                            if let Some((_, current_nonce)) = insert
+                                .nonces_updated
+                                .iter()
+                                .find(|(addr, _)| *addr == sponsor_signer.address)
+                            {
+                                // current_nonce is the last used nonce, so we need the next one
+                                *current_nonce + 1
+                            } else {
+                                self.state.nonce(
+                                    sponsor_signer.address,
+                                    &self.ctx.shared_cached_reads,
+                                    &mut self.local_ctx.cached_reads,
+                                )?
+                            }
+                        };
+
+                        // Build sponsorship tx (simple transfer).
+                        let sponsor_tx_result = create_payout_tx(
+                            self.ctx.chain_spec.as_ref(),
+                            self.ctx.evm_env.block_env.basefee,
+                            sponsor_signer,
+                            builder_nonce,
+                            sender,
+                            21_000,
+                            total_sponsor_amount,
+                        );
+
+                        if let Ok(unsigned_tx) = sponsor_tx_result {
+                            let sponsor_tx =
+                                TransactionSignedEcRecoveredWithBlobs::new_no_blobs(unsigned_tx)
+                                    .unwrap();
+
+                            // Validate nonce to prevent reuse
+                            let current_state_nonce = self.state.nonce(
+                                sponsor_signer.address,
+                                &self.ctx.shared_cached_reads,
+                                &mut self.local_ctx.cached_reads,
+                            )?;
+
+                            if builder_nonce < current_state_nonce {
+                                // Skip sponsorship if nonce is too low (already used)
+                                continue;
+                            }
+
+                            // Execute sponsor tx.
+                            let sponsor_result = self.commit_tx(
+                                &sponsor_tx,
+                                insert.cumulative_gas_used,
+                                gas_reserved,
+                                insert.cumulative_blob_gas_used,
+                            )?;
+
+                            trace!(
+                                "Sponsor tx execution result: success={}, tx_hash={:?}",
+                                sponsor_result.is_ok(),
+                                tx_hash
+                            );
+
+                            if let Ok(sponsor_ok) = sponsor_result {
+                                // Log detailed sponsor transaction results
+                                trace!(
+                                        "Sponsor tx details: tx_hash={:?}, gas_used={}, success={}, coinbase_profit={}, nonce_updated=({:?}, {})",
+                                        tx_hash,
+                                        sponsor_ok.tx_info.gas_used,
+                                        sponsor_ok.tx_info.receipt.success,
+                                        sponsor_ok.tx_info.coinbase_profit,
+                                        sponsor_ok.nonce_updated.0,
+                                        sponsor_ok.nonce_updated.1
+                                    );
+
+                                // Check if sponsor transaction actually succeeded
+                                if !sponsor_ok.tx_info.receipt.success {
+                                    trace!(
+                                            "Sponsorship declined - sponsor tx reverted: tx_hash={:?}, sender={:?}, shortfall={} wei, sponsor_gas_used={}, sponsor_logs={:?}",
+                                            tx_hash,
+                                            sender,
+                                            shortfall,
+                                            sponsor_ok.tx_info.gas_used,
+                                            sponsor_ok.tx_info.receipt.logs
+                                        );
+                                    self.rollback(rollback_point.clone());
+                                    continue;
+                                }
+
+                                // Now execute the original transaction.
+                                let retry_result = self.commit_tx(
+                                    tx_with_blobs,
+                                    sponsor_ok.cumulative_gas_used,
+                                    gas_reserved,
+                                    sponsor_ok.cumulative_blob_gas_used,
+                                )?;
+
+                                if let Ok(res) = retry_result {
+                                    // Ensure bundle stays profitable after sponsorship.
+                                    let current_coinbase_balance = self.coinbase_balance()?;
+                                    let bundle_profit_so_far = current_coinbase_balance
+                                        .saturating_sub(coinbase_balance_before);
+
+                                    if bundle_profit_so_far >= total_sponsor_amount {
+                                        if !res.tx_info.receipt.success {
+                                            if bundle.dropping_tx_hashes.contains(&tx_hash) {
+                                                // Sponsorship successful but tx reverted (dropping allowed)
+                                                self.rollback(rollback_point.clone());
+                                                continue;
+                                            }
+                                            if !bundle.reverting_tx_hashes.contains(&tx_hash) {
+                                                // Sponsorship successful but tx reverted (not allowed)
+                                                return Ok(Err(BundleErr::TransactionReverted(
+                                                    tx_hash,
+                                                )));
+                                            }
+                                        }
+
+                                        // First the sponsor tx, then the user tx.
+                                        Self::accumulate_tx_execution(sponsor_ok, &mut insert);
+                                        // Extract values before moving res
+                                        let tx_success = res.tx_info.receipt.success;
+                                        let tx_coinbase_profit = res.tx_info.coinbase_profit;
+                                        Self::accumulate_tx_execution(res, &mut insert);
+
+                                        // Update refundable_profit based on ACTUAL transaction profits, not optimistic bundle profit
+                                        // Only add profit from the original transaction if it's refundable and successful
+                                        if bundle.is_tx_refundable(&tx_hash)
+                                            && tx_success
+                                            && tx_coinbase_profit.is_positive()
+                                        {
+                                            refundable_profit += tx_coinbase_profit.unsigned_abs();
+                                        }
+
+                                        // Log successful sponsorship
+                                        trace!(
+                                                "Sponsorship successful: tx_hash={:?}, sender={:?}, total_sponsor_amount={} wei, shortfall={} wei, bundle_profit_so_far={} wei, tx_success={}, sponsor_address={:?}",
+                                                tx_hash,
+                                                sender,
+                                                total_sponsor_amount,
+                                                shortfall,
+                                                bundle_profit_so_far,
+                                                tx_success,
+                                                sponsor_signer.address
+                                            );
+
+                                        continue; // tx handled, go to next one.
+                                    } else {
+                                        // Not profitable – revert sponsor tx.
+                                        self.rollback(rollback_point.clone());
+                                    }
+                                } else {
+                                    // Retry failed – revert sponsor tx.
+                                    self.rollback(rollback_point.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // ------- end fast sponsorship pre-check -----------------------------
+
             let result = self.commit_tx(
                 tx_with_blobs,
                 insert.cumulative_gas_used,

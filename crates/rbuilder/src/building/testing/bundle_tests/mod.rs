@@ -7,8 +7,8 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     building::{
-        testing::bundle_tests::setup::NonceValue, BuiltBlockTrace, BundleErr, ExecutionResult,
-        OrderErr, TransactionErr,
+        testing::bundle_tests::setup::NonceValue, BuiltBlockTrace, BundleErr, ExecutionError,
+        ExecutionResult, OrderErr, TransactionErr,
     },
     primitives::{Bundle, BundleRefund, Order, OrderId, Refund, RefundConfig, TxRevertBehavior},
     utils::{constants::BASE_TX_GAS, int_percentage},
@@ -963,6 +963,73 @@ fn test_original_order_id() -> eyre::Result<()> {
     test_setup.finish_inner_bundle();
     let result = test_setup.commit_order_ok();
     assert_eq!(result.original_order_ids, Vec::new());
+
+    Ok(())
+}
+
+#[test]
+fn test_sponsored_transaction() -> eyre::Result<()> {
+    let target_block = 11;
+    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().number(target_block))?;
+
+    test_setup.begin_bundle_order(target_block);
+
+    let sender1 = NamedAddr::User(1);
+
+    let large_value_to_coinbase = 999_999_999_999_999_999_u64; // Just under 1 ETH but gas will push it over
+    test_setup.add_send_to_coinbase_tx(sender1, large_value_to_coinbase)?;
+
+    let result = test_setup.try_commit_order();
+
+    match result {
+        Ok(Ok(execution_result)) => {
+            let builder_addr = test_setup.named_address(NamedAddr::Builder)?;
+            let sponsor_txs: Vec<_> = execution_result
+                .tx_infos
+                .iter()
+                .filter(|tx_info| tx_info.tx.signer() == builder_addr)
+                .collect();
+
+            // Verify sponsorship occurred - should have a sponsor transaction
+            assert_eq!(
+                sponsor_txs.len(),
+                1,
+                "Expected exactly 1 sponsor transaction"
+            );
+
+            // Verify we have both sponsor tx and original tx
+            assert_eq!(
+                execution_result.tx_infos.len(),
+                2,
+                "Expected sponsor tx + original tx"
+            );
+
+            // Verify the bundle was profitable
+            assert!(
+                execution_result.coinbase_profit > U256::ZERO,
+                "Sponsored bundle should be profitable"
+            );
+        }
+        Ok(Err(ExecutionError::OrderError(OrderErr::Transaction(
+            TransactionErr::InvalidTransaction(invalid_tx),
+        )))) => {
+            let error_str = format!("{:?}", invalid_tx);
+            // LackOfFundForMaxFee indicates sponsorship logic failed
+            if error_str.contains("LackOfFundForMaxFee") {
+                panic!("Sponsorship failed: {}", error_str);
+            }
+            panic!("Unexpected transaction error: {}", error_str);
+        }
+        Ok(Err(ExecutionError::OrderError(OrderErr::NegativeProfit(loss)))) => {
+            panic!("Unexpected negative profit: {} wei", loss);
+        }
+        Ok(Err(other_execution_error)) => {
+            panic!("Unexpected execution error: {:?}", other_execution_error);
+        }
+        Err(eyre_error) => {
+            panic!("Critical error: {:?}", eyre_error);
+        }
+    }
 
     Ok(())
 }
