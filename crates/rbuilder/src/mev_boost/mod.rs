@@ -874,7 +874,7 @@ mod tests {
         let mut generator = TestDataGenerator::default();
 
         let relay_url = Url::from_str(&srv.endpoint()).unwrap();
-        let relay = RelayClient::from_url(relay_url, None, None, None, false, false);
+        let relay = RelayClient::from_url(relay_url, None, None, None, false, false, false);
         let submission = SubmitBlockRequest::Deneb(generator.create_deneb_submit_block_request());
         let sub_relay = SubmitBlockRequestWithMetadata {
             submission,
