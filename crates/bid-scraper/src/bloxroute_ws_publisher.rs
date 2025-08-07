@@ -5,11 +5,16 @@ use crate::{
     ws_publisher::{ConnectionHandler, Service},
     DynResult, RPC_TIMEOUT,
 };
-use ethers::prelude::*;
-use futures::stream::{SplitSink, SplitStream};
+use alloy_primitives::{Address, BlockHash, U256};
+use alloy_rpc_types_beacon::BlsPublicKey;
+use futures::{
+    stream::{SplitSink, SplitStream},
+    StreamExt,
+};
 use futures_util::SinkExt;
 use serde::Deserialize;
 use serde_json::json;
+use std::str::FromStr;
 use tokio::{net::TcpStream, time::timeout};
 use tokio_tungstenite::{
     tungstenite::{http::Request, protocol::Message},
@@ -32,10 +37,11 @@ pub struct BloxrouteWsPublisherConfig {
 struct BloxrouteWsBid {
     relay_type: String,
     builder_pubkey: String,
-    parent_hash: H256,
-    block_hash: H256,
+    parent_hash: BlockHash,
+    block_hash: BlockHash,
     timestamp_ms: u64,
     block_value: u128,
+    block_number: u64,
     slot_number: u64,
     #[serde(default)]
     gas_used: u64,
@@ -67,19 +73,19 @@ impl BloxrouteWsConnectionHandler {
         let bid = BlockBid {
             publisher_name: self.name.clone(),
             publisher_type: PublisherType::BloxrouteWs,
-            builder_pubkey: Some(parsed.builder_pubkey.to_lowercase()),
+            builder_pubkey: Some(BlsPublicKey::from_str(&parsed.builder_pubkey)?),
             relay_name,
             parent_hash: parsed.parent_hash,
             block_hash: parsed.block_hash,
             seen_time: get_timestamp_f64(),
             relay_time: Some(parsed.timestamp_ms as f64 / 1000.),
             value: U256::from(parsed.block_value),
-            slot_number: U64::from(parsed.slot_number),
-            gas_used: Some(U64::from(parsed.gas_used)),
+            slot_number: parsed.slot_number,
+            gas_used: Some(parsed.gas_used),
             proposer_fee_recipient: Some(parsed.proposer_fee_recipient),
             fee_recipient: None,
             optimistic_submission: parsed.optimistic_submission,
-            block_number: None,
+            block_number: parsed.block_number,
             extra_data: None,
         };
         debug!("Found bid: {bid:?}");
@@ -95,10 +101,7 @@ impl ConnectionHandler for BloxrouteWsConnectionHandler {
 
     fn configure_request(&self, request: &mut Request<()>) -> eyre::Result<()> {
         let headers = request.headers_mut();
-        headers.insert(
-            "Authorization",
-            self.cfg.auth_header.value().unwrap().parse().unwrap(),
-        );
+        headers.insert("Authorization", self.cfg.auth_header.value()?.parse()?);
         Ok(())
     }
 
@@ -115,8 +118,8 @@ impl ConnectionHandler for BloxrouteWsConnectionHandler {
                         "method": "subscribe",
                         "params": ["MEVBlockValue", {"include": []}],
                     }
-                ))
-                .unwrap(),
+                ))?
+                .into(),
             ))
             .await
             .expect("unable to send first message");

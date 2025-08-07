@@ -3,7 +3,7 @@ use crate::{
     primitives::mev_boost::{MevBoostRelayID, MevBoostRelaySlotInfoProvider},
     telemetry::{inc_conn_relay_errors, inc_other_relay_errors, inc_too_many_req_relay_errors},
 };
-use ahash::HashMap;
+use ahash::{HashMap, HashSet};
 use alloy_primitives::Address;
 use futures::stream::FuturesOrdered;
 use primitive_types::H384;
@@ -69,15 +69,23 @@ impl RelayEpochCache {
 pub struct RelaysForSlotData {
     /// Sorted by priority so when we use them on slot_data the one with the highest priority wins.
     relay: Vec<(MevBoostRelayID, RelayEpochCache)>,
+    /// Redundant with relay but easier to access/pass around.
+    can_ignore_gas_limit: HashSet<MevBoostRelayID>,
 }
 
 impl RelaysForSlotData {
     pub fn new(relays: &[MevBoostRelaySlotInfoProvider]) -> Self {
+        let can_ignore_gas_limit = relays
+            .iter()
+            .filter(|relay| relay.can_ignore_gas_limit())
+            .map(|relay| relay.id().clone())
+            .collect();
         Self {
             relay: relays
                 .iter()
                 .map(|relay| (relay.id().clone(), RelayEpochCache::new(relay.clone())))
                 .collect(),
+            can_ignore_gas_limit,
         }
     }
 
@@ -127,12 +135,13 @@ impl RelaysForSlotData {
             assert_eq!(relay_data.slot, slot);
             relay_ok_res.push((relay, relay_data));
         }
-        resolve_relay_slot_data(relay_ok_res)
+        resolve_relay_slot_data(relay_ok_res, &self.can_ignore_gas_limit)
     }
 }
 
 fn resolve_relay_slot_data(
     fetched_data: Vec<(MevBoostRelayID, ValidatorSlotData)>,
+    can_ignore_gas_limit: &HashSet<MevBoostRelayID>,
 ) -> Option<(SlotData, Vec<MevBoostRelayID>)> {
     if fetched_data.is_empty() {
         return None;
@@ -169,13 +178,27 @@ fn resolve_relay_slot_data(
                 .unwrap_or_default()
         })
         .unwrap();
-    let selected_relays = slot_relays.get(latest_slot_data).unwrap();
-
+    let latest_slot_data = latest_slot_data.clone();
+    let mut selected_relays = slot_relays.get(&latest_slot_data).unwrap().clone();
     let span = trace_span!("raw_relay_data", ?slot_raw_data);
     let _span_guard = span.enter();
     info!(all_data = ?slot_relays, ?selected_relays, "Relays returned different slot data");
+    // Add all relays that can ignore gas limit to the selected relays.
+    for (slot, relays) in slot_relays {
+        if slot.fee_recipient == latest_slot_data.fee_recipient
+            && slot.pubkey == latest_slot_data.pubkey
+            && slot.gas_limit != latest_slot_data.gas_limit
+        {
+            for relay in relays {
+                if can_ignore_gas_limit.contains(&relay) {
+                    info!(?relay, "Upgraded relay set with can_ignore_gas_limit relay");
+                    selected_relays.push(relay);
+                }
+            }
+        }
+    }
 
-    Some(slot_relays.remove_entry(latest_slot_data).unwrap())
+    Some((latest_slot_data, selected_relays))
 }
 
 #[cfg(test)]
@@ -211,6 +234,7 @@ mod test {
         // Test when all relays return same data
         let relay1 = MevBoostRelayID::from("relay1");
         let relay2 = MevBoostRelayID::from("relay2");
+        let relay3 = MevBoostRelayID::from("relay3");
         let data = make_test_data(address!("1111111111111111111111111111111111111111"), 100);
 
         let fetched = vec![
@@ -218,7 +242,7 @@ mod test {
             (relay2.clone(), data.clone()),
         ];
 
-        let result = resolve_relay_slot_data(fetched);
+        let result = resolve_relay_slot_data(fetched, &HashSet::default());
         let (slot_data, relays) = result.unwrap();
         assert_eq!(
             SlotData {
@@ -237,7 +261,7 @@ mod test {
             (relay2.clone(), data2.clone()),
         ];
 
-        let result = resolve_relay_slot_data(fetched);
+        let result = resolve_relay_slot_data(fetched, &HashSet::default());
         let (slot_data, relays) = result.unwrap();
         assert_eq!(
             SlotData {
@@ -248,5 +272,48 @@ mod test {
             slot_data
         );
         assert_eq!(relays, vec![relay2.clone()]);
+
+        // Test when relays return different gas limit but same fee recipient and pubkey
+        let mut data3 = data2.clone();
+        data3.entry.message.gas_limit = 40000000;
+        // We want data2 to win.
+        data3.entry.message.timestamp -= 1;
+        let fetched = vec![
+            (relay1.clone(), data.clone()),
+            (relay2.clone(), data2.clone()),
+            (relay3.clone(), data3.clone()),
+        ];
+
+        // No can_ignore_gas_limit
+        let result = resolve_relay_slot_data(fetched, &HashSet::default());
+        let (slot_data, relays) = result.unwrap();
+        assert_eq!(
+            SlotData {
+                fee_recipient: address!("2222222222222222222222222222222222222222"),
+                gas_limit: 30000000,
+                pubkey: H384::zero(),
+            },
+            slot_data
+        );
+        assert_eq!(relays, vec![relay2.clone()]);
+
+        // data3 can_ignore_gas_limit
+        let fetched = vec![
+            (relay1.clone(), data.clone()),
+            (relay2.clone(), data2.clone()),
+            (relay3.clone(), data3.clone()),
+        ];
+        let can_ignore_gas_limit = HashSet::from_iter([relay3.clone()]);
+        let result = resolve_relay_slot_data(fetched, &can_ignore_gas_limit);
+        let (slot_data, relays) = result.unwrap();
+        assert_eq!(
+            SlotData {
+                fee_recipient: address!("2222222222222222222222222222222222222222"),
+                gas_limit: 30000000,
+                pubkey: H384::zero(),
+            },
+            slot_data
+        );
+        assert_eq!(relays, vec![relay2.clone(), relay3.clone()]);
     }
 }

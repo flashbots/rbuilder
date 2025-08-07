@@ -19,12 +19,15 @@ pub struct TestDataGenerator {
 
 impl TestDataGenerator {
     pub fn create_deneb_submit_block_request(&mut self) -> DenebSubmitBlockRequest {
-        DenebSubmitBlockRequest(SignedBidSubmissionV3 {
-            message: self.create_bid_trace(),
-            execution_payload: self.create_deneb_payload(),
-            blobs_bundle: self.create_txs_blobs_sidecars(),
-            signature: self.create_signature(),
-        })
+        DenebSubmitBlockRequest {
+            submission: SignedBidSubmissionV3 {
+                message: self.create_bid_trace(),
+                execution_payload: self.create_deneb_payload(),
+                blobs_bundle: self.create_txs_blobs_sidecars(),
+                signature: self.create_signature(),
+            },
+            adjustment_data: None,
+        }
     }
 
     pub fn create_txs_blobs_sidecars(&mut self) -> BlobsBundleV1 {

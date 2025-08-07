@@ -1,15 +1,12 @@
 use crate::{
     building::builders::Block,
-    live_builder::payload_events::MevBoostSlotData,
+    live_builder::{block_output::bid_observer::BidObserver, payload_events::MevBoostSlotData},
     mev_boost::{
         sign_block_for_relay,
         submission::{BidMetadata, BidValueMetadata, SubmitBlockRequestWithMetadata},
         BLSBlockSigner, RelayError, SubmitBlockErr,
     },
-    primitives::{
-        mev_boost::{MevBoostRelayBidSubmitter, MevBoostRelayID},
-        Order,
-    },
+    primitives::mev_boost::{MevBoostRelayBidSubmitter, MevBoostRelayID},
     telemetry::{
         add_relay_submit_time, add_subsidy_value, inc_conn_relay_errors,
         inc_failed_block_simulations, inc_initiated_submissions, inc_other_relay_errors,
@@ -27,11 +24,6 @@ use std::sync::Arc;
 use tokio::{sync::Notify, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, info_span, trace, warn, Instrument, Span};
-
-use super::{
-    bid_observer::BidObserver,
-    bid_value_source::{best_bid_sync_source::BestBidSyncSource, interfaces::BidValueSource},
-};
 
 const SIM_ERROR_CATEGORY: &str = "submit_block_simulation";
 
@@ -92,7 +84,6 @@ pub trait BuilderSinkFactory: std::fmt::Debug + Send + Sync {
     fn create_builder_sink(
         &self,
         slot_data: MevBoostSlotData,
-        competition_bid_value_source: Arc<dyn BidValueSource + Send + Sync>,
         cancel: CancellationToken,
     ) -> Box<dyn BlockBuildingSink>;
 }
@@ -104,10 +95,6 @@ pub struct SubmissionConfig {
 
     pub optimistic_config: Option<OptimisticConfig>,
     pub bid_observer: Box<dyn BidObserver + Send + Sync>,
-    /// Bids above this value will only go to independent relays.
-    pub independent_bid_threshold: U256,
-    /// For bids below this value we ignore RelayConfig::is_fast (it's like is_fast is true for all relays)
-    pub ignore_fast_bid_threshold: U256,
 }
 
 /// Configuration for optimistic block submission to relays.
@@ -136,13 +123,7 @@ async fn run_submit_to_relays_job(
     relays: Vec<MevBoostRelayBidSubmitter>,
     config: Arc<SubmissionConfig>,
     cancel: CancellationToken,
-    competition_bid_value_source: Arc<dyn BidValueSource + Send + Sync>,
 ) -> Option<BuiltBlockInfo> {
-    let best_bid_sync_source = BestBidSyncSource::new(
-        competition_bid_value_source,
-        slot_data.block(),
-        slot_data.slot(),
-    );
     let mut res = None;
 
     let (normal_relays, optimistic_relays) = {
@@ -224,11 +205,9 @@ async fn run_submit_to_relays_job(
             order_ids: executed_orders.map(|o| o.id()).collect(),
         };
 
-        let best_bid_value = best_bid_sync_source.best_bid_value();
         let submission_span = info_span!(
             "bid",
             bid_value = format_ether(block.trace.bid_value),
-            best_bid_value = format_ether(best_bid_value.unwrap_or_default()),
             true_bid_value = format_ether(block.trace.true_bid_value),
             seen_competition_bid = format_ether(block.trace.seen_competition_bid.unwrap_or_default()),
             block = block.sealed_block.number,
@@ -249,12 +228,8 @@ async fn run_submit_to_relays_job(
             failed_orders_statistics = ?block.trace.failed_orders_statistics,
             "Submitting bid",
         );
-        let relay_filter = get_relay_filter_and_update_metrics(
-            &block,
-            optimistic_config.is_some(),
-            config.independent_bid_threshold,
-            config.ignore_fast_bid_threshold,
-        );
+        inc_initiated_submissions(optimistic_config.is_some());
+        let relay_filter = get_relay_filter(&block);
 
         let (normal_signed_submission, optimistic_signed_submission) = {
             let normal_signed_submission = match sign_block_for_relay(
@@ -377,38 +352,12 @@ fn submit_block_to_relays(
 }
 
 /// Creates a Fn to decide if the block should go to a relay.
-/// The cfg defines 2 flags on relays: fast and independent.
-/// If a block has replacement ids it should NOT go to a relay that is not fast since it needs fast cancellations.
-/// If a block is expensive it should NOT go to a non independent relay.
-fn get_relay_filter_and_update_metrics(
-    block: &Block,
-    optimistic: bool,
-    independent_bid_threshold: U256,
-    ignore_fast_bid_threshold: U256,
-) -> impl Fn(&MevBoostRelayBidSubmitter) -> bool {
-    // only_independent = expensive blocks.
-    let only_independent = block.trace.bid_value > independent_bid_threshold;
-    // only_fast = bid > ignore_fast_bid_threshold && blocks with replaceable orders
-    let only_fast = block.trace.bid_value > ignore_fast_bid_threshold
-        && block
-            .trace
-            .included_orders
-            .iter()
-            .flat_map(|exec_res| exec_res.order.original_orders())
-            .any(|o| match o {
-                Order::Bundle(bundle) => bundle.replacement_data.is_some(),
-                Order::Tx(_) => false,
-                Order::ShareBundle(_) => false,
-            });
-    inc_initiated_submissions(optimistic, !only_fast, !only_independent);
+/// It's a Fn because the code changes a lot (used to be more complex).
+/// Blocks go only to relays that have a max bid >= bid_value (or no max bid).
+fn get_relay_filter(block: &Block) -> impl Fn(&MevBoostRelayBidSubmitter) -> bool {
+    let bid_value = block.trace.bid_value;
     move |relay: &MevBoostRelayBidSubmitter| {
-        if only_independent && !relay.is_independent() {
-            return false; // Sorry relay but this block is expensive and you are not independent :(
-        }
-        if only_fast && !relay.is_fast() {
-            return false; // Sorry relay but this block contains replacements and you are slow :(
-        }
-        true
+        relay.max_bid().is_none_or(|max_bid| bid_value <= max_bid)
     }
 }
 
@@ -418,17 +367,9 @@ pub async fn run_submit_to_relays_job_and_metrics(
     relays: Vec<MevBoostRelayBidSubmitter>,
     config: Arc<SubmissionConfig>,
     cancel: CancellationToken,
-    competition_bid_value_source: Arc<dyn BidValueSource + Send + Sync>,
 ) {
-    let last_build_block_info = run_submit_to_relays_job(
-        pending_bid,
-        slot_data,
-        relays,
-        config,
-        cancel,
-        competition_bid_value_source,
-    )
-    .await;
+    let last_build_block_info =
+        run_submit_to_relays_job(pending_bid, slot_data, relays, config, cancel).await;
     if let Some(last_build_block_info) = last_build_block_info {
         if last_build_block_info.bid_value > last_build_block_info.true_bid_value {
             inc_subsidized_blocks(false);
@@ -558,7 +499,6 @@ impl BuilderSinkFactory for RelaySubmitSinkFactory {
     fn create_builder_sink(
         &self,
         slot_data: MevBoostSlotData,
-        competition_bid_value_source: Arc<dyn BidValueSource + Send + Sync>,
         cancel: CancellationToken,
     ) -> Box<dyn BlockBuildingSink> {
         let pending_block_cell = Arc::new(PendingBlockCell::default());
@@ -576,7 +516,6 @@ impl BuilderSinkFactory for RelaySubmitSinkFactory {
             relays,
             self.submission_config.clone(),
             cancel,
-            competition_bid_value_source,
         ));
         Box::new(PendingBlockCellToBlockBuildingSink { pending_block_cell })
     }

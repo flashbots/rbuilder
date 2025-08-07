@@ -215,6 +215,13 @@ pub enum TransactionErr {
 }
 
 #[derive(Debug, Clone)]
+pub struct DelayedKickback {
+    pub recipient: Address,
+    pub payout_value: U256,
+    pub payout_tx_fee: U256,
+}
+
+#[derive(Debug, Clone)]
 pub struct BundleOk {
     pub gas_used: u64,
     pub cumulative_gas_used: u64,
@@ -224,8 +231,8 @@ pub struct BundleOk {
     /// nonces_updates has a set of deduplicated final nonces of the txs in the order
     pub nonces_updated: Vec<(Address, u64)>,
     pub paid_kickbacks: Vec<(Address, U256)>,
-    /// The refund amount to accrue per recipient and be paid at the end of the block.
-    pub delayed_kickback: Option<(Address, U256)>,
+    /// The refund amount to accrue per recipient and be paid at the end of the block and tx fee value that is deducted from the profit of the first delayed refund bundle for the recipient in the block
+    pub delayed_kickback: Option<DelayedKickback>,
     /// Only for sbundles we accumulate ShareBundleInner::original_order_id that executed ok.
     /// Its original use is for only one level or orders with original_order_id but if nesting happens the parent order original_order_id goes before its children (pre-order DFS)
     /// Fully dropped orders (TxRevertBehavior::AllowedExcluded allows it!) are not included.
@@ -291,7 +298,7 @@ pub struct OrderOk {
     /// nonces_updates has a set of deduplicated final nonces of the txs in the order
     pub nonces_updated: Vec<(Address, u64)>,
     pub paid_kickbacks: Vec<(Address, U256)>,
-    pub delayed_kickback: Option<(Address, U256)>,
+    pub delayed_kickback: Option<DelayedKickback>,
     pub used_state_trace: Option<UsedStateTrace>,
 }
 
@@ -409,6 +416,7 @@ pub struct ReservedPayout {
     pub gas_limit: u64,
     pub tx_value: U256,
     pub total_refundable_value: U256,
+    pub base_fee: U256,
 }
 
 #[derive(Debug, Clone)]
@@ -775,6 +783,7 @@ impl<
         Ok(ReservedPayout {
             gas_limit,
             tx_value,
+            base_fee,
             total_refundable_value: refundable_value,
         })
     }
@@ -921,7 +930,11 @@ impl<
                 // We already determined that refund for this recipient will cost [`BASE_TX_GAS`]
                 // and previously inserted a bundle that is capable of paying this cost.
                 // The recipient will be awarded full refund value for the current bundle.
-                insert.delayed_kickback = Some((refunds_cfg.recipient, refundable_value));
+                insert.delayed_kickback = Some(DelayedKickback {
+                    recipient: refunds_cfg.recipient,
+                    payout_value: refundable_value,
+                    payout_tx_fee: U256::ZERO,
+                });
                 break 'refund;
             }
 
@@ -942,7 +955,11 @@ impl<
                     .is_some_and(|remaining| remaining > payout.gas_limit)
             {
                 // This refund recipient is eligible for a combined refund at the end of the block.
-                insert.delayed_kickback = Some((refunds_cfg.recipient, payout.tx_value));
+                insert.delayed_kickback = Some(DelayedKickback {
+                    recipient: refunds_cfg.recipient,
+                    payout_value: payout.tx_value,
+                    payout_tx_fee: payout.base_fee,
+                });
                 break 'refund;
             }
 
@@ -1320,15 +1337,16 @@ impl<
     ) -> Result<Result<OrderOk, OrderErr>, CriticalCommitOrderError> {
         match bundle_result {
             Ok(ok) => {
-                let delayed_refund_value = ok
+                let delayed_refund_cost = ok
                     .delayed_kickback
                     .as_ref()
-                    .map_or(U256::ZERO, |(_, value)| *value);
+                    .map(|r| r.payout_value + r.payout_tx_fee)
+                    .unwrap_or_default();
 
                 // Builder does sign txs in this code path, so do not allow negative coinbase
                 // profit.
                 let coinbase_profit = match self
-                    .coinbase_profit_when_refunds(coinbase_balance_before, delayed_refund_value)?
+                    .coinbase_profit_when_refunds(coinbase_balance_before, delayed_refund_cost)?
                 {
                     Ok(profit) => profit,
                     Err(err) => return Ok(Err(err)),
@@ -1356,10 +1374,10 @@ impl<
     fn coinbase_profit_when_refunds(
         &mut self,
         initial_balance: U256,
-        delayed_refund_value: U256,
+        delayed_refund_cost: U256,
     ) -> Result<Result<U256, OrderErr>, CriticalCommitOrderError> {
         let coinbase_balance_after = self.coinbase_balance()?;
-        let min_balance = initial_balance + delayed_refund_value;
+        let min_balance = initial_balance + delayed_refund_cost;
         if coinbase_balance_after >= min_balance {
             Ok(Ok(coinbase_balance_after - min_balance))
         } else {

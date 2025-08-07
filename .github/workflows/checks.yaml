@@ -87,7 +87,7 @@ jobs:
       - name: Download builder playground
         uses: flashbots/flashbots-toolchain@v0.1
         with:
-          builder-playground: v0.1.3
+          builder-playground: v0.1.3-reth-1.4.8
 
       # https://github.com/swatinem/rust-cache
       - name: Run Swatinem/rust-cache@v2

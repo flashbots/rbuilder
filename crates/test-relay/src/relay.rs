@@ -20,15 +20,20 @@ use rbuilder::{
     primitives::mev_boost::MevBoostRelaySlotInfoProvider,
 };
 use serde::{Deserialize, Serialize};
-use std::time::Instant;
-use std::{collections::hash_map::Entry, sync::Arc, time::Duration};
-use std::{io::Read, net::SocketAddr};
+use ssz::Decode as _;
+use std::{
+    collections::hash_map::Entry,
+    io::Read,
+    net::SocketAddr,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use time::OffsetDateTime;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
-use warp::body;
 use warp::{
+    body,
     http::status::StatusCode,
     query,
     reply::{self, Reply},

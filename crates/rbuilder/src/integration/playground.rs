@@ -162,6 +162,8 @@ impl Playground {
             None,
             None,
             false,
+            false,
+            false,
         );
 
         let payload = client

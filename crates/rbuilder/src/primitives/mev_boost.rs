@@ -2,6 +2,7 @@ use crate::mev_boost::{
     submission::SubmitBlockRequestWithMetadata, RelayClient, RelayError, SubmitBlockErr,
     ValidatorSlotData,
 };
+use alloy_primitives::{utils::parse_ether, Address, U256};
 use governor::{DefaultDirectRateLimiter, Quota, RateLimiter};
 use serde::{Deserialize, Deserializer};
 use std::{env, sync::Arc, time::Duration};
@@ -55,24 +56,26 @@ pub struct RelayConfig {
     /// mode defines the need of submit_config
     #[serde(default)]
     pub mode: RelayMode,
+    /// Bid adjustment fee payer address.
+    pub adjustment_fee_payer: Option<Address>,
     #[serde(flatten)]
     /// Submit specific info.
     /// Used only for Full and Fake mode.
     pub submit_config: Option<RelaySubmitConfig>,
     /// Deprecated field that is not used
     pub priority: Option<usize>,
-    /// Critical blocks (containing bundles with replacement ids) go only to fast relays. None -> true
-    pub is_fast: Option<bool>,
-    /// Big blocks (bid > [L1Config::independent_bid_threshold_eth]) go only to independent relays. None -> true
-    pub is_independent: Option<bool>,
+    /// Set to `true` for bloxroute relays.
+    #[serde(default)]
+    pub is_bloxroute: bool,
     /// Adds "filtering=true" as query to the call relay/v1/builder/validators to get all validators (including those filtering OFAC)
     /// On 2025/06/24 (my birthday!) only supported by ultrasound.
     /// None -> false
     pub ask_for_filtering_validators: Option<bool>,
+    /// If we submit a block with a different gas than the one the validator registered with in this relay the relay does not mind.
+    /// None -> false
+    pub can_ignore_gas_limit: Option<bool>,
 }
 
-const IS_FAST_DEFAULT: bool = true;
-const IS_INDEPENDENT_DEFAULT: bool = true;
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
 #[serde(deny_unknown_fields)]
 pub struct RelaySubmitConfig {
@@ -85,6 +88,9 @@ pub struct RelaySubmitConfig {
     pub optimistic: bool,
     #[serde(default)]
     pub interval_between_submissions_ms: Option<u64>,
+    /// Max bid we can submit to this relay. Any bid above this will be skipped.
+    /// None -> No limit.
+    pub max_bid_eth: Option<String>,
 }
 
 impl RelayConfig {
@@ -100,14 +106,6 @@ impl RelayConfig {
             name: name.to_string(),
             ..self
         }
-    }
-
-    pub fn is_fast(&self) -> bool {
-        self.is_fast.unwrap_or(IS_FAST_DEFAULT)
-    }
-
-    pub fn is_independent(&self) -> bool {
-        self.is_independent.unwrap_or(IS_INDEPENDENT_DEFAULT)
     }
 }
 
@@ -130,8 +128,9 @@ pub struct MevBoostRelayBidSubmitter {
     test_relay: bool,
     /// Parameter for the relay
     cancellations: bool,
-    is_fast: bool,
-    is_independent: bool,
+    /// Max bid we can submit to this relay. Any bid above this will be skipped.
+    /// None -> No limit.
+    max_bid: Option<U256>,
 }
 
 impl MevBoostRelayBidSubmitter {
@@ -140,15 +139,19 @@ impl MevBoostRelayBidSubmitter {
         id: String,
         config: &RelaySubmitConfig,
         test_relay: bool,
-        is_fast: bool,
-        is_independent: bool,
-    ) -> Self {
+    ) -> eyre::Result<Self> {
+        let max_bid = config
+            .max_bid_eth
+            .as_ref()
+            .map(|s| parse_ether(s))
+            .transpose()
+            .map_err(|e| eyre::eyre!("Failed to parse max bid: {}", e))?;
         let submission_rate_limiter = config.interval_between_submissions_ms.map(|d| {
             Arc::new(RateLimiter::direct(
                 Quota::with_period(Duration::from_millis(d)).expect("Rate limiter time period"),
             ))
         });
-        Self {
+        Ok(Self {
             id,
             client,
             use_ssz_for_submit: config.use_ssz_for_submit,
@@ -157,17 +160,8 @@ impl MevBoostRelayBidSubmitter {
             submission_rate_limiter,
             test_relay,
             cancellations: true,
-            is_fast,
-            is_independent,
-        }
-    }
-
-    pub fn is_fast(&self) -> bool {
-        self.is_fast
-    }
-
-    pub fn is_independent(&self) -> bool {
-        self.is_independent
+            max_bid,
+        })
     }
 
     pub fn test_relay(&self) -> bool {
@@ -180,6 +174,10 @@ impl MevBoostRelayBidSubmitter {
 
     pub fn optimistic(&self) -> bool {
         self.optimistic
+    }
+
+    pub fn max_bid(&self) -> Option<U256> {
+        self.max_bid
     }
 
     /// false -> rate limiter don't allow
@@ -230,6 +228,10 @@ impl MevBoostRelaySlotInfoProvider {
 
     pub async fn get_current_epoch_validators(&self) -> Result<Vec<ValidatorSlotData>, RelayError> {
         self.client.get_current_epoch_validators().await
+    }
+
+    pub fn can_ignore_gas_limit(&self) -> bool {
+        self.client.can_ignore_gas_limit()
     }
 }
 

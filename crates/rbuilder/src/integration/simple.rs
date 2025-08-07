@@ -19,11 +19,11 @@ mod tests {
         to: Option<alloy_primitives::Address>,
     ) -> eyre::Result<alloy_primitives::TxHash> {
         let rbuilder_provider =
-            ProviderBuilder::new().on_http(Url::parse(srv.rbuilder_rpc_url()).unwrap());
+            ProviderBuilder::new().connect_http(Url::parse(srv.rbuilder_rpc_url()).unwrap());
 
         let provider = ProviderBuilder::new()
             .wallet(private_key)
-            .on_http(Url::parse(srv.el_url()).unwrap());
+            .connect_http(Url::parse(srv.el_url()).unwrap());
 
         let gas_price = provider.get_gas_price().await?;
 
@@ -59,7 +59,7 @@ mod tests {
             .unwrap();
 
         // Wait for receipt
-        let binding = ProviderBuilder::new().on_http(Url::parse(srv.el_url()).unwrap());
+        let binding = ProviderBuilder::new().connect_http(Url::parse(srv.el_url()).unwrap());
         let pending_tx = PendingTransactionBuilder::new(binding.root().clone(), tx_hash)
             .with_timeout(Some(std::time::Duration::from_secs(60)));
 

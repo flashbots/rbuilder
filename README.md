@@ -87,11 +87,11 @@ Example of how to use test relay:
 
 ```bash
 ./test-relay \
-    --relay "https://boost-relay-holesky.flashbots.net" \
+    --relay "https://boost-relay-hoodi.flashbots.net" \
     --validation-url "http://localhost:8545" \
     --cl-clients "http://localhost:5052" 
 ```
-For relay flag, instead of Holesky, you can use:
+For relay flag, instead of Hoodi, you can use:
 
 - Mainnet: [https://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@boost-relay.flashbots.net/](https://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@boost-relay.flashbots.net/)
 - Sepolia: [https://boost-relay-sepolia.flashbots.net/](https://boost-relay-sepolia.flashbots.net/)
