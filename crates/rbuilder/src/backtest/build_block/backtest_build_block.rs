@@ -17,7 +17,7 @@ use crate::{
         builders::BacktestSimulateBlockInput, BlockBuildingContext, NullPartialBlockExecutionTracer,
     },
     live_builder::cli::LiveBuilderConfig,
-    primitives::{Order, OrderId, SimulatedOrder},
+    primitives::{order_statistics::OrderStatistics, Order, OrderId, SimulatedOrder},
     provider::StateProviderFactory,
 };
 use clap::Parser;
@@ -77,7 +77,12 @@ where
     config.base_config().setup_tracing_subscriber()?;
 
     let available_orders = orders_source.available_orders();
+    let mut order_statistics = OrderStatistics::new();
+    for order in &available_orders {
+        order_statistics.add(&order.order);
+    }
     println!("Available orders: {}", available_orders.len());
+    println!("Order statistics: {:?}", order_statistics);
 
     if build_block_cfg.show_orders {
         print_order_and_timestamp(&available_orders, orders_source.block_time_as_unix_ms());

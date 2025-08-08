@@ -164,10 +164,10 @@ async fn read_block_data(
         HistoricalDataStorage::new_from_path(backtest_fetch_output_file).await?;
 
     let full_block_data = historical_data_storage.read_block_data(block).await?;
-    let mut block_data =
-        full_block_data.snapshot_including_landed(timestamp_ms_to_offset_datetime(
-            (full_block_data.winning_bid_trace.timestamp_ms as i64 - block_building_time_ms) as u64,
-        ))?;
+    let orders_cutoff_time = timestamp_ms_to_offset_datetime(
+        (full_block_data.winning_bid_trace.timestamp_ms as i64 - block_building_time_ms) as u64,
+    );
+    let mut block_data = full_block_data.snapshot_including_landed(orders_cutoff_time)?;
     if !only_order_ids.is_empty() {
         block_data.filter_orders_by_ids(&only_order_ids);
     }
@@ -176,8 +176,11 @@ async fn read_block_data(
     }
 
     println!(
-        "Block: {} {:?}",
-        block_data.block_number, block_data.onchain_block.header.hash
+        "Block: {} {:?} landed at {} orders at {}",
+        block_data.block_number,
+        block_data.onchain_block.header.hash,
+        timestamp_ms_to_offset_datetime(full_block_data.winning_bid_trace.timestamp_ms),
+        orders_cutoff_time
     );
     println!(
         "bid value: {}",

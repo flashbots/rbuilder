@@ -15,13 +15,12 @@ use rbuilder::{
     },
     live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig, config::Config},
     primitives::{
-        order_statistics::OrderStatistics, MempoolTx, Order, OrderId, SimValue, SimulatedOrder,
+        order_statistics::OrderStatistics, MempoolTx, Order, SimValue, SimulatedOrder,
         TransactionSignedEcRecoveredWithBlobs,
     },
     provider::StateProviderFactory,
     utils::{extract_onchain_block_txs, find_suggested_fee_recipient},
 };
-use reth::rpc::server_types::eth::cache::config;
 use std::{
     path::{Path, PathBuf},
     sync::Arc,

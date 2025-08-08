@@ -33,7 +33,7 @@ use revm::{
     database::{states::bundle_state::BundleRetention, BundleState, State},
     Database, DatabaseCommit,
 };
-use std::{collections::HashMap, sync::Arc, time::Instant};
+use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 
 #[derive(Clone)]
