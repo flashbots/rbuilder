@@ -341,7 +341,7 @@ register_metrics! {
 
 
     pub static RELAY_SUBMIT_REQUEST_STEP_TIME: HistogramVec = HistogramVec::new(
-        HistogramOpts::new("relay_submit_request_step_time", "Time for different steps when doing request to the relay")
+        HistogramOpts::new("relay_submit_request_step_time", "Time for different steps when doing request to the relay (ms)")
             .buckets(exponential_buckets_range(0.01, 3000.0, 300)),
         &["relay", "step"]
     )
