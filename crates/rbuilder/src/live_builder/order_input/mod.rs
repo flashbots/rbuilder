@@ -346,17 +346,17 @@ where
             tokio::select! {
                 header = header_receiver.recv() => {
                     if let Some(header) = header {
-            let provider_factory = provider_factory.clone();
-            let orderpool = orderpool.clone();
-            let res = spawn_blocking(move || {
+                        let provider_factory = provider_factory.clone();
+                        let orderpool = orderpool.clone();
+                        let res = spawn_blocking(move || {
                             let current_block = header.number;
                             set_current_block(current_block);
                             let state = match provider_factory.latest() {
-                Ok(state) => state,
-                Err(err) => {
+                                Ok(state) => state,
+                                Err(err) => {
                                     error!(?err, "Failed to get latest state");
-                    return;
-                }
+                                    return;
+                                }
                             };
 
                             let mut orderpool = orderpool.lock();
@@ -368,16 +368,16 @@ where
                             let (tx_count, bundle_count) = orderpool.content_count();
                             set_ordepool_count(tx_count, bundle_count);
                             debug!(
-                current_block,
-                tx_count,
-                bundle_count,
-                update_time_ms = update_time.as_millis(),
-                "Cleaned orderpool",
+                                current_block,
+                                tx_count,
+                                bundle_count,
+                                update_time_ms = update_time.as_millis(),
+                                "Cleaned orderpool",
                             );
-            }).await;
-            if let Err(err) = res {
-                error!(?err, "Clean orderpool error");
-            }
+                        }).await;
+                        if let Err(err) = res {
+                            error!(?err, "Clean orderpool error");
+                        }
                     } else {
                         info!("Clean orderpool job: channel ended");
                         if !global_cancellation.is_cancelled(){
