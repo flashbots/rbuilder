@@ -8,12 +8,11 @@ use crate::{
     types::{BlockBid, PublisherType},
     DynResult, RPC_TIMEOUT,
 };
+use alloy_primitives::{Address, BlockHash, U256};
+use alloy_provider::{Provider, ProviderBuilder};
+use alloy_rpc_types_beacon::BlsPublicKey;
 use async_trait::async_trait;
-use ethers::{
-    abi::{AbiDecode, AbiEncode},
-    prelude::*,
-};
-use eyre::{eyre, Context};
+use eyre::Context;
 use lru::LruCache;
 use parking_lot::{Mutex, MutexGuard};
 use serde::Deserialize;
@@ -115,13 +114,11 @@ impl Service<RelayBidsPublisherConfig> for BidsPublisherService {
             .simple_relay_publisher_config()
             .eth_provider_uri
             .clone();
-        let provider = timeout(
-            RPC_TIMEOUT,
-            Provider::<Ws>::connect(eth_provider_uri.clone()),
-        )
-        .await
-        .wrap_err("could not connect to node in time")?
-        .wrap_err("unable to connect to node?")?;
+        let ws_conn = alloy_provider::WsConnect::new(eth_provider_uri);
+        let provider = timeout(RPC_TIMEOUT, ProviderBuilder::new().connect_ws(ws_conn))
+            .await
+            .wrap_err("could not connect to node in time")?
+            .wrap_err("unable to connect to node?")?;
 
         let mut subscription = provider
             .subscribe_blocks()
@@ -130,16 +127,16 @@ impl Service<RelayBidsPublisherConfig> for BidsPublisherService {
         info!("New blocks subscriber connected and ready. Waiting for the first block...");
         let cancel_token = self.cancellation_token();
         while !cancel_token.is_cancelled() {
-            let block = timeout(RPC_TIMEOUT, subscription.next())
+            let block = timeout(RPC_TIMEOUT, subscription.recv())
                 .await
                 .wrap_err("didn't receive a new block in time")?
-                .ok_or(eyre!("didn't receive a new block"))?;
+                .wrap_err("didn't receive a new block")?;
             {
                 trace!("got block {:?}", block);
                 let mut inner = self.inner();
-                inner.last_block_number = block.number.ok_or(eyre!("no block number"))?.as_u64();
-                inner.last_block_hash = block.hash.ok_or(eyre!("no block hash"))?.encode_hex();
-                inner.last_slot = slot::get_slot_number(block.timestamp.as_u64());
+                inner.last_block_number = block.number;
+                inner.last_block_hash = block.hash.to_string();
+                inner.last_slot = slot::get_slot_number(block.timestamp);
                 info!(
                     "New block {} ({}).",
                     inner.last_block_number, inner.last_block_hash,
@@ -158,11 +155,10 @@ impl BidsPublisherService {
         client: &reqwest::Client,
     ) -> DynResult<Vec<BlockBid>> {
         debug!("Getting bids for relay {relay_name}");
-
+        let block_number = self.inner().last_block_number + 1;
         let url = format!(
             "{}/relay/v1/data/bidtraces/builder_blocks_received?block_number={}&order_by=-value",
-            relay_endpoint,
-            self.inner().last_block_number + 1
+            relay_endpoint, block_number
         );
         // By default it's ordered by slot (so, no effect). So we order by decreasing value
         // instead, it's more interesting to us.
@@ -183,19 +179,18 @@ impl BidsPublisherService {
             let bid = BlockBid {
                 publisher_name: self.name.clone(),
                 publisher_type: PublisherType::RelayBids,
-                builder_pubkey: Some(
+                builder_pubkey: Some(BlsPublicKey::from_str(
                     json_bid["builder_pubkey"]
                         .as_str()
-                        .ok_or("unable to parse builder_pubkey")?
-                        .to_lowercase(),
-                ),
+                        .ok_or("unable to parse builder_pubkey")?,
+                )?),
                 relay_name: relay_name.to_string(),
-                parent_hash: H256::decode_hex(
+                parent_hash: BlockHash::from_str(
                     json_bid["parent_hash"]
                         .as_str()
                         .ok_or("unable to parse parent_hash")?,
                 )?,
-                block_hash: H256::decode_hex(
+                block_hash: BlockHash::from_str(
                     json_bid["block_hash"]
                         .as_str()
                         .ok_or("unable to parse block_hash")?,
@@ -219,18 +214,16 @@ impl BidsPublisherService {
                         .ok_or("unable to parse value")?
                         .parse::<u128>()?,
                 ),
-                slot_number: U64::from(
-                    json_bid["slot"]
-                        .as_str()
-                        .ok_or("unable to parse slot")?
-                        .parse::<u64>()?,
-                ),
-                gas_used: Some(U64::from(
+                slot_number: json_bid["slot"]
+                    .as_str()
+                    .ok_or("unable to parse slot")?
+                    .parse::<u64>()?,
+                gas_used: Some(
                     json_bid["gas_used"]
                         .as_str()
                         .ok_or("unable to parse gas_used")?
                         .parse::<u64>()?,
-                )),
+                ),
                 proposer_fee_recipient: Some(Address::from_str(
                     json_bid["proposer_fee_recipient"]
                         .as_str()
@@ -238,7 +231,7 @@ impl BidsPublisherService {
                 )?),
                 fee_recipient: None,
                 optimistic_submission: json_bid["optimistic_submission"].as_bool(),
-                block_number: None,
+                block_number,
                 extra_data: None,
             };
             debug!("Found bid: {bid:?}");

@@ -114,6 +114,7 @@ mockall = "0.12.1"
 shellexpand = "3.1.0"
 async-trait = "0.1.80"
 eth-sparse-mpt.workspace = true
+bid-scraper.workspace = true
 sysperf.workspace = true
 crossbeam = "0.8.4"
 parking_lot.workspace = true
