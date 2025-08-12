@@ -94,7 +94,7 @@ jobs:
             protobuf-compiler
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
-      - uses: actions/checkout@v4 # must install git before checkout and set safe.directory after checkout because of container
+      - uses: actions/checkout@v5 # must install git before checkout and set safe.directory after checkout because of container
 
       - name: Build rbuilder binary
         run: |
@@ -132,7 +132,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Download artifacts
         uses: actions/download-artifact@v4
@@ -176,7 +176,7 @@ jobs:
 
     steps:
       - name: checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: docker qemu
         uses: docker/setup-qemu-action@v3
