@@ -1,9 +1,12 @@
 pub mod adjustment;
+pub mod bloxroute_grpc;
 mod error;
 pub mod fake_mev_boost_relay;
 pub mod rpc;
 pub mod sign_payload;
 pub mod submission;
+
+use crate::mev_boost::bloxroute_grpc::GrpcRelayClient;
 
 use super::utils::u256decimal_serde_helper;
 
@@ -18,7 +21,7 @@ use reqwest::{
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use ssz::Encode;
-use std::{io::Write, str::FromStr};
+use std::{io::Write, str::FromStr, time::Duration};
 use submission::{SubmitBlockRequestNoBlobs, SubmitBlockRequestWithMetadata};
 use url::Url;
 
@@ -155,8 +158,10 @@ impl FromStr for KnownRelay {
 /// https://flashbots.github.io/relay-specs/
 #[derive(Debug, Clone)]
 pub struct RelayClient {
-    url: Url,
     client: reqwest::Client,
+    /// Bloxroute gRPC client. If set, it will be used for block submissions.
+    grpc_client: Option<GrpcRelayClient>,
+    url: Url,
     authorization_header: Option<String>,
     builder_id_header: Option<String>,
     api_token_header: Option<String>,
@@ -179,8 +184,9 @@ impl RelayClient {
         can_ignore_gas_limit: bool,
     ) -> Self {
         Self {
-            url,
             client: reqwest::Client::new(),
+            grpc_client: None,
+            url,
             authorization_header,
             builder_id_header,
             api_token_header,
@@ -200,6 +206,11 @@ impl RelayClient {
             false,
             false,
         )
+    }
+
+    pub fn with_grpc_client(mut self, grpc_client: GrpcRelayClient) -> Self {
+        self.grpc_client = Some(grpc_client);
+        self
     }
 
     pub fn can_ignore_gas_limit(&self) -> bool {
@@ -281,7 +292,7 @@ pub enum RelayResponse<T> {
     Error(RedactableRelayErrorResponse),
 }
 
-/// Info about a registered validator selected as proposer for a slot.
+/// Info about a registered validator se`lected as proposer for a slot.
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Hash)]
 pub struct ValidatorSlotData {
@@ -615,10 +626,48 @@ impl RelayClient {
             }
         }
 
-        Ok(builder
+        let response = builder
             .send()
             .await
-            .map_err(|e| RelayError::RequestError(e.into()))?)
+            .map_err(|e| RelayError::RequestError(e.into()))?;
+        Ok(response)
+    }
+
+    /// Send gRPC submit block request to bloxroute.
+    async fn call_bloxroute_grpc_submit_block(
+        &self,
+        client: &GrpcRelayClient,
+        submission_with_metadata: &SubmitBlockRequestWithMetadata,
+    ) -> Result<bloxroute_grpc::types::SubmitBlockResponse, SubmitBlockErr> {
+        let mut request = tonic::Request::new(bloxroute_grpc::types::SubmitBlockRequest::from(
+            &submission_with_metadata.submission,
+        ));
+        request.set_timeout(Duration::from_secs(2));
+        request.metadata_mut().insert(
+            "authorization",
+            self.authorization_header
+                .clone()
+                .unwrap_or_default()
+                .parse()
+                .map_err(|_| SubmitBlockErr::InvalidHeader)?,
+        );
+        request.metadata_mut().insert(
+            BLOXROUTE_BUILDER_VALUE_HEADER,
+            submission_with_metadata
+                .metadata
+                .value
+                .coinbase_reward
+                .to_string()
+                .parse()
+                .map_err(|_| RelayError::InvalidHeader)?,
+        );
+        request.metadata_mut().insert(
+            BLOXROUTE_SHARE_HEADER,
+            "na".parse().map_err(|_| SubmitBlockErr::InvalidHeader)?,
+        );
+
+        let response = client.lock().await.submit_block(request).await.unwrap(); // TODO:
+        Ok(response.into_inner())
     }
 
     /// Submits the block (call_relay_submit_block) and processes some special errors.
@@ -630,73 +679,47 @@ impl RelayClient {
         fake_relay: bool,
         cancellations: bool,
     ) -> Result<(), SubmitBlockErr> {
-        let resp = self
-            .call_relay_submit_block(data, ssz, gzip, fake_relay, cancellations)
-            .await?;
-        let status = resp.status();
-
-        if status == StatusCode::TOO_MANY_REQUESTS {
-            return Err(RelayError::TooManyRequests.into());
-        }
-        if status == StatusCode::GATEWAY_TIMEOUT {
-            return Err(RelayError::ConnectionError.into());
-        }
-
-        let data = resp
-            .bytes()
-            .await
-            .map_err(|e| RelayError::RequestError(e.into()))?;
-
-        if status == StatusCode::OK && data.as_ref() == b"" {
-            return Ok(());
-        }
-
-        match serde_json::from_slice::<RelayResponse<()>>(&data) {
-            Ok(RelayResponse::Ok(_)) => Ok(()),
-            Ok(RelayResponse::Error(error)) => {
-                let msg = error.message.as_str();
-                match msg {
-                    "payload attributes not (yet) known" => {
-                        Err(SubmitBlockErr::PayloadAttributesNotKnown)
-                    }
-                    "submission for past slot" | "submitted block is for past slot" => {
-                        Err(SubmitBlockErr::PastSlot)
-                    }
-                    "accepted bid below floor, skipped validation" => {
-                        Err(SubmitBlockErr::BidBelowFloor)
-                    }
-                    "payload for this slot was already delivered" => {
-                        Err(SubmitBlockErr::PayloadDelivered)
-                    }
-                    "block already received" => Err(SubmitBlockErr::BlockKnown),
-                    _ if msg.contains("read tcp") => Err(RelayError::ConnectionError.into()),
-                    _ if msg.contains(SIM_FAILED_SUBSTRING) => {
-                        if SIM_FAILED_NON_CRITICAL_ERRORS
-                            .iter()
-                            .any(|pat| msg.contains(*pat))
-                        {
-                            Err(RelayError::InternalError.into())
-                        } else {
-                            Err(SubmitBlockErr::SimError(msg.to_string()))
-                        }
-                    }
-                    _ if msg.contains("request timeout hit") => {
-                        Err(RelayError::ConnectionError.into())
-                    }
-                    _ => Err(RelayError::RelayError(error).into()),
-                }
+        if let Some(client) = &self.grpc_client {
+            let response = self.call_bloxroute_grpc_submit_block(client, data).await?;
+            let status = response.code.try_into().unwrap_or(u16::MAX);
+            if status == tonic::Code::Ok as u16 {
+                return Ok(());
             }
-            Err(_) => {
-                // bloxroute returns empty response in this format which we handle here because its not valid
-                // jsonrpc response
-                if data.as_ref() == b"{}\n" {
-                    return Ok(());
+
+            Err(map_relay_error_message(&response.message, None))
+        } else {
+            let response = self
+                .call_relay_submit_block(data, ssz, gzip, fake_relay, cancellations)
+                .await?;
+
+            let status = response.status();
+            let data = response
+                .bytes()
+                .await
+                .map_err(|err| RelayError::RequestError(err.into()))?;
+
+            if status == StatusCode::OK && data.is_empty() {
+                return Ok(());
+            }
+
+            match serde_json::from_slice::<RelayResponse<()>>(&data) {
+                Ok(RelayResponse::Ok(_)) => Ok(()),
+                Ok(RelayResponse::Error(error)) => {
+                    Err(map_relay_error_message(&error.message, error.code))
                 }
-                let data_string = String::from_utf8_lossy(&data).to_string();
-                if is_ignorable_relay_error(status, &data_string) {
-                    Ok(())
-                } else {
-                    Err(RelayError::UnknownRelayError(status, data_string).into())
+                Err(_) => {
+                    // bloxroute returns empty response in this format which we handle here because its not valid
+                    // jsonrpc response
+                    let data = String::from_utf8_lossy(&data).to_string();
+                    if data.trim() == "{}" {
+                        return Ok(());
+                    }
+
+                    if is_ignorable_relay_error(status, &data) {
+                        Ok(())
+                    } else {
+                        Err(RelayError::UnknownRelayError(status, data).into())
+                    }
                 }
             }
         }
@@ -719,6 +742,33 @@ impl RelayClient {
             headers.insert(API_TOKEN_HEADER, value);
         }
         Ok(())
+    }
+}
+
+fn map_relay_error_message(msg: &str, code: Option<u64>) -> SubmitBlockErr {
+    match msg {
+        "payload attributes not (yet) known" => SubmitBlockErr::PayloadAttributesNotKnown,
+        "submission for past slot" | "submitted block is for past slot" => SubmitBlockErr::PastSlot,
+        "accepted bid below floor, skipped validation" => SubmitBlockErr::BidBelowFloor,
+        "payload for this slot was already delivered" => SubmitBlockErr::PayloadDelivered,
+        "block already received" => SubmitBlockErr::BlockKnown,
+        _ if msg.contains("read tcp") => RelayError::ConnectionError.into(),
+        _ if msg.contains(SIM_FAILED_SUBSTRING) => {
+            if SIM_FAILED_NON_CRITICAL_ERRORS
+                .iter()
+                .any(|pat| msg.contains(*pat))
+            {
+                RelayError::InternalError.into()
+            } else {
+                SubmitBlockErr::SimError(msg.to_string())
+            }
+        }
+        _ if msg.contains("request timeout hit") => RelayError::ConnectionError.into(),
+        _ => RelayError::RelayError(RedactableRelayErrorResponse {
+            code,
+            message: msg.to_owned(),
+        })
+        .into(),
     }
 }
 

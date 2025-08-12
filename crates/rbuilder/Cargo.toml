@@ -119,6 +119,9 @@ sysperf.workspace = true
 crossbeam = "0.8.4"
 parking_lot.workspace = true
 dashmap = "6.1.0"
+tonic = "0.13"
+prost = "0.13"
+prost-types = "0.13"
 
 # IPC state provider deps
 reipc = { git = "https://github.com/nethermindeth/reipc.git", rev = "3837f3539201f948dd1c2c96a85a60d589feb4c6" }
@@ -130,6 +133,7 @@ tikv-jemallocator = "0.6"
 
 [build-dependencies]
 built = { version = "0.7.1", features = ["git2", "chrono"] }
+tonic-build = "0.13"
 
 [dev-dependencies]
 reth-db-common.workspace = true

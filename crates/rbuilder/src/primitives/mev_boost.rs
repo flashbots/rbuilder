@@ -47,6 +47,8 @@ impl RelayMode {
 pub struct RelayConfig {
     pub name: String,
     pub url: String,
+    #[serde(default)]
+    pub grpc_url: Option<String>,
     #[serde(default, deserialize_with = "deserialize_env_var")]
     pub authorization_header: Option<String>,
     #[serde(default, deserialize_with = "deserialize_env_var")]

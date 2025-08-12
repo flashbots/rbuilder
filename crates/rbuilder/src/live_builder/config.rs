@@ -43,7 +43,7 @@ use crate::{
         cli::LiveBuilderConfig,
         payload_events::MevBoostSlotDataGenerator,
     },
-    mev_boost::{BLSBlockSigner, RelayClient},
+    mev_boost::{bloxroute_grpc, BLSBlockSigner, RelayClient},
     primitives::mev_boost::{
         MevBoostRelayBidSubmitter, MevBoostRelaySlotInfoProvider, RelayConfig, RelayMode,
         RelaySubmitConfig,
@@ -75,12 +75,13 @@ use serde_with::{serde_as, OneOrMany};
 use std::{
     collections::HashMap,
     fmt::Debug,
+    future::Future,
     path::{Path, PathBuf},
+    pin::Pin,
     str::FromStr,
     sync::Arc,
     time::Duration,
 };
-use std::{future::Future, pin::Pin};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use url::Url;
@@ -233,7 +234,7 @@ impl L1Config {
         Ok(())
     }
 
-    pub fn create_relays(
+    pub async fn create_relays(
         &self,
     ) -> eyre::Result<(
         Vec<MevBoostRelayBidSubmitter>,
@@ -263,7 +264,7 @@ impl L1Config {
                             );
                         }
                     };
-                    let client = RelayClient::from_url(
+                    let mut client = RelayClient::from_url(
                         url,
                         relay_config.authorization_header.clone(),
                         relay_config.builder_id_header.clone(),
@@ -276,6 +277,15 @@ impl L1Config {
                             .can_ignore_gas_limit
                             .unwrap_or(DEFAULT_CAN_IGNORE_GAS_LIMIT),
                     );
+                    if let Some(grpc_url) = relay_config.grpc_url.clone() {
+                        let grpc_client = Arc::new(tokio::sync::Mutex::new(
+                            bloxroute_grpc::types::relay_client::RelayClient::connect(
+                                tonic::transport::Endpoint::try_from(grpc_url)?,
+                            )
+                            .await?,
+                        ));
+                        client = client.with_grpc_client(grpc_client);
+                    }
                     Self::create_relay_sub_objects(
                         relay_config,
                         client,
@@ -343,7 +353,7 @@ impl L1Config {
     }
 
     /// Creates the RelaySubmitSinkFactory and also returns the associated relays (MevBoostRelaySlotInfoProvider).
-    pub fn create_relays_sealed_sink_factory(
+    pub async fn create_relays_sealed_sink_factory(
         &self,
         chain_spec: Arc<ChainSpec>,
         bid_observer: Box<dyn BidObserver + Send + Sync>,
@@ -365,7 +375,7 @@ impl L1Config {
             );
         };
 
-        let (submitters, slot_info_providers) = self.create_relays()?;
+        let (submitters, slot_info_providers) = self.create_relays().await?;
         if slot_info_providers.is_empty() {
             eyre::bail!("No slot info providers provided");
         }
@@ -765,6 +775,7 @@ lazy_static! {
                 name: "flashbots".to_string(),
                 url: "http://k8s-default-boostrel-9f278153f5-947835446.us-east-2.elb.amazonaws.com"
                     .to_string(),
+                grpc_url: None,
                 mode: RelayMode::Full,
                 submit_config: Some(RelaySubmitConfig {
                     use_ssz_for_submit: true,
@@ -788,6 +799,7 @@ lazy_static! {
             RelayConfig {
                 name: "ultrasound-us".to_string(),
                 url: "https://relay-builders-us.ultrasound.money".to_string(),
+                grpc_url: None,
                 mode: RelayMode::Full,
                 submit_config: Some(RelaySubmitConfig {
                     use_ssz_for_submit: true,
@@ -811,6 +823,7 @@ lazy_static! {
             RelayConfig {
                 name: "ultrasound-eu".to_string(),
                 url: "https://relay-builders-eu.ultrasound.money".to_string(),
+                grpc_url: None,
                 mode: RelayMode::Full,
                 submit_config: Some(RelaySubmitConfig {
                     use_ssz_for_submit: true,
@@ -834,6 +847,7 @@ lazy_static! {
             RelayConfig {
                 name: "agnostic".to_string(),
                 url: "https://0xa7ab7a996c8584251c8f925da3170bdfd6ebc75d50f5ddc4050a6fdc77f2a3b5fce2cc750d0865e05d7228af97d69561@agnostic-relay.net".to_string(),
+                grpc_url: None,
                 mode: RelayMode::Full,
                 submit_config: Some(RelaySubmitConfig {
                     use_ssz_for_submit: true,
@@ -855,6 +869,7 @@ lazy_static! {
             "playground".to_string(),
             RelayConfig {
                 name: "playground".to_string(),
+                grpc_url: None,
                 url: "http://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@localhost:5555".to_string(),
                 mode: RelayMode::Full,
                 submit_config: Some(RelaySubmitConfig {
@@ -906,8 +921,9 @@ where
         Box<dyn Future<Output = eyre::Result<Arc<dyn BiddingService>>> + Send>,
     >,
 {
-    let (sink_sealed_factory, slot_info_provider) =
-        l1_config.create_relays_sealed_sink_factory(base_config.chain_spec()?, bid_observer)?;
+    let (sink_sealed_factory, slot_info_provider) = l1_config
+        .create_relays_sealed_sink_factory(base_config.chain_spec()?, bid_observer)
+        .await?;
 
     // BlockSealingBidderFactory
     let (wallet_balance_watcher, wallet_history) = WalletBalanceWatcher::new(

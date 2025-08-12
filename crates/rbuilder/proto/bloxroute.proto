@@ -1,0 +1,372 @@
+syntax = "proto3";
+package bloxroute;
+
+import "google/protobuf/timestamp.proto";
+
+service Relay {
+  rpc SubmitBlock(SubmitBlockRequest) returns (SubmitBlockResponse) {}
+  rpc RegisterValidator(RegisterValidatorRequest) returns (RegisterValidatorResponse) {}
+  rpc GetHeader(GetHeaderRequest) returns (GetHeaderResponse) {}
+  rpc GetPayload(GetPayloadRequest) returns (GetPayloadResponse) {}
+  rpc StreamHeader(StreamHeaderRequest) returns (stream StreamHeaderResponse) {}
+  rpc StreamBlock(StreamBlockRequest) returns (stream StreamBlockResponse) {}
+  rpc ForwardBlock(StreamBlockResponse) returns (SubmitBlockResponse) {}
+  rpc GetValidatorRegistration(GetValidatorRegistrationRequest) returns (GetValidatorRegistrationResponse) {}
+  rpc PreFetchGetPayload(PreFetchGetPayloadRequest) returns (PreFetchGetPayloadResponse) {}
+  rpc StreamBuilder(StreamBuilderRequest) returns (stream StreamBuilderResponse) {}
+  rpc StreamSlotInfo(StreamSlotRequest) returns (stream StreamSlotResponse) {}
+  rpc Ping (PingRequest) returns (PingResponse) {}
+  rpc SendHeaderDelivered(HeaderDeliveredRequest) returns (HeaderDeliveredResponse) {}
+}
+
+
+message PingRequest {}
+message PingResponse {
+  string message = 1;
+}
+
+// Registration
+message RegisterValidatorRequest {
+  string req_id = 1;
+  bytes payload = 2;
+  string client_ip = 3;
+  string node_id = 4;
+  string version = 5;
+  // validators are registering via relay proxy is trusted so no need auth header for now
+  string auth_header = 6;
+  string secret_token = 7;
+  google.protobuf.Timestamp received_at = 8;
+  string compliance_list = 9;
+  bool proposer_mev_protect = 10;
+  bool skip_optimism = 11;
+}
+
+message RegisterValidatorResponse {
+  uint32 code = 1;
+  int32 http_status_code = 2; // added for http api compatibility
+  string message = 3;
+}
+
+message GetValidatorRegistrationRequest {
+  string req_id = 1;
+  string secret_token = 2;
+  string account_id = 3;
+}
+
+message GetValidatorRegistrationResponse {
+  uint32 code = 1;
+  int32 http_status_code = 2;
+  string message = 3;
+  bytes payload = 4;
+}
+
+// GetHeader
+message GetHeaderRequest {
+  uint64 slot = 1;
+  string parent_hash = 2;
+  string pubkey = 3;
+  string client_ip = 4;
+  string version = 5;
+}
+
+message GetHeaderResponse {
+  string req_id = 1;
+  uint32 code = 2;
+  int32 http_status_code = 3;// added for http api compatibility
+  uint64 slot = 4;
+  string parent_hash = 5;
+  string pubkey = 6;
+  bytes payload = 7;
+}
+
+// GetPayload
+message GetPayloadRequest {
+  string req_id = 1;
+  bytes payload = 2;
+  string client_ip = 3;
+  string version = 4;
+  string secret_token = 5;
+  google.protobuf.Timestamp received_at = 7;
+}
+
+message GetPayloadResponse {
+  uint32 code = 1;
+  int32 http_status_code = 2;// added for http api compatibility
+  string message = 3;
+  bytes versioned_execution_payload = 4;
+  // below fields not needed but added for logging on the relay proxy
+  uint64 slot = 5;
+  string parent_hash = 6;
+  string block_hash = 7;
+  string pubkey = 8;
+  uint64 proposer_index = 9;
+  string block_value = 10;
+}
+
+// StreamHeader
+message StreamHeaderRequest {
+  string req_id = 1;
+  string node_id = 2;
+  string version = 3;
+  string secret_token = 4;
+}
+
+message StreamHeaderResponse {
+  uint64 slot = 1;
+  string parent_hash = 2;
+  string pubkey = 3;
+  bytes payload = 4;
+  bytes value = 5; // value field added to avoid unmarshalling payload which contains value
+  uint64 head_slot = 6; // head slot added for cleaning up old slot
+  string block_hash= 7;
+  string builder_pubkey = 8;
+  string builder_extra_data = 9;
+  google.protobuf.Timestamp send_time = 10;
+  bool paid_blxr = 11;
+  google.protobuf.Timestamp relay_receive_time = 12;
+  string account_id = 13;
+  BidTrace bid_trace = 14;
+  ExecutionPayloadHeader execution_payload_header = 15;
+  repeated bytes commitments = 16;
+  bytes signature = 17;
+  uint64 tx_count = 18;
+  ExecutionRequests execution_requests = 19;
+  string payload_fetch_url = 20;
+}
+
+message StreamBlockRequest {
+  string req_id = 1;
+  string node_id = 2;
+  string version = 3;
+  string secret_token = 4;
+}
+
+message StreamBlockResponse {
+  uint64 slot = 1;
+  string parent_hash = 2;
+  string pubkey = 3;
+  bytes payload = 4;
+  SubmitBlockRequest grpc_payload = 5;
+  bytes value = 6; // value field added to avoid unmarshalling payload which contains value
+  uint64 head_slot = 7; // head slot added for cleaning up old slot
+  string block_hash = 8;
+  string builder_pubkey = 9;
+  string builder_extra_data = 10;
+  google.protobuf.Timestamp send_time = 11;
+  bool paid_blxr = 12;
+  google.protobuf.Timestamp relay_receive_time = 13;
+  string account_id = 14;
+}
+
+message PreFetchGetPayloadRequest {
+  string req_id = 1;
+  string version = 2;
+  string secret_token = 3;
+  uint64 slot = 4;
+  string parent_hash = 5;
+  string block_hash = 6;
+  string pubkey = 7;
+  string client_ip = 8;
+  google.protobuf.Timestamp received_at = 9;
+}
+
+message PreFetchGetPayloadResponse {
+  uint32 code = 1;
+  string message = 2;
+  bytes versioned_execution_payload = 3;
+}
+
+// SubmitBlock
+message SubmitBlockRequest {
+  uint64 version = 1;
+  BidTrace bidTrace = 2;
+  ExecutionPayload executionPayload = 3;
+  bytes signature = 4;
+  string auth_header = 5;
+  uint64 size_before = 6;
+  bool get_payload_only = 7;
+  BlobsBundle blobs_bundle = 8;
+  bool second_value_auction_eligible = 9;
+  bool proposer_mev_protect = 10;
+  bool skip_optimism = 11;
+  bool compliance_list = 12;
+  bytes adjustment_data = 13;
+  ExecutionRequests executionRequests = 14;
+  bool get_payload_only_builder_requested = 15;
+  bool get_payload_only_region_locked = 16;
+  bool get_payload_only_no_adjustment_data = 17;
+}
+
+message SubmitBlockResponse {
+  int64 code = 1;
+  string message = 2;
+}
+
+message BidTrace {
+  uint64 Slot = 1;
+  bytes ParentHash = 2;
+  bytes BlockHash = 3;
+  bytes BuilderPubkey = 4;
+  bytes ProposerPubkey = 5;
+  bytes ProposerFeeRecipient = 6;
+  uint64 GasLimit = 7;
+  uint64 GasUsed = 8;
+  string Value = 9;
+  uint64 BlobGasUsed = 10;
+  uint64 ExcessBlobGas = 11;
+}
+
+message Withdrawal {
+  uint64 Index = 1;
+  uint64 ValidatorIndex = 2;
+  bytes Address = 3;
+  uint64 Amount = 4;
+}
+
+message BlobsBundle {
+  repeated bytes Commitments = 1;
+  repeated bytes Proofs = 2;
+  repeated bytes Blobs = 3;
+}
+
+message ExecutionPayload {
+  bytes ParentHash = 1;
+  bytes StateRoot = 2;
+  bytes ReceiptsRoot = 3;
+  bytes LogsBloom = 4;
+  bytes PrevRandao = 5;
+  bytes ExtraData = 6;
+  bytes BaseFeePerGas = 7;
+  bytes FeeRecipient = 8;
+  bytes BlockHash = 9;
+  repeated compressTx Transactions = 10;
+  repeated Withdrawal Withdrawals = 11;
+  uint64 BlockNumber = 12;
+  uint64 GasLimit = 13;
+  uint64 Timestamp = 14;
+  uint64 GasUsed = 15;
+  uint64 BlobGasUsed = 16;
+  uint64 ExcessBlobGas = 17;
+}
+
+message ExecutionPayloadHeader {
+  bytes parent_hash = 1;
+  bytes state_root = 2;
+  bytes receipts_root = 3;
+  bytes logs_bloom = 4;
+  bytes prev_randao = 5;
+  bytes extra_data = 6;
+  bytes base_fee_per_gas = 7;
+  bytes fee_recipient = 8;
+  bytes block_hash = 9;
+  bytes transactions_root = 10;
+  bytes withdrawals_root = 11;
+  uint64 block_number = 12;
+  uint64 gas_limit = 13;
+  uint64 timestamp = 14;
+  uint64 gas_used = 15;
+  uint64 blob_gas_used = 16;
+  uint64 excess_blob_gas = 17;
+}
+
+message compressTx {
+  bytes rawData = 1;
+  uint32 shortID = 2;
+}
+
+message ExecutionRequests {
+  repeated DepositRequest deposits = 1;
+  repeated WithdrawalRequest withdrawals = 2;
+  repeated ConsolidationRequest consolidations = 3;
+}
+
+message DepositRequest {
+  bytes pubkey = 1;
+  bytes withdrawalCredentials = 2;
+  uint64 amount = 3;
+  bytes signature = 4;
+  uint64 index = 5;
+}
+
+message WithdrawalRequest {
+  bytes sourceAddress = 1;
+  bytes validatorPubkey = 2;
+  uint64 amount = 3;
+}
+
+message ConsolidationRequest {
+  bytes sourceAddress = 1;
+  bytes sourcePubkey = 2;
+  bytes targetPubkey = 3;
+}
+
+// StreamBuilder
+message StreamBuilderRequest {
+  string req_id = 1;
+  string node_id = 2;
+  string version = 3;
+}
+
+message StreamBuilderResponse {
+  repeated BuilderInfo builder_info = 1;
+}
+
+message BuilderInfo {
+  bytes builder_pubkey = 1;
+  bool is_optimistic = 2;
+  bool is_demoted = 3;
+  string external_builder_account_id = 4;
+  bool is_builder_pubkey_high_priority = 5;
+  bytes builder_pubkey_skip_simulation_threshold = 6;
+  bool is_builder_account_id_high_priority = 7;
+  bytes builder_account_id_skip_simulation_threshold = 8;
+  bool trusted_external_builder = 9;
+  bool is_opted_in = 10;
+  repeated WalletAccount wallet_accounts = 11;
+}
+
+message WalletAccount {
+  bytes pubkey = 1;
+  uint64 nonce = 2;
+  bytes balance = 3;
+  uint64 last_updated_block = 4;
+}
+
+// StreamSlot
+message StreamSlotRequest {
+  string req_id = 1;
+  string node_id = 2;
+  string version = 3;
+}
+
+message StreamSlotResponse {
+  bytes proposer_pubkey = 1;
+  bytes proposer_fee_recipient = 2;
+  uint64 slot = 3;
+  bool is_eoa = 4;
+  uint64 last_updated_block = 5;
+  bytes parent_block_root = 6;
+  string parent_block_hash = 7;
+}
+
+message HeaderDeliveredRequest {
+  int64 id = 1;
+  google.protobuf.Timestamp inserted_at = 2;
+  string header_request_id = 3;
+  uint64 slot = 4;
+  uint64 epoch = 5;
+  string builder_pubkey = 6;
+  string proposer_pubkey = 7;
+  string proposer_fee_recipient = 8;
+  string parent_hash = 9;
+  string block_hash = 10;
+  uint64 block_number = 11;
+  string value = 12;
+  string value_eth = 13;
+  string proposer_send_timestamp_ms = 14;
+  string extra_data = 15;
+}
+
+message HeaderDeliveredResponse {
+  string message = 1;
+}
