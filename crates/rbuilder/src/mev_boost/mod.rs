@@ -292,7 +292,7 @@ pub enum RelayResponse<T> {
     Error(RedactableRelayErrorResponse),
 }
 
-/// Info about a registered validator se`lected as proposer for a slot.
+/// Info about a registered validator selected as proposer for a slot.
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Hash)]
 pub struct ValidatorSlotData {
