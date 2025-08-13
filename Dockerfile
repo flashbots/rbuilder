@@ -13,7 +13,7 @@ FROM rust:1.86 AS base
 ARG TARGETPLATFORM
 
 RUN apt-get update \
-    && apt-get install -y clang libclang-dev cmake
+    && apt-get install -y clang libclang-dev cmake protobuf-compiler
 
 RUN rustup component add clippy rustfmt
 
