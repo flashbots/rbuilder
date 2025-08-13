@@ -15,16 +15,16 @@ impl OrderStatistics {
 
     pub fn add(&mut self, order: &Order) {
         match order {
-            Order::Bundle(_) => self.tx_count += 1,
-            Order::Tx(_) => self.bundle_count += 1,
+            Order::Bundle(_) => self.bundle_count += 1,
+            Order::Tx(_) => self.tx_count += 1,
             Order::ShareBundle(_) => self.sbundle_count += 1,
         }
     }
 
     pub fn remove(&mut self, order: &Order) {
         match order {
-            Order::Bundle(_) => self.tx_count -= 1,
-            Order::Tx(_) => self.bundle_count -= 1,
+            Order::Bundle(_) => self.bundle_count -= 1,
+            Order::Tx(_) => self.tx_count -= 1,
             Order::ShareBundle(_) => self.sbundle_count -= 1,
         }
     }
