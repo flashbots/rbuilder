@@ -693,6 +693,13 @@ impl RelayClient {
                 .await?;
 
             let status = response.status();
+            if status == StatusCode::TOO_MANY_REQUESTS {
+                return Err(RelayError::TooManyRequests.into());
+            }
+            if status == StatusCode::GATEWAY_TIMEOUT {
+                return Err(RelayError::ConnectionError.into());
+            }
+
             let data = response
                 .bytes()
                 .await
