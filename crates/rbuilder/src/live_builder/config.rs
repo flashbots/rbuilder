@@ -1049,14 +1049,14 @@ mod test {
             .contains(&"http://localhost:3500".to_string()));
     }
 
-    #[test]
-    fn test_parse_enabled_relays() {
+    #[tokio::test]
+    async fn test_parse_enabled_relays() {
         let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         p.push("./src/live_builder/testdata/config_with_relay_override.toml");
 
         let config: Config = load_config_toml_and_env(p.clone()).expect("Config load");
 
-        let (_, slot_info_providers) = config.l1_config.create_relays().unwrap();
+        let (_, slot_info_providers) = config.l1_config.create_relays().await.unwrap();
         assert_eq!(slot_info_providers.len(), 1);
         assert_eq!(slot_info_providers[0].id(), "playground");
     }
