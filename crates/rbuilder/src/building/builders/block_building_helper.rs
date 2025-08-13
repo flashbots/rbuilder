@@ -300,11 +300,11 @@ impl BlockBuildingHelperFromProvider {
         local_ctx: &mut ThreadBlockBuildingContext,
         payout_tx_value: Option<U256>,
     ) -> Result<(), BlockBuildingHelperError> {
-        if self.built_block_trace.preconf_bundle_count > 0 {
-            self.built_block_trace.bid_value = U256::ZERO;
-            self.built_block_trace.true_bid_value = U256::ZERO;
-            return Ok(());
-        }
+        // if self.built_block_trace.preconf_bundle_count > 0 {
+        //     self.built_block_trace.bid_value = U256::ZERO;
+        //     self.built_block_trace.true_bid_value = U256::ZERO;
+        //     return Ok(());
+        // }
         self.built_block_trace.coinbase_reward = self.partial_block.coinbase_profit;
 
         let use_last_tx_payment;

@@ -32,6 +32,7 @@ pub use test_data_generator::TestDataGenerator;
 use thiserror::Error;
 use uuid::Uuid;
 use crate::preconf::PreconfOrdering;
+use reth_primitives_traits::SignerRecoverable;
 
 /// Extra metadata for ShareBundle/Bundle.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -711,10 +712,10 @@ impl TransactionSignedEcRecoveredWithBlobs {
         metadata: Option<Metadata>,
     ) -> Result<Self, TxWithBlobsCreateError> {
         // Check for an eip4844 tx passed without blobs
-        if tx.transaction().blob_versioned_hashes().is_some() && blob_sidecar.is_none() {
+        if tx.inner().blob_versioned_hashes().is_some() && blob_sidecar.is_none() {
             Err(TxWithBlobsCreateError::Eip4844MissingBlobSidecar)
         // Check for a non-eip4844 tx passed with blobs
-        } else if blob_sidecar.is_some() && tx.transaction().blob_versioned_hashes().is_none() {
+        } else if blob_sidecar.is_some() && tx.inner().blob_versioned_hashes().is_none() {
             Err(TxWithBlobsCreateError::BlobsMissingEip4844)
         // Groovy!
         } else {
@@ -748,7 +749,9 @@ impl TransactionSignedEcRecoveredWithBlobs {
         T: TransactionOrdering<Transaction = <V as TransactionValidator>::Transaction>,
         S: BlobStore,
     {
-        let blob_sidecar = pool.get_blob(*tx.inner().hash())?.map(|b| (*b).clone());
+        let blob_sidecar = pool
+        .get_blob(*tx.inner().hash())?
+        .and_then(|b| b.as_eip4844().cloned());
         Self::new(tx, blob_sidecar, None)
     }
 
@@ -821,8 +824,11 @@ impl TransactionSignedEcRecoveredWithBlobs {
             PooledTransaction::Eip4844(blob_tx) => {
                 let (blob_tx, signature, hash) = blob_tx.into_parts();
                 let (blob_tx, sidecar) = blob_tx.into_parts();
-                let tx_signed =
-                    TransactionSigned::new(Transaction::Eip4844(blob_tx), signature, hash);
+                let tx_signed = TransactionSigned::new_unchecked(
+                    Transaction::Eip4844(blob_tx),
+                    signature,
+                    hash,
+                );
                 Ok(TransactionSignedEcRecoveredWithBlobs {
                     tx: tx_signed.with_signer(signer),
                     blobs_sidecar: Arc::new(sidecar),
@@ -837,8 +843,7 @@ impl TransactionSignedEcRecoveredWithBlobs {
     ) -> Result<TransactionSignedEcRecoveredWithBlobs, TxWithBlobsCreateError> {
         let decoded = TransactionSigned::decode_2718(&mut raw_tx.as_ref())
             .map_err(TxWithBlobsCreateError::FailedToDecodeTransaction)?;
-        let tx = decoded
-            .try_into_recovered()
+        let tx = SignerRecoverable::try_into_recovered(decoded)
             .map_err(|_| TxWithBlobsCreateError::InvalidTransactionSignature)?;
         let mut fake_sidecar = BlobTransactionSidecar::default();
         for _ in 0..tx.blob_versioned_hashes().map_or(0, |hashes| hashes.len()) {

@@ -7,8 +7,8 @@ use crate::primitives::{
     Bundle, BundleReplacementData, BundleReplacementKey, BundleVersion, Metadata, Order,
     TransactionSignedEcRecoveredWithBlobs,
 };
-use alloy_primitives::{hex, keccak256, Bytes, B256};
 use alloy_dyn_abi::eip712::TypedData;
+use alloy_primitives::{hex, keccak256, Bytes, B256};
 use alloy_signer::Signer;
 use alloy_signer_local::PrivateKeySigner;
 
@@ -298,7 +298,10 @@ impl PreconfApiClient {
             .send()
             .await
         {
-            Ok(response) => response,
+            Ok(response) => {
+                info!("Received the login response from ETHGas.");
+                response
+            },
             Err(e) => {
                 let mut guard = self.state.health_status.write().await;
                 *guard = PreconfHealthStatus::ServerFailed;
@@ -338,7 +341,10 @@ impl PreconfApiClient {
                         .send()
                         .await
                     {
-                        Ok(response) => response,
+                        Ok(response) => {
+                            info!("Received the verify response from ETHGas.");
+                            response
+                        },
                         Err(e) => {
                             error!("Failed to verify signature: {}", e);
                             return is_logged_in;
@@ -365,6 +371,7 @@ impl PreconfApiClient {
                             self.access_token_exp = Some(access_token_exp);
                             self.refresh_token_exp = refresh_token_exp;
                             is_logged_in = true;
+                            info!("ETHGas login successful.");
                         }
                     } else {
                         error!(
