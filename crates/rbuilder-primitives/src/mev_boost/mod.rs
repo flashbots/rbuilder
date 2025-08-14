@@ -73,9 +73,10 @@ pub enum KnownRelay {
     Agnostic,
     Aestus,
     Wenmerge,
+    Titan,
 }
 
-pub const RELAYS: [KnownRelay; 9] = [
+pub const RELAYS: [KnownRelay; 10] = [
     KnownRelay::Flashbots,
     KnownRelay::BloxrouteMaxProfit,
     KnownRelay::BloxrouteRegulated,
@@ -85,6 +86,7 @@ pub const RELAYS: [KnownRelay; 9] = [
     KnownRelay::Agnostic,
     KnownRelay::Aestus,
     KnownRelay::Wenmerge,
+    KnownRelay::Titan,
 ];
 
 impl KnownRelay {
@@ -100,6 +102,7 @@ impl KnownRelay {
             KnownRelay::Agnostic => "https://0xa7ab7a996c8584251c8f925da3170bdfd6ebc75d50f5ddc4050a6fdc77f2a3b5fce2cc750d0865e05d7228af97d69561@agnostic-relay.net",
             KnownRelay::Aestus => "https://0xa15b52576bcbf1072f4a011c0f99f9fb6c66f3e1ff321f11f461d15e31b1cb359caa092c71bbded0bae5b5ea401aab7e@aestus.live",
             KnownRelay::Wenmerge => "https://0x8c7d33605ecef85403f8b7289c8058f440cbb6bf72b055dfe2f3e2c6695b6a1ea5a9cd0eb3a7982927a463feb4c3dae2@relay.wenmerge.com",
+            KnownRelay::Titan => "https://0x8c4ed5e24fe5c6ae21018437bde147693f68cda427cd1122cf20819c30eda7ed74f72dece09bb313f2a1855595ab677d@titanrelay.xyz",
         }).unwrap()
     }
 
@@ -115,6 +118,7 @@ impl KnownRelay {
             KnownRelay::Agnostic => "agnostic",
             KnownRelay::Aestus => "aestus",
             KnownRelay::Wenmerge => "wenmerge",
+            KnownRelay::Titan => "titan",
         }
         .to_string()
     }
@@ -142,6 +146,7 @@ impl std::str::FromStr for KnownRelay {
             "agnostic" => Ok(KnownRelay::Agnostic),
             "aestus" => Ok(KnownRelay::Aestus),
             "wenmerge" => Ok(KnownRelay::Wenmerge),
+            "titan" => Ok(KnownRelay::Titan),
             _ => Err(()),
         }
     }
