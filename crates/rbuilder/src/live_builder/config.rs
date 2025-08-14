@@ -82,6 +82,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
+use tokio::sync::Mutex as TokioMutex;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use url::Url;
@@ -234,7 +235,7 @@ impl L1Config {
         Ok(())
     }
 
-    pub async fn create_relays(
+    pub fn create_relays(
         &self,
     ) -> eyre::Result<(
         Vec<MevBoostRelayBidSubmitter>,
@@ -278,11 +279,10 @@ impl L1Config {
                             .unwrap_or(DEFAULT_CAN_IGNORE_GAS_LIMIT),
                     );
                     if let Some(grpc_url) = relay_config.grpc_url.clone() {
-                        let grpc_client = Arc::new(tokio::sync::Mutex::new(
-                            bloxroute_grpc::types::relay_client::RelayClient::connect(
-                                tonic::transport::Endpoint::try_from(grpc_url)?,
-                            )
-                            .await?,
+                        let grpc_client = Arc::new(TokioMutex::new(
+                            bloxroute_grpc::types::relay_client::RelayClient::new(
+                                tonic::transport::Endpoint::try_from(grpc_url)?.connect_lazy(),
+                            ),
                         ));
                         client = client.with_grpc_client(grpc_client);
                     }
@@ -353,7 +353,7 @@ impl L1Config {
     }
 
     /// Creates the RelaySubmitSinkFactory and also returns the associated relays (MevBoostRelaySlotInfoProvider).
-    pub async fn create_relays_sealed_sink_factory(
+    pub fn create_relays_sealed_sink_factory(
         &self,
         chain_spec: Arc<ChainSpec>,
         bid_observer: Box<dyn BidObserver + Send + Sync>,
@@ -375,7 +375,7 @@ impl L1Config {
             );
         };
 
-        let (submitters, slot_info_providers) = self.create_relays().await?;
+        let (submitters, slot_info_providers) = self.create_relays()?;
         if slot_info_providers.is_empty() {
             eyre::bail!("No slot info providers provided");
         }
@@ -921,9 +921,8 @@ where
         Box<dyn Future<Output = eyre::Result<Arc<dyn BiddingService>>> + Send>,
     >,
 {
-    let (sink_sealed_factory, slot_info_provider) = l1_config
-        .create_relays_sealed_sink_factory(base_config.chain_spec()?, bid_observer)
-        .await?;
+    let (sink_sealed_factory, slot_info_provider) =
+        l1_config.create_relays_sealed_sink_factory(base_config.chain_spec()?, bid_observer)?;
 
     // BlockSealingBidderFactory
     let (wallet_balance_watcher, wallet_history) = WalletBalanceWatcher::new(
@@ -1056,7 +1055,7 @@ mod test {
 
         let config: Config = load_config_toml_and_env(p.clone()).expect("Config load");
 
-        let (_, slot_info_providers) = config.l1_config.create_relays().await.unwrap();
+        let (_, slot_info_providers) = config.l1_config.create_relays().unwrap();
         assert_eq!(slot_info_providers.len(), 1);
         assert_eq!(slot_info_providers[0].id(), "playground");
     }

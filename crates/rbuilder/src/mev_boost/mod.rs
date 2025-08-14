@@ -360,6 +360,8 @@ pub enum SubmitBlockErr {
     InvalidHeader,
     #[error("Block known")]
     BlockKnown,
+    #[error("gRPC error")]
+    Grpc(#[from] tonic::Status),
 }
 
 impl std::fmt::Debug for SubmitBlockErr {
@@ -659,14 +661,14 @@ impl RelayClient {
                 .coinbase_reward
                 .to_string()
                 .parse()
-                .map_err(|_| RelayError::InvalidHeader)?,
+                .map_err(|_| SubmitBlockErr::InvalidHeader)?,
         );
         request.metadata_mut().insert(
             BLOXROUTE_SHARE_HEADER,
             "na".parse().map_err(|_| SubmitBlockErr::InvalidHeader)?,
         );
 
-        let response = client.lock().await.submit_block(request).await.unwrap(); // TODO:
+        let response = client.lock().await.submit_block(request).await?;
         Ok(response.into_inner())
     }
 
@@ -679,54 +681,67 @@ impl RelayClient {
         fake_relay: bool,
         cancellations: bool,
     ) -> Result<(), SubmitBlockErr> {
+        // If gRPC client is available, attempt to submit with it.
         if let Some(client) = &self.grpc_client {
-            let response = self.call_bloxroute_grpc_submit_block(client, data).await?;
-            let status = response.code.try_into().unwrap_or(u16::MAX);
-            if status == tonic::Code::Ok as u16 {
-                return Ok(());
-            }
-
-            Err(map_relay_error_message(&response.message, None))
-        } else {
-            let response = self
-                .call_relay_submit_block(data, ssz, gzip, fake_relay, cancellations)
-                .await?;
-
-            let status = response.status();
-            if status == StatusCode::TOO_MANY_REQUESTS {
-                return Err(RelayError::TooManyRequests.into());
-            }
-            if status == StatusCode::GATEWAY_TIMEOUT {
-                return Err(RelayError::ConnectionError.into());
-            }
-
-            let data = response
-                .bytes()
-                .await
-                .map_err(|err| RelayError::RequestError(err.into()))?;
-
-            if status == StatusCode::OK && data.is_empty() {
-                return Ok(());
-            }
-
-            match serde_json::from_slice::<RelayResponse<()>>(&data) {
-                Ok(RelayResponse::Ok(_)) => Ok(()),
-                Ok(RelayResponse::Error(error)) => {
-                    Err(map_relay_error_message(&error.message, error.code))
-                }
-                Err(_) => {
-                    // bloxroute returns empty response in this format which we handle here because its not valid
-                    // jsonrpc response
-                    let data = String::from_utf8_lossy(&data).to_string();
-                    if data.trim() == "{}" {
-                        return Ok(());
-                    }
-
-                    if is_ignorable_relay_error(status, &data) {
+            match self.call_bloxroute_grpc_submit_block(client, data).await {
+                Ok(response) => {
+                    let status = response.code.try_into().unwrap_or(u16::MAX);
+                    return if status == tonic::Code::Ok as u16 {
                         Ok(())
                     } else {
-                        Err(RelayError::UnknownRelayError(status, data).into())
+                        Err(map_relay_error_message(&response.message, None))
+                    };
+                }
+                Err(SubmitBlockErr::Grpc(error)) => {
+                    if matches!(error.code(), tonic::Code::Unknown) {
+                        // Request succeeded, but relay returned an error.
+                        return Err(map_relay_error_message(error.message(), None));
                     }
+
+                    // We encountered connection error, possibly due to broken gRPC connection. Proceed to re-submit the block through HTTP.
+                }
+                Err(error) => return Err(error),
+            };
+        }
+
+        let response = self
+            .call_relay_submit_block(data, ssz, gzip, fake_relay, cancellations)
+            .await?;
+
+        let status = response.status();
+        if status == StatusCode::TOO_MANY_REQUESTS {
+            return Err(RelayError::TooManyRequests.into());
+        }
+        if status == StatusCode::GATEWAY_TIMEOUT {
+            return Err(RelayError::ConnectionError.into());
+        }
+
+        let data = response
+            .bytes()
+            .await
+            .map_err(|err| RelayError::RequestError(err.into()))?;
+
+        if status == StatusCode::OK && data.is_empty() {
+            return Ok(());
+        }
+
+        match serde_json::from_slice::<RelayResponse<()>>(&data) {
+            Ok(RelayResponse::Ok(_)) => Ok(()),
+            Ok(RelayResponse::Error(error)) => {
+                Err(map_relay_error_message(&error.message, error.code))
+            }
+            Err(_) => {
+                // bloxroute returns empty response in this format which we handle here because its not valid
+                // jsonrpc response
+                let data = String::from_utf8_lossy(&data).to_string();
+                if data.trim() == "{}" {
+                    return Ok(());
+                }
+
+                if is_ignorable_relay_error(status, &data) {
+                    Ok(())
+                } else {
+                    Err(RelayError::UnknownRelayError(status, data).into())
                 }
             }
         }

@@ -461,6 +461,13 @@ async fn submit_bid_to_the_relay(
         Err(SubmitBlockErr::InvalidHeader) => {
             error!("Invalid authorization header submitting block to the relay");
         }
+        Err(SubmitBlockErr::Grpc(error)) => {
+            error!(
+                status = ?error.code(),
+                err = error.message(),
+                "Encountered gRPC error"
+            );
+        }
     }
 }
 
