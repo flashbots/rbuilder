@@ -70,21 +70,12 @@ pub struct TimingsConfig {
 }
 
 impl TimingsConfig {
-    /// Classic rbuilder
+    /// Timings for the Ethereum network.
     pub fn ethereum() -> Self {
         Self {
             slot_proposal_duration: Duration::from_secs(4),
             block_header_deadline_delta: time::Duration::milliseconds(-2500),
             get_block_header_period: time::Duration::milliseconds(250),
-        }
-    }
-
-    /// Configuration for OP-based chains with fast block times
-    pub fn optimism() -> Self {
-        Self {
-            slot_proposal_duration: Duration::from_secs(0),
-            block_header_deadline_delta: time::Duration::milliseconds(-25),
-            get_block_header_period: time::Duration::milliseconds(25),
         }
     }
 }
@@ -160,7 +151,7 @@ where
             "Builder coinbase address: {:?}",
             self.coinbase_signer.address
         );
-        let timings = self.timings();
+        let timings = TimingsConfig::ethereum();
 
         if let Some(error_storage_path) = self.error_storage_path {
             spawn_error_storage_writer(error_storage_path, self.global_cancellation.clone())
@@ -372,17 +363,6 @@ where
         });
 
         Ok(())
-    }
-
-    // Currently we only need two timings config, depending on whether rbuilder is being
-    // used in the optimism context. If further customisation is required in the future
-    // this should be improved on.
-    fn timings(&self) -> TimingsConfig {
-        if cfg!(feature = "optimism") {
-            TimingsConfig::optimism()
-        } else {
-            TimingsConfig::ethereum()
-        }
     }
 }
 
