@@ -332,6 +332,7 @@ fn spawn_mev_boost_slot_data_generator(
     let slot_data_generator = MevBoostSlotDataGenerator::new(
         cl_clients,
         vec![relay],
+        Duration::from_millis(1_000),
         Arc::new(NullBlockListProvider::default()),
         cancellation_token.clone(),
     );
@@ -352,12 +353,12 @@ async fn run_slot_data_fetcher(
 ) {
     'slot_data: loop {
         let new_slot_data = tokio::select! {
-                data = slot_data_generator.recv() => if let Some(data) = data {
-                    data
-        } else {
-                    break 'slot_data;
-        },
-                _ = cancellation_token.cancelled() => break 'slot_data,
+            data = slot_data_generator.recv() => if let Some(data) = data {
+                data
+            } else {
+                break 'slot_data;
+            },
+            _ = cancellation_token.cancelled() => break 'slot_data,
         };
         {
             info!(slot = new_slot_data.slot(), "New slot data");

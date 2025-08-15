@@ -125,6 +125,8 @@ pub struct Config {
     /// selected builder configurations
     pub builders: Vec<BuilderConfig>,
 
+    /// The interval at which validator registrations should be updated.
+    pub registration_update_interval_ms: Option<u64>,
     /// When the sample bidder (see TrueBlockValueBiddingService) will start bidding.
     /// Usually a negative number.
     pub slot_delta_to_start_bidding_ms: Option<i64>,
@@ -133,6 +135,7 @@ pub struct Config {
 }
 
 const DEFAULT_SLOT_DELTA_TO_START_BIDDING_MS: i64 = -8000;
+const DEFAULT_REGISTRATION_UPDATE_INTERVAL_MS: u64 = 5_000;
 const DEFAULT_ASK_FOR_FILTERING_VALIDATORS: bool = false;
 const DEFAULT_CAN_IGNORE_GAS_LIMIT: bool = false;
 
@@ -392,6 +395,7 @@ impl LiveBuilderConfig for Config {
     fn base_config(&self) -> &BaseConfig {
         &self.base_config
     }
+
     async fn new_builder<P>(
         &self,
         provider: P,
@@ -401,7 +405,10 @@ impl LiveBuilderConfig for Config {
         P: StateProviderFactory + Clone + 'static,
     {
         let subsidy = self.subsidy.clone();
-        let slot_delta_to_start_bidding_ms = self.slot_delta_to_start_bidding_ms;
+        let slot_delta_to_start_bidding_ms = time::Duration::milliseconds(
+            self.slot_delta_to_start_bidding_ms
+                .unwrap_or(DEFAULT_SLOT_DELTA_TO_START_BIDDING_MS),
+        );
         // Create the bidding service factory
         let bidding_service_factory = |landed_blocks: &[LandedBlockInfo]| {
             // Clone the data you need for the async block
@@ -415,10 +422,7 @@ impl LiveBuilderConfig for Config {
                 let bidding_service: Arc<dyn BiddingService> =
                     Arc::new(TrueBlockValueBiddingService::new(
                         &landed_blocks,
-                        time::Duration::milliseconds(
-                            slot_delta_to_start_bidding_ms
-                                .unwrap_or(DEFAULT_SLOT_DELTA_TO_START_BIDDING_MS),
-                        ),
+                        slot_delta_to_start_bidding_ms,
                         subsidy,
                     ));
                 Ok(bidding_service)
@@ -436,12 +440,17 @@ impl LiveBuilderConfig for Config {
         )
         .await?;
 
+        let registration_update_interval = Duration::from_millis(
+            self.registration_update_interval_ms
+                .unwrap_or(DEFAULT_REGISTRATION_UPDATE_INTERVAL_MS),
+        );
         let live_builder = create_builder_from_sink(
             &self.base_config,
             &self.l1_config,
             provider,
             sink_factory,
             slot_info_provider,
+            registration_update_interval,
             cancellation_token,
         )
         .await?;
@@ -634,6 +643,7 @@ impl Default for Config {
                     }),
                 },
             ],
+            registration_update_interval_ms: None,
             slot_delta_to_start_bidding_ms: None,
             subsidy: None,
         }
@@ -993,6 +1003,7 @@ pub async fn create_builder_from_sink<P>(
     provider: P,
     sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
     slot_info_provider: Vec<MevBoostRelaySlotInfoProvider>,
+    registration_update_interval: Duration,
     cancellation_token: CancellationToken,
 ) -> eyre::Result<super::LiveBuilder<P, MevBoostSlotDataGenerator>>
 where
@@ -1004,6 +1015,7 @@ where
     let payload_event = MevBoostSlotDataGenerator::new(
         l1_config.beacon_clients()?,
         slot_info_provider,
+        registration_update_interval,
         blocklist_provider.clone(),
         cancellation_token.clone(),
     );

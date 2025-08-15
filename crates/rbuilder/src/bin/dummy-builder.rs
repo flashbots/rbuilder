@@ -85,6 +85,7 @@ async fn main() -> eyre::Result<()> {
     let payload_event = MevBoostSlotDataGenerator::new(
         vec![Client::default()],
         vec![relay],
+        Duration::from_millis(1_000),
         blocklist_provider.clone(),
         cancel.clone(),
     );

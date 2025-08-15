@@ -99,6 +99,7 @@ impl MevBoostSlotData {
 pub struct MevBoostSlotDataGenerator {
     cls: Vec<Client>,
     relays: Vec<MevBoostRelaySlotInfoProvider>,
+    update_interval: Duration,
     blocklist_provider: Arc<dyn BlockListProvider>,
     global_cancellation: CancellationToken,
 }
@@ -107,12 +108,14 @@ impl MevBoostSlotDataGenerator {
     pub fn new(
         cls: Vec<Client>,
         relays: Vec<MevBoostRelaySlotInfoProvider>,
+        update_interval: Duration,
         blocklist_provider: Arc<dyn BlockListProvider>,
         global_cancellation: CancellationToken,
     ) -> Self {
         Self {
             cls,
             relays,
+            update_interval,
             blocklist_provider,
             global_cancellation,
         }
@@ -127,7 +130,8 @@ impl MevBoostSlotDataGenerator {
     ///     it, but even with the event being created for every slot, the fee_recipient we get from MEV-Boost might be different so we should always replace it.
     ///     Note that with MEV-boost the validator may change the fee_recipient when registering to the Relays.
     pub fn spawn(self) -> (JoinHandle<()>, mpsc::UnboundedReceiver<MevBoostSlotData>) {
-        let relays = RelaysForSlotData::new(&self.relays);
+        let relays =
+            RelaysForSlotData::spawn_with_interval(self.relays.clone(), self.update_interval);
 
         // we generate first payload id randomly so logs don't have the same payload id after restarts
         // u32 is used because it will fit into json log as integer and its enough to be unique over long interval
@@ -168,17 +172,16 @@ impl MevBoostSlotDataGenerator {
                     "Payload attributes received from CL client"
                 );
 
-                let (slot_data, relay_registrations) =
-                    if let Some(res) = relays.slot_data(slot).await {
-                        res
-                    } else {
-                        info!(
-                            payload_id,
-                            reason = "no MEV-Boost relay data",
-                            "Payload attributes discarded"
-                        );
-                        continue;
-                    };
+                let (slot_data, relay_registrations) = if let Some(res) = relays.slot_data(slot) {
+                    res
+                } else {
+                    info!(
+                        payload_id,
+                        reason = "no MEV-Boost relay data",
+                        "Payload attributes discarded"
+                    );
+                    continue;
+                };
 
                 info!(
                     payload_id,
