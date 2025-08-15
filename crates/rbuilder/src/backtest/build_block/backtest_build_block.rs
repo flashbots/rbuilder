@@ -118,7 +118,7 @@ where
                 };
                 let build_res = config.build_backtest_block(builder_name, input);
                 if let Err(err) = &build_res {
-                    println!("Error building block: {:?}", err);
+                    println!("Error building block: {err:?}");
                     return None;
                 }
                 let block = build_res.ok()?;

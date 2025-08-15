@@ -59,11 +59,20 @@ pub struct LocalCachedReads {
     pub storage: HashMap<(Address, U256), U256>,
 }
 
-#[derive(Debug)]
 pub struct CachedDB<'a, 'b, DB> {
     db: DB,
     local_cache: &'a mut LocalCachedReads,
     shared_cache: &'b SharedCachedReads,
+}
+
+// Manual Debug implementation that doesn't require DB to implement Debug (e.g. reth state provider).
+impl<'a, 'b, DB> std::fmt::Debug for CachedDB<'a, 'b, DB> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CachedDB")
+            .field("local_cache", &self.local_cache)
+            .field("shared_cache", &self.shared_cache)
+            .finish()
+    }
 }
 
 impl<'a, 'b, DB> CachedDB<'a, 'b, DB> {

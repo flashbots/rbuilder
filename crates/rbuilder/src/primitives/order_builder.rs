@@ -8,6 +8,7 @@ use super::{
 
 /// Helper object to build Orders for testing.
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum OrderBuilder {
     MempoolTx(Option<TransactionSignedEcRecoveredWithBlobs>),
     Bundle(BundleBuilder),

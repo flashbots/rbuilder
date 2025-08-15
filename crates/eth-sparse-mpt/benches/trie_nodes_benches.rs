@@ -43,18 +43,18 @@ fn add_elements_only_neo_sparse_trie_insert_and_hash(keys: &[Bytes], values: &[B
 
 fn ptr_trie_insert_only(c: &mut Criterion) {
     let (keys, values) = prepare_key_value_data(TRIE_SIZE);
-    c.bench_function(&format!("ptr_trie_insert_only_{}", TRIE_SIZE), |b| {
+    c.bench_function(&format!("ptr_trie_insert_only_{TRIE_SIZE}"), |b| {
         b.iter(|| add_elements_only_neo_sparse_trie(&keys, &values))
     });
 }
 
 fn ptr_trie_insert_and_hash(c: &mut Criterion) {
     let (keys, values) = prepare_key_value_data(TRIE_SIZE);
-    c.bench_function(&format!("ptr_trie_insert_and_hash_{}", TRIE_SIZE), |b| {
+    c.bench_function(&format!("ptr_trie_insert_and_hash_{TRIE_SIZE}"), |b| {
         b.iter(|| add_elements_only_neo_sparse_trie_insert_and_hash(&keys, &values))
     });
     c.bench_function(
-        &format!("reference_trie_insert_and_hash_{}", TRIE_SIZE),
+        &format!("reference_trie_insert_and_hash_{TRIE_SIZE}"),
         |b| b.iter(|| add_elements_bytes(&keys, &values)),
     );
 }
@@ -67,7 +67,7 @@ fn hashing(c: &mut Criterion) {
 
     let mut hash_cache = HashMap::default();
 
-    c.bench_function(&format!("hashing_{}_elements", TRIE_SIZE), |b| {
+    c.bench_function(&format!("hashing_{TRIE_SIZE}_elements"), |b| {
         b.iter(|| {
             for d in data.iter() {
                 let hash = keccak256(d);
@@ -76,7 +76,7 @@ fn hashing(c: &mut Criterion) {
         })
     });
 
-    c.bench_function(&format!("hashing_{}_elements_with_cache", TRIE_SIZE), |b| {
+    c.bench_function(&format!("hashing_{TRIE_SIZE}_elements_with_cache"), |b| {
         b.iter(|| {
             for d in data.iter() {
                 let hash = hash_cache.entry(d).or_insert_with(|| keccak256(d));
@@ -93,7 +93,7 @@ fn cloning(c: &mut Criterion) {
     }
 
     c.bench_function(
-        &format!("cloning_{}_branch_node_size_elements", TRIE_SIZE),
+        &format!("cloning_{TRIE_SIZE}_branch_node_size_elements"),
         |b| {
             b.iter(|| {
                 black_box(data.clone());
@@ -102,7 +102,7 @@ fn cloning(c: &mut Criterion) {
     );
 
     c.bench_function(
-        &format!("hashing_{}_branch_node_size_elements", TRIE_SIZE),
+        &format!("hashing_{TRIE_SIZE}_branch_node_size_elements"),
         |b| {
             let mut buff = Vec::new();
             b.iter(|| {

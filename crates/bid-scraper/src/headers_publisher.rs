@@ -206,8 +206,7 @@ impl HeadersPublisherService {
         // instead, it's more interesting to us.
         let response = client
             .get(format!(
-                "{}/eth/v1/builder/header/{next_slot}/{last_block_hash}/{next_validator_pubkey}",
-                relay_endpoint,
+                "{relay_endpoint}/eth/v1/builder/header/{next_slot}/{last_block_hash}/{next_validator_pubkey}",
             ))
             .send()
             .await?;

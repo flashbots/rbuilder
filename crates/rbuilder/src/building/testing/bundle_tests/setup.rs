@@ -274,14 +274,14 @@ impl TestSetup {
     pub fn commit_order_err_check_text(&mut self, expected_error: &str) {
         let res = self.try_commit_order().expect("Failed to commit order");
         match res {
-            Ok(_) => panic!("expected error, result: {:#?}", res),
+            Ok(_) => panic!("expected error, result: {res:#?}"),
             Err(err) => {
                 if !err
                     .to_string()
                     .to_lowercase()
                     .contains(&expected_error.to_lowercase())
                 {
-                    panic!("unexpected error: {}, expected: {}", err, expected_error);
+                    panic!("unexpected error: {err}, expected: {expected_error}");
                 }
             }
         }
@@ -291,12 +291,12 @@ impl TestSetup {
     pub fn commit_order_err_check<F: FnOnce(OrderErr)>(&mut self, err_check: F) {
         let res = self.try_commit_order().expect("Failed to commit order");
         match res {
-            Ok(_) => panic!("expected error,got ok result: {:#?}", res),
+            Ok(_) => panic!("expected error,got ok result: {res:#?}"),
             Err(err) => {
                 if let ExecutionError::OrderError(order_error) = err {
                     err_check(order_error);
                 } else {
-                    panic!("unexpected non OrderErr error: {}", err);
+                    panic!("unexpected non OrderErr error: {err}");
                 }
             }
         }

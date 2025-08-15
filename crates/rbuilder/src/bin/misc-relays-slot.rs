@@ -38,11 +38,11 @@ async fn main() -> eyre::Result<()> {
     println!("block_hash     {:?}", payload.block_hash);
     println!("timestamp_ms   {}", payload.timestamp_ms);
     println!("timestamp      {}", payload.timestamp);
-    println!("timestamp_diff {}", ts_diff);
+    println!("timestamp_diff {ts_diff}");
     println!("num_tx         {}", payload.num_tx);
     println!("gas_used       {}", payload.gas_used);
     println!("builder        {:?}", payload.builder_pubkey);
-    println!("value          {}", value);
+    println!("value          {value}");
     println!("optimistic     {}", payload.optimistic_submission);
 
     Ok(())

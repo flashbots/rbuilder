@@ -343,6 +343,7 @@ impl ShareBundleTx {
 /// Body element of a mev share bundle.
 /// [`ShareBundleInner::body`] is formed by several of these.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[allow(clippy::large_enum_variant)]
 pub enum ShareBundleBody {
     Tx(ShareBundleTx),
     Bundle(ShareBundleInner),
@@ -1244,9 +1245,9 @@ impl FromStr for OrderId {
 impl Display for OrderId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Tx(hash) => write!(f, "tx:{:?}", hash),
-            Self::Bundle(uuid) => write!(f, "bundle:{:?}", uuid),
-            Self::ShareBundle(hash) => write!(f, "sbundle:{:?}", hash),
+            Self::Tx(hash) => write!(f, "tx:{hash:?}"),
+            Self::Bundle(uuid) => write!(f, "bundle:{uuid:?}"),
+            Self::ShareBundle(hash) => write!(f, "sbundle:{hash:?}"),
         }
     }
 }

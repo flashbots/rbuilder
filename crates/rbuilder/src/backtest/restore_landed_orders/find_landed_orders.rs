@@ -460,7 +460,7 @@ mod tests {
         ];
         for (idx, (chunk_idx, chunk_txs_block_idx, expected)) in cases.into_iter().enumerate() {
             let got = find_allowed_range(block_len, chunk_idx, &chunk_txs_block_idx);
-            assert_eq!(expected, got, "Test index: {}", idx);
+            assert_eq!(expected, got, "Test index: {idx}");
         }
     }
 
@@ -474,7 +474,7 @@ mod tests {
         for expected_result in expected {
             let got_result = got
                 .get(&expected_result.order)
-                .unwrap_or_else(|| panic!("Order not found: {:?}", expected_result));
+                .unwrap_or_else(|| panic!("Order not found: {expected_result:?}"));
             assert_eq!(expected_result, *got_result);
         }
     }

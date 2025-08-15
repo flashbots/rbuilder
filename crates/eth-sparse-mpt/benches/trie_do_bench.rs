@@ -92,14 +92,14 @@ fn insert_proofs(c: &mut Criterion) {
     let mut proofs: HashMap<Nibbles, Vec<(Nibbles, Bytes)>> = Default::default();
     for key in &byte_keys {
         let key = Nibbles::unpack(key);
-        let current_key_proofs = proofs.entry(key.clone()).or_default();
+        let current_key_proofs = proofs.entry(key).or_default();
         for (path, node) in &nodes {
             if key.starts_with(path) {
-                current_key_proofs.push((path.clone(), node.clone().into()));
+                current_key_proofs.push((*path, node.clone().into()));
             }
         }
-        current_key_proofs.sort_by_key(|(p, _)| p.clone());
-        current_key_proofs.dedup_by_key(|(p, _)| p.clone());
+        current_key_proofs.sort_by_key(|(p, _)| *p);
+        current_key_proofs.dedup_by_key(|(p, _)| *p);
     }
     for (path, proof) in proofs {
         proof_store.add_proof(path, proof).unwrap();

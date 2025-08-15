@@ -108,7 +108,7 @@ where
             );
         // sink removal is automatic via OrderSink::is_alive false
         let _block_sub = self.orderpool_subscriber.add_sink(
-            block_ctx.evm_env.block_env.number,
+            block_ctx.evm_env.block_env.number.to::<u64>(),
             Box::new(mempool_txs_detector_sniffer),
         );
 
@@ -137,7 +137,7 @@ where
         let (broadcast_input, _) = broadcast::channel(10_000);
         let muxer = Arc::new(UnfinishedBlockBuildingSinkMuxer::new(builder_sink));
 
-        let block_number = ctx.evm_env.block_env.number;
+        let block_number = ctx.evm_env.block_env.number.to::<u64>();
 
         for builder in self.builders.iter() {
             let builder_name = builder.name();

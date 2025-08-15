@@ -64,7 +64,7 @@ impl RelayError {
             RelayError::PayloadAttributesNotKnown => {
                 (6, false, "payload attributes not (yet) known".to_string())
             }
-            RelayError::SimulationFailed(msg) => (7, false, format!("simulation failed: {}", msg)),
+            RelayError::SimulationFailed(msg) => (7, false, format!("simulation failed: {msg}")),
         };
         let json = RelayErrorResponse { code, message };
         let status_code = if internal {

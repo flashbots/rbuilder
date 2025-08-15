@@ -10,6 +10,7 @@ use rbuilder::mev_boost::{
 use reth::primitives::SealedBlock;
 use reth_chainspec::SEPOLIA;
 use reth_primitives::kzg::Blob;
+use ssz::Encode;
 use std::{fs, path::PathBuf, sync::Arc};
 
 fn mev_boost_serialize_submit_block(data: DenebSubmitBlockRequest) {

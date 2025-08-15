@@ -100,7 +100,7 @@ impl HistoricalDataFetcher {
             .get_block_by_number(BlockNumberOrTag::Number(block_number))
             .full()
             .await
-            .wrap_err_with(|| format!("Failed to fetch block {}", block_number))?
+            .wrap_err_with(|| format!("Failed to fetch block {block_number}"))?
             .ok_or_else(|| eyre::eyre!("Block {} not found", block_number))?;
         Ok(block)
     }

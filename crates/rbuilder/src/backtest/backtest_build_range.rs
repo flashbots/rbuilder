@@ -370,9 +370,9 @@ impl CSVResultWriter {
         let mut line = String::new();
         line.push_str("block_number,winning_bid_value,simulated_orders_count");
         for builder_name in &self.builder_names {
-            line.push_str(&format!(",{}", builder_name));
+            line.push_str(&format!(",{builder_name}"));
         }
-        writeln!(self.file, "{}", line)?;
+        writeln!(self.file, "{line}")?;
         self.file.flush()
     }
 
@@ -393,7 +393,7 @@ impl CSVResultWriter {
                 .unwrap_or_default();
             line.push_str(&format!(",{}", format_ether(builder_res)));
         }
-        writeln!(self.file, "{}", line)?;
+        writeln!(self.file, "{line}")?;
         self.file.flush()
     }
 }

@@ -36,12 +36,12 @@ impl MissingNodesFetcher {
             .storage_proof_targets
             .entry(*hashed_address)
             .or_default();
-        entry.0.insert(pad_path(node.clone()));
+        entry.0.insert(pad_path(&node));
         entry.1.push(node);
     }
 
     pub fn add_missing_account_node(&mut self, node: Nibbles) {
-        self.account_proof_targets.push(pad_path(node.clone()));
+        self.account_proof_targets.push(pad_path(&node));
         self.account_proof_requested_nodes.push(node);
     }
 
@@ -138,9 +138,9 @@ impl MissingNodesFetcher {
     }
 }
 
-fn pad_path(mut path: Nibbles) -> B256 {
-    path.as_mut_vec_unchecked().resize(64, 0);
-    let mut res = B256::default();
-    path.pack_to(res.as_mut_slice());
-    res
+#[inline]
+fn pad_path(path: &Nibbles) -> B256 {
+    let mut padded = path.pack();
+    padded.resize(32, 0);
+    B256::from_slice(&padded)
 }

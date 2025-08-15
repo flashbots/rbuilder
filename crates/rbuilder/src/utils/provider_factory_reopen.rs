@@ -5,7 +5,7 @@ use crate::{
     roothash::{calculate_state_root, run_trie_prefetcher, RootHashContext, RootHashError},
     telemetry::{inc_provider_bad_reopen_counter, inc_provider_reopen_counter},
 };
-use alloy_consensus::Header;
+use alloy_consensus::{BlockHeader, Header};
 use alloy_eips::BlockNumHash;
 use alloy_primitives::{BlockHash, BlockNumber, B256};
 use eth_sparse_mpt::*;
@@ -238,7 +238,7 @@ where
                 .unwrap();
             let parent_state_root = provider
                 .header_by_hash_or_number(parent_num_hash.hash.into())?
-                .map(|h| h.state_root);
+                .map(|h| h.state_root());
             if parent_state_root.is_none() {
                 error!("Parent hash is not found (for root_hasher)");
             }

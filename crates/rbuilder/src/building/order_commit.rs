@@ -588,7 +588,7 @@ impl<'a, 'b, 'c, 'd, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, 'd, 
         allow_tx_skip: bool,
         combined_refunds: &HashMap<Address, U256>,
     ) -> Result<Result<BundleOk, BundleErr>, CriticalCommitOrderError> {
-        let current_block = self.ctx.evm_env.block_env.number;
+        let current_block = self.ctx.evm_env.block_env.number.to::<u64>();
         // None is good for any block
         if let Some(block) = bundle.block {
             if block != current_block {
@@ -603,7 +603,7 @@ impl<'a, 'b, 'c, 'd, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, 'd, 
         let (min_ts, max_ts, block_ts) = (
             bundle.min_timestamp.unwrap_or(0),
             bundle.max_timestamp.unwrap_or(u64::MAX),
-            self.ctx.evm_env.block_env.timestamp,
+            self.ctx.evm_env.block_env.timestamp.to::<u64>(),
         );
         if !(min_ts <= block_ts && block_ts <= max_ts) {
             return Ok(Err(BundleErr::IncorrectTimestamp {
@@ -862,7 +862,7 @@ impl<'a, 'b, 'c, 'd, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, 'd, 
         cumulative_blob_gas_used: u64,
         allow_tx_skip: bool,
     ) -> Result<Result<BundleOk, BundleErr>, CriticalCommitOrderError> {
-        let current_block = self.ctx.evm_env.block_env.number;
+        let current_block = self.ctx.evm_env.block_env.number.to::<u64>();
         if !(bundle.block <= current_block && current_block <= bundle.max_block) {
             return Ok(Err(BundleErr::TargetBlockIncorrect {
                 block: current_block,
@@ -1313,7 +1313,7 @@ fn execute_evm<Factory>(
     evm_env: EvmEnv,
     tx_with_blobs: &TransactionSignedEcRecoveredWithBlobs,
     used_state_tracer: Option<&mut UsedStateTrace>,
-    db: impl Database<Error = ProviderError>,
+    db: impl Database<Error = ProviderError> + std::fmt::Debug,
     blocklist: &HashSet<Address>,
 ) -> Result<Result<ResultAndState, TransactionErr>, CriticalCommitOrderError>
 where

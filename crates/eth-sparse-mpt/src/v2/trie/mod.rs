@@ -2,10 +2,10 @@ use std::ops::Range;
 
 use alloy_primitives::{keccak256, B256};
 use alloy_rlp::EMPTY_STRING_CODE;
+use alloy_trie::Nibbles;
 use arrayvec::ArrayVec;
 use proof_store::ProofNode;
 use proof_store::ProofStore;
-use reth_trie::Nibbles;
 
 pub mod proof_store;
 
@@ -38,7 +38,7 @@ impl NodePtr {
     fn expect_local(&self, msg: &str) -> usize {
         match self {
             NodePtr::Local(idx) => *idx,
-            NodePtr::Remote(_) => panic!("eth-sparse-mpt expect local node: {}", msg),
+            NodePtr::Remote(_) => panic!("eth-sparse-mpt expect local node: {msg}"),
         }
     }
 }
@@ -125,7 +125,7 @@ impl Trie {
     fn insert_value(&mut self, insert_value: InsertValue<'_>) -> Range<usize> {
         match insert_value {
             InsertValue::Value(slice) => self.copy_value(slice),
-            InsertValue::StoredValue(range) => range.clone(),
+            InsertValue::StoredValue(range) => range,
         }
     }
 
@@ -187,8 +187,6 @@ impl Trie {
         nibbles_key: &Nibbles,
         insert_value: InsertValue<'_>,
     ) -> Result<Option<Range<usize>>, NodeNotFound> {
-        let ins_key = nibbles_key.as_slice();
-
         let mut current_node = 0;
         let mut path_walked = 0;
 
@@ -198,21 +196,21 @@ impl Trie {
             let node = self
                 .nodes
                 .get(current_node)
-                .ok_or_else(|| NodeNotFound(nibbles_key.clone()))?;
+                .ok_or(NodeNotFound(*nibbles_key))?
+                .clone();
             self.hashed_nodes[current_node] = false;
-            match node {
+            match &node {
                 DiffTrieNode::Branch { children } => {
                     let children = *children;
 
-                    let n = ins_key[path_walked] as usize;
+                    let n = nibbles_key.get_unchecked(path_walked) as usize;
                     path_walked += 1;
                     if let Some(child_ptr) = self.branch_node_children[children][n] {
-                        current_node = child_ptr
-                            .local_ptr()
-                            .ok_or_else(|| NodeNotFound(nibbles_key.clone()))?;
+                        current_node = child_ptr.local_ptr().ok_or(NodeNotFound(*nibbles_key))?;
                         continue;
                     } else {
-                        let new_leaf_key = self.insert_key(&ins_key[path_walked..]);
+                        let new_leaf_key =
+                            self.insert_key(&nibbles_key.slice(path_walked..).to_vec());
                         let leaf_value = self.insert_value(insert_value);
                         let leaf_ptr = self.push_node(DiffTrieNode::Leaf {
                             key: new_leaf_key,
@@ -225,16 +223,18 @@ impl Trie {
                     let key = key.clone();
                     let next_node = *next_node;
 
-                    if ins_key[path_walked..].starts_with(&self.keys[key.clone()]) {
+                    if nibbles_key
+                        .slice(path_walked..)
+                        .starts_with(&Nibbles::from_nibbles_unchecked(&self.keys[key.clone()]))
+                    {
                         path_walked += key.len();
-                        current_node = next_node
-                            .local_ptr()
-                            .ok_or_else(|| NodeNotFound(nibbles_key.clone()))?;
+                        current_node = next_node.local_ptr().ok_or(NodeNotFound(*nibbles_key))?;
                         continue;
                     }
 
+                    let key_slice = nibbles_key.slice(path_walked..).to_vec();
                     let (prefix, n1, suff1, n2, suff2) =
-                        self.extract_prefix_and_suffix(&ins_key[path_walked..], key);
+                        self.extract_prefix_and_suffix(&key_slice, key.clone());
 
                     let has_extension_node = !prefix.is_empty();
                     if has_extension_node {
@@ -280,7 +280,7 @@ impl Trie {
                     let key = key.clone();
                     let value = value.clone();
 
-                    if self.keys[key.clone()] == ins_key[path_walked..] {
+                    if self.keys[key.clone()] == nibbles_key.slice(path_walked..).to_vec() {
                         // update leaf in place
                         old_value = Some(value.clone());
                         let new_value = self.insert_value(insert_value);
@@ -291,8 +291,9 @@ impl Trie {
                         break;
                     }
 
+                    let key_slice = nibbles_key.slice(path_walked..).to_vec();
                     let (prefix, n1, suff1, n2, suff2) =
-                        self.extract_prefix_and_suffix(&ins_key[path_walked..], key);
+                        self.extract_prefix_and_suffix(&key_slice, key.clone());
 
                     let has_extension_node = !prefix.is_empty();
                     if has_extension_node {
@@ -325,14 +326,14 @@ impl Trie {
                     let second_leaf_value = value;
                     let second_leaf_ptr = self.push_node(DiffTrieNode::Leaf {
                         key: second_leaf_key,
-                        value: second_leaf_value,
+                        value: second_leaf_value.clone(),
                     });
 
                     self.branch_node_children[branch_children][n1 as usize] = Some(first_leaf_ptr);
                     self.branch_node_children[branch_children][n2 as usize] = Some(second_leaf_ptr);
                 }
                 DiffTrieNode::Null => {
-                    let new_leaf_key = self.insert_key(&ins_key[path_walked..]);
+                    let new_leaf_key = self.insert_key(&nibbles_key.slice(path_walked..).to_vec());
                     let new_leaf_value = self.insert_value(insert_value);
                     self.nodes[current_node] = DiffTrieNode::Leaf {
                         key: new_leaf_key,
@@ -365,8 +366,6 @@ impl Trie {
         &mut self,
         nibbles_key: &Nibbles,
     ) -> Result<Range<usize>, DeletionError> {
-        let del_key = nibbles_key.as_slice();
-
         let mut current_node = 0;
         let mut path_walked = 0;
 
@@ -378,25 +377,24 @@ impl Trie {
             let node = self
                 .nodes
                 .get(current_node)
-                .ok_or_else(|| NodeNotFound(nibbles_key.clone()))?;
+                .ok_or(NodeNotFound(*nibbles_key))?
+                .clone();
             self.hashed_nodes[current_node] = false;
-            match node {
+            match &node {
                 DiffTrieNode::Branch { children } => {
                     // deleting from branch, key not found
-                    if del_key.len() == path_walked {
+                    if nibbles_key.len() == path_walked {
                         return Err(DeletionError::KeyNotFound);
                     }
 
                     let children = *children;
 
-                    let n = del_key[path_walked];
+                    let n = nibbles_key.get_unchecked(path_walked);
                     self.walk_path.push((current_node, n));
                     path_walked += 1;
 
                     if let Some(child_ptr) = self.branch_node_children[children][n as usize] {
-                        current_node = child_ptr
-                            .local_ptr()
-                            .ok_or_else(|| NodeNotFound(nibbles_key.clone()))?;
+                        current_node = child_ptr.local_ptr().ok_or(NodeNotFound(*nibbles_key))?;
                         if self.branch_node_children[children]
                             .iter()
                             .filter(|c| c.is_some())
@@ -411,10 +409,9 @@ impl Trie {
                                 .unwrap();
                             let orphan_ptr = orphan_ptr.unwrap();
                             if orphan_ptr.is_remote() {
-                                let mut orphan_path = Nibbles::with_capacity(path_walked);
-                                orphan_path
-                                    .extend_from_slice_unchecked(&del_key[..(path_walked - 1)]);
-                                orphan_path.push_unchecked(orphan_nibble as u8);
+                                let mut orphan_path = Nibbles::new();
+                                orphan_path.extend(&nibbles_key.slice(..(path_walked - 1)));
+                                orphan_path.push(orphan_nibble as u8);
                                 return Err(NodeNotFound(orphan_path).into());
                             }
                         }
@@ -427,19 +424,20 @@ impl Trie {
                     let key = key.clone();
                     let next_node = *next_node;
 
-                    if del_key[path_walked..].starts_with(&self.keys[key.clone()]) {
+                    if nibbles_key
+                        .slice(path_walked..)
+                        .starts_with(&Nibbles::from_nibbles_unchecked(&self.keys[key.clone()]))
+                    {
                         self.walk_path.push((current_node, 0));
                         path_walked += key.len();
-                        current_node = next_node
-                            .local_ptr()
-                            .ok_or_else(|| NodeNotFound(nibbles_key.clone()))?;
+                        current_node = next_node.local_ptr().ok_or(NodeNotFound(*nibbles_key))?;
                         continue;
                     }
 
                     return Err(DeletionError::KeyNotFound);
                 }
                 DiffTrieNode::Leaf { key, value } => {
-                    if self.keys[key.clone()] == del_key[path_walked..] {
+                    if self.keys[key.clone()] == nibbles_key.slice(path_walked..).to_vec() {
                         old_value = value.clone();
                         self.walk_path.push((current_node, 0));
                         break;
@@ -575,7 +573,8 @@ impl Trie {
                         ) => {
                             // parent branch starts to point to orphan leaf
                             // orphan leaf eats nibble
-                            let new_leaf_key = self.merge_keys(0..0, orphan_nibble, orphan_key);
+                            let new_leaf_key =
+                                self.merge_keys(0..0, orphan_nibble, orphan_key.clone());
                             self.nodes[orphan_ptr_idx] = DiffTrieNode::Leaf {
                                 key: new_leaf_key,
                                 value,
@@ -595,7 +594,8 @@ impl Trie {
                         ) => {
                             // parent branch points to the orphan extension
                             // orphan extension eats nibble
-                            let new_ext_key = self.merge_keys(0..0, orphan_nibble, orphan_key);
+                            let new_ext_key =
+                                self.merge_keys(0..0, orphan_nibble, orphan_key.clone());
                             self.nodes[orphan_ptr_idx] = DiffTrieNode::Extension {
                                 key: new_ext_key,
                                 next_node,
@@ -693,13 +693,12 @@ impl Trie {
         let node = self
             .nodes
             .get(node_idx)
-            .expect("rlp_encode_node: node not found")
-            .clone();
+            .expect("rlp_encode_node: node not found");
         match node {
             DiffTrieNode::Branch { children } => {
                 let remote_nodes = proof_store.rlp_ptrs();
                 let mut children_rlp_ptrs: [Option<&[u8]>; 16] = Default::default();
-                for (nibble, child) in self.branch_node_children[children].iter().enumerate() {
+                for (nibble, child) in self.branch_node_children[*children].iter().enumerate() {
                     match child {
                         Some(NodePtr::Local(idx)) => {
                             debug_assert!(self.hashed_nodes[*idx]);
@@ -716,22 +715,22 @@ impl Trie {
             DiffTrieNode::Extension { key, next_node } => {
                 let remote_nodes;
 
-                let key = Nibbles::from_nibbles_unchecked(&self.keys[key]);
+                let key = Nibbles::from_nibbles_unchecked(&self.keys[key.clone()]);
                 let child_rlp_ptr = match next_node {
                     NodePtr::Local(idx) => {
-                        debug_assert!(self.hashed_nodes[idx]);
-                        self.rlp_ptrs_local[idx].as_slice()
+                        debug_assert!(self.hashed_nodes[*idx]);
+                        self.rlp_ptrs_local[*idx].as_slice()
                     }
                     NodePtr::Remote(idx) => {
                         remote_nodes = proof_store.rlp_ptrs();
-                        remote_nodes[idx].as_slice()
+                        remote_nodes[*idx].as_slice()
                     }
                 };
                 encode_extension(&key, child_rlp_ptr, rlp);
             }
             DiffTrieNode::Leaf { key, value } => {
-                let key = Nibbles::from_nibbles_unchecked(&self.keys[key]);
-                encode_leaf(&key, &self.values[value], rlp);
+                let key = Nibbles::from_nibbles_unchecked(&self.keys[key.clone()]);
+                encode_leaf(&key, &self.values[value.clone()], rlp);
             }
             DiffTrieNode::Null => {
                 rlp.push(EMPTY_STRING_CODE);
@@ -844,19 +843,18 @@ impl Trie {
         let node = self
             .nodes
             .get(node_idx)
-            .expect("print_node: node not found")
-            .clone();
+            .expect("print_node: node not found");
         let h = alloy_primitives::hex::encode;
         match node {
             DiffTrieNode::Branch { children } => {
-                println!("{} Branch", node_idx);
+                println!("{node_idx} Branch");
                 println!("{}", h(self.rlp_ptrs_local[node_idx].as_slice()));
-                for (idx, child) in self.branch_node_children[children].into_iter().enumerate() {
+                for (idx, child) in self.branch_node_children[*children].into_iter().enumerate() {
                     if child.is_some() {
-                        println!("  {} -> {:?}", idx, child);
+                        println!("  {idx} -> {child:?}");
                     }
                 }
-                for child in self.branch_node_children[children].into_iter().flatten() {
+                for child in self.branch_node_children[*children].into_iter().flatten() {
                     if let NodePtr::Local(idx) = child {
                         self.debug_print_node(idx);
                     }
@@ -866,25 +864,25 @@ impl Trie {
                 println!(
                     "{} Extension {:?} -> {:?}",
                     node_idx,
-                    h(&self.keys[key]),
+                    h(&self.keys[key.clone()]),
                     next_node
                 );
                 println!("{}", h(self.rlp_ptrs_local[node_idx].as_slice()));
                 if let NodePtr::Local(idx) = next_node {
-                    self.debug_print_node(idx);
+                    self.debug_print_node(*idx);
                 }
             }
             DiffTrieNode::Leaf { key, value } => {
                 println!(
                     "{} Leaf {:?} : {:?}",
                     node_idx,
-                    h(&self.keys[key]),
-                    h(&self.values[value])
+                    h(&self.keys[key.clone()]),
+                    h(&self.values[value.clone()])
                 );
                 println!("{}", h(self.rlp_ptrs_local[node_idx].as_slice()));
             }
             DiffTrieNode::Null => {
-                println!("{} Null", node_idx);
+                println!("{node_idx} Null");
                 println!("{}", h(self.rlp_ptrs_local[node_idx].as_slice()));
             }
         }
@@ -941,13 +939,13 @@ impl Trie {
                 }
                 ProofNode::Extension { key, child } => {
                     let key = &proof_store.keys_guard()[*key];
-                    let key = self.insert_key(key);
+                    let key = self.insert_key(&key.to_vec());
                     let next_node = NodePtr::Remote(*child);
                     self.push_node(DiffTrieNode::Extension { key, next_node });
                 }
                 ProofNode::Leaf { key, value } => {
                     let key = &proof_store.keys_guard()[*key];
-                    let key = self.insert_key(key);
+                    let key = self.insert_key(&key.to_vec());
                     let value = &proof_store.values_guard()[*value];
                     let value = self.copy_value(value);
                     self.push_node(DiffTrieNode::Leaf { key, value });
@@ -969,42 +967,45 @@ impl Trie {
             let node = self
                 .nodes
                 .get(current_node)
-                .ok_or_else(|| NodeNotFound::new(&path[..path_walked]))?;
+                .ok_or_else(|| NodeNotFound::new(&path.slice(..path_walked).to_vec()))?;
             match node {
                 DiffTrieNode::Branch { children } => {
                     let children = *children;
 
-                    let n = path[path_walked] as usize;
+                    let n = path.get_unchecked(path_walked) as usize;
                     path_walked += 1;
-                    if path[path_walked..].is_empty() {
+                    if path.slice(path_walked..).is_empty() {
                         parent_ptr = self.branch_node_children[children][n];
                         parent_nibble = n;
                         break;
                     }
                     if let Some(child_ptr) = self.branch_node_children[children][n] {
-                        current_node = child_ptr
-                            .local_ptr()
-                            .ok_or_else(|| NodeNotFound::new(&path[..path_walked]))?;
+                        current_node = child_ptr.local_ptr().ok_or_else(|| {
+                            NodeNotFound::new(&path.slice(..path_walked).to_vec())
+                        })?;
                         continue;
                     } else {
-                        return Err(NodeNotFound::new(&path[..path_walked]));
+                        return Err(NodeNotFound::new(&path.slice(..path_walked).to_vec()));
                     }
                 }
                 DiffTrieNode::Extension { key, next_node } => {
                     let key = key.clone();
                     let next_node = *next_node;
 
-                    if path[path_walked..].starts_with(&self.keys[key.clone()]) {
+                    if path
+                        .slice(path_walked..)
+                        .starts_with(&Nibbles::from_nibbles_unchecked(&self.keys[key.clone()]))
+                    {
                         path_walked += key.len();
 
-                        if path[path_walked..].is_empty() {
+                        if path.slice(path_walked..).is_empty() {
                             parent_ptr = Some(next_node);
                             parent_nibble = 0;
                             break;
                         }
-                        current_node = next_node.local_ptr().ok_or_else(|| {
-                            NodeNotFound(Nibbles::from_nibbles_unchecked(&path[..path_walked]))
-                        })?;
+                        current_node = next_node
+                            .local_ptr()
+                            .ok_or_else(|| NodeNotFound(path.slice(..path_walked)))?;
                         continue;
                     }
                 }
@@ -1027,14 +1028,14 @@ impl Trie {
         let new_node = match node {
             ProofNode::Leaf { key, value } => {
                 let key = &proof_store.keys_guard()[*key];
-                let key = self.insert_key(key);
+                let key = self.insert_key(&key.to_vec());
                 let value = &proof_store.values_guard()[*value];
                 let value = self.copy_value(value);
                 self.push_node(DiffTrieNode::Leaf { key, value })
             }
             ProofNode::Extension { key, child } => {
                 let key = &proof_store.keys_guard()[*key];
-                let key = self.insert_key(key);
+                let key = self.insert_key(&key.to_vec());
                 let next_node = NodePtr::Remote(*child);
                 self.push_node(DiffTrieNode::Extension { key, next_node })
             }

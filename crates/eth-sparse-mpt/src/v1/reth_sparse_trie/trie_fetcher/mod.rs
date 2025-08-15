@@ -107,11 +107,11 @@ where
     }
 }
 
-fn pad_path(mut path: Nibbles) -> B256 {
-    path.as_mut_vec_unchecked().resize(64, 0);
-    let mut res = B256::default();
-    path.pack_to(res.as_mut_slice());
-    res
+#[inline]
+fn pad_path(path: &Nibbles) -> B256 {
+    let mut padded = path.pack();
+    padded.resize(32, 0);
+    B256::from_slice(&padded)
 }
 
 fn get_proof_targets(missing_nodes: MissingNodes) -> (Vec<MultiProofTargets>, HashSet<B256>) {
@@ -122,7 +122,7 @@ fn get_proof_targets(missing_nodes: MissingNodes) -> (Vec<MultiProofTargets>, Ha
     let mut all_requested_accounts = HashSet::default();
     for account_trie_node in missing_nodes.account_trie_nodes {
         let is_address = account_trie_node.len() == 64;
-        let hashed_address = pad_path(account_trie_node);
+        let hashed_address = pad_path(&account_trie_node);
         if is_address {
             all_requested_accounts.insert(hashed_address);
         }
@@ -133,7 +133,7 @@ fn get_proof_targets(missing_nodes: MissingNodes) -> (Vec<MultiProofTargets>, Ha
         all_requested_accounts.insert(hashed_address);
         let storage_targets = targets.entry(hashed_address).or_default();
         for node in missing_storage_nodes {
-            let node = pad_path(node);
+            let node = pad_path(&node);
             storage_targets.insert(node);
         }
     }
@@ -166,16 +166,16 @@ fn merge_results(
     let mut result = MultiProof::default();
     for mut proof in multiproofs {
         result.account_subtree.append(&mut proof.account_subtree);
-        result.account_subtree.sort_by_key(|s| s.0.clone());
-        result.account_subtree.dedup_by_key(|s| s.0.clone());
+        result.account_subtree.sort_by_key(|s| s.0);
+        result.account_subtree.dedup_by_key(|s| s.0);
 
         for (account, mut storage_proof) in proof.storages {
             let result_storage_proof = result.storages.entry(account).or_default();
             result_storage_proof
                 .subtree
                 .append(&mut storage_proof.subtree);
-            result_storage_proof.subtree.sort_by_key(|s| s.0.clone());
-            result_storage_proof.subtree.dedup_by_key(|s| s.0.clone());
+            result_storage_proof.subtree.sort_by_key(|s| s.0);
+            result_storage_proof.subtree.dedup_by_key(|s| s.0);
         }
     }
 
@@ -196,7 +196,7 @@ fn convert_reth_multiproof(
     for (k, v) in reth_proof.account_subtree.into_inner() {
         account_subtree.push((k, v));
     }
-    account_subtree.sort_by_key(|a| a.0.clone());
+    account_subtree.sort_by_key(|a| a.0);
     let mut storages = hash_map_with_capacity(reth_proof.storages.len());
     for (k, reth_storage_proof) in reth_proof.storages {
         if !all_requested_accounts.contains(&k) {
@@ -210,7 +210,7 @@ fn convert_reth_multiproof(
         for (k, v) in reth_storage_proof.subtree.into_inner() {
             subtree.push((k, v));
         }
-        subtree.sort_by_key(|a| a.0.clone());
+        subtree.sort_by_key(|a| a.0);
         let v = StorageMultiProof { subtree };
         storages.insert(k, v);
     }

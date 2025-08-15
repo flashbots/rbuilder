@@ -5,13 +5,11 @@ use alloy_trie::nodes::{
     BranchNode as AlloyBranchNode, ExtensionNode as AlloyExtensionNode, LeafNode as AlloyLeafNode,
     TrieNode as AlloyTrieNode,
 };
-use reth_trie::Nibbles;
+use alloy_trie::Nibbles;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, Seq};
 use smallvec::SmallVec;
 use std::{cmp::max, sync::Arc};
-
-use crate::utils::strip_first_nibble_mut;
 
 use super::{
     get_new_ptr, DiffBranchNode, DiffChildPtr, DiffExtensionNode, DiffLeafNode, DiffTrie,
@@ -167,12 +165,12 @@ impl FixedTrie {
         for (ptr, node) in &diff_trie.nodes {
             let fixed_node = match &node.kind {
                 DiffTrieNodeKind::Leaf(leaf) => FixedTrieNode::Leaf(Arc::new(FixedLeafNode {
-                    key: leaf.key().clone(),
+                    key: *leaf.key(),
                     value: leaf.value().clone(),
                 })),
                 DiffTrieNodeKind::Extension(ext) => FixedTrieNode::Extension {
                     node: Arc::new(FixedExtensionNode {
-                        key: ext.key().clone(),
+                        key: *ext.key(),
                         child: ext
                             .child
                             .rlp_pointer
@@ -261,7 +259,7 @@ impl FixedTrie {
 
             // here we find parent to link with this new node
             let mut current_path = Nibbles::new();
-            let mut path_left = path.clone();
+            let mut path_left = *path;
             let mut current_node = self.head;
 
             let mut parent: Option<u64> = None;
@@ -286,8 +284,8 @@ impl FixedTrie {
                             parent_child_idx = None;
 
                             let len = node.key.len();
-                            current_path.extend_from_slice_unchecked(&path_left[..len]);
-                            path_left.as_mut_vec_unchecked().drain(..len);
+                            current_path.extend(&path_left.slice(..len));
+                            path_left = path_left.slice(len..);
 
                             if path_left.is_empty() {
                                 break;
@@ -302,7 +300,8 @@ impl FixedTrie {
                         if path_left.is_empty() {
                             return Err(AddNodeError::InvalidInput);
                         }
-                        let nibble = strip_first_nibble_mut(&mut path_left);
+                        let nibble = path_left.get_unchecked(0);
+                        path_left = path_left.slice(1..);
 
                         parent = Some(current_node);
                         parent_child_idx = Some(nibble);
@@ -311,7 +310,7 @@ impl FixedTrie {
                             break;
                         }
 
-                        current_path.push_unchecked(nibble);
+                        current_path.push(nibble);
                         current_node =
                             get_child_ptr(child_ptrs, nibble).ok_or(AddNodeError::InvalidInput)?;
                     }
@@ -455,11 +454,12 @@ impl FixedTrie {
                                         // orphan node is missing
                                         // we stepped into child above so the path is the path of current child and orphan child differs
                                         // only in last nibble
-                                        let mut path = c.current_path.clone();
-                                        path.as_mut_vec_unchecked()
-                                            .last_mut()
-                                            .map(|n| *n = orphan_nibble)
-                                            .unwrap();
+                                        let mut path = c.current_path;
+                                        if !path.is_empty() {
+                                            let mut path_slice = path.slice(..path.len() - 1);
+                                            path_slice.push(orphan_nibble);
+                                            path = path_slice;
+                                        }
                                         missing_nodes.push(path);
                                     }
                                 }
@@ -498,8 +498,8 @@ mod tests {
                 .into_iter()
                 .flat_map(|mp| mp.account_subtree.into_iter().collect::<Vec<_>>())
                 .collect();
-            account_proof.sort_by_key(|(p, _)| p.clone());
-            account_proof.dedup_by_key(|(p, _)| p.clone());
+            account_proof.sort_by_key(|(p, _)| *p);
+            account_proof.dedup_by_key(|(p, _)| *p);
             account_proof
         };
 

@@ -39,13 +39,13 @@ pub trait EvmFactory {
         Spec = SpecId,
     >
     where
-        DB: Database<Error: Send + Sync + 'static>,
+        DB: Database<Error: Send + Sync + 'static> + std::fmt::Debug,
         I: Inspector<EthEvmContext<DB>>;
 
     /// Create an EVM instance with default (no-op) inspector.
     fn create_evm<DB>(&self, db: DB, env: EvmEnv) -> Self::Evm<DB, NoOpInspector>
     where
-        DB: Database<Error: Send + Sync + 'static>;
+        DB: Database<Error: Send + Sync + 'static> + std::fmt::Debug;
 
     /// Create an EVM instance with a provided inspector.
     fn create_evm_with_inspector<DB, I>(
@@ -55,7 +55,7 @@ pub trait EvmFactory {
         inspector: I,
     ) -> Self::Evm<DB, I>
     where
-        DB: Database<Error: Send + Sync + 'static>,
+        DB: Database<Error: Send + Sync + 'static> + std::fmt::Debug,
         I: Inspector<EthEvmContext<DB>, EthInterpreter>;
 }
 
@@ -76,12 +76,12 @@ impl EvmFactory for EthCachedEvmFactory {
     type Evm<DB, I>
         = EthEvm<DB, I, WrappedPrecompile<EthPrecompiles>>
     where
-        DB: Database<Error: Send + Sync + 'static>,
+        DB: Database<Error: Send + Sync + 'static> + std::fmt::Debug,
         I: Inspector<EthEvmContext<DB>>;
 
     fn create_evm<DB>(&self, db: DB, env: EvmEnv) -> Self::Evm<DB, NoOpInspector>
     where
-        DB: Database<Error: Send + Sync + 'static>,
+        DB: Database<Error: Send + Sync + 'static> + std::fmt::Debug,
     {
         let evm = self
             .evm_factory
@@ -102,7 +102,7 @@ impl EvmFactory for EthCachedEvmFactory {
         inspector: I,
     ) -> Self::Evm<DB, I>
     where
-        DB: Database<Error: Send + Sync + 'static>,
+        DB: Database<Error: Send + Sync + 'static> + std::fmt::Debug,
         I: Inspector<EthEvmContext<DB>, EthInterpreter>,
     {
         EthEvm::new(

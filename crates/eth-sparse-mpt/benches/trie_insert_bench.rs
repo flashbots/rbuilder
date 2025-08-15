@@ -118,8 +118,8 @@ fn gather_nodes(c: &mut Criterion) {
             .into_iter()
             .flat_map(|mp| mp.account_subtree.into_iter().collect::<Vec<_>>())
             .collect();
-        account_proof.sort_by_key(|(p, _)| p.clone());
-        account_proof.dedup_by_key(|(p, _)| p.clone());
+        account_proof.sort_by_key(|(p, _)| *p);
+        account_proof.dedup_by_key(|(p, _)| *p);
         account_proof
     };
 

@@ -274,11 +274,11 @@ pub mod test {
 
         fn run(&self, port: u64) {
             // Create the address string once
-            let addr = format!("127.0.0.1:{}", port);
+            let addr = format!("127.0.0.1:{port}");
 
             // Create a TCP listener bound to the specified port
             let listener = TcpListener::bind(&addr).unwrap();
-            println!("Server running at http://{}", addr);
+            println!("Server running at http://{addr}");
 
             // Listen for incoming connections
             for stream in listener.incoming() {
@@ -287,7 +287,7 @@ pub mod test {
                         self.handle_connection(stream);
                     }
                     Err(e) => {
-                        eprintln!("Connection failed: {}", e);
+                        eprintln!("Connection failed: {e}");
                     }
                 }
             }
@@ -337,7 +337,7 @@ pub mod test {
         // ugly wait for BlocklistHttpServer
         tokio::time::sleep(Duration::from_millis(200)).await;
         let provider = HttpBlockListProvider::new(
-            Url::parse(&format!("http://127.0.0.1:{}", PORT)).unwrap(),
+            Url::parse(&format!("http://127.0.0.1:{PORT}")).unwrap(),
             Duration::from_secs(AGE_SECS),
             true,
             cancellation.clone(),

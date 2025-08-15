@@ -11,7 +11,7 @@ fn main() {
     let mut examples = Vec::new();
 
     for i in 0..7 {
-        let dir: PathBuf = format!("./test_data/prepared_tries/example{}/", i)
+        let dir: PathBuf = format!("./test_data/prepared_tries/example{i}/")
             .parse()
             .unwrap();
 

@@ -153,6 +153,8 @@ impl ConnectionHandler for BloxrouteWsConnectionHandler {
     }
 }
 
+pub type BloxrouteWsPublisher = Service<BloxrouteWsConnectionHandler>;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -189,5 +191,3 @@ mod tests {
         assert!(serde_json::from_str::<BloxrouteWsBid>(raw).is_ok());
     }
 }
-
-pub type BloxrouteWsPublisher = Service<BloxrouteWsConnectionHandler>;

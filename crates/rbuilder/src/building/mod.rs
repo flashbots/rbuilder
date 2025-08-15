@@ -234,19 +234,23 @@ impl BlockBuildingContext {
     ) -> BlockBuildingContext {
         let block_number = onchain_block.header.number;
 
-        let blob_excess_gas_and_price =
-            if chain_spec.is_cancun_active_at_timestamp(onchain_block.header.timestamp) {
-                Some(BlobExcessGasAndPrice::new(
-                    onchain_block.header.excess_blob_gas.unwrap_or_default(),
-                    chain_spec.is_prague_active_at_timestamp(onchain_block.header.timestamp),
-                ))
-            } else {
-                None
-            };
+        // derive the EIP-4844 blob fees from the header's `excess_blob_gas` and the current
+        // blob params (see reth: crates/ethereum/evm/src/lib.rs)
+        let blob_params = chain_spec.blob_params_at_timestamp(onchain_block.header.timestamp);
+        let blob_excess_gas_and_price = onchain_block.header.excess_blob_gas.zip(blob_params).map(
+            |(excess_blob_gas, params)| {
+                let blob_gasprice = params.calc_blob_fee(excess_blob_gas);
+                BlobExcessGasAndPrice {
+                    excess_blob_gas,
+                    blob_gasprice,
+                }
+            },
+        );
+
         let block_env = BlockEnv {
-            number: block_number,
+            number: U256::from(block_number),
             beneficiary,
-            timestamp: onchain_block.header.timestamp,
+            timestamp: U256::from(onchain_block.header.timestamp),
             difficulty: onchain_block.header.difficulty,
             prevrandao: Some(onchain_block.header.mix_hash),
             basefee: onchain_block
@@ -339,7 +343,7 @@ impl BlockBuildingContext {
     }
 
     pub fn block(&self) -> u64 {
-        self.evm_env.block_env.number
+        self.evm_env.block_env.number.to::<u64>()
     }
 
     pub fn coinbase_is_suggested_fee_recipient(&self) -> bool {
@@ -408,11 +412,11 @@ impl FromStr for Sorting {
 impl std::fmt::Display for Sorting {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Sorting::MevGasPrice => write!(f, "{}", MEV_GAS_PRICE_NAME),
-            Sorting::MaxProfit => write!(f, "{}", MAX_PROFIT_NAME),
-            Sorting::TypeMaxProfit => write!(f, "{}", TYPE_MAX_PROFIT_NAME),
-            Sorting::LengthThreeMaxProfit => write!(f, "{}", LENGTH_THREE_MAX_PROFIT_NAME),
-            Sorting::LengthThreeMevGasPrice => write!(f, "{}", LENGTH_THREE_MEV_GAS_PRICE_NAME),
+            Sorting::MevGasPrice => write!(f, "{MEV_GAS_PRICE_NAME}"),
+            Sorting::MaxProfit => write!(f, "{MAX_PROFIT_NAME}"),
+            Sorting::TypeMaxProfit => write!(f, "{TYPE_MAX_PROFIT_NAME}"),
+            Sorting::LengthThreeMaxProfit => write!(f, "{LENGTH_THREE_MAX_PROFIT_NAME}"),
+            Sorting::LengthThreeMevGasPrice => write!(f, "{LENGTH_THREE_MEV_GAS_PRICE_NAME}"),
         }
     }
 }
@@ -837,7 +841,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             let (bundle, _) = state.into_parts();
             // we use execution outcome here only for interface compatibility, its just a wrapper around bundle
             let execution_outcome =
-                ExecutionOutcome::new(bundle, Vec::new(), block_number, Vec::new());
+                ExecutionOutcome::new(bundle, Vec::new(), block_number.to::<u64>(), Vec::new());
             ctx.root_hasher.state_root(&execution_outcome, local_ctx)?
         };
         let root_hash_time = step_start.elapsed();
@@ -901,7 +905,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             mix_hash: ctx.attributes.prev_randao,
             nonce: BEACON_NONCE.into(),
             base_fee_per_gas: Some(ctx.evm_env.block_env.basefee),
-            number: block_number,
+            number: block_number.to::<u64>(),
             gas_limit: ctx.evm_env.block_env.gas_limit,
             difficulty: U256::ZERO,
             gas_used: self.gas_used,
