@@ -9,6 +9,7 @@ full_telemetry_server_ip = "0.0.0.0"
 chain = ""
 reth_datadir = ""
 
+exchange_secret_key = "env:EXCHANGE_SECRET_KEY"
 coinbase_secret_key = "env:COINBASE_SECRET_KEY"
 relay_secret_key = "env:RELAY_SECRET_KEY"
 optimistic_relay_secret_key = "env:OPTIMISTIC_RELAY_SECRET_KEY"

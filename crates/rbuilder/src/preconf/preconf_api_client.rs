@@ -242,7 +242,7 @@ pub struct PreconfApiClient {
     pub info_receiver: watch::Receiver<PreconfInfo>,
     pub reserved_sender: watch::Sender<PreconfReservedInfo>,
     pub state: PreconfState,
-    pub relay_secret_key: String,
+    pub exchange_secret_key: String,
 }
 
 impl PreconfApiClient {
@@ -263,26 +263,23 @@ impl PreconfApiClient {
     }
 
     pub async fn re_login(&mut self) -> bool {
-        let mut logged_in = false;
         let mut retry_count = 0;
         loop {
             if self.login().await {
-                logged_in = true;
                 info!("ETHGas re-logged in.");
-                break;
+                return true;
             }
             retry_count += 1;
             if retry_count % 5 == 0 {
                 error!("Failed to login ETHGas, continue to retry login...");
             }
         }
-        logged_in
     }
 
     pub async fn login(&mut self) -> bool {
         let mut is_logged_in = false;
 
-        let secret_key_bytes = hex::decode(self.relay_secret_key.as_str())
+        let secret_key_bytes = hex::decode(self.exchange_secret_key.as_str())
             .expect("Failed to decode secret key for preconf login");
         let signer: PrivateKeySigner = PrivateKeySigner::from_slice(secret_key_bytes.as_ref())
             .expect("Failed to create signer from secret key for preconf login");

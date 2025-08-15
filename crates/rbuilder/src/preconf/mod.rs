@@ -128,7 +128,7 @@ pub struct PreconfConfig {
     pub fallback_fee_recipient: Option<String>,
 
     // login
-    relay_secret_key: String,
+    exchange_secret_key: String,
 }
 
 impl PreconfConfig {
@@ -137,13 +137,13 @@ impl PreconfConfig {
         preconf_api_url: Option<String>,
         preconf_ws_url: Option<String>,
         fallback_fee_recipient: Option<String>,
-        relay_secret_key: String,
+        exchange_secret_key: String,
     ) -> Self {
         Self {
             preconf_api_url,
             preconf_ws_url,
             fallback_fee_recipient,
-            relay_secret_key,
+            exchange_secret_key,
         }
     }
     pub fn from_config(config: &Config) -> Self {
@@ -151,7 +151,7 @@ impl PreconfConfig {
             preconf_api_url: config.base_config.preconf_api_url.clone(),
             preconf_ws_url: config.base_config.preconf_ws_url.clone(),
             fallback_fee_recipient: config.base_config.fallback_fee_recipient.clone(),
-            relay_secret_key: config.l1_config.get_relay_secret_key().unwrap(),
+            exchange_secret_key: config.l1_config.get_exchange_secret_key().unwrap(),
         }
     }
 }
@@ -253,7 +253,7 @@ pub async fn new_preconf_api(
     }
 
     let api_url = Url::parse(config.preconf_api_url.as_ref().unwrap().as_str()).unwrap();
-    let relay_secret_key = config.relay_secret_key.clone();
+    let secret_key = config.exchange_secret_key.clone();
     let mut api_client = PreconfApiClient {
         api_url,
         client: reqwest::Client::new(),
@@ -264,7 +264,7 @@ pub async fn new_preconf_api(
         info_receiver,
         reserved_sender,
         state: preconf_state.clone(),
-        relay_secret_key,
+        exchange_secret_key: secret_key,
     };
     let logged_in = api_client.login().await;
     if logged_in {

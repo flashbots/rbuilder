@@ -117,6 +117,7 @@ pub struct L1Config {
     pub relays: Vec<RelayConfig>,
     pub enabled_relays: Vec<String>,
 
+    exchange_secret_key: Option<EnvOrValue<String>>,
     /// Secret key that will be used to sign normal submissions to the relay.
     relay_secret_key: Option<EnvOrValue<String>>,
     /// Secret key that will be used to sign optimistic submissions to the relay.
@@ -140,6 +141,7 @@ impl Default for L1Config {
         Self {
             relays: vec![],
             enabled_relays: vec![],
+            exchange_secret_key: None,
             relay_secret_key: None,
             optimistic_relay_secret_key: "".into(),
             optimistic_enabled: false,
@@ -153,6 +155,10 @@ impl Default for L1Config {
 impl L1Config {
     pub fn resolve_cl_node_urls(&self) -> eyre::Result<Vec<String>> {
         crate::live_builder::base_config::resolve_env_or_values::<String>(&self.cl_node_url)
+    }
+
+    pub fn get_exchange_secret_key(&self) -> eyre::Result<String> {
+        self.exchange_secret_key.clone().unwrap().value()
     }
 
     pub fn get_relay_secret_key(&self) -> eyre::Result<String> {
