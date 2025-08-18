@@ -130,8 +130,11 @@ impl MevBoostSlotDataGenerator {
     ///     it, but even with the event being created for every slot, the fee_recipient we get from MEV-Boost might be different so we should always replace it.
     ///     Note that with MEV-boost the validator may change the fee_recipient when registering to the Relays.
     pub fn spawn(self) -> (JoinHandle<()>, mpsc::UnboundedReceiver<MevBoostSlotData>) {
-        let relays =
-            RelaysForSlotData::spawn_with_interval(self.relays.clone(), self.update_interval);
+        let relays = RelaysForSlotData::spawn_with_interval(
+            self.relays.clone(),
+            self.update_interval,
+            self.global_cancellation.clone(),
+        );
 
         // we generate first payload id randomly so logs don't have the same payload id after restarts
         // u32 is used because it will fit into json log as integer and its enough to be unique over long interval

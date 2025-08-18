@@ -8,6 +8,8 @@ use alloy_primitives::Address;
 use parking_lot::RwLock;
 use primitive_types::H384;
 use std::{sync::Arc, time::Duration};
+use tokio::time::timeout;
+use tokio_util::sync::CancellationToken;
 use tracing::*;
 
 /// Info about a slot obtained from a relay.
@@ -93,6 +95,7 @@ impl RelaysForSlotData {
     pub fn spawn_with_interval(
         relays: Vec<MevBoostRelaySlotInfoProvider>,
         interval: Duration,
+        cancellation_token: CancellationToken,
     ) -> Self {
         let cache = RelayValidatorSlotDataCache::default();
         let can_ignore_gas_limit = relays
@@ -105,7 +108,12 @@ impl RelaysForSlotData {
             let cache = cache.clone();
             async move {
                 loop {
-                    tokio::time::sleep(interval).await;
+                    if timeout(interval, cancellation_token.cancelled())
+                        .await
+                        .is_ok()
+                    {
+                        return;
+                    }
                     cache.update(&relays).await;
                 }
             }
