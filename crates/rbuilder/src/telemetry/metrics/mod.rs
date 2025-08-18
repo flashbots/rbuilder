@@ -378,6 +378,7 @@ pub fn reset_histogram_metrics() {
 }
 
 pub(super) fn set_version(version: Version) {
+    VERSION.reset();
     VERSION
         .with_label_values(&[
             &version.git_commit,
@@ -389,6 +390,7 @@ pub(super) fn set_version(version: Version) {
 
 pub fn update_blocklist_metrics(blocklist: &BlockList) {
     let hash = blocklist_hash(blocklist).to_string();
+    BLOCKLIST_HASH.reset();
     BLOCKLIST_HASH
         .with_label_values(&[&hash[2..] /* remove the 0x */])
         .set(1);
