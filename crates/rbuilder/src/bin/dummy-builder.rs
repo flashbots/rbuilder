@@ -26,7 +26,7 @@ use rbuilder::{
     live_builder::{
         base_config::{
             default_ip, DEFAULT_EL_NODE_IPC_PATH, DEFAULT_INCOMING_BUNDLES_PORT,
-            DEFAULT_RETH_DB_PATH,
+            DEFAULT_RETH_DB_PATH, DEFAULT_TIME_TO_KEEP_MEMPOOL_TXS_SECS,
         },
         block_list_provider::NullBlockListProvider,
         config::create_provider_factory,
@@ -97,6 +97,7 @@ async fn main() -> eyre::Result<()> {
         DEFAULT_SERVE_MAX_CONNECTIONS,
         DEFAULT_RESULTS_CHANNEL_TIMEOUT,
         DEFAULT_INPUT_CHANNEL_BUFFER_SIZE,
+        Duration::from_secs(DEFAULT_TIME_TO_KEEP_MEMPOOL_TXS_SECS),
     );
     let (orderpool_sender, orderpool_receiver) =
         mpsc::channel(order_input_config.input_channel_buffer_size);

@@ -143,6 +143,9 @@ pub struct BaseConfig {
     /// Use experimental code for faster finalize
     pub faster_finalize: bool,
 
+    /// See [OrderPool::time_to_keep_mempool_txs]
+    pub time_to_keep_mempool_txs_secs: u64,
+
     // backtest config
     backtest_fetch_mempool_data_dir: EnvOrValue<String>,
     pub backtest_fetch_eth_rpc_url: String,
@@ -542,6 +545,7 @@ pub const DEFAULT_RETH_DB_PATH: &str = "/mnt/data/reth";
 /// This will update every 2.4 hours, super reasonable.
 pub const DEFAULT_BLOCKLIST_URL_MAX_AGE_HOURS: u64 = 24;
 pub const DEFAULT_REQUIRE_NON_EMPTY_BLOCKLIST: bool = false;
+pub const DEFAULT_TIME_TO_KEEP_MEMPOOL_TXS_SECS: u64 = 1;
 
 impl Default for BaseConfig {
     fn default() -> Self {
@@ -591,6 +595,7 @@ impl Default for BaseConfig {
             ipc_provider: None,
             evm_caching_enable: false,
             faster_finalize: false,
+            time_to_keep_mempool_txs_secs: DEFAULT_TIME_TO_KEEP_MEMPOOL_TXS_SECS,
         }
     }
 }

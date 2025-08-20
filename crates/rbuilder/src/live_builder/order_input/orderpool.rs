@@ -2,9 +2,9 @@ use crate::primitives::{
     serialize::CancelShareBundle, BundleReplacementData, Order, OrderId, ShareBundleReplacementKey,
 };
 use ahash::HashMap;
-use alloy_eips::merge::SLOT_DURATION;
 use lru::LruCache;
 use reth::providers::StateProviderBox;
+use reth_primitives_traits::InMemorySize;
 use std::{
     collections::VecDeque,
     num::NonZeroUsize,
@@ -18,9 +18,6 @@ use super::{
     replaceable_order_sink::ReplaceableOrderSink,
     ReplaceableOrderPoolCommand,
 };
-
-const BLOCKS_TO_KEEP_TXS: u32 = 5;
-const TIME_TO_KEEP_TXS: Duration = SLOT_DURATION.saturating_mul(BLOCKS_TO_KEEP_TXS);
 
 const TIME_TO_KEEP_BUNDLE_CANCELLATIONS: Duration = Duration::from_secs(60);
 /// Push to pull for OrderSink. Just poll de UnboundedReceiver to get the orders.
@@ -69,6 +66,8 @@ pub struct OrderPoolSubscriptionId(u64);
 #[derive(Debug)]
 pub struct OrderPool {
     mempool_txs: Vec<(Order, Instant)>,
+    /// Sum of measure_tx(order) for all mempool_txs
+    mempool_txs_size: usize,
     /// cancelled bundle, cancellation arrival time
     bundle_cancellations: VecDeque<(BundleReplacementData, Instant)>,
     bundles_by_target_block: HashMap<u64, BundleBlockStore>,
@@ -77,16 +76,12 @@ pub struct OrderPool {
     known_orders: LruCache<(OrderId, u64), ()>,
     sinks: HashMap<OrderPoolSubscriptionId, SinkSubscription>,
     next_sink_id: u64,
-}
-
-impl Default for OrderPool {
-    fn default() -> Self {
-        Self::new()
-    }
+    /// After this time a mempool tx is dropped.
+    time_to_keep_mempool_txs: Duration,
 }
 
 impl OrderPool {
-    pub fn new() -> Self {
+    pub fn new(time_to_keep_mempool_txs: Duration) -> Self {
         OrderPool {
             mempool_txs: Vec::new(),
             bundles_by_target_block: HashMap::default(),
@@ -95,6 +90,8 @@ impl OrderPool {
             sinks: Default::default(),
             next_sink_id: 0,
             bundle_cancellations: Default::default(),
+            time_to_keep_mempool_txs,
+            mempool_txs_size: 0,
         }
     }
 
@@ -117,6 +114,7 @@ impl OrderPool {
         let (order, target_block) = match &order {
             Order::Tx(..) => {
                 self.mempool_txs.push((order.clone(), Instant::now()));
+                self.mempool_txs_size += Self::measure_tx(order);
                 (order, None)
             }
             Order::Bundle(bundle) => {
@@ -242,23 +240,31 @@ impl OrderPool {
         self.bundles_for_current_block.clear();
         // remove mempool txs by nonce, time
         self.mempool_txs.retain(|(order, time)| {
-            if time.elapsed() > TIME_TO_KEEP_TXS {
-                return false;
-            }
-            for nonce in order.nonces() {
-                if nonce.optional {
-                    continue;
-                }
-                let onchain_nonce = new_state
-                    .account_nonce(&nonce.address)
-                    .map_err(|e| error!("Failed to get a nonce: {}", e))
-                    .unwrap_or_default()
-                    .unwrap_or_default();
-                if onchain_nonce > nonce.nonce {
+            let retain = {
+                if time.elapsed() > self.time_to_keep_mempool_txs {
                     return false;
                 }
+                for nonce in order.nonces() {
+                    if nonce.optional {
+                        continue;
+                    }
+                    let onchain_nonce = new_state
+                        .account_nonce(&nonce.address)
+                        .map_err(|e: reth_errors::ProviderError| {
+                            error!("Failed to get a nonce: {}", e)
+                        })
+                        .unwrap_or_default()
+                        .unwrap_or_default();
+                    if onchain_nonce > nonce.nonce {
+                        return false;
+                    }
+                }
+                true
+            };
+            if !retain {
+                self.mempool_txs_size -= Self::measure_tx(order);
             }
-            true
+            retain
         });
         //remove old bundle cancellations
         while let Some((_, oldest_time)) = self.bundle_cancellations.front() {
@@ -278,5 +284,23 @@ impl OrderPool {
             .map(|v| v.bundles.len())
             .sum();
         (tx_count, bundle_count)
+    }
+
+    pub fn mempool_txs_size(&self) -> usize {
+        self.mempool_txs_size
+    }
+
+    pub fn measure_tx(order: &Order) -> usize {
+        match order {
+            Order::Tx(tx) => tx.size(),
+            Order::Bundle(_) => {
+                error!("measure_tx called on a bundle");
+                0
+            }
+            Order::ShareBundle(_) => {
+                error!("measure_tx called on an sbundle");
+                0
+            }
+        }
     }
 }

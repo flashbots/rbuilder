@@ -39,7 +39,9 @@ Every field has a default if omitted.
 |root_hash_threads| int|Threads used when using reth's native root hash calculation. If 0 global rayon pool is used| 0
 | watchdog_timeout_sec| optional int| If now block building is started in this period rbuilder exits.|None|
 |live_builders|vec[string]| List of `builders` to be used for live building.<br>Notice that you can define on **builders** some builders and select only a few here.|["mgp-ordering","mp-ordering"]|
-|evm_caching_enable|bool|Experimental. If enabled per block EVM execution will be enabled|false|
+|evm_caching_enable|bool|If enabled per block EVM execution will be enabled|false|
+|faster_finalize|bool| If enabled improves block finalization by catching proofs|false|
+|time_to_keep_mempool_txs_secs|u64| /// After this time a mempool tx is dropped.|1|
 |backtest_fetch_mempool_data_dir|env/string|Dir used to store mempool data used in backtesting|"/mnt/data/mempool"|
 |backtest_fetch_eth_rpc_url|string|url to EL node RPC used in backtesting|"http://127.0.0.1:8545"|
 |backtest_fetch_eth_rpc_parallel| int|Number of parallel connections allowed on backtest_fetch_eth_rpc_url|1|
@@ -55,6 +57,7 @@ Every field has a default if omitted.
 |relays|vec[RelayConfig]| List of relays used to get validator registration info and/or submitting. Below are the details for RelayConfig fields. Example: <br>[[relays]]<br>name = "relay1"<br>optimistic = true<br>priority = 1<br>url = "https://relay1"<br>use_gzip_for_submit = true<br>use_ssz_for_submit = true<br>mode:full<br><br>[[relays]]<br>name = "relay2"<br>...more params...|[]|
 |RelayConfig.name|mandatory string| Human readable name for the relay||
 |RelayConfig.url|mandatory string| Url to relay's endpoint||
+|RelayConfig.grpc_url|optional string| Url to relay's gRPC endpoint (only bloxroute at 2025/08/20).|None|
 |RelayConfig.authorization_header|optional env/string|If set "authorization" header will be added to RPC calls|None|
 |RelayConfig.builder_id_header|optional env/string|If set "X-Builder-Id" header will be added to RPC calls|None|
 |RelayConfig.api_token_header|optional env/string|If set "X-Api-Token" header will be added to RPC calls|None|
@@ -63,8 +66,10 @@ Every field has a default if omitted.
 |RelayConfig.use_gzip_for_submit|optional bool||false|
 |RelayConfig.optimistic|optional bool||false|
 |RelayConfig.interval_between_submissions_ms|optional int| Caps the submission rate to the relay|None|
-|RelayConfig.is_fast|optional bool| If the block bid > ignore_fast_bid_threshold_eth, critical blocks (the ones containing orders with replacement id) will go only to fast relays.|true|
-|RelayConfig.is_independent|optional bool| Big blocks (bid value > independent_bid_threshold_eth) will go only to independent relays.|true|
+|RelayConfig.max_bid_eth|optional string| Max bid we can submit to this relay. Any bid above this will be skipped.<br>None -> No limit.|None|
+|RelayConfig.is_bloxroute|bool|Set to `true` for bloxroute relays to add extra headers.|false|
+|RelayConfig.ask_for_filtering_validators|optional bool| Adds "filtering=true" as query to the call relay/v1/builder/validators to get all validators (including those filtering OFAC).<br>On 2025/06/24 only supported by ultrasound.|false|
+|RelayConfig.can_ignore_gas_limit|optional bool| If we submit a block with a different gas than the one the validator registered with in this relay the relay does not mind. Useful for gas limit conflicts. On 2025/08/20 only ultrasound confirmed that is ok with this. (we didn't asked the rest yet)|false|
 |enabled_relays| vec["string"]| Extra hardcoded relays to add (see DEFAULT_RELAYS in [config.rs](../crates/rbuilder/src/live_builder/config.rs))|[]|
 |relay_secret_key|optional env/string|Secret key that will be used to sign normal submissions to the relay.|None|
 |optimistic_relay_secret_key|optional env/string|Secret key that will be used to sign optimistic submissions to the relay.|None|
@@ -72,8 +77,7 @@ Every field has a default if omitted.
 |optimistic_max_bid_value_eth|string| Bids above this value will always be submitted in non-optimistic mode.|"0.0"|
 |cl_node_url|vec[env/stirng]| Array if urls to CL clients to get the new payload events|["http://127.0.0.1:3500"]
 |genesis_fork_version|optional string|Genesis fork version for the chain. If not provided it will be fetched from the beacon client.|None|
-|independent_bid_threshold_eth|optional string|Bids above this value will only go to independent relays.| "0"|
-|ignore_fast_bid_threshold_eth|optional string|For bids below this value we ignore RelayConfig::is_fast (it's like is_fast is true for all relays)| "1000"|
+|scraped_bids_publisher_url|string| Url to connect to the bid scraper service| "tcp://0.0.0.0:5555"|
 ## Building algorithms
 rbuilder can multiple building algorithms and each algorithm can be instantiated multiple times with it's own set of parameters each time.
 Each instantiated algorithm starts with:

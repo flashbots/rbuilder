@@ -26,10 +26,12 @@ use reth_primitives::{
     kzg::{BYTES_PER_BLOB, BYTES_PER_COMMITMENT, BYTES_PER_PROOF},
     PooledTransaction, Recovered, Transaction, TransactionSigned,
 };
-use reth_primitives_traits::SignerRecoverable;
+use reth_primitives_traits::{InMemorySize, SignerRecoverable};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{cmp::Ordering, collections::HashMap, fmt::Display, hash::Hash, str::FromStr, sync::Arc};
+use std::{
+    cmp::Ordering, collections::HashMap, fmt::Display, hash::Hash, mem, str::FromStr, sync::Arc,
+};
 pub use test_data_generator::TestDataGenerator;
 use thiserror::Error;
 use uuid::Uuid;
@@ -47,6 +49,13 @@ impl Metadata {
             received_at_timestamp: time::OffsetDateTime::now_utc(),
             refund_identity: None,
         }
+    }
+}
+
+impl InMemorySize for Metadata {
+    fn size(&self) -> usize {
+        mem::size_of::<time::OffsetDateTime>() + // received_at_timestamp
+            mem::size_of::<Option<Address>>() // refund_identity
     }
 }
 
@@ -871,6 +880,14 @@ pub struct MempoolTx {
 impl MempoolTx {
     pub fn new(tx_with_blobs: TransactionSignedEcRecoveredWithBlobs) -> Self {
         Self { tx_with_blobs }
+    }
+}
+
+impl InMemorySize for MempoolTx {
+    fn size(&self) -> usize {
+        self.tx_with_blobs.tx.inner().size()
+            + self.tx_with_blobs.blobs_sidecar.size()
+            + self.tx_with_blobs.metadata.size()
     }
 }
 

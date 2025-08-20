@@ -126,6 +126,9 @@ register_metrics! {
         IntGauge::new("current_block", "Current Block").unwrap();
     pub static ORDERPOOL_TXS: IntGauge =
         IntGauge::new("orderpool_txs", "Transactions In The Orderpool").unwrap();
+
+    pub static ORDERPOOL_TXS_SIZE: IntGauge =
+        IntGauge::new("orderpool_txs_size", "Aprox in memory size of transactions in the Orderpool (bytes)").unwrap();
     pub static ORDERPOOL_BUNDLES: IntGauge =
         IntGauge::new("orderpool_bundles", "Bundles In The Orderpool").unwrap();
 
@@ -437,9 +440,10 @@ pub fn inc_simulation_gas_used(gas: u64) {
     SIMULATION_GAS_USED.inc_by(gas);
 }
 
-pub fn set_ordepool_count(txs: usize, bundles: usize) {
+pub fn set_ordepool_stats(txs: usize, bundles: usize, txs_size: usize) {
     ORDERPOOL_TXS.set(txs as i64);
     ORDERPOOL_BUNDLES.set(bundles as i64);
+    ORDERPOOL_TXS_SIZE.set(txs_size as i64);
 }
 
 pub fn inc_order_input_rpc_errors(method: &str) {
