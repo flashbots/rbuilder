@@ -10,6 +10,9 @@ use std::{env, sync::Arc, time::Duration};
 /// Usually human readable id for relays. Not used on anything on any protocol just to identify the relays.
 pub type MevBoostRelayID = String;
 
+/// Timehout for requesting current epoch data from the MEV-Boost relay.
+pub const MEV_BOOST_SLOT_INFO_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// Modes for a relay since we may use them for different purposes.
 #[derive(Debug, Deserialize, Clone, PartialEq, Eq, Default)]
 pub enum RelayMode {
@@ -217,6 +220,15 @@ pub struct MevBoostRelaySlotInfoProvider {
 
 impl MevBoostRelaySlotInfoProvider {
     pub fn new(client: RelayClient, id: String) -> Self {
+        // we use separate request client for requesting validator data from the relay
+        // 1. it separates TCP connections that are used for submissions and other requests to the relay
+        // 2. it adds request timeout to epoch data request and its not needed for submissions
+        let req_client = reqwest::ClientBuilder::new()
+            .timeout(MEV_BOOST_SLOT_INFO_REQUEST_TIMEOUT)
+            .build()
+            .expect("failed to create reqwest client");
+        let client = client.with_reqwest_client(req_client);
+
         Self { client, id }
     }
     pub fn id(&self) -> &MevBoostRelayID {

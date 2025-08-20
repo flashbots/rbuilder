@@ -216,6 +216,11 @@ impl RelayClient {
     pub fn can_ignore_gas_limit(&self) -> bool {
         self.can_ignore_gas_limit
     }
+
+    pub fn with_reqwest_client(mut self, client: reqwest::Client) -> Self {
+        self.client = client;
+        self
+    }
 }
 
 #[serde_as]
