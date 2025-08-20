@@ -10,7 +10,7 @@ use std::{env, sync::Arc, time::Duration};
 /// Usually human readable id for relays. Not used on anything on any protocol just to identify the relays.
 pub type MevBoostRelayID = String;
 
-/// Timehout for requesting current epoch data from the MEV-Boost relay.
+/// Timeout for requesting current epoch data from the MEV-Boost relay.
 pub const MEV_BOOST_SLOT_INFO_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Modes for a relay since we may use them for different purposes.
