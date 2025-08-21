@@ -545,7 +545,7 @@ pub const DEFAULT_RETH_DB_PATH: &str = "/mnt/data/reth";
 /// This will update every 2.4 hours, super reasonable.
 pub const DEFAULT_BLOCKLIST_URL_MAX_AGE_HOURS: u64 = 24;
 pub const DEFAULT_REQUIRE_NON_EMPTY_BLOCKLIST: bool = false;
-pub const DEFAULT_TIME_TO_KEEP_MEMPOOL_TXS_SECS: u64 = 1;
+pub const DEFAULT_TIME_TO_KEEP_MEMPOOL_TXS_SECS: u64 = 60;
 
 impl Default for BaseConfig {
     fn default() -> Self {
