@@ -704,6 +704,7 @@ impl RelayClient {
                     }
 
                     // We encountered connection error, possibly due to broken gRPC connection. Proceed to re-submit the block through HTTP.
+                    tracing::error!(?error, "Error submitting to gRPC");
                 }
                 Err(error) => return Err(error),
             };
