@@ -12,7 +12,7 @@ use self::{
     orderpool::{OrderPool, OrderPoolSubscriptionId},
     replaceable_order_sink::ReplaceableOrderSink,
 };
-guse crate::provider::StateProviderFactory;
+use crate::provider::StateProviderFactory;
 use crate::telemetry::{set_current_block, set_ordepool_stats};
 use crate::{
     live_builder::base_config::DEFAULT_TIME_TO_KEEP_MEMPOOL_TXS_SECS,
