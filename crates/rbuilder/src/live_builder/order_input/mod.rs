@@ -12,9 +12,12 @@ use self::{
     orderpool::{OrderPool, OrderPoolSubscriptionId},
     replaceable_order_sink::ReplaceableOrderSink,
 };
-use crate::primitives::{serialize::CancelShareBundle, BundleReplacementData, Order};
-use crate::provider::StateProviderFactory;
+guse crate::provider::StateProviderFactory;
 use crate::telemetry::{set_current_block, set_ordepool_stats};
+use crate::{
+    live_builder::base_config::DEFAULT_TIME_TO_KEEP_MEMPOOL_TXS_SECS,
+    primitives::{serialize::CancelShareBundle, BundleReplacementData, Order},
+};
 use alloy_consensus::Header;
 use jsonrpsee::RpcModule;
 use parking_lot::Mutex;
@@ -166,7 +169,7 @@ impl OrderInputConfig {
             serve_max_connections: 4096,
             server_ip: Ipv4Addr::new(127, 0, 0, 1),
             server_port: 0,
-            time_to_keep_mempool_txs: Duration::from_secs(1),
+            time_to_keep_mempool_txs: Duration::from_secs(DEFAULT_TIME_TO_KEEP_MEMPOOL_TXS_SECS),
         }
     }
 }
