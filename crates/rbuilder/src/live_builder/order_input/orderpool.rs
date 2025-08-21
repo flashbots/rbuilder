@@ -230,6 +230,32 @@ impl OrderPool {
         self.sinks.remove(id).map(|s| s.sink)
     }
 
+    /// Retains if order is young and nonces are valid.
+    pub fn must_retain_order(
+        inserted_time: &Instant,
+        order: &Order,
+        new_state: &StateProviderBox,
+        time_to_keep_mempool_txs: &Duration,
+    ) -> bool {
+        if inserted_time.elapsed() > *time_to_keep_mempool_txs {
+            return false;
+        }
+        for nonce in order.nonces() {
+            if nonce.optional {
+                continue;
+            }
+            let onchain_nonce = new_state
+                .account_nonce(&nonce.address)
+                .map_err(|e: reth_errors::ProviderError| error!("Failed to get a nonce: {}", e))
+                .unwrap_or_default()
+                .unwrap_or_default();
+            if onchain_nonce > nonce.nonce {
+                return false;
+            }
+        }
+        true
+    }
+
     /// Should be called when last block is updated.
     /// It's slow but since it only happens at the start of the block it does now matter.
     /// It clears old txs from the mempool and old bundle_cancellations.
@@ -240,27 +266,8 @@ impl OrderPool {
         self.bundles_for_current_block.clear();
         // remove mempool txs by nonce, time
         self.mempool_txs.retain(|(order, time)| {
-            let retain = {
-                if time.elapsed() > self.time_to_keep_mempool_txs {
-                    return false;
-                }
-                for nonce in order.nonces() {
-                    if nonce.optional {
-                        continue;
-                    }
-                    let onchain_nonce = new_state
-                        .account_nonce(&nonce.address)
-                        .map_err(|e: reth_errors::ProviderError| {
-                            error!("Failed to get a nonce: {}", e)
-                        })
-                        .unwrap_or_default()
-                        .unwrap_or_default();
-                    if onchain_nonce > nonce.nonce {
-                        return false;
-                    }
-                }
-                true
-            };
+            let retain =
+                Self::must_retain_order(time, order, new_state, &self.time_to_keep_mempool_txs);
             if !retain {
                 self.mempool_txs_size -= Self::measure_tx(order);
             }
