@@ -1,3 +1,6 @@
+//! Experimental tool to test the backruns a given mev share user got.
+//! Giver the user tx hash we look for oll the backrun bundles and try to execute them the block prefix just before the user tx.
+//! This way we can see how the bundles would be executed on the block prefix and see if the landed backrun really has best refund for the user..
 use alloy_primitives::{b256, TxHash};
 use alloy_rpc_types::Block;
 use clap::Parser;
@@ -119,7 +122,7 @@ impl LandedBlockInfo {
         txs: &[TransactionSignedEcRecoveredWithBlobs],
         use_original_coinbase: bool,
     ) -> eyre::Result<BlockBuildingContext> {
-        let suggested_fee_recipient = find_suggested_fee_recipient(&onchain_block, txs);
+        let suggested_fee_recipient = find_suggested_fee_recipient(onchain_block, txs);
         let signer = config.base_config().coinbase_signer()?;
         // If we put the real coinbase we cant create a signer and we can't pay kickbacks
         let coinbase = if use_original_coinbase {
@@ -169,7 +172,9 @@ impl LandedBlockInfo {
 async fn main() -> eyre::Result<()> {
     let cli = Cli::parse();
     let mut block_info = LandedBlockInfo::new(cli.config.clone(), cli.block).await?;
+    // This is the tx hash of the user tx.
     let target_tx = b256!("0xbe997c5ead2a4f66cbf340d75aaafeb05981da79a24fbd772a732c3a2b11fe85");
+    // This are all the backrun bundles that include the user tx.
     let target_orders = block_info.filter_backruns_including(target_tx);
 
     println!(
@@ -184,46 +189,90 @@ async fn main() -> eyre::Result<()> {
     for tx in block_info.landed_txs.clone() {
         println!("{:?}", tx.hash());
     }
-    /*  let target_orders: Vec<_> = target_orders
-            .into_iter()
-            .filter(|o| {
-                if let OrderId::ShareBundle(hash) = o.order.id() {
-                    hash == b256!("0x48120a8766fb2f7ed4f6c645097e1a36fc4c9ac51649fee242fd1ae2e572d7d5")
-                } else {
-                    false
-                }
-            })
-            .collect();
-    */
+
     println!("\n=========== SIM TARGET ORDERS ToB Exec");
-    // Test orders on tob
-    for order_ts in &target_orders {
-        let mut builder = block_info.create_building_helper(false)?;
+    // Test orders on Tob since in prod we only try to land backruns that worked on ToB.
+    execute_orders_on_tob(&target_orders, &mut block_info)?;
+
+    println!("\n=========== RESIM SIMED TARGET ORDERS ToB Exec");
+    let sim_orders = block_info.sim_orders(target_orders.clone(), false)?;
+    // Re test orders on ToB
+    execute_sim_orders_on_tob(&sim_orders, &mut block_info)?;
+
+    println!("=========== BLOCK PREFIX EXEC");
+    // Execute block prefix
+    let mut builder = block_info.create_building_helper(true)?;
+
+    // Execute prefix (up to the user tx)
+    for tx in block_info.landed_txs.clone() {
+        if tx.hash() == target_tx {
+            break;
+        }
+        let order = Order::Tx(MempoolTx::new(tx.clone()));
         let sim_order = SimulatedOrder {
-            order: order_ts.order.clone(),
+            order,
             sim_value: Default::default(),
             used_state_trace: Default::default(),
         };
         let res = builder.commit_order(&mut block_info.local_ctx, &sim_order, &|_| Ok(()))?;
+        println!("{:?} {:?}", tx.hash(), res.is_ok());
+    }
+
+    // Test backruns after prefix.
+    println!("Backruns after prefix");
+    for sim_order in sim_orders {
+        let mut builder = builder.box_clone();
+        let res = builder.commit_order(&mut block_info.local_ctx, &sim_order, &|sim_result| {
+            simulation_too_low::<OrderMaxProfitPriority<FullProfitInfoGetter>>(
+                &sim_order.sim_value,
+                sim_result,
+            )
+        })?;
+
         let profit = res
             .as_ref()
             .map(|res| res.coinbase_profit)
             .unwrap_or_default();
 
+        let kickbacks = res
+            .as_ref()
+            .map(|res| res.paid_kickbacks.clone())
+            .unwrap_or_default();
+
         println!(
-            "{:?} signer {:?} res {:?} profit {:?} Txs: {:?}",
-            order_ts.order.id(),
-            order_ts.order.signer(),
+            "{:?} {:?} profit {:?} kickbacks{:?}",
+            sim_order.order.id(),
             res.is_ok(),
             profit,
-            order_ts.order.list_txs(),
+            kickbacks
         );
     }
 
-    println!("\n=========== SIM SIMED TARGET ORDERS ToB Exec");
-    let sim_orders = block_info.sim_orders(target_orders.clone(), false)?;
-    // Test orders on tob
-    for sim_order in &sim_orders {
+    Ok(())
+}
+
+#[allow(clippy::result_large_err)]
+fn simulation_too_low<OrderPriorityType: OrderPriority>(
+    original_sim_result: &SimValue,
+    new_sim_result: &SimValue,
+) -> Result<(), ExecutionError> {
+    if OrderPriorityType::simulation_too_low(original_sim_result, new_sim_result) {
+        Err(ExecutionError::LowerInsertedValue {
+            before: original_sim_result.clone(),
+            inplace: new_sim_result.clone(),
+        })
+    } else {
+        Ok(())
+    }
+}
+
+/// Sanity check of the simulation using a BlockBuildingHelper and also allows us to easily check extra stuff not in SimulatedOrder.
+fn execute_sim_orders_on_tob(
+    sim_orders: &[Arc<SimulatedOrder>],
+    block_info: &mut LandedBlockInfo,
+) -> eyre::Result<()> {
+    // Re test orders on ToB
+    for sim_order in sim_orders {
         let mut builder = block_info.create_building_helper(false)?;
         let res = builder.commit_order(&mut block_info.local_ctx, sim_order, &|_| Ok(()))?;
         let profit = res
@@ -246,72 +295,33 @@ async fn main() -> eyre::Result<()> {
                 .collect::<Vec<_>>()
         );
     }
-
-    println!("=========== BLOCK PREFIX EXEC");
-    // Execute block prefix
-    {
-        let mut builder = block_info.create_building_helper(true)?;
-
-        // Execute prefix
-        for tx in block_info.landed_txs.clone() {
-            if tx.hash() == target_tx {
-                break;
-            }
-            let order = Order::Tx(MempoolTx::new(tx.clone()));
-            let sim_order = SimulatedOrder {
-                order,
-                sim_value: Default::default(),
-                used_state_trace: Default::default(),
-            };
-            let res = builder.commit_order(&mut block_info.local_ctx, &sim_order, &|_| Ok(()))?;
-            println!("{:?} {:?}", tx.hash(), res.is_ok());
-        }
-
-        println!("SIMED");
-        for sim_order in sim_orders {
-            let mut builder = builder.box_clone();
-            let res =
-                builder.commit_order(&mut block_info.local_ctx, &sim_order, &|sim_result| {
-                    simulation_too_low::<OrderMaxProfitPriority<FullProfitInfoGetter>>(
-                        &sim_order.sim_value,
-                        sim_result,
-                    )
-                })?;
-
-            let profit = res
-                .as_ref()
-                .map(|res| res.coinbase_profit)
-                .unwrap_or_default();
-
-            let kickbacks = res
-                .as_ref()
-                .map(|res| res.paid_kickbacks.clone())
-                .unwrap_or_default();
-
-            println!(
-                "{:?} {:?} profit {:?} kickbacks{:?}",
-                sim_order.order.id(),
-                res.is_ok(),
-                profit,
-                kickbacks
-            );
-        }
-    }
-
     Ok(())
 }
 
-#[allow(clippy::result_large_err)]
-fn simulation_too_low<OrderPriorityType: OrderPriority>(
-    original_sim_result: &SimValue,
-    new_sim_result: &SimValue,
-) -> Result<(), ExecutionError> {
-    if OrderPriorityType::simulation_too_low(original_sim_result, new_sim_result) {
-        Err(ExecutionError::LowerInsertedValue {
-            before: original_sim_result.clone(),
-            inplace: new_sim_result.clone(),
-        })
-    } else {
-        Ok(())
+fn execute_orders_on_tob(
+    target_orders: &[OrdersWithTimestamp],
+    block_info: &mut LandedBlockInfo,
+) -> eyre::Result<()> {
+    for order_ts in target_orders {
+        let mut builder = block_info.create_building_helper(false)?;
+        let sim_order = SimulatedOrder {
+            order: order_ts.order.clone(),
+            sim_value: Default::default(),
+            used_state_trace: Default::default(),
+        };
+        let res = builder.commit_order(&mut block_info.local_ctx, &sim_order, &|_| Ok(()))?;
+        let profit = res
+            .as_ref()
+            .map(|res| res.coinbase_profit)
+            .unwrap_or_default();
+        println!(
+            "{:?} signer {:?} res {:?} profit {:?} Txs: {:?}",
+            order_ts.order.id(),
+            order_ts.order.signer(),
+            res.is_ok(),
+            profit,
+            order_ts.order.list_txs(),
+        );
     }
+    Ok(())
 }

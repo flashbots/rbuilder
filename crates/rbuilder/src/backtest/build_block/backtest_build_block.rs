@@ -39,6 +39,11 @@ pub struct BuildBlockCfg {
         default_value = "mp-ordering"
     )]
     pub builders: Vec<String>,
+    #[clap(
+        long,
+        help = "Traces block building execution (shows all executed orders and txs)"
+    )]
+    pub trace_block_building: bool,
 }
 
 /// Provides all the orders needed to simulate the construction of a block.
@@ -123,11 +128,17 @@ where
                     sim_orders: &sim_orders,
                     provider: provider_factory.clone(),
                 };
-                let build_res = config.build_backtest_block(
+                let build_res = if build_block_cfg.trace_block_building {
+                    config.build_backtest_block(
                     builder_name,
                     input,
-                    crate::backtest::build_block::full_partial_block_execution_tracer::FullPartialBlockExecutionTracer::new(),
-                );
+                    crate::backtest::build_block::full_partial_block_execution_tracer::FullPartialBlockExecutionTracer::new())
+                } else {
+                    config.build_backtest_block(
+                    builder_name,
+                    input,
+                    NullPartialBlockExecutionTracer{})
+                };
                 if let Err(err) = &build_res {
                     println!("Error building block: {:?}", err);
                     return None;

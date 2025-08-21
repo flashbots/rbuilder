@@ -16,7 +16,9 @@ const INDENT_SIZE: usize = 2;
 trait ItemSummary: std::fmt::Debug + Send + Sync {
     fn print_summary(&self);
     /// Only valid for orders
+    #[allow(unused)]
     fn total_profit_after_execution(&self) -> Option<U256>;
+    #[allow(unused)]
     fn execution_end(&self) -> Duration;
 }
 
@@ -29,6 +31,7 @@ struct BaseExecutionSummary {
 }
 
 impl BaseExecutionSummary {
+    #[allow(unused)]
     fn execution_end(&self) -> Duration {
         self.execution_start + self.execution_time
     }
@@ -56,6 +59,7 @@ impl SimpleTxExecutionResult {
     }
 }
 
+/// Single tx execution summary.
 #[derive(Debug, Clone)]
 struct TxExecutionSummary {
     base: BaseExecutionSummary,
@@ -99,6 +103,8 @@ enum SimpleOrderExecutionResult {
     /// ExecutionError::LowerInsertedValue
     LowProfit,
 }
+
+/// Order execution summary. Aggregates children TxExecutionSummary.
 #[derive(Debug, Clone)]
 struct OrderExecutionSummary {
     id: OrderId,
@@ -153,6 +159,7 @@ impl ItemSummary for OrderExecutionSummary {
     }
 }
 
+/// Tracer that stores all the info and on Drop prints a report.
 #[derive(Debug, Clone)]
 pub struct FullPartialBlockExecutionTracer {
     /// Start of the execution (new())
@@ -164,6 +171,7 @@ pub struct FullPartialBlockExecutionTracer {
     /// While inside an order we store tx results here and log them when the order is finished.
     order_executed_txs: Vec<TxExecutionSummary>,
     total_profit: U256,
+    /// Every log item is stored here to be printed on Drop.
     log: Vec<Arc<dyn ItemSummary>>,
 }
 

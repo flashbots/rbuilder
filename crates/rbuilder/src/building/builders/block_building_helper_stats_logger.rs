@@ -119,7 +119,7 @@ impl<'a> BlockBuildingHelperStatsLogger<'a> {
                 .list_txs()
                 .iter()
                 .map(|(t, _)| t)
-                .filter(|t| mempool_txs_detector.is_mempool(&t))
+                .filter(|t| mempool_txs_detector.is_mempool(t))
                 .count();
             println!(
                 "{:?},{:?},{:?},{:?},{:?},{:?},{:?},{:?},{:?},{:?},{:?}",
