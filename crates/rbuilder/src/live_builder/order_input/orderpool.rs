@@ -2,12 +2,14 @@ use crate::primitives::{
     serialize::CancelShareBundle, BundleReplacementData, Order, OrderId, ShareBundleReplacementKey,
 };
 use ahash::HashMap;
-use alloy_eips::merge::SLOT_DURATION;
+use alloy_eips::{eip7594::BlobTransactionSidecarVariant, merge::SLOT_DURATION};
 use lru::LruCache;
 use reth::providers::StateProviderBox;
+use reth_chainspec::{ChainSpec, EthereumHardforks};
 use std::{
     collections::VecDeque,
     num::NonZeroUsize,
+    sync::Arc,
     time::{Duration, Instant},
 };
 use tokio::sync::mpsc::{self};
@@ -235,7 +237,13 @@ impl OrderPool {
     /// Should be called when last block is updated.
     /// It's slow but since it only happens at the start of the block it does now matter.
     /// It clears old txs from the mempool and old bundle_cancellations.
-    pub fn head_updated(&mut self, new_block_number: u64, new_state: &StateProviderBox) {
+    pub fn head_updated(
+        &mut self,
+        new_block_number: u64,
+        new_state: &StateProviderBox,
+        chain_spec: Arc<ChainSpec>,
+        block_timestamp: u64,
+    ) {
         // remove from bundles by target block
         self.bundles_by_target_block
             .retain(|block_number, _| *block_number > new_block_number);
@@ -267,6 +275,36 @@ impl OrderPool {
             }
             self.bundle_cancellations.pop_front();
         }
+        // remove electra blob transactions only if fulu activated
+        self.remove_electra_blobs_on_fulu_fork(chain_spec, block_timestamp);
+    }
+
+    pub fn remove_electra_blobs_on_fulu_fork(
+        &mut self,
+        chain_spec: Arc<ChainSpec>,
+        block_timestamp: u64,
+    ) {
+        // check fork activation
+        if !chain_spec.is_osaka_active_at_timestamp(block_timestamp) {
+            return;
+        }
+        // remove electra blob transactions and retain only fulu compatible ones
+        self.mempool_txs.retain(|(order, _time)| {
+            if let Order::Tx(tx) = order {
+                match tx.tx_with_blobs.blobs_sidecar.as_ref() {
+                    BlobTransactionSidecarVariant::Eip4844(sidecar) => {
+                        // remove these blobs
+                        if !sidecar.blobs.is_empty() {
+                            return false;
+                        }
+                    }
+                    BlobTransactionSidecarVariant::Eip7594(_) => {
+                        // no action needed here
+                    }
+                }
+            }
+            true
+        });
     }
 
     /// Does NOT take in account cancellations

@@ -18,6 +18,7 @@ use crate::telemetry::{set_current_block, set_ordepool_count};
 use alloy_consensus::Header;
 use jsonrpsee::RpcModule;
 use parking_lot::Mutex;
+use reth_chainspec::ChainSpec;
 use std::{net::Ipv4Addr, path::PathBuf, sync::Arc, time::Duration};
 use std::{path::Path, time::Instant};
 use tokio::{sync::mpsc, task::JoinHandle};
@@ -186,6 +187,7 @@ impl ReplaceableOrderPoolCommand {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Starts all the tokio tasks to handle order flow:
 /// - Mempool
 /// - RPC
@@ -200,6 +202,7 @@ pub async fn start_orderpool_jobs<P>(
     order_sender: mpsc::Sender<ReplaceableOrderPoolCommand>,
     order_receiver: mpsc::Receiver<ReplaceableOrderPoolCommand>,
     header_receiver: mpsc::Receiver<Header>,
+    chain_spec: Arc<ChainSpec>,
 ) -> eyre::Result<(JoinHandle<()>, OrderPoolSubscriber)>
 where
     P: StateProviderFactory + 'static,
@@ -221,6 +224,7 @@ where
         provider_factory,
         orderpool.clone(),
         global_cancel.clone(),
+        chain_spec,
     )
     .await?;
     let rpc_server = rpc_server::start_server_accepting_bundles(
@@ -330,6 +334,7 @@ async fn spawn_clean_orderpool_job<P>(
     provider_factory: P,
     orderpool: Arc<Mutex<OrderPool>>,
     global_cancellation: CancellationToken,
+    chain_spec: Arc<ChainSpec>,
 ) -> eyre::Result<JoinHandle<()>>
 where
     P: StateProviderFactory + 'static,
@@ -357,7 +362,12 @@ where
                         let mut orderpool = orderpool.lock();
                         let start = Instant::now();
 
-                        orderpool.head_updated(current_block, &state);
+                        orderpool.head_updated(
+                            current_block,
+                            &state,
+                            chain_spec.clone(),
+                            header.timestamp,
+                        );
 
                         let update_time = start.elapsed();
                         let (tx_count, bundle_count) = orderpool.content_count();

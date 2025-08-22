@@ -182,6 +182,7 @@ where
                 self.orderpool_sender,
                 self.orderpool_receiver,
                 header_receiver,
+                self.chain_chain_spec.clone(),
             )
             .await?;
             inner_jobs_handles.push(handle);
