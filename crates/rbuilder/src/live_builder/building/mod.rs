@@ -1,3 +1,4 @@
+pub mod built_block_cache;
 mod unfinished_block_building_sink_muxer;
 
 use crate::{
@@ -8,7 +9,11 @@ use crate::{
         multi_share_bundle_merger::MultiShareBundleMerger,
         simulated_order_command_to_sink, BlockBuildingContext, SimulatedOrderSink,
     },
-    live_builder::{payload_events::MevBoostSlotData, simulation::SlotOrderSimResults},
+    live_builder::{
+        building::built_block_cache::{BuiltBlockCache, BuiltBlockCacheUpdater},
+        payload_events::MevBoostSlotData,
+        simulation::SlotOrderSimResults,
+    },
     primitives::{OrderId, SimulatedOrder},
     provider::StateProviderFactory,
 };
@@ -138,7 +143,7 @@ where
         let muxer = Arc::new(UnfinishedBlockBuildingSinkMuxer::new(builder_sink));
 
         let block_number = ctx.evm_env.block_env.number;
-
+        let built_block_cache = Arc::new(BuiltBlockCache::new());
         for builder in self.builders.iter() {
             let builder_name = builder.name();
             debug!(
@@ -147,12 +152,18 @@ where
                 builder_name,
                 "Spawning builder job"
             );
+            let built_block_cache_updater = Arc::new(BuiltBlockCacheUpdater::new(
+                built_block_cache.clone(),
+                muxer.clone(),
+            ));
+
             let input = BlockBuildingAlgorithmInput::<P> {
                 provider: self.provider.clone(),
                 ctx: ctx.clone(),
                 input: broadcast_input.subscribe(),
-                sink: muxer.clone(),
+                sink: built_block_cache_updater,
                 cancel: cancel.clone(),
+                built_block_cache: built_block_cache.clone(),
             };
             let builder = builder.clone();
             tokio::task::spawn_blocking(move || {
