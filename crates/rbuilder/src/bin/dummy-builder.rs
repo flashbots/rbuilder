@@ -243,9 +243,11 @@ impl DummyBuildingAlgorithm {
             CancellationToken::new(),
         )?;
 
-        for order in orders {
+        for sim_order in orders {
             // don't care about the result
-            let _ = block_building_helper.commit_order(&mut local_ctx, &order, &|_| Ok(()))?;
+            let _ =
+                block_building_helper
+                    .commit_order(&mut local_ctx, sim_order.clone(), &|_| Ok(()))?;
         }
         Ok(Box::new(block_building_helper))
     }

@@ -221,7 +221,7 @@ where
                 .trace
                 .included_orders
                 .iter()
-                .map(|o| o.order.id())
+                .map(|o| o.sim_order.id())
                 .collect(),
             included_order_profits: block
                 .trace

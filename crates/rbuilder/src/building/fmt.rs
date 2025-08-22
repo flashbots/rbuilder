@@ -13,7 +13,7 @@ pub fn write_exec_res<Buffer: Write>(
     exec_res: &ExecutionResult,
 ) -> std::fmt::Result {
     write_indent(indent, buf)?;
-    buf.write_str(&format!("ExecResult {}:\n", exec_res.order.id()))?;
+    buf.write_str(&format!("ExecResult {}:\n", exec_res.sim_order.id()))?;
 
     write_indent(indent + 1, buf)?;
     buf.write_str("Sim:\n")?;
@@ -23,5 +23,5 @@ pub fn write_exec_res<Buffer: Write>(
     write_indent(indent + 1, buf)?;
     buf.write_str("Order:\n")?;
 
-    write_order(indent + 2, buf, &exec_res.order)
+    write_order(indent + 2, buf, &exec_res.sim_order.order)
 }

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::building::ThreadBlockBuildingContext;
 use crate::live_builder::simulation::SimulatedOrderCommand;
 use crate::primitives::SimValue;
@@ -67,7 +69,7 @@ impl BlockBuildingHelper for MockBlockBuildingHelper {
     fn commit_order(
         &mut self,
         _local_ctx: &mut ThreadBlockBuildingContext,
-        _order: &SimulatedOrder,
+        _sim_order: Arc<SimulatedOrder>,
         _result_filter: &dyn Fn(&SimValue) -> Result<(), ExecutionError>,
     ) -> Result<Result<&ExecutionResult, ExecutionError>, CriticalCommitOrderError> {
         unimplemented!()

@@ -290,7 +290,7 @@ impl OrderingBuilderContext {
             let start_time = Instant::now();
             let commit_result = block_building_helper.commit_order(
                 &mut self.local_ctx,
-                &sim_order,
+                sim_order.clone(),
                 &|sim_result| {
                     simulation_too_low::<OrderPriorityType>(&sim_order.sim_value, sim_result)
                 },

@@ -439,7 +439,7 @@ pub struct ExecutionResult {
     pub coinbase_profit: U256,
     pub inplace_sim: SimValue,
     pub gas_used: u64,
-    pub order: Order,
+    pub sim_order: Arc<SimulatedOrder>,
     pub tx_infos: Vec<TransactionExecutionInfo>,
     /// Patch to get the executed OrderIds for merged sbundles (see: [`BundleOk::original_order_ids`],[`ShareBundleMerger`] )
     /// Fully dropped orders (TxRevertBehavior::AllowedExcluded allows it!) are not included.
@@ -566,13 +566,13 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
     ///     You can always pass &|_| Ok(()) if you don't need the filter.
     pub fn commit_order(
         &mut self,
-        order: &SimulatedOrder,
+        sim_order: Arc<SimulatedOrder>,
         ctx: &BlockBuildingContext,
         local_ctx: &mut ThreadBlockBuildingContext,
         state: &mut BlockState,
         result_filter: &dyn Fn(&SimValue) -> Result<(), ExecutionError>,
     ) -> Result<Result<ExecutionResult, ExecutionError>, CriticalCommitOrderError> {
-        if ctx.builder_signer.is_none() && !order.sim_value.paid_kickbacks().is_empty() {
+        if ctx.builder_signer.is_none() && !sim_order.sim_value.paid_kickbacks().is_empty() {
             // Return here to avoid wasting time on a call to fork.commit_order that 99% will fail
             return Ok(Err(ExecutionError::OrderError(OrderErr::Bundle(
                 BundleErr::NoSigner,
@@ -582,7 +582,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         let mut fork = PartialBlockFork::new(state, ctx, local_ctx).with_tracer(&mut self.tracer);
         let rollback = fork.rollback_point();
         let exec_result = fork.commit_order(
-            &order.order,
+            &sim_order.order,
             self.gas_used,
             self.gas_reserved,
             self.blob_gas_used,
@@ -597,7 +597,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         };
 
         let inplace_sim_result =
-            create_sim_value(&order.order, &ok_result, &ctx.mempool_tx_detector);
+            create_sim_value(&sim_order.order, &ok_result, &ctx.mempool_tx_detector);
 
         match result_filter(&inplace_sim_result) {
             Ok(()) => {}
@@ -632,7 +632,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             coinbase_profit: ok_result.coinbase_profit,
             inplace_sim: inplace_sim_result,
             gas_used: ok_result.gas_used,
-            order: order.order.clone(),
+            sim_order: sim_order.clone(),
             tx_infos: ok_result.tx_infos,
             original_order_ids: ok_result.original_order_ids,
             nonces_updated: ok_result.nonces_updated,

@@ -137,11 +137,11 @@ where
                 for order_result in &block.trace.included_orders {
                     println!(
                         "{:>74} gas: {:>8} profit: {}",
-                        order_result.order.id().to_string(),
+                        order_result.sim_order.id().to_string(),
                         order_result.gas_used,
                         format_ether(order_result.coinbase_profit),
                     );
-                    if let Order::Bundle(_) | Order::ShareBundle(_) = order_result.order {
+                    if let Order::Bundle(_) | Order::ShareBundle(_) = order_result.sim_order.order {
                         for tx in order_result.tx_infos.iter().map(|info| &info.tx) {
                             println!("      ↳ {:?}", tx.hash());
                         }
