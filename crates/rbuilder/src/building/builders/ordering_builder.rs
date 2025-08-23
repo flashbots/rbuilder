@@ -14,7 +14,7 @@ use crate::{
         BlockBuildingContext, ExecutionError, OrderPriority, PrioritizedOrderStore,
         SimulatedOrderSink, Sorting, ThreadBlockBuildingContext,
     },
-    primitives::{AccountNonce, OrderId, SimValue},
+    primitives::{AccountNonce, Order, OrderId, SimValue},
     provider::StateProviderFactory,
     telemetry::mark_builder_considers_order,
     utils::NonceCache,
@@ -36,6 +36,8 @@ use super::{
     handle_building_error, BacktestSimulateBlockInput, Block, BlockBuildingAlgorithm,
     BlockBuildingAlgorithmInput,
 };
+use alloy_eips::eip7594::BlobTransactionSidecarVariant;
+use reth_chainspec::EthereumHardforks;
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -284,6 +286,10 @@ impl OrderingBuilderContext {
             if sim_order.sim_value.gas_used() == 0 {
                 continue;
             }
+            // skip electra blob transactions when fulu activated
+            if self.should_skip_electra_blob_order(&sim_order.order) {
+                continue;
+            }
 
             if let Some(deadline) = self.config.build_duration_deadline() {
                 if build_start.elapsed() > deadline {
@@ -351,6 +357,44 @@ impl OrderingBuilderContext {
             );
         }
         Ok(())
+    }
+
+    fn should_skip_electra_blob_order(&self, order: &Order) -> bool {
+        if !self
+            .ctx
+            .chain_spec
+            .is_osaka_active_at_timestamp(self.ctx.attributes.timestamp)
+        {
+            return false;
+        }
+
+        match order {
+            Order::Tx(tx) => {
+                match tx.tx_with_blobs.blobs_sidecar.as_ref() {
+                    BlobTransactionSidecarVariant::Eip4844(sidecar) => {
+                        !sidecar.blobs.is_empty()
+                    }
+                    BlobTransactionSidecarVariant::Eip7594(_) => {
+                        false
+                    }
+                }
+            }
+            Order::Bundle(bundle) => bundle.txs.iter().any(|tx| match tx.blobs_sidecar.as_ref() {
+                BlobTransactionSidecarVariant::Eip4844(sidecar) => !sidecar.blobs.is_empty(),
+                BlobTransactionSidecarVariant::Eip7594(_) => false,
+            }),
+            Order::ShareBundle(sbundle) => {
+                sbundle
+                    .list_txs()
+                    .iter()
+                    .any(|(tx, _)| match tx.blobs_sidecar.as_ref() {
+                        BlobTransactionSidecarVariant::Eip4844(sidecar) => {
+                            !sidecar.blobs.is_empty()
+                        }
+                        BlobTransactionSidecarVariant::Eip7594(_) => false,
+                    })
+            }
+        }
     }
 }
 
