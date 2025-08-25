@@ -40,6 +40,7 @@ pub use tx_signer::Signer;
 pub mod provider_head_state;
 pub mod tracing;
 pub mod failed_txs_writer;
+pub use failed_txs_writer::init_reporting_from_preconf_client;
 
 #[cfg(test)]
 pub mod test_utils;

@@ -666,6 +666,7 @@ impl PreconfApiClient {
                                                 debug!("received preconf bundle contains zero transaction.");
                                             } else {
                                                 match generate_order_from_api_preconf(
+                                                    preconf_info.slot,
                                                     preconf_info.block_number,
                                                     preconf_info.timestamp.unwrap(),
                                                     bundle,
@@ -728,6 +729,7 @@ impl PreconfApiClient {
 }
 
 fn generate_order_from_api_preconf(
+    slot: u64,
     block: u64,
     timestamp: u64,
     bundle: PreconfBundle,
@@ -772,6 +774,7 @@ fn generate_order_from_api_preconf(
         Ok(p) => {
             metadata.preconf_bid_price = Some(p);
             metadata.preconf_ordering = Some(preconf_ordering);
+            metadata.slot = Some(slot);
             Ok(Order::Bundle(Bundle {
                 version: BundleVersion::V1,
                 block: Some(block),

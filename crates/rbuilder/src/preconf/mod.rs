@@ -5,6 +5,7 @@ use crate::live_builder::config::{Config};
 use crate::preconf::preconf_api_client::PreconfApiClient;
 use crate::preconf::preconf_ws_client::PreconfWsClient;
 use crate::primitives::Order;
+use crate::utils::failed_txs_writer::init_reporting_from_preconf_client;
 use alloy_primitives::{Address, U256};
 use futures_util::StreamExt;
 use jsonrpsee::core::Serialize;
@@ -266,6 +267,8 @@ pub async fn new_preconf_api(
         state: preconf_state.clone(),
         exchange_secret_key: secret_key,
     };
+    // Initialize failed_txs writer to reuse the same HTTP client, base URL and JWT access token
+    init_reporting_from_preconf_client(&api_client);
     let logged_in = api_client.login().await;
     if logged_in {
         *health = PreconfHealthStatus::ApiEnabled;

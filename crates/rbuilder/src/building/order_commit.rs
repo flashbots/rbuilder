@@ -694,6 +694,7 @@ impl<'a, 'b, 'c, 'd, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, 'd, 
                         if !bundle.reverting_tx_hashes.contains(&tx_hash) {
                             if bundle.is_preconf() {
                                 let record = failed_txs_writer::FailedTx {
+                                    slot: bundle.metadata.slot.unwrap_or(0),
                                     uuid: bundle.uuid.to_string(),
                                     tx_hash: tx_hash.to_string(),
                                     failed_reason: BundleErr::TransactionReverted(tx_hash)
@@ -724,6 +725,7 @@ impl<'a, 'b, 'c, 'd, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, 'd, 
                     if bundle.is_preconf() {
                         // write tx
                         let record = failed_txs_writer::FailedTx {
+                            slot: bundle.metadata.slot.unwrap_or(0),
                             uuid: bundle.uuid.to_string(),
                             tx_hash: tx_hash.to_string(),
                             failed_reason: err.to_string(),

@@ -563,6 +563,7 @@ pub async fn process_preconf_bundles(
         }
         debug!("ws: generate_order_from_preconf");
         match generate_order_from_ws_preconf(
+            preconf_info.slot,
             preconf_info.block_number,
             preconf_info.timestamp.unwrap(),
             bundle.clone(),
@@ -586,6 +587,7 @@ pub async fn process_preconf_bundles(
 }
 
 pub fn generate_order_from_ws_preconf(
+    slot: u64,
     block: u64,
     timestamp: u64,
     bundle: PreconfBundle,
@@ -630,6 +632,7 @@ pub fn generate_order_from_ws_preconf(
         Ok(p) => {
             metadata.preconf_bid_price = Some(p);
             metadata.preconf_ordering = Some(preconf_ordering);
+            metadata.slot = Some(slot);
             Ok(Order::Bundle(Bundle {
                 version: BundleVersion::V1,
                 block: Some(block),

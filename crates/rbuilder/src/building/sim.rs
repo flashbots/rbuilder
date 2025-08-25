@@ -168,6 +168,7 @@ impl SimTree {
                                     _ => order.id().to_string(),
                                 };
                                 let record = failed_txs_writer::FailedTx {
+                                    slot: order.metadata().slot.unwrap_or(0),
                                     uuid: uuid_str,
                                     tx_hash: trx.hash().to_string(),
                                     failed_reason: err.to_string(),
@@ -392,6 +393,7 @@ where
                                 _ => sim_task.order.id().to_string(),
                             };
                             let record = failed_txs_writer::FailedTx {
+                                slot: sim_task.order.metadata().slot.unwrap_or(0),
                                 uuid: uuid_str,
                                 tx_hash: trx.hash().to_string(),
                                 failed_reason: err.to_string(),

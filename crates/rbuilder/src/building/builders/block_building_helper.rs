@@ -309,13 +309,13 @@ impl BlockBuildingHelperFromProvider {
 
         let use_last_tx_payment;
 
-        let (bid_value, true_value) = if let (Some(payout_tx_gas), Some(payout_tx_value)) =
+        let (bid_value, true_value) = if let (Some(_payout_tx_gas), Some(payout_tx_value)) =
             (self.payout_tx_gas, payout_tx_value)
         {
             use_last_tx_payment = true;
             // (payout_tx_value, self.true_block_value()?)
             match self.partial_block.insert_proposer_payout_tx(
-                payout_tx_gas,
+                self.payout_tx_gas.unwrap(),
                 payout_tx_value,
                 &self.building_ctx,
                 local_ctx,

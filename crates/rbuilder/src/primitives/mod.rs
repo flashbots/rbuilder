@@ -40,6 +40,7 @@ pub struct Metadata {
     pub received_at_timestamp: time::OffsetDateTime,
     pub preconf_ordering: Option<U256>,
     pub preconf_bid_price: Option<U256>,
+    pub slot: Option<u64>,
 }
 
 impl Metadata {
@@ -48,6 +49,7 @@ impl Metadata {
             received_at_timestamp: time::OffsetDateTime::now_utc(),
             preconf_ordering: None,
             preconf_bid_price: None,
+            slot: None,
         }
     }
 }

@@ -117,7 +117,9 @@ pub struct L1Config {
     pub relays: Vec<RelayConfig>,
     pub enabled_relays: Vec<String>,
 
+    // Secret key that will be used to sign in ETHGas
     exchange_secret_key: Option<EnvOrValue<String>>,
+
     /// Secret key that will be used to sign normal submissions to the relay.
     relay_secret_key: Option<EnvOrValue<String>>,
     /// Secret key that will be used to sign optimistic submissions to the relay.
