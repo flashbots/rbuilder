@@ -172,7 +172,7 @@ impl ResolverContext {
 
             let sim_order = &task.group.orders[order_idx];
             match partial_block.commit_order(
-                sim_order.clone(),
+                sim_order,
                 &self.ctx,
                 &mut local_ctx,
                 &mut state,

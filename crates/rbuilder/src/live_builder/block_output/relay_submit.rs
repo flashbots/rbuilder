@@ -177,7 +177,7 @@ async fn run_submit_to_relays_job(
             .trace
             .included_orders
             .iter()
-            .filter(|o| !o.sim_order.order.is_tx())
+            .filter(|o| !o.order.is_tx())
             .count();
 
         // Only enable the optimistic config for this block if the bid value is below the max bid value
@@ -196,7 +196,7 @@ async fn run_submit_to_relays_job(
             .trace
             .included_orders
             .iter()
-            .flat_map(|exec_res| exec_res.sim_order.order.original_orders());
+            .flat_map(|exec_res| exec_res.order.original_orders());
         let bid_metadata = BidMetadata {
             value: BidValueMetadata {
                 coinbase_reward: block.trace.coinbase_reward,

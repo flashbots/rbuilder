@@ -109,12 +109,10 @@ impl BuiltBlockTrace {
     pub fn used_order_count(&self) -> (usize, usize, usize) {
         self.included_orders
             .iter()
-            .fold((0, 0, 0), |acc, execution_result| {
-                match execution_result.sim_order.order {
-                    Order::Tx(_) => (acc.0 + 1, acc.1, acc.2),
-                    Order::Bundle(_) => (acc.0, acc.1 + 1, acc.2),
-                    Order::ShareBundle(_) => (acc.0, acc.1, acc.2 + 1),
-                }
+            .fold((0, 0, 0), |acc, order| match order.order {
+                Order::Tx(_) => (acc.0 + 1, acc.1, acc.2),
+                Order::Bundle(_) => (acc.0, acc.1 + 1, acc.2),
+                Order::ShareBundle(_) => (acc.0, acc.1, acc.2 + 1),
             })
     }
 
@@ -148,7 +146,7 @@ impl BuiltBlockTrace {
                 // sometimes that tx is marked as revertible and sometimes not
                 // if tx is marked as revertible in one sub-bundle but not another we consider that tx as revertible
                 bundle_txs_scratchpad.clear();
-                for (tx, can_revert) in res.sim_order.order.list_txs() {
+                for (tx, can_revert) in res.order.list_txs() {
                     let hash = tx.hash();
                     match bundle_txs_scratchpad.entry(hash) {
                         hash_map::Entry::Vacant(entry) => {
@@ -168,7 +166,7 @@ impl BuiltBlockTrace {
                 if let Some(can_revert) = bundle_txs.get(executed_hash) {
                     if !*success && !can_revert {
                         return Err(BuiltBlockTraceError::BundleTxReverted {
-                            order_id: res.sim_order.order.id(),
+                            order_id: res.order.id(),
                             tx_hash: *executed_hash,
                         });
                     }

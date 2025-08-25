@@ -39,7 +39,7 @@ pub trait BlockBuildingHelper: Send + Sync {
     fn commit_order(
         &mut self,
         local_ctx: &mut ThreadBlockBuildingContext,
-        sim_order: Arc<SimulatedOrder>,
+        order: &SimulatedOrder,
         result_filter: &dyn Fn(&SimValue) -> Result<(), ExecutionError>,
     ) -> Result<Result<&ExecutionResult, ExecutionError>, CriticalCommitOrderError>;
 
@@ -338,13 +338,13 @@ impl BlockBuildingHelper for BlockBuildingHelperFromProvider {
     fn commit_order(
         &mut self,
         local_ctx: &mut ThreadBlockBuildingContext,
-        sim_order: Arc<SimulatedOrder>,
+        order: &SimulatedOrder,
         result_filter: &dyn Fn(&SimValue) -> Result<(), ExecutionError>,
     ) -> Result<Result<&ExecutionResult, ExecutionError>, CriticalCommitOrderError> {
-        self.built_block_trace.add_considered_order(&sim_order);
+        self.built_block_trace.add_considered_order(order);
         let start = Instant::now();
         let result = self.partial_block.commit_order(
-            sim_order.clone(),
+            order,
             &self.building_ctx,
             local_ctx,
             &mut self.block_state,
@@ -363,7 +363,7 @@ impl BlockBuildingHelper for BlockBuildingHelperFromProvider {
                 Err(err) => {
                     self.built_block_trace
                         .modify_payment_when_no_signer_error(&err);
-                    self.built_block_trace.add_failed_order(&sim_order);
+                    self.built_block_trace.add_failed_order(order);
                     (Ok(Err(err)), false)
                 }
             },
