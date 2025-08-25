@@ -7,47 +7,28 @@ use crate::{
     building::builders::{
         block_building_helper::BiddableUnfinishedBlock, UnfinishedBlockBuildingSink,
     },
-    primitives::SimulatedOrder,
+    primitives::{Order, OrderId},
 };
-
-/// Wrapper to make SimulatedOrder hashable to use in HashSet.
-#[derive(Debug)]
-struct HashedSimulatedOrder(Arc<SimulatedOrder>);
-
-impl std::hash::Hash for HashedSimulatedOrder {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        std::sync::Arc::<SimulatedOrder>::as_ptr(&self.0).hash(state)
-    }
-}
-
-impl PartialEq for HashedSimulatedOrder {
-    fn eq(&self, other: &Self) -> bool {
-        std::sync::Arc::ptr_eq(&self.0, &other.0)
-    }
-}
-
-impl Eq for HashedSimulatedOrder {}
 
 /// For this first version we only cache the set (so it's faster for searching) of orders.
 #[derive(Debug)]
 pub struct BuiltBlockInfo {
-    sim_orders: HashSet<HashedSimulatedOrder>,
+    orders_ids: HashSet<OrderId>,
 }
 
 impl BuiltBlockInfo {
     pub fn new() -> Self {
         Self {
-            sim_orders: HashSet::default(),
+            orders_ids: HashSet::default(),
         }
     }
 
-    pub fn add_sim_order(&mut self, sim_order: Arc<SimulatedOrder>) {
-        self.sim_orders.insert(HashedSimulatedOrder(sim_order));
+    pub fn add_order(&mut self, order: &Order) {
+        self.orders_ids.insert(order.id());
     }
 
-    pub fn contains_sim_order(&self, sim_order: &Arc<SimulatedOrder>) -> bool {
-        self.sim_orders
-            .contains(&HashedSimulatedOrder(sim_order.clone()))
+    pub fn contains_order(&self, order: &Order) -> bool {
+        self.orders_ids.contains(&order.id())
     }
 }
 
@@ -103,7 +84,7 @@ impl UnfinishedBlockBuildingSink for BuiltBlockCacheUpdater {
     fn new_block(&self, block: BiddableUnfinishedBlock) {
         let mut block_info = BuiltBlockInfo::new();
         for execution_result in &block.block().built_block_trace().included_orders {
-            block_info.add_sim_order(execution_result.sim_order.clone());
+            block_info.add_order(&execution_result.order);
         }
         self.built_block_cache.set_new_block(
             block.block().builder_name().to_string(),

@@ -226,6 +226,8 @@ async fn run_submit_to_relays_job(
             available_orders_statistics = ?block.trace.available_orders_statistics,
             considered_orders_statistics = ?block.trace.considered_orders_statistics,
             failed_orders_statistics = ?block.trace.failed_orders_statistics,
+            filtered_build_considered_orders_statistics = ?block.trace.filtered_build_considered_orders_statistics,
+            filtered_build_failed_orders_statistics = ?block.trace.filtered_build_failed_orders_statistics,
             "Submitting bid",
         );
         inc_initiated_submissions(optimistic_config.is_some());

@@ -50,6 +50,7 @@ pub struct LiveBuilderInput<P> {
     pub sink: Arc<dyn UnfinishedBlockBuildingSink>,
     pub builder_name: String,
     pub cancel: CancellationToken,
+    pub built_block_cache: Arc<BuiltBlockCache>,
 }
 
 /// Struct that helps reading new orders/cancellations

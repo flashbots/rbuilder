@@ -1,5 +1,6 @@
 use crate::building::ThreadBlockBuildingContext;
 use crate::live_builder::simulation::SimulatedOrderCommand;
+use crate::primitives::order_statistics::OrderStatistics;
 use crate::primitives::SimValue;
 use crate::provider::RootHasher;
 use crate::roothash::RootHashError;
@@ -123,6 +124,15 @@ impl BlockBuildingHelper for MockBlockBuildingHelper {
 
     fn builder_name(&self) -> &str {
         &self.builder_name
+    }
+
+    fn set_filtered_build_statistics(
+        &mut self,
+        considered_orders_statistics: OrderStatistics,
+        failed_orders_statistics: OrderStatistics,
+    ) {
+        self.built_block_trace
+            .set_filtered_build_statistics(considered_orders_statistics, failed_orders_statistics);
     }
 }
 

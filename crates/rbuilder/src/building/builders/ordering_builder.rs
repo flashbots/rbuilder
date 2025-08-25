@@ -14,7 +14,8 @@ use crate::{
         BlockBuildingContext, ExecutionError, OrderPriority, PrioritizedOrderStore,
         SimulatedOrderSink, Sorting, ThreadBlockBuildingContext,
     },
-    primitives::{AccountNonce, OrderId, SimValue},
+    live_builder::building::built_block_cache::BuiltBlockCache,
+    primitives::{AccountNonce, OrderId, SimValue, SimulatedOrder},
     provider::StateProviderFactory,
     telemetry::mark_builder_considers_order,
     utils::NonceCache,
@@ -37,6 +38,10 @@ use super::{
     BlockBuildingAlgorithmInput,
 };
 
+pub fn default_pre_filtered_build_duration_deadline_ms() -> Option<u64> {
+    Some(0)
+}
+
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct OrderingBuilderConfig {
@@ -57,6 +62,9 @@ pub struct OrderingBuilderConfig {
     /// Amount of time allocated for EVM execution while building block.
     #[serde(default)]
     pub build_duration_deadline_ms: Option<u64>,
+    /// Amount of time allocated for EVM execution for the second stage in which we only try orders that worked for other builders.
+    #[serde(default = "default_pre_filtered_build_duration_deadline_ms")]
+    pub pre_filtered_build_duration_deadline_ms: Option<u64>,
     #[serde(default)]
     /// Use SimValue::non_mempool_profit_info instead of full_profit_info when comparing Orders.
     pub ignore_mempool_profit_on_bundles: bool,
@@ -65,6 +73,10 @@ pub struct OrderingBuilderConfig {
 impl OrderingBuilderConfig {
     pub fn build_duration_deadline(&self) -> Option<Duration> {
         self.build_duration_deadline_ms.map(Duration::from_millis)
+    }
+    pub fn pre_filtered_build_duration_deadline(&self) -> Option<Duration> {
+        self.pre_filtered_build_duration_deadline_ms
+            .map(Duration::from_millis)
     }
 }
 
@@ -103,6 +115,7 @@ pub fn run_ordering_builder<P, OrderPriorityType>(
         input.builder_name,
         input.ctx,
         config.clone(),
+        input.built_block_cache,
     );
 
     // this is a hack to mark used orders until built block trace is implemented as a sane thing
@@ -172,6 +185,7 @@ where
         input.builder_name,
         input.ctx.clone(),
         ordering_config,
+        Arc::new(BuiltBlockCache::new()),
     );
     let block_builder = builder.build_block(
         block_orders,
@@ -204,6 +218,7 @@ pub struct OrderingBuilderContext {
     // scratchpad
     failed_orders: HashSet<OrderId>,
     order_attempts: HashMap<OrderId, usize>,
+    built_block_cache: Arc<BuiltBlockCache>,
 }
 
 impl OrderingBuilderContext {
@@ -212,6 +227,7 @@ impl OrderingBuilderContext {
         builder_name: String,
         ctx: BlockBuildingContext,
         config: OrderingBuilderConfig,
+        built_block_cache: Arc<BuiltBlockCache>,
     ) -> Self {
         Self {
             state,
@@ -221,6 +237,7 @@ impl OrderingBuilderContext {
             config,
             failed_orders: HashSet::default(),
             order_attempts: HashMap::default(),
+            built_block_cache,
         }
     }
 
@@ -229,7 +246,7 @@ impl OrderingBuilderContext {
     /// !use_suggested_fee_recipient_as_coinbase: all the mev profit goes to the builder and at the end of the block we pay to the suggested_fee_recipient.
     pub fn build_block<OrderPriorityType: OrderPriority>(
         &mut self,
-        block_orders: PrioritizedOrderStore<OrderPriorityType>,
+        mut block_orders: PrioritizedOrderStore<OrderPriorityType>,
         use_suggested_fee_recipient_as_coinbase: bool,
         cancel_block: CancellationToken,
     ) -> eyre::Result<Box<dyn BlockBuildingHelper>> {
@@ -256,27 +273,72 @@ impl OrderingBuilderContext {
             block_orders.orders_statistics(),
             cancel_block,
         )?;
+        self.fill_orders(
+            &mut block_building_helper,
+            &mut block_orders,
+            |_| true,
+            build_start,
+            self.config.build_duration_deadline(),
+        )?;
+        if self.config.pre_filtered_build_duration_deadline_ms != Some(0) {
+            let base_considered_orders_statistics = block_building_helper
+                .built_block_trace()
+                .considered_orders_statistics
+                .clone();
+            let base_failed_orders_statistics = block_building_helper
+                .built_block_trace()
+                .failed_orders_statistics
+                .clone();
+            // Consider aggregate all the BuiltBlockInfos.
+            let block_infos = self.built_block_cache.get_block_infos(&self.builder_name);
+            self.fill_orders(
+                &mut block_building_helper,
+                &mut block_orders,
+                |sim_order| {
+                    block_infos
+                        .iter()
+                        .any(|block_info| block_info.contains_order(&sim_order.order))
+                },
+                build_start,
+                self.config
+                    .pre_filtered_build_duration_deadline()
+                    .map(|d| build_start.elapsed() + d),
+            )?;
+            block_building_helper.set_filtered_build_statistics(
+                block_building_helper
+                    .built_block_trace()
+                    .considered_orders_statistics
+                    .clone()
+                    - base_considered_orders_statistics,
+                block_building_helper
+                    .built_block_trace()
+                    .failed_orders_statistics
+                    .clone()
+                    - base_failed_orders_statistics,
+            );
+        }
 
-        self.fill_orders(&mut block_building_helper, block_orders, build_start)?;
         block_building_helper.set_trace_fill_time(build_start.elapsed());
         Ok(Box::new(block_building_helper))
     }
 
-    fn fill_orders<OrderPriorityType: OrderPriority>(
+    fn fill_orders<OrderPriorityType: OrderPriority, OrderFilter: Fn(&SimulatedOrder) -> bool>(
         &mut self,
         block_building_helper: &mut dyn BlockBuildingHelper,
-        mut block_orders: PrioritizedOrderStore<OrderPriorityType>,
+        block_orders: &mut PrioritizedOrderStore<OrderPriorityType>,
+        order_filter: OrderFilter,
         build_start: Instant,
+        deadline: Option<Duration>,
     ) -> eyre::Result<()> {
         // @Perf when gas left is too low we should break.
         while let Some(sim_order) = block_orders.pop_order() {
             // @Todo we drop such bundles instead of failing simulation for them
             // because share bundle merging depends on allowing no txs bundles into the block
-            if sim_order.sim_value.gas_used() == 0 {
+            if sim_order.sim_value.gas_used() == 0 || !order_filter(&sim_order) {
                 continue;
             }
 
-            if let Some(deadline) = self.config.build_duration_deadline() {
+            if let Some(deadline) = deadline {
                 if build_start.elapsed() > deadline {
                     break;
                 }
@@ -381,6 +443,7 @@ where
             sink: input.sink,
             builder_name: self.name.clone(),
             cancel: input.cancel,
+            built_block_cache: input.built_block_cache,
         };
         run_ordering_builder::<P, OrderPriorityType>(live_input, &self.config);
     }

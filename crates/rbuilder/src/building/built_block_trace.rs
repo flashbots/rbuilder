@@ -36,6 +36,11 @@ pub struct BuiltBlockTrace {
     pub considered_orders_statistics: OrderStatistics,
     /// Anything we call BlockBuildingHelper::commit_order on but didn't include (redundant with considered_orders_statistics-included_orders)
     pub failed_orders_statistics: OrderStatistics,
+
+    /// Every call to BlockBuildingHelper::commit_order during pre-filtered build step impacts here.
+    pub filtered_build_considered_orders_statistics: OrderStatistics,
+    /// Anything we call BlockBuildingHelper::commit_order on but didn't include (redundant with filtered_build_considered_orders_statistics-included_orders) during pre-filtered build step
+    pub filtered_build_failed_orders_statistics: OrderStatistics,
 }
 
 impl Default for BuiltBlockTrace {
@@ -73,7 +78,18 @@ impl BuiltBlockTrace {
             considered_orders_statistics: Default::default(),
             failed_orders_statistics: Default::default(),
             available_orders_statistics: Default::default(),
+            filtered_build_considered_orders_statistics: Default::default(),
+            filtered_build_failed_orders_statistics: Default::default(),
         }
+    }
+
+    pub fn set_filtered_build_statistics(
+        &mut self,
+        considered_orders_statistics: OrderStatistics,
+        failed_orders_statistics: OrderStatistics,
+    ) {
+        self.filtered_build_considered_orders_statistics = considered_orders_statistics;
+        self.filtered_build_failed_orders_statistics = failed_orders_statistics;
     }
 
     /// Should be called after block is sealed

@@ -425,6 +425,7 @@ where
             sink: input.sink,
             builder_name: self.name.clone(),
             cancel: input.cancel,
+            built_block_cache: input.built_block_cache,
         };
         run_parallel_builder(live_input, &self.config);
     }
