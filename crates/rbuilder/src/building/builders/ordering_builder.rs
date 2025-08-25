@@ -17,7 +17,10 @@ use crate::{
     live_builder::building::built_block_cache::BuiltBlockCache,
     primitives::{AccountNonce, OrderId, SimValue, SimulatedOrder},
     provider::StateProviderFactory,
-    telemetry::mark_builder_considers_order,
+    telemetry::{
+        add_ordering_builder_base_stage_stats, add_ordering_builder_pre_filtered_stage_stats,
+        mark_builder_considers_order, OrderInclusionRatio,
+    },
     utils::NonceCache,
 };
 use ahash::{HashMap, HashSet};
@@ -280,44 +283,64 @@ impl OrderingBuilderContext {
             build_start,
             self.config.build_duration_deadline(),
         )?;
-        if self.config.pre_filtered_build_duration_deadline_ms != Some(0) {
-            let base_considered_orders_statistics = block_building_helper
-                .built_block_trace()
-                .considered_orders_statistics
-                .clone();
-            let base_failed_orders_statistics = block_building_helper
-                .built_block_trace()
-                .failed_orders_statistics
-                .clone();
-            // Consider aggregate all the BuiltBlockInfos.
-            let block_infos = self.built_block_cache.get_block_infos(&self.builder_name);
-            self.fill_orders(
-                &mut block_building_helper,
-                &mut block_orders,
-                |sim_order| {
-                    block_infos
-                        .iter()
-                        .any(|block_info| block_info.contains_order(&sim_order.order))
-                },
-                build_start,
-                self.config
-                    .pre_filtered_build_duration_deadline()
-                    .map(|d| build_start.elapsed() + d),
-            )?;
-            block_building_helper.set_filtered_build_statistics(
+        add_ordering_builder_base_stage_stats(
+            self.builder_name.as_str(),
+            OrderInclusionRatio::new_from_failed(
                 block_building_helper
                     .built_block_trace()
                     .considered_orders_statistics
-                    .clone()
-                    - base_considered_orders_statistics,
+                    .total(),
                 block_building_helper
                     .built_block_trace()
                     .failed_orders_statistics
+                    .total(),
+            ),
+        );
+        if self.config.pre_filtered_build_duration_deadline_ms != Some(0) {
+            // Consider aggregate all the BuiltBlockInfos.
+            let block_infos = self.built_block_cache.get_block_infos(&self.builder_name);
+            if !block_infos.is_empty() {
+                let base_considered_orders_statistics = block_building_helper
+                    .built_block_trace()
+                    .considered_orders_statistics
+                    .clone();
+                let base_failed_orders_statistics = block_building_helper
+                    .built_block_trace()
+                    .failed_orders_statistics
+                    .clone();
+                self.fill_orders(
+                    &mut block_building_helper,
+                    &mut block_orders,
+                    |sim_order| {
+                        block_infos
+                            .iter()
+                            .any(|block_info| block_info.contains_order(&sim_order.order))
+                    },
+                    build_start,
+                    self.config
+                        .pre_filtered_build_duration_deadline()
+                        .map(|d| build_start.elapsed() + d),
+                )?;
+                let considered_stats = block_building_helper
+                    .built_block_trace()
+                    .considered_orders_statistics
                     .clone()
-                    - base_failed_orders_statistics,
-            );
+                    - base_considered_orders_statistics;
+                let failed_stats = block_building_helper
+                    .built_block_trace()
+                    .failed_orders_statistics
+                    .clone()
+                    - base_failed_orders_statistics;
+                add_ordering_builder_pre_filtered_stage_stats(
+                    self.builder_name.as_str(),
+                    OrderInclusionRatio::new_from_failed(
+                        considered_stats.total(),
+                        failed_stats.total(),
+                    ),
+                );
+                block_building_helper.set_filtered_build_statistics(considered_stats, failed_stats);
+            }
         }
-
         block_building_helper.set_trace_fill_time(build_start.elapsed());
         Ok(Box::new(block_building_helper))
     }

@@ -29,6 +29,10 @@ impl OrderStatistics {
             Order::ShareBundle(_) => self.sbundle_count -= 1,
         }
     }
+
+    pub fn total(&self) -> u64 {
+        self.tx_count as u64 + self.bundle_count as u64 + self.sbundle_count as u64
+    }
 }
 
 impl Add for OrderStatistics {

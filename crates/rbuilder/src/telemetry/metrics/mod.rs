@@ -47,6 +47,11 @@ const SIM_STATUS_FAIL: &str = "sim_fail";
 const ROOT_HASH_PREFETCH_STEP: &str = "prefetcher";
 const ROOT_HASH_FINALIZE_STEP: &str = "finalize";
 
+const ORDER_EXECUTED: &str = "executed";
+const ORDER_INCLUDED: &str = "included";
+const BUILDING_STEP_BASE: &str = "base";
+const BUILDING_STEP_PRE_FILTERED: &str = "pre-filtered";
+
 /// We record timestamps only for blocks built within interval of the block timestamp
 const BLOCK_METRICS_TIMESTAMP_LOWER_DELTA: time::Duration = time::Duration::seconds(3);
 /// We record timestamps only for blocks built within interval of the block timestamp
@@ -269,6 +274,22 @@ register_metrics! {
         Counter::new("total_landed_subsidies_sum", "Sum of all total landed subsidies").unwrap();
 
 
+
+    pub static ORDERING_BUILDER_EXECUTED_ORDERS: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("ordering_builder_executed_orders", "Orders executed by ordering builder, stage (base vs pre-filtered) and type (total vs included in the block)")
+            .buckets(exponential_buckets_range(1.0, 10000.0, 200)),
+        &["builder_name","stage","type"]
+    )
+    .unwrap();
+
+    pub static ORDERING_BUILDER_EXECUTED_ORDERS_INCLUDE_RATIO: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("ordering_builder_executed_orders_include_ratio", "Ratio of orders executed by ordering builder vs those included in the block")
+            .buckets(linear_buckets_range(0.0, 1.0, 100)),
+        &["builder_name","stage"]
+    )
+    .unwrap();
+
+
     // Performance metrics related to E2E latency
 
     // Metrics for important step of the block processing
@@ -378,6 +399,8 @@ pub fn reset_histogram_metrics() {
     ORDER_SIM_END_TO_FIRST_BUILD_STARTED_MIN_TIME.reset();
     BLOCK_FILL_START_SEAL_END_TIME.reset();
     BLOCK_SEAL_END_SUBMIT_START_TIME.reset();
+    ORDERING_BUILDER_EXECUTED_ORDERS.reset();
+    ORDERING_BUILDER_EXECUTED_ORDERS_INCLUDE_RATIO.reset();
 }
 
 pub(super) fn set_version(version: Version) {
@@ -714,4 +737,58 @@ pub fn linear_buckets_range(start: f64, end: f64, n: usize) -> Vec<f64> {
     assert!(start < end);
     let width = (end - start) / (n - 1) as f64;
     prometheus::linear_buckets(start, width, n).unwrap()
+}
+
+pub struct OrderInclusionRatio {
+    total: u64,
+    included: u64,
+}
+
+impl OrderInclusionRatio {
+    pub fn new(total: u64, included: u64) -> Self {
+        Self { total, included }
+    }
+
+    pub fn new_from_failed(total: u64, failed: u64) -> Self {
+        Self {
+            total,
+            included: total - failed,
+        }
+    }
+
+    pub fn ratio(&self) -> f64 {
+        self.included as f64 / self.total as f64
+    }
+}
+
+pub fn add_ordering_builder_orders_executed(
+    builder_name: &str,
+    stage: &str,
+    ratio: OrderInclusionRatio,
+) {
+    if ratio.total == 0 {
+        return;
+    }
+    ORDERING_BUILDER_EXECUTED_ORDERS
+        .with_label_values(&[builder_name, stage, ORDER_EXECUTED])
+        .observe(ratio.total as f64);
+
+    ORDERING_BUILDER_EXECUTED_ORDERS
+        .with_label_values(&[builder_name, stage, ORDER_INCLUDED])
+        .observe(ratio.included as f64);
+    if ratio.total != 0 {
+        ORDERING_BUILDER_EXECUTED_ORDERS_INCLUDE_RATIO
+            .with_label_values(&[builder_name, stage])
+            .observe(ratio.ratio());
+    }
+}
+
+pub fn add_ordering_builder_base_stage_stats(builder_name: &str, ratio: OrderInclusionRatio) {
+    add_ordering_builder_orders_executed(builder_name, BUILDING_STEP_BASE, ratio);
+}
+pub fn add_ordering_builder_pre_filtered_stage_stats(
+    builder_name: &str,
+    ratio: OrderInclusionRatio,
+) {
+    add_ordering_builder_orders_executed(builder_name, BUILDING_STEP_PRE_FILTERED, ratio);
 }
