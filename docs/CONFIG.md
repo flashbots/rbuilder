@@ -95,6 +95,7 @@ Each instantiated algorithm starts with:
 |drop_failed_orders|mandatory bool| if a tx fails in a block building iteration it's dropped so next iterations will not use it.||
 |coinbase_payment|optional bool | Start the first iteration of block building using direct pay to fee_recipient (validator)<br>This mode saves gas on the payout tx from builder to validator but disables mev-share and profit taking.|false|
 |build_duration_deadline_ms|optional int| Amount of time allocated for EVM execution while building block. If None it only stops when it tried all orders.| None|
+|pre_filtered_build_duration_deadline_ms|optional int| Amount of time allocated for EVM execution for the pre-filtered building step. If None it only stops when it tried all orders.<br>In this second building step the building algorithm will only try to include orders other algorithms landed in their last locks.|0|
 |ignore_mempool_profit_on_bundles|bool|When computing profit to prioritize orders on s/bundles any profit from a mempool tx will be ignored.|false|
 
 ### Fields for algo="parallel-builder"
