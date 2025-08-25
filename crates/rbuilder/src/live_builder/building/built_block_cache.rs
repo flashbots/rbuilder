@@ -32,6 +32,12 @@ impl BuiltBlockInfo {
     }
 }
 
+impl Default for BuiltBlockInfo {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// A cache of built blocks so BlockBuildingAlgorithm can recycle information
 #[derive(Debug)]
 pub struct BuiltBlockCache {
@@ -58,6 +64,12 @@ impl BuiltBlockCache {
             .filter(|(builder_name, _)| *builder_name != filter_out_builder_name)
             .map(|(_, block)| block.clone())
             .collect()
+    }
+}
+
+impl Default for BuiltBlockCache {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
