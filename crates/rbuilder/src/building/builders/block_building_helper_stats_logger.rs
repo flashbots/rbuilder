@@ -9,7 +9,7 @@ use alloy_primitives::{utils::format_ether, U256};
 use crate::{
     building::builders::block_building_helper::BlockBuildingHelper,
     live_builder::order_input::mempool_txs_detector::MempoolTxsDetector,
-    primitives::{OrderId, SimulatedOrder},
+    primitives::{order_statistics::OrderStatistics, OrderId, SimulatedOrder},
 };
 
 /// Wraps a BlockBuildingHelper and stores info about every commit_order as lightweight as possible.
@@ -228,5 +228,14 @@ impl BlockBuildingHelper for BlockBuildingHelperStatsLogger<'_> {
 
     fn builder_name(&self) -> &str {
         self.block_building_helper.builder_name()
+    }
+
+    fn set_filtered_build_statistics(
+        &mut self,
+        considered_orders_statistics: OrderStatistics,
+        failed_orders_statistics: OrderStatistics,
+    ) {
+        self.block_building_helper
+            .set_filtered_build_statistics(considered_orders_statistics, failed_orders_statistics);
     }
 }

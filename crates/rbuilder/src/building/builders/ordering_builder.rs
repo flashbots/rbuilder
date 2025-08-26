@@ -253,7 +253,7 @@ impl OrderingBuilderContext {
 
     pub fn build_block<OrderPriorityType: OrderPriority>(
         &mut self,
-        mut block_orders: PrioritizedOrderStore<OrderPriorityType>,
+        block_orders: PrioritizedOrderStore<OrderPriorityType>,
         use_suggested_fee_recipient_as_coinbase: bool,
         cancel_block: CancellationToken,
     ) -> eyre::Result<Box<dyn BlockBuildingHelper>> {
@@ -273,7 +273,7 @@ impl OrderingBuilderContext {
         PartialBlockExecutionTracerType: PartialBlockExecutionTracer + Clone + Send + Sync + 'static,
     >(
         &mut self,
-        block_orders: PrioritizedOrderStore<OrderPriorityType>,
+        mut block_orders: PrioritizedOrderStore<OrderPriorityType>,
         use_suggested_fee_recipient_as_coinbase: bool,
         cancel_block: CancellationToken,
         partial_block_execution_tracer: PartialBlockExecutionTracerType,
