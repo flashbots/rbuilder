@@ -11,7 +11,10 @@ use tokio::signal::ctrl_c;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    building::builders::{BacktestSimulateBlockInput, Block},
+    building::{
+        builders::{BacktestSimulateBlockInput, Block},
+        PartialBlockExecutionTracer,
+    },
     live_builder::{
         base_config::load_config_toml_and_env, payload_events::MevBoostSlotDataGenerator,
     },
@@ -64,10 +67,14 @@ pub trait LiveBuilderConfig: Debug + DeserializeOwned + Sync {
 
     /// Patch until we have a unified way of backtesting using the exact algorithms we use on the LiveBuilder.
     /// building_algorithm_name will come from the specific configuration.
-    fn build_backtest_block<P>(
+    fn build_backtest_block<
+        P,
+        PartialBlockExecutionTracerType: PartialBlockExecutionTracer + Clone + Send + Sync + 'static,
+    >(
         &self,
         building_algorithm_name: &str,
         input: BacktestSimulateBlockInput<'_, P>,
+        partial_block_execution_tracer: PartialBlockExecutionTracerType,
     ) -> eyre::Result<Block>
     where
         P: StateProviderFactory + Clone + 'static;

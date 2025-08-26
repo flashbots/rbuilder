@@ -29,7 +29,7 @@ use crate::{
             OrderLengthThreeMevGasPricePriority, OrderMaxProfitPriority, OrderMevGasPricePriority,
             OrderTypePriority, ProfitInfoGetter,
         },
-        Sorting,
+        PartialBlockExecutionTracer, Sorting,
     },
     live_builder::{
         base_config::EnvOrValue,
@@ -453,10 +453,14 @@ impl LiveBuilderConfig for Config {
         rbuilder_version()
     }
 
-    fn build_backtest_block<P>(
+    fn build_backtest_block<
+        P,
+        PartialBlockExecutionTracerType: PartialBlockExecutionTracer + Clone + Send + Sync + 'static,
+    >(
         &self,
         building_algorithm_name: &str,
         input: BacktestSimulateBlockInput<'_, P>,
+        partial_block_execution_tracer: PartialBlockExecutionTracerType,
     ) -> eyre::Result<Block>
     where
         P: StateProviderFactory + Clone + 'static,
@@ -465,11 +469,17 @@ impl LiveBuilderConfig for Config {
         match builder_cfg.builder {
             SpecificBuilderConfig::OrderingBuilder(config) => {
                 if config.ignore_mempool_profit_on_bundles {
-                    build_backtest_block_ordering_builder::<P, NonMempoolProfitInfoGetter>(
-                        config, input,
-                    )
+                    build_backtest_block_ordering_builder::<
+                        P,
+                        NonMempoolProfitInfoGetter,
+                        PartialBlockExecutionTracerType,
+                    >(config, input, partial_block_execution_tracer)
                 } else {
-                    build_backtest_block_ordering_builder::<P, FullProfitInfoGetter>(config, input)
+                    build_backtest_block_ordering_builder::<
+                        P,
+                        FullProfitInfoGetter,
+                        PartialBlockExecutionTracerType,
+                    >(config, input, partial_block_execution_tracer)
                 }
             }
             SpecificBuilderConfig::ParallelBuilder(config) => {
@@ -479,9 +489,14 @@ impl LiveBuilderConfig for Config {
     }
 }
 
-pub fn build_backtest_block_ordering_builder<P, ProfitInfoGetterType: ProfitInfoGetter + 'static>(
+pub fn build_backtest_block_ordering_builder<
+    P,
+    ProfitInfoGetterType: ProfitInfoGetter + 'static,
+    PartialBlockExecutionTracerType: PartialBlockExecutionTracer + Clone + Send + Sync + 'static,
+>(
     config: OrderingBuilderConfig,
     input: BacktestSimulateBlockInput<'_, P>,
+    partial_block_execution_tracer: PartialBlockExecutionTracerType,
 ) -> eyre::Result<Block>
 where
     P: StateProviderFactory + Clone + 'static,
@@ -491,31 +506,36 @@ where
             crate::building::builders::ordering_builder::backtest_simulate_block::<
                 P,
                 OrderMevGasPricePriority<ProfitInfoGetterType>,
-            >(config, input)
+                PartialBlockExecutionTracerType,
+            >(config, input, partial_block_execution_tracer)
         }
         Sorting::MaxProfit => {
             crate::building::builders::ordering_builder::backtest_simulate_block::<
                 P,
                 OrderMaxProfitPriority<ProfitInfoGetterType>,
-            >(config, input)
+                PartialBlockExecutionTracerType,
+            >(config, input, partial_block_execution_tracer)
         }
         Sorting::TypeMaxProfit => {
             crate::building::builders::ordering_builder::backtest_simulate_block::<
                 P,
                 OrderTypePriority<ProfitInfoGetterType>,
-            >(config, input)
+                PartialBlockExecutionTracerType,
+            >(config, input, partial_block_execution_tracer)
         }
         Sorting::LengthThreeMaxProfit => {
             crate::building::builders::ordering_builder::backtest_simulate_block::<
                 P,
                 OrderLengthThreeMaxProfitPriority<ProfitInfoGetterType>,
-            >(config, input)
+                PartialBlockExecutionTracerType,
+            >(config, input, partial_block_execution_tracer)
         }
         Sorting::LengthThreeMevGasPrice => {
             crate::building::builders::ordering_builder::backtest_simulate_block::<
                 P,
                 OrderLengthThreeMevGasPricePriority<ProfitInfoGetterType>,
-            >(config, input)
+                PartialBlockExecutionTracerType,
+            >(config, input, partial_block_execution_tracer)
         }
     }
 }

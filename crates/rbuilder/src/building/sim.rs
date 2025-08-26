@@ -4,7 +4,10 @@ use super::{
     OrderErr, PartialBlockFork, ThreadBlockBuildingContext,
 };
 use crate::{
-    building::{BlockBuildingContext, BlockState, CriticalCommitOrderError},
+    building::{
+        BlockBuildingContext, BlockState, CriticalCommitOrderError,
+        NullPartialBlockForkExecutionTracer,
+    },
     live_builder::order_input::mempool_txs_detector::MempoolTxsDetector,
     primitives::{Order, OrderId, SimulatedOrder},
     provider::StateProviderFactory,
@@ -432,7 +435,7 @@ pub fn simulate_order(
 pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
     parent_orders: Vec<Order>,
     order: Order,
-    fork: &mut PartialBlockFork<'_, '_, '_, '_, Tracer>,
+    fork: &mut PartialBlockFork<'_, '_, '_, '_, Tracer, NullPartialBlockForkExecutionTracer>,
     mempool_tx_detector: &MempoolTxsDetector,
 ) -> Result<OrderSimResult, CriticalCommitOrderError> {
     let start = Instant::now();

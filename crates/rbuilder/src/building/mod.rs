@@ -417,8 +417,52 @@ impl std::fmt::Display for Sorting {
     }
 }
 
+pub trait PartialBlockExecutionTracer: PartialBlockForkExecutionTracer {
+    fn update_commit_order_about_to_execute(&mut self, order: &SimulatedOrder);
+
+    fn update_commit_order_executed(
+        &mut self,
+        order: &SimulatedOrder,
+        res: &Result<Result<ExecutionResult, ExecutionError>, CriticalCommitOrderError>,
+    );
+}
 #[derive(Debug, Clone)]
-pub struct PartialBlock<Tracer: SimulationTracer> {
+pub struct NullPartialBlockExecutionTracer;
+impl PartialBlockExecutionTracer for NullPartialBlockExecutionTracer {
+    fn update_commit_order_about_to_execute(&mut self, _order: &SimulatedOrder) {}
+    fn update_commit_order_executed(
+        &mut self,
+        _order: &SimulatedOrder,
+        _res: &Result<Result<ExecutionResult, ExecutionError>, CriticalCommitOrderError>,
+    ) {
+    }
+}
+
+impl PartialBlockForkExecutionTracer for NullPartialBlockExecutionTracer {
+    fn update_commit_tx_about_to_execute(
+        &mut self,
+        _tx_with_blobs: &TransactionSignedEcRecoveredWithBlobs,
+        _cumulative_gas_used: u64,
+        _gas_reserved: u64,
+        _cumulative_blob_gas_used: u64,
+    ) {
+    }
+    fn update_commit_tx_executed(
+        &mut self,
+        _tx_with_blobs: &TransactionSignedEcRecoveredWithBlobs,
+        _cumulative_gas_used: u64,
+        _gas_reserved: u64,
+        _cumulative_blob_gas_used: u64,
+        _res: &Result<Result<TransactionOk, TransactionErr>, CriticalCommitOrderError>,
+    ) {
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PartialBlock<
+    Tracer: SimulationTracer,
+    PartialBlockExecutionTracerType: PartialBlockExecutionTracer,
+> {
     /// Value used as allow_tx_skip on calls to [`PartialBlockFork`]
     pub discard_txs: bool,
     pub gas_used: u64,
@@ -432,6 +476,7 @@ pub struct PartialBlock<Tracer: SimulationTracer> {
     /// Combined refunds.
     pub combined_refunds: HashMap<Address, U256>,
     pub tracer: Tracer,
+    partial_block_execution_tracer: PartialBlockExecutionTracerType,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -536,11 +581,13 @@ impl FinalizeError {
     }
 }
 
-impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
+impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExecutionTracer>
+    PartialBlock<Tracer, PartialBlockExecutionTracerType>
+{
     pub fn with_tracer<NewTracer: SimulationTracer>(
         self,
         tracer: NewTracer,
-    ) -> PartialBlock<NewTracer> {
+    ) -> PartialBlock<NewTracer, PartialBlockExecutionTracerType> {
         PartialBlock {
             discard_txs: self.discard_txs,
             gas_used: self.gas_used,
@@ -550,6 +597,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             executed_tx_infos: self.executed_tx_infos,
             combined_refunds: self.combined_refunds,
             tracer,
+            partial_block_execution_tracer: self.partial_block_execution_tracer,
         }
     }
 
@@ -561,10 +609,26 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
         self.gas_reserved = 0;
     }
 
+    pub fn commit_order(
+        &mut self,
+        order: &SimulatedOrder,
+        ctx: &BlockBuildingContext,
+        local_ctx: &mut ThreadBlockBuildingContext,
+        state: &mut BlockState,
+        result_filter: &dyn Fn(&SimValue) -> Result<(), ExecutionError>,
+    ) -> Result<Result<ExecutionResult, ExecutionError>, CriticalCommitOrderError> {
+        self.partial_block_execution_tracer
+            .update_commit_order_about_to_execute(order);
+        let res = self.commit_order_inner(order, ctx, local_ctx, state, result_filter);
+        self.partial_block_execution_tracer
+            .update_commit_order_executed(order, &res);
+        res
+    }
+
     /// result_filter: little hack to allow "cancel" the execution depending no the SimValue result. Ideally it would be nicer to split commit_order
     ///     in 2 parts, one that executes but does not apply (returns state changes) and then another one that applies the changes.
     ///     You can always pass &|_| Ok(()) if you don't need the filter.
-    pub fn commit_order(
+    fn commit_order_inner(
         &mut self,
         order: &SimulatedOrder,
         ctx: &BlockBuildingContext,
@@ -579,7 +643,14 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
             ))));
         }
 
-        let mut fork = PartialBlockFork::new(state, ctx, local_ctx).with_tracer(&mut self.tracer);
+        let mut fork = PartialBlockFork::new_with_execution_tracer(
+            state,
+            ctx,
+            local_ctx,
+            &mut self.partial_block_execution_tracer,
+        )
+        .with_tracer(&mut self.tracer);
+
         let rollback = fork.rollback_point();
         let exec_result = fork.commit_order(
             &order.order,
@@ -974,7 +1045,7 @@ impl<Tracer: SimulationTracer> PartialBlock<Tracer> {
     }
 }
 
-impl PartialBlock<()> {
+impl PartialBlock<(), NullPartialBlockExecutionTracer> {
     pub fn new(discard_txs: bool) -> Self {
         Self {
             discard_txs,
@@ -985,6 +1056,28 @@ impl PartialBlock<()> {
             executed_tx_infos: Vec::new(),
             combined_refunds: HashMap::default(),
             tracer: (),
+            partial_block_execution_tracer: NullPartialBlockExecutionTracer {},
+        }
+    }
+}
+
+impl<PartialBlockExecutionTracerType: PartialBlockExecutionTracer>
+    PartialBlock<(), PartialBlockExecutionTracerType>
+{
+    pub fn new_with_execution_tracer(
+        discard_txs: bool,
+        partial_block_execution_tracer: PartialBlockExecutionTracerType,
+    ) -> Self {
+        Self {
+            discard_txs,
+            gas_used: 0,
+            gas_reserved: 0,
+            blob_gas_used: 0,
+            coinbase_profit: U256::ZERO,
+            executed_tx_infos: Vec::new(),
+            combined_refunds: HashMap::default(),
+            tracer: (),
+            partial_block_execution_tracer,
         }
     }
 }

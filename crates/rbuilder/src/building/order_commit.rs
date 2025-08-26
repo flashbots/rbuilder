@@ -312,7 +312,91 @@ pub enum OrderErr {
     NegativeProfit(U256),
 }
 
-pub struct PartialBlockFork<'a, 'b, 'c, 'd, Tracer: SimulationTracer> {
+/// Tracer for PartialBlockFork execution.
+/// Passing the NullPartialBlockForkExecutionTracer should have 0 overhead (compiler should optimize it out).
+pub trait PartialBlockForkExecutionTracer {
+    fn update_commit_tx_about_to_execute(
+        &mut self,
+        tx_with_blobs: &TransactionSignedEcRecoveredWithBlobs,
+        cumulative_gas_used: u64,
+        gas_reserved: u64,
+        cumulative_blob_gas_used: u64,
+    );
+
+    /// commit_tx parameters redundant with update_commit_tx_about_to_execute but practical....
+    fn update_commit_tx_executed(
+        &mut self,
+        tx_with_blobs: &TransactionSignedEcRecoveredWithBlobs,
+        cumulative_gas_used: u64,
+        gas_reserved: u64,
+        cumulative_blob_gas_used: u64,
+        res: &Result<Result<TransactionOk, TransactionErr>, CriticalCommitOrderError>,
+    );
+}
+
+impl<T: PartialBlockForkExecutionTracer> PartialBlockForkExecutionTracer for &mut T {
+    fn update_commit_tx_about_to_execute(
+        &mut self,
+        tx_with_blobs: &TransactionSignedEcRecoveredWithBlobs,
+        cumulative_gas_used: u64,
+        gas_reserved: u64,
+        cumulative_blob_gas_used: u64,
+    ) {
+        (*self).update_commit_tx_about_to_execute(
+            tx_with_blobs,
+            cumulative_gas_used,
+            gas_reserved,
+            cumulative_blob_gas_used,
+        )
+    }
+    fn update_commit_tx_executed(
+        &mut self,
+        tx_with_blobs: &TransactionSignedEcRecoveredWithBlobs,
+        cumulative_gas_used: u64,
+        gas_reserved: u64,
+        cumulative_blob_gas_used: u64,
+        res: &Result<Result<TransactionOk, TransactionErr>, CriticalCommitOrderError>,
+    ) {
+        (*self).update_commit_tx_executed(
+            tx_with_blobs,
+            cumulative_gas_used,
+            gas_reserved,
+            cumulative_blob_gas_used,
+            res,
+        )
+    }
+}
+
+pub struct NullPartialBlockForkExecutionTracer;
+impl PartialBlockForkExecutionTracer for NullPartialBlockForkExecutionTracer {
+    #[inline]
+    fn update_commit_tx_about_to_execute(
+        &mut self,
+        _tx_with_blobs: &TransactionSignedEcRecoveredWithBlobs,
+        _cumulative_gas_used: u64,
+        _gas_reserved: u64,
+        _cumulative_blob_gas_used: u64,
+    ) {
+    }
+    #[inline]
+    fn update_commit_tx_executed(
+        &mut self,
+        _tx_with_blobs: &TransactionSignedEcRecoveredWithBlobs,
+        _cumulative_gas_used: u64,
+        _gas_reserved: u64,
+        _cumulative_blob_gas_used: u64,
+        _res: &Result<Result<TransactionOk, TransactionErr>, CriticalCommitOrderError>,
+    ) {
+    }
+}
+pub struct PartialBlockFork<
+    'a,
+    'b,
+    'c,
+    'd,
+    Tracer: SimulationTracer,
+    PartialBlockForkExecutionTracerType: PartialBlockForkExecutionTracer,
+> {
     pub rollbacks: usize,
     pub ctx: &'c BlockBuildingContext,
     pub state: &'a mut BlockState,
@@ -320,6 +404,7 @@ pub struct PartialBlockFork<'a, 'b, 'c, 'd, Tracer: SimulationTracer> {
     pub tracer: Option<&'b mut Tracer>,
     /// Temporary state trace used as a scratchpad for tx execution
     tmp_used_state_tracer: UsedStateTrace,
+    partial_block_fork_execution_tracer: PartialBlockForkExecutionTracerType,
 }
 
 pub struct PartialBlockRollobackPoint {
@@ -357,11 +442,19 @@ pub enum CriticalCommitOrderError {
 /// If a tx inside a bundle or sbundle fails with TransactionErr (don't confuse this with reverting which is TransactionOk with !.receipt.success)
 /// and it's configured as allowed to revert (for bundles tx in reverting_tx_hashes, for sbundles: TxRevertBehavior != NotAllowed) we continue the
 /// the execution of the bundle/sbundle.
-impl<'a, 'b, 'c, 'd, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, 'd, Tracer> {
+impl<
+        'a,
+        'b,
+        'c,
+        'd,
+        Tracer: SimulationTracer,
+        PartialBlockForkExecutionTracerType: PartialBlockForkExecutionTracer,
+    > PartialBlockFork<'a, 'b, 'c, 'd, Tracer, PartialBlockForkExecutionTracerType>
+{
     pub fn with_tracer<NewTracer: SimulationTracer>(
         self,
         tracer: &'b mut NewTracer,
-    ) -> PartialBlockFork<'a, 'b, 'c, 'd, NewTracer> {
+    ) -> PartialBlockFork<'a, 'b, 'c, 'd, NewTracer, PartialBlockForkExecutionTracerType> {
         PartialBlockFork {
             rollbacks: self.rollbacks,
             state: self.state,
@@ -369,6 +462,7 @@ impl<'a, 'b, 'c, 'd, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, 'd, 
             local_ctx: self.local_ctx,
             tracer: Some(tracer),
             tmp_used_state_tracer: self.tmp_used_state_tracer,
+            partial_block_fork_execution_tracer: self.partial_block_fork_execution_tracer,
         }
     }
 
@@ -425,8 +519,38 @@ impl<'a, 'b, 'c, 'd, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, 'd, 
         Ok(res)
     }
 
-    /// The state is updated ONLY when we return Ok(Ok)
     pub fn commit_tx(
+        &mut self,
+        tx_with_blobs: &TransactionSignedEcRecoveredWithBlobs,
+        cumulative_gas_used: u64,
+        gas_reserved: u64,
+        cumulative_blob_gas_used: u64,
+    ) -> Result<Result<TransactionOk, TransactionErr>, CriticalCommitOrderError> {
+        self.partial_block_fork_execution_tracer
+            .update_commit_tx_about_to_execute(
+                tx_with_blobs,
+                cumulative_gas_used,
+                gas_reserved,
+                cumulative_blob_gas_used,
+            );
+        let res = self.commit_tx_inner(
+            tx_with_blobs,
+            cumulative_gas_used,
+            gas_reserved,
+            cumulative_blob_gas_used,
+        );
+        self.partial_block_fork_execution_tracer
+            .update_commit_tx_executed(
+                tx_with_blobs,
+                cumulative_gas_used,
+                gas_reserved,
+                cumulative_blob_gas_used,
+                &res,
+            );
+        res
+    }
+    /// The state is updated ONLY when we return Ok(Ok)
+    fn commit_tx_inner(
         &mut self,
         tx_with_blobs: &TransactionSignedEcRecoveredWithBlobs,
         mut cumulative_gas_used: u64,
@@ -1264,7 +1388,7 @@ impl<'a, 'b, 'c, 'd, Tracer: SimulationTracer> PartialBlockFork<'a, 'b, 'c, 'd, 
     }
 }
 
-impl<'a, 'c, 'd> PartialBlockFork<'a, '_, 'c, 'd, ()> {
+impl<'a, 'c, 'd> PartialBlockFork<'a, '_, 'c, 'd, (), NullPartialBlockForkExecutionTracer> {
     pub fn new(
         state: &'a mut BlockState,
         ctx: &'c BlockBuildingContext,
@@ -1277,6 +1401,28 @@ impl<'a, 'c, 'd> PartialBlockFork<'a, '_, 'c, 'd, ()> {
             state,
             tracer: None,
             tmp_used_state_tracer: Default::default(),
+            partial_block_fork_execution_tracer: NullPartialBlockForkExecutionTracer {},
+        }
+    }
+}
+
+impl<'a, 'c, 'd, PartialBlockForkExecutionTracerType: PartialBlockForkExecutionTracer>
+    PartialBlockFork<'a, '_, 'c, 'd, (), PartialBlockForkExecutionTracerType>
+{
+    pub fn new_with_execution_tracer(
+        state: &'a mut BlockState,
+        ctx: &'c BlockBuildingContext,
+        local_ctx: &'d mut ThreadBlockBuildingContext,
+        partial_block_fork_execution_tracer: PartialBlockForkExecutionTracerType,
+    ) -> Self {
+        Self {
+            rollbacks: 0,
+            ctx,
+            local_ctx,
+            state,
+            tracer: None,
+            tmp_used_state_tracer: Default::default(),
+            partial_block_fork_execution_tracer,
         }
     }
 }
