@@ -77,7 +77,7 @@ Every field has a default if omitted.
 |optimistic_max_bid_value_eth|string| Bids above this value will always be submitted in non-optimistic mode.|"0.0"|
 |cl_node_url|vec[env/stirng]| Array if urls to CL clients to get the new payload events|["http://127.0.0.1:3500"]
 |genesis_fork_version|optional string|Genesis fork version for the chain. If not provided it will be fetched from the beacon client.|None|
-|scraped_bids_publisher_url|string| Url to connect to the bid scraper service| "tcp://0.0.0.0:5555"|
+|scraped_bids_publisher_url|optional string| If present, url to connect to the bid scraper service.|None|
 ## Building algorithms
 rbuilder can multiple building algorithms and each algorithm can be instantiated multiple times with it's own set of parameters each time.
 Each instantiated algorithm starts with:

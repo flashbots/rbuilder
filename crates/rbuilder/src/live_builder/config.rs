@@ -133,7 +133,6 @@ pub struct Config {
 }
 
 const DEFAULT_SLOT_DELTA_TO_START_BIDDING_MS: i64 = -8000;
-const DEFAULT_SCRAPED_BIDS_PUBLISHER_URL: Option<&str> = Some("tcp://0.0.0.0:5555");
 const DEFAULT_ASK_FOR_FILTERING_VALIDATORS: bool = false;
 const DEFAULT_CAN_IGNORE_GAS_LIMIT: bool = false;
 
@@ -176,7 +175,7 @@ impl Default for L1Config {
             optimistic_max_bid_value_eth: "0.0".to_string(),
             cl_node_url: vec![EnvOrValue::from("http://127.0.0.1:3500")],
             genesis_fork_version: None,
-            scraped_bids_publisher_url: DEFAULT_SCRAPED_BIDS_PUBLISHER_URL.map(|s| s.to_owned()),
+            scraped_bids_publisher_url: None,
         }
     }
 }
