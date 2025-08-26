@@ -133,7 +133,7 @@ pub struct Config {
 }
 
 const DEFAULT_SLOT_DELTA_TO_START_BIDDING_MS: i64 = -8000;
-const DEFAULT_SCRAPED_BIDS_PUBLISHER_URL: &str = "tcp://0.0.0.0:5555";
+const DEFAULT_SCRAPED_BIDS_PUBLISHER_URL: Option<&str> = Some("tcp://0.0.0.0:5555");
 const DEFAULT_ASK_FOR_FILTERING_VALIDATORS: bool = false;
 const DEFAULT_CAN_IGNORE_GAS_LIMIT: bool = false;
 
@@ -162,7 +162,7 @@ pub struct L1Config {
     /// Genesis fork version for the chain. If not provided it will be fetched from the beacon client.
     pub genesis_fork_version: Option<String>,
     /// Where the bids scraper publishes the bids. Example:"tcp://0.0.0.0:5555"
-    pub scraped_bids_publisher_url: String,
+    pub scraped_bids_publisher_url: Option<String>,
 }
 
 impl Default for L1Config {
@@ -176,7 +176,7 @@ impl Default for L1Config {
             optimistic_max_bid_value_eth: "0.0".to_string(),
             cl_node_url: vec![EnvOrValue::from("http://127.0.0.1:3500")],
             genesis_fork_version: None,
-            scraped_bids_publisher_url: DEFAULT_SCRAPED_BIDS_PUBLISHER_URL.to_owned(),
+            scraped_bids_publisher_url: DEFAULT_SCRAPED_BIDS_PUBLISHER_URL.map(|s| s.to_owned()),
         }
     }
 }
@@ -954,17 +954,19 @@ where
     let bidding_service = bidding_service_factory(&wallet_history).await?;
     let bidding_service_win_control = bidding_service.win_control();
 
-    // Create a ScrapedBids2BlockBidWithStatsObs that will forward bids from run_nng_subscriber_with_retries to the bidding service.
-    let bidding_service_bids_obs = Arc::new(ScrapedBids2BlockBidWithStatsObs::new(
-        bidding_service.clone(),
-    ));
-    tokio::spawn(run_nng_subscriber_with_retries(
-        bidding_service_bids_obs,
-        cancellation_token.clone(),
-        l1_config.scraped_bids_publisher_url.clone(),
-        Duration::from_secs(BID_SOURCE_TIMEOUT_SECS),
-        Duration::from_secs(BID_SOURCE_WAIT_TIME_SECS),
-    ));
+    if let Some(scraped_bids_publisher_url) = l1_config.scraped_bids_publisher_url.clone() {
+        // Create a ScrapedBids2BlockBidWithStatsObs that will forward bids from run_nng_subscriber_with_retries to the bidding service.
+        let bidding_service_bids_obs = Arc::new(ScrapedBids2BlockBidWithStatsObs::new(
+            bidding_service.clone(),
+        ));
+        tokio::spawn(run_nng_subscriber_with_retries(
+            bidding_service_bids_obs,
+            cancellation_token.clone(),
+            scraped_bids_publisher_url,
+            Duration::from_secs(BID_SOURCE_TIMEOUT_SECS),
+            Duration::from_secs(BID_SOURCE_WAIT_TIME_SECS),
+        ));
+    }
 
     let sink_factory = Box::new(BlockSealingBidderFactory::new(
         bidding_service,
