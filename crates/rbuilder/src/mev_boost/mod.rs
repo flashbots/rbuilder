@@ -167,6 +167,8 @@ pub struct RelayClient {
     api_token_header: Option<String>,
     /// Flag indicating whether this is the bloxroute relay.
     is_bloxroute: bool,
+    /// Bloxroute rproxy regions.
+    bloxroute_rproxy_regions: Vec<String>,
     /// Adds "filtering=true" as query
     ask_for_filtering_validators: bool,
     /// If we submit a block with a different gas than the one the validator registered with in this relay the relay does not mind.
@@ -174,12 +176,14 @@ pub struct RelayClient {
 }
 
 impl RelayClient {
+    #[allow(clippy::too_many_arguments)]
     pub fn from_url(
         url: Url,
         authorization_header: Option<String>,
         builder_id_header: Option<String>,
         api_token_header: Option<String>,
         is_bloxroute: bool,
+        bloxroute_rproxy_regions: Vec<String>,
         ask_for_filtering_validators: bool,
         can_ignore_gas_limit: bool,
     ) -> Self {
@@ -191,6 +195,7 @@ impl RelayClient {
             builder_id_header,
             api_token_header,
             is_bloxroute,
+            bloxroute_rproxy_regions,
             ask_for_filtering_validators,
             can_ignore_gas_limit,
         }
@@ -203,6 +208,7 @@ impl RelayClient {
             None,
             None,
             relay.is_bloxroute(),
+            Vec::new(),
             false,
             false,
         )
@@ -301,11 +307,32 @@ pub enum RelayResponse<T> {
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Hash)]
 pub struct ValidatorSlotData {
+    /// The slot number for the validator entry.
     #[serde_as(as = "DisplayFromStr")]
     pub slot: u64,
+    /// The index of the validator.
     #[serde_as(as = "DisplayFromStr")]
     pub validator_index: u64,
+    /// Details of the validator registration.
     pub entry: ValidatorRegistration,
+    /// (Bloxroute) Collection of regional endpoints validator is connected to.
+    #[serde(default)]
+    pub regional_endpoints: Vec<BloxrouteRegionalEndpoint>,
+}
+
+/// Bloxroute validator RProxy details.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+pub struct BloxrouteRegionalEndpoint {
+    /// RProxy name
+    pub name: String,
+    /// RProxy region. Format: `city,region`.
+    pub region: String,
+    /// RProxy HTTP endpoint.
+    pub http_endpoint: String,
+    /// RProxy gRPC endpoint.
+    pub grpc_endpoint: String,
+    /// RProxy WS endpoint.
+    pub websocket_endpoint: String,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -338,6 +365,8 @@ pub enum Error {
 pub enum SubmitBlockErr {
     #[error("Relay error: {0}")]
     RelayError(#[from] RelayError),
+    #[error("Invalid URL: {0}")]
+    InvalidUrl(#[from] url::ParseError),
     #[error("Payload attributes are not known")]
     PayloadAttributesNotKnown,
     #[error("Past slot")]
@@ -522,13 +551,33 @@ impl RelayClient {
     async fn call_relay_submit_block(
         &self,
         submission_with_metadata: &SubmitBlockRequestWithMetadata,
+        registration: &ValidatorSlotData,
         ssz: bool,
         gzip: bool,
         fake_relay: bool,
         cancellations: bool,
     ) -> Result<Response, SubmitBlockErr> {
+        let mut bloxroute_region = None;
         let url = {
-            let mut url = self.url.clone();
+            let maybe_regional_endpoint = self.bloxroute_rproxy_regions.iter().find_map(|region| {
+                registration
+                    .regional_endpoints
+                    .iter()
+                    .find(|r| r.region.ends_with(region.as_str()))
+            });
+            let mut url = if let Some(regional) = maybe_regional_endpoint {
+                Url::parse(&regional.http_endpoint).map_err(|error| {
+                    tracing::error!(?error, url = %regional.http_endpoint, "Error parsing rproxy URL");
+                    SubmitBlockErr::InvalidUrl(error)
+                })?
+            } else {
+                if self.is_bloxroute {
+                    // It's a bloxroute endpoint and we are not using rProxy, restrict to main relay region.
+                    bloxroute_region = Some(HeaderValue::from_static("na"));
+                }
+                self.url.clone()
+            };
+
             url.set_path("/relay/v1/builder/blocks");
             url.query_pairs_mut()
                 .append_pair("cancellations", if cancellations { "1" } else { "0" });
@@ -579,7 +628,9 @@ impl RelayClient {
 
         // Set bloxroute specific headers.
         if self.is_bloxroute {
-            headers.insert(BLOXROUTE_SHARE_HEADER, HeaderValue::from_static("na"));
+            if let Some(region) = bloxroute_region {
+                headers.insert(BLOXROUTE_SHARE_HEADER, region);
+            }
             headers.insert(
                 BLOXROUTE_BUILDER_VALUE_HEADER,
                 submission_with_metadata
@@ -681,12 +732,14 @@ impl RelayClient {
     pub async fn submit_block(
         &self,
         data: &SubmitBlockRequestWithMetadata,
+        registration: &ValidatorSlotData,
         ssz: bool,
         gzip: bool,
         fake_relay: bool,
         cancellations: bool,
     ) -> Result<(), SubmitBlockErr> {
         // If gRPC client is available, attempt to submit with it.
+        // TODO: support submitting to rproxy gRPC
         if let Some(client) = &self.grpc_client {
             match self.call_bloxroute_grpc_submit_block(client, data).await {
                 Ok(response) => {
@@ -711,7 +764,7 @@ impl RelayClient {
         }
 
         let response = self
-            .call_relay_submit_block(data, ssz, gzip, fake_relay, cancellations)
+            .call_relay_submit_block(data, registration, ssz, gzip, fake_relay, cancellations)
             .await?;
 
         let status = response.status();
@@ -952,7 +1005,8 @@ mod tests {
         let mut generator = TestDataGenerator::default();
 
         let relay_url = Url::from_str(&srv.endpoint()).unwrap();
-        let relay = RelayClient::from_url(relay_url, None, None, None, false, false, false);
+        let relay =
+            RelayClient::from_url(relay_url, None, None, None, false, Vec::new(), false, false);
         let submission = SubmitBlockRequest::Deneb(generator.create_deneb_submit_block_request());
         let sub_relay = SubmitBlockRequestWithMetadata {
             submission,
@@ -964,8 +1018,22 @@ mod tests {
                 order_ids: vec![],
             },
         };
+        let registration = ValidatorSlotData {
+            slot: 123,
+            validator_index: 321,
+            entry: ValidatorRegistration {
+                message: ValidatorRegistrationMessage {
+                    timestamp: 0,
+                    gas_limit: 30_000_00,
+                    fee_recipient: Address::random(),
+                    pubkey: H384::random(),
+                },
+                signature: Default::default(),
+            },
+            regional_endpoints: Vec::new(),
+        };
         relay
-            .submit_block(&sub_relay, true, true, false, false)
+            .submit_block(&sub_relay, &registration, true, true, false, false)
             .await
             .expect("OPS!");
     }

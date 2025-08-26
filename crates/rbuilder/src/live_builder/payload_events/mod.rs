@@ -14,9 +14,11 @@ use crate::{
         },
         SlotSource,
     },
+    mev_boost::ValidatorSlotData,
     primitives::mev_boost::{MevBoostRelayID, MevBoostRelaySlotInfoProvider},
     utils::{format_offset_datetime_rfc3339, timestamp_ms_to_offset_datetime},
 };
+use ahash::HashMap;
 use alloy_eips::{merge::SLOT_DURATION, BlockNumHash};
 use alloy_primitives::{utils::format_ether, Address, B256, U256};
 use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
@@ -46,8 +48,8 @@ pub struct MevBoostSlotData {
     /// The .data.payload_attributes.suggested_fee_recipient is replaced
     pub payload_attributes_event: PayloadAttributesEvent,
     pub suggested_gas_limit: u64,
-    /// List of relays agreeing to the slot_data. It may not contain all the relays (eg: errors, forks, validators registering only to some relays)
-    pub relays: Vec<MevBoostRelayID>,
+    /// Map of relays to the registrations with matching slot data. It may not contain all the relays (eg: errors, forks, validators registering only to some relays)
+    pub relay_registrations: Arc<HashMap<MevBoostRelayID, ValidatorSlotData>>,
     pub slot_data: SlotData,
     #[derivative(PartialEq = "ignore", Hash = "ignore")]
     pub payload_id: InternalPayloadId,
@@ -166,21 +168,22 @@ impl MevBoostSlotDataGenerator {
                     "Payload attributes received from CL client"
                 );
 
-                let (slot_data, relays) = if let Some(res) = relays.slot_data(slot).await {
-                    res
-                } else {
-                    info!(
-                        payload_id,
-                        reason = "no MEV-Boost relay data",
-                        "Payload attributes discarded"
-                    );
-                    continue;
-                };
+                let (slot_data, relay_registrations) =
+                    if let Some(res) = relays.slot_data(slot).await {
+                        res
+                    } else {
+                        info!(
+                            payload_id,
+                            reason = "no MEV-Boost relay data",
+                            "Payload attributes discarded"
+                        );
+                        continue;
+                    };
 
                 info!(
                     payload_id,
                     ?slot_data,
-                    ?relays,
+                    ?relay_registrations,
                     "Slot data from relays received"
                 );
 
@@ -194,7 +197,7 @@ impl MevBoostSlotDataGenerator {
                 let mev_boost_slot_data = MevBoostSlotData {
                     payload_attributes_event: correct_event,
                     suggested_gas_limit: slot_data.gas_limit,
-                    relays,
+                    relay_registrations,
                     slot_data,
                     payload_id,
                 };

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{
     mev_boost::{RelayError, ValidatorSlotData},
     primitives::mev_boost::{MevBoostRelayID, MevBoostRelaySlotInfoProvider},
@@ -8,7 +10,7 @@ use alloy_primitives::Address;
 use futures::stream::FuturesOrdered;
 use primitive_types::H384;
 use tokio_stream::StreamExt;
-use tracing::{info, info_span, trace, trace_span, warn};
+use tracing::{info, info_span, trace, warn};
 
 /// Info about a slot obtained from a relay.
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
@@ -92,7 +94,10 @@ impl RelaysForSlotData {
     /// Asks all relays in parallel for ValidatorSlotData.
     /// Under unconsistencies, the first one (the one with the highest priority as sorted on new) wins and any relay giving a different data
     /// is not included on the result.
-    pub async fn slot_data(&mut self, slot: u64) -> Option<(SlotData, Vec<MevBoostRelayID>)> {
+    pub async fn slot_data(
+        &mut self,
+        slot: u64,
+    ) -> Option<(SlotData, Arc<HashMap<MevBoostRelayID, ValidatorSlotData>>)> {
         // ask all relays concurrently about the slot
         let relay_res = self
             .relay
@@ -142,13 +147,15 @@ impl RelaysForSlotData {
 fn resolve_relay_slot_data(
     fetched_data: Vec<(MevBoostRelayID, ValidatorSlotData)>,
     can_ignore_gas_limit: &HashSet<MevBoostRelayID>,
-) -> Option<(SlotData, Vec<MevBoostRelayID>)> {
+) -> Option<(SlotData, Arc<HashMap<MevBoostRelayID, ValidatorSlotData>>)> {
     if fetched_data.is_empty() {
         return None;
     }
 
-    let mut slot_relays: HashMap<SlotData, Vec<MevBoostRelayID>> = HashMap::default();
-    let mut slot_raw_data: HashMap<SlotData, Vec<ValidatorSlotData>> = HashMap::default();
+    let mut registrations_by_slot_data: HashMap<
+        SlotData,
+        HashMap<MevBoostRelayID, ValidatorSlotData>,
+    > = HashMap::default();
 
     for (relay, raw_data) in fetched_data {
         let slot_data = SlotData {
@@ -156,49 +163,47 @@ fn resolve_relay_slot_data(
             gas_limit: raw_data.entry.message.gas_limit,
             pubkey: raw_data.entry.message.pubkey,
         };
-        slot_relays
-            .entry(slot_data.clone())
+        registrations_by_slot_data
+            .entry(slot_data)
             .or_default()
-            .push(relay);
-        slot_raw_data.entry(slot_data).or_default().push(raw_data);
+            .insert(relay, raw_data);
     }
 
     // all relays returned the same data
-    if slot_relays.len() == 1 {
-        let (slot_data, relays) = slot_relays.into_iter().next().unwrap();
-        return Some((slot_data, relays));
+    if registrations_by_slot_data.len() == 1 {
+        let (slot_data, relay_registrations) =
+            registrations_by_slot_data.into_iter().next().unwrap();
+        return Some((slot_data, Arc::new(relay_registrations)));
     }
 
-    let (latest_slot_data, _) = slot_raw_data
+    let (latest_slot_data, mut selected_registrations) = registrations_by_slot_data
         .iter()
         .max_by_key(|(_, v)| {
             v.iter()
-                .map(|r| r.entry.message.timestamp)
+                .map(|(_, r)| r.entry.message.timestamp)
                 .max()
                 .unwrap_or_default()
         })
+        .map(|(slot_data, registrations)| (slot_data.clone(), registrations.clone()))
         .unwrap();
-    let latest_slot_data = latest_slot_data.clone();
-    let mut selected_relays = slot_relays.get(&latest_slot_data).unwrap().clone();
-    let span = trace_span!("raw_relay_data", ?slot_raw_data);
-    let _span_guard = span.enter();
-    info!(all_data = ?slot_relays, ?selected_relays, "Relays returned different slot data");
+    info!(?latest_slot_data, ?selected_registrations, all_registrations = ?registrations_by_slot_data, "Relays returned different slot data");
+
     // Add all relays that can ignore gas limit to the selected relays.
-    for (slot, relays) in slot_relays {
+    for (slot, registrations) in registrations_by_slot_data {
         if slot.fee_recipient == latest_slot_data.fee_recipient
             && slot.pubkey == latest_slot_data.pubkey
             && slot.gas_limit != latest_slot_data.gas_limit
         {
-            for relay in relays {
+            for (relay, registration) in registrations {
                 if can_ignore_gas_limit.contains(&relay) {
-                    info!(?relay, "Upgraded relay set with can_ignore_gas_limit relay");
-                    selected_relays.push(relay);
+                    info!(?latest_slot_data, %relay, "Upgraded relay set with can_ignore_gas_limit relay");
+                    selected_registrations.insert(relay, registration);
                 }
             }
         }
     }
 
-    Some((latest_slot_data, selected_relays))
+    Some((latest_slot_data, Arc::new(selected_registrations)))
 }
 
 #[cfg(test)]
@@ -224,6 +229,7 @@ mod test {
             },
             validator_index: 1,
             slot: 2,
+            regional_endpoints: Vec::new(),
         }
     }
 
@@ -242,7 +248,7 @@ mod test {
             (relay2.clone(), data.clone()),
         ];
 
-        let result = resolve_relay_slot_data(fetched, &HashSet::default());
+        let result = resolve_relay_slot_data(fetched.clone(), &HashSet::default());
         let (slot_data, relays) = result.unwrap();
         assert_eq!(
             SlotData {
@@ -252,7 +258,7 @@ mod test {
             },
             slot_data
         );
-        assert_eq!(relays, vec![relay1.clone(), relay2.clone()]);
+        assert_eq!(relays, Arc::new(HashMap::from_iter(fetched)));
 
         // Test when relays return different data (should pick latest timestamp)
         let data2 = make_test_data(address!("2222222222222222222222222222222222222222"), 200);
@@ -271,7 +277,10 @@ mod test {
             },
             slot_data
         );
-        assert_eq!(relays, vec![relay2.clone()]);
+        assert_eq!(
+            relays,
+            Arc::new(HashMap::from_iter([(relay2.clone(), data2.clone())]))
+        );
 
         // Test when relays return different gas limit but same fee recipient and pubkey
         let mut data3 = data2.clone();
@@ -295,7 +304,10 @@ mod test {
             },
             slot_data
         );
-        assert_eq!(relays, vec![relay2.clone()]);
+        assert_eq!(
+            relays,
+            Arc::new(HashMap::from_iter([(relay2.clone(), data2.clone())]))
+        );
 
         // data3 can_ignore_gas_limit
         let fetched = vec![
@@ -314,6 +326,12 @@ mod test {
             },
             slot_data
         );
-        assert_eq!(relays, vec![relay2.clone(), relay3.clone()]);
+        assert_eq!(
+            relays,
+            Arc::new(HashMap::from_iter([
+                (relay2.clone(), data2.clone()),
+                (relay3.clone(), data3.clone()),
+            ]))
+        );
     }
 }

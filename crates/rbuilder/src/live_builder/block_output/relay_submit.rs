@@ -4,7 +4,7 @@ use crate::{
     mev_boost::{
         sign_block_for_relay,
         submission::{BidMetadata, BidValueMetadata, SubmitBlockRequestWithMetadata},
-        BLSBlockSigner, RelayError, SubmitBlockErr,
+        BLSBlockSigner, RelayError, SubmitBlockErr, ValidatorSlotData,
     },
     primitives::mev_boost::{MevBoostRelayBidSubmitter, MevBoostRelayID},
     telemetry::{
@@ -286,6 +286,7 @@ async fn run_submit_to_relays_job(
         submit_block_to_relays(
             &normal_relays,
             &normal_signed_submission,
+            &slot_data.relay_registrations,
             &relay_filter,
             false,
             &submission_span,
@@ -296,6 +297,7 @@ async fn run_submit_to_relays_job(
             submit_block_to_relays(
                 &optimistic_relays,
                 optimistic_signed_submission,
+                &slot_data.relay_registrations,
                 &relay_filter,
                 true,
                 &submission_span,
@@ -306,6 +308,7 @@ async fn run_submit_to_relays_job(
             submit_block_to_relays(
                 &optimistic_relays,
                 &normal_signed_submission,
+                &slot_data.relay_registrations,
                 &relay_filter,
                 false,
                 &submission_span,
@@ -330,6 +333,7 @@ async fn run_submit_to_relays_job(
 fn submit_block_to_relays(
     relays: &Vec<MevBoostRelayBidSubmitter>,
     submission: &SubmitBlockRequestWithMetadata,
+    registrations: &HashMap<MevBoostRelayID, ValidatorSlotData>,
     relay_filter: &impl Fn(&MevBoostRelayBidSubmitter) -> bool,
     optimistic: bool,
     submission_span: &Span,
@@ -337,13 +341,29 @@ fn submit_block_to_relays(
 ) {
     for relay in relays {
         if relay_filter(relay) {
+            let registration = match registrations.get(relay.id()) {
+                Some(registration) => registration.clone(),
+                None => {
+                    // Use any registrations for submitting to test relays.
+                    debug_assert!(relay.test_relay());
+                    registrations.values().next().unwrap().clone()
+                }
+            };
+
             let span = info_span!(parent: submission_span, "relay_submit", relay = &relay.id(), optimistic);
             let relay = relay.clone();
             let cancel = cancel.clone();
             let submission = submission.clone();
             tokio::spawn(
                 async move {
-                    submit_bid_to_the_relay(&relay, cancel.clone(), submission, optimistic).await;
+                    submit_bid_to_the_relay(
+                        &relay,
+                        cancel.clone(),
+                        submission,
+                        registration,
+                        optimistic,
+                    )
+                    .await;
                 }
                 .instrument(span),
             );
@@ -385,6 +405,7 @@ async fn submit_bid_to_the_relay(
     relay: &MevBoostRelayBidSubmitter,
     cancel: CancellationToken,
     signed_submit_request: SubmitBlockRequestWithMetadata,
+    registration: ValidatorSlotData,
     optimistic: bool,
 ) {
     let submit_start = Instant::now();
@@ -398,7 +419,7 @@ async fn submit_bid_to_the_relay(
         _ = cancel.cancelled() => {
             return;
         },
-        res = relay.submit_block(&signed_submit_request) => res
+        res = relay.submit_block(&signed_submit_request, &registration) => res
     };
     let submit_time = submit_start.elapsed();
     match relay_result {
@@ -468,6 +489,9 @@ async fn submit_bid_to_the_relay(
                 "Encountered gRPC error"
             );
         }
+        Err(SubmitBlockErr::InvalidUrl(error)) => {
+            error!(err = ?error, "Error parsing URL");
+        }
     }
 }
 
@@ -511,9 +535,9 @@ impl BuilderSinkFactory for RelaySubmitSinkFactory {
         let pending_block_cell = Arc::new(PendingBlockCell::default());
 
         let relays = slot_data
-            .relays
+            .relay_registrations
             .iter()
-            .flat_map(|id| self.relays.get(id))
+            .flat_map(|(id, _)| self.relays.get(id))
             .chain(self.test_relays.iter())
             .cloned()
             .collect();
