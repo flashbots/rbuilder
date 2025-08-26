@@ -11,7 +11,6 @@ use alloy_rpc_types_beacon::{
     requests::ExecutionRequestsV4,
 };
 use alloy_rpc_types_engine::{ExecutionPayloadV1, ExecutionPayloadV2, ExecutionPayloadV3};
-use std::sync::Arc;
 
 /// Bloxroute gRPC types.
 pub mod types {
@@ -33,8 +32,7 @@ pub enum DataVersion {
 }
 
 /// gRPC relay client type.
-pub type GrpcRelayClient =
-    Arc<tokio::sync::Mutex<types::relay_client::RelayClient<tonic::transport::Channel>>>;
+pub type GrpcRelayClient = types::relay_client::RelayClient<tonic::transport::Channel>;
 
 impl From<&SubmitBlockRequest> for types::SubmitBlockRequest {
     fn from(value: &SubmitBlockRequest) -> Self {
