@@ -55,6 +55,7 @@ Every field has a default if omitted.
 | Name | Type | Comments | Default |
 |------|------|-------------|---------|
 |relays|vec[RelayConfig]| List of relays used to get validator registration info and/or submitting. Below are the details for RelayConfig fields. Example: <br>[[relays]]<br>name = "relay1"<br>optimistic = true<br>priority = 1<br>url = "https://relay1"<br>use_gzip_for_submit = true<br>use_ssz_for_submit = true<br>mode:full<br><br>[[relays]]<br>name = "relay2"<br>...more params...|[]|
+|registration_update_interval_ms|optional u64| Period used to refresh validators registration info.|5000|
 |RelayConfig.name|mandatory string| Human readable name for the relay||
 |RelayConfig.url|mandatory string| Url to relay's endpoint||
 |RelayConfig.grpc_url|optional string| Url to relay's gRPC endpoint (only bloxroute at 2025/08/20).|None|

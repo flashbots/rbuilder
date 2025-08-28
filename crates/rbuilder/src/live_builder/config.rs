@@ -125,8 +125,6 @@ pub struct Config {
     /// selected builder configurations
     pub builders: Vec<BuilderConfig>,
 
-    /// The interval at which validator registrations should be updated.
-    pub registration_update_interval_ms: Option<u64>,
     /// When the sample bidder (see TrueBlockValueBiddingService) will start bidding.
     /// Usually a negative number.
     pub slot_delta_to_start_bidding_ms: Option<i64>,
@@ -146,7 +144,8 @@ pub struct L1Config {
     // Relay Submission configuration
     pub relays: Vec<RelayConfig>,
     pub enabled_relays: Vec<String>,
-
+    /// The interval at which validator registrations should be updated.
+    pub registration_update_interval_ms: Option<u64>,
     /// Secret key that will be used to sign normal submissions to the relay.
     relay_secret_key: Option<EnvOrValue<String>>,
     /// Secret key that will be used to sign optimistic submissions to the relay.
@@ -179,6 +178,7 @@ impl Default for L1Config {
             cl_node_url: vec![EnvOrValue::from("http://127.0.0.1:3500")],
             genesis_fork_version: None,
             scraped_bids_publisher_url: None,
+            registration_update_interval_ms: None,
         }
     }
 }
@@ -389,6 +389,13 @@ impl L1Config {
         ));
         Ok((sink_factory, slot_info_providers))
     }
+
+    pub fn registration_update_interval(&self) -> Duration {
+        Duration::from_millis(
+            self.registration_update_interval_ms
+                .unwrap_or(DEFAULT_REGISTRATION_UPDATE_INTERVAL_MS),
+        )
+    }
 }
 
 impl LiveBuilderConfig for Config {
@@ -440,17 +447,12 @@ impl LiveBuilderConfig for Config {
         )
         .await?;
 
-        let registration_update_interval = Duration::from_millis(
-            self.registration_update_interval_ms
-                .unwrap_or(DEFAULT_REGISTRATION_UPDATE_INTERVAL_MS),
-        );
         let live_builder = create_builder_from_sink(
             &self.base_config,
             &self.l1_config,
             provider,
             sink_factory,
             slot_info_provider,
-            registration_update_interval,
             cancellation_token,
         )
         .await?;
@@ -643,7 +645,6 @@ impl Default for Config {
                     }),
                 },
             ],
-            registration_update_interval_ms: None,
             slot_delta_to_start_bidding_ms: None,
             subsidy: None,
         }
@@ -1003,7 +1004,6 @@ pub async fn create_builder_from_sink<P>(
     provider: P,
     sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
     slot_info_provider: Vec<MevBoostRelaySlotInfoProvider>,
-    registration_update_interval: Duration,
     cancellation_token: CancellationToken,
 ) -> eyre::Result<super::LiveBuilder<P, MevBoostSlotDataGenerator>>
 where
@@ -1012,10 +1012,11 @@ where
     let blocklist_provider = base_config
         .blocklist_provider(cancellation_token.clone())
         .await?;
+
     let payload_event = MevBoostSlotDataGenerator::new(
         l1_config.beacon_clients()?,
         slot_info_provider,
-        registration_update_interval,
+        l1_config.registration_update_interval(),
         blocklist_provider.clone(),
         cancellation_token.clone(),
     );
