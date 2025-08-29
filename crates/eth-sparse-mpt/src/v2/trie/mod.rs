@@ -884,7 +884,7 @@ impl Trie {
 
                     if let Some(child_ptr) = self.branch_node_children[children][n as usize] {
                         current_node = child_ptr
-                            .local_ptr()
+                            .as_local()
                             .ok_or_else(|| NodeNotFound(target_key.clone()))?;
                         continue;
                     }
@@ -900,7 +900,7 @@ impl Trie {
                         proof.push(Bytes::copy_from_slice(&buf));
                         path_walked += key.len();
                         current_node = next_node
-                            .local_ptr()
+                            .as_local()
                             .ok_or_else(|| NodeNotFound(target_key.clone()))?;
                         continue;
                     }
