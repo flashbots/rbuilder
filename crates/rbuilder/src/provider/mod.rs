@@ -1,10 +1,11 @@
-use crate::roothash::RootHashError;
 use crate::{
     building::ThreadBlockBuildingContext, live_builder::simulation::SimulatedOrderCommand,
+    roothash::RootHashError,
 };
 use alloy_consensus::Header;
 use alloy_eips::BlockNumHash;
-use alloy_primitives::{BlockHash, BlockNumber, B256};
+use alloy_primitives::{Address, BlockHash, BlockNumber, Bytes, B256};
+use eth_sparse_mpt::utils::{HashMap, HashSet};
 use reth::providers::ExecutionOutcome;
 use reth_errors::ProviderResult;
 use reth_provider::StateProviderBox;
@@ -57,4 +58,12 @@ pub trait RootHasher: std::fmt::Debug + Send + Sync {
         outcome: &ExecutionOutcome,
         local_ctx: &mut ThreadBlockBuildingContext,
     ) -> Result<B256, RootHashError>;
+
+    /// Generate the account proof for the target address.
+    fn account_proofs(
+        &self,
+        outcome: &ExecutionOutcome,
+        addresses: &HashSet<Address>,
+        local_ctx: &mut ThreadBlockBuildingContext,
+    ) -> Result<HashMap<Address, Vec<Bytes>>, RootHashError>;
 }

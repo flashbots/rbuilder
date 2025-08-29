@@ -6,12 +6,12 @@
 #![allow(clippy::large_enum_variant)]
 #![allow(clippy::type_complexity)]
 
-use std::sync::Arc;
-
-use alloy_primitives::{Address, B256};
+use crate::utils::{HashMap, HashSet};
+use alloy_primitives::{Address, Bytes, B256};
 use reth_provider::{
     providers::ConsistentDbView, BlockReader, DatabaseProviderFactory, ExecutionOutcome,
 };
+use std::sync::Arc;
 
 #[cfg(any(test, feature = "benchmark-utils"))]
 pub mod test_utils;
@@ -138,6 +138,48 @@ impl SparseTrieError {
     }
 }
 
+pub fn calculate_account_proofs_with_sparse_trie<Provider>(
+    consistent_db_view: ConsistentDbView<Provider>,
+    outcome: &ExecutionOutcome,
+    proof_targets: &HashSet<Address>,
+    shared_cache: &SparseTrieSharedCache,
+    local_cache: &mut SparseTrieLocalCache,
+    thread_pool: &Option<RootHashThreadPool>,
+    version: ETHSpareMPTVersion,
+) -> (
+    Result<HashMap<Address, Vec<Bytes>>, SparseTrieError>,
+    SparseTrieMetrics,
+)
+where
+    Provider: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync,
+{
+    let calculate = || match version {
+        ETHSpareMPTVersion::V1 => (
+            Err(SparseTrieError::Other(eyre::eyre!(
+                "proof generation not supported in v1"
+            ))),
+            Default::default(),
+        ),
+        ETHSpareMPTVersion::V2 => {
+            let result = local_cache.calc.calculate_root_hash_with_sparse_trie(
+                consistent_db_view,
+                shared_cache.cache_v2.clone(),
+                outcome,
+                proof_targets,
+            );
+            match result {
+                Ok((_, proofs, metrics)) => (Ok(proofs), metrics),
+                Err(err) => (Err(err), Default::default()),
+            }
+        }
+    };
+    if let Some(thread_pool) = thread_pool {
+        thread_pool.rayon_pool.install(calculate)
+    } else {
+        calculate()
+    }
+}
+
 pub fn calculate_root_hash_with_sparse_trie<Provider>(
     consistent_db_view: ConsistentDbView<Provider>,
     outcome: &ExecutionOutcome,
@@ -197,9 +239,10 @@ where
                 consistent_db_view,
                 shared_cache.cache_v2.clone(),
                 outcome,
+                &Default::default(),
             );
             match result {
-                Ok((res, metrics)) => (Ok(res), metrics),
+                Ok((res, _, metrics)) => (Ok(res), metrics),
                 Err(err) => (Err(err), Default::default()),
             }
         }

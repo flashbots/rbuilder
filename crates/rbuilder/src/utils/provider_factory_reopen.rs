@@ -2,12 +2,15 @@ use crate::{
     building::{builders::mock_block_building_helper::MockRootHasher, ThreadBlockBuildingContext},
     live_builder::simulation::SimulatedOrderCommand,
     provider::{RootHasher, StateProviderFactory},
-    roothash::{calculate_state_root, run_trie_prefetcher, RootHashContext, RootHashError},
+    roothash::{
+        calculate_account_proofs, calculate_state_root, run_trie_prefetcher, RootHashContext,
+        RootHashError,
+    },
     telemetry::{inc_provider_bad_reopen_counter, inc_provider_reopen_counter},
 };
 use alloy_consensus::Header;
 use alloy_eips::BlockNumHash;
-use alloy_primitives::{BlockHash, BlockNumber, B256};
+use alloy_primitives::{Address, BlockHash, BlockNumber, Bytes, B256};
 use eth_sparse_mpt::*;
 use parking_lot::Mutex;
 use reth::providers::{BlockHashReader, ChainSpecProvider, ExecutionOutcome, ProviderFactory};
@@ -303,6 +306,23 @@ where
             simulated_orders,
             cancel,
         );
+    }
+
+    fn account_proofs(
+        &self,
+        outcome: &ExecutionOutcome,
+        addresses: &utils::HashSet<Address>,
+        local_ctx: &mut ThreadBlockBuildingContext,
+    ) -> Result<utils::HashMap<Address, Vec<Bytes>>, RootHashError> {
+        calculate_account_proofs(
+            self.provider.clone(),
+            self.parent_num_hash,
+            outcome,
+            addresses,
+            &self.sparse_trie_shared_cache,
+            &mut local_ctx.root_hash_calculator,
+            &self.config,
+        )
     }
 
     fn state_root(

@@ -36,6 +36,7 @@ use tracing::{trace, trace_span};
 
 use crate::{
     building::ThreadBlockBuildingContext, live_builder::simulation::SimulatedOrderCommand,
+    roothash::RootHashError,
 };
 
 use super::{RootHasher, StateProviderFactory};
@@ -444,13 +445,22 @@ impl RootHasher for StatRootHashCalculator {
         unimplemented!()
     }
 
+    fn account_proofs(
+        &self,
+        _outcome: &reth_provider::ExecutionOutcome,
+        _addresses: &eth_sparse_mpt::utils::HashSet<Address>,
+        _local_ctx: &mut ThreadBlockBuildingContext,
+    ) -> Result<eth_sparse_mpt::utils::HashMap<Address, Vec<Bytes>>, RootHashError> {
+        Err(RootHashError::Other(eyre::eyre!("method not implemented")))
+    }
+
     /// Calculates the state root given changed accounts
     /// IMPORTANT: Assumes IPC provider (node) has RPC call:"rbuilder_calculateStateRoot"
     fn state_root(
         &self,
         outcome: &reth_provider::ExecutionOutcome,
         _local_ctx: &mut ThreadBlockBuildingContext,
-    ) -> Result<B256, crate::roothash::RootHashError> {
+    ) -> Result<B256, RootHashError> {
         let account_diff: HashMap<Address, AccountDiff> = outcome
             .bundle
             .state
@@ -463,7 +473,7 @@ impl RootHasher for StatRootHashCalculator {
             "rbuilder_calculateStateRoot",
             (BlockId::Hash(self.parent_hash.into()), account_diff),
         )
-        .map_err(|err| crate::roothash::RootHashError::Other(err.into()))?;
+        .map_err(|err| RootHashError::Other(err.into()))?;
 
         Ok(hash)
     }

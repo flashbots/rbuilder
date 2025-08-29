@@ -12,6 +12,7 @@ use crate::{
         payload_events::{InternalPayloadId, MevBoostSlotData},
         simulation::SimulatedOrderCommand,
     },
+    mev_boost::adjustment::BidAdjustmentData,
     primitives::{AccountNonce, OrderId, SimulatedOrder},
     provider::StateProviderFactory,
     utils::{is_provider_factory_health_error, NonceCache},
@@ -21,7 +22,7 @@ use alloy_eips::eip7594::BlobTransactionSidecarVariant;
 use alloy_primitives::{Address, Bytes};
 use block_building_helper::BiddableUnfinishedBlock;
 use reth::primitives::SealedBlock;
-use std::{fmt::Debug, sync::Arc};
+use std::{collections::HashMap, fmt::Debug, sync::Arc};
 use tokio::sync::{
     broadcast,
     broadcast::error::{RecvError, TryRecvError},
@@ -34,13 +35,15 @@ use super::{simulated_order_command_to_sink, OrderPriority, PrioritizedOrderStor
 /// Block we built
 #[derive(Debug, Clone)]
 pub struct Block {
+    pub builder_name: String,
     pub trace: BuiltBlockTrace,
     pub sealed_block: SealedBlock,
     /// Sidecars for the txs included in SealedBlock
     pub txs_blobs_sidecars: Vec<Arc<BlobTransactionSidecarVariant>>,
     /// The Pectra execution requests for this bid.
     pub execution_requests: Vec<Bytes>,
-    pub builder_name: String,
+    /// Bid adjustment data by fee payer address.
+    pub bid_adjustments: HashMap<Address, BidAdjustmentData>,
 }
 
 #[derive(Debug)]

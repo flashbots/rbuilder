@@ -1,18 +1,15 @@
-use crate::building::ThreadBlockBuildingContext;
-use crate::live_builder::simulation::SimulatedOrderCommand;
-use crate::primitives::order_statistics::OrderStatistics;
-use crate::primitives::SimValue;
-use crate::provider::RootHasher;
-use crate::roothash::RootHashError;
 use crate::{
     building::{
         BlockBuildingContext, BuiltBlockTrace, CriticalCommitOrderError, ExecutionError,
-        ExecutionResult,
+        ExecutionResult, ThreadBlockBuildingContext,
     },
-    primitives::SimulatedOrder,
+    live_builder::simulation::SimulatedOrderCommand,
+    primitives::{order_statistics::OrderStatistics, SimValue, SimulatedOrder},
+    provider::RootHasher,
+    roothash::RootHashError,
 };
-use alloy_primitives::B256;
-use alloy_primitives::U256;
+use alloy_primitives::{Address, Bytes, B256, U256};
+use eth_sparse_mpt::utils::{HashMap, HashSet};
 use reth::providers::ExecutionOutcome;
 use reth_primitives::SealedBlock;
 use time::OffsetDateTime;
@@ -104,11 +101,12 @@ impl BlockBuildingHelper for MockBlockBuildingHelper {
             self.built_block_trace.true_bid_value
         };
         let block = Block {
+            builder_name: "BlockBuildingHelper".to_string(),
             trace: self.built_block_trace,
             sealed_block: SealedBlock::default(),
             txs_blobs_sidecars: Vec::new(),
-            builder_name: "BlockBuildingHelper".to_string(),
             execution_requests: Default::default(),
+            bid_adjustments: Default::default(),
         };
 
         Ok(FinalizeBlockResult { block })
@@ -145,6 +143,15 @@ impl RootHasher for MockRootHasher {
         _simulated_orders: broadcast::Receiver<SimulatedOrderCommand>,
         _cancel: CancellationToken,
     ) {
+    }
+
+    fn account_proofs(
+        &self,
+        _outcome: &ExecutionOutcome,
+        _addresses: &HashSet<Address>,
+        _local_ctx: &mut ThreadBlockBuildingContext,
+    ) -> Result<HashMap<Address, Vec<Bytes>>, RootHashError> {
+        Ok(Default::default())
     }
 
     fn state_root(

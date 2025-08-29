@@ -319,29 +319,25 @@ impl<
     ) -> Result<(), BlockBuildingHelperError> {
         self.built_block_trace.coinbase_reward = self.partial_block.coinbase_profit;
 
-        let use_last_tx_payment;
+        let (bid_value, true_value, use_last_tx_payment) =
+            if let Some((payout_tx_gas, payout_tx_value)) = self.payout_tx_gas.zip(payout_tx_value)
+            {
+                self.partial_block.insert_refunds_and_proposer_payout_tx(
+                    payout_tx_gas,
+                    payout_tx_value,
+                    &self.building_ctx,
+                    local_ctx,
+                    &mut self.block_state,
+                )?;
+                (payout_tx_value, self.true_block_value()?, true)
+            } else {
+                (
+                    self.partial_block.coinbase_profit,
+                    self.partial_block.coinbase_profit,
+                    false,
+                )
+            };
 
-        let (bid_value, true_value) = if let (Some(payout_tx_gas), Some(payout_tx_value)) =
-            (self.payout_tx_gas, payout_tx_value)
-        {
-            use_last_tx_payment = true;
-            match self.partial_block.insert_refunds_and_proposer_payout_tx(
-                payout_tx_gas,
-                payout_tx_value,
-                &self.building_ctx,
-                local_ctx,
-                &mut self.block_state,
-            ) {
-                Ok(()) => (payout_tx_value, self.true_block_value()?),
-                Err(err) => return Err(err.into()),
-            }
-        } else {
-            use_last_tx_payment = false;
-            (
-                self.partial_block.coinbase_profit,
-                self.partial_block.coinbase_profit,
-            )
-        };
         // Since some extra money might arrived directly the suggested_fee_recipient (when suggested_fee_recipient != coinbase)
         // we check the fee_recipient delta and make our bid include that! This is supposed to be what the relay will check.
         let fee_recipient_balance_after = self.block_state.balance(
@@ -498,11 +494,12 @@ impl<
         );
 
         let block = Block {
+            builder_name: self.builder_name.clone(),
             trace: self.built_block_trace,
             sealed_block: finalized_block.sealed_block,
             txs_blobs_sidecars: finalized_block.txs_blob_sidecars,
-            builder_name: self.builder_name.clone(),
             execution_requests: finalized_block.execution_requests,
+            bid_adjustments: finalized_block.bid_adjustments,
         };
         Ok(FinalizeBlockResult { block })
     }

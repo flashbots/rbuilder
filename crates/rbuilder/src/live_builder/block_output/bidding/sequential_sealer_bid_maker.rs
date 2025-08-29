@@ -183,10 +183,6 @@ fn run_finalize_worker(tasks: flume::Receiver<FinalizeTask>) {
         };
 
         let result = block.finalize_block(&mut local_ctx, payout_tx_val, seen_competition_bid);
-        // if result.is_err() {
-        //     result.expect("fin error");
-        //     unreachable!();
-        // }
-        result_sender.send(result).unwrap_or_default();
+        let _ = result_sender.send(result);
     }
 }

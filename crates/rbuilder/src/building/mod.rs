@@ -3,6 +3,7 @@ use crate::{
         block_list_provider::BlockList, order_input::mempool_txs_detector::MempoolTxsDetector,
         payload_events::InternalPayloadId,
     },
+    mev_boost::adjustment::BidAdjustmentData,
     primitives::{Order, OrderId, SimValue, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs},
     provider::RootHasher,
     roothash::RootHashError,
@@ -55,7 +56,7 @@ use revm::{
 };
 use serde::Deserialize;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     hash::Hash,
     ops::{Add, AddAssign},
     str::FromStr,
@@ -674,12 +675,15 @@ impl ExecutionError {
 }
 
 pub struct FinalizeResult {
+    /// Sealed block.
     pub sealed_block: SealedBlock,
     // sidecars for all txs in SealedBlock
     pub txs_blob_sidecars: Vec<Arc<BlobTransactionSidecarVariant>>,
     /// The Pectra execution requests for this bid.
     pub execution_requests: Vec<Bytes>,
-
+    /// Bid adjustment data.
+    pub bid_adjustments: HashMap<Address, BidAdjustmentData>,
+    /// Duration of root hash calculation.
     pub root_hash_time: Duration,
 }
 
@@ -987,7 +991,6 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
     }
 
     /// Mostly based on reth's (v1.2) default_ethereum_payload_builder.
-    #[allow(clippy::too_many_arguments)]
     pub fn finalize(
         self,
         mut state: BlockState,
@@ -1018,20 +1021,16 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         let step_start = Instant::now();
 
         // calculate the state root
-        let state_root = {
-            let (bundle, _) = state.into_parts();
-            // we use execution outcome here only for interface compatibility, its just a wrapper around bundle
-            let execution_outcome =
-                ExecutionOutcome::new(bundle, Vec::new(), block_number, Vec::new());
-            ctx.root_hasher.state_root(&execution_outcome, local_ctx)?
-        };
+        let (bundle, _) = state.into_parts();
+        // we use execution outcome here only for interface compatibility, its just a wrapper around bundle
+        let execution_outcome = ExecutionOutcome::new(bundle, Vec::new(), block_number, Vec::new());
+        let state_root = ctx.root_hasher.state_root(&execution_outcome, local_ctx)?;
         let root_hash_time = step_start.elapsed();
 
         let root_hash_time_ms = elapsed_ms(step_start);
         let step_start = Instant::now();
 
         // create the block header
-        // let transactions_root = proofs::calculate_transaction_root(&self.executed_tx);
         let transactions_root = calculate_transactions_root(
             &mut local_ctx.tx_root_cache,
             &self.executed_tx_infos,
@@ -1128,15 +1127,26 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
                 withdrawals,
             },
         };
+
+        let bid_adjustments =
+            Self::generate_bid_adjustments(&block.header, &execution_outcome, ctx, local_ctx)
+                .inspect_err(|error| {
+                    error!(
+                        block_number = block.number,
+                        ?error,
+                        "Error generating bid adjustment data"
+                    );
+                })
+                .unwrap_or_default();
+
         let result = FinalizeResult {
             sealed_block: block.seal_slow(),
             txs_blob_sidecars,
             root_hash_time,
-            execution_requests: requests.map(|er| er.take()).unwrap_or_default(),
+            execution_requests: requests.map(Requests::take).unwrap_or_default(),
+            bid_adjustments,
         };
-
         let block_seal_time_ms = elapsed_ms(step_start);
-
         let total_time_ms = elapsed_ms(start);
 
         trace!(
@@ -1152,6 +1162,82 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         );
 
         Ok(result)
+    }
+
+    fn generate_bid_adjustments(
+        header: &Header,
+        outcome: &ExecutionOutcome,
+        ctx: &BlockBuildingContext,
+        local_ctx: &mut ThreadBlockBuildingContext,
+    ) -> Result<HashMap<Address, BidAdjustmentData>, FinalizeError> {
+        let fee_payer_addresses = HashSet::<Address>::default(); // TODO:
+        if fee_payer_addresses.is_empty() {
+            return Ok(Default::default());
+        }
+
+        let Some(builder_signer) = ctx
+            .builder_signer
+            .filter(|signer| signer.address == header.beneficiary)
+        else {
+            trace!(
+                block_number = header.number,
+                "Builder is not block coinbase"
+            );
+            return Ok(Default::default());
+        };
+
+        let builder_address = builder_signer.address;
+        let fee_recipient_address = ctx.attributes.suggested_fee_recipient;
+
+        let proof_targets = HashSet::from_iter(
+            [builder_address, fee_recipient_address]
+                .into_iter()
+                .chain(fee_payer_addresses.clone()),
+        );
+        let mut account_proofs =
+            ctx.root_hasher
+                .account_proofs(outcome, &proof_targets, local_ctx)?;
+
+        let Some(builder_proof) = account_proofs.remove(&builder_address) else {
+            return Err(FinalizeError::Other(eyre::eyre!(
+                "account proof for builder {builder_address} is missing"
+            )));
+        };
+        let Some(fee_recipient_proof) = account_proofs.remove(&fee_recipient_address) else {
+            return Err(FinalizeError::Other(eyre::eyre!(
+                "account proof for proposer {fee_recipient_address} is missing"
+            )));
+        };
+
+        let mut bid_adjustments = HashMap::default();
+        for fee_payer_address in fee_payer_addresses {
+            let Some(fee_payer_proof) = account_proofs.remove(&fee_payer_address) else {
+                error!(
+                    %fee_payer_address,
+                    "Fee payer proof is missing"
+                );
+                continue;
+            };
+
+            bid_adjustments.insert(
+                fee_payer_address,
+                BidAdjustmentData {
+                    state_root: header.state_root,
+                    transactions_root: header.transactions_root,
+                    receipts_root: header.receipts_root,
+                    builder_address,
+                    builder_proof: builder_proof.clone(),
+                    fee_recipient_address,
+                    fee_recipient_proof: fee_recipient_proof.clone(),
+                    fee_payer_address,
+                    fee_payer_proof,
+                    placeholder_transaction_proof: Vec::new(), // TODO:
+                    placeholder_receipt_proof: Vec::new(),     // TODO:
+                },
+            );
+        }
+
+        Ok(bid_adjustments)
     }
 
     /// Standard pre block ETH stuff + space allocation for rlp length
