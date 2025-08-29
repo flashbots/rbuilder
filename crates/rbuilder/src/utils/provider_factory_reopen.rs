@@ -17,7 +17,7 @@ use reth_node_api::{NodePrimitives, NodeTypesWithDB};
 use reth_provider::{
     providers::{ProviderNodeTypes, StaticFileProvider},
     BlockNumReader, BlockReader, DatabaseProviderFactory, HashedPostStateProvider, HeaderProvider,
-    StateCommitmentProvider, StateProviderBox, StaticFileProviderFactory,
+    StateProviderBox, StaticFileProviderFactory,
 };
 use std::{ops::DerefMut, path::PathBuf, sync::Arc};
 use tokio::sync::broadcast;
@@ -288,12 +288,7 @@ impl<T, HasherType> RootHasherImpl<T, HasherType> {
 impl<T, HasherType> RootHasher for RootHasherImpl<T, HasherType>
 where
     HasherType: HashedPostStateProvider,
-    T: DatabaseProviderFactory<Provider: BlockReader>
-        + StateCommitmentProvider
-        + Send
-        + Sync
-        + Clone
-        + 'static,
+    T: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync + Clone + 'static,
 {
     fn run_prefetcher(
         &self,

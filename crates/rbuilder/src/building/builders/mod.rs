@@ -16,7 +16,7 @@ use crate::{
     utils::{is_provider_factory_health_error, NonceCache},
 };
 use ahash::HashSet;
-use alloy_eips::eip4844::BlobTransactionSidecar;
+use alloy_eips::eip7594::BlobTransactionSidecarVariant;
 use alloy_primitives::{Address, Bytes};
 use block_building_helper::BiddableUnfinishedBlock;
 use reth::primitives::SealedBlock;
@@ -36,7 +36,7 @@ pub struct Block {
     pub trace: BuiltBlockTrace,
     pub sealed_block: SealedBlock,
     /// Sidecars for the txs included in SealedBlock
-    pub txs_blobs_sidecars: Vec<Arc<BlobTransactionSidecar>>,
+    pub txs_blobs_sidecars: Vec<Arc<BlobTransactionSidecarVariant>>,
     /// The Pectra execution requests for this bid.
     pub execution_requests: Vec<Bytes>,
     pub builder_name: String,

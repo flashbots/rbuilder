@@ -20,6 +20,7 @@ use crate::{
 use ahash::HashSet;
 use alloy_consensus::{constants::KECCAK_EMPTY, Transaction};
 use alloy_eips::eip4844::DATA_GAS_PER_BLOB;
+use alloy_evm::Database;
 use alloy_primitives::{Address, B256, I256, U256};
 use itertools::Itertools;
 use reth::revm::database::StateProviderDatabase;
@@ -31,7 +32,7 @@ use revm::{
     context::result::{ExecutionResult, ResultAndState},
     context_interface::result::{EVMError, InvalidTransaction},
     database::{states::bundle_state::BundleRetention, BundleState, State},
-    Database, DatabaseCommit,
+    Database as _, DatabaseCommit,
 };
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
@@ -559,7 +560,7 @@ impl<
     ) -> Result<Result<TransactionOk, TransactionErr>, CriticalCommitOrderError> {
         let coinbase_balance_before = I256::try_from(self.coinbase_balance()?)?;
         // Use blobs.len() instead of checking for tx type just in case in the future some other new txs have blobs
-        let blob_gas_used = tx_with_blobs.blobs_sidecar.blobs.len() as u64 * DATA_GAS_PER_BLOB;
+        let blob_gas_used = tx_with_blobs.blobs_len() as u64 * DATA_GAS_PER_BLOB;
         if cumulative_blob_gas_used + blob_gas_used > self.ctx.max_blob_gas_per_block() {
             return Ok(Err(TransactionErr::BlobGasLeft));
         }
@@ -712,7 +713,7 @@ impl<
         allow_tx_skip: bool,
         combined_refunds: &HashMap<Address, U256>,
     ) -> Result<Result<BundleOk, BundleErr>, CriticalCommitOrderError> {
-        let current_block = self.ctx.evm_env.block_env.number;
+        let current_block = self.ctx.block();
         // None is good for any block
         if let Some(block) = bundle.block {
             if block != current_block {
@@ -727,7 +728,7 @@ impl<
         let (min_ts, max_ts, block_ts) = (
             bundle.min_timestamp.unwrap_or(0),
             bundle.max_timestamp.unwrap_or(u64::MAX),
-            self.ctx.evm_env.block_env.timestamp,
+            self.ctx.timestamp_u64(),
         );
         if !(min_ts <= block_ts && block_ts <= max_ts) {
             return Ok(Err(BundleErr::IncorrectTimestamp {
@@ -986,7 +987,7 @@ impl<
         cumulative_blob_gas_used: u64,
         allow_tx_skip: bool,
     ) -> Result<Result<BundleOk, BundleErr>, CriticalCommitOrderError> {
-        let current_block = self.ctx.evm_env.block_env.number;
+        let current_block = self.ctx.block();
         if !(bundle.block <= current_block && current_block <= bundle.max_block) {
             return Ok(Err(BundleErr::TargetBlockIncorrect {
                 block: current_block,

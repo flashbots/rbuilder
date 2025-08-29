@@ -1,7 +1,7 @@
 use crate::utils::{extract_prefix_and_suffix, rlp_pointer, strip_first_nibble_mut, HashMap};
 use alloy_primitives::{keccak256, Bytes, B256};
+use nybbles::Nibbles;
 use parking_lot::Mutex;
-use reth_trie::Nibbles;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, Seq};
 

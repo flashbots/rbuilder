@@ -28,6 +28,7 @@ reth-trie-parallel.workspace = true
 reth-node-api.workspace = true
 reth-node-core.workspace = true
 reth-primitives.workspace = true
+reth-ethereum-primitives.workspace = true
 reth-primitives-traits.workspace = true
 reth-provider.workspace = true
 reth-chainspec.workspace = true
@@ -91,8 +92,8 @@ flate2.workspace = true
 # Version required by ethereum-consensus beacon-api-client
 mev-share-sse = { git = "https://github.com/paradigmxyz/mev-share-rs", rev = "9eb2b0138ab3202b9eb3af4b19c7b3bf40b0faa8", default-features = false }
 jsonrpsee = { version = "0.20.3", features = ["full"] }
-beacon-api-client = { git = "https://github.com/ralexstokes/ethereum-consensus/", rev = "ade5ce6c4a19107c1059e5338d8f18855bd2d931" }
-ethereum-consensus = { git = "https://github.com/ralexstokes/ethereum-consensus/", rev = "ade5ce6c4a19107c1059e5338d8f18855bd2d931" }
+beacon-api-client = { git = "https://github.com/ralexstokes/ethereum-consensus/", rev = "5031d31e318dd861cf3373702c5d92f085d926e4" }
+ethereum-consensus = { git = "https://github.com/ralexstokes/ethereum-consensus/", rev = "5031d31e318dd861cf3373702c5d92f085d926e4" }
 uuid = { version = "1.6.1", features = ["serde", "v5", "v4"] }
 prometheus.workspace = true
 warp.workspace = true

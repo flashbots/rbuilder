@@ -130,7 +130,7 @@ where
         let provider = self.provider.clone();
         let current_contexts = Arc::clone(&self.current_contexts);
         let block_context: BlockContextId = gen_uid();
-        let span = info_span!("sim_ctx", block = ctx.evm_env.block_env.number, parent = ?ctx.attributes.parent);
+        let span = info_span!("sim_ctx", block = ctx.block(), parent = ?ctx.attributes.parent);
 
         let handle = tokio::spawn(
             async move {

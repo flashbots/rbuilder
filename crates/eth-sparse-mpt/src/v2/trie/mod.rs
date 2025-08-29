@@ -3,9 +3,9 @@ use std::ops::Range;
 use alloy_primitives::{keccak256, B256};
 use alloy_rlp::EMPTY_STRING_CODE;
 use arrayvec::ArrayVec;
+use nybbles::Nibbles;
 use proof_store::ProofNode;
 use proof_store::ProofStore;
-use reth_trie::Nibbles;
 
 pub mod proof_store;
 

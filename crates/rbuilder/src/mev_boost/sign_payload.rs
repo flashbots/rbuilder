@@ -1,18 +1,21 @@
 use super::submission::{
     CapellaSubmitBlockRequest, DenebSubmitBlockRequest, ElectraSubmitBlockRequest,
-    SubmitBlockRequest,
+    FuluSubmitBlockRequest, SubmitBlockRequest,
 };
 use crate::utils::u256decimal_serde_helper;
-use alloy_eips::{eip2718::Encodable2718, eip4844::BlobTransactionSidecar, eip7685::Requests};
+use alloy_eips::eip7594::{BlobTransactionSidecarEip7594, BlobTransactionSidecarVariant};
+use alloy_eips::eip7685::Requests;
+use alloy_eips::{eip2718::Encodable2718, eip4844::BlobTransactionSidecar};
 use alloy_primitives::{Address, BlockHash, Bytes, FixedBytes, B256, U256};
+use alloy_rpc_types_beacon::relay::SignedBidSubmissionV5;
+use alloy_rpc_types_beacon::requests::ExecutionRequestsV4;
 use alloy_rpc_types_beacon::{
     events::PayloadAttributesData,
     relay::{BidTrace, SignedBidSubmissionV2, SignedBidSubmissionV3, SignedBidSubmissionV4},
-    requests::ExecutionRequestsV4,
     BlsPublicKey,
 };
 use alloy_rpc_types_engine::{
-    BlobsBundleV1, ExecutionPayloadV1, ExecutionPayloadV2, ExecutionPayloadV3,
+    BlobsBundleV1, BlobsBundleV2, ExecutionPayloadV1, ExecutionPayloadV2, ExecutionPayloadV3,
 };
 use alloy_rpc_types_eth::Withdrawal;
 use ethereum_consensus::{
@@ -119,7 +122,7 @@ fn a2e_address(a: &Address) -> ExecutionAddress {
 pub fn sign_block_for_relay(
     signer: &BLSBlockSigner,
     sealed_block: &SealedBlock,
-    blobs_bundle: &[Arc<BlobTransactionSidecar>],
+    blobs_bundle: &[Arc<BlobTransactionSidecarVariant>],
     execution_requests: &[Bytes], // The Pectra execution requests for this bid.
     chain_spec: &ChainSpec,
     attrs: &PayloadAttributesData,
@@ -198,10 +201,24 @@ pub fn sign_block_for_relay(
                 .expect("deneb block does not have excess blob gas"),
         };
 
-        let blobs_bundle = marshal_txs_blobs_sidecars(blobs_bundle);
         let execution_requests =
             ExecutionRequestsV4::try_from(Requests::new(execution_requests.to_vec()))?;
-        if chain_spec.is_prague_active_at_timestamp(sealed_block.timestamp) {
+
+        if chain_spec.is_osaka_active_at_timestamp(sealed_block.timestamp) {
+            let blobs_bundle_v2 = marshall_txs_blobs_sidecars_v2(blobs_bundle);
+
+            let submission = SignedBidSubmissionV5 {
+                message,
+                execution_payload,
+                blobs_bundle: blobs_bundle_v2,
+                signature,
+                execution_requests,
+            };
+
+            SubmitBlockRequest::fulu(FuluSubmitBlockRequest::new(submission, adjustment_data))
+        } else if chain_spec.is_prague_active_at_timestamp(sealed_block.timestamp) {
+            let blobs_bundle = marshal_txs_blobs_sidecars(blobs_bundle);
+
             let submission = SignedBidSubmissionV4 {
                 message,
                 execution_payload,
@@ -211,6 +228,8 @@ pub fn sign_block_for_relay(
             };
             SubmitBlockRequest::electra(ElectraSubmitBlockRequest::new(submission, adjustment_data))
         } else {
+            let blobs_bundle = marshal_txs_blobs_sidecars(blobs_bundle);
+
             let submission = SignedBidSubmissionV3 {
                 message,
                 execution_payload,
@@ -231,23 +250,67 @@ pub fn sign_block_for_relay(
     Ok(request)
 }
 
-fn flatten_marshal<Source>(
-    txs_blobs_sidecars: &[Arc<BlobTransactionSidecar>],
-    vec_getter: impl Fn(&Arc<BlobTransactionSidecar>) -> Vec<Source>,
-) -> Vec<Source> {
-    let flatten_data = txs_blobs_sidecars.iter().flat_map(vec_getter);
-    flatten_data.collect::<Vec<Source>>()
-}
+fn marshal_txs_blobs_sidecars(
+    txs_blobs_sidecars: &[Arc<BlobTransactionSidecarVariant>],
+) -> BlobsBundleV1 {
+    // Instead of collecting Arc<BlobTransactionSidecar>, just collect references to the inner struct.
+    let eip4844_sidecars: Vec<&BlobTransactionSidecar> = txs_blobs_sidecars
+        .iter()
+        .filter_map(|blob| blob.as_ref().as_eip4844())
+        .collect();
 
-fn marshal_txs_blobs_sidecars(txs_blobs_sidecars: &[Arc<BlobTransactionSidecar>]) -> BlobsBundleV1 {
-    let rpc_commitments = flatten_marshal(txs_blobs_sidecars, |t| t.commitments.clone());
-    let rpc_proofs = flatten_marshal(txs_blobs_sidecars, |t| t.proofs.clone());
-    let rpc_blobs = flatten_marshal(txs_blobs_sidecars, |t| t.blobs.clone());
+    // Now flatten the fields, only cloning the inner data, not the whole struct or Arc.
+    let commitments = eip4844_sidecars
+        .iter()
+        .flat_map(|t| t.commitments.iter().cloned())
+        .collect();
+
+    let proofs = eip4844_sidecars
+        .iter()
+        .flat_map(|t| t.proofs.iter().cloned())
+        .collect();
+
+    let blobs = eip4844_sidecars
+        .iter()
+        .flat_map(|t| t.blobs.iter().cloned())
+        .collect();
 
     BlobsBundleV1 {
-        commitments: rpc_commitments,
-        proofs: rpc_proofs,
-        blobs: rpc_blobs,
+        commitments,
+        proofs,
+        blobs,
+    }
+}
+
+fn marshall_txs_blobs_sidecars_v2(
+    txs_blobs_sidecars: &[Arc<BlobTransactionSidecarVariant>],
+) -> BlobsBundleV2 {
+    // Instead of collecting Arc<BlobTransactionSidecarEip7594>, just collect references to the inner struct.
+    let eip7594_sidecars: Vec<&BlobTransactionSidecarEip7594> = txs_blobs_sidecars
+        .iter()
+        .filter_map(|blob| blob.as_ref().as_eip7594())
+        .collect();
+
+    // Now flatten the fields, only cloning the inner data, not the whole struct or Arc.
+    let commitments = eip7594_sidecars
+        .iter()
+        .flat_map(|t| t.commitments.iter().cloned())
+        .collect();
+
+    let proofs = eip7594_sidecars
+        .iter()
+        .flat_map(|t| t.cell_proofs.iter().cloned())
+        .collect();
+
+    let blobs = eip7594_sidecars
+        .iter()
+        .flat_map(|t| t.blobs.iter().cloned())
+        .collect();
+
+    BlobsBundleV2 {
+        commitments,
+        proofs,
+        blobs,
     }
 }
 

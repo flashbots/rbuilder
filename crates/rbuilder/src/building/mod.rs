@@ -20,14 +20,14 @@ use crate::{
 use alloy_consensus::{constants::KECCAK_EMPTY, Header, EMPTY_OMMER_ROOT_HASH};
 use alloy_eips::{
     eip1559::{calculate_block_gas_limit, ETHEREUM_BLOCK_GAS_LIMIT_30M},
-    eip4844::BlobTransactionSidecar,
     eip4895::Withdrawals,
+    eip7594::BlobTransactionSidecarVariant,
     eip7685::Requests,
     eip7840::BlobParams,
     merge::BEACON_NONCE,
 };
 use alloy_evm::{block::system_calls::SystemCaller, env::EvmEnv, eth::eip6110};
-use alloy_primitives::{Address, Bytes, B256, I256, U256};
+use alloy_primitives::{Address, BlockNumber, Bytes, B256, I256, U256};
 use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
 use cached_reads::{LocalCachedReads, SharedCachedReads};
 use eth_sparse_mpt::SparseTrieLocalCache;
@@ -115,12 +115,16 @@ pub struct BlockBuildingContext {
     pub tx_execution_cache: Arc<TxExecutionCache>,
     pub mempool_tx_detector: Arc<MempoolTxsDetector>,
     pub faster_finalize: bool,
+
+    /// Cached from evm_env.block_env.number but as BlockNumber. Avoid conversions all over the code.
+    block_number: BlockNumber,
 }
 
 impl BlockBuildingContext {
     #[allow(clippy::too_many_arguments)]
     /// spec_id None: we use the proper SpecId for the block timestamp.
     /// We are forced to return Option since next_cfg_and_block_env returns Result although it never fails! (reth v1.1.1)
+    /// None if block does not fit on u64.
     pub fn from_attributes(
         attributes: PayloadAttributesEvent,
         parent: &Header,
@@ -165,13 +169,11 @@ impl BlockBuildingContext {
 
         let excess_blob_gas = if chain_spec.is_cancun_active_at_timestamp(attributes.timestamp) {
             if chain_spec.is_cancun_active_at_timestamp(parent.timestamp) {
-                let blob_params = if chain_spec.is_prague_active_at_timestamp(attributes.timestamp)
-                {
-                    BlobParams::prague()
-                } else {
-                    BlobParams::cancun()
-                };
-                parent.next_block_excess_blob_gas(blob_params)
+                parent.next_block_excess_blob_gas(
+                    chain_spec
+                        .blob_params_at_timestamp(attributes.timestamp)
+                        .unwrap_or(BlobParams::cancun()),
+                )
             } else {
                 // for the first post-fork block, both parent.blob_gas_used and
                 // parent.excess_blob_gas are evaluated as 0
@@ -190,6 +192,7 @@ impl BlockBuildingContext {
         });
         let max_blob_gas_per_block =
             Self::max_blob_gas_per_block_at(&chain_spec, attributes.timestamp());
+        let block_number = evm_env.block_env.number.try_into().ok()?;
         Some(BlockBuildingContext {
             evm_factory: EthCachedEvmFactory::default(),
             evm_env,
@@ -207,6 +210,7 @@ impl BlockBuildingContext {
             max_blob_gas_per_block,
             mempool_tx_detector: Arc::new(MempoolTxsDetector::new()),
             faster_finalize,
+            block_number,
         })
     }
 
@@ -238,15 +242,20 @@ impl BlockBuildingContext {
             if chain_spec.is_cancun_active_at_timestamp(onchain_block.header.timestamp) {
                 Some(BlobExcessGasAndPrice::new(
                     onchain_block.header.excess_blob_gas.unwrap_or_default(),
-                    chain_spec.is_prague_active_at_timestamp(onchain_block.header.timestamp),
+                    chain_spec
+                        .blob_params_at_timestamp(onchain_block.header.timestamp)
+                        .unwrap_or(BlobParams::cancun())
+                        .update_fraction
+                        .try_into()
+                        .expect("update_fraction too large for u64"),
                 ))
             } else {
                 None
             };
         let block_env = BlockEnv {
-            number: block_number,
+            number: U256::from(block_number),
             beneficiary,
-            timestamp: onchain_block.header.timestamp,
+            timestamp: U256::from(onchain_block.header.timestamp),
             difficulty: onchain_block.header.difficulty,
             prevrandao: Some(onchain_block.header.mix_hash),
             basefee: onchain_block
@@ -305,6 +314,7 @@ impl BlockBuildingContext {
             max_blob_gas_per_block,
             mempool_tx_detector: Arc::new(MempoolTxsDetector::new()),
             faster_finalize: true,
+            block_number,
         }
     }
 
@@ -338,8 +348,12 @@ impl BlockBuildingContext {
             .expect("Payload attributes timestamp")
     }
 
+    pub fn timestamp_u64(&self) -> u64 {
+        self.attributes.timestamp
+    }
+
     pub fn block(&self) -> u64 {
-        self.evm_env.block_env.number
+        self.block_number
     }
 
     pub fn coinbase_is_suggested_fee_recipient(&self) -> bool {
@@ -553,7 +567,7 @@ impl ExecutionError {
 pub struct FinalizeResult {
     pub sealed_block: SealedBlock,
     // sidecars for all txs in SealedBlock
-    pub txs_blob_sidecars: Vec<Arc<BlobTransactionSidecar>>,
+    pub txs_blob_sidecars: Vec<Arc<BlobTransactionSidecarVariant>>,
     /// The Pectra execution requests for this bid.
     pub execution_requests: Vec<Bytes>,
 
@@ -884,7 +898,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
 
         let step_start = Instant::now();
         let (requests, withdrawals_root) = self.process_requests(&mut state, ctx, local_ctx)?;
-        let block_number = ctx.evm_env.block_env.number;
+        let block_number = ctx.block();
 
         let request_processsing_time_ms = elapsed_ms(step_start);
         let step_start = Instant::now();
@@ -941,13 +955,26 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             }
         }
 
-        let mut txs_blob_sidecars = Vec::new();
+        let mut txs_blob_sidecars: Vec<Arc<BlobTransactionSidecarVariant>> = Vec::new();
         let (excess_blob_gas, blob_gas_used) = if ctx
             .chain_spec
             .is_cancun_active_at_timestamp(ctx.attributes.timestamp)
         {
+            // We should NEVER get the wrong sidecar types but we double check here just in case....
+            let valid_blobs_count = if ctx
+                .chain_spec
+                .is_osaka_active_at_timestamp(ctx.attributes.timestamp)
+            {
+                |side_car: &BlobTransactionSidecarVariant| {
+                    side_car.as_eip7594().map_or(0, |sc| sc.blobs.len())
+                }
+            } else {
+                |side_car: &BlobTransactionSidecarVariant| {
+                    side_car.as_eip4844().map_or(0, |sc| sc.blobs.len())
+                }
+            };
             for tx_with_blob in self.executed_tx_infos.iter().map(|info| &info.tx) {
-                if !tx_with_blob.blobs_sidecar.blobs.is_empty() {
+                if valid_blobs_count(tx_with_blob.blobs_sidecar.as_ref()) > 0 {
                     txs_blob_sidecars.push(tx_with_blob.blobs_sidecar.clone());
                 }
             }

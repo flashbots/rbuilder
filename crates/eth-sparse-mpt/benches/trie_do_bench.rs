@@ -7,7 +7,7 @@ use eth_sparse_mpt::{
     v1::sparse_mpt::{DiffTrie, FixedTrie},
     v2::trie::{proof_store::ProofStore, Trie},
 };
-use reth_trie::Nibbles;
+use nybbles::Nibbles;
 
 fn prepare_key_value_data(n: usize) -> (Vec<Bytes>, Vec<Bytes>) {
     let mut keys = Vec::with_capacity(n);

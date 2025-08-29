@@ -3,7 +3,7 @@ use crate::utils::{
     encode_len_extension, encode_len_leaf, encode_null_node, rlp_pointer,
 };
 use alloy_primitives::Bytes;
-use reth_trie::Nibbles;
+use nybbles::Nibbles;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use std::sync::Arc;
