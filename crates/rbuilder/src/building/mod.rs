@@ -28,6 +28,7 @@ use alloy_eips::{
 };
 use alloy_evm::{block::system_calls::SystemCaller, env::EvmEnv, eth::eip6110};
 use alloy_primitives::{Address, BlockNumber, Bytes, B256, I256, U256};
+use alloy_rlp::Encodable as _;
 use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
 use cached_reads::{LocalCachedReads, SharedCachedReads};
 use eth_sparse_mpt::SparseTrieLocalCache;
@@ -90,6 +91,9 @@ pub use self::{
 
 #[cfg(test)]
 pub use conflict::*;
+
+/// Estimated overhead for the whole block header rlp length
+const BLOCK_HEADER_RLP_OVERHEAD: usize = 1024;
 
 #[derive(Debug, Clone)]
 pub struct BlockBuildingContext {
@@ -1150,12 +1154,22 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         Ok(result)
     }
 
+    /// Standard pre block ETH stuff + space allocation for rlp length
     pub fn pre_block_call(
         &mut self,
         ctx: &BlockBuildingContext,
         local_ctx: &mut ThreadBlockBuildingContext,
         state: &mut BlockState,
     ) -> eyre::Result<()> {
+        // We "pre-use" the RLP overhead for the withdrawals and the block header.
+        self.space_state.use_space(
+            BlockSpace::new(
+                0,
+                ctx.attributes.withdrawals.length() + BLOCK_HEADER_RLP_OVERHEAD,
+            ),
+            0,
+        );
+
         let mut db = state.new_db_ref(&ctx.shared_cached_reads, &mut local_ctx.cached_reads);
         let mut system_caller = SystemCaller::new(ctx.chain_spec.clone());
         let mut evm = EthEvmConfig::new(ctx.chain_spec.clone())
