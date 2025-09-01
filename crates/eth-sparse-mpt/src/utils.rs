@@ -142,7 +142,7 @@ fn mismatch_chunks<const N: usize>(xs: &[u8], ys: &[u8]) -> usize {
 // nybbles v4.3.0 has a breaking change (byte array with 1 byte per nybble vs U256 packed data + length) in the API which breaks a lot of parts of the eth sparse trie code.
 #[inline]
 pub fn convert_reth_nybbles_to_nibbles(n: reth_trie::Nibbles) -> Nibbles {
-    Nibbles::from_nibbles(&n.to_vec())
+    Nibbles::from_nibbles(n.to_vec())
 }
 
 #[inline]

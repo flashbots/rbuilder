@@ -92,7 +92,7 @@ where
             let provider = result.provider.clone();
             let cancel = global_cancellation.clone();
             let handle = std::thread::Builder::new()
-                .name(format!("sim_thread:{}", i))
+                .name(format!("sim_thread:{i}"))
                 .spawn(move || {
                     sim_worker::run_sim_worker(i, ctx, provider, cancel);
                 })

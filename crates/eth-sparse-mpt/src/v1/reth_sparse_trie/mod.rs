@@ -57,6 +57,7 @@ impl SparseTrieError {
 }
 
 /// Prefetches data
+#[allow(clippy::result_large_err)]
 pub fn prefetch_tries_for_accounts<'a, Provider>(
     consistent_db_view: ConsistentDbView<Provider>,
     shared_cache: SparseTrieSharedCache,

@@ -400,7 +400,7 @@ pub enum SubmitBlockErr {
 
 impl std::fmt::Debug for SubmitBlockErr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self)
+        write!(f, "{self}")
     }
 }
 
@@ -437,7 +437,7 @@ impl RelayClient {
         &self,
         slot: u64,
     ) -> Result<Option<ProposerPayloadDelivered>, RelayError> {
-        self.get_one_delivered_payload(&format!("slot={}", slot))
+        self.get_one_delivered_payload(&format!("slot={slot}"))
             .await
     }
 
@@ -445,7 +445,7 @@ impl RelayClient {
         &self,
         block_number: u64,
     ) -> Result<Option<ProposerPayloadDelivered>, RelayError> {
-        self.get_one_delivered_payload(&format!("block_number={}", block_number))
+        self.get_one_delivered_payload(&format!("block_number={block_number}"))
             .await
     }
 
@@ -453,7 +453,7 @@ impl RelayClient {
         &self,
         block_hash: BlockHash,
     ) -> Result<Option<ProposerPayloadDelivered>, RelayError> {
-        self.get_one_delivered_payload(&format!("block_hash={:?}", block_hash))
+        self.get_one_delivered_payload(&format!("block_hash={block_hash:?}"))
             .await
     }
 
@@ -488,7 +488,7 @@ impl RelayClient {
         &self,
         block_hash: BlockHash,
     ) -> Result<Option<BuilderBlockReceived>, RelayError> {
-        self.get_one_builder_block_received(&format!("block_hash={:?}", block_hash))
+        self.get_one_builder_block_received(&format!("block_hash={block_hash:?}"))
             .await
     }
 
@@ -499,7 +499,7 @@ impl RelayClient {
         let url = {
             let mut url = self.url.clone();
             url.set_path("/relay/v1/data/validator_registration");
-            url.set_query(Some(&format!("pubkey={:?}", pubkey)));
+            url.set_query(Some(&format!("pubkey={pubkey:?}")));
             url
         };
 
@@ -674,7 +674,7 @@ impl RelayClient {
                 let mut bundle_ids = bundle_ids
                     .iter()
                     .take(MAX_BUNDLE_IDS)
-                    .map(|uuid| format!("{:?}", uuid));
+                    .map(|uuid| format!("{uuid:?}"));
                 let bundle_ids = if total_bundles > MAX_BUNDLE_IDS {
                     bundle_ids.join(",") + ",CAPPED"
                 } else {

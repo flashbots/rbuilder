@@ -157,8 +157,7 @@ impl BidsPublisherService {
         debug!("Getting bids for relay {relay_name}");
         let block_number = self.inner().last_block_number + 1;
         let url = format!(
-            "{}/relay/v1/data/bidtraces/builder_blocks_received?block_number={}&order_by=-value",
-            relay_endpoint, block_number
+            "{relay_endpoint}/relay/v1/data/bidtraces/builder_blocks_received?block_number={block_number}&order_by=-value",
         );
         // By default it's ordered by slot (so, no effect). So we order by decreasing value
         // instead, it's more interesting to us.

@@ -47,7 +47,7 @@ impl RootHashThreadPool {
     pub fn try_new(threads: usize) -> Result<RootHashThreadPool, rayon::ThreadPoolBuildError> {
         let rayon_pool = rayon::ThreadPoolBuilder::new()
             .num_threads(threads)
-            .thread_name(|idx| format!("sparse_mpt:{}", idx))
+            .thread_name(|idx| format!("sparse_mpt:{idx}"))
             .build()?;
         Ok(RootHashThreadPool {
             rayon_pool: Arc::new(rayon_pool),

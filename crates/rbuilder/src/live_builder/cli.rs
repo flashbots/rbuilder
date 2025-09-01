@@ -91,7 +91,7 @@ where
         Cli::Run(cli) => cli,
         Cli::Config(cli) => {
             let config: ConfigType = load_config_toml_and_env(cli.config)?;
-            println!("{:#?}", config);
+            println!("{config:#?}");
             return Ok(());
         }
         Cli::Version => {
@@ -108,7 +108,7 @@ where
         }
         Cli::GenBls => {
             let address = generate_random_bls_address();
-            println!("0x{}", address);
+            println!("0x{address}");
             return Ok(());
         }
     };

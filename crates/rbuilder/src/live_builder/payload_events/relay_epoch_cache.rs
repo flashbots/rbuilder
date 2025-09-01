@@ -172,8 +172,8 @@ fn resolve_relay_slot_data(
     let (latest_slot_data, mut selected_registrations) = registrations_by_slot_data
         .iter()
         .max_by_key(|(_, v)| {
-            v.iter()
-                .map(|(_, r)| r.entry.message.timestamp)
+            v.values()
+                .map(|r| r.entry.message.timestamp)
                 .max()
                 .unwrap_or_default()
         })

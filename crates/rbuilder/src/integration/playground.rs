@@ -56,10 +56,7 @@ impl Playground {
             .map_err(|_| PlaygroundError::SetupError)?;
 
         let mut log_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        log_path.push(format!(
-            "../../integration_logs/{}_{}.log",
-            format_str, name,
-        ));
+        log_path.push(format!("../../integration_logs/{format_str}_{name}.log"));
 
         let log = open_log_file(log_path.clone()).map_err(|_| PlaygroundError::SetupError)?;
         let stdout = log.try_clone().map_err(|_| PlaygroundError::SetupError)?;

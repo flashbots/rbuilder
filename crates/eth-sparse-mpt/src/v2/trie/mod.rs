@@ -38,7 +38,7 @@ impl NodePtr {
     fn expect_local(&self, msg: &str) -> usize {
         match self {
             NodePtr::Local(idx) => *idx,
-            NodePtr::Remote(_) => panic!("eth-sparse-mpt expect local node: {}", msg),
+            NodePtr::Remote(_) => panic!("eth-sparse-mpt expect local node: {msg}"),
         }
     }
 }
@@ -849,11 +849,11 @@ impl Trie {
         let h = alloy_primitives::hex::encode;
         match node {
             DiffTrieNode::Branch { children } => {
-                println!("{} Branch", node_idx);
+                println!("{node_idx} Branch");
                 println!("{}", h(self.rlp_ptrs_local[node_idx].as_slice()));
                 for (idx, child) in self.branch_node_children[children].into_iter().enumerate() {
                     if child.is_some() {
-                        println!("  {} -> {:?}", idx, child);
+                        println!("  {idx} -> {child:?}");
                     }
                 }
                 for child in self.branch_node_children[children].into_iter().flatten() {
@@ -884,7 +884,7 @@ impl Trie {
                 println!("{}", h(self.rlp_ptrs_local[node_idx].as_slice()));
             }
             DiffTrieNode::Null => {
-                println!("{} Null", node_idx);
+                println!("{node_idx} Null");
                 println!("{}", h(self.rlp_ptrs_local[node_idx].as_slice()));
             }
         }

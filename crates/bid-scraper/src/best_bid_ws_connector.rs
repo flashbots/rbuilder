@@ -60,7 +60,7 @@ impl<BestBidValueSinkType: BestBidValueSink> BestBidWSConnector<BestBidValueSink
         let mut connection_request = url.into_client_request()?;
         connection_request
             .headers_mut()
-            .insert("Authorization", format!("Basic {}", basic_auth).parse()?);
+            .insert("Authorization", format!("Basic {basic_auth}").parse()?);
 
         Ok(Self {
             connection_request,
