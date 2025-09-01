@@ -8,11 +8,15 @@ use crate::{
         multi_share_bundle_merger::MultiShareBundleMerger,
         simulated_order_command_to_sink, BlockBuildingContext, SimulatedOrderSink,
     },
-    live_builder::{payload_events::MevBoostSlotData, simulation::SlotOrderSimResults},
+    live_builder::{
+        order_input::replaceable_order_sink::ReplaceableOrderSink,
+        payload_events::MevBoostSlotData, simulation::SlotOrderSimResults,
+    },
     primitives::{OrderId, SimulatedOrder},
     provider::StateProviderFactory,
 };
 use alloy_primitives::Address;
+use reth_chainspec::EthereumHardforks as _;
 use std::{cell::RefCell, rc::Rc, sync::Arc, thread, time::Duration};
 use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
@@ -66,7 +70,10 @@ where
         }
     }
 
-    /// Connects OrdersForBlock->OrderReplacementManager->Simulations and calls start_building_job
+    /// Connects OrdersForBlock (source of orders) ->
+    /// ReplaceableOrderStreamSniffer (notifies mempool txs to MempoolTxsDetector) ->
+    /// BlobTypeOrderFilter (filters out Orders with incorrect blobs (pre/post fusaka)) ->
+    /// OrderReplacementManager (Handles cancellations and replacements) -> Simulations and calls start_building_job
     pub fn start_block_building(
         &mut self,
         payload: payload_events::MevBoostSlotData,
@@ -101,9 +108,22 @@ where
         // add OrderReplacementManager to manage replacements and cancellations
         let order_replacement_manager = OrderReplacementManager::new(Box::new(sink));
 
+        let blob_type_order_filter: Box<dyn ReplaceableOrderSink> = if block_ctx
+            .chain_spec
+            .is_osaka_active_at_timestamp(block_ctx.attributes.timestamp)
+        {
+            Box::new(order_input::blob_type_order_filter::new_fusaka(Box::new(
+                order_replacement_manager,
+            )))
+        } else {
+            Box::new(order_input::blob_type_order_filter::new_pre_fusaka(
+                Box::new(order_replacement_manager),
+            ))
+        };
+
         let mempool_txs_detector_sniffer =
             order_input::mempool_txs_detector::ReplaceableOrderStreamSniffer::new(
-                Box::new(order_replacement_manager),
+                blob_type_order_filter,
                 block_ctx.mempool_tx_detector.clone(),
             );
         // sink removal is automatic via OrderSink::is_alive false
