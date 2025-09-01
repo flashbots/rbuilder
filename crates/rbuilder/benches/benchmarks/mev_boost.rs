@@ -1,5 +1,5 @@
 use alloy_consensus::{Block, Header};
-use alloy_eips::eip4844::BlobTransactionSidecar;
+use alloy_eips::{eip4844::BlobTransactionSidecar, eip7594::BlobTransactionSidecarVariant};
 use alloy_primitives::U256;
 use criterion::{criterion_group, Criterion};
 use primitive_types::H384;
@@ -73,7 +73,9 @@ fn bench_mevboost_sign(c: &mut Criterion) {
     let signer = BLSBlockSigner::test_signer();
     let mut blobs = vec![];
     for _ in 0..3 {
-        blobs.push(Arc::new(blob.clone()));
+        blobs.push(Arc::new(BlobTransactionSidecarVariant::Eip4844(
+            blob.clone(),
+        )));
     }
 
     let chain_spec = SEPOLIA.clone();
