@@ -1,11 +1,11 @@
 use std::ops::Range;
 
-use alloy_primitives::{keccak256, B256};
+use alloy_primitives::{keccak256, Bytes, B256};
 use alloy_rlp::EMPTY_STRING_CODE;
 use arrayvec::ArrayVec;
+
 use nybbles::Nibbles;
-use proof_store::ProofNode;
-use proof_store::ProofStore;
+use proof_store::{ProofNode, ProofStore};
 
 pub mod proof_store;
 
@@ -21,25 +21,23 @@ enum NodePtr {
 }
 
 impl NodePtr {
+    #[inline]
     fn is_remote(&self) -> bool {
+        matches!(self, Self::Remote(_))
+    }
+
+    #[inline]
+    fn as_local(&self) -> Option<usize> {
         match self {
-            NodePtr::Local(_) => false,
-            NodePtr::Remote(_) => true,
+            Self::Local(idx) => Some(*idx),
+            Self::Remote(_) => None,
         }
     }
 
-    fn local_ptr(&self) -> Option<usize> {
-        match self {
-            NodePtr::Local(idx) => Some(*idx),
-            NodePtr::Remote(_) => None,
-        }
-    }
-
+    #[inline]
     fn expect_local(&self, msg: &str) -> usize {
-        match self {
-            NodePtr::Local(idx) => *idx,
-            NodePtr::Remote(_) => panic!("eth-sparse-mpt expect local node: {msg}"),
-        }
+        self.as_local()
+            .unwrap_or_else(|| panic!("eth-sparse-mpt expect local node: {msg}"))
     }
 }
 
@@ -78,6 +76,16 @@ enum DiffTrieNode {
 pub enum DeletionError {
     #[error("Deletion error: {0:?}")]
     NodeNotFound(#[from] NodeNotFound),
+    #[error("Key node not found in the trie")]
+    KeyNotFound,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ProofError {
+    #[error("Proof node not found: {0:?}")]
+    NodeNotFound(#[from] NodeNotFound),
+    #[error("Trie is dirty")]
+    TrieIsDirty,
     #[error("Key node not found in the trie")]
     KeyNotFound,
 }
@@ -130,15 +138,15 @@ impl Trie {
     }
 
     fn copy_value(&mut self, value: &[u8]) -> Range<usize> {
-        let range = self.values.len()..(self.values.len() + value.len());
+        let offset = self.values.len();
         self.values.extend_from_slice(value);
-        range
+        offset..offset + value.len()
     }
 
     fn insert_key(&mut self, key: &[u8]) -> Range<usize> {
-        let range = self.keys.len()..(self.keys.len() + key.len());
+        let offset = self.keys.len();
         self.keys.extend_from_slice(key);
-        range
+        offset..offset + key.len()
     }
 
     fn create_branch_children(&mut self) -> usize {
@@ -157,7 +165,7 @@ impl Trie {
         self.branch_node_children.clear();
     }
 
-    // return prefix (as part of path_left, stripped nibble of suffix 1, suffix 1 as part of path_left, stripped nibbble from suffix2, suffix2 as part of key stored)
+    // return prefix (as part of path_left, stripped nibble of suffix 1, suffix 1 as part of path_left, stripped nibble from suffix2, suffix2 as part of key stored)
     fn extract_prefix_and_suffix<'a>(
         &self,
         path_left: &'a [u8],
@@ -208,7 +216,7 @@ impl Trie {
                     path_walked += 1;
                     if let Some(child_ptr) = self.branch_node_children[children][n] {
                         current_node = child_ptr
-                            .local_ptr()
+                            .as_local()
                             .ok_or_else(|| NodeNotFound(nibbles_key.clone()))?;
                         continue;
                     } else {
@@ -228,7 +236,7 @@ impl Trie {
                     if ins_key[path_walked..].starts_with(&self.keys[key.clone()]) {
                         path_walked += key.len();
                         current_node = next_node
-                            .local_ptr()
+                            .as_local()
                             .ok_or_else(|| NodeNotFound(nibbles_key.clone()))?;
                         continue;
                     }
@@ -395,7 +403,7 @@ impl Trie {
 
                     if let Some(child_ptr) = self.branch_node_children[children][n as usize] {
                         current_node = child_ptr
-                            .local_ptr()
+                            .as_local()
                             .ok_or_else(|| NodeNotFound(nibbles_key.clone()))?;
                         if self.branch_node_children[children]
                             .iter()
@@ -431,7 +439,7 @@ impl Trie {
                         self.walk_path.push((current_node, 0));
                         path_walked += key.len();
                         current_node = next_node
-                            .local_ptr()
+                            .as_local()
                             .ok_or_else(|| NodeNotFound(nibbles_key.clone()))?;
                         continue;
                     }
@@ -840,6 +848,83 @@ impl Trie {
         }
     }
 
+    /// Generate proof for the target key.
+    pub fn proof(
+        &self,
+        target_key: &Nibbles,
+        proof_store: &ProofStore,
+    ) -> Result<Vec<Bytes>, ProofError> {
+        let mut buf = Vec::new();
+        let mut proof = Vec::new();
+
+        let mut current_node = 0;
+        let mut path_walked = 0;
+
+        loop {
+            let node = self
+                .nodes
+                .get(current_node)
+                .ok_or_else(|| NodeNotFound(target_key.clone()))?;
+
+            if !self.hashed_nodes[current_node] {
+                return Err(ProofError::TrieIsDirty);
+            }
+
+            match node {
+                DiffTrieNode::Branch { children } => {
+                    if target_key.len() == path_walked {
+                        return Err(ProofError::KeyNotFound);
+                    }
+
+                    let children = *children;
+
+                    let n = target_key[path_walked];
+                    self.rlp_encode_node(current_node, &mut buf, proof_store);
+                    proof.push(Bytes::copy_from_slice(&buf));
+                    path_walked += 1;
+
+                    if let Some(child_ptr) = self.branch_node_children[children][n as usize] {
+                        current_node = child_ptr
+                            .as_local()
+                            .ok_or_else(|| NodeNotFound(target_key.clone()))?;
+                        continue;
+                    }
+
+                    return Err(ProofError::KeyNotFound);
+                }
+                DiffTrieNode::Extension { key, next_node } => {
+                    let key = key.clone();
+                    let next_node = *next_node;
+
+                    if target_key[path_walked..].starts_with(&self.keys[key.clone()]) {
+                        self.rlp_encode_node(current_node, &mut buf, proof_store);
+                        proof.push(Bytes::copy_from_slice(&buf));
+                        path_walked += key.len();
+                        current_node = next_node
+                            .as_local()
+                            .ok_or_else(|| NodeNotFound(target_key.clone()))?;
+                        continue;
+                    }
+
+                    return Err(ProofError::KeyNotFound);
+                }
+                DiffTrieNode::Leaf { key, .. } => {
+                    if self.keys[key.clone()] == target_key[path_walked..] {
+                        self.rlp_encode_node(current_node, &mut buf, proof_store);
+                        proof.push(Bytes::copy_from_slice(&buf));
+                        break;
+                    }
+                    return Err(ProofError::KeyNotFound);
+                }
+                DiffTrieNode::Null => {
+                    return Err(ProofError::KeyNotFound);
+                }
+            }
+        }
+
+        Ok(proof)
+    }
+
     pub fn debug_print_node(&self, node_idx: usize) {
         let node = self
             .nodes
@@ -889,9 +974,7 @@ impl Trie {
             }
         }
     }
-}
 
-impl Trie {
     pub fn try_add_proof_from_proof_store(
         &mut self,
         key: &Nibbles,
@@ -910,7 +993,7 @@ impl Trie {
         Ok(true)
     }
 
-    // node can be adde only if all of its parents are actually in the trie
+    // node can be added only if all of its parents are actually in the trie
     fn add_node_from_proof(
         &mut self,
         path: &Nibbles,
@@ -983,7 +1066,7 @@ impl Trie {
                     }
                     if let Some(child_ptr) = self.branch_node_children[children][n] {
                         current_node = child_ptr
-                            .local_ptr()
+                            .as_local()
                             .ok_or_else(|| NodeNotFound::new(&path[..path_walked]))?;
                         continue;
                     } else {
@@ -1002,7 +1085,7 @@ impl Trie {
                             parent_nibble = 0;
                             break;
                         }
-                        current_node = next_node.local_ptr().ok_or_else(|| {
+                        current_node = next_node.as_local().ok_or_else(|| {
                             NodeNotFound(Nibbles::from_nibbles_unchecked(&path[..path_walked]))
                         })?;
                         continue;

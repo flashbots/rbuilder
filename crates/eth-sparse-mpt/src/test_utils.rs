@@ -1,13 +1,12 @@
-use std::{fs::File, io::Read, path::Path};
-
 use alloy_primitives::{keccak256, Bytes, B256};
 use flate2::read::GzDecoder;
 use rustc_hash::FxHasher;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use std::{fs::File, io::Read, path::Path};
 
-use crate::{
-    v1::reth_sparse_trie::{change_set::ETHTrieChangeSet, trie_fetcher::MultiProof},
-    v1::sparse_mpt::DiffTrie,
+use crate::v1::{
+    reth_sparse_trie::{change_set::ETHTrieChangeSet, trie_fetcher::MultiProof},
+    sparse_mpt::DiffTrie,
 };
 
 pub fn deserialize_from_json_gzip<T: DeserializeOwned>(path: impl AsRef<Path>) -> eyre::Result<T> {
