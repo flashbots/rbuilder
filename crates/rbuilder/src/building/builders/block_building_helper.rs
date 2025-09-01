@@ -12,7 +12,7 @@ use tracing::{debug, error, trace};
 use crate::{
     building::{
         estimate_payout_gas_limit, tracers::GasUsedSimulationTracer, BlockBuildingContext,
-        BlockState, BuiltBlockTrace, BuiltBlockTraceError, CriticalCommitOrderError,
+        BlockSpace, BlockState, BuiltBlockTrace, BuiltBlockTraceError, CriticalCommitOrderError,
         EstimatePayoutGasErr, ExecutionError, ExecutionResult, FinalizeError, FinalizeResult,
         NullPartialBlockExecutionTracer, PartialBlock, PartialBlockExecutionTracer,
         ThreadBlockBuildingContext,
@@ -241,15 +241,15 @@ impl<
         let payout_tx_gas = if building_ctx.coinbase_is_suggested_fee_recipient() {
             None
         } else {
-            let payout_tx_gas = estimate_payout_gas_limit(
+            let payout_tx_space = estimate_payout_gas_limit(
                 building_ctx.attributes.suggested_fee_recipient,
                 &building_ctx,
                 local_ctx,
                 &mut block_state,
-                0,
+                BlockSpace::ZERO,
             )?;
-            partial_block.reserve_gas(payout_tx_gas);
-            Some(payout_tx_gas)
+            partial_block.reserve_block_space(payout_tx_space);
+            Some(payout_tx_space.gas())
         };
 
         let mut built_block_trace = BuiltBlockTrace::new();

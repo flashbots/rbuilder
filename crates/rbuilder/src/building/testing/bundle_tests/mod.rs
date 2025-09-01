@@ -797,7 +797,7 @@ fn bundle_revert_modes_tests(share_bundle: bool) -> eyre::Result<()> {
     // Bundles behave different to sbundles on empty execution
     if share_bundle {
         let res = test_setup.commit_order_ok();
-        assert_eq!(res.gas_used, 0);
+        assert_eq!(res.space_used.gas(), 0);
     } else {
         test_setup.commit_order_err_check(|err| {
             assert!(matches!(err, OrderErr::Bundle(BundleErr::EmptyBundle)));
@@ -808,27 +808,27 @@ fn bundle_revert_modes_tests(share_bundle: bool) -> eyre::Result<()> {
     begin_bundle(&mut test_setup);
     test_setup.add_revert(tx_sender0, TxRevertBehavior::AllowedIncluded)?;
     let res = test_setup.commit_order_ok();
-    let reverting_gas = res.gas_used;
+    let reverting_gas = res.space_used.gas();
 
     // Measure reverting tx
     begin_bundle(&mut test_setup);
     test_setup.add_send_to_coinbase_tx(tx_sender0, 0)?;
     let res = test_setup.commit_order_ok();
-    let send_gas = res.gas_used;
+    let send_gas = res.space_used.gas();
 
     // send + rev on AllowedIncluded pay both gases
     begin_bundle(&mut test_setup);
     test_setup.add_send_to_coinbase_tx(tx_sender1, 0)?;
     test_setup.add_revert(tx_sender0, TxRevertBehavior::AllowedIncluded)?;
     let res = test_setup.commit_order_ok();
-    assert_eq!(res.gas_used, send_gas + reverting_gas);
+    assert_eq!(res.space_used.gas(), send_gas + reverting_gas);
 
     // send + rev on AllowedExcluded pay send
     begin_bundle(&mut test_setup);
     test_setup.add_send_to_coinbase_tx(tx_sender0, 0)?;
     test_setup.add_revert(tx_sender1, TxRevertBehavior::AllowedExcluded)?;
     let res = test_setup.commit_order_ok();
-    assert_eq!(res.gas_used, send_gas);
+    assert_eq!(res.space_used.gas(), send_gas);
 
     Ok(())
 }

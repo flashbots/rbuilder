@@ -1,7 +1,8 @@
 use crate::{
     building::{
         evm_inspector::SlotKey, tracers::AccumulatorSimulationTracer, BlockBuildingContext,
-        BlockState, PartialBlock, PartialBlockFork, ThreadBlockBuildingContext,
+        BlockBuildingSpaceState, BlockState, PartialBlock, PartialBlockFork,
+        ThreadBlockBuildingContext,
     },
     provider::StateProviderFactory,
     utils::{extract_onchain_block_txs, find_suggested_fee_recipient, signed_uint_delta},
@@ -66,8 +67,7 @@ where
         .pre_block_call(&ctx, &mut local_ctx, &mut state)
         .with_context(|| "Failed to pre_block_call")?;
 
-    let mut cumulative_gas_used = 0;
-    let mut cumulative_blob_gas_used = 0;
+    let mut space_state = BlockBuildingSpaceState::ZERO;
     let mut written_slots: HashMap<SlotKey, Vec<B256>> = HashMap::default();
 
     for (idx, tx) in txs.into_iter().enumerate() {
@@ -80,7 +80,7 @@ where
         let result = {
             let mut fork = PartialBlockFork::new(&mut state, &ctx, &mut local_ctx)
                 .with_tracer(&mut accumulator_tracer);
-            fork.commit_tx(&tx, cumulative_gas_used, 0, cumulative_blob_gas_used)?
+            fork.commit_tx(&tx, space_state)?
                 .with_context(|| format!("Failed to commit tx: {} {:?}", idx, tx.hash()))?
         };
         let coinbase_balance_after = state.balance(
@@ -89,9 +89,7 @@ where
             &mut local_ctx.cached_reads,
         )?;
         let coinbase_profit = signed_uint_delta(coinbase_balance_after, coinbase_balance_before);
-
-        cumulative_gas_used += result.tx_info.gas_used;
-        cumulative_blob_gas_used += result.blob_gas_used;
+        space_state.use_space(result.space_used(), result.blob_gas_used);
 
         let mut conflicting_txs: HashMap<B256, Vec<SlotKey>> = HashMap::default();
         for (slot, _) in accumulator_tracer.used_state_trace.read_slot_values {

@@ -7,7 +7,7 @@ use eyre::Context;
 use itertools::Itertools;
 use rbuilder::{
     building::{
-        BlockBuildingContext, BlockState, PartialBlock, PartialBlockFork,
+        BlockBuildingContext, BlockBuildingSpaceState, BlockState, PartialBlock, PartialBlockFork,
         ThreadBlockBuildingContext,
     },
     live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig, config::Config},
@@ -97,18 +97,15 @@ async fn main() -> eyre::Result<()> {
 
                 let build_time = Instant::now();
 
-                let mut cumulative_gas_used = 0;
-                let mut cumulative_blob_gas_used = 0;
+                let mut space_state = BlockBuildingSpaceState::ZERO;
                 for (idx, tx) in txs.into_iter().enumerate() {
                     let result = {
                         let mut fork = PartialBlockFork::new(&mut state, &ctx, &mut local_ctx);
-                        fork.commit_tx(&tx, cumulative_gas_used, 0, cumulative_blob_gas_used)?
-                            .with_context(|| {
-                                format!("Failed to commit tx: {} {:?}", idx, tx.hash())
-                            })?
+                        fork.commit_tx(&tx, space_state)?.with_context(|| {
+                            format!("Failed to commit tx: {} {:?}", idx, tx.hash())
+                        })?
                     };
-                    cumulative_gas_used += result.tx_info.gas_used;
-                    cumulative_blob_gas_used += result.blob_gas_used;
+                    space_state.use_space(result.space_used(), result.blob_gas_used);
                 }
 
                 let build_time = build_time.elapsed();

@@ -7,15 +7,16 @@ pub mod order_statistics;
 pub mod serialize;
 mod test_data_generator;
 
-use crate::building::evm_inspector::UsedStateTrace;
+use crate::building::{evm_inspector::UsedStateTrace, BlockSpace};
 use alloy_consensus::Transaction as _;
 use alloy_eips::{
     eip2718::{Decodable2718, Eip2718Error, Encodable2718},
-    eip4844::{Blob, BlobTransactionSidecar, Bytes48},
+    eip4844::{Blob, BlobTransactionSidecar, Bytes48, DATA_GAS_PER_BLOB},
     eip7594::BlobTransactionSidecarVariant,
     Typed2718,
 };
 use alloy_primitives::{keccak256, Address, Bytes, TxHash, B256, U256};
+use alloy_rlp::Encodable as _;
 use derivative::Derivative;
 use integer_encoding::VarInt;
 use reth::transaction_pool::{
@@ -354,6 +355,7 @@ impl ShareBundleTx {
 /// Body element of a mev share bundle.
 /// [`ShareBundleInner::body`] is formed by several of these.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[allow(clippy::large_enum_variant)]
 pub enum ShareBundleBody {
     Tx(ShareBundleTx),
     Bundle(ShareBundleInner),
@@ -732,11 +734,24 @@ impl TransactionSignedEcRecoveredWithBlobs {
         }
     }
 
+    /// Estimated length used to measure block space so avoid reaching EIP-7934 limit.
+    pub fn length_eip7934(&self) -> usize {
+        self.tx.inner().length()
+    }
+
+    pub fn space_needed(&self) -> BlockSpace {
+        BlockSpace::new(self.tx.gas_limit(), self.length_eip7934())
+    }
+
     pub fn blobs_len(&self) -> usize {
         match self.blobs_sidecar.as_ref() {
             BlobTransactionSidecarVariant::Eip4844(sidecar) => sidecar.blobs.len(),
             BlobTransactionSidecarVariant::Eip7594(sidecar) => sidecar.blobs.len(),
         }
+    }
+
+    pub fn blobs_gas_used(&self) -> u64 {
+        self.blobs_len() as u64 * DATA_GAS_PER_BLOB
     }
 
     /// For when we don't have a sidecar. Not sure if Eip4844 is the right choice.
@@ -1135,7 +1150,7 @@ pub struct SimValue {
     /// ProfitInfo considering profit only from non mempool txs on the s/bundles.
     /// For mempool orders it should match ProfitInfo
     non_mempool_profit_info: ProfitInfo,
-    gas_used: u64,
+    space_used: BlockSpace,
     blob_gas_used: u64,
     /// Kickbacks paid during simulation as (receiver, amount)
     paid_kickbacks: Vec<(Address, U256)>,
@@ -1147,14 +1162,14 @@ impl SimValue {
         full_coinbase_profit: U256,
         // for s/bundles profit from non-mempool txs.
         non_mempool_coinbase_profit: U256,
-        gas_used: u64,
+        space_used: BlockSpace,
         blob_gas_used: u64,
         paid_kickbacks: Vec<(Address, U256)>,
     ) -> Self {
         Self {
-            full_profit_info: ProfitInfo::new(full_coinbase_profit, gas_used),
-            non_mempool_profit_info: ProfitInfo::new(non_mempool_coinbase_profit, gas_used),
-            gas_used,
+            full_profit_info: ProfitInfo::new(full_coinbase_profit, space_used.gas()),
+            non_mempool_profit_info: ProfitInfo::new(non_mempool_coinbase_profit, space_used.gas()),
+            space_used,
             blob_gas_used,
             paid_kickbacks,
         }
@@ -1174,7 +1189,7 @@ impl SimValue {
         Self {
             full_profit_info: ProfitInfo::new(full_coinbase_profit, gas_used),
             non_mempool_profit_info: ProfitInfo::new(non_mempool_profit, gas_used),
-            gas_used,
+            space_used: BlockSpace::new(gas_used, 0),
             ..Default::default()
         }
     }
@@ -1188,7 +1203,7 @@ impl SimValue {
     }
 
     pub fn gas_used(&self) -> u64 {
-        self.gas_used
+        self.space_used.gas()
     }
 
     pub fn blob_gas_used(&self) -> u64 {
@@ -1277,9 +1292,9 @@ impl FromStr for OrderId {
 impl Display for OrderId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Tx(hash) => write!(f, "tx:{:?}", hash),
-            Self::Bundle(uuid) => write!(f, "bundle:{:?}", uuid),
-            Self::ShareBundle(hash) => write!(f, "sbundle:{:?}", hash),
+            Self::Tx(hash) => write!(f, "tx:{hash:?}"),
+            Self::Bundle(uuid) => write!(f, "bundle:{uuid:?}"),
+            Self::ShareBundle(hash) => write!(f, "sbundle:{hash:?}"),
         }
     }
 }

@@ -87,7 +87,7 @@ where
         order_statistics.add(&order.order);
     }
     println!("Available orders: {}", available_orders.len());
-    println!("Order statistics: {:?}", order_statistics);
+    println!("Order statistics: {order_statistics:?}");
 
     if build_block_cfg.show_orders {
         print_order_and_timestamp(&available_orders, orders_source.block_time_as_unix_ms());
@@ -140,14 +140,13 @@ where
                     NullPartialBlockExecutionTracer{})
                 };
                 if let Err(err) = &build_res {
-                    println!("Error building block: {:?}", err);
+                    println!("Error building block: {err:?}");
                     return None;
                 }
                 let block = build_res.ok()?;
                 println!(
-                    "Built block {} with builder: {:?}",
-                    ctx.block(),
-                    builder_name
+                    "Built block {} with builder: {builder_name:?}",
+                    ctx.block()
                 );
                 println!("Builder profit: {}", format_ether(block.trace.bid_value));
                 println!(
@@ -160,7 +159,7 @@ where
                     println!(
                         "{:>74} gas: {:>8} profit: {}",
                         order_result.order.id().to_string(),
-                        order_result.gas_used,
+                        order_result.space_used.gas(),
                         format_ether(order_result.coinbase_profit),
                     );
                     if let Order::Bundle(_) | Order::ShareBundle(_) = order_result.order {
