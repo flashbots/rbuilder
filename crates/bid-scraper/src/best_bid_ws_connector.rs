@@ -1,5 +1,5 @@
 use alloy_primitives::{BlockHash, U256};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpStream;
@@ -28,7 +28,7 @@ pub struct ExternalWsPublisherConfig {
     pub auth_header: EnvOrValue<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct BestBidValue {
     pub block_number: u64,
