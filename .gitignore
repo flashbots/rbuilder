@@ -7,7 +7,6 @@
 /test/
 /integration_logs
 genesis.json
-/op-reth
 
 # editors
 .code
