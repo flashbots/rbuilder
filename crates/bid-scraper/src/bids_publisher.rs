@@ -36,7 +36,7 @@ impl CfgWithSimpleRelayPublisherConfig for RelayBidsPublisherConfig {
 /// Publisher that scraps a relay by calling /relay/v1/data/bidtraces/builder_blocks_received
 #[derive(Clone)]
 pub struct BidsPublisherService {
-    sender: Arc<BidSender>,
+    sender: Arc<dyn BidSender>,
     inner: Arc<Mutex<ServiceInner<RelayBidsPublisherConfig>>>,
     name: String,
     cancellation_token: CancellationToken,
@@ -55,7 +55,7 @@ impl Service<RelayBidsPublisherConfig> for BidsPublisherService {
 
     fn new_(
         name: String,
-        sender: Arc<BidSender>,
+        sender: Arc<dyn BidSender>,
         inner: Arc<Mutex<ServiceInner<RelayBidsPublisherConfig>>>,
         cancellation_token: CancellationToken,
     ) -> Self {

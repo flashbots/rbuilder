@@ -38,7 +38,7 @@ impl CfgWithSimpleRelayPublisherConfig for RelayHeadersPublisherConfig {
 /// Publisher that scraps a relay by calling /eth/v1/builder/header/
 #[derive(Clone)]
 pub struct HeadersPublisherService {
-    sender: Arc<BidSender>,
+    sender: Arc<dyn BidSender>,
     inner: Arc<Mutex<ServiceInner<RelayHeadersPublisherConfig>>>,
     name: String,
     cancellation_token: CancellationToken,
@@ -57,7 +57,7 @@ impl Service<RelayHeadersPublisherConfig> for HeadersPublisherService {
 
     fn new_(
         name: String,
-        sender: Arc<BidSender>,
+        sender: Arc<dyn BidSender>,
         inner: Arc<Mutex<ServiceInner<RelayHeadersPublisherConfig>>>,
         cancellation_token: CancellationToken,
     ) -> Self {

@@ -60,7 +60,7 @@ pub trait Service<CfgType: CfgWithSimpleRelayPublisherConfig>: Clone + Sized + S
     fn cancellation_token(&self) -> CancellationToken;
     fn new_(
         name: String,
-        sender: Arc<BidSender>,
+        sender: Arc<dyn BidSender>,
         inner: Arc<Mutex<ServiceInner<CfgType>>>,
         cancel: CancellationToken,
     ) -> Self;
@@ -103,7 +103,7 @@ pub trait Service<CfgType: CfgWithSimpleRelayPublisherConfig>: Clone + Sized + S
     async fn new<'a>(
         cfg: CfgType,
         name: String,
-        sender: BidSender,
+        sender: Arc<dyn BidSender>,
         cancel: CancellationToken,
     ) -> eyre::Result<Self>
     where
@@ -142,7 +142,7 @@ pub trait Service<CfgType: CfgWithSimpleRelayPublisherConfig>: Clone + Sized + S
         }
         Ok(Self::new_(
             name,
-            Arc::new(sender),
+            sender,
             Arc::new(Mutex::new(ServiceInner::<CfgType> {
                 cfg,
                 relays,

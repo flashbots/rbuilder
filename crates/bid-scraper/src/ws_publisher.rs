@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{bid_sender::BidSender, types::BlockBid, RPC_TIMEOUT};
 use eyre::{eyre, Context};
 use futures::stream::{SplitSink, SplitStream};
@@ -27,7 +29,7 @@ pub trait ConnectionHandler {
 }
 pub struct Service<ConnectionHandlerType: 'static> {
     handler: ConnectionHandlerType,
-    sender: BidSender,
+    sender: Arc<dyn BidSender>,
     cancel: CancellationToken,
 }
 
@@ -37,7 +39,7 @@ where
 {
     pub async fn new(
         handler: ConnectionHandlerType,
-        sender: BidSender,
+        sender: Arc<dyn BidSender>,
         cancel: CancellationToken,
     ) -> Self {
         Self {
