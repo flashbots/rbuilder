@@ -1216,10 +1216,12 @@ impl<
                 let res = self.commit_tx(&tx.tx_with_blobs, space_state)?;
                 match res {
                     Ok(ok) => {
-                        let coinbase_profit = if ok.tx_info.coinbase_profit.is_positive() {
+                        let coinbase_profit = if !ok.tx_info.coinbase_profit.is_negative() {
                             ok.tx_info.coinbase_profit.unsigned_abs()
                         } else {
-                            U256::ZERO
+                            return Ok(Err(OrderErr::NegativeProfit(
+                                ok.tx_info.coinbase_profit.unsigned_abs(),
+                            )));
                         };
                         Ok(Ok(OrderOk {
                             coinbase_profit,
