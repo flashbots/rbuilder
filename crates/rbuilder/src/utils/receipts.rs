@@ -181,7 +181,8 @@ fn calculate_tx_root_and_placeholder_proof_with_alloy(
 pub fn ordered_trie_root_and_proof(items: &[Bytes], proof_index: usize) -> (B256, Vec<Bytes>) {
     let items_len = items.len();
 
-    let proof_target_encoded = alloy_rlp::encode_fixed_size(&proof_index);
+    let adjusted_proof_index = adjust_index_for_rlp(proof_index, items_len);
+    let proof_target_encoded = alloy_rlp::encode_fixed_size(&adjusted_proof_index);
     let proof_retainer = ProofRetainer::from_iter([Nibbles::unpack(&proof_target_encoded)]);
 
     let mut hb = HashBuilder::default().with_proof_retainer(proof_retainer);
