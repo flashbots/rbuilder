@@ -10,6 +10,7 @@ use crate::{
         estimate_payout_gas_limit,
         evm::EvmFactory,
         evm_inspector::{RBuilderEVMInspector, UsedStateTrace},
+        BlockBuildingSpaceState, BlockSpace,
     },
     primitives::{
         Bundle, Order, OrderId, RefundConfig, ShareBundle, ShareBundleBody, ShareBundleInner,
@@ -19,10 +20,13 @@ use crate::{
 };
 use ahash::HashSet;
 use alloy_consensus::{constants::KECCAK_EMPTY, Transaction};
-use alloy_eips::eip4844::DATA_GAS_PER_BLOB;
+use alloy_evm::Database;
 use alloy_primitives::{Address, B256, I256, U256};
+use alloy_rlp::Encodable;
 use itertools::Itertools;
-use reth::revm::database::StateProviderDatabase;
+use reth::{
+    consensus_common::validation::MAX_RLP_BLOCK_SIZE, revm::database::StateProviderDatabase,
+};
 use reth_errors::ProviderError;
 use reth_evm::{Evm, EvmEnv};
 use reth_primitives::Receipt;
@@ -31,7 +35,7 @@ use revm::{
     context::result::{ExecutionResult, ResultAndState},
     context_interface::result::{EVMError, InvalidTransaction},
     database::{states::bundle_state::BundleRetention, BundleState, State},
-    Database, DatabaseCommit,
+    Database as _, DatabaseCommit,
 };
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
@@ -193,13 +197,19 @@ pub struct TransactionExecutionInfo {
 #[derive(Debug, Clone)]
 pub struct TransactionOk {
     pub exec_result: ExecutionResult,
-    pub cumulative_gas_used: u64,
+    pub cumulative_space_used: BlockSpace,
     pub blob_gas_used: u64,
     pub cumulative_blob_gas_used: u64,
     pub tx_info: TransactionExecutionInfo,
     /// nonces_updates is nonce after tx was applied.
     /// account nonce was 0, tx was included, nonce is 1. => nonce_updated.1 == 1
     pub nonce_updated: (Address, u64),
+}
+
+impl TransactionOk {
+    pub fn space_used(&self) -> BlockSpace {
+        BlockSpace::new(self.tx_info.gas_used, self.tx_info.tx.length_eip7934())
+    }
 }
 
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
@@ -212,6 +222,8 @@ pub enum TransactionErr {
     GasLeft,
     #[error("Blob Gas left is too low")]
     BlobGasLeft,
+    #[error("Block space (EIP-7934) left is too low")]
+    BlockSpaceLeft,
 }
 
 #[derive(Debug, Clone)]
@@ -219,12 +231,13 @@ pub struct DelayedKickback {
     pub recipient: Address,
     pub payout_value: U256,
     pub payout_tx_fee: U256,
+    pub payout_tx_space_needed: BlockSpace,
 }
 
 #[derive(Debug, Clone)]
 pub struct BundleOk {
-    pub gas_used: u64,
-    pub cumulative_gas_used: u64,
+    pub space_used: BlockSpace,
+    pub cumulative_space_used: BlockSpace,
     pub blob_gas_used: u64,
     pub cumulative_blob_gas_used: u64,
     pub tx_infos: Vec<TransactionExecutionInfo>,
@@ -237,6 +250,17 @@ pub struct BundleOk {
     /// Its original use is for only one level or orders with original_order_id but if nesting happens the parent order original_order_id goes before its children (pre-order DFS)
     /// Fully dropped orders (TxRevertBehavior::AllowedExcluded allows it!) are not included.
     pub original_order_ids: Vec<OrderId>,
+}
+
+impl BundleOk {
+    /// Creates the current space state by adding the reserved block space to the cumulative space used.
+    pub fn space_state(&self, reserved_block_space: BlockSpace) -> BlockBuildingSpaceState {
+        BlockBuildingSpaceState::new(
+            self.cumulative_space_used,
+            reserved_block_space,
+            self.cumulative_blob_gas_used,
+        )
+    }
 }
 
 #[derive(Error, Debug, PartialEq, Eq)]
@@ -288,8 +312,8 @@ pub struct OrderOk {
     /// Profit used for sorting orders on building algorithms.
     /// Real profit for s/bundles (they fail on negative profit) and capped to 0 for txs with negative profit.
     pub coinbase_profit: U256,
-    pub gas_used: u64,
-    pub cumulative_gas_used: u64,
+    pub space_used: BlockSpace,
+    pub cumulative_space_used: BlockSpace,
     pub blob_gas_used: u64,
     pub cumulative_blob_gas_used: u64,
     pub tx_infos: Vec<TransactionExecutionInfo>,
@@ -318,18 +342,14 @@ pub trait PartialBlockForkExecutionTracer {
     fn update_commit_tx_about_to_execute(
         &mut self,
         tx_with_blobs: &TransactionSignedEcRecoveredWithBlobs,
-        cumulative_gas_used: u64,
-        gas_reserved: u64,
-        cumulative_blob_gas_used: u64,
+        space_state: BlockBuildingSpaceState,
     );
 
     /// commit_tx parameters redundant with update_commit_tx_about_to_execute but practical....
     fn update_commit_tx_executed(
         &mut self,
         tx_with_blobs: &TransactionSignedEcRecoveredWithBlobs,
-        cumulative_gas_used: u64,
-        gas_reserved: u64,
-        cumulative_blob_gas_used: u64,
+        space_state: BlockBuildingSpaceState,
         res: &Result<Result<TransactionOk, TransactionErr>, CriticalCommitOrderError>,
     );
 }
@@ -338,32 +358,17 @@ impl<T: PartialBlockForkExecutionTracer> PartialBlockForkExecutionTracer for &mu
     fn update_commit_tx_about_to_execute(
         &mut self,
         tx_with_blobs: &TransactionSignedEcRecoveredWithBlobs,
-        cumulative_gas_used: u64,
-        gas_reserved: u64,
-        cumulative_blob_gas_used: u64,
+        space_state: BlockBuildingSpaceState,
     ) {
-        (*self).update_commit_tx_about_to_execute(
-            tx_with_blobs,
-            cumulative_gas_used,
-            gas_reserved,
-            cumulative_blob_gas_used,
-        )
+        (*self).update_commit_tx_about_to_execute(tx_with_blobs, space_state)
     }
     fn update_commit_tx_executed(
         &mut self,
         tx_with_blobs: &TransactionSignedEcRecoveredWithBlobs,
-        cumulative_gas_used: u64,
-        gas_reserved: u64,
-        cumulative_blob_gas_used: u64,
+        space_state: BlockBuildingSpaceState,
         res: &Result<Result<TransactionOk, TransactionErr>, CriticalCommitOrderError>,
     ) {
-        (*self).update_commit_tx_executed(
-            tx_with_blobs,
-            cumulative_gas_used,
-            gas_reserved,
-            cumulative_blob_gas_used,
-            res,
-        )
+        (*self).update_commit_tx_executed(tx_with_blobs, space_state, res)
     }
 }
 
@@ -373,18 +378,14 @@ impl PartialBlockForkExecutionTracer for NullPartialBlockForkExecutionTracer {
     fn update_commit_tx_about_to_execute(
         &mut self,
         _tx_with_blobs: &TransactionSignedEcRecoveredWithBlobs,
-        _cumulative_gas_used: u64,
-        _gas_reserved: u64,
-        _cumulative_blob_gas_used: u64,
+        _space_state: BlockBuildingSpaceState,
     ) {
     }
     #[inline]
     fn update_commit_tx_executed(
         &mut self,
         _tx_with_blobs: &TransactionSignedEcRecoveredWithBlobs,
-        _cumulative_gas_used: u64,
-        _gas_reserved: u64,
-        _cumulative_blob_gas_used: u64,
+        _space_state: BlockBuildingSpaceState,
         _res: &Result<Result<TransactionOk, TransactionErr>, CriticalCommitOrderError>,
     ) {
     }
@@ -413,7 +414,7 @@ pub struct PartialBlockRollobackPoint {
 
 #[derive(Debug, Clone)]
 pub struct ReservedPayout {
-    pub gas_limit: u64,
+    pub space_limit: BlockSpace,
     pub tx_value: U256,
     pub total_refundable_value: U256,
     pub base_fee: U256,
@@ -522,48 +523,54 @@ impl<
     pub fn commit_tx(
         &mut self,
         tx_with_blobs: &TransactionSignedEcRecoveredWithBlobs,
-        cumulative_gas_used: u64,
-        gas_reserved: u64,
-        cumulative_blob_gas_used: u64,
+        space_state: BlockBuildingSpaceState,
     ) -> Result<Result<TransactionOk, TransactionErr>, CriticalCommitOrderError> {
         self.partial_block_fork_execution_tracer
-            .update_commit_tx_about_to_execute(
-                tx_with_blobs,
-                cumulative_gas_used,
-                gas_reserved,
-                cumulative_blob_gas_used,
-            );
-        let res = self.commit_tx_inner(
-            tx_with_blobs,
-            cumulative_gas_used,
-            gas_reserved,
-            cumulative_blob_gas_used,
-        );
+            .update_commit_tx_about_to_execute(tx_with_blobs, space_state);
+        let res = self.commit_tx_inner(tx_with_blobs, space_state);
         self.partial_block_fork_execution_tracer
-            .update_commit_tx_executed(
-                tx_with_blobs,
-                cumulative_gas_used,
-                gas_reserved,
-                cumulative_blob_gas_used,
-                &res,
-            );
+            .update_commit_tx_executed(tx_with_blobs, space_state, &res);
         res
     }
+
+    /// Checks if the tx can fit in the block by checking:
+    /// - Gas left
+    /// - Blob gas left
+    /// - RLP size limit
+    fn can_fit_tx(
+        &self,
+        space_needed: BlockSpace,
+        blob_gas_needed: u64,
+        space_state: BlockBuildingSpaceState,
+    ) -> Result<(), TransactionErr> {
+        let total_consumed_space = space_state.total_consumed_space();
+        if space_needed.rlp_length() + total_consumed_space.rlp_length() > MAX_RLP_BLOCK_SIZE {
+            return Err(TransactionErr::BlockSpaceLeft);
+        }
+
+        if space_needed.gas() + total_consumed_space.gas() > self.ctx.evm_env.block_env.gas_limit {
+            return Err(TransactionErr::GasLeft);
+        }
+
+        if blob_gas_needed + space_state.blob_gas_used() > self.ctx.max_blob_gas_per_block() {
+            return Err(TransactionErr::BlobGasLeft);
+        }
+        Ok(())
+    }
+
     /// The state is updated ONLY when we return Ok(Ok)
     fn commit_tx_inner(
         &mut self,
         tx_with_blobs: &TransactionSignedEcRecoveredWithBlobs,
-        mut cumulative_gas_used: u64,
-        gas_reserved: u64,
-        mut cumulative_blob_gas_used: u64,
+        mut space_state: BlockBuildingSpaceState,
     ) -> Result<Result<TransactionOk, TransactionErr>, CriticalCommitOrderError> {
-        let coinbase_balance_before = I256::try_from(self.coinbase_balance()?)?;
-        // Use blobs.len() instead of checking for tx type just in case in the future some other new txs have blobs
-        let blob_gas_used = tx_with_blobs.blobs_sidecar.blobs.len() as u64 * DATA_GAS_PER_BLOB;
-        if cumulative_blob_gas_used + blob_gas_used > self.ctx.max_blob_gas_per_block() {
-            return Ok(Err(TransactionErr::BlobGasLeft));
+        let blob_gas_used = tx_with_blobs.blobs_gas_used();
+        if let Err(err) = self.can_fit_tx(tx_with_blobs.space_needed(), blob_gas_used, space_state)
+        {
+            return Ok(Err(err));
         }
 
+        let coinbase_balance_before = I256::try_from(self.coinbase_balance()?)?;
         let mut db = self.state.new_db_ref(
             &self.ctx.shared_cached_reads,
             &mut self.local_ctx.cached_reads,
@@ -576,21 +583,6 @@ impl<
                 .unwrap_or(false)
         {
             return Ok(Err(TransactionErr::Blocklist));
-        }
-
-        match self
-            .ctx
-            .evm_env
-            .block_env
-            .gas_limit
-            .checked_sub(cumulative_gas_used + gas_reserved)
-        {
-            Some(gas_left) => {
-                if tx.gas_limit() > gas_left {
-                    return Ok(Err(TransactionErr::GasLeft));
-                }
-            }
-            None => return Ok(Err(TransactionErr::GasLeft)),
         }
 
         // evm start
@@ -674,28 +666,30 @@ impl<
         self.rollbacks += 1;
 
         // add gas used by the transaction to cumulative gas used, before creating the receipt
-        let gas_used = res.result.gas_used();
+        let space_used = BlockSpace::new(
+            res.result.gas_used(),
+            tx_with_blobs.internal_tx_unsecure().length(),
+        );
 
-        cumulative_gas_used += gas_used;
-        cumulative_blob_gas_used += blob_gas_used;
+        space_state.use_space(space_used, blob_gas_used);
 
         let success = res.result.is_success();
         let receipt = Receipt {
             tx_type: tx.tx_type(),
             success,
-            cumulative_gas_used,
+            cumulative_gas_used: space_state.gas_used(),
             logs: res.result.logs().to_vec(),
         };
         let coinbase_balance_after = I256::try_from(self.coinbase_balance()?)?;
         Ok(Ok(TransactionOk {
             exec_result: res.result,
             blob_gas_used,
-            cumulative_blob_gas_used,
-            cumulative_gas_used,
+            cumulative_blob_gas_used: space_state.blob_gas_used(),
+            cumulative_space_used: space_state.space_used(),
             tx_info: TransactionExecutionInfo {
                 tx: tx_with_blobs.clone(),
                 receipt,
-                gas_used,
+                gas_used: space_used.gas(),
                 coinbase_profit: coinbase_balance_after - coinbase_balance_before,
             },
             nonce_updated: (tx.signer(), tx.nonce() + 1),
@@ -706,13 +700,11 @@ impl<
     fn commit_bundle(
         &mut self,
         bundle: &Bundle,
-        cumulative_gas_used: u64,
-        gas_reserved: u64,
-        cumulative_blob_gas_used: u64,
+        space_state: BlockBuildingSpaceState,
         allow_tx_skip: bool,
         combined_refunds: &HashMap<Address, U256>,
     ) -> Result<Result<BundleOk, BundleErr>, CriticalCommitOrderError> {
-        let current_block = self.ctx.evm_env.block_env.number;
+        let current_block = self.ctx.block();
         // None is good for any block
         if let Some(block) = bundle.block {
             if block != current_block {
@@ -727,7 +719,7 @@ impl<
         let (min_ts, max_ts, block_ts) = (
             bundle.min_timestamp.unwrap_or(0),
             bundle.max_timestamp.unwrap_or(u64::MAX),
-            self.ctx.evm_env.block_env.timestamp,
+            self.ctx.timestamp_u64(),
         );
         if !(min_ts <= block_ts && block_ts <= max_ts) {
             return Ok(Err(BundleErr::IncorrectTimestamp {
@@ -738,20 +730,13 @@ impl<
         }
 
         self.execute_with_rollback(|s| {
-            s.commit_bundle_no_rollback(
-                bundle,
-                cumulative_gas_used,
-                gas_reserved,
-                cumulative_blob_gas_used,
-                allow_tx_skip,
-                combined_refunds,
-            )
+            s.commit_bundle_no_rollback(bundle, space_state, allow_tx_skip, combined_refunds)
         })
     }
 
     fn accumulate_tx_execution(transaction_ok: TransactionOk, bundle_ok: &mut BundleOk) {
-        bundle_ok.gas_used += transaction_ok.tx_info.gas_used;
-        bundle_ok.cumulative_gas_used = transaction_ok.cumulative_gas_used;
+        bundle_ok.space_used += transaction_ok.space_used();
+        bundle_ok.cumulative_space_used = transaction_ok.cumulative_space_used;
         bundle_ok.blob_gas_used += transaction_ok.blob_gas_used;
         bundle_ok.cumulative_blob_gas_used = transaction_ok.cumulative_blob_gas_used;
         bundle_ok.tx_infos.push(transaction_ok.tx_info);
@@ -762,16 +747,17 @@ impl<
         &mut self,
         to: Address,
         refundable_value: U256,
-        gas_used: u64,
+        space_used: BlockSpace,
     ) -> Result<ReservedPayout, BundleErr> {
-        let gas_limit =
-            match estimate_payout_gas_limit(to, self.ctx, self.local_ctx, self.state, gas_used) {
-                Ok(gas_limit) => gas_limit,
+        let space_limit =
+            match estimate_payout_gas_limit(to, self.ctx, self.local_ctx, self.state, space_used) {
+                Ok(space_limit) => space_limit,
                 Err(err) => {
                     return Err(BundleErr::EstimatePayoutGas(err));
                 }
             };
-        let base_fee = U256::from(self.ctx.evm_env.block_env.basefee) * U256::from(gas_limit);
+        let base_fee =
+            U256::from(self.ctx.evm_env.block_env.basefee) * U256::from(space_limit.gas());
         if base_fee > refundable_value {
             return Err(BundleErr::NotEnoughRefundForGas {
                 to,
@@ -781,7 +767,7 @@ impl<
         }
         let tx_value = refundable_value - base_fee;
         Ok(ReservedPayout {
-            gas_limit,
+            space_limit,
             tx_value,
             base_fee,
             total_refundable_value: refundable_value,
@@ -794,7 +780,7 @@ impl<
         &mut self,
         payout: ReservedPayout,
         to: Address,
-        gas_reserved: u64,
+        reserved_block_space: BlockSpace,
         insert_result: &mut BundleOk,
     ) -> Result<Result<(), BundleErr>, CriticalCommitOrderError> {
         let builder_signer = if let Some(signer) = self.ctx.builder_signer.as_ref() {
@@ -814,7 +800,7 @@ impl<
             builder_signer,
             nonce,
             to,
-            payout.gas_limit,
+            payout.space_limit.gas(),
             payout.tx_value,
         ) {
             // payout tx has no blobs so it's safe to unwrap
@@ -823,18 +809,13 @@ impl<
                 return Ok(Err(BundleErr::PayoutTx(err)));
             }
         };
-        let res = self.commit_tx(
-            &payout_tx,
-            insert_result.cumulative_gas_used,
-            gas_reserved,
-            insert_result.cumulative_blob_gas_used,
-        )?;
+        let res = self.commit_tx(&payout_tx, insert_result.space_state(reserved_block_space))?;
         match res {
             Ok(res) => {
                 if !res.tx_info.receipt.success {
                     return Ok(Err(BundleErr::FailedToCommitPayoutTx {
                         to,
-                        gas_limit: payout.gas_limit,
+                        gas_limit: payout.space_limit.gas(),
                         value: payout.tx_value,
                         err: None,
                     }));
@@ -845,7 +826,7 @@ impl<
             Err(err) => {
                 return Ok(Err(BundleErr::FailedToCommitPayoutTx {
                     to,
-                    gas_limit: payout.gas_limit,
+                    gas_limit: payout.space_limit.gas(),
                     value: payout.tx_value,
                     err: Some(err),
                 }));
@@ -857,18 +838,16 @@ impl<
     fn commit_bundle_no_rollback(
         &mut self,
         bundle: &Bundle,
-        cumulative_gas_used: u64,
-        gas_reserved: u64,
-        cumulative_blob_gas_used: u64,
+        space_state: BlockBuildingSpaceState,
         allow_tx_skip: bool,
         combined_refunds: &HashMap<Address, U256>,
     ) -> Result<Result<BundleOk, BundleErr>, CriticalCommitOrderError> {
         let mut refundable_profit = U256::ZERO;
         let mut insert = BundleOk {
-            gas_used: 0,
-            cumulative_gas_used,
+            space_used: BlockSpace::ZERO,
+            cumulative_space_used: space_state.space_used(),
             blob_gas_used: 0,
-            cumulative_blob_gas_used,
+            cumulative_blob_gas_used: space_state.blob_gas_used(),
             tx_infos: Vec::new(),
             nonces_updated: Vec::new(),
             paid_kickbacks: Vec::new(),
@@ -880,9 +859,7 @@ impl<
             let rollback_point = self.rollback_point();
             let result = self.commit_tx(
                 tx_with_blobs,
-                insert.cumulative_gas_used,
-                gas_reserved,
-                insert.cumulative_blob_gas_used,
+                insert.space_state(space_state.reserved_block_space()),
             )?;
             match result {
                 Ok(res) => {
@@ -914,7 +891,7 @@ impl<
                 }
             }
         }
-        if insert.gas_used == 0 {
+        if insert.space_used.gas() == 0 {
             return Ok(Err(BundleErr::EmptyBundle));
         }
 
@@ -934,6 +911,7 @@ impl<
                     recipient: refunds_cfg.recipient,
                     payout_value: refundable_value,
                     payout_tx_fee: U256::ZERO,
+                    payout_tx_space_needed: BlockSpace::ZERO,
                 });
                 break 'refund;
             }
@@ -942,32 +920,30 @@ impl<
             let payout = match self.estimate_refund_payout_tx(
                 refunds_cfg.recipient,
                 refundable_value,
-                insert.cumulative_gas_used,
+                insert.cumulative_space_used,
             ) {
                 Ok(payout) => payout,
                 Err(err) => return Ok(Err(err)),
             };
 
-            let gas_limit = self.ctx.evm_env.block_env.gas_limit;
-            if payout.gas_limit == BASE_TX_GAS
-                && gas_limit
-                    .checked_sub(insert.cumulative_gas_used + gas_reserved)
-                    .is_some_and(|remaining| remaining > payout.gas_limit)
+            let space_state = insert.space_state(space_state.reserved_block_space());
+            if payout.space_limit.gas() == BASE_TX_GAS
+                && self.can_fit_tx(payout.space_limit, 0, space_state).is_ok()
             {
                 // This refund recipient is eligible for a combined refund at the end of the block.
                 insert.delayed_kickback = Some(DelayedKickback {
                     recipient: refunds_cfg.recipient,
                     payout_value: payout.tx_value,
                     payout_tx_fee: payout.base_fee,
+                    payout_tx_space_needed: payout.space_limit,
                 });
                 break 'refund;
             }
-
             // Refund the recipient immediately.
             if let Err(err) = self.insert_refund_payout_tx(
                 payout,
                 refunds_cfg.recipient,
-                gas_reserved,
+                space_state.reserved_block_space(),
                 &mut insert,
             )? {
                 return Ok(Err(err));
@@ -981,12 +957,10 @@ impl<
     fn commit_share_bundle(
         &mut self,
         bundle: &ShareBundle,
-        cumulative_gas_used: u64,
-        gas_reserved: u64,
-        cumulative_blob_gas_used: u64,
+        space_state: BlockBuildingSpaceState,
         allow_tx_skip: bool,
     ) -> Result<Result<BundleOk, BundleErr>, CriticalCommitOrderError> {
-        let current_block = self.ctx.evm_env.block_env.number;
+        let current_block = self.ctx.block();
         if !(bundle.block <= current_block && current_block <= bundle.max_block) {
             return Ok(Err(BundleErr::TargetBlockIncorrect {
                 block: current_block,
@@ -995,13 +969,7 @@ impl<
             }));
         }
         self.execute_with_rollback(|s| {
-            s.commit_share_bundle_no_rollback(
-                bundle,
-                cumulative_gas_used,
-                gas_reserved,
-                cumulative_blob_gas_used,
-                allow_tx_skip,
-            )
+            s.commit_share_bundle_no_rollback(bundle, space_state, allow_tx_skip)
         })
     }
 
@@ -1009,18 +977,11 @@ impl<
     fn commit_share_bundle_no_rollback(
         &mut self,
         bundle: &ShareBundle,
-        cumulative_gas_used: u64,
-        gas_reserved: u64,
-        cumulative_blob_gas_used: u64,
+        space_state: BlockBuildingSpaceState,
         allow_tx_skip: bool,
     ) -> Result<Result<BundleOk, BundleErr>, CriticalCommitOrderError> {
-        let res = self.commit_share_bundle_inner(
-            bundle.inner_bundle(),
-            cumulative_gas_used,
-            gas_reserved,
-            cumulative_blob_gas_used,
-            allow_tx_skip,
-        )?;
+        let res =
+            self.commit_share_bundle_inner(bundle.inner_bundle(), space_state, allow_tx_skip)?;
         let res = match res {
             Ok(r) => r,
             Err(e) => {
@@ -1032,7 +993,12 @@ impl<
 
         // now pay all kickbacks
         for (to, payout) in res.payouts_promissed.into_iter().sorted_by_key(|(a, _)| *a) {
-            if let Err(err) = self.insert_refund_payout_tx(payout, to, gas_reserved, &mut insert)? {
+            if let Err(err) = self.insert_refund_payout_tx(
+                payout,
+                to,
+                space_state.reserved_block_space,
+                &mut insert,
+            )? {
                 return Ok(Err(err));
             }
         }
@@ -1043,35 +1009,25 @@ impl<
     fn commit_share_bundle_inner(
         &mut self,
         bundle: &ShareBundleInner,
-        cumulative_gas_used: u64,
-        gas_reserved: u64,
-        cumulative_blob_gas_used: u64,
+        space_state: BlockBuildingSpaceState,
         allow_tx_skip: bool,
     ) -> Result<Result<ShareBundleCommitResult, BundleErr>, CriticalCommitOrderError> {
         self.execute_with_rollback(|s| {
-            s.commit_share_bundle_inner_no_rollback(
-                bundle,
-                cumulative_gas_used,
-                gas_reserved,
-                cumulative_blob_gas_used,
-                allow_tx_skip,
-            )
+            s.commit_share_bundle_inner_no_rollback(bundle, space_state, allow_tx_skip)
         })
     }
 
     fn commit_share_bundle_inner_no_rollback(
         &mut self,
         bundle: &ShareBundleInner,
-        cumulative_gas_used: u64,
-        gas_reserved: u64,
-        cumulative_blob_gas_used: u64,
+        space_state: BlockBuildingSpaceState,
         allow_tx_skip: bool,
     ) -> Result<Result<ShareBundleCommitResult, BundleErr>, CriticalCommitOrderError> {
         let mut insert = BundleOk {
-            gas_used: 0,
-            cumulative_gas_used,
+            space_used: BlockSpace::ZERO,
+            cumulative_space_used: space_state.space_used(),
             blob_gas_used: 0,
-            cumulative_blob_gas_used,
+            cumulative_blob_gas_used: space_state.blob_gas_used(),
             tx_infos: Vec::new(),
             nonces_updated: Vec::new(),
             paid_kickbacks: Vec::new(),
@@ -1091,12 +1047,8 @@ impl<
                 ShareBundleBody::Tx(sbundle_tx) => {
                     let rollback_point = self.rollback_point();
                     let tx = &sbundle_tx.tx;
-                    let result = self.commit_tx(
-                        tx,
-                        insert.cumulative_gas_used,
-                        gas_reserved,
-                        insert.cumulative_blob_gas_used,
-                    )?;
+                    let result =
+                        self.commit_tx(tx, insert.space_state(space_state.reserved_block_space()))?;
                     match result {
                         Ok(res) => {
                             if !res.tx_info.receipt.success {
@@ -1131,9 +1083,7 @@ impl<
                 ShareBundleBody::Bundle(inner_bundle) => {
                     let inner_res = self.commit_share_bundle_inner(
                         inner_bundle,
-                        insert.cumulative_gas_used,
-                        gas_reserved,
-                        insert.cumulative_blob_gas_used,
+                        insert.space_state(space_state.reserved_block_space()),
                         allow_tx_skip,
                     )?;
                     match inner_res {
@@ -1153,8 +1103,8 @@ impl<
                             insert
                                 .original_order_ids
                                 .extend(res.bundle_ok.original_order_ids);
-                            insert.gas_used += res.bundle_ok.gas_used;
-                            insert.cumulative_gas_used = res.bundle_ok.cumulative_gas_used;
+                            insert.space_used += res.bundle_ok.space_used;
+                            insert.cumulative_space_used = res.bundle_ok.cumulative_space_used;
                             insert.blob_gas_used += res.bundle_ok.blob_gas_used;
                             insert.cumulative_blob_gas_used =
                                 res.bundle_ok.cumulative_blob_gas_used;
@@ -1211,7 +1161,7 @@ impl<
             let payout = match self.estimate_refund_payout_tx(
                 to,
                 refundable_value,
-                insert.cumulative_gas_used,
+                insert.cumulative_space_used,
             ) {
                 Ok(payout) => payout,
                 Err(err) => return Ok(Err(err)),
@@ -1245,41 +1195,25 @@ impl<
     pub fn commit_order(
         &mut self,
         order: &Order,
-        cumulative_gas_used: u64,
-        gas_reserved: u64,
-        cumulative_blob_gas_used: u64,
+        space_state: BlockBuildingSpaceState,
         allow_tx_skip: bool,
         combined_refunds: &HashMap<Address, U256>,
     ) -> Result<Result<OrderOk, OrderErr>, CriticalCommitOrderError> {
         self.execute_with_rollback(|s| {
-            s.commit_order_no_rollback(
-                order,
-                cumulative_gas_used,
-                gas_reserved,
-                cumulative_blob_gas_used,
-                allow_tx_skip,
-                combined_refunds,
-            )
+            s.commit_order_no_rollback(order, space_state, allow_tx_skip, combined_refunds)
         })
     }
 
     fn commit_order_no_rollback(
         &mut self,
         order: &Order,
-        cumulative_gas_used: u64,
-        gas_reserved: u64,
-        cumulative_blob_gas_used: u64,
+        space_state: BlockBuildingSpaceState,
         allow_tx_skip: bool,
         combined_refunds: &HashMap<Address, U256>,
     ) -> Result<Result<OrderOk, OrderErr>, CriticalCommitOrderError> {
         match order {
             Order::Tx(tx) => {
-                let res = self.commit_tx(
-                    &tx.tx_with_blobs,
-                    cumulative_gas_used,
-                    gas_reserved,
-                    cumulative_blob_gas_used,
-                )?;
+                let res = self.commit_tx(&tx.tx_with_blobs, space_state)?;
                 match res {
                     Ok(ok) => {
                         let coinbase_profit = if ok.tx_info.coinbase_profit.is_positive() {
@@ -1289,8 +1223,8 @@ impl<
                         };
                         Ok(Ok(OrderOk {
                             coinbase_profit,
-                            gas_used: ok.tx_info.gas_used,
-                            cumulative_gas_used: ok.cumulative_gas_used,
+                            space_used: ok.space_used(),
+                            cumulative_space_used: ok.cumulative_space_used,
                             blob_gas_used: ok.blob_gas_used,
                             cumulative_blob_gas_used: ok.cumulative_blob_gas_used,
                             tx_infos: vec![ok.tx_info],
@@ -1306,25 +1240,13 @@ impl<
             }
             Order::Bundle(bundle) => {
                 let coinbase_balance_before = self.coinbase_balance()?;
-                let res = self.commit_bundle(
-                    bundle,
-                    cumulative_gas_used,
-                    gas_reserved,
-                    cumulative_blob_gas_used,
-                    allow_tx_skip,
-                    combined_refunds,
-                )?;
+                let res =
+                    self.commit_bundle(bundle, space_state, allow_tx_skip, combined_refunds)?;
                 self.bundle_to_order_result(res, coinbase_balance_before)
             }
             Order::ShareBundle(bundle) => {
                 let coinbase_balance_before = self.coinbase_balance()?;
-                let res = self.commit_share_bundle(
-                    bundle,
-                    cumulative_gas_used,
-                    gas_reserved,
-                    cumulative_blob_gas_used,
-                    allow_tx_skip,
-                )?;
+                let res = self.commit_share_bundle(bundle, space_state, allow_tx_skip)?;
                 self.bundle_to_order_result(res, coinbase_balance_before)
             }
         }
@@ -1354,8 +1276,8 @@ impl<
 
                 Ok(Ok(OrderOk {
                     coinbase_profit,
-                    gas_used: ok.gas_used,
-                    cumulative_gas_used: ok.cumulative_gas_used,
+                    space_used: ok.space_used,
+                    cumulative_space_used: ok.cumulative_space_used,
                     blob_gas_used: ok.blob_gas_used,
                     cumulative_blob_gas_used: ok.cumulative_blob_gas_used,
                     tx_infos: ok.tx_infos,

@@ -11,6 +11,7 @@ use crate::{
     },
     live_builder::{
         building::built_block_cache::{BuiltBlockCache, BuiltBlockCacheUpdater},
+        order_input::replaceable_order_sink::ReplaceableOrderSink,
         payload_events::MevBoostSlotData,
         simulation::SlotOrderSimResults,
     },
@@ -18,6 +19,7 @@ use crate::{
     provider::StateProviderFactory,
 };
 use alloy_primitives::Address;
+use reth_chainspec::EthereumHardforks as _;
 use std::{cell::RefCell, rc::Rc, sync::Arc, thread, time::Duration};
 use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
@@ -71,7 +73,10 @@ where
         }
     }
 
-    /// Connects OrdersForBlock->OrderReplacementManager->Simulations and calls start_building_job
+    /// Connects OrdersForBlock (source of orders) ->
+    /// ReplaceableOrderStreamSniffer (notifies mempool txs to MempoolTxsDetector) ->
+    /// BlobTypeOrderFilter (filters out Orders with incorrect blobs (pre/post fusaka)) ->
+    /// OrderReplacementManager (Handles cancellations and replacements) -> Simulations and calls start_building_job
     pub fn start_block_building(
         &mut self,
         payload: payload_events::MevBoostSlotData,
@@ -106,16 +111,28 @@ where
         // add OrderReplacementManager to manage replacements and cancellations
         let order_replacement_manager = OrderReplacementManager::new(Box::new(sink));
 
+        let blob_type_order_filter: Box<dyn ReplaceableOrderSink> = if block_ctx
+            .chain_spec
+            .is_osaka_active_at_timestamp(block_ctx.attributes.timestamp)
+        {
+            Box::new(order_input::blob_type_order_filter::new_fusaka(Box::new(
+                order_replacement_manager,
+            )))
+        } else {
+            Box::new(order_input::blob_type_order_filter::new_pre_fusaka(
+                Box::new(order_replacement_manager),
+            ))
+        };
+
         let mempool_txs_detector_sniffer =
             order_input::mempool_txs_detector::ReplaceableOrderStreamSniffer::new(
-                Box::new(order_replacement_manager),
+                blob_type_order_filter,
                 block_ctx.mempool_tx_detector.clone(),
             );
         // sink removal is automatic via OrderSink::is_alive false
-        let _block_sub = self.orderpool_subscriber.add_sink(
-            block_ctx.evm_env.block_env.number,
-            Box::new(mempool_txs_detector_sniffer),
-        );
+        let _block_sub = self
+            .orderpool_subscriber
+            .add_sink(block_ctx.block(), Box::new(mempool_txs_detector_sniffer));
 
         let simulations_for_block = self.order_simulation_pool.spawn_simulation_job(
             block_ctx.clone(),
@@ -142,7 +159,7 @@ where
         let (broadcast_input, _) = broadcast::channel(10_000);
         let muxer = Arc::new(UnfinishedBlockBuildingSinkMuxer::new(builder_sink));
 
-        let block_number = ctx.evm_env.block_env.number;
+        let block_number = ctx.block();
         let built_block_cache = Arc::new(BuiltBlockCache::new());
         for builder in self.builders.iter() {
             let builder_name = builder.name();

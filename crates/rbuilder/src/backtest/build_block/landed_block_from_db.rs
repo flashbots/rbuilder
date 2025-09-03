@@ -268,10 +268,10 @@ fn print_onchain_block_data(tx_sim_results: Vec<ExecutedTxs>, block_data: &Block
                     order.error
                 );
                 for (other, tx) in &order.overlapping_txs {
-                    println!("    overlap with: {:>74} tx {:?}", other, tx);
+                    println!("    overlap with: {other:>74} tx {tx:?}");
                 }
             } else {
-                println!("{:>74} included order not found: ", included_order);
+                println!("{included_order:>74} included order not found: ");
             }
         }
     }
@@ -286,7 +286,7 @@ fn show_missing_txs(block_data: &BlockData) {
             missing_txs.len()
         );
         for missing_tx in missing_txs.iter() {
-            println!("Tx: {:?}", missing_tx);
+            println!("Tx: {missing_tx:?}");
         }
     }
     let missing_nonce_txs = block_data.search_missing_account_nonce_on_available_orders();

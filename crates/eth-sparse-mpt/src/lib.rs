@@ -9,10 +9,8 @@
 use std::sync::Arc;
 
 use alloy_primitives::{Address, B256};
-
 use reth_provider::{
     providers::ConsistentDbView, BlockReader, DatabaseProviderFactory, ExecutionOutcome,
-    StateCommitmentProvider,
 };
 
 #[cfg(any(test, feature = "benchmark-utils"))]
@@ -49,7 +47,7 @@ impl RootHashThreadPool {
     pub fn try_new(threads: usize) -> Result<RootHashThreadPool, rayon::ThreadPoolBuildError> {
         let rayon_pool = rayon::ThreadPoolBuilder::new()
             .num_threads(threads)
-            .thread_name(|idx| format!("sparse_mpt:{}", idx))
+            .thread_name(|idx| format!("sparse_mpt:{idx}"))
             .build()?;
         Ok(RootHashThreadPool {
             rayon_pool: Arc::new(rayon_pool),
@@ -100,7 +98,6 @@ pub fn prefetch_tries_for_accounts<'a, Provider>(
 ) -> Result<SparseTrieMetrics, SparseTrieError>
 where
     Provider: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync,
-    Provider: StateCommitmentProvider,
 {
     match version {
         ETHSpareMPTVersion::V1 => {
@@ -151,7 +148,6 @@ pub fn calculate_root_hash_with_sparse_trie<Provider>(
 ) -> (Result<B256, SparseTrieError>, SparseTrieMetrics)
 where
     Provider: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync,
-    Provider: StateCommitmentProvider,
 {
     if let Some(thread_pool) = thread_pool {
         thread_pool.rayon_pool.install(|| {
@@ -183,7 +179,6 @@ pub fn calculate_root_hash_with_sparse_trie_internal<Provider>(
 ) -> (Result<B256, SparseTrieError>, SparseTrieMetrics)
 where
     Provider: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync,
-    Provider: StateCommitmentProvider,
 {
     match version {
         ETHSpareMPTVersion::V1 => {

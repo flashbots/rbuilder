@@ -114,8 +114,7 @@ pub fn calculate_transactions_root(
 
 #[cfg(test)]
 mod tests {
-    use alloy_consensus::TxReceipt;
-    use alloy_consensus::TxType;
+    use alloy_consensus::{TxReceipt, TxType};
     use alloy_primitives::{address, fixed_bytes};
     use reth_primitives::{logs_bloom, Log, LogData};
 

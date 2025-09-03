@@ -135,7 +135,7 @@ mod tests {
                 .push(ExecutionResult {
                     coinbase_profit: Default::default(),
                     inplace_sim: Default::default(),
-                    gas_used: Default::default(),
+                    space_used: Default::default(),
                     order: Order::Tx(order),
                     tx_infos: vec![TransactionExecutionInfo {
                         tx,

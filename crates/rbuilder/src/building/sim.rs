@@ -5,7 +5,7 @@ use super::{
 };
 use crate::{
     building::{
-        BlockBuildingContext, BlockState, CriticalCommitOrderError,
+        BlockBuildingContext, BlockBuildingSpaceState, BlockState, CriticalCommitOrderError,
         NullPartialBlockForkExecutionTracer,
     },
     live_builder::order_input::mempool_txs_detector::MempoolTxsDetector,
@@ -28,6 +28,7 @@ use std::{
 use tracing::{error, trace};
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum OrderSimResult {
     Success(SimulatedOrder, Vec<(Address, u64)>),
     Failed(OrderErr),
@@ -440,18 +441,15 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
 ) -> Result<OrderSimResult, CriticalCommitOrderError> {
     let start = Instant::now();
     // simulate parents
-    let mut gas_used = 0;
-    let mut blob_gas_used = 0;
+    let mut space_state = BlockBuildingSpaceState::ZERO;
     // We use empty combined refunds because the value of the bundle will
     // not change from batching.
     let combined_refunds = std::collections::HashMap::default();
     for parent in parent_orders {
-        let result =
-            fork.commit_order(&parent, gas_used, 0, blob_gas_used, true, &combined_refunds)?;
+        let result = fork.commit_order(&parent, space_state, true, &combined_refunds)?;
         match result {
             Ok(res) => {
-                gas_used += res.gas_used;
-                blob_gas_used += res.blob_gas_used;
+                space_state.use_space(res.space_used, res.blob_gas_used);
             }
             Err(err) => {
                 tracing::trace!(parent_order = ?parent.id(), ?err, "failed to simulate parent order");
@@ -461,7 +459,7 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
     }
 
     // simulate
-    let result = fork.commit_order(&order, gas_used, 0, blob_gas_used, true, &combined_refunds)?;
+    let result = fork.commit_order(&order, space_state, true, &combined_refunds)?;
     let sim_time = start.elapsed();
     add_order_simulation_time(sim_time, "sim", result.is_ok()); // we count parent sim time + order sim time time here
 

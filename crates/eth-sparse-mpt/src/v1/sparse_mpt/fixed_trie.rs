@@ -5,7 +5,7 @@ use alloy_trie::nodes::{
     BranchNode as AlloyBranchNode, ExtensionNode as AlloyExtensionNode, LeafNode as AlloyLeafNode,
     TrieNode as AlloyTrieNode,
 };
-use reth_trie::Nibbles;
+use nybbles::Nibbles;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, Seq};
 use smallvec::SmallVec;

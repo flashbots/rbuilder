@@ -1,5 +1,6 @@
 //! order_input handles receiving new orders from the ipc mempool subscription and json rpc server
 //!
+pub mod blob_type_order_filter;
 pub mod mempool_txs_detector;
 pub mod order_replacement_manager;
 pub mod order_sink;
@@ -177,6 +178,7 @@ impl OrderInputConfig {
 /// Commands we can get from RPC or mempool fetcher.
 #[derive(Debug, Clone)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
+#[allow(clippy::large_enum_variant)]
 pub enum ReplaceableOrderPoolCommand {
     /// New or update order
     Order(Order),

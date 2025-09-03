@@ -631,6 +631,7 @@ fn group_rows_into_block_data(
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(clippy::large_enum_variant)]
 pub enum RawReplaceableOrderPoolCommand {
     /// New or update order
     Order(RawOrder),

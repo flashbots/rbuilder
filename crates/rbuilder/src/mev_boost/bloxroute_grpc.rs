@@ -1,3 +1,5 @@
+use crate::mev_boost::submission::FuluSubmitBlockRequest;
+
 use super::submission::{
     CapellaSubmitBlockRequest, DenebSubmitBlockRequest, ElectraSubmitBlockRequest,
     SubmitBlockRequest,
@@ -7,7 +9,10 @@ use alloy_eips::{
     eip7251::ConsolidationRequest,
 };
 use alloy_rpc_types_beacon::{
-    relay::{BidTrace, SignedBidSubmissionV2, SignedBidSubmissionV3, SignedBidSubmissionV4},
+    relay::{
+        BidTrace, SignedBidSubmissionV2, SignedBidSubmissionV3, SignedBidSubmissionV4,
+        SignedBidSubmissionV5,
+    },
     requests::ExecutionRequestsV4,
 };
 use alloy_rpc_types_engine::{ExecutionPayloadV1, ExecutionPayloadV2, ExecutionPayloadV3};
@@ -30,6 +35,8 @@ pub enum DataVersion {
     Deneb = 5,
     /// Electra CL hardfork.
     Electra = 6,
+    /// Fulu CL hardfork.
+    Fulu = 7,
 }
 
 /// gRPC relay client type.
@@ -95,7 +102,7 @@ impl From<&SubmitBlockRequest> for types::SubmitBlockRequest {
                     execution_payload,
                     bid_trace,
                     signature,
-                    Some(blobs_bundle),
+                    Some(types::BlobsBundle::from(blobs_bundle)),
                     None,
                     adjustment_data,
                 )
@@ -125,13 +132,42 @@ impl From<&SubmitBlockRequest> for types::SubmitBlockRequest {
                     execution_payload,
                     bid_trace,
                     signature,
-                    Some(blobs_bundle),
+                    Some(types::BlobsBundle::from(blobs_bundle)),
+                    Some(execution_requests),
+                    adjustment_data,
+                )
+            }
+            SubmitBlockRequest::Fulu(request) => {
+                let FuluSubmitBlockRequest {
+                    submission:
+                        SignedBidSubmissionV5 {
+                            execution_payload,
+                            message,
+                            signature,
+                            blobs_bundle,
+                            execution_requests,
+                        },
+                    adjustment_data,
+                } = request;
+
+                let version = DataVersion::Electra;
+                let execution_payload = types::ExecutionPayload::from_v3(execution_payload);
+                let bid_trace = types::BidTrace::new(
+                    message,
+                    Some(execution_payload.blob_gas_used),
+                    Some(execution_payload.excess_blob_gas),
+                );
+                (
+                    version,
+                    execution_payload,
+                    bid_trace,
+                    signature,
+                    Some(types::BlobsBundle::from(blobs_bundle)),
                     Some(execution_requests),
                     adjustment_data,
                 )
             }
         };
-        let blobs_bundle = blobs_bundle.map(types::BlobsBundle::from);
         let execution_requests = execution_requests.map(types::ExecutionRequests::from);
         let adjustment_data = adjustment_data
             .as_ref()
@@ -270,6 +306,16 @@ impl types::BidTrace {
 
 impl From<&alloy_rpc_types_engine::BlobsBundleV1> for types::BlobsBundle {
     fn from(value: &alloy_rpc_types_engine::BlobsBundleV1) -> Self {
+        Self {
+            commitments: value.commitments.iter().map(|c| c.0.to_vec()).collect(),
+            proofs: value.proofs.iter().map(|p| p.0.to_vec()).collect(),
+            blobs: value.blobs.iter().map(|b| b.0.to_vec()).collect(),
+        }
+    }
+}
+
+impl From<&alloy_rpc_types_engine::BlobsBundleV2> for types::BlobsBundle {
+    fn from(value: &alloy_rpc_types_engine::BlobsBundleV2) -> Self {
         Self {
             commitments: value.commitments.iter().map(|c| c.0.to_vec()).collect(),
             proofs: value.proofs.iter().map(|p| p.0.to_vec()).collect(),

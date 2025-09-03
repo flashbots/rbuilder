@@ -1,10 +1,13 @@
 use alloy_primitives::U256;
+use alloy_rpc_types_beacon::relay::SignedBidSubmissionV5;
 use alloy_rpc_types_beacon::{
     relay::{BidTrace, SignedBidSubmissionV2, SignedBidSubmissionV3, SignedBidSubmissionV4},
     requests::ExecutionRequestsV4,
     BlsSignature,
 };
-use alloy_rpc_types_engine::{BlobsBundleV1, ExecutionPayloadV2, ExecutionPayloadV3};
+use alloy_rpc_types_engine::{
+    BlobsBundleV1, BlobsBundleV2, ExecutionPayloadV2, ExecutionPayloadV3,
+};
 use derive_more::Deref;
 use serde::{Deserialize, Serialize};
 use ssz::DecodeError;
@@ -16,6 +19,7 @@ use crate::primitives::OrderId;
 #[ssz(enum_behaviour = "transparent")]
 #[serde(untagged)]
 pub enum SubmitBlockRequest {
+    Fulu(FuluSubmitBlockRequest),
     Capella(CapellaSubmitBlockRequest),
     Deneb(DenebSubmitBlockRequest),
     Electra(ElectraSubmitBlockRequest),
@@ -37,8 +41,14 @@ impl SubmitBlockRequest {
         Self::Electra(request)
     }
 
+    #[inline]
+    pub fn fulu(request: FuluSubmitBlockRequest) -> Self {
+        Self::Fulu(request)
+    }
+
     pub fn bid_trace(&self) -> &BidTrace {
         match self {
+            SubmitBlockRequest::Fulu(req) => &req.message,
             SubmitBlockRequest::Capella(req) => &req.message,
             SubmitBlockRequest::Deneb(req) => &req.message,
             SubmitBlockRequest::Electra(req) => &req.message,
@@ -52,6 +62,9 @@ impl ssz::Decode for SubmitBlockRequest {
     }
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        if let Ok(result) = FuluSubmitBlockRequest::from_ssz_bytes(bytes) {
+            return Ok(Self::fulu(result));
+        }
         if let Ok(result) = ElectraSubmitBlockRequest::from_ssz_bytes(bytes) {
             return Ok(Self::electra(result));
         }
@@ -61,6 +74,27 @@ impl ssz::Decode for SubmitBlockRequest {
 
         let result = CapellaSubmitBlockRequest::from_ssz_bytes(bytes)?;
         Ok(Self::capella(result))
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Deref)]
+pub struct FuluSubmitBlockRequest {
+    #[deref]
+    #[serde(flatten)]
+    pub submission: SignedBidSubmissionV5,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adjustment_data: Option<BidAdjustmentData>,
+}
+
+impl FuluSubmitBlockRequest {
+    pub fn new(
+        submission: SignedBidSubmissionV5,
+        adjustment_data: Option<BidAdjustmentData>,
+    ) -> Self {
+        Self {
+            submission,
+            adjustment_data,
+        }
     }
 }
 
@@ -84,6 +118,88 @@ impl ElectraSubmitBlockRequest {
         Self {
             submission,
             adjustment_data,
+        }
+    }
+}
+
+impl ssz::Encode for FuluSubmitBlockRequest {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        let mut offset = <BidTrace as ssz::Encode>::ssz_fixed_len()
+            + <ExecutionPayloadV3 as ssz::Encode>::ssz_fixed_len()
+            + <BlobsBundleV2 as ssz::Encode>::ssz_fixed_len()
+            + <ExecutionRequestsV4 as ssz::Encode>::ssz_fixed_len()
+            + <BlsSignature as ssz::Encode>::ssz_fixed_len();
+        if self.adjustment_data.is_some() {
+            offset += <BidAdjustmentData as ssz::Encode>::ssz_fixed_len();
+        }
+
+        let mut encoder = ssz::SszEncoder::container(buf, offset);
+
+        encoder.append(&self.message);
+        encoder.append(&self.execution_payload);
+        encoder.append(&self.blobs_bundle);
+        encoder.append(&self.execution_requests);
+        encoder.append(&self.signature);
+        if let Some(adjustment) = &self.adjustment_data {
+            encoder.append(&adjustment);
+        }
+
+        encoder.finalize();
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        let mut len = <BidTrace as ssz::Encode>::ssz_bytes_len(&self.message)
+            + <ExecutionPayloadV3 as ssz::Encode>::ssz_bytes_len(&self.execution_payload)
+            + <BlobsBundleV2 as ssz::Encode>::ssz_bytes_len(&self.blobs_bundle)
+            + <ExecutionRequestsV4 as ssz::Encode>::ssz_bytes_len(&self.execution_requests)
+            + <BlsSignature as ssz::Encode>::ssz_bytes_len(&self.signature);
+        if let Some(adjustment) = &self.adjustment_data {
+            len += <BidAdjustmentData as ssz::Encode>::ssz_bytes_len(adjustment);
+        }
+        len
+    }
+}
+
+impl ssz::Decode for FuluSubmitBlockRequest {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        #[derive(ssz_derive::Decode)]
+        struct FuluSubmitBlockRequestSszHelper {
+            message: BidTrace,
+            execution_payload: ExecutionPayloadV3,
+            blobs_bundle: BlobsBundleV2,
+            execution_requests: ExecutionRequestsV4,
+            signature: BlsSignature,
+            adjustment_data: BidAdjustmentData,
+        }
+
+        if let Ok(request) = FuluSubmitBlockRequestSszHelper::from_ssz_bytes(bytes) {
+            let FuluSubmitBlockRequestSszHelper {
+                message,
+                execution_payload,
+                blobs_bundle,
+                execution_requests,
+                signature,
+                adjustment_data,
+            } = request;
+            let submission = SignedBidSubmissionV5 {
+                message,
+                execution_payload,
+                blobs_bundle,
+                execution_requests,
+                signature,
+            };
+            Ok(Self::new(submission, Some(adjustment_data)))
+        } else {
+            let submission = SignedBidSubmissionV5::from_ssz_bytes(bytes)?;
+            Ok(Self::new(submission, None))
         }
     }
 }
@@ -433,6 +549,26 @@ impl serde::Serialize for SubmitBlockRequestNoBlobs<'_> {
                     signature: &v4.signature,
                     execution_requests: &v4.execution_requests,
                     adjustment_data: &v4.adjustment_data,
+                }
+                .serialize(serializer)
+            }
+            SubmitBlockRequest::Fulu(v5) => {
+                #[derive(serde::Serialize)]
+                struct SignedBidSubmissionV5Ref<'a> {
+                    message: &'a BidTrace,
+                    #[serde(with = "alloy_rpc_types_beacon::payload::beacon_payload_v3")]
+                    execution_payload: &'a ExecutionPayloadV3,
+                    blobs_bundle: &'a BlobsBundleV2,
+                    execution_requests: &'a ExecutionRequestsV4,
+                    signature: &'a BlsSignature,
+                }
+
+                SignedBidSubmissionV5Ref {
+                    message: &v5.message,
+                    execution_payload: &v5.execution_payload,
+                    blobs_bundle: &BlobsBundleV2::new([]), // override blobs bundle with empty one
+                    signature: &v5.signature,
+                    execution_requests: &v5.execution_requests,
                 }
                 .serialize(serializer)
             }

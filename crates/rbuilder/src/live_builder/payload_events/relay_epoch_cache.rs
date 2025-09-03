@@ -5,10 +5,12 @@ use crate::{
 };
 use ahash::{HashMap, HashSet};
 use alloy_primitives::Address;
-use futures::stream::FuturesOrdered;
+use parking_lot::RwLock;
 use primitive_types::H384;
-use tokio_stream::StreamExt;
-use tracing::{info, info_span, trace, trace_span, warn};
+use std::{sync::Arc, time::Duration};
+use tokio::time::timeout;
+use tokio_util::sync::CancellationToken;
+use tracing::*;
 
 /// Info about a slot obtained from a relay.
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
@@ -20,135 +22,133 @@ pub struct SlotData {
     pub pubkey: H384,
 }
 
-/// Gets ValidatorSlotData for a single slot via get_slot_data.
-/// Since the low level API used (/relay/v1/builder/validators) brings current and next epoch validator data it caches the results.
-#[derive(Debug)]
-struct RelayEpochCache {
-    relay: MevBoostRelaySlotInfoProvider,
-    min_slot: u64,
-    max_slot: u64,
-    slot_data: Vec<ValidatorSlotData>,
+/// Validator slot data by relay.
+#[derive(Clone, Debug)]
+struct RelayValidatorSlotDataCache(
+    Arc<RwLock<HashMap<MevBoostRelayID, HashMap<u64, ValidatorSlotData>>>>,
+);
+
+impl Default for RelayValidatorSlotDataCache {
+    fn default() -> Self {
+        Self(Arc::new(RwLock::new(Default::default())))
+    }
 }
 
-impl RelayEpochCache {
-    fn new(relay: MevBoostRelaySlotInfoProvider) -> Self {
-        Self {
-            relay,
-            min_slot: 0,
-            max_slot: 0,
-            slot_data: Vec::new(),
+impl RelayValidatorSlotDataCache {
+    async fn update(&self, clients: &[MevBoostRelaySlotInfoProvider]) {
+        for client in clients {
+            let registrations = match client.get_current_epoch_validators().await {
+                Ok(data) => data,
+                Err(error) => {
+                    let relay = client.id();
+                    warn!(%relay, ?error, "Error updating validator registrations");
+                    match error {
+                        RelayError::ConnectionError => {
+                            inc_conn_relay_errors(relay);
+                        }
+                        RelayError::TooManyRequests => {
+                            inc_too_many_req_relay_errors(relay);
+                        }
+                        _ => {
+                            inc_other_relay_errors(relay);
+                        }
+                    };
+                    continue;
+                }
+            };
+
+            let min_slot = registrations.iter().map(|v| v.slot).min().unwrap_or(0);
+            let max_slot = registrations.iter().map(|v| v.slot).max().unwrap_or(0);
+            let mut this = self.0.write();
+            let current_registrations = this.entry(client.id().clone()).or_default();
+
+            // Remove old registrations and update the new ones.
+            current_registrations.retain(|slot, _| slot >= &min_slot);
+            current_registrations.extend(registrations.into_iter().map(|r| (r.slot, r)));
+
+            let len = current_registrations.len();
+            info!(relay = %client.id(), len, min_slot, max_slot, "Updated validator registrations");
         }
     }
 
-    async fn update_epoch_data(&mut self) -> Result<(), RelayError> {
-        // @Far validate signatures of proposers here to make sure that relay is correct.
-        let validators = self.relay.get_current_epoch_validators().await?;
-        let min_slot = validators.iter().map(|v| v.slot).min().unwrap_or(0);
-        let max_slot = validators.iter().map(|v| v.slot).max().unwrap_or(0);
-
-        self.slot_data = validators;
-        self.min_slot = min_slot;
-        self.max_slot = max_slot;
-
-        Ok(())
-    }
-
-    /// Might fail (None) if the slot is in the past or far in the future.
-    /// Ideally, it's called just for the next slot.
-    async fn get_slot_data(&mut self, slot: u64) -> Result<Option<ValidatorSlotData>, RelayError> {
-        if slot < self.min_slot || slot > self.max_slot {
-            self.update_epoch_data().await?;
+    fn get_slot_registrations(&self, slot: u64) -> Vec<(MevBoostRelayID, ValidatorSlotData)> {
+        let mut slot_registrations = Vec::new();
+        for (relay_id, registrations) in self.0.read().iter() {
+            if let Some(slot_registration) = registrations.get(&slot) {
+                slot_registrations.push((relay_id.clone(), slot_registration.clone()));
+            }
         }
-
-        Ok(self.slot_data.iter().find(|v| v.slot == slot).cloned())
+        slot_registrations
     }
 }
 
 /// Helper to get SlotData from all relays.
 #[derive(Debug)]
 pub struct RelaysForSlotData {
-    /// Sorted by priority so when we use them on slot_data the one with the highest priority wins.
-    relay: Vec<(MevBoostRelayID, RelayEpochCache)>,
+    /// Validator registration cache.
+    cache: RelayValidatorSlotDataCache,
     /// Redundant with relay but easier to access/pass around.
     can_ignore_gas_limit: HashSet<MevBoostRelayID>,
 }
 
 impl RelaysForSlotData {
-    pub fn new(relays: &[MevBoostRelaySlotInfoProvider]) -> Self {
+    pub fn spawn_with_interval(
+        relays: Vec<MevBoostRelaySlotInfoProvider>,
+        interval: Duration,
+        cancellation_token: CancellationToken,
+    ) -> Self {
+        let cache = RelayValidatorSlotDataCache::default();
         let can_ignore_gas_limit = relays
             .iter()
             .filter(|relay| relay.can_ignore_gas_limit())
             .map(|relay| relay.id().clone())
             .collect();
+
+        tokio::spawn(Box::pin({
+            let cache = cache.clone();
+            async move {
+                loop {
+                    if timeout(interval, cancellation_token.cancelled())
+                        .await
+                        .is_ok()
+                    {
+                        return;
+                    }
+                    cache.update(&relays).await;
+                }
+            }
+        }));
+
         Self {
-            relay: relays
-                .iter()
-                .map(|relay| (relay.id().clone(), RelayEpochCache::new(relay.clone())))
-                .collect(),
+            cache,
             can_ignore_gas_limit,
         }
     }
 
     /// Asks all relays in parallel for ValidatorSlotData.
-    /// Under unconsistencies, the first one (the one with the highest priority as sorted on new) wins and any relay giving a different data
+    /// Under inconsistencies, the first one (the one with the highest priority as sorted on new) wins and any relay giving a different data
     /// is not included on the result.
-    pub async fn slot_data(&mut self, slot: u64) -> Option<(SlotData, Vec<MevBoostRelayID>)> {
-        // ask all relays concurrently about the slot
-        let relay_res = self
-            .relay
-            .iter_mut()
-            .map(|(k, v)| async { (k.clone(), v.get_slot_data(slot).await) })
-            .collect::<FuturesOrdered<_>>()
-            .collect::<Vec<_>>()
-            .await;
-
-        let mut relay_ok_res = Vec::new();
-        for (relay, res) in relay_res {
-            let span = info_span!("relay", relay, slot);
-            let _span_guard = span.enter();
-            let relay_data = match res {
-                Ok(Some(res)) => {
-                    trace!(?res, "Got slot data from the relay");
-                    res
-                }
-                Ok(None) => {
-                    trace!("Relay does not have slot data");
-                    continue;
-                }
-                Err(err) => {
-                    match err {
-                        RelayError::ConnectionError => {
-                            inc_conn_relay_errors(&relay);
-                        }
-                        RelayError::TooManyRequests => {
-                            inc_too_many_req_relay_errors(&relay);
-                        }
-                        _ => {
-                            inc_other_relay_errors(&relay);
-                        }
-                    }
-                    // we always warn here because error at this stage => no bids for slot on this relay
-                    warn!(err = ?err,"Relay returned error while getting epoch data, error");
-                    continue;
-                }
-            };
-            assert_eq!(relay_data.slot, slot);
-            relay_ok_res.push((relay, relay_data));
-        }
-        resolve_relay_slot_data(relay_ok_res, &self.can_ignore_gas_limit)
+    pub fn slot_data(
+        &mut self,
+        slot: u64,
+    ) -> Option<(SlotData, Arc<HashMap<MevBoostRelayID, ValidatorSlotData>>)> {
+        let registrations = self.cache.get_slot_registrations(slot);
+        resolve_relay_slot_data(registrations, &self.can_ignore_gas_limit)
     }
 }
 
 fn resolve_relay_slot_data(
     fetched_data: Vec<(MevBoostRelayID, ValidatorSlotData)>,
     can_ignore_gas_limit: &HashSet<MevBoostRelayID>,
-) -> Option<(SlotData, Vec<MevBoostRelayID>)> {
+) -> Option<(SlotData, Arc<HashMap<MevBoostRelayID, ValidatorSlotData>>)> {
     if fetched_data.is_empty() {
         return None;
     }
 
-    let mut slot_relays: HashMap<SlotData, Vec<MevBoostRelayID>> = HashMap::default();
-    let mut slot_raw_data: HashMap<SlotData, Vec<ValidatorSlotData>> = HashMap::default();
+    let mut registrations_by_slot_data: HashMap<
+        SlotData,
+        HashMap<MevBoostRelayID, ValidatorSlotData>,
+    > = HashMap::default();
 
     for (relay, raw_data) in fetched_data {
         let slot_data = SlotData {
@@ -156,49 +156,47 @@ fn resolve_relay_slot_data(
             gas_limit: raw_data.entry.message.gas_limit,
             pubkey: raw_data.entry.message.pubkey,
         };
-        slot_relays
-            .entry(slot_data.clone())
+        registrations_by_slot_data
+            .entry(slot_data)
             .or_default()
-            .push(relay);
-        slot_raw_data.entry(slot_data).or_default().push(raw_data);
+            .insert(relay, raw_data);
     }
 
     // all relays returned the same data
-    if slot_relays.len() == 1 {
-        let (slot_data, relays) = slot_relays.into_iter().next().unwrap();
-        return Some((slot_data, relays));
+    if registrations_by_slot_data.len() == 1 {
+        let (slot_data, relay_registrations) =
+            registrations_by_slot_data.into_iter().next().unwrap();
+        return Some((slot_data, Arc::new(relay_registrations)));
     }
 
-    let (latest_slot_data, _) = slot_raw_data
+    let (latest_slot_data, mut selected_registrations) = registrations_by_slot_data
         .iter()
         .max_by_key(|(_, v)| {
-            v.iter()
+            v.values()
                 .map(|r| r.entry.message.timestamp)
                 .max()
                 .unwrap_or_default()
         })
+        .map(|(slot_data, registrations)| (slot_data.clone(), registrations.clone()))
         .unwrap();
-    let latest_slot_data = latest_slot_data.clone();
-    let mut selected_relays = slot_relays.get(&latest_slot_data).unwrap().clone();
-    let span = trace_span!("raw_relay_data", ?slot_raw_data);
-    let _span_guard = span.enter();
-    info!(all_data = ?slot_relays, ?selected_relays, "Relays returned different slot data");
+    info!(?latest_slot_data, ?selected_registrations, all_registrations = ?registrations_by_slot_data, "Relays returned different slot data");
+
     // Add all relays that can ignore gas limit to the selected relays.
-    for (slot, relays) in slot_relays {
+    for (slot, registrations) in registrations_by_slot_data {
         if slot.fee_recipient == latest_slot_data.fee_recipient
             && slot.pubkey == latest_slot_data.pubkey
             && slot.gas_limit != latest_slot_data.gas_limit
         {
-            for relay in relays {
+            for (relay, registration) in registrations {
                 if can_ignore_gas_limit.contains(&relay) {
-                    info!(?relay, "Upgraded relay set with can_ignore_gas_limit relay");
-                    selected_relays.push(relay);
+                    info!(?latest_slot_data, %relay, "Upgraded relay set with can_ignore_gas_limit relay");
+                    selected_registrations.insert(relay, registration);
                 }
             }
         }
     }
 
-    Some((latest_slot_data, selected_relays))
+    Some((latest_slot_data, Arc::new(selected_registrations)))
 }
 
 #[cfg(test)]
@@ -224,6 +222,7 @@ mod test {
             },
             validator_index: 1,
             slot: 2,
+            regional_endpoints: Vec::new(),
         }
     }
 
@@ -242,7 +241,7 @@ mod test {
             (relay2.clone(), data.clone()),
         ];
 
-        let result = resolve_relay_slot_data(fetched, &HashSet::default());
+        let result = resolve_relay_slot_data(fetched.clone(), &HashSet::default());
         let (slot_data, relays) = result.unwrap();
         assert_eq!(
             SlotData {
@@ -252,7 +251,7 @@ mod test {
             },
             slot_data
         );
-        assert_eq!(relays, vec![relay1.clone(), relay2.clone()]);
+        assert_eq!(relays, Arc::new(HashMap::from_iter(fetched)));
 
         // Test when relays return different data (should pick latest timestamp)
         let data2 = make_test_data(address!("2222222222222222222222222222222222222222"), 200);
@@ -271,7 +270,10 @@ mod test {
             },
             slot_data
         );
-        assert_eq!(relays, vec![relay2.clone()]);
+        assert_eq!(
+            relays,
+            Arc::new(HashMap::from_iter([(relay2.clone(), data2.clone())]))
+        );
 
         // Test when relays return different gas limit but same fee recipient and pubkey
         let mut data3 = data2.clone();
@@ -295,7 +297,10 @@ mod test {
             },
             slot_data
         );
-        assert_eq!(relays, vec![relay2.clone()]);
+        assert_eq!(
+            relays,
+            Arc::new(HashMap::from_iter([(relay2.clone(), data2.clone())]))
+        );
 
         // data3 can_ignore_gas_limit
         let fetched = vec![
@@ -314,6 +319,12 @@ mod test {
             },
             slot_data
         );
-        assert_eq!(relays, vec![relay2.clone(), relay3.clone()]);
+        assert_eq!(
+            relays,
+            Arc::new(HashMap::from_iter([
+                (relay2.clone(), data2.clone()),
+                (relay3.clone(), data3.clone()),
+            ]))
+        );
     }
 }

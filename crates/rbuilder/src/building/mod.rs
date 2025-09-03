@@ -20,14 +20,15 @@ use crate::{
 use alloy_consensus::{constants::KECCAK_EMPTY, Header, EMPTY_OMMER_ROOT_HASH};
 use alloy_eips::{
     eip1559::{calculate_block_gas_limit, ETHEREUM_BLOCK_GAS_LIMIT_30M},
-    eip4844::BlobTransactionSidecar,
     eip4895::Withdrawals,
+    eip7594::BlobTransactionSidecarVariant,
     eip7685::Requests,
     eip7840::BlobParams,
     merge::BEACON_NONCE,
 };
 use alloy_evm::{block::system_calls::SystemCaller, env::EvmEnv, eth::eip6110};
-use alloy_primitives::{Address, Bytes, B256, I256, U256};
+use alloy_primitives::{Address, BlockNumber, Bytes, B256, I256, U256};
+use alloy_rlp::Encodable as _;
 use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
 use cached_reads::{LocalCachedReads, SharedCachedReads};
 use eth_sparse_mpt::SparseTrieLocalCache;
@@ -54,8 +55,9 @@ use revm::{
 };
 use serde::Deserialize;
 use std::{
-    collections::{hash_map, HashMap},
+    collections::HashMap,
     hash::Hash,
+    ops::{Add, AddAssign},
     str::FromStr,
     sync::Arc,
     time::{Duration, Instant},
@@ -90,6 +92,9 @@ pub use self::{
 #[cfg(test)]
 pub use conflict::*;
 
+/// Estimated overhead for the whole block header rlp length
+const BLOCK_HEADER_RLP_OVERHEAD: usize = 1024;
+
 #[derive(Debug, Clone)]
 pub struct BlockBuildingContext {
     pub evm_factory: EthCachedEvmFactory,
@@ -115,12 +120,16 @@ pub struct BlockBuildingContext {
     pub tx_execution_cache: Arc<TxExecutionCache>,
     pub mempool_tx_detector: Arc<MempoolTxsDetector>,
     pub faster_finalize: bool,
+
+    /// Cached from evm_env.block_env.number but as BlockNumber. Avoid conversions all over the code.
+    block_number: BlockNumber,
 }
 
 impl BlockBuildingContext {
     #[allow(clippy::too_many_arguments)]
     /// spec_id None: we use the proper SpecId for the block timestamp.
     /// We are forced to return Option since next_cfg_and_block_env returns Result although it never fails! (reth v1.1.1)
+    /// None if block does not fit on u64.
     pub fn from_attributes(
         attributes: PayloadAttributesEvent,
         parent: &Header,
@@ -165,13 +174,11 @@ impl BlockBuildingContext {
 
         let excess_blob_gas = if chain_spec.is_cancun_active_at_timestamp(attributes.timestamp) {
             if chain_spec.is_cancun_active_at_timestamp(parent.timestamp) {
-                let blob_params = if chain_spec.is_prague_active_at_timestamp(attributes.timestamp)
-                {
-                    BlobParams::prague()
-                } else {
-                    BlobParams::cancun()
-                };
-                parent.next_block_excess_blob_gas(blob_params)
+                parent.next_block_excess_blob_gas(
+                    chain_spec
+                        .blob_params_at_timestamp(attributes.timestamp)
+                        .unwrap_or(BlobParams::cancun()),
+                )
             } else {
                 // for the first post-fork block, both parent.blob_gas_used and
                 // parent.excess_blob_gas are evaluated as 0
@@ -190,6 +197,7 @@ impl BlockBuildingContext {
         });
         let max_blob_gas_per_block =
             Self::max_blob_gas_per_block_at(&chain_spec, attributes.timestamp());
+        let block_number = evm_env.block_env.number.try_into().ok()?;
         Some(BlockBuildingContext {
             evm_factory: EthCachedEvmFactory::default(),
             evm_env,
@@ -207,6 +215,7 @@ impl BlockBuildingContext {
             max_blob_gas_per_block,
             mempool_tx_detector: Arc::new(MempoolTxsDetector::new()),
             faster_finalize,
+            block_number,
         })
     }
 
@@ -238,15 +247,20 @@ impl BlockBuildingContext {
             if chain_spec.is_cancun_active_at_timestamp(onchain_block.header.timestamp) {
                 Some(BlobExcessGasAndPrice::new(
                     onchain_block.header.excess_blob_gas.unwrap_or_default(),
-                    chain_spec.is_prague_active_at_timestamp(onchain_block.header.timestamp),
+                    chain_spec
+                        .blob_params_at_timestamp(onchain_block.header.timestamp)
+                        .unwrap_or(BlobParams::cancun())
+                        .update_fraction
+                        .try_into()
+                        .expect("update_fraction too large for u64"),
                 ))
             } else {
                 None
             };
         let block_env = BlockEnv {
-            number: block_number,
+            number: U256::from(block_number),
             beneficiary,
-            timestamp: onchain_block.header.timestamp,
+            timestamp: U256::from(onchain_block.header.timestamp),
             difficulty: onchain_block.header.difficulty,
             prevrandao: Some(onchain_block.header.mix_hash),
             basefee: onchain_block
@@ -305,6 +319,7 @@ impl BlockBuildingContext {
             max_blob_gas_per_block,
             mempool_tx_detector: Arc::new(MempoolTxsDetector::new()),
             faster_finalize: true,
+            block_number,
         }
     }
 
@@ -338,8 +353,12 @@ impl BlockBuildingContext {
             .expect("Payload attributes timestamp")
     }
 
+    pub fn timestamp_u64(&self) -> u64 {
+        self.attributes.timestamp
+    }
+
     pub fn block(&self) -> u64 {
-        self.evm_env.block_env.number
+        self.block_number
     }
 
     pub fn coinbase_is_suggested_fee_recipient(&self) -> bool {
@@ -408,11 +427,11 @@ impl FromStr for Sorting {
 impl std::fmt::Display for Sorting {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Sorting::MevGasPrice => write!(f, "{}", MEV_GAS_PRICE_NAME),
-            Sorting::MaxProfit => write!(f, "{}", MAX_PROFIT_NAME),
-            Sorting::TypeMaxProfit => write!(f, "{}", TYPE_MAX_PROFIT_NAME),
-            Sorting::LengthThreeMaxProfit => write!(f, "{}", LENGTH_THREE_MAX_PROFIT_NAME),
-            Sorting::LengthThreeMevGasPrice => write!(f, "{}", LENGTH_THREE_MEV_GAS_PRICE_NAME),
+            Sorting::MevGasPrice => write!(f, "{MEV_GAS_PRICE_NAME}"),
+            Sorting::MaxProfit => write!(f, "{MAX_PROFIT_NAME}"),
+            Sorting::TypeMaxProfit => write!(f, "{TYPE_MAX_PROFIT_NAME}"),
+            Sorting::LengthThreeMaxProfit => write!(f, "{LENGTH_THREE_MAX_PROFIT_NAME}"),
+            Sorting::LengthThreeMevGasPrice => write!(f, "{LENGTH_THREE_MEV_GAS_PRICE_NAME}"),
         }
     }
 }
@@ -442,19 +461,125 @@ impl PartialBlockForkExecutionTracer for NullPartialBlockExecutionTracer {
     fn update_commit_tx_about_to_execute(
         &mut self,
         _tx_with_blobs: &TransactionSignedEcRecoveredWithBlobs,
-        _cumulative_gas_used: u64,
-        _gas_reserved: u64,
-        _cumulative_blob_gas_used: u64,
+        _space_state: BlockBuildingSpaceState,
     ) {
     }
     fn update_commit_tx_executed(
         &mut self,
         _tx_with_blobs: &TransactionSignedEcRecoveredWithBlobs,
-        _cumulative_gas_used: u64,
-        _gas_reserved: u64,
-        _cumulative_blob_gas_used: u64,
+        _space_state: BlockBuildingSpaceState,
         _res: &Result<Result<TransactionOk, TransactionErr>, CriticalCommitOrderError>,
     ) {
+    }
+}
+
+/// Models consumed/reserved space on a block to be able to insert payout tx when finished filling the block.
+/// @Pending: Add blob gas?
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct BlockSpace {
+    pub gas: u64,
+    /// EIP-7934 limits the size of the final rlp block.
+    /// Estimation of the sum of the rlp txs sizes.
+    pub rlp_length: usize,
+}
+
+impl BlockSpace {
+    pub fn new(gas: u64, rlp_length: usize) -> Self {
+        Self { gas, rlp_length }
+    }
+
+    pub const ZERO: Self = Self {
+        gas: 0,
+        rlp_length: 0,
+    };
+
+    pub fn gas(&self) -> u64 {
+        self.gas
+    }
+
+    pub fn rlp_length(&self) -> usize {
+        self.rlp_length
+    }
+}
+
+impl AddAssign for BlockSpace {
+    fn add_assign(&mut self, other: Self) {
+        self.gas += other.gas;
+        self.rlp_length += other.rlp_length;
+    }
+}
+
+impl Add for BlockSpace {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self {
+        Self {
+            gas: self.gas + other.gas,
+            rlp_length: self.rlp_length + other.rlp_length,
+        }
+    }
+}
+
+/// Models the current state of the block building space.
+#[derive(Debug, Clone, Copy)]
+pub struct BlockBuildingSpaceState {
+    space_used: BlockSpace,
+    /// Reserved gas/size for later use (usually final payout tx). When simulating we subtract this from the block gas limit.
+    reserved_block_space: BlockSpace,
+    blob_gas_used: u64,
+}
+
+impl BlockBuildingSpaceState {
+    pub fn new(
+        space_used: BlockSpace,
+        reserved_block_space: BlockSpace,
+        blob_gas_used: u64,
+    ) -> Self {
+        Self {
+            space_used,
+            reserved_block_space,
+            blob_gas_used,
+        }
+    }
+
+    pub const ZERO: Self = Self {
+        space_used: BlockSpace::ZERO,
+        reserved_block_space: BlockSpace::ZERO,
+        blob_gas_used: 0,
+    };
+
+    pub fn free_reserved_block_space(&mut self) {
+        self.reserved_block_space = BlockSpace::ZERO;
+    }
+
+    pub fn reserved_block_space(&self) -> BlockSpace {
+        self.reserved_block_space
+    }
+
+    /// Used+Reserved
+    pub fn total_consumed_space(&self) -> BlockSpace {
+        self.space_used + self.reserved_block_space
+    }
+
+    pub fn gas_used(&self) -> u64 {
+        self.space_used.gas()
+    }
+
+    pub fn blob_gas_used(&self) -> u64 {
+        self.blob_gas_used
+    }
+
+    pub fn space_used(&self) -> BlockSpace {
+        self.space_used
+    }
+
+    pub fn reserve_block_space(&mut self, space: BlockSpace) {
+        self.reserved_block_space += space;
+    }
+
+    pub fn use_space(&mut self, space: BlockSpace, blob_gas_used: u64) {
+        self.space_used += space;
+        self.blob_gas_used += blob_gas_used;
     }
 }
 
@@ -465,10 +590,8 @@ pub struct PartialBlock<
 > {
     /// Value used as allow_tx_skip on calls to [`PartialBlockFork`]
     pub discard_txs: bool,
-    pub gas_used: u64,
-    /// Reserved gas for later use (usually final payout tx). When simulating we subtract this from the block gas limit.
-    pub gas_reserved: u64,
-    pub blob_gas_used: u64,
+    /// What we consumed so far.
+    pub space_state: BlockBuildingSpaceState,
     /// Updated after each order.
     pub coinbase_profit: U256,
     /// Tx execution info belonging to successfully executed orders.
@@ -483,7 +606,7 @@ pub struct PartialBlock<
 pub struct ExecutionResult {
     pub coinbase_profit: U256,
     pub inplace_sim: SimValue,
-    pub gas_used: u64,
+    pub space_used: BlockSpace,
     pub order: Order,
     pub tx_infos: Vec<TransactionExecutionInfo>,
     /// Patch to get the executed OrderIds for merged sbundles (see: [`BundleOk::original_order_ids`],[`ShareBundleMerger`] )
@@ -553,7 +676,7 @@ impl ExecutionError {
 pub struct FinalizeResult {
     pub sealed_block: SealedBlock,
     // sidecars for all txs in SealedBlock
-    pub txs_blob_sidecars: Vec<Arc<BlobTransactionSidecar>>,
+    pub txs_blob_sidecars: Vec<Arc<BlobTransactionSidecarVariant>>,
     /// The Pectra execution requests for this bid.
     pub execution_requests: Vec<Bytes>,
 
@@ -590,9 +713,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
     ) -> PartialBlock<NewTracer, PartialBlockExecutionTracerType> {
         PartialBlock {
             discard_txs: self.discard_txs,
-            gas_used: self.gas_used,
-            gas_reserved: self.gas_reserved,
-            blob_gas_used: self.blob_gas_used,
+            space_state: self.space_state,
             coinbase_profit: self.coinbase_profit,
             executed_tx_infos: self.executed_tx_infos,
             combined_refunds: self.combined_refunds,
@@ -601,12 +722,12 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         }
     }
 
-    pub fn reserve_gas(&mut self, gas: u64) {
-        self.gas_reserved = gas;
+    pub fn reserve_block_space(&mut self, space: BlockSpace) {
+        self.space_state.reserve_block_space(space);
     }
 
-    pub fn free_reserved_gas(&mut self) {
-        self.gas_reserved = 0;
+    pub fn free_reserved_block_space(&mut self) {
+        self.space_state.free_reserved_block_space();
     }
 
     pub fn commit_order(
@@ -654,9 +775,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         let rollback = fork.rollback_point();
         let exec_result = fork.commit_order(
             &order.order,
-            self.gas_used,
-            self.gas_reserved,
-            self.blob_gas_used,
+            self.space_state,
             self.discard_txs,
             &self.combined_refunds,
         )?;
@@ -678,8 +797,8 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             }
         }
 
-        self.gas_used += ok_result.gas_used;
-        self.blob_gas_used += ok_result.blob_gas_used;
+        self.space_state
+            .use_space(ok_result.space_used, ok_result.blob_gas_used);
         self.coinbase_profit += ok_result.coinbase_profit;
         self.executed_tx_infos.extend(ok_result.tx_infos.clone());
 
@@ -687,22 +806,18 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         if let Some(DelayedKickback {
             recipient,
             payout_value,
+            payout_tx_space_needed,
             ..
         }) = ok_result.delayed_kickback
         {
-            let entry = self.combined_refunds.entry(recipient);
-            if matches!(entry, hash_map::Entry::Vacant(_)) {
-                // This is the first refund for the recipient,
-                // so we need to reserve the gas for the refund tx.
-                self.gas_reserved += 21_000;
-            }
-            *entry.or_default() += payout_value;
+            self.space_state.reserve_block_space(payout_tx_space_needed);
+            *self.combined_refunds.entry(recipient).or_default() += payout_value;
         }
 
         Ok(Ok(ExecutionResult {
             coinbase_profit: ok_result.coinbase_profit,
             inplace_sim: inplace_sim_result,
-            gas_used: ok_result.gas_used,
+            space_used: ok_result.space_used,
             order: order.order.clone(),
             tx_infos: ok_result.tx_infos,
             original_order_ids: ok_result.original_order_ids,
@@ -736,7 +851,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             .builder_signer
             .as_ref()
             .ok_or(InsertPayoutTxErr::NoSigner)?;
-        self.free_reserved_gas();
+        self.free_reserved_block_space();
         let mut nonce = state
             .nonce(
                 builder_signer.address,
@@ -771,14 +886,13 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
                 *refund_amount,
             )?)
             .unwrap();
-            let refund_result =
-                fork.commit_tx(&refund_tx, self.gas_used, 0, self.blob_gas_used)??;
+            let refund_result = fork.commit_tx(&refund_tx, self.space_state)??;
             if !refund_result.tx_info.receipt.success {
                 return Err(InsertPayoutTxErr::CombinedRefundTxReverted);
             }
 
-            self.gas_used += refund_result.tx_info.gas_used;
-            self.blob_gas_used += refund_result.blob_gas_used;
+            self.space_state
+                .use_space(refund_result.space_used(), refund_result.blob_gas_used);
             self.executed_tx_infos.push(refund_result.tx_info);
 
             nonce += 1;
@@ -795,14 +909,14 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         )?;
         // payout tx has no blobs so it's safe to unwrap
         let tx = TransactionSignedEcRecoveredWithBlobs::new_no_blobs(tx).unwrap();
-        let exec_result = fork.commit_tx(&tx, self.gas_used, 0, self.blob_gas_used)?;
+        let exec_result = fork.commit_tx(&tx, self.space_state)?;
         let ok_result = exec_result?;
         if !ok_result.tx_info.receipt.success {
             return Err(InsertPayoutTxErr::PayoutTxReverted);
         }
 
-        self.gas_used += ok_result.tx_info.gas_used;
-        self.blob_gas_used += ok_result.blob_gas_used;
+        self.space_state
+            .use_space(ok_result.space_used(), ok_result.blob_gas_used);
         self.executed_tx_infos.push(ok_result.tx_info);
 
         Ok(())
@@ -884,7 +998,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
 
         let step_start = Instant::now();
         let (requests, withdrawals_root) = self.process_requests(&mut state, ctx, local_ctx)?;
-        let block_number = ctx.evm_env.block_env.number;
+        let block_number = ctx.block();
 
         let request_processsing_time_ms = elapsed_ms(step_start);
         let step_start = Instant::now();
@@ -941,17 +1055,30 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             }
         }
 
-        let mut txs_blob_sidecars = Vec::new();
+        let mut txs_blob_sidecars: Vec<Arc<BlobTransactionSidecarVariant>> = Vec::new();
         let (excess_blob_gas, blob_gas_used) = if ctx
             .chain_spec
             .is_cancun_active_at_timestamp(ctx.attributes.timestamp)
         {
+            // We should NEVER get the wrong sidecar types but we double check here just in case....
+            let valid_blobs_count = if ctx
+                .chain_spec
+                .is_osaka_active_at_timestamp(ctx.attributes.timestamp)
+            {
+                |side_car: &BlobTransactionSidecarVariant| {
+                    side_car.as_eip7594().map_or(0, |sc| sc.blobs.len())
+                }
+            } else {
+                |side_car: &BlobTransactionSidecarVariant| {
+                    side_car.as_eip4844().map_or(0, |sc| sc.blobs.len())
+                }
+            };
             for tx_with_blob in self.executed_tx_infos.iter().map(|info| &info.tx) {
-                if !tx_with_blob.blobs_sidecar.blobs.is_empty() {
+                if valid_blobs_count(tx_with_blob.blobs_sidecar.as_ref()) > 0 {
                     txs_blob_sidecars.push(tx_with_blob.blobs_sidecar.clone());
                 }
             }
-            (ctx.excess_blob_gas, Some(self.blob_gas_used))
+            (ctx.excess_blob_gas, Some(self.space_state.blob_gas_used()))
         } else {
             (None, None)
         };
@@ -975,7 +1102,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             number: block_number,
             gas_limit: ctx.evm_env.block_env.gas_limit,
             difficulty: U256::ZERO,
-            gas_used: self.gas_used,
+            gas_used: self.space_state.gas_used(),
             extra_data: ctx.extra_data.clone().into(),
             parent_beacon_block_root: ctx.attributes.parent_beacon_block_root,
             blob_gas_used,
@@ -1027,12 +1154,22 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         Ok(result)
     }
 
+    /// Standard pre block ETH stuff + space allocation for rlp length
     pub fn pre_block_call(
         &mut self,
         ctx: &BlockBuildingContext,
         local_ctx: &mut ThreadBlockBuildingContext,
         state: &mut BlockState,
     ) -> eyre::Result<()> {
+        // We "pre-use" the RLP overhead for the withdrawals and the block header.
+        self.space_state.use_space(
+            BlockSpace::new(
+                0,
+                ctx.attributes.withdrawals.length() + BLOCK_HEADER_RLP_OVERHEAD,
+            ),
+            0,
+        );
+
         let mut db = state.new_db_ref(&ctx.shared_cached_reads, &mut local_ctx.cached_reads);
         let mut system_caller = SystemCaller::new(ctx.chain_spec.clone());
         let mut evm = EthEvmConfig::new(ctx.chain_spec.clone())
@@ -1049,9 +1186,7 @@ impl PartialBlock<(), NullPartialBlockExecutionTracer> {
     pub fn new(discard_txs: bool) -> Self {
         Self {
             discard_txs,
-            gas_used: 0,
-            gas_reserved: 0,
-            blob_gas_used: 0,
+            space_state: BlockBuildingSpaceState::ZERO,
             coinbase_profit: U256::ZERO,
             executed_tx_infos: Vec::new(),
             combined_refunds: HashMap::default(),
@@ -1070,9 +1205,7 @@ impl<PartialBlockExecutionTracerType: PartialBlockExecutionTracer>
     ) -> Self {
         Self {
             discard_txs,
-            gas_used: 0,
-            gas_reserved: 0,
-            blob_gas_used: 0,
+            space_state: BlockBuildingSpaceState::ZERO,
             coinbase_profit: U256::ZERO,
             executed_tx_infos: Vec::new(),
             combined_refunds: HashMap::default(),
@@ -1123,7 +1256,7 @@ pub fn create_sim_value(
     SimValue::new(
         order_ok.coinbase_profit,
         non_mempool_coinbase_profit,
-        order_ok.gas_used,
+        order_ok.space_used,
         order_ok.blob_gas_used,
         order_ok.paid_kickbacks.clone(),
     )
@@ -1154,8 +1287,8 @@ mod test {
         let profit_2 = I256::unchecked_from(10000);
         let order_ok = OrderOk {
             coinbase_profit: Default::default(),
-            gas_used: Default::default(),
-            cumulative_gas_used: Default::default(),
+            space_used: Default::default(),
+            cumulative_space_used: Default::default(),
             blob_gas_used: Default::default(),
             cumulative_blob_gas_used: Default::default(),
             tx_infos: vec![
@@ -1205,8 +1338,8 @@ mod test {
         let profit = I256::unchecked_from(1000);
         let order_ok = OrderOk {
             coinbase_profit: profit.unsigned_abs(),
-            gas_used: Default::default(),
-            cumulative_gas_used: Default::default(),
+            space_used: Default::default(),
+            cumulative_space_used: Default::default(),
             blob_gas_used: Default::default(),
             cumulative_blob_gas_used: Default::default(),
             tx_infos: vec![TransactionExecutionInfo {

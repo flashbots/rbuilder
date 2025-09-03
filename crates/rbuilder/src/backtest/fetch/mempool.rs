@@ -62,7 +62,7 @@ pub fn get_mempool_transactions(
 }
 
 fn path_transactions(data_dir: &Path, day: &str) -> PathBuf {
-    data_dir.join(format!("transactions/{}.parquet", day))
+    data_dir.join(format!("transactions/{day}.parquet"))
 }
 
 /// Downloads missing files to data_dir for the given interval

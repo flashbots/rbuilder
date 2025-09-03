@@ -43,7 +43,7 @@ pub enum ValidationError {
 
 impl Debug for ValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self)
+        write!(f, "{self}")
     }
 }
 
@@ -72,6 +72,7 @@ impl ValidationAPIClient {
             SubmitBlockRequest::Capella(_) => "flashbots_validateBuilderSubmissionV2",
             SubmitBlockRequest::Deneb(_) => "flashbots_validateBuilderSubmissionV3",
             SubmitBlockRequest::Electra(_) => "flashbots_validateBuilderSubmissionV4",
+            SubmitBlockRequest::Fulu(_) => "flashbots_validateBuilderSubmissionV5",
         };
         let request = ValidRequest {
             req: req.clone(),

@@ -242,7 +242,7 @@ impl BlockBuildingResultAssembler {
                 let success = commit_result.is_ok();
                 match commit_result {
                     Ok(res) => {
-                        gas_used = res.gas_used;
+                        gas_used = res.space_used.gas();
                     }
                     Err(err) => execution_error = Some(err),
                 }
@@ -312,7 +312,7 @@ impl BlockBuildingResultAssembler {
                         tracing::trace!(
                             order_id = ?sim_order.id(),
                             success = true,
-                            gas_used = res.gas_used,
+                            gas_used = res.space_used.gas(),
                             "Executed order in backtest"
                         );
                     }

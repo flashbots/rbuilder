@@ -185,7 +185,7 @@ where
     let use_suggested_fee_recipient_as_coinbase = ordering_config.coinbase_payment;
     let state_provider = input
         .provider
-        .history_by_block_number(input.ctx.evm_env.block_env.number - 1)?;
+        .history_by_block_number(input.ctx.block() - 1)?;
     let block_orders =
         block_orders_from_sim_orders::<OrderPriorityType>(input.sim_orders, &state_provider)?;
     let mut local_ctx = ThreadBlockBuildingContext::default();
@@ -413,7 +413,7 @@ impl OrderingBuilderContext {
             let success = commit_result.is_ok();
             match commit_result {
                 Ok(res) => {
-                    gas_used = res.gas_used;
+                    gas_used = res.space_used.gas();
                     // This intermediate step is needed until we replace all (Address, u64) for AccountNonce
                     let nonces_updated: Vec<_> = res
                         .nonces_updated

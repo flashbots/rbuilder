@@ -15,10 +15,10 @@ pub fn print_version_info() {
     println!("commit:     {}", GIT_COMMIT_HASH_SHORT.unwrap_or_default());
     println!("dirty:      {}", GIT_DIRTY.unwrap_or_default());
     println!("branch:     {}", GIT_HEAD_REF.unwrap_or_default());
-    println!("build_time: {}", BUILT_TIME_UTC);
-    println!("rustc:      {}", RUSTC_VERSION);
-    println!("features:   {:?}", FEATURES);
-    println!("profile:    {}", PROFILE);
+    println!("build_time: {BUILT_TIME_UTC}");
+    println!("rustc:      {RUSTC_VERSION}");
+    println!("features:   {FEATURES:?}");
+    println!("profile:    {PROFILE}");
 }
 
 #[derive(Debug)]

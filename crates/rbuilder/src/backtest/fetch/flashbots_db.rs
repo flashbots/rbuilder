@@ -76,7 +76,7 @@ impl RelayDB {
                         .map(Bytes::from_str)
                         .collect::<Result<Vec<_>, _>>()
                         .wrap_err_with(|| {
-                            format!("Failed to parse txs for bundle {}", bundle_hash)
+                            format!("Failed to parse txs for bundle {bundle_hash}")
                         })?;
                     let reverting_tx_hashes = reverting_tx_hashes
                         .split(',')
@@ -84,10 +84,7 @@ impl RelayDB {
                         .map(B256::from_str)
                         .collect::<Result<_, _>>()
                         .wrap_err_with(|| {
-                            format!(
-                                "Failed to parse reverting tx hashes for bundle {}",
-                                bundle_hash
-                            )
+                            format!("Failed to parse reverting tx hashes for bundle {bundle_hash}")
                         })?;
 
                     if txs.is_empty() {
@@ -96,7 +93,7 @@ impl RelayDB {
 
                     let signing_address = if let Some(address) = signing_address {
                         Some(address.parse().wrap_err_with(|| {
-                            format!("Failed to parse signing address for bundle {}", bundle_hash)
+                            format!("Failed to parse signing address for bundle {bundle_hash}")
                         })?)
                     } else {
                         None
@@ -122,7 +119,7 @@ impl RelayDB {
 
                     let order = RawOrder::Bundle(raw_bundle)
                         .decode(TxEncoding::NoBlobData)
-                        .wrap_err_with(|| format!("Failed to parse bundle {}", bundle_hash))?;
+                        .wrap_err_with(|| format!("Failed to parse bundle {bundle_hash}"))?;
 
                     Ok(OrdersWithTimestamp {
                         timestamp_ms: (inserted_at.unix_timestamp_nanos() / 1_000_000)
@@ -196,7 +193,7 @@ impl RelayDB {
                     let hash = (hash.len() == 32).then(|| B256::from_slice(&hash)).ok_or_else(|| eyre::eyre!("Invalid hash length"))?;
                     let mut bundle = serde_json::from_value::<RawShareBundle>(body)
                         .wrap_err_with(|| {
-                            format!("Failed to parse share bundle {:?}", hash)
+                            format!("Failed to parse share bundle {hash:?}")
                         })?;
                     // if it was used by the live builder we are sure that it has correct block range
                     // so we modify it here to correct db overwrites
@@ -237,7 +234,7 @@ impl RelayDB {
 
             let order: Order = raw_order
                 .decode(TxEncoding::NoBlobData)
-                .wrap_err_with(|| format!("Failed to parse share bundle: {:?}", hash))?;
+                .wrap_err_with(|| format!("Failed to parse share bundle: {hash:?}"))?;
 
             result.push(OrdersWithTimestamp {
                 timestamp_ms,
@@ -253,7 +250,7 @@ impl RelayDB {
         &self,
         block_hash: B256,
     ) -> eyre::Result<Option<BuiltBlockData>> {
-        let block_hash = format!("{:?}", block_hash);
+        let block_hash = format!("{block_hash:?}");
 
         let mut built_blocks = sqlx::query_as::<
             _,
@@ -357,7 +354,7 @@ impl DataSource for RelayDB {
             self.get_built_block_data(block_hash)
                 .await
                 .with_context(|| {
-                    format!("Failed to fetch built block data for block {}", block_hash)
+                    format!("Failed to fetch built block data for block {block_hash:?}")
                 })?
         } else {
             None

@@ -5,12 +5,12 @@ use std::time::Instant;
 use alloy_primitives::{keccak256, Address, B256, U256};
 use dashmap::DashMap;
 use fetch::MissingNodesFetcher;
+use nybbles::Nibbles;
 use parking_lot::{Mutex, RwLock};
 use reth_provider::{
     providers::ConsistentDbView, BlockReader, DatabaseProviderFactory, ExecutionOutcome,
-    StateCommitmentProvider,
 };
-use reth_trie::{Nibbles, TrieAccount};
+use reth_trie::TrieAccount;
 use revm::state::AccountInfo;
 use rustc_hash::FxBuildHasher;
 use std::ops::Range;
@@ -232,7 +232,6 @@ pub fn prefetch_proofs<'a, Provider>(
 ) -> Result<SparseTrieMetrics, SparseTrieError>
 where
     Provider: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync,
-    Provider: StateCommitmentProvider,
 {
     let mut metrics = SparseTrieMetrics::default();
     let mut fetcher = MissingNodesFetcher::default();
@@ -365,7 +364,6 @@ impl RootHashCalculator {
     ) -> Result<(), SparseTrieError>
     where
         Provider: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync,
-        Provider: StateCommitmentProvider,
     {
         stats.start();
 
@@ -562,7 +560,6 @@ impl RootHashCalculator {
     ) -> Result<(), SparseTrieError>
     where
         Provider: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync,
-        Provider: StateCommitmentProvider,
     {
         let fetcher = Arc::new(Mutex::new(MissingNodesFetcher::default()));
 
@@ -805,7 +802,6 @@ impl RootHashCalculator {
     ) -> Result<(), SparseTrieError>
     where
         Provider: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync,
-        Provider: StateCommitmentProvider,
     {
         let mut fetcher = MissingNodesFetcher::default();
 
@@ -864,7 +860,6 @@ impl RootHashCalculator {
     ) -> Result<(B256, SparseTrieMetrics), SparseTrieError>
     where
         Provider: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync,
-        Provider: StateCommitmentProvider,
     {
         let mut stats = Stats::default();
         stats.start_global();

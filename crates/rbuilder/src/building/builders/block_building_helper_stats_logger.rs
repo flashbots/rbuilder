@@ -58,7 +58,7 @@ impl BlockBuildingHelperCommitLog {
             Some(ExecutionResult {
                 landed_tx_count: exec_ok.tx_infos.len(),
                 coinbase_profit: exec_ok.coinbase_profit,
-                gas_used: exec_ok.gas_used,
+                gas_used: exec_ok.space_used.gas(),
             })
         } else {
             None

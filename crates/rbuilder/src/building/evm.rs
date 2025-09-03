@@ -1,4 +1,5 @@
 use crate::building::precompile_cache::{PrecompileCache, WrappedPrecompile};
+use alloy_evm::Database;
 use parking_lot::Mutex;
 use reth_evm::{
     eth::EthEvmContext, EthEvm, EthEvmFactory, Evm, EvmEnv, EvmFactory as RethEvmFactory,
@@ -12,7 +13,7 @@ use revm::{
     inspector::NoOpInspector,
     interpreter::interpreter::EthInterpreter,
     primitives::hardfork::SpecId,
-    Database, Inspector,
+    Inspector,
 };
 use std::sync::Arc;
 

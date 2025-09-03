@@ -36,7 +36,7 @@ impl CfgWithSimpleRelayPublisherConfig for RelayBidsPublisherConfig {
 /// Publisher that scraps a relay by calling /relay/v1/data/bidtraces/builder_blocks_received
 #[derive(Clone)]
 pub struct BidsPublisherService {
-    sender: Arc<BidSender>,
+    sender: Arc<dyn BidSender>,
     inner: Arc<Mutex<ServiceInner<RelayBidsPublisherConfig>>>,
     name: String,
     cancellation_token: CancellationToken,
@@ -55,7 +55,7 @@ impl Service<RelayBidsPublisherConfig> for BidsPublisherService {
 
     fn new_(
         name: String,
-        sender: Arc<BidSender>,
+        sender: Arc<dyn BidSender>,
         inner: Arc<Mutex<ServiceInner<RelayBidsPublisherConfig>>>,
         cancellation_token: CancellationToken,
     ) -> Self {
@@ -157,8 +157,7 @@ impl BidsPublisherService {
         debug!("Getting bids for relay {relay_name}");
         let block_number = self.inner().last_block_number + 1;
         let url = format!(
-            "{}/relay/v1/data/bidtraces/builder_blocks_received?block_number={}&order_by=-value",
-            relay_endpoint, block_number
+            "{relay_endpoint}/relay/v1/data/bidtraces/builder_blocks_received?block_number={block_number}&order_by=-value",
         );
         // By default it's ordered by slot (so, no effect). So we order by decreasing value
         // instead, it's more interesting to us.

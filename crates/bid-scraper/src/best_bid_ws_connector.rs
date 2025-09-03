@@ -1,5 +1,5 @@
 use alloy_primitives::{BlockHash, U256};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpStream;
@@ -28,7 +28,7 @@ pub struct ExternalWsPublisherConfig {
     pub auth_header: EnvOrValue<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct BestBidValue {
     pub block_number: u64,
@@ -60,7 +60,7 @@ impl<BestBidValueSinkType: BestBidValueSink> BestBidWSConnector<BestBidValueSink
         let mut connection_request = url.into_client_request()?;
         connection_request
             .headers_mut()
-            .insert("Authorization", format!("Basic {}", basic_auth).parse()?);
+            .insert("Authorization", format!("Basic {basic_auth}").parse()?);
 
         Ok(Self {
             connection_request,

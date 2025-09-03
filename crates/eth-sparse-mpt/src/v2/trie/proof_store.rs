@@ -6,7 +6,7 @@ use std::sync::Arc;
 use alloy_trie::nodes::TrieNode as AlloyTrieNode;
 use arrayvec::ArrayVec;
 use dashmap::DashMap;
-use reth_trie::Nibbles;
+use nybbles::Nibbles;
 use rustc_hash::FxBuildHasher;
 
 #[derive(Debug, Clone)]

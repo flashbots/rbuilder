@@ -1,9 +1,5 @@
-use std::env;
-
-use crate::test_utils::reference_trie_hash_vec;
-use crate::utils::HashSet;
-
 use super::*;
+use crate::{test_utils::reference_trie_hash_vec, utils::HashSet};
 use proptest::prelude::*;
 
 fn compare_impls(data: &[(Vec<u8>, Vec<u8>)]) {
@@ -12,7 +8,7 @@ fn compare_impls(data: &[(Vec<u8>, Vec<u8>)]) {
         trie.insert(key, value).unwrap();
     }
     let got_hash = trie.root_hash(false, &ProofStore::default()).unwrap();
-    if env::var("ETH_SPARSE_MPT_TEST_PRINT").is_ok() {
+    if std::env::var("ETH_SPARSE_MPT_TEST_PRINT").is_ok() {
         trie.debug_print_node(0);
     }
     let expected_hash = reference_trie_hash_vec(data);

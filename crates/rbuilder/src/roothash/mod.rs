@@ -4,9 +4,7 @@ use alloy_eips::BlockNumHash;
 use alloy_primitives::B256;
 use eth_sparse_mpt::*;
 use reth::providers::{providers::ConsistentDbView, ExecutionOutcome};
-use reth_provider::{
-    BlockReader, DatabaseProviderFactory, HashedPostStateProvider, StateCommitmentProvider,
-};
+use reth_provider::{BlockReader, DatabaseProviderFactory, HashedPostStateProvider};
 use reth_trie::TrieInput;
 use reth_trie_parallel::root::{ParallelStateRoot, ParallelStateRootError};
 use tracing::trace;
@@ -76,12 +74,7 @@ fn calculate_parallel_root_hash<P, HasherType>(
 ) -> Result<B256, ParallelStateRootError>
 where
     HasherType: HashedPostStateProvider,
-    P: DatabaseProviderFactory<Provider: BlockReader>
-        + StateCommitmentProvider
-        + Send
-        + Sync
-        + Clone
-        + 'static,
+    P: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync + Clone + 'static,
 {
     let hashed_post_state = hasher.hashed_post_state(outcome.state());
     let parallel_root_calculator = ParallelStateRoot::new(
@@ -103,12 +96,7 @@ pub fn calculate_state_root<P, HasherType>(
 ) -> Result<B256, RootHashError>
 where
     HasherType: HashedPostStateProvider,
-    P: DatabaseProviderFactory<Provider: BlockReader>
-        + Send
-        + Sync
-        + Clone
-        + StateCommitmentProvider
-        + 'static,
+    P: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync + Clone + 'static,
 {
     let consistent_db_view = match config.mode {
         RootHashMode::CorrectRoot => ConsistentDbView::new(

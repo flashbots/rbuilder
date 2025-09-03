@@ -72,6 +72,9 @@ pub struct RelayConfig {
     /// Set to `true` for bloxroute relays.
     #[serde(default)]
     pub is_bloxroute: bool,
+    /// The list of bloxroute rproxy regions to send to order by preference.
+    #[serde(default)]
+    pub bloxroute_rproxy_regions: Vec<String>,
     /// Adds "filtering=true" as query to the call relay/v1/builder/validators to get all validators (including those filtering OFAC)
     /// On 2025/06/24 (my birthday!) only supported by ultrasound.
     /// None -> false
@@ -197,10 +200,12 @@ impl MevBoostRelayBidSubmitter {
     pub async fn submit_block(
         &self,
         data: &SubmitBlockRequestWithMetadata,
+        registration: &ValidatorSlotData,
     ) -> Result<(), SubmitBlockErr> {
         self.client
             .submit_block(
                 data,
+                registration,
                 self.use_ssz_for_submit,
                 self.use_gzip_for_submit,
                 self.test_relay,

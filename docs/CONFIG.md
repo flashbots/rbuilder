@@ -55,6 +55,7 @@ Every field has a default if omitted.
 | Name | Type | Comments | Default |
 |------|------|-------------|---------|
 |relays|vec[RelayConfig]| List of relays used to get validator registration info and/or submitting. Below are the details for RelayConfig fields. Example: <br>[[relays]]<br>name = "relay1"<br>optimistic = true<br>priority = 1<br>url = "https://relay1"<br>use_gzip_for_submit = true<br>use_ssz_for_submit = true<br>mode:full<br><br>[[relays]]<br>name = "relay2"<br>...more params...|[]|
+|registration_update_interval_ms|optional u64| Period used to refresh validators registration info.|5000|
 |RelayConfig.name|mandatory string| Human readable name for the relay||
 |RelayConfig.url|mandatory string| Url to relay's endpoint||
 |RelayConfig.grpc_url|optional string| Url to relay's gRPC endpoint (only bloxroute at 2025/08/20).|None|
@@ -77,7 +78,7 @@ Every field has a default if omitted.
 |optimistic_max_bid_value_eth|string| Bids above this value will always be submitted in non-optimistic mode.|"0.0"|
 |cl_node_url|vec[env/stirng]| Array if urls to CL clients to get the new payload events|["http://127.0.0.1:3500"]
 |genesis_fork_version|optional string|Genesis fork version for the chain. If not provided it will be fetched from the beacon client.|None|
-|scraped_bids_publisher_url|string| Url to connect to the bid scraper service| "tcp://0.0.0.0:5555"|
+|scraped_bids_publisher_url|optional string| If present, url to connect to the bid scraper service.|None|
 ## Building algorithms
 rbuilder can multiple building algorithms and each algorithm can be instantiated multiple times with it's own set of parameters each time.
 Each instantiated algorithm starts with:

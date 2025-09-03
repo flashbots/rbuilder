@@ -133,7 +133,7 @@ pub struct Config {
 }
 
 const DEFAULT_SLOT_DELTA_TO_START_BIDDING_MS: i64 = -8000;
-const DEFAULT_SCRAPED_BIDS_PUBLISHER_URL: &str = "tcp://0.0.0.0:5555";
+const DEFAULT_REGISTRATION_UPDATE_INTERVAL_MS: u64 = 5_000;
 const DEFAULT_ASK_FOR_FILTERING_VALIDATORS: bool = false;
 const DEFAULT_CAN_IGNORE_GAS_LIMIT: bool = false;
 
@@ -144,7 +144,8 @@ pub struct L1Config {
     // Relay Submission configuration
     pub relays: Vec<RelayConfig>,
     pub enabled_relays: Vec<String>,
-
+    /// The interval at which validator registrations should be updated.
+    pub registration_update_interval_ms: Option<u64>,
     /// Secret key that will be used to sign normal submissions to the relay.
     relay_secret_key: Option<EnvOrValue<String>>,
     /// Secret key that will be used to sign optimistic submissions to the relay.
@@ -162,7 +163,7 @@ pub struct L1Config {
     /// Genesis fork version for the chain. If not provided it will be fetched from the beacon client.
     pub genesis_fork_version: Option<String>,
     /// Where the bids scraper publishes the bids. Example:"tcp://0.0.0.0:5555"
-    pub scraped_bids_publisher_url: String,
+    pub scraped_bids_publisher_url: Option<String>,
 }
 
 impl Default for L1Config {
@@ -176,7 +177,8 @@ impl Default for L1Config {
             optimistic_max_bid_value_eth: "0.0".to_string(),
             cl_node_url: vec![EnvOrValue::from("http://127.0.0.1:3500")],
             genesis_fork_version: None,
-            scraped_bids_publisher_url: DEFAULT_SCRAPED_BIDS_PUBLISHER_URL.to_owned(),
+            scraped_bids_publisher_url: None,
+            registration_update_interval_ms: None,
         }
     }
 }
@@ -271,6 +273,7 @@ impl L1Config {
                         relay_config.builder_id_header.clone(),
                         relay_config.api_token_header.clone(),
                         relay_config.is_bloxroute,
+                        relay_config.bloxroute_rproxy_regions.clone(),
                         relay_config
                             .ask_for_filtering_validators
                             .unwrap_or(DEFAULT_ASK_FOR_FILTERING_VALIDATORS),
@@ -386,12 +389,20 @@ impl L1Config {
         ));
         Ok((sink_factory, slot_info_providers))
     }
+
+    pub fn registration_update_interval(&self) -> Duration {
+        Duration::from_millis(
+            self.registration_update_interval_ms
+                .unwrap_or(DEFAULT_REGISTRATION_UPDATE_INTERVAL_MS),
+        )
+    }
 }
 
 impl LiveBuilderConfig for Config {
     fn base_config(&self) -> &BaseConfig {
         &self.base_config
     }
+
     async fn new_builder<P>(
         &self,
         provider: P,
@@ -401,7 +412,10 @@ impl LiveBuilderConfig for Config {
         P: StateProviderFactory + Clone + 'static,
     {
         let subsidy = self.subsidy.clone();
-        let slot_delta_to_start_bidding_ms = self.slot_delta_to_start_bidding_ms;
+        let slot_delta_to_start_bidding_ms = time::Duration::milliseconds(
+            self.slot_delta_to_start_bidding_ms
+                .unwrap_or(DEFAULT_SLOT_DELTA_TO_START_BIDDING_MS),
+        );
         // Create the bidding service factory
         let bidding_service_factory = |landed_blocks: &[LandedBlockInfo]| {
             // Clone the data you need for the async block
@@ -415,10 +429,7 @@ impl LiveBuilderConfig for Config {
                 let bidding_service: Arc<dyn BiddingService> =
                     Arc::new(TrueBlockValueBiddingService::new(
                         &landed_blocks,
-                        time::Duration::milliseconds(
-                            slot_delta_to_start_bidding_ms
-                                .unwrap_or(DEFAULT_SLOT_DELTA_TO_START_BIDDING_MS),
-                        ),
+                        slot_delta_to_start_bidding_ms,
                         subsidy,
                     ));
                 Ok(bidding_service)
@@ -815,6 +826,7 @@ lazy_static! {
                 api_token_header: None,
                 adjustment_fee_payer: None,
                 is_bloxroute: false,
+                bloxroute_rproxy_regions: Vec::new(),
                 ask_for_filtering_validators: None,
                 can_ignore_gas_limit: None,
             },
@@ -839,6 +851,7 @@ lazy_static! {
                 api_token_header: None,
                 adjustment_fee_payer: None,
                 is_bloxroute: false,
+                bloxroute_rproxy_regions: Vec::new(),
                 ask_for_filtering_validators: None,
                 can_ignore_gas_limit: None,
             },
@@ -863,6 +876,7 @@ lazy_static! {
                 api_token_header: None,
                 adjustment_fee_payer: None,
                 is_bloxroute: false,
+                bloxroute_rproxy_regions: Vec::new(),
                 ask_for_filtering_validators: None,
                 can_ignore_gas_limit: None,
             },
@@ -886,6 +900,7 @@ lazy_static! {
                 api_token_header: None,
                 adjustment_fee_payer: None,
                 is_bloxroute: false,
+                bloxroute_rproxy_regions: Vec::new(),
                 ask_for_filtering_validators: None,
                 can_ignore_gas_limit: None,
             },
@@ -910,6 +925,7 @@ lazy_static! {
                 api_token_header: None,
                 adjustment_fee_payer: None,
                 is_bloxroute: false,
+                bloxroute_rproxy_regions: Vec::new(),
                 ask_for_filtering_validators: None,
                 can_ignore_gas_limit: None,
             },
@@ -959,17 +975,19 @@ where
     let bidding_service = bidding_service_factory(&wallet_history).await?;
     let bidding_service_win_control = bidding_service.win_control();
 
-    // Create a ScrapedBids2BlockBidWithStatsObs that will forward bids from run_nng_subscriber_with_retries to the bidding service.
-    let bidding_service_bids_obs = Arc::new(ScrapedBids2BlockBidWithStatsObs::new(
-        bidding_service.clone(),
-    ));
-    tokio::spawn(run_nng_subscriber_with_retries(
-        bidding_service_bids_obs,
-        cancellation_token.clone(),
-        l1_config.scraped_bids_publisher_url.clone(),
-        Duration::from_secs(BID_SOURCE_TIMEOUT_SECS),
-        Duration::from_secs(BID_SOURCE_WAIT_TIME_SECS),
-    ));
+    if let Some(scraped_bids_publisher_url) = l1_config.scraped_bids_publisher_url.clone() {
+        // Create a ScrapedBids2BlockBidWithStatsObs that will forward bids from run_nng_subscriber_with_retries to the bidding service.
+        let bidding_service_bids_obs = Arc::new(ScrapedBids2BlockBidWithStatsObs::new(
+            bidding_service.clone(),
+        ));
+        tokio::spawn(run_nng_subscriber_with_retries(
+            bidding_service_bids_obs,
+            cancellation_token.clone(),
+            scraped_bids_publisher_url,
+            Duration::from_secs(BID_SOURCE_TIMEOUT_SECS),
+            Duration::from_secs(BID_SOURCE_WAIT_TIME_SECS),
+        ));
+    }
 
     let sink_factory = Box::new(BlockSealingBidderFactory::new(
         bidding_service,
@@ -999,9 +1017,11 @@ where
     let blocklist_provider = base_config
         .blocklist_provider(cancellation_token.clone())
         .await?;
+
     let payload_event = MevBoostSlotDataGenerator::new(
         l1_config.beacon_clients()?,
         slot_info_provider,
+        l1_config.registration_update_interval(),
         blocklist_provider.clone(),
         cancellation_token.clone(),
     );

@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 
 use alloy_primitives::{utils::format_ether, TxHash, U256};
 
+use crate::building::BlockBuildingSpaceState;
 use crate::{
     building::{
         CriticalCommitOrderError, ExecutionError, ExecutionResult, PartialBlockExecutionTracer,
@@ -247,9 +248,7 @@ impl PartialBlockForkExecutionTracer for FullPartialBlockExecutionTracer {
     fn update_commit_tx_about_to_execute(
         &mut self,
         _tx_with_blobs: &TransactionSignedEcRecoveredWithBlobs,
-        _cumulative_gas_used: u64,
-        _gas_reserved: u64,
-        _cumulative_blob_gas_used: u64,
+        _space_state: BlockBuildingSpaceState,
     ) {
         self.last_tx_start_time = Instant::now();
         if self.execution_start.is_none() {
@@ -260,9 +259,7 @@ impl PartialBlockForkExecutionTracer for FullPartialBlockExecutionTracer {
     fn update_commit_tx_executed(
         &mut self,
         tx_with_blobs: &crate::primitives::TransactionSignedEcRecoveredWithBlobs,
-        _cumulative_gas_used: u64,
-        _gas_reserved: u64,
-        _cumulative_blob_gas_used: u64,
+        _space_state: BlockBuildingSpaceState,
         res: &Result<Result<TransactionOk, TransactionErr>, CriticalCommitOrderError>,
     ) {
         let base = BaseExecutionSummary {

@@ -92,7 +92,7 @@ where
             let provider = result.provider.clone();
             let cancel = global_cancellation.clone();
             let handle = std::thread::Builder::new()
-                .name(format!("sim_thread:{}", i))
+                .name(format!("sim_thread:{i}"))
                 .spawn(move || {
                     sim_worker::run_sim_worker(i, ctx, provider, cancel);
                 })
@@ -130,7 +130,7 @@ where
         let provider = self.provider.clone();
         let current_contexts = Arc::clone(&self.current_contexts);
         let block_context: BlockContextId = gen_uid();
-        let span = info_span!("sim_ctx", block = ctx.evm_env.block_env.number, parent = ?ctx.attributes.parent);
+        let span = info_span!("sim_ctx", block = ctx.block(), parent = ?ctx.attributes.parent);
 
         let handle = tokio::spawn(
             async move {

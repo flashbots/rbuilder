@@ -7,24 +7,27 @@ pub mod order_statistics;
 pub mod serialize;
 mod test_data_generator;
 
-use crate::building::evm_inspector::UsedStateTrace;
+use crate::building::{evm_inspector::UsedStateTrace, BlockSpace};
 use alloy_consensus::Transaction as _;
 use alloy_eips::{
     eip2718::{Decodable2718, Eip2718Error, Encodable2718},
-    eip4844::{Blob, BlobTransactionSidecar, Bytes48},
+    eip4844::{Blob, BlobTransactionSidecar, Bytes48, DATA_GAS_PER_BLOB},
+    eip7594::BlobTransactionSidecarVariant,
     Typed2718,
 };
 use alloy_primitives::{keccak256, Address, Bytes, TxHash, B256, U256};
+use alloy_rlp::Encodable as _;
 use derivative::Derivative;
 use integer_encoding::VarInt;
 use reth::transaction_pool::{
     BlobStore, BlobStoreError, EthPooledTransaction, Pool, TransactionOrdering, TransactionPool,
     TransactionValidator,
 };
+use reth_ethereum_primitives::PooledTransactionVariant;
 use reth_node_core::primitives::SignedTransaction;
 use reth_primitives::{
     kzg::{BYTES_PER_BLOB, BYTES_PER_COMMITMENT, BYTES_PER_PROOF},
-    PooledTransaction, Recovered, Transaction, TransactionSigned,
+    Recovered, Transaction, TransactionSigned,
 };
 use reth_primitives_traits::{InMemorySize, SignerRecoverable};
 use serde::{Deserialize, Serialize};
@@ -352,6 +355,7 @@ impl ShareBundleTx {
 /// Body element of a mev share bundle.
 /// [`ShareBundleInner::body`] is formed by several of these.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[allow(clippy::large_enum_variant)]
 pub enum ShareBundleBody {
     Tx(ShareBundleTx),
     Bundle(ShareBundleInner),
@@ -637,8 +641,8 @@ impl ShareBundle {
 #[derivative(Clone, PartialEq, Eq)]
 pub struct TransactionSignedEcRecoveredWithBlobs {
     tx: Recovered<TransactionSigned>,
-    /// Will have a non empty BlobTransactionSidecar if Recovered<TransactionSigned> is 4844
-    pub blobs_sidecar: Arc<BlobTransactionSidecar>,
+    /// Will have a non empty BlobTransactionSidecarVariant if Recovered<TransactionSigned> is 4844
+    pub blobs_sidecar: Arc<BlobTransactionSidecarVariant>,
 
     #[derivative(PartialEq = "ignore", Hash = "ignore")]
     pub metadata: Metadata,
@@ -710,7 +714,7 @@ impl TransactionSignedEcRecoveredWithBlobs {
     /// or blobs without an eip4844.
     pub fn new(
         tx: Recovered<TransactionSigned>,
-        blob_sidecar: Option<BlobTransactionSidecar>,
+        blob_sidecar: Option<BlobTransactionSidecarVariant>,
         metadata: Option<Metadata>,
     ) -> Result<Self, TxWithBlobsCreateError> {
         // Check for an eip4844 tx passed without blobs
@@ -721,12 +725,38 @@ impl TransactionSignedEcRecoveredWithBlobs {
             Err(TxWithBlobsCreateError::BlobsMissingEip4844)
         // Groovy!
         } else {
+            let sidecar = blob_sidecar.unwrap_or(Self::default_blob_sidecar());
             Ok(Self {
                 tx,
-                blobs_sidecar: Arc::new(blob_sidecar.unwrap_or_default()),
+                blobs_sidecar: Arc::new(sidecar),
                 metadata: metadata.unwrap_or_default(),
             })
         }
+    }
+
+    /// Estimated length used to measure block space so avoid reaching EIP-7934 limit.
+    pub fn length_eip7934(&self) -> usize {
+        self.tx.inner().length()
+    }
+
+    pub fn space_needed(&self) -> BlockSpace {
+        BlockSpace::new(self.tx.gas_limit(), self.length_eip7934())
+    }
+
+    pub fn blobs_len(&self) -> usize {
+        match self.blobs_sidecar.as_ref() {
+            BlobTransactionSidecarVariant::Eip4844(sidecar) => sidecar.blobs.len(),
+            BlobTransactionSidecarVariant::Eip7594(sidecar) => sidecar.blobs.len(),
+        }
+    }
+
+    pub fn blobs_gas_used(&self) -> u64 {
+        self.blobs_len() as u64 * DATA_GAS_PER_BLOB
+    }
+
+    /// For when we don't have a sidecar. Not sure if Eip4844 is the right choice.
+    fn default_blob_sidecar() -> BlobTransactionSidecarVariant {
+        BlobTransactionSidecarVariant::Eip4844(BlobTransactionSidecar::default())
     }
 
     /// Shorthand for `new(tx, None, None)`
@@ -751,9 +781,12 @@ impl TransactionSignedEcRecoveredWithBlobs {
         T: TransactionOrdering<Transaction = <V as TransactionValidator>::Transaction>,
         S: BlobStore,
     {
+        /* At aprox 2025-08 get_blob was failing so we switched to get_all_blobs.
         let blob_sidecar = pool
-            .get_blob(*tx.inner().hash())?
-            .and_then(|b| b.as_eip4844().cloned());
+        .get_blob(*tx.inner().hash())?
+        .map(|b| b.as_ref().clone());*/
+        let mut blobs = pool.get_all_blobs(vec![*tx.inner().hash()])?;
+        let blob_sidecar = blobs.pop().map(|(_, arc)| arc.as_ref().clone());
         Self::new(tx, blob_sidecar, None)
     }
 
@@ -761,7 +794,7 @@ impl TransactionSignedEcRecoveredWithBlobs {
     pub fn new_for_testing(tx: Recovered<TransactionSigned>) -> Self {
         Self {
             tx,
-            blobs_sidecar: Default::default(),
+            blobs_sidecar: Arc::new(Self::default_blob_sidecar()),
             metadata: Default::default(),
         }
     }
@@ -810,20 +843,20 @@ impl TransactionSignedEcRecoveredWithBlobs {
         raw_tx: Bytes,
     ) -> Result<TransactionSignedEcRecoveredWithBlobs, TxWithBlobsCreateError> {
         let raw_tx = &mut raw_tx.as_ref();
-        let pooled_tx = PooledTransaction::decode_2718(raw_tx)
+        let pooled_tx = PooledTransactionVariant::decode_2718(raw_tx)
             .map_err(TxWithBlobsCreateError::FailedToDecodeTransaction)?;
         let signer = pooled_tx
             .recover_signer()
             .map_err(|_| TxWithBlobsCreateError::InvalidTransactionSignature)?;
         match pooled_tx {
-            PooledTransaction::Legacy(_)
-            | PooledTransaction::Eip2930(_)
-            | PooledTransaction::Eip1559(_)
-            | PooledTransaction::Eip7702(_) => {
+            PooledTransactionVariant::Legacy(_)
+            | PooledTransactionVariant::Eip2930(_)
+            | PooledTransactionVariant::Eip1559(_)
+            | PooledTransactionVariant::Eip7702(_) => {
                 let tx_signed = TransactionSigned::from(pooled_tx);
                 TransactionSignedEcRecoveredWithBlobs::new_no_blobs(tx_signed.with_signer(signer))
             }
-            PooledTransaction::Eip4844(blob_tx) => {
+            PooledTransactionVariant::Eip4844(blob_tx) => {
                 let (blob_tx, signature, hash) = blob_tx.into_parts();
                 let (blob_tx, sidecar) = blob_tx.into_parts();
                 let tx_signed = TransactionSigned::new_unchecked(
@@ -859,7 +892,7 @@ impl TransactionSignedEcRecoveredWithBlobs {
         }
         Ok(TransactionSignedEcRecoveredWithBlobs {
             tx,
-            blobs_sidecar: Arc::new(fake_sidecar),
+            blobs_sidecar: Arc::new(BlobTransactionSidecarVariant::Eip4844(fake_sidecar)),
             metadata: Metadata::default(),
         })
     }
@@ -1043,9 +1076,7 @@ impl Order {
     }
 
     pub fn has_blobs(&self) -> bool {
-        self.list_txs()
-            .iter()
-            .any(|(tx, _)| !tx.blobs_sidecar.blobs.is_empty())
+        self.list_txs().iter().any(|(tx, _)| tx.blobs_len() > 0)
     }
 
     pub fn target_block(&self) -> Option<u64> {
@@ -1119,7 +1150,7 @@ pub struct SimValue {
     /// ProfitInfo considering profit only from non mempool txs on the s/bundles.
     /// For mempool orders it should match ProfitInfo
     non_mempool_profit_info: ProfitInfo,
-    gas_used: u64,
+    space_used: BlockSpace,
     blob_gas_used: u64,
     /// Kickbacks paid during simulation as (receiver, amount)
     paid_kickbacks: Vec<(Address, U256)>,
@@ -1131,14 +1162,14 @@ impl SimValue {
         full_coinbase_profit: U256,
         // for s/bundles profit from non-mempool txs.
         non_mempool_coinbase_profit: U256,
-        gas_used: u64,
+        space_used: BlockSpace,
         blob_gas_used: u64,
         paid_kickbacks: Vec<(Address, U256)>,
     ) -> Self {
         Self {
-            full_profit_info: ProfitInfo::new(full_coinbase_profit, gas_used),
-            non_mempool_profit_info: ProfitInfo::new(non_mempool_coinbase_profit, gas_used),
-            gas_used,
+            full_profit_info: ProfitInfo::new(full_coinbase_profit, space_used.gas()),
+            non_mempool_profit_info: ProfitInfo::new(non_mempool_coinbase_profit, space_used.gas()),
+            space_used,
             blob_gas_used,
             paid_kickbacks,
         }
@@ -1158,7 +1189,7 @@ impl SimValue {
         Self {
             full_profit_info: ProfitInfo::new(full_coinbase_profit, gas_used),
             non_mempool_profit_info: ProfitInfo::new(non_mempool_profit, gas_used),
-            gas_used,
+            space_used: BlockSpace::new(gas_used, 0),
             ..Default::default()
         }
     }
@@ -1172,7 +1203,7 @@ impl SimValue {
     }
 
     pub fn gas_used(&self) -> u64 {
-        self.gas_used
+        self.space_used.gas()
     }
 
     pub fn blob_gas_used(&self) -> u64 {
@@ -1261,9 +1292,9 @@ impl FromStr for OrderId {
 impl Display for OrderId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Tx(hash) => write!(f, "tx:{:?}", hash),
-            Self::Bundle(uuid) => write!(f, "bundle:{:?}", uuid),
-            Self::ShareBundle(hash) => write!(f, "sbundle:{:?}", hash),
+            Self::Tx(hash) => write!(f, "tx:{hash:?}"),
+            Self::Bundle(uuid) => write!(f, "bundle:{uuid:?}"),
+            Self::ShareBundle(hash) => write!(f, "sbundle:{hash:?}"),
         }
     }
 }

@@ -5,7 +5,7 @@ use alloy_eips::BlockNumHash;
 use alloy_primitives::Address;
 use eth_sparse_mpt::*;
 use reth::providers::providers::ConsistentDbView;
-use reth_provider::{BlockReader, DatabaseProviderFactory, StateCommitmentProvider};
+use reth_provider::{BlockReader, DatabaseProviderFactory};
 use tokio::sync::broadcast::{
     self,
     error::{RecvError, TryRecvError},
@@ -31,7 +31,6 @@ pub fn run_trie_prefetcher<P>(
     cancel: CancellationToken,
 ) where
     P: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync + Clone,
-    P: StateCommitmentProvider,
 {
     let consistent_db_view = ConsistentDbView::new(
         provider,
