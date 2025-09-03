@@ -9070,6 +9070,7 @@ dependencies = [
  "alloy-rpc-types-engine",
  "alloy-rpc-types-eth 1.0.27",
  "alloy-signer-local",
+ "alloy-trie 0.8.1",
  "assert_matches",
  "async-trait",
  "beacon-api-client",

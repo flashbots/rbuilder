@@ -53,6 +53,7 @@ alloy-rpc-types-eth.workspace = true
 alloy-consensus.workspace = true
 alloy-signer-local.workspace = true
 alloy-eips.workspace = true
+alloy-trie.workspace = true
 
 ethereum_ssz_derive.workspace = true
 ethereum_ssz.workspace = true

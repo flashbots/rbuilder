@@ -12,8 +12,8 @@ use crate::{
         constants::BASE_TX_GAS,
         default_cfg_env, elapsed_ms,
         receipts::{
-            calculate_receipt_root_and_block_logs_bloom, calculate_transactions_root, BloomCache,
-            TransactionRootCache,
+            calculate_receipts_data, calculate_tx_root_and_placeholder_proof, ReceiptsData,
+            ReceiptsDataCache, TransactionRootCache,
         },
         timestamp_as_u64, Signer,
     },
@@ -376,7 +376,7 @@ impl BlockBuildingContext {
 #[derive(Debug, Clone, Default)]
 pub struct ThreadBlockBuildingContext {
     pub cached_reads: LocalCachedReads,
-    pub bloom_cache: BloomCache,
+    pub bloom_cache: ReceiptsDataCache,
     pub tx_root_cache: TransactionRootCache,
     pub root_hash_calculator: SparseTrieLocalCache,
 }
@@ -1011,7 +1011,11 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         let exec_outcome_time_ms = elapsed_ms(step_start);
         let step_start = Instant::now();
 
-        let (receipts_root, logs_bloom) = calculate_receipt_root_and_block_logs_bloom(
+        let ReceiptsData {
+            logs_bloom,
+            receipts_root,
+            placeholder_receipt_proof,
+        } = calculate_receipts_data(
             &mut local_ctx.bloom_cache,
             &self.executed_tx_infos,
             ctx.faster_finalize,
@@ -1031,11 +1035,12 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         let step_start = Instant::now();
 
         // create the block header
-        let transactions_root = calculate_transactions_root(
-            &mut local_ctx.tx_root_cache,
-            &self.executed_tx_infos,
-            ctx.faster_finalize,
-        );
+        let (transactions_root, placeholder_transaction_proof) =
+            calculate_tx_root_and_placeholder_proof(
+                &mut local_ctx.tx_root_cache,
+                &self.executed_tx_infos,
+                ctx.faster_finalize,
+            );
 
         let transactions_root_time_ms = elapsed_ms(step_start);
         let step_start = Instant::now();
@@ -1128,16 +1133,22 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             },
         };
 
-        let bid_adjustments =
-            Self::generate_bid_adjustments(&block.header, &execution_outcome, ctx, local_ctx)
-                .inspect_err(|error| {
-                    error!(
-                        block_number = block.number,
-                        ?error,
-                        "Error generating bid adjustment data"
-                    );
-                })
-                .unwrap_or_default();
+        let bid_adjustments = Self::generate_bid_adjustments(
+            &block.header,
+            &execution_outcome,
+            ctx,
+            local_ctx,
+            placeholder_transaction_proof,
+            placeholder_receipt_proof,
+        )
+        .inspect_err(|error| {
+            error!(
+                block_number = block.number,
+                ?error,
+                "Error generating bid adjustment data"
+            );
+        })
+        .unwrap_or_default();
 
         let result = FinalizeResult {
             sealed_block: block.seal_slow(),
@@ -1169,6 +1180,8 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         outcome: &ExecutionOutcome,
         ctx: &BlockBuildingContext,
         local_ctx: &mut ThreadBlockBuildingContext,
+        placeholder_transaction_proof: Vec<Bytes>,
+        placeholder_receipt_proof: Vec<Bytes>,
     ) -> Result<HashMap<Address, BidAdjustmentData>, FinalizeError> {
         let fee_payer_addresses = HashSet::<Address>::default(); // TODO:
         if fee_payer_addresses.is_empty() {
@@ -1231,8 +1244,8 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
                     fee_recipient_proof: fee_recipient_proof.clone(),
                     fee_payer_address,
                     fee_payer_proof,
-                    placeholder_transaction_proof: Vec::new(), // TODO:
-                    placeholder_receipt_proof: Vec::new(),     // TODO:
+                    placeholder_transaction_proof: placeholder_transaction_proof.clone(),
+                    placeholder_receipt_proof: placeholder_receipt_proof.clone(),
                 },
             );
         }
