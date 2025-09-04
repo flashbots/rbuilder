@@ -16,7 +16,7 @@ serde_with = "3.9.0"
 rustc-hash = "2.0.0"
 rayon = "1.10.0"
 smallvec = "1.13.2"
-alloy-trie = { version = "0.8.1", default-features = false }
+alloy-trie.workspace = true
 nybbles = { version = "0.3.3" }
 
 tracing.workspace = true

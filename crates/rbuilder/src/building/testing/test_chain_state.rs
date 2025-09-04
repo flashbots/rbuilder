@@ -422,6 +422,7 @@ impl TestBlockContextBuilder {
             0,
             true,
             true,
+            Default::default(),
         )
         .unwrap();
         if self.use_suggested_fee_recipient_as_coinbase {

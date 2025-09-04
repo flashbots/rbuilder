@@ -121,7 +121,7 @@ pub struct BlockBuildingContext {
     pub tx_execution_cache: Arc<TxExecutionCache>,
     pub mempool_tx_detector: Arc<MempoolTxsDetector>,
     pub faster_finalize: bool,
-
+    pub adjustment_fee_payers: ahash::HashSet<Address>,
     /// Cached from evm_env.block_env.number but as BlockNumber. Avoid conversions all over the code.
     block_number: BlockNumber,
 }
@@ -144,6 +144,7 @@ impl BlockBuildingContext {
         payload_id: InternalPayloadId,
         evm_caching_enable: bool,
         faster_finalize: bool,
+        adjustment_fee_payers: ahash::HashSet<Address>,
     ) -> Option<BlockBuildingContext> {
         let attributes = EthPayloadBuilderAttributes::try_new(
             attributes.data.parent_block_hash,
@@ -216,6 +217,7 @@ impl BlockBuildingContext {
             max_blob_gas_per_block,
             mempool_tx_detector: Arc::new(MempoolTxsDetector::new()),
             faster_finalize,
+            adjustment_fee_payers,
             block_number,
         })
     }
@@ -320,6 +322,7 @@ impl BlockBuildingContext {
             max_blob_gas_per_block,
             mempool_tx_detector: Arc::new(MempoolTxsDetector::new()),
             faster_finalize: true,
+            adjustment_fee_payers: Default::default(),
             block_number,
         }
     }
@@ -1183,8 +1186,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         placeholder_transaction_proof: Vec<Bytes>,
         placeholder_receipt_proof: Vec<Bytes>,
     ) -> Result<HashMap<Address, BidAdjustmentData>, FinalizeError> {
-        let fee_payer_addresses = HashSet::<Address>::default(); // TODO:
-        if fee_payer_addresses.is_empty() {
+        if ctx.adjustment_fee_payers.is_empty() {
             return Ok(Default::default());
         }
 
@@ -1205,7 +1207,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         let proof_targets = HashSet::from_iter(
             [builder_address, fee_recipient_address]
                 .into_iter()
-                .chain(fee_payer_addresses.clone()),
+                .chain(ctx.adjustment_fee_payers.clone()),
         );
         let mut account_proofs =
             ctx.root_hasher
@@ -1223,8 +1225,8 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         };
 
         let mut bid_adjustments = HashMap::default();
-        for fee_payer_address in fee_payer_addresses {
-            let Some(fee_payer_proof) = account_proofs.remove(&fee_payer_address) else {
+        for fee_payer_address in &ctx.adjustment_fee_payers {
+            let Some(fee_payer_proof) = account_proofs.remove(fee_payer_address) else {
                 error!(
                     %fee_payer_address,
                     "Fee payer proof is missing"
@@ -1233,7 +1235,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             };
 
             bid_adjustments.insert(
-                fee_payer_address,
+                *fee_payer_address,
                 BidAdjustmentData {
                     state_root: header.state_root,
                     transactions_root: header.transactions_root,
@@ -1242,7 +1244,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
                     builder_proof: builder_proof.clone(),
                     fee_recipient_address,
                     fee_recipient_proof: fee_recipient_proof.clone(),
-                    fee_payer_address,
+                    fee_payer_address: *fee_payer_address,
                     fee_payer_proof,
                     placeholder_transaction_proof: placeholder_transaction_proof.clone(),
                     placeholder_receipt_proof: placeholder_receipt_proof.clone(),

@@ -99,6 +99,7 @@ ethereum_ssz = "0.9.0"
 alloy-primitives = { version = "1.3.1", default-features = false, features = ["getrandom"] }
 alloy-rlp = "0.3.10"
 alloy-chains = "0.2.5"
+alloy-trie = { version = "0.8.1", default-features = false }
 alloy-evm = { version = "0.20.1", default-features = false }
 alloy-provider = { version = "1.0.27", features = ["ipc", "pubsub", "ws"] }
 alloy-pubsub = { version = "1.0.27" }

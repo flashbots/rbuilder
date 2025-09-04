@@ -45,8 +45,8 @@ use crate::{
     },
     mev_boost::{bloxroute_grpc, BLSBlockSigner, RelayClient},
     primitives::mev_boost::{
-        MevBoostRelayBidSubmitter, MevBoostRelaySlotInfoProvider, RelayConfig, RelayMode,
-        RelaySubmitConfig,
+        MevBoostRelayBidSubmitter, MevBoostRelayID, MevBoostRelaySlotInfoProvider, RelayConfig,
+        RelayMode, RelaySubmitConfig,
     },
     provider::StateProviderFactory,
     roothash::RootHashContext,
@@ -56,7 +56,7 @@ use alloy_chains::ChainKind;
 use alloy_primitives::{
     hex,
     utils::{format_ether, parse_ether},
-    FixedBytes, B256, U256,
+    Address, FixedBytes, B256, U256,
 };
 use bid_scraper::bid_scraper_client::run_nng_subscriber_with_retries;
 use ethereum_consensus::{
@@ -358,6 +358,7 @@ impl L1Config {
     }
 
     /// Creates the RelaySubmitSinkFactory and also returns the associated relays (MevBoostRelaySlotInfoProvider).
+    #[allow(clippy::type_complexity)]
     pub fn create_relays_sealed_sink_factory(
         &self,
         chain_spec: Arc<ChainSpec>,
@@ -365,6 +366,7 @@ impl L1Config {
     ) -> eyre::Result<(
         Box<dyn BuilderSinkFactory>,
         Vec<MevBoostRelaySlotInfoProvider>,
+        ahash::HashMap<MevBoostRelayID, Address>,
     )> {
         let submission_config = self.submission_config(chain_spec, bid_observer)?;
         info!(
@@ -389,7 +391,17 @@ impl L1Config {
             submission_config,
             submitters.clone(),
         ));
-        Ok((sink_factory, slot_info_providers))
+
+        let adjustment_fee_payers = self
+            .relays
+            .iter()
+            .filter_map(|r| {
+                r.adjustment_fee_payer
+                    .map(|fee_payer| (r.name.clone(), fee_payer))
+            })
+            .collect();
+
+        Ok((sink_factory, slot_info_providers, adjustment_fee_payers))
     }
 
     pub fn registration_update_interval(&self) -> Duration {
@@ -439,15 +451,16 @@ impl LiveBuilderConfig for Config {
                 as Pin<Box<dyn Future<Output = eyre::Result<Arc<dyn BiddingService>>> + Send>>
         };
 
-        let (sink_factory, slot_info_provider, _) = create_sink_factory_and_relays(
-            &self.base_config,
-            &self.l1_config,
-            provider.clone(),
-            Box::new(NullBidObserver {}),
-            bidding_service_factory,
-            cancellation_token.clone(),
-        )
-        .await?;
+        let (sink_factory, slot_info_provider, adjustment_fee_payers, _) =
+            create_sink_factory_and_relays(
+                &self.base_config,
+                &self.l1_config,
+                provider.clone(),
+                Box::new(NullBidObserver {}),
+                bidding_service_factory,
+                cancellation_token.clone(),
+            )
+            .await?;
 
         let live_builder = create_builder_from_sink(
             &self.base_config,
@@ -455,6 +468,7 @@ impl LiveBuilderConfig for Config {
             provider,
             sink_factory,
             slot_info_provider,
+            adjustment_fee_payers,
             cancellation_token,
         )
         .await?;
@@ -954,6 +968,7 @@ pub async fn create_sink_factory_and_relays<P, BiddingServiceFactoryType>(
 ) -> eyre::Result<(
     Box<dyn UnfinishedBlockBuildingSinkFactory>,
     Vec<MevBoostRelaySlotInfoProvider>,
+    ahash::HashMap<MevBoostRelayID, Address>,
     Arc<dyn BiddingServiceWinControl>,
 )>
 where
@@ -964,7 +979,7 @@ where
         Box<dyn Future<Output = eyre::Result<Arc<dyn BiddingService>>> + Send>,
     >,
 {
-    let (sink_sealed_factory, slot_info_provider) =
+    let (sink_sealed_factory, slot_info_provider, adjustment_fee_payers) =
         l1_config.create_relays_sealed_sink_factory(base_config.chain_spec()?, bid_observer)?;
 
     // BlockSealingBidderFactory
@@ -1000,6 +1015,7 @@ where
     Ok((
         sink_factory,
         slot_info_provider,
+        adjustment_fee_payers,
         bidding_service_win_control,
     ))
 }
@@ -1011,6 +1027,7 @@ pub async fn create_builder_from_sink<P>(
     provider: P,
     sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
     slot_info_provider: Vec<MevBoostRelaySlotInfoProvider>,
+    adjustment_fee_payers: ahash::HashMap<MevBoostRelayID, Address>,
     cancellation_token: CancellationToken,
 ) -> eyre::Result<super::LiveBuilder<P, MevBoostSlotDataGenerator>>
 where
@@ -1024,6 +1041,7 @@ where
         l1_config.beacon_clients()?,
         slot_info_provider,
         l1_config.registration_update_interval(),
+        adjustment_fee_payers,
         blocklist_provider.clone(),
         cancellation_token.clone(),
     );

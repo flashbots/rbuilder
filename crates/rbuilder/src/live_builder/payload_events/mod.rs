@@ -14,7 +14,7 @@ use crate::{
         },
         SlotSource,
     },
-    mev_boost::ValidatorSlotData,
+    mev_boost::RelaySlotData,
     primitives::mev_boost::{MevBoostRelayID, MevBoostRelaySlotInfoProvider},
     utils::{format_offset_datetime_rfc3339, timestamp_ms_to_offset_datetime},
 };
@@ -49,7 +49,7 @@ pub struct MevBoostSlotData {
     pub payload_attributes_event: PayloadAttributesEvent,
     pub suggested_gas_limit: u64,
     /// Map of relays to the registrations with matching slot data. It may not contain all the relays (eg: errors, forks, validators registering only to some relays)
-    pub relay_registrations: Arc<HashMap<MevBoostRelayID, ValidatorSlotData>>,
+    pub relay_registrations: Arc<HashMap<MevBoostRelayID, RelaySlotData>>,
     pub slot_data: SlotData,
     #[derivative(PartialEq = "ignore", Hash = "ignore")]
     pub payload_id: InternalPayloadId,
@@ -100,6 +100,7 @@ pub struct MevBoostSlotDataGenerator {
     cls: Vec<Client>,
     relays: Vec<MevBoostRelaySlotInfoProvider>,
     update_interval: Duration,
+    adjustment_fee_payers: HashMap<MevBoostRelayID, Address>,
     blocklist_provider: Arc<dyn BlockListProvider>,
     global_cancellation: CancellationToken,
 }
@@ -109,6 +110,7 @@ impl MevBoostSlotDataGenerator {
         cls: Vec<Client>,
         relays: Vec<MevBoostRelaySlotInfoProvider>,
         update_interval: Duration,
+        adjustment_fee_payers: HashMap<MevBoostRelayID, Address>,
         blocklist_provider: Arc<dyn BlockListProvider>,
         global_cancellation: CancellationToken,
     ) -> Self {
@@ -116,6 +118,7 @@ impl MevBoostSlotDataGenerator {
             cls,
             relays,
             update_interval,
+            adjustment_fee_payers,
             blocklist_provider,
             global_cancellation,
         }
@@ -133,6 +136,7 @@ impl MevBoostSlotDataGenerator {
         let relays = RelaysForSlotData::spawn_with_interval(
             self.relays.clone(),
             self.update_interval,
+            self.adjustment_fee_payers.clone(),
             self.global_cancellation.clone(),
         );
 

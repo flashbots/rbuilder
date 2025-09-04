@@ -303,6 +303,15 @@ pub enum RelayResponse<T> {
     Error(RedactableRelayErrorResponse),
 }
 
+/// Relay validator registration with auxilary data.
+#[derive(PartialEq, Debug, Clone)]
+pub struct RelaySlotData {
+    /// Validator slot registration.
+    pub registration: ValidatorSlotData,
+    /// Fee payer address for bid adjustments.
+    pub adjustment_fee_payer: Option<Address>,
+}
+
 /// Info about a registered validator selected as proposer for a slot.
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Hash)]
@@ -581,6 +590,11 @@ impl RelayClient {
             url.set_path("/relay/v1/builder/blocks");
             url.query_pairs_mut()
                 .append_pair("cancellations", if cancellations { "1" } else { "0" });
+
+            if submission_with_metadata.submission.has_adjustment_data() {
+                url.query_pairs_mut().append_pair("adjustments", "1");
+            }
+
             url
         };
 

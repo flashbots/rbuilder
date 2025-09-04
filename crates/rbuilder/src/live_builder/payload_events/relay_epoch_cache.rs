@@ -1,5 +1,5 @@
 use crate::{
-    mev_boost::{RelayError, ValidatorSlotData},
+    mev_boost::{RelayError, RelaySlotData, ValidatorSlotData},
     primitives::mev_boost::{MevBoostRelayID, MevBoostRelaySlotInfoProvider},
     telemetry::{inc_conn_relay_errors, inc_other_relay_errors, inc_too_many_req_relay_errors},
 };
@@ -87,6 +87,8 @@ impl RelayValidatorSlotDataCache {
 pub struct RelaysForSlotData {
     /// Validator registration cache.
     cache: RelayValidatorSlotDataCache,
+    /// Adjustment fee payer addresses by relay.
+    adjustment_fee_payers: HashMap<MevBoostRelayID, Address>,
     /// Redundant with relay but easier to access/pass around.
     can_ignore_gas_limit: HashSet<MevBoostRelayID>,
 }
@@ -95,6 +97,7 @@ impl RelaysForSlotData {
     pub fn spawn_with_interval(
         relays: Vec<MevBoostRelaySlotInfoProvider>,
         interval: Duration,
+        adjustment_fee_payers: HashMap<MevBoostRelayID, Address>,
         cancellation_token: CancellationToken,
     ) -> Self {
         let cache = RelayValidatorSlotDataCache::default();
@@ -122,6 +125,7 @@ impl RelaysForSlotData {
         Self {
             cache,
             can_ignore_gas_limit,
+            adjustment_fee_payers,
         }
     }
 
@@ -131,35 +135,46 @@ impl RelaysForSlotData {
     pub fn slot_data(
         &mut self,
         slot: u64,
-    ) -> Option<(SlotData, Arc<HashMap<MevBoostRelayID, ValidatorSlotData>>)> {
+    ) -> Option<(SlotData, Arc<HashMap<MevBoostRelayID, RelaySlotData>>)> {
         let registrations = self.cache.get_slot_registrations(slot);
-        resolve_relay_slot_data(registrations, &self.can_ignore_gas_limit)
+        let (slot_data, registrations) = resolve_relay_slot_data(
+            registrations,
+            &self.adjustment_fee_payers,
+            &self.can_ignore_gas_limit,
+        )?;
+        Some((slot_data, registrations))
     }
 }
 
 fn resolve_relay_slot_data(
     fetched_data: Vec<(MevBoostRelayID, ValidatorSlotData)>,
+    adjustment_fee_payers: &HashMap<MevBoostRelayID, Address>,
     can_ignore_gas_limit: &HashSet<MevBoostRelayID>,
-) -> Option<(SlotData, Arc<HashMap<MevBoostRelayID, ValidatorSlotData>>)> {
+) -> Option<(SlotData, Arc<HashMap<MevBoostRelayID, RelaySlotData>>)> {
     if fetched_data.is_empty() {
         return None;
     }
 
-    let mut registrations_by_slot_data: HashMap<
-        SlotData,
-        HashMap<MevBoostRelayID, ValidatorSlotData>,
-    > = HashMap::default();
+    let mut registrations_by_slot_data: HashMap<SlotData, HashMap<MevBoostRelayID, RelaySlotData>> =
+        HashMap::default();
 
-    for (relay, raw_data) in fetched_data {
+    for (relay, registration) in fetched_data {
         let slot_data = SlotData {
-            fee_recipient: raw_data.entry.message.fee_recipient,
-            gas_limit: raw_data.entry.message.gas_limit,
-            pubkey: raw_data.entry.message.pubkey,
+            fee_recipient: registration.entry.message.fee_recipient,
+            gas_limit: registration.entry.message.gas_limit,
+            pubkey: registration.entry.message.pubkey,
         };
+        let maybe_fee_payer = adjustment_fee_payers.get(&relay).copied();
         registrations_by_slot_data
             .entry(slot_data)
             .or_default()
-            .insert(relay, raw_data);
+            .insert(
+                relay,
+                RelaySlotData {
+                    registration,
+                    adjustment_fee_payer: maybe_fee_payer,
+                },
+            );
     }
 
     // all relays returned the same data
@@ -173,7 +188,7 @@ fn resolve_relay_slot_data(
         .iter()
         .max_by_key(|(_, v)| {
             v.values()
-                .map(|r| r.entry.message.timestamp)
+                .map(|r| r.registration.entry.message.timestamp)
                 .max()
                 .unwrap_or_default()
         })
@@ -209,20 +224,23 @@ mod test {
     use super::*;
     use alloy_primitives::{address, Bytes};
 
-    fn make_test_data(fee_recipient: Address, timestamp: u64) -> ValidatorSlotData {
-        ValidatorSlotData {
-            entry: ValidatorRegistration {
-                message: ValidatorRegistrationMessage {
-                    fee_recipient,
-                    gas_limit: 30000000,
-                    timestamp,
-                    pubkey: H384::zero(),
+    fn make_test_data(fee_recipient: Address, timestamp: u64) -> RelaySlotData {
+        RelaySlotData {
+            registration: ValidatorSlotData {
+                entry: ValidatorRegistration {
+                    message: ValidatorRegistrationMessage {
+                        fee_recipient,
+                        gas_limit: 30000000,
+                        timestamp,
+                        pubkey: H384::zero(),
+                    },
+                    signature: Bytes::new(),
                 },
-                signature: Bytes::new(),
+                validator_index: 1,
+                slot: 2,
+                regional_endpoints: Vec::new(),
             },
-            validator_index: 1,
-            slot: 2,
-            regional_endpoints: Vec::new(),
+            adjustment_fee_payer: None,
         }
     }
 
@@ -237,11 +255,12 @@ mod test {
         let data = make_test_data(address!("1111111111111111111111111111111111111111"), 100);
 
         let fetched = vec![
-            (relay1.clone(), data.clone()),
-            (relay2.clone(), data.clone()),
+            (relay1.clone(), data.registration.clone()),
+            (relay2.clone(), data.registration.clone()),
         ];
 
-        let result = resolve_relay_slot_data(fetched.clone(), &HashSet::default());
+        let result =
+            resolve_relay_slot_data(fetched.clone(), &Default::default(), &HashSet::default());
         let (slot_data, relays) = result.unwrap();
         assert_eq!(
             SlotData {
@@ -251,16 +270,27 @@ mod test {
             },
             slot_data
         );
-        assert_eq!(relays, Arc::new(HashMap::from_iter(fetched)));
+        assert_eq!(
+            relays,
+            Arc::new(HashMap::from_iter(fetched.into_iter().map(
+                |(relay, registration)| (
+                    relay,
+                    RelaySlotData {
+                        registration,
+                        adjustment_fee_payer: None
+                    }
+                )
+            )))
+        );
 
         // Test when relays return different data (should pick latest timestamp)
         let data2 = make_test_data(address!("2222222222222222222222222222222222222222"), 200);
         let fetched = vec![
-            (relay1.clone(), data.clone()),
-            (relay2.clone(), data2.clone()),
+            (relay1.clone(), data.registration.clone()),
+            (relay2.clone(), data2.registration.clone()),
         ];
 
-        let result = resolve_relay_slot_data(fetched, &HashSet::default());
+        let result = resolve_relay_slot_data(fetched, &Default::default(), &HashSet::default());
         let (slot_data, relays) = result.unwrap();
         assert_eq!(
             SlotData {
@@ -277,17 +307,17 @@ mod test {
 
         // Test when relays return different gas limit but same fee recipient and pubkey
         let mut data3 = data2.clone();
-        data3.entry.message.gas_limit = 40000000;
+        data3.registration.entry.message.gas_limit = 40000000;
         // We want data2 to win.
-        data3.entry.message.timestamp -= 1;
+        data3.registration.entry.message.timestamp -= 1;
         let fetched = vec![
-            (relay1.clone(), data.clone()),
-            (relay2.clone(), data2.clone()),
-            (relay3.clone(), data3.clone()),
+            (relay1.clone(), data.registration.clone()),
+            (relay2.clone(), data2.registration.clone()),
+            (relay3.clone(), data3.registration.clone()),
         ];
 
         // No can_ignore_gas_limit
-        let result = resolve_relay_slot_data(fetched, &HashSet::default());
+        let result = resolve_relay_slot_data(fetched, &Default::default(), &HashSet::default());
         let (slot_data, relays) = result.unwrap();
         assert_eq!(
             SlotData {
@@ -304,12 +334,12 @@ mod test {
 
         // data3 can_ignore_gas_limit
         let fetched = vec![
-            (relay1.clone(), data.clone()),
-            (relay2.clone(), data2.clone()),
-            (relay3.clone(), data3.clone()),
+            (relay1.clone(), data.registration.clone()),
+            (relay2.clone(), data2.registration.clone()),
+            (relay3.clone(), data3.registration.clone()),
         ];
         let can_ignore_gas_limit = HashSet::from_iter([relay3.clone()]);
-        let result = resolve_relay_slot_data(fetched, &can_ignore_gas_limit);
+        let result = resolve_relay_slot_data(fetched, &Default::default(), &can_ignore_gas_limit);
         let (slot_data, relays) = result.unwrap();
         assert_eq!(
             SlotData {

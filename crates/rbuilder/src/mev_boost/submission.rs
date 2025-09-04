@@ -1,7 +1,9 @@
 use alloy_primitives::U256;
-use alloy_rpc_types_beacon::relay::SignedBidSubmissionV5;
 use alloy_rpc_types_beacon::{
-    relay::{BidTrace, SignedBidSubmissionV2, SignedBidSubmissionV3, SignedBidSubmissionV4},
+    relay::{
+        BidTrace, SignedBidSubmissionV2, SignedBidSubmissionV3, SignedBidSubmissionV4,
+        SignedBidSubmissionV5,
+    },
     requests::ExecutionRequestsV4,
     BlsSignature,
 };
@@ -53,6 +55,16 @@ impl SubmitBlockRequest {
             SubmitBlockRequest::Deneb(req) => &req.message,
             SubmitBlockRequest::Electra(req) => &req.message,
         }
+    }
+
+    pub fn has_adjustment_data(&self) -> bool {
+        let maybe_adjustment_data = match self {
+            SubmitBlockRequest::Capella(req) => &req.adjustment_data,
+            SubmitBlockRequest::Deneb(req) => &req.adjustment_data,
+            SubmitBlockRequest::Electra(req) => &req.adjustment_data,
+            SubmitBlockRequest::Fulu(req) => &req.adjustment_data,
+        };
+        maybe_adjustment_data.is_some()
     }
 }
 

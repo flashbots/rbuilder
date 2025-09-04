@@ -312,6 +312,11 @@ where
                 payload.payload_id,
                 self.evm_caching_enable,
                 self.faster_finalize,
+                payload
+                    .relay_registrations
+                    .iter()
+                    .filter_map(|(_, r)| r.adjustment_fee_payer)
+                    .collect(),
             ) {
                 mark_building_started(block_ctx.timestamp());
                 builder_pool.start_block_building(

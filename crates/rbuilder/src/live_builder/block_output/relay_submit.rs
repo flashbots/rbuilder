@@ -2,11 +2,15 @@ use crate::{
     building::builders::Block,
     live_builder::{block_output::bid_observer::BidObserver, payload_events::MevBoostSlotData},
     mev_boost::{
+        adjustment::BidAdjustmentData,
         sign_block_for_relay,
         submission::{BidMetadata, BidValueMetadata, SubmitBlockRequestWithMetadata},
-        BLSBlockSigner, RelayError, SubmitBlockErr, ValidatorSlotData,
+        BLSBlockSigner, RelayError, RelaySlotData, SubmitBlockErr, ValidatorSlotData,
     },
-    primitives::mev_boost::{MevBoostRelayBidSubmitter, MevBoostRelayID},
+    primitives::{
+        built_block::{block_to_execution_payload, SignedBuiltBlock},
+        mev_boost::{MevBoostRelayBidSubmitter, MevBoostRelayID},
+    },
     telemetry::{
         add_relay_submit_time, add_subsidy_value, inc_conn_relay_errors,
         inc_failed_block_simulations, inc_initiated_submissions, inc_other_relay_errors,
@@ -16,14 +20,14 @@ use crate::{
     utils::{duration_ms, error_storage::store_error_event},
 };
 use ahash::HashMap;
-use alloy_primitives::{utils::format_ether, U256};
+use alloy_primitives::{utils::format_ether, Address, U256};
 use mockall::automock;
 use parking_lot::Mutex;
 use reth_chainspec::ChainSpec;
 use std::sync::Arc;
 use tokio::{sync::Notify, time::Instant};
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info, info_span, trace, warn, Instrument, Span};
+use tracing::{error, error_span, info, info_span, trace, warn, Instrument, Span};
 
 const SIM_ERROR_CATEGORY: &str = "submit_block_simulation";
 
@@ -233,20 +237,25 @@ async fn run_submit_to_relays_job(
         inc_initiated_submissions(optimistic_config.is_some());
         let relay_filter = get_relay_filter(&block);
 
-        let (normal_signed_submission, optimistic_signed_submission) = {
-            let normal_signed_submission = match sign_block_for_relay(
+        let execution_payload = block_to_execution_payload(
+            &config.chain_spec,
+            &slot_data.payload_attributes_event.data,
+            &block.sealed_block,
+        );
+        let (normal_signed_block, optimistic_signed_block) = {
+            let normal_signed_block = match sign_block_for_relay(
                 &config.signer,
                 &block.sealed_block,
-                &block.txs_blobs_sidecars,
-                &block.execution_requests,
-                &config.chain_spec,
                 &slot_data.payload_attributes_event.data,
                 slot_data.slot_data.pubkey,
                 block.trace.bid_value,
             ) {
-                Ok(res) => SubmitBlockRequestWithMetadata {
-                    submission: res,
-                    metadata: bid_metadata.clone(),
+                Ok((message, signature)) => SignedBuiltBlock {
+                    message,
+                    signature,
+                    execution_payload: execution_payload.clone(),
+                    blob_sidecars: block.txs_blobs_sidecars.clone(),
+                    execution_requests: block.execution_requests.clone(),
                 },
                 Err(err) => {
                     error!(parent: &submission_span, err = ?err, "Error signing block for relay");
@@ -254,21 +263,21 @@ async fn run_submit_to_relays_job(
                 }
             };
 
-            let optimistic_signed_submission = if let Some(optimistic_config) = optimistic_config {
+            let optimistic_signed_block = if let Some(optimistic_config) = optimistic_config {
                 match sign_block_for_relay(
                     &optimistic_config.signer,
                     &block.sealed_block,
-                    &block.txs_blobs_sidecars,
-                    &block.execution_requests,
-                    &config.chain_spec,
                     &slot_data.payload_attributes_event.data,
                     slot_data.slot_data.pubkey,
                     block.trace.bid_value,
                 ) {
-                    Ok(res) => Some((
-                        SubmitBlockRequestWithMetadata {
-                            submission: res,
-                            metadata: bid_metadata.clone(),
+                    Ok((message, signature)) => Some((
+                        SignedBuiltBlock {
+                            message,
+                            signature,
+                            execution_payload,
+                            blob_sidecars: block.txs_blobs_sidecars.clone(),
+                            execution_requests: block.execution_requests.clone(),
                         },
                         optimistic_config,
                     )),
@@ -281,13 +290,16 @@ async fn run_submit_to_relays_job(
                 None
             };
 
-            (normal_signed_submission, optimistic_signed_submission)
+            (normal_signed_block, optimistic_signed_block)
         };
 
         mark_submission_start_time(block.trace.orders_sealed_at);
         submit_block_to_relays(
+            &config.chain_spec,
+            &normal_signed_block,
+            &bid_metadata,
+            &block.bid_adjustments,
             &normal_relays,
-            &normal_signed_submission,
             &slot_data.relay_registrations,
             &relay_filter,
             false,
@@ -295,10 +307,13 @@ async fn run_submit_to_relays_job(
             &cancel,
         );
 
-        if let Some((optimistic_signed_submission, _)) = &optimistic_signed_submission {
+        if let Some((optimistic_signed_block, _)) = optimistic_signed_block {
             submit_block_to_relays(
+                &config.chain_spec,
+                &optimistic_signed_block,
+                &bid_metadata,
+                &block.bid_adjustments,
                 &optimistic_relays,
-                optimistic_signed_submission,
                 &slot_data.relay_registrations,
                 &relay_filter,
                 true,
@@ -308,8 +323,11 @@ async fn run_submit_to_relays_job(
         } else {
             // non-optimistic submission to optimistic relays
             submit_block_to_relays(
+                &config.chain_spec,
+                &normal_signed_block,
+                &bid_metadata,
+                &block.bid_adjustments,
                 &optimistic_relays,
-                &normal_signed_submission,
                 &slot_data.relay_registrations,
                 &relay_filter,
                 false,
@@ -323,7 +341,6 @@ async fn run_submit_to_relays_job(
             config.bid_observer.block_submitted(
                 &slot_data,
                 &block.sealed_block,
-                &normal_signed_submission.submission,
                 &block.trace,
                 builder_name,
                 bid_metadata.value.top_competitor_bid.unwrap_or_default(),
@@ -332,10 +349,14 @@ async fn run_submit_to_relays_job(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn submit_block_to_relays(
+    chain_spec: &ChainSpec,
+    signed_block: &SignedBuiltBlock,
+    bid_metadata: &BidMetadata,
+    bid_adjustments: &std::collections::HashMap<Address, BidAdjustmentData>,
     relays: &Vec<MevBoostRelayBidSubmitter>,
-    submission: &SubmitBlockRequestWithMetadata,
-    registrations: &HashMap<MevBoostRelayID, ValidatorSlotData>,
+    registrations: &HashMap<MevBoostRelayID, RelaySlotData>,
     relay_filter: &impl Fn(&MevBoostRelayBidSubmitter) -> bool,
     optimistic: bool,
     submission_span: &Span,
@@ -352,17 +373,33 @@ fn submit_block_to_relays(
                 }
             };
 
+            let adjustment_data = registration
+                .adjustment_fee_payer
+                .and_then(|fee_payer| bid_adjustments.get(&fee_payer).cloned());
+            let submission = match signed_block
+                .clone()
+                .into_request(chain_spec, adjustment_data)
+            {
+                Ok(submission) => SubmitBlockRequestWithMetadata {
+                    submission,
+                    metadata: bid_metadata.clone(),
+                },
+                Err(error) => {
+                    error_span!(parent: submission_span, "request_convert_error", relay = &relay.id(), ?error);
+                    continue;
+                }
+            };
+
             let span = info_span!(parent: submission_span, "relay_submit", relay = &relay.id(), optimistic);
             let relay = relay.clone();
             let cancel = cancel.clone();
-            let submission = submission.clone();
             tokio::spawn(
                 async move {
                     submit_bid_to_the_relay(
                         &relay,
                         cancel.clone(),
                         submission,
-                        registration,
+                        registration.registration,
                         optimistic,
                     )
                     .await;

@@ -1,5 +1,6 @@
 //! Order types used as elements for block building.
 
+pub mod built_block;
 pub mod fmt;
 pub mod mev_boost;
 pub mod order_builder;

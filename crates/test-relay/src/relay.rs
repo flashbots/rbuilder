@@ -333,6 +333,7 @@ fn spawn_mev_boost_slot_data_generator(
         cl_clients,
         vec![relay],
         Duration::from_millis(1_000),
+        Default::default(),
         Arc::new(NullBlockListProvider::default()),
         cancellation_token.clone(),
     );

@@ -86,6 +86,7 @@ async fn main() -> eyre::Result<()> {
         vec![Client::default()],
         vec![relay],
         Duration::from_millis(1_000),
+        Default::default(),
         blocklist_provider.clone(),
         cancel.clone(),
     );
