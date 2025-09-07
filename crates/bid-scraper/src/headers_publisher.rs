@@ -6,7 +6,7 @@ use crate::{
         CfgWithSimpleRelayPublisherConfig, Service, ServiceInner, SimpleRelayPublisherConfig,
     },
     slot,
-    types::{BlockBid, PublisherType},
+    types::{ScrapedRelayBlockBid, PublisherType},
     DynResult, REQUEST_TIMEOUT, RPC_TIMEOUT,
 };
 use alloy_primitives::{Address, BlockHash, U256};
@@ -73,7 +73,7 @@ impl Service<RelayHeadersPublisherConfig> for HeadersPublisherService {
         self,
         relay_name: String,
         relay_endpoint: String,
-        headers_seen: Arc<Mutex<LruCache<BlockBid, ()>>>,
+        headers_seen: Arc<Mutex<LruCache<ScrapedRelayBlockBid, ()>>>,
         client: Arc<reqwest::Client>,
     ) {
         let header = match self.get_header(&relay_name, &relay_endpoint, &client).await {
@@ -190,7 +190,7 @@ impl HeadersPublisherService {
         relay_name: &str,
         relay_endpoint: &str,
         client: &reqwest::Client,
-    ) -> DynResult<Option<BlockBid>> {
+    ) -> DynResult<Option<ScrapedRelayBlockBid>> {
         debug!("Getting header for relay {relay_name}");
 
         let (next_slot, last_block_hash, next_validator_pubkey) = {
@@ -228,7 +228,7 @@ impl HeadersPublisherService {
 
         let msg = &json_header["data"]["message"];
 
-        let header = BlockBid {
+        let header = ScrapedRelayBlockBid {
             publisher_name: self.name.clone(),
             publisher_type: PublisherType::RelayHeaders,
             relay_name: relay_name.to_string(),

@@ -14,7 +14,7 @@ use crate::{
 };
 use alloy_consensus::constants::GWEI_TO_WEI;
 use alloy_primitives::{utils::Unit, U256};
-use bid_scraper::types::BlockBid;
+use bid_scraper::types::ScrapedRelayBlockBid;
 use bigdecimal::num_traits::Pow;
 use ctor::ctor;
 use lazy_static::lazy_static;
@@ -673,7 +673,7 @@ pub fn inc_root_hash_prefetch_count(fetched_nodes: usize) {
         .inc_by(fetched_nodes.try_into().unwrap_or_default());
 }
 
-pub fn inc_bids_received(bid: &BlockBid) {
+pub fn inc_bids_received(bid: &ScrapedRelayBlockBid) {
     let relay_name = bid.relay_name.as_str();
     let publisher_name = bid.publisher_name.as_str();
     let publisher_type = match bid.publisher_type {

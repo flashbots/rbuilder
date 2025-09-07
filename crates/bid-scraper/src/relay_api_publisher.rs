@@ -10,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
 use crate::{
-    bid_sender::BidSender, get_timestamp_f64, slot, types::BlockBid, REQUEST_TIMEOUT, RPC_TIMEOUT,
+    bid_sender::BidSender, get_timestamp_f64, slot, types::ScrapedRelayBlockBid, REQUEST_TIMEOUT, RPC_TIMEOUT,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -96,7 +96,7 @@ pub trait Service<CfgType: CfgWithSimpleRelayPublisherConfig>: Clone + Sized + S
         self,
         relay_name: String,
         relay_endpoint: String,
-        bids_seen: Arc<Mutex<LruCache<BlockBid, ()>>>,
+        bids_seen: Arc<Mutex<LruCache<ScrapedRelayBlockBid, ()>>>,
         client: Arc<reqwest::Client>,
     );
 
@@ -186,7 +186,7 @@ pub trait Service<CfgType: CfgWithSimpleRelayPublisherConfig>: Clone + Sized + S
             return Ok(());
         }
 
-        let headers_seen: Arc<Mutex<LruCache<BlockBid, ()>>> =
+        let headers_seen: Arc<Mutex<LruCache<ScrapedRelayBlockBid, ()>>> =
             Arc::new(Mutex::new(LruCache::new(NonZeroUsize::new(4096).unwrap())));
         let client = Arc::new(
             reqwest::Client::builder()

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bid_scraper::{bid_scraper_client::ScrapedBidsObs, types::BlockBid};
+use bid_scraper::{bid_scraper_client::ScrapedBidsObs, types::ScrapedRelayBlockBid};
 use derivative::Derivative;
 use time::OffsetDateTime;
 
@@ -13,21 +13,21 @@ use crate::{
 #[derive(Derivative, Clone, Debug)]
 #[derivative(PartialEq, Eq)]
 pub struct BlockBidWithStats {
-    pub bid: BlockBid,
+    pub bid: ScrapedRelayBlockBid,
     /// Time this strucut was created, just before sending it to the bidding service
     #[derivative(PartialEq = "ignore")]
     creation_time: OffsetDateTime,
 }
 
 impl BlockBidWithStats {
-    pub fn new(bid: BlockBid) -> Self {
+    pub fn new(bid: ScrapedRelayBlockBid) -> Self {
         Self {
             bid,
             creation_time: OffsetDateTime::now_utc(),
         }
     }
 
-    pub fn new_for_deserialization(bid: BlockBid, creation_time: OffsetDateTime) -> Self {
+    pub fn new_for_deserialization(bid: ScrapedRelayBlockBid, creation_time: OffsetDateTime) -> Self {
         Self { bid, creation_time }
     }
 
@@ -47,7 +47,7 @@ impl ScrapedBids2BlockBidWithStatsObs {
 }
 
 impl ScrapedBidsObs for ScrapedBids2BlockBidWithStatsObs {
-    fn update_new_bid(&self, bid: BlockBid) {
+    fn update_new_bid(&self, bid: ScrapedRelayBlockBid) {
         inc_bids_received(&bid);
         self.obs.update_new_bid(BlockBidWithStats::new(bid));
     }

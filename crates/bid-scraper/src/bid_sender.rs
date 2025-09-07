@@ -4,11 +4,11 @@ use runng::{protocol::Pub0, SendSocket};
 use tokio_util::sync::CancellationToken;
 use tracing::error;
 
-use crate::types::BlockBid;
+use crate::types::ScrapedRelayBlockBid;
 
 /// Trait for sending scraped bids.
 pub trait BidSender: Send + Sync {
-    fn send(&self, bid: BlockBid) -> Result<(), BidSenderError>;
+    fn send(&self, bid: ScrapedRelayBlockBid) -> Result<(), BidSenderError>;
 }
 
 /// Implementation of BidSender that publishes the bids to the network using NNG.
@@ -33,7 +33,7 @@ impl NNGBidSender {
 }
 
 impl BidSender for NNGBidSender {
-    fn send(&self, bid: BlockBid) -> Result<(), BidSenderError> {
+    fn send(&self, bid: ScrapedRelayBlockBid) -> Result<(), BidSenderError> {
         match serde_json::to_vec(&bid) {
             Ok(data) => {
                 if let Err(err) = self.nng_publisher_socket.send(&data) {
@@ -73,7 +73,7 @@ impl BidSenderCanceller {
 }
 
 impl BidSender for BidSenderCanceller {
-    fn send(&self, bid: BlockBid) -> Result<(), BidSenderError> {
+    fn send(&self, bid: ScrapedRelayBlockBid) -> Result<(), BidSenderError> {
         let res = self.bid_sender.send(bid);
         if let Err(err) = &res {
             match err {

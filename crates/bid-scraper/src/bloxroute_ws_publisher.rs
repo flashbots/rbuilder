@@ -1,7 +1,7 @@
 use crate::{
     code_from_rbuilder::EnvOrValue,
     get_timestamp_f64,
-    types::{BlockBid, PublisherType},
+    types::{ScrapedRelayBlockBid, PublisherType},
     ws_publisher::{ConnectionHandler, Service},
     DynResult, RPC_TIMEOUT,
 };
@@ -59,7 +59,7 @@ impl BloxrouteWsConnectionHandler {
         Self { cfg, name }
     }
 
-    fn parse_bid(&self, json_bid: &serde_json::Value) -> DynResult<Option<BlockBid>> {
+    fn parse_bid(&self, json_bid: &serde_json::Value) -> DynResult<Option<ScrapedRelayBlockBid>> {
         let parsed = match serde_json::from_value::<BloxrouteWsBid>(json_bid.clone()) {
             Ok(bid) => bid,
             Err(error) => {
@@ -70,7 +70,7 @@ impl BloxrouteWsConnectionHandler {
 
         let relay_name = format!("bloxroute-{}", parsed.relay_type);
 
-        let bid = BlockBid {
+        let bid = ScrapedRelayBlockBid {
             publisher_name: self.name.clone(),
             publisher_type: PublisherType::BloxrouteWs,
             builder_pubkey: Some(BlsPublicKey::from_str(&parsed.builder_pubkey)?),
@@ -133,7 +133,7 @@ impl ConnectionHandler for BloxrouteWsConnectionHandler {
         Ok(())
     }
 
-    fn parse(&self, message: Message) -> eyre::Result<Option<BlockBid>> {
+    fn parse(&self, message: Message) -> eyre::Result<Option<ScrapedRelayBlockBid>> {
         match message {
             Message::Text(data) => {
                 let json_bid: serde_json::Value =

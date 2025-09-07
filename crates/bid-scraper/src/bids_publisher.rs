@@ -5,7 +5,7 @@ use crate::{
         CfgWithSimpleRelayPublisherConfig, Service, ServiceInner, SimpleRelayPublisherConfig,
     },
     slot,
-    types::{BlockBid, PublisherType},
+    types::{ScrapedRelayBlockBid, PublisherType},
     DynResult, RPC_TIMEOUT,
 };
 use alloy_primitives::{Address, BlockHash, U256};
@@ -70,7 +70,7 @@ impl Service<RelayBidsPublisherConfig> for BidsPublisherService {
         self,
         relay_name: String,
         relay_endpoint: String,
-        bids_seen: Arc<Mutex<LruCache<BlockBid, ()>>>,
+        bids_seen: Arc<Mutex<LruCache<ScrapedRelayBlockBid, ()>>>,
         client: Arc<reqwest::Client>,
     ) {
         let mut new_bids = 0;
@@ -153,7 +153,7 @@ impl BidsPublisherService {
         relay_name: &str,
         relay_endpoint: &str,
         client: &reqwest::Client,
-    ) -> DynResult<Vec<BlockBid>> {
+    ) -> DynResult<Vec<ScrapedRelayBlockBid>> {
         debug!("Getting bids for relay {relay_name}");
         let block_number = self.inner().last_block_number + 1;
         let url = format!(
@@ -175,7 +175,7 @@ impl BidsPublisherService {
 
         let mut bids = Vec::with_capacity(json_bids.len());
         for json_bid in json_bids.iter_mut() {
-            let bid = BlockBid {
+            let bid = ScrapedRelayBlockBid {
                 publisher_name: self.name.clone(),
                 publisher_type: PublisherType::RelayBids,
                 builder_pubkey: Some(BlsPublicKey::from_str(

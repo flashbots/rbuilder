@@ -1,5 +1,5 @@
 use crate::{
-    types::{block_bid_from_update, BlockBid, PublisherType, TopBidUpdate},
+    types::{block_bid_from_update, ScrapedRelayBlockBid, PublisherType, TopBidUpdate},
     ws_publisher::{ConnectionHandler, Service},
 };
 use eyre::{eyre, Context};
@@ -63,7 +63,7 @@ impl ConnectionHandler for UltrasoundWsConnectionHandler {
         Ok(())
     }
 
-    fn parse(&self, message: Message) -> eyre::Result<Option<BlockBid>> {
+    fn parse(&self, message: Message) -> eyre::Result<Option<ScrapedRelayBlockBid>> {
         match message {
             Message::Binary(data) => {
                 let update = TopBidUpdate::from_ssz_bytes(&data)

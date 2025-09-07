@@ -4,14 +4,14 @@ use alloy_primitives::utils::format_ether;
 use bid_scraper::{
     bid_scraper_client::{run_nng_subscriber_with_retries, ScrapedBidsObs},
     code_from_rbuilder::{setup_tracing_subscriber, LoggerConfig},
-    types::BlockBid,
+    types::ScrapedRelayBlockBid,
 };
 use tokio::signal::ctrl_c;
 use tokio_util::sync::CancellationToken;
 
 struct ScrapedBidsPrinter {}
 impl ScrapedBidsObs for ScrapedBidsPrinter {
-    fn update_new_bid(&self, bid: BlockBid) {
+    fn update_new_bid(&self, bid: ScrapedRelayBlockBid) {
         println!(
             "New bid {:?} ({:?}) Block {:?} val {:?}",
             bid.publisher_name,

@@ -9,7 +9,7 @@ use crate::bloxroute_ws_publisher::{
 use crate::config::{NamedPublisherConfig, PublisherConfig};
 use crate::get_timestamp_f64;
 use crate::headers_publisher::{HeadersPublisherService, RelayHeadersPublisherConfig};
-use crate::types::{BlockBid, PublisherType};
+use crate::types::{ScrapedRelayBlockBid, PublisherType};
 use crate::ultrasound_ws_publisher::{
     UltrasoundWsConnectionHandler, UltrasoundWsPublisher, UltrasoundWsPublisherConfig,
 };
@@ -255,7 +255,7 @@ impl BidSender2BestBidValueSink {
 
 impl BestBidValueSink for BidSender2BestBidValueSink {
     fn send(&self, bid: BestBidValue) {
-        let bid = BlockBid {
+        let bid = ScrapedRelayBlockBid {
             seen_time: get_timestamp_f64(),
             publisher_name: self.name.clone(),
             publisher_type: PublisherType::ExternalWs,
