@@ -1,19 +1,15 @@
 pub mod built_block_cache;
-mod unfinished_block_building_sink_muxer;
 
 use crate::{
     building::{
-        builders::{
-            BlockBuildingAlgorithm, BlockBuildingAlgorithmInput, UnfinishedBlockBuildingSinkFactory,
-        },
+        builders::{BlockBuildingAlgorithm, BlockBuildingAlgorithmInput},
         multi_share_bundle_merger::MultiShareBundleMerger,
         simulated_order_command_to_sink, BlockBuildingContext, SimulatedOrderSink,
     },
     live_builder::{
-        building::built_block_cache::{BuiltBlockCache, BuiltBlockCacheUpdater},
+        building::built_block_cache::BuiltBlockCache,
         order_input::replaceable_order_sink::ReplaceableOrderSink,
-        payload_events::MevBoostSlotData,
-        simulation::SlotOrderSimResults,
+        payload_events::MevBoostSlotData, simulation::SlotOrderSimResults,
     },
     primitives::{OrderId, SimulatedOrder},
     provider::StateProviderFactory,
@@ -24,12 +20,12 @@ use std::{cell::RefCell, rc::Rc, sync::Arc, thread, time::Duration};
 use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, trace, warn};
-use unfinished_block_building_sink_muxer::UnfinishedBlockBuildingSinkMuxer;
 
 /// Interval for checking if last block still corresponds to the parent of the given block building context
 const CHECK_LAST_BLOCK_INTERVAL: Duration = Duration::from_millis(100);
 
 use super::{
+    block_output::unfinished_block_processing::UnfinishedBuiltBlocksInputFactory,
     order_input::{
         self, order_replacement_manager::OrderReplacementManager, orderpool::OrdersForBlock,
     },
@@ -42,7 +38,7 @@ use super::{
 pub struct BlockBuildingPool<P> {
     provider: P,
     builders: Vec<Arc<dyn BlockBuildingAlgorithm<P>>>,
-    sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
+    sink_factory: UnfinishedBuiltBlocksInputFactory<P>,
     orderpool_subscriber: order_input::OrderPoolSubscriber,
     order_simulation_pool: OrderSimulationPool<P>,
     run_sparse_trie_prefetcher: bool,
@@ -56,7 +52,7 @@ where
     pub fn new(
         provider: P,
         builders: Vec<Arc<dyn BlockBuildingAlgorithm<P>>>,
-        sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
+        sink_factory: UnfinishedBuiltBlocksInputFactory<P>,
         orderpool_subscriber: order_input::OrderPoolSubscriber,
         order_simulation_pool: OrderSimulationPool<P>,
         run_sparse_trie_prefetcher: bool,
@@ -155,12 +151,12 @@ where
         input: SlotOrderSimResults,
         cancel: CancellationToken,
     ) {
-        let builder_sink = self.sink_factory.create_sink(slot_data, cancel.clone());
-        let (broadcast_input, _) = broadcast::channel(10_000);
-        let muxer = Arc::new(UnfinishedBlockBuildingSinkMuxer::new(builder_sink));
-
-        let block_number = ctx.block();
         let built_block_cache = Arc::new(BuiltBlockCache::new());
+        let builder_sink =
+            self.sink_factory
+                .create_sink(slot_data, built_block_cache.clone(), cancel.clone());
+        let (broadcast_input, _) = broadcast::channel(10_000);
+        let block_number = ctx.block();
         for builder in self.builders.iter() {
             let builder_name = builder.name();
             debug!(
@@ -169,16 +165,12 @@ where
                 builder_name,
                 "Spawning builder job"
             );
-            let built_block_cache_updater = Arc::new(BuiltBlockCacheUpdater::new(
-                built_block_cache.clone(),
-                muxer.clone(),
-            ));
 
             let input = BlockBuildingAlgorithmInput::<P> {
                 provider: self.provider.clone(),
                 ctx: ctx.clone(),
                 input: broadcast_input.subscribe(),
-                sink: built_block_cache_updater,
+                sink: builder_sink.clone(),
                 cancel: cancel.clone(),
                 built_block_cache: built_block_cache.clone(),
             };

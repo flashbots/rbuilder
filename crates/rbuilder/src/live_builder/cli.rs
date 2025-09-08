@@ -15,9 +15,7 @@ use crate::{
         builders::{BacktestSimulateBlockInput, Block},
         PartialBlockExecutionTracer,
     },
-    live_builder::{
-        base_config::load_config_toml_and_env, payload_events::MevBoostSlotDataGenerator,
-    },
+    live_builder::base_config::load_config_toml_and_env,
     provider::StateProviderFactory,
     telemetry,
     utils::{bls::generate_random_bls_address, build_info::Version},
@@ -61,7 +59,7 @@ pub trait LiveBuilderConfig: Debug + DeserializeOwned + Sync {
         &self,
         provider: P,
         cancellation_token: CancellationToken,
-    ) -> impl std::future::Future<Output = eyre::Result<LiveBuilder<P, MevBoostSlotDataGenerator>>> + Send
+    ) -> impl std::future::Future<Output = eyre::Result<LiveBuilder<P>>> + Send
     where
         P: StateProviderFactory + Clone + 'static;
 

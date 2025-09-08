@@ -1,7 +1,7 @@
 use crate::{
     code_from_rbuilder::EnvOrValue,
     get_timestamp_f64,
-    types::{ScrapedRelayBlockBid, PublisherType},
+    types::{PublisherType, ScrapedRelayBlockBid},
     ws_publisher::{ConnectionHandler, Service},
     DynResult, RPC_TIMEOUT,
 };

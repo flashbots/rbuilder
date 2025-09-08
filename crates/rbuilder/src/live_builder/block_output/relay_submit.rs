@@ -1,6 +1,6 @@
 use crate::{
     building::builders::Block,
-    live_builder::{block_output::bid_observer::BidObserver, payload_events::MevBoostSlotData},
+    live_builder::payload_events::MevBoostSlotData,
     mev_boost::{
         adjustment::BidAdjustmentData,
         sign_block_for_relay,
@@ -28,6 +28,8 @@ use std::sync::Arc;
 use tokio::{sync::Notify, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, error_span, info, info_span, trace, warn, Instrument, Span};
+
+use super::bidding_service_interface::BidObserver;
 
 const SIM_ERROR_CATEGORY: &str = "submit_block_simulation";
 
@@ -79,17 +81,6 @@ impl BlockBuildingSink for PendingBlockCellToBlockBuildingSink {
 #[automock]
 pub trait BlockBuildingSink: std::fmt::Debug + Send + Sync {
     fn new_block(&self, block: Block);
-}
-
-/// Factory used to create BlockBuildingSink..
-pub trait BuilderSinkFactory: std::fmt::Debug + Send + Sync {
-    /// # Arguments
-    /// slot_bidder: Not always needed but simplifies the design.
-    fn create_builder_sink(
-        &self,
-        slot_data: MevBoostSlotData,
-        cancel: CancellationToken,
-    ) -> Box<dyn BlockBuildingSink>;
 }
 
 #[derive(Debug)]
@@ -565,8 +556,8 @@ impl RelaySubmitSinkFactory {
     }
 }
 
-impl BuilderSinkFactory for RelaySubmitSinkFactory {
-    fn create_builder_sink(
+impl RelaySubmitSinkFactory {
+    pub fn create_builder_sink(
         &self,
         slot_data: MevBoostSlotData,
         cancel: CancellationToken,

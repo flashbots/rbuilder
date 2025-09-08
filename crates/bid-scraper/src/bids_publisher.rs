@@ -5,7 +5,7 @@ use crate::{
         CfgWithSimpleRelayPublisherConfig, Service, ServiceInner, SimpleRelayPublisherConfig,
     },
     slot,
-    types::{ScrapedRelayBlockBid, PublisherType},
+    types::{PublisherType, ScrapedRelayBlockBid},
     DynResult, RPC_TIMEOUT,
 };
 use alloy_primitives::{Address, BlockHash, U256};

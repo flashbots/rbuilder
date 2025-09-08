@@ -9,7 +9,7 @@ use crate::bloxroute_ws_publisher::{
 use crate::config::{NamedPublisherConfig, PublisherConfig};
 use crate::get_timestamp_f64;
 use crate::headers_publisher::{HeadersPublisherService, RelayHeadersPublisherConfig};
-use crate::types::{ScrapedRelayBlockBid, PublisherType};
+use crate::types::{PublisherType, ScrapedRelayBlockBid};
 use crate::ultrasound_ws_publisher::{
     UltrasoundWsConnectionHandler, UltrasoundWsPublisher, UltrasoundWsPublisherConfig,
 };

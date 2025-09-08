@@ -1,5 +1,5 @@
 use crate::{
-    types::{block_bid_from_update, ScrapedRelayBlockBid, PublisherType, TopBidUpdate},
+    types::{block_bid_from_update, PublisherType, ScrapedRelayBlockBid, TopBidUpdate},
     ws_publisher::{ConnectionHandler, Service},
 };
 use eyre::{eyre, Context};

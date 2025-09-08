@@ -87,8 +87,8 @@ pub trait BlockBuildingHelper: Send + Sync {
 
 /// Wraps a BlockBuildingHelper with a valid true_block_value which makes it ready to bid.
 pub struct BiddableUnfinishedBlock {
-    block: Box<dyn BlockBuildingHelper>,
-    true_block_value: U256,
+    pub block: Box<dyn BlockBuildingHelper>,
+    pub true_block_value: U256,
 }
 
 impl Clone for BiddableUnfinishedBlock {
@@ -109,17 +109,8 @@ impl BiddableUnfinishedBlock {
         })
     }
 
-    pub fn true_block_value(&self) -> U256 {
-        self.true_block_value
-    }
-
-    /// returns not mutable ref to ensure true_block_value does not change.
     pub fn block(&self) -> &dyn BlockBuildingHelper {
         self.block.as_ref()
-    }
-
-    pub fn can_add_payout_tx(&self) -> bool {
-        self.block.can_add_payout_tx()
     }
 
     pub fn into_building_helper(self) -> Box<dyn BlockBuildingHelper> {

@@ -8,8 +8,8 @@ pub mod parallel_builder;
 use crate::{
     building::{BlockBuildingContext, BuiltBlockTrace, SimulatedOrderSink},
     live_builder::{
-        building::built_block_cache::BuiltBlockCache,
-        payload_events::{InternalPayloadId, MevBoostSlotData},
+        block_output::unfinished_block_processing::UnfishedBuiltBlocksInput,
+        building::built_block_cache::BuiltBlockCache, payload_events::InternalPayloadId,
         simulation::SimulatedOrderCommand,
     },
     mev_boost::adjustment::BidAdjustmentData,
@@ -20,7 +20,6 @@ use crate::{
 use ahash::HashSet;
 use alloy_eips::eip7594::BlobTransactionSidecarVariant;
 use alloy_primitives::{Address, Bytes};
-use block_building_helper::BiddableUnfinishedBlock;
 use reth::primitives::SealedBlock;
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
 use tokio::sync::{
@@ -51,7 +50,7 @@ pub struct LiveBuilderInput<P> {
     pub provider: P,
     pub ctx: BlockBuildingContext,
     pub input: broadcast::Receiver<SimulatedOrderCommand>,
-    pub sink: Arc<dyn UnfinishedBlockBuildingSink>,
+    pub sink: UnfishedBuiltBlocksInput,
     pub builder_name: String,
     pub cancel: CancellationToken,
     pub built_block_cache: Arc<BuiltBlockCache>,
@@ -195,22 +194,13 @@ impl<OrderPriorityType: OrderPriority> OrderIntakeConsumer<OrderPriorityType> {
     }
 }
 
-/// Output of the BlockBuildingAlgorithm.
-pub trait UnfinishedBlockBuildingSink: std::fmt::Debug + Send + Sync {
-    fn new_block(&self, block: BiddableUnfinishedBlock);
-
-    /// The sink may not like blocks where coinbase is the final fee_recipient (eg: this does not allows us to take profit!).
-    /// Not sure this is the right place for this func. Might move somewhere else.
-    fn can_use_suggested_fee_recipient_as_coinbase(&self) -> bool;
-}
-
 #[derive(Debug)]
 pub struct BlockBuildingAlgorithmInput<P> {
     pub provider: P,
     pub ctx: BlockBuildingContext,
     pub input: broadcast::Receiver<SimulatedOrderCommand>,
     /// output for the blocks
-    pub sink: Arc<dyn UnfinishedBlockBuildingSink>,
+    pub sink: UnfishedBuiltBlocksInput,
     /// A cache common to several builders so they can optimize their work looking at other builders blocks.
     pub built_block_cache: Arc<BuiltBlockCache>,
     pub cancel: CancellationToken,
@@ -225,17 +215,6 @@ where
 {
     fn name(&self) -> String;
     fn build_blocks(&self, input: BlockBuildingAlgorithmInput<P>);
-}
-
-/// Factory used to create UnfinishedBlockBuildingSink for builders.
-pub trait UnfinishedBlockBuildingSinkFactory: Debug + Send + Sync {
-    /// Creates an UnfinishedBlockBuildingSink to receive block for slot_data.
-    /// cancel: If this is signaled the sink should cancel. If any unrecoverable situation is found signal cancel.
-    fn create_sink(
-        &mut self,
-        slot_data: MevBoostSlotData,
-        cancel: CancellationToken,
-    ) -> Arc<dyn UnfinishedBlockBuildingSink>;
 }
 
 /// Basic configuration to run a single block building with a BlockBuildingAlgorithm

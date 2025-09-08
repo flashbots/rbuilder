@@ -1,7 +1,7 @@
 use crate::get_timestamp_f64;
 
 pub mod bid;
-pub use bid::{ScrapedRelayBlockBid, PublisherType};
+pub use bid::{PublisherType, ScrapedRelayBlockBid};
 
 mod bid_update;
 pub use bid_update::TopBidUpdate;

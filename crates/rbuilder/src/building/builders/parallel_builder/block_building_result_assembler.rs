@@ -16,10 +16,11 @@ use crate::{
             block_building_helper::{
                 BiddableUnfinishedBlock, BlockBuildingHelper, BlockBuildingHelperFromProvider,
             },
-            handle_building_error, UnfinishedBlockBuildingSink,
+            handle_building_error,
         },
         BlockBuildingContext, ThreadBlockBuildingContext,
     },
+    live_builder::block_output::unfinished_block_processing::UnfishedBuiltBlocksInput,
     primitives::order_statistics::OrderStatistics,
     telemetry::mark_builder_considers_order,
     utils::elapsed_ms,
@@ -35,7 +36,7 @@ pub struct BlockBuildingResultAssembler {
     coinbase_payment: bool,
     can_use_suggested_fee_recipient_as_coinbase: bool,
     builder_name: String,
-    sink: Option<Arc<dyn UnfinishedBlockBuildingSink>>,
+    sink: Option<UnfishedBuiltBlocksInput>,
     best_results: Arc<BestResults>,
     run_id: u64,
     last_version: Option<u64>,
@@ -59,7 +60,7 @@ impl BlockBuildingResultAssembler {
         cancellation_token: CancellationToken,
         builder_name: String,
         can_use_suggested_fee_recipient_as_coinbase: bool,
-        sink: Option<Arc<dyn UnfinishedBlockBuildingSink>>,
+        sink: Option<UnfishedBuiltBlocksInput>,
     ) -> Self {
         Self {
             state,

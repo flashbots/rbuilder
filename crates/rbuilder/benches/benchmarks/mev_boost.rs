@@ -8,7 +8,6 @@ use rbuilder::mev_boost::{
     BLSBlockSigner,
 };
 use reth::primitives::SealedBlock;
-use reth_chainspec::SEPOLIA;
 use reth_primitives::kzg::Blob;
 use ssz::Encode;
 use std::{fs, path::PathBuf, sync::Arc};
@@ -78,7 +77,6 @@ fn bench_mevboost_sign(c: &mut Criterion) {
         )));
     }
 
-    let chain_spec = SEPOLIA.clone();
     let payload = generator.create_payload_attribute_data();
 
     let mut group = c.benchmark_group("MEV-Boost Sign block for relay");
@@ -89,9 +87,6 @@ fn bench_mevboost_sign(c: &mut Criterion) {
             let _ = sign_block_for_relay(
                 &signer,
                 &sealed_block,
-                &blobs,
-                &Vec::new(),
-                &chain_spec,
                 &payload,
                 H384::default(),
                 U256::default(),
@@ -117,9 +112,6 @@ fn bench_mevboost_sign(c: &mut Criterion) {
             let _ = sign_block_for_relay(
                 &signer,
                 &sealed_block_deneb,
-                &blobs,
-                &Vec::new(),
-                &chain_spec,
                 &payload,
                 H384::default(),
                 U256::default(),

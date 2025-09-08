@@ -4,9 +4,7 @@ use ahash::HashSet;
 use parking_lot::Mutex;
 
 use crate::{
-    building::builders::{
-        block_building_helper::BiddableUnfinishedBlock, UnfinishedBlockBuildingSink,
-    },
+    building::builders::block_building_helper::BlockBuildingHelper,
     primitives::{Order, OrderId},
 };
 
@@ -52,8 +50,15 @@ impl BuiltBlockCache {
         }
     }
 
-    pub fn set_new_block(&self, builder_name: String, block: Arc<BuiltBlockInfo>) {
-        self.blocks_infos.lock().insert(builder_name, block);
+    pub fn update_from_new_unfinished_block(&self, block: &dyn BlockBuildingHelper) {
+        let mut block_info = BuiltBlockInfo::new();
+        for execution_result in &block.built_block_trace().included_orders {
+            block_info.add_order(&execution_result.order);
+        }
+
+        self.blocks_infos
+            .lock()
+            .insert(block.builder_name().to_string(), Arc::new(block_info));
     }
 
     /// Returns a list of all blocks that are not from the builder with the given name.
@@ -70,42 +75,5 @@ impl BuiltBlockCache {
 impl Default for BuiltBlockCache {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-/// Simple wrapper to update the built block cache when a new block is built.
-#[derive(Debug)]
-pub struct BuiltBlockCacheUpdater {
-    built_block_cache: Arc<BuiltBlockCache>,
-    sink: Arc<dyn UnfinishedBlockBuildingSink>,
-}
-
-impl BuiltBlockCacheUpdater {
-    pub fn new(
-        built_block_cache: Arc<BuiltBlockCache>,
-        sink: Arc<dyn UnfinishedBlockBuildingSink>,
-    ) -> Self {
-        Self {
-            built_block_cache,
-            sink,
-        }
-    }
-}
-
-impl UnfinishedBlockBuildingSink for BuiltBlockCacheUpdater {
-    fn new_block(&self, block: BiddableUnfinishedBlock) {
-        let mut block_info = BuiltBlockInfo::new();
-        for execution_result in &block.block().built_block_trace().included_orders {
-            block_info.add_order(&execution_result.order);
-        }
-        self.built_block_cache.set_new_block(
-            block.block().builder_name().to_string(),
-            Arc::new(block_info),
-        );
-        self.sink.new_block(block);
-    }
-
-    fn can_use_suggested_fee_recipient_as_coinbase(&self) -> bool {
-        self.sink.can_use_suggested_fee_recipient_as_coinbase()
     }
 }

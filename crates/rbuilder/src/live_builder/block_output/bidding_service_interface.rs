@@ -1,0 +1,174 @@
+use std::sync::Arc;
+
+use alloy_primitives::{BlockHash, BlockNumber, U256};
+use bid_scraper::{bid_scraper_client::ScrapedBidsObs, types::ScrapedRelayBlockBid};
+use derivative::Derivative;
+use reth_primitives::SealedBlock;
+use time::OffsetDateTime;
+use tokio_util::sync::CancellationToken;
+
+use crate::{
+    building::{builders::block_building_helper::BiddableUnfinishedBlock, BuiltBlockTrace},
+    live_builder::payload_events::MevBoostSlotData,
+};
+
+/// Trait that receives every bid made by us to the relays.
+pub trait BidObserver: std::fmt::Debug {
+    /// This should NOT block since it's executed in the submitting thread.
+    fn block_submitted(
+        &self,
+        slot_data: &MevBoostSlotData,
+        sealed_block: &SealedBlock,
+        built_block_trace: &BuiltBlockTrace,
+        builder_name: String,
+        best_bid_value: U256,
+    );
+}
+
+#[derive(Debug)]
+pub struct NullBidObserver {}
+
+impl BidObserver for NullBidObserver {
+    fn block_submitted(
+        &self,
+        _slot_data: &MevBoostSlotData,
+        _sealed_block: &SealedBlock,
+        _built_block_trace: &BuiltBlockTrace,
+        _builder_name: String,
+        _best_bid_value: U256,
+    ) {
+    }
+}
+
+/// Info about a onchain block from reth.
+#[derive(Eq, PartialEq, Clone, Debug)]
+pub struct LandedBlockInfo {
+    pub block_number: BlockNumber,
+    pub block_timestamp: OffsetDateTime,
+    pub builder_balance: U256,
+    /// true -> we landed this block.
+    /// If false we could have landed it in coinbase == fee recipient mode but balance wouldn't change so we don't care.
+    pub beneficiary_is_builder: bool,
+}
+
+/// Uniquely identifies the head of the chain we are bidding.
+#[derive(Eq, PartialEq, Clone, Debug, Hash)]
+pub struct SlotBlockId {
+    pub slot: u64,
+    pub block: u64,
+    pub parent_block_hash: BlockHash,
+}
+
+impl SlotBlockId {
+    /// Creates a new SlotBlockId instance.
+    pub fn new(slot: u64, block: u64, parent_block_hash: BlockHash) -> Self {
+        Self {
+            slot,
+            block,
+            parent_block_hash,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Eq, PartialEq, Debug)]
+pub struct BlockId(pub u64);
+
+/// Selected information coming from a BlockBuildingHelper.
+#[derive(Derivative, Clone, Debug)]
+#[derivative(PartialEq, Eq)]
+pub struct BuiltBlockDescriptorForSlotBidder {
+    pub true_block_value: U256,
+    pub can_add_payout_tx: bool,
+    pub id: BlockId,
+    /// For metrics
+    #[derivative(PartialEq = "ignore")]
+    pub creation_time: OffsetDateTime,
+}
+
+impl BuiltBlockDescriptorForSlotBidder {
+    pub fn new(id: BlockId, unfinished_block: &BiddableUnfinishedBlock) -> Self {
+        Self {
+            true_block_value: unfinished_block.true_block_value,
+            can_add_payout_tx: unfinished_block.block.can_add_payout_tx(),
+            id,
+            creation_time: OffsetDateTime::now_utc(),
+        }
+    }
+}
+
+#[derive(Clone, Eq, PartialEq, Debug)]
+pub struct SlotBidderSealBidCommand {
+    pub block_id: BlockId,
+    pub payout_tx_value: Option<U256>,
+    pub seen_competition_bid: Option<U256>,
+    /// When this bid is a reaction so some event (eg: new block, new competition bid) we put here
+    /// the creation time of that event so we can measure our reaction time.
+    pub trigger_creation_time: Option<OffsetDateTime>,
+}
+
+pub trait BlockSealInterfaceForSlotBidder {
+    fn seal_bid(&self, bid: SlotBidderSealBidCommand);
+    fn set_can_use_suggested_fee_recipient_as_coinbase(&self, value: bool);
+}
+
+// /// BlockBid + extra info needed to measure bis travel times on the bidding service.
+#[derive(Derivative, Clone, Debug)]
+#[derivative(PartialEq, Eq)]
+pub struct ScrapedRelayBlockBidWithStats {
+    pub bid: ScrapedRelayBlockBid,
+    /// Time this strucut was created, just before sending it to the bidding service
+    #[derivative(PartialEq = "ignore")]
+    pub creation_time: OffsetDateTime,
+}
+
+impl ScrapedRelayBlockBidWithStats {
+    pub fn new(bid: ScrapedRelayBlockBid) -> Self {
+        Self {
+            bid,
+            creation_time: OffsetDateTime::now_utc(),
+        }
+    }
+
+    pub fn new_for_deserialization(
+        bid: ScrapedRelayBlockBid,
+        creation_time: OffsetDateTime,
+    ) -> Self {
+        Self { bid, creation_time }
+    }
+}
+
+pub trait SlotBidder: Send + Sync {
+    fn notify_new_built_block(&self, block_descriptor: BuiltBlockDescriptorForSlotBidder);
+}
+
+pub trait BiddingService: Send + Sync {
+    fn create_slot_bidder(
+        &self,
+        slot_block_id: SlotBlockId,
+        slot_timestamp: OffsetDateTime,
+        block_seal_handle: Box<dyn BlockSealInterfaceForSlotBidder + Send + Sync>,
+        cancel: CancellationToken,
+    ) -> Arc<dyn SlotBidder>;
+
+    fn observe_relay_bids(&self, bid: ScrapedRelayBlockBidWithStats);
+
+    fn update_new_landed_blocks_detected(&self, landed_blocks: &[LandedBlockInfo]);
+
+    fn update_failed_reading_new_landed_blocks(&self);
+}
+
+pub struct BiddingService2ScrapedBidsObs {
+    inner: Arc<dyn BiddingService>,
+}
+impl BiddingService2ScrapedBidsObs {
+    pub fn new(inner: Arc<dyn BiddingService>) -> Self {
+        Self { inner }
+    }
+}
+
+impl ScrapedBidsObs for BiddingService2ScrapedBidsObs {
+    fn update_new_bid(&self, bid: ScrapedRelayBlockBid) {
+        self.inner
+            .observe_relay_bids(ScrapedRelayBlockBidWithStats::new(bid))
+    }
+}

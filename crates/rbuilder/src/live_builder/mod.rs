@@ -7,13 +7,11 @@ pub mod config;
 pub mod order_input;
 pub mod payload_events;
 pub mod simulation;
+pub mod wallet_balance_watcher;
 pub mod watchdog;
 
 use crate::{
-    building::{
-        builders::{BlockBuildingAlgorithm, UnfinishedBlockBuildingSinkFactory},
-        BlockBuildingContext,
-    },
+    building::{builders::BlockBuildingAlgorithm, BlockBuildingContext},
     live_builder::{
         order_input::{start_orderpool_jobs, OrderInputConfig},
         simulation::OrderSimulationPool,
@@ -30,11 +28,12 @@ use crate::{
 use alloy_consensus::Header;
 use alloy_primitives::{Address, B256};
 use block_list_provider::BlockListProvider;
+use block_output::unfinished_block_processing::UnfinishedBuiltBlocksInputFactory;
 use building::BlockBuildingPool;
 use eyre::Context;
 use jsonrpsee::RpcModule;
 use order_input::ReplaceableOrderPoolCommand;
-use payload_events::{InternalPayloadId, MevBoostSlotData};
+use payload_events::{InternalPayloadId, MevBoostSlotDataGenerator};
 use reth::transaction_pool::{
     BlobStore, EthPooledTransaction, Pool, TransactionListenerKind, TransactionOrdering,
     TransactionPool, TransactionValidator,
@@ -89,11 +88,6 @@ impl TimingsConfig {
     }
 }
 
-/// Trait used to trigger a new block building process in the slot.
-pub trait SlotSource {
-    fn recv_slot_channel(self) -> mpsc::UnboundedReceiver<MevBoostSlotData>;
-}
-
 /// Max headers sent to the cleaning task before the main loop blocks.
 /// Cleaning task is super fast so it should never lag behind block building, even 1 should be enough, 10 is super safe.
 const CLEAN_TASKS_CHANNEL_SIZE: usize = 10;
@@ -103,16 +97,15 @@ const CLEAN_TASKS_CHANNEL_SIZE: usize = 10;
 /// # Usage
 /// Create and run()
 #[derive(Debug)]
-pub struct LiveBuilder<P, BlocksSourceType>
+pub struct LiveBuilder<P>
 where
     P: StateProviderFactory,
-    BlocksSourceType: SlotSource,
 {
     pub watchdog_timeout: Option<Duration>,
     pub error_storage_path: Option<PathBuf>,
     pub simulation_threads: usize,
     pub order_input_config: OrderInputConfig,
-    pub blocks_source: BlocksSourceType,
+    pub blocks_source: MevBoostSlotDataGenerator,
     pub run_sparse_trie_prefetcher: bool,
 
     pub chain_chain_spec: Arc<ChainSpec>,
@@ -124,7 +117,7 @@ where
 
     pub global_cancellation: CancellationToken,
 
-    pub sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
+    pub unfinished_built_blocks_input_factory: UnfinishedBuiltBlocksInputFactory<P>,
     pub builders: Vec<Arc<dyn BlockBuildingAlgorithm<P>>>,
     pub extra_rpc: RpcModule<()>,
 
@@ -138,10 +131,9 @@ where
     pub simulation_use_random_coinbase: bool,
 }
 
-impl<P, BlocksSourceType: SlotSource> LiveBuilder<P, BlocksSourceType>
+impl<P> LiveBuilder<P>
 where
     P: StateProviderFactory + Clone + 'static,
-    BlocksSourceType: SlotSource,
 {
     pub fn with_extra_rpc(self, extra_rpc: RpcModule<()>) -> Self {
         Self { extra_rpc, ..self }
@@ -200,7 +192,7 @@ where
         let mut builder_pool = BlockBuildingPool::new(
             self.provider.clone(),
             self.builders,
-            self.sink_factory,
+            self.unfinished_built_blocks_input_factory,
             orderpool_subscriber,
             order_simulation_pool,
             self.run_sparse_trie_prefetcher,

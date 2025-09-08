@@ -7,12 +7,9 @@ pub mod relay_epoch_cache;
 
 use crate::{
     beacon_api_client::Client,
-    live_builder::{
-        payload_events::{
-            payload_source::PayloadSourceMuxer,
-            relay_epoch_cache::{RelaysForSlotData, SlotData},
-        },
-        SlotSource,
+    live_builder::payload_events::{
+        payload_source::PayloadSourceMuxer,
+        relay_epoch_cache::{RelaysForSlotData, SlotData},
     },
     mev_boost::RelaySlotData,
     primitives::mev_boost::{MevBoostRelayID, MevBoostRelaySlotInfoProvider},
@@ -96,6 +93,7 @@ impl MevBoostSlotData {
 /// - Call MevBoostSlotDataGenerator::spawn.
 /// - Poll new slots via the returned UnboundedReceiver on spawn.
 /// - If join with spawned task is needed await on the JoinHandle returned by spawn.
+#[derive(Debug)]
 pub struct MevBoostSlotDataGenerator {
     cls: Vec<Client>,
     relays: Vec<MevBoostRelaySlotInfoProvider>,
@@ -266,8 +264,8 @@ impl MevBoostSlotDataGenerator {
     }
 }
 
-impl SlotSource for MevBoostSlotDataGenerator {
-    fn recv_slot_channel(self) -> mpsc::UnboundedReceiver<MevBoostSlotData> {
+impl MevBoostSlotDataGenerator {
+    pub fn recv_slot_channel(self) -> mpsc::UnboundedReceiver<MevBoostSlotData> {
         let (_handle, chan) = self.spawn();
         chan
     }

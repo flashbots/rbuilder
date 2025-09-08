@@ -10,7 +10,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
 use crate::{
-    bid_sender::BidSender, get_timestamp_f64, slot, types::ScrapedRelayBlockBid, REQUEST_TIMEOUT, RPC_TIMEOUT,
+    bid_sender::BidSender, get_timestamp_f64, slot, types::ScrapedRelayBlockBid, REQUEST_TIMEOUT,
+    RPC_TIMEOUT,
 };
 
 #[derive(Debug, Clone, Deserialize)]

@@ -1,7 +1,6 @@
 //! Config should always be deserializable, default values should be used
 //!
 use crate::{
-    building::builders::UnfinishedBlockBuildingSinkFactory,
     live_builder::{order_input::OrderInputConfig, LiveBuilder},
     provider::{
         ipc_state_provider::{IpcProviderConfig, IpcStateProviderFactory},
@@ -46,7 +45,8 @@ use super::{
         BlockListProvider, HttpBlockListProvider, NullBlockListProvider,
         StaticFileBlockListProvider,
     },
-    SlotSource,
+    block_output::unfinished_block_processing::UnfinishedBuiltBlocksInputFactory,
+    payload_events::MevBoostSlotDataGenerator,
 };
 
 /// Prefix for env variables in config
@@ -221,22 +221,21 @@ impl BaseConfig {
     }
 
     /// Allows instantiating a [`LiveBuilder`] with an existing provider factory
-    pub async fn create_builder_with_provider_factory<P, SlotSourceType>(
+    pub async fn create_builder_with_provider_factory<P>(
         &self,
         cancellation_token: tokio_util::sync::CancellationToken,
-        sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
-        slot_source: SlotSourceType,
+        unfinished_built_blocks_input_factory: UnfinishedBuiltBlocksInputFactory<P>,
+        slot_source: MevBoostSlotDataGenerator,
         provider: P,
         blocklist_provider: Arc<dyn BlockListProvider>,
-    ) -> eyre::Result<super::LiveBuilder<P, SlotSourceType>>
+    ) -> eyre::Result<super::LiveBuilder<P>>
     where
         P: StateProviderFactory,
-        SlotSourceType: SlotSource,
     {
         let order_input_config = OrderInputConfig::from_config(self)?;
         let (orderpool_sender, orderpool_receiver) =
             mpsc::channel(order_input_config.input_channel_buffer_size);
-        Ok(LiveBuilder::<P, SlotSourceType> {
+        Ok(LiveBuilder::<P> {
             watchdog_timeout: self.watchdog_timeout(),
             error_storage_path: self.error_storage_path.clone(),
             simulation_threads: self.simulation_threads,
@@ -252,7 +251,7 @@ impl BaseConfig {
             global_cancellation: cancellation_token,
 
             extra_rpc: RpcModule::new(()),
-            sink_factory,
+            unfinished_built_blocks_input_factory,
             builders: Vec::new(),
 
             run_sparse_trie_prefetcher: self.root_hash_use_sparse_trie,
