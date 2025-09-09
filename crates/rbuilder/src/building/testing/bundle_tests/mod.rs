@@ -856,10 +856,7 @@ fn test_subbundle_skip() -> eyre::Result<()> {
         if let OrderErr::Bundle(BundleErr::TransactionReverted(hash)) = err {
             assert_eq!(hash, revert_hash);
         } else {
-            panic!(
-                "got {} while expecting OrderErr::Bundle(BundleErr::TransactionReverted)",
-                err
-            );
+            panic!("got {err} while expecting OrderErr::Bundle(BundleErr::TransactionReverted)");
         }
     });
 

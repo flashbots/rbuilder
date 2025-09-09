@@ -1038,7 +1038,7 @@ mod tests {
             entry: ValidatorRegistration {
                 message: ValidatorRegistrationMessage {
                     timestamp: 0,
-                    gas_limit: 30_000_00,
+                    gas_limit: 30_000_000,
                     fee_recipient: Address::random(),
                     pubkey: H384::random(),
                 },

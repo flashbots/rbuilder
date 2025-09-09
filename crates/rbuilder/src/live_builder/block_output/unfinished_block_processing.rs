@@ -104,8 +104,8 @@ impl FinalizeWorker {
                 payout_tx_val,
                 seen_competition_bid,
             } = finalize_task;
-            trace!(payout_tx_val = ?payout_tx_val.map(|v| format_ether(v)),
-		   seen_competition_bid = ?seen_competition_bid.map(|v| format_ether(v)),
+            trace!(payout_tx_val = ?payout_tx_val.map(format_ether),
+		   seen_competition_bid = ?seen_competition_bid.map(format_ether),
 		   "Started block finalization");
             match block.finalize_block(&mut local_ctx, payout_tx_val, seen_competition_bid) {
                 Ok(result) => {
@@ -308,7 +308,7 @@ impl UnfinishedBlocksSlotWorker {
                     self.pending_blocks
                         .push_back((new_block_id, last_best_block.block.box_clone()));
                     let block_descriptor =
-                        BuiltBlockDescriptorForSlotBidder::new(new_block_id, &last_best_block);
+                        BuiltBlockDescriptorForSlotBidder::new(new_block_id, last_best_block);
                     self.slot_bidder.notify_new_built_block(block_descriptor);
                 }
                 BlockSealSlotWorkerCommands::SealBid(slot_bidder_seal_bid_command) => {
