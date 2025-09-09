@@ -126,7 +126,7 @@ enum BlockSealSlotWorkerCommands {
 }
 
 #[derive(Clone, Debug)]
-pub struct UnfishedBuiltBlocksInput {
+pub struct UnfinishedBuiltBlocksInput {
     command_queue: flume::Sender<BlockSealSlotWorkerCommands>,
     /// bidding service sets this value
     can_use_suggested_fee_recipient_as_coinbase: Arc<AtomicBool>,
@@ -136,7 +136,7 @@ pub struct BlockSealSlotWorkerOutput {
     command_queue: flume::Receiver<BlockSealSlotWorkerCommands>,
 }
 
-impl BlockSealInterfaceForSlotBidder for UnfishedBuiltBlocksInput {
+impl BlockSealInterfaceForSlotBidder for UnfinishedBuiltBlocksInput {
     fn seal_bid(&self, bid: SlotBidderSealBidCommand) {
         self.command_queue
             .send(BlockSealSlotWorkerCommands::SealBid(bid))
@@ -150,7 +150,7 @@ impl BlockSealInterfaceForSlotBidder for UnfishedBuiltBlocksInput {
     }
 }
 
-impl UnfishedBuiltBlocksInput {
+impl UnfinishedBuiltBlocksInput {
     pub fn new_block(&self, block: BiddableUnfinishedBlock) {
         self.command_queue
             .send(BlockSealSlotWorkerCommands::NewBuiltBlock(block))
@@ -164,11 +164,11 @@ impl UnfishedBuiltBlocksInput {
     }
 }
 
-fn create_slot_seal_worker() -> (UnfishedBuiltBlocksInput, BlockSealSlotWorkerOutput) {
+fn create_slot_seal_worker() -> (UnfinishedBuiltBlocksInput, BlockSealSlotWorkerOutput) {
     let can_use_suggested_fee_recipient_as_coinbase = Arc::new(AtomicBool::new(false));
     let (sender, receiver) = flume::unbounded();
     (
-        UnfishedBuiltBlocksInput {
+        UnfinishedBuiltBlocksInput {
             command_queue: sender,
             can_use_suggested_fee_recipient_as_coinbase:
                 can_use_suggested_fee_recipient_as_coinbase.clone(),
@@ -376,7 +376,7 @@ impl<P: StateProviderFactory> UnfinishedBuiltBlocksInputFactory<P> {
         slot_data: MevBoostSlotData,
         built_block_cache: Arc<BuiltBlockCache>,
         cancel: CancellationToken,
-    ) -> UnfishedBuiltBlocksInput {
+    ) -> UnfinishedBuiltBlocksInput {
         match self
             .wallet_balance_watcher
             .update_to_block(slot_data.block() - 1)

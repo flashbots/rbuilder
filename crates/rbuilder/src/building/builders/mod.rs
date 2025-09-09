@@ -8,7 +8,7 @@ pub mod parallel_builder;
 use crate::{
     building::{BlockBuildingContext, BuiltBlockTrace, SimulatedOrderSink},
     live_builder::{
-        block_output::unfinished_block_processing::UnfishedBuiltBlocksInput,
+        block_output::unfinished_block_processing::UnfinishedBuiltBlocksInput,
         building::built_block_cache::BuiltBlockCache, payload_events::InternalPayloadId,
         simulation::SimulatedOrderCommand,
     },
@@ -50,7 +50,7 @@ pub struct LiveBuilderInput<P> {
     pub provider: P,
     pub ctx: BlockBuildingContext,
     pub input: broadcast::Receiver<SimulatedOrderCommand>,
-    pub sink: UnfishedBuiltBlocksInput,
+    pub sink: UnfinishedBuiltBlocksInput,
     pub builder_name: String,
     pub cancel: CancellationToken,
     pub built_block_cache: Arc<BuiltBlockCache>,
@@ -200,7 +200,7 @@ pub struct BlockBuildingAlgorithmInput<P> {
     pub ctx: BlockBuildingContext,
     pub input: broadcast::Receiver<SimulatedOrderCommand>,
     /// output for the blocks
-    pub sink: UnfishedBuiltBlocksInput,
+    pub sink: UnfinishedBuiltBlocksInput,
     /// A cache common to several builders so they can optimize their work looking at other builders blocks.
     pub built_block_cache: Arc<BuiltBlockCache>,
     pub cancel: CancellationToken,

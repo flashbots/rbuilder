@@ -20,7 +20,7 @@ use crate::{
         },
         BlockBuildingContext, ThreadBlockBuildingContext,
     },
-    live_builder::block_output::unfinished_block_processing::UnfishedBuiltBlocksInput,
+    live_builder::block_output::unfinished_block_processing::UnfinishedBuiltBlocksInput,
     primitives::order_statistics::OrderStatistics,
     telemetry::mark_builder_considers_order,
     utils::elapsed_ms,
@@ -36,7 +36,7 @@ pub struct BlockBuildingResultAssembler {
     coinbase_payment: bool,
     can_use_suggested_fee_recipient_as_coinbase: bool,
     builder_name: String,
-    sink: Option<UnfishedBuiltBlocksInput>,
+    sink: Option<UnfinishedBuiltBlocksInput>,
     best_results: Arc<BestResults>,
     run_id: u64,
     last_version: Option<u64>,
@@ -60,7 +60,7 @@ impl BlockBuildingResultAssembler {
         cancellation_token: CancellationToken,
         builder_name: String,
         can_use_suggested_fee_recipient_as_coinbase: bool,
-        sink: Option<UnfishedBuiltBlocksInput>,
+        sink: Option<UnfinishedBuiltBlocksInput>,
     ) -> Self {
         Self {
             state,
