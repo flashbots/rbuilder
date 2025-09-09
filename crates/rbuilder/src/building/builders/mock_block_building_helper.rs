@@ -122,6 +122,22 @@ impl BlockBuildingHelper for MockBlockBuildingHelper {
         self.built_block_trace
             .set_filtered_build_statistics(considered_orders_statistics, failed_orders_statistics);
     }
+
+    fn prefinalize_block(
+        &mut self,
+        _local_ctx: &mut ThreadBlockBuildingContext,
+    ) -> Result<(), BlockBuildingHelperError> {
+        unimplemented!()
+    }
+
+    fn finalize_prefinalized_block(
+        &mut self,
+        _local_ctx: &mut ThreadBlockBuildingContext,
+        _payout_tx_value: U256,
+        _seen_competition_bid: Option<U256>,
+    ) -> Result<FinalizeBlockResult, BlockBuildingHelperError> {
+        unimplemented!()
+    }
 }
 
 #[derive(Debug)]
