@@ -286,7 +286,7 @@ impl RootHashCalculator {
             .bundle_accounts_iter()
             .par_bridge()
             .for_each(|(address, bundle_account)| {
-                if bundle_account.status.is_not_modified() {
+                if bundle_account.status.is_not_modified() && !proof_targets.contains(&address) {
                     return;
                 }
 
@@ -356,19 +356,6 @@ impl RootHashCalculator {
                 storage_calc.applied_storage_ops_previous_iteration =
                     applied_storage_ops_previous_iteration;
             });
-
-        for proof_target in proof_targets {
-            if outcome
-                .bundle
-                .state
-                .get(proof_target)
-                .is_none_or(|acc| !acc.status.is_not_modified())
-            {
-                self.changed_account
-                    .write()
-                    .push((*proof_target, StorageTrieStatus::Hashed));
-            }
-        }
 
         Ok(())
     }

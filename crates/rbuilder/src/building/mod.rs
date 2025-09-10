@@ -1,4 +1,5 @@
 use crate::{
+    building::cached_reads::CachedDB,
     live_builder::{
         block_list_provider::BlockList, order_input::mempool_txs_detector::MempoolTxsDetector,
         payload_events::InternalPayloadId,
@@ -39,6 +40,7 @@ use reth::{
     payload::PayloadId,
     primitives::{Block, SealedBlock},
     providers::ExecutionOutcome,
+    revm::database::StateProviderDatabase,
 };
 use reth_chainspec::{ChainSpec, EthChainSpec, EthereumHardforks};
 use reth_errors::{BlockExecutionError, BlockValidationError, ProviderError};
@@ -48,15 +50,17 @@ use reth_node_api::{EngineApiMessageVersion, PayloadBuilderAttributes};
 use reth_payload_builder::EthPayloadBuilderAttributes;
 use reth_primitives::BlockBody;
 use reth_primitives_traits::{proofs, Block as _};
+use reth_provider::StateProvider;
 use revm::{
     context::BlockEnv,
     context_interface::{block::BlobExcessGasAndPrice, result::InvalidTransaction},
-    database::states::bundle_state::BundleRetention,
+    database::{states::bundle_state::BundleRetention, BundleAccount},
     primitives::hardfork::SpecId,
+    Database as _,
 };
 use serde::Deserialize;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{hash_map, HashMap, HashSet},
     hash::Hash,
     ops::{Add, AddAssign},
     str::FromStr,
@@ -1028,9 +1032,10 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         let step_start = Instant::now();
 
         // calculate the state root
-        let (bundle, _) = state.into_parts();
+        let (bundle, state_provider) = state.into_parts();
         // we use execution outcome here only for interface compatibility, its just a wrapper around bundle
-        let execution_outcome = ExecutionOutcome::new(bundle, Vec::new(), block_number, Vec::new());
+        let mut execution_outcome =
+            ExecutionOutcome::new(bundle, Vec::new(), block_number, Vec::new());
         let state_root = ctx.root_hasher.state_root(&execution_outcome, local_ctx)?;
         let root_hash_time = step_start.elapsed();
 
@@ -1138,7 +1143,8 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
 
         let bid_adjustments = Self::generate_bid_adjustments(
             &block.header,
-            &execution_outcome,
+            &state_provider,
+            &mut execution_outcome,
             ctx,
             local_ctx,
             placeholder_transaction_proof,
@@ -1180,7 +1186,8 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
 
     fn generate_bid_adjustments(
         header: &Header,
-        outcome: &ExecutionOutcome,
+        state_provider: &impl StateProvider,
+        outcome: &mut ExecutionOutcome,
         ctx: &BlockBuildingContext,
         local_ctx: &mut ThreadBlockBuildingContext,
         placeholder_transaction_proof: Vec<Bytes>,
@@ -1209,6 +1216,28 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
                 .into_iter()
                 .chain(ctx.adjustment_fee_payers.clone()),
         );
+
+        // We need to preload fee payer accounts into bundle state.
+
+        let mut cachedb = CachedDB::new(
+            StateProviderDatabase::new(state_provider),
+            &mut local_ctx.cached_reads,
+            &ctx.shared_cached_reads,
+        );
+        for fee_payer in &ctx.adjustment_fee_payers {
+            if let hash_map::Entry::Vacant(entry) = outcome.bundle.state.entry(*fee_payer) {
+                let account_info = cachedb
+                    .basic(*fee_payer)
+                    .map_err(|error| FinalizeError::Other(error.into()))?;
+                entry.insert(BundleAccount {
+                    original_info: account_info.clone(),
+                    info: account_info,
+                    status: revm::database::AccountStatus::Loaded,
+                    storage: Default::default(),
+                });
+            }
+        }
+
         let mut account_proofs =
             ctx.root_hasher
                 .account_proofs(outcome, &proof_targets, local_ctx)?;
