@@ -1217,8 +1217,8 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
                 .chain(ctx.adjustment_fee_payers.clone()),
         );
 
-        // We need to preload fee payer accounts into bundle state.
-
+        // Pre-load all proof targets that are missing from the bundle state.
+        // This is a requirement for accounts to become a part of the trie and be able to generate proofs for them.
         let mut cachedb = CachedDB::new(
             StateProviderDatabase::new(state_provider),
             &mut local_ctx.cached_reads,

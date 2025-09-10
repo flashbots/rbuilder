@@ -60,6 +60,8 @@ pub trait RootHasher: std::fmt::Debug + Send + Sync {
     ) -> Result<B256, RootHashError>;
 
     /// Generate the account proof for the target address.
+    /// NOTE: Proof targets are required to be loaded in the bundle state of [`ExecutionOutcome`].
+    /// If the accounts are missing from the bundle state, the method will return "KeyNotFound" error.
     fn account_proofs(
         &self,
         outcome: &ExecutionOutcome,
