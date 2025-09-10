@@ -90,8 +90,7 @@ fn calculate_receipts_root_and_placeholder_proof_with_cache(
     let root = trie.root_hash(true, &cache.empty_proof_store).unwrap();
 
     let target_idx = receipts.len().checked_sub(1).unwrap();
-    let adjusted_idx = adjust_index_for_rlp(target_idx, receipts.len());
-    let nibbles = Nibbles::unpack(alloy_rlp::encode_fixed_size(&adjusted_idx));
+    let nibbles = Nibbles::unpack(alloy_rlp::encode_fixed_size(&target_idx));
     let proof = trie.proof(&nibbles, &cache.empty_proof_store).unwrap();
 
     (root, proof)
@@ -152,8 +151,7 @@ fn calculate_tx_root_and_placeholder_proof_with_cache(
     let root = trie.root_hash(true, &cache.empty_proof_store).unwrap();
 
     let target_idx = executed_tx_infos.len().checked_sub(1).unwrap();
-    let adjusted_idx = adjust_index_for_rlp(target_idx, executed_tx_infos.len());
-    let nibbles = Nibbles::unpack(alloy_rlp::encode_fixed_size(&adjusted_idx));
+    let nibbles = Nibbles::unpack(alloy_rlp::encode_fixed_size(&target_idx));
     let proof = trie.proof(&nibbles, &cache.empty_proof_store).unwrap();
 
     (root, proof)
@@ -181,8 +179,7 @@ fn calculate_tx_root_and_placeholder_proof_with_alloy(
 pub fn ordered_trie_root_and_proof(items: &[Bytes], proof_index: usize) -> (B256, Vec<Bytes>) {
     let items_len = items.len();
 
-    let adjusted_proof_index = adjust_index_for_rlp(proof_index, items_len);
-    let proof_target_encoded = alloy_rlp::encode_fixed_size(&adjusted_proof_index);
+    let proof_target_encoded = alloy_rlp::encode_fixed_size(&proof_index);
     let proof_retainer = ProofRetainer::from_iter([Nibbles::unpack(&proof_target_encoded)]);
 
     let mut hb = HashBuilder::default().with_proof_retainer(proof_retainer);
