@@ -1,8 +1,4 @@
-use std::{
-    collections::VecDeque,
-    sync::atomic::{AtomicBool, Ordering},
-    time::Duration,
-};
+use std::{collections::VecDeque, time::Duration};
 
 use alloy_primitives::{utils::format_ether, U256};
 use derivative::Derivative;
@@ -104,7 +100,7 @@ impl FinalizeWorker {
                 payout_tx_val,
                 seen_competition_bid,
             } = finalize_task;
-            trace!(payout_tx_val = ?payout_tx_val.map(format_ether),
+            trace!(payout_tx_val = ?format_ether(payout_tx_val),
 		   seen_competition_bid = ?seen_competition_bid.map(format_ether),
 		   "Started block finalization");
             match block.finalize_block(&mut local_ctx, payout_tx_val, seen_competition_bid) {
@@ -128,8 +124,6 @@ enum BlockSealSlotWorkerCommands {
 #[derive(Clone, Debug)]
 pub struct UnfinishedBuiltBlocksInput {
     command_queue: flume::Sender<BlockSealSlotWorkerCommands>,
-    /// bidding service sets this value
-    can_use_suggested_fee_recipient_as_coinbase: Arc<AtomicBool>,
 }
 
 pub struct BlockSealSlotWorkerOutput {
@@ -143,11 +137,6 @@ impl BlockSealInterfaceForSlotBidder for UnfinishedBuiltBlocksInput {
             .map_err(|err| warn!(?err, "Failed to send bid command"))
             .unwrap_or_default();
     }
-
-    fn set_can_use_suggested_fee_recipient_as_coinbase(&self, value: bool) {
-        self.can_use_suggested_fee_recipient_as_coinbase
-            .store(value, Ordering::Relaxed);
-    }
 }
 
 impl UnfinishedBuiltBlocksInput {
@@ -157,21 +146,13 @@ impl UnfinishedBuiltBlocksInput {
             .map_err(|err| warn!(?err, "Failed to send new block command"))
             .unwrap_or_default();
     }
-
-    pub fn can_use_suggested_fee_recipient_as_coinbase(&self) -> bool {
-        self.can_use_suggested_fee_recipient_as_coinbase
-            .load(Ordering::Relaxed)
-    }
 }
 
 fn create_slot_seal_worker() -> (UnfinishedBuiltBlocksInput, BlockSealSlotWorkerOutput) {
-    let can_use_suggested_fee_recipient_as_coinbase = Arc::new(AtomicBool::new(false));
     let (sender, receiver) = flume::unbounded();
     (
         UnfinishedBuiltBlocksInput {
             command_queue: sender,
-            can_use_suggested_fee_recipient_as_coinbase:
-                can_use_suggested_fee_recipient_as_coinbase.clone(),
         },
         BlockSealSlotWorkerOutput {
             command_queue: receiver,
@@ -248,7 +229,7 @@ pub struct UnfinishedBlocksSlotWorker {
 struct FinalizeTask {
     #[derivative(Debug = "ignore")]
     block: Box<dyn BlockBuildingHelper>,
-    payout_tx_val: Option<U256>,
+    payout_tx_val: U256,
     seen_competition_bid: Option<U256>,
 }
 

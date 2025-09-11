@@ -5,7 +5,7 @@ use crate::{
         ThreadBlockBuildingContext,
     },
     provider::StateProviderFactory,
-    utils::{extract_onchain_block_txs, find_suggested_fee_recipient, signed_uint_delta},
+    utils::{extract_onchain_block_txs, find_suggested_fee_recipient, signed_uint_delta, Signer},
 };
 use ahash::{HashMap, HashSet};
 use alloy_primitives::{TxHash, B256, I256};
@@ -45,6 +45,8 @@ where
     let coinbase = onchain_block.header.beneficiary;
     let parent_num_hash = onchain_block.header.parent_num_hash();
 
+    let builder_signer = Signer::random(); // signer will not be used here as we just replay onchain transactions
+
     let ctx = BlockBuildingContext::from_onchain_block(
         onchain_block,
         chain_spec,
@@ -52,7 +54,7 @@ where
         HashSet::default(),
         coinbase,
         suggested_fee_recipient,
-        None,
+        builder_signer,
         Arc::from(provider.root_hasher(parent_num_hash)?),
         false,
     );

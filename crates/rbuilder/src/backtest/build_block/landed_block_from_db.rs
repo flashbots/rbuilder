@@ -123,7 +123,7 @@ impl<ConfigType: LiveBuilderConfig>
             self.blocklist.clone(),
             signer.address,
             self.block_data.winning_bid_trace.proposer_fee_recipient,
-            Some(signer),
+            signer,
             Arc::new(MockRootHasher {}),
             self.config.base_config().evm_caching_enable,
         ))

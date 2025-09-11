@@ -23,11 +23,7 @@ impl SlotBidder for NewTrueBlockValueSlotBidder {
         }
         self.block_seal_handle.seal_bid(SlotBidderSealBidCommand {
             block_id: block_descriptor.id,
-            payout_tx_value: if block_descriptor.can_add_payout_tx {
-                Some(block_descriptor.true_block_value + self.subsidy)
-            } else {
-                None
-            },
+            payout_tx_value: block_descriptor.true_block_value + self.subsidy,
             seen_competition_bid: None,
             trigger_creation_time: Some(time::OffsetDateTime::now_utc()),
         })
@@ -42,8 +38,6 @@ impl BiddingService for NewTrueBlockValueBiddingService {
         block_seal_handle: Box<dyn BlockSealInterfaceForSlotBidder + Send + Sync>,
         _cancel: CancellationToken,
     ) -> Arc<dyn SlotBidder> {
-        block_seal_handle.set_can_use_suggested_fee_recipient_as_coinbase(true);
-
         let bid_start_time = slot_timestamp + self.slot_delta_to_start_bidding;
         Arc::new(NewTrueBlockValueSlotBidder {
             subsidy: self.subsidy,

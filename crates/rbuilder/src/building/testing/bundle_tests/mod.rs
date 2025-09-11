@@ -726,48 +726,6 @@ fn test_bundle_consistency_check() -> eyre::Result<()> {
     Ok(())
 }
 
-/// Values to use in contexts where we just want to check right or wrong execution and don't really care about the data
-const DONT_CARE_VALUE: u64 = 100_000;
-const DONT_CARE_PERCENTAGE: usize = 90;
-#[test]
-fn test_mev_share_use_suggested_fee_recipient_as_coinbase() -> eyre::Result<()> {
-    let target_block = 11;
-    let mut test_setup = TestSetup::gen_test_setup(
-        BlockArgs::default()
-            .number(target_block)
-            .use_suggested_fee_recipient_as_coinbase(true),
-    )?;
-    // Mev share with refunds should fail since it's disabled by use_suggested_fee_recipient_as_coinbase
-    test_setup.begin_share_bundle_order(target_block, target_block);
-    test_setup.add_dummy_tx(
-        NamedAddr::User(0),
-        NamedAddr::User(1),
-        DONT_CARE_VALUE,
-        TxRevertBehavior::NotAllowed,
-    )?;
-    test_setup.add_send_to_coinbase_tx(NamedAddr::User(1), DONT_CARE_VALUE)?;
-    test_setup.set_inner_bundle_refund(vec![Refund {
-        body_idx: 0,
-        percent: DONT_CARE_PERCENTAGE,
-    }]);
-    test_setup.commit_order_err_check(|err| {
-        assert!(matches!(err, OrderErr::Bundle(BundleErr::NoSigner)))
-    });
-
-    // Mev share without refunds is ok
-    test_setup.begin_share_bundle_order(target_block, target_block);
-    test_setup.add_dummy_tx(
-        NamedAddr::User(0),
-        NamedAddr::User(1),
-        DONT_CARE_VALUE,
-        TxRevertBehavior::NotAllowed,
-    )?;
-    test_setup.add_send_to_coinbase_tx(NamedAddr::User(1), DONT_CARE_VALUE)?;
-    test_setup.commit_order_ok();
-
-    Ok(())
-}
-
 #[test]
 ///Checks TxRevertBehavior::AllowedInclude/AllowedExcluded by checking the consumed gas.
 fn test_bundle_revert_modes() -> eyre::Result<()> {

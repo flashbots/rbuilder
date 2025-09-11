@@ -27,12 +27,11 @@ use super::{
 pub struct MockBlockBuildingHelper {
     built_block_trace: BuiltBlockTrace,
     block_building_context: BlockBuildingContext,
-    can_add_payout_tx: bool,
     builder_name: String,
 }
 
 impl MockBlockBuildingHelper {
-    pub fn new(true_block_value: U256, can_add_payout_tx: bool) -> Self {
+    pub fn new(true_block_value: U256) -> Self {
         let built_block_trace = BuiltBlockTrace {
             true_bid_value: true_block_value,
             ..Default::default()
@@ -40,7 +39,6 @@ impl MockBlockBuildingHelper {
         Self {
             built_block_trace,
             block_building_context: BlockBuildingContext::dummy_for_testing(),
-            can_add_payout_tx,
             builder_name: "Mock".to_string(),
         }
     }
@@ -79,10 +77,6 @@ impl BlockBuildingHelper for MockBlockBuildingHelper {
         self.built_block_trace.orders_closed_at = orders_closed_at;
     }
 
-    fn can_add_payout_tx(&self) -> bool {
-        self.can_add_payout_tx
-    }
-
     fn true_block_value(&self) -> Result<U256, BlockBuildingHelperError> {
         Ok(self.built_block_trace.true_bid_value)
     }
@@ -90,16 +84,12 @@ impl BlockBuildingHelper for MockBlockBuildingHelper {
     fn finalize_block(
         mut self: Box<Self>,
         _local_ctx: &mut ThreadBlockBuildingContext,
-        payout_tx_value: Option<U256>,
+        payout_tx_value: U256,
         seen_competition_bid: Option<U256>,
     ) -> Result<FinalizeBlockResult, BlockBuildingHelperError> {
         self.built_block_trace.update_orders_sealed_at();
         self.built_block_trace.seen_competition_bid = seen_competition_bid;
-        self.built_block_trace.bid_value = if let Some(payout_tx_value) = payout_tx_value {
-            payout_tx_value
-        } else {
-            self.built_block_trace.true_bid_value
-        };
+        self.built_block_trace.bid_value = payout_tx_value;
         let block = Block {
             builder_name: "BlockBuildingHelper".to_string(),
             trace: self.built_block_trace,

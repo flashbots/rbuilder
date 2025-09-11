@@ -78,7 +78,7 @@ where
         blocklist,
         builder_signer.address,
         block_data.winning_bid_trace.proposer_fee_recipient,
-        Some(builder_signer),
+        builder_signer,
         Arc::from(provider.root_hasher(parent_num_hash)?),
         evm_caching_enable,
     );

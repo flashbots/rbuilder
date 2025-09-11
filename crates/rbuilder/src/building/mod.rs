@@ -108,11 +108,7 @@ pub struct BlockBuildingContext {
     pub chain_spec: Arc<ChainSpec>,
     /// cached chain_spec.blob_params_at_timestamp(attributes.timestamp()).max_blob_gas_per_block()
     max_blob_gas_per_block: u64,
-    /// Signer to sign builder payoffs (end of block and mev-share).
-    /// Is Option to avoid any possible bug (losing money!) with payoffs.
-    /// None: coinbase = attributes.suggested_fee_recipient. No payoffs allowed.
-    /// Some(signer): coinbase = signer.
-    pub builder_signer: Option<Signer>,
+    pub builder_signer: Signer,
     pub blocklist: BlockList,
     pub extra_data: Vec<u8>,
     /// Excess blob gas calculated from the parent block header
@@ -209,7 +205,7 @@ impl BlockBuildingContext {
             evm_env,
             attributes,
             chain_spec,
-            builder_signer: Some(signer),
+            builder_signer: signer,
             blocklist,
             extra_data,
             excess_blob_gas,
@@ -244,7 +240,7 @@ impl BlockBuildingContext {
         blocklist: BlockList,
         beneficiary: Address,
         suggested_fee_recipient: Address,
-        builder_signer: Option<Signer>,
+        builder_signer: Signer,
         root_hasher: Arc<dyn RootHasher>,
         evm_caching_enable: bool,
     ) -> BlockBuildingContext {
@@ -345,15 +341,10 @@ impl BlockBuildingContext {
             Default::default(),
             Default::default(),
             Default::default(),
-            Default::default(),
+            Signer::random(),
             Arc::new(MockRootHasher {}),
             false,
         )
-    }
-
-    pub fn modify_use_suggested_fee_recipient_as_coinbase(&mut self) {
-        self.builder_signer = None;
-        self.evm_env.block_env.beneficiary = self.attributes.suggested_fee_recipient;
     }
 
     pub fn timestamp(&self) -> OffsetDateTime {
@@ -367,10 +358,6 @@ impl BlockBuildingContext {
 
     pub fn block(&self) -> u64 {
         self.block_number
-    }
-
-    pub fn coinbase_is_suggested_fee_recipient(&self) -> bool {
-        self.evm_env.block_env.beneficiary == self.attributes.suggested_fee_recipient
     }
 }
 
@@ -768,13 +755,6 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         state: &mut BlockState,
         result_filter: &dyn Fn(&SimValue) -> Result<(), ExecutionError>,
     ) -> Result<Result<ExecutionResult, ExecutionError>, CriticalCommitOrderError> {
-        if ctx.builder_signer.is_none() && !order.sim_value.paid_kickbacks().is_empty() {
-            // Return here to avoid wasting time on a call to fork.commit_order that 99% will fail
-            return Ok(Err(ExecutionError::OrderError(OrderErr::Bundle(
-                BundleErr::NoSigner,
-            ))));
-        }
-
         let mut fork = PartialBlockFork::new_with_execution_tracer(
             state,
             ctx,
@@ -858,10 +838,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         local_ctx: &mut ThreadBlockBuildingContext,
         state: &mut BlockState,
     ) -> Result<(), InsertPayoutTxErr> {
-        let builder_signer = ctx
-            .builder_signer
-            .as_ref()
-            .ok_or(InsertPayoutTxErr::NoSigner)?;
+        let builder_signer = &ctx.builder_signer;
         self.free_reserved_block_space();
         let mut nonce = state
             .nonce(
@@ -1197,17 +1174,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             return Ok(Default::default());
         }
 
-        let Some(builder_signer) = ctx
-            .builder_signer
-            .filter(|signer| signer.address == header.beneficiary)
-        else {
-            trace!(
-                block_number = header.number,
-                "Builder is not block coinbase"
-            );
-            return Ok(Default::default());
-        };
-
+        let builder_signer = &ctx.builder_signer;
         let builder_address = builder_signer.address;
         let fee_recipient_address = ctx.attributes.suggested_fee_recipient;
 

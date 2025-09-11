@@ -303,8 +303,6 @@ pub enum BundleErr {
     IncorrectRefundableElement(usize),
     #[error("Incorrect timestamp, min: {min}, max: {max}, block: {block}")]
     IncorrectTimestamp { min: u64, max: u64, block: u64 },
-    #[error("Mev-share without signer")]
-    NoSigner,
 }
 
 #[derive(Debug, Clone)]
@@ -783,11 +781,7 @@ impl<
         reserved_block_space: BlockSpace,
         insert_result: &mut BundleOk,
     ) -> Result<Result<(), BundleErr>, CriticalCommitOrderError> {
-        let builder_signer = if let Some(signer) = self.ctx.builder_signer.as_ref() {
-            signer
-        } else {
-            return Ok(Err(BundleErr::NoSigner));
-        };
+        let builder_signer = &self.ctx.builder_signer;
 
         let nonce = self.state.nonce(
             builder_signer.address,

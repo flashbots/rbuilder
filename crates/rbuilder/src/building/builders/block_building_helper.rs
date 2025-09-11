@@ -55,9 +55,6 @@ pub trait BlockBuildingHelper: Send + Sync {
         failed_orders_statistics: OrderStatistics,
     );
 
-    /// Only if can_add_payout_tx you can pass Some(payout_tx_value) to finalize_block (a little ugly could be improved...)
-    fn can_add_payout_tx(&self) -> bool;
-
     /// Accumulated coinbase delta - gas cost of final payout tx (if can_add_payout_tx).
     /// This is the maximum profit that can reach the final fee recipient (max bid!).
     /// Maximum payout_tx_value value to pass to finalize_block.
@@ -70,7 +67,7 @@ pub trait BlockBuildingHelper: Send + Sync {
     fn finalize_block(
         self: Box<Self>,
         local_ctx: &mut ThreadBlockBuildingContext,
-        payout_tx_value: Option<U256>,
+        payout_tx_value: U256,
         seen_competition_bid: Option<U256>,
     ) -> Result<FinalizeBlockResult, BlockBuildingHelperError>;
 
@@ -129,8 +126,7 @@ pub struct BlockBuildingHelperFromProvider<
     block_state: BlockState,
     partial_block: PartialBlock<GasUsedSimulationTracer, PartialBlockExecutionTracerType>,
     /// Gas reserved for the final payout txs from coinbase to fee recipient.
-    /// None means we don't need this final tx since coinbase == fee recipient.
-    payout_tx_gas: Option<u64>,
+    payout_tx_gas: u64,
     /// Name of the builder that pregenerated this block.
     /// Might be ambiguous if several building parts were involved...
     builder_name: String,
@@ -154,8 +150,6 @@ pub enum BlockBuildingHelperError {
     BundleConsistencyCheckFailed(#[from] BuiltBlockTraceError),
     #[error("Error finalizing block: {0}")]
     FinalizeError(#[from] FinalizeError),
-    #[error("Payout tx not allowed for block")]
-    PayoutTxNotAllowed,
     #[error("Provider historical block hashes error: {0}")]
     HistoricalBlockError(#[from] HistoricalBlockError),
 }
@@ -235,19 +229,15 @@ impl<
         partial_block
             .pre_block_call(&building_ctx, local_ctx, &mut block_state)
             .map_err(|_| BlockBuildingHelperError::PreBlockCallFailed)?;
-        let payout_tx_gas = if building_ctx.coinbase_is_suggested_fee_recipient() {
-            None
-        } else {
-            let payout_tx_space = estimate_payout_gas_limit(
-                building_ctx.attributes.suggested_fee_recipient,
-                &building_ctx,
-                local_ctx,
-                &mut block_state,
-                BlockSpace::ZERO,
-            )?;
-            partial_block.reserve_block_space(payout_tx_space);
-            Some(payout_tx_space.gas())
-        };
+        let payout_tx_space = estimate_payout_gas_limit(
+            building_ctx.attributes.suggested_fee_recipient,
+            &building_ctx,
+            local_ctx,
+            &mut block_state,
+            BlockSpace::ZERO,
+        )?;
+        partial_block.reserve_block_space(payout_tx_space);
+        let payout_tx_gas = payout_tx_space.gas();
 
         let mut built_block_trace = BuiltBlockTrace::new();
         built_block_trace.available_orders_statistics = available_orders_statistics;
@@ -296,8 +286,6 @@ impl<
             blobs,
             gas_used,
             sim_gas_used,
-            use_suggested_fee_recipient_as_coinbase =
-                building_ctx.coinbase_is_suggested_fee_recipient(),
             "Built block",
         );
     }
@@ -306,31 +294,20 @@ impl<
     fn finalize_block_execution(
         &mut self,
         local_ctx: &mut ThreadBlockBuildingContext,
-        payout_tx_value: Option<U256>,
+        payout_tx_value: U256,
     ) -> Result<(), BlockBuildingHelperError> {
         self.built_block_trace.coinbase_reward = self.partial_block.coinbase_profit;
 
-        let (bid_value, true_value, use_last_tx_payment) =
-            if let Some((payout_tx_gas, payout_tx_value)) = self.payout_tx_gas.zip(payout_tx_value)
-            {
-                self.partial_block.insert_refunds_and_proposer_payout_tx(
-                    payout_tx_gas,
-                    payout_tx_value,
-                    &self.building_ctx,
-                    local_ctx,
-                    &mut self.block_state,
-                )?;
-                (payout_tx_value, self.true_block_value()?, true)
-            } else {
-                (
-                    self.partial_block.coinbase_profit,
-                    self.partial_block.coinbase_profit,
-                    false,
-                )
-            };
+        self.partial_block.insert_refunds_and_proposer_payout_tx(
+            self.payout_tx_gas,
+            payout_tx_value,
+            &self.building_ctx,
+            local_ctx,
+            &mut self.block_state,
+        )?;
 
-        // Since some extra money might arrived directly the suggested_fee_recipient (when suggested_fee_recipient != coinbase)
-        // we check the fee_recipient delta and make our bid include that! This is supposed to be what the relay will check.
+        let (bid_value, true_value) = (payout_tx_value, self.true_block_value()?);
+
         let fee_recipient_balance_after = self.block_state.balance(
             self.building_ctx.attributes.suggested_fee_recipient,
             &self.building_ctx.shared_cached_reads,
@@ -340,18 +317,7 @@ impl<
             .checked_sub(self._fee_recipient_balance_start)
             .unwrap_or_default();
 
-        if use_last_tx_payment {
-            self.built_block_trace.bid_value = max(bid_value, fee_recipient_balance_diff);
-        } else {
-            // When the coinbase address is the fee recipient, we exclusively use fee_recipient_balance_diff
-            // since this is the value used by validation nodes
-            //
-            // Using fee_recipient_balance_diff may cause block validation failures in certain edge cases
-            // Example: If the fee recipient is a contract that sweeps its balance to another address on each call,
-            // and we include a bundle paying directly to coinbase, the fee recipient balance would be 0
-            // causing validation nodes to reject the block
-            self.built_block_trace.bid_value = fee_recipient_balance_diff;
-        }
+        self.built_block_trace.bid_value = max(bid_value, fee_recipient_balance_diff);
         self.built_block_trace.true_bid_value = true_value;
         Ok(())
     }
@@ -388,8 +354,6 @@ impl<
                     )
                 }
                 Err(err) => {
-                    self.built_block_trace
-                        .modify_payment_when_no_signer_error(&err);
                     self.built_block_trace.add_failed_order(order);
                     (Ok(Err(err)), false)
                 }
@@ -409,29 +373,18 @@ impl<
         self.built_block_trace.orders_closed_at = orders_closed_at;
     }
 
-    fn can_add_payout_tx(&self) -> bool {
-        !self.building_ctx.coinbase_is_suggested_fee_recipient()
-    }
-
     fn true_block_value(&self) -> Result<U256, BlockBuildingHelperError> {
-        if let Some(payout_tx_gas) = self.payout_tx_gas {
-            Ok(self
-                .partial_block
-                .get_proposer_payout_tx_value(payout_tx_gas, &self.building_ctx)?)
-        } else {
-            Ok(self.partial_block.coinbase_profit)
-        }
+        Ok(self
+            .partial_block
+            .get_proposer_payout_tx_value(self.payout_tx_gas, &self.building_ctx)?)
     }
 
     fn finalize_block(
         mut self: Box<Self>,
         local_ctx: &mut ThreadBlockBuildingContext,
-        payout_tx_value: Option<U256>,
+        payout_tx_value: U256,
         seen_competition_bid: Option<U256>,
     ) -> Result<FinalizeBlockResult, BlockBuildingHelperError> {
-        if payout_tx_value.is_some() && self.building_ctx.coinbase_is_suggested_fee_recipient() {
-            return Err(BlockBuildingHelperError::PayoutTxNotAllowed);
-        }
         let start_time = Instant::now();
         let step_start = Instant::now();
 

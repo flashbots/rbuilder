@@ -120,7 +120,7 @@ where
             let mut ctx = ctx;
             let signer = Signer::random();
             ctx.evm_env.block_env.beneficiary = signer.address;
-            ctx.builder_signer = Some(signer);
+            ctx.builder_signer = signer;
             ctx.tx_execution_cache = TxExecutionCache::new(false).into();
             ctx
         } else {

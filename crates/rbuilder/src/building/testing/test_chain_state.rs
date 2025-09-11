@@ -42,7 +42,6 @@ pub enum NamedAddr {
 pub struct BlockArgs {
     pub number: u64,
     pub timestamp: u64,
-    pub use_suggested_fee_recipient_as_coinbase: bool,
 }
 
 impl Default for BlockArgs {
@@ -52,7 +51,6 @@ impl Default for BlockArgs {
             timestamp: EthereumHardfork::Cancun
                 .mainnet_activation_timestamp()
                 .unwrap(),
-            use_suggested_fee_recipient_as_coinbase: false,
         }
     }
 }
@@ -64,16 +62,6 @@ impl BlockArgs {
 
     pub fn timestamp(self, timestamp: u64) -> Self {
         Self { timestamp, ..self }
-    }
-
-    pub fn use_suggested_fee_recipient_as_coinbase(
-        self,
-        use_suggested_fee_recipient_as_coinbase: bool,
-    ) -> Self {
-        Self {
-            use_suggested_fee_recipient_as_coinbase,
-            ..self
-        }
     }
 }
 
@@ -335,7 +323,6 @@ struct TestBlockContextBuilder {
     chain_spec: Arc<ChainSpec>,
     blocklist: BlockList,
     prefer_gas_limit: Option<u64>,
-    use_suggested_fee_recipient_as_coinbase: bool,
     root_hasher: Arc<dyn RootHasher>,
 }
 
@@ -364,14 +351,12 @@ impl TestBlockContextBuilder {
             chain_spec,
             blocklist: vec![blocklisted].into_iter().collect(),
             prefer_gas_limit: None,
-            use_suggested_fee_recipient_as_coinbase: block_args
-                .use_suggested_fee_recipient_as_coinbase,
             root_hasher,
         }
     }
 
     fn build(self) -> BlockBuildingContext {
-        let mut res = BlockBuildingContext::from_attributes(
+        BlockBuildingContext::from_attributes(
             PayloadAttributesEvent {
                 version: self.payload_attributes_version,
                 data: PayloadAttributesData {
@@ -424,11 +409,7 @@ impl TestBlockContextBuilder {
             true,
             Default::default(),
         )
-        .unwrap();
-        if self.use_suggested_fee_recipient_as_coinbase {
-            res.modify_use_suggested_fee_recipient_as_coinbase();
-        }
-        res
+        .unwrap()
     }
 }
 

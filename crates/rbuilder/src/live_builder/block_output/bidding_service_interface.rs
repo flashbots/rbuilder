@@ -78,7 +78,6 @@ pub struct BlockId(pub u64);
 #[derivative(PartialEq, Eq)]
 pub struct BuiltBlockDescriptorForSlotBidder {
     pub true_block_value: U256,
-    pub can_add_payout_tx: bool,
     pub id: BlockId,
     /// For metrics
     #[derivative(PartialEq = "ignore")]
@@ -89,7 +88,6 @@ impl BuiltBlockDescriptorForSlotBidder {
     pub fn new(id: BlockId, unfinished_block: &BiddableUnfinishedBlock) -> Self {
         Self {
             true_block_value: unfinished_block.true_block_value,
-            can_add_payout_tx: unfinished_block.block.can_add_payout_tx(),
             id,
             creation_time: OffsetDateTime::now_utc(),
         }
@@ -99,7 +97,7 @@ impl BuiltBlockDescriptorForSlotBidder {
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct SlotBidderSealBidCommand {
     pub block_id: BlockId,
-    pub payout_tx_value: Option<U256>,
+    pub payout_tx_value: U256,
     pub seen_competition_bid: Option<U256>,
     /// When this bid is a reaction so some event (eg: new block, new competition bid) we put here
     /// the creation time of that event so we can measure our reaction time.
@@ -108,7 +106,6 @@ pub struct SlotBidderSealBidCommand {
 
 pub trait BlockSealInterfaceForSlotBidder {
     fn seal_bid(&self, bid: SlotBidderSealBidCommand);
-    fn set_can_use_suggested_fee_recipient_as_coinbase(&self, value: bool);
 }
 
 // /// BlockBid + extra info needed to measure bis travel times on the bidding service.

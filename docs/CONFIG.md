@@ -94,7 +94,6 @@ Each instantiated algorithm starts with:
 |sorting|mandatory string|Valid values:<br>-"mev-gas-price": Sorts the SimulatedOrders by its effective gas price. This not only includes the explicit gas price set in the tx but also the direct coinbase payments so we compute it as (coinbase balance delta after executing the order) / (gas used).<br>-"max-profit": Sorts the SimulatedOrders by its absolute profit which is computed as the coinbase balance delta after executing the order.<br>-"type-max-profit": (Experimental) Orders are ordered by their origin (bundle/sbundles then mempool) and then by their absolute profit.<br>-"length-three-max-profit":(Experimental) Orders are ordered by length 3 (orders length >= 3 first) and then by their absolute profit.<br>-"length-three-mev-gas-price":(Experimental) Orders are ordered by length 3 (orders length >= 3 first) and then by their mev gas price.||
 |failed_order_retries|mandatory int | Only when a tx fails because the profit was worst than expected: Number of time an order can fail during a single block building iteration.<br> When thi happens it gets reinserted in the PrioritizedOrderStore with the new simulated profit (the one that failed).||
 |drop_failed_orders|mandatory bool| if a tx fails in a block building iteration it's dropped so next iterations will not use it.||
-|coinbase_payment|optional bool | Start the first iteration of block building using direct pay to fee_recipient (validator)<br>This mode saves gas on the payout tx from builder to validator but disables mev-share and profit taking.|false|
 |build_duration_deadline_ms|optional int| Amount of time allocated for EVM execution while building block. If None it only stops when it tried all orders.| None|
 |pre_filtered_build_duration_deadline_ms|optional int| Amount of time allocated for EVM execution for the pre-filtered building step. If None it only stops when it tried all orders.<br>In this second building step the building algorithm will only try to include orders other algorithms landed in their last locks.|0|
 |ignore_mempool_profit_on_bundles|bool|When computing profit to prioritize orders on s/bundles any profit from a mempool tx will be ignored.|false|
@@ -106,7 +105,6 @@ Each instantiated algorithm starts with:
 |------|------|-------------|---------|
 |discard_txs|mandatory bool| If a tx inside a bundle or sbundle fails with TransactionErr (don't confuse this with reverting which is TransactionOk with !.receipt.success) and it's configured as allowed to revert (for bundles tx in reverting_tx_hashes or dropping_tx_hashes, for sbundles: TxRevertBehavior != NotAllowed) we continue the  execution of the bundle/sbundle. The most typical value is true.||
 |num_threads| mandatory int| Number of threads to use for merging.||
-|coinbase_payment|optional bool | Doc pending.|false|
 
 ## Bidding fields
 | Name | Type | Comments | Default |

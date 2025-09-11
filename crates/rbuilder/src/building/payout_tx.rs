@@ -43,8 +43,6 @@ pub enum PayoutTxErr {
     SignError(#[from] secp256k1::Error),
     #[error("EVM error: {0}")]
     EvmError(#[from] EVMError<ProviderError>),
-    #[error("Payout without signer")]
-    NoSigner,
 }
 
 impl PartialEq for PayoutTxErr {
@@ -53,7 +51,6 @@ impl PartialEq for PayoutTxErr {
             (PayoutTxErr::Reth(_), PayoutTxErr::Reth(_)) => true,
             (PayoutTxErr::SignError(a), PayoutTxErr::SignError(b)) => a == b,
             (PayoutTxErr::EvmError(_), PayoutTxErr::EvmError(_)) => true,
-            (PayoutTxErr::NoSigner, PayoutTxErr::NoSigner) => true,
             _ => false,
         }
     }
@@ -68,7 +65,7 @@ pub fn insert_test_payout_tx(
     state: &mut BlockState,
     gas_limit: u64,
 ) -> Result<Option<u64>, PayoutTxErr> {
-    let builder_signer = ctx.builder_signer.as_ref().ok_or(PayoutTxErr::NoSigner)?;
+    let builder_signer = &ctx.builder_signer;
 
     let nonce = state.nonce(
         builder_signer.address,
@@ -130,24 +127,19 @@ impl PartialEq for EstimatePayoutGasErr {
 impl Eq for EstimatePayoutGasErr {}
 
 fn estimate_payout_tx_space(ctx: &BlockBuildingContext) -> Result<BlockSpace, secp256k1::Error> {
-    let res = if let Some(builder_signer) = &ctx.builder_signer {
-        let tx = create_payout_tx(
-            ctx.chain_spec.as_ref(),
-            ctx.evm_env.block_env.basefee,
-            builder_signer,
-            0,
-            Address::ZERO,
-            ctx.evm_env.block_env.gas_limit,
-            U256::ZERO,
-        )?;
-        BlockSpace::new(
-            BASE_TX_GAS,
-            tx.inner().length() + 32 * 4, /* To account for any possible length encoding on ZERO fields */
-        )
-    } else {
-        BlockSpace::ZERO
-    };
-    Ok(res)
+    let tx = create_payout_tx(
+        ctx.chain_spec.as_ref(),
+        ctx.evm_env.block_env.basefee,
+        &ctx.builder_signer,
+        0,
+        Address::ZERO,
+        ctx.evm_env.block_env.gas_limit,
+        U256::ZERO,
+    )?;
+    Ok(BlockSpace::new(
+        BASE_TX_GAS,
+        tx.inner().length() + 32 * 4, /* To account for any possible length encoding on ZERO fields */
+    ))
 }
 
 pub fn estimate_payout_gas_limit(
@@ -252,7 +244,7 @@ mod tests {
             Default::default(),
             signer.address,
             proposer,
-            Some(signer),
+            signer,
             Arc::new(MockRootHasher {}),
             false,
         );

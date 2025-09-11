@@ -195,10 +195,6 @@ impl BlockBuildingHelper for BlockBuildingHelperStatsLogger<'_> {
             .set_trace_orders_closed_at(orders_closed_at);
     }
 
-    fn can_add_payout_tx(&self) -> bool {
-        self.block_building_helper.can_add_payout_tx()
-    }
-
     fn true_block_value(
         &self,
     ) -> Result<alloy_primitives::U256, super::block_building_helper::BlockBuildingHelperError>
@@ -209,7 +205,7 @@ impl BlockBuildingHelper for BlockBuildingHelperStatsLogger<'_> {
     fn finalize_block(
         self: Box<Self>,
         _local_ctx: &mut crate::building::ThreadBlockBuildingContext,
-        _payout_tx_value: Option<alloy_primitives::U256>,
+        _payout_tx_value: alloy_primitives::U256,
         _seen_competition_bid: Option<alloy_primitives::U256>,
     ) -> Result<
         super::block_building_helper::FinalizeBlockResult,

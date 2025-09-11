@@ -57,8 +57,6 @@ pub struct ParallelBuilderConfig {
     pub discard_txs: bool,
     pub num_threads: usize,
     pub safe_sorting_only: bool,
-    #[serde(default)]
-    pub coinbase_payment: bool,
 }
 
 fn get_communication_channels() -> (
@@ -134,7 +132,6 @@ where
             input.ctx.clone(),
             input.cancel.clone(),
             input.builder_name.clone(),
-            input.sink.can_use_suggested_fee_recipient_as_coinbase(),
             Some(input.sink.clone()),
         );
 
@@ -352,7 +349,6 @@ where
         input.ctx.clone(),
         CancellationToken::new(),
         String::from("backtest_builder"),
-        true,
         None,
     );
     let assembler_duration = assembler_start.elapsed();
@@ -373,11 +369,7 @@ where
     let block_building_helper = block_building_result_assembler
         .build_backtest_block(best_results, OffsetDateTime::now_utc())?;
 
-    let payout_tx_value = if config.coinbase_payment {
-        None
-    } else {
-        Some(block_building_helper.true_block_value()?)
-    };
+    let payout_tx_value = block_building_helper.true_block_value()?;
     let finalize_block_result = block_building_helper.finalize_block(
         &mut block_building_result_assembler.local_ctx,
         payout_tx_value,

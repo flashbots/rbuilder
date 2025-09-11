@@ -12,7 +12,7 @@ use rbuilder::{
     },
     live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig, config::Config},
     provider::StateProviderFactory,
-    utils::{extract_onchain_block_txs, find_suggested_fee_recipient, http_provider},
+    utils::{extract_onchain_block_txs, find_suggested_fee_recipient, http_provider, Signer},
 };
 use reth_provider::StateProvider;
 use std::{path::PathBuf, sync::Arc, time::Instant};
@@ -72,7 +72,7 @@ async fn main() -> eyre::Result<()> {
         Default::default(),
         coinbase,
         suggested_fee_recipient,
-        None,
+        Signer::random(),
         Arc::from(provider_factory.root_hasher(parent_num_hash)?),
         config.base_config().evm_caching_enable,
     );
