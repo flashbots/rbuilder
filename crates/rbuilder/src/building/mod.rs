@@ -469,38 +469,36 @@ impl PartialBlockForkExecutionTracer for NullPartialBlockExecutionTracer {
 }
 
 /// Models consumed/reserved space on a block to be able to insert payout tx when finished filling the block.
-/// @Pending: Add blob gas?
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct BlockSpace {
     pub gas: u64,
     /// EIP-7934 limits the size of the final rlp block.
     /// Estimation of the sum of the rlp txs sizes.
     pub rlp_length: usize,
+    pub blob_gas: u64,
 }
 
 impl BlockSpace {
-    pub fn new(gas: u64, rlp_length: usize) -> Self {
-        Self { gas, rlp_length }
+    pub fn new(gas: u64, rlp_length: usize, blob_gas: u64) -> Self {
+        Self {
+            gas,
+            rlp_length,
+            blob_gas,
+        }
     }
 
     pub const ZERO: Self = Self {
         gas: 0,
         rlp_length: 0,
+        blob_gas: 0,
     };
-
-    pub fn gas(&self) -> u64 {
-        self.gas
-    }
-
-    pub fn rlp_length(&self) -> usize {
-        self.rlp_length
-    }
 }
 
 impl AddAssign for BlockSpace {
     fn add_assign(&mut self, other: Self) {
         self.gas += other.gas;
         self.rlp_length += other.rlp_length;
+        self.blob_gas += other.blob_gas;
     }
 }
 
@@ -511,6 +509,7 @@ impl Add for BlockSpace {
         Self {
             gas: self.gas + other.gas,
             rlp_length: self.rlp_length + other.rlp_length,
+            blob_gas: self.blob_gas + other.blob_gas,
         }
     }
 }
@@ -521,26 +520,19 @@ pub struct BlockBuildingSpaceState {
     space_used: BlockSpace,
     /// Reserved gas/size for later use (usually final payout tx). When simulating we subtract this from the block gas limit.
     reserved_block_space: BlockSpace,
-    blob_gas_used: u64,
 }
 
 impl BlockBuildingSpaceState {
-    pub fn new(
-        space_used: BlockSpace,
-        reserved_block_space: BlockSpace,
-        blob_gas_used: u64,
-    ) -> Self {
+    pub fn new(space_used: BlockSpace, reserved_block_space: BlockSpace) -> Self {
         Self {
             space_used,
             reserved_block_space,
-            blob_gas_used,
         }
     }
 
     pub const ZERO: Self = Self {
         space_used: BlockSpace::ZERO,
         reserved_block_space: BlockSpace::ZERO,
-        blob_gas_used: 0,
     };
 
     pub fn free_reserved_block_space(&mut self) {
@@ -557,11 +549,11 @@ impl BlockBuildingSpaceState {
     }
 
     pub fn gas_used(&self) -> u64 {
-        self.space_used.gas()
+        self.space_used.gas
     }
 
     pub fn blob_gas_used(&self) -> u64 {
-        self.blob_gas_used
+        self.space_used.blob_gas
     }
 
     pub fn space_used(&self) -> BlockSpace {
@@ -572,9 +564,8 @@ impl BlockBuildingSpaceState {
         self.reserved_block_space += space;
     }
 
-    pub fn use_space(&mut self, space: BlockSpace, blob_gas_used: u64) {
+    pub fn use_space(&mut self, space: BlockSpace) {
         self.space_used += space;
-        self.blob_gas_used += blob_gas_used;
     }
 }
 
@@ -788,8 +779,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             }
         }
 
-        self.space_state
-            .use_space(ok_result.space_used, ok_result.blob_gas_used);
+        self.space_state.use_space(ok_result.space_used);
         self.coinbase_profit += ok_result.coinbase_profit;
         self.executed_tx_infos.extend(ok_result.tx_infos.clone());
 
@@ -879,8 +869,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
                 return Err(InsertPayoutTxErr::CombinedRefundTxReverted);
             }
 
-            self.space_state
-                .use_space(refund_result.space_used(), refund_result.blob_gas_used);
+            self.space_state.use_space(refund_result.space_used());
             self.executed_tx_infos.push(refund_result.tx_info);
 
             nonce += 1;
@@ -903,8 +892,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             return Err(InsertPayoutTxErr::PayoutTxReverted);
         }
 
-        self.space_state
-            .use_space(ok_result.space_used(), ok_result.blob_gas_used);
+        self.space_state.use_space(ok_result.space_used());
         self.executed_tx_infos.push(ok_result.tx_info);
 
         Ok(())
@@ -957,8 +945,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
                 return Err(InsertPayoutTxErr::CombinedRefundTxReverted);
             }
 
-            self.space_state
-                .use_space(refund_result.space_used(), refund_result.blob_gas_used);
+            self.space_state.use_space(refund_result.space_used());
             self.executed_tx_infos.push(refund_result.tx_info);
 
             nonce += 1;
@@ -997,8 +984,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             return Err(InsertPayoutTxErr::PayoutTxReverted);
         }
 
-        self.space_state
-            .use_space(ok_result.space_used(), ok_result.blob_gas_used);
+        self.space_state.use_space(ok_result.space_used());
         self.executed_tx_infos.push(ok_result.tx_info);
 
         Ok(())
@@ -1353,13 +1339,11 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         state: &mut BlockState,
     ) -> eyre::Result<()> {
         // We "pre-use" the RLP overhead for the withdrawals and the block header.
-        self.space_state.use_space(
-            BlockSpace::new(
-                0,
-                ctx.attributes.withdrawals.length() + BLOCK_HEADER_RLP_OVERHEAD,
-            ),
+        self.space_state.use_space(BlockSpace::new(
             0,
-        );
+            ctx.attributes.withdrawals.length() + BLOCK_HEADER_RLP_OVERHEAD,
+            0,
+        ));
 
         let mut db = state.new_db_ref(&ctx.shared_cached_reads, &mut local_ctx.cached_reads);
         let mut system_caller = SystemCaller::new(ctx.chain_spec.clone());
@@ -1448,7 +1432,6 @@ pub fn create_sim_value(
         order_ok.coinbase_profit,
         non_mempool_coinbase_profit,
         order_ok.space_used,
-        order_ok.blob_gas_used,
         order_ok.paid_kickbacks.clone(),
     )
 }
@@ -1480,19 +1463,17 @@ mod test {
             coinbase_profit: Default::default(),
             space_used: Default::default(),
             cumulative_space_used: Default::default(),
-            blob_gas_used: Default::default(),
-            cumulative_blob_gas_used: Default::default(),
             tx_infos: vec![
                 TransactionExecutionInfo {
                     tx: tx1,
                     receipt: Default::default(),
-                    gas_used: Default::default(),
+                    space_used: Default::default(),
                     coinbase_profit: profit_1,
                 },
                 TransactionExecutionInfo {
                     tx: tx2,
                     receipt: Default::default(),
-                    gas_used: Default::default(),
+                    space_used: Default::default(),
                     coinbase_profit: profit_2,
                 },
             ],
@@ -1531,12 +1512,10 @@ mod test {
             coinbase_profit: profit.unsigned_abs(),
             space_used: Default::default(),
             cumulative_space_used: Default::default(),
-            blob_gas_used: Default::default(),
-            cumulative_blob_gas_used: Default::default(),
             tx_infos: vec![TransactionExecutionInfo {
                 tx,
                 receipt: Default::default(),
-                gas_used: Default::default(),
+                space_used: Default::default(),
                 coinbase_profit: profit,
             }],
             delayed_kickback: None,

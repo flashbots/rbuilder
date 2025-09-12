@@ -208,7 +208,7 @@ mod tests {
     use alloy_primitives::{address, fixed_bytes};
     use reth_primitives::{logs_bloom, Log, LogData};
 
-    use crate::utils::test_utils::tx;
+    use crate::{building::BlockSpace, utils::test_utils::tx};
 
     use super::*;
 
@@ -276,7 +276,7 @@ mod tests {
             .map(|receipt| TransactionExecutionInfo {
                 tx: tx(1),
                 receipt,
-                gas_used: 0,
+                space_used: BlockSpace::ZERO,
                 coinbase_profit: Default::default(),
             })
             .collect::<Vec<_>>();
@@ -297,7 +297,7 @@ mod tests {
             data.push(TransactionExecutionInfo {
                 tx: tx(i),
                 receipt: Default::default(),
-                gas_used: 0,
+                space_used: BlockSpace::ZERO,
                 coinbase_profit: Default::default(),
             });
         }

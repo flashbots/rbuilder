@@ -449,7 +449,7 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
         let result = fork.commit_order(&parent, space_state, true, &combined_refunds)?;
         match result {
             Ok(res) => {
-                space_state.use_space(res.space_used, res.blob_gas_used);
+                space_state.use_space(res.space_used);
             }
             Err(err) => {
                 tracing::trace!(parent_order = ?parent.id(), ?err, "failed to simulate parent order");

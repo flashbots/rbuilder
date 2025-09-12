@@ -88,7 +88,7 @@ pub fn find_conflict_slow(
         let mut space_state = BlockBuildingSpaceState::ZERO;
         match fork.commit_order(order1, space_state, true, &combined_refunds)? {
             Ok(res) => {
-                space_state.use_space(res.space_used, res.blob_gas_used);
+                space_state.use_space(res.space_used);
             }
             Err(_) => {
                 results.insert(pair, Conflict::Fatal);

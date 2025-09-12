@@ -105,7 +105,7 @@ async fn main() -> eyre::Result<()> {
                             format!("Failed to commit tx: {} {:?}", idx, tx.hash())
                         })?
                     };
-                    space_state.use_space(result.space_used(), result.blob_gas_used);
+                    space_state.use_space(result.space_used());
                 }
 
                 let build_time = build_time.elapsed();

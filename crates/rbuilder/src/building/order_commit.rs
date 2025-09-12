@@ -190,7 +190,7 @@ where
 pub struct TransactionExecutionInfo {
     pub tx: TransactionSignedEcRecoveredWithBlobs,
     pub receipt: Receipt,
-    pub gas_used: u64,
+    pub space_used: BlockSpace,
     /// coinbase balance after tx - before.
     pub coinbase_profit: I256,
 }
@@ -198,8 +198,6 @@ pub struct TransactionExecutionInfo {
 pub struct TransactionOk {
     pub exec_result: ExecutionResult,
     pub cumulative_space_used: BlockSpace,
-    pub blob_gas_used: u64,
-    pub cumulative_blob_gas_used: u64,
     pub tx_info: TransactionExecutionInfo,
     /// nonces_updates is nonce after tx was applied.
     /// account nonce was 0, tx was included, nonce is 1. => nonce_updated.1 == 1
@@ -208,7 +206,7 @@ pub struct TransactionOk {
 
 impl TransactionOk {
     pub fn space_used(&self) -> BlockSpace {
-        BlockSpace::new(self.tx_info.gas_used, self.tx_info.tx.length_eip7934())
+        self.tx_info.space_used
     }
 }
 
@@ -238,8 +236,6 @@ pub struct DelayedKickback {
 pub struct BundleOk {
     pub space_used: BlockSpace,
     pub cumulative_space_used: BlockSpace,
-    pub blob_gas_used: u64,
-    pub cumulative_blob_gas_used: u64,
     pub tx_infos: Vec<TransactionExecutionInfo>,
     /// nonces_updates has a set of deduplicated final nonces of the txs in the order
     pub nonces_updated: Vec<(Address, u64)>,
@@ -255,11 +251,7 @@ pub struct BundleOk {
 impl BundleOk {
     /// Creates the current space state by adding the reserved block space to the cumulative space used.
     pub fn space_state(&self, reserved_block_space: BlockSpace) -> BlockBuildingSpaceState {
-        BlockBuildingSpaceState::new(
-            self.cumulative_space_used,
-            reserved_block_space,
-            self.cumulative_blob_gas_used,
-        )
+        BlockBuildingSpaceState::new(self.cumulative_space_used, reserved_block_space)
     }
 }
 
@@ -312,8 +304,6 @@ pub struct OrderOk {
     pub coinbase_profit: U256,
     pub space_used: BlockSpace,
     pub cumulative_space_used: BlockSpace,
-    pub blob_gas_used: u64,
-    pub cumulative_blob_gas_used: u64,
     pub tx_infos: Vec<TransactionExecutionInfo>,
     /// Patch to get the executed OrderIds for merged sbundles (see: [`BundleOk::original_order_ids`],[`ShareBundleMerger`] )
     pub original_order_ids: Vec<OrderId>,
@@ -542,11 +532,11 @@ impl<
         space_state: BlockBuildingSpaceState,
     ) -> Result<(), TransactionErr> {
         let total_consumed_space = space_state.total_consumed_space();
-        if space_needed.rlp_length() + total_consumed_space.rlp_length() > MAX_RLP_BLOCK_SIZE {
+        if space_needed.rlp_length + total_consumed_space.rlp_length > MAX_RLP_BLOCK_SIZE {
             return Err(TransactionErr::BlockSpaceLeft);
         }
 
-        if space_needed.gas() + total_consumed_space.gas() > self.ctx.evm_env.block_env.gas_limit {
+        if space_needed.gas + total_consumed_space.gas > self.ctx.evm_env.block_env.gas_limit {
             return Err(TransactionErr::GasLeft);
         }
 
@@ -667,9 +657,10 @@ impl<
         let space_used = BlockSpace::new(
             res.result.gas_used(),
             tx_with_blobs.internal_tx_unsecure().length(),
+            blob_gas_used,
         );
 
-        space_state.use_space(space_used, blob_gas_used);
+        space_state.use_space(space_used);
 
         let success = res.result.is_success();
         let receipt = Receipt {
@@ -681,13 +672,11 @@ impl<
         let coinbase_balance_after = I256::try_from(self.coinbase_balance()?)?;
         Ok(Ok(TransactionOk {
             exec_result: res.result,
-            blob_gas_used,
-            cumulative_blob_gas_used: space_state.blob_gas_used(),
             cumulative_space_used: space_state.space_used(),
             tx_info: TransactionExecutionInfo {
                 tx: tx_with_blobs.clone(),
                 receipt,
-                gas_used: space_used.gas(),
+                space_used,
                 coinbase_profit: coinbase_balance_after - coinbase_balance_before,
             },
             nonce_updated: (tx.signer(), tx.nonce() + 1),
@@ -735,8 +724,6 @@ impl<
     fn accumulate_tx_execution(transaction_ok: TransactionOk, bundle_ok: &mut BundleOk) {
         bundle_ok.space_used += transaction_ok.space_used();
         bundle_ok.cumulative_space_used = transaction_ok.cumulative_space_used;
-        bundle_ok.blob_gas_used += transaction_ok.blob_gas_used;
-        bundle_ok.cumulative_blob_gas_used = transaction_ok.cumulative_blob_gas_used;
         bundle_ok.tx_infos.push(transaction_ok.tx_info);
         update_nonce_list(&mut bundle_ok.nonces_updated, transaction_ok.nonce_updated);
     }
@@ -754,8 +741,7 @@ impl<
                     return Err(BundleErr::EstimatePayoutGas(err));
                 }
             };
-        let base_fee =
-            U256::from(self.ctx.evm_env.block_env.basefee) * U256::from(space_limit.gas());
+        let base_fee = U256::from(self.ctx.evm_env.block_env.basefee) * U256::from(space_limit.gas);
         if base_fee > refundable_value {
             return Err(BundleErr::NotEnoughRefundForGas {
                 to,
@@ -794,7 +780,7 @@ impl<
             builder_signer,
             nonce,
             to,
-            payout.space_limit.gas(),
+            payout.space_limit.gas,
             payout.tx_value,
         ) {
             // payout tx has no blobs so it's safe to unwrap
@@ -809,7 +795,7 @@ impl<
                 if !res.tx_info.receipt.success {
                     return Ok(Err(BundleErr::FailedToCommitPayoutTx {
                         to,
-                        gas_limit: payout.space_limit.gas(),
+                        gas_limit: payout.space_limit.gas,
                         value: payout.tx_value,
                         err: None,
                     }));
@@ -820,7 +806,7 @@ impl<
             Err(err) => {
                 return Ok(Err(BundleErr::FailedToCommitPayoutTx {
                     to,
-                    gas_limit: payout.space_limit.gas(),
+                    gas_limit: payout.space_limit.gas,
                     value: payout.tx_value,
                     err: Some(err),
                 }));
@@ -840,8 +826,6 @@ impl<
         let mut insert = BundleOk {
             space_used: BlockSpace::ZERO,
             cumulative_space_used: space_state.space_used(),
-            blob_gas_used: 0,
-            cumulative_blob_gas_used: space_state.blob_gas_used(),
             tx_infos: Vec::new(),
             nonces_updated: Vec::new(),
             paid_kickbacks: Vec::new(),
@@ -885,7 +869,7 @@ impl<
                 }
             }
         }
-        if insert.space_used.gas() == 0 {
+        if insert.space_used.gas == 0 {
             return Ok(Err(BundleErr::EmptyBundle));
         }
 
@@ -921,7 +905,7 @@ impl<
             };
 
             let space_state = insert.space_state(space_state.reserved_block_space());
-            if payout.space_limit.gas() == BASE_TX_GAS
+            if payout.space_limit.gas == BASE_TX_GAS
                 && self.can_fit_tx(payout.space_limit, 0, space_state).is_ok()
             {
                 // This refund recipient is eligible for a combined refund at the end of the block.
@@ -1020,8 +1004,6 @@ impl<
         let mut insert = BundleOk {
             space_used: BlockSpace::ZERO,
             cumulative_space_used: space_state.space_used(),
-            blob_gas_used: 0,
-            cumulative_blob_gas_used: space_state.blob_gas_used(),
             tx_infos: Vec::new(),
             nonces_updated: Vec::new(),
             paid_kickbacks: Vec::new(),
@@ -1099,9 +1081,6 @@ impl<
                                 .extend(res.bundle_ok.original_order_ids);
                             insert.space_used += res.bundle_ok.space_used;
                             insert.cumulative_space_used = res.bundle_ok.cumulative_space_used;
-                            insert.blob_gas_used += res.bundle_ok.blob_gas_used;
-                            insert.cumulative_blob_gas_used =
-                                res.bundle_ok.cumulative_blob_gas_used;
                             insert.tx_infos.extend(res.bundle_ok.tx_infos);
                             update_nonce_list_with_updates(
                                 &mut insert.nonces_updated,
@@ -1221,8 +1200,6 @@ impl<
                             coinbase_profit,
                             space_used: ok.space_used(),
                             cumulative_space_used: ok.cumulative_space_used,
-                            blob_gas_used: ok.blob_gas_used,
-                            cumulative_blob_gas_used: ok.cumulative_blob_gas_used,
                             tx_infos: vec![ok.tx_info],
                             nonces_updated: vec![ok.nonce_updated],
                             paid_kickbacks: Vec::new(),
@@ -1274,8 +1251,6 @@ impl<
                     coinbase_profit,
                     space_used: ok.space_used,
                     cumulative_space_used: ok.cumulative_space_used,
-                    blob_gas_used: ok.blob_gas_used,
-                    cumulative_blob_gas_used: ok.cumulative_blob_gas_used,
                     tx_infos: ok.tx_infos,
                     nonces_updated: ok.nonces_updated,
                     paid_kickbacks: ok.paid_kickbacks,

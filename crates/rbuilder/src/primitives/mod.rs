@@ -741,7 +741,11 @@ impl TransactionSignedEcRecoveredWithBlobs {
     }
 
     pub fn space_needed(&self) -> BlockSpace {
-        BlockSpace::new(self.tx.gas_limit(), self.length_eip7934())
+        BlockSpace::new(
+            self.tx.gas_limit(),
+            self.length_eip7934(),
+            self.blobs_gas_used(),
+        )
     }
 
     pub fn blobs_len(&self) -> usize {
@@ -1152,7 +1156,6 @@ pub struct SimValue {
     /// For mempool orders it should match ProfitInfo
     non_mempool_profit_info: ProfitInfo,
     space_used: BlockSpace,
-    blob_gas_used: u64,
     /// Kickbacks paid during simulation as (receiver, amount)
     paid_kickbacks: Vec<(Address, U256)>,
 }
@@ -1164,14 +1167,12 @@ impl SimValue {
         // for s/bundles profit from non-mempool txs.
         non_mempool_coinbase_profit: U256,
         space_used: BlockSpace,
-        blob_gas_used: u64,
         paid_kickbacks: Vec<(Address, U256)>,
     ) -> Self {
         Self {
-            full_profit_info: ProfitInfo::new(full_coinbase_profit, space_used.gas()),
-            non_mempool_profit_info: ProfitInfo::new(non_mempool_coinbase_profit, space_used.gas()),
+            full_profit_info: ProfitInfo::new(full_coinbase_profit, space_used.gas),
+            non_mempool_profit_info: ProfitInfo::new(non_mempool_coinbase_profit, space_used.gas),
             space_used,
-            blob_gas_used,
             paid_kickbacks,
         }
     }
@@ -1190,7 +1191,7 @@ impl SimValue {
         Self {
             full_profit_info: ProfitInfo::new(full_coinbase_profit, gas_used),
             non_mempool_profit_info: ProfitInfo::new(non_mempool_profit, gas_used),
-            space_used: BlockSpace::new(gas_used, 0),
+            space_used: BlockSpace::new(gas_used, 0, 0),
             ..Default::default()
         }
     }
@@ -1204,11 +1205,11 @@ impl SimValue {
     }
 
     pub fn gas_used(&self) -> u64 {
-        self.space_used.gas()
+        self.space_used.gas
     }
 
     pub fn blob_gas_used(&self) -> u64 {
-        self.blob_gas_used
+        self.space_used.blob_gas
     }
 
     pub fn paid_kickbacks(&self) -> &Vec<(Address, U256)> {

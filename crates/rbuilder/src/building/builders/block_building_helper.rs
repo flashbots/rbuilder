@@ -258,7 +258,7 @@ impl<
             BlockSpace::ZERO,
         )?;
         partial_block.reserve_block_space(payout_tx_space);
-        let payout_tx_gas = payout_tx_space.gas();
+        let payout_tx_gas = payout_tx_space.gas;
 
         let mut built_block_trace = BuiltBlockTrace::new();
         built_block_trace.available_orders_statistics = available_orders_statistics;

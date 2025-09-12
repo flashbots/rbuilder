@@ -159,7 +159,7 @@ where
                     println!(
                         "{:>74} gas: {:>8} profit: {}",
                         order_result.order.id().to_string(),
-                        order_result.space_used.gas(),
+                        order_result.space_used.gas,
                         format_ether(order_result.coinbase_profit),
                     );
                     if let Order::Bundle(_) | Order::ShareBundle(_) = order_result.order {

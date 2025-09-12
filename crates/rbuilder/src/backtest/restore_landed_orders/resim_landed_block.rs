@@ -91,7 +91,7 @@ where
             &mut local_ctx.cached_reads,
         )?;
         let coinbase_profit = signed_uint_delta(coinbase_balance_after, coinbase_balance_before);
-        space_state.use_space(result.space_used(), result.blob_gas_used);
+        space_state.use_space(result.space_used());
 
         let mut conflicting_txs: HashMap<B256, Vec<SlotKey>> = HashMap::default();
         for (slot, _) in accumulator_tracer.used_state_trace.read_slot_values {

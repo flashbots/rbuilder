@@ -139,6 +139,7 @@ fn estimate_payout_tx_space(ctx: &BlockBuildingContext) -> Result<BlockSpace, se
     Ok(BlockSpace::new(
         BASE_TX_GAS,
         tx.inner().length() + 32 * 4, /* To account for any possible length encoding on ZERO fields */
+        0,
     ))
 }
 
@@ -162,7 +163,7 @@ pub fn estimate_payout_gas_limit(
         .evm_env
         .block_env
         .gas_limit
-        .checked_sub(space_used.gas())
+        .checked_sub(space_used.gas)
         .unwrap_or_default();
     let estimation = insert_test_payout_tx(to, ctx, local_ctx, state, gas_left)?
         .ok_or(EstimatePayoutGasErr::FailedToEstimate)?;
@@ -170,7 +171,8 @@ pub fn estimate_payout_gas_limit(
     if insert_test_payout_tx(to, ctx, local_ctx, state, estimation)?.is_some() {
         return Ok(BlockSpace::new(
             estimation,
-            default_payout_tx_space.rlp_length(),
+            default_payout_tx_space.rlp_length,
+            0,
         ));
     }
 
@@ -181,7 +183,11 @@ pub fn estimate_payout_gas_limit(
     loop {
         let mid = (left + right) / 2;
         if mid == left || mid == right {
-            return Ok(BlockSpace::new(right, default_payout_tx_space.rlp_length()));
+            return Ok(BlockSpace::new(
+                right,
+                default_payout_tx_space.rlp_length,
+                0,
+            ));
         }
 
         if insert_test_payout_tx(to, ctx, local_ctx, state, mid)?.is_some() {
@@ -254,6 +260,6 @@ mod tests {
         let estimate_result =
             estimate_payout_gas_limit(proposer, &ctx, &mut local_ctx, &mut state, BlockSpace::ZERO);
         assert_matches!(estimate_result, Ok(_));
-        assert_eq!(estimate_result.unwrap().gas(), 21_000);
+        assert_eq!(estimate_result.unwrap().gas, 21_000);
     }
 }
