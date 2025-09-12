@@ -49,7 +49,6 @@ Every field has a default if omitted.
 |backtest_results_store_path|string|Path to a sqlite containing backtest results|"/tmp/rbuilder-backtest-results.sqlite"|
 |backtest_builders|vec[string]| List of `builders` to be used for backtesting.<br>Notice that you can define on **builders** some builders and select only a few here.|[]|
 |backtest_protect_bundle_signers|vec[string]|Doc pending.|[]|
-|flashbots_db|optional env/string|Doc pending.|None|
 
 ## L1 related fields
 | Name | Type | Comments | Default |

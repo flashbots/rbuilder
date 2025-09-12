@@ -75,8 +75,6 @@ pub struct BaseConfig {
 
     coinbase_secret_key: Option<EnvOrValue<String>>,
 
-    pub flashbots_db: Option<EnvOrValue<String>>,
-
     pub el_node_ipc_path: Option<PathBuf>,
     pub jsonrpc_server_port: u16,
     #[serde(default = "default_ip")]
@@ -162,12 +160,11 @@ pub fn default_ip() -> Ipv4Addr {
 }
 
 /// Loads config from toml file, some values can be loaded from env variables with the following syntax
-/// e.g. flashbots_db = "env:FLASHBOTS_DB"
+/// e.g. coinbase_secret_key = "env:COINBASE_SECRET_KEY"
 ///
 /// variables that can be configured with env values:
 /// - log_level
 /// - coinbase_secret_key
-/// - flashbots_db
 /// - relay_secret_key
 /// - optimistic_relay_secret_key
 /// - backtest_fetch_mempool_data_dir
@@ -559,7 +556,6 @@ impl Default for BaseConfig {
             log_color: false,
             error_storage_path: None,
             coinbase_secret_key: None,
-            flashbots_db: None,
             el_node_ipc_path: None,
             jsonrpc_server_port: DEFAULT_INCOMING_BUNDLES_PORT,
             jsonrpc_server_ip: default_ip(),

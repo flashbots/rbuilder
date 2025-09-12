@@ -1,6 +1,5 @@
 pub mod backtest_fetch;
 pub mod data_source;
-pub mod flashbots_db;
 pub mod mempool;
 pub mod mev_boost;
 
