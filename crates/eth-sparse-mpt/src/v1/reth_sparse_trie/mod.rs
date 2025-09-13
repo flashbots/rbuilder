@@ -2,8 +2,9 @@ use alloy_primitives::B256;
 use change_set::{prepare_change_set, prepare_change_set_for_prefetch};
 use hash::RootHashError;
 use reth_provider::{
-    providers::ConsistentDbView, BlockReader, DatabaseProviderFactory, ExecutionOutcome,
+    providers::ConsistentDbView, BlockReader, DatabaseProviderFactory, 
 };
+use revm::database::BundleState;
 use std::time::{Duration, Instant};
 
 pub mod change_set;
@@ -105,7 +106,7 @@ where
 /// * It uses rayon for parallelism and the thread pool should be configured from outside.
 pub fn calculate_root_hash_with_sparse_trie<Provider>(
     consistent_db_view: ConsistentDbView<Provider>,
-    outcome: &ExecutionOutcome,
+    outcome: &BundleState,
     shared_cache: SparseTrieSharedCache,
 ) -> (Result<B256, SparseTrieError>, SparseTrieMetrics)
 where
@@ -116,7 +117,7 @@ where
     let fetcher = TrieFetcher::new(consistent_db_view);
 
     let start = Instant::now();
-    let change_set = prepare_change_set(outcome.bundle_accounts_iter());
+    let change_set = prepare_change_set(outcome.state.iter().map(|(a, acc)| (*a, acc)));
     metrics.change_set_time += start.elapsed();
 
     // {

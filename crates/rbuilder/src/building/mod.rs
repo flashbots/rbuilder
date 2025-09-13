@@ -39,7 +39,6 @@ use jsonrpsee::core::Serialize;
 use reth::{
     payload::PayloadId,
     primitives::{Block, SealedBlock},
-    providers::ExecutionOutcome,
     revm::database::StateProviderDatabase,
 };
 use reth_chainspec::{ChainSpec, EthChainSpec, EthereumHardforks};
@@ -50,7 +49,6 @@ use reth_node_api::{EngineApiMessageVersion, PayloadBuilderAttributes};
 use reth_payload_builder::EthPayloadBuilderAttributes;
 use reth_primitives::BlockBody;
 use reth_primitives_traits::{proofs, Block as _};
-use reth_provider::StateProvider;
 use revm::{
     context::BlockEnv,
     context_interface::{block::BlobExcessGasAndPrice, result::InvalidTransaction},
@@ -62,7 +60,7 @@ use serde::Deserialize;
 use std::{
     collections::{hash_map, HashMap, HashSet},
     hash::Hash,
-    ops::{Add, AddAssign},
+    ops::{Add, AddAssign, SubAssign},
     str::FromStr,
     sync::Arc,
     time::{Duration, Instant},
@@ -514,6 +512,14 @@ impl Add for BlockSpace {
     }
 }
 
+impl SubAssign for BlockSpace {
+    fn sub_assign(&mut self, other: Self) {
+        self.gas -= other.gas;
+        self.rlp_length -= other.rlp_length;
+        self.blob_gas -= other.blob_gas;
+    }
+}
+
 /// Models the current state of the block building space.
 #[derive(Debug, Clone, Copy)]
 pub struct BlockBuildingSpaceState {
@@ -566,6 +572,10 @@ impl BlockBuildingSpaceState {
 
     pub fn use_space(&mut self, space: BlockSpace) {
         self.space_used += space;
+    }
+
+    pub fn free_used_state(&mut self, space: BlockSpace) {
+        self.space_used -= space;
     }
 }
 
@@ -827,7 +837,8 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         ctx: &BlockBuildingContext,
         local_ctx: &mut ThreadBlockBuildingContext,
         state: &mut BlockState,
-    ) -> Result<(), InsertPayoutTxErr> {
+        adjust_finalized_block: bool,
+    ) -> Result<BlockSpace, InsertPayoutTxErr> {
         let builder_signer = &ctx.builder_signer;
         self.free_reserved_block_space();
         let mut nonce = state
@@ -840,39 +851,42 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
 
         let mut fork = PartialBlockFork::new(state, ctx, local_ctx).with_tracer(&mut self.tracer);
 
-        for (refund_recipient, refund_amount) in &self.combined_refunds {
-            let refund_recipient_code_hash = fork
-                .state
-                .code_hash(
-                    *refund_recipient,
-                    &ctx.shared_cached_reads,
-                    &mut fork.local_ctx.cached_reads,
-                )
-                .map_err(CriticalCommitOrderError::Reth)?;
-            if refund_recipient_code_hash != KECCAK_EMPTY {
-                error!(%refund_recipient_code_hash, %refund_recipient, %refund_amount, "Refund recipient has code, skipping refund");
-                continue;
+        if !adjust_finalized_block {
+            for (refund_recipient, refund_amount) in &self.combined_refunds {
+                let refund_recipient_code_hash = fork
+                    .state
+                    .code_hash(
+                        *refund_recipient,
+                        &ctx.shared_cached_reads,
+                        &mut fork.local_ctx.cached_reads,
+                    )
+                    .map_err(CriticalCommitOrderError::Reth)?;
+                if refund_recipient_code_hash != KECCAK_EMPTY {
+                    error!(%refund_recipient_code_hash, %refund_recipient, %refund_amount, "Refund recipient has code, skipping refund");
+                    continue;
+                }
+
+                let refund_tx =
+                    TransactionSignedEcRecoveredWithBlobs::new_no_blobs(create_payout_tx(
+                        ctx.chain_spec.as_ref(),
+                        ctx.evm_env.block_env.basefee,
+                        builder_signer,
+                        nonce,
+                        *refund_recipient,
+                        BASE_TX_GAS,
+                        *refund_amount,
+                    )?)
+                    .unwrap();
+                let refund_result = fork.commit_tx(&refund_tx, self.space_state)??;
+                if !refund_result.tx_info.receipt.success {
+                    return Err(InsertPayoutTxErr::CombinedRefundTxReverted);
+                }
+
+                self.space_state.use_space(refund_result.space_used());
+                self.executed_tx_infos.push(refund_result.tx_info);
+
+                nonce += 1;
             }
-
-            let refund_tx = TransactionSignedEcRecoveredWithBlobs::new_no_blobs(create_payout_tx(
-                ctx.chain_spec.as_ref(),
-                ctx.evm_env.block_env.basefee,
-                builder_signer,
-                nonce,
-                *refund_recipient,
-                BASE_TX_GAS,
-                *refund_amount,
-            )?)
-            .unwrap();
-            let refund_result = fork.commit_tx(&refund_tx, self.space_state)??;
-            if !refund_result.tx_info.receipt.success {
-                return Err(InsertPayoutTxErr::CombinedRefundTxReverted);
-            }
-
-            self.space_state.use_space(refund_result.space_used());
-            self.executed_tx_infos.push(refund_result.tx_info);
-
-            nonce += 1;
         }
 
         let tx = create_payout_tx(
@@ -892,102 +906,28 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             return Err(InsertPayoutTxErr::PayoutTxReverted);
         }
 
-        self.space_state.use_space(ok_result.space_used());
+        let payment_tx_block_space = ok_result.space_used();
+        self.space_state.use_space(payment_tx_block_space);
         self.executed_tx_infos.push(ok_result.tx_info);
 
-        Ok(())
+        Ok(payment_tx_block_space)
     }
 
-    pub fn insert_combined_refunds_two_step_finalize(
+    // when adjusting prefinalized block we revert two state changes:
+    // 1. Payment transaction
+    // 2. Requests processing (e.g. withdrawals)
+    const ADJUST_PREFINALIZE_REVERT_SIZE: usize = 2;
+
+    pub fn adjust_finalize_block_revert_to_prefinalized_state(
         &mut self,
-        ctx: &BlockBuildingContext,
-        local_ctx: &mut ThreadBlockBuildingContext,
-        state: &mut BlockState,
-    ) -> Result<u64, InsertPayoutTxErr> {
-        let builder_signer = &ctx.builder_signer;
-        self.free_reserved_block_space();
-        let mut nonce = state
-            .nonce(
-                builder_signer.address,
-                &ctx.shared_cached_reads,
-                &mut local_ctx.cached_reads,
-            )
-            .map_err(CriticalCommitOrderError::Reth)?;
-
-        let mut fork = PartialBlockFork::new(state, ctx, local_ctx).with_tracer(&mut self.tracer);
-
-        for (refund_recipient, refund_amount) in &self.combined_refunds {
-            let refund_recipient_code_hash = fork
-                .state
-                .code_hash(
-                    *refund_recipient,
-                    &ctx.shared_cached_reads,
-                    &mut fork.local_ctx.cached_reads,
-                )
-                .map_err(CriticalCommitOrderError::Reth)?;
-            if refund_recipient_code_hash != KECCAK_EMPTY {
-                error!(%refund_recipient_code_hash, %refund_recipient, %refund_amount, "Refund recipient has code, skipping refund");
-                continue;
-            }
-
-            let refund_tx = TransactionSignedEcRecoveredWithBlobs::new_no_blobs(create_payout_tx(
-                ctx.chain_spec.as_ref(),
-                ctx.evm_env.block_env.basefee,
-                builder_signer,
-                nonce,
-                *refund_recipient,
-                BASE_TX_GAS,
-                *refund_amount,
-            )?)
-            .unwrap();
-            let refund_result = fork.commit_tx(&refund_tx, self.space_state)??;
-            if !refund_result.tx_info.receipt.success {
-                return Err(InsertPayoutTxErr::CombinedRefundTxReverted);
-            }
-
-            self.space_state.use_space(refund_result.space_used());
-            self.executed_tx_infos.push(refund_result.tx_info);
-
-            nonce += 1;
-        }
-
-        Ok(nonce)
-    }
-
-    pub fn insert_refund_tx_two_step_finalize(
-        &mut self,
-        ctx: &BlockBuildingContext,
-        local_ctx: &mut ThreadBlockBuildingContext,
-        state: &mut BlockState,
-        gas_limit: u64,
-        value: U256,
-        nonce: u64,
-    ) -> Result<(), InsertPayoutTxErr> {
-        let builder_signer = &ctx.builder_signer;
-
-        let mut fork = PartialBlockFork::new(state, ctx, local_ctx).with_tracer(&mut self.tracer);
-
-        let tx = create_payout_tx(
-            ctx.chain_spec.as_ref(),
-            ctx.evm_env.block_env.basefee,
-            builder_signer,
-            nonce,
-            ctx.attributes.suggested_fee_recipient,
-            gas_limit,
-            value,
-        )?;
-        // payout tx has no blobs so it's safe to unwrap
-        let tx = TransactionSignedEcRecoveredWithBlobs::new_no_blobs(tx).unwrap();
-        let exec_result = fork.commit_tx(&tx, self.space_state)?;
-        let ok_result = exec_result?;
-        if !ok_result.tx_info.receipt.success {
-            return Err(InsertPayoutTxErr::PayoutTxReverted);
-        }
-
-        self.space_state.use_space(ok_result.space_used());
-        self.executed_tx_infos.push(ok_result.tx_info);
-
-        Ok(())
+        last_tx_block_space: BlockSpace,
+        block_state: &mut BlockState,
+    ) {
+        self.space_state.free_used_state(last_tx_block_space);
+        self.executed_tx_infos.pop();
+        block_state
+            .bundle_state_mut()
+            .revert(Self::ADJUST_PREFINALIZE_REVERT_SIZE);
     }
 
     /// returns (requests, withdrawals_root)
@@ -1056,15 +996,16 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
 
     /// Mostly based on reth's (v1.2) default_ethereum_payload_builder.
     pub fn finalize(
-        self,
-        mut state: BlockState,
+        &mut self,
+        state: &mut BlockState,
         ctx: &BlockBuildingContext,
         local_ctx: &mut ThreadBlockBuildingContext,
+        adjust_finalize_block: bool,
     ) -> Result<FinalizeResult, FinalizeError> {
         let start = Instant::now();
 
         let step_start = Instant::now();
-        let (requests, withdrawals_root) = self.process_requests(&mut state, ctx, local_ctx)?;
+        let (requests, withdrawals_root) = self.process_requests(state, ctx, local_ctx)?;
         let block_number = ctx.block();
 
         let request_processsing_time_ms = elapsed_ms(step_start);
@@ -1083,46 +1024,46 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             &mut local_ctx.bloom_cache,
             &self.executed_tx_infos,
             ctx.faster_finalize,
+            adjust_finalize_block,
         );
 
         let bloom_time_ms = elapsed_ms(step_start);
         let step_start = Instant::now();
 
-        // calculate the state root
-        let (bundle, state_provider) = state.into_parts();
-        // we use execution outcome here only for interface compatibility, its just a wrapper around bundle
-        let mut execution_outcome =
-            ExecutionOutcome::new(bundle, Vec::new(), block_number, Vec::new());
-        let state_root = ctx.root_hasher.state_root(&execution_outcome, local_ctx)?;
+        let incremental_change = if adjust_finalize_block {
+            let mut result = Vec::new();
+            state
+                .bundle_state()
+                .reverts
+                .iter()
+                .rev()
+                .take(Self::ADJUST_PREFINALIZE_REVERT_SIZE)
+                .for_each(|r| r.iter().for_each(|c| result.push(c.0)));
+            result
+        } else {
+            Vec::new()
+        };
+
+        // // calculate the state root
+        let state_root =
+            ctx.root_hasher
+                .state_root(state.bundle_state(), &incremental_change, local_ctx)?;
         let root_hash_time = step_start.elapsed();
 
         let root_hash_time_ms = elapsed_ms(step_start);
         let step_start = Instant::now();
 
-        // create the block header
+        // // create the block header
         let (transactions_root, placeholder_transaction_proof) =
             calculate_tx_root_and_placeholder_proof(
                 &mut local_ctx.tx_root_cache,
                 &self.executed_tx_infos,
                 ctx.faster_finalize,
+                adjust_finalize_block,
             );
 
         let transactions_root_time_ms = elapsed_ms(step_start);
         let step_start = Instant::now();
-
-        // double check blocked txs
-        for tx_with_blob in self.executed_tx_infos.iter().map(|info| &info.tx) {
-            if ctx.blocklist.contains(&tx_with_blob.signer()) {
-                return Err(FinalizeError::Other(eyre::eyre!(
-                    "To from blocked address."
-                )));
-            }
-            if let Some(to) = tx_with_blob.to() {
-                if ctx.blocklist.contains(&to) {
-                    return Err(FinalizeError::Other(eyre::eyre!("Tx to blocked address")));
-                }
-            }
-        }
 
         let mut txs_blob_sidecars: Vec<Arc<BlobTransactionSidecarVariant>> = Vec::new();
         let (excess_blob_gas, blob_gas_used) = if ctx
@@ -1190,6 +1131,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             body: BlockBody {
                 transactions: self
                     .executed_tx_infos
+                    .clone()
                     .into_iter()
                     .map(|t| t.tx.into_internal_tx_unsecure().into_inner())
                     .collect(),
@@ -1200,8 +1142,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
 
         let bid_adjustments = Self::generate_bid_adjustments(
             &block.header,
-            &state_provider,
-            &mut execution_outcome,
+            state,
             ctx,
             local_ctx,
             placeholder_transaction_proof,
@@ -1243,8 +1184,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
 
     fn generate_bid_adjustments(
         header: &Header,
-        state_provider: &impl StateProvider,
-        outcome: &mut ExecutionOutcome,
+        block_state: &mut BlockState,
         ctx: &BlockBuildingContext,
         local_ctx: &mut ThreadBlockBuildingContext,
         placeholder_transaction_proof: Vec<Bytes>,
@@ -1267,12 +1207,14 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         // Pre-load all proof targets that are missing from the bundle state.
         // This is a requirement for accounts to become a part of the trie and be able to generate proofs for them.
         let mut cachedb = CachedDB::new(
-            StateProviderDatabase::new(state_provider),
+            StateProviderDatabase::new(block_state.state_provider()),
             &mut local_ctx.cached_reads,
             &ctx.shared_cached_reads,
         );
         for fee_payer in &ctx.adjustment_fee_payers {
-            if let hash_map::Entry::Vacant(entry) = outcome.bundle.state.entry(*fee_payer) {
+            if let hash_map::Entry::Vacant(entry) =
+                block_state.bundle_state_mut().state.entry(*fee_payer)
+            {
                 let account_info = cachedb
                     .basic(*fee_payer)
                     .map_err(|error| FinalizeError::Other(error.into()))?;
@@ -1285,9 +1227,11 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             }
         }
 
-        let mut account_proofs =
-            ctx.root_hasher
-                .account_proofs(outcome, &proof_targets, local_ctx)?;
+        let mut account_proofs = ctx.root_hasher.account_proofs(
+            block_state.bundle_state(),
+            &proof_targets,
+            local_ctx,
+        )?;
 
         let Some(builder_proof) = account_proofs.remove(&builder_address) else {
             return Err(FinalizeError::Other(eyre::eyre!(

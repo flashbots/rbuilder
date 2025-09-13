@@ -205,7 +205,7 @@ impl BlockBuildingHelper for BlockBuildingHelperStatsLogger<'_> {
     }
 
     fn finalize_block(
-        self: Box<Self>,
+        &mut self,
         _local_ctx: &mut crate::building::ThreadBlockBuildingContext,
         _payout_tx_value: alloy_primitives::U256,
         _seen_competition_bid: Option<alloy_primitives::U256>,
@@ -234,14 +234,7 @@ impl BlockBuildingHelper for BlockBuildingHelperStatsLogger<'_> {
             .set_filtered_build_statistics(considered_orders_statistics, failed_orders_statistics);
     }
 
-    fn prefinalize_block(
-        &mut self,
-        _local_ctx: &mut ThreadBlockBuildingContext,
-    ) -> Result<(), BlockBuildingHelperError> {
-        unimplemented!()
-    }
-
-    fn finalize_prefinalized_block(
+    fn adjust_finalized_block(
         &mut self,
         _local_ctx: &mut ThreadBlockBuildingContext,
         _payout_tx_value: U256,

@@ -967,6 +967,7 @@ where
         bidding_service,
         sink_sealed_factory,
         wallet_balance_watcher,
+        base_config.adjust_finalized_blocks,
     );
 
     Ok((sink_factory, slot_info_provider, adjustment_fee_payers))

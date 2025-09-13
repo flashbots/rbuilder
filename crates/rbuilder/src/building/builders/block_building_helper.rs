@@ -65,7 +65,7 @@ pub trait BlockBuildingHelper: Send + Sync {
     /// payout_tx_value: If Some, added at the end of the block from coinbase to the final fee recipient.
     ///     This only works if can_add_payout_tx.
     fn finalize_block(
-        self: Box<Self>,
+        &mut self,
         local_ctx: &mut ThreadBlockBuildingContext,
         payout_tx_value: U256,
         seen_competition_bid: Option<U256>,
@@ -81,12 +81,7 @@ pub trait BlockBuildingHelper: Send + Sync {
     /// BE CAREFUL: Might be ambiguous if several building parts were involved...
     fn builder_name(&self) -> &str;
 
-    fn prefinalize_block(
-        &mut self,
-        local_ctx: &mut ThreadBlockBuildingContext,
-    ) -> Result<(), BlockBuildingHelperError>;
-
-    fn finalize_prefinalized_block(
+    fn adjust_finalized_block(
         &mut self,
         local_ctx: &mut ThreadBlockBuildingContext,
         payout_tx_value: U256,
@@ -152,7 +147,7 @@ pub struct BlockBuildingHelperFromProvider<
 
 #[derive(Debug, Clone)]
 pub struct PrefinalizeState {
-    builder_nonce: u64,
+    last_tx_block_space: BlockSpace,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -171,8 +166,8 @@ pub enum BlockBuildingHelperError {
     FinalizeError(#[from] FinalizeError),
     #[error("Provider historical block hashes error: {0}")]
     HistoricalBlockError(#[from] HistoricalBlockError),
-    #[error("Block is not prefinalized")]
-    BlockIsNotPrefinalized,
+    #[error("Block is not finalized correctly")]
+    BlockFinalizedIncorrectly,
 }
 
 impl BlockBuildingHelperError {
@@ -301,6 +296,7 @@ impl<
             block = building_ctx.block(),
             build_time_mus = built_block_trace.fill_time.as_micros(),
             finalize_time_mus = built_block_trace.finalize_time.as_micros(),
+            finalize_adjust_time_mus = built_block_trace.finalize_adjust_time.as_micros(),
             root_hash_time_mus = built_block_trace.root_hash_time.as_micros(),
             profit = format_ether(built_block_trace.bid_value),
             builder_name = builder_name,
@@ -317,15 +313,17 @@ impl<
         &mut self,
         local_ctx: &mut ThreadBlockBuildingContext,
         payout_tx_value: U256,
-    ) -> Result<(), BlockBuildingHelperError> {
+        adjust_finalized_block: bool,
+    ) -> Result<BlockSpace, BlockBuildingHelperError> {
         self.built_block_trace.coinbase_reward = self.partial_block.coinbase_profit;
 
-        self.partial_block.insert_refunds_and_proposer_payout_tx(
+        let payment_tx_block_space = self.partial_block.insert_refunds_and_proposer_payout_tx(
             self.payout_tx_gas,
             payout_tx_value,
             &self.building_ctx,
             local_ctx,
             &mut self.block_state,
+            adjust_finalized_block,
         )?;
 
         let (bid_value, true_value) = (payout_tx_value, self.true_block_value()?);
@@ -341,7 +339,107 @@ impl<
 
         self.built_block_trace.bid_value = max(bid_value, fee_recipient_balance_diff);
         self.built_block_trace.true_bid_value = true_value;
-        Ok(())
+        Ok(payment_tx_block_space)
+    }
+
+    fn finalize_block_impl(
+        &mut self,
+        local_ctx: &mut ThreadBlockBuildingContext,
+        payout_tx_value: U256,
+        seen_competition_bid: Option<U256>,
+        adjust_finalized_block: bool,
+    ) -> Result<FinalizeBlockResult, BlockBuildingHelperError> {
+        if adjust_finalized_block != self.prefinalize_state.is_some() {
+            return Err(BlockBuildingHelperError::BlockFinalizedIncorrectly);
+        }
+
+        let start_time = Instant::now();
+        let step_start = Instant::now();
+
+        if adjust_finalized_block {
+            let last_block_tx_space = self
+                .prefinalize_state
+                .as_ref()
+                .map(|s| s.last_tx_block_space)
+                .unwrap();
+            self.partial_block
+                .adjust_finalize_block_revert_to_prefinalized_state(
+                    last_block_tx_space,
+                    &mut self.block_state,
+                )
+        }
+
+        let last_tx_block_space =
+            self.finalize_block_execution(local_ctx, payout_tx_value, adjust_finalized_block)?;
+
+        if !adjust_finalized_block {
+            self.built_block_trace
+                .verify_bundle_consistency(&self.building_ctx.blocklist)?;
+        }
+
+        let finalize_prep_time_ms = elapsed_ms(step_start);
+        let step_start = Instant::now();
+
+        let sim_gas_used = self.partial_block.tracer.used_gas;
+        let block_number = self.building_context().block();
+        let finalized_block = match self.partial_block.finalize(
+            &mut self.block_state,
+            &self.building_ctx,
+            local_ctx,
+            adjust_finalized_block,
+        ) {
+            Ok(finalized_block) => finalized_block,
+            Err(err) => {
+                if err.is_consistent_db_view_err() {
+                    debug!(
+                        block_number,
+                        payload_id = self.building_ctx.payload_id,
+                        "Can't build on this head, cancelling slot"
+                    );
+                    self.cancel_on_fatal_error.cancel();
+                }
+                return Err(BlockBuildingHelperError::FinalizeError(err));
+            }
+        };
+
+        let finalize_block_time_ms = elapsed_ms(step_start);
+        let finalize_time_ms = elapsed_ms(start_time);
+        trace!(
+            finalize_time_ms,
+            finalize_prep_time_ms,
+            finalize_block_time_ms,
+            adjust_finalized_block,
+            "Block building helper finalized block"
+        );
+        self.built_block_trace.update_orders_sealed_at();
+        if adjust_finalized_block {
+            self.built_block_trace.finalize_adjust_time = start_time.elapsed();
+        } else {
+            self.built_block_trace.root_hash_time = finalized_block.root_hash_time;
+            self.built_block_trace.finalize_time = start_time.elapsed();
+        }
+        self.built_block_trace.seen_competition_bid = seen_competition_bid;
+        Self::trace_finalized_block(
+            &finalized_block,
+            &self.builder_name,
+            &self.building_ctx,
+            &self.built_block_trace,
+            sim_gas_used,
+        );
+
+        self.prefinalize_state = Some(PrefinalizeState {
+            last_tx_block_space,
+        });
+
+        let block = Block {
+            builder_name: self.builder_name.clone(),
+            trace: self.built_block_trace.clone(),
+            sealed_block: finalized_block.sealed_block,
+            txs_blobs_sidecars: finalized_block.txs_blob_sidecars,
+            execution_requests: finalized_block.execution_requests,
+            bid_adjustments: finalized_block.bid_adjustments,
+        };
+        Ok(FinalizeBlockResult { block })
     }
 }
 
@@ -402,72 +500,12 @@ impl<
     }
 
     fn finalize_block(
-        mut self: Box<Self>,
+        &mut self,
         local_ctx: &mut ThreadBlockBuildingContext,
         payout_tx_value: U256,
         seen_competition_bid: Option<U256>,
     ) -> Result<FinalizeBlockResult, BlockBuildingHelperError> {
-        let start_time = Instant::now();
-        let step_start = Instant::now();
-
-        self.finalize_block_execution(local_ctx, payout_tx_value)?;
-        // This could be moved outside of this func (pre finalize) since I don´t think the payout tx can change much.
-        self.built_block_trace
-            .verify_bundle_consistency(&self.building_ctx.blocklist)?;
-
-        let finalize_prep_time_ms = elapsed_ms(step_start);
-        let step_start = Instant::now();
-
-        let sim_gas_used = self.partial_block.tracer.used_gas;
-        let block_number = self.building_context().block();
-        let finalized_block =
-            match self
-                .partial_block
-                .finalize(self.block_state, &self.building_ctx, local_ctx)
-            {
-                Ok(finalized_block) => finalized_block,
-                Err(err) => {
-                    if err.is_consistent_db_view_err() {
-                        debug!(
-                            block_number,
-                            payload_id = self.building_ctx.payload_id,
-                            "Can't build on this head, cancelling slot"
-                        );
-                        self.cancel_on_fatal_error.cancel();
-                    }
-                    return Err(BlockBuildingHelperError::FinalizeError(err));
-                }
-            };
-
-        let finalize_block_time_ms = elapsed_ms(step_start);
-        let finalize_time_ms = elapsed_ms(start_time);
-        trace!(
-            finalize_time_ms,
-            finalize_prep_time_ms,
-            finalize_block_time_ms,
-            "Block building helper finalized block"
-        );
-        self.built_block_trace.update_orders_sealed_at();
-        self.built_block_trace.root_hash_time = finalized_block.root_hash_time;
-        self.built_block_trace.finalize_time = start_time.elapsed();
-        self.built_block_trace.seen_competition_bid = seen_competition_bid;
-        Self::trace_finalized_block(
-            &finalized_block,
-            &self.builder_name,
-            &self.building_ctx,
-            &self.built_block_trace,
-            sim_gas_used,
-        );
-
-        let block = Block {
-            builder_name: self.builder_name.clone(),
-            trace: self.built_block_trace,
-            sealed_block: finalized_block.sealed_block,
-            txs_blobs_sidecars: finalized_block.txs_blob_sidecars,
-            execution_requests: finalized_block.execution_requests,
-            bid_adjustments: finalized_block.bid_adjustments,
-        };
-        Ok(FinalizeBlockResult { block })
+        self.finalize_block_impl(local_ctx, payout_tx_value, seen_competition_bid, false)
     }
 
     fn built_block_trace(&self) -> &BuiltBlockTrace {
@@ -495,108 +533,12 @@ impl<
             .set_filtered_build_statistics(considered_orders_statistics, failed_orders_statistics);
     }
 
-    // prepare block for fast finalization
-    // executes the most expensive part of finalization so that adding a bid transaction is fast
-    fn prefinalize_block(
-        &mut self,
-        local_ctx: &mut ThreadBlockBuildingContext,
-    ) -> Result<(), BlockBuildingHelperError> {
-        self.built_block_trace
-            .verify_bundle_consistency(&self.building_ctx.blocklist)?;
-
-        let builder_nonce = self
-            .partial_block
-            .insert_combined_refunds_two_step_finalize(
-                &self.building_ctx,
-                local_ctx,
-                &mut self.block_state,
-            )?;
-
-        self.prefinalize_state = Some(PrefinalizeState { builder_nonce });
-
-        Ok(())
-    }
-
-    fn finalize_prefinalized_block(
+    fn adjust_finalized_block(
         &mut self,
         local_ctx: &mut ThreadBlockBuildingContext,
         payout_tx_value: U256,
         seen_competition_bid: Option<U256>,
     ) -> Result<FinalizeBlockResult, BlockBuildingHelperError> {
-        let start_time = Instant::now();
-
-        let prefinalize_state = if let Some(state) = self.prefinalize_state.as_mut() {
-            state
-        } else {
-            return Err(BlockBuildingHelperError::BlockIsNotPrefinalized);
-        };
-
-        let mut partial_block = self.partial_block.clone();
-        let mut block_state = self.block_state.clone();
-
-        let payout_tx_gas = self.payout_tx_gas;
-        partial_block.insert_refund_tx_two_step_finalize(
-            &self.building_ctx,
-            local_ctx,
-            &mut block_state,
-            payout_tx_gas,
-            payout_tx_value,
-            prefinalize_state.builder_nonce,
-        )?;
-
-        let fee_recipient_balance_after = block_state.balance(
-            self.building_ctx.attributes.suggested_fee_recipient,
-            &self.building_ctx.shared_cached_reads,
-            &mut local_ctx.cached_reads,
-        )?;
-        let fee_recipient_balance_diff = fee_recipient_balance_after
-            .checked_sub(self._fee_recipient_balance_start)
-            .unwrap_or_default();
-
-        self.built_block_trace.bid_value = max(payout_tx_value, fee_recipient_balance_diff);
-        self.built_block_trace.true_bid_value =
-            partial_block.get_proposer_payout_tx_value(payout_tx_gas, &self.building_ctx)?;
-
-        let sim_gas_used = partial_block.tracer.used_gas;
-        let block_number = self.building_context().block();
-
-        let finalized_block =
-            match partial_block.finalize(block_state, &self.building_ctx, local_ctx) {
-                Ok(finalized_block) => finalized_block,
-                Err(err) => {
-                    if err.is_consistent_db_view_err() {
-                        debug!(
-                            block_number,
-                            payload_id = self.building_ctx.payload_id,
-                            "Can't build on this head, cancelling slot"
-                        );
-                        self.cancel_on_fatal_error.cancel();
-                    }
-                    return Err(BlockBuildingHelperError::FinalizeError(err));
-                }
-            };
-
-        self.built_block_trace.update_orders_sealed_at();
-        self.built_block_trace.root_hash_time = finalized_block.root_hash_time;
-        self.built_block_trace.finalize_time = start_time.elapsed();
-        self.built_block_trace.seen_competition_bid = seen_competition_bid;
-
-        Self::trace_finalized_block(
-            &finalized_block,
-            &self.builder_name,
-            &self.building_ctx,
-            &self.built_block_trace,
-            sim_gas_used,
-        );
-
-        let block = Block {
-            trace: self.built_block_trace.clone(),
-            sealed_block: finalized_block.sealed_block,
-            txs_blobs_sidecars: finalized_block.txs_blob_sidecars,
-            builder_name: self.builder_name.clone(),
-            execution_requests: finalized_block.execution_requests,
-            bid_adjustments: finalized_block.bid_adjustments,
-        };
-        Ok(FinalizeBlockResult { block })
+        self.finalize_block_impl(local_ctx, payout_tx_value, seen_competition_bid, true)
     }
 }

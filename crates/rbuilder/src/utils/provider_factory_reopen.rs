@@ -13,7 +13,7 @@ use alloy_eips::BlockNumHash;
 use alloy_primitives::{Address, BlockHash, BlockNumber, Bytes, B256};
 use eth_sparse_mpt::*;
 use parking_lot::Mutex;
-use reth::providers::{BlockHashReader, ChainSpecProvider, ExecutionOutcome, ProviderFactory};
+use reth::providers::{BlockHashReader, ChainSpecProvider, ProviderFactory};
 use reth_db::DatabaseError;
 use reth_errors::{ProviderError, ProviderResult, RethResult};
 use reth_node_api::{NodePrimitives, NodeTypesWithDB};
@@ -22,6 +22,7 @@ use reth_provider::{
     BlockNumReader, BlockReader, DatabaseProviderFactory, HashedPostStateProvider, HeaderProvider,
     StateProviderBox, StaticFileProviderFactory,
 };
+use revm::database::BundleState;
 use std::{ops::DerefMut, path::PathBuf, sync::Arc};
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
@@ -310,7 +311,7 @@ where
 
     fn account_proofs(
         &self,
-        outcome: &ExecutionOutcome,
+        outcome: &BundleState,
         addresses: &utils::HashSet<Address>,
         local_ctx: &mut ThreadBlockBuildingContext,
     ) -> Result<utils::HashMap<Address, Vec<Bytes>>, RootHashError> {
@@ -327,7 +328,8 @@ where
 
     fn state_root(
         &self,
-        outcome: &ExecutionOutcome,
+        outcome: &BundleState,
+        incremental_change: &[Address],
         local_ctx: &mut ThreadBlockBuildingContext,
     ) -> Result<B256, RootHashError> {
         calculate_state_root(
@@ -335,6 +337,7 @@ where
             &self.hasher,
             self.parent_num_hash,
             outcome,
+            incremental_change,
             &self.sparse_trie_shared_cache,
             &mut local_ctx.root_hash_calculator,
             &self.config,

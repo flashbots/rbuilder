@@ -71,6 +71,18 @@ impl BlockState {
         (self.bundle_state.unwrap(), self.provider)
     }
 
+    pub fn bundle_state(&self) -> &BundleState {
+        self.bundle_state.as_ref().unwrap()
+    }
+
+    pub fn bundle_state_mut(&mut self) -> &mut BundleState {
+        self.bundle_state.as_mut().unwrap()
+    }
+
+    pub fn state_provider(&self) -> Arc<dyn StateProvider> {
+        self.provider.clone()
+    }
+
     pub fn clone_bundle(&self) -> BundleState {
         self.bundle_state.clone().unwrap()
     }

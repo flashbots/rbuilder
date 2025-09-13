@@ -16,6 +16,8 @@ pub struct ReceiptsDataCache {
     trie: Trie,
     buff: Vec<u8>,
     empty_proof_store: ProofStore,
+    block_logs_bloom_without_last_tx: Bloom,
+    receipts_bloom_without_last_tx: Vec<Bloom>,
 }
 
 #[derive(Debug, Clone)]
@@ -34,10 +36,39 @@ pub fn calculate_receipts_data(
     cache: &mut ReceiptsDataCache,
     executed_tx_infos: &[TransactionExecutionInfo],
     fast_finalize: bool,
+    adjust_finalized_blocks: bool,
 ) -> ReceiptsData {
     let mut block_logs_bloom = Bloom::ZERO;
-    let mut receipts_with_blooms = Vec::with_capacity(executed_tx_infos.len());
-    for executed_tx_info in executed_tx_infos {
+    let mut receipts_blooms = Vec::with_capacity(executed_tx_infos.len());
+    if adjust_finalized_blocks {
+        block_logs_bloom = cache.block_logs_bloom_without_last_tx;
+        receipts_blooms.extend_from_slice(&cache.receipts_bloom_without_last_tx);
+    } else {
+        for executed_tx_info in executed_tx_infos.iter().take(executed_tx_infos.len() - 1) {
+            let receipt = &executed_tx_info.receipt;
+            let mut current_receipt_bloom = Bloom::ZERO;
+
+            for log in &receipt.logs {
+                let log_bloom = if let Some(log_bloom) = cache.logs.get(log) {
+                    *log_bloom
+                } else {
+                    let mut current_log_bloom = Bloom::ZERO;
+                    current_log_bloom.accrue_log(log);
+                    cache.logs.insert(log.clone(), current_log_bloom);
+                    current_log_bloom
+                };
+                current_receipt_bloom.accrue_bloom(&log_bloom);
+            }
+            receipts_blooms.push(current_receipt_bloom);
+
+            block_logs_bloom.accrue_bloom(&current_receipt_bloom);
+        }
+        cache.block_logs_bloom_without_last_tx = block_logs_bloom;
+        cache.receipts_bloom_without_last_tx = receipts_blooms.clone();
+    }
+
+    {
+        let executed_tx_info = executed_tx_infos.last().unwrap();
         let receipt = &executed_tx_info.receipt;
         let mut current_receipt_bloom = Bloom::ZERO;
 
@@ -52,17 +83,24 @@ pub fn calculate_receipts_data(
             };
             current_receipt_bloom.accrue_bloom(&log_bloom);
         }
-
+        receipts_blooms.push(current_receipt_bloom);
         block_logs_bloom.accrue_bloom(&current_receipt_bloom);
+    }
 
+    let mut receipts_with_blooms = Vec::with_capacity(executed_tx_infos.len());
+    for (info, logs_bloom) in executed_tx_infos.iter().zip(receipts_blooms.into_iter()) {
         receipts_with_blooms.push(ReceiptWithBloom {
-            receipt,
-            logs_bloom: current_receipt_bloom,
+            receipt: &info.receipt,
+            logs_bloom,
         });
     }
 
     let (receipts_root, placeholder_receipt_proof) = if fast_finalize {
-        calculate_receipts_root_and_placeholder_proof_with_cache(cache, &receipts_with_blooms)
+        calculate_receipts_root_and_placeholder_proof_with_cache(
+            cache,
+            &receipts_with_blooms,
+            adjust_finalized_blocks,
+        )
     } else {
         calculate_receipts_root_and_placeholder_proof_with_alloy(cache, &receipts_with_blooms)
     };
@@ -77,17 +115,26 @@ pub fn calculate_receipts_data(
 fn calculate_receipts_root_and_placeholder_proof_with_cache(
     cache: &mut ReceiptsDataCache,
     receipts: &[ReceiptWithBloom<&Receipt>],
+    adjust_finalized_block: bool,
 ) -> (B256, Vec<Bytes>) {
     let trie = &mut cache.trie;
-    trie.clear_empty();
-
-    for (idx, receipt) in receipts.iter().enumerate() {
+    let root = if !adjust_finalized_block {
+        trie.clear_empty();
+        for (idx, receipt) in receipts.iter().enumerate() {
+            let index = alloy_rlp::encode_fixed_size(&idx);
+            cache.buff.clear();
+            receipt.encode_2718(&mut cache.buff);
+            trie.insert(&index, &cache.buff).unwrap();
+        }
+        trie.root_hash(true, &cache.empty_proof_store).unwrap()
+    } else {
+        let idx = receipts.len() - 1;
         let index = alloy_rlp::encode_fixed_size(&idx);
         cache.buff.clear();
-        receipt.encode_2718(&mut cache.buff);
+        receipts[idx].encode_2718(&mut cache.buff);
         trie.insert(&index, &cache.buff).unwrap();
-    }
-    let root = trie.root_hash(true, &cache.empty_proof_store).unwrap();
+        trie.root_hash(false, &cache.empty_proof_store).unwrap()
+    };
 
     let target_idx = receipts.len().checked_sub(1).unwrap();
     let nibbles = Nibbles::unpack(alloy_rlp::encode_fixed_size(&target_idx));
@@ -124,9 +171,10 @@ pub fn calculate_tx_root_and_placeholder_proof(
     cache: &mut TransactionRootCache,
     executed_tx_infos: &[TransactionExecutionInfo],
     faster_finalize: bool,
+    prefinalized: bool,
 ) -> (B256, Vec<Bytes>) {
     if faster_finalize {
-        calculate_tx_root_and_placeholder_proof_with_cache(cache, executed_tx_infos)
+        calculate_tx_root_and_placeholder_proof_with_cache(cache, executed_tx_infos, prefinalized)
     } else {
         calculate_tx_root_and_placeholder_proof_with_alloy(cache, executed_tx_infos)
     }
@@ -136,19 +184,32 @@ pub fn calculate_tx_root_and_placeholder_proof(
 fn calculate_tx_root_and_placeholder_proof_with_cache(
     cache: &mut TransactionRootCache,
     executed_tx_infos: &[TransactionExecutionInfo],
+    adjust_finalized_block: bool,
 ) -> (B256, Vec<Bytes>) {
     let trie = &mut cache.trie;
-    trie.clear_empty();
     let val = &mut cache.buff;
-    for (idx, executed_tx_info) in executed_tx_infos.iter().enumerate() {
-        let tx_with_blobs = &executed_tx_info.tx;
+
+    let root = if !adjust_finalized_block {
+        trie.clear_empty();
+        for (idx, executed_tx_info) in executed_tx_infos.iter().enumerate() {
+            let tx_with_blobs = &executed_tx_info.tx;
+            let index = alloy_rlp::encode_fixed_size(&idx);
+
+            val.clear();
+            tx_with_blobs.encode_2718(val);
+            trie.insert(&index, val).unwrap();
+        }
+        trie.root_hash(true, &cache.empty_proof_store).unwrap()
+    } else {
+        let idx = executed_tx_infos.len() - 1;
+        let tx_with_blobs = &executed_tx_infos[idx].tx;
         let index = alloy_rlp::encode_fixed_size(&idx);
 
         val.clear();
         tx_with_blobs.encode_2718(val);
         trie.insert(&index, val).unwrap();
-    }
-    let root = trie.root_hash(true, &cache.empty_proof_store).unwrap();
+        trie.root_hash(false, &cache.empty_proof_store).unwrap()
+    };
 
     let target_idx = executed_tx_infos.len().checked_sub(1).unwrap();
     let nibbles = Nibbles::unpack(alloy_rlp::encode_fixed_size(&target_idx));
@@ -284,7 +345,7 @@ mod tests {
         let mut cache = ReceiptsDataCache::default();
         for fast_finalize in [false, true, true] {
             let got_receipts_data =
-                calculate_receipts_data(&mut cache, &executed_tx_info, fast_finalize);
+                calculate_receipts_data(&mut cache, &executed_tx_info, fast_finalize, false);
             assert_eq!(expected_receipt_root, got_receipts_data.receipts_root);
             assert_eq!(expected_logs_bloom, got_receipts_data.logs_bloom);
         }
@@ -303,10 +364,10 @@ mod tests {
         }
 
         let mut cache = TransactionRootCache::default();
-        let expected = calculate_tx_root_and_placeholder_proof(&mut cache, &data, false);
+        let expected = calculate_tx_root_and_placeholder_proof(&mut cache, &data, false, false);
 
         for _ in 0..2 {
-            let got = calculate_tx_root_and_placeholder_proof(&mut cache, &data, true);
+            let got = calculate_tx_root_and_placeholder_proof(&mut cache, &data, true, false);
             assert_eq!(expected, got);
         }
     }

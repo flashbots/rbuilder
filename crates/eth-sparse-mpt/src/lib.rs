@@ -8,9 +8,8 @@
 
 use crate::utils::{HashMap, HashSet};
 use alloy_primitives::{Address, Bytes, B256};
-use reth_provider::{
-    providers::ConsistentDbView, BlockReader, DatabaseProviderFactory, ExecutionOutcome,
-};
+use reth_provider::{providers::ConsistentDbView, BlockReader, DatabaseProviderFactory};
+use revm::database::BundleState;
 use std::sync::Arc;
 
 #[cfg(any(test, feature = "benchmark-utils"))]
@@ -140,7 +139,7 @@ impl SparseTrieError {
 
 pub fn calculate_account_proofs_with_sparse_trie<Provider>(
     consistent_db_view: ConsistentDbView<Provider>,
-    outcome: &ExecutionOutcome,
+    outcome: &BundleState,
     proof_targets: &HashSet<Address>,
     shared_cache: &SparseTrieSharedCache,
     local_cache: &mut SparseTrieLocalCache,
@@ -165,6 +164,7 @@ where
                 consistent_db_view,
                 shared_cache.cache_v2.clone(),
                 outcome,
+		&[],
                 proof_targets,
             );
             match result {
@@ -182,7 +182,8 @@ where
 
 pub fn calculate_root_hash_with_sparse_trie<Provider>(
     consistent_db_view: ConsistentDbView<Provider>,
-    outcome: &ExecutionOutcome,
+    outcome: &BundleState,
+    incremental_change: &[Address],
     shared_cache: &SparseTrieSharedCache,
     local_cache: &mut SparseTrieLocalCache,
     thread_pool: &Option<RootHashThreadPool>,
@@ -196,6 +197,7 @@ where
             calculate_root_hash_with_sparse_trie_internal(
                 consistent_db_view,
                 outcome,
+		incremental_change,
                 shared_cache,
                 local_cache,
                 version,
@@ -205,6 +207,7 @@ where
         calculate_root_hash_with_sparse_trie_internal(
             consistent_db_view,
             outcome,
+	    incremental_change,
             shared_cache,
             local_cache,
             version,
@@ -214,7 +217,8 @@ where
 
 pub fn calculate_root_hash_with_sparse_trie_internal<Provider>(
     consistent_db_view: ConsistentDbView<Provider>,
-    outcome: &ExecutionOutcome,
+    outcome: &BundleState,
+    incremental_change: &[Address],
     shared_cache: &SparseTrieSharedCache,
     local_cache: &mut SparseTrieLocalCache,
     version: ETHSpareMPTVersion,
@@ -239,6 +243,7 @@ where
                 consistent_db_view,
                 shared_cache.cache_v2.clone(),
                 outcome,
+		incremental_change,
                 &Default::default(),
             );
             match result {

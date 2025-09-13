@@ -129,6 +129,10 @@ pub struct BaseConfig {
     /// if 0 global rayon pool is used
     root_hash_threads: usize,
 
+    /// use pipelined finalization where blocks are "prefinalized" first
+    /// and payment tx is inserted later for faster bidding response time
+    pub adjust_finalized_blocks: bool,
+
     pub watchdog_timeout_sec: Option<u64>,
 
     /// List of `builders` to be used for live building
@@ -573,6 +577,7 @@ impl Default for BaseConfig {
             root_hash_sparse_trie_version: "v1".to_string(),
             root_hash_compare_sparse_trie: false,
             root_hash_threads: 0,
+            adjust_finalized_blocks: false,
             watchdog_timeout_sec: None,
             backtest_fetch_mempool_data_dir: "/mnt/data/mempool".into(),
             backtest_fetch_eth_rpc_url: "http://127.0.0.1:8545".to_string(),

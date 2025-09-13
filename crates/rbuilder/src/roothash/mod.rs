@@ -2,10 +2,11 @@ mod prefetcher;
 use alloy_eips::BlockNumHash;
 use alloy_primitives::{Address, Bytes, B256};
 use eth_sparse_mpt::*;
-use reth::providers::{providers::ConsistentDbView, ExecutionOutcome};
+use reth::providers::providers::ConsistentDbView;
 use reth_provider::{BlockReader, DatabaseProviderFactory, HashedPostStateProvider};
 use reth_trie::TrieInput;
 use reth_trie_parallel::root::{ParallelStateRoot, ParallelStateRootError};
+use revm::database::BundleState;
 use tracing::trace;
 
 pub use prefetcher::run_trie_prefetcher;
@@ -69,7 +70,7 @@ impl RootHashContext {
 pub fn calculate_account_proofs<P>(
     provider: P,
     parent_num_hash: BlockNumHash,
-    outcome: &ExecutionOutcome,
+    outcome: &BundleState,
     addresses: &utils::HashSet<Address>,
     shared_cache: &SparseTrieSharedCache,
     local_cache: &mut SparseTrieLocalCache,
@@ -106,14 +107,14 @@ where
 
 fn calculate_parallel_root_hash<P, HasherType>(
     hasher: &HasherType,
-    outcome: &ExecutionOutcome,
+    outcome: &BundleState,
     consistent_db_view: ConsistentDbView<P>,
 ) -> Result<B256, ParallelStateRootError>
 where
     HasherType: HashedPostStateProvider,
     P: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync + Clone + 'static,
 {
-    let hashed_post_state = hasher.hashed_post_state(outcome.state());
+    let hashed_post_state = hasher.hashed_post_state(outcome);
     let parallel_root_calculator = ParallelStateRoot::new(
         consistent_db_view.clone(),
         TrieInput::from_state(hashed_post_state),
@@ -126,7 +127,8 @@ pub fn calculate_state_root<P, HasherType>(
     provider: P,
     hasher: &HasherType,
     parent_num_hash: BlockNumHash,
-    outcome: &ExecutionOutcome,
+    outcome: &BundleState,
+    incremental_change: &[Address],
     shared_cache: &SparseTrieSharedCache,
     local_cache: &mut SparseTrieLocalCache,
     config: &RootHashContext,
@@ -165,6 +167,7 @@ where
         let (root, metrics) = calculate_root_hash_with_sparse_trie(
             consistent_db_view,
             outcome,
+            incremental_change,
             shared_cache,
             local_cache,
             &config.thread_pool,

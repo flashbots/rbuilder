@@ -6,9 +6,9 @@ use alloy_consensus::Header;
 use alloy_eips::BlockNumHash;
 use alloy_primitives::{Address, BlockHash, BlockNumber, Bytes, B256};
 use eth_sparse_mpt::utils::{HashMap, HashSet};
-use reth::providers::ExecutionOutcome;
 use reth_errors::ProviderResult;
 use reth_provider::StateProviderBox;
+use revm::database::BundleState;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 
@@ -53,9 +53,11 @@ pub trait RootHasher: std::fmt::Debug + Send + Sync {
     );
 
     /// State root for changes outcome on top of parent block.
+    /// Incermental change is a list of accounts that are changed for the block since the last call to state_root
     fn state_root(
         &self,
-        outcome: &ExecutionOutcome,
+        outcome: &BundleState,
+        incremental_change: &[Address],
         local_ctx: &mut ThreadBlockBuildingContext,
     ) -> Result<B256, RootHashError>;
 
@@ -64,7 +66,7 @@ pub trait RootHasher: std::fmt::Debug + Send + Sync {
     /// If the accounts are missing from the bundle state, the method will return "KeyNotFound" error.
     fn account_proofs(
         &self,
-        outcome: &ExecutionOutcome,
+        outcome: &BundleState,
         addresses: &HashSet<Address>,
         local_ctx: &mut ThreadBlockBuildingContext,
     ) -> Result<HashMap<Address, Vec<Bytes>>, RootHashError>;

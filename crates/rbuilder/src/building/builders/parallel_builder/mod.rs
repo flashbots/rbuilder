@@ -366,7 +366,7 @@ where
 
     // Block building
     let building_start = Instant::now();
-    let block_building_helper = block_building_result_assembler
+    let mut block_building_helper = block_building_result_assembler
         .build_backtest_block(best_results, OffsetDateTime::now_utc())?;
 
     let payout_tx_value = block_building_helper.true_block_value()?;

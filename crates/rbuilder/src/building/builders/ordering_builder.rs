@@ -182,7 +182,7 @@ where
         ordering_config,
         Arc::new(BuiltBlockCache::new()),
     );
-    let block_builder = builder.build_block_with_execution_tracer(
+    let mut block_builder = builder.build_block_with_execution_tracer(
         block_orders,
         CancellationToken::new(),
         partial_block_execution_tracer,

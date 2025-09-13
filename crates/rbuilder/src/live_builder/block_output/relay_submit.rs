@@ -215,6 +215,7 @@ async fn run_submit_to_relays_job(
             builder_name = block.builder_name,
             fill_time_ms = duration_ms(block.trace.fill_time),
             finalize_time_ms = duration_ms(block.trace.finalize_time),
+            finalize_adjust_time_ms = duration_ms(block.trace.finalize_adjust_time),
         );
         info!(
             parent: &submission_span,

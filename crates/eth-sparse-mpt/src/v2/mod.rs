@@ -4,11 +4,12 @@ use fetch::MissingNodesFetcher;
 use nybbles::Nibbles;
 use parking_lot::{Mutex, RwLock};
 use rayon::prelude::*;
-use reth_provider::{
-    providers::ConsistentDbView, BlockReader, DatabaseProviderFactory, ExecutionOutcome,
-};
+use reth_provider::{providers::ConsistentDbView, BlockReader, DatabaseProviderFactory};
 use reth_trie::TrieAccount;
-use revm::state::AccountInfo;
+use revm::{
+    database::{BundleAccount, BundleState},
+    state::AccountInfo,
+};
 use rustc_hash::FxBuildHasher;
 use std::{ops::Range, sync::Arc, time::Instant};
 use trie::{proof_store::ProofStore, DeletionError, InsertValue, NodeNotFound, Trie};
@@ -69,6 +70,9 @@ pub struct RootHashCalculator {
     account_trie: AccountTrieCalculator,
 
     shared_cache: SharedCacheV2,
+
+    // if set, only changes for these accounts will be incrementally applied
+    incremental_account_change: HashSet<Address>,
 }
 
 impl Clone for RootHashCalculator {
@@ -218,8 +222,6 @@ impl StorageCalculator {
 
         self.missing_nodes.clear();
         self.missing_nodes_requested.clear();
-
-        self.hash = B256::ZERO;
     }
 }
 
@@ -255,6 +257,7 @@ impl RootHashCalculator {
             storage: DashMap::default(),
             changed_account: Default::default(),
             shared_cache,
+            incremental_account_change: Default::default(),
         }
     }
 
@@ -275,87 +278,123 @@ impl RootHashCalculator {
         }
     }
 
+    fn prepare_changes_for_one_storage_trie(
+        &self,
+        address: Address,
+        bundle_account: &BundleAccount,
+    ) {
+        let storage_calc = self.get_account_storage(&address);
+        let mut storage_calc = storage_calc.lock();
+        let storage_calc = &mut *storage_calc;
+
+        storage_calc.clear();
+        storage_calc.account_info = bundle_account.account_info().map(|a| a.without_code());
+
+        if storage_calc.account_info.is_none() {
+            // account processed, no need to compute storage hash
+            storage_calc.hash = B256::ZERO;
+            self.changed_account
+                .write()
+                .push((address, StorageTrieStatus::Hashed));
+            return;
+        }
+
+        for (storage_key, storage_value) in &bundle_account.storage {
+            if !storage_value.is_changed() {
+                continue;
+            }
+
+            let storage_value = storage_value.present_value();
+
+            if let Some(applied_op) = storage_calc
+                .applied_storage_ops_previous_iteration
+                .remove(storage_key)
+            {
+                if applied_op.inserted_value == storage_value {
+                    storage_calc
+                        .applied_storage_ops_current_iteration
+                        .insert(*storage_key, applied_op);
+                    continue;
+                } else {
+                    storage_calc.revert_storage_ops.push(applied_op);
+                    storage_calc.revert_storage_ops_done.push(false);
+                }
+            }
+
+            let hashed_key = Nibbles::unpack(keccak256(B256::from(*storage_key)).as_slice());
+            if !storage_value.is_zero() {
+                let value = alloy_rlp::encode(storage_value);
+                storage_calc.insert_keys.push(hashed_key);
+                storage_calc.insert_values.push(value);
+                storage_calc.insert_storage_key.push(*storage_key);
+                storage_calc.insert_storage_value.push(storage_value);
+                storage_calc.insert_ok.push(false);
+            } else {
+                storage_calc.delete_keys.push(hashed_key);
+                storage_calc.delete_storage_key.push(*storage_key);
+                storage_calc.delete_ok.push(false);
+            }
+        }
+
+        // revert all applied ops from previous iteration
+        let mut applied_storage_ops_previous_iteration =
+            std::mem::take(&mut storage_calc.applied_storage_ops_previous_iteration);
+        for (_, applied_op) in applied_storage_ops_previous_iteration.drain() {
+            storage_calc.revert_storage_ops.push(applied_op);
+            storage_calc.revert_storage_ops_done.push(false);
+        }
+        storage_calc.applied_storage_ops_previous_iteration =
+            applied_storage_ops_previous_iteration;
+
+        if storage_calc.delete_keys.is_empty()
+            && storage_calc.insert_keys.is_empty()
+            && storage_calc.revert_storage_ops.is_empty()
+            && !storage_calc.hash.is_zero()
+            && !storage_calc.trie.is_uninit()
+        {
+            std::mem::swap(
+                &mut storage_calc.applied_storage_ops_previous_iteration,
+                &mut storage_calc.applied_storage_ops_current_iteration,
+            );
+            self.changed_account
+                .write()
+                .push((address, StorageTrieStatus::Hashed));
+        } else {
+            storage_calc.hash = B256::ZERO;
+            self.changed_account
+                .write()
+                .push((address, StorageTrieStatus::InsertsNotProcessed));
+        }
+    }
+
     fn prepare_changes_for_storage_trie(
         &mut self,
-        outcome: &ExecutionOutcome,
+        outcome: &BundleState,
         proof_targets: &HashSet<Address>,
     ) -> eyre::Result<()> {
         self.changed_account.write().clear();
 
-        outcome
-            .bundle_accounts_iter()
-            .par_bridge()
-            .for_each(|(address, bundle_account)| {
-                if bundle_account.status.is_not_modified() && !proof_targets.contains(&address) {
-                    return;
-                }
+	let incremental_change = !self.incremental_account_change.is_empty();
 
-                let storage_calc = self.get_account_storage(&address);
-                let mut storage_calc = storage_calc.lock();
-
-                storage_calc.clear();
-                storage_calc.account_info = bundle_account.account_info().map(|a| a.without_code());
-
-                if storage_calc.account_info.is_none() {
-                    // account processed, no need to compute storage hash
-                    self.changed_account
-                        .write()
-                        .push((address, StorageTrieStatus::Hashed));
-                    return;
-                } else {
-                    self.changed_account
-                        .write()
-                        .push((address, StorageTrieStatus::InsertsNotProcessed));
-                }
-
-                for (storage_key, storage_value) in &bundle_account.storage {
-                    if !storage_value.is_changed() {
-                        continue;
+	if incremental_change {
+	    self.incremental_account_change.iter().for_each(|address| {
+		let bundle_account = outcome.account(address).expect("account with incremental change is not in the BundleState");
+                self.prepare_changes_for_one_storage_trie(*address, bundle_account)
+	    });
+	} else {
+            outcome
+		.state()
+		.iter()
+		.map(|(a, acc)| (*a, acc))
+		.par_bridge()
+		.for_each(|(address, bundle_account)| {
+                    if bundle_account.status.is_not_modified() && !proof_targets.contains(&address) {
+			return;
                     }
+                    self.prepare_changes_for_one_storage_trie(address, bundle_account)
+		});
+	}
 
-                    let storage_value = storage_value.present_value();
-
-                    if let Some(applied_op) = storage_calc
-                        .applied_storage_ops_previous_iteration
-                        .remove(storage_key)
-                    {
-                        if applied_op.inserted_value == storage_value {
-                            storage_calc
-                                .applied_storage_ops_current_iteration
-                                .insert(*storage_key, applied_op);
-                            continue;
-                        } else {
-                            storage_calc.revert_storage_ops.push(applied_op);
-                            storage_calc.revert_storage_ops_done.push(false);
-                        }
-                    }
-
-                    let hashed_key =
-                        Nibbles::unpack(keccak256(B256::from(*storage_key)).as_slice());
-                    if !storage_value.is_zero() {
-                        let value = alloy_rlp::encode(storage_value);
-                        storage_calc.insert_keys.push(hashed_key);
-                        storage_calc.insert_values.push(value);
-                        storage_calc.insert_storage_key.push(*storage_key);
-                        storage_calc.insert_storage_value.push(storage_value);
-                        storage_calc.insert_ok.push(false);
-                    } else {
-                        storage_calc.delete_keys.push(hashed_key);
-                        storage_calc.delete_storage_key.push(*storage_key);
-                        storage_calc.delete_ok.push(false);
-                    }
-                }
-
-                // revert all applied ops from previous iteration
-                let mut applied_storage_ops_previous_iteration =
-                    std::mem::take(&mut storage_calc.applied_storage_ops_previous_iteration);
-                for (_, applied_op) in applied_storage_ops_previous_iteration.drain() {
-                    storage_calc.revert_storage_ops.push(applied_op);
-                    storage_calc.revert_storage_ops_done.push(false);
-                }
-                storage_calc.applied_storage_ops_previous_iteration =
-                    applied_storage_ops_previous_iteration;
-            });
 
         Ok(())
     }
@@ -688,13 +727,21 @@ impl RootHashCalculator {
             }
         }
 
-        for (_, applied_op) in self
+	let incremental_change = !self.incremental_account_change.is_empty();
+
+        for (address, applied_op) in self
             .account_trie
             .applied_account_ops_previous_iteration
             .drain()
         {
-            self.account_trie.revert_account_ops.push(applied_op);
-            self.account_trie.revert_account_ops_done.push(false);
+	    if incremental_change && !self.incremental_account_change.contains(&address) {
+                self.account_trie
+                    .applied_account_ops_current_iteration
+                    .insert(address, applied_op);
+	    } else {
+		self.account_trie.revert_account_ops.push(applied_op);
+		self.account_trie.revert_account_ops_done.push(false);
+	    }
         }
     }
 
@@ -859,12 +906,19 @@ impl RootHashCalculator {
         &mut self,
         consistent_db_view: ConsistentDbView<Provider>,
         shared_cache: SharedCacheV2,
-        outcome: &ExecutionOutcome,
+        outcome: &BundleState,
+        incremental_change: &[Address],
         proof_targets: &HashSet<Address>,
     ) -> Result<(B256, HashMap<Address, Vec<Bytes>>, SparseTrieMetrics), SparseTrieError>
     where
         Provider: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync,
     {
+	if !incremental_change.is_empty() {
+	    self.incremental_account_change.extend(incremental_change);
+	} else {
+	    self.incremental_account_change.clear();
+	}
+
         let mut stats = Stats::default();
         stats.start_global();
 
@@ -873,7 +927,9 @@ impl RootHashCalculator {
         stats.start();
         self.prepare_changes_for_storage_trie(outcome, proof_targets)?;
         stats.measure_prepare(true);
-        self.do_first_fetch(&consistent_db_view, &mut stats)?;
+	if self.incremental_account_change.is_empty() {
+            self.do_first_fetch(&consistent_db_view, &mut stats)?;
+	}
 
         let mut loop_break = false;
         for _ in 0..10 {

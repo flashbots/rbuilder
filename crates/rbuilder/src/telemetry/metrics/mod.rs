@@ -305,6 +305,12 @@ register_metrics! {
         &[]
     )
     .unwrap();
+    pub static BLOCK_FINALIZE_ADJUST_TIME: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("block_finalize_adjust_time", "Block Finalize Adjust Times (ms)")
+            .buckets(exponential_buckets_range(0.01, 300.0, 200)),
+        &[]
+    )
+    .unwrap();
     pub static BLOCK_ROOT_HASH_TIME: HistogramVec = HistogramVec::new(
         HistogramOpts::new("block_root_hash_time", "Block Root Hash Time (ms)")
             .buckets(exponential_buckets_range(0.01, 2000.0, 200)),
@@ -490,6 +496,9 @@ pub fn add_finalized_block_metrics(
     BLOCK_FINALIZE_TIME
         .with_label_values(&[])
         .observe(duration_ms(built_block_trace.finalize_time));
+    BLOCK_FINALIZE_ADJUST_TIME
+        .with_label_values(&[])
+        .observe(duration_ms(built_block_trace.finalize_adjust_time));
     BLOCK_ROOT_HASH_TIME
         .with_label_values(&[])
         .observe(duration_ms(built_block_trace.root_hash_time));

@@ -447,7 +447,7 @@ impl RootHasher for StatRootHashCalculator {
 
     fn account_proofs(
         &self,
-        _outcome: &reth_provider::ExecutionOutcome,
+        _outcome: &BundleState,
         _addresses: &eth_sparse_mpt::utils::HashSet<Address>,
         _local_ctx: &mut ThreadBlockBuildingContext,
     ) -> Result<eth_sparse_mpt::utils::HashMap<Address, Vec<Bytes>>, RootHashError> {
@@ -458,11 +458,11 @@ impl RootHasher for StatRootHashCalculator {
     /// IMPORTANT: Assumes IPC provider (node) has RPC call:"rbuilder_calculateStateRoot"
     fn state_root(
         &self,
-        outcome: &reth_provider::ExecutionOutcome,
+        outcome: &BundleState,
+        _incremental_change: &[Address],
         _local_ctx: &mut ThreadBlockBuildingContext,
     ) -> Result<B256, RootHashError> {
         let account_diff: HashMap<Address, AccountDiff> = outcome
-            .bundle
             .state
             .iter()
             .map(|(address, diff)| (*address, diff.clone().into()))

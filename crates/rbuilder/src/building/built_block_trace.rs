@@ -25,6 +25,7 @@ pub struct BuiltBlockTrace {
     pub orders_sealed_at: OffsetDateTime,
     pub fill_time: Duration,
     pub finalize_time: Duration,
+    pub finalize_adjust_time: Duration,
     pub root_hash_time: Duration,
     /// Value we saw in the competition when we decided to make this bid.
     pub seen_competition_bid: Option<U256>,
@@ -70,6 +71,7 @@ impl BuiltBlockTrace {
             orders_sealed_at: OffsetDateTime::now_utc(),
             fill_time: Duration::from_secs(0),
             finalize_time: Duration::from_secs(0),
+            finalize_adjust_time: Duration::from_secs(0),
             root_hash_time: Duration::from_secs(0),
             seen_competition_bid: None,
             considered_orders_statistics: Default::default(),

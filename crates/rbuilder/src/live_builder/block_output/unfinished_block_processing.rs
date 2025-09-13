@@ -50,6 +50,7 @@ pub struct UnfinishedBuiltBlocksInputFactory<P> {
     /// Factory for the final destination for blocks.
     block_sink_factory: RelaySubmitSinkFactory,
     wallet_balance_watcher: WalletBalanceWatcher<P>,
+    adjust_finalized_blocks: bool,
 }
 
 impl<P: StateProviderFactory> UnfinishedBuiltBlocksInputFactory<P> {
@@ -57,11 +58,13 @@ impl<P: StateProviderFactory> UnfinishedBuiltBlocksInputFactory<P> {
         bidding_service: Arc<dyn BiddingService>,
         block_sink_factory: RelaySubmitSinkFactory,
         wallet_balance_watcher: WalletBalanceWatcher<P>,
+        adjust_finalized_blocks: bool,
     ) -> Self {
         Self {
             bidding_service,
             block_sink_factory,
             wallet_balance_watcher,
+            adjust_finalized_blocks,
         }
     }
 
@@ -89,8 +92,12 @@ impl<P: StateProviderFactory> UnfinishedBuiltBlocksInputFactory<P> {
             .block_sink_factory
             .create_builder_sink(slot_data.clone(), cancel.clone());
 
-        let input =
-            UnfinishedBuiltBlocksInput::new(built_block_cache, finished_block_sink, cancel.clone());
+        let input = UnfinishedBuiltBlocksInput::new(
+            built_block_cache,
+            finished_block_sink,
+            self.adjust_finalized_blocks,
+            cancel.clone(),
+        );
 
         let slot_bidder = self.bidding_service.create_slot_bidder(
             SlotBlockId::new(
@@ -132,11 +139,18 @@ impl PrefinalizedBlockInner {
         &mut self,
         value: U256,
         seen_competition_bid: Option<U256>,
+        adjust_finalized_blocks: bool,
     ) -> Result<Option<FinalizeBlockResult>, BlockBuildingHelperError> {
         if let Some(local_ctx) = self.local_ctx.as_mut() {
-            self.block_building_helper
-                .finalize_prefinalized_block(local_ctx, value, seen_competition_bid)
-                .map(Some)
+            if adjust_finalized_blocks {
+                self.block_building_helper
+                    .adjust_finalized_block(local_ctx, value, seen_competition_bid)
+                    .map(Some)
+            } else {
+                self.block_building_helper
+                    .finalize_block(local_ctx, value, seen_competition_bid)
+                    .map(Some)
+            }
         } else {
             Ok(None)
         }
@@ -226,12 +240,14 @@ pub struct UnfinishedBuiltBlocksInput {
     cancellation_token: CancellationToken,
     #[derivative(Debug = "ignore")]
     block_building_sink: Arc<Mutex<Box<dyn BlockBuildingSink>>>,
+    adjust_finalized_blocks: bool,
 }
 
 impl UnfinishedBuiltBlocksInput {
     fn new(
         built_block_cache: Arc<BuiltBlockCache>,
         block_building_sink: Box<dyn BlockBuildingSink>,
+        adjust_finalized_blocks: bool,
         cancellation_token: CancellationToken,
     ) -> Self {
         Self {
@@ -244,6 +260,7 @@ impl UnfinishedBuiltBlocksInput {
             last_finalize_command: Arc::new((Mutex::new(None), Condvar::new())),
             cancellation_token,
             block_building_sink: Arc::new(Mutex::new(block_building_sink)),
+            adjust_finalized_blocks,
         }
     }
 
@@ -307,13 +324,15 @@ impl UnfinishedBuiltBlocksInput {
 
             let mut local_ctx = self.local_ctx();
             let mut block_building_helper = next_block.into_building_helper();
-            match block_building_helper.prefinalize_block(&mut local_ctx) {
-                Ok(()) => {}
-                Err(err) => {
-                    error!(?err, "Failed to prefinalize block");
-                    continue;
-                }
-            };
+            if self.adjust_finalized_blocks {
+                match block_building_helper.finalize_block(&mut local_ctx, U256::ZERO, None) {
+                    Ok(_) => {}
+                    Err(err) => {
+                        error!(?err, "Failed to prefinalize block");
+                        continue;
+                    }
+                };
+            }
             let prefinalized_result =
                 PrefinalizedBlock::new(block_id, block_building_helper, local_ctx);
             self.finalized_blocks.lock().push(prefinalized_result);
@@ -382,6 +401,7 @@ impl UnfinishedBuiltBlocksInput {
             let result = match command.finalize_prefinalized_block(
                 finalize_command.value,
                 finalize_command.seen_competition_bid,
+                self.adjust_finalized_blocks,
             ) {
                 Ok(Some(result)) => result,
                 Ok(None) => {

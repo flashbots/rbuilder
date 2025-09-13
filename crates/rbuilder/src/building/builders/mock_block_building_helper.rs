@@ -10,8 +10,8 @@ use crate::{
 };
 use alloy_primitives::{Address, Bytes, B256, U256};
 use eth_sparse_mpt::utils::{HashMap, HashSet};
-use reth::providers::ExecutionOutcome;
 use reth_primitives::SealedBlock;
+use revm::database::BundleState;
 use time::OffsetDateTime;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
@@ -82,7 +82,7 @@ impl BlockBuildingHelper for MockBlockBuildingHelper {
     }
 
     fn finalize_block(
-        mut self: Box<Self>,
+        &mut self,
         _local_ctx: &mut ThreadBlockBuildingContext,
         payout_tx_value: U256,
         seen_competition_bid: Option<U256>,
@@ -92,7 +92,7 @@ impl BlockBuildingHelper for MockBlockBuildingHelper {
         self.built_block_trace.bid_value = payout_tx_value;
         let block = Block {
             builder_name: "BlockBuildingHelper".to_string(),
-            trace: self.built_block_trace,
+            trace: self.built_block_trace.clone(),
             sealed_block: SealedBlock::default(),
             txs_blobs_sidecars: Vec::new(),
             execution_requests: Default::default(),
@@ -123,14 +123,7 @@ impl BlockBuildingHelper for MockBlockBuildingHelper {
             .set_filtered_build_statistics(considered_orders_statistics, failed_orders_statistics);
     }
 
-    fn prefinalize_block(
-        &mut self,
-        _local_ctx: &mut ThreadBlockBuildingContext,
-    ) -> Result<(), BlockBuildingHelperError> {
-        unimplemented!()
-    }
-
-    fn finalize_prefinalized_block(
+    fn adjust_finalized_block(
         &mut self,
         _local_ctx: &mut ThreadBlockBuildingContext,
         _payout_tx_value: U256,
@@ -153,7 +146,7 @@ impl RootHasher for MockRootHasher {
 
     fn account_proofs(
         &self,
-        _outcome: &ExecutionOutcome,
+        _outcome: &BundleState,
         _addresses: &HashSet<Address>,
         _local_ctx: &mut ThreadBlockBuildingContext,
     ) -> Result<HashMap<Address, Vec<Bytes>>, RootHashError> {
@@ -162,7 +155,8 @@ impl RootHasher for MockRootHasher {
 
     fn state_root(
         &self,
-        _outcome: &ExecutionOutcome,
+        _outcome: &BundleState,
+        _incremental_change: &[Address],
         _local_ctx: &mut ThreadBlockBuildingContext,
     ) -> Result<B256, RootHashError> {
         Ok(B256::default())

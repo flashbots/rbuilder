@@ -91,7 +91,7 @@ async fn main() -> eyre::Result<()> {
         let state_provider = state_provider.clone();
         let (build_time, finalize_time) =
             tokio::task::spawn_blocking(move || -> eyre::Result<_> {
-                let partial_block = PartialBlock::new(true);
+                let mut partial_block = PartialBlock::new(true);
                 let mut state = BlockState::new_arc(state_provider);
                 let mut local_ctx = ThreadBlockBuildingContext::default();
 
@@ -111,7 +111,8 @@ async fn main() -> eyre::Result<()> {
                 let build_time = build_time.elapsed();
 
                 let finalize_time = Instant::now();
-                let finalized_block = partial_block.finalize(state, &ctx, &mut local_ctx)?;
+                let finalized_block =
+                    partial_block.finalize(&mut state, &ctx, &mut local_ctx, false)?;
                 let finalize_time = finalize_time.elapsed();
 
                 debug!(
