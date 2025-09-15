@@ -113,7 +113,7 @@ impl<P: StateProviderFactory> UnfinishedBuiltBlocksInputFactory<P> {
         let input_clone = input.clone();
         std::thread::Builder::new()
             .name("prefinalize_worker".into())
-            .spawn(move || input_clone.run_prefinilze_thread(slot_bidder))
+            .spawn(move || input_clone.run_prefinalize_thread(slot_bidder))
             .unwrap();
 
         let input_clone = input.clone();
@@ -308,7 +308,7 @@ impl UnfinishedBuiltBlocksInput {
         }
     }
 
-    fn run_prefinilze_thread(self, slot_bidder: Arc<dyn SlotBidder>) {
+    fn run_prefinalize_thread(self, slot_bidder: Arc<dyn SlotBidder>) {
         loop {
             if self.cancellation_token.is_cancelled() {
                 break;
