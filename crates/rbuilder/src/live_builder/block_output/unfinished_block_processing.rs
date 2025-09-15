@@ -325,12 +325,16 @@ impl UnfinishedBuiltBlocksInput {
             let mut local_ctx = self.local_ctx();
             let mut block_building_helper = next_block.into_building_helper();
             if self.adjust_finalized_blocks {
-		let value = if block_building_helper.true_block_value().unwrap_or_default().is_zero() {
-		    U256::ZERO
-		} else {
-		    // set value to 1 so that some contracts do not revert
-		    U256::ONE
-		}; 
+                let value = if block_building_helper
+                    .true_block_value()
+                    .unwrap_or_default()
+                    .is_zero()
+                {
+                    U256::ZERO
+                } else {
+                    // set value to 1 so that some contracts do not revert
+                    U256::ONE
+                };
                 match block_building_helper.finalize_block(&mut local_ctx, value, None) {
                     Ok(_) => {}
                     Err(err) => {
