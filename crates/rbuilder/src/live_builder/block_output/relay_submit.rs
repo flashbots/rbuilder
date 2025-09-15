@@ -298,7 +298,7 @@ async fn run_submit_to_relays_job(
             &cancel,
         );
 
-        if let Some((optimistic_signed_block, _)) = optimistic_signed_block {
+        let signed_block = if let Some((optimistic_signed_block, _)) = optimistic_signed_block {
             submit_block_to_relays(
                 &config.chain_spec,
                 &optimistic_signed_block,
@@ -311,6 +311,7 @@ async fn run_submit_to_relays_job(
                 &submission_span,
                 &cancel,
             );
+            optimistic_signed_block
         } else {
             // non-optimistic submission to optimistic relays
             submit_block_to_relays(
@@ -325,18 +326,27 @@ async fn run_submit_to_relays_job(
                 &submission_span,
                 &cancel,
             );
-        }
+            normal_signed_block
+        };
 
-        submission_span.in_scope(|| {
-            // NOTE: we only notify normal submission here because they have the same contents but different pubkeys
-            config.bid_observer.block_submitted(
-                &slot_data,
-                &block.sealed_block,
-                &block.trace,
-                builder_name,
-                bid_metadata.value.top_competitor_bid.unwrap_or_default(),
-            );
-        })
+        match signed_block.into_request(&config.chain_spec, None) {
+            Ok(request) => {
+                submission_span.in_scope(|| {
+                    // NOTE: we only notify normal submission here because they have the same contents but different pubkeys
+                    config.bid_observer.block_submitted(
+                        &slot_data,
+                        &block.sealed_block,
+                        &request,
+                        &block.trace,
+                        builder_name,
+                        bid_metadata.value.top_competitor_bid.unwrap_or_default(),
+                    );
+                })
+            }
+            Err(err) => {
+                error!(parent: &submission_span, err = ?err, "Error converting request for bid observer");
+            }
+        };
     }
 }
 

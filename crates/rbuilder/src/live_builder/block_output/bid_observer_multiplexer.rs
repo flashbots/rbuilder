@@ -27,6 +27,7 @@ impl BidObserver for BidObserverMultiplexer {
         &self,
         slot_data: &MevBoostSlotData,
         sealed_block: &SealedBlock,
+        submit_block_request: &SubmitBlockRequest,
         built_block_trace: &BuiltBlockTrace,
         builder_name: String,
         best_bid_value: alloy_primitives::U256,

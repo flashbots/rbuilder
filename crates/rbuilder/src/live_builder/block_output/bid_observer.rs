@@ -25,6 +25,7 @@ impl BidObserver for NullBidObserver {
         &self,
         _slot_data: &MevBoostSlotData,
         _sealed_block: &SealedBlock,
+        _submit_block_request: &SubmitBlockRequest,
         _built_block_trace: &BuiltBlockTrace,
         _builder_name: String,
         _best_bid_value: U256,
