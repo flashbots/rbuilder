@@ -968,7 +968,7 @@ impl BundleReplacementKey {
 /// General type for both BundleReplacementKey and ShareBundleReplacementKey
 /// Even although BundleReplacementKey and ShareBundleReplacementKey have the same info they are kept
 /// as different types to avoid bugs.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum OrderReplacementKey {
     Bundle(BundleReplacementKey),
     ShareBundle(ShareBundleReplacementKey),

@@ -1,4 +1,5 @@
 use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::{
@@ -21,6 +22,12 @@ pub struct OrderFlowTracer {
     id: SlotBlockId,
     sim_events: Mutex<Vec<SimulationEventWithTimestamp>>,
     order_input_events: Mutex<Vec<ReplaceableOrderEventWithTimestamp>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct OrderFlowTracerReport {
+    pub sim_events: Vec<SimulationEventWithTimestamp>,
+    pub order_input_events: Vec<ReplaceableOrderEventWithTimestamp>,
 }
 
 impl OrderFlowTracer {
@@ -62,18 +69,39 @@ impl OrderFlowTracer {
         self.order_input_events.lock().push(event);
     }
     fn remove_sbundle(&self, key: &ShareBundleReplacementKey) {
-        let event = ReplaceableOrderEventWithTimestamp::new(ReplaceableOrderEvent::RemoveSBundle(
-            key.clone(),
-        ));
+        let event =
+            ReplaceableOrderEventWithTimestamp::new(ReplaceableOrderEvent::RemoveSBundle(*key));
         self.order_input_events.lock().push(event);
+    }
+
+    pub fn into_report(self) -> OrderFlowTracerReport {
+        OrderFlowTracerReport {
+            sim_events: self.sim_events.into_inner(),
+            order_input_events: self.order_input_events.into_inner(),
+        }
     }
 }
 
 impl SimulationJobTracer for OrderFlowTracer {
     fn update_simulation_sent(&self, sim_result: &SimulatedResult) {
         let event = SimulationEvent::SimulatedOrder(SimulatedOrderData {
-            sim_order: sim_result.simulated_order.clone(),
             simulation_time: sim_result.simulation_time,
+            order_id: sim_result.simulated_order.order.id(),
+            replacement_key_and_sequence_number: sim_result
+                .simulated_order
+                .order
+                .replacement_key_and_sequence_number(),
+            full_profit: sim_result
+                .simulated_order
+                .sim_value
+                .full_profit_info()
+                .coinbase_profit(),
+            non_mempool_profit: sim_result
+                .simulated_order
+                .sim_value
+                .non_mempool_profit_info()
+                .coinbase_profit(),
+            gas_used: sim_result.simulated_order.sim_value.gas_used(),
         });
         self.sim_events
             .lock()

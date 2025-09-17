@@ -9076,6 +9076,7 @@ dependencies = [
  "beacon-api-client",
  "bid-scraper",
  "bigdecimal 0.4.8",
+ "bincode",
  "built",
  "clap 4.5.36",
  "criterion 0.5.1",

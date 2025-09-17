@@ -51,6 +51,7 @@ impl<P> BlockBuildingPool<P>
 where
     P: StateProviderFactory + Clone + 'static,
 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         provider: P,
         builders: Vec<Arc<dyn BlockBuildingAlgorithm<P>>>,

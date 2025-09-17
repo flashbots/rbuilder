@@ -1,13 +1,14 @@
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
-use alloy_primitives::TxHash;
+use alloy_primitives::{TxHash, U256};
+use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
 use crate::primitives::{
-    BundleReplacementData, OrderId, OrderReplacementKey, ShareBundleReplacementKey, SimulatedOrder,
+    BundleReplacementData, OrderId, OrderReplacementKey, ShareBundleReplacementKey,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct EventWithTimestamp<EventType> {
     pub event: EventType,
     pub timestamp: OffsetDateTime,
@@ -22,13 +23,18 @@ impl<EventType> EventWithTimestamp<EventType> {
     }
 }
 
-#[derive(Debug)]
+/// If this grows a lot we could consider storing the Arc<SimulatedOrder> instead and do the extra work when we make the report.
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SimulatedOrderData {
-    pub sim_order: Arc<SimulatedOrder>,
+    pub order_id: OrderId,
+    pub replacement_key_and_sequence_number: Option<(OrderReplacementKey, u64)>,
     pub simulation_time: Duration,
+    pub full_profit: U256,
+    pub non_mempool_profit: U256,
+    pub gas_used: u64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum SimulationEvent {
     SimulatedOrder(SimulatedOrderData),
     CancellationSent(OrderId),
@@ -37,14 +43,14 @@ pub enum SimulationEvent {
 pub type SimulationEventWithTimestamp = EventWithTimestamp<SimulationEvent>;
 
 /// Since Order is expensive to clone we take what we need.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct InsertOrderData {
     pub order_id: OrderId,
     pub replacement_key_and_sequence_number: Option<(OrderReplacementKey, u64)>,
     pub tx_hashes: Vec<TxHash>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum ReplaceableOrderEvent {
     InsertOrder(InsertOrderData),
     RemoveBundle(BundleReplacementData),

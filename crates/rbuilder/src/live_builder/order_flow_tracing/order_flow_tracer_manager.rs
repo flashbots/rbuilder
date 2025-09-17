@@ -1,10 +1,10 @@
-use std::{collections::VecDeque, fs::File, io::Write, path::PathBuf, sync::Arc};
-
+use std::{collections::VecDeque, path::PathBuf, sync::Arc};
 use tracing::error;
 
 use super::order_flow_tracer::OrderFlowTracer;
 use crate::live_builder::{
     block_output::bidding_service_interface::SlotBlockId,
+    order_flow_tracing::report_serialization::save_report,
     order_input::replaceable_order_sink::ReplaceableOrderSink,
     simulation::simulation_job_tracer::{NullSimulationJobTracer, SimulationJobTracer},
 };
@@ -42,6 +42,7 @@ const MAX_ACTIVE_TRACERS: usize = 10;
 #[derive(Debug)]
 pub struct OrderFlowTracerManagerImpl {
     /// Every created tracer is stored here and when the Arc refcount reaches 1 we "steal" it and save it to disk.
+    /// We could have added wrappers with notifications on drop but it's not worth the complexity (or is it that I am lazy?).
     active_tracers: VecDeque<Arc<OrderFlowTracer>>,
     /// Path to the directory where the tracers will be saved.
     storage_path: PathBuf,
@@ -101,9 +102,11 @@ impl OrderFlowTracerManagerImpl {
 
     fn save_tracer_to_disk(&mut self, tracer: OrderFlowTracer) {
         let block_path = self.storage_path.join(Self::filename_for(tracer.id()));
-        let mut file = File::create(block_path.clone()).unwrap();
-        let data = vec![0x00, 0x01, 0x02, 0x03, 0xFF, 0xFE];
-        file.write_all(&data).unwrap();
+        let report = tracer.into_report();
+        if let Err(error) = save_report(report, block_path.clone()) {
+            error!(?error, ?block_path, "Failed to save report to disk");
+            return;
+        }
         self.storage_blocks.push_back(block_path);
     }
 
@@ -133,6 +136,8 @@ impl OrderFlowTracerManager for OrderFlowTracerManagerImpl {
 }
 #[cfg(test)]
 mod tests {
+
+    use std::fs::File;
 
     use alloy_primitives::BlockHash;
     use tempfile::TempDir;
