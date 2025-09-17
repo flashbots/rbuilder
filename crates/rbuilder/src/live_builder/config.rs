@@ -45,7 +45,6 @@ use crate::{
 };
 use alloy_chains::ChainKind;
 use alloy_primitives::{
-    hex,
     utils::{format_ether, parse_ether},
     Address, FixedBytes, B256, U256,
 };
@@ -310,8 +309,7 @@ impl L1Config {
 
         let relay_secret_key = if let Some(secret_key) = &self.relay_secret_key {
             let resolved_key = secret_key.value()?;
-            let input = hex::decode(resolved_key)?;
-            SecretKey::from_bytes(&input)?
+            SecretKey::try_from(resolved_key)?
         } else {
             warn!("No relay secret key provided. A random key will be generated.");
             SecretKey::random(&mut rand::thread_rng())?
