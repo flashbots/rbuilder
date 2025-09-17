@@ -1,6 +1,8 @@
 //! App to benchmark/test the tx block execution.
 //! This only works when reth node is stopped and the chain moved forward from its synced state
 //! It downloads block after the last one synced and re-executes all the txs in it.
+use alloy_consensus::TxEnvelope;
+use alloy_eips::Decodable2718;
 use alloy_provider::Provider;
 use clap::Parser;
 use eyre::Context;
@@ -11,9 +13,11 @@ use rbuilder::{
         PartialBlock, PartialBlockFork, ThreadBlockBuildingContext,
     },
     live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig, config::Config},
+    mev_boost::submission::SubmitBlockRequest,
     provider::StateProviderFactory,
     utils::{extract_onchain_block_txs, find_suggested_fee_recipient, http_provider, Signer},
 };
+use reth_primitives_traits::SignerRecoverable;
 use reth_provider::StateProvider;
 use std::{path::PathBuf, sync::Arc, time::Instant};
 use tracing::{debug, info};
@@ -31,6 +35,11 @@ struct Cli {
     rpc_url: String,
     #[clap(long, help = "Config file path", env = "RBUILDER_CONFIG")]
     config: PathBuf,
+    #[clap(
+        long,
+        help = "Path to submit block request to replay to use instead of the onchain block"
+    )]
+    submit_block_request_json: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -53,6 +62,15 @@ async fn main() -> eyre::Result<()> {
         .full()
         .await?
         .ok_or_else(|| eyre::eyre!("block not found on rpc"))?;
+
+    let onchain_block = if let Some(submit_block_request_json) = cli.submit_block_request_json {
+        let mut block = read_execution_payload_from_json(submit_block_request_json)?;
+        // without parent_beacon_block_root we can't build block and its not available in submit_block_request_json
+        block.header.parent_beacon_block_root = onchain_block.header.parent_beacon_block_root;
+        block
+    } else {
+        onchain_block
+    };
 
     let txs = extract_onchain_block_txs(&onchain_block)?;
     let suggested_fee_recipient = find_suggested_fee_recipient(&onchain_block, &txs);
@@ -99,15 +117,19 @@ async fn main() -> eyre::Result<()> {
 
                 let build_time = Instant::now();
 
+                partial_block.pre_block_call(&ctx, &mut local_ctx, &mut state)?;
+
                 let mut space_state = BlockBuildingSpaceState::ZERO;
                 for (idx, tx) in txs.into_iter().enumerate() {
                     let result = {
                         let mut fork = PartialBlockFork::new(&mut state, &ctx, &mut local_ctx);
+
                         fork.commit_tx(&tx, space_state)?.with_context(|| {
                             format!("Failed to commit tx: {} {:?}", idx, tx.hash())
                         })?
                     };
                     space_state.use_space(result.space_used());
+                    partial_block.executed_tx_infos.push(result.tx_info);
                 }
 
                 let build_time = build_time.elapsed();
@@ -138,6 +160,27 @@ async fn main() -> eyre::Result<()> {
     report_time_data("finalize", &finalize_time_ms);
 
     Ok(())
+}
+
+fn read_execution_payload_from_json(path: PathBuf) -> eyre::Result<alloy_rpc_types::Block> {
+    let req = std::fs::read_to_string(&path)?;
+    let req: SubmitBlockRequest = serde_json::from_str(&req)?;
+    let block_raw = match req {
+        SubmitBlockRequest::Capella(req) => req.execution_payload.clone().into_block_raw()?,
+        SubmitBlockRequest::Fulu(req) => req.execution_payload.clone().into_block_raw()?,
+        SubmitBlockRequest::Deneb(req) => req.execution_payload.clone().into_block_raw()?,
+        SubmitBlockRequest::Electra(req) => req.execution_payload.clone().into_block_raw()?,
+    };
+    let rpc_block = alloy_rpc_types::Block::from_consensus(block_raw, None);
+    let rpc_block = rpc_block.try_map_transactions(|bytes| -> eyre::Result<_> {
+        let envelope = TxEnvelope::decode_2718(&mut bytes.as_ref())?;
+        let recovered = envelope.try_into_recovered()?;
+        Ok(alloy_rpc_types::Transaction::from_transaction(
+            recovered,
+            alloy_rpc_types::TransactionInfo::default(),
+        ))
+    })?;
+    Ok(rpc_block)
 }
 
 fn report_time_data(action: &str, data: &[u128]) {
