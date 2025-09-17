@@ -55,7 +55,7 @@ pub struct OrderFlowTracerManagerImpl {
 
 impl OrderFlowTracerManagerImpl {
     pub fn new(storage_path: PathBuf, max_blocks_to_keep: usize) -> Result<Self, eyre::Error> {
-        let storage_blocks_read_dir = std::fs::read_dir(storage_path.clone()).unwrap();
+        let storage_blocks_read_dir = std::fs::read_dir(storage_path.clone())?;
         let mut storage_blocks = Vec::new();
         for block in storage_blocks_read_dir {
             let entry = block?;
@@ -80,13 +80,9 @@ impl OrderFlowTracerManagerImpl {
         while index < self.active_tracers.len() {
             let tracer_ref = &self.active_tracers[index];
             if Arc::strong_count(tracer_ref) == 1 {
-                let tracer = self.active_tracers.remove(index).unwrap();
+                let tracer = self.active_tracers.remove(index).unwrap(); // Safe since index < self.active_tracers.len()
                 if let Ok(tracer) = Arc::try_unwrap(tracer) {
-                    let block_path = self.storage_path.join(Self::filename_for(tracer.id()));
-                    let mut file = File::create(block_path.clone()).unwrap();
-                    let data = vec![0x00, 0x01, 0x02, 0x03, 0xFF, 0xFE];
-                    file.write_all(&data).unwrap();
-                    self.storage_blocks.push_back(block_path);
+                    self.save_tracer_to_disk(tracer);
                 } else {
                     error!("Failed to unwrap tracer");
                 }
@@ -101,6 +97,14 @@ impl OrderFlowTracerManagerImpl {
             let _ = self.active_tracers.pop_front();
         }
         self.delete_old_block_files();
+    }
+
+    fn save_tracer_to_disk(&mut self, tracer: OrderFlowTracer) {
+        let block_path = self.storage_path.join(Self::filename_for(tracer.id()));
+        let mut file = File::create(block_path.clone()).unwrap();
+        let data = vec![0x00, 0x01, 0x02, 0x03, 0xFF, 0xFE];
+        file.write_all(&data).unwrap();
+        self.storage_blocks.push_back(block_path);
     }
 
     fn delete_old_block_files(&mut self) {
