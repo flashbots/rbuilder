@@ -2,7 +2,10 @@ use std::{fmt, sync::Arc};
 
 use crate::{
     building::sim::{SimTree, SimulatedResult, SimulationRequest},
-    live_builder::order_input::order_sink::OrderPoolCommand,
+    live_builder::{
+        order_input::order_sink::OrderPoolCommand,
+        simulation::simulation_job_tracer::SimulationJobTracer,
+    },
     primitives::{Order, OrderId, OrderReplacementKey},
 };
 use ahash::HashSet;
@@ -59,6 +62,9 @@ pub struct SimulationJob {
     /// Got first sim result -> add to not_cancelled_simulated_orders.
     /// Got second sim result -> We DON'T send since we see on not_cancelled_simulated_orders that we already did it!
     not_cancelled_sent_simulated_orders: HashSet<OrderId>,
+
+    /// Every send is traced here.
+    sim_tracer: Arc<dyn SimulationJobTracer>,
 }
 
 impl SimulationJob {
@@ -69,6 +75,7 @@ impl SimulationJob {
         sim_results_receiver: mpsc::Receiver<SimulatedResult>,
         slot_sim_results_sender: mpsc::Sender<SimulatedOrderCommand>,
         sim_tree: SimTree,
+        sim_tracer: Arc<dyn SimulationJobTracer>,
     ) -> Self {
         Self {
             block_cancellation,
@@ -85,6 +92,7 @@ impl SimulationJob {
             unique_replacement_key_bundles_sim_ok: Default::default(),
             in_flight_orders: Default::default(),
             not_cancelled_sent_simulated_orders: Default::default(),
+            sim_tracer,
         }
     }
 
@@ -204,15 +212,19 @@ impl SimulationJob {
                 if self
                     .not_cancelled_sent_simulated_orders
                     .insert(sim_result.simulated_order.id())
-                    && self
+                {
+                    if self
                         .slot_sim_results_sender
-                        .send(SimulatedOrderCommand::Simulation(Arc::new(
+                        .send(SimulatedOrderCommand::Simulation(
                             sim_result.simulated_order.clone(),
-                        )))
+                        ))
                         .await
                         .is_err()
-                {
-                    return false; //receiver closed :(
+                    {
+                        return false; //receiver closed :(
+                    } else {
+                        self.sim_tracer.update_simulation_sent(sim_result);
+                    }
                 }
             }
         }
@@ -232,10 +244,15 @@ impl SimulationJob {
     async fn send_cancel(&mut self, id: &OrderId) -> bool {
         // Only send cancel if we sent this id.
         if self.not_cancelled_sent_simulated_orders.remove(id) {
-            self.slot_sim_results_sender
+            let sent = self
+                .slot_sim_results_sender
                 .send(SimulatedOrderCommand::Cancellation(*id))
                 .await
-                .is_ok()
+                .is_ok();
+            if sent {
+                self.sim_tracer.update_cancellation_sent(id);
+            }
+            sent
         } else {
             true
         }

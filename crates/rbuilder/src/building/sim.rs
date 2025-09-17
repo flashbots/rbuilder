@@ -30,7 +30,7 @@ use tracing::{error, trace};
 #[derive(Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum OrderSimResult {
-    Success(SimulatedOrder, Vec<(Address, u64)>),
+    Success(Arc<SimulatedOrder>, Vec<(Address, u64)>),
     Failed(OrderErr),
 }
 
@@ -65,7 +65,7 @@ pub struct SimulationRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SimulatedResult {
     pub id: SimulationId,
-    pub simulated_order: SimulatedOrder,
+    pub simulated_order: Arc<SimulatedOrder>,
     pub previous_orders: Vec<Order>,
     pub nonces_after: Vec<NonceKey>,
     pub simulation_time: Duration,
@@ -318,7 +318,7 @@ pub fn simulate_all_orders_with_sim_tree<P>(
     ctx: &BlockBuildingContext,
     orders: &[Order],
     randomize_insertion: bool,
-) -> Result<(Vec<SimulatedOrder>, Vec<OrderErr>), CriticalCommitOrderError>
+) -> Result<(Vec<Arc<SimulatedOrder>>, Vec<OrderErr>), CriticalCommitOrderError>
 where
     P: StateProviderFactory + Clone,
 {
@@ -468,11 +468,11 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
             let sim_value = create_sim_value(&order, &res, mempool_tx_detector);
             let new_nonces = res.nonces_updated.into_iter().collect::<Vec<_>>();
             Ok(OrderSimResult::Success(
-                SimulatedOrder {
+                Arc::new(SimulatedOrder {
                     order,
                     sim_value,
                     used_state_trace: res.used_state_trace,
-                },
+                }),
                 new_nonces,
             ))
         }

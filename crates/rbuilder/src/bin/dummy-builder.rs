@@ -30,6 +30,7 @@ use rbuilder::{
         },
         block_list_provider::NullBlockListProvider,
         config::create_provider_factory,
+        order_flow_tracing::order_flow_tracer_manager::NullOrderFlowTracerManager,
         order_input::{
             MempoolSource, OrderInputConfig, DEFAULT_INPUT_CHANNEL_BUFFER_SIZE,
             DEFAULT_RESULTS_CHANNEL_TIMEOUT, DEFAULT_SERVE_MAX_CONNECTIONS,
@@ -135,6 +136,7 @@ async fn main() -> eyre::Result<()> {
         evm_caching_enable: false,
         simulation_use_random_coinbase: true,
         faster_finalize: false,
+        order_flow_tracer_manager: Box::new(NullOrderFlowTracerManager {}),
     };
 
     let ctrlc = tokio::spawn(async move {

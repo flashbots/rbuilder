@@ -11,6 +11,7 @@ use crate::{
     },
     live_builder::{
         building::built_block_cache::{BuiltBlockCache, BuiltBlockCacheUpdater},
+        order_flow_tracing::order_flow_tracer_manager::OrderFlowTracerManager,
         order_input::replaceable_order_sink::ReplaceableOrderSink,
         payload_events::MevBoostSlotData,
         simulation::SlotOrderSimResults,
@@ -47,6 +48,7 @@ pub struct BlockBuildingPool<P> {
     order_simulation_pool: OrderSimulationPool<P>,
     run_sparse_trie_prefetcher: bool,
     sbundle_merger_selected_signers: Arc<Vec<Address>>,
+    order_flow_tracer_manager: Box<dyn OrderFlowTracerManager>,
 }
 
 impl<P> BlockBuildingPool<P>
@@ -61,6 +63,7 @@ where
         order_simulation_pool: OrderSimulationPool<P>,
         run_sparse_trie_prefetcher: bool,
         sbundle_merger_selected_signers: Arc<Vec<Address>>,
+        order_flow_tracer_manager: Box<dyn OrderFlowTracerManager>,
     ) -> Self {
         BlockBuildingPool {
             provider,
@@ -70,10 +73,12 @@ where
             order_simulation_pool,
             run_sparse_trie_prefetcher,
             sbundle_merger_selected_signers,
+            order_flow_tracer_manager,
         }
     }
 
     /// Connects OrdersForBlock (source of orders) ->
+    /// [Optional] OrderFlowTracerManager provided tracer ->
     /// ReplaceableOrderStreamSniffer (notifies mempool txs to MempoolTxsDetector) ->
     /// BlobTypeOrderFilter (filters out Orders with incorrect blobs (pre/post fusaka)) ->
     /// OrderReplacementManager (Handles cancellations and replacements) -> Simulations and calls start_building_job
@@ -85,7 +90,6 @@ where
         max_time_to_build: Duration,
     ) {
         let block_cancellation = global_cancellation.child_token();
-
         let cancel = block_cancellation.clone();
         let block = block_ctx.block();
         let payload_id = block_ctx.payload_id;
@@ -129,15 +133,23 @@ where
                 blob_type_order_filter,
                 block_ctx.mempool_tx_detector.clone(),
             );
+
+        // order_flow_tracer_manager may add some extra  ReplaceableOrderSink on the chain.
+        let (sim_tracer, order_flow_input) = self.order_flow_tracer_manager.create_tracers(
+            payload.slot_block_id(),
+            Box::new(mempool_txs_detector_sniffer),
+        );
+
         // sink removal is automatic via OrderSink::is_alive false
         let _block_sub = self
             .orderpool_subscriber
-            .add_sink(block_ctx.block(), Box::new(mempool_txs_detector_sniffer));
+            .add_sink(block_ctx.block(), order_flow_input);
 
         let simulations_for_block = self.order_simulation_pool.spawn_simulation_job(
             block_ctx.clone(),
             orders_for_block,
             block_cancellation.clone(),
+            sim_tracer,
         );
         self.start_building_job(
             block_ctx,

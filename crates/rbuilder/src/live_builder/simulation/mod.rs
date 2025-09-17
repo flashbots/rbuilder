@@ -1,5 +1,6 @@
 pub mod sim_worker;
 mod simulation_job;
+pub mod simulation_job_tracer;
 
 use crate::{
     building::{
@@ -7,7 +8,10 @@ use crate::{
         tx_sim_cache::TxExecutionCache,
         BlockBuildingContext,
     },
-    live_builder::order_input::orderpool::OrdersForBlock,
+    live_builder::{
+        order_input::orderpool::OrdersForBlock,
+        simulation::simulation_job_tracer::SimulationJobTracer,
+    },
     primitives::{OrderId, SimulatedOrder},
     provider::StateProviderFactory,
     utils::{gen_uid, NonceCache, Signer},
@@ -112,6 +116,7 @@ where
         ctx: BlockBuildingContext,
         input: OrdersForBlock,
         block_cancellation: CancellationToken,
+        sim_tracer: Arc<dyn SimulationJobTracer>,
     ) -> SlotOrderSimResults {
         let (slot_sim_results_sender, slot_sim_results_receiver) = mpsc::channel(10_000);
 
@@ -168,6 +173,7 @@ where
                     sim_results_receiver,
                     slot_sim_results_sender,
                     sim_tree,
+                    sim_tracer,
                 );
 
                 simulation_job.run().await;
@@ -198,7 +204,10 @@ mod tests {
     use super::*;
     use crate::{
         building::testing::test_chain_state::{BlockArgs, NamedAddr, TestChainState, TxArgs},
-        live_builder::order_input::order_sink::OrderPoolCommand,
+        live_builder::{
+            order_input::order_sink::OrderPoolCommand,
+            simulation::simulation_job_tracer::NullSimulationJobTracer,
+        },
         primitives::{MempoolTx, Order, TransactionSignedEcRecoveredWithBlobs},
         utils::ProviderFactoryReopener,
     };
@@ -226,8 +235,8 @@ mod tests {
             test_context.block_building_context().clone(),
             orders_for_block,
             cancel.clone(),
+            Arc::new(NullSimulationJobTracer {}),
         );
-
         // Create a simple tx that sends to coinbase 5 wei.
         let coinbase_profit = 5;
         // max_priority_fee will be 0

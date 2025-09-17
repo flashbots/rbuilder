@@ -4,6 +4,7 @@ pub mod block_output;
 pub mod building;
 pub mod cli;
 pub mod config;
+pub mod order_flow_tracing;
 pub mod order_input;
 pub mod payload_events;
 pub mod simulation;
@@ -15,6 +16,7 @@ use crate::{
         BlockBuildingContext,
     },
     live_builder::{
+        order_flow_tracing::order_flow_tracer_manager::OrderFlowTracerManager,
         order_input::{start_orderpool_jobs, OrderInputConfig},
         simulation::OrderSimulationPool,
         watchdog::spawn_watchdog_thread,
@@ -136,6 +138,8 @@ where
     pub evm_caching_enable: bool,
     pub faster_finalize: bool,
     pub simulation_use_random_coinbase: bool,
+
+    pub order_flow_tracer_manager: Box<dyn OrderFlowTracerManager>,
 }
 
 impl<P, BlocksSourceType: SlotSource> LiveBuilder<P, BlocksSourceType>
@@ -205,6 +209,7 @@ where
             order_simulation_pool,
             self.run_sparse_trie_prefetcher,
             self.sbundle_merger_selected_signers.clone(),
+            self.order_flow_tracer_manager,
         );
 
         let watchdog_sender = match self.watchdog_timeout {
