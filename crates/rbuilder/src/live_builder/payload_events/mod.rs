@@ -7,9 +7,12 @@ pub mod relay_epoch_cache;
 
 use crate::{
     beacon_api_client::Client,
-    live_builder::payload_events::{
-        payload_source::PayloadSourceMuxer,
-        relay_epoch_cache::{RelaysForSlotData, SlotData},
+    live_builder::{
+        block_output::bidding_service_interface::SlotBlockId,
+        payload_events::{
+            payload_source::PayloadSourceMuxer,
+            relay_epoch_cache::{RelaysForSlotData, SlotData},
+        },
     },
     mev_boost::RelaySlotData,
     primitives::mev_boost::{MevBoostRelayID, MevBoostRelaySlotInfoProvider},
@@ -77,6 +80,10 @@ impl MevBoostSlotData {
 
     pub fn slot(&self) -> u64 {
         self.payload_attributes_event.data.proposal_slot
+    }
+
+    pub fn slot_block_id(&self) -> SlotBlockId {
+        SlotBlockId::new(self.slot(), self.block(), self.parent_block_hash())
     }
 
     pub fn fee_recipient(&self) -> Address {

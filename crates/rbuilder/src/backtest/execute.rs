@@ -109,7 +109,7 @@ where
     let order_store = Rc::new(RefCell::new(SimulatedOrderStore::new()));
     let mut merger = MultiShareBundleMerger::new(sbundle_mergeable_signers, order_store.clone());
     for sim_order in sim_orders {
-        merger.insert_order(Arc::new(sim_order));
+        merger.insert_order(sim_order);
     }
     let sim_orders = order_store.borrow().get_orders();
     Ok(BacktestBlockInput {

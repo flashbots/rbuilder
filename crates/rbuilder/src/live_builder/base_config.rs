@@ -1,16 +1,23 @@
 //! Config should always be deserializable, default values should be used
 //!
 use crate::{
-    live_builder::{order_input::OrderInputConfig, LiveBuilder},
+    live_builder::{
+        order_flow_tracing::order_flow_tracer_manager::{
+            NullOrderFlowTracerManager, OrderFlowTracerManager, OrderFlowTracerManagerImpl,
+        },
+        order_input::OrderInputConfig,
+        LiveBuilder,
+    },
     provider::{
         ipc_state_provider::{IpcProviderConfig, IpcStateProviderFactory},
         StateProviderFactory,
     },
     roothash::RootHashContext,
-    utils::tracing::{setup_tracing_subscriber, LoggerConfig},
     utils::{
         constants::{MINS_PER_HOUR, SECS_PER_MINUTE},
-        http_provider, ProviderFactoryReopener, Signer,
+        http_provider,
+        tracing::{setup_tracing_subscriber, LoggerConfig},
+        ProviderFactoryReopener, Signer,
     },
 };
 use alloy_primitives::{Address, B256};
@@ -157,6 +164,11 @@ pub struct BaseConfig {
     pub backtest_builders: Vec<String>,
     pub backtest_results_store_path: PathBuf,
     pub backtest_protect_bundle_signers: Vec<Address>,
+
+    /// We will store a file per block in this path.
+    pub orderflow_tracing_store_path: Option<PathBuf>,
+    /// Max number of blocks to keep in disk.
+    pub orderflow_tracing_max_blocks: usize,
 }
 
 pub fn default_ip() -> Ipv4Addr {
@@ -236,6 +248,21 @@ impl BaseConfig {
         let order_input_config = OrderInputConfig::from_config(self)?;
         let (orderpool_sender, orderpool_receiver) =
             mpsc::channel(order_input_config.input_channel_buffer_size);
+
+        let order_flow_tracer_manager: Box<dyn OrderFlowTracerManager> =
+            if let Some(orderflow_tracing_store_path) = &self.orderflow_tracing_store_path {
+                if self.orderflow_tracing_max_blocks != 0 {
+                    Box::new(OrderFlowTracerManagerImpl::new(
+                        orderflow_tracing_store_path.clone(),
+                        self.orderflow_tracing_max_blocks,
+                    )?)
+                } else {
+                    Box::new(NullOrderFlowTracerManager {})
+                }
+            } else {
+                Box::new(NullOrderFlowTracerManager {})
+            };
+
         Ok(LiveBuilder::<P> {
             watchdog_timeout: self.watchdog_timeout(),
             error_storage_path: self.error_storage_path.clone(),
@@ -264,6 +291,7 @@ impl BaseConfig {
             evm_caching_enable: self.evm_caching_enable,
             simulation_use_random_coinbase: self.simulation_use_random_coinbase,
             faster_finalize: self.faster_finalize,
+            order_flow_tracer_manager,
         })
     }
 
@@ -596,6 +624,8 @@ impl Default for BaseConfig {
             evm_caching_enable: false,
             faster_finalize: false,
             time_to_keep_mempool_txs_secs: DEFAULT_TIME_TO_KEEP_MEMPOOL_TXS_SECS,
+            orderflow_tracing_store_path: None,
+            orderflow_tracing_max_blocks: 0,
         }
     }
 }
