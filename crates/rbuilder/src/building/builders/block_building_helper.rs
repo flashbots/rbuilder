@@ -14,8 +14,8 @@ use crate::{
         estimate_payout_gas_limit, tracers::GasUsedSimulationTracer, BlockBuildingContext,
         BlockSpace, BlockState, BuiltBlockTrace, BuiltBlockTraceError, CriticalCommitOrderError,
         EstimatePayoutGasErr, ExecutionError, ExecutionResult, FinalizeError, FinalizeResult,
-        NullPartialBlockExecutionTracer, PartialBlock, PartialBlockExecutionTracer,
-        ThreadBlockBuildingContext,
+        FinalizeRevertState, NullPartialBlockExecutionTracer, PartialBlock,
+        PartialBlockExecutionTracer, ThreadBlockBuildingContext,
     },
     primitives::{order_statistics::OrderStatistics, SimValue, SimulatedOrder},
     telemetry::{self, add_block_fill_time, add_order_simulation_time},
@@ -145,12 +145,7 @@ pub struct BlockBuildingHelperFromProvider<
     /// Token to cancel in case of fatal error (if we believe that it's impossible to build for this block).
     cancel_on_fatal_error: CancellationToken,
 
-    prefinalize_state: Option<PrefinalizeState>,
-}
-
-#[derive(Debug, Clone)]
-pub struct PrefinalizeState {
-    last_tx_block_space: BlockSpace,
+    finalize_revert_state: Option<FinalizeRevertState>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -269,7 +264,7 @@ impl<
             building_ctx,
             built_block_trace,
             cancel_on_fatal_error,
-            prefinalize_state: None,
+            finalize_revert_state: None,
         })
     }
 
@@ -317,16 +312,18 @@ impl<
         local_ctx: &mut ThreadBlockBuildingContext,
         payout_tx_value: U256,
         adjust_finalized_block: bool,
-    ) -> Result<BlockSpace, BlockBuildingHelperError> {
+        finalize_revert_state: &mut FinalizeRevertState,
+    ) -> Result<(), BlockBuildingHelperError> {
         self.built_block_trace.coinbase_reward = self.partial_block.coinbase_profit;
 
-        let payment_tx_block_space = self.partial_block.insert_refunds_and_proposer_payout_tx(
+        self.partial_block.insert_refunds_and_proposer_payout_tx(
             self.payout_tx_gas,
             payout_tx_value,
             &self.building_ctx,
             local_ctx,
             &mut self.block_state,
             adjust_finalized_block,
+            finalize_revert_state,
         )?;
 
         let (bid_value, true_value) = (payout_tx_value, self.true_block_value()?);
@@ -342,7 +339,7 @@ impl<
 
         self.built_block_trace.bid_value = max(bid_value, fee_recipient_balance_diff);
         self.built_block_trace.true_bid_value = true_value;
-        Ok(payment_tx_block_space)
+        Ok(())
     }
 
     fn finalize_block_impl(
@@ -352,7 +349,7 @@ impl<
         seen_competition_bid: Option<U256>,
         adjust_finalized_block: bool,
     ) -> Result<FinalizeBlockResult, BlockBuildingHelperError> {
-        if adjust_finalized_block != self.prefinalize_state.is_some() {
+        if adjust_finalized_block != self.finalize_revert_state.is_some() {
             return Err(BlockBuildingHelperError::BlockFinalizedIncorrectly);
         }
 
@@ -360,20 +357,22 @@ impl<
         let step_start = Instant::now();
 
         if adjust_finalized_block {
-            let last_block_tx_space = self
-                .prefinalize_state
-                .as_ref()
-                .map(|s| s.last_tx_block_space)
-                .unwrap();
+            let finalize_revert_state = self.finalize_revert_state.take().unwrap();
             self.partial_block
                 .adjust_finalize_block_revert_to_prefinalized_state(
-                    last_block_tx_space,
+                    finalize_revert_state,
                     &mut self.block_state,
-                )
+                );
         }
 
-        let last_tx_block_space =
-            self.finalize_block_execution(local_ctx, payout_tx_value, adjust_finalized_block)?;
+        let mut finalize_revert_state = FinalizeRevertState::default();
+
+        self.finalize_block_execution(
+            local_ctx,
+            payout_tx_value,
+            adjust_finalized_block,
+            &mut finalize_revert_state,
+        )?;
 
         if !adjust_finalized_block {
             self.built_block_trace
@@ -390,6 +389,7 @@ impl<
             &self.building_ctx,
             local_ctx,
             adjust_finalized_block,
+            &mut finalize_revert_state,
         ) {
             Ok(finalized_block) => finalized_block,
             Err(err) => {
@@ -430,9 +430,7 @@ impl<
             sim_gas_used,
         );
 
-        self.prefinalize_state = Some(PrefinalizeState {
-            last_tx_block_space,
-        });
+        self.finalize_revert_state = Some(finalize_revert_state);
 
         let block = Block {
             builder_name: self.builder_name.clone(),

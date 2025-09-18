@@ -703,6 +703,14 @@ impl FinalizeError {
     }
 }
 
+/// FinalizeRevertState accumulates data needed to revert state changes
+/// to run finalize on the same PartialBlock / BlockState again
+#[derive(Debug, Clone, Default)]
+pub struct FinalizeRevertState {
+    pub last_tx_block_space: BlockSpace,
+    pub state_reverts: usize,
+}
+
 impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExecutionTracer>
     PartialBlock<Tracer, PartialBlockExecutionTracerType>
 {
@@ -830,6 +838,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
 
     /// Inserts payout tx to ctx.attributes.suggested_fee_recipient (should be called at the end of the block)
     /// Returns the paid value (block profit after subtracting the burned basefee of the payout tx)
+    #[allow(clippy::too_many_arguments)]
     pub fn insert_refunds_and_proposer_payout_tx(
         &mut self,
         gas_limit: u64,
@@ -838,7 +847,8 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         local_ctx: &mut ThreadBlockBuildingContext,
         state: &mut BlockState,
         adjust_finalized_block: bool,
-    ) -> Result<BlockSpace, InsertPayoutTxErr> {
+        finalize_revert_state: &mut FinalizeRevertState,
+    ) -> Result<(), InsertPayoutTxErr> {
         let builder_signer = &ctx.builder_signer;
         self.free_reserved_block_space();
         let mut nonce = state
@@ -905,29 +915,26 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         if !ok_result.tx_info.receipt.success {
             return Err(InsertPayoutTxErr::PayoutTxReverted);
         }
-
-        let payment_tx_block_space = ok_result.space_used();
-        self.space_state.use_space(payment_tx_block_space);
+        finalize_revert_state.last_tx_block_space = ok_result.space_used();
+        // add revert for commit_tx for the last payment transaction
+        finalize_revert_state.state_reverts += 1;
+        self.space_state.use_space(ok_result.space_used());
         self.executed_tx_infos.push(ok_result.tx_info);
 
-        Ok(payment_tx_block_space)
+        Ok(())
     }
-
-    // when adjusting prefinalized block we revert two state changes:
-    // 1. Payment transaction
-    // 2. Requests processing (e.g. withdrawals)
-    const ADJUST_PREFINALIZE_REVERT_SIZE: usize = 2;
 
     pub fn adjust_finalize_block_revert_to_prefinalized_state(
         &mut self,
-        last_tx_block_space: BlockSpace,
+        finalize_revert_state: FinalizeRevertState,
         block_state: &mut BlockState,
     ) {
-        self.space_state.free_used_state(last_tx_block_space);
+        self.space_state
+            .free_used_state(finalize_revert_state.last_tx_block_space);
         self.executed_tx_infos.pop();
         block_state
             .bundle_state_mut()
-            .revert(Self::ADJUST_PREFINALIZE_REVERT_SIZE);
+            .revert(finalize_revert_state.state_reverts);
     }
 
     /// returns (requests, withdrawals_root)
@@ -936,6 +943,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         state: &mut BlockState,
         ctx: &BlockBuildingContext,
         local_ctx: &mut ThreadBlockBuildingContext,
+        finalize_revert_state: &mut FinalizeRevertState,
     ) -> Result<(Option<Requests>, Option<B256>), FinalizeError> {
         let mut db = state.new_db_ref(&ctx.shared_cached_reads, &mut local_ctx.cached_reads);
 
@@ -990,6 +998,8 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         };
 
         db.db().merge_transitions(BundleRetention::Reverts);
+        // add one revert for processed requests
+        finalize_revert_state.state_reverts += 1;
 
         Ok((requests, withdrawals_root))
     }
@@ -1001,11 +1011,13 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         ctx: &BlockBuildingContext,
         local_ctx: &mut ThreadBlockBuildingContext,
         adjust_finalize_block: bool,
+        finalize_revert_state: &mut FinalizeRevertState,
     ) -> Result<FinalizeResult, FinalizeError> {
         let start = Instant::now();
 
         let step_start = Instant::now();
-        let (requests, withdrawals_root) = self.process_requests(state, ctx, local_ctx)?;
+        let (requests, withdrawals_root) =
+            self.process_requests(state, ctx, local_ctx, finalize_revert_state)?;
         let block_number = ctx.block();
 
         let request_processsing_time_ms = elapsed_ms(step_start);
@@ -1031,13 +1043,14 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         let step_start = Instant::now();
 
         let incremental_change = if adjust_finalize_block {
+            // get list of account that changed after finalize was called
             let mut result = Vec::new();
             state
                 .bundle_state()
                 .reverts
                 .iter()
                 .rev()
-                .take(Self::ADJUST_PREFINALIZE_REVERT_SIZE)
+                .take(finalize_revert_state.state_reverts)
                 .for_each(|r| r.iter().for_each(|c| result.push(c.0)));
             result
         } else {

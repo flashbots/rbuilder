@@ -7,8 +7,8 @@ use eyre::Context;
 use itertools::Itertools;
 use rbuilder::{
     building::{
-        BlockBuildingContext, BlockBuildingSpaceState, BlockState, PartialBlock, PartialBlockFork,
-        ThreadBlockBuildingContext,
+        BlockBuildingContext, BlockBuildingSpaceState, BlockState, FinalizeRevertState,
+        PartialBlock, PartialBlockFork, ThreadBlockBuildingContext,
     },
     live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig, config::Config},
     provider::StateProviderFactory,
@@ -95,6 +95,8 @@ async fn main() -> eyre::Result<()> {
                 let mut state = BlockState::new_arc(state_provider);
                 let mut local_ctx = ThreadBlockBuildingContext::default();
 
+                let mut finalize_revert_state = FinalizeRevertState::default();
+
                 let build_time = Instant::now();
 
                 let mut space_state = BlockBuildingSpaceState::ZERO;
@@ -111,8 +113,13 @@ async fn main() -> eyre::Result<()> {
                 let build_time = build_time.elapsed();
 
                 let finalize_time = Instant::now();
-                let finalized_block =
-                    partial_block.finalize(&mut state, &ctx, &mut local_ctx, false)?;
+                let finalized_block = partial_block.finalize(
+                    &mut state,
+                    &ctx,
+                    &mut local_ctx,
+                    false,
+                    &mut finalize_revert_state,
+                )?;
                 let finalize_time = finalize_time.elapsed();
 
                 debug!(
