@@ -61,9 +61,9 @@ pub trait BlockBuildingHelper: Send + Sync {
     /// The main reason to get an error is if profit is so low that we can't pay the payout tx (that would mean negative block value!).
     fn true_block_value(&self) -> Result<U256, BlockBuildingHelperError>;
 
-    /// Eats the BlockBuildingHelper since once it's finished you should not use it anymore.
-    /// payout_tx_value: If Some, added at the end of the block from coinbase to the final fee recipient.
-    ///     This only works if can_add_payout_tx.
+    /// Finalize block for submission.
+    /// if adjust_finalized_block is implemented, finalize_blocks should prepare helper
+    /// for faster adjustments.
     fn finalize_block(
         &mut self,
         local_ctx: &mut ThreadBlockBuildingContext,
@@ -81,6 +81,9 @@ pub trait BlockBuildingHelper: Send + Sync {
     /// BE CAREFUL: Might be ambiguous if several building parts were involved...
     fn builder_name(&self) -> &str;
 
+    /// adjust_finalized_block will be called on block that was previously finalize with
+    /// finalize_block. local_ctx will be set to the one used for finalize_block call.
+    /// This method is supposed to be faster than calling finalize_block from scratch.
     fn adjust_finalized_block(
         &mut self,
         local_ctx: &mut ThreadBlockBuildingContext,
