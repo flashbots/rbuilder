@@ -13,6 +13,8 @@ use reth_provider::{
 };
 use std::sync::Arc;
 
+pub mod model_test;
+
 #[cfg(any(test, feature = "benchmark-utils"))]
 pub mod test_utils;
 pub mod utils;

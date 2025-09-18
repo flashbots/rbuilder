@@ -143,6 +143,8 @@ warp = "0.3.7"
 flate2 = "1.0.35"
 prometheus = "0.13.4"
 ctor = "0.2"
+quickcheck = "1.0.3"
+rand = "0.8"
 
 libc = { version = "0.2.161" }
 lazy_static = "1.4.0"
