@@ -11,6 +11,7 @@ use crate::{
     building::{builders::block_building_helper::BiddableUnfinishedBlock, BuiltBlockTrace},
     live_builder::payload_events::MevBoostSlotData,
     mev_boost::submission::SubmitBlockRequest,
+    telemetry::inc_bids_received,
 };
 
 /// Trait that receives every bid made by us to the relays.
@@ -168,6 +169,7 @@ impl BiddingService2ScrapedBidsObs {
 
 impl ScrapedBidsObs for BiddingService2ScrapedBidsObs {
     fn update_new_bid(&self, bid: ScrapedRelayBlockBid) {
+        inc_bids_received(&bid);
         self.inner
             .observe_relay_bids(ScrapedRelayBlockBidWithStats::new(bid))
     }
