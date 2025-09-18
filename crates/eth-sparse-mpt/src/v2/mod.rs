@@ -374,27 +374,29 @@ impl RootHashCalculator {
     ) -> eyre::Result<()> {
         self.changed_account.write().clear();
 
-	let incremental_change = !self.incremental_account_change.is_empty();
+        let incremental_change = !self.incremental_account_change.is_empty();
 
-	if incremental_change {
-	    self.incremental_account_change.iter().for_each(|address| {
-		let bundle_account = outcome.account(address).expect("account with incremental change is not in the BundleState");
+        if incremental_change {
+            self.incremental_account_change.iter().for_each(|address| {
+                let bundle_account = outcome
+                    .account(address)
+                    .expect("account with incremental change is not in the BundleState");
                 self.prepare_changes_for_one_storage_trie(*address, bundle_account)
-	    });
-	} else {
+            });
+        } else {
             outcome
-		.state()
-		.iter()
-		.map(|(a, acc)| (*a, acc))
-		.par_bridge()
-		.for_each(|(address, bundle_account)| {
-                    if bundle_account.status.is_not_modified() && !proof_targets.contains(&address) {
-			return;
+                .state()
+                .iter()
+                .map(|(a, acc)| (*a, acc))
+                .par_bridge()
+                .for_each(|(address, bundle_account)| {
+                    if bundle_account.status.is_not_modified() && !proof_targets.contains(&address)
+                    {
+                        return;
                     }
                     self.prepare_changes_for_one_storage_trie(address, bundle_account)
-		});
-	}
-
+                });
+        }
 
         Ok(())
     }
@@ -727,21 +729,21 @@ impl RootHashCalculator {
             }
         }
 
-	let incremental_change = !self.incremental_account_change.is_empty();
+        let incremental_change = !self.incremental_account_change.is_empty();
 
         for (address, applied_op) in self
             .account_trie
             .applied_account_ops_previous_iteration
             .drain()
         {
-	    if incremental_change && !self.incremental_account_change.contains(&address) {
+            if incremental_change && !self.incremental_account_change.contains(&address) {
                 self.account_trie
                     .applied_account_ops_current_iteration
                     .insert(address, applied_op);
-	    } else {
-		self.account_trie.revert_account_ops.push(applied_op);
-		self.account_trie.revert_account_ops_done.push(false);
-	    }
+            } else {
+                self.account_trie.revert_account_ops.push(applied_op);
+                self.account_trie.revert_account_ops_done.push(false);
+            }
         }
     }
 
@@ -913,11 +915,11 @@ impl RootHashCalculator {
     where
         Provider: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync,
     {
-	if !incremental_change.is_empty() {
-	    self.incremental_account_change.extend(incremental_change);
-	} else {
-	    self.incremental_account_change.clear();
-	}
+        if !incremental_change.is_empty() {
+            self.incremental_account_change.extend(incremental_change);
+        } else {
+            self.incremental_account_change.clear();
+        }
 
         let mut stats = Stats::default();
         stats.start_global();
@@ -927,9 +929,9 @@ impl RootHashCalculator {
         stats.start();
         self.prepare_changes_for_storage_trie(outcome, proof_targets)?;
         stats.measure_prepare(true);
-	if self.incremental_account_change.is_empty() {
+        if self.incremental_account_change.is_empty() {
             self.do_first_fetch(&consistent_db_view, &mut stats)?;
-	}
+        }
 
         let mut loop_break = false;
         for _ in 0..10 {

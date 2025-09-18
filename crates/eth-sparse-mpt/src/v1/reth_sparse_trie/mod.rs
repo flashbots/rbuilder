@@ -1,9 +1,7 @@
 use alloy_primitives::B256;
 use change_set::{prepare_change_set, prepare_change_set_for_prefetch};
 use hash::RootHashError;
-use reth_provider::{
-    providers::ConsistentDbView, BlockReader, DatabaseProviderFactory, 
-};
+use reth_provider::{providers::ConsistentDbView, BlockReader, DatabaseProviderFactory};
 use revm::database::BundleState;
 use std::time::{Duration, Instant};
 

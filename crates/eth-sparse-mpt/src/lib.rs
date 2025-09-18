@@ -164,7 +164,7 @@ where
                 consistent_db_view,
                 shared_cache.cache_v2.clone(),
                 outcome,
-		&[],
+                &[],
                 proof_targets,
             );
             match result {
@@ -197,7 +197,7 @@ where
             calculate_root_hash_with_sparse_trie_internal(
                 consistent_db_view,
                 outcome,
-		incremental_change,
+                incremental_change,
                 shared_cache,
                 local_cache,
                 version,
@@ -207,7 +207,7 @@ where
         calculate_root_hash_with_sparse_trie_internal(
             consistent_db_view,
             outcome,
-	    incremental_change,
+            incremental_change,
             shared_cache,
             local_cache,
             version,
@@ -243,7 +243,7 @@ where
                 consistent_db_view,
                 shared_cache.cache_v2.clone(),
                 outcome,
-		incremental_change,
+                incremental_change,
                 &Default::default(),
             );
             match result {
