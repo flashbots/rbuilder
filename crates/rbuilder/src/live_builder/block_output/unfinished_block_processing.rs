@@ -20,7 +20,6 @@ use std::sync::Arc;
 
 use tracing::{error, trace, warn};
 
-use ahash::HashMap;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -38,6 +37,7 @@ use crate::{
 };
 
 use super::{
+    best_block_from_algorithms::BestBlockFromAlgorithms,
     bidding_service_interface::{
         BiddingService, BlockId, BlockSealInterfaceForSlotBidder,
         BuiltBlockDescriptorForSlotBidder, SlotBidder, SlotBidderSealBidCommand, SlotBlockId,
@@ -205,43 +205,6 @@ struct FinalizeCommand {
     seen_competition_bid: Option<U256>,
 }
 
-/// BestBlockFromAlgorithms maintains last block by each algorithm
-/// When new block is created we choose best (by profit) block from last blocks produced by each algorithm.
-#[derive(Derivative, Default)]
-#[derivative(Debug)]
-struct BestBlockFromAlgorithms {
-    #[derivative(Debug = "ignore")]
-    last_block_by_algorithm: HashMap<String, BiddableUnfinishedBlock>,
-    last_best_block_hash: u64,
-}
-
-impl BestBlockFromAlgorithms {
-    fn new_block(
-        &mut self,
-        unfinished_block: BiddableUnfinishedBlock,
-    ) -> Option<BiddableUnfinishedBlock> {
-        self.last_block_by_algorithm.insert(
-            unfinished_block.block.builder_name().to_string(),
-            unfinished_block,
-        );
-        let last_best_block = self
-            .last_block_by_algorithm
-            .values()
-            .max_by_key(|bb| bb.true_block_value)
-            .unwrap();
-        let best_block_hash = last_best_block
-            .block
-            .built_block_trace()
-            .transactions_hash();
-        if self.last_best_block_hash == best_block_hash {
-            None
-        } else {
-            self.last_best_block_hash = best_block_hash;
-            Some(last_best_block.clone())
-        }
-    }
-}
-
 #[derive(Derivative, Clone)]
 #[derivative(Debug)]
 pub struct UnfinishedBuiltBlocksInput {
@@ -289,7 +252,11 @@ impl UnfinishedBuiltBlocksInput {
         self.built_block_cache
             .update_from_new_unfinished_block(block.block());
 
-        let block = if let Some(block) = self.best_block_from_algorithms.lock().new_block(block) {
+        let block = if let Some(block) = self
+            .best_block_from_algorithms
+            .lock()
+            .update_with_new_block(block)
+        {
             block
         } else {
             return;
