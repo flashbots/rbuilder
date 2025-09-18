@@ -1,4 +1,4 @@
-/// Unfinsihed block processing handles blocks that are produced by block building algorithms.
+/// Unfinished block processing handles blocks that are produced by block building algorithms.
 ///
 /// 1. Block building algorithm produces unfinished blocks `BiddableUnfinishedBlock` and submits it to the `UnfinishedBuiltBlocksInput`
 /// 2. Block cache is updated from the last unfinished block. Its used to share data about built blocks between different algorithms.

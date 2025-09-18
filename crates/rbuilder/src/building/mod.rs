@@ -514,9 +514,9 @@ impl Add for BlockSpace {
 
 impl SubAssign for BlockSpace {
     fn sub_assign(&mut self, other: Self) {
-        self.gas -= other.gas;
-        self.rlp_length -= other.rlp_length;
-        self.blob_gas -= other.blob_gas;
+        self.gas = self.gas.checked_sub(other.gas).unwrap();
+        self.rlp_length = self.rlp_length.checked_sub(other.rlp_length).unwrap();
+        self.blob_gas = self.blob_gas.checked_sub(other.blob_gas).unwrap();
     }
 }
 
