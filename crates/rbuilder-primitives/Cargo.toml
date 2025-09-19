@@ -1,0 +1,50 @@
+[package]
+name = "rbuilder-primitives"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+exclude.workspace = true
+
+[dependencies]
+# alloy
+alloy-primitives.workspace = true
+alloy-consensus.workspace = true
+alloy-eips.workspace = true
+alloy-rlp.workspace = true
+alloy-rpc-types.workspace = true
+alloy-rpc-types-beacon.workspace = true
+alloy-rpc-types-engine.workspace = true
+alloy-rpc-types-eth.workspace = true
+
+revm.workspace = true
+revm-inspectors.workspace = true
+
+# misc
+derivative = "2.2.0"
+integer-encoding = "4.0.0"
+sha2 = "0.10.8"
+uuid = { version = "1.6.1", features = ["serde", "v5", "v4"] }
+governor = "0.6.3"
+ahash.workspace = true
+reqwest = { workspace = true, features = ["blocking"] }
+serde_with = { workspace = true, features = ["time_0_3"] }
+toml = { version = "0.8.8", default-features = false }
+time.workspace = true
+thiserror.workspace = true
+eyre.workspace = true
+ethereum_ssz_derive.workspace = true
+ethereum_ssz.workspace = true
+serde.workspace = true
+derive_more.workspace = true
+serde_json.workspace = true
+
+# reth
+reth-chainspec.workspace = true
+reth-primitives-traits.workspace = true
+reth-primitives.workspace = true
+reth-ethereum-primitives.workspace = true
+reth-node-core.workspace = true
+reth.workspace = true

@@ -1,0 +1,1574 @@
+use alloy_primitives::{utils::parse_ether, Address, Bytes, B256, U256};
+use alloy_rpc_types_beacon::{
+    relay::{
+        BidTrace, SignedBidSubmissionV2, SignedBidSubmissionV3, SignedBidSubmissionV4,
+        SignedBidSubmissionV5,
+    },
+    requests::ExecutionRequestsV4,
+    BlsSignature,
+};
+use alloy_rpc_types_engine::{
+    BlobsBundleV1, BlobsBundleV2, ExecutionPayloadV2, ExecutionPayloadV3,
+};
+use derive_more::Deref;
+use governor::{DefaultDirectRateLimiter, Quota, RateLimiter};
+use reqwest::Url;
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_with::{serde_as, DisplayFromStr};
+use std::{env, sync::Arc, time::Duration};
+
+use crate::OrderId;
+
+/// Usually human readable id for relays. Not used on anything on any protocol just to identify the relays.
+pub type MevBoostRelayID = String;
+
+/// Timeout for requesting current epoch data from the MEV-Boost relay.
+pub const MEV_BOOST_SLOT_INFO_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Modes for a relay since we may use them for different purposes.
+#[derive(Debug, Deserialize, Clone, PartialEq, Eq, Default)]
+pub enum RelayMode {
+    /// Submits bids, gets slot info. No extra headers on bidding.
+    #[serde(rename = "full")]
+    #[default]
+    Full,
+    /// Only gets slot info.
+    #[serde(rename = "slot_info")]
+    GetSlotInfoOnly,
+    /// Submits bids with extra headers. Is not used to get slot info.
+    #[serde(rename = "test")]
+    Test,
+}
+
+impl RelayMode {
+    pub fn submits_bids(&self) -> bool {
+        match self {
+            RelayMode::Full => true,
+            RelayMode::GetSlotInfoOnly => false,
+            RelayMode::Test => true,
+        }
+    }
+    pub fn gets_slot_info(&self) -> bool {
+        match self {
+            RelayMode::Full => true,
+            RelayMode::GetSlotInfoOnly => true,
+            RelayMode::Test => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct RelayConfig {
+    pub name: String,
+    pub url: String,
+    #[serde(default)]
+    pub grpc_url: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_env_var")]
+    pub authorization_header: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_env_var")]
+    pub builder_id_header: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_env_var")]
+    pub api_token_header: Option<String>,
+    /// mode defines the need of submit_config
+    #[serde(default)]
+    pub mode: RelayMode,
+    /// Bid adjustment fee payer address.
+    pub adjustment_fee_payer: Option<Address>,
+    #[serde(flatten)]
+    /// Submit specific info.
+    /// Used only for Full and Fake mode.
+    pub submit_config: Option<RelaySubmitConfig>,
+    /// Deprecated field that is not used
+    pub priority: Option<usize>,
+    /// Set to `true` for bloxroute relays.
+    #[serde(default)]
+    pub is_bloxroute: bool,
+    /// The list of bloxroute rproxy regions to send to order by preference.
+    #[serde(default)]
+    pub bloxroute_rproxy_regions: Vec<String>,
+    /// Adds "filtering=true" as query to the call relay/v1/builder/validators to get all validators (including those filtering OFAC)
+    /// On 2025/06/24 (my birthday!) only supported by ultrasound.
+    /// None -> false
+    pub ask_for_filtering_validators: Option<bool>,
+    /// If we submit a block with a different gas than the one the validator registered with in this relay the relay does not mind.
+    /// None -> false
+    pub can_ignore_gas_limit: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct RelaySubmitConfig {
+    /// true->ssz false->json
+    #[serde(default)]
+    pub use_ssz_for_submit: bool,
+    #[serde(default)]
+    pub use_gzip_for_submit: bool,
+    #[serde(default)]
+    pub optimistic: bool,
+    #[serde(default)]
+    pub interval_between_submissions_ms: Option<u64>,
+    /// Max bid we can submit to this relay. Any bid above this will be skipped.
+    /// None -> No limit.
+    pub max_bid_eth: Option<String>,
+}
+
+impl RelayConfig {
+    pub fn with_url(self, url: &str) -> Self {
+        Self {
+            url: url.to_string(),
+            ..self
+        }
+    }
+
+    pub fn with_name(self, name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            ..self
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum KnownRelay {
+    Flashbots,
+    BloxrouteMaxProfit,
+    BloxrouteEthical,
+    BloxrouteRegulated,
+    Eden,
+    SecureRpc,
+    Ultrasound,
+    Agnostic,
+    Aestus,
+    Wenmerge,
+}
+
+pub const RELAYS: [KnownRelay; 9] = [
+    KnownRelay::Flashbots,
+    KnownRelay::BloxrouteMaxProfit,
+    KnownRelay::BloxrouteRegulated,
+    KnownRelay::Eden,
+    KnownRelay::SecureRpc,
+    KnownRelay::Ultrasound,
+    KnownRelay::Agnostic,
+    KnownRelay::Aestus,
+    KnownRelay::Wenmerge,
+];
+
+impl KnownRelay {
+    pub fn url(&self) -> Url {
+        Url::parse(match self {
+            KnownRelay::Flashbots => "https://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@boost-relay.flashbots.net",
+            KnownRelay::BloxrouteMaxProfit => "https://0x8b5d2e73e2a3a55c6c87b8b6eb92e0149a125c852751db1422fa951e42a09b82c142c3ea98d0d9930b056a3bc9896b8f@bloxroute.max-profit.blxrbdn.com",
+            KnownRelay::BloxrouteEthical => "https://0xad0a8bb54565c2211cee576363f3a347089d2f07cf72679d16911d740262694cadb62d7fd7483f27afd714ca0f1b9118@bloxroute.ethical.blxrbdn.com",
+            KnownRelay::BloxrouteRegulated => "https://0xb0b07cd0abef743db4260b0ed50619cf6ad4d82064cb4fbec9d3ec530f7c5e6793d9f286c4e082c0244ffb9f2658fe88@bloxroute.regulated.blxrbdn.com",
+            KnownRelay::Eden => "https://0xb3ee7afcf27f1f1259ac1787876318c6584ee353097a50ed84f51a1f21a323b3736f271a895c7ce918c038e4265918be@relay.edennetwork.io",
+            KnownRelay::SecureRpc => "https://0x98650451ba02064f7b000f5768cf0cf4d4e492317d82871bdc87ef841a0743f69f0f1eea11168503240ac35d101c9135@mainnet-relay.securerpc.com",
+            KnownRelay::Ultrasound => "https://0xa1559ace749633b997cb3fdacffb890aeebdb0f5a3b6aaa7eeeaf1a38af0a8fe88b9e4b1f61f236d2e64d95733327a62@relay.ultrasound.money",
+            KnownRelay::Agnostic => "https://0xa7ab7a996c8584251c8f925da3170bdfd6ebc75d50f5ddc4050a6fdc77f2a3b5fce2cc750d0865e05d7228af97d69561@agnostic-relay.net",
+            KnownRelay::Aestus => "https://0xa15b52576bcbf1072f4a011c0f99f9fb6c66f3e1ff321f11f461d15e31b1cb359caa092c71bbded0bae5b5ea401aab7e@aestus.live",
+            KnownRelay::Wenmerge => "https://0x8c7d33605ecef85403f8b7289c8058f440cbb6bf72b055dfe2f3e2c6695b6a1ea5a9cd0eb3a7982927a463feb4c3dae2@relay.wenmerge.com",
+        }).unwrap()
+    }
+
+    pub fn name(&self) -> String {
+        match self {
+            KnownRelay::Flashbots => "flashbots",
+            KnownRelay::BloxrouteMaxProfit => "bloxroute_max_profit",
+            KnownRelay::BloxrouteEthical => "bloxroute_ethical",
+            KnownRelay::BloxrouteRegulated => "bloxroute_regulated",
+            KnownRelay::Eden => "eden",
+            KnownRelay::SecureRpc => "secure_rpc",
+            KnownRelay::Ultrasound => "ultrasound",
+            KnownRelay::Agnostic => "agnostic",
+            KnownRelay::Aestus => "aestus",
+            KnownRelay::Wenmerge => "wenmerge",
+        }
+        .to_string()
+    }
+
+    pub fn is_bloxroute(&self) -> bool {
+        matches!(
+            self,
+            Self::BloxrouteMaxProfit | Self::BloxrouteEthical | Self::BloxrouteRegulated
+        )
+    }
+}
+
+impl std::str::FromStr for KnownRelay {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "flashbots" => Ok(KnownRelay::Flashbots),
+            "bloxroute_max_profit" => Ok(KnownRelay::BloxrouteMaxProfit),
+            "bloxroute_ethical" => Ok(KnownRelay::BloxrouteEthical),
+            "bloxroute_regulated" => Ok(KnownRelay::BloxrouteRegulated),
+            "eden" => Ok(KnownRelay::Eden),
+            "secure_rpc" => Ok(KnownRelay::SecureRpc),
+            "ultrasound" => Ok(KnownRelay::Ultrasound),
+            "agnostic" => Ok(KnownRelay::Agnostic),
+            "aestus" => Ok(KnownRelay::Aestus),
+            "wenmerge" => Ok(KnownRelay::Wenmerge),
+            _ => Err(()),
+        }
+    }
+}
+
+/// Client to access part of relay APIs. See:
+/// https://ethereum.github.io/builder-specs/#/Builder
+/// https://flashbots.github.io/relay-specs/
+#[derive(Debug, Clone)]
+pub struct RelayClient {
+    client: reqwest::Client,
+    /// Bloxroute gRPC client. If set, it will be used for block submissions.
+    grpc_client: Option<GrpcRelayClient>,
+    url: Url,
+    authorization_header: Option<String>,
+    builder_id_header: Option<String>,
+    api_token_header: Option<String>,
+    /// Flag indicating whether this is the bloxroute relay.
+    is_bloxroute: bool,
+    /// Bloxroute rproxy regions.
+    bloxroute_rproxy_regions: Vec<String>,
+    /// Adds "filtering=true" as query
+    ask_for_filtering_validators: bool,
+    /// If we submit a block with a different gas than the one the validator registered with in this relay the relay does not mind.
+    can_ignore_gas_limit: bool,
+}
+
+impl RelayClient {
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_url(
+        url: Url,
+        authorization_header: Option<String>,
+        builder_id_header: Option<String>,
+        api_token_header: Option<String>,
+        is_bloxroute: bool,
+        bloxroute_rproxy_regions: Vec<String>,
+        ask_for_filtering_validators: bool,
+        can_ignore_gas_limit: bool,
+    ) -> Self {
+        Self {
+            client: reqwest::Client::new(),
+            grpc_client: None,
+            url,
+            authorization_header,
+            builder_id_header,
+            api_token_header,
+            is_bloxroute,
+            bloxroute_rproxy_regions,
+            ask_for_filtering_validators,
+            can_ignore_gas_limit,
+        }
+    }
+
+    pub fn from_known_relay(relay: KnownRelay) -> Self {
+        Self::from_url(
+            relay.url(),
+            None,
+            None,
+            None,
+            relay.is_bloxroute(),
+            Vec::new(),
+            false,
+            false,
+        )
+    }
+
+    pub fn with_grpc_client(mut self, grpc_client: GrpcRelayClient) -> Self {
+        self.grpc_client = Some(grpc_client);
+        self
+    }
+
+    pub fn can_ignore_gas_limit(&self) -> bool {
+        self.can_ignore_gas_limit
+    }
+
+    pub fn with_reqwest_client(mut self, client: reqwest::Client) -> Self {
+        self.client = client;
+        self
+    }
+}
+
+/// Wrapper in RelayClient to submit blocks.
+/// Hides the particular configuration (eg: ssz, gip, optimistic).
+/// cancellation hardcoded on true for now.
+#[derive(Debug, Clone)]
+pub struct MevBoostRelayBidSubmitter {
+    /// Id for UI
+    id: MevBoostRelayID,
+
+    client: RelayClient,
+    /// true -> ssz; false -> json.
+    use_ssz_for_submit: bool,
+    use_gzip_for_submit: bool,
+    /// Relay accepts optimistic submissions.
+    optimistic: bool,
+    submission_rate_limiter: Option<Arc<DefaultDirectRateLimiter>>,
+    /// This is not a real relay so we can send blocks to it even if it does not have any validator registered.
+    test_relay: bool,
+    /// Parameter for the relay
+    cancellations: bool,
+    /// Max bid we can submit to this relay. Any bid above this will be skipped.
+    /// None -> No limit.
+    max_bid: Option<U256>,
+}
+
+impl MevBoostRelayBidSubmitter {
+    pub fn new(
+        client: RelayClient,
+        id: String,
+        config: &RelaySubmitConfig,
+        test_relay: bool,
+    ) -> eyre::Result<Self> {
+        let max_bid = config
+            .max_bid_eth
+            .as_ref()
+            .map(|s| parse_ether(s))
+            .transpose()
+            .map_err(|e| eyre::eyre!("Failed to parse max bid: {}", e))?;
+        let submission_rate_limiter = config.interval_between_submissions_ms.map(|d| {
+            Arc::new(RateLimiter::direct(
+                Quota::with_period(Duration::from_millis(d)).expect("Rate limiter time period"),
+            ))
+        });
+        Ok(Self {
+            id,
+            client,
+            use_ssz_for_submit: config.use_ssz_for_submit,
+            use_gzip_for_submit: config.use_gzip_for_submit,
+            optimistic: config.optimistic,
+            submission_rate_limiter,
+            test_relay,
+            cancellations: true,
+            max_bid,
+        })
+    }
+
+    pub fn test_relay(&self) -> bool {
+        self.test_relay
+    }
+
+    pub fn id(&self) -> &MevBoostRelayID {
+        &self.id
+    }
+
+    pub fn optimistic(&self) -> bool {
+        self.optimistic
+    }
+
+    pub fn max_bid(&self) -> Option<U256> {
+        self.max_bid
+    }
+
+    /// false -> rate limiter don't allow
+    pub fn can_submit_bid(&self) -> bool {
+        if let Some(limiter) = &self.submission_rate_limiter {
+            limiter.check().is_ok()
+        } else {
+            true
+        }
+    }
+
+    pub async fn submit_block(
+        &self,
+        data: &SubmitBlockRequestWithMetadata,
+        registration: &ValidatorSlotData,
+    ) -> Result<(), SubmitBlockErr> {
+        self.client
+            .submit_block(
+                data,
+                registration,
+                self.use_ssz_for_submit,
+                self.use_gzip_for_submit,
+                self.test_relay,
+                self.cancellations,
+            )
+            .await
+    }
+}
+
+// Data API
+impl RelayClient {
+    async fn get_one_delivered_payload(
+        &self,
+        query: &str,
+    ) -> Result<Option<ProposerPayloadDelivered>, RelayError> {
+        let url = {
+            let mut url = self.url.clone();
+            url.set_path("/relay/v1/data/bidtraces/proposer_payload_delivered");
+            url.set_query(Some(query));
+            url
+        };
+
+        let payloads = reqwest::get(url)
+            .await?
+            .json::<RelayResponse<Vec<ProposerPayloadDelivered>>>()
+            .await?;
+
+        match payloads {
+            RelayResponse::Ok(payloads) => {
+                if payloads.is_empty() {
+                    return Ok(None);
+                }
+                Ok(Some(payloads[0].clone()))
+            }
+            RelayResponse::Error(error) => Err(RelayError::RelayError(error)),
+        }
+    }
+
+    pub async fn proposer_payload_delivered_slot(
+        &self,
+        slot: u64,
+    ) -> Result<Option<ProposerPayloadDelivered>, RelayError> {
+        self.get_one_delivered_payload(&format!("slot={slot}"))
+            .await
+    }
+
+    pub async fn proposer_payload_delivered_block_number(
+        &self,
+        block_number: u64,
+    ) -> Result<Option<ProposerPayloadDelivered>, RelayError> {
+        self.get_one_delivered_payload(&format!("block_number={block_number}"))
+            .await
+    }
+
+    pub async fn proposer_payload_delivered_block_hash(
+        &self,
+        block_hash: BlockHash,
+    ) -> Result<Option<ProposerPayloadDelivered>, RelayError> {
+        self.get_one_delivered_payload(&format!("block_hash={block_hash:?}"))
+            .await
+    }
+
+    async fn get_one_builder_block_received(
+        &self,
+        query: &str,
+    ) -> Result<Option<BuilderBlockReceived>, RelayError> {
+        let url = {
+            let mut url = self.url.clone();
+            url.set_path("/relay/v1/data/bidtraces/builder_blocks_received");
+            url.set_query(Some(query));
+            url
+        };
+
+        let payloads = reqwest::get(url)
+            .await?
+            .json::<RelayResponse<Vec<BuilderBlockReceived>>>()
+            .await?;
+
+        match payloads {
+            RelayResponse::Ok(payloads) => {
+                if payloads.is_empty() {
+                    return Ok(None);
+                }
+                Ok(Some(payloads[0].clone()))
+            }
+            RelayResponse::Error(error) => Err(RelayError::RelayError(error)),
+        }
+    }
+
+    pub async fn builder_block_received_block_hash(
+        &self,
+        block_hash: BlockHash,
+    ) -> Result<Option<BuilderBlockReceived>, RelayError> {
+        self.get_one_builder_block_received(&format!("block_hash={block_hash:?}"))
+            .await
+    }
+
+    pub async fn validator_registration(
+        &self,
+        pubkey: H384,
+    ) -> Result<Option<ValidatorRegistration>, RelayError> {
+        let url = {
+            let mut url = self.url.clone();
+            url.set_path("/relay/v1/data/validator_registration");
+            url.set_query(Some(&format!("pubkey={pubkey:?}")));
+            url
+        };
+
+        let registration = reqwest::get(url)
+            .await?
+            .json::<RelayResponse<ValidatorRegistration>>()
+            .await?;
+
+        match registration {
+            RelayResponse::Ok(registration) => Ok(Some(registration)),
+            RelayResponse::Error(error) => {
+                if error.code == Some(400) {
+                    return Ok(None);
+                }
+                Err(RelayError::RelayError(error))
+            }
+        }
+    }
+
+    /// Calls /relay/v1/builder/validators to get "validator registrations for validators scheduled to propose in the current and next epoch."
+    /// The result will contain the validators for each slot.
+    pub async fn get_current_epoch_validators(&self) -> Result<Vec<ValidatorSlotData>, RelayError> {
+        let url = {
+            let mut url = self.url.clone();
+            url.set_path("/relay/v1/builder/validators");
+            if self.ask_for_filtering_validators {
+                url.set_query(Some("filtering=true"));
+            }
+            url
+        };
+        let req = self.client.get(url);
+        let mut headers = HeaderMap::new();
+        self.add_auth_headers(&mut headers)
+            .map_err(|_| RelayError::InvalidHeader)?;
+        let validators = req
+            .headers(headers)
+            .send()
+            .await?
+            .json::<RelayResponse<Vec<ValidatorSlotData>>>()
+            .await?;
+
+        match validators {
+            RelayResponse::Ok(validators) => Ok(validators),
+            RelayResponse::Error(error) => Err(RelayError::RelayError(error)),
+        }
+    }
+
+    /// Mainly takes care of ssz/json raw/gzip
+    async fn call_relay_submit_block(
+        &self,
+        submission_with_metadata: &SubmitBlockRequestWithMetadata,
+        registration: &ValidatorSlotData,
+        ssz: bool,
+        gzip: bool,
+        fake_relay: bool,
+        cancellations: bool,
+    ) -> Result<Response, SubmitBlockErr> {
+        let mut bloxroute_region = None;
+        let url = {
+            let maybe_regional_endpoint = self.bloxroute_rproxy_regions.iter().find_map(|region| {
+                registration
+                    .regional_endpoints
+                    .iter()
+                    .find(|r| r.region.ends_with(region.as_str()))
+            });
+            let mut url = if let Some(regional) = maybe_regional_endpoint {
+                Url::parse(&regional.http_endpoint).map_err(|error| {
+                    tracing::error!(?error, url = %regional.http_endpoint, "Error parsing rproxy URL");
+                    SubmitBlockErr::InvalidUrl(error)
+                })?
+            } else {
+                if self.is_bloxroute {
+                    // It's a bloxroute endpoint and we are not using rProxy, restrict to main relay region.
+                    bloxroute_region = Some(HeaderValue::from_static("na"));
+                }
+                self.url.clone()
+            };
+
+            url.set_path("/relay/v1/builder/blocks");
+            url.query_pairs_mut()
+                .append_pair("cancellations", if cancellations { "1" } else { "0" });
+
+            if submission_with_metadata.submission.has_adjustment_data() {
+                url.query_pairs_mut().append_pair("adjustments", "1");
+            }
+
+            url
+        };
+
+        let mut builder = self.client.post(url.clone());
+        let mut headers = HeaderMap::new();
+        // SSZ vs JSON
+        let (mut body_data, content_type) = if ssz {
+            (
+                submission_with_metadata.submission.as_ssz_bytes(),
+                SSZ_CONTENT_TYPE,
+            )
+        } else {
+            let json_result = if fake_relay {
+                // For the fake relay we remove the blobs
+                serde_json::to_vec(&SubmitBlockRequestNoBlobs(
+                    &submission_with_metadata.submission,
+                ))
+            } else {
+                serde_json::to_vec(&submission_with_metadata.submission)
+            };
+
+            (
+                json_result.map_err(|e| SubmitBlockErr::RPCSerializationError(e.to_string()))?,
+                JSON_CONTENT_TYPE,
+            )
+        };
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static(content_type));
+        self.add_auth_headers(&mut headers)
+            .map_err(|_| SubmitBlockErr::InvalidHeader)?;
+
+        // GZIP
+        if gzip {
+            headers.insert(
+                CONTENT_ENCODING,
+                HeaderValue::from_static(GZIP_CONTENT_ENCODING),
+            );
+            let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+            encoder
+                .write_all(&body_data)
+                .map_err(|e| SubmitBlockErr::RPCSerializationError(e.to_string()))?;
+            body_data = encoder
+                .finish()
+                .map_err(|e| SubmitBlockErr::RPCSerializationError(e.to_string()))?;
+        }
+
+        // Set bloxroute specific headers.
+        if self.is_bloxroute {
+            if let Some(region) = bloxroute_region {
+                headers.insert(BLOXROUTE_SHARE_HEADER, region);
+            }
+            headers.insert(
+                BLOXROUTE_BUILDER_VALUE_HEADER,
+                submission_with_metadata
+                    .metadata
+                    .value
+                    .coinbase_reward
+                    .to_string()
+                    .parse()
+                    .map_err(|_| RelayError::InvalidHeader)?,
+            );
+        }
+
+        builder = builder.headers(headers).body(Body::from(body_data));
+        if fake_relay {
+            builder = builder.header(
+                TOTAL_PAYMENT_HEADER,
+                submission_with_metadata
+                    .metadata
+                    .value
+                    .coinbase_reward
+                    .to_string(),
+            );
+            if let Some(top_competitor_bid) =
+                submission_with_metadata.metadata.value.top_competitor_bid
+            {
+                builder = builder.header(TOP_BID_HEADER, top_competitor_bid.to_string());
+            }
+            if !submission_with_metadata.metadata.order_ids.is_empty() {
+                const MAX_BUNDLE_IDS: usize = 150;
+                let bundle_ids: Vec<_> = submission_with_metadata
+                    .metadata
+                    .order_ids
+                    .iter()
+                    .filter_map(|or| match or {
+                        crate::primitives::OrderId::Tx(_fixed_bytes) => None,
+                        crate::primitives::OrderId::Bundle(uuid) => Some(uuid),
+                        crate::primitives::OrderId::ShareBundle(_fixed_bytes) => None,
+                    })
+                    .collect();
+                let total_bundles = bundle_ids.len();
+                let mut bundle_ids = bundle_ids
+                    .iter()
+                    .take(MAX_BUNDLE_IDS)
+                    .map(|uuid| format!("{uuid:?}"));
+                let bundle_ids = if total_bundles > MAX_BUNDLE_IDS {
+                    bundle_ids.join(",") + ",CAPPED"
+                } else {
+                    bundle_ids.join(",")
+                };
+                builder = builder.header(BUNDLE_HASHES_HEADER, bundle_ids);
+            }
+        }
+
+        let response = builder
+            .send()
+            .await
+            .map_err(|e| RelayError::RequestError(e.into()))?;
+        Ok(response)
+    }
+
+    /// Send gRPC submit block request to bloxroute.
+    async fn call_bloxroute_grpc_submit_block(
+        &self,
+        client: &GrpcRelayClient,
+        submission_with_metadata: &SubmitBlockRequestWithMetadata,
+    ) -> Result<bloxroute_grpc::types::SubmitBlockResponse, SubmitBlockErr> {
+        let mut request = tonic::Request::new(bloxroute_grpc::types::SubmitBlockRequest::from(
+            &submission_with_metadata.submission,
+        ));
+        request.set_timeout(Duration::from_secs(2));
+        request.metadata_mut().insert(
+            "authorization",
+            self.authorization_header
+                .clone()
+                .unwrap_or_default()
+                .parse()
+                .map_err(|_| SubmitBlockErr::InvalidHeader)?,
+        );
+        request.metadata_mut().insert(
+            BLOXROUTE_BUILDER_VALUE_HEADER,
+            submission_with_metadata
+                .metadata
+                .value
+                .coinbase_reward
+                .to_string()
+                .parse()
+                .map_err(|_| SubmitBlockErr::InvalidHeader)?,
+        );
+        request.metadata_mut().insert(
+            BLOXROUTE_SHARE_HEADER,
+            "na".parse().map_err(|_| SubmitBlockErr::InvalidHeader)?,
+        );
+
+        let response = client.lock().await.submit_block(request).await?;
+        Ok(response.into_inner())
+    }
+
+    /// Submits the block (call_relay_submit_block) and processes some special errors.
+    pub async fn submit_block(
+        &self,
+        data: &SubmitBlockRequestWithMetadata,
+        registration: &ValidatorSlotData,
+        ssz: bool,
+        gzip: bool,
+        fake_relay: bool,
+        cancellations: bool,
+    ) -> Result<(), SubmitBlockErr> {
+        // If gRPC client is available, attempt to submit with it.
+        // TODO: support submitting to rproxy gRPC
+        if let Some(client) = &self.grpc_client {
+            match self.call_bloxroute_grpc_submit_block(client, data).await {
+                Ok(response) => {
+                    let status = response.code.try_into().unwrap_or(u16::MAX);
+                    return if status == tonic::Code::Ok as u16 {
+                        Ok(())
+                    } else {
+                        Err(map_relay_error_message(&response.message, None))
+                    };
+                }
+                Err(SubmitBlockErr::Grpc(error)) => {
+                    if matches!(error.code(), tonic::Code::Unknown) {
+                        // Request succeeded, but relay returned an error.
+                        return Err(map_relay_error_message(error.message(), None));
+                    }
+
+                    // We encountered connection error, possibly due to broken gRPC connection. Proceed to re-submit the block through HTTP.
+                    tracing::error!(?error, "Error submitting to gRPC");
+                }
+                Err(error) => return Err(error),
+            };
+        }
+
+        let response = self
+            .call_relay_submit_block(data, registration, ssz, gzip, fake_relay, cancellations)
+            .await?;
+
+        let status = response.status();
+        if status == StatusCode::TOO_MANY_REQUESTS {
+            return Err(RelayError::TooManyRequests.into());
+        }
+        if status == StatusCode::GATEWAY_TIMEOUT {
+            return Err(RelayError::ConnectionError.into());
+        }
+
+        let data = response
+            .bytes()
+            .await
+            .map_err(|err| RelayError::RequestError(err.into()))?;
+
+        if status == StatusCode::OK && data.is_empty() {
+            return Ok(());
+        }
+
+        match serde_json::from_slice::<RelayResponse<()>>(&data) {
+            Ok(RelayResponse::Ok(_)) => Ok(()),
+            Ok(RelayResponse::Error(error)) => {
+                Err(map_relay_error_message(&error.message, error.code))
+            }
+            Err(_) => {
+                // bloxroute returns empty response in this format which we handle here because its not valid
+                // jsonrpc response
+                let data = String::from_utf8_lossy(&data).to_string();
+                if data.trim() == "{}" {
+                    return Ok(());
+                }
+
+                if is_ignorable_relay_error(status, &data) {
+                    Ok(())
+                } else {
+                    Err(RelayError::UnknownRelayError(status, data).into())
+                }
+            }
+        }
+    }
+
+    fn add_auth_headers(&self, headers: &mut HeaderMap) -> eyre::Result<()> {
+        if let Some(authorization_header) = &self.authorization_header {
+            let mut value = HeaderValue::from_str(authorization_header)?;
+            value.set_sensitive(true);
+            headers.insert(AUTHORIZATION, value);
+        }
+        if let Some(builder_id_header) = &self.builder_id_header {
+            let mut value = HeaderValue::from_str(builder_id_header)?;
+            value.set_sensitive(true);
+            headers.insert(BUILDER_ID_HEADER, value);
+        }
+        if let Some(api_token_header) = &self.api_token_header {
+            let mut value = HeaderValue::from_str(api_token_header)?;
+            value.set_sensitive(true);
+            headers.insert(API_TOKEN_HEADER, value);
+        }
+        Ok(())
+    }
+}
+
+#[serde_as]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Hash)]
+pub struct ValidatorRegistrationMessage {
+    pub fee_recipient: Address,
+    #[serde_as(as = "DisplayFromStr")]
+    pub gas_limit: u64,
+    #[serde_as(as = "DisplayFromStr")]
+    pub timestamp: u64,
+    pub pubkey: H384,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Hash)]
+pub struct ValidatorRegistration {
+    pub message: ValidatorRegistrationMessage,
+    pub signature: Bytes,
+}
+
+/// Info about a registered validator selected as proposer for a slot.
+#[serde_as]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Hash)]
+pub struct ValidatorSlotData {
+    /// The slot number for the validator entry.
+    #[serde_as(as = "DisplayFromStr")]
+    pub slot: u64,
+    /// The index of the validator.
+    #[serde_as(as = "DisplayFromStr")]
+    pub validator_index: u64,
+    /// Details of the validator registration.
+    pub entry: ValidatorRegistration,
+    /// (Bloxroute) Collection of regional endpoints validator is connected to.
+    #[serde(default)]
+    pub regional_endpoints: Vec<BloxrouteRegionalEndpoint>,
+}
+
+/// Wrapper over RelayClient that allows to ask for slot validators info.
+#[derive(Debug, Clone)]
+pub struct MevBoostRelaySlotInfoProvider {
+    /// Id for UI
+    id: MevBoostRelayID,
+    client: RelayClient,
+}
+
+impl MevBoostRelaySlotInfoProvider {
+    pub fn new(client: RelayClient, id: String) -> Self {
+        // we use separate request client for requesting validator data from the relay
+        // 1. it separates TCP connections that are used for submissions and other requests to the relay
+        // 2. it adds request timeout to epoch data request and its not needed for submissions
+        let req_client = reqwest::ClientBuilder::new()
+            .timeout(MEV_BOOST_SLOT_INFO_REQUEST_TIMEOUT)
+            .build()
+            .expect("failed to create reqwest client");
+        let client = client.with_reqwest_client(req_client);
+
+        Self { client, id }
+    }
+    pub fn id(&self) -> &MevBoostRelayID {
+        &self.id
+    }
+
+    /// A little ugly, needed for backtest payload fetcher.
+    pub fn client(&self) -> RelayClient {
+        self.client.clone()
+    }
+
+    pub async fn get_current_epoch_validators(&self) -> Result<Vec<ValidatorSlotData>, RelayError> {
+        self.client.get_current_epoch_validators().await
+    }
+
+    pub fn can_ignore_gas_limit(&self) -> bool {
+        self.client.can_ignore_gas_limit()
+    }
+}
+
+fn deserialize_env_var<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s: Option<String> = Option::deserialize(deserializer)?;
+    Ok(match s {
+        Some(val) if val.starts_with("env:") => {
+            let env_var = &val[4..];
+            env::var(env_var).ok()
+        }
+        _ => s,
+    })
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ssz_derive::Encode)]
+#[ssz(enum_behaviour = "transparent")]
+#[serde(untagged)]
+pub enum SubmitBlockRequest {
+    Fulu(FuluSubmitBlockRequest),
+    Capella(CapellaSubmitBlockRequest),
+    Deneb(DenebSubmitBlockRequest),
+    Electra(ElectraSubmitBlockRequest),
+}
+
+impl SubmitBlockRequest {
+    #[inline]
+    pub fn capella(request: CapellaSubmitBlockRequest) -> Self {
+        Self::Capella(request)
+    }
+
+    #[inline]
+    pub fn deneb(request: DenebSubmitBlockRequest) -> Self {
+        Self::Deneb(request)
+    }
+
+    #[inline]
+    pub fn electra(request: ElectraSubmitBlockRequest) -> Self {
+        Self::Electra(request)
+    }
+
+    #[inline]
+    pub fn fulu(request: FuluSubmitBlockRequest) -> Self {
+        Self::Fulu(request)
+    }
+
+    pub fn bid_trace(&self) -> &BidTrace {
+        match self {
+            SubmitBlockRequest::Fulu(req) => &req.message,
+            SubmitBlockRequest::Capella(req) => &req.message,
+            SubmitBlockRequest::Deneb(req) => &req.message,
+            SubmitBlockRequest::Electra(req) => &req.message,
+        }
+    }
+
+    pub fn has_adjustment_data(&self) -> bool {
+        let maybe_adjustment_data = match self {
+            SubmitBlockRequest::Capella(req) => &req.adjustment_data,
+            SubmitBlockRequest::Deneb(req) => &req.adjustment_data,
+            SubmitBlockRequest::Electra(req) => &req.adjustment_data,
+            SubmitBlockRequest::Fulu(req) => &req.adjustment_data,
+        };
+        maybe_adjustment_data.is_some()
+    }
+}
+
+impl ssz::Decode for SubmitBlockRequest {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
+        if let Ok(result) = FuluSubmitBlockRequest::from_ssz_bytes(bytes) {
+            return Ok(Self::fulu(result));
+        }
+        if let Ok(result) = ElectraSubmitBlockRequest::from_ssz_bytes(bytes) {
+            return Ok(Self::electra(result));
+        }
+        if let Ok(result) = DenebSubmitBlockRequest::from_ssz_bytes(bytes) {
+            return Ok(Self::deneb(result));
+        }
+
+        let result = CapellaSubmitBlockRequest::from_ssz_bytes(bytes)?;
+        Ok(Self::capella(result))
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Deref)]
+pub struct FuluSubmitBlockRequest {
+    #[deref]
+    #[serde(flatten)]
+    pub submission: SignedBidSubmissionV5,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adjustment_data: Option<BidAdjustmentData>,
+}
+
+impl FuluSubmitBlockRequest {
+    pub fn new(
+        submission: SignedBidSubmissionV5,
+        adjustment_data: Option<BidAdjustmentData>,
+    ) -> Self {
+        Self {
+            submission,
+            adjustment_data,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Deref)]
+pub struct ElectraSubmitBlockRequest {
+    /// Inner bid submission.
+    #[deref]
+    #[serde(flatten)]
+    pub submission: SignedBidSubmissionV4,
+    /// Bid adjustment data if present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adjustment_data: Option<BidAdjustmentData>,
+}
+
+impl ElectraSubmitBlockRequest {
+    /// Create new Electra submit block request.
+    pub fn new(
+        submission: SignedBidSubmissionV4,
+        adjustment_data: Option<BidAdjustmentData>,
+    ) -> Self {
+        Self {
+            submission,
+            adjustment_data,
+        }
+    }
+}
+
+impl ssz::Encode for FuluSubmitBlockRequest {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        let mut offset = <BidTrace as ssz::Encode>::ssz_fixed_len()
+            + <ExecutionPayloadV3 as ssz::Encode>::ssz_fixed_len()
+            + <BlobsBundleV2 as ssz::Encode>::ssz_fixed_len()
+            + <ExecutionRequestsV4 as ssz::Encode>::ssz_fixed_len()
+            + <BlsSignature as ssz::Encode>::ssz_fixed_len();
+        if self.adjustment_data.is_some() {
+            offset += <BidAdjustmentData as ssz::Encode>::ssz_fixed_len();
+        }
+
+        let mut encoder = ssz::SszEncoder::container(buf, offset);
+
+        encoder.append(&self.message);
+        encoder.append(&self.execution_payload);
+        encoder.append(&self.blobs_bundle);
+        encoder.append(&self.execution_requests);
+        encoder.append(&self.signature);
+        if let Some(adjustment) = &self.adjustment_data {
+            encoder.append(&adjustment);
+        }
+
+        encoder.finalize();
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        let mut len = <BidTrace as ssz::Encode>::ssz_bytes_len(&self.message)
+            + <ExecutionPayloadV3 as ssz::Encode>::ssz_bytes_len(&self.execution_payload)
+            + <BlobsBundleV2 as ssz::Encode>::ssz_bytes_len(&self.blobs_bundle)
+            + <ExecutionRequestsV4 as ssz::Encode>::ssz_bytes_len(&self.execution_requests)
+            + <BlsSignature as ssz::Encode>::ssz_bytes_len(&self.signature);
+        if let Some(adjustment) = &self.adjustment_data {
+            len += <BidAdjustmentData as ssz::Encode>::ssz_bytes_len(adjustment);
+        }
+        len
+    }
+}
+
+impl ssz::Decode for FuluSubmitBlockRequest {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
+        #[derive(ssz_derive::Decode)]
+        struct FuluSubmitBlockRequestSszHelper {
+            message: BidTrace,
+            execution_payload: ExecutionPayloadV3,
+            blobs_bundle: BlobsBundleV2,
+            execution_requests: ExecutionRequestsV4,
+            signature: BlsSignature,
+            adjustment_data: BidAdjustmentData,
+        }
+
+        if let Ok(request) = FuluSubmitBlockRequestSszHelper::from_ssz_bytes(bytes) {
+            let FuluSubmitBlockRequestSszHelper {
+                message,
+                execution_payload,
+                blobs_bundle,
+                execution_requests,
+                signature,
+                adjustment_data,
+            } = request;
+            let submission = SignedBidSubmissionV5 {
+                message,
+                execution_payload,
+                blobs_bundle,
+                execution_requests,
+                signature,
+            };
+            Ok(Self::new(submission, Some(adjustment_data)))
+        } else {
+            let submission = SignedBidSubmissionV5::from_ssz_bytes(bytes)?;
+            Ok(Self::new(submission, None))
+        }
+    }
+}
+
+impl ssz::Encode for ElectraSubmitBlockRequest {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        let mut offset = <BidTrace as ssz::Encode>::ssz_fixed_len()
+            + <ExecutionPayloadV3 as ssz::Encode>::ssz_fixed_len()
+            + <BlobsBundleV1 as ssz::Encode>::ssz_fixed_len()
+            + <ExecutionRequestsV4 as ssz::Encode>::ssz_fixed_len()
+            + <BlsSignature as ssz::Encode>::ssz_fixed_len();
+        if self.adjustment_data.is_some() {
+            offset += <BidAdjustmentData as ssz::Encode>::ssz_fixed_len();
+        }
+
+        let mut encoder = ssz::SszEncoder::container(buf, offset);
+
+        encoder.append(&self.message);
+        encoder.append(&self.execution_payload);
+        encoder.append(&self.blobs_bundle);
+        encoder.append(&self.execution_requests);
+        encoder.append(&self.signature);
+        if let Some(adjustment) = &self.adjustment_data {
+            encoder.append(&adjustment);
+        }
+
+        encoder.finalize();
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        let mut len = <BidTrace as ssz::Encode>::ssz_bytes_len(&self.message)
+            + <ExecutionPayloadV3 as ssz::Encode>::ssz_bytes_len(&self.execution_payload)
+            + <BlobsBundleV1 as ssz::Encode>::ssz_bytes_len(&self.blobs_bundle)
+            + <ExecutionRequestsV4 as ssz::Encode>::ssz_bytes_len(&self.execution_requests)
+            + <BlsSignature as ssz::Encode>::ssz_bytes_len(&self.signature);
+        if let Some(adjustment) = &self.adjustment_data {
+            len += <BidAdjustmentData as ssz::Encode>::ssz_bytes_len(adjustment);
+        }
+        len
+    }
+}
+
+impl ssz::Decode for ElectraSubmitBlockRequest {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
+        #[derive(ssz_derive::Decode)]
+        struct ElectraSubmitBlockRequestSszHelper {
+            message: BidTrace,
+            execution_payload: ExecutionPayloadV3,
+            blobs_bundle: BlobsBundleV1,
+            execution_requests: ExecutionRequestsV4,
+            signature: BlsSignature,
+            adjustment_data: BidAdjustmentData,
+        }
+
+        if let Ok(request) = ElectraSubmitBlockRequestSszHelper::from_ssz_bytes(bytes) {
+            let ElectraSubmitBlockRequestSszHelper {
+                message,
+                execution_payload,
+                blobs_bundle,
+                execution_requests,
+                signature,
+                adjustment_data,
+            } = request;
+            let submission = SignedBidSubmissionV4 {
+                message,
+                execution_payload,
+                blobs_bundle,
+                execution_requests,
+                signature,
+            };
+            Ok(Self::new(submission, Some(adjustment_data)))
+        } else {
+            let submission = SignedBidSubmissionV4::from_ssz_bytes(bytes)?;
+            Ok(Self::new(submission, None))
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Deref)]
+pub struct DenebSubmitBlockRequest {
+    /// Inner bid submission.
+    #[deref]
+    #[serde(flatten)]
+    pub submission: SignedBidSubmissionV3,
+    /// Bid adjustment data if present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adjustment_data: Option<BidAdjustmentData>,
+}
+
+impl DenebSubmitBlockRequest {
+    /// Create new Deneb submit block request.
+    pub fn new(
+        submission: SignedBidSubmissionV3,
+        adjustment_data: Option<BidAdjustmentData>,
+    ) -> Self {
+        Self {
+            submission,
+            adjustment_data,
+        }
+    }
+}
+
+impl ssz::Encode for DenebSubmitBlockRequest {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        let mut offset = <BidTrace as ssz::Encode>::ssz_fixed_len()
+            + <ExecutionPayloadV3 as ssz::Encode>::ssz_fixed_len()
+            + <BlobsBundleV1 as ssz::Encode>::ssz_fixed_len()
+            + <BlsSignature as ssz::Encode>::ssz_fixed_len();
+        if self.adjustment_data.is_some() {
+            offset += <BidAdjustmentData as ssz::Encode>::ssz_fixed_len();
+        }
+
+        let mut encoder = ssz::SszEncoder::container(buf, offset);
+
+        encoder.append(&self.message);
+        encoder.append(&self.execution_payload);
+        encoder.append(&self.blobs_bundle);
+        encoder.append(&self.signature);
+        if let Some(adjustment) = &self.adjustment_data {
+            encoder.append(&adjustment);
+        }
+
+        encoder.finalize();
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        let mut len = <BidTrace as ssz::Encode>::ssz_bytes_len(&self.message)
+            + <ExecutionPayloadV3 as ssz::Encode>::ssz_bytes_len(&self.execution_payload)
+            + <BlobsBundleV1 as ssz::Encode>::ssz_bytes_len(&self.blobs_bundle)
+            + <BlsSignature as ssz::Encode>::ssz_bytes_len(&self.signature);
+        if let Some(adjustment) = &self.adjustment_data {
+            len += <BidAdjustmentData as ssz::Encode>::ssz_bytes_len(adjustment);
+        }
+        len
+    }
+}
+
+impl ssz::Decode for DenebSubmitBlockRequest {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
+        #[derive(ssz_derive::Decode)]
+        struct DenebSubmitBlockRequestSszHelper {
+            message: BidTrace,
+            execution_payload: ExecutionPayloadV3,
+            blobs_bundle: BlobsBundleV1,
+            signature: BlsSignature,
+            adjustment_data: BidAdjustmentData,
+        }
+
+        if let Ok(request) = DenebSubmitBlockRequestSszHelper::from_ssz_bytes(bytes) {
+            let DenebSubmitBlockRequestSszHelper {
+                message,
+                execution_payload,
+                blobs_bundle,
+                signature,
+                adjustment_data,
+            } = request;
+            let submission = SignedBidSubmissionV3 {
+                message,
+                execution_payload,
+                blobs_bundle,
+                signature,
+            };
+            Ok(Self::new(submission, Some(adjustment_data)))
+        } else {
+            let submission = SignedBidSubmissionV3::from_ssz_bytes(bytes)?;
+            Ok(Self::new(submission, None))
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Deref)]
+pub struct CapellaSubmitBlockRequest {
+    /// Inner bid submission.
+    #[deref]
+    #[serde(flatten)]
+    pub submission: SignedBidSubmissionV2,
+    /// Bid adjustment data if present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adjustment_data: Option<BidAdjustmentData>,
+}
+
+impl CapellaSubmitBlockRequest {
+    /// Create new Capella submit block request.
+    pub fn new(
+        submission: SignedBidSubmissionV2,
+        adjustment_data: Option<BidAdjustmentData>,
+    ) -> Self {
+        Self {
+            submission,
+            adjustment_data,
+        }
+    }
+}
+
+impl ssz::Encode for CapellaSubmitBlockRequest {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        let mut offset = <BidTrace as ssz::Encode>::ssz_fixed_len()
+            + <ExecutionPayloadV2 as ssz::Encode>::ssz_fixed_len()
+            + <BlsSignature as ssz::Encode>::ssz_fixed_len();
+        if self.adjustment_data.is_some() {
+            offset += <BidAdjustmentData as ssz::Encode>::ssz_fixed_len();
+        }
+
+        let mut encoder = ssz::SszEncoder::container(buf, offset);
+        encoder.append(&self.message);
+        encoder.append(&self.execution_payload);
+        encoder.append(&self.signature);
+        if let Some(adjustment) = &self.adjustment_data {
+            encoder.append(&adjustment);
+        }
+
+        encoder.finalize();
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        let mut len = <BidTrace as ssz::Encode>::ssz_bytes_len(&self.message)
+            + <ExecutionPayloadV2 as ssz::Encode>::ssz_bytes_len(&self.execution_payload)
+            + <BlsSignature as ssz::Encode>::ssz_bytes_len(&self.signature);
+        if let Some(adjustment) = &self.adjustment_data {
+            len += <BidAdjustmentData as ssz::Encode>::ssz_bytes_len(adjustment);
+        }
+        len
+    }
+}
+
+impl ssz::Decode for CapellaSubmitBlockRequest {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
+        #[derive(ssz_derive::Decode)]
+        struct CapellaSubmitBlockRequestSszHelper {
+            message: BidTrace,
+            execution_payload: ExecutionPayloadV2,
+            signature: BlsSignature,
+            adjustment_data: BidAdjustmentData,
+        }
+
+        if let Ok(request) = CapellaSubmitBlockRequestSszHelper::from_ssz_bytes(bytes) {
+            let CapellaSubmitBlockRequestSszHelper {
+                message,
+                execution_payload,
+                signature,
+                adjustment_data,
+            } = request;
+            let submission = SignedBidSubmissionV2 {
+                message,
+                execution_payload,
+                signature,
+            };
+            Ok(Self::new(submission, Some(adjustment_data)))
+        } else {
+            let submission = SignedBidSubmissionV2::from_ssz_bytes(bytes)?;
+            Ok(Self::new(submission, None))
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct BidMetadata {
+    pub value: BidValueMetadata,
+    pub order_ids: Vec<OrderId>,
+}
+
+#[derive(Clone, Copy, Default, Debug)]
+pub struct BidValueMetadata {
+    pub coinbase_reward: U256,
+    pub top_competitor_bid: Option<U256>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SubmitBlockRequestWithMetadata {
+    pub submission: SubmitBlockRequest,
+    pub metadata: BidMetadata,
+}
+
+/// Signed bid submission that is serialized without blobs bundle.
+#[derive(Debug)]
+pub struct SubmitBlockRequestNoBlobs<'a>(pub &'a SubmitBlockRequest);
+
+impl serde::Serialize for SubmitBlockRequestNoBlobs<'_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self.0 {
+            SubmitBlockRequest::Capella(v2) => v2.serialize(serializer),
+            SubmitBlockRequest::Deneb(v3) => {
+                #[derive(serde::Serialize)]
+                struct SignedBidSubmissionV3Ref<'a> {
+                    message: &'a BidTrace,
+                    #[serde(with = "alloy_rpc_types_beacon::payload::beacon_payload_v3")]
+                    execution_payload: &'a ExecutionPayloadV3,
+                    blobs_bundle: &'a BlobsBundleV1,
+                    signature: &'a BlsSignature,
+                    #[serde(skip_serializing_if = "Option::is_none")]
+                    adjustment_data: &'a Option<BidAdjustmentData>,
+                }
+
+                SignedBidSubmissionV3Ref {
+                    message: &v3.message,
+                    execution_payload: &v3.execution_payload,
+                    blobs_bundle: &BlobsBundleV1::new([]), // override blobs bundle with empty one
+                    signature: &v3.signature,
+                    adjustment_data: &v3.adjustment_data,
+                }
+                .serialize(serializer)
+            }
+            SubmitBlockRequest::Electra(v4) => {
+                #[derive(serde::Serialize)]
+                struct SignedBidSubmissionV4Ref<'a> {
+                    message: &'a BidTrace,
+                    #[serde(with = "alloy_rpc_types_beacon::payload::beacon_payload_v3")]
+                    execution_payload: &'a ExecutionPayloadV3,
+                    blobs_bundle: &'a BlobsBundleV1,
+                    execution_requests: &'a ExecutionRequestsV4,
+                    signature: &'a BlsSignature,
+                    #[serde(skip_serializing_if = "Option::is_none")]
+                    adjustment_data: &'a Option<BidAdjustmentData>,
+                }
+
+                SignedBidSubmissionV4Ref {
+                    message: &v4.message,
+                    execution_payload: &v4.execution_payload,
+                    blobs_bundle: &BlobsBundleV1::new([]), // override blobs bundle with empty one
+                    signature: &v4.signature,
+                    execution_requests: &v4.execution_requests,
+                    adjustment_data: &v4.adjustment_data,
+                }
+                .serialize(serializer)
+            }
+            SubmitBlockRequest::Fulu(v5) => {
+                #[derive(serde::Serialize)]
+                struct SignedBidSubmissionV5Ref<'a> {
+                    message: &'a BidTrace,
+                    #[serde(with = "alloy_rpc_types_beacon::payload::beacon_payload_v3")]
+                    execution_payload: &'a ExecutionPayloadV3,
+                    blobs_bundle: &'a BlobsBundleV2,
+                    execution_requests: &'a ExecutionRequestsV4,
+                    signature: &'a BlsSignature,
+                }
+
+                SignedBidSubmissionV5Ref {
+                    message: &v5.message,
+                    execution_payload: &v5.execution_payload,
+                    blobs_bundle: &BlobsBundleV2::new([]), // override blobs bundle with empty one
+                    signature: &v5.signature,
+                    execution_requests: &v5.execution_requests,
+                }
+                .serialize(serializer)
+            }
+        }
+    }
+}
+
+/// The type representing UltraSound bid adjustments.
+#[derive(
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    ssz_derive::Encode,
+    ssz_derive::Decode,
+)]
+pub struct BidAdjustmentData {
+    /// State root of the payload.
+    pub state_root: B256,
+    /// Transactions root of the payload.
+    pub transactions_root: B256,
+    /// Receipts root of the payload.
+    pub receipts_root: B256,
+    /// The usual builder address that pays the proposer in the last transaction of the block.
+    /// When we adjust a bid, this transaction is overwritten by a transaction from the collateral
+    /// account `fee_payer_address`. If we don't adjust the bid, `builder_address` pays the
+    /// proposer as per usual.
+    pub builder_address: Address,
+    /// The state proof for the builder account.
+    pub builder_proof: Vec<Bytes>,
+    /// The proposer's fee recipient.
+    pub fee_recipient_address: Address,
+    /// The state proof for the fee recipient account.
+    pub fee_recipient_proof: Vec<Bytes>,
+    /// The fee payer address that is custodied by the relay.
+    pub fee_payer_address: Address,
+    /// The state proof for the fee payer account.
+    pub fee_payer_proof: Vec<Bytes>,
+    /// The merkle proof for the last transaction in the block, which will be overwritten with a
+    /// payment from `fee_payer` to `fee_recipient` if we adjust the bid.
+    pub placeholder_transaction_proof: Vec<Bytes>,
+    /// The merkle proof for the receipt of the placeholder transaction. It's required for
+    /// adjusting payments to contract addresses.
+    pub placeholder_receipt_proof: Vec<Bytes>,
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_deserialize_relay_config() {
+        let example = "
+        name = 'relay1'
+        url = 'url'
+        authorization_header = 'env:XXX'
+        builder_id_header = 'env:YYY'
+        api_token_header = 'env:ZZZ'
+        mode = 'slot_info'
+        ";
+
+        std::env::set_var("XXX", "AAA");
+        std::env::set_var("YYY", "BBB");
+        std::env::set_var("ZZZ", "CCC");
+
+        let config: RelayConfig = toml::from_str(example).unwrap();
+        assert_eq!(config.name, "relay1");
+        assert_eq!(config.url, "url");
+        assert_eq!(config.priority, None);
+        assert_eq!(config.authorization_header.unwrap(), "AAA");
+        assert_eq!(config.builder_id_header.unwrap(), "BBB");
+        assert_eq!(config.api_token_header.unwrap(), "CCC");
+        assert_eq!(config.mode, RelayMode::GetSlotInfoOnly);
+    }
+
+    #[test]
+    fn test_deserialize_relay_config_modes() {
+        let example_base = "
+        name = 'relay1'
+        url = 'url'
+        mode = "
+            .to_string();
+
+        let config: RelayConfig = toml::from_str(&(example_base.clone() + "'full'")).unwrap();
+        assert_eq!(config.mode, RelayMode::Full);
+
+        let config: RelayConfig = toml::from_str(&(example_base.clone() + "'slot_info'")).unwrap();
+        assert_eq!(config.mode, RelayMode::GetSlotInfoOnly);
+
+        let config: RelayConfig = toml::from_str(&(example_base.clone() + "'test'")).unwrap();
+        assert_eq!(config.mode, RelayMode::Test);
+    }
+
+    #[test]
+    fn test_deserialize_relay_config_no_mode() {
+        let config = "
+        name = 'relay1'
+        url = 'url'";
+
+        let config: RelayConfig = toml::from_str(config).unwrap();
+        assert_eq!(config.mode, RelayMode::Full);
+    }
+}

@@ -10,6 +10,7 @@ exclude = [".github/"]
 [workspace]
 members = [
     "crates/rbuilder",
+    "crates/rbuilder-primitives",
     "crates/reth-rbuilder",
     "crates/rbuilder/src/test_utils",
     "crates/rbuilder/src/telemetry/metrics_macros",
@@ -18,7 +19,13 @@ members = [
     "crates/test-relay",
     "crates/bid-scraper",
 ]
-default-members = ["crates/rbuilder", "crates/reth-rbuilder", "crates/test-relay","crates/bid-scraper"]
+default-members = [
+    "crates/rbuilder",
+    "crates/reth-rbuilder",
+    "crates/rbuilder-primitives",
+    "crates/test-relay",
+    "crates/bid-scraper",
+]
 resolver = "2"
 
 # Speed up compilation time for dev builds by reducing emitted debug info.
@@ -96,7 +103,9 @@ revm-inspectors = { version = "0.29.0", default-features = false }
 ethereum_ssz_derive = "0.9.0"
 ethereum_ssz = "0.9.0"
 
-alloy-primitives = { version = "1.3.1", default-features = false, features = ["getrandom"] }
+alloy-primitives = { version = "1.3.1", default-features = false, features = [
+    "getrandom",
+] }
 alloy-rlp = "0.3.10"
 alloy-chains = "0.2.5"
 alloy-trie = { version = "0.8.1", default-features = false }
@@ -155,5 +164,6 @@ time = { version = "0.3.36", features = ["macros", "formatting", "parsing"] }
 eth-sparse-mpt = { path = "crates/eth-sparse-mpt" }
 bid-scraper = { path = "crates/bid-scraper" }
 rbuilder = { path = "crates/rbuilder" }
+rbuilder-primitives = { path = "crates/rbuilder-primitives" }
 sysperf = { path = "crates/sysperf" }
-metrics_macros = { path = "crates/rbuilder/src/telemetry/metrics_macros"}
+metrics_macros = { path = "crates/rbuilder/src/telemetry/metrics_macros" }
