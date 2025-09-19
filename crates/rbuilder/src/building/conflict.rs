@@ -1,10 +1,8 @@
 use super::{BlockBuildingContext, BlockState, PartialBlockFork, ThreadBlockBuildingContext};
-use crate::{
-    building::BlockBuildingSpaceState,
-    primitives::{Order, OrderId},
-};
+use crate::building::BlockBuildingSpaceState;
 use alloy_primitives::{Address, U256};
 use itertools::Itertools;
+use rbuilder_primitives::{Order, OrderId};
 use reth::providers::StateProviderBox;
 use reth_provider::StateProvider;
 use std::{

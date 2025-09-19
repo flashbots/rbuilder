@@ -1,4 +1,4 @@
-use crate::primitives::{
+use rbuilder_primitives::{
     serialize::CancelShareBundle, BundleReplacementData, Order, OrderId, ShareBundleReplacementKey,
 };
 use ahash::HashMap;

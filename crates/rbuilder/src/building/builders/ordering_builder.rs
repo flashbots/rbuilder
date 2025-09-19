@@ -16,7 +16,6 @@ use crate::{
         ThreadBlockBuildingContext,
     },
     live_builder::building::built_block_cache::BuiltBlockCache,
-    primitives::{AccountNonce, OrderId, SimValue, SimulatedOrder},
     provider::StateProviderFactory,
     telemetry::{
         add_ordering_builder_base_stage_stats, add_ordering_builder_pre_filtered_stage_stats,
@@ -26,6 +25,7 @@ use crate::{
 };
 use ahash::{HashMap, HashSet};
 use derivative::Derivative;
+use rbuilder_primitives::{AccountNonce, OrderId, SimValue, SimulatedOrder};
 use reth_provider::StateProvider;
 use serde::Deserialize;
 use std::{

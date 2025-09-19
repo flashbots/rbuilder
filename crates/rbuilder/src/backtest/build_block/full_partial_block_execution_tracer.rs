@@ -1,16 +1,15 @@
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use alloy_primitives::{utils::format_ether, TxHash, U256};
 
-use crate::building::BlockBuildingSpaceState;
-use crate::{
-    building::{
-        CriticalCommitOrderError, ExecutionError, ExecutionResult, PartialBlockExecutionTracer,
-        PartialBlockForkExecutionTracer, TransactionErr, TransactionOk,
-    },
-    primitives::{OrderId, TransactionSignedEcRecoveredWithBlobs},
+use crate::building::{
+    BlockBuildingSpaceState, CriticalCommitOrderError, ExecutionError, ExecutionResult,
+    PartialBlockExecutionTracer, PartialBlockForkExecutionTracer, TransactionErr, TransactionOk,
 };
+use rbuilder_primitives::{OrderId, TransactionSignedEcRecoveredWithBlobs};
 
 const INDENT_SIZE: usize = 2;
 
@@ -191,7 +190,10 @@ impl FullPartialBlockExecutionTracer {
 }
 
 impl PartialBlockExecutionTracer for FullPartialBlockExecutionTracer {
-    fn update_commit_order_about_to_execute(&mut self, _order: &crate::primitives::SimulatedOrder) {
+    fn update_commit_order_about_to_execute(
+        &mut self,
+        _order: &rbuilder_primitives::SimulatedOrder,
+    ) {
         assert!(self.last_order_start_time.is_none());
         assert!(self.order_executed_txs.is_empty());
         self.last_order_start_time = Some(Instant::now());
@@ -202,7 +204,7 @@ impl PartialBlockExecutionTracer for FullPartialBlockExecutionTracer {
 
     fn update_commit_order_executed(
         &mut self,
-        order: &crate::primitives::SimulatedOrder,
+        order: &rbuilder_primitives::SimulatedOrder,
         res: &Result<Result<ExecutionResult, ExecutionError>, CriticalCommitOrderError>,
     ) {
         let base = BaseExecutionSummary {
@@ -258,7 +260,7 @@ impl PartialBlockForkExecutionTracer for FullPartialBlockExecutionTracer {
 
     fn update_commit_tx_executed(
         &mut self,
-        tx_with_blobs: &crate::primitives::TransactionSignedEcRecoveredWithBlobs,
+        tx_with_blobs: &rbuilder_primitives::TransactionSignedEcRecoveredWithBlobs,
         _space_state: BlockBuildingSpaceState,
         res: &Result<Result<TransactionOk, TransactionErr>, CriticalCommitOrderError>,
     ) {

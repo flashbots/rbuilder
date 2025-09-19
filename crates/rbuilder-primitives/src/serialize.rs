@@ -544,8 +544,7 @@ pub enum RawShareBundleConvertError {
     CancelError,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(test, derive(PartialEq, Eq))]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CancelShareBundle {
     pub block: u64,
     pub key: ShareBundleReplacementKey,
@@ -846,7 +845,7 @@ impl From<Order> for RawOrder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::primitives::ReplacementData;
+    use crate::ReplacementData;
     use alloy_consensus::Transaction;
     use alloy_eips::eip2718::Encodable2718;
     use alloy_primitives::{address, b256, bytes, fixed_bytes, keccak256, U256};

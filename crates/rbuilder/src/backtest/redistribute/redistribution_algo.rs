@@ -1,7 +1,7 @@
 // disable clippy::needless_range_loop for this file
 #![allow(clippy::needless_range_loop)]
 
-use crate::primitives::OrderId;
+use rbuilder_primitives::OrderId;
 use alloy_primitives::{Address, I256, U256};
 use std::cmp::{max, min};
 

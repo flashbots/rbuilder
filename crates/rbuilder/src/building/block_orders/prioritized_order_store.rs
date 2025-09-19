@@ -4,9 +4,9 @@ use ahash::{HashMap, HashSet};
 use alloy_primitives::Address;
 use priority_queue::PriorityQueue;
 
-use crate::{
-    primitives::{order_statistics::OrderStatistics, AccountNonce, Nonce, OrderId, SimulatedOrder},
-    telemetry::mark_order_not_ready_for_immediate_inclusion,
+use crate::telemetry::mark_order_not_ready_for_immediate_inclusion;
+use rbuilder_primitives::{
+    order_statistics::OrderStatistics, AccountNonce, Nonce, OrderId, SimulatedOrder,
 };
 
 use super::{OrderPriority, SimulatedOrderSink};

@@ -1,8 +1,11 @@
 use std::fmt::Write;
 
-use crate::utils::fmt::write_indent;
-
 use super::{Order, ShareBundleBody, ShareBundleInner, ShareBundleTx, SimValue, SimulatedOrder};
+
+/// Writes indent spaces
+pub fn write_indent<Buffer: Write>(indent: usize, buf: &mut Buffer) -> std::fmt::Result {
+    buf.write_str(&format!("{: <1$}", "", indent))
+}
 
 pub fn write_share_bundle_tx<Buffer: Write>(
     indent: usize,

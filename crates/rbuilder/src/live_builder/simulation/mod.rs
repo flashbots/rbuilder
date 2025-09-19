@@ -8,12 +8,12 @@ use crate::{
         BlockBuildingContext,
     },
     live_builder::order_input::orderpool::OrdersForBlock,
-    primitives::{OrderId, SimulatedOrder},
     provider::StateProviderFactory,
     utils::{gen_uid, NonceCache, Signer},
 };
 use ahash::HashMap;
 use parking_lot::Mutex;
+use rbuilder_primitives::{OrderId, SimulatedOrder};
 use simulation_job::SimulationJob;
 use std::sync::Arc;
 use tokio::{sync::mpsc, task::JoinHandle};
@@ -199,10 +199,10 @@ mod tests {
     use crate::{
         building::testing::test_chain_state::{BlockArgs, NamedAddr, TestChainState, TxArgs},
         live_builder::order_input::order_sink::OrderPoolCommand,
-        primitives::{MempoolTx, Order, TransactionSignedEcRecoveredWithBlobs},
         utils::ProviderFactoryReopener,
     };
     use alloy_primitives::U256;
+    use rbuilder_primitives::{MempoolTx, Order, TransactionSignedEcRecoveredWithBlobs};
 
     #[tokio::test]
     async fn test_simulate_order_to_coinbase() {

@@ -17,12 +17,12 @@ use rbuilder::{
         OrderPriority, ThreadBlockBuildingContext,
     },
     live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig, config::Config},
-    primitives::{
-        order_statistics::OrderStatistics, MempoolTx, Order, SimValue, SimulatedOrder,
-        TransactionSignedEcRecoveredWithBlobs,
-    },
     provider::StateProviderFactory,
     utils::{extract_onchain_block_txs, find_suggested_fee_recipient},
+};
+use rbuilder_primitives::{
+    order_statistics::OrderStatistics, MempoolTx, Order, SimValue, SimulatedOrder,
+    TransactionSignedEcRecoveredWithBlobs,
 };
 use std::{
     path::{Path, PathBuf},

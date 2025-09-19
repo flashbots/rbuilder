@@ -1,18 +1,21 @@
-pub mod adjustment;
 pub mod bloxroute_grpc;
 mod error;
 pub mod fake_mev_boost_relay;
 pub mod rpc;
 pub mod sign_payload;
-pub mod submission;
 
 use crate::mev_boost::bloxroute_grpc::GrpcRelayClient;
+use rbuilder_primitives::mev_boost::{
+    MevBoostRelayID, RelaySubmitConfig, SubmitBlockRequestNoBlobs, SubmitBlockRequestWithMetadata,
+    ValidatorRegistration, ValidatorSlotData, MEV_BOOST_SLOT_INFO_REQUEST_TIMEOUT,
+};
 
 use super::utils::u256decimal_serde_helper;
 
-use alloy_primitives::{Address, BlockHash, Bytes, U256};
+use alloy_primitives::{utils::parse_ether, Address, BlockHash, U256};
 use alloy_rpc_types_beacon::BlsPublicKey;
 use flate2::{write::GzEncoder, Compression};
+use governor::{DefaultDirectRateLimiter, Quota, RateLimiter};
 use itertools::Itertools;
 use reqwest::{
     header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_ENCODING, CONTENT_TYPE},
@@ -21,8 +24,7 @@ use reqwest::{
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use ssz::Encode;
-use std::{io::Write, str::FromStr, time::Duration};
-use submission::{SubmitBlockRequestNoBlobs, SubmitBlockRequestWithMetadata};
+use std::{io::Write, str::FromStr, sync::Arc, time::Duration};
 use url::Url;
 
 pub use error::*;
@@ -229,6 +231,143 @@ impl RelayClient {
     }
 }
 
+/// Wrapper in RelayClient to submit blocks.
+/// Hides the particular configuration (eg: ssz, gip, optimistic).
+/// cancellation hardcoded on true for now.
+#[derive(Debug, Clone)]
+pub struct MevBoostRelayBidSubmitter {
+    /// Id for UI
+    id: MevBoostRelayID,
+
+    client: RelayClient,
+    /// true -> ssz; false -> json.
+    use_ssz_for_submit: bool,
+    use_gzip_for_submit: bool,
+    /// Relay accepts optimistic submissions.
+    optimistic: bool,
+    submission_rate_limiter: Option<Arc<DefaultDirectRateLimiter>>,
+    /// This is not a real relay so we can send blocks to it even if it does not have any validator registered.
+    test_relay: bool,
+    /// Parameter for the relay
+    cancellations: bool,
+    /// Max bid we can submit to this relay. Any bid above this will be skipped.
+    /// None -> No limit.
+    max_bid: Option<U256>,
+}
+
+impl MevBoostRelayBidSubmitter {
+    pub fn new(
+        client: RelayClient,
+        id: String,
+        config: &RelaySubmitConfig,
+        test_relay: bool,
+    ) -> eyre::Result<Self> {
+        let max_bid = config
+            .max_bid_eth
+            .as_ref()
+            .map(|s| parse_ether(s))
+            .transpose()
+            .map_err(|e| eyre::eyre!("Failed to parse max bid: {}", e))?;
+        let submission_rate_limiter = config.interval_between_submissions_ms.map(|d| {
+            Arc::new(RateLimiter::direct(
+                Quota::with_period(Duration::from_millis(d)).expect("Rate limiter time period"),
+            ))
+        });
+        Ok(Self {
+            id,
+            client,
+            use_ssz_for_submit: config.use_ssz_for_submit,
+            use_gzip_for_submit: config.use_gzip_for_submit,
+            optimistic: config.optimistic,
+            submission_rate_limiter,
+            test_relay,
+            cancellations: true,
+            max_bid,
+        })
+    }
+
+    pub fn test_relay(&self) -> bool {
+        self.test_relay
+    }
+
+    pub fn id(&self) -> &MevBoostRelayID {
+        &self.id
+    }
+
+    pub fn optimistic(&self) -> bool {
+        self.optimistic
+    }
+
+    pub fn max_bid(&self) -> Option<U256> {
+        self.max_bid
+    }
+
+    /// false -> rate limiter don't allow
+    pub fn can_submit_bid(&self) -> bool {
+        if let Some(limiter) = &self.submission_rate_limiter {
+            limiter.check().is_ok()
+        } else {
+            true
+        }
+    }
+
+    pub async fn submit_block(
+        &self,
+        data: &SubmitBlockRequestWithMetadata,
+        registration: &ValidatorSlotData,
+    ) -> Result<(), SubmitBlockErr> {
+        self.client
+            .submit_block(
+                data,
+                registration,
+                self.use_ssz_for_submit,
+                self.use_gzip_for_submit,
+                self.test_relay,
+                self.cancellations,
+            )
+            .await
+    }
+}
+
+/// Wrapper over RelayClient that allows to ask for slot validators info.
+#[derive(Debug, Clone)]
+pub struct MevBoostRelaySlotInfoProvider {
+    /// Id for UI
+    id: MevBoostRelayID,
+    client: RelayClient,
+}
+
+impl MevBoostRelaySlotInfoProvider {
+    pub fn new(client: RelayClient, id: String) -> Self {
+        // we use separate request client for requesting validator data from the relay
+        // 1. it separates TCP connections that are used for submissions and other requests to the relay
+        // 2. it adds request timeout to epoch data request and its not needed for submissions
+        let req_client = reqwest::ClientBuilder::new()
+            .timeout(MEV_BOOST_SLOT_INFO_REQUEST_TIMEOUT)
+            .build()
+            .expect("failed to create reqwest client");
+        let client = client.with_reqwest_client(req_client);
+
+        Self { client, id }
+    }
+    pub fn id(&self) -> &MevBoostRelayID {
+        &self.id
+    }
+
+    /// A little ugly, needed for backtest payload fetcher.
+    pub fn client(&self) -> RelayClient {
+        self.client.clone()
+    }
+
+    pub async fn get_current_epoch_validators(&self) -> Result<Vec<ValidatorSlotData>, RelayError> {
+        self.client.get_current_epoch_validators().await
+    }
+
+    pub fn can_ignore_gas_limit(&self) -> bool {
+        self.client.can_ignore_gas_limit()
+    }
+}
+
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct ProposerPayloadDelivered {
@@ -279,23 +418,6 @@ pub struct BuilderBlockReceived {
     pub optimistic_submission: bool,
 }
 
-#[serde_as]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Hash)]
-pub struct ValidatorRegistrationMessage {
-    pub fee_recipient: Address,
-    #[serde_as(as = "DisplayFromStr")]
-    pub gas_limit: u64,
-    #[serde_as(as = "DisplayFromStr")]
-    pub timestamp: u64,
-    pub pubkey: BlsPublicKey,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Hash)]
-pub struct ValidatorRegistration {
-    pub message: ValidatorRegistrationMessage,
-    pub signature: Bytes,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum RelayResponse<T> {
@@ -310,23 +432,6 @@ pub struct RelaySlotData {
     pub registration: ValidatorSlotData,
     /// Fee payer address for bid adjustments.
     pub adjustment_fee_payer: Option<Address>,
-}
-
-/// Info about a registered validator selected as proposer for a slot.
-#[serde_as]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Hash)]
-pub struct ValidatorSlotData {
-    /// The slot number for the validator entry.
-    #[serde_as(as = "DisplayFromStr")]
-    pub slot: u64,
-    /// The index of the validator.
-    #[serde_as(as = "DisplayFromStr")]
-    pub validator_index: u64,
-    /// Details of the validator registration.
-    pub entry: ValidatorRegistration,
-    /// (Bloxroute) Collection of regional endpoints validator is connected to.
-    #[serde(default)]
-    pub regional_endpoints: Vec<BloxrouteRegionalEndpoint>,
 }
 
 /// Bloxroute validator RProxy details.
@@ -679,9 +784,9 @@ impl RelayClient {
                     .order_ids
                     .iter()
                     .filter_map(|or| match or {
-                        crate::primitives::OrderId::Tx(_fixed_bytes) => None,
-                        crate::primitives::OrderId::Bundle(uuid) => Some(uuid),
-                        crate::primitives::OrderId::ShareBundle(_fixed_bytes) => None,
+                        rbuilder_primitives::OrderId::Tx(_fixed_bytes) => None,
+                        rbuilder_primitives::OrderId::Bundle(uuid) => Some(uuid),
+                        rbuilder_primitives::OrderId::ShareBundle(_fixed_bytes) => None,
                     })
                     .collect();
                 let total_bundles = bundle_ids.len();
@@ -869,12 +974,16 @@ fn map_relay_error_message(msg: &str, code: Option<u64>) -> SubmitBlockErr {
 
 #[cfg(test)]
 mod tests {
-    use submission::{BidMetadata, BidValueMetadata};
+
+    use alloy_primitives::Bytes;
+    use alloy_rpc_types_beacon::BlsPublicKey;
+    use rbuilder_primitives::mev_boost::{
+        BidMetadata, BidValueMetadata, SubmitBlockRequest, ValidatorRegistration,
+        ValidatorRegistrationMessage,
+    };
 
     use super::{rpc::TestDataGenerator, *};
-    use crate::mev_boost::{
-        fake_mev_boost_relay::FakeMevBoostRelay, submission::SubmitBlockRequest,
-    };
+    use crate::mev_boost::fake_mev_boost_relay::FakeMevBoostRelay;
 
     use std::str::FromStr;
 

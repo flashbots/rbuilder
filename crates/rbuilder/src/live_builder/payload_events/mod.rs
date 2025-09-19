@@ -11,8 +11,7 @@ use crate::{
         payload_source::PayloadSourceMuxer,
         relay_epoch_cache::{RelaysForSlotData, SlotData},
     },
-    mev_boost::RelaySlotData,
-    primitives::mev_boost::{MevBoostRelayID, MevBoostRelaySlotInfoProvider},
+    mev_boost::{MevBoostRelaySlotInfoProvider, RelaySlotData},
     utils::{format_offset_datetime_rfc3339, timestamp_ms_to_offset_datetime},
 };
 use ahash::HashMap;
@@ -20,6 +19,7 @@ use alloy_eips::{merge::SLOT_DURATION, BlockNumHash};
 use alloy_primitives::{utils::format_ether, Address, B256, U256};
 use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
 use derivative::Derivative;
+use rbuilder_primitives::mev_boost::MevBoostRelayID;
 use std::{collections::VecDeque, sync::Arc, time::Duration};
 use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_util::sync::CancellationToken;

@@ -44,18 +44,17 @@ impl BestBlockFromAlgorithms {
 mod tests {
     use alloy_primitives::{I256, U256};
 
-    use crate::{
-        building::{
-            builders::mock_block_building_helper::MockBlockBuildingHelper, BlockSpace,
-            ExecutionResult, TransactionExecutionInfo,
-        },
-        primitives::{AccountNonce, Order},
+    use crate::building::{
+        builders::mock_block_building_helper::MockBlockBuildingHelper, ExecutionResult,
+        TransactionExecutionInfo,
     };
+
+    use rbuilder_primitives::{AccountNonce, BlockSpace, Order};
 
     use super::*;
 
     struct TestDataGenerator {
-        base: crate::primitives::TestDataGenerator,
+        base: rbuilder_primitives::TestDataGenerator,
     }
     impl TestDataGenerator {
         fn new() -> Self {

@@ -9,8 +9,8 @@ use alloy_primitives::{utils::format_ether, U256};
 use crate::{
     building::{builders::block_building_helper::BlockBuildingHelper, ThreadBlockBuildingContext},
     live_builder::order_input::mempool_txs_detector::MempoolTxsDetector,
-    primitives::{order_statistics::OrderStatistics, OrderId, SimulatedOrder},
 };
+use rbuilder_primitives::{order_statistics::OrderStatistics, OrderId, SimulatedOrder};
 
 use super::block_building_helper::{BlockBuildingHelperError, FinalizeBlockResult};
 
@@ -165,9 +165,9 @@ impl BlockBuildingHelper for BlockBuildingHelperStatsLogger<'_> {
     fn commit_order(
         &mut self,
         local_ctx: &mut ThreadBlockBuildingContext,
-        order: &crate::primitives::SimulatedOrder,
+        order: &rbuilder_primitives::SimulatedOrder,
         result_filter: &dyn Fn(
-            &crate::primitives::SimValue,
+            &rbuilder_primitives::SimValue,
         ) -> Result<(), crate::building::ExecutionError>,
     ) -> Result<
         Result<&crate::building::ExecutionResult, crate::building::ExecutionError>,

@@ -2,14 +2,8 @@ use crate::{
     building::builders::Block,
     live_builder::payload_events::MevBoostSlotData,
     mev_boost::{
-        adjustment::BidAdjustmentData,
-        sign_block_for_relay,
-        submission::{BidMetadata, BidValueMetadata, SubmitBlockRequestWithMetadata},
-        BLSBlockSigner, RelayError, RelaySlotData, SubmitBlockErr, ValidatorSlotData,
-    },
-    primitives::{
-        built_block::{block_to_execution_payload, SignedBuiltBlock},
-        mev_boost::{MevBoostRelayBidSubmitter, MevBoostRelayID},
+        sign_block_for_relay, BLSBlockSigner, MevBoostRelayBidSubmitter, RelayError, RelaySlotData,
+        SubmitBlockErr,
     },
     telemetry::{
         add_relay_submit_time, add_subsidy_value, inc_conn_relay_errors,
@@ -23,6 +17,13 @@ use ahash::HashMap;
 use alloy_primitives::{utils::format_ether, Address, U256};
 use mockall::automock;
 use parking_lot::Mutex;
+use rbuilder_primitives::{
+    built_block::{block_to_execution_payload, SignedBuiltBlock},
+    mev_boost::{
+        BidAdjustmentData, BidMetadata, BidValueMetadata, MevBoostRelayID,
+        SubmitBlockRequestWithMetadata, ValidatorSlotData,
+    },
+};
 use reth_chainspec::ChainSpec;
 use std::sync::Arc;
 use tokio::{sync::Notify, time::Instant};

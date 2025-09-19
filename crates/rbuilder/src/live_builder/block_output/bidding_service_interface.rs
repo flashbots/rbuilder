@@ -4,6 +4,7 @@ use alloy_primitives::{BlockHash, BlockNumber, U256};
 use bid_scraper::{bid_scraper_client::ScrapedBidsObs, types::ScrapedRelayBlockBid};
 use derivative::Derivative;
 use mockall::automock;
+use rbuilder_primitives::mev_boost::SubmitBlockRequest;
 use reth_primitives::SealedBlock;
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
@@ -11,7 +12,6 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     building::{builders::block_building_helper::BiddableUnfinishedBlock, BuiltBlockTrace},
     live_builder::payload_events::MevBoostSlotData,
-    mev_boost::submission::SubmitBlockRequest,
     telemetry::inc_bids_received,
 };
 

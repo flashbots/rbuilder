@@ -10,11 +10,10 @@ use crate::{
         BlockBuildingContext,
     },
     live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig},
-    primitives::{
-        Bundle, MempoolTx, Metadata, Order, TransactionSignedEcRecoveredWithBlobs,
-        LAST_BUNDLE_VERSION,
-    },
     provider::state_provider_factory_from_provider_factory::StateProviderFactoryFromProviderFactory,
+};
+use rbuilder_primitives::{
+    Bundle, MempoolTx, Metadata, Order, TransactionSignedEcRecoveredWithBlobs, LAST_BUNDLE_VERSION,
 };
 
 use super::backtest_build_block::{run_backtest_build_block, BuildBlockCfg, OrdersSource};

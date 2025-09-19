@@ -11,10 +11,10 @@ use crate::{
         order_input::replaceable_order_sink::ReplaceableOrderSink,
         payload_events::MevBoostSlotData, simulation::SlotOrderSimResults,
     },
-    primitives::{OrderId, SimulatedOrder},
     provider::StateProviderFactory,
 };
 use alloy_primitives::Address;
+use rbuilder_primitives::{OrderId, SimulatedOrder};
 use reth_chainspec::EthereumHardforks as _;
 use std::{cell::RefCell, rc::Rc, sync::Arc, thread, time::Duration};
 use tokio::sync::{broadcast, mpsc};

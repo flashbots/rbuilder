@@ -1,8 +1,7 @@
 use crate::{
     building::{
-        evm_inspector::SlotKey, tracers::AccumulatorSimulationTracer, BlockBuildingContext,
-        BlockBuildingSpaceState, BlockState, PartialBlock, PartialBlockFork,
-        ThreadBlockBuildingContext,
+        tracers::AccumulatorSimulationTracer, BlockBuildingContext, BlockBuildingSpaceState,
+        BlockState, PartialBlock, PartialBlockFork, ThreadBlockBuildingContext,
     },
     provider::StateProviderFactory,
     utils::{extract_onchain_block_txs, find_suggested_fee_recipient, signed_uint_delta, Signer},
@@ -10,6 +9,7 @@ use crate::{
 use ahash::{HashMap, HashSet};
 use alloy_primitives::{TxHash, B256, I256};
 use eyre::Context;
+use rbuilder_primitives::evm_inspector::SlotKey;
 use reth_chainspec::ChainSpec;
 use reth_primitives::{Receipt, Recovered, TransactionSigned};
 use std::sync::Arc;

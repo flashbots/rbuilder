@@ -14,13 +14,11 @@ use super::{
     Algorithm, ConflictTask, ResolutionResult,
 };
 
-use crate::{
-    building::{
-        BlockBuildingContext, BlockState, ExecutionError, ExecutionResult, PartialBlock,
-        ThreadBlockBuildingContext,
-    },
-    primitives::{OrderId, SimulatedOrder},
+use crate::building::{
+    BlockBuildingContext, BlockState, ExecutionError, ExecutionResult, PartialBlock,
+    ThreadBlockBuildingContext,
 };
+use rbuilder_primitives::{OrderId, SimulatedOrder};
 
 /// Context for resolving conflicts in merging tasks.
 
@@ -456,12 +454,10 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
-    use crate::{
-        building::builders::parallel_builder::{ConflictGroup, GroupId, TaskPriority},
-        primitives::{
-            Bundle, Metadata, Order, SimValue, SimulatedOrder,
-            TransactionSignedEcRecoveredWithBlobs, LAST_BUNDLE_VERSION,
-        },
+    use crate::building::builders::parallel_builder::{ConflictGroup, GroupId, TaskPriority};
+    use rbuilder_primitives::{
+        Bundle, Metadata, Order, SimValue, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs,
+        LAST_BUNDLE_VERSION,
     };
 
     struct DataGenerator {

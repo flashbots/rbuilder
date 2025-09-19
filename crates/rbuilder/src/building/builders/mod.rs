@@ -12,14 +12,13 @@ use crate::{
         building::built_block_cache::BuiltBlockCache, payload_events::InternalPayloadId,
         simulation::SimulatedOrderCommand,
     },
-    mev_boost::adjustment::BidAdjustmentData,
-    primitives::{AccountNonce, OrderId, SimulatedOrder},
     provider::StateProviderFactory,
     utils::{is_provider_factory_health_error, NonceCache},
 };
 use ahash::HashSet;
 use alloy_eips::eip7594::BlobTransactionSidecarVariant;
 use alloy_primitives::{Address, Bytes};
+use rbuilder_primitives::{mev_boost::BidAdjustmentData, AccountNonce, OrderId, SimulatedOrder};
 use reth::primitives::SealedBlock;
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
 use tokio::sync::{

@@ -11,6 +11,8 @@ build = "build.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+rbuilder-primitives.workspace = true
+
 serde = { workspace = true }
 derive_more = { workspace = true }
 serde_json = { workspace = true }

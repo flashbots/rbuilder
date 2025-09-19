@@ -7,20 +7,19 @@ use crate::{
     },
     live_builder::order_input::ReplaceableOrderPoolCommand,
     mev_boost::BuilderBlockReceived,
-    primitives::{
-        serialize::{CancelShareBundle, RawOrder, RawOrderConvertError, TxEncoding},
-        BundleReplacementData, OrderId,
-    },
     utils::timestamp_ms_to_offset_datetime,
 };
 use ahash::{HashMap, HashSet};
 use alloy_primitives::{
     utils::{format_ether, parse_ether, ParseUnits, Unit},
-    I256,
+    Address, B256, I256, U256,
 };
-use alloy_primitives::{Address, B256, U256};
 use lz4_flex::{block::DecompressError, compress_prepend_size, decompress_size_prepended};
 use rayon::prelude::*;
+use rbuilder_primitives::{
+    serialize::{CancelShareBundle, RawOrder, RawOrderConvertError, TxEncoding},
+    BundleReplacementData, OrderId,
+};
 use serde::{Deserialize, Serialize};
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqliteRow},
@@ -699,16 +698,15 @@ impl RawReplaceableOrderPoolCommandWithTimestamp {
 mod test {
     use super::*;
     use crate::{
-        backtest::full_slot_block_data::FullSlotBlockData,
-        mev_boost::BuilderBlockReceived,
-        primitives::{
-            serialize::{RawBundle, RawTx},
-            BundleReplacementKey, ShareBundleReplacementKey, LAST_BUNDLE_VERSION,
-        },
+        backtest::full_slot_block_data::FullSlotBlockData, mev_boost::BuilderBlockReceived,
     };
     use alloy_consensus::{EthereumTxEnvelope, Signed, TxEip1559};
     use alloy_primitives::{address, hex, Address, Signature, B256, U256, U64};
     use alloy_rpc_types::{Block, BlockTransactions, Header, Transaction};
+    use rbuilder_primitives::{
+        serialize::{RawBundle, RawTx},
+        BundleReplacementKey, ShareBundleReplacementKey, LAST_BUNDLE_VERSION,
+    };
     use reth_primitives::Recovered;
     use time::OffsetDateTime;
     use uuid::uuid;

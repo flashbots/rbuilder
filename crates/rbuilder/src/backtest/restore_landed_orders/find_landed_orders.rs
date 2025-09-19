@@ -1,11 +1,9 @@
 use std::ops::Range;
 
-use crate::{
-    primitives::{Order, OrderId, ShareBundleBody, ShareBundleInner, TxRevertBehavior},
-    utils::get_percent,
-};
+use crate::utils::get_percent;
 use ahash::HashMap;
 use alloy_primitives::{B256, I256, U256};
+use rbuilder_primitives::{Order, OrderId, ShareBundleBody, ShareBundleInner, TxRevertBehavior};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct OrderTxData {
@@ -440,12 +438,9 @@ fn find_allowed_range(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        primitives::{
-            Bundle, BundleRefund, MempoolTx, Refund, ShareBundle, ShareBundleTx,
-            LAST_BUNDLE_VERSION,
-        },
-        utils::test_utils::*,
+    use crate::utils::test_utils::*;
+    use rbuilder_primitives::{
+        Bundle, BundleRefund, MempoolTx, Refund, ShareBundle, ShareBundleTx, LAST_BUNDLE_VERSION,
     };
 
     #[test]

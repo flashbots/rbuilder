@@ -18,10 +18,10 @@ use crate::{
         NullPartialBlockExecutionTracer, PartialBlock, PartialBlockExecutionTracer,
         ThreadBlockBuildingContext,
     },
-    primitives::{order_statistics::OrderStatistics, SimValue, SimulatedOrder},
     telemetry::{self, add_block_fill_time, add_order_simulation_time},
     utils::{check_block_hash_reader_health, elapsed_ms, HistoricalBlockError},
 };
+use rbuilder_primitives::{order_statistics::OrderStatistics, SimValue, SimulatedOrder};
 
 use super::Block;
 

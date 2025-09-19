@@ -1,9 +1,3 @@
-use crate::mev_boost::submission::FuluSubmitBlockRequest;
-
-use super::submission::{
-    CapellaSubmitBlockRequest, DenebSubmitBlockRequest, ElectraSubmitBlockRequest,
-    SubmitBlockRequest,
-};
 use alloy_eips::{
     eip4895::Withdrawal, eip6110::DepositRequest, eip7002::WithdrawalRequest,
     eip7251::ConsolidationRequest,
@@ -16,6 +10,10 @@ use alloy_rpc_types_beacon::{
     requests::ExecutionRequestsV4,
 };
 use alloy_rpc_types_engine::{ExecutionPayloadV1, ExecutionPayloadV2, ExecutionPayloadV3};
+use rbuilder_primitives::mev_boost::{
+    CapellaSubmitBlockRequest, DenebSubmitBlockRequest, ElectraSubmitBlockRequest,
+    FuluSubmitBlockRequest, SubmitBlockRequest,
+};
 use std::sync::Arc;
 
 /// Bloxroute gRPC types.

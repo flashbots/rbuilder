@@ -550,7 +550,6 @@ impl ShareBundle {
         sbundle
     }
 
-    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub fn new_with_fake_hash(
         hash: B256,
@@ -576,7 +575,6 @@ impl ShareBundle {
         }
     }
 
-    #[cfg(test)]
     pub fn with_inner_bundle(self, inner_bundle: ShareBundleInner) -> Self {
         Self::new(
             self.block,

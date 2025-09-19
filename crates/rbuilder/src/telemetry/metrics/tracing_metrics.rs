@@ -1,12 +1,10 @@
 /// Tracing metrics are used to get a fine grained look at the path of the order through the builder.
 /// To start collecting this metric mark_building_started must be called at the start of each slot.
-use crate::{
-    live_builder::order_input::ReplaceableOrderPoolCommand,
-    primitives::{Order, OrderId},
-};
+use crate::live_builder::order_input::ReplaceableOrderPoolCommand;
 use ahash::RandomState;
 use dashmap::{DashMap, DashSet};
 use lazy_static::lazy_static;
+use rbuilder_primitives::{Order, OrderId};
 use std::sync::{Arc, RwLock};
 use time::OffsetDateTime;
 

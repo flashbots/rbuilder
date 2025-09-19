@@ -9,7 +9,6 @@ use crate::{
         NullPartialBlockForkExecutionTracer,
     },
     live_builder::order_input::mempool_txs_detector::MempoolTxsDetector,
-    primitives::{Order, OrderId, SimulatedOrder},
     provider::StateProviderFactory,
     telemetry::{add_order_simulation_time, mark_order_pending_nonce},
     utils::NonceCache,
@@ -17,6 +16,7 @@ use crate::{
 use ahash::{HashMap, HashSet};
 use alloy_primitives::Address;
 use rand::seq::SliceRandom;
+use rbuilder_primitives::{Order, OrderId, SimulatedOrder};
 use reth_errors::ProviderError;
 use reth_provider::StateProvider;
 use std::{

@@ -16,9 +16,9 @@ use rbuilder::{
         block_list_provider::NullBlockListProvider,
         payload_events::{MevBoostSlotData, MevBoostSlotDataGenerator},
     },
-    mev_boost::submission::SubmitBlockRequest,
-    primitives::mev_boost::MevBoostRelaySlotInfoProvider,
+    mev_boost::MevBoostRelaySlotInfoProvider,
 };
+use rbuilder_primitives::mev_boost::SubmitBlockRequest;
 use serde::{Deserialize, Serialize};
 use ssz::Decode as _;
 use std::{

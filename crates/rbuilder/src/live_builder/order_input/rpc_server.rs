@@ -1,22 +1,20 @@
 use super::{OrderInputConfig, ReplaceableOrderPoolCommand};
-use crate::{
-    primitives::{
-        serialize::{
-            RawBundle, RawBundleDecodeResult, RawShareBundle, RawShareBundleDecodeResult, RawTx,
-            TxEncoding,
-        },
-        BundleReplacementData, BundleReplacementKey, MempoolTx, Order, OrderId,
-    },
-    telemetry::{
-        add_rpc_processing_time, inc_order_input_rpc_errors, mark_command_received,
-        scope_meter::ScopeMeter,
-    },
+use crate::telemetry::{
+    add_rpc_processing_time, inc_order_input_rpc_errors, mark_command_received,
+    scope_meter::ScopeMeter,
 };
 use alloy_primitives::{Address, Bytes};
 use jsonrpsee::{
     server::Server,
     types::{ErrorObject, Params},
     IntoResponse, RpcModule,
+};
+use rbuilder_primitives::{
+    serialize::{
+        RawBundle, RawBundleDecodeResult, RawShareBundle, RawShareBundleDecodeResult, RawTx,
+        TxEncoding,
+    },
+    BundleReplacementData, BundleReplacementKey, MempoolTx, Order, OrderId,
 };
 use serde::Deserialize;
 use std::{

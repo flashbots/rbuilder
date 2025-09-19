@@ -4,8 +4,6 @@ use crate::{
         block_list_provider::BlockList, order_input::mempool_txs_detector::MempoolTxsDetector,
         payload_events::InternalPayloadId,
     },
-    mev_boost::adjustment::BidAdjustmentData,
-    primitives::{Order, OrderId, SimValue, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs},
     provider::RootHasher,
     roothash::RootHashError,
     utils::{
@@ -36,6 +34,10 @@ use cached_reads::{LocalCachedReads, SharedCachedReads};
 use eth_sparse_mpt::SparseTrieLocalCache;
 use evm::EthCachedEvmFactory;
 use jsonrpsee::core::Serialize;
+use rbuilder_primitives::{
+    mev_boost::BidAdjustmentData, BlockSpace, Order, OrderId, SimValue, SimulatedOrder,
+    TransactionSignedEcRecoveredWithBlobs,
+};
 use reth::{
     payload::PayloadId,
     primitives::{Block, SealedBlock},
@@ -60,7 +62,6 @@ use serde::Deserialize;
 use std::{
     collections::{hash_map, HashMap, HashSet},
     hash::Hash,
-    ops::{Add, AddAssign, SubAssign},
     str::FromStr,
     sync::Arc,
     time::{Duration, Instant},
@@ -77,7 +78,6 @@ pub mod cached_reads;
 #[cfg(test)]
 pub mod conflict;
 pub mod evm;
-pub mod evm_inspector;
 pub mod fmt;
 pub mod order_commit;
 pub mod payout_tx;
@@ -464,60 +464,6 @@ impl PartialBlockForkExecutionTracer for NullPartialBlockExecutionTracer {
         _space_state: BlockBuildingSpaceState,
         _res: &Result<Result<TransactionOk, TransactionErr>, CriticalCommitOrderError>,
     ) {
-    }
-}
-
-/// Models consumed/reserved space on a block to be able to insert payout tx when finished filling the block.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct BlockSpace {
-    pub gas: u64,
-    /// EIP-7934 limits the size of the final rlp block.
-    /// Estimation of the sum of the rlp txs sizes.
-    pub rlp_length: usize,
-    pub blob_gas: u64,
-}
-
-impl BlockSpace {
-    pub fn new(gas: u64, rlp_length: usize, blob_gas: u64) -> Self {
-        Self {
-            gas,
-            rlp_length,
-            blob_gas,
-        }
-    }
-
-    pub const ZERO: Self = Self {
-        gas: 0,
-        rlp_length: 0,
-        blob_gas: 0,
-    };
-}
-
-impl AddAssign for BlockSpace {
-    fn add_assign(&mut self, other: Self) {
-        self.gas += other.gas;
-        self.rlp_length += other.rlp_length;
-        self.blob_gas += other.blob_gas;
-    }
-}
-
-impl Add for BlockSpace {
-    type Output = Self;
-
-    fn add(self, other: Self) -> Self {
-        Self {
-            gas: self.gas + other.gas,
-            rlp_length: self.rlp_length + other.rlp_length,
-            blob_gas: self.blob_gas + other.blob_gas,
-        }
-    }
-}
-
-impl SubAssign for BlockSpace {
-    fn sub_assign(&mut self, other: Self) {
-        self.gas = self.gas.checked_sub(other.gas).unwrap();
-        self.rlp_length = self.rlp_length.checked_sub(other.rlp_length).unwrap();
-        self.blob_gas = self.blob_gas.checked_sub(other.blob_gas).unwrap();
     }
 }
 
@@ -1424,10 +1370,8 @@ pub fn create_sim_value(
 mod test {
     use alloy_primitives::I256;
 
-    use crate::{
-        live_builder::order_input::mempool_txs_detector::MempoolTxsDetector,
-        primitives::{MempoolTx, Order, TestDataGenerator},
-    };
+    use crate::live_builder::order_input::mempool_txs_detector::MempoolTxsDetector;
+    use rbuilder_primitives::{MempoolTx, Order, TestDataGenerator};
 
     use super::{create_sim_value, OrderOk, TransactionExecutionInfo};
 

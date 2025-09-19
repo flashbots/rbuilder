@@ -3,10 +3,10 @@ use std::{fmt, sync::Arc};
 use crate::{
     building::sim::{SimTree, SimulatedResult, SimulationRequest},
     live_builder::order_input::order_sink::OrderPoolCommand,
-    primitives::{Order, OrderId, OrderReplacementKey},
 };
 use ahash::HashSet;
 use alloy_primitives::utils::format_ether;
+use rbuilder_primitives::{Order, OrderId, OrderReplacementKey};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, trace, warn};

@@ -1,12 +1,12 @@
 use crate::{
-    mev_boost::{RelayError, RelaySlotData, ValidatorSlotData},
-    primitives::mev_boost::{MevBoostRelayID, MevBoostRelaySlotInfoProvider},
+    mev_boost::{MevBoostRelaySlotInfoProvider, RelayError, RelaySlotData},
     telemetry::{inc_conn_relay_errors, inc_other_relay_errors, inc_too_many_req_relay_errors},
 };
 use ahash::{HashMap, HashSet};
 use alloy_primitives::Address;
 use alloy_rpc_types_beacon::BlsPublicKey;
 use parking_lot::RwLock;
+use rbuilder_primitives::mev_boost::{MevBoostRelayID, ValidatorSlotData};
 use std::{sync::Arc, time::Duration};
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
@@ -216,12 +216,11 @@ fn resolve_relay_slot_data(
 
 #[cfg(test)]
 mod test {
+    use crate::utils::set_test_debug_tracing_subscriber;
+
     use super::*;
-    use crate::{
-        mev_boost::{ValidatorRegistration, ValidatorRegistrationMessage},
-        utils::set_test_debug_tracing_subscriber,
-    };
     use alloy_primitives::{address, Bytes};
+    use rbuilder_primitives::mev_boost::{ValidatorRegistration, ValidatorRegistrationMessage};
 
     fn make_test_data(fee_recipient: Address, timestamp: u64) -> RelaySlotData {
         RelaySlotData {

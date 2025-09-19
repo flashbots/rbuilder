@@ -9,7 +9,6 @@
 use crate::{
     building::BuiltBlockTrace,
     live_builder::block_list_provider::{blocklist_hash, BlockList},
-    primitives::mev_boost::MevBoostRelayID,
     utils::{build_info::Version, duration_ms},
 };
 use alloy_consensus::constants::GWEI_TO_WEI;
@@ -24,6 +23,7 @@ use prometheus::{
     Counter, Gauge, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
     Opts, Registry,
 };
+use rbuilder_primitives::mev_boost::MevBoostRelayID;
 use std::{
     sync::Arc,
     time::{Duration, Instant},

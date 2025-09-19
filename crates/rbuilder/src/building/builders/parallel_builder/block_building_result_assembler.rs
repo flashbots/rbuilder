@@ -21,10 +21,10 @@ use crate::{
         BlockBuildingContext, ThreadBlockBuildingContext,
     },
     live_builder::block_output::unfinished_block_processing::UnfinishedBuiltBlocksInput,
-    primitives::order_statistics::OrderStatistics,
     telemetry::mark_builder_considers_order,
     utils::elapsed_ms,
 };
+use rbuilder_primitives::order_statistics::OrderStatistics;
 
 /// Assembles block building results from the best orderings of order groups.
 pub struct BlockBuildingResultAssembler {

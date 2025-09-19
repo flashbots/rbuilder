@@ -7,12 +7,12 @@ use crate::{
         TransactionErr,
     },
     live_builder::{block_list_provider::BlockList, cli::LiveBuilderConfig},
-    primitives::{OrderId, SimulatedOrder},
     provider::StateProviderFactory,
     utils::{clean_extradata, Signer},
 };
 use alloy_eips::BlockNumHash;
 use alloy_primitives::{Address, U256};
+use rbuilder_primitives::{OrderId, SimulatedOrder};
 use reth_chainspec::ChainSpec;
 use serde::{Deserialize, Serialize};
 use std::{cell::RefCell, rc::Rc, sync::Arc};

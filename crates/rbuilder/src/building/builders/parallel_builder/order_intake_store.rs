@@ -5,8 +5,8 @@ use tokio::sync::broadcast;
 use crate::{
     building::{builders::OrderConsumer, SimulatedOrderStore},
     live_builder::simulation::SimulatedOrderCommand,
-    primitives::SimulatedOrder,
 };
+use rbuilder_primitives::SimulatedOrder;
 
 /// Struct that allow getting the new orders from the order/cancellation stream in the way the parallel builder likes it.
 /// Contains the current whole set of orders but also can be queried for deltas on the orders ONLY if the deltas are all additions

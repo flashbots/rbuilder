@@ -3,7 +3,8 @@ use std::{fmt::Debug, sync::Arc};
 
 use alloy_primitives::B256;
 use alloy_provider::{Provider, RootProvider};
-use rbuilder::{mev_boost::submission::SubmitBlockRequest, utils::http_provider};
+use rbuilder::utils::http_provider;
+use rbuilder_primitives::mev_boost::SubmitBlockRequest;
 use serde::Serialize;
 use serde_with::{serde_as, DisplayFromStr};
 use tokio::sync::mpsc;

@@ -1,6 +1,6 @@
 use tracing::info;
 
-use crate::primitives::{BundleReplacementData, Order, ShareBundleReplacementKey};
+use rbuilder_primitives::{BundleReplacementData, Order, ShareBundleReplacementKey};
 use core::fmt::Debug;
 
 /// Receiver of order commands in a low level order stream (mempool + RPC calls).

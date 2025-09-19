@@ -6,16 +6,7 @@ use super::{
     BlockBuildingContext, EstimatePayoutGasErr, ThreadBlockBuildingContext,
 };
 use crate::{
-    building::{
-        estimate_payout_gas_limit,
-        evm::EvmFactory,
-        evm_inspector::{RBuilderEVMInspector, UsedStateTrace},
-        BlockBuildingSpaceState, BlockSpace,
-    },
-    primitives::{
-        Bundle, Order, OrderId, RefundConfig, ShareBundle, ShareBundleBody, ShareBundleInner,
-        TransactionSignedEcRecoveredWithBlobs,
-    },
+    building::{estimate_payout_gas_limit, evm::EvmFactory, BlockBuildingSpaceState},
     utils::{constants::BASE_TX_GAS, get_percent},
 };
 use ahash::HashSet;
@@ -24,6 +15,11 @@ use alloy_evm::Database;
 use alloy_primitives::{Address, B256, I256, U256};
 use alloy_rlp::Encodable;
 use itertools::Itertools;
+use rbuilder_primitives::{
+    evm_inspector::{RBuilderEVMInspector, UsedStateTrace},
+    BlockSpace, Bundle, Order, OrderId, RefundConfig, ShareBundle, ShareBundleBody,
+    ShareBundleInner, TransactionSignedEcRecoveredWithBlobs,
+};
 use reth::{
     consensus_common::validation::MAX_RLP_BLOCK_SIZE, revm::database::StateProviderDatabase,
 };
@@ -1057,11 +1053,11 @@ impl<
                         Ok(res) => {
                             if !res.tx_info.receipt.success {
                                 match sbundle_tx.revert_behavior {
-                                    crate::primitives::TxRevertBehavior::NotAllowed => {
+                                    rbuilder_primitives::TxRevertBehavior::NotAllowed => {
                                         return Ok(Err(BundleErr::TransactionReverted(tx.hash())));
                                     }
-                                    crate::primitives::TxRevertBehavior::AllowedIncluded => {}
-                                    crate::primitives::TxRevertBehavior::AllowedExcluded => {
+                                    rbuilder_primitives::TxRevertBehavior::AllowedIncluded => {}
+                                    rbuilder_primitives::TxRevertBehavior::AllowedExcluded => {
                                         self.rollback(rollback_point);
                                         continue;
                                     }

@@ -2,7 +2,7 @@
 
 use std::{collections::VecDeque, sync::Arc};
 
-use crate::primitives::{OrderId, SimulatedOrder};
+use rbuilder_primitives::{OrderId, SimulatedOrder};
 
 use super::SimulatedOrderSink;
 pub enum OrderStoreAction {

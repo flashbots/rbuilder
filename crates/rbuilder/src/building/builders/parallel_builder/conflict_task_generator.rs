@@ -1,8 +1,8 @@
-use crate::primitives::SimulatedOrder;
 use ahash::{HashMap, HashSet};
 use alloy_primitives::{utils::format_ether, U256};
 use crossbeam_queue::SegQueue;
 use itertools::Itertools;
+use rbuilder_primitives::SimulatedOrder;
 use std::{sync::Arc, time::Instant};
 use tracing::trace;
 
@@ -419,16 +419,16 @@ pub fn get_tasks_for_group(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::primitives::{
-        MempoolTx, Order, SimValue, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs,
-    };
     use alloy_consensus::TxLegacy;
     use alloy_primitives::{Address, TxHash, B256, U256};
+    use rbuilder_primitives::{
+        evm_inspector::{SlotKey, UsedStateTrace},
+        MempoolTx, Order, SimValue, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs,
+    };
     use reth::primitives::{Transaction, TransactionSigned};
     use reth_primitives::Recovered;
     use std::sync::Arc;
 
-    use crate::building::evm_inspector::{SlotKey, UsedStateTrace};
     use std::sync::mpsc;
 
     struct DataGenerator {

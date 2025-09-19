@@ -2,14 +2,14 @@
 
 use std::time::{Duration, Instant};
 
-use crate::primitives::{
-    serialize::{RawTx, TxEncoding},
-    TransactionSignedEcRecoveredWithBlobs,
-};
 use alloy_consensus::TxEnvelope;
 use alloy_eips::eip2718::Encodable2718;
 use alloy_primitives::{Address, Sign, I256, U256};
 use alloy_provider::RootProvider;
+use rbuilder_primitives::{
+    serialize::{RawTx, TxEncoding},
+    TransactionSignedEcRecoveredWithBlobs,
+};
 use reth_chainspec::ChainSpec;
 use reth_evm_ethereum::revm_spec_by_timestamp_and_block_number;
 use revm::context::CfgEnv;
@@ -32,9 +32,6 @@ pub use provider_factory_reopen::{
 };
 
 pub mod reconnect;
-
-mod test_data_generator;
-pub use test_data_generator::TestDataGenerator;
 
 mod tx_signer;
 pub use tx_signer::Signer;

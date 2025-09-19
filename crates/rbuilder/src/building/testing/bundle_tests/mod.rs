@@ -10,8 +10,10 @@ use crate::{
         testing::bundle_tests::setup::NonceValue, BuiltBlockTrace, BundleErr, ExecutionResult,
         OrderErr, TransactionErr,
     },
-    primitives::{Bundle, BundleRefund, Order, OrderId, Refund, RefundConfig, TxRevertBehavior},
     utils::{constants::BASE_TX_GAS, int_percentage},
+};
+use rbuilder_primitives::{
+    Bundle, BundleRefund, Order, OrderId, Refund, RefundConfig, TxRevertBehavior,
 };
 
 use self::setup::TestSetup;

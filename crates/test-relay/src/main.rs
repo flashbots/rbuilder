@@ -3,8 +3,7 @@ use ahash::HashMap;
 use metrics::spawn_metrics_server;
 use rbuilder::{
     beacon_api_client::Client,
-    mev_boost::RelayClient,
-    primitives::mev_boost::MevBoostRelaySlotInfoProvider,
+    mev_boost::{MevBoostRelaySlotInfoProvider, RelayClient},
     utils::tracing::{setup_tracing_subscriber, LoggerConfig},
 };
 use relay::spawn_relay_server;
