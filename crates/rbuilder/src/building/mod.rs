@@ -176,6 +176,7 @@ impl BlockBuildingContext {
                 },
             )
             .ok()?;
+        evm_env.cfg_env.tx_chain_id_check = true;
         evm_env.block_env.beneficiary = signer.address;
 
         let excess_blob_gas = if chain_spec.is_cancun_active_at_timestamp(attributes.timestamp) {
