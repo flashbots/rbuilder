@@ -1029,7 +1029,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         ctx: &BlockBuildingContext,
         local_ctx: &mut ThreadBlockBuildingContext,
         adjust_finalize_block: bool,
-        finalize_adustment_state: &mut FinalizeAdjustmentState,
+        finalize_adjustment_state: &mut FinalizeAdjustmentState,
     ) -> Result<FinalizeResult, FinalizeError> {
         let start = Instant::now();
 
@@ -1038,7 +1038,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             state,
             ctx,
             local_ctx,
-            &mut finalize_adustment_state.revert_state,
+            &mut finalize_adjustment_state.revert_state,
         )?;
         let block_number = ctx.block();
 
@@ -1064,13 +1064,13 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         let bloom_time_ms = elapsed_ms(step_start);
         let step_start = Instant::now();
 
-        let finalize_last_changes_current_iteration =
-            state.get_changes_for_last_reverts(finalize_adustment_state.revert_state.state_reverts);
+        let finalize_last_changes_current_iteration = state
+            .get_changes_for_last_reverts(finalize_adjustment_state.revert_state.state_reverts);
         let incremental_change = if adjust_finalize_block {
             // We want to collect list of accounts that were changed in current and previous
             // iteration of finalize so root hash implementation knows which accounts to update
             let mut result = std::mem::take(
-                &mut finalize_adustment_state
+                &mut finalize_adjustment_state
                     .previous_finalize_data
                     .account_changed_previous_iteration,
             );
@@ -1081,7 +1081,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         } else {
             Vec::new()
         };
-        finalize_adustment_state
+        finalize_adjustment_state
             .previous_finalize_data
             .account_changed_previous_iteration = finalize_last_changes_current_iteration;
 
