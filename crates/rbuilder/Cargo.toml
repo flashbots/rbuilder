@@ -63,7 +63,6 @@ metrics_macros = { path = "src/telemetry/metrics_macros" }
 
 reqwest = { workspace = true, features = ["blocking"] }
 serde_with = { workspace = true, features = ["time_0_3"] }
-primitive-types = "0.12.1"
 url.workspace = true
 sqlx = { version = "0.7.1", features = [
     "runtime-tokio-native-tls",

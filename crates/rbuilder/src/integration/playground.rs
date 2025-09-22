@@ -4,10 +4,9 @@ use crate::{
 };
 use alloy_network::EthereumWallet;
 use alloy_primitives::{address, Address};
-use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
+use alloy_rpc_types_beacon::{events::PayloadAttributesEvent, BlsPublicKey};
 use alloy_signer_local::PrivateKeySigner;
 use futures::StreamExt;
-use primitive_types::H384;
 use std::{
     fs::{File, OpenOptions},
     io,
@@ -170,7 +169,7 @@ impl Playground {
             .map_err(|_err| PayloadDeliveredError::RelayError)?
             .ok_or(PayloadDeliveredError::ProposalNotFound)?;
 
-        let builder_pubkey = H384::from_str("0xa1885d66bef164889a2e35845c3b626545d7b0e513efe335e97c3a45e534013fa3bc38c3b7e6143695aecc4872ac52c4").unwrap();
+        let builder_pubkey = BlsPublicKey::from_str("0xa1885d66bef164889a2e35845c3b626545d7b0e513efe335e97c3a45e534013fa3bc38c3b7e6143695aecc4872ac52c4").unwrap();
         if payload.builder_pubkey == builder_pubkey {
             Ok(payload)
         } else {

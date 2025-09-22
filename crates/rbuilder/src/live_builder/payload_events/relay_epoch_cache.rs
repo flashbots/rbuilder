@@ -5,8 +5,8 @@ use crate::{
 };
 use ahash::{HashMap, HashSet};
 use alloy_primitives::Address;
+use alloy_rpc_types_beacon::BlsPublicKey;
 use parking_lot::RwLock;
-use primitive_types::H384;
 use std::{sync::Arc, time::Duration};
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
@@ -19,7 +19,7 @@ pub struct SlotData {
     pub fee_recipient: Address,
     pub gas_limit: u64,
     /// Selected registered validator for the slot key.
-    pub pubkey: H384,
+    pub pubkey: BlsPublicKey,
 }
 
 /// Validator slot data by relay.
@@ -216,12 +216,11 @@ fn resolve_relay_slot_data(
 
 #[cfg(test)]
 mod test {
+    use super::*;
     use crate::{
         mev_boost::{ValidatorRegistration, ValidatorRegistrationMessage},
         utils::set_test_debug_tracing_subscriber,
     };
-
-    use super::*;
     use alloy_primitives::{address, Bytes};
 
     fn make_test_data(fee_recipient: Address, timestamp: u64) -> RelaySlotData {
@@ -232,7 +231,7 @@ mod test {
                         fee_recipient,
                         gas_limit: 30000000,
                         timestamp,
-                        pubkey: H384::zero(),
+                        pubkey: BlsPublicKey::ZERO,
                     },
                     signature: Bytes::new(),
                 },
@@ -266,7 +265,7 @@ mod test {
             SlotData {
                 fee_recipient: address!("1111111111111111111111111111111111111111"),
                 gas_limit: 30000000,
-                pubkey: H384::zero(),
+                pubkey: BlsPublicKey::ZERO,
             },
             slot_data
         );
@@ -296,7 +295,7 @@ mod test {
             SlotData {
                 fee_recipient: address!("2222222222222222222222222222222222222222"),
                 gas_limit: 30000000,
-                pubkey: H384::zero(),
+                pubkey: BlsPublicKey::ZERO,
             },
             slot_data
         );
@@ -323,7 +322,7 @@ mod test {
             SlotData {
                 fee_recipient: address!("2222222222222222222222222222222222222222"),
                 gas_limit: 30000000,
-                pubkey: H384::zero(),
+                pubkey: BlsPublicKey::ZERO,
             },
             slot_data
         );
@@ -345,7 +344,7 @@ mod test {
             SlotData {
                 fee_recipient: address!("2222222222222222222222222222222222222222"),
                 gas_limit: 30000000,
-                pubkey: H384::zero(),
+                pubkey: BlsPublicKey::ZERO,
             },
             slot_data
         );

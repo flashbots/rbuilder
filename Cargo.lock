@@ -9107,7 +9107,6 @@ dependencies = [
  "mev-share-sse",
  "mockall",
  "parking_lot",
- "primitive-types",
  "priority-queue",
  "prometheus",
  "prost",

@@ -1,8 +1,8 @@
 use alloy_consensus::{Block, Header};
 use alloy_eips::{eip4844::BlobTransactionSidecar, eip7594::BlobTransactionSidecarVariant};
 use alloy_primitives::U256;
+use alloy_rpc_types_beacon::BlsPublicKey;
 use criterion::{criterion_group, Criterion};
-use primitive_types::H384;
 use rbuilder::mev_boost::{
     rpc::TestDataGenerator, sign_block_for_relay, submission::DenebSubmitBlockRequest,
     BLSBlockSigner,
@@ -88,8 +88,8 @@ fn bench_mevboost_sign(c: &mut Criterion) {
                 &signer,
                 &sealed_block,
                 &payload,
-                H384::default(),
-                U256::default(),
+                BlsPublicKey::ZERO,
+                U256::ZERO,
             )
             .unwrap();
         })
@@ -113,8 +113,8 @@ fn bench_mevboost_sign(c: &mut Criterion) {
                 &signer,
                 &sealed_block_deneb,
                 &payload,
-                H384::default(),
-                U256::default(),
+                BlsPublicKey::ZERO,
+                U256::ZERO,
             )
             .unwrap();
         })

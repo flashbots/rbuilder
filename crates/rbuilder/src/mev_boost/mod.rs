@@ -11,9 +11,9 @@ use crate::mev_boost::bloxroute_grpc::GrpcRelayClient;
 use super::utils::u256decimal_serde_helper;
 
 use alloy_primitives::{Address, BlockHash, Bytes, U256};
+use alloy_rpc_types_beacon::BlsPublicKey;
 use flate2::{write::GzEncoder, Compression};
 use itertools::Itertools;
-use primitive_types::H384;
 use reqwest::{
     header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_ENCODING, CONTENT_TYPE},
     Body, Response, StatusCode,
@@ -236,8 +236,8 @@ pub struct ProposerPayloadDelivered {
     pub slot: u64,
     pub parent_hash: BlockHash,
     pub block_hash: BlockHash,
-    pub builder_pubkey: H384,
-    pub proposer_pubkey: H384,
+    pub builder_pubkey: BlsPublicKey,
+    pub proposer_pubkey: BlsPublicKey,
     pub proposer_fee_recipient: Address,
     #[serde_as(as = "DisplayFromStr")]
     pub gas_limit: u64,
@@ -258,8 +258,8 @@ pub struct BuilderBlockReceived {
     pub slot: u64,
     pub parent_hash: BlockHash,
     pub block_hash: BlockHash,
-    pub builder_pubkey: H384,
-    pub proposer_pubkey: H384,
+    pub builder_pubkey: BlsPublicKey,
+    pub proposer_pubkey: BlsPublicKey,
     pub proposer_fee_recipient: Address,
     #[serde_as(as = "DisplayFromStr")]
     pub gas_limit: u64,
@@ -287,7 +287,7 @@ pub struct ValidatorRegistrationMessage {
     pub gas_limit: u64,
     #[serde_as(as = "DisplayFromStr")]
     pub timestamp: u64,
-    pub pubkey: H384,
+    pub pubkey: BlsPublicKey,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Hash)]
@@ -503,7 +503,7 @@ impl RelayClient {
 
     pub async fn validator_registration(
         &self,
-        pubkey: H384,
+        pubkey: BlsPublicKey,
     ) -> Result<Option<ValidatorRegistration>, RelayError> {
         let url = {
             let mut url = self.url.clone();
@@ -913,8 +913,8 @@ mod tests {
             slot: 7251671,
             parent_hash: BlockHash::from_str("0xe57c063ad96fb5b6fe7696dc8509f3a986ace89d06a19951f3e4404f877bb0ca").unwrap(),
             block_hash: BlockHash::from_str("0xf2ae3ad64c285ab1de2195f23c19b2b2dcf4949b6f71a4a3406bac9734e1ff27").unwrap(),
-            builder_pubkey: H384::from_str("0x945fc51bf63613257792926c9155d7ae32db73155dc13bdfe61cd476f1fd2297b66601e8721b723cef11e4e6682e9d87").unwrap(),
-            proposer_pubkey: H384::from_str("0xb097a69fa420d01c293fed6b2596778d0722a2b076e401c2789cabce773a17c865285ff71b5dd545c7e77bee6ef8a41b").unwrap(),
+            builder_pubkey: BlsPublicKey::from_str("0x945fc51bf63613257792926c9155d7ae32db73155dc13bdfe61cd476f1fd2297b66601e8721b723cef11e4e6682e9d87").unwrap(),
+            proposer_pubkey: BlsPublicKey::from_str("0xb097a69fa420d01c293fed6b2596778d0722a2b076e401c2789cabce773a17c865285ff71b5dd545c7e77bee6ef8a41b").unwrap(),
             proposer_fee_recipient: Address::from_str("0xeBec795c9c8bBD61FFc14A6662944748F299cAcf").unwrap(),
             gas_limit: 30000000,
             gas_used: 20152932,
@@ -944,8 +944,8 @@ mod tests {
             slot: 7251671,
             parent_hash: BlockHash::from_str("0xe57c063ad96fb5b6fe7696dc8509f3a986ace89d06a19951f3e4404f877bb0ca").unwrap(),
             block_hash: BlockHash::from_str("0xae52fd69bb83fbe20802b8c130bed111d2f0b9620ab6d8ee369eee11e15b845e").unwrap(),
-            builder_pubkey: H384::from_str("0x945fc51bf63613257792926c9155d7ae32db73155dc13bdfe61cd476f1fd2297b66601e8721b723cef11e4e6682e9d87").unwrap(),
-            proposer_pubkey: H384::from_str("0xb097a69fa420d01c293fed6b2596778d0722a2b076e401c2789cabce773a17c865285ff71b5dd545c7e77bee6ef8a41b").unwrap(),
+            builder_pubkey: BlsPublicKey::from_str("0x945fc51bf63613257792926c9155d7ae32db73155dc13bdfe61cd476f1fd2297b66601e8721b723cef11e4e6682e9d87").unwrap(),
+            proposer_pubkey: BlsPublicKey::from_str("0xb097a69fa420d01c293fed6b2596778d0722a2b076e401c2789cabce773a17c865285ff71b5dd545c7e77bee6ef8a41b").unwrap(),
             proposer_fee_recipient: Address::from_str("0xeBec795c9c8bBD61FFc14A6662944748F299cAcf").unwrap(),
             gas_limit: 30000000,
             gas_used: 20585314,
@@ -964,7 +964,7 @@ mod tests {
     async fn test_validator_registration() {
         let relay = create_relay_provider();
         let result = relay
-            .validator_registration(H384::from_str("0x904e01b37a8db98695483da0025f4cc1c0ecc2b9a37ab53604c21d6788ad2a8996748ea0ce838d2926767eee0228ec69").unwrap())
+            .validator_registration(BlsPublicKey::from_str("0x904e01b37a8db98695483da0025f4cc1c0ecc2b9a37ab53604c21d6788ad2a8996748ea0ce838d2926767eee0228ec69").unwrap())
             .await
             .expect("Failed to get validator registration")
         .expect("Validator registration not found");
@@ -974,7 +974,7 @@ mod tests {
                 fee_recipient: Address::from_str("0x388c818ca8b9251b393131c08a736a67ccb19297").unwrap(),
                 gas_limit: 30000000,
                 timestamp: 1707146537,
-                pubkey: H384::from_str("0x904e01b37a8db98695483da0025f4cc1c0ecc2b9a37ab53604c21d6788ad2a8996748ea0ce838d2926767eee0228ec69").unwrap(),
+                pubkey: BlsPublicKey::from_str("0x904e01b37a8db98695483da0025f4cc1c0ecc2b9a37ab53604c21d6788ad2a8996748ea0ce838d2926767eee0228ec69").unwrap(),
             },
             signature: Bytes::from_str("0xa1d5118053d39665319909d099db64f174e62ffee22c4c65f7c86f549bde1225148af3e4623dc17f2bf8a292249693bb0556ef3bd13b7ea79fe58298e3a97f93c225777376ee07e49e8db9265a32716306288f5117f24bbac445babc78a81888").unwrap(),
         };
@@ -1040,7 +1040,7 @@ mod tests {
                     timestamp: 0,
                     gas_limit: 30_000_000,
                     fee_recipient: Address::random(),
-                    pubkey: H384::random(),
+                    pubkey: BlsPublicKey::random(),
                 },
                 signature: Default::default(),
             },
