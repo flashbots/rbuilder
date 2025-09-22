@@ -367,6 +367,13 @@ register_metrics! {
     )
     .unwrap();
 
+    pub static TRIGGER_TO_BID_ROUND_TRIP_TIME: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("trigger_to_bid_round_trip_time_us", "Time (in microseconds) it takes from a trigger (new block or competition bid) to get a new bid to make")
+            .buckets(linear_buckets_range(50.0, 4000.0, 200)),
+        &[]
+    )
+    .unwrap();
+
 }
 
 // This function should be called periodically to reset histogram metrics.
@@ -800,4 +807,10 @@ pub fn add_ordering_builder_pre_filtered_stage_stats(
     ratio: OrderInclusionRatio,
 ) {
     add_ordering_builder_orders_executed(builder_name, BUILDING_STEP_PRE_FILTERED, ratio);
+}
+
+pub fn add_trigger_to_bid_round_trip_time(duration: time::Duration) {
+    TRIGGER_TO_BID_ROUND_TRIP_TIME
+        .with_label_values(&[])
+        .observe(duration.as_seconds_f64() * 1_000_000.0);
 }

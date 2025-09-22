@@ -34,6 +34,7 @@ use crate::{
         payload_events::MevBoostSlotData, wallet_balance_watcher::WalletBalanceWatcher,
     },
     provider::StateProviderFactory,
+    telemetry::add_trigger_to_bid_round_trip_time,
 };
 
 use super::{
@@ -277,6 +278,12 @@ impl UnfinishedBuiltBlocksInput {
     fn seal_command(&self, bid: SlotBidderSealBidCommand) {
         let id_span = tracing::info_span!("block_id", block_id = bid.block_id.0);
         let _guard_id_span = id_span.enter();
+
+        if let Some(trigger_creation_time) = bid.trigger_creation_time {
+            let now = time::OffsetDateTime::now_utc();
+            let roundtrip = now - trigger_creation_time;
+            add_trigger_to_bid_round_trip_time(roundtrip);
+        }
 
         trace!(?bid, "Received seal command");
 
