@@ -223,7 +223,7 @@ pub struct UnfinishedBuiltBlocksInput {
 
     cancellation_token: CancellationToken,
     #[derivative(Debug = "ignore")]
-    block_building_sink: Arc<Mutex<Box<dyn BlockBuildingSink>>>,
+    block_building_sink: Arc<dyn BlockBuildingSink>,
     adjust_finalized_blocks: bool,
 }
 
@@ -243,7 +243,7 @@ impl UnfinishedBuiltBlocksInput {
             finalized_blocks: Arc::new(Mutex::new(Vec::new())),
             last_finalize_command: Arc::new((Mutex::new(None), Condvar::new())),
             cancellation_token,
-            block_building_sink: Arc::new(Mutex::new(block_building_sink)),
+            block_building_sink: block_building_sink.into(),
             adjust_finalized_blocks,
         }
     }
@@ -453,7 +453,7 @@ impl UnfinishedBuiltBlocksInput {
                     continue;
                 }
             };
-            self.block_building_sink.lock().new_block(result.block);
+            self.block_building_sink.new_block(result.block);
         }
     }
 }
