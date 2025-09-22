@@ -28,7 +28,7 @@ use crate::{
             BiddableUnfinishedBlock, BlockBuildingHelper, BlockBuildingHelperError,
             FinalizeBlockResult,
         },
-        ThreadBlockBuildingContext,
+        InsertPayoutTxErr, ThreadBlockBuildingContext,
     },
     live_builder::{
         payload_events::MevBoostSlotData, wallet_balance_watcher::WalletBalanceWatcher,
@@ -376,15 +376,18 @@ impl UnfinishedBuiltBlocksInput {
             let mut local_ctx = self.local_ctx();
             let mut block_building_helper = next_block.into_building_helper();
             if self.adjust_finalized_blocks {
-                let value = if block_building_helper
-                    .true_block_value()
-                    .unwrap_or_default()
-                    .is_zero()
-                {
-                    U256::ZERO
-                } else {
-                    // set value to 1 so that some contracts do not revert
-                    U256::ONE
+                let value = match block_building_helper.true_block_value() {
+                    Ok(value) => value,
+                    Err(BlockBuildingHelperError::InsertPayoutTxErr(
+                        InsertPayoutTxErr::ProfitTooLow,
+                    )) => {
+                        trace!("Block profit is too low");
+                        continue;
+                    }
+                    Err(err) => {
+                        error!(?err, "Failed to get block true value");
+                        continue;
+                    }
                 };
                 match block_building_helper.finalize_block(&mut local_ctx, value, None) {
                     Ok(_) => {
