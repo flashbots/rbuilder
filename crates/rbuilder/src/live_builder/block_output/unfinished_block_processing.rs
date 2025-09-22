@@ -459,6 +459,11 @@ impl UnfinishedBuiltBlocksInput {
                     continue;
                 }
                 Err(err) => {
+                    // remove this block from a list of prefinalized blocks as it can be inconsistent
+                    self.finalized_blocks.lock().retain(|block| {
+                        block.block_id != finalize_command.prefinalized_block.block_id
+                    });
+
                     error!(?err, "Failed to finalize prefinalized block");
                     continue;
                 }
