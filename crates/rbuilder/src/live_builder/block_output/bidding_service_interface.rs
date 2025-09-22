@@ -3,6 +3,7 @@ use std::sync::Arc;
 use alloy_primitives::{BlockHash, BlockNumber, U256};
 use bid_scraper::{bid_scraper_client::ScrapedBidsObs, types::ScrapedRelayBlockBid};
 use derivative::Derivative;
+use mockall::automock;
 use reth_primitives::SealedBlock;
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
@@ -15,6 +16,7 @@ use crate::{
 };
 
 /// Trait that receives every bid made by us to the relays.
+#[automock]
 pub trait BidObserver: std::fmt::Debug {
     /// This should NOT block since it's executed in the submitting thread.
     fn block_submitted(
@@ -108,6 +110,7 @@ pub struct SlotBidderSealBidCommand {
     pub trigger_creation_time: Option<OffsetDateTime>,
 }
 
+#[automock]
 pub trait BlockSealInterfaceForSlotBidder {
     fn seal_bid(&self, bid: SlotBidderSealBidCommand);
 }
@@ -138,6 +141,7 @@ impl ScrapedRelayBlockBidWithStats {
     }
 }
 
+#[automock]
 pub trait SlotBidder: Send + Sync {
     fn notify_new_built_block(&self, block_descriptor: BuiltBlockDescriptorForSlotBidder);
 }
