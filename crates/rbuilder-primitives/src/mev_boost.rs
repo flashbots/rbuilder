@@ -12,9 +12,9 @@ use alloy_rpc_types_engine::{
 };
 use derive_more::Deref;
 use reqwest::Url;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
-use std::{env, time::Duration};
+use std::time::Duration;
 
 use crate::OrderId;
 
@@ -52,78 +52,6 @@ impl RelayMode {
             RelayMode::Full => true,
             RelayMode::GetSlotInfoOnly => true,
             RelayMode::Test => false,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
-#[serde(deny_unknown_fields)]
-pub struct RelayConfig {
-    pub name: String,
-    pub url: String,
-    #[serde(default)]
-    pub grpc_url: Option<String>,
-    #[serde(default, deserialize_with = "deserialize_env_var")]
-    pub authorization_header: Option<String>,
-    #[serde(default, deserialize_with = "deserialize_env_var")]
-    pub builder_id_header: Option<String>,
-    #[serde(default, deserialize_with = "deserialize_env_var")]
-    pub api_token_header: Option<String>,
-    /// mode defines the need of submit_config
-    #[serde(default)]
-    pub mode: RelayMode,
-    /// Bid adjustment fee payer address.
-    pub adjustment_fee_payer: Option<Address>,
-    #[serde(flatten)]
-    /// Submit specific info.
-    /// Used only for Full and Fake mode.
-    pub submit_config: Option<RelaySubmitConfig>,
-    /// Deprecated field that is not used
-    pub priority: Option<usize>,
-    /// Set to `true` for bloxroute relays.
-    #[serde(default)]
-    pub is_bloxroute: bool,
-    /// The list of bloxroute rproxy regions to send to order by preference.
-    #[serde(default)]
-    pub bloxroute_rproxy_regions: Vec<String>,
-    /// Adds "filtering=true" as query to the call relay/v1/builder/validators to get all validators (including those filtering OFAC)
-    /// On 2025/06/24 (my birthday!) only supported by ultrasound.
-    /// None -> false
-    pub ask_for_filtering_validators: Option<bool>,
-    /// If we submit a block with a different gas than the one the validator registered with in this relay the relay does not mind.
-    /// None -> false
-    pub can_ignore_gas_limit: Option<bool>,
-}
-
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
-#[serde(deny_unknown_fields)]
-pub struct RelaySubmitConfig {
-    /// true->ssz false->json
-    #[serde(default)]
-    pub use_ssz_for_submit: bool,
-    #[serde(default)]
-    pub use_gzip_for_submit: bool,
-    #[serde(default)]
-    pub optimistic: bool,
-    #[serde(default)]
-    pub interval_between_submissions_ms: Option<u64>,
-    /// Max bid we can submit to this relay. Any bid above this will be skipped.
-    /// None -> No limit.
-    pub max_bid_eth: Option<String>,
-}
-
-impl RelayConfig {
-    pub fn with_url(self, url: &str) -> Self {
-        Self {
-            url: url.to_string(),
-            ..self
-        }
-    }
-
-    pub fn with_name(self, name: &str) -> Self {
-        Self {
-            name: name.to_string(),
-            ..self
         }
     }
 }
@@ -261,20 +189,6 @@ pub struct BloxrouteRegionalEndpoint {
     pub grpc_endpoint: String,
     /// RProxy WS endpoint.
     pub websocket_endpoint: String,
-}
-
-fn deserialize_env_var<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let s: Option<String> = Option::deserialize(deserializer)?;
-    Ok(match s {
-        Some(val) if val.starts_with("env:") => {
-            let env_var = &val[4..];
-            env::var(env_var).ok()
-        }
-        _ => s,
-    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ssz_derive::Encode)]
@@ -887,62 +801,4 @@ pub struct BidAdjustmentData {
     /// The merkle proof for the receipt of the placeholder transaction. It's required for
     /// adjusting payments to contract addresses.
     pub placeholder_receipt_proof: Vec<Bytes>,
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn test_deserialize_relay_config() {
-        let example = "
-        name = 'relay1'
-        url = 'url'
-        authorization_header = 'env:XXX'
-        builder_id_header = 'env:YYY'
-        api_token_header = 'env:ZZZ'
-        mode = 'slot_info'
-        ";
-
-        std::env::set_var("XXX", "AAA");
-        std::env::set_var("YYY", "BBB");
-        std::env::set_var("ZZZ", "CCC");
-
-        let config: RelayConfig = toml::from_str(example).unwrap();
-        assert_eq!(config.name, "relay1");
-        assert_eq!(config.url, "url");
-        assert_eq!(config.priority, None);
-        assert_eq!(config.authorization_header.unwrap(), "AAA");
-        assert_eq!(config.builder_id_header.unwrap(), "BBB");
-        assert_eq!(config.api_token_header.unwrap(), "CCC");
-        assert_eq!(config.mode, RelayMode::GetSlotInfoOnly);
-    }
-
-    #[test]
-    fn test_deserialize_relay_config_modes() {
-        let example_base = "
-        name = 'relay1'
-        url = 'url'
-        mode = "
-            .to_string();
-
-        let config: RelayConfig = toml::from_str(&(example_base.clone() + "'full'")).unwrap();
-        assert_eq!(config.mode, RelayMode::Full);
-
-        let config: RelayConfig = toml::from_str(&(example_base.clone() + "'slot_info'")).unwrap();
-        assert_eq!(config.mode, RelayMode::GetSlotInfoOnly);
-
-        let config: RelayConfig = toml::from_str(&(example_base.clone() + "'test'")).unwrap();
-        assert_eq!(config.mode, RelayMode::Test);
-    }
-
-    #[test]
-    fn test_deserialize_relay_config_no_mode() {
-        let config = "
-        name = 'relay1'
-        url = 'url'";
-
-        let config: RelayConfig = toml::from_str(config).unwrap();
-        assert_eq!(config.mode, RelayMode::Full);
-    }
 }

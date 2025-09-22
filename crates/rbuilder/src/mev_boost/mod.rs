@@ -6,8 +6,9 @@ pub mod sign_payload;
 
 use crate::mev_boost::bloxroute_grpc::GrpcRelayClient;
 use rbuilder_primitives::mev_boost::{
-    MevBoostRelayID, RelaySubmitConfig, SubmitBlockRequestNoBlobs, SubmitBlockRequestWithMetadata,
-    ValidatorRegistration, ValidatorSlotData, MEV_BOOST_SLOT_INFO_REQUEST_TIMEOUT,
+    KnownRelay, MevBoostRelayID, RelayMode, SubmitBlockRequestNoBlobs,
+    SubmitBlockRequestWithMetadata, ValidatorRegistration, ValidatorSlotData,
+    MEV_BOOST_SLOT_INFO_REQUEST_TIMEOUT,
 };
 
 use super::utils::u256decimal_serde_helper;
@@ -21,10 +22,10 @@ use reqwest::{
     header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_ENCODING, CONTENT_TYPE},
     Body, Response, StatusCode,
 };
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use ssz::Encode;
-use std::{io::Write, str::FromStr, sync::Arc, time::Duration};
+use std::{io::Write, sync::Arc, time::Duration};
 use url::Url;
 
 pub use error::*;
@@ -67,90 +68,74 @@ fn is_ignorable_relay_error(code: StatusCode, text: &str) -> bool {
         && text.contains(AGNOSTIC_RELAY_ACCEPTED_BID_BELOW_FLOOR_TXT)
 }
 
-// @Org consolidate with primitives::mev_boost
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum KnownRelay {
-    Flashbots,
-    BloxrouteMaxProfit,
-    BloxrouteEthical,
-    BloxrouteRegulated,
-    Eden,
-    SecureRpc,
-    Ultrasound,
-    Agnostic,
-    Aestus,
-    Wenmerge,
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct RelayConfig {
+    pub name: String,
+    pub url: String,
+    #[serde(default)]
+    pub grpc_url: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_env_var")]
+    pub authorization_header: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_env_var")]
+    pub builder_id_header: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_env_var")]
+    pub api_token_header: Option<String>,
+    /// mode defines the need of submit_config
+    #[serde(default)]
+    pub mode: RelayMode,
+    /// Bid adjustment fee payer address.
+    pub adjustment_fee_payer: Option<Address>,
+    #[serde(flatten)]
+    /// Submit specific info.
+    /// Used only for Full and Fake mode.
+    pub submit_config: Option<RelaySubmitConfig>,
+    /// Deprecated field that is not used
+    pub priority: Option<usize>,
+    /// Set to `true` for bloxroute relays.
+    #[serde(default)]
+    pub is_bloxroute: bool,
+    /// The list of bloxroute rproxy regions to send to order by preference.
+    #[serde(default)]
+    pub bloxroute_rproxy_regions: Vec<String>,
+    /// Adds "filtering=true" as query to the call relay/v1/builder/validators to get all validators (including those filtering OFAC)
+    /// On 2025/06/24 (my birthday!) only supported by ultrasound.
+    /// None -> false
+    pub ask_for_filtering_validators: Option<bool>,
+    /// If we submit a block with a different gas than the one the validator registered with in this relay the relay does not mind.
+    /// None -> false
+    pub can_ignore_gas_limit: Option<bool>,
 }
 
-pub const RELAYS: [KnownRelay; 9] = [
-    KnownRelay::Flashbots,
-    KnownRelay::BloxrouteMaxProfit,
-    KnownRelay::BloxrouteRegulated,
-    KnownRelay::Eden,
-    KnownRelay::SecureRpc,
-    KnownRelay::Ultrasound,
-    KnownRelay::Agnostic,
-    KnownRelay::Aestus,
-    KnownRelay::Wenmerge,
-];
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct RelaySubmitConfig {
+    /// true->ssz false->json
+    #[serde(default)]
+    pub use_ssz_for_submit: bool,
+    #[serde(default)]
+    pub use_gzip_for_submit: bool,
+    #[serde(default)]
+    pub optimistic: bool,
+    #[serde(default)]
+    pub interval_between_submissions_ms: Option<u64>,
+    /// Max bid we can submit to this relay. Any bid above this will be skipped.
+    /// None -> No limit.
+    pub max_bid_eth: Option<String>,
+}
 
-impl KnownRelay {
-    pub fn url(&self) -> Url {
-        Url::parse(match self {
-            KnownRelay::Flashbots => "https://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@boost-relay.flashbots.net",
-            KnownRelay::BloxrouteMaxProfit => "https://0x8b5d2e73e2a3a55c6c87b8b6eb92e0149a125c852751db1422fa951e42a09b82c142c3ea98d0d9930b056a3bc9896b8f@bloxroute.max-profit.blxrbdn.com",
-            KnownRelay::BloxrouteEthical => "https://0xad0a8bb54565c2211cee576363f3a347089d2f07cf72679d16911d740262694cadb62d7fd7483f27afd714ca0f1b9118@bloxroute.ethical.blxrbdn.com",
-            KnownRelay::BloxrouteRegulated => "https://0xb0b07cd0abef743db4260b0ed50619cf6ad4d82064cb4fbec9d3ec530f7c5e6793d9f286c4e082c0244ffb9f2658fe88@bloxroute.regulated.blxrbdn.com",
-            KnownRelay::Eden => "https://0xb3ee7afcf27f1f1259ac1787876318c6584ee353097a50ed84f51a1f21a323b3736f271a895c7ce918c038e4265918be@relay.edennetwork.io",
-            KnownRelay::SecureRpc => "https://0x98650451ba02064f7b000f5768cf0cf4d4e492317d82871bdc87ef841a0743f69f0f1eea11168503240ac35d101c9135@mainnet-relay.securerpc.com",
-            KnownRelay::Ultrasound => "https://0xa1559ace749633b997cb3fdacffb890aeebdb0f5a3b6aaa7eeeaf1a38af0a8fe88b9e4b1f61f236d2e64d95733327a62@relay.ultrasound.money",
-            KnownRelay::Agnostic => "https://0xa7ab7a996c8584251c8f925da3170bdfd6ebc75d50f5ddc4050a6fdc77f2a3b5fce2cc750d0865e05d7228af97d69561@agnostic-relay.net",
-            KnownRelay::Aestus => "https://0xa15b52576bcbf1072f4a011c0f99f9fb6c66f3e1ff321f11f461d15e31b1cb359caa092c71bbded0bae5b5ea401aab7e@aestus.live",
-            KnownRelay::Wenmerge => "https://0x8c7d33605ecef85403f8b7289c8058f440cbb6bf72b055dfe2f3e2c6695b6a1ea5a9cd0eb3a7982927a463feb4c3dae2@relay.wenmerge.com",
-        }).unwrap()
-    }
-
-    pub fn name(&self) -> String {
-        match self {
-            KnownRelay::Flashbots => "flashbots",
-            KnownRelay::BloxrouteMaxProfit => "bloxroute_max_profit",
-            KnownRelay::BloxrouteEthical => "bloxroute_ethical",
-            KnownRelay::BloxrouteRegulated => "bloxroute_regulated",
-            KnownRelay::Eden => "eden",
-            KnownRelay::SecureRpc => "secure_rpc",
-            KnownRelay::Ultrasound => "ultrasound",
-            KnownRelay::Agnostic => "agnostic",
-            KnownRelay::Aestus => "aestus",
-            KnownRelay::Wenmerge => "wenmerge",
+impl RelayConfig {
+    pub fn with_url(self, url: &str) -> Self {
+        Self {
+            url: url.to_string(),
+            ..self
         }
-        .to_string()
     }
 
-    pub fn is_bloxroute(&self) -> bool {
-        matches!(
-            self,
-            Self::BloxrouteMaxProfit | Self::BloxrouteEthical | Self::BloxrouteRegulated
-        )
-    }
-}
-
-impl FromStr for KnownRelay {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "flashbots" => Ok(KnownRelay::Flashbots),
-            "bloxroute_max_profit" => Ok(KnownRelay::BloxrouteMaxProfit),
-            "bloxroute_ethical" => Ok(KnownRelay::BloxrouteEthical),
-            "bloxroute_regulated" => Ok(KnownRelay::BloxrouteRegulated),
-            "eden" => Ok(KnownRelay::Eden),
-            "secure_rpc" => Ok(KnownRelay::SecureRpc),
-            "ultrasound" => Ok(KnownRelay::Ultrasound),
-            "agnostic" => Ok(KnownRelay::Agnostic),
-            "aestus" => Ok(KnownRelay::Aestus),
-            "wenmerge" => Ok(KnownRelay::Wenmerge),
-            _ => Err(()),
+    pub fn with_name(self, name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            ..self
         }
     }
 }
@@ -972,6 +957,20 @@ fn map_relay_error_message(msg: &str, code: Option<u64>) -> SubmitBlockErr {
     }
 }
 
+fn deserialize_env_var<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s: Option<String> = Option::deserialize(deserializer)?;
+    Ok(match s {
+        Some(val) if val.starts_with("env:") => {
+            let env_var = &val[4..];
+            std::env::var(env_var).ok()
+        }
+        _ => s,
+    })
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -989,6 +988,59 @@ mod tests {
 
     fn create_relay_provider() -> RelayClient {
         RelayClient::from_known_relay(KnownRelay::Flashbots)
+    }
+
+    #[test]
+    fn test_deserialize_relay_config() {
+        let example = "
+        name = 'relay1'
+        url = 'url'
+        authorization_header = 'env:XXX'
+        builder_id_header = 'env:YYY'
+        api_token_header = 'env:ZZZ'
+        mode = 'slot_info'
+        ";
+
+        std::env::set_var("XXX", "AAA");
+        std::env::set_var("YYY", "BBB");
+        std::env::set_var("ZZZ", "CCC");
+
+        let config: RelayConfig = toml::from_str(example).unwrap();
+        assert_eq!(config.name, "relay1");
+        assert_eq!(config.url, "url");
+        assert_eq!(config.priority, None);
+        assert_eq!(config.authorization_header.unwrap(), "AAA");
+        assert_eq!(config.builder_id_header.unwrap(), "BBB");
+        assert_eq!(config.api_token_header.unwrap(), "CCC");
+        assert_eq!(config.mode, RelayMode::GetSlotInfoOnly);
+    }
+
+    #[test]
+    fn test_deserialize_relay_config_modes() {
+        let example_base = "
+        name = 'relay1'
+        url = 'url'
+        mode = "
+            .to_string();
+
+        let config: RelayConfig = toml::from_str(&(example_base.clone() + "'full'")).unwrap();
+        assert_eq!(config.mode, RelayMode::Full);
+
+        let config: RelayConfig = toml::from_str(&(example_base.clone() + "'slot_info'")).unwrap();
+        assert_eq!(config.mode, RelayMode::GetSlotInfoOnly);
+
+        let config: RelayConfig = toml::from_str(&(example_base.clone() + "'test'")).unwrap();
+        assert_eq!(config.mode, RelayMode::Test);
+    }
+
+    #[test]
+    fn test_deserialize_relay_config_no_mode() {
+        let config = "
+        name = 'relay1'
+        url = 'url'";
+
+        let config: RelayConfig = toml::from_str(config).unwrap();
+        assert_eq!(config.mode, RelayMode::Full);
     }
 
     #[tokio::test]
