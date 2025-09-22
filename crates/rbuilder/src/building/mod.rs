@@ -706,9 +706,26 @@ impl FinalizeError {
 /// FinalizeRevertState accumulates data needed to revert state changes
 /// to run finalize on the same PartialBlock / BlockState again
 #[derive(Debug, Clone, Default)]
-pub struct FinalizeRevertState {
+pub struct FinalizeRevertStateCurrentIteration {
     pub last_tx_block_space: BlockSpace,
     pub state_reverts: usize,
+}
+
+/// FinalizeCachePreviousIteration has data collected during previous runs of finalize
+#[derive(Debug, Clone, Default)]
+pub struct FinalizeCachePreviousIteration {
+    /// Account changed in the last revertable batch of changes for finalize
+    pub account_changed_previous_iteration: Vec<Address>,
+}
+
+/// FinalizeCache is used to support finalization adjustment (resealing block with different payout tx value).
+#[derive(Debug, Clone, Default)]
+pub struct FinalizeAdjustmentState {
+    /// Accumulate changes done in current finalize so we can revert it for finalize adjustments
+    /// This state is cleared for every finalize call
+    pub revert_state: FinalizeRevertStateCurrentIteration,
+    /// Data from previous finalize call
+    pub previous_finalize_data: FinalizeCachePreviousIteration,
 }
 
 impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExecutionTracer>
@@ -847,7 +864,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         local_ctx: &mut ThreadBlockBuildingContext,
         state: &mut BlockState,
         adjust_finalized_block: bool,
-        finalize_revert_state: &mut FinalizeRevertState,
+        finalize_revert_state: &mut FinalizeRevertStateCurrentIteration,
     ) -> Result<(), InsertPayoutTxErr> {
         let builder_signer = &ctx.builder_signer;
         self.free_reserved_block_space();
@@ -926,7 +943,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
 
     pub fn adjust_finalize_block_revert_to_prefinalized_state(
         &mut self,
-        finalize_revert_state: FinalizeRevertState,
+        finalize_revert_state: FinalizeRevertStateCurrentIteration,
         block_state: &mut BlockState,
     ) {
         self.space_state
@@ -943,7 +960,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         state: &mut BlockState,
         ctx: &BlockBuildingContext,
         local_ctx: &mut ThreadBlockBuildingContext,
-        finalize_revert_state: &mut FinalizeRevertState,
+        finalize_revert_state: &mut FinalizeRevertStateCurrentIteration,
     ) -> Result<(Option<Requests>, Option<B256>), FinalizeError> {
         let mut db = state.new_db_ref(&ctx.shared_cached_reads, &mut local_ctx.cached_reads);
 
@@ -1011,13 +1028,17 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         ctx: &BlockBuildingContext,
         local_ctx: &mut ThreadBlockBuildingContext,
         adjust_finalize_block: bool,
-        finalize_revert_state: &mut FinalizeRevertState,
+        finalize_adustment_state: &mut FinalizeAdjustmentState,
     ) -> Result<FinalizeResult, FinalizeError> {
         let start = Instant::now();
 
         let step_start = Instant::now();
-        let (requests, withdrawals_root) =
-            self.process_requests(state, ctx, local_ctx, finalize_revert_state)?;
+        let (requests, withdrawals_root) = self.process_requests(
+            state,
+            ctx,
+            local_ctx,
+            &mut finalize_adustment_state.revert_state,
+        )?;
         let block_number = ctx.block();
 
         let request_processsing_time_ms = elapsed_ms(step_start);
@@ -1042,20 +1063,26 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         let bloom_time_ms = elapsed_ms(step_start);
         let step_start = Instant::now();
 
+        let finalize_last_changes_current_iteration =
+            state.get_changes_for_last_reverts(finalize_adustment_state.revert_state.state_reverts);
         let incremental_change = if adjust_finalize_block {
-            // get list of account that changed after finalize was called
-            let mut result = Vec::new();
-            state
-                .bundle_state()
-                .reverts
-                .iter()
-                .rev()
-                .take(finalize_revert_state.state_reverts)
-                .for_each(|r| r.iter().for_each(|c| result.push(c.0)));
+            // We want to collect list of accounts that were changed in current and previous
+            // iteration of finalize so root hash implementation knows which accounts to update
+            let mut result = std::mem::take(
+                &mut finalize_adustment_state
+                    .previous_finalize_data
+                    .account_changed_previous_iteration,
+            );
+            result.extend(finalize_last_changes_current_iteration.iter());
+            result.sort();
+            result.dedup();
             result
         } else {
             Vec::new()
         };
+        finalize_adustment_state
+            .previous_finalize_data
+            .account_changed_previous_iteration = finalize_last_changes_current_iteration;
 
         // // calculate the state root
         let state_root =

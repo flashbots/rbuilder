@@ -144,6 +144,22 @@ impl BlockState {
             .map(|acc| acc.code_hash)
             .unwrap_or_else(|| KECCAK_EMPTY))
     }
+
+    /// Get accounts that were changed for the last `num_reverts` revert.
+    /// Revert is created after .merge_transitions(BundleRetention::Reverts) is called
+    /// on the EVM database object
+    pub fn get_changes_for_last_reverts(&self, num_reverts: usize) -> Vec<Address> {
+        let mut result = Vec::new();
+        self.bundle_state()
+            .reverts
+            .iter()
+            .rev()
+            .take(num_reverts)
+            .for_each(|r| r.iter().for_each(|c| result.push(c.0)));
+        result.sort();
+        result.dedup();
+        result
+    }
 }
 
 /// A wrapper around a [`State`] that will return the [`BundleState`] back to [`BlockState`] when dropped.

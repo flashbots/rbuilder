@@ -13,9 +13,10 @@ use crate::{
     building::{
         estimate_payout_gas_limit, tracers::GasUsedSimulationTracer, BlockBuildingContext,
         BlockSpace, BlockState, BuiltBlockTrace, BuiltBlockTraceError, CriticalCommitOrderError,
-        EstimatePayoutGasErr, ExecutionError, ExecutionResult, FinalizeError, FinalizeResult,
-        FinalizeRevertState, NullPartialBlockExecutionTracer, PartialBlock,
-        PartialBlockExecutionTracer, ThreadBlockBuildingContext,
+        EstimatePayoutGasErr, ExecutionError, ExecutionResult, FinalizeAdjustmentState,
+        FinalizeError, FinalizeResult, FinalizeRevertStateCurrentIteration,
+        NullPartialBlockExecutionTracer, PartialBlock, PartialBlockExecutionTracer,
+        ThreadBlockBuildingContext,
     },
     primitives::{order_statistics::OrderStatistics, SimValue, SimulatedOrder},
     telemetry::{self, add_block_fill_time, add_order_simulation_time},
@@ -145,7 +146,7 @@ pub struct BlockBuildingHelperFromProvider<
     /// Token to cancel in case of fatal error (if we believe that it's impossible to build for this block).
     cancel_on_fatal_error: CancellationToken,
 
-    finalize_revert_state: Option<FinalizeRevertState>,
+    finalize_adjustment_state: Option<FinalizeAdjustmentState>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -264,7 +265,7 @@ impl<
             building_ctx,
             built_block_trace,
             cancel_on_fatal_error,
-            finalize_revert_state: None,
+            finalize_adjustment_state: None,
         })
     }
 
@@ -312,7 +313,7 @@ impl<
         local_ctx: &mut ThreadBlockBuildingContext,
         payout_tx_value: U256,
         adjust_finalized_block: bool,
-        finalize_revert_state: &mut FinalizeRevertState,
+        finalize_revert_state: &mut FinalizeRevertStateCurrentIteration,
     ) -> Result<(), BlockBuildingHelperError> {
         self.built_block_trace.coinbase_reward = self.partial_block.coinbase_profit;
 
@@ -349,29 +350,35 @@ impl<
         seen_competition_bid: Option<U256>,
         adjust_finalized_block: bool,
     ) -> Result<FinalizeBlockResult, BlockBuildingHelperError> {
-        if adjust_finalized_block != self.finalize_revert_state.is_some() {
+        if adjust_finalized_block != self.finalize_adjustment_state.is_some() {
             return Err(BlockBuildingHelperError::BlockFinalizedIncorrectly);
         }
 
         let start_time = Instant::now();
         let step_start = Instant::now();
 
+        let FinalizeAdjustmentState {
+            revert_state,
+            previous_finalize_data,
+        } = self.finalize_adjustment_state.take().unwrap_or_default();
+
         if adjust_finalized_block {
-            let finalize_revert_state = self.finalize_revert_state.take().unwrap();
             self.partial_block
                 .adjust_finalize_block_revert_to_prefinalized_state(
-                    finalize_revert_state,
+                    revert_state,
                     &mut self.block_state,
                 );
         }
-
-        let mut finalize_revert_state = FinalizeRevertState::default();
+        let mut finalize_adjustment_state = FinalizeAdjustmentState {
+            revert_state: Default::default(),
+            previous_finalize_data,
+        };
 
         self.finalize_block_execution(
             local_ctx,
             payout_tx_value,
             adjust_finalized_block,
-            &mut finalize_revert_state,
+            &mut finalize_adjustment_state.revert_state,
         )?;
 
         if !adjust_finalized_block {
@@ -389,7 +396,7 @@ impl<
             &self.building_ctx,
             local_ctx,
             adjust_finalized_block,
-            &mut finalize_revert_state,
+            &mut finalize_adjustment_state,
         ) {
             Ok(finalized_block) => finalized_block,
             Err(err) => {
@@ -430,7 +437,7 @@ impl<
             sim_gas_used,
         );
 
-        self.finalize_revert_state = Some(finalize_revert_state);
+        self.finalize_adjustment_state = Some(finalize_adjustment_state);
 
         let block = Block {
             builder_name: self.builder_name.clone(),
