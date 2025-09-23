@@ -1,12 +1,11 @@
-use bid_scraper::bid_sender::NNGBidSender;
-use bid_scraper::code_from_rbuilder::{
-    load_config_toml_and_env, setup_tracing_subscriber, LoggerConfig,
+use bid_scraper::{
+    bid_sender::NNGBidSender,
+    code_from_rbuilder::{load_config_toml_and_env, setup_tracing_subscriber, LoggerConfig},
+    config::Config,
 };
-use bid_scraper::config::Config;
 
 use runng::Listen;
-use std::env;
-use std::sync::Arc;
+use std::{env, sync::Arc};
 use tokio::signal::ctrl_c;
 use tokio_util::sync::CancellationToken;
 

@@ -7,10 +7,11 @@ use crate::{
         StateProviderFactory,
     },
     roothash::RootHashContext,
-    utils::tracing::{setup_tracing_subscriber, LoggerConfig},
     utils::{
         constants::{MINS_PER_HOUR, SECS_PER_MINUTE},
-        http_provider, ProviderFactoryReopener, Signer,
+        http_provider,
+        tracing::{setup_tracing_subscriber, LoggerConfig},
+        ProviderFactoryReopener, Signer,
     },
 };
 use alloy_primitives::{Address, B256};

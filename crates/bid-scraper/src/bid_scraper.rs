@@ -1,23 +1,24 @@
-use crate::best_bid_ws_connector::{
-    BestBidValue, BestBidValueSink, BestBidWSConnector, ExternalWsPublisherConfig,
-};
-use crate::bid_sender::{BidSender, BidSenderCanceller};
-use crate::bids_publisher::{BidsPublisherService, RelayBidsPublisherConfig};
-use crate::bloxroute_ws_publisher::{
-    BloxrouteWsConnectionHandler, BloxrouteWsPublisher, BloxrouteWsPublisherConfig,
-};
-use crate::config::{NamedPublisherConfig, PublisherConfig};
-use crate::get_timestamp_f64;
-use crate::headers_publisher::{HeadersPublisherService, RelayHeadersPublisherConfig};
-use crate::types::{PublisherType, ScrapedRelayBlockBid};
-use crate::ultrasound_ws_publisher::{
-    UltrasoundWsConnectionHandler, UltrasoundWsPublisher, UltrasoundWsPublisherConfig,
+use crate::{
+    best_bid_ws_connector::{
+        BestBidValue, BestBidValueSink, BestBidWSConnector, ExternalWsPublisherConfig,
+    },
+    bid_sender::{BidSender, BidSenderCanceller},
+    bids_publisher::{BidsPublisherService, RelayBidsPublisherConfig},
+    bloxroute_ws_publisher::{
+        BloxrouteWsConnectionHandler, BloxrouteWsPublisher, BloxrouteWsPublisherConfig,
+    },
+    config::{NamedPublisherConfig, PublisherConfig},
+    get_timestamp_f64,
+    headers_publisher::{HeadersPublisherService, RelayHeadersPublisherConfig},
+    types::{PublisherType, ScrapedRelayBlockBid},
+    ultrasound_ws_publisher::{
+        UltrasoundWsConnectionHandler, UltrasoundWsPublisher, UltrasoundWsPublisherConfig,
+    },
 };
 use alloy_primitives::{Address, BlockHash};
 use alloy_rpc_types_beacon::BlsPublicKey;
 
-use std::sync::Arc;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};

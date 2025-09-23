@@ -1,6 +1,4 @@
-use alloy_primitives::Address;
-use alloy_primitives::B256;
-use alloy_primitives::U256;
+use alloy_primitives::{Address, B256, U256};
 use revm::{
     state::{AccountInfo, Bytecode},
     Database,

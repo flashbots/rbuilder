@@ -15,8 +15,7 @@ use super::{
     simulation_cache::SharedSimulationCache, ConflictGroup, ConflictResolutionResultPerGroup,
     ConflictTask, GroupId, ResolutionResult, TaskPriority,
 };
-use crate::provider::StateProviderFactory;
-use crate::{building::BlockBuildingContext, utils::elapsed_ms};
+use crate::{building::BlockBuildingContext, provider::StateProviderFactory, utils::elapsed_ms};
 
 pub type TaskQueue = Arc<SegQueue<ConflictTask>>;
 

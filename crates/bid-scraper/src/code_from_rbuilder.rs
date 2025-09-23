@@ -2,10 +2,7 @@
 
 use eyre::{eyre, Context};
 use serde::{Deserialize, Deserializer};
-use std::env::var;
-use std::fs::read_to_string;
-use std::path::Path;
-use std::str::FromStr;
+use std::{env::var, fs::read_to_string, path::Path, str::FromStr};
 use tracing_subscriber::EnvFilter;
 
 pub fn load_config_toml_and_env<T: serde::de::DeserializeOwned>(

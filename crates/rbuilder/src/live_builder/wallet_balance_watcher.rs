@@ -5,8 +5,10 @@ use reth::providers::ProviderError;
 use time::{error, OffsetDateTime};
 use tracing::{error, info, warn};
 
-use crate::provider::StateProviderFactory;
-use crate::telemetry::{add_subsidy_value, inc_subsidized_blocks, set_builder_balance};
+use crate::{
+    provider::StateProviderFactory,
+    telemetry::{add_subsidy_value, inc_subsidized_blocks, set_builder_balance},
+};
 
 use super::block_output::bidding_service_interface::LandedBlockInfo;
 

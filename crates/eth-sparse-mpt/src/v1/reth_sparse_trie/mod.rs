@@ -10,8 +10,7 @@ pub mod hash;
 pub mod shared_cache;
 pub mod trie_fetcher;
 
-use crate::v1::sparse_mpt::AddNodeError;
-use crate::ChangedAccountData;
+use crate::{v1::sparse_mpt::AddNodeError, ChangedAccountData};
 
 use self::trie_fetcher::*;
 
