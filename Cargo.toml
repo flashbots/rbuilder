@@ -129,6 +129,11 @@ alloy-signer-local = { version = "1.0.27" }
 alloy-rpc-client = { version = "1.0.27" }
 alloy-genesis = { version = "1.0.27" }
 
+# Version required by ethereum-consensus beacon-api-client
+mev-share-sse = { git = "https://github.com/paradigmxyz/mev-share-rs", rev = "9eb2b0138ab3202b9eb3af4b19c7b3bf40b0faa8", default-features = false }
+beacon-api-client = { git = "https://github.com/ralexstokes/ethereum-consensus/", rev = "5031d31e318dd861cf3373702c5d92f085d926e4" }
+ethereum-consensus = { git = "https://github.com/ralexstokes/ethereum-consensus/", rev = "5031d31e318dd861cf3373702c5d92f085d926e4" }
+
 async-trait = { version = "0.1.83" }
 clap = { version = "4.4.3", features = ["derive", "env"] }
 clap_builder = { version = "4.5.19" }
@@ -152,6 +157,7 @@ warp = "0.3.7"
 flate2 = "1.0.35"
 prometheus = "0.13.4"
 ctor = "0.2"
+rand = "0.8"
 
 libc = { version = "0.2.161" }
 lazy_static = "1.4.0"
