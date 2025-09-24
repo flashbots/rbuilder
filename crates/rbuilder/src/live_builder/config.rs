@@ -125,6 +125,7 @@ const DEFAULT_SLOT_DELTA_TO_START_BIDDING_MS: i64 = -8000;
 const DEFAULT_REGISTRATION_UPDATE_INTERVAL_MS: u64 = 5_000;
 const DEFAULT_ASK_FOR_FILTERING_VALIDATORS: bool = false;
 const DEFAULT_CAN_IGNORE_GAS_LIMIT: bool = false;
+const DEFAULT_SLOT_DELTA_TO_START_SUBMITTING_BIDS_MS: i64 = -1500;
 
 #[serde_as]
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -153,6 +154,8 @@ pub struct L1Config {
     pub genesis_fork_version: Option<String>,
     /// Where the bids scraper publishes the bids. Example:"tcp://0.0.0.0:5555"
     pub scraped_bids_publisher_url: Option<String>,
+    /// All bids before this time will be sealed to "prime" the sealing core but will not be submitted to the relay.
+    pub slot_delta_to_start_submitting_bids_ms: i64,
 }
 
 impl Default for L1Config {
@@ -168,6 +171,7 @@ impl Default for L1Config {
             genesis_fork_version: None,
             scraped_bids_publisher_url: None,
             registration_update_interval_ms: None,
+            slot_delta_to_start_submitting_bids_ms: DEFAULT_SLOT_DELTA_TO_START_SUBMITTING_BIDS_MS,
         }
     }
 }
@@ -968,6 +972,7 @@ where
         sink_sealed_factory,
         wallet_balance_watcher,
         base_config.adjust_finalized_blocks,
+        time::Duration::milliseconds(l1_config.slot_delta_to_start_submitting_bids_ms),
     );
 
     Ok((sink_factory, slot_info_provider, adjustment_fee_payers))

@@ -201,6 +201,7 @@ async fn run_submit_to_relays_job(
             order_ids: executed_orders.map(|o| o.id()).collect(),
         };
 
+        let latency = block.trace.orders_sealed_at - block.trace.orders_closed_at;
         let submission_span = info_span!(
             "bid",
             bid_value = format_ether(block.trace.bid_value),
@@ -217,6 +218,14 @@ async fn run_submit_to_relays_job(
             fill_time_ms = duration_ms(block.trace.fill_time),
             finalize_time_ms = duration_ms(block.trace.finalize_time),
             finalize_adjust_time_ms = duration_ms(block.trace.finalize_adjust_time),
+            orders_closed_at = ?block.trace.orders_closed_at,
+            orders_sealed_at = ?block.trace.orders_sealed_at,
+            chosen_as_best_at = ?block.trace.chosen_as_best_at,
+            sent_to_bidder = ?block.trace.sent_to_bidder,
+            bid_received_at = ?block.trace.bid_received_at,
+            sent_to_sealer = ?block.trace.sent_to_sealer,
+            picked_by_sealer_at = ?block.trace.picked_by_sealer_at,
+            latency_ms = latency.whole_milliseconds(),
         );
         info!(
             parent: &submission_span,

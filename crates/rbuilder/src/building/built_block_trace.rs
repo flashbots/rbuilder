@@ -23,6 +23,18 @@ pub struct BuiltBlockTrace {
     pub orders_closed_at: OffsetDateTime,
     /// Timestamp when this block was fully sealed and ready for submission.
     pub orders_sealed_at: OffsetDateTime,
+
+    /// UnfinishedBuiltBlocksInput chose this block as the best block and sent it downstream
+    pub chosen_as_best_at: OffsetDateTime,
+    /// Block was sent to the bidder (SlotBidder::notify_new_built_block)
+    pub sent_to_bidder: OffsetDateTime,
+    /// Bid received from the bidder (UnfinishedBuiltBlocksInput::seal_command)
+    pub bid_received_at: OffsetDateTime,
+    /// Bid sent to the sealer thread
+    pub sent_to_sealer: OffsetDateTime,
+    /// Sealer picked by sealer thread
+    pub picked_by_sealer_at: OffsetDateTime,
+
     pub fill_time: Duration,
     pub finalize_time: Duration,
     pub finalize_adjust_time: Duration,
@@ -79,6 +91,11 @@ impl BuiltBlockTrace {
             available_orders_statistics: Default::default(),
             filtered_build_considered_orders_statistics: Default::default(),
             filtered_build_failed_orders_statistics: Default::default(),
+            chosen_as_best_at: OffsetDateTime::now_utc(),
+            sent_to_bidder: OffsetDateTime::now_utc(),
+            bid_received_at: OffsetDateTime::now_utc(),
+            sent_to_sealer: OffsetDateTime::now_utc(),
+            picked_by_sealer_at: OffsetDateTime::now_utc(),
         }
     }
 

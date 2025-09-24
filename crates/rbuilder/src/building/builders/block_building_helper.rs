@@ -97,6 +97,7 @@ pub trait BlockBuildingHelper: Send + Sync {
 pub struct BiddableUnfinishedBlock {
     pub block: Box<dyn BlockBuildingHelper>,
     pub true_block_value: U256,
+    pub chosen_as_best_at: OffsetDateTime,
 }
 
 impl Clone for BiddableUnfinishedBlock {
@@ -104,6 +105,7 @@ impl Clone for BiddableUnfinishedBlock {
         Self {
             block: self.block.box_clone(),
             true_block_value: self.true_block_value,
+            chosen_as_best_at: self.chosen_as_best_at,
         }
     }
 }
@@ -114,6 +116,7 @@ impl BiddableUnfinishedBlock {
         Ok(Self {
             block,
             true_block_value,
+            chosen_as_best_at: OffsetDateTime::now_utc(),
         })
     }
 
