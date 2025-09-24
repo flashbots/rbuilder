@@ -167,7 +167,9 @@ impl PrefinalizedBlockInner {
                     .adjust_finalized_block(local_ctx, value, seen_competition_bid)
                     .map(Some)
             } else {
+                // we clone here because finalizing block multiple times is not supported
                 self.block_building_helper
+                    .box_clone()
                     .finalize_block(local_ctx, value, seen_competition_bid)
                     .map(Some)
             }
@@ -394,7 +396,9 @@ impl UnfinishedBuiltBlocksInput {
                         trace!("Prefinalized block");
                     }
                     Err(err) => {
-                        error!(?err, "Failed to prefinalize block");
+                        if err.is_critical() {
+                            error!(?err, "Failed to prefinalize block");
+                        }
                         continue;
                     }
                 };
@@ -464,7 +468,18 @@ impl UnfinishedBuiltBlocksInput {
                         block.block_id != finalize_command.prefinalized_block.block_id
                     });
 
-                    error!(?err, "Failed to finalize prefinalized block");
+                    let log_error = if self.adjust_finalized_blocks {
+                        // always log this error as its not expected when adjusting blocks
+                        true
+                    } else {
+                        // same as for old flow with finalization, log only critical errors
+                        err.is_critical()
+                    };
+
+                    if log_error {
+                        // when adjusting blocks finalization adjustment should not fail
+                        error!(?err, "Failed to finalize prefinalized block");
+                    }
                     continue;
                 }
             };
