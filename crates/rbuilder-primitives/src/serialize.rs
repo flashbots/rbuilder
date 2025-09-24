@@ -164,6 +164,9 @@ pub struct RawBundle {
     /// Only for version None or >= v2
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refund_tx_hashes: Option<Vec<TxHash>>,
+    /// delayedRefund (Optional) `Boolean`, A flag indicating whether the refund should be delayed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delayed_refund: Option<bool>,
     /// firstSeenAt `Number`, timestamp (seconds) at which bundle was first seen,
     /// used for ensuring we respect the order of uuid bundles that
     /// were first received elsewhere
@@ -252,6 +255,7 @@ impl RawBundle {
             self.refund_percent,
             self.refund_recipient,
             self.refund_tx_hashes,
+            self.delayed_refund,
             &txs,
         )?;
 
@@ -309,6 +313,12 @@ impl RawBundle {
                         version,
                     ));
                 }
+                if self.delayed_refund.is_some() {
+                    return Err(RawBundleConvertError::FieldNotSupportedByVersion(
+                        "delayed_refund".to_owned(),
+                        version,
+                    ));
+                }
                 Ok(())
             }
             BundleVersion::V2 => Ok(()),
@@ -319,6 +329,7 @@ impl RawBundle {
         mut refund_percent: Option<u8>,
         refund_recipient: Option<Address>,
         refund_tx_hashes: Option<Vec<TxHash>>,
+        delayed_refund: Option<bool>,
         txs: &[TransactionSignedEcRecoveredWithBlobs],
     ) -> Result<Option<BundleRefund>, RawBundleConvertError> {
         // Validate refund percent setting.
@@ -351,6 +362,7 @@ impl RawBundle {
                     percent,
                     recipient: refund_recipient.unwrap_or_else(|| first_tx.signer()),
                     tx_hash,
+                    delayed: delayed_refund.unwrap_or_default(),
                 });
             }
         }
@@ -422,7 +434,8 @@ impl RawBundle {
             replacement_nonce,
             refund_percent: value.refund.as_ref().map(|br| br.percent),
             refund_recipient: value.refund.as_ref().map(|br| br.recipient),
-            refund_tx_hashes: value.refund.map(|br| vec![br.tx_hash]),
+            refund_tx_hashes: value.refund.as_ref().map(|br| vec![br.tx_hash]),
+            delayed_refund: value.refund.as_ref().map(|br| br.delayed),
             first_seen_at: None,
             version: Some(Self::encode_version(value.version)),
         }
@@ -1149,6 +1162,7 @@ mod tests {
                 tx_hash: b256!(
                     "0x75662ab9cb6d1be7334723db5587435616352c7e581a52867959ac24006ac1fe"
                 ),
+                delayed: false,
             })
         );
         assert_eq!(bundle.uuid, uuid!("e2bdb8cd-9473-5a1b-b425-57fa7ecfe2c1"));
@@ -1196,6 +1210,7 @@ mod tests {
                     tx_hash: b256!(
                         "0x84310f7f7860f0cd65407fe340d471ca008d0c58976746a560312d4aebba3f4a"
                     ),
+                    delayed: false,
                 })
             );
             assert_eq!(bundle.uuid, uuid!("ea9954e1-b7be-5af0-9c39-6b11c9d24c05"));

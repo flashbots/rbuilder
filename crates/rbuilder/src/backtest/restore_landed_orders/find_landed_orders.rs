@@ -999,6 +999,7 @@ mod tests {
                 percent: 10,
                 recipient: Default::default(),
                 tx_hash: hash(0x01),
+                delayed: false,
             }),
             version: LAST_BUNDLE_VERSION,
         });

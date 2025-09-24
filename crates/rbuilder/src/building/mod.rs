@@ -539,8 +539,10 @@ pub struct PartialBlock<
     pub coinbase_profit: U256,
     /// Tx execution info belonging to successfully executed orders.
     pub executed_tx_infos: Vec<TransactionExecutionInfo>,
-    /// Combined refunds.
+    /// Combined refunds to be paid at the end of the block.
     pub combined_refunds: HashMap<Address, U256>,
+    /// Cumulative delayed refund value which will be refunded via BuilderNet refund pipeline.
+    pub delayed_refund: U256,
     pub tracer: Tracer,
     partial_block_execution_tracer: PartialBlockExecutionTracerType,
 }
@@ -688,6 +690,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             coinbase_profit: self.coinbase_profit,
             executed_tx_infos: self.executed_tx_infos,
             combined_refunds: self.combined_refunds,
+            delayed_refund: self.delayed_refund,
             tracer,
             partial_block_execution_tracer: self.partial_block_execution_tracer,
         }
@@ -770,11 +773,16 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             recipient,
             payout_value,
             payout_tx_space_needed,
+            should_pay_in_block,
             ..
         }) = ok_result.delayed_kickback
         {
-            self.space_state.reserve_block_space(payout_tx_space_needed);
-            *self.combined_refunds.entry(recipient).or_default() += payout_value;
+            if should_pay_in_block {
+                self.space_state.reserve_block_space(payout_tx_space_needed);
+                *self.combined_refunds.entry(recipient).or_default() += payout_value;
+            } else {
+                self.delayed_refund += payout_value;
+            }
         }
 
         Ok(Ok(ExecutionResult {
@@ -1296,6 +1304,7 @@ impl PartialBlock<(), NullPartialBlockExecutionTracer> {
             coinbase_profit: U256::ZERO,
             executed_tx_infos: Vec::new(),
             combined_refunds: HashMap::default(),
+            delayed_refund: U256::ZERO,
             tracer: (),
             partial_block_execution_tracer: NullPartialBlockExecutionTracer {},
         }
@@ -1315,6 +1324,7 @@ impl<PartialBlockExecutionTracerType: PartialBlockExecutionTracer>
             coinbase_profit: U256::ZERO,
             executed_tx_infos: Vec::new(),
             combined_refunds: HashMap::default(),
+            delayed_refund: U256::ZERO,
             tracer: (),
             partial_block_execution_tracer,
         }

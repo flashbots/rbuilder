@@ -130,6 +130,8 @@ pub struct BundleRefund {
     /// Transaction hash to refund.
     /// This means that part (percent%) of the profit from the execution this txs goes to refund.recipient
     pub tx_hash: TxHash,
+    /// Boolean for whether the refund should be delayed.
+    pub delayed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -293,6 +295,7 @@ impl Bundle {
             // We used to allow multiple hashes and encode the len, we keep the 1 to be backwards compatible.
             buff.append(&mut (1u64).encode_var_vec());
             buff.extend_from_slice(refund.tx_hash.as_slice());
+            // TODO: buff.push(refund.delayed as u8);
         }
         Self::uuid_from_buffer(buff)
     }

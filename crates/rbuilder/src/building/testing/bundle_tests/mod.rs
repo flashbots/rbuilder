@@ -349,6 +349,7 @@ fn test_bundle_combined_refunds() -> eyre::Result<()> {
                 recipient,
                 percent: refund_percent,
                 tx_hash: profit_tx_hash,
+                delayed: false,
             });
             Ok(setup.commit_order_ok())
         };
@@ -429,6 +430,7 @@ fn test_bundle_contract_refunds() -> eyre::Result<()> {
         percent: refund_percent,
         recipient: recipient_contract_address,
         tx_hash: profit_tx_hash,
+        delayed: false,
     });
     let result = test_setup.commit_order_ok();
     let recipient_balance_after = test_setup.balance(recipient_named_address)?;
