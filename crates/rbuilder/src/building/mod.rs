@@ -768,7 +768,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         self.coinbase_profit += ok_result.coinbase_profit;
         self.executed_tx_infos.extend(ok_result.tx_infos.clone());
 
-        // Update combined refunds
+        // Update combined or delayed refunds
         if let Some(DelayedKickback {
             recipient,
             payout_value,

@@ -915,6 +915,7 @@ impl<
                     payout_tx_space_needed: BlockSpace::ZERO,
                     should_pay_in_block: false,
                 });
+                break 'refund;
             }
 
             if combined_refunds.contains_key(&refunds_cfg.recipient) {

@@ -403,6 +403,83 @@ fn test_bundle_combined_refunds() -> eyre::Result<()> {
     Ok(())
 }
 
+/// Test delayed refunds
+#[test]
+fn test_bundle_delayed_refunds() -> eyre::Result<()> {
+    let target_block = 11;
+    let profit: u64 = 100_000;
+    let refund_percent: u8 = 90;
+    let refundable_value = int_percentage(profit, refund_percent as usize);
+    let coinbase_profit = profit - refundable_value;
+
+    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().number(target_block))?;
+    let recipient = NamedAddr::User(2);
+    let recipient_address = test_setup.named_address(recipient)?;
+    let recipient_balance_before = test_setup.balance(recipient)?;
+
+    let commit_refund_order =
+        |setup: &mut TestSetup, recipient: Address| -> eyre::Result<ExecutionResult> {
+            setup.begin_bundle_order(target_block);
+            setup.add_dummy_tx_0_1_no_rev()?;
+            let profit_tx_hash = setup.add_send_to_coinbase_tx(NamedAddr::User(1), profit)?;
+            setup.set_bundle_refund(BundleRefund {
+                recipient,
+                percent: refund_percent,
+                tx_hash: profit_tx_hash,
+                delayed: true,
+            });
+            Ok(setup.commit_order_ok())
+        };
+
+    let result = commit_refund_order(&mut test_setup, recipient_address).unwrap();
+    let partial_block = test_setup.partial_block();
+    assert_eq!(test_setup.balance(recipient)?, recipient_balance_before);
+    assert!(result.paid_kickbacks.is_empty());
+    assert_eq!(result.coinbase_profit, U256::from(coinbase_profit));
+    assert!(partial_block.combined_refunds.is_empty());
+    assert_eq!(partial_block.delayed_refund, U256::from(refundable_value));
+    assert_eq!(partial_block.coinbase_profit, U256::from(coinbase_profit));
+
+    let result = commit_refund_order(&mut test_setup, recipient_address).unwrap();
+    let partial_block = test_setup.partial_block();
+    assert_eq!(test_setup.balance(recipient)?, recipient_balance_before);
+    assert!(result.paid_kickbacks.is_empty());
+    assert_eq!(result.coinbase_profit, U256::from(coinbase_profit));
+    assert!(partial_block.combined_refunds.is_empty());
+    assert_eq!(
+        partial_block.delayed_refund,
+        U256::from(refundable_value * 2)
+    );
+    assert_eq!(
+        partial_block.coinbase_profit,
+        U256::from(coinbase_profit * 2)
+    );
+
+    let second_recipient = NamedAddr::User(3);
+    let second_recipient_address = test_setup.named_address(second_recipient)?;
+    let second_recipient_balance_before = test_setup.balance(second_recipient)?;
+
+    let result = commit_refund_order(&mut test_setup, second_recipient_address).unwrap();
+    let partial_block = test_setup.partial_block();
+    assert_eq!(
+        test_setup.balance(second_recipient)?,
+        second_recipient_balance_before
+    );
+    assert!(result.paid_kickbacks.is_empty());
+    assert_eq!(result.coinbase_profit, U256::from(coinbase_profit));
+    assert!(partial_block.combined_refunds.is_empty());
+    assert_eq!(
+        partial_block.delayed_refund,
+        U256::from(refundable_value * 3)
+    );
+    assert_eq!(
+        partial_block.coinbase_profit,
+        U256::from(coinbase_profit * 3)
+    );
+
+    Ok(())
+}
+
 /// Test immediate refunds to contract recipients
 #[test]
 fn test_bundle_contract_refunds() -> eyre::Result<()> {
