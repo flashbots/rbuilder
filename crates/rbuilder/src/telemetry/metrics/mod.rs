@@ -369,7 +369,7 @@ register_metrics! {
 
     pub static TRIGGER_TO_BID_ROUND_TRIP_TIME: HistogramVec = HistogramVec::new(
         HistogramOpts::new("trigger_to_bid_round_trip_time_us", "Time (in microseconds) it takes from a trigger (new block or competition bid) to get a new bid to make")
-            .buckets(linear_buckets_range(50.0, 4000.0, 200)),
+            .buckets(exponential_buckets_range(50.0, 2000000.0, 200)),
         &[]
     )
     .unwrap();
