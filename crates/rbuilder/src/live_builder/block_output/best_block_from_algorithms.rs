@@ -91,6 +91,7 @@ mod tests {
                     original_order_ids: Default::default(),
                     nonces_updated: Default::default(),
                     paid_kickbacks: Default::default(),
+                    delayed_kickback: None,
                 });
             BiddableUnfinishedBlock::new(Box::new(block)).unwrap()
         }

@@ -559,6 +559,7 @@ pub struct ExecutionResult {
     pub original_order_ids: Vec<OrderId>,
     pub nonces_updated: Vec<(Address, u64)>,
     pub paid_kickbacks: Vec<(Address, U256)>,
+    pub delayed_kickback: Option<DelayedKickback>,
 }
 
 #[derive(Error, Debug)]
@@ -775,13 +776,14 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             payout_tx_space_needed,
             should_pay_in_block,
             ..
-        }) = ok_result.delayed_kickback
+        }) = &ok_result.delayed_kickback
         {
-            if should_pay_in_block {
-                self.space_state.reserve_block_space(payout_tx_space_needed);
-                *self.combined_refunds.entry(recipient).or_default() += payout_value;
+            if *should_pay_in_block {
+                self.space_state
+                    .reserve_block_space(*payout_tx_space_needed);
+                *self.combined_refunds.entry(*recipient).or_default() += *payout_value;
             } else {
-                self.delayed_refund += payout_value;
+                self.delayed_refund += *payout_value;
             }
         }
 
@@ -794,6 +796,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             original_order_ids: ok_result.original_order_ids,
             nonces_updated: ok_result.nonces_updated,
             paid_kickbacks: ok_result.paid_kickbacks,
+            delayed_kickback: ok_result.delayed_kickback,
         }))
     }
 

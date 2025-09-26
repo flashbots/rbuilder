@@ -248,7 +248,7 @@ pub enum TransactionErr {
     BlockSpaceLeft,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DelayedKickback {
     pub recipient: Address,
     pub payout_value: U256,
