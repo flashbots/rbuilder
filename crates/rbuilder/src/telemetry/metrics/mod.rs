@@ -20,6 +20,7 @@ use lazy_static::lazy_static;
 use metrics_macros::register_metrics;
 use parking_lot::Mutex;
 use prometheus::{
+    core::{Atomic, AtomicF64, AtomicI64, GenericGauge},
     Counter, Gauge, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
     Opts, Registry,
 };
@@ -64,8 +65,66 @@ fn is_now_close_to_slot_end(block_timestamp: OffsetDateTime) -> bool {
     !too_early && !too_late
 }
 
+pub const MAX_FRESH_GAUGE_AGE: Duration = Duration::from_secs(60);
+
+/// Represents a Gauge that is always "fresh".
+/// If the info gets old the gauge is unregistered.
+/// @Pending: add this to crates/rbuilder/src/telemetry/servers/full.rs automatically (macro?).
+pub struct FreshGauge<P: Atomic + 'static> {
+    gauge: GenericGauge<P>,
+    last_update: Mutex<Option<OffsetDateTime>>,
+}
+
+impl<P: Atomic + 'static> FreshGauge<P> {
+    pub fn new(gauge: GenericGauge<P>) -> Self {
+        Self {
+            gauge: gauge.clone(),
+            last_update: Mutex::new(None),
+        }
+    }
+
+    fn update_use(&self) {
+        let mut last_update = self.last_update.lock();
+        if last_update.is_none() {
+            let _ = REGISTRY.register(Box::new(self.gauge.clone()));
+        }
+        *last_update = Some(OffsetDateTime::now_utc());
+    }
+
+    pub fn check_is_fresh(&self, now: OffsetDateTime) {
+        let mut last_update = self.last_update.lock();
+        if last_update.is_some_and(|last_update| last_update + MAX_FRESH_GAUGE_AGE < now) {
+            let _ = REGISTRY.unregister(Box::new(self.gauge.clone()));
+            *last_update = None;
+        }
+    }
+
+    pub fn set(&self, v: P::T) {
+        self.update_use();
+        self.gauge.set(v);
+    }
+}
+
 lazy_static! {
     pub static ref REGISTRY: Registry = Registry::new();
+    pub static ref BUILDER_BALANCE: FreshGauge<AtomicF64> = FreshGauge::<AtomicF64>::new(
+        Gauge::new("rbuilder_coinbase_balance", "balance of builder coinbase").unwrap()
+    );
+    pub static ref CURRENT_BLOCK: FreshGauge<AtomicI64> =
+        FreshGauge::<AtomicI64>::new(IntGauge::new("current_block", "Current Block").unwrap());
+    pub static ref ORDERPOOL_TXS: FreshGauge<AtomicI64> = FreshGauge::<AtomicI64>::new(
+        IntGauge::new("orderpool_txs", "Transactions In The Orderpool").unwrap()
+    );
+    pub static ref ORDERPOOL_TXS_SIZE: FreshGauge<AtomicI64> = FreshGauge::<AtomicI64>::new(
+        IntGauge::new(
+            "orderpool_txs_size",
+            "Aprox in memory size of transactions in the Orderpool (bytes)"
+        )
+        .unwrap()
+    );
+    pub static ref ORDERPOOL_BUNDLES: FreshGauge<AtomicI64> = FreshGauge::<AtomicI64>::new(
+        IntGauge::new("orderpool_bundles", "Bundles In The Orderpool").unwrap()
+    );
 }
 
 register_metrics! {
@@ -126,16 +185,6 @@ register_metrics! {
         &["relay_name", "publisher_name", "publisher_type"]
     )
     .unwrap();
-
-    pub static CURRENT_BLOCK: IntGauge =
-        IntGauge::new("current_block", "Current Block").unwrap();
-    pub static ORDERPOOL_TXS: IntGauge =
-        IntGauge::new("orderpool_txs", "Transactions In The Orderpool").unwrap();
-
-    pub static ORDERPOOL_TXS_SIZE: IntGauge =
-        IntGauge::new("orderpool_txs_size", "Aprox in memory size of transactions in the Orderpool (bytes)").unwrap();
-    pub static ORDERPOOL_BUNDLES: IntGauge =
-        IntGauge::new("orderpool_bundles", "Bundles In The Orderpool").unwrap();
 
     pub static ORDERPOOL_ORDERS_RECEIVED: IntCounterVec = IntCounterVec::new(
         Opts::new("orderpool_commands_received", "counter of orders received"),
@@ -249,7 +298,6 @@ register_metrics! {
      // SUBSIDY
      /////////////////////////////////
 
-    pub static BUILDER_BALANCE: Gauge = Gauge::new("rbuilder_coinbase_balance", "balance of builder coinbase").unwrap();
 
     /// We decide this at the end of the submission to relays
     pub static SUBSIDIZED_BLOCK_COUNT: IntCounterVec = IntCounterVec::new(
