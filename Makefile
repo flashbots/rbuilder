@@ -40,7 +40,7 @@ docker-image-test-relay: ## Build a test relay Docker image
 .PHONY: lint
 lint: ## Run the linters
 	cargo fmt -- --check
-	cargo clippy --features "$(FEATURES)" -- -D warnings
+	cargo clippy --workspace --features "$(FEATURES)" -- -D warnings
 
 .PHONY: test
 test: ## Run the tests for rbuilder
