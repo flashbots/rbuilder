@@ -16,10 +16,11 @@ use rbuilder::{
         BlockBuildingContext, ExecutionError, MockRootHasher, NullPartialBlockExecutionTracer,
         OrderPriority, ThreadBlockBuildingContext,
     },
-    live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig, config::Config},
+    live_builder::{cli::LiveBuilderConfig, config::Config},
     provider::StateProviderFactory,
     utils::{extract_onchain_block_txs, find_suggested_fee_recipient},
 };
+use rbuilder_config::load_toml_config;
 use rbuilder_primitives::{
     order_statistics::OrderStatistics, MempoolTx, Order, SimValue, SimulatedOrder,
     TransactionSignedEcRecoveredWithBlobs,
@@ -49,7 +50,7 @@ struct LandedBlockInfo {
 
 impl LandedBlockInfo {
     pub async fn new(path: impl AsRef<Path>, block: u64) -> eyre::Result<Self> {
-        let config: Config = load_config_toml_and_env(path)?;
+        let config: Config = load_toml_config(path)?;
         let mut historical_data_storage =
             HistoricalDataStorage::new_from_path(&config.base_config().backtest_fetch_output_file)
                 .await?;

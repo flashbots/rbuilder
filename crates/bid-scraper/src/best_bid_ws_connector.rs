@@ -1,4 +1,5 @@
 use alloy_primitives::{BlockHash, U256};
+use rbuilder_config::EnvOrValue;
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
 use tokio::net::TcpStream;
@@ -13,10 +14,7 @@ use tokio_tungstenite::{
 use tokio_util::sync::CancellationToken;
 use tracing::{error, warn};
 
-use crate::{
-    code_from_rbuilder::EnvOrValue,
-    reconnect::{run_async_loop_with_reconnect, RunCommand},
-};
+use crate::reconnect::{run_async_loop_with_reconnect, RunCommand};
 
 type Connection = WebSocketStream<MaybeTlsStream<TcpStream>>;
 

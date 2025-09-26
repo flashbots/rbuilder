@@ -9,7 +9,13 @@ repository.workspace = true
 exclude.workspace = true
 
 [dependencies]
-tokio = { version = "1.40", default-features = false, features = ["rt", "rt-multi-thread", "macros","signal"] }
+rbuilder-config.workspace = true
+
+alloy-primitives.workspace = true
+alloy-provider.workspace = true
+alloy-rpc-types-beacon.workspace = true
+
+tokio = { workspace = true, default-features = false, features = ["rt", "rt-multi-thread", "macros","signal"] }
 tokio-util = "0.7.12"
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
@@ -19,7 +25,7 @@ serde_json = { workspace = true }
 serde = { workspace = true }
 serde_with = { version = "3.9.0", features = ["time_0_3"] }
 chrono = "^0.4"
-futures = "^0.3"
+futures.workspace = true
 futures-retry = "0.6"
 rand.workspace = true
 runng = "^0.3"
@@ -34,15 +40,12 @@ ethereum_ssz = "0.9"
 ssz_types = "^0.5"
 hex = "^0.4"
 derivative = "2.2"
-toml = "0.8.8"
+toml.workspace = true
 eyre = "0.6.12"
 thiserror = { version = "1.0.64" }
 parking_lot = { version = "0.12.3" }
 strum = { version = "0.25", features = ["derive"] }
 exponential-backoff = "1.2.0"
-alloy-primitives.workspace = true
-alloy-provider.workspace = true
-alloy-rpc-types-beacon.workspace = true
 
 [dev-dependencies]
 proptest = "1.4"

@@ -7,10 +7,11 @@
 
 use clap::{Args, Parser};
 use rbuilder::{
-    live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig, config::Config},
+    live_builder::{cli::LiveBuilderConfig, config::Config},
     provider::reth_prov::StateProviderFactoryFromRethProvider,
     telemetry,
 };
+use rbuilder_config::load_toml_config;
 use reth::{
     chainspec::{EthereumChainSpecParser, EthereumHardforks},
     cli::Cli,
@@ -92,7 +93,7 @@ fn spawn_rbuilder<P>(
 {
     let _handle = task::spawn(async move {
         let result = async {
-            let config: Config = load_config_toml_and_env(config_path)?;
+            let config: Config = load_toml_config(config_path)?;
 
             let ready_to_build = Arc::new(AtomicBool::new(false));
             // Spawn redacted server that is safe for tdx builders to expose

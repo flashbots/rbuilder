@@ -17,12 +17,13 @@ use crate::{
         execute::{backtest_simulate_block, BlockBacktestValue},
         BacktestResultsStorage, BlockData, HistoricalDataStorage, StoredBacktestResult,
     },
-    live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig},
+    live_builder::cli::LiveBuilderConfig,
     utils::timestamp_ms_to_offset_datetime,
 };
 use alloy_primitives::{utils::format_ether, Address, U256};
 use clap::Parser;
 use rayon::prelude::*;
+use rbuilder_config::load_toml_config;
 use std::{
     fs::File,
     io::{self, Write},
@@ -74,7 +75,7 @@ where
             "Cannot store and compare backtest results at the same time."
         ));
     }
-    let config: ConfigType = load_config_toml_and_env(cli.config.clone())?;
+    let config: ConfigType = load_toml_config(cli.config.clone())?;
     config.base_config().setup_tracing_subscriber()?;
 
     let builders_names = config.base_config().backtest_builders.clone();

@@ -12,10 +12,11 @@ use rbuilder::{
         BlockBuildingContext, BlockBuildingSpaceState, BlockState, FinalizeAdjustmentState,
         PartialBlock, PartialBlockFork, ThreadBlockBuildingContext,
     },
-    live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig, config::Config},
+    live_builder::{cli::LiveBuilderConfig, config::Config},
     provider::StateProviderFactory,
     utils::{extract_onchain_block_txs, find_suggested_fee_recipient, http_provider, Signer},
 };
+use rbuilder_config::load_toml_config;
 use rbuilder_primitives::mev_boost::SubmitBlockRequest;
 use reth_primitives_traits::SignerRecoverable;
 use reth_provider::StateProvider;
@@ -46,7 +47,7 @@ struct Cli {
 async fn main() -> eyre::Result<()> {
     let cli = Cli::parse();
 
-    let config: Config = load_config_toml_and_env(cli.config)?;
+    let config: Config = load_toml_config(cli.config)?;
     config.base_config().setup_tracing_subscriber()?;
 
     let rpc = http_provider(cli.rpc_url.parse()?);

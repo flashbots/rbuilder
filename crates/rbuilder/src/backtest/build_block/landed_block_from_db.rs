@@ -8,6 +8,7 @@
 
 use ahash::HashMap;
 use alloy_primitives::utils::format_ether;
+use rbuilder_config::load_toml_config;
 use reth_db::DatabaseEnv;
 use reth_node_api::NodeTypesWithDBAdapter;
 use reth_node_ethereum::EthereumNode;
@@ -22,10 +23,7 @@ use crate::{
         BlockData, HistoricalDataStorage, OrdersWithTimestamp,
     },
     building::{builders::mock_block_building_helper::MockRootHasher, BlockBuildingContext},
-    live_builder::{
-        base_config::load_config_toml_and_env, block_list_provider::BlockList,
-        cli::LiveBuilderConfig,
-    },
+    live_builder::{block_list_provider::BlockList, cli::LiveBuilderConfig},
     utils::{timestamp_as_u64, timestamp_ms_to_offset_datetime, ProviderFactoryReopener},
 };
 use clap::Parser;
@@ -306,7 +304,7 @@ fn show_missing_txs(block_data: &BlockData) {
 
 pub async fn run_backtest<ConfigType: LiveBuilderConfig>() -> eyre::Result<()> {
     let cli = Cli::parse();
-    let config: ConfigType = load_config_toml_and_env(cli.build_block_cfg.config.clone())?;
+    let config: ConfigType = load_toml_config(cli.build_block_cfg.config.clone())?;
     let order_source = LandedBlockFromDBOrdersSource::new(cli.extra_cfg, config).await?;
     run_backtest_build_block(cli.build_block_cfg, order_source).await
 }

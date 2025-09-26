@@ -3,10 +3,11 @@
 
 use crate::{
     backtest::{HistoricalDataFetcher, HistoricalDataStorage},
-    live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig},
+    live_builder::cli::LiveBuilderConfig,
 };
 use alloy_primitives::utils::format_ether;
 use clap::Parser;
+use rbuilder_config::load_toml_config;
 use std::{ffi::OsString, fs, future::Future, path::PathBuf};
 use tracing::error;
 
@@ -59,7 +60,7 @@ pub async fn run_backtest_fetch<
     order_source_factory: OrderSourceFactoryType,
 ) -> eyre::Result<()> {
     let cli = Cli::parse();
-    let config: ConfigType = load_config_toml_and_env(cli.config)?;
+    let config: ConfigType = load_toml_config(cli.config)?;
     config.base_config().setup_tracing_subscriber()?;
 
     match cli.command {

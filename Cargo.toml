@@ -11,6 +11,7 @@ exclude = [".github/"]
 members = [
     "crates/rbuilder",
     "crates/rbuilder-primitives",
+    "crates/rbuilder-config",
     "crates/reth-rbuilder",
     "crates/rbuilder/src/test_utils",
     "crates/rbuilder/src/telemetry/metrics_macros",
@@ -142,7 +143,8 @@ eyre = { version = "0.6.12" }
 jsonrpsee = { version = "0.24.4" }
 jsonrpsee-types = { version = "0.24.4" }
 parking_lot = { version = "0.12.3" }
-tokio = { version = "1.40.0" }
+tokio = { version = "1.40.0", default-features = false }
+futures = "0.3"
 auto_impl = { version = "1.2.0" }
 reqwest = { version = "0.12.8" }
 serde = { version = "1.0.210" }
@@ -158,6 +160,7 @@ flate2 = "1.0.35"
 prometheus = "0.13.4"
 ctor = "0.2"
 rand = "0.8"
+toml = "0.8.8"
 
 libc = { version = "0.2.161" }
 lazy_static = "1.4.0"
@@ -171,5 +174,6 @@ eth-sparse-mpt = { path = "crates/eth-sparse-mpt" }
 bid-scraper = { path = "crates/bid-scraper" }
 rbuilder = { path = "crates/rbuilder" }
 rbuilder-primitives = { path = "crates/rbuilder-primitives" }
+rbuilder-config = { path = "crates/rbuilder-config" }
 sysperf = { path = "crates/sysperf" }
 metrics_macros = { path = "crates/rbuilder/src/telemetry/metrics_macros" }

@@ -1,5 +1,4 @@
 use crate::{
-    code_from_rbuilder::EnvOrValue,
     get_timestamp_f64,
     types::{PublisherType, ScrapedRelayBlockBid},
     ws_publisher::{ConnectionHandler, Service},
@@ -12,6 +11,7 @@ use futures::{
     StreamExt,
 };
 use futures_util::SinkExt;
+use rbuilder_config::EnvOrValue;
 use serde::Deserialize;
 use serde_json::json;
 use std::str::FromStr;

@@ -33,7 +33,7 @@ governor = "0.6.3"
 ahash.workspace = true
 reqwest = { workspace = true, features = ["blocking"] }
 serde_with = { workspace = true, features = ["time_0_3"] }
-toml = { version = "0.8.8", default-features = false }
+toml.workspace = true
 tracing.workspace = true
 time.workspace = true
 thiserror.workspace = true

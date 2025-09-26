@@ -17,7 +17,7 @@ use crate::{
 use alloy_primitives::{Address, B256};
 use alloy_provider::RootProvider;
 use eth_sparse_mpt::{ETHSpareMPTVersion, RootHashThreadPool};
-use eyre::{eyre, Context};
+use eyre::Context;
 use jsonrpsee::RpcModule;
 use reth::chainspec::chain_value_parser;
 use reth_chainspec::ChainSpec;
@@ -30,7 +30,6 @@ use serde::{Deserialize, Deserializer};
 use serde_with::{serde_as, DeserializeAs};
 use std::{
     env::var,
-    fs::read_to_string,
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     path::{Path, PathBuf},
     str::FromStr,
@@ -162,29 +161,6 @@ pub struct BaseConfig {
 
 pub fn default_ip() -> Ipv4Addr {
     Ipv4Addr::new(0, 0, 0, 0)
-}
-
-/// Loads config from toml file, some values can be loaded from env variables with the following syntax
-/// e.g. coinbase_secret_key = "env:COINBASE_SECRET_KEY"
-///
-/// variables that can be configured with env values:
-/// - log_level
-/// - coinbase_secret_key
-/// - relay_secret_key
-/// - optimistic_relay_secret_key
-/// - backtest_fetch_mempool_data_dir
-pub fn load_config_toml_and_env<T: serde::de::DeserializeOwned>(
-    path: impl AsRef<Path>,
-) -> eyre::Result<T> {
-    let data = read_to_string(path.as_ref()).with_context(|| {
-        eyre!(
-            "Config file read error: {:?}",
-            path.as_ref().to_string_lossy()
-        )
-    })?;
-
-    let config: T = toml::from_str(&data).context("Config file parsing")?;
-    Ok(config)
 }
 
 impl BaseConfig {

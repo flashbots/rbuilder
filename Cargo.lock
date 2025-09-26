@@ -2035,6 +2035,7 @@ dependencies = [
  "parking_lot",
  "proptest",
  "rand 0.8.5",
+ "rbuilder-config",
  "reqwest 0.11.27",
  "runng",
  "serde",
@@ -9114,6 +9115,7 @@ dependencies = [
  "quick_cache",
  "rand 0.8.5",
  "rayon",
+ "rbuilder-config",
  "rbuilder-primitives",
  "reipc",
  "reqwest 0.12.15",
@@ -9160,6 +9162,16 @@ dependencies = [
  "url",
  "uuid",
  "warp",
+]
+
+[[package]]
+name = "rbuilder-config"
+version = "0.1.0"
+dependencies = [
+ "eyre",
+ "serde",
+ "toml 0.8.20",
+ "tracing-subscriber 0.3.19",
 ]
 
 [[package]]
@@ -11260,6 +11272,7 @@ dependencies = [
  "eyre",
  "libc",
  "rbuilder",
+ "rbuilder-config",
  "reth",
  "reth-cli-util",
  "reth-node-ethereum",

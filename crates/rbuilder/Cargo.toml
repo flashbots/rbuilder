@@ -12,6 +12,7 @@ build = "build.rs"
 
 [dependencies]
 rbuilder-primitives.workspace = true
+rbuilder-config.workspace = true
 
 serde = { workspace = true }
 derive_more = { workspace = true }
@@ -77,7 +78,7 @@ sqlx = { version = "0.7.1", features = [
 ] }
 tracing.workspace = true
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
-futures = "0.3.28"
+futures.workspace = true
 time.workspace = true
 bigdecimal = "0.4.1"
 mempool-dumpster = "0.1.1"
@@ -101,7 +102,7 @@ prometheus.workspace = true
 warp.workspace = true
 lazy_static.workspace = true
 ctor.workspace = true
-toml = { version = "0.8.8", default-features = false }
+toml.workspace = true
 ahash.workspace = true
 rand.workspace = true
 lru = "0.12.1"
