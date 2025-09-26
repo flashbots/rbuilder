@@ -38,7 +38,6 @@ pub use tx_signer::Signer;
 
 pub mod provider_head_state;
 pub mod receipts;
-pub mod tracing;
 
 #[cfg(test)]
 pub mod test_utils;

@@ -31,9 +31,7 @@ use crate::{
         },
         PartialBlockExecutionTracer, Sorting,
     },
-    live_builder::{
-        base_config::EnvOrValue, cli::LiveBuilderConfig, payload_events::MevBoostSlotDataGenerator,
-    },
+    live_builder::{cli::LiveBuilderConfig, payload_events::MevBoostSlotDataGenerator},
     mev_boost::{
         bloxroute_grpc, BLSBlockSigner, MevBoostRelayBidSubmitter, MevBoostRelaySlotInfoProvider,
         RelayClient, RelayConfig, RelaySubmitConfig,
@@ -54,6 +52,7 @@ use ethereum_consensus::{
 };
 use eyre::Context;
 use lazy_static::lazy_static;
+use rbuilder_config::EnvOrValue;
 use rbuilder_primitives::mev_boost::{MevBoostRelayID, RelayMode};
 use reth_chainspec::{Chain, ChainSpec, NamedChain};
 use reth_db::DatabaseEnv;
@@ -174,7 +173,7 @@ impl Default for L1Config {
 
 impl L1Config {
     pub fn resolve_cl_node_urls(&self) -> eyre::Result<Vec<String>> {
-        crate::live_builder::base_config::resolve_env_or_values::<String>(&self.cl_node_url)
+        rbuilder_config::resolve_env_or_values::<String>(&self.cl_node_url)
     }
 
     pub fn beacon_clients(&self) -> eyre::Result<Vec<Client>> {

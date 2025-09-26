@@ -9170,6 +9170,7 @@ version = "0.1.0"
 dependencies = [
  "eyre",
  "serde",
+ "serde_with",
  "toml 0.8.20",
  "tracing-subscriber 0.3.19",
 ]
@@ -14111,6 +14112,7 @@ dependencies = [
  "parking_lot",
  "prometheus",
  "rbuilder",
+ "rbuilder-config",
  "rbuilder-primitives",
  "serde",
  "serde_json",

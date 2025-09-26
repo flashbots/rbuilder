@@ -9,9 +9,7 @@ use crate::{
     roothash::RootHashContext,
     utils::{
         constants::{MINS_PER_HOUR, SECS_PER_MINUTE},
-        http_provider,
-        tracing::{setup_tracing_subscriber, LoggerConfig},
-        ProviderFactoryReopener, Signer,
+        http_provider, ProviderFactoryReopener, Signer,
     },
 };
 use alloy_primitives::{Address, B256};
@@ -19,6 +17,7 @@ use alloy_provider::RootProvider;
 use eth_sparse_mpt::{ETHSpareMPTVersion, RootHashThreadPool};
 use eyre::Context;
 use jsonrpsee::RpcModule;
+use rbuilder_config::{EnvOrValue, LoggerConfig};
 use reth::chainspec::chain_value_parser;
 use reth_chainspec::ChainSpec;
 use reth_db::DatabaseEnv;
@@ -27,9 +26,8 @@ use reth_node_ethereum::EthereumNode;
 use reth_primitives::StaticFileSegment;
 use reth_provider::StaticFileProviderFactory;
 use serde::{Deserialize, Deserializer};
-use serde_with::{serde_as, DeserializeAs};
+use serde_with::serde_as;
 use std::{
-    env::var,
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     path::{Path, PathBuf},
     str::FromStr,
@@ -48,9 +46,6 @@ use super::{
     block_output::unfinished_block_processing::UnfinishedBuiltBlocksInputFactory,
     payload_events::MevBoostSlotDataGenerator,
 };
-
-/// Prefix for env variables in config
-const ENV_PREFIX: &str = "env:";
 
 /// Base config to be used by all builders.
 /// It allows us to create a base LiveBuilder with no algorithms or custom bidding.
@@ -171,7 +166,7 @@ impl BaseConfig {
             log_json: self.log_json,
             log_color: self.log_color,
         };
-        setup_tracing_subscriber(config)?;
+        config.init_tracing()?;
         Ok(())
     }
 
@@ -439,79 +434,6 @@ impl BaseConfig {
         let path_expanded = shellexpand::tilde(&path).to_string();
 
         Ok(path_expanded.parse()?)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EnvOrValue<T>(String, std::marker::PhantomData<T>);
-
-impl<T: FromStr> EnvOrValue<T> {
-    pub fn value(&self) -> eyre::Result<String> {
-        let value = &self.0;
-        if value.starts_with(ENV_PREFIX) {
-            let var_name = value.trim_start_matches(ENV_PREFIX);
-            var(var_name).map_err(|_| eyre::eyre!("Env variable: {} not set", var_name))
-        } else {
-            Ok(value.to_string())
-        }
-    }
-}
-
-impl<T> From<&str> for EnvOrValue<T> {
-    fn from(s: &str) -> Self {
-        Self(s.to_string(), std::marker::PhantomData)
-    }
-}
-
-impl<'de, T: FromStr> Deserialize<'de> for EnvOrValue<T> {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        Ok(Self(s, std::marker::PhantomData))
-    }
-}
-
-// Helper function to resolve Vec<EnvOrValue<T>> to Vec<T>
-pub fn resolve_env_or_values<T: FromStr>(values: &[EnvOrValue<T>]) -> eyre::Result<Vec<T>> {
-    values
-        .iter()
-        .try_fold(Vec::new(), |mut acc, v| -> eyre::Result<Vec<T>> {
-            let value = v.value()?;
-            if v.0.starts_with(ENV_PREFIX) {
-                // If it's an environment variable, split by comma
-                let parsed: eyre::Result<Vec<T>> = value
-                    .split(',')
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .map(|s| {
-                        T::from_str(s).map_err(|_| eyre::eyre!("Failed to parse value: {}", s))
-                    })
-                    .collect();
-                acc.extend(parsed?);
-            } else {
-                // If it's not an environment variable, just return the single value
-                acc.push(
-                    T::from_str(&value)
-                        .map_err(|_| eyre::eyre!("Failed to parse value: {}", value))?,
-                );
-            }
-            Ok(acc)
-        })
-}
-
-impl<'de, T> DeserializeAs<'de, EnvOrValue<T>> for EnvOrValue<T>
-where
-    T: FromStr,
-    String: Deserialize<'de>,
-{
-    fn deserialize_as<D>(deserializer: D) -> Result<EnvOrValue<T>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        Ok(EnvOrValue(s, std::marker::PhantomData))
     }
 }
 

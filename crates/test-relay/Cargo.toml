@@ -10,6 +10,7 @@ exclude.workspace = true
 
 [dependencies]
 rbuilder-primitives.workspace = true
+rbuilder-config.workspace = true
 rbuilder.workspace = true
 clap.workspace = true
 clap_builder.workspace = true

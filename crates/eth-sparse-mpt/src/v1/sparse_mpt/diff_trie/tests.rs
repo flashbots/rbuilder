@@ -28,15 +28,13 @@ fn compare_impls_with_hashing(data: Vec<(Bytes, Bytes)>, insert_hashing: bool) {
     let got = trie.root_hash().expect("hashing failed");
     assert_eq!(
         got, expected,
-        "comparing hashing, insert_hashing: {}",
-        insert_hashing
+        "comparing hashing, insert_hashing: {insert_hashing}",
     );
 
     let got_parallel = trie.root_hash_parallel().expect("hashing failed");
     assert_eq!(
         got_parallel, expected,
-        "comparing parallel hashing, insert_hashing: {}",
-        insert_hashing
+        "comparing parallel hashing, insert_hashing: {insert_hashing}",
     );
 }
 
@@ -216,15 +214,13 @@ fn compare_with_removals_with_hashing(
     let hash = trie.root_hash().expect("must hash");
     assert_eq!(
         hash, reference_hash,
-        "comparing hashing, insert_hashing: {}",
-        insert_hashing
+        "comparing hashing, insert_hashing: {insert_hashing}",
     );
 
     let parallel_hash = trie.root_hash_parallel().expect("must hash");
     assert_eq!(
         parallel_hash, reference_hash,
-        "comparing parallel hashing, insert_hashing: {}",
-        insert_hashing
+        "comparing parallel hashing, insert_hashing: {insert_hashing}",
     );
 
     Ok(())
@@ -261,15 +257,13 @@ fn compare_with_removals_sparse(
     let hash = gathered_trie.root_hash().expect("must hash");
     assert_eq!(
         hash, reference_hash,
-        "comparing sparse removals, insert_hashing: {}",
-        insert_hashing
+        "comparing sparse removals, insert_hashing: {insert_hashing}",
     );
 
     let parallel_hash = gathered_trie.root_hash_parallel().expect("must hash");
     assert_eq!(
         parallel_hash, reference_hash,
-        "comparing sparse removals parallel hashing, insert_hashing: {}",
-        insert_hashing
+        "comparing sparse removals parallel hashing, insert_hashing: {insert_hashing}",
     );
 
     Ok(())
@@ -523,7 +517,7 @@ fn known_failure_case_0() {
         if prev_value.is_none() {
             prev_value = Some(hash);
         } else {
-            assert_eq!(prev_value, Some(hash), "seed:{}", i);
+            assert_eq!(prev_value, Some(hash), "seed:{i}");
         }
     }
 }
