@@ -19,15 +19,18 @@ use parking_lot::{Condvar, Mutex};
 use std::sync::Arc;
 use time::OffsetDateTime;
 
-use tracing::{error, trace, warn};
+use tracing::{error, info, trace, warn};
 
 use tokio_util::sync::CancellationToken;
 
 use crate::{
     building::{
-        builders::block_building_helper::{
-            BiddableUnfinishedBlock, BlockBuildingHelper, BlockBuildingHelperError,
-            FinalizeBlockResult,
+        builders::{
+            block_building_helper::{
+                BiddableUnfinishedBlock, BlockBuildingHelper, BlockBuildingHelperError,
+                FinalizeBlockResult,
+            },
+            BuiltBlockId,
         },
         InsertPayoutTxErr, ThreadBlockBuildingContext,
     },
@@ -41,8 +44,8 @@ use crate::{
 use super::{
     best_block_from_algorithms::BestBlockFromAlgorithms,
     bidding_service_interface::{
-        BiddingService, BlockId, BlockSealInterfaceForSlotBidder,
-        BuiltBlockDescriptorForSlotBidder, SlotBidder, SlotBidderSealBidCommand, SlotBlockId,
+        BiddingService, BlockSealInterfaceForSlotBidder, BuiltBlockDescriptorForSlotBidder,
+        SlotBidder, SlotBidderSealBidCommand, SlotBlockId,
     },
     relay_submit::RelaySubmitSinkFactory,
 };
@@ -193,7 +196,7 @@ impl PrefinalizedBlockInner {
 
 #[derive(Debug, Clone)]
 struct PrefinalizedBlock {
-    block_id: BlockId,
+    block_id: BuiltBlockId,
     inner: Arc<Mutex<PrefinalizedBlockInner>>,
     pub sent_to_bidder: OffsetDateTime,
     pub chosen_as_best_at: OffsetDateTime,
@@ -201,7 +204,7 @@ struct PrefinalizedBlock {
 
 impl PrefinalizedBlock {
     fn new(
-        block_id: BlockId,
+        block_id: BuiltBlockId,
         chosen_as_best_at: OffsetDateTime,
         block_building_helper: Box<dyn BlockBuildingHelper>,
         local_ctx: ThreadBlockBuildingContext,
@@ -293,6 +296,7 @@ impl UnfinishedBuiltBlocksInput {
             return;
         };
         block.chosen_as_best_at = OffsetDateTime::now_utc();
+        info!(block_id=block.id().0,true_block_value = ?block.true_block_value,chosen_as_best_at=?block.chosen_as_best_at,algo=block.block.builder_name(), "New best block chosen");
 
         let log_span = create_logging_span(block.block());
         let _guard = log_span.enter();
@@ -402,13 +406,6 @@ impl UnfinishedBuiltBlocksInput {
         guard.take()
     }
 
-    fn create_new_block_id(&self) -> BlockId {
-        let mut last_id = self.last_block_id.lock();
-        let id = BlockId(*last_id);
-        *last_id += 1;
-        id
-    }
-
     fn local_ctx(&self) -> ThreadBlockBuildingContext {
         // we try to reuse ThreadBlockBuildingContext from previously built blocks (as they contain useful caches)
         if let Some(last_prefin_block) = self.unused_prefinalized_blocks.lock().pop() {
@@ -433,7 +430,7 @@ impl UnfinishedBuiltBlocksInput {
             let log_span = create_logging_span(next_block.block());
             let _guard = log_span.enter();
 
-            let block_id = self.create_new_block_id();
+            let block_id = next_block.block.built_block_trace().build_block_id;
             let id_span = tracing::info_span!("block_id", block_id = block_id.0);
             let _guard_id_span = id_span.enter();
             let block_descriptor = BuiltBlockDescriptorForSlotBidder::new(block_id, &next_block);

@@ -2,7 +2,7 @@ pub mod built_block_cache;
 
 use crate::{
     building::{
-        builders::{BlockBuildingAlgorithm, BlockBuildingAlgorithmInput},
+        builders::{BlockBuildingAlgorithm, BlockBuildingAlgorithmInput, BuiltBlockIdSource},
         multi_share_bundle_merger::MultiShareBundleMerger,
         simulated_order_command_to_sink, BlockBuildingContext, SimulatedOrderSink,
     },
@@ -43,6 +43,7 @@ pub struct BlockBuildingPool<P> {
     order_simulation_pool: OrderSimulationPool<P>,
     run_sparse_trie_prefetcher: bool,
     sbundle_merger_selected_signers: Arc<Vec<Address>>,
+    built_block_id_source: Arc<BuiltBlockIdSource>,
 }
 
 impl<P> BlockBuildingPool<P>
@@ -66,6 +67,7 @@ where
             order_simulation_pool,
             run_sparse_trie_prefetcher,
             sbundle_merger_selected_signers,
+            built_block_id_source: Arc::new(BuiltBlockIdSource::new()),
         }
     }
 
@@ -173,6 +175,7 @@ where
                 sink: builder_sink.clone(),
                 cancel: cancel.clone(),
                 built_block_cache: built_block_cache.clone(),
+                built_block_id_source: self.built_block_id_source.clone(),
             };
             let builder = builder.clone();
             tokio::task::spawn_blocking(move || {

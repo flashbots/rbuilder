@@ -9,7 +9,8 @@ use crate::{
     building::{
         block_orders_from_sim_orders,
         builders::{
-            block_building_helper::BlockBuildingHelper, LiveBuilderInput, OrderIntakeConsumer,
+            block_building_helper::BlockBuildingHelper, BuiltBlockId, LiveBuilderInput,
+            OrderIntakeConsumer,
         },
         BlockBuildingContext, ExecutionError, NullPartialBlockExecutionTracer, OrderPriority,
         PartialBlockExecutionTracer, PrioritizedOrderStore, SimulatedOrderSink, Sorting,
@@ -138,7 +139,11 @@ pub fn run_ordering_builder<P, OrderPriorityType>(
         }
 
         let orders = order_intake_consumer.current_block_orders();
-        match builder.build_block(orders, input.cancel.clone()) {
+        match builder.build_block(
+            orders,
+            input.built_block_id_source.get_new_id(),
+            input.cancel.clone(),
+        ) {
             Ok(block) => {
                 if let Ok(block) = BiddableUnfinishedBlock::new(block) {
                     input.sink.new_block(block);
@@ -184,6 +189,7 @@ where
     );
     let mut block_builder = builder.build_block_with_execution_tracer(
         block_orders,
+        BuiltBlockId::ZERO,
         CancellationToken::new(),
         partial_block_execution_tracer,
     )?;
@@ -235,10 +241,12 @@ impl OrderingBuilderContext {
     pub fn build_block<OrderPriorityType: OrderPriority>(
         &mut self,
         block_orders: PrioritizedOrderStore<OrderPriorityType>,
+        built_block_id: BuiltBlockId,
         cancel_block: CancellationToken,
     ) -> eyre::Result<Box<dyn BlockBuildingHelper>> {
         self.build_block_with_execution_tracer(
             block_orders,
+            built_block_id,
             cancel_block,
             NullPartialBlockExecutionTracer {},
         )
@@ -253,6 +261,7 @@ impl OrderingBuilderContext {
     >(
         &mut self,
         mut block_orders: PrioritizedOrderStore<OrderPriorityType>,
+        built_block_id: BuiltBlockId,
         cancel_block: CancellationToken,
         partial_block_execution_tracer: PartialBlockExecutionTracerType,
     ) -> eyre::Result<Box<dyn BlockBuildingHelper>> {
@@ -267,6 +276,7 @@ impl OrderingBuilderContext {
         self.order_attempts.clear();
 
         let mut block_building_helper = BlockBuildingHelperFromProvider::new_with_execution_tracer(
+            built_block_id,
             self.state.clone(),
             self.ctx.clone(),
             &mut self.local_ctx,
@@ -468,6 +478,7 @@ where
             builder_name: self.name.clone(),
             cancel: input.cancel,
             built_block_cache: input.built_block_cache,
+            built_block_id_source: input.built_block_id_source,
         };
         run_ordering_builder::<P, OrderPriorityType>(live_input, &self.config);
     }

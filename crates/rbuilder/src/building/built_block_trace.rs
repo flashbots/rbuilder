@@ -1,3 +1,5 @@
+use crate::building::builders::BuiltBlockId;
+
 use super::ExecutionResult;
 use ahash::{AHasher, HashMap, HashSet};
 use alloy_primitives::{Address, TxHash, U256};
@@ -12,6 +14,7 @@ use time::OffsetDateTime;
 
 #[derive(Debug, Clone)]
 pub struct BuiltBlockTrace {
+    pub build_block_id: BuiltBlockId,
     pub included_orders: Vec<ExecutionResult>,
     /// How much we bid (pay to the validator)
     pub bid_value: U256,
@@ -54,12 +57,6 @@ pub struct BuiltBlockTrace {
     pub filtered_build_failed_orders_statistics: OrderStatistics,
 }
 
-impl Default for BuiltBlockTrace {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[derive(thiserror::Error, Debug)]
 pub enum BuiltBlockTraceError {
     #[error("More than one order is included with the same replacement data: {0:?}")]
@@ -73,7 +70,7 @@ pub enum BuiltBlockTraceError {
 }
 
 impl BuiltBlockTrace {
-    pub fn new() -> Self {
+    pub fn new(build_block_id: BuiltBlockId) -> Self {
         Self {
             included_orders: Vec::new(),
             bid_value: U256::from(0),
@@ -96,6 +93,7 @@ impl BuiltBlockTrace {
             bid_received_at: OffsetDateTime::now_utc(),
             sent_to_sealer: OffsetDateTime::now_utc(),
             picked_by_sealer_at: OffsetDateTime::now_utc(),
+            build_block_id,
         }
     }
 

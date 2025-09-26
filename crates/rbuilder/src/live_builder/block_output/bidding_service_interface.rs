@@ -10,7 +10,10 @@ use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    building::{builders::block_building_helper::BiddableUnfinishedBlock, BuiltBlockTrace},
+    building::{
+        builders::{block_building_helper::BiddableUnfinishedBlock, BuiltBlockId},
+        BuiltBlockTrace,
+    },
     live_builder::payload_events::MevBoostSlotData,
     telemetry::inc_bids_received,
 };
@@ -76,22 +79,19 @@ impl SlotBlockId {
     }
 }
 
-#[derive(Clone, Copy, Eq, PartialEq, Debug)]
-pub struct BlockId(pub u64);
-
 /// Selected information coming from a BlockBuildingHelper.
 #[derive(Derivative, Clone, Debug)]
 #[derivative(PartialEq, Eq)]
 pub struct BuiltBlockDescriptorForSlotBidder {
     pub true_block_value: U256,
-    pub id: BlockId,
+    pub id: BuiltBlockId,
     /// For metrics
     #[derivative(PartialEq = "ignore")]
     pub creation_time: OffsetDateTime,
 }
 
 impl BuiltBlockDescriptorForSlotBidder {
-    pub fn new(id: BlockId, unfinished_block: &BiddableUnfinishedBlock) -> Self {
+    pub fn new(id: BuiltBlockId, unfinished_block: &BiddableUnfinishedBlock) -> Self {
         Self {
             true_block_value: unfinished_block.true_block_value,
             id,
@@ -102,7 +102,7 @@ impl BuiltBlockDescriptorForSlotBidder {
 
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct SlotBidderSealBidCommand {
-    pub block_id: BlockId,
+    pub block_id: BuiltBlockId,
     pub payout_tx_value: U256,
     pub seen_competition_bid: Option<U256>,
     /// When this bid is a reaction so some event (eg: new block, new competition bid) we put here

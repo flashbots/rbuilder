@@ -11,7 +11,10 @@ use rbuilder::{
         BlockData, HistoricalDataStorage, OrdersWithTimestamp,
     },
     building::{
-        builders::block_building_helper::{BlockBuildingHelper, BlockBuildingHelperFromProvider},
+        builders::{
+            block_building_helper::{BlockBuildingHelper, BlockBuildingHelperFromProvider},
+            BuiltBlockId,
+        },
         order_priority::{FullProfitInfoGetter, OrderMaxProfitPriority},
         BlockBuildingContext, ExecutionError, MockRootHasher, NullPartialBlockExecutionTracer,
         OrderPriority, ThreadBlockBuildingContext,
@@ -157,6 +160,7 @@ impl LandedBlockInfo {
             .into();
         let order_statistics = OrderStatistics::new();
         Ok(BlockBuildingHelperFromProvider::new(
+            BuiltBlockId::ZERO,
             block_state,
             ctx,
             &mut self.local_ctx,

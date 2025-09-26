@@ -32,7 +32,7 @@ use tracing::{error, trace};
 use crate::{
     building::builders::{
         BacktestSimulateBlockInput, Block, BlockBuildingAlgorithm, BlockBuildingAlgorithmInput,
-        LiveBuilderInput,
+        BuiltBlockIdSource, LiveBuilderInput,
     },
     provider::StateProviderFactory,
     utils::elapsed_ms,
@@ -133,6 +133,7 @@ where
             input.cancel.clone(),
             input.builder_name.clone(),
             Some(input.sink.clone()),
+            input.built_block_id_source.clone(),
         );
 
         let order_intake_consumer = OrderIntakeStore::new(input.input);
@@ -350,6 +351,7 @@ where
         CancellationToken::new(),
         String::from("backtest_builder"),
         None,
+        Arc::new(BuiltBlockIdSource::new()),
     );
     let assembler_duration = assembler_start.elapsed();
 
@@ -418,6 +420,7 @@ where
             builder_name: self.name.clone(),
             cancel: input.cancel,
             built_block_cache: input.built_block_cache,
+            built_block_id_source: input.built_block_id_source,
         };
         run_parallel_builder(live_input, &self.config);
     }

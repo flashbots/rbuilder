@@ -16,7 +16,7 @@ use crate::{
             block_building_helper::{
                 BiddableUnfinishedBlock, BlockBuildingHelper, BlockBuildingHelperFromProvider,
             },
-            handle_building_error,
+            handle_building_error, BuiltBlockIdSource,
         },
         BlockBuildingContext, ThreadBlockBuildingContext,
     },
@@ -38,6 +38,7 @@ pub struct BlockBuildingResultAssembler {
     best_results: Arc<BestResults>,
     run_id: u64,
     last_version: Option<u64>,
+    built_block_id_source: Arc<BuiltBlockIdSource>,
 }
 
 impl BlockBuildingResultAssembler {
@@ -58,6 +59,7 @@ impl BlockBuildingResultAssembler {
         cancellation_token: CancellationToken,
         builder_name: String,
         sink: Option<UnfinishedBuiltBlocksInput>,
+        built_block_id_source: Arc<BuiltBlockIdSource>,
     ) -> Self {
         Self {
             state,
@@ -70,6 +72,7 @@ impl BlockBuildingResultAssembler {
             best_results,
             run_id: 0,
             last_version: None,
+            built_block_id_source,
         }
     }
 
@@ -178,6 +181,7 @@ impl BlockBuildingResultAssembler {
         let build_start = Instant::now();
 
         let mut block_building_helper = BlockBuildingHelperFromProvider::new(
+            self.built_block_id_source.get_new_id(),
             self.state.clone(),
             self.ctx.clone(),
             &mut self.local_ctx,
@@ -251,6 +255,7 @@ impl BlockBuildingResultAssembler {
         orders_closed_at: OffsetDateTime,
     ) -> eyre::Result<Box<dyn BlockBuildingHelper>> {
         let mut block_building_helper = BlockBuildingHelperFromProvider::new(
+            self.built_block_id_source.get_new_id(),
             self.state.clone(),
             self.ctx.clone(),
             &mut self.local_ctx,

@@ -7,8 +7,8 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     building::{
-        testing::bundle_tests::setup::NonceValue, BuiltBlockTrace, BundleErr, ExecutionResult,
-        OrderErr, TransactionErr,
+        builders::BuiltBlockId, testing::bundle_tests::setup::NonceValue, BuiltBlockTrace,
+        BundleErr, ExecutionResult, OrderErr, TransactionErr,
     },
     utils::{constants::BASE_TX_GAS, int_percentage},
 };
@@ -660,7 +660,7 @@ fn test_bundle_consistency_check() -> eyre::Result<()> {
     let blocklist = HashSet::default();
     // check revertible tx detection
     {
-        let mut built_block_trace = BuiltBlockTrace::new();
+        let mut built_block_trace = BuiltBlockTrace::new(BuiltBlockId::ZERO);
 
         // send to the blocked address
         test_setup.begin_bundle_order(11);
@@ -694,7 +694,7 @@ fn test_bundle_consistency_check() -> eyre::Result<()> {
         let blocklist = vec![test_setup.named_address(NamedAddr::User(0))?]
             .into_iter()
             .collect();
-        let mut built_block_trace = BuiltBlockTrace::new();
+        let mut built_block_trace = BuiltBlockTrace::new(BuiltBlockId::ZERO);
 
         test_setup.begin_bundle_order(11);
         test_setup.add_dummy_tx_0_1_no_rev()?;
@@ -712,7 +712,7 @@ fn test_bundle_consistency_check() -> eyre::Result<()> {
         let blocklist = vec![test_setup.named_address(NamedAddr::User(1))?]
             .into_iter()
             .collect();
-        let mut built_block_trace = BuiltBlockTrace::new();
+        let mut built_block_trace = BuiltBlockTrace::new(BuiltBlockId::ZERO);
 
         test_setup.begin_bundle_order(11);
         test_setup.add_dummy_tx_0_1_no_rev()?;

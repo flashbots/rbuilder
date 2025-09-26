@@ -1,7 +1,7 @@
 use crate::{
     building::{
-        BlockBuildingContext, BuiltBlockTrace, CriticalCommitOrderError, ExecutionError,
-        ExecutionResult, ThreadBlockBuildingContext,
+        builders::BuiltBlockId, BlockBuildingContext, BuiltBlockTrace, CriticalCommitOrderError,
+        ExecutionError, ExecutionResult, ThreadBlockBuildingContext,
     },
     live_builder::simulation::SimulatedOrderCommand,
     provider::RootHasher,
@@ -34,7 +34,7 @@ impl MockBlockBuildingHelper {
     pub fn new(true_block_value: U256) -> Self {
         let built_block_trace = BuiltBlockTrace {
             true_bid_value: true_block_value,
-            ..Default::default()
+            ..BuiltBlockTrace::new(BuiltBlockId::ZERO)
         };
         Self {
             built_block_trace,

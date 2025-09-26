@@ -11,12 +11,12 @@ use tracing::{debug, error, trace};
 
 use crate::{
     building::{
-        estimate_payout_gas_limit, tracers::GasUsedSimulationTracer, BlockBuildingContext,
-        BlockSpace, BlockState, BuiltBlockTrace, BuiltBlockTraceError, CriticalCommitOrderError,
-        EstimatePayoutGasErr, ExecutionError, ExecutionResult, FinalizeAdjustmentState,
-        FinalizeError, FinalizeResult, FinalizeRevertStateCurrentIteration,
-        NullPartialBlockExecutionTracer, PartialBlock, PartialBlockExecutionTracer,
-        ThreadBlockBuildingContext,
+        builders::BuiltBlockId, estimate_payout_gas_limit, tracers::GasUsedSimulationTracer,
+        BlockBuildingContext, BlockSpace, BlockState, BuiltBlockTrace, BuiltBlockTraceError,
+        CriticalCommitOrderError, EstimatePayoutGasErr, ExecutionError, ExecutionResult,
+        FinalizeAdjustmentState, FinalizeError, FinalizeResult,
+        FinalizeRevertStateCurrentIteration, NullPartialBlockExecutionTracer, PartialBlock,
+        PartialBlockExecutionTracer, ThreadBlockBuildingContext,
     },
     telemetry::{self, add_block_fill_time, add_order_simulation_time},
     utils::{check_block_hash_reader_health, elapsed_ms, HistoricalBlockError},
@@ -75,6 +75,10 @@ pub trait BlockBuildingHelper: Send + Sync {
     /// BuiltBlockTrace for current state.
     fn built_block_trace(&self) -> &BuiltBlockTrace;
 
+    fn id(&self) -> BuiltBlockId {
+        self.built_block_trace().build_block_id
+    }
+
     /// BlockBuildingContext used for building.
     fn building_context(&self) -> &BlockBuildingContext;
 
@@ -118,6 +122,9 @@ impl BiddableUnfinishedBlock {
             true_block_value,
             chosen_as_best_at: OffsetDateTime::now_utc(),
         })
+    }
+    pub fn id(&self) -> BuiltBlockId {
+        self.block.id()
     }
 
     pub fn block(&self) -> &dyn BlockBuildingHelper {
@@ -192,7 +199,9 @@ pub struct FinalizeBlockResult {
 }
 
 impl BlockBuildingHelperFromProvider<NullPartialBlockExecutionTracer> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
+        built_block_id: BuiltBlockId,
         state_provider: Arc<dyn StateProvider>,
         building_ctx: BlockBuildingContext,
         local_ctx: &mut ThreadBlockBuildingContext,
@@ -202,6 +211,7 @@ impl BlockBuildingHelperFromProvider<NullPartialBlockExecutionTracer> {
         cancel_on_fatal_error: CancellationToken,
     ) -> Result<Self, BlockBuildingHelperError> {
         BlockBuildingHelperFromProvider::new_with_execution_tracer(
+            built_block_id,
             state_provider,
             building_ctx,
             local_ctx,
@@ -225,6 +235,7 @@ impl<
     /// - Estimate payout tx cost.
     #[allow(clippy::too_many_arguments)]
     pub fn new_with_execution_tracer(
+        built_block_id: BuiltBlockId,
         state_provider: Arc<dyn StateProvider>,
         building_ctx: BlockBuildingContext,
         local_ctx: &mut ThreadBlockBuildingContext,
@@ -257,7 +268,7 @@ impl<
         partial_block.reserve_block_space(payout_tx_space);
         let payout_tx_gas = payout_tx_space.gas;
 
-        let mut built_block_trace = BuiltBlockTrace::new();
+        let mut built_block_trace = BuiltBlockTrace::new(built_block_id);
         built_block_trace.available_orders_statistics = available_orders_statistics;
         Ok(Self {
             _fee_recipient_balance_start: fee_recipient_balance_start,

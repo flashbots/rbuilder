@@ -20,7 +20,14 @@ use alloy_eips::eip7594::BlobTransactionSidecarVariant;
 use alloy_primitives::{Address, Bytes};
 use rbuilder_primitives::{mev_boost::BidAdjustmentData, AccountNonce, OrderId, SimulatedOrder};
 use reth::primitives::SealedBlock;
-use std::{collections::HashMap, fmt::Debug, sync::Arc};
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+};
 use tokio::sync::{
     broadcast,
     broadcast::error::{RecvError, TryRecvError},
@@ -44,6 +51,36 @@ pub struct Block {
     pub bid_adjustments: HashMap<Address, BidAdjustmentData>,
 }
 
+/// Id to uniquely identify every block built (unique even among different algorithms).
+#[derive(Clone, Copy, Eq, PartialEq, Debug)]
+pub struct BuiltBlockId(pub u64);
+
+impl BuiltBlockId {
+    pub const ZERO: Self = Self(0);
+}
+
+#[derive(Debug)]
+pub struct BuiltBlockIdSource {
+    next_id: AtomicU64,
+}
+
+impl BuiltBlockIdSource {
+    pub fn new() -> Self {
+        Self {
+            next_id: AtomicU64::new(0),
+        }
+    }
+    pub fn get_new_id(&self) -> BuiltBlockId {
+        BuiltBlockId(self.next_id.fetch_add(1, Ordering::Relaxed))
+    }
+}
+
+impl Default for BuiltBlockIdSource {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug)]
 pub struct LiveBuilderInput<P> {
     pub provider: P,
@@ -53,6 +90,7 @@ pub struct LiveBuilderInput<P> {
     pub builder_name: String,
     pub cancel: CancellationToken,
     pub built_block_cache: Arc<BuiltBlockCache>,
+    pub built_block_id_source: Arc<BuiltBlockIdSource>,
 }
 
 /// Struct that helps reading new orders/cancellations
@@ -203,6 +241,7 @@ pub struct BlockBuildingAlgorithmInput<P> {
     /// A cache common to several builders so they can optimize their work looking at other builders blocks.
     pub built_block_cache: Arc<BuiltBlockCache>,
     pub cancel: CancellationToken,
+    pub built_block_id_source: Arc<BuiltBlockIdSource>,
 }
 
 /// Algorithm to build blocks

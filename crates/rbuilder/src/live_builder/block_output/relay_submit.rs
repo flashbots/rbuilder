@@ -226,6 +226,7 @@ async fn run_submit_to_relays_job(
             sent_to_sealer = ?block.trace.sent_to_sealer,
             picked_by_sealer_at = ?block.trace.picked_by_sealer_at,
             latency_ms = latency.whole_milliseconds(),
+            block_id = block.trace.build_block_id.0,
         );
         info!(
             parent: &submission_span,
