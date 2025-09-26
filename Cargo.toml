@@ -13,6 +13,7 @@ members = [
     "crates/rbuilder-config",
     "crates/rbuilder",
     "crates/rbuilder-operator",
+    "crates/rbuilder-rebalancer",
     "crates/reth-rbuilder",
     "crates/rbuilder/src/test_utils",
     "crates/rbuilder/src/telemetry/metrics_macros",

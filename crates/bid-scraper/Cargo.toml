@@ -20,7 +20,7 @@ tokio-util.workspace = true
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 log = "^0.4"
-clap = { version = "^3.2", features = ["derive"] }
+clap.workspace = true
 serde_json = { workspace = true }
 serde = { workspace = true }
 serde_with = { version = "3.9.0", features = ["time_0_3"] }
@@ -41,7 +41,7 @@ ssz_types = "^0.5"
 hex = "^0.4"
 derivative.workspace = true
 toml.workspace = true
-eyre = "0.6.12"
+eyre.workspace = true
 thiserror.workspace = true
 parking_lot.workspace = true
 strum = { version = "0.25", features = ["derive"] }

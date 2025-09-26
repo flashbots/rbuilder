@@ -53,6 +53,7 @@ mod test {
     use alloy_consensus::TxEip1559;
     use alloy_primitives::{address, fixed_bytes, TxKind as TransactionKind};
     use reth_primitives_traits::SignerRecoverable;
+
     #[test]
     fn test_sign_transaction() {
         let secret =
@@ -64,8 +65,8 @@ mod test {
         let tx = Transaction::Eip1559(TxEip1559 {
             chain_id: 1,
             nonce: 2,
-            gas_limit: 21000,
-            max_fee_per_gas: 1000,
+            gas_limit: 21_000,
+            max_fee_per_gas: 0,
             max_priority_fee_per_gas: 20000,
             to: TransactionKind::Call(address),
             value: U256::from(3000u128),

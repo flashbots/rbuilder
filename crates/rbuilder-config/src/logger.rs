@@ -1,11 +1,24 @@
 use tracing_subscriber::EnvFilter;
 
 /// Logger configuration.
-#[derive(Debug, Clone)]
+#[derive(PartialEq, Eq, Clone, Debug, serde::Deserialize)]
 pub struct LoggerConfig {
     pub env_filter: String,
+    #[serde(default)]
     pub log_json: bool,
+    #[serde(default)]
     pub log_color: bool,
+}
+
+impl LoggerConfig {
+    /// Default logger configuration for development.
+    pub fn dev() -> Self {
+        Self {
+            env_filter: String::from("info"),
+            log_color: true,
+            log_json: false,
+        }
+    }
 }
 
 impl LoggerConfig {
