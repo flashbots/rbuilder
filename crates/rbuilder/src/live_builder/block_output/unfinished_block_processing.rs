@@ -73,8 +73,6 @@ pub struct UnfinishedBuiltBlocksInputFactory<P> {
     /// If set to true blocks will be finalized before notifying BiddingService
     /// This reduces latency for creating block with concrete proposer payout value.
     adjust_finalized_blocks: bool,
-    /// See [UnfinishedBuiltBlocksInput::submit_start_time]
-    slot_delta_to_start_submitting_bids: time::Duration,
 }
 
 impl<P: StateProviderFactory> UnfinishedBuiltBlocksInputFactory<P> {
@@ -83,14 +81,12 @@ impl<P: StateProviderFactory> UnfinishedBuiltBlocksInputFactory<P> {
         block_sink_factory: RelaySubmitSinkFactory,
         wallet_balance_watcher: WalletBalanceWatcher<P>,
         adjust_finalized_blocks: bool,
-        slot_delta_to_start_submitting_bids: time::Duration,
     ) -> Self {
         Self {
             bidding_service,
             block_sink_factory,
             wallet_balance_watcher,
             adjust_finalized_blocks,
-            slot_delta_to_start_submitting_bids,
         }
     }
 
@@ -122,7 +118,6 @@ impl<P: StateProviderFactory> UnfinishedBuiltBlocksInputFactory<P> {
             built_block_cache,
             finished_block_sink,
             self.adjust_finalized_blocks,
-            slot_data.timestamp() + self.slot_delta_to_start_submitting_bids,
             cancel.clone(),
         );
 
@@ -254,8 +249,6 @@ pub struct UnfinishedBuiltBlocksInput {
     #[derivative(Debug = "ignore")]
     block_building_sink: Arc<dyn BlockBuildingSink>,
     adjust_finalized_blocks: bool,
-    /// Any bid before this time will be sealed to "prime" the sealing core but will not be submitted to the relay.
-    submit_start_time: OffsetDateTime,
 }
 
 impl UnfinishedBuiltBlocksInput {
@@ -263,7 +256,6 @@ impl UnfinishedBuiltBlocksInput {
         built_block_cache: Arc<BuiltBlockCache>,
         block_building_sink: Box<dyn BlockBuildingSink>,
         adjust_finalized_blocks: bool,
-        submit_start_time: OffsetDateTime,
         cancellation_token: CancellationToken,
     ) -> Self {
         Self {
@@ -278,7 +270,6 @@ impl UnfinishedBuiltBlocksInput {
             cancellation_token,
             block_building_sink: block_building_sink.into(),
             adjust_finalized_blocks,
-            submit_start_time,
         }
     }
 
@@ -554,9 +545,7 @@ impl UnfinishedBuiltBlocksInput {
             result.block.trace.chosen_as_best_at =
                 finalize_command.prefinalized_block.chosen_as_best_at;
             result.block.trace.sent_to_bidder = finalize_command.prefinalized_block.sent_to_bidder;
-            if OffsetDateTime::now_utc() >= self.submit_start_time {
-                self.block_building_sink.new_block(result.block);
-            }
+            self.block_building_sink.new_block(result.block);
         }
     }
 }
