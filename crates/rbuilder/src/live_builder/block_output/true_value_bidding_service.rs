@@ -46,7 +46,7 @@ impl BiddingService for NewTrueBlockValueBiddingService {
         })
     }
 
-    fn observe_relay_bids(&self, _bid: ScrapedRelayBlockBidWithStats) {}
+    fn observe_relay_bids(&self, _bid: Vec<ScrapedRelayBlockBidWithStats>) {}
 
     fn update_new_landed_blocks_detected(&self, _landed_blocks: &[LandedBlockInfo]) {}
 
