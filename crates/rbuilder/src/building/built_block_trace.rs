@@ -24,9 +24,6 @@ pub struct BuiltBlockTrace {
     pub true_bid_value: U256,
     /// Timestamp of the moment we stopped considering new orders for this block.
     pub orders_closed_at: OffsetDateTime,
-    /// Timestamp when this block was fully sealed and ready for submission.
-    pub orders_sealed_at: OffsetDateTime,
-
     /// UnfinishedBuiltBlocksInput chose this block as the best block and sent it downstream
     pub chosen_as_best_at: OffsetDateTime,
     /// Block was sent to the bidder (SlotBidder::notify_new_built_block)
@@ -37,6 +34,8 @@ pub struct BuiltBlockTrace {
     pub sent_to_sealer: OffsetDateTime,
     /// Sealer picked by sealer thread
     pub picked_by_sealer_at: OffsetDateTime,
+    /// Timestamp when this block was fully sealed and ready for submission.
+    pub orders_sealed_at: OffsetDateTime,
 
     pub fill_time: Duration,
     pub finalize_time: Duration,
