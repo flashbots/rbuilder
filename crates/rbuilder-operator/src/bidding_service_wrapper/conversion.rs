@@ -155,7 +155,7 @@ pub fn real2rpc_publisher_type(ty: bid_scraper::types::PublisherType) -> i32 {
 
 #[allow(clippy::result_large_err)]
 pub fn rpc2real_publisher_type(ty: i32) -> Result<bid_scraper::types::PublisherType, Status> {
-    if let Some(ty) = super::PublisherType::from_i32(ty) {
+    if let Ok(ty) = super::PublisherType::try_from(ty) {
         Ok(match ty {
             super::PublisherType::RelayBids => bid_scraper::types::PublisherType::RelayBids,
             super::PublisherType::RelayHeaders => bid_scraper::types::PublisherType::RelayHeaders,

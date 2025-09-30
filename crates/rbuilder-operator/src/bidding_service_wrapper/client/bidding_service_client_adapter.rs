@@ -1,4 +1,6 @@
 use alloy_primitives::U256;
+use futures_util::FutureExt;
+use hyper_util::rt::TokioIo;
 use rbuilder::{
     live_builder::block_output::bidding_service_interface::{
         BiddingService, BlockId, BlockSealInterfaceForSlotBidder,
@@ -103,7 +105,7 @@ impl BiddingServiceClientAdapter {
             .connect_with_connector(service_fn(move |_: Uri| {
                 // Connect to a Uds socket
                 let path = PathBuf::from(uds_path.clone());
-                tokio::net::UnixStream::connect(path)
+                tokio::net::UnixStream::connect(path).map(|result| result.map(TokioIo::new))
             }))
             .await?;
         // Create a client

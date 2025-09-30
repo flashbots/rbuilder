@@ -48,6 +48,7 @@ thiserror.workspace = true
 derivative.workspace = true
 reqwest.workspace = true
 hyper = "0.14"
+hyper-util = "0.1.17"
 http = "0.2.9"
 tower = "0.4"
 prometheus.workspace = true
