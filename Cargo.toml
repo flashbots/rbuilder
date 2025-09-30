@@ -23,6 +23,7 @@ members = [
 ]
 default-members = [
     "crates/rbuilder",
+    "crates/rbuilder-operator",    
     "crates/reth-rbuilder",
     "crates/rbuilder-primitives",
     "crates/test-relay",

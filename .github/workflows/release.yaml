@@ -108,6 +108,12 @@ jobs:
           name: rbuilder-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
           path: target/${{ matrix.configs.target }}/release/rbuilder
 
+      - name: Upload rbuilder artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rbuilder-operator-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
+          path: target/${{ matrix.configs.target }}/release/rbuilder-operator
+
       - name: Upload reth-rbuilder artifact
         uses: actions/upload-artifact@v4
         with:

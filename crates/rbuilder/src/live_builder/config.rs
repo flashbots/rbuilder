@@ -1027,7 +1027,7 @@ mod test {
     #[test]
     fn test_parse_example_config() {
         let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        p.push("../../examples/config/config-live-example.toml");
+        p.push("../../examples/config/rbuilder/config-live-example.toml");
 
         let config: Config = load_toml_config(p.clone()).expect("Config load");
 
@@ -1080,7 +1080,7 @@ mod test {
     #[test]
     fn test_parse_backtest_example_config() {
         let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        p.push("../../examples/config/config-backtest-example.toml");
+        p.push("../../examples/config/rbuilder/config-backtest-example.toml");
 
         load_toml_config::<Config>(p).expect("Config load");
     }

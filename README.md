@@ -63,7 +63,7 @@ Additionally, you can:
 
 
 Running:
-1. Prepare config file based on the [`config-live-example.toml`](./examples/config/config-live-example.toml)
+1. Prepare config file based on the [`config-live-example.toml`](./examples/config/rbuilder/config-live-example.toml)
 2. Run `rbuilder run PATH_TO_CONFIG_FILE`
 See [`config file fields`](./docs/CONFIG.md) for more detailed info.
 **Warning**: Even if they are rare, before running a builder you should be aware of [`reorg losses`](./docs/REORG_LOSSES.md).
@@ -119,17 +119,17 @@ cd builder-playground
 go run main.go
 ```
 
-Next, update [`config-playground.toml`](./examples/config/config-playground.toml) with fully-qualified paths for entries containing `$HOME`:
+Next, update [`config-playground.toml`](./examples/config/rbuilder/config-playground.toml) with fully-qualified paths for entries containing `$HOME`:
 
 ```bash
 # replaces '$HOME' with the actual value of "$HOME"
-sed -i "s|\$HOME|$HOME|g" ./examples/config/config-playground.toml
+sed -i "s|\$HOME|$HOME|g" ./examples/config/rbuilder/config-playground.toml
 ```
 
 Then run `rbuilder` using the `config-playground.toml` config file:
 
 ```bash
-cargo run --bin rbuilder run ./examples/config/config-playground.toml
+cargo run --bin rbuilder run ./examples/config/rbuilder/config-playground.toml
 ```
 
 You can query the local relay for proposed blocks like this:

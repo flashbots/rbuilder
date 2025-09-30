@@ -457,7 +457,8 @@ impl BidObserver for RbuilderOperatorBidObserver {
 
 #[cfg(test)]
 mod test {
-    use rbuilder::live_builder::base_config::load_config_toml_and_env;
+
+    use rbuilder_config::load_toml_config;
 
     use super::*;
     use std::{env, path::PathBuf};
@@ -473,8 +474,8 @@ mod test {
     #[test]
     fn test_parse_example_config() {
         let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        p.push("config-live-example.toml");
+        p.push("../../examples/config/rbuilder-operator/config-live-example.toml");
 
-        load_config_toml_and_env::<FlashbotsConfig>(p.clone()).expect("Config load");
+        load_toml_config::<FlashbotsConfig>(p.clone()).expect("Config load");
     }
 }
