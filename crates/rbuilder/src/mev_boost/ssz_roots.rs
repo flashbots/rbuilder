@@ -62,38 +62,55 @@ pub fn calculate_transactions_root_ssz(transactions: &[Bytes]) -> B256 {
 
 const TREE_DEPTH: usize = 20; // log₂(MAX_TRANSACTIONS_PER_PAYLOAD)
 
+const MAX_CHUNK_COUNT: usize = 1 << TREE_DEPTH;
+
+type SszProofBuf = [Vec<B256>; TREE_DEPTH + 1];
+
 /// Generate SSZ proof for target transaction.
 pub fn generate_transaction_proof_ssz(transactions: &[Bytes], target: usize) -> Vec<B256> {
-    // Step 1: Compute all leaf hashes
-    let mut leaves: Vec<B256> = transactions.iter().map(ssz_leaf_root).collect();
+    generate_transaction_proof_ssz_with_buffer(transactions, target, &mut SszProofBuf::default())
+}
 
-    // Step 2: Pad to the limit of the VariableList (2^20 for transactions)
+/// Generate SSZ proof for target transaction with reusable buffer.
+pub fn generate_transaction_proof_ssz_with_buffer(
+    transactions: &[Bytes],
+    target: usize,
+    buf: &mut SszProofBuf,
+) -> Vec<B256> {
+    let leaf_buf = &mut buf[0];
+    leaf_buf.clear();
+    // Compute all leaf hashes and fill remaining slots with 0 hashes.
     // SSZ always pads to the maximum possible size defined by the type
-    let max_chunk_count = 1 << TREE_DEPTH; // 2^20 = 1,048,576
+    for idx in 0..MAX_CHUNK_COUNT {
+        let leaf = transactions
+            .get(idx)
+            .map(ssz_leaf_root)
+            .unwrap_or(B256::ZERO);
+        leaf_buf.insert(idx, leaf);
+    }
 
-    // Resize to max_chunk_count with zero hashes
-    leaves.resize(max_chunk_count, B256::ZERO);
-
-    // Step 3: Build the merkle tree bottom-up and collect the proof
+    // Build the merkle tree bottom-up and collect the proof
     let mut branch = Vec::new();
-    let mut current_level = leaves;
+    let mut current_level = std::mem::take(&mut buf[0]);
     let mut current_index = target;
 
     // Build the complete tree to depth TREE_DEPTH (20 levels)
-    for _level in 0..TREE_DEPTH {
+    for level in 0..TREE_DEPTH {
         // Get the sibling at this level
         let sibling_index = current_index ^ 1;
         branch.push(current_level[sibling_index]);
 
         // Build next level up
-        let mut next_level = Vec::new();
+        let next_level = &mut buf[level + 1];
+        next_level.clear();
         for i in (0..current_level.len()).step_by(2) {
             let left = current_level[i];
             let right = current_level[i + 1];
             next_level.push(sha_pair(&left, &right));
         }
 
-        current_level = next_level;
+        std::mem::swap(&mut buf[level], &mut current_level);
+        current_level = std::mem::take(&mut buf[level + 1]);
         current_index /= 2;
 
         // Stop when we reach the root
