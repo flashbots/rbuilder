@@ -25,7 +25,7 @@ revm-inspectors.workspace = true
 ethereum-consensus.workspace = true
 
 # misc
-derivative = "2.2.0"
+derivative.workspace = true
 integer-encoding = "4.0.0"
 sha2 = "0.10.8"
 uuid = { version = "1.6.1", features = ["serde", "v5", "v4"] }

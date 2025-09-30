@@ -9,9 +9,10 @@ exclude = [".github/"]
 
 [workspace]
 members = [
-    "crates/rbuilder",
     "crates/rbuilder-primitives",
     "crates/rbuilder-config",
+    "crates/rbuilder",
+    "crates/rbuilder-operator",
     "crates/reth-rbuilder",
     "crates/rbuilder/src/test_utils",
     "crates/rbuilder/src/telemetry/metrics_macros",
@@ -126,6 +127,7 @@ alloy-serde = { version = "1.0.27" }
 alloy-rpc-types-beacon = { version = "1.0.27", features = ["ssz"] }
 alloy-rpc-types-engine = { version = "1.0.27", features = ["ssz"] }
 alloy-rpc-types-eth = { version = "1.0.27" }
+alloy-signer = { version = "1.0.27" }
 alloy-signer-local = { version = "1.0.27" }
 alloy-rpc-client = { version = "1.0.27" }
 alloy-genesis = { version = "1.0.27" }
@@ -145,6 +147,7 @@ jsonrpsee-types = { version = "0.24.4" }
 parking_lot = { version = "0.12.3" }
 tokio = { version = "1.40.0", default-features = false }
 futures = "0.3"
+futures-util = "0.3"
 auto_impl = { version = "1.2.0" }
 reqwest = { version = "0.12.8" }
 serde = { version = "1.0.210" }
@@ -161,6 +164,11 @@ prometheus = "0.13.4"
 ctor = "0.2"
 rand = "0.8"
 toml = "0.8.8"
+tonic = "0.13"
+prost = "0.13"
+prost-types = "0.13"
+exponential-backoff = "1.2.0"
+derivative = "2.2"
 
 libc = { version = "0.2.161" }
 lazy_static = "1.4.0"
