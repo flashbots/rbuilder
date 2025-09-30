@@ -60,6 +60,10 @@ alloy-trie.workspace = true
 
 ethereum_ssz_derive.workspace = true
 ethereum_ssz.workspace = true
+ssz_types = "0.8.0"
+tree_hash = "0.8.0"
+tree_hash_derive = "0.8.0"
+typenum = "1.17.0"
 
 test_utils = { path = "src/test_utils" }
 metrics_macros = { path = "src/telemetry/metrics_macros" }

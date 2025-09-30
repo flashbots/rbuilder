@@ -3,6 +3,7 @@ mod error;
 pub mod fake_mev_boost_relay;
 pub mod rpc;
 pub mod sign_payload;
+pub mod ssz_roots;
 
 use crate::mev_boost::bloxroute_grpc::GrpcRelayClient;
 use rbuilder_primitives::mev_boost::{

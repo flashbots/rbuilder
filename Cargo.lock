@@ -769,7 +769,7 @@ dependencies = [
  "serde_with",
  "thiserror 2.0.12",
  "tree_hash 0.10.0",
- "tree_hash_derive",
+ "tree_hash_derive 0.10.0",
 ]
 
 [[package]]
@@ -2041,7 +2041,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
- "ssz_types",
+ "ssz_types 0.5.4",
  "strum 0.25.0",
  "thiserror 1.0.69",
  "tokio",
@@ -4080,6 +4080,19 @@ dependencies = [
 
 [[package]]
 name = "ethereum_serde_utils"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "70cbccfccf81d67bff0ab36e591fa536c8a935b078a7b0e58c1d00d418332fc9"
+dependencies = [
+ "alloy-primitives 0.8.25",
+ "hex",
+ "serde",
+ "serde_derive",
+ "serde_json",
+]
+
+[[package]]
+name = "ethereum_serde_utils"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3dc1355dbb41fbbd34ec28d4fb2a57d9a70c67ac3c19f6a5ca4d4a176b9e997a"
@@ -4099,6 +4112,17 @@ checksum = "7d3627f83d8b87b432a5fad9934b4565260722a141a2c40f371f8080adec9425"
 dependencies = [
  "ethereum-types",
  "itertools 0.10.5",
+ "smallvec",
+]
+
+[[package]]
+name = "ethereum_ssz"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e999563461faea0ab9bc0024e5e66adcee35881f3d5062f52f31a4070fe1522"
+dependencies = [
+ "alloy-primitives 0.8.25",
+ "itertools 0.13.0",
  "smallvec",
 ]
 
@@ -9145,6 +9169,7 @@ dependencies = [
  "sha2 0.10.9",
  "shellexpand",
  "sqlx",
+ "ssz_types 0.8.0",
  "sysperf",
  "tempfile",
  "test_utils",
@@ -9159,6 +9184,9 @@ dependencies = [
  "tonic-build",
  "tracing",
  "tracing-subscriber 0.3.19",
+ "tree_hash 0.8.0",
+ "tree_hash_derive 0.8.0",
+ "typenum",
  "url",
  "uuid",
  "warp",
@@ -13696,6 +13724,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "ssz_types"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "35e0719d2b86ac738a55ae71a8429f52aa2741da988f1fd0975b4cc610fd1e08"
+dependencies = [
+ "derivative",
+ "ethereum_serde_utils 0.7.0",
+ "ethereum_ssz 0.7.1",
+ "itertools 0.13.0",
+ "serde",
+ "serde_derive",
+ "smallvec",
+ "tree_hash 0.8.0",
+ "typenum",
+]
+
+[[package]]
 name = "stable_deref_trait"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -14738,6 +14783,17 @@ dependencies = [
 
 [[package]]
 name = "tree_hash"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "373495c23db675a5192de8b610395e1bec324d596f9e6111192ce903dc11403a"
+dependencies = [
+ "alloy-primitives 0.8.25",
+ "ethereum_hashing 0.7.0",
+ "smallvec",
+]
+
+[[package]]
+name = "tree_hash"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ee44f4cef85f88b4dea21c0b1f58320bdf35715cf56d840969487cff00613321"
@@ -14747,6 +14803,18 @@ dependencies = [
  "ethereum_ssz 0.9.0",
  "smallvec",
  "typenum",
+]
+
+[[package]]
+name = "tree_hash_derive"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b0857056ca4eb5de8c417309be42bcff6017b47e86fbaddde609b4633f66061e"
+dependencies = [
+ "darling",
+ "proc-macro2 1.0.95",
+ "quote 1.0.40",
+ "syn 2.0.100",
 ]
 
 [[package]]
