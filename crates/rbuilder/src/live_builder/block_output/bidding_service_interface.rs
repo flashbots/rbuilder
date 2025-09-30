@@ -155,7 +155,7 @@ pub trait BiddingService: Send + Sync {
         cancel: CancellationToken,
     ) -> Arc<dyn SlotBidder>;
 
-    fn observe_relay_bids(&self, bid: ScrapedRelayBlockBidWithStats);
+    fn observe_relay_bids(&self, bid: Vec<ScrapedRelayBlockBidWithStats>);
 
     fn update_new_landed_blocks_detected(&self, landed_blocks: &[LandedBlockInfo]);
 
@@ -175,6 +175,6 @@ impl ScrapedBidsObs for BiddingService2ScrapedBidsObs {
     fn update_new_bid(&self, bid: ScrapedRelayBlockBid) {
         inc_bids_received(&bid);
         self.inner
-            .observe_relay_bids(ScrapedRelayBlockBidWithStats::new(bid))
+            .observe_relay_bids(vec![ScrapedRelayBlockBidWithStats::new(bid)])
     }
 }
