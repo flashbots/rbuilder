@@ -1,6 +1,7 @@
 use ahash::HashMap;
 use alloy_consensus::Transaction;
 use alloy_primitives::{Address, B256, U256};
+use alloy_rpc_types::AccessList;
 use reth_primitives::{Recovered, TransactionSigned};
 use revm::{
     bytecode::opcode,
@@ -279,7 +280,7 @@ impl<'a> RBuilderEVMInspector<'a> {
         }
     }
 
-    pub fn into_access_list(self) -> reth::rpc::types::AccessList {
+    pub fn into_access_list(self) -> AccessList {
         self.access_list_inspector.into_access_list()
     }
 }

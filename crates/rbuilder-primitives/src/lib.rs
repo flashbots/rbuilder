@@ -21,17 +21,16 @@ use alloy_rlp::Encodable as _;
 use derivative::Derivative;
 use evm_inspector::UsedStateTrace;
 use integer_encoding::VarInt;
-use reth::transaction_pool::{
-    BlobStore, BlobStoreError, EthPooledTransaction, Pool, TransactionOrdering, TransactionPool,
-    TransactionValidator,
-};
 use reth_ethereum_primitives::PooledTransactionVariant;
-use reth_node_core::primitives::SignedTransaction;
 use reth_primitives::{
     kzg::{BYTES_PER_BLOB, BYTES_PER_COMMITMENT, BYTES_PER_PROOF},
     Recovered, Transaction, TransactionSigned,
 };
-use reth_primitives_traits::{InMemorySize, SignerRecoverable};
+use reth_primitives_traits::{InMemorySize, SignedTransaction as _, SignerRecoverable};
+use reth_transaction_pool::{
+    BlobStore, BlobStoreError, EthPooledTransaction, Pool, TransactionOrdering, TransactionPool,
+    TransactionValidator,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
