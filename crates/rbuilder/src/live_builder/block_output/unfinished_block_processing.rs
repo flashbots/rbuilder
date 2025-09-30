@@ -144,12 +144,6 @@ impl<P: StateProviderFactory> UnfinishedBuiltBlocksInputFactory<P> {
             .spawn(move || input_clone.run_finalize_thread())
             .unwrap();
 
-        let input_clone = input.clone();
-        std::thread::Builder::new()
-            .name("preseal_worker".into())
-            .spawn(move || input_clone.run_preseal_thread())
-            .unwrap();
-
         input
     }
 }
@@ -243,8 +237,6 @@ pub struct UnfinishedBuiltBlocksInput {
 
     last_finalize_command: Arc<(Mutex<Option<FinalizeCommand>>, Condvar)>,
 
-    last_seal_command: Arc<(Mutex<Option<SlotBidderSealBidCommand>>, Condvar)>,
-
     cancellation_token: CancellationToken,
     #[derivative(Debug = "ignore")]
     block_building_sink: Arc<dyn BlockBuildingSink>,
@@ -266,7 +258,6 @@ impl UnfinishedBuiltBlocksInput {
             last_block_id: Arc::new(Mutex::new(0)),
             finalized_blocks: Arc::new(Mutex::new(Vec::new())),
             last_finalize_command: Arc::new((Mutex::new(None), Condvar::new())),
-            last_seal_command: Arc::new((Mutex::new(None), Condvar::new())),
             cancellation_token,
             block_building_sink: block_building_sink.into(),
             adjust_finalized_blocks,
@@ -307,34 +298,7 @@ impl UnfinishedBuiltBlocksInput {
             let roundtrip = now - trigger_creation_time;
             add_trigger_to_bid_round_trip_time(roundtrip);
         }
-
-        let (lock, cvar) = &*self.last_seal_command;
-        let mut guard = lock.lock();
-        *guard = Some(bid);
-        cvar.notify_one();
-    }
-
-    fn take_last_seal_command(&self) -> Option<SlotBidderSealBidCommand> {
-        let (lock, cvar) = &*self.last_seal_command;
-        let mut guard = lock.lock();
-        while guard.is_none() {
-            let timeout_result = cvar.wait_for(&mut guard, THREAD_BLOCKING_DURATION);
-            if timeout_result.timed_out() {
-                return None;
-            }
-        }
-        guard.take()
-    }
-
-    fn run_preseal_thread(self) {
-        loop {
-            if self.cancellation_token.is_cancelled() {
-                break;
-            }
-            if let Some(seal) = self.take_last_seal_command() {
-                self.do_seal_command(seal);
-            }
-        }
+        self.do_seal_command(bid);
     }
 
     fn do_seal_command(&self, bid: SlotBidderSealBidCommand) {
