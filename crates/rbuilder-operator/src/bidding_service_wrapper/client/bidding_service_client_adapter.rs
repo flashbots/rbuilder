@@ -2,10 +2,10 @@ use alloy_primitives::U256;
 use futures_util::FutureExt;
 use hyper_util::rt::TokioIo;
 use rbuilder::{
+    building::builders::BuiltBlockId,
     live_builder::block_output::bidding_service_interface::{
-        BiddingService, BlockId, BlockSealInterfaceForSlotBidder,
-        LandedBlockInfo as RealLandedBlockInfo, ScrapedRelayBlockBidWithStats, SlotBidder,
-        SlotBidderSealBidCommand, SlotBlockId,
+        BiddingService, BlockSealInterfaceForSlotBidder, LandedBlockInfo as RealLandedBlockInfo,
+        ScrapedRelayBlockBidWithStats, SlotBidder, SlotBidderSealBidCommand, SlotBlockId,
     },
     utils::{build_info::Version, timestamp_us_to_offset_datetime},
 };
@@ -204,7 +204,7 @@ impl BiddingServiceClientAdapter {
                         };
 
                         let seal_command = SlotBidderSealBidCommand {
-                        block_id: BlockId(bid.block_id),
+                        block_id: BuiltBlockId(bid.block_id),
                         payout_tx_value,
                         seen_competition_bid,
                         trigger_creation_time,
