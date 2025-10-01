@@ -46,7 +46,9 @@ jobs:
             VERSION="$(echo ${GITHUB_SHA} | cut -c1-7)"
           fi
           echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+          echo "${VERSION}"
 
+          echo "### Version: \`${VERSION}\`" >> $GITHUB_STEP_SUMMARY
           echo "|                     |                        |" >> $GITHUB_STEP_SUMMARY
           echo "| ------------------- | ---------------------- |" >> $GITHUB_STEP_SUMMARY
           echo "| \`GITHUB_REF_TYPE\` | \`${GITHUB_REF_TYPE}\` |" >> $GITHUB_STEP_SUMMARY
