@@ -217,6 +217,7 @@ jobs:
         with:
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          file: docker/Dockerfile.rbuilder
           context: .
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64

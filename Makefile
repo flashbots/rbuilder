@@ -29,7 +29,10 @@ build: ## Build (debug version)
 
 .PHONY: docker-image-rbuilder
 docker-image-rbuilder: ## Build a rbuilder Docker image
-	docker build --platform linux/amd64 --target rbuilder-runtime --build-arg FEATURES="$(FEATURES)"  . -t rbuilder
+	docker build --platform linux/amd64 --target rbuilder-runtime --build-arg FEATURES="$(FEATURES)" -t rbuilder -f docker/Dockerfile.rbuilder .
+
+.PHONE: docker-image-rbuilder-operator
+	docker build --platform linux/amd64 --target rbuilder-runtime --build-arg FEATURES="$(FEATURES)" -t rbuilder -f docker/Dockerfile.rbuilder-operator .
 
 .PHONY: docker-image-test-relay
 docker-image-test-relay: ## Build a test relay Docker image
