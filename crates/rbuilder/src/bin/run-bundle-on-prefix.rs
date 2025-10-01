@@ -1,7 +1,7 @@
 //! Experimental tool to test the backruns a given mev share user got.
 //! Giver the user tx hash we look for oll the backrun bundles and try to execute them the block prefix just before the user tx.
 //! This way we can see how the bundles would be executed on the block prefix and see if the landed backrun really has best refund for the user..
-use alloy_primitives::{b256, TxHash};
+use alloy_primitives::{b256, TxHash, U256};
 use alloy_rpc_types::Block;
 use clap::Parser;
 use itertools::Itertools;
@@ -144,6 +144,7 @@ impl LandedBlockInfo {
             signer,
             Arc::new(MockRootHasher {}),
             false,
+            U256::ZERO,
         ))
     }
 

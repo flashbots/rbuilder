@@ -21,7 +21,7 @@ use crate::{
     telemetry::{inc_active_slots, mark_building_started, reset_histogram_metrics},
     utils::{
         error_storage::spawn_error_storage_writer, format_offset_datetime_rfc3339,
-        provider_head_state::ProviderHeadState, Signer,
+        mevblocker::get_mevblocker_price, provider_head_state::ProviderHeadState, Signer,
     },
 };
 use alloy_consensus::Header;
@@ -53,7 +53,7 @@ use std::{
 use time::OffsetDateTime;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, warn};
+use tracing::*;
 
 #[derive(Debug, Clone)]
 pub struct TimingsConfig {
@@ -182,14 +182,12 @@ where
             sub
         };
 
-        let order_simulation_pool = {
-            OrderSimulationPool::new(
-                self.provider.clone(),
-                self.simulation_threads,
-                self.simulation_use_random_coinbase,
-                self.global_cancellation.clone(),
-            )
-        };
+        let order_simulation_pool = OrderSimulationPool::new(
+            self.provider.clone(),
+            self.simulation_threads,
+            self.simulation_use_random_coinbase,
+            self.global_cancellation.clone(),
+        );
 
         let mut builder_pool = BlockBuildingPool::new(
             self.provider.clone(),
@@ -219,36 +217,36 @@ where
             let blocklist = self.blocklist_provider.get_blocklist()?;
             if blocklist.contains(&payload.fee_recipient()) {
                 warn!(
-                        slot = payload.slot(),
-                        fee_recipient = ?payload.fee_recipient(),
-                payload_id = payload.payload_id,
-                        "Fee recipient is in blocklist"
-                    );
+                    slot = payload.slot(),
+                    fee_recipient = ?payload.fee_recipient(),
+                    payload_id = payload.payload_id,
+                    "Fee recipient is in blocklist"
+                );
                 continue;
             }
             let current_time = OffsetDateTime::now_utc();
             // see if we can get parent header in a reasonable time
             let time_to_slot = payload.timestamp() - current_time;
             debug!(
-                    slot = payload.slot(),
-                    block = payload.block(),
-            payload_id = payload.payload_id,
-                    payload_timestamp = format_offset_datetime_rfc3339(&payload.timestamp()),
-                    time_to_slot_s = time_to_slot.as_seconds_f64(),
-                    parent_hash = ?payload.parent_block_hash(),
-                    provider_head_state = ?ProviderHeadState::new(&self.provider),
-                    "Received payload, time till slot timestamp",
-                );
+                slot = payload.slot(),
+                block = payload.block(),
+                payload_id = payload.payload_id,
+                payload_timestamp = format_offset_datetime_rfc3339(&payload.timestamp()),
+                time_to_slot_s = time_to_slot.as_seconds_f64(),
+                parent_hash = ?payload.parent_block_hash(),
+                provider_head_state = ?ProviderHeadState::new(&self.provider),
+                "Received payload, time till slot timestamp",
+            );
 
             let time_until_slot_end = time_to_slot + timings.slot_proposal_duration;
             if time_until_slot_end.is_negative() {
                 warn!(
-                        slot = payload.slot(),
-                        block = payload.block(),
-                payload_id = payload.payload_id,
-                        parent_hash = ?payload.parent_block_hash(),
-                        "Slot already ended, skipping block building"
-                    );
+                    slot = payload.slot(),
+                    block = payload.block(),
+                    payload_id = payload.payload_id,
+                    parent_hash = ?payload.parent_block_hash(),
+                    "Slot already ended, skipping block building"
+                );
                 continue;
             };
 
@@ -276,12 +274,12 @@ where
             };
 
             debug!(
-                    slot = payload.slot(),
-                    block = payload.block(),
-            payload_id = payload.payload_id,
-                    parent_hash = ?payload.parent_block_hash(),
-                    "Got header for slot"
-                );
+                slot = payload.slot(),
+                block = payload.block(),
+                payload_id = payload.payload_id,
+                parent_hash = %payload.parent_block_hash(),
+                "Got header for slot"
+            );
 
             // notify the order pool that there is a new header
             if let Err(err) = header_sender.send(parent_header.clone()).await {
@@ -289,6 +287,12 @@ where
             }
 
             inc_active_slots();
+
+            // Retrieve MEV block price.
+            let mev_blocker_price = get_mevblocker_price(
+                self.provider
+                    .history_by_block_hash(payload.parent_block_hash())?,
+            )?;
 
             let root_hasher =
                 Arc::from(self.provider.root_hasher(payload.parent_block_num_hash())?);
@@ -306,6 +310,7 @@ where
                 payload.payload_id,
                 self.evm_caching_enable,
                 self.faster_finalize,
+                mev_blocker_price,
                 self.system_recipient_allowlist.clone(),
                 payload
                     .relay_registrations

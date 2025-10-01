@@ -324,6 +324,7 @@ struct TestBlockContextBuilder {
     blocklist: BlockList,
     prefer_gas_limit: Option<u64>,
     root_hasher: Arc<dyn RootHasher>,
+    mev_block_price: U256,
 }
 
 impl TestBlockContextBuilder {
@@ -352,6 +353,7 @@ impl TestBlockContextBuilder {
             blocklist: vec![blocklisted].into_iter().collect(),
             prefer_gas_limit: None,
             root_hasher,
+            mev_block_price: U256::ZERO,
         }
     }
 
@@ -407,6 +409,7 @@ impl TestBlockContextBuilder {
             0,
             true,
             true,
+            self.mev_block_price,
             Default::default(),
             Default::default(),
         )

@@ -14,7 +14,10 @@ use rbuilder::{
     },
     live_builder::{cli::LiveBuilderConfig, config::Config},
     provider::StateProviderFactory,
-    utils::{extract_onchain_block_txs, find_suggested_fee_recipient, http_provider, Signer},
+    utils::{
+        extract_onchain_block_txs, find_suggested_fee_recipient, http_provider,
+        mevblocker::get_mevblocker_price, Signer,
+    },
 };
 use rbuilder_config::load_toml_config;
 use rbuilder_primitives::mev_boost::SubmitBlockRequest;
@@ -84,6 +87,8 @@ async fn main() -> eyre::Result<()> {
     let coinbase = onchain_block.header.beneficiary;
 
     let parent_num_hash = onchain_block.header.parent_num_hash();
+    let mev_blocker_price =
+        get_mevblocker_price(provider_factory.history_by_block_hash(parent_num_hash.hash)?)?;
     let ctx = BlockBuildingContext::from_onchain_block(
         onchain_block,
         chain_spec,
@@ -94,6 +99,7 @@ async fn main() -> eyre::Result<()> {
         Signer::random(),
         Arc::from(provider_factory.root_hasher(parent_num_hash)?),
         config.base_config().evm_caching_enable,
+        mev_blocker_price,
     );
 
     let state_provider = Arc::<dyn StateProvider>::from(

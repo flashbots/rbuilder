@@ -119,6 +119,7 @@ pub struct BlockBuildingContext {
     pub tx_execution_cache: Arc<TxExecutionCache>,
     pub mempool_tx_detector: Arc<MempoolTxsDetector>,
     pub faster_finalize: bool,
+    pub mev_blocker_price: U256,
     pub adjustment_fee_payers: ahash::HashSet<Address>,
     pub system_recipient_allowlist: Vec<Address>,
     /// Cached from evm_env.block_env.number but as BlockNumber. Avoid conversions all over the code.
@@ -143,6 +144,7 @@ impl BlockBuildingContext {
         payload_id: InternalPayloadId,
         evm_caching_enable: bool,
         faster_finalize: bool,
+        mev_blocker_price: U256,
         system_recipient_allowlist: Vec<Address>,
         adjustment_fee_payers: ahash::HashSet<Address>,
     ) -> Option<BlockBuildingContext> {
@@ -218,6 +220,7 @@ impl BlockBuildingContext {
             max_blob_gas_per_block,
             mempool_tx_detector: Arc::new(MempoolTxsDetector::new()),
             faster_finalize,
+            mev_blocker_price,
             system_recipient_allowlist,
             adjustment_fee_payers,
             block_number,
@@ -245,6 +248,7 @@ impl BlockBuildingContext {
         builder_signer: Signer,
         root_hasher: Arc<dyn RootHasher>,
         evm_caching_enable: bool,
+        mev_blocker_price: U256,
     ) -> BlockBuildingContext {
         let block_number = onchain_block.header.number;
 
@@ -324,6 +328,7 @@ impl BlockBuildingContext {
             max_blob_gas_per_block,
             mempool_tx_detector: Arc::new(MempoolTxsDetector::new()),
             faster_finalize: true,
+            mev_blocker_price,
             system_recipient_allowlist: Default::default(),
             adjustment_fee_payers: Default::default(),
             block_number,
@@ -347,6 +352,7 @@ impl BlockBuildingContext {
             Signer::random(),
             Arc::new(MockRootHasher {}),
             false,
+            U256::ZERO,
         )
     }
 
@@ -804,7 +810,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         }))
     }
 
-    /// Gets the block profit excluding the expected payout base gas that we'll pay.
+    /// Gets the block profit excluding the expected payout base gas that we'll pay and MEV blocker block price.
     pub fn get_proposer_payout_tx_value(
         &self,
         gas_limit: u64,
@@ -812,6 +818,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
     ) -> Result<U256, InsertPayoutTxErr> {
         self.coinbase_profit
             .checked_sub(U256::from(gas_limit) * U256::from(ctx.evm_env.block_env.basefee))
+            .and_then(|profit| profit.checked_sub(ctx.mev_blocker_price))
             .ok_or(InsertPayoutTxErr::ProfitTooLow)
     }
 

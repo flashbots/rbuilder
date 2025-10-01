@@ -24,7 +24,11 @@ use crate::{
     },
     building::{builders::mock_block_building_helper::MockRootHasher, BlockBuildingContext},
     live_builder::{block_list_provider::BlockList, cli::LiveBuilderConfig},
-    utils::{timestamp_as_u64, timestamp_ms_to_offset_datetime, ProviderFactoryReopener},
+    provider::StateProviderFactory,
+    utils::{
+        mevblocker::get_mevblocker_price, timestamp_as_u64, timestamp_ms_to_offset_datetime,
+        ProviderFactoryReopener,
+    },
 };
 use clap::Parser;
 use std::{path::PathBuf, sync::Arc};
@@ -114,6 +118,10 @@ impl<ConfigType: LiveBuilderConfig>
 
     fn create_block_building_context(&self) -> eyre::Result<BlockBuildingContext> {
         let signer = self.config.base_config().coinbase_signer()?;
+        let state_provider = self
+            .create_provider_factory()?
+            .history_by_block_hash(self.block_data.onchain_block.header.parent_hash)?;
+        let mev_blocker_price = get_mevblocker_price(state_provider)?;
         Ok(BlockBuildingContext::from_onchain_block(
             self.block_data.onchain_block.clone(),
             self.config.base_config().chain_spec()?,
@@ -124,6 +132,7 @@ impl<ConfigType: LiveBuilderConfig>
             signer,
             Arc::new(MockRootHasher {}),
             self.config.base_config().evm_caching_enable,
+            mev_blocker_price,
         ))
     }
 

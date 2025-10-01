@@ -253,6 +253,7 @@ mod tests {
             signer,
             Arc::new(MockRootHasher {}),
             false,
+            U256::ZERO,
         );
         let mut state = BlockState::new(provider_factory.latest().unwrap());
         let mut local_ctx = ThreadBlockBuildingContext::default();

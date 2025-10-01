@@ -36,6 +36,7 @@ pub mod reconnect;
 mod tx_signer;
 pub use tx_signer::Signer;
 
+pub mod mevblocker;
 pub mod provider_head_state;
 pub mod receipts;
 
