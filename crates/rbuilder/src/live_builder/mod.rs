@@ -130,7 +130,7 @@ where
     pub faster_finalize: bool,
     pub simulation_use_random_coinbase: bool,
 
-    pub whitelisted_system_recipients: Vec<Address>,
+    pub system_recipient_allowlist: Vec<Address>,
 }
 
 impl<P> LiveBuilder<P>
@@ -306,7 +306,7 @@ where
                 payload.payload_id,
                 self.evm_caching_enable,
                 self.faster_finalize,
-                self.whitelisted_system_recipients.clone(),
+                self.system_recipient_allowlist.clone(),
                 payload
                     .relay_registrations
                     .iter()

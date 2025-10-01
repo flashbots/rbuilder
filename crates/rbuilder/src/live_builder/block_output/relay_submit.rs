@@ -105,6 +105,7 @@ struct BuiltBlockInfo {
     pub bid_value: U256,
     pub true_bid_value: U256,
 }
+
 /// `run_submit_to_relays_job` is a main function for submitting blocks to relays
 ///
 /// How submission works:

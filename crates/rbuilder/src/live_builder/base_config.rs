@@ -144,7 +144,7 @@ pub struct BaseConfig {
     pub time_to_keep_mempool_txs_secs: u64,
 
     /// The array of senders incoming transactions from which will not be counted towards the coinbase profit.
-    pub whitelisted_system_recipients: Vec<Address>,
+    pub system_recipient_allowlist: Vec<Address>,
 
     // backtest config
     backtest_fetch_mempool_data_dir: EnvOrValue<String>,
@@ -223,7 +223,7 @@ impl BaseConfig {
             coinbase_signer: self.coinbase_signer()?,
             extra_data: self.extra_data.clone(),
             blocklist_provider,
-            whitelisted_system_recipients: self.whitelisted_system_recipients.clone(),
+            system_recipient_allowlist: self.system_recipient_allowlist.clone(),
 
             global_cancellation: cancellation_token,
 
@@ -499,7 +499,7 @@ impl Default for BaseConfig {
             evm_caching_enable: false,
             faster_finalize: false,
             time_to_keep_mempool_txs_secs: DEFAULT_TIME_TO_KEEP_MEMPOOL_TXS_SECS,
-            whitelisted_system_recipients: Vec::new(),
+            system_recipient_allowlist: Vec::new(),
         }
     }
 }

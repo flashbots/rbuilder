@@ -120,7 +120,7 @@ pub struct BlockBuildingContext {
     pub mempool_tx_detector: Arc<MempoolTxsDetector>,
     pub faster_finalize: bool,
     pub adjustment_fee_payers: ahash::HashSet<Address>,
-    pub whitelisted_system_recipients: Vec<Address>,
+    pub system_recipient_allowlist: Vec<Address>,
     /// Cached from evm_env.block_env.number but as BlockNumber. Avoid conversions all over the code.
     block_number: BlockNumber,
 }
@@ -143,7 +143,7 @@ impl BlockBuildingContext {
         payload_id: InternalPayloadId,
         evm_caching_enable: bool,
         faster_finalize: bool,
-        whitelisted_system_recipients: Vec<Address>,
+        system_recipient_allowlist: Vec<Address>,
         adjustment_fee_payers: ahash::HashSet<Address>,
     ) -> Option<BlockBuildingContext> {
         let attributes = EthPayloadBuilderAttributes::try_new(
@@ -218,7 +218,7 @@ impl BlockBuildingContext {
             max_blob_gas_per_block,
             mempool_tx_detector: Arc::new(MempoolTxsDetector::new()),
             faster_finalize,
-            whitelisted_system_recipients,
+            system_recipient_allowlist,
             adjustment_fee_payers,
             block_number,
         })
@@ -324,7 +324,7 @@ impl BlockBuildingContext {
             max_blob_gas_per_block,
             mempool_tx_detector: Arc::new(MempoolTxsDetector::new()),
             faster_finalize: true,
-            whitelisted_system_recipients: Default::default(),
+            system_recipient_allowlist: Default::default(),
             adjustment_fee_payers: Default::default(),
             block_number,
         }

@@ -1231,9 +1231,10 @@ impl<
                         let coinbase_profit = if !ok.tx_info.coinbase_profit.is_negative() {
                             ok.tx_info.coinbase_profit.unsigned_abs()
                         } else if tx.tx_with_blobs.signer() == self.ctx.builder_signer.address
-                            && tx.tx_with_blobs.to().is_some_and(|to| {
-                                self.ctx.whitelisted_system_recipients.contains(&to)
-                            })
+                            && tx
+                                .tx_with_blobs
+                                .to()
+                                .is_some_and(|to| self.ctx.system_recipient_allowlist.contains(&to))
                         {
                             // This is a system transaction which should not be counted towards the block profit.
                             U256::ZERO
