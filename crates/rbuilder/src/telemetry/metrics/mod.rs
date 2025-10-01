@@ -91,7 +91,7 @@ impl<P: Atomic + 'static> FreshGauge<P> {
         *last_update = Some(OffsetDateTime::now_utc());
     }
 
-    pub fn check_is_fresh(&self, now: OffsetDateTime) {
+    pub fn check_if_fresh(&self, now: OffsetDateTime) {
         let mut last_update = self.last_update.lock();
         if last_update.is_some_and(|last_update| last_update + MAX_FRESH_GAUGE_AGE < now) {
             let _ = REGISTRY.unregister(Box::new(self.gauge.clone()));

@@ -25,11 +25,11 @@ pub async fn spawn(addr: SocketAddr, version: Version) -> eyre::Result<()> {
     tokio::spawn(async move {
         loop {
             let now = OffsetDateTime::now_utc();
-            BUILDER_BALANCE.check_is_fresh(now);
-            CURRENT_BLOCK.check_is_fresh(now);
-            ORDERPOOL_TXS.check_is_fresh(now);
-            ORDERPOOL_BUNDLES.check_is_fresh(now);
-            ORDERPOOL_TXS_SIZE.check_is_fresh(now);
+            BUILDER_BALANCE.check_if_fresh(now);
+            CURRENT_BLOCK.check_if_fresh(now);
+            ORDERPOOL_TXS.check_if_fresh(now);
+            ORDERPOOL_BUNDLES.check_if_fresh(now);
+            ORDERPOOL_TXS_SIZE.check_if_fresh(now);
             tokio::time::sleep(MAX_FRESH_GAUGE_AGE / 2).await;
         }
     });
