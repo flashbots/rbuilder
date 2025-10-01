@@ -695,15 +695,6 @@ impl<
             logs: res.result.logs().to_vec(),
         };
         let coinbase_balance_after = I256::try_from(self.coinbase_balance()?)?;
-        let coinbase_profit = if self
-            .ctx
-            .whitelisted_system_senders
-            .contains(tx.signer_ref())
-        {
-            I256::ZERO
-        } else {
-            coinbase_balance_after - coinbase_balance_before
-        };
         Ok(Ok(TransactionOk {
             exec_result: res.result,
             cumulative_space_used: space_state.space_used(),
@@ -711,7 +702,7 @@ impl<
                 tx: tx_with_blobs.clone(),
                 receipt,
                 space_used,
-                coinbase_profit,
+                coinbase_profit: coinbase_balance_after - coinbase_balance_before,
             },
             nonce_updated: (tx.signer(), tx.nonce() + 1),
         }))
@@ -1239,6 +1230,15 @@ impl<
                     Ok(ok) => {
                         let coinbase_profit = if !ok.tx_info.coinbase_profit.is_negative() {
                             ok.tx_info.coinbase_profit.unsigned_abs()
+                        } else if order.list_txs().first().is_some_and(|(tx, _)| {
+                            order.list_txs_len() == 1
+                                && tx.signer() == self.ctx.builder_signer.address
+                                && tx.to().is_some_and(|to| {
+                                    self.ctx.whitelisted_system_recipients.contains(&to)
+                                })
+                        }) {
+                            // This is a system transaction which should not be counted towards the block profit.
+                            U256::ZERO
                         } else {
                             return Ok(Err(OrderErr::NegativeProfit(
                                 ok.tx_info.coinbase_profit.unsigned_abs(),
