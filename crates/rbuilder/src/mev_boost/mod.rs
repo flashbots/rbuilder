@@ -107,6 +107,7 @@ pub struct RelayConfig {
     /// None -> false
     pub can_ignore_gas_limit: Option<bool>,
     /// Flag indicating whether optimistic V3 submissions should be used.
+    #[serde(default)]
     pub optimistic_v3: bool,
 }
 
