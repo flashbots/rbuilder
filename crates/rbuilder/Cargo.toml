@@ -101,7 +101,7 @@ mev-share-sse.workspace = true
 beacon-api-client.workspace = true
 ethereum-consensus.workspace = true
 jsonrpsee = { version = "0.20.3", features = ["full"] }
-uuid = { version = "1.6.1", features = ["serde", "v5", "v4"] }
+uuid.workspace = true
 prometheus.workspace = true
 warp.workspace = true
 lazy_static.workspace = true

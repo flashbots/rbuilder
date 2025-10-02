@@ -274,25 +274,22 @@ impl FlashbotsConfig {
         block_processor_key: Option<PrivateKeySigner>,
     ) -> eyre::Result<Option<Box<dyn BidObserver + Send + Sync>>> {
         if let Some(url) = &self.blocks_processor_url {
-            let bid_observer: Box<dyn BidObserver + Send + Sync> =
-                if let Some(block_processor_key) = block_processor_key {
-                    let client = crate::signed_http_client::create_client(
-                        url,
-                        block_processor_key,
-                        self.blocks_processor_max_request_size_bytes,
-                        self.blocks_processor_max_concurrent_requests,
-                    )?;
-                    let block_processor =
-                        BlocksProcessorClient::new(client, SIGNED_BLOCK_CONSUME_BUILT_BLOCK_METHOD);
-                    Box::new(BlocksProcessorClientBidObserver::new(block_processor))
-                } else {
-                    let client = BlocksProcessorClient::try_from(
-                        url,
-                        self.blocks_processor_max_request_size_bytes,
-                        self.blocks_processor_max_concurrent_requests,
-                    )?;
-                    Box::new(BlocksProcessorClientBidObserver::new(client))
-                };
+            let bid_observer: Box<dyn BidObserver + Send + Sync> = if let Some(
+                block_processor_key,
+            ) = block_processor_key
+            {
+                let client = crate::signed_http_client::create_client(
+                    url,
+                    block_processor_key,
+                    self.blocks_processor_max_request_size_bytes,
+                    self.blocks_processor_max_concurrent_requests,
+                )?;
+                let block_processor =
+                    BlocksProcessorClient::new(client, SIGNED_BLOCK_CONSUME_BUILT_BLOCK_METHOD);
+                Box::new(BlocksProcessorClientBidObserver::new(block_processor))
+            } else {
+                eyre::bail!("Unsigned block processing is not supported: if blocks_processor_url then key_registration_url must be set");
+            };
             Ok(Some(bid_observer))
         } else {
             if block_processor_key.is_some() {

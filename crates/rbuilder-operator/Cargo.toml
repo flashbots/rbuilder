@@ -57,6 +57,7 @@ clickhouse = { version = "0.12.2", features = ["time", "uuid", "native-tls"] }
 futures-util.workspace = true
 parking_lot.workspace = true
 lazy_static.workspace = true
+uuid.workspace = true
 
 [build-dependencies]
 built = { version = "0.7.1", features = ["git2", "chrono"] }
