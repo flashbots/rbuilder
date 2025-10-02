@@ -288,7 +288,7 @@ impl FlashbotsConfig {
                     BlocksProcessorClient::new(client, SIGNED_BLOCK_CONSUME_BUILT_BLOCK_METHOD);
                 Box::new(BlocksProcessorClientBidObserver::new(block_processor))
             } else {
-                eyre::bail!("Unsigned block processing is not supported: if blocks_processor_url then key_registration_url must be set");
+                eyre::bail!("Unsigned block processing is not supported: if blocks_processor_url is set, a block_processor_key must also be provided");
             };
             Ok(Some(bid_observer))
         } else {
