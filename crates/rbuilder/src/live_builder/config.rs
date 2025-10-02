@@ -31,12 +31,16 @@ use crate::{
         PartialBlockExecutionTracer, Sorting,
     },
     live_builder::{
-        block_output::bidding_service_interface::BiddingService2BidSender, cli::LiveBuilderConfig,
+        base_config::default_ip,
+        block_output::{
+            bidding_service_interface::BiddingService2BidSender, relay_submit::OptimisticV3Config,
+        },
+        cli::LiveBuilderConfig,
         payload_events::MevBoostSlotDataGenerator,
     },
     mev_boost::{
-        bloxroute_grpc, BLSBlockSigner, MevBoostRelayBidSubmitter, MevBoostRelaySlotInfoProvider,
-        RelayClient, RelayConfig, RelaySubmitConfig,
+        bloxroute_grpc, optimistic_v3, BLSBlockSigner, MevBoostRelayBidSubmitter,
+        MevBoostRelaySlotInfoProvider, RelayClient, RelayConfig, RelaySubmitConfig,
     },
     provider::StateProviderFactory,
     roothash::RootHashContext,
@@ -47,6 +51,7 @@ use alloy_primitives::{
     utils::{format_ether, parse_ether},
     Address, FixedBytes, B256, U256,
 };
+use alloy_rpc_types_beacon::BlsPublicKey;
 use bid_scraper::config::NamedPublisherConfig;
 use ethereum_consensus::{
     builder::compute_builder_domain, crypto::SecretKey, primitives::Version,
@@ -65,14 +70,16 @@ use reth_provider::StaticFileProviderFactory;
 use serde::Deserialize;
 use serde_with::{serde_as, OneOrMany};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::Debug,
+    net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     path::{Path, PathBuf},
     str::FromStr,
     sync::Arc,
     time::Duration,
 };
-use tokio::sync::Mutex as TokioMutex;
+use tokio::sync::{broadcast, Mutex as TokioMutex};
+use tokio_stream::wrappers::BroadcastStream;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use url::Url;
@@ -154,6 +161,14 @@ pub struct L1Config {
     pub genesis_fork_version: Option<String>,
     /// A bid scraper will be spawned for each NamedPublisherConfig.
     pub relay_bid_scrapers: Vec<NamedPublisherConfig>,
+
+    /// Optimistic V3 server IP.
+    #[serde(default = "default_ip")]
+    pub optimistic_v3_server_ip: Ipv4Addr,
+    /// Optimistic V3 server port.
+    pub optimistic_v3_server_port: u16,
+    /// The relay pubkey.
+    pub optimistic_v3_relay_pubkeys: HashSet<BlsPublicKey>,
 }
 
 impl Default for L1Config {
@@ -169,6 +184,9 @@ impl Default for L1Config {
             genesis_fork_version: None,
             relay_bid_scrapers: Default::default(),
             registration_update_interval_ms: None,
+            optimistic_v3_server_ip: default_ip(),
+            optimistic_v3_server_port: 6071,
+            optimistic_v3_relay_pubkeys: HashSet::default(),
         }
     }
 }
@@ -208,6 +226,7 @@ impl L1Config {
                     client.clone(),
                     relay_config.name.clone(),
                     submit_config,
+                    relay_config.optimistic_v3,
                     relay_config.mode == RelayMode::Test,
                 )?);
             } else {
@@ -300,14 +319,10 @@ impl L1Config {
     fn submission_config(
         &self,
         chain_spec: Arc<ChainSpec>,
+        signing_domain: B256,
         bid_observer: Box<dyn BidObserver + Send + Sync>,
+        optimistic_v3_config: Option<OptimisticV3Config>,
     ) -> eyre::Result<SubmissionConfig> {
-        let signing_domain = get_signing_domain(
-            chain_spec.chain,
-            self.beacon_clients()?,
-            self.genesis_fork_version.clone(),
-        )?;
-
         let relay_secret_key = if let Some(secret_key) = &self.relay_secret_key {
             let resolved_key = secret_key.value()?;
             SecretKey::try_from(resolved_key)?
@@ -341,6 +356,7 @@ impl L1Config {
             chain_spec,
             signer,
             optimistic_config,
+            optimistic_v3_config,
             bid_observer,
         })
     }
@@ -356,7 +372,45 @@ impl L1Config {
         Vec<MevBoostRelaySlotInfoProvider>,
         ahash::HashMap<MevBoostRelayID, Address>,
     )> {
-        let submission_config = self.submission_config(chain_spec, bid_observer)?;
+        let signing_domain = get_signing_domain(
+            chain_spec.chain,
+            self.beacon_clients()?,
+            self.genesis_fork_version.clone(),
+        )?;
+
+        let mut optimistic_v3_config = None;
+        if self.relays.iter().any(|r| r.optimistic_v3) {
+            let address = SocketAddr::V4(SocketAddrV4::new(
+                self.optimistic_v3_server_ip,
+                self.optimistic_v3_server_port,
+            ));
+            let builder_url = format!("http://{address}");
+
+            info!(%builder_url, "Optimistic V3 is enabled for at least one relay, spawning server");
+            if self.optimistic_v3_relay_pubkeys.is_empty() {
+                warn!("Optimistic V3 is enabled, but no relay pubkeys have been configured");
+            }
+
+            let (optimistic_v3_block_tx, optimistic_v3_block_rx) = broadcast::channel(100);
+            optimistic_v3::spawn_server(
+                address,
+                signing_domain,
+                self.optimistic_v3_relay_pubkeys.clone(),
+                BroadcastStream::from(optimistic_v3_block_rx),
+            )?;
+
+            optimistic_v3_config = Some(OptimisticV3Config {
+                builder_url: builder_url.into_bytes(),
+                block_sender: optimistic_v3_block_tx,
+            })
+        }
+
+        let submission_config = self.submission_config(
+            chain_spec,
+            signing_domain,
+            bid_observer,
+            optimistic_v3_config,
+        )?;
         info!(
             "Builder mev boost normal relay pubkey: {:?}",
             submission_config.signer.pub_key()
@@ -816,6 +870,7 @@ lazy_static! {
                 bloxroute_rproxy_regions: Vec::new(),
                 ask_for_filtering_validators: None,
                 can_ignore_gas_limit: None,
+                optimistic_v3: false,
             },
         );
         map.insert(
@@ -841,6 +896,7 @@ lazy_static! {
                 bloxroute_rproxy_regions: Vec::new(),
                 ask_for_filtering_validators: None,
                 can_ignore_gas_limit: None,
+                optimistic_v3: false,
             },
         );
         map.insert(
@@ -866,6 +922,7 @@ lazy_static! {
                 bloxroute_rproxy_regions: Vec::new(),
                 ask_for_filtering_validators: None,
                 can_ignore_gas_limit: None,
+                optimistic_v3: false,
             },
         );
         map.insert(
@@ -890,6 +947,7 @@ lazy_static! {
                 bloxroute_rproxy_regions: Vec::new(),
                 ask_for_filtering_validators: None,
                 can_ignore_gas_limit: None,
+                optimistic_v3: false
             },
         );
         map.insert(
@@ -915,6 +973,7 @@ lazy_static! {
                 bloxroute_rproxy_regions: Vec::new(),
                 ask_for_filtering_validators: None,
                 can_ignore_gas_limit: None,
+                optimistic_v3: false
             },
         );
         map

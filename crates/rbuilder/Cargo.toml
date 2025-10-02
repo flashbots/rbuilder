@@ -60,10 +60,6 @@ alloy-trie.workspace = true
 
 ethereum_ssz_derive.workspace = true
 ethereum_ssz.workspace = true
-ssz_types = "0.8.0"
-tree_hash = "0.8.0"
-tree_hash_derive = "0.8.0"
-typenum = "1.17.0"
 
 test_utils = { path = "src/test_utils" }
 metrics_macros = { path = "src/telemetry/metrics_macros" }
@@ -130,6 +126,7 @@ dashmap = "6.1.0"
 tonic.workspace = true
 prost.workspace = true
 prost-types.workspace = true
+schnellru = "0.2.4"
 
 # IPC state provider deps
 reipc = { git = "https://github.com/nethermindeth/reipc.git", rev = "3837f3539201f948dd1c2c96a85a60d589feb4c6" }

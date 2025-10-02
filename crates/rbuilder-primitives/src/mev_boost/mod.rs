@@ -7,13 +7,15 @@ use alloy_rpc_types_engine::{BlobsBundleV1, BlobsBundleV2, ExecutionPayloadV3};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 mod submit_block;
 pub use submit_block::*;
 
 mod submit_header;
 pub use submit_header::*;
+
+pub mod ssz_roots;
 
 mod optimistic_v3;
 pub use optimistic_v3::*;
@@ -208,7 +210,7 @@ pub struct BidValueMetadata {
 
 #[derive(Clone, Debug)]
 pub struct SubmitBlockRequestWithMetadata {
-    pub submission: SubmitBlockRequest,
+    pub submission: Arc<SubmitBlockRequest>,
     pub metadata: BidMetadata,
 }
 
@@ -232,7 +234,7 @@ impl serde::Serialize for SubmitBlockRequestNoBlobs<'_> {
                     blobs_bundle: &'a BlobsBundleV1,
                     signature: &'a BlsSignature,
                     #[serde(skip_serializing_if = "Option::is_none")]
-                    adjustment_data: &'a Option<BidAdjustmentData>,
+                    adjustment_data: &'a Option<BidAdjustmentDataV1>,
                 }
 
                 SignedBidSubmissionV3Ref {
@@ -254,7 +256,7 @@ impl serde::Serialize for SubmitBlockRequestNoBlobs<'_> {
                     execution_requests: &'a ExecutionRequestsV4,
                     signature: &'a BlsSignature,
                     #[serde(skip_serializing_if = "Option::is_none")]
-                    adjustment_data: &'a Option<BidAdjustmentData>,
+                    adjustment_data: &'a Option<BidAdjustmentDataV1>,
                 }
 
                 SignedBidSubmissionV4Ref {

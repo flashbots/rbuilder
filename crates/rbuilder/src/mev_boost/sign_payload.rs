@@ -33,7 +33,6 @@ impl BLSBlockSigner {
     pub fn sign_payload(&self, bid_trace: &BidTrace) -> eyre::Result<Vec<u8>> {
         // We use RPCBidTrace not because of it's RPC nature but because it's also Merkleized
         let bid_trace = marshal_bid_trace(bid_trace);
-
         let signature = sign_with_domain(&bid_trace, &self.sec, *self.domain)?;
         Ok(signature.to_vec())
     }

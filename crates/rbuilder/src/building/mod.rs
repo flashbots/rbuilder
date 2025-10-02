@@ -25,6 +25,7 @@ use alloy_eips::{
     eip7685::Requests,
     eip7840::BlobParams,
     merge::BEACON_NONCE,
+    Encodable2718,
 };
 use alloy_evm::{block::system_calls::SystemCaller, env::EvmEnv, eth::eip6110};
 use alloy_primitives::{Address, BlockNumber, Bytes, B256, I256, U256};
@@ -35,8 +36,10 @@ use eth_sparse_mpt::SparseTrieLocalCache;
 use evm::EthCachedEvmFactory;
 use jsonrpsee::core::Serialize;
 use rbuilder_primitives::{
-    mev_boost::BidAdjustmentData, BlockSpace, Order, OrderId, SimValue, SimulatedOrder,
-    TransactionSignedEcRecoveredWithBlobs,
+    mev_boost::{
+        ssz_roots::generate_transaction_proof_ssz, BidAdjustmentData, BidAdjustmentStateProofs,
+    },
+    BlockSpace, Order, OrderId, SimValue, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs,
 };
 use reth::{
     payload::PayloadId,
@@ -60,6 +63,7 @@ use revm::{
 };
 use serde::Deserialize;
 use std::{
+    cell::LazyCell,
     collections::{hash_map, HashMap, HashSet},
     hash::Hash,
     str::FromStr,
@@ -1015,8 +1019,9 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         let step_start = Instant::now();
 
         let ReceiptsData {
-            logs_bloom,
             receipts_root,
+            logs_bloom,
+            pre_payment_logs_bloom,
             placeholder_receipt_proof,
         } = calculate_receipts_data(
             &mut local_ctx.bloom_cache,
@@ -1059,7 +1064,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         let step_start = Instant::now();
 
         // // create the block header
-        let (transactions_root, placeholder_transaction_proof) =
+        let (transactions_root, el_placeholder_transaction_proof) =
             calculate_tx_root_and_placeholder_proof(
                 &mut local_ctx.tx_root_cache,
                 &self.executed_tx_infos,
@@ -1145,22 +1150,45 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             },
         };
 
-        let bid_adjustments = Self::generate_bid_adjustments(
-            &block.header,
-            state,
-            ctx,
-            local_ctx,
-            placeholder_transaction_proof,
-            placeholder_receipt_proof,
-        )
-        .inspect_err(|error| {
-            error!(
-                block_number = block.number,
-                ?error,
-                "Error generating bid adjustment data"
-            );
-        })
-        .unwrap_or_default();
+        let cl_placeholder_transaction_proof = LazyCell::new(|| {
+            let target = self.executed_tx_infos.len().checked_sub(1).unwrap();
+            let encoded_txs = block
+                .body
+                .transactions
+                .iter()
+                .map(|tx| tx.encoded_2718().into())
+                .collect::<Vec<_>>();
+            generate_transaction_proof_ssz(&encoded_txs, target)
+        });
+        let bid_adjustment_state_proofs =
+            Self::generate_bid_adjustment_state_proofs(state, ctx, local_ctx)
+                .inspect_err(|error| {
+                    error!(
+                        block_number = block.number,
+                        ?error,
+                        "Error generating bid adjustment data"
+                    );
+                })
+                .unwrap_or_default();
+        let bid_adjustments = bid_adjustment_state_proofs
+            .into_iter()
+            .map(|(fee_payer, state_proofs)| {
+                (
+                    fee_payer,
+                    BidAdjustmentData {
+                        state_root: block.header.state_root,
+                        el_transactions_root: block.header.transactions_root,
+                        el_withdrawals_root: block.header.withdrawals_root.unwrap_or_default(),
+                        receipts_root: block.header.receipts_root,
+                        el_placeholder_transaction_proof: el_placeholder_transaction_proof.clone(),
+                        cl_placeholder_transaction_proof: cl_placeholder_transaction_proof.clone(),
+                        placeholder_receipt_proof: placeholder_receipt_proof.clone(),
+                        pre_payment_logs_bloom,
+                        state_proofs,
+                    },
+                )
+            })
+            .collect();
 
         let result = FinalizeResult {
             sealed_block: block.seal_slow(),
@@ -1187,14 +1215,11 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         Ok(result)
     }
 
-    fn generate_bid_adjustments(
-        header: &Header,
+    fn generate_bid_adjustment_state_proofs(
         block_state: &mut BlockState,
         ctx: &BlockBuildingContext,
         local_ctx: &mut ThreadBlockBuildingContext,
-        placeholder_transaction_proof: Vec<Bytes>,
-        placeholder_receipt_proof: Vec<Bytes>,
-    ) -> Result<HashMap<Address, BidAdjustmentData>, FinalizeError> {
+    ) -> Result<HashMap<Address, BidAdjustmentStateProofs>, FinalizeError> {
         if ctx.adjustment_fee_payers.is_empty() {
             return Ok(Default::default());
         }
@@ -1261,18 +1286,13 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
 
             bid_adjustments.insert(
                 *fee_payer_address,
-                BidAdjustmentData {
-                    state_root: header.state_root,
-                    transactions_root: header.transactions_root,
-                    receipts_root: header.receipts_root,
+                BidAdjustmentStateProofs {
                     builder_address,
                     builder_proof: builder_proof.clone(),
                     fee_recipient_address,
                     fee_recipient_proof: fee_recipient_proof.clone(),
                     fee_payer_address: *fee_payer_address,
                     fee_payer_proof,
-                    placeholder_transaction_proof: placeholder_transaction_proof.clone(),
-                    placeholder_receipt_proof: placeholder_receipt_proof.clone(),
                 },
             );
         }

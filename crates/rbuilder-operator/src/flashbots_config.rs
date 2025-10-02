@@ -30,7 +30,6 @@ use rbuilder::{
 };
 use rbuilder_config::EnvOrValue;
 use rbuilder_primitives::mev_boost::SubmitBlockRequest;
-use reth_primitives::SealedBlock;
 use serde::Deserialize;
 use serde_with::serde_as;
 use tokio_util::sync::CancellationToken;
@@ -427,7 +426,6 @@ impl BidObserver for RbuilderOperatorBidObserver {
     fn block_submitted(
         &self,
         slot_data: &MevBoostSlotData,
-        sealed_block: &SealedBlock,
         submit_block_request: &SubmitBlockRequest,
         built_block_trace: &BuiltBlockTrace,
         builder_name: String,
@@ -436,7 +434,6 @@ impl BidObserver for RbuilderOperatorBidObserver {
         if let Some(p) = self.block_processor.as_ref() {
             p.block_submitted(
                 slot_data,
-                sealed_block,
                 submit_block_request,
                 built_block_trace,
                 builder_name.clone(),
@@ -446,7 +443,6 @@ impl BidObserver for RbuilderOperatorBidObserver {
         if let Some(p) = self.tbv_pusher.as_ref() {
             p.block_submitted(
                 slot_data,
-                sealed_block,
                 submit_block_request,
                 built_block_trace,
                 builder_name,

@@ -1,5 +1,5 @@
 use crate::mev_boost::{
-    BidAdjustmentData, CapellaSubmitBlockRequest, DenebSubmitBlockRequest,
+    BidAdjustmentDataV1, CapellaSubmitBlockRequest, DenebSubmitBlockRequest,
     ElectraSubmitBlockRequest, FuluSubmitBlockRequest, SubmitBlockRequest,
 };
 use alloy_eips::{
@@ -37,10 +37,27 @@ pub struct SignedBuiltBlock {
 }
 
 impl SignedBuiltBlock {
-    pub fn into_request(
+    /// Convert the signed block into [`SubmitBlockRequest`].
+    /// NOTE: This does not set bid adjustment data. Use [`Self::into_request_with_adjustment_data`] instead.
+    pub fn into_request(self, chain_spec: &ChainSpec) -> eyre::Result<SubmitBlockRequest> {
+        self.into_request_inner(chain_spec, None)
+    }
+
+    /// Convert the signed block into [`SubmitBlockRequest`] with ad
+    pub fn into_request_with_adjustment_data(
         self,
         chain_spec: &ChainSpec,
-        adjustment_data: Option<BidAdjustmentData>,
+        adjustment_data: Option<BidAdjustmentDataV1>,
+    ) -> eyre::Result<SubmitBlockRequest> {
+        self.into_request_inner(chain_spec, adjustment_data)
+    }
+
+    /// Convert the signed block into [`SubmitBlockRequest`].
+    /// NOTE:
+    fn into_request_inner(
+        self,
+        chain_spec: &ChainSpec,
+        adjustment_data: Option<BidAdjustmentDataV1>,
     ) -> eyre::Result<SubmitBlockRequest> {
         match self.execution_payload {
             ExecutionPayload::V1(_v1) => {
@@ -183,11 +200,7 @@ pub fn block_to_execution_payload(
         .body()
         .transactions
         .iter()
-        .map(|tx| {
-            let mut buf = Vec::new();
-            tx.encode_2718(&mut buf);
-            buf.into()
-        })
+        .map(|tx| tx.encoded_2718().into())
         .collect();
     let payload_v1 = ExecutionPayloadV1 {
         parent_hash: sealed_block.parent_hash,

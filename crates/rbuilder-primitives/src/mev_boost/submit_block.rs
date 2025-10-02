@@ -1,4 +1,4 @@
-use crate::mev_boost::BidAdjustmentData;
+use crate::mev_boost::BidAdjustmentDataV1;
 use alloy_rpc_types_beacon::{
     relay::{
         BidTrace, SignedBidSubmissionV2, SignedBidSubmissionV3, SignedBidSubmissionV4,
@@ -8,7 +8,7 @@ use alloy_rpc_types_beacon::{
     BlsSignature,
 };
 use alloy_rpc_types_engine::{
-    BlobsBundleV1, BlobsBundleV2, ExecutionPayloadV2, ExecutionPayloadV3,
+    BlobsBundleV1, BlobsBundleV2, ExecutionPayloadV1, ExecutionPayloadV2, ExecutionPayloadV3,
 };
 use derive_more::Deref;
 use serde::{Deserialize, Serialize};
@@ -46,13 +46,50 @@ impl SubmitBlockRequest {
 
     pub fn bid_trace(&self) -> &BidTrace {
         match self {
-            SubmitBlockRequest::Fulu(req) => &req.message,
             SubmitBlockRequest::Capella(req) => &req.message,
             SubmitBlockRequest::Deneb(req) => &req.message,
             SubmitBlockRequest::Electra(req) => &req.message,
+            SubmitBlockRequest::Fulu(req) => &req.message,
         }
     }
 
+    pub fn signature(&self) -> BlsSignature {
+        match self {
+            SubmitBlockRequest::Capella(req) => req.signature,
+            SubmitBlockRequest::Deneb(req) => req.signature,
+            SubmitBlockRequest::Electra(req) => req.signature,
+            SubmitBlockRequest::Fulu(req) => req.signature,
+        }
+    }
+
+    pub fn execution_payload_v1(&self) -> &ExecutionPayloadV1 {
+        match self {
+            SubmitBlockRequest::Capella(req) => &req.execution_payload.payload_inner,
+            SubmitBlockRequest::Deneb(req) => &req.execution_payload.payload_inner.payload_inner,
+            SubmitBlockRequest::Electra(req) => &req.execution_payload.payload_inner.payload_inner,
+            SubmitBlockRequest::Fulu(req) => &req.execution_payload.payload_inner.payload_inner,
+        }
+    }
+
+    pub fn execution_payload_v2(&self) -> &ExecutionPayloadV2 {
+        match self {
+            SubmitBlockRequest::Capella(req) => &req.execution_payload,
+            SubmitBlockRequest::Deneb(req) => &req.execution_payload.payload_inner,
+            SubmitBlockRequest::Electra(req) => &req.execution_payload.payload_inner,
+            SubmitBlockRequest::Fulu(req) => &req.execution_payload.payload_inner,
+        }
+    }
+
+    pub fn execution_payload_v3(&self) -> Option<&ExecutionPayloadV3> {
+        match self {
+            SubmitBlockRequest::Capella(_) => None,
+            SubmitBlockRequest::Deneb(req) => Some(&req.execution_payload),
+            SubmitBlockRequest::Electra(req) => Some(&req.execution_payload),
+            SubmitBlockRequest::Fulu(req) => Some(&req.execution_payload),
+        }
+    }
+
+    /// Returns `true` if block has adjustment data.
     pub fn has_adjustment_data(&self) -> bool {
         let maybe_adjustment_data = match self {
             SubmitBlockRequest::Capella(req) => &req.adjustment_data,
@@ -61,6 +98,40 @@ impl SubmitBlockRequest {
             SubmitBlockRequest::Fulu(req) => &req.adjustment_data,
         };
         maybe_adjustment_data.is_some()
+    }
+
+    /// Return mutable reference to bid adjustment data.
+    fn adjustment_data_mut(&mut self) -> &mut Option<BidAdjustmentDataV1> {
+        match self {
+            Self::Capella(CapellaSubmitBlockRequest {
+                adjustment_data, ..
+            })
+            | Self::Deneb(DenebSubmitBlockRequest {
+                adjustment_data, ..
+            })
+            | Self::Electra(ElectraSubmitBlockRequest {
+                adjustment_data, ..
+            })
+            | Self::Fulu(FuluSubmitBlockRequest {
+                adjustment_data, ..
+            }) => adjustment_data,
+        }
+    }
+
+    /// Set the bid adjustment data on the request.
+    pub fn set_adjustment_data(&mut self, data: BidAdjustmentDataV1) {
+        *self.adjustment_data_mut() = Some(data);
+    }
+
+    /// Remove adjustment data from the bid.
+    pub fn remove_adjustment_data(&mut self) {
+        self.adjustment_data_mut().take();
+    }
+
+    /// Remove adjustment data from the bid and return it.
+    pub fn without_adjustment_data(mut self) -> Self {
+        self.remove_adjustment_data();
+        self
     }
 }
 
@@ -91,13 +162,13 @@ pub struct FuluSubmitBlockRequest {
     #[serde(flatten)]
     pub submission: SignedBidSubmissionV5,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub adjustment_data: Option<BidAdjustmentData>,
+    pub adjustment_data: Option<BidAdjustmentDataV1>,
 }
 
 impl FuluSubmitBlockRequest {
     pub fn new(
         submission: SignedBidSubmissionV5,
-        adjustment_data: Option<BidAdjustmentData>,
+        adjustment_data: Option<BidAdjustmentDataV1>,
     ) -> Self {
         Self {
             submission,
@@ -114,14 +185,14 @@ pub struct ElectraSubmitBlockRequest {
     pub submission: SignedBidSubmissionV4,
     /// Bid adjustment data if present.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub adjustment_data: Option<BidAdjustmentData>,
+    pub adjustment_data: Option<BidAdjustmentDataV1>,
 }
 
 impl ElectraSubmitBlockRequest {
     /// Create new Electra submit block request.
     pub fn new(
         submission: SignedBidSubmissionV4,
-        adjustment_data: Option<BidAdjustmentData>,
+        adjustment_data: Option<BidAdjustmentDataV1>,
     ) -> Self {
         Self {
             submission,
@@ -142,7 +213,7 @@ impl ssz::Encode for FuluSubmitBlockRequest {
             + <ExecutionRequestsV4 as ssz::Encode>::ssz_fixed_len()
             + <BlsSignature as ssz::Encode>::ssz_fixed_len();
         if self.adjustment_data.is_some() {
-            offset += <BidAdjustmentData as ssz::Encode>::ssz_fixed_len();
+            offset += <BidAdjustmentDataV1 as ssz::Encode>::ssz_fixed_len();
         }
 
         let mut encoder = ssz::SszEncoder::container(buf, offset);
@@ -166,7 +237,7 @@ impl ssz::Encode for FuluSubmitBlockRequest {
             + <ExecutionRequestsV4 as ssz::Encode>::ssz_bytes_len(&self.execution_requests)
             + <BlsSignature as ssz::Encode>::ssz_bytes_len(&self.signature);
         if let Some(adjustment) = &self.adjustment_data {
-            len += <BidAdjustmentData as ssz::Encode>::ssz_bytes_len(adjustment);
+            len += <BidAdjustmentDataV1 as ssz::Encode>::ssz_bytes_len(adjustment);
         }
         len
     }
@@ -185,7 +256,7 @@ impl ssz::Decode for FuluSubmitBlockRequest {
             blobs_bundle: BlobsBundleV2,
             execution_requests: ExecutionRequestsV4,
             signature: BlsSignature,
-            adjustment_data: BidAdjustmentData,
+            adjustment_data: BidAdjustmentDataV1,
         }
 
         if let Ok(request) = FuluSubmitBlockRequestSszHelper::from_ssz_bytes(bytes) {
@@ -224,7 +295,7 @@ impl ssz::Encode for ElectraSubmitBlockRequest {
             + <ExecutionRequestsV4 as ssz::Encode>::ssz_fixed_len()
             + <BlsSignature as ssz::Encode>::ssz_fixed_len();
         if self.adjustment_data.is_some() {
-            offset += <BidAdjustmentData as ssz::Encode>::ssz_fixed_len();
+            offset += <BidAdjustmentDataV1 as ssz::Encode>::ssz_fixed_len();
         }
 
         let mut encoder = ssz::SszEncoder::container(buf, offset);
@@ -248,7 +319,7 @@ impl ssz::Encode for ElectraSubmitBlockRequest {
             + <ExecutionRequestsV4 as ssz::Encode>::ssz_bytes_len(&self.execution_requests)
             + <BlsSignature as ssz::Encode>::ssz_bytes_len(&self.signature);
         if let Some(adjustment) = &self.adjustment_data {
-            len += <BidAdjustmentData as ssz::Encode>::ssz_bytes_len(adjustment);
+            len += <BidAdjustmentDataV1 as ssz::Encode>::ssz_bytes_len(adjustment);
         }
         len
     }
@@ -267,7 +338,7 @@ impl ssz::Decode for ElectraSubmitBlockRequest {
             blobs_bundle: BlobsBundleV1,
             execution_requests: ExecutionRequestsV4,
             signature: BlsSignature,
-            adjustment_data: BidAdjustmentData,
+            adjustment_data: BidAdjustmentDataV1,
         }
 
         if let Ok(request) = ElectraSubmitBlockRequestSszHelper::from_ssz_bytes(bytes) {
@@ -302,14 +373,14 @@ pub struct DenebSubmitBlockRequest {
     pub submission: SignedBidSubmissionV3,
     /// Bid adjustment data if present.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub adjustment_data: Option<BidAdjustmentData>,
+    pub adjustment_data: Option<BidAdjustmentDataV1>,
 }
 
 impl DenebSubmitBlockRequest {
     /// Create new Deneb submit block request.
     pub fn new(
         submission: SignedBidSubmissionV3,
-        adjustment_data: Option<BidAdjustmentData>,
+        adjustment_data: Option<BidAdjustmentDataV1>,
     ) -> Self {
         Self {
             submission,
@@ -329,7 +400,7 @@ impl ssz::Encode for DenebSubmitBlockRequest {
             + <BlobsBundleV1 as ssz::Encode>::ssz_fixed_len()
             + <BlsSignature as ssz::Encode>::ssz_fixed_len();
         if self.adjustment_data.is_some() {
-            offset += <BidAdjustmentData as ssz::Encode>::ssz_fixed_len();
+            offset += <BidAdjustmentDataV1 as ssz::Encode>::ssz_fixed_len();
         }
 
         let mut encoder = ssz::SszEncoder::container(buf, offset);
@@ -351,7 +422,7 @@ impl ssz::Encode for DenebSubmitBlockRequest {
             + <BlobsBundleV1 as ssz::Encode>::ssz_bytes_len(&self.blobs_bundle)
             + <BlsSignature as ssz::Encode>::ssz_bytes_len(&self.signature);
         if let Some(adjustment) = &self.adjustment_data {
-            len += <BidAdjustmentData as ssz::Encode>::ssz_bytes_len(adjustment);
+            len += <BidAdjustmentDataV1 as ssz::Encode>::ssz_bytes_len(adjustment);
         }
         len
     }
@@ -369,7 +440,7 @@ impl ssz::Decode for DenebSubmitBlockRequest {
             execution_payload: ExecutionPayloadV3,
             blobs_bundle: BlobsBundleV1,
             signature: BlsSignature,
-            adjustment_data: BidAdjustmentData,
+            adjustment_data: BidAdjustmentDataV1,
         }
 
         if let Ok(request) = DenebSubmitBlockRequestSszHelper::from_ssz_bytes(bytes) {
@@ -402,14 +473,14 @@ pub struct CapellaSubmitBlockRequest {
     pub submission: SignedBidSubmissionV2,
     /// Bid adjustment data if present.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub adjustment_data: Option<BidAdjustmentData>,
+    pub adjustment_data: Option<BidAdjustmentDataV1>,
 }
 
 impl CapellaSubmitBlockRequest {
     /// Create new Capella submit block request.
     pub fn new(
         submission: SignedBidSubmissionV2,
-        adjustment_data: Option<BidAdjustmentData>,
+        adjustment_data: Option<BidAdjustmentDataV1>,
     ) -> Self {
         Self {
             submission,
@@ -428,7 +499,7 @@ impl ssz::Encode for CapellaSubmitBlockRequest {
             + <ExecutionPayloadV2 as ssz::Encode>::ssz_fixed_len()
             + <BlsSignature as ssz::Encode>::ssz_fixed_len();
         if self.adjustment_data.is_some() {
-            offset += <BidAdjustmentData as ssz::Encode>::ssz_fixed_len();
+            offset += <BidAdjustmentDataV1 as ssz::Encode>::ssz_fixed_len();
         }
 
         let mut encoder = ssz::SszEncoder::container(buf, offset);
@@ -447,7 +518,7 @@ impl ssz::Encode for CapellaSubmitBlockRequest {
             + <ExecutionPayloadV2 as ssz::Encode>::ssz_bytes_len(&self.execution_payload)
             + <BlsSignature as ssz::Encode>::ssz_bytes_len(&self.signature);
         if let Some(adjustment) = &self.adjustment_data {
-            len += <BidAdjustmentData as ssz::Encode>::ssz_bytes_len(adjustment);
+            len += <BidAdjustmentDataV1 as ssz::Encode>::ssz_bytes_len(adjustment);
         }
         len
     }
@@ -464,7 +535,7 @@ impl ssz::Decode for CapellaSubmitBlockRequest {
             message: BidTrace,
             execution_payload: ExecutionPayloadV2,
             signature: BlsSignature,
-            adjustment_data: BidAdjustmentData,
+            adjustment_data: BidAdjustmentDataV1,
         }
 
         if let Ok(request) = CapellaSubmitBlockRequestSszHelper::from_ssz_bytes(bytes) {

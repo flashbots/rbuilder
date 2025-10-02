@@ -10,7 +10,6 @@ pub trait BidObserver: std::fmt::Debug {
     fn block_submitted(
         &self,
         slot_data: &MevBoostSlotData,
-        sealed_block: &SealedBlock,
         built_block_trace: &BuiltBlockTrace,
         builder_name: String,
         best_bid_value: U256,
@@ -24,7 +23,6 @@ impl BidObserver for NullBidObserver {
     fn block_submitted(
         &self,
         _slot_data: &MevBoostSlotData,
-        _sealed_block: &SealedBlock,
         _submit_block_request: &SubmitBlockRequest,
         _built_block_trace: &BuiltBlockTrace,
         _builder_name: String,

@@ -26,7 +26,6 @@ impl BidObserver for BidObserverMultiplexer {
     fn block_submitted(
         &self,
         slot_data: &MevBoostSlotData,
-        sealed_block: &SealedBlock,
         submit_block_request: &SubmitBlockRequest,
         built_block_trace: &BuiltBlockTrace,
         builder_name: String,
@@ -35,7 +34,6 @@ impl BidObserver for BidObserverMultiplexer {
         for obs in &self.observers {
             obs.block_submitted(
                 slot_data,
-                sealed_block,
                 built_block_trace,
                 builder_name.clone(),
                 best_bid_value,

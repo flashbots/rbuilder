@@ -13,7 +13,6 @@ use rbuilder_primitives::{
     serialize::{RawBundle, RawShareBundle},
     Bundle, Order, OrderId,
 };
-use reth_primitives::SealedBlock;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use serde_with::{serde_as, DisplayFromStr};
@@ -134,20 +133,20 @@ impl<HttpClientType: ClientT> BlocksProcessorClient<HttpClientType> {
     }
     pub async fn submit_built_block(
         &self,
-        sealed_block: &SealedBlock,
         submit_block_request: &SubmitBlockRequest,
         built_block_trace: &BuiltBlockTrace,
         builder_name: String,
         best_bid_value: U256,
     ) -> eyre::Result<()> {
+        let execution_payload_v1 = submit_block_request.execution_payload_v1();
         let header = BlocksProcessorHeader {
-            hash: sealed_block.hash(),
-            gas_limit: U256::from(sealed_block.gas_limit),
-            gas_used: U256::from(sealed_block.gas_used),
-            base_fee_per_gas: sealed_block.base_fee_per_gas.map(U256::from),
-            parent_hash: sealed_block.parent_hash,
-            timestamp: U256::from(sealed_block.timestamp),
-            number: Some(U256::from(sealed_block.number)),
+            hash: execution_payload_v1.block_hash,
+            gas_limit: U256::from(execution_payload_v1.gas_limit),
+            gas_used: U256::from(execution_payload_v1.gas_used),
+            base_fee_per_gas: Some(execution_payload_v1.base_fee_per_gas),
+            parent_hash: execution_payload_v1.parent_hash,
+            timestamp: U256::from(execution_payload_v1.timestamp),
+            number: Some(U256::from(execution_payload_v1.block_number)),
         };
         let closed_at = built_block_trace
             .orders_closed_at
@@ -343,7 +342,6 @@ impl<HttpClientType: ClientT + Clone + Send + Sync + std::fmt::Debug + 'static> 
     fn block_submitted(
         &self,
         _slot_data: &MevBoostSlotData,
-        sealed_block: &SealedBlock,
         submit_block_request: &SubmitBlockRequest,
         built_block_trace: &BuiltBlockTrace,
         builder_name: String,
@@ -351,13 +349,11 @@ impl<HttpClientType: ClientT + Clone + Send + Sync + std::fmt::Debug + 'static> 
     ) {
         let client = self.client.clone();
         let parent_span = Span::current();
-        let sealed_block = sealed_block.clone();
         let submit_block_request = submit_block_request.clone();
         let built_block_trace = built_block_trace.clone();
         tokio::spawn(async move {
             let block_processor_result = client
                 .submit_built_block(
-                    &sealed_block,
                     &submit_block_request,
                     &built_block_trace,
                     builder_name,
