@@ -23,8 +23,67 @@ v: ## Show the current version
 clean: ## Clean up
 	cargo clean
 
+# Detect the current architecture
+ARCH := $(shell uname -m)
+
+# Determine if we're on x86_64
+ifeq ($(ARCH),x86_64)
+    IS_X86_64 = 1
+else
+    IS_X86_64 = 0
+endif
+
+# Set build profile and flags based on architecture
+ifeq ($(IS_X86_64),1)
+    # x86_64: Use reproducible profile with reproducible build flags
+    BUILD_PROFILE = reproducible
+    BUILD_TARGET = x86_64-unknown-linux-gnu
+
+    # Environment variables for reproducible builds
+    # Initialize RUSTFLAGS
+    RUST_BUILD_FLAGS =
+		# Optimize for modern CPUs
+    RUST_BUILD_FLAGS += -C target-cpu=x86-64-v3
+    # Remove build ID from the binary to ensure reproducibility across builds
+    RUST_BUILD_FLAGS += -C link-arg=-Wl,--build-id=none
+    # Remove metadata hash from symbol names to ensure reproducible builds
+    RUST_BUILD_FLAGS += -C metadata=''
+		# Remap paths to ensure reproducible builds
+    RUST_BUILD_FLAGS += --remap-path-prefix $(shell pwd)=.
+    # Set timestamp from last git commit for reproducible builds
+    SOURCE_DATE ?= $(shell git log -1 --pretty=%ct)
+    # Set C locale for consistent string handling and sorting
+    LOCALE_VAL = C
+    # Set UTC timezone for consistent time handling across builds
+    TZ_VAL = UTC
+
+    # Environment setup for reproducible builds
+    BUILD_ENV = SOURCE_DATE_EPOCH=$(SOURCE_DATE) \
+                RUSTFLAGS="${RUST_BUILD_FLAGS}" \
+                LC_ALL=${LOCALE_VAL} \
+                TZ=${TZ_VAL}
+else
+    # Non-x86_64: Use release profile without reproducible build flags
+    BUILD_PROFILE = release
+    BUILD_TARGET =
+    RUST_BUILD_FLAGS =
+    BUILD_ENV =
+endif
+
 .PHONY: build
-build: ## Build (debug version)
+build: ## Build (release version)
+	$(BUILD_ENV) cargo build --features "$(FEATURES)" --locked $(if $(BUILD_TARGET),--target $(BUILD_TARGET)) --profile $(BUILD_PROFILE)
+
+.PHONY: build-bid-scraper
+build-bid-scraper: ## Build the bid-scraper binary (release version)
+	$(BUILD_ENV) cargo build --features "$(FEATURES)" --locked $(if $(BUILD_TARGET),--target $(BUILD_TARGET)) --bin bid-scraper --profile $(BUILD_PROFILE)
+
+.PHONY: build-rbuilder-operator
+build-rbuilder-operator: ## Build the rbuilder-operator binary (release version)
+	$(BUILD_ENV) cargo build --features "$(FEATURES)" --locked $(if $(BUILD_TARGET),--target $(BUILD_TARGET)) --bin rbuilder-operator --profile $(BUILD_PROFILE)
+
+.PHONY: build-dev
+build-dev: ## Build (debug version)
 	cargo build --features "$(FEATURES)"
 
 .PHONY: docker-image-rbuilder
@@ -37,6 +96,29 @@ docker-image-rbuilder: ## Build a rbuilder Docker image
 .PHONY: docker-image-test-relay
 docker-image-test-relay: ## Build a test relay Docker image
 	docker build --platform linux/amd64 --target test-relay-runtime --build-arg FEATURES="$(FEATURES)" . -t test-relay
+
+##@ Debian Packages
+
+.PHONY: install-cargo-deb
+install-cargo-deb:
+	@command -v cargo-deb >/dev/null 2>&1 || cargo install cargo-deb@3.6.0 --locked
+
+.PHONY: build-deb-bid-scraper
+build-deb-bid-scraper: install-cargo-deb build-bid-scraper ## Build bid-scraper Debian package
+	cargo deb --profile $(BUILD_PROFILE) --no-build --no-dbgsym --no-strip \
+		-p bid-scraper \
+		$(if $(BUILD_TARGET),--target $(BUILD_TARGET)) \
+		$(if $(VERSION),--deb-version "1~$(VERSION)")
+
+.PHONY: build-deb-rbuilder-operator
+build-deb-rbuilder-operator: install-cargo-deb build-rbuilder-operator ## Build rbuilder-operator Debian package
+	cargo deb --profile $(BUILD_PROFILE) --no-build --no-dbgsym --no-strip \
+		-p rbuilder-operator \
+		$(if $(BUILD_TARGET),--target $(BUILD_TARGET)) \
+		$(if $(VERSION),--deb-version "1~$(VERSION)")
+
+.PHONY: build-deb
+build-deb: build-deb-bid-scraper build-deb-rbuilder-operator ## Build all Debian packages
 
 ##@ Dev
 

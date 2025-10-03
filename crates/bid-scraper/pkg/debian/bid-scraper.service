@@ -1,0 +1,13 @@
+[Unit]
+Description=bid-scraper
+Documentation=https://github.com/flashbots/rbuilder
+Wants=network-online.target
+After=network.target network-online.target
+
+[Service]
+Type=exec
+DynamicUser=yes
+ExecStart=/usr/bin/bid-scraper /etc/bid-scraper/config.toml
+
+[Install]
+WantedBy=multi-user.target

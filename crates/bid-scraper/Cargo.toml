@@ -1,5 +1,6 @@
 [package]
 name = "bid-scraper"
+description = "bid-scraper"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -7,6 +8,20 @@ license.workspace = true
 homepage.workspace = true
 repository.workspace = true
 exclude.workspace = true
+
+[package.metadata.deb]
+maintainer = "Flashbots Team <devops+ci@flashbots.net>"
+depends = "$auto"
+section = "network"
+priority = "optional"
+maintainer-scripts = "pkg/debian"
+assets = [
+    ["target/release/**/bid-scraper", "usr/bin/", "755"],
+    ["pkg/etc/config.toml", "etc/bid-scraper/", "644"],
+    ["../../LICENSE-APACHE", "usr/share/doc/bid-scraper/", "644"],
+    ["../../LICENSE-MIT", "usr/share/doc/bid-scraper/", "644"],
+]
+systemd-units = { enable = false, start = false, unit-name = "bid-scraper" }
 
 [dependencies]
 rbuilder-config.workspace = true

@@ -33,7 +33,7 @@ on:
 jobs:
   extract-version:
     name: Extract version
-    runs-on: warp-ubuntu-latest-x64-16x
+    runs-on: warp-ubuntu-2404-x64-16x
     outputs:
       VERSION: ${{ steps.extract_version.outputs.VERSION }}
     steps:
@@ -63,8 +63,6 @@ jobs:
     needs: extract-version
     if: ${{ github.event.inputs.build-binary == 'true' || github.event_name == 'push'}} # when manually triggered or version tagged
     runs-on: ${{ matrix.configs.runner }}
-    container:
-      image: ubuntu:24.04
     permissions:
       contents: write
       packages: write
@@ -73,8 +71,10 @@ jobs:
         configs:
           - target: x86_64-unknown-linux-gnu
             runner: warp-ubuntu-latest-x64-32x
+            profile: reproducible
           # - target: aarch64-unknown-linux-gnu
-          #  runner: warp-ubuntu-latest-arm64-32x
+          #   runner: warp-ubuntu-latest-arm64-32x
+          #   profile: release
           # Paused until docker is pre-installed https://github.com/actions/runner-images/blob/main/images/macos/macos-14-arm64-Readme.md
           # - target: aarch64-apple-darwin
           #   runner: warp-macos-14-arm64-6x
@@ -96,44 +96,30 @@ jobs:
             protobuf-compiler
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
-      - uses: actions/checkout@v4 # must install git before checkout and set safe.directory after checkout because of container
+      - uses: actions/checkout@v4
 
-      - name: Build rbuilder binary
+      - name: Build
         run: |
-          git config --global --add safe.directory "$(pwd)"
-          . $HOME/.cargo/env
-          cargo build --release --features=${{ matrix.features }} --target ${{ matrix.configs.target }}
+          FEATURES=${{ matrix.features }} make build
+          VERSION=${{ needs.extract-version.outputs.VERSION }} make build-deb
 
-      - name: Upload rbuilder artifact
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: rbuilder-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
-          path: target/${{ matrix.configs.target }}/release/rbuilder
-
-      - name: Upload rbuilder-operator artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: rbuilder-operator-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
-          path: target/${{ matrix.configs.target }}/release/rbuilder-operator
-
-      - name: Upload reth-rbuilder artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: reth-rbuilder-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
-          path: target/${{ matrix.configs.target }}/release/reth-rbuilder
-
-      - name: Upload bid-scraper artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: bid-scraper-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
-          path: target/${{ matrix.configs.target }}/release/bid-scraper
+          path: |
+            target/${{ matrix.configs.target }}/${{ matrix.configs.profile }}/rbuilder
+            target/${{ matrix.configs.target }}/${{ matrix.configs.profile }}/rbuilder-operator
+            target/${{ matrix.configs.target }}/${{ matrix.configs.profile }}/reth-rbuilder
+            target/${{ matrix.configs.target }}/${{ matrix.configs.profile }}/bid-scraper
+            target/${{ matrix.configs.target }}/debian/*.deb
 
 
   draft-release:
     name: Draft release
     if: ${{ github.event.inputs.draft-release == 'true' || github.event_name == 'push'}} # when manually triggered or version tagged
     needs: [extract-version, build-binary]
-    runs-on: warp-ubuntu-latest-x64-16x
+    runs-on: warp-ubuntu-2404-x64-16x
     env:
       VERSION: ${{ needs.extract-version.outputs.VERSION }}
     permissions:
@@ -175,7 +161,7 @@ jobs:
     if: ${{ github.event.inputs.build-docker == 'true' }}
     name: Build and publish Docker image
     needs: extract-version
-    runs-on: warp-ubuntu-latest-x64-16x
+    runs-on: warp-ubuntu-2404-x64-16x
     env:
       VERSION: ${{ needs.extract-version.outputs.VERSION }}
     permissions:

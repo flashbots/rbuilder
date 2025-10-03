@@ -1,0 +1,2 @@
+log_level = "info"
+root_hash_use_sparse_trie = true

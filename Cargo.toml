@@ -23,7 +23,7 @@ members = [
 ]
 default-members = [
     "crates/rbuilder",
-    "crates/rbuilder-operator",    
+    "crates/rbuilder-operator",
     "crates/reth-rbuilder",
     "crates/rbuilder-primitives",
     "crates/test-relay",
@@ -55,6 +55,13 @@ lto = "thin"
 [profile.maxperf]
 inherits = "release"
 lto = "fat"
+codegen-units = 1
+incremental = false
+
+[profile.reproducible]
+inherits = "release"
+lto = "thin"
+panic = "abort"
 codegen-units = 1
 incremental = false
 
