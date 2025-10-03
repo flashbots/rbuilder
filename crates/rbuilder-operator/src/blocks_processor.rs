@@ -20,7 +20,6 @@ use serde_with::{serde_as, DisplayFromStr};
 use std::{sync::Arc, time::Duration};
 use time::format_description::well_known;
 use tracing::{error, warn, Span};
-use uuid::Uuid;
 
 use crate::metrics::inc_submit_block_errors;
 
@@ -67,7 +66,7 @@ struct BlocksProcessorHeader {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "camelCase")]
 pub struct BlockProcessorDelayedPayments {
-    pub source: Uuid,
+    pub source: String,
     pub value: U256,
     pub address: Address,
 }
@@ -177,7 +176,7 @@ impl<HttpClientType: ClientT> BlocksProcessorClient<HttpClientType> {
 
         let used_share_bundles = Self::get_used_sbundles(built_block_trace);
 
-        let delayed_payments = built_block_trace
+        let mut delayed_payments: Vec<_> = built_block_trace
             .included_orders
             .iter()
             .filter_map(|res| {
@@ -200,12 +199,17 @@ impl<HttpClientType: ClientT> BlocksProcessorClient<HttpClientType> {
                 };
 
                 Some(BlockProcessorDelayedPayments {
-                    source: bundle_uuid,
+                    source: bundle_uuid.to_string(),
                     value: delayed_kickback.payout_value,
                     address: delayed_kickback.recipient,
                 })
             })
             .collect();
+        delayed_payments.push(BlockProcessorDelayedPayments {
+            source: "mev_blocker".into(),
+            value: built_block_trace.mev_blocker_price,
+            address: Address::ZERO,
+        });
 
         let params: ConsumeBuiltBlockRequest = (
             header,
@@ -379,6 +383,8 @@ fn backoff() -> Backoff {
 
 #[cfg(test)]
 mod tests {
+    use uuid::Uuid;
+
     use super::*;
 
     #[test]
@@ -402,12 +408,26 @@ mod tests {
         let value = BlockProcessorDelayedPayments {
             address: alloy_primitives::address!("93Ea7cB31f76B982601321b2A0d93Ec9A948236D"),
             value: U256::from(16),
-            source: Uuid::try_parse("ff7b2232-b30d-4889-9258-c3632ba4bfc0").unwrap(),
+            source: Uuid::try_parse("ff7b2232-b30d-4889-9258-c3632ba4bfc0")
+                .unwrap()
+                .to_string(),
         };
 
         let value_str = serde_json::to_string(&value).unwrap();
 
         let expected_str = r#"{"source":"ff7b2232-b30d-4889-9258-c3632ba4bfc0","value":"0x10","address":"0x93ea7cb31f76b982601321b2a0d93ec9a948236d"}"#;
+
+        assert_eq!(value_str, expected_str);
+
+        let value = BlockProcessorDelayedPayments {
+            address: Address::ZERO,
+            value: U256::from(16),
+            source: "mev_blocker".into(),
+        };
+
+        let value_str = serde_json::to_string(&value).unwrap();
+
+        let expected_str = r#"{"source":"mev_blocker","value":"0x10","address":"0x0000000000000000000000000000000000000000"}"#;
 
         assert_eq!(value_str, expected_str);
     }
