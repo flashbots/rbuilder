@@ -103,16 +103,35 @@ jobs:
           FEATURES=${{ matrix.features }} make build
           VERSION=${{ needs.extract-version.outputs.VERSION }} make build-deb
 
-      - name: Upload artifacts
+      - name: Upload rbuilder artifact
         uses: actions/upload-artifact@v4
         with:
           name: rbuilder-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
-          path: |
-            target/${{ matrix.configs.target }}/${{ matrix.configs.profile }}/rbuilder
-            target/${{ matrix.configs.target }}/${{ matrix.configs.profile }}/rbuilder-operator
-            target/${{ matrix.configs.target }}/${{ matrix.configs.profile }}/reth-rbuilder
-            target/${{ matrix.configs.target }}/${{ matrix.configs.profile }}/bid-scraper
-            target/${{ matrix.configs.target }}/debian/*.deb
+          path: target/${{ matrix.configs.target }}/${{ matrix.configs.profile }}/rbuilder
+
+      - name: Upload rbuilder-operator artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rbuilder-operator-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
+          path: target/${{ matrix.configs.target }}/${{ matrix.configs.profile }}/rbuilder-operator
+
+      - name: Upload reth-rbuilder artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: reth-rbuilder-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
+          path: target/${{ matrix.configs.target }}/${{ matrix.configs.profile }}/reth-rbuilder
+
+      - name: Upload bid-scraper artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bid-scraper-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
+          path: target/${{ matrix.configs.target }}/${{ matrix.configs.profile }}/bid-scraper
+
+      - name: Upload *.deb packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
+          path: target/${{ matrix.configs.target }}/debian/*.deb
 
 
   draft-release:
