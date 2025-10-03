@@ -11,11 +11,9 @@
 ///
 /// Alternatively if configured (adjust_finalized_blocks = true) to run using old flow `prefinalize_worker` would not do anything with the block
 /// and `finalize_worker` would do full finalization instead of adjustment of the finalize block.
-use std::time::Duration;
-
 use alloy_primitives::{utils::format_ether, U256};
 use derivative::Derivative;
-use parking_lot::{Condvar, Mutex};
+use parking_lot::Mutex;
 use std::sync::Arc;
 use time::OffsetDateTime;
 
@@ -39,6 +37,7 @@ use crate::{
     },
     provider::StateProviderFactory,
     telemetry::add_trigger_to_bid_round_trip_time,
+    utils::sync::Watch,
 };
 
 use super::{
@@ -52,8 +51,6 @@ use super::{
 
 use super::relay_submit::BlockBuildingSink;
 use crate::live_builder::building::built_block_cache::BuiltBlockCache;
-
-const THREAD_BLOCKING_DURATION: Duration = Duration::from_millis(100);
 
 /// UnfinishedBlockBuildingSinkFactory creates UnfinishedBuiltBlocksInput
 /// and related workers for each slot
@@ -229,13 +226,13 @@ pub struct UnfinishedBuiltBlocksInput {
     best_block_from_algorithms: Arc<Mutex<BestBlockFromAlgorithms>>,
 
     #[derivative(Debug = "ignore")]
-    last_unfinalized_block: Arc<(Mutex<Option<BiddableUnfinishedBlock>>, Condvar)>,
+    last_unfinalized_block: Arc<Watch<BiddableUnfinishedBlock>>,
 
     unused_prefinalized_blocks: Arc<Mutex<Vec<PrefinalizedBlock>>>,
     last_block_id: Arc<Mutex<u64>>,
     finalized_blocks: Arc<Mutex<Vec<PrefinalizedBlock>>>,
 
-    last_finalize_command: Arc<(Mutex<Option<FinalizeCommand>>, Condvar)>,
+    last_finalize_command: Arc<Watch<FinalizeCommand>>,
 
     cancellation_token: CancellationToken,
     #[derivative(Debug = "ignore")]
@@ -253,11 +250,11 @@ impl UnfinishedBuiltBlocksInput {
         Self {
             built_block_cache,
             best_block_from_algorithms: Arc::new(Mutex::new(BestBlockFromAlgorithms::default())),
-            last_unfinalized_block: Arc::new((Mutex::new(None), Condvar::new())),
+            last_unfinalized_block: Arc::new(Watch::new()),
             unused_prefinalized_blocks: Arc::new(Mutex::new(Vec::new())),
             last_block_id: Arc::new(Mutex::new(0)),
             finalized_blocks: Arc::new(Mutex::new(Vec::new())),
-            last_finalize_command: Arc::new((Mutex::new(None), Condvar::new())),
+            last_finalize_command: Arc::new(Watch::new()),
             cancellation_token,
             block_building_sink: block_building_sink.into(),
             adjust_finalized_blocks,
@@ -286,10 +283,7 @@ impl UnfinishedBuiltBlocksInput {
         trace!("New unfinalized block");
 
         // update last_unfinalized_block
-        let (lock, cvar) = &*self.last_unfinalized_block;
-        let mut guard = lock.lock();
-        *guard = Some(block);
-        cvar.notify_one();
+        self.last_unfinalized_block.set(block);
     }
 
     fn seal_command(&self, bid: SlotBidderSealBidCommand) {
@@ -337,10 +331,7 @@ impl UnfinishedBuiltBlocksInput {
                 bid_received_at,
                 sent_to_sealer,
             };
-            let (lock, cvar) = &*self.last_finalize_command;
-            let mut guard = lock.lock();
-            *guard = Some(finalize_command);
-            cvar.notify_one();
+            self.last_finalize_command.set(finalize_command);
         } else {
             warn!("Seal command discarded, prefinalized block was not found");
         }
@@ -349,18 +340,6 @@ impl UnfinishedBuiltBlocksInput {
 
 // prefinalize_worker
 impl UnfinishedBuiltBlocksInput {
-    fn take_last_unfinalized_block(&self) -> Option<BiddableUnfinishedBlock> {
-        let (lock, cvar) = &*self.last_unfinalized_block;
-        let mut guard = lock.lock();
-        while guard.is_none() {
-            let timeout_result = cvar.wait_for(&mut guard, THREAD_BLOCKING_DURATION);
-            if timeout_result.timed_out() {
-                return None;
-            }
-        }
-        guard.take()
-    }
-
     fn local_ctx(&self) -> ThreadBlockBuildingContext {
         // we try to reuse ThreadBlockBuildingContext from previously built blocks (as they contain useful caches)
         if let Some(last_prefin_block) = self.unused_prefinalized_blocks.lock().pop() {
@@ -376,7 +355,7 @@ impl UnfinishedBuiltBlocksInput {
             if self.cancellation_token.is_cancelled() {
                 break;
             }
-            let next_block = if let Some(block) = self.take_last_unfinalized_block() {
+            let next_block = if let Some(block) = self.last_unfinalized_block.wait_for_data() {
                 block
             } else {
                 continue;
@@ -388,8 +367,8 @@ impl UnfinishedBuiltBlocksInput {
             let block_id = next_block.block.built_block_trace().build_block_id;
             let id_span = tracing::info_span!("block_id", block_id = block_id.0);
             let _guard_id_span = id_span.enter();
-            let block_descriptor = BuiltBlockDescriptorForSlotBidder::new(block_id, &next_block);
-
+            let mut block_descriptor =
+                BuiltBlockDescriptorForSlotBidder::new(block_id, &next_block);
             let mut local_ctx = self.local_ctx();
             let chosen_as_best_at = next_block.chosen_as_best_at;
             let mut block_building_helper = next_block.into_building_helper();
@@ -426,6 +405,8 @@ impl UnfinishedBuiltBlocksInput {
                 local_ctx,
             );
             self.finalized_blocks.lock().push(prefinalized_result);
+            // Must update creation time here because since constructor we did some stuff and we want to measure only bidding core timings.
+            block_descriptor.creation_time = OffsetDateTime::now_utc();
             slot_bidder.notify_new_built_block(block_descriptor);
             trace!("Notified bidding service");
         }
@@ -435,24 +416,13 @@ impl UnfinishedBuiltBlocksInput {
 
 // finalize_worker
 impl UnfinishedBuiltBlocksInput {
-    fn take_next_finalize_command(&self) -> Option<FinalizeCommand> {
-        let (lock, cvar) = &*self.last_finalize_command;
-        let mut guard = lock.lock();
-        while guard.is_none() {
-            let timeout_result = cvar.wait_for(&mut guard, THREAD_BLOCKING_DURATION);
-            if timeout_result.timed_out() {
-                return None;
-            }
-        }
-        guard.take()
-    }
-
     fn run_finalize_thread(self) {
         loop {
             if self.cancellation_token.is_cancelled() {
                 break;
             }
-            let finalize_command = if let Some(command) = self.take_next_finalize_command() {
+            let finalize_command = if let Some(command) = self.last_finalize_command.wait_for_data()
+            {
                 command
             } else {
                 continue;

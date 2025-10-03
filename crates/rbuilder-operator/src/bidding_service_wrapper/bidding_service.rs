@@ -16,65 +16,6 @@ pub struct MustWinBlockParams {
     #[prost(uint64, tag = "1")]
     pub block: u64,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct UpdateNewBidParams {
-    #[prost(double, tag = "1")]
-    pub seen_time: f64,
-    #[prost(string, tag = "2")]
-    pub publisher_name: ::prost::alloc::string::String,
-    #[prost(enumeration = "PublisherType", tag = "3")]
-    pub publisher_type: i32,
-    #[prost(double, optional, tag = "4")]
-    pub relay_time: ::core::option::Option<f64>,
-    #[prost(string, tag = "5")]
-    pub relay_name: ::prost::alloc::string::String,
-    /// Array of 32 bytes
-    #[prost(bytes = "vec", tag = "6")]
-    pub block_hash: ::prost::alloc::vec::Vec<u8>,
-    /// Array of 32 bytes
-    #[prost(bytes = "vec", tag = "7")]
-    pub parent_hash: ::prost::alloc::vec::Vec<u8>,
-    /// Array of 4 uint64
-    #[prost(uint64, repeated, tag = "8")]
-    pub value: ::prost::alloc::vec::Vec<u64>,
-    #[prost(uint64, tag = "9")]
-    pub slot_number: u64,
-    #[prost(uint64, tag = "10")]
-    pub block_number: u64,
-    /// Array of 0 or 48 bytes
-    #[prost(bytes = "vec", tag = "11")]
-    pub builder_pubkey: ::prost::alloc::vec::Vec<u8>,
-    #[prost(string, optional, tag = "12")]
-    pub extra_data: ::core::option::Option<::prost::alloc::string::String>,
-    /// Array of 0 or 20 bytes
-    #[prost(bytes = "vec", tag = "13")]
-    pub fee_recipient: ::prost::alloc::vec::Vec<u8>,
-    /// Array of 0 or 20 bytes
-    #[prost(bytes = "vec", tag = "14")]
-    pub proposer_fee_recipient: ::prost::alloc::vec::Vec<u8>,
-    #[prost(uint64, optional, tag = "15")]
-    pub gas_used: ::core::option::Option<u64>,
-    #[prost(bool, optional, tag = "16")]
-    pub optimistic_submission: ::core::option::Option<bool>,
-    /// For metrics
-    #[prost(uint64, tag = "17")]
-    pub creation_time_us: u64,
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct NewBlockParams {
-    #[prost(uint64, tag = "1")]
-    pub session_id: u64,
-    /// Array of 4 uint64
-    #[prost(uint64, repeated, tag = "2")]
-    pub true_block_value: ::prost::alloc::vec::Vec<u64>,
-    #[prost(bool, tag = "3")]
-    pub can_add_payout_tx: bool,
-    #[prost(uint64, tag = "4")]
-    pub block_id: u64,
-    /// For metrics
-    #[prost(uint64, tag = "5")]
-    pub creation_time_us: u64,
-}
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct DestroySlotBidderParams {
     #[prost(uint64, tag = "1")]
@@ -140,43 +81,6 @@ pub struct Bid {
 pub struct Callback {
     #[prost(message, optional, tag = "1")]
     pub bid: ::core::option::Option<Bid>,
-    #[prost(bool, optional, tag = "2")]
-    pub can_use_suggested_fee_recipient_as_coinbase_change: ::core::option::Option<bool>,
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-#[repr(i32)]
-pub enum PublisherType {
-    RelayBids = 0,
-    RelayHeaders = 1,
-    UltrasoundWs = 2,
-    BloxrouteWs = 3,
-    ExternalWs = 4,
-}
-impl PublisherType {
-    /// String value of the enum field names used in the ProtoBuf definition.
-    ///
-    /// The values are not transformed in any way and thus are considered stable
-    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
-    pub fn as_str_name(&self) -> &'static str {
-        match self {
-            Self::RelayBids => "RelayBids",
-            Self::RelayHeaders => "RelayHeaders",
-            Self::UltrasoundWs => "UltrasoundWs",
-            Self::BloxrouteWs => "BloxrouteWs",
-            Self::ExternalWs => "ExternalWs",
-        }
-    }
-    /// Creates an enum from field names used in the ProtoBuf definition.
-    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
-        match value {
-            "RelayBids" => Some(Self::RelayBids),
-            "RelayHeaders" => Some(Self::RelayHeaders),
-            "UltrasoundWs" => Some(Self::UltrasoundWs),
-            "BloxrouteWs" => Some(Self::BloxrouteWs),
-            "ExternalWs" => Some(Self::ExternalWs),
-            _ => None,
-        }
-    }
 }
 /// Generated client implementations.
 pub mod bidding_service_client {
@@ -433,52 +337,6 @@ pub mod bidding_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// BiddingService->BlockBidWithStatsObs
-        pub async fn update_new_bid(
-            &mut self,
-            request: impl tonic::IntoRequest<super::UpdateNewBidParams>,
-        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/bidding_service.BiddingService/UpdateNewBid",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("bidding_service.BiddingService", "UpdateNewBid"),
-                );
-            self.inner.unary(req, path, codec).await
-        }
-        /// UnfinishedBlockBuildingSink
-        pub async fn new_block(
-            &mut self,
-            request: impl tonic::IntoRequest<super::NewBlockParams>,
-        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/bidding_service.BiddingService/NewBlock",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("bidding_service.BiddingService", "NewBlock"));
-            self.inner.unary(req, path, codec).await
-        }
     }
 }
 /// Generated server implementations.
@@ -532,16 +390,6 @@ pub mod bidding_service_server {
         async fn update_failed_reading_new_landed_blocks(
             &self,
             request: tonic::Request<super::Empty>,
-        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
-        /// BiddingService->BlockBidWithStatsObs
-        async fn update_new_bid(
-            &self,
-            request: tonic::Request<super::UpdateNewBidParams>,
-        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
-        /// UnfinishedBlockBuildingSink
-        async fn new_block(
-            &self,
-            request: tonic::Request<super::NewBlockParams>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
     }
     /// Protocol for the bidding service. It's used to marshal all the traits in src/block_descriptor_bidding/traits.rs
@@ -899,96 +747,6 @@ pub mod bidding_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = UpdateFailedReadingNewLandedBlocksSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/bidding_service.BiddingService/UpdateNewBid" => {
-                    #[allow(non_camel_case_types)]
-                    struct UpdateNewBidSvc<T: BiddingService>(pub Arc<T>);
-                    impl<
-                        T: BiddingService,
-                    > tonic::server::UnaryService<super::UpdateNewBidParams>
-                    for UpdateNewBidSvc<T> {
-                        type Response = super::Empty;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::UpdateNewBidParams>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as BiddingService>::update_new_bid(&inner, request).await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let method = UpdateNewBidSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/bidding_service.BiddingService/NewBlock" => {
-                    #[allow(non_camel_case_types)]
-                    struct NewBlockSvc<T: BiddingService>(pub Arc<T>);
-                    impl<
-                        T: BiddingService,
-                    > tonic::server::UnaryService<super::NewBlockParams>
-                    for NewBlockSvc<T> {
-                        type Response = super::Empty;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::NewBlockParams>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as BiddingService>::new_block(&inner, request).await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let method = NewBlockSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

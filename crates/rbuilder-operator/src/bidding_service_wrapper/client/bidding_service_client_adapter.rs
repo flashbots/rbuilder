@@ -22,14 +22,15 @@ use tokio_stream::StreamExt;
 use tokio_util::sync::CancellationToken;
 use tonic::transport::{Channel, Endpoint, Uri};
 use tower::service_fn;
-use tracing::{error, trace, warn};
+use tracing::{error, warn};
 
 use crate::{
     bidding_service_wrapper::{
         bidding_service_client::BiddingServiceClient,
-        conversion::{real2rpc_block_bid, real2rpc_block_hash, real2rpc_landed_block_info},
+        conversion::{real2rpc_block_hash, real2rpc_landed_block_info},
+        fast_streams::builder_to_bidder::ScrapedBidsPublisher,
         CreateSlotBidderParams, DestroySlotBidderParams, Empty, LandedBlocksParams,
-        MustWinBlockParams, NewBlockParams, UpdateNewBidParams,
+        MustWinBlockParams,
     },
     metrics::set_bidding_service_version,
 };
@@ -45,8 +46,6 @@ pub struct CreateSlotBidderCommandData {
 #[allow(clippy::large_enum_variant)]
 pub enum BiddingServiceClientCommand {
     CreateSlotBidder(CreateSlotBidderCommandData),
-    NewBlock(NewBlockParams),
-    UpdateNewBid(UpdateNewBidParams),
     MustWinBlock(MustWinBlockParams),
     UpdateNewLandedBlocksDetected(LandedBlocksParams),
     UpdateFailedReadingNewLandedBlocks,
@@ -63,6 +62,7 @@ pub enum BiddingServiceClientCommand {
 pub struct BiddingServiceClientAdapter {
     commands_sender: mpsc::UnboundedSender<BiddingServiceClientCommand>,
     last_session_id: AtomicU64,
+    scraped_bids_publisher: ScrapedBidsPublisher,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -87,6 +87,7 @@ impl BiddingServiceClientAdapter {
         Ok(Self {
             commands_sender,
             last_session_id: AtomicU64::new(0),
+            scraped_bids_publisher: ScrapedBidsPublisher::new(),
         })
     }
 
@@ -133,12 +134,6 @@ impl BiddingServiceClientAdapter {
                 match command {
                     BiddingServiceClientCommand::CreateSlotBidder(create_slot_data) => {
                         Self::create_slot_bidder(&mut client, create_slot_data).await;
-                    }
-                    BiddingServiceClientCommand::NewBlock(new_block_params) => {
-                        Self::handle_error(client.new_block(new_block_params).await);
-                    }
-                    BiddingServiceClientCommand::UpdateNewBid(update_new_bid_params) => {
-                        Self::handle_error(client.update_new_bid(update_new_bid_params).await);
                     }
                     BiddingServiceClientCommand::MustWinBlock(must_win_block_params) => {
                         Self::handle_error(client.must_win_block(must_win_block_params).await);
@@ -187,40 +182,35 @@ impl BiddingServiceClientAdapter {
                 tokio::spawn(async move {
                     loop {
                         tokio::select! {
-                                _ = create_slot_bidder_data.cancel.cancelled() => {
+                        _ = create_slot_bidder_data.cancel.cancelled() => {
+                                return;
+                            }
+                        callback = stream.next() => {
+                                if let Some(Ok(callback)) = callback {
+                                    if let Some(bid) = callback.bid {
+                                        let payout_tx_value = Self::parse_option_u256(bid.payout_tx_value);
+                                        let seen_competition_bid = Self::parse_option_u256(bid.seen_competition_bid);
+                                        let trigger_creation_time = bid.trigger_creation_time_us.map(timestamp_us_to_offset_datetime);
+                                        let payout_tx_value = if let Some(payout_tx_value) = payout_tx_value {
+                                            payout_tx_value
+                                        } else {
+                                            warn!("payout_tx_value is None");
+                                            continue;
+                                        };
+                                        let seal_command = SlotBidderSealBidCommand {
+                                            block_id: BuiltBlockId(bid.block_id),
+                                            payout_tx_value,
+                                            seen_competition_bid,
+                                            trigger_creation_time,
+                                        };
+                                        create_slot_bidder_data.block_seal_handle.seal_bid(seal_command);
+                                    }
+                                }
+                                else {
                                     return;
                                 }
-                                callback = stream.next() => {
-                                    if let Some(Ok(callback)) = callback {
-                                        if let Some(bid) = callback.bid {
-                                            let payout_tx_value = Self::parse_option_u256(bid.payout_tx_value);
-                                            let seen_competition_bid = Self::parse_option_u256(bid.seen_competition_bid);
-                                            let trigger_creation_time = bid.trigger_creation_time_us.map(timestamp_us_to_offset_datetime);
-                        let payout_tx_value = if let Some(payout_tx_value) = payout_tx_value {
-                        payout_tx_value
-                        } else {
-                        warn!("payout_tx_value is None");
-                        continue;
-                        };
-
-                        let seal_command = SlotBidderSealBidCommand {
-                        block_id: BuiltBlockId(bid.block_id),
-                        payout_tx_value,
-                        seen_competition_bid,
-                        trigger_creation_time,
-                        };
-                        create_slot_bidder_data.block_seal_handle.seal_bid(seal_command);
-                                        } else if let Some(value) = callback.can_use_suggested_fee_recipient_as_coinbase_change {
-
-                        // do nothing as can_use_suggested_fee_recipient_as_coinbase_change is not supported
-                        trace!(value, "Got can_use_suggested_fee_recipient_as_coinbase_change from bidding service");
-                                        }
-                                    }
-                                    else {
-                                        return;
-                                    }
-                                }
                             }
+                        }
                     }
                 });
             }
@@ -272,12 +262,13 @@ impl BiddingService for BiddingServiceClientAdapter {
                         slot_timestamp: slot_timestamp.unix_timestamp(),
                     },
                     block_seal_handle,
-                    cancel,
+                    cancel: cancel.clone(),
                 },
             ));
         Arc::new(UnfinishedBlockBuildingSinkClient::new(
             session_id,
             self.commands_sender.clone(),
+            cancel,
         ))
     }
 
@@ -302,10 +293,11 @@ impl BiddingService for BiddingServiceClientAdapter {
     }
 
     fn observe_relay_bids(&self, bid_with_stats: ScrapedRelayBlockBidWithStats) {
-        let _ = self
-            .commands_sender
-            .send(BiddingServiceClientCommand::UpdateNewBid(
-                real2rpc_block_bid(bid_with_stats),
-            ));
+        self.scraped_bids_publisher.send(bid_with_stats.clone());
+        /*let _ = self
+        .commands_sender
+        .send(BiddingServiceClientCommand::UpdateNewBid(
+            real2rpc_block_bid(bid_with_stats),
+        ));*/
     }
 }
