@@ -912,6 +912,49 @@ impl TransactionSignedEcRecoveredWithBlobs {
             }
         }
     }
+
+    /// Decodes the "raw" format of transaction (e.g. `eth_sendRawTransaction`) with the blob data (network format)
+    pub fn decode_enveloped_with_real_blobs_with_lookup(
+        raw_tx: Bytes,
+        lookup: impl Fn(B256) -> Option<Address>,
+    ) -> Result<TransactionSignedEcRecoveredWithBlobs, TxWithBlobsCreateError> {
+        let raw_tx = &mut raw_tx.as_ref();
+        let pooled_tx = PooledTransactionVariant::decode_2718(raw_tx)
+            .map_err(TxWithBlobsCreateError::FailedToDecodeTransaction)?;
+
+        let signer = if let Some(signer) = lookup(*pooled_tx.tx_hash()) {
+            signer
+        } else {
+            pooled_tx
+                .recover_signer()
+                .map_err(|_| TxWithBlobsCreateError::InvalidTransactionSignature)?
+        };
+
+        match pooled_tx {
+            PooledTransactionVariant::Legacy(_)
+            | PooledTransactionVariant::Eip2930(_)
+            | PooledTransactionVariant::Eip1559(_)
+            | PooledTransactionVariant::Eip7702(_) => {
+                let tx_signed = TransactionSigned::from(pooled_tx);
+                TransactionSignedEcRecoveredWithBlobs::new_no_blobs(tx_signed.with_signer(signer))
+            }
+            PooledTransactionVariant::Eip4844(blob_tx) => {
+                let (blob_tx, signature, hash) = blob_tx.into_parts();
+                let (blob_tx, sidecar) = blob_tx.into_parts();
+                let tx_signed = TransactionSigned::new_unchecked(
+                    Transaction::Eip4844(blob_tx),
+                    signature,
+                    hash,
+                );
+                Ok(TransactionSignedEcRecoveredWithBlobs {
+                    tx: tx_signed.with_signer(signer),
+                    blobs_sidecar: Arc::new(sidecar),
+                    metadata: Metadata::default(),
+                })
+            }
+        }
+    }
+
     /// Decodes the "raw" canonical format of transaction (NOT the one used in `eth_sendRawTransaction`) generating fake blob data for backtesting
     pub fn decode_enveloped_with_fake_blobs(
         raw_tx: Bytes,
@@ -920,6 +963,38 @@ impl TransactionSignedEcRecoveredWithBlobs {
             .map_err(TxWithBlobsCreateError::FailedToDecodeTransaction)?;
         let tx = SignerRecoverable::try_into_recovered(decoded)
             .map_err(|_| TxWithBlobsCreateError::InvalidTransactionSignature)?;
+        let mut fake_sidecar = BlobTransactionSidecar::default();
+        for _ in 0..tx.blob_versioned_hashes().map_or(0, |hashes| hashes.len()) {
+            fake_sidecar.blobs.push(Blob::from([0u8; BYTES_PER_BLOB]));
+            fake_sidecar
+                .commitments
+                .push(Bytes48::from([0u8; BYTES_PER_COMMITMENT]));
+            fake_sidecar
+                .proofs
+                .push(Bytes48::from([0u8; BYTES_PER_PROOF]));
+        }
+        Ok(TransactionSignedEcRecoveredWithBlobs {
+            tx,
+            blobs_sidecar: Arc::new(BlobTransactionSidecarVariant::Eip4844(fake_sidecar)),
+            metadata: Metadata::default(),
+        })
+    }
+
+    /// Decodes the "raw" canonical format of transaction (NOT the one used in `eth_sendRawTransaction`) generating fake blob data for backtesting
+    pub fn decode_enveloped_with_fake_blobs_with_lookup(
+        raw_tx: Bytes,
+        lookup: impl Fn(B256) -> Option<Address>,
+    ) -> Result<TransactionSignedEcRecoveredWithBlobs, TxWithBlobsCreateError> {
+        let decoded = TransactionSigned::decode_2718(&mut raw_tx.as_ref())
+            .map_err(TxWithBlobsCreateError::FailedToDecodeTransaction)?;
+
+        let tx = if let Some(signer) = lookup(*decoded.tx_hash()) {
+            Recovered::new_unchecked(decoded, signer)
+        } else {
+            SignerRecoverable::try_into_recovered(decoded)
+                .map_err(|_| TxWithBlobsCreateError::InvalidTransactionSignature)?
+        };
+
         let mut fake_sidecar = BlobTransactionSidecar::default();
         for _ in 0..tx.blob_versioned_hashes().map_or(0, |hashes| hashes.len()) {
             fake_sidecar.blobs.push(Blob::from([0u8; BYTES_PER_BLOB]));

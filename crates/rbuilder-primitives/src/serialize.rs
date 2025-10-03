@@ -54,6 +54,36 @@ impl TxEncoding {
         }
     }
 
+    pub fn decode_with_lookup(
+        &self,
+        raw_tx: Bytes,
+        lookup: impl Fn(B256) -> Option<Address>,
+    ) -> Result<TransactionSignedEcRecoveredWithBlobs, TxWithBlobsCreateError> {
+        match self {
+            TxEncoding::NoBlobData => {
+                TransactionSignedEcRecoveredWithBlobs::decode_enveloped_with_fake_blobs_with_lookup(
+                    raw_tx, lookup,
+                )
+            }
+            TxEncoding::WithBlobData => {
+                let raw_tx_clone = raw_tx.clone(); // This clone is supposed to be cheap
+                let res =
+                    TransactionSignedEcRecoveredWithBlobs::decode_enveloped_with_real_blobs_with_lookup(raw_tx,lookup);
+                if let Err(TxWithBlobsCreateError::FailedToDecodeTransaction(
+                    Eip2718Error::RlpError(err),
+                )) = res
+                {
+                    if Self::looks_like_canonical_blob_tx(raw_tx_clone) {
+                        return Err(TxWithBlobsCreateError::FailedToDecodeTransactionProbablyIs4484Canonical(
+                            err,
+                        ));
+                    }
+                }
+                res
+            }
+        }
+    }
+
     fn looks_like_canonical_blob_tx(raw_tx: Bytes) -> bool {
         // For full check we could call TransactionSigned::decode_enveloped and fully try to decode it is way more expensive.
         // We expect EIP4844_TX_TYPE_ID + rlp(chainId = 01,.....)
@@ -214,6 +244,69 @@ impl RawBundle {
                 Err(RawBundleConvertError::FoundCancelExpectingBundle)
             }
         }
+    }
+    pub fn decode_with_lookup(
+        mut self,
+        encoding: TxEncoding,
+        lookup: &impl Fn(B256) -> Option<Address>,
+    ) -> Result<RawBundleDecodeResult, RawBundleConvertError> {
+        let replacement_data = Self::decode_replacement_data(
+            self.replacement_uuid,
+            self.uuid,
+            self.signing_address,
+            self.replacement_nonce,
+            self.first_seen_at,
+        )?;
+        // Check for cancellation
+        if self.txs.is_empty() {
+            match replacement_data {
+                Some(replacement_data) => {
+                    return Ok(RawBundleDecodeResult::CancelBundle(replacement_data))
+                }
+                None => return Err(RawBundleConvertError::EmptyBundle),
+            }
+        }
+        let version = Self::decode_version(self.version.clone())?;
+        self.validate_fields(version.clone())?;
+        let mut decoded = Vec::with_capacity(self.txs.len());
+        for (idx, tx) in self.txs.into_iter().enumerate() {
+            let res = encoding
+                .decode_with_lookup(tx, lookup)
+                .map_err(|e| RawBundleConvertError::FailedToDecodeTransaction(idx, e));
+            decoded.push(res?);
+        }
+        let txs = decoded;
+        let refund = Self::parse_refund(
+            self.refund_percent,
+            self.refund_recipient,
+            self.refund_tx_hashes,
+            self.delayed_refund,
+            &txs,
+        )?;
+
+        self.reverting_tx_hashes.sort();
+        self.dropping_tx_hashes.sort();
+
+        let block = self.block_number.unwrap_or_default().to();
+
+        let mut bundle = Bundle {
+            block: if block != 0 { Some(block) } else { None },
+            txs,
+            reverting_tx_hashes: self.reverting_tx_hashes,
+            hash: Default::default(),
+            uuid: Default::default(),
+            replacement_data,
+            // we assume that 0 timestamp is the same as timestamp not set
+            min_timestamp: self.min_timestamp,
+            max_timestamp: self.max_timestamp.filter(|t| *t != 0),
+            signer: self.signing_address,
+            metadata: Default::default(),
+            dropping_tx_hashes: self.dropping_tx_hashes,
+            refund,
+            version,
+        };
+        bundle.hash_slow();
+        Ok(RawBundleDecodeResult::NewBundle(bundle))
     }
 
     pub fn decode(
