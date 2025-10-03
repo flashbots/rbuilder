@@ -431,7 +431,7 @@ fn spawn_block_fetcher(
                             as u64,
                     )) {
                         Ok(mut block) => {
-                            block.filter_out_ignored_signers(&ignored_signers);
+                            block.filter_out_ignored_signers(&ignored_signers, false);
                             Some(block)
                         }
                         Err(err) => {
