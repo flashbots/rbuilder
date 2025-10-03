@@ -3,7 +3,7 @@ use alloy_signer_local::PrivateKeySigner;
 use clap::Parser;
 use rbuilder_rebalancer::{config::RebalancerConfig, rebalancer::Rebalancer};
 use std::{path::PathBuf, str::FromStr, time::Duration};
-use tracing::{level_filters::LevelFilter, *};
+use tracing::*;
 
 #[tokio::main]
 async fn main() {
