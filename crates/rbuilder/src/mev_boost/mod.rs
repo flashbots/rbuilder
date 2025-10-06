@@ -893,7 +893,7 @@ impl RelayClient {
             .map_err(|_| SubmitBlockErr::InvalidHeader)?;
 
         let mut url = self.get_base_submit_block_url(registration, &mut headers)?;
-        url.set_path("/relay/v3/builder/blocks");
+        url.set_path("/relay/v3/builder/headers");
 
         let body = request.as_ssz_bytes();
         headers.insert(CONTENT_TYPE, HeaderValue::from_static(SSZ_CONTENT_TYPE));
