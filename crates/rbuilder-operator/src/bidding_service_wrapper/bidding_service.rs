@@ -58,30 +58,6 @@ pub struct LandedBlocksParams {
     #[prost(message, repeated, tag = "1")]
     pub landed_block_info: ::prost::alloc::vec::Vec<LandedBlockInfo>,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Bid {
-    /// Optional implicitly by allowing empty
-    ///
-    /// Array of 4 uint64
-    #[prost(uint64, repeated, tag = "1")]
-    pub payout_tx_value: ::prost::alloc::vec::Vec<u64>,
-    #[prost(uint64, tag = "2")]
-    pub block_id: u64,
-    /// Optional implicitly by allowing empty
-    ///
-    /// Array of 4 uint64
-    #[prost(uint64, repeated, tag = "3")]
-    pub seen_competition_bid: ::prost::alloc::vec::Vec<u64>,
-    #[prost(uint64, optional, tag = "4")]
-    pub trigger_creation_time_us: ::core::option::Option<u64>,
-}
-/// Exactly 1 member will be not null.
-/// Since this is not mapped to an enum we must be careful to manually update BiddingServiceClientAdapter.
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Callback {
-    #[prost(message, optional, tag = "1")]
-    pub bid: ::core::option::Option<Bid>,
-}
 /// Generated client implementations.
 pub mod bidding_service_client {
     #![allow(
@@ -213,10 +189,7 @@ pub mod bidding_service_client {
         pub async fn create_slot_bidder(
             &mut self,
             request: impl tonic::IntoRequest<super::CreateSlotBidderParams>,
-        ) -> std::result::Result<
-            tonic::Response<tonic::codec::Streaming<super::Callback>>,
-            tonic::Status,
-        > {
+        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -234,7 +207,7 @@ pub mod bidding_service_client {
                 .insert(
                     GrpcMethod::new("bidding_service.BiddingService", "CreateSlotBidder"),
                 );
-            self.inner.server_streaming(req, path, codec).await
+            self.inner.unary(req, path, codec).await
         }
         pub async fn destroy_slot_bidder(
             &mut self,
@@ -361,20 +334,11 @@ pub mod bidding_service_server {
             tonic::Response<super::BidderVersionInfo>,
             tonic::Status,
         >;
-        /// Server streaming response type for the CreateSlotBidder method.
-        type CreateSlotBidderStream: tonic::codegen::tokio_stream::Stream<
-                Item = std::result::Result<super::Callback, tonic::Status>,
-            >
-            + std::marker::Send
-            + 'static;
         /// BiddingService
         async fn create_slot_bidder(
             &self,
             request: tonic::Request<super::CreateSlotBidderParams>,
-        ) -> std::result::Result<
-            tonic::Response<Self::CreateSlotBidderStream>,
-            tonic::Status,
-        >;
+        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
         async fn destroy_slot_bidder(
             &self,
             request: tonic::Request<super::DestroySlotBidderParams>,
@@ -528,13 +492,11 @@ pub mod bidding_service_server {
                     struct CreateSlotBidderSvc<T: BiddingService>(pub Arc<T>);
                     impl<
                         T: BiddingService,
-                    > tonic::server::ServerStreamingService<
-                        super::CreateSlotBidderParams,
-                    > for CreateSlotBidderSvc<T> {
-                        type Response = super::Callback;
-                        type ResponseStream = T::CreateSlotBidderStream;
+                    > tonic::server::UnaryService<super::CreateSlotBidderParams>
+                    for CreateSlotBidderSvc<T> {
+                        type Response = super::Empty;
                         type Future = BoxFuture<
-                            tonic::Response<Self::ResponseStream>,
+                            tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
@@ -566,7 +528,7 @@ pub mod bidding_service_server {
                                 max_decoding_message_size,
                                 max_encoding_message_size,
                             );
-                        let res = grpc.server_streaming(method, req).await;
+                        let res = grpc.unary(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)

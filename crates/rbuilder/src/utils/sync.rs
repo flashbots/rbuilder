@@ -12,7 +12,7 @@ pub struct Watch<T> {
 
 /// Hardcoded timeout for waiting for data.
 /// Reasonably high so a loop does not has impact in the CPU and low enough so teardown is not too long.
-const THREAD_BLOCKING_DURATION: Duration = Duration::from_millis(100);
+pub const THREAD_BLOCKING_DURATION: Duration = Duration::from_millis(100);
 
 impl<T> Watch<T> {
     pub fn new() -> Self {
@@ -39,5 +39,15 @@ impl<T> Watch<T> {
             }
         }
         guard.take()
+    }
+
+    /// USE WITH CAUTION.
+    /// It will wait forever for data.
+    pub fn wait_for_ever(&self) -> T {
+        loop {
+            if let Some(res) = self.wait_for_data() {
+                return res;
+            }
+        }
     }
 }

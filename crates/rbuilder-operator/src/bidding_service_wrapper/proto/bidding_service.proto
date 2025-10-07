@@ -18,7 +18,7 @@ service BiddingService {
     rpc Initialize(LandedBlocksParams) returns (BidderVersionInfo);
 
     // BiddingService
-    rpc CreateSlotBidder(CreateSlotBidderParams) returns (stream Callback);
+    rpc CreateSlotBidder(CreateSlotBidderParams) returns (Empty);
     rpc DestroySlotBidder(DestroySlotBidderParams) returns (Empty);
     rpc MustWinBlock(MustWinBlockParams) returns (Empty);
     rpc UpdateNewLandedBlocksDetected(LandedBlocksParams) returns (Empty);
@@ -67,20 +67,4 @@ message LandedBlockInfo {
 
 message LandedBlocksParams {
     repeated LandedBlockInfo landed_block_info = 1; // Added field name
-}
-
-message Bid {
-    // Optional implicitly by allowing empty
-    repeated uint64 payout_tx_value = 1; // Array of 4 uint64
-    uint64 block_id = 2;
-    // Optional implicitly by allowing empty
-    repeated uint64 seen_competition_bid = 3; // Array of 4 uint64
-    optional uint64 trigger_creation_time_us = 4;
-}    
-
-
-// Exactly 1 member will be not null.
-// Since this is not mapped to an enum we must be careful to manually update BiddingServiceClientAdapter.
-message Callback {
-    Bid bid = 1;
 }

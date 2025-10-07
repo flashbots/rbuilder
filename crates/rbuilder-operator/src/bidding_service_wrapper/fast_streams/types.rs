@@ -5,10 +5,15 @@ use iceoryx2_bb_container::byte_string::FixedSizeByteString;
 use rbuilder::{
     building::builders::BuiltBlockId,
     live_builder::block_output::bidding_service_interface::{
-        BuiltBlockDescriptorForSlotBidder, ScrapedRelayBlockBidWithStats,
+        BuiltBlockDescriptorForSlotBidder, ScrapedRelayBlockBidWithStats, SlotBidderSealBidCommand,
     },
     utils::{offset_datetime_to_timestamp_us, timestamp_us_to_offset_datetime},
 };
+
+pub trait FromWithSessionId<T>: Sized {
+    /// Converts this type into the (usually inferred) input type.
+    fn from_with_session_id(value: T, session_id: u64) -> Self;
+}
 
 /// Used sometimes to generalize some latency code checks.
 pub trait WithCreationTime {
@@ -146,6 +151,8 @@ impl Into<ScrapedRelayBlockBidWithStats> for ScrapedRelayBlockBidRPC {
     }
 }
 
+pub type BuiltBlockDescriptorForSlotBidderWithSessionId = (BuiltBlockDescriptorForSlotBidder, u64);
+
 #[derive(Debug, Clone, Copy, ZeroCopySend)]
 #[type_name("BuiltBlockDescriptorForSlotBidderRPC")]
 #[repr(C)]
@@ -163,13 +170,13 @@ impl WithCreationTime for BuiltBlockDescriptorForSlotBidderRPC {
     }
 }
 
-impl BuiltBlockDescriptorForSlotBidderRPC {
-    pub fn new(session_id: u64, block: BuiltBlockDescriptorForSlotBidder) -> Self {
+impl From<BuiltBlockDescriptorForSlotBidderWithSessionId> for BuiltBlockDescriptorForSlotBidderRPC {
+    fn from(value: BuiltBlockDescriptorForSlotBidderWithSessionId) -> Self {
         Self {
-            session_id,
-            true_block_value: block.true_block_value.to_le_bytes(),
-            block_id: block.id.0,
-            creation_time_us: offset_datetime_to_timestamp_us(block.creation_time),
+            session_id: value.1,
+            true_block_value: value.0.true_block_value.to_le_bytes(),
+            block_id: value.0.id.0,
+            creation_time_us: offset_datetime_to_timestamp_us(value.0.creation_time),
         }
     }
 }
@@ -180,6 +187,49 @@ impl Into<BuiltBlockDescriptorForSlotBidder> for BuiltBlockDescriptorForSlotBidd
             true_block_value: U256::from_le_bytes(self.true_block_value),
             id: BuiltBlockId(self.block_id),
             creation_time: timestamp_us_to_offset_datetime(self.creation_time_us),
+        }
+    }
+}
+
+pub type SlotBidderSealBidCommandWithSessionId = (SlotBidderSealBidCommand, u64);
+
+#[derive(Debug, Clone, Copy, ZeroCopySend)]
+#[type_name("SlotBidderSealBidCommandRPC")]
+#[repr(C)]
+pub struct SlotBidderSealBidCommandRPC {
+    pub session_id: u64,
+    pub block_id: u64,
+    pub payout_tx_value: [u8; U256_DATA_LENGTH],
+    pub seen_competition_bid: Option<[u8; U256_DATA_LENGTH]>,
+    /// When this bid is a reaction so some event (eg: new block, new competition bid) we put here
+    /// the creation time of that event so we can measure our reaction time.
+    pub trigger_creation_time_us: Option<u64>,
+}
+
+impl From<SlotBidderSealBidCommandWithSessionId> for SlotBidderSealBidCommandRPC {
+    fn from(value: SlotBidderSealBidCommandWithSessionId) -> Self {
+        Self {
+            session_id: value.1,
+            block_id: value.0.block_id.0,
+            payout_tx_value: value.0.payout_tx_value.to_le_bytes(),
+            seen_competition_bid: value.0.seen_competition_bid.map(|k| k.to_le_bytes()),
+            trigger_creation_time_us: value
+                .0
+                .trigger_creation_time
+                .map(offset_datetime_to_timestamp_us),
+        }
+    }
+}
+
+impl Into<SlotBidderSealBidCommand> for SlotBidderSealBidCommandRPC {
+    fn into(self) -> SlotBidderSealBidCommand {
+        SlotBidderSealBidCommand {
+            block_id: BuiltBlockId(self.block_id),
+            payout_tx_value: U256::from_le_bytes(self.payout_tx_value),
+            seen_competition_bid: self.seen_competition_bid.map(|k| U256::from_le_bytes(k)),
+            trigger_creation_time: self
+                .trigger_creation_time_us
+                .map(timestamp_us_to_offset_datetime),
         }
     }
 }
