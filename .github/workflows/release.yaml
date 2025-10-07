@@ -102,7 +102,7 @@ jobs:
         run: |
           git config --global --add safe.directory "$(pwd)"
           . $HOME/.cargo/env
-          cargo build --release --features=${{ matrix.features }} --target ${{ matrix.configs.target }}
+          cargo build --release --workspace --features=${{ matrix.features }} --target ${{ matrix.configs.target }}
 
       - name: Upload rbuilder artifact
         uses: actions/upload-artifact@v4
