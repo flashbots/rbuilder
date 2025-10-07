@@ -167,6 +167,8 @@ pub struct L1Config {
     pub optimistic_v3_server_ip: Ipv4Addr,
     /// Optimistic V3 server port.
     pub optimistic_v3_server_port: u16,
+    /// Optimistic V3 public URL.
+    pub optimistic_v3_public_url: String,
     /// The relay pubkey.
     pub optimistic_v3_relay_pubkeys: HashSet<BlsPublicKey>,
 }
@@ -186,6 +188,7 @@ impl Default for L1Config {
             registration_update_interval_ms: None,
             optimistic_v3_server_ip: default_ip(),
             optimistic_v3_server_port: 6071,
+            optimistic_v3_public_url: String::new(),
             optimistic_v3_relay_pubkeys: HashSet::default(),
         }
     }
@@ -384,9 +387,9 @@ impl L1Config {
                 self.optimistic_v3_server_ip,
                 self.optimistic_v3_server_port,
             ));
-            let builder_url = format!("http://{address}");
+            let builder_url = self.optimistic_v3_public_url.clone();
 
-            info!(%builder_url, "Optimistic V3 is enabled for at least one relay, spawning server");
+            info!(local = %address, %builder_url, "Optimistic V3 is enabled for at least one relay, spawning server");
             if self.optimistic_v3_relay_pubkeys.is_empty() {
                 warn!("Optimistic V3 is enabled, but no relay pubkeys have been configured");
             }
