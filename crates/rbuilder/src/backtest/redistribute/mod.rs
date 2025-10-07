@@ -135,11 +135,11 @@ where
     let protect_signers = config.base_config().backtest_protect_bundle_signers.clone();
 
     info!(
-	?protect_signers,
-	?ignored_signers,
-	blocklist_len = blocklist.len(),
-	distribute_to_mempool_txs,
-	"Started to calculate redistribution"
+        ?protect_signers,
+        ?ignored_signers,
+        blocklist_len = blocklist.len(),
+        distribute_to_mempool_txs,
+        "Started to calculate redistribution"
     );
 
     if protect_signers.is_empty() {
@@ -364,7 +364,7 @@ fn get_available_orders(
             None => match block_data.filtered_orders.get(id) {
                 Some(OrderFilteredReason::MempoolTxs) => {
                     info!(order = ?id, "Included order was filtered because all txs are from mempool");
-                },
+                }
                 Some(OrderFilteredReason::Signer) => {
                     info!(order = ?id, "Included order was filtered because signer is explicitly ignored");
                 }
