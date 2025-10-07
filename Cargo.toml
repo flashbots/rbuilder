@@ -26,6 +26,7 @@ default-members = [
     "crates/rbuilder",
     "crates/rbuilder-operator",    
     "crates/reth-rbuilder",
+    "crates/rbuilder-rebalancer",
     "crates/rbuilder-primitives",
     "crates/test-relay",
     "crates/bid-scraper",
