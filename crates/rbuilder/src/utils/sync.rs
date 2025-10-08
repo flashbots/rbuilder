@@ -4,7 +4,7 @@ use parking_lot::{Condvar, Mutex};
 
 /// Similar to tokio::sync::Watch but for threads.
 /// It allows to communicate a producer and a consumer in the escenario where the consumer only cares about the last value.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Watch<T> {
     last_data: Mutex<Option<T>>,
     got_data: Condvar,

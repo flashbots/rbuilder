@@ -7,11 +7,11 @@ use std::{
 use iceoryx2::{
     node::{Node, NodeBuilder, NodeCreationFailure},
     port::{
-        listener::ListenerCreateError,
+        listener::{Listener, ListenerCreateError},
         notifier::{Notifier, NotifierCreateError, NotifierNotifyError},
         publisher::{Publisher, PublisherCreateError},
         subscriber::{Subscriber, SubscriberCreateError},
-        LoanError, SendError,
+        LoanError, ReceiveError, SendError,
     },
     prelude::{SignalHandlingMode, ZeroCopySend},
     service::{
@@ -66,6 +66,8 @@ pub enum Error {
     SendError(#[from] SendError),
     #[error("NotifierNotifyError : {0}")]
     NotifierNotifyError(#[from] NotifierNotifyError),
+    #[error("ReceiveError : {0}")]
+    ReceiveError(#[from] ReceiveError),
 }
 
 pub type IceoryxScrapedBidsSubscriber = Subscriber<ipc::Service, ScrapedRelayBlockBidRPC, ()>;
@@ -88,11 +90,10 @@ pub const LAST_ITEM_MAX_BUFFERS: usize = 1;
 pub const LAST_ITEM_MAX_LOAN_SAMPLES: usize = 2;
 
 /// Always use this function to create a node builder to avoid issues with signal handling.
-pub fn create_node_builder() -> Node<ipc::Service> {
-    NodeBuilder::new()
+pub fn create_node_builder() -> Result<Node<ipc::Service>, Error> {
+    Ok(NodeBuilder::new()
         .signal_handling_mode(SignalHandlingMode::Disabled)
-        .create::<ipc::Service>()
-        .unwrap()
+        .create::<ipc::Service>()?)
 }
 
 pub fn create_scraped_bids_service(
@@ -147,19 +148,24 @@ pub fn create_got_slot_bidder_seal_bid_command_event_service(
 }
 
 /// iceoryx published + event to notify on every new item we publish.
+/// Just create and call send.
 struct NotifyingPublisher<ItemTypeRPC: std::fmt::Debug + ZeroCopySend + 'static> {
     publisher: Publisher<ipc::Service, ItemTypeRPC, ()>,
     notifier: Notifier<ipc::Service>,
 }
 
 impl<ItemTypeRPC: std::fmt::Debug + ZeroCopySend + 'static> NotifyingPublisher<ItemTypeRPC> {
+    /// item_service_name: name of the service to publish the item to (the subscriber must match the publisher).
+    /// got_item_event_name: name of the event to notify on every new item (the subscriber must match the publisher)..
+    /// max_subscriber_buffers: max number of buffers to keep. It the subscriber does not poll fast enough some items will be lost. If you only care about the last item just use 1.
+    /// max_publisher_loan_buffers: max number of buffers to loan to all publisher instances. This should be >= number of publishers instances.
     pub fn new(
         item_service_name: &'static str,
         got_item_event_name: &'static str,
         max_subscriber_buffers: usize,
         max_publisher_loan_buffers: usize,
     ) -> Result<Self, Error> {
-        let node = create_node_builder();
+        let node = create_node_builder()?;
         let item_service = node
             .service_builder(&item_service_name.try_into()?)
             .publish_subscribe::<ItemTypeRPC>()
@@ -190,7 +196,7 @@ impl<ItemTypeRPC: std::fmt::Debug + ZeroCopySend + 'static> NotifyingPublisher<I
 }
 
 /// struct to publish ScrapedRelayBlockBidWithStats to the bidding service.
-/// Adds an extra thread so we can call publisher code from a single thread since it's not Send.
+/// Adds an extra thread so we can call publisher code from a single thread (since it's not Send).
 #[derive(Debug)]
 pub struct ScrapedBidsPublisher {
     scraped_bids_sender: mpsc::Sender<ScrapedRelayBlockBidRPC>,
@@ -224,12 +230,10 @@ impl ScrapedBidsPublisher {
             }
         });
         match init_done_clone.wait_for_ever() {
-            Ok(_) => {
-                return Ok(Self {
-                    scraped_bids_sender,
-                })
-            }
-            Err(err) => return Err(err),
+            Ok(_) => Ok(Self {
+                scraped_bids_sender,
+            }),
+            Err(err) => Err(err),
         }
     }
 
@@ -245,7 +249,6 @@ impl ScrapedBidsPublisher {
 
 /// struct to publish ItemType to the bidding service. RPC is configured to keep only the last item.
 /// Adds an extra thread so we can call publisher code from a single thread since it's not Send.
-/// @Pending: factorize with ScrapedBidsPublisher
 #[derive(Debug)]
 pub struct LastItemPublisher<ItemType> {
     last_item: Arc<Watch<ItemType>>,
@@ -288,12 +291,10 @@ impl<ItemType: Send + Sync + 'static> LastItemPublisher<ItemType> {
             info!(item_service_name, "Publisher shutting down");
         });
         match init_done_clone.wait_for_ever() {
-            Ok(_) => {
-                return Ok(Self {
-                    last_item: last_item_clone,
-                })
-            }
-            Err(err) => return Err(err),
+            Ok(_) => Ok(Self {
+                last_item: last_item_clone,
+            }),
+            Err(err) => Err(err),
         }
     }
 
@@ -325,7 +326,30 @@ pub fn create_slot_bidder_seal_bid_command_publisher(
     )
 }
 
+fn init_slot_bidder_seal_bid_command_subscriber() -> Result<
+    (
+        Listener<ipc::Service>,
+        SubscriberPoller<SlotBidderSealBidCommandRPC>,
+    ),
+    Error,
+> {
+    let node = create_node_builder()?;
+    let slot_bidder_seal_bid_command_service = create_slot_bidder_seal_bid_command_service(&node)?;
+    let slot_bidder_seal_bid_command_subscriber = SubscriberPoller::new(
+        slot_bidder_seal_bid_command_service,
+        LAST_ITEM_MAX_BUFFERS,
+        "slot_bidder_seal_bid_command",
+    )?;
+    let got_slot_bidder_seal_bid_command_event =
+        create_got_slot_bidder_seal_bid_command_event_service(&node)?;
+    let listener = got_slot_bidder_seal_bid_command_event
+        .listener_builder()
+        .create()?;
+    Ok((listener, slot_bidder_seal_bid_command_subscriber))
+}
+
 /// Spawns a thread that subscribes to the SlotBidderSealBidCommandRPC and forwards them to registered BlockSealInterfaceForSlotBidder in session_id_to_slot_bidder.
+/// Result tells if the init stage was successful and the thread was able to start polling.
 pub fn spawn_slot_bidder_seal_bid_command_subscriber(
     session_id_to_slot_bidder: Arc<
         Mutex<HashMap<u64, Arc<dyn BlockSealInterfaceForSlotBidder + Send + Sync>>>,
@@ -336,44 +360,20 @@ pub fn spawn_slot_bidder_seal_bid_command_subscriber(
     let init_done_clone = init_done.clone();
     thread::spawn(move || {
         info!("SlotBidderSealBidCommandRPC subscriber thread starting");
-        let node = create_node_builder();
-        let slot_bidder_seal_bid_command_service =
-            match create_slot_bidder_seal_bid_command_service(&node) {
-                Ok(slot_bidder_seal_bid_command_service) => slot_bidder_seal_bid_command_service,
-                Err(err) => {
-                    init_done.set(Err(err.into()));
-                    return;
-                }
-            };
-        let mut slot_bidder_seal_bid_command_subscriber = SubscriberPoller::new(
-            slot_bidder_seal_bid_command_service,
-            LAST_ITEM_MAX_BUFFERS,
-            "slot_bidder_seal_bid_command",
-        );
-        let got_slot_bidder_seal_bid_command_event =
-            match create_got_slot_bidder_seal_bid_command_event_service(&node) {
-                Ok(got_slot_bidder_seal_bid_command_event) => {
-                    got_slot_bidder_seal_bid_command_event
+        let (listener, mut slot_bidder_seal_bid_command_subscriber) =
+            match init_slot_bidder_seal_bid_command_subscriber() {
+                Ok((listener, slot_bidder_seal_bid_command_subscriber)) => {
+                    init_done.set(Ok(()));
+                    (listener, slot_bidder_seal_bid_command_subscriber)
                 }
                 Err(err) => {
                     init_done.set(Err(err));
                     return;
                 }
             };
-        let listener = match got_slot_bidder_seal_bid_command_event
-            .listener_builder()
-            .create()
-        {
-            Ok(listener) => listener,
-            Err(err) => {
-                init_done.set(Err(err.into()));
-                return;
-            }
-        };
-        init_done.set(Ok(()));
         while !cancellation_token.is_cancelled() {
             if let Ok(Some(_event_id)) = listener.timed_wait_one(THREAD_BLOCKING_DURATION) {
-                slot_bidder_seal_bid_command_subscriber.poll(|sample| {
+                if let Err(err) = slot_bidder_seal_bid_command_subscriber.poll(|sample| {
                     let bidder = session_id_to_slot_bidder
                         .lock()
                         .get_mut(&sample.session_id)
@@ -383,7 +383,9 @@ pub fn spawn_slot_bidder_seal_bid_command_subscriber(
                     } else {
                         warn!("got seal bid command but no bidder found",);
                     }
-                });
+                }) {
+                    error!(err=?err, "SlotBidderSealBidCommandRPC subscriber thread poll failed.");
+                }
             }
         }
         info!("SlotBidderSealBidCommandRPC subscriber thread shutting down");

@@ -1,4 +1,4 @@
-//! Conversion real data <-> rpc data
+//! Conversion real data <-> gRPC data
 use crate::bidding_service_wrapper::LandedBlockInfo as RPCLandedBlockInfo;
 
 use alloy_primitives::{BlockHash, U256};

@@ -1,3 +1,5 @@
+//! Types used to communicate with the bidding service via iceoryx.
+//! They are mostly mappings of the originals but supporting ZeroCopySend.
 use alloy_primitives::U256;
 use bid_scraper::types::ScrapedRelayBlockBid;
 use iceoryx2::prelude::ZeroCopySend;
@@ -9,11 +11,6 @@ use rbuilder::{
     },
     utils::{offset_datetime_to_timestamp_us, timestamp_us_to_offset_datetime},
 };
-
-pub trait FromWithSessionId<T>: Sized {
-    /// Converts this type into the (usually inferred) input type.
-    fn from_with_session_id(value: T, session_id: u64) -> Self;
-}
 
 /// Used sometimes to generalize some latency code checks.
 pub trait WithCreationTime {
@@ -42,9 +39,9 @@ impl From<bid_scraper::types::PublisherType> for PublisherType {
     }
 }
 
-impl Into<bid_scraper::types::PublisherType> for PublisherType {
-    fn into(self) -> bid_scraper::types::PublisherType {
-        match self {
+impl From<PublisherType> for bid_scraper::types::PublisherType {
+    fn from(val: PublisherType) -> Self {
+        match val {
             PublisherType::RelayBids => bid_scraper::types::PublisherType::RelayBids,
             PublisherType::RelayHeaders => bid_scraper::types::PublisherType::RelayHeaders,
             PublisherType::UltrasoundWs => bid_scraper::types::PublisherType::UltrasoundWs,
@@ -124,29 +121,29 @@ impl From<ScrapedRelayBlockBidWithStats> for ScrapedRelayBlockBidRPC {
     }
 }
 
-impl Into<ScrapedRelayBlockBidWithStats> for ScrapedRelayBlockBidRPC {
-    fn into(self) -> ScrapedRelayBlockBidWithStats {
+impl From<ScrapedRelayBlockBidRPC> for ScrapedRelayBlockBidWithStats {
+    fn from(val: ScrapedRelayBlockBidRPC) -> Self {
         let bid = ScrapedRelayBlockBid {
-            seen_time: self.seen_time,
-            publisher_name: self.publisher_name.to_string(),
-            publisher_type: self.publisher_type.into(),
-            relay_time: self.relay_time,
-            relay_name: self.relay_name.to_string(),
-            block_hash: self.block_hash.into(),
-            parent_hash: self.parent_hash.into(),
-            value: U256::from_le_bytes(self.value),
-            slot_number: self.slot_number,
-            block_number: self.block_number,
-            builder_pubkey: self.builder_pubkey.map(|k| k.into()),
-            extra_data: self.extra_data.map(|k| k.to_string()),
-            fee_recipient: self.fee_recipient.map(|k| k.into()),
-            proposer_fee_recipient: self.proposer_fee_recipient.map(|k| k.into()),
-            gas_used: self.gas_used,
-            optimistic_submission: self.optimistic_submission,
+            seen_time: val.seen_time,
+            publisher_name: val.publisher_name.to_string(),
+            publisher_type: val.publisher_type.into(),
+            relay_time: val.relay_time,
+            relay_name: val.relay_name.to_string(),
+            block_hash: val.block_hash.into(),
+            parent_hash: val.parent_hash.into(),
+            value: U256::from_le_bytes(val.value),
+            slot_number: val.slot_number,
+            block_number: val.block_number,
+            builder_pubkey: val.builder_pubkey.map(|k| k.into()),
+            extra_data: val.extra_data.map(|k| k.to_string()),
+            fee_recipient: val.fee_recipient.map(|k| k.into()),
+            proposer_fee_recipient: val.proposer_fee_recipient.map(|k| k.into()),
+            gas_used: val.gas_used,
+            optimistic_submission: val.optimistic_submission,
         };
         ScrapedRelayBlockBidWithStats {
             bid,
-            creation_time: timestamp_us_to_offset_datetime(self.creation_time_us),
+            creation_time: timestamp_us_to_offset_datetime(val.creation_time_us),
         }
     }
 }
@@ -156,7 +153,6 @@ pub type BuiltBlockDescriptorForSlotBidderWithSessionId = (BuiltBlockDescriptorF
 #[derive(Debug, Clone, Copy, ZeroCopySend)]
 #[type_name("BuiltBlockDescriptorForSlotBidderRPC")]
 #[repr(C)]
-
 pub struct BuiltBlockDescriptorForSlotBidderRPC {
     pub session_id: u64,
     pub true_block_value: [u8; U256_DATA_LENGTH],
@@ -181,12 +177,12 @@ impl From<BuiltBlockDescriptorForSlotBidderWithSessionId> for BuiltBlockDescript
     }
 }
 
-impl Into<BuiltBlockDescriptorForSlotBidder> for BuiltBlockDescriptorForSlotBidderRPC {
-    fn into(self) -> BuiltBlockDescriptorForSlotBidder {
+impl From<BuiltBlockDescriptorForSlotBidderRPC> for BuiltBlockDescriptorForSlotBidder {
+    fn from(val: BuiltBlockDescriptorForSlotBidderRPC) -> Self {
         BuiltBlockDescriptorForSlotBidder {
-            true_block_value: U256::from_le_bytes(self.true_block_value),
-            id: BuiltBlockId(self.block_id),
-            creation_time: timestamp_us_to_offset_datetime(self.creation_time_us),
+            true_block_value: U256::from_le_bytes(val.true_block_value),
+            id: BuiltBlockId(val.block_id),
+            creation_time: timestamp_us_to_offset_datetime(val.creation_time_us),
         }
     }
 }
@@ -221,13 +217,13 @@ impl From<SlotBidderSealBidCommandWithSessionId> for SlotBidderSealBidCommandRPC
     }
 }
 
-impl Into<SlotBidderSealBidCommand> for SlotBidderSealBidCommandRPC {
-    fn into(self) -> SlotBidderSealBidCommand {
+impl From<SlotBidderSealBidCommandRPC> for SlotBidderSealBidCommand {
+    fn from(val: SlotBidderSealBidCommandRPC) -> Self {
         SlotBidderSealBidCommand {
-            block_id: BuiltBlockId(self.block_id),
-            payout_tx_value: U256::from_le_bytes(self.payout_tx_value),
-            seen_competition_bid: self.seen_competition_bid.map(|k| U256::from_le_bytes(k)),
-            trigger_creation_time: self
+            block_id: BuiltBlockId(val.block_id),
+            payout_tx_value: U256::from_le_bytes(val.payout_tx_value),
+            seen_competition_bid: val.seen_competition_bid.map(|k| U256::from_le_bytes(k)),
+            trigger_creation_time: val
                 .trigger_creation_time_us
                 .map(timestamp_us_to_offset_datetime),
         }
