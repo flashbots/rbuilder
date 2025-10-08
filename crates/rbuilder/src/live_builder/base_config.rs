@@ -223,7 +223,6 @@ impl BaseConfig {
             coinbase_signer: self.coinbase_signer()?,
             extra_data: self.extra_data.clone(),
             blocklist_provider,
-            system_recipient_allowlist: self.system_recipient_allowlist.clone(),
 
             global_cancellation: cancellation_token,
 

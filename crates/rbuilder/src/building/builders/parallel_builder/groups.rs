@@ -477,7 +477,6 @@ mod tests {
                     )
                     .unwrap(),
                 }),
-                is_system: false,
                 used_state_trace: Some(trace),
                 sim_value: SimValue::default(),
             })

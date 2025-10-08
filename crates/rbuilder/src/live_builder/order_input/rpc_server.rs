@@ -94,8 +94,11 @@ pub async fn start_server_accepting_bundles(
         handle_cancel_bundle(results_clone.clone(), timeout, params)
     })?;
 
+    let builder_address = config.builder_address;
+    let system_recipient_allowlist = Arc::new(config.system_recipient_allowlist.clone());
     let results_clone = results.clone();
     register_metered_async_method(&mut module, ETH_SEND_RAW_TRANSACTION, move |params, _| {
+        let system_recipient_allowlist = system_recipient_allowlist.clone();
         let results = results_clone.clone();
         async move {
             let received_at = OffsetDateTime::now_utc();
@@ -110,7 +113,7 @@ pub async fn start_server_accepting_bundles(
             };
             let raw_tx_order = RawTx { tx: raw_tx };
 
-            let tx: MempoolTx = match raw_tx_order.decode(TxEncoding::WithBlobData) {
+            let mut tx: MempoolTx = match raw_tx_order.decode(TxEncoding::WithBlobData) {
                 Ok(tx) => tx,
                 Err(err) => {
                     warn!(?err, "Failed to decode raw transaction");
@@ -122,6 +125,17 @@ pub async fn start_server_accepting_bundles(
                     ));
                 }
             };
+
+            // Check if the received transaction is a system transaction.
+            if tx.tx_with_blobs.signer() == builder_address
+                && tx
+                    .tx_with_blobs
+                    .to()
+                    .is_some_and(|to| system_recipient_allowlist.contains(&to))
+            {
+                tx.tx_with_blobs.metadata.set_system(true);
+            }
+
             let hash = tx.tx_with_blobs.hash();
             let order = Order::Tx(tx);
             let parse_duration = start.elapsed();

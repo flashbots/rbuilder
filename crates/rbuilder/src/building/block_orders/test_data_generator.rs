@@ -30,7 +30,6 @@ impl TestDataGenerator {
         Arc::new(SimulatedOrder {
             order,
             sim_value,
-            is_system: false,
             used_state_trace: None,
         })
     }

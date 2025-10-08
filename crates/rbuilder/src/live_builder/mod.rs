@@ -129,8 +129,6 @@ where
     pub evm_caching_enable: bool,
     pub faster_finalize: bool,
     pub simulation_use_random_coinbase: bool,
-
-    pub system_recipient_allowlist: Vec<Address>,
 }
 
 impl<P> LiveBuilder<P>
@@ -311,7 +309,6 @@ where
                 self.evm_caching_enable,
                 self.faster_finalize,
                 mev_blocker_price,
-                self.system_recipient_allowlist.clone(),
                 payload
                     .relay_registrations
                     .iter()

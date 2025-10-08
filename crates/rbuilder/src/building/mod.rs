@@ -121,7 +121,6 @@ pub struct BlockBuildingContext {
     pub faster_finalize: bool,
     pub mev_blocker_price: U256,
     pub adjustment_fee_payers: ahash::HashSet<Address>,
-    pub system_recipient_allowlist: Vec<Address>,
     /// Cached from evm_env.block_env.number but as BlockNumber. Avoid conversions all over the code.
     block_number: BlockNumber,
 }
@@ -145,7 +144,6 @@ impl BlockBuildingContext {
         evm_caching_enable: bool,
         faster_finalize: bool,
         mev_blocker_price: U256,
-        system_recipient_allowlist: Vec<Address>,
         adjustment_fee_payers: ahash::HashSet<Address>,
     ) -> Option<BlockBuildingContext> {
         let attributes = EthPayloadBuilderAttributes::try_new(
@@ -221,7 +219,6 @@ impl BlockBuildingContext {
             mempool_tx_detector: Arc::new(MempoolTxsDetector::new()),
             faster_finalize,
             mev_blocker_price,
-            system_recipient_allowlist,
             adjustment_fee_payers,
             block_number,
         })
@@ -329,7 +326,6 @@ impl BlockBuildingContext {
             mempool_tx_detector: Arc::new(MempoolTxsDetector::new()),
             faster_finalize: true,
             mev_blocker_price,
-            system_recipient_allowlist: Default::default(),
             adjustment_fee_payers: Default::default(),
             block_number,
         }
@@ -1435,7 +1431,6 @@ mod test {
             nonces_updated: Default::default(),
             paid_kickbacks: Default::default(),
             used_state_trace: Default::default(),
-            is_system: false,
         };
         // dummy bundle just to let know create_sim_value this is a bundle.
         let dummy_bundle = Order::Bundle(data_gen.create_bundle(
@@ -1477,7 +1472,6 @@ mod test {
             nonces_updated: Default::default(),
             paid_kickbacks: Default::default(),
             used_state_trace: Default::default(),
-            is_system: false,
         };
         let sim_value = create_sim_value(&order, &order_ok, &detector);
         assert_eq!(

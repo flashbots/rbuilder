@@ -495,7 +495,6 @@ mod tests {
                     .unwrap(),
                 }),
                 sim_value,
-                is_system: false,
                 used_state_trace: Some(trace),
             })
         }

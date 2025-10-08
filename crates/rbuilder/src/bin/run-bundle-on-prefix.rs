@@ -218,7 +218,6 @@ async fn main() -> eyre::Result<()> {
         let sim_order = SimulatedOrder {
             order,
             sim_value: Default::default(),
-            is_system: false,
             used_state_trace: Default::default(),
         };
         let res = builder.commit_order(&mut block_info.local_ctx, &sim_order, &|_| Ok(()))?;
@@ -314,7 +313,6 @@ fn execute_orders_on_tob(
         let sim_order = SimulatedOrder {
             order: order_ts.order.clone(),
             sim_value: Default::default(),
-            is_system: false,
             used_state_trace: Default::default(),
         };
         let res = builder.commit_order(&mut block_info.local_ctx, &sim_order, &|_| Ok(()))?;

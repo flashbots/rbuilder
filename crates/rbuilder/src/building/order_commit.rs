@@ -337,8 +337,6 @@ pub struct OrderOk {
     pub paid_kickbacks: Vec<(Address, U256)>,
     pub delayed_kickback: Option<DelayedKickback>,
     pub used_state_trace: Option<UsedStateTrace>,
-    /// Flag indicating whether this is a system transaction.
-    pub is_system: bool,
 }
 
 #[derive(Error, Debug, PartialEq, Eq)]
@@ -1230,21 +1228,16 @@ impl<
                 let res = self.commit_tx(&tx.tx_with_blobs, space_state)?;
                 match res {
                     Ok(ok) => {
-                        let (coinbase_profit, is_system) =
-                            if !ok.tx_info.coinbase_profit.is_negative() {
-                                (ok.tx_info.coinbase_profit.unsigned_abs(), false)
-                            } else if tx.tx_with_blobs.signer() == self.ctx.builder_signer.address
-                                && tx.tx_with_blobs.to().is_some_and(|to| {
-                                    self.ctx.system_recipient_allowlist.contains(&to)
-                                })
-                            {
-                                // This is a system transaction which should not be counted towards the block profit.
-                                (U256::ZERO, true)
-                            } else {
-                                return Ok(Err(OrderErr::NegativeProfit(
-                                    ok.tx_info.coinbase_profit.unsigned_abs(),
-                                )));
-                            };
+                        let coinbase_profit = if !ok.tx_info.coinbase_profit.is_negative() {
+                            ok.tx_info.coinbase_profit.unsigned_abs()
+                        } else if tx.tx_with_blobs.metadata.is_system {
+                            // This is a system transaction which should not be counted towards the block profit.
+                            U256::ZERO
+                        } else {
+                            return Ok(Err(OrderErr::NegativeProfit(
+                                ok.tx_info.coinbase_profit.unsigned_abs(),
+                            )));
+                        };
                         Ok(Ok(OrderOk {
                             coinbase_profit,
                             space_used: ok.space_used(),
@@ -1255,7 +1248,6 @@ impl<
                             delayed_kickback: None,
                             used_state_trace: self.get_used_state_trace(),
                             original_order_ids: Vec::new(),
-                            is_system,
                         }))
                     }
                     Err(err) => Ok(Err(err.into())),
@@ -1307,7 +1299,6 @@ impl<
                     delayed_kickback: ok.delayed_kickback,
                     used_state_trace: self.get_used_state_trace(),
                     original_order_ids: ok.original_order_ids,
-                    is_system: false,
                 }))
             }
             Err(err) => Ok(Err(err.into())),
