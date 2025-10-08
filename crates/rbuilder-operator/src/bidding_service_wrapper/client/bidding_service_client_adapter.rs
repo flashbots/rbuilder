@@ -55,10 +55,12 @@ pub enum BiddingServiceClientCommand {
 
 /// Adapts [BiddingServiceClient] to [BiddingService].
 /// To adapt sync world ([BiddingService]) to async ([BiddingServiceClient]) it receives commands via a channel (commands_sender)
-/// which is handled by a tokio task.
-/// It creates a UnfinishedBlockBuildingSinkClient implementing UnfinishedBlockBuildingSink per create_slot_bidder call.
-/// For each UnfinishedBlockBuildingSinkClient created a task is created to poll callbacks (eg: bids and can_use_suggested_fee_recipient_as_coinbase updates).
-/// The created UnfinishedBlockBuildingSinkClient forwards all calls to the BiddingServiceClientAdapter as commands.
+/// which is handled by a tokio task for everything but heavy duty streams: Blocks, ScrapedBids, and Bids which are handled by iceoryx communication.
+/// For every create_slot_bidder call it generates a new session id andcreates a UnfinishedBlockBuildingSinkClient implementing SlotBidder per create_slot_bidder call.
+/// The BlockSealInterfaceForSlotBidder passed to create_slot_bidder is stored in a shared map.
+/// UnfinishedBlockBuildingSinkClient::notify_new_built_block forwards new blocks to the blocks_publisher (which streams them via iceoryx).
+/// BiddingServiceClientAdapter::observe_relay_bids forwards scraped bids to the scraped_bids_publisher (which streams them via iceoryx).
+/// A thread is spawned to poll Bids (via iceoryx) from the bidding service and forwards them to the registered BlockSealInterfaceForSlotBidder (shared map filled on create_slot_bidder).
 pub struct BiddingServiceClientAdapter {
     commands_sender: mpsc::UnboundedSender<BiddingServiceClientCommand>,
     last_session_id: AtomicU64,
