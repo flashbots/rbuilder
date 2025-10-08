@@ -471,6 +471,7 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
                 SimulatedOrder {
                     order,
                     sim_value,
+                    is_system: res.is_system,
                     used_state_trace: res.used_state_trace,
                 },
                 new_nonces,

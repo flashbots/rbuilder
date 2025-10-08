@@ -494,8 +494,9 @@ mod tests {
                     )
                     .unwrap(),
                 }),
-                used_state_trace: Some(trace),
                 sim_value,
+                is_system: false,
+                used_state_trace: Some(trace),
             })
         }
     }

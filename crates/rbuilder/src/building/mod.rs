@@ -1435,6 +1435,7 @@ mod test {
             nonces_updated: Default::default(),
             paid_kickbacks: Default::default(),
             used_state_trace: Default::default(),
+            is_system: false,
         };
         // dummy bundle just to let know create_sim_value this is a bundle.
         let dummy_bundle = Order::Bundle(data_gen.create_bundle(
@@ -1476,6 +1477,7 @@ mod test {
             nonces_updated: Default::default(),
             paid_kickbacks: Default::default(),
             used_state_trace: Default::default(),
+            is_system: false,
         };
         let sim_value = create_sim_value(&order, &order_ok, &detector);
         assert_eq!(
