@@ -28,6 +28,9 @@ register_metrics! {
    pub static BLOCK_NOT_FOUND_TOTAL: IntCounter = IntCounter::new("relay_server_block_not_found", "The total number of block not found errors on the optimistic V3 relay server").unwrap();
 }
 
+/// The default number of blocks to keep in cache. With bid update latency of 1ms this would preserve the last second worth of submitted blocks.
+pub const OPTIMISTIC_V3_CACHE_SIZE_DEFAULT: u32 = 1_000;
+
 /// Endpoint for returning for block payloads to the relays.
 /// Reference: <https://ethresear.ch/t/introduction-to-optimistic-v3-relays/22066#p-53641-technical-specification-8>
 pub const GET_PAYLOAD_V3: &str = "get_payload_v3";
@@ -39,7 +42,9 @@ pub fn spawn_server(
     relay_pubkeys: HashSet<BlsPublicKey>,
     bid_stream: BroadcastStream<Arc<SubmitBlockRequest>>,
 ) -> eyre::Result<()> {
-    let blocks = Arc::new(Mutex::new(LruMap::new(ByLength::new(1_000))));
+    let blocks = Arc::new(Mutex::new(LruMap::new(ByLength::new(
+        OPTIMISTIC_V3_CACHE_SIZE_DEFAULT,
+    ))));
 
     // Spawn block cache maintenance task.
     tokio::spawn(Box::pin({
