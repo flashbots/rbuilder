@@ -42,13 +42,13 @@ ifeq ($(IS_X86_64),1)
     # Environment variables for reproducible builds
     # Initialize RUSTFLAGS
     RUST_BUILD_FLAGS =
-		# Optimize for modern CPUs
+    # Optimize for modern CPUs
     RUST_BUILD_FLAGS += -C target-cpu=x86-64-v3
     # Remove build ID from the binary to ensure reproducibility across builds
     RUST_BUILD_FLAGS += -C link-arg=-Wl,--build-id=none
     # Remove metadata hash from symbol names to ensure reproducible builds
     RUST_BUILD_FLAGS += -C metadata=''
-		# Remap paths to ensure reproducible builds
+    # Remap paths to ensure reproducible builds
     RUST_BUILD_FLAGS += --remap-path-prefix $(shell pwd)=.
     # Set timestamp from last git commit for reproducible builds
     SOURCE_DATE ?= $(shell git log -1 --pretty=%ct)
@@ -72,7 +72,7 @@ endif
 
 .PHONY: build
 build: ## Build (release version)
-	$(BUILD_ENV) cargo build --features "$(FEATURES)" --locked $(if $(BUILD_TARGET),--target $(BUILD_TARGET)) --profile $(BUILD_PROFILE)
+	$(BUILD_ENV) cargo build --features "$(FEATURES)" --locked $(if $(BUILD_TARGET),--target $(BUILD_TARGET)) --profile $(BUILD_PROFILE) --workspace
 
 .PHONY: build-bid-scraper
 build-bid-scraper: ## Build the bid-scraper binary (release version)
