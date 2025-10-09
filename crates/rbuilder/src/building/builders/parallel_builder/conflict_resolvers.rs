@@ -524,6 +524,7 @@ mod tests {
                 metadata: Metadata::default(),
                 dropping_tx_hashes: Vec::new(),
                 refund: None,
+                refund_identity: None,
                 version: LAST_BUNDLE_VERSION,
             };
 

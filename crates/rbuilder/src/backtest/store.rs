@@ -749,6 +749,7 @@ mod test {
                     refund_recipient: None,
                     refund_tx_hashes: None,
                     delayed_refund: None,
+                    refund_identity: None,
                     version: Some(RawBundle::encode_version(LAST_BUNDLE_VERSION)),
                 })),
             }

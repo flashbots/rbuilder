@@ -967,6 +967,7 @@ mod tests {
             metadata: Default::default(),
             dropping_tx_hashes: Default::default(),
             refund: Default::default(),
+            refund_identity: None,
             version: LAST_BUNDLE_VERSION,
         });
         let expected = SimplifiedOrder::new(
@@ -1001,6 +1002,7 @@ mod tests {
                 tx_hash: hash(0x01),
                 delayed: false,
             }),
+            refund_identity: None,
             version: LAST_BUNDLE_VERSION,
         });
         let expected = SimplifiedOrder::new(
