@@ -13,8 +13,8 @@ use crate::{
         order_input::replaceable_order_sink::ReplaceableOrderSink,
         simulation::simulation_job_tracer::SimulationJobTracer,
     },
-    primitives::{BundleReplacementData, Order, ShareBundleReplacementKey},
 };
+use rbuilder_primitives::{BundleReplacementData, Order, ShareBundleReplacementKey};
 
 /// Struct that stores all the input and simulation orderflow to later dump it.
 #[derive(Debug)]
@@ -108,7 +108,7 @@ impl SimulationJobTracer for OrderFlowTracer {
             .push(SimulationEventWithTimestamp::new(event));
     }
 
-    fn update_cancellation_sent(&self, order_id: &crate::primitives::OrderId) {
+    fn update_cancellation_sent(&self, order_id: &rbuilder_primitives::OrderId) {
         let event = SimulationEvent::CancellationSent(*order_id);
         self.sim_events
             .lock()

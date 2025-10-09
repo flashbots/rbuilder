@@ -4,7 +4,7 @@ use alloy_primitives::{TxHash, U256};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
-use crate::primitives::{
+use rbuilder_primitives::{
     BundleReplacementData, OrderId, OrderReplacementKey, ShareBundleReplacementKey,
 };
 

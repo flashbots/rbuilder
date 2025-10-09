@@ -12,7 +12,6 @@ use crate::{
         order_input::orderpool::OrdersForBlock,
         simulation::simulation_job_tracer::SimulationJobTracer,
     },
-    primitives::{OrderId, SimulatedOrder},
     provider::StateProviderFactory,
     utils::{gen_uid, NonceCache, Signer},
 };

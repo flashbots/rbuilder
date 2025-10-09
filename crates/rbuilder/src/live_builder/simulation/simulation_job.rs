@@ -6,7 +6,6 @@ use crate::{
         order_input::order_sink::OrderPoolCommand,
         simulation::simulation_job_tracer::SimulationJobTracer,
     },
-    primitives::{Order, OrderId, OrderReplacementKey},
 };
 use ahash::HashSet;
 use alloy_primitives::utils::format_ether;

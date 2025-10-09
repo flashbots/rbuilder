@@ -44,8 +44,8 @@ use crate::{
 use super::{
     best_block_from_algorithms::BestBlockFromAlgorithms,
     bidding_service_interface::{
-        BiddingService, BlockId, BlockSealInterfaceForSlotBidder,
-        BuiltBlockDescriptorForSlotBidder, SlotBidder, SlotBidderSealBidCommand, SlotBlockId,
+        BiddingService, BlockSealInterfaceForSlotBidder, BuiltBlockDescriptorForSlotBidder,
+        SlotBidder, SlotBidderSealBidCommand,
     },
     relay_submit::RelaySubmitSinkFactory,
 };

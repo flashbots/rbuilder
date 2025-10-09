@@ -1,4 +1,5 @@
-use crate::{building::sim::SimulatedResult, primitives::OrderId};
+use crate::building::sim::SimulatedResult;
+use rbuilder_primitives::OrderId;
 
 /// Trait to trace the output of the simulation stage.
 pub trait SimulationJobTracer: Send + Sync {
