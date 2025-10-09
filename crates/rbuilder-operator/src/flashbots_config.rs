@@ -131,8 +131,8 @@ impl LiveBuilderConfig for FlashbotsConfig {
     where
         P: StateProviderFactory + Clone + 'static,
     {
-        if self.l1_config.scraped_bids_publishers.is_empty() {
-            eyre::bail!("scraped_bids_publishers is not set");
+        if self.l1_config.relay_bid_scrapers.is_empty() {
+            eyre::bail!("relay_bid_scrapers is not set");
         }
 
         let (wallet_balance_watcher, landed_blocks) =

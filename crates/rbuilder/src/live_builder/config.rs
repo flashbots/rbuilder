@@ -153,7 +153,7 @@ pub struct L1Config {
     /// Genesis fork version for the chain. If not provided it will be fetched from the beacon client.
     pub genesis_fork_version: Option<String>,
     /// A bid scraper will be spawned for each NamedPublisherConfig.
-    pub scraped_bids_publishers: Vec<NamedPublisherConfig>,
+    pub relay_bid_scrapers: Vec<NamedPublisherConfig>,
 }
 
 impl Default for L1Config {
@@ -167,7 +167,7 @@ impl Default for L1Config {
             optimistic_max_bid_value_eth: "0.0".to_string(),
             cl_node_url: vec![EnvOrValue::from("http://127.0.0.1:3500")],
             genesis_fork_version: None,
-            scraped_bids_publishers: Default::default(),
+            relay_bid_scrapers: Default::default(),
             registration_update_interval_ms: None,
         }
     }
@@ -952,10 +952,10 @@ where
     let (sink_sealed_factory, slot_info_provider, adjustment_fee_payers) =
         l1_config.create_relays_sealed_sink_factory(base_config.chain_spec()?, bid_observer)?;
 
-    if !l1_config.scraped_bids_publishers.is_empty() {
+    if !l1_config.relay_bid_scrapers.is_empty() {
         let sender = Arc::new(BiddingService2BidSender::new(bidding_service.clone()));
         bid_scraper::bid_scraper::run(
-            l1_config.scraped_bids_publishers.clone(),
+            l1_config.relay_bid_scrapers.clone(),
             sender,
             cancellation_token.clone(),
         );

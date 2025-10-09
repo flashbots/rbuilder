@@ -65,13 +65,13 @@ discard_txs = true
 num_threads = 25
 safe_sorting_only = false
 
-[[scraped_bids_publishers]]
+[[relay_bid_scrapers]]
 type = "ultrasound-ws"
 name = "ultrasound-ws-eu"
 ultrasound_url = "ws://relay-builders-eu.ultrasound.money/ws/v1/top_bid"
 relay_name = "ultrasound-money-eu"
 
-[[scraped_bids_publishers]]
+[[relay_bid_scrapers]]
 type = "ultrasound-ws"
 name = "ultrasound-ws-us"
 ultrasound_url = "ws://relay-builders-us.ultrasound.money/ws/v1/top_bid"
