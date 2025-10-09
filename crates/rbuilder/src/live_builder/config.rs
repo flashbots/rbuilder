@@ -751,6 +751,7 @@ fn get_signing_domain(
     let cl_context = match chain.kind() {
         ChainKind::Named(NamedChain::Mainnet) => ContextEth::for_mainnet(),
         ChainKind::Named(NamedChain::Sepolia) => ContextEth::for_sepolia(),
+        ChainKind::Named(NamedChain::Hoodi) => ContextEth::for_hoodi(),
         ChainKind::Named(NamedChain::Goerli) => ContextEth::for_goerli(),
         ChainKind::Named(NamedChain::Holesky) => ContextEth::for_holesky(),
         _ => {
