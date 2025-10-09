@@ -199,10 +199,19 @@ impl BlockData {
         });
     }
 
-    pub fn filter_out_ignored_signers(&mut self, ignored_signers: &[Address]) {
+    pub fn filter_out_ignored_signers(
+        &mut self,
+        ignored_signers: &[Address],
+        use_refund_identity: bool,
+    ) {
         self.available_orders.retain(|orders| {
             let order = &orders.order;
-            let signer = if let Some(signer) = order.signer() {
+            let signer = if use_refund_identity {
+                order.metadata().refund_identity.or_else(|| order.signer())
+            } else {
+                order.signer()
+            };
+            let signer = if let Some(signer) = signer {
                 signer
             } else {
                 return true;

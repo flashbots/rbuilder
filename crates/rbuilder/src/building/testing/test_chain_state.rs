@@ -411,7 +411,6 @@ impl TestBlockContextBuilder {
             true,
             self.mev_block_price,
             Default::default(),
-            Default::default(),
         )
         .unwrap()
     }

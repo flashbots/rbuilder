@@ -125,6 +125,7 @@ pub fn calc_redistributions<P, ConfigType>(
     block_data: BlockData,
     distribute_to_mempool_txs: bool,
     blocklist: BlockList,
+    ignored_signers: &[Address],
 ) -> eyre::Result<RedistributionBlockOutput>
 where
     P: StateProviderFactory + Clone + 'static,
@@ -133,14 +134,21 @@ where
     let _block_span = info_span!("block", block = block_data.block_number).entered();
     let protect_signers = config.base_config().backtest_protect_bundle_signers.clone();
 
-    info!(?protect_signers, "Protect signers");
+    info!(
+        ?protect_signers,
+        ?ignored_signers,
+        blocklist_len = blocklist.len(),
+        distribute_to_mempool_txs,
+        "Started to calculate redistribution"
+    );
+
     if protect_signers.is_empty() {
         warn!("Protect signers are not set");
     }
 
     let start = Instant::now();
     let (onchain_block_profit, block_data, built_block_data) =
-        prepare_block_data(config, block_data)?;
+        prepare_block_data(config, block_data, ignored_signers)?;
 
     let included_orders_available =
         get_available_orders(&block_data, &built_block_data, distribute_to_mempool_txs);
@@ -269,6 +277,7 @@ where
 fn prepare_block_data<ConfigType>(
     config: &ConfigType,
     mut block_data: BlockData,
+    ignored_signers: &[Address],
 ) -> eyre::Result<(U256, BlockData, BuiltBlockData)>
 where
     ConfigType: LiveBuilderConfig,
@@ -296,6 +305,7 @@ where
     // @TODO filter cancellations properly, for this we need actual cancellations in the backtest data
     // filter bundles made out of mempool txs
     block_data.filter_bundles_from_mempool();
+    block_data.filter_out_ignored_signers(ignored_signers, true);
 
     let filtered = orders_before_filtering - block_data.available_orders.len();
 
@@ -354,6 +364,9 @@ fn get_available_orders(
             None => match block_data.filtered_orders.get(id) {
                 Some(OrderFilteredReason::MempoolTxs) => {
                     info!(order = ?id, "Included order was filtered because all txs are from mempool");
+                }
+                Some(OrderFilteredReason::Signer) => {
+                    info!(order = ?id, "Included order was filtered because signer is explicitly ignored");
                 }
                 Some(reason) => {
                     error!(order = ?id, ?reason, "Included order was filtered from available orders");

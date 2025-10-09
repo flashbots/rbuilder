@@ -40,32 +40,66 @@ pub use test_data_generator::TestDataGenerator;
 use thiserror::Error;
 use uuid::Uuid;
 
-/// Extra metadata for ShareBundle/Bundle.
+/// Extra metadata for an order.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Metadata {
+    /// Timestamp at which the order was received.
     pub received_at_timestamp: time::OffsetDateTime,
+    // Flag indicating if it's a system order. Defaults to `false`.
+    pub is_system: bool,
+    /// Order refund identity.
     pub refund_identity: Option<Address>,
 }
 
+impl Default for Metadata {
+    fn default() -> Self {
+        Self::new_received_now()
+    }
+}
+
 impl Metadata {
-    pub fn with_current_received_at() -> Self {
+    /// Create new metadata with received timestamp set to now.
+    pub fn new_received_now() -> Self {
+        Self::new(time::OffsetDateTime::now_utc())
+    }
+
+    /// Create new metadata.
+    pub fn new(received_at_timestamp: time::OffsetDateTime) -> Self {
         Self {
-            received_at_timestamp: time::OffsetDateTime::now_utc(),
+            received_at_timestamp,
+            is_system: false,
             refund_identity: None,
         }
+    }
+
+    /// Set the `is_system` flag and return the metadata.
+    pub fn with_system(mut self, is_system: bool) -> Self {
+        self.set_system(is_system);
+        self
+    }
+
+    /// Set the `is_system` flag.
+    pub fn set_system(&mut self, is_system: bool) {
+        self.is_system = is_system;
+    }
+
+    /// Set the refund identity and return the metadata.
+    pub fn with_refund_identity(mut self, refund_identity: Option<Address>) -> Self {
+        self.set_refund_identity(refund_identity);
+        self
+    }
+
+    /// Set the refund identity.
+    pub fn set_refund_identity(&mut self, refund_identity: Option<Address>) {
+        self.refund_identity = refund_identity;
     }
 }
 
 impl InMemorySize for Metadata {
     fn size(&self) -> usize {
         mem::size_of::<time::OffsetDateTime>() + // received_at_timestamp
-            mem::size_of::<Option<Address>>() // refund_identity
-    }
-}
-
-impl Default for Metadata {
-    fn default() -> Self {
-        Self::with_current_received_at()
+            mem::size_of::<Option<Address>>() + // refund_identity
+            mem::size_of::<bool>() // is_system
     }
 }
 

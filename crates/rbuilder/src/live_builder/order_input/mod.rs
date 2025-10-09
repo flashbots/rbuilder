@@ -19,6 +19,7 @@ use crate::{
     telemetry::{set_current_block, set_ordepool_stats},
 };
 use alloy_consensus::Header;
+use alloy_primitives::Address;
 use jsonrpsee::RpcModule;
 use parking_lot::Mutex;
 use rbuilder_primitives::{serialize::CancelShareBundle, BundleReplacementData, Order};
@@ -111,6 +112,10 @@ pub struct OrderInputConfig {
     pub input_channel_buffer_size: usize,
     /// See [OrderPool::time_to_keep_mempool_txs]
     time_to_keep_mempool_txs: Duration,
+    /// The address of coinbase signer for identifying system transactions.
+    builder_address: Address,
+    /// The allowlisted recipients for system transactions.
+    system_recipient_allowlist: Vec<Address>,
 }
 pub const DEFAULT_SERVE_MAX_CONNECTIONS: u32 = 4096;
 pub const DEFAULT_RESULTS_CHANNEL_TIMEOUT: Duration = Duration::from_millis(50);
@@ -127,6 +132,8 @@ impl OrderInputConfig {
         results_channel_timeout: Duration,
         input_channel_buffer_size: usize,
         time_to_keep_mempool_txs: Duration,
+        builder_address: Address,
+        system_recipient_allowlist: Vec<Address>,
     ) -> Self {
         Self {
             ignore_cancellable_orders,
@@ -138,6 +145,8 @@ impl OrderInputConfig {
             results_channel_timeout,
             input_channel_buffer_size,
             time_to_keep_mempool_txs,
+            builder_address,
+            system_recipient_allowlist,
         }
     }
 
@@ -161,6 +170,8 @@ impl OrderInputConfig {
             results_channel_timeout: Duration::from_millis(50),
             input_channel_buffer_size: 10_000,
             time_to_keep_mempool_txs: Duration::from_secs(config.time_to_keep_mempool_txs_secs),
+            builder_address: config.coinbase_signer().unwrap().address,
+            system_recipient_allowlist: config.system_recipient_allowlist.clone(),
         })
     }
 
@@ -175,6 +186,8 @@ impl OrderInputConfig {
             server_ip: Ipv4Addr::new(127, 0, 0, 1),
             server_port: 0,
             time_to_keep_mempool_txs: Duration::from_secs(DEFAULT_TIME_TO_KEEP_MEMPOOL_TXS_SECS),
+            builder_address: Address::ZERO,
+            system_recipient_allowlist: Vec::new(),
         }
     }
 }
