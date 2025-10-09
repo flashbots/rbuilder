@@ -377,13 +377,7 @@ register_metrics! {
     // 1. Cover as many lines of code as possible without any gaps.
     // 2. Show E2E latency of the order that could be executed immediately and also arrived towards the end of the slot.
     // The path of order goes as follows:
-    // First seen(on infra) -> Received -> Simulated -> (builders start to build a block with it) -> block sealed -> block submit started
-    pub static ORDER_FIRST_SEEN_TO_ORDER_RECEIVED: HistogramVec = HistogramVec::new(
-        HistogramOpts::new("order_first_seen_to_received", "Time between when the order was first seen on infra in front of the builder and when it was received. (ms)")
-            .buckets(exponential_buckets_range(0.01, 2000.0, 300)),
-        &[]
-    )
-    .unwrap();
+    // Received -> Simulated -> (builders start to build a block with it) -> block sealed -> block submit started
     pub static ORDER_RECEIVED_TO_SIM_END_TIME: HistogramVec = HistogramVec::new(
         HistogramOpts::new("order_received_to_sim_end_time", "Time between when the order was received and top of the block simulation ended for orders that arrive after slot start. (ms)")
             .buckets(exponential_buckets_range(0.01, 200.0, 200)),
@@ -454,7 +448,6 @@ pub fn reset_histogram_metrics() {
     RELAY_SUBMIT_TIME.reset();
     TXFETCHER_TRANSACTION_QUERY_TIME.reset();
     SUBSIDY_VALUE.reset();
-    ORDER_FIRST_SEEN_TO_ORDER_RECEIVED.reset();
     ORDER_RECEIVED_TO_SIM_END_TIME.reset();
     ORDER_SIM_END_TO_FIRST_BUILD_STARTED_TIME.reset();
     ORDER_SIM_END_TO_FIRST_BUILD_STARTED_MIN_TIME.reset();

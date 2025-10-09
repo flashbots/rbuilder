@@ -22,6 +22,8 @@ pub struct BuiltBlockTrace {
     pub coinbase_reward: U256,
     /// True block value (coinbase balance delta) excluding the cost of the payout to validator
     pub true_bid_value: U256,
+    /// Amount that is left out on the coinbase to pay for mev blocker orderflow
+    pub mev_blocker_price: U256,
     /// Timestamp of the moment we stopped considering new orders for this block.
     pub orders_closed_at: OffsetDateTime,
     /// UnfinishedBuiltBlocksInput chose this block as the best block and sent it downstream
@@ -75,6 +77,7 @@ impl BuiltBlockTrace {
             bid_value: U256::from(0),
             coinbase_reward: U256::from(0),
             true_bid_value: U256::from(0),
+            mev_blocker_price: U256::from(0),
             orders_closed_at: OffsetDateTime::now_utc(),
             orders_sealed_at: OffsetDateTime::now_utc(),
             fill_time: Duration::from_secs(0),

@@ -787,6 +787,12 @@ impl RelayClient {
                     bundle_ids.join(",")
                 };
                 builder = builder.header(BUNDLE_HASHES_HEADER, bundle_ids);
+
+                let sent_at = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs_f64();
+                builder = builder.header("X-BuilderNet-SentAt", sent_at.to_string());
             }
         }
 
@@ -828,6 +834,18 @@ impl RelayClient {
         request.metadata_mut().insert(
             BLOXROUTE_SHARE_HEADER,
             "na".parse().map_err(|_| SubmitBlockErr::InvalidHeader)?,
+        );
+
+        let sent_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs_f64();
+        request.metadata_mut().insert(
+            "x-buildernet-sentat",
+            sent_at
+                .to_string()
+                .parse()
+                .map_err(|_| SubmitBlockErr::InvalidHeader)?,
         );
 
         let response = client.lock().await.submit_block(request).await?;

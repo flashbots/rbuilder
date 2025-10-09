@@ -387,7 +387,11 @@ impl OrderingBuilderContext {
                 &mut self.local_ctx,
                 &sim_order,
                 &|sim_result| {
-                    simulation_too_low::<OrderPriorityType>(&sim_order.sim_value, sim_result)
+                    if !sim_order.order.metadata().is_system {
+                        simulation_too_low::<OrderPriorityType>(&sim_order.sim_value, sim_result)
+                    } else {
+                        Ok(())
+                    }
                 },
             )?;
             let order_commit_time = start_time.elapsed();

@@ -2,7 +2,7 @@
 //! This code has lots of copy/paste from the example config but it's not really copy/paste since we use our own private types.
 //! @Pending make this copy/paste generic code on the library
 
-use alloy_primitives::U256;
+use alloy_primitives::{Address, U256};
 use alloy_signer_local::PrivateKeySigner;
 use derivative::Derivative;
 use eyre::Context;
@@ -112,6 +112,10 @@ pub struct FlashbotsConfig {
     /// For production we always need some tbv push (since it's used by smart-multiplexing.) so:
     /// !Some(key_registration_url) => Some(tbv_push_redis)
     tbv_push_redis: Option<TBVPushRedisConfig>,
+
+    /// Bundles with refund identity or signer set to these will not receive any redistributions.
+    #[serde(default)]
+    pub backtest_ignored_signers: Vec<Address>,
 }
 
 impl LiveBuilderConfig for FlashbotsConfig {

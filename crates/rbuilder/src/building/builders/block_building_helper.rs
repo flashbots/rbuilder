@@ -354,6 +354,7 @@ impl<
 
         self.built_block_trace.bid_value = max(bid_value, fee_recipient_balance_diff);
         self.built_block_trace.true_bid_value = true_value;
+        self.built_block_trace.mev_blocker_price = self.building_context().mev_blocker_price;
         Ok(())
     }
 
