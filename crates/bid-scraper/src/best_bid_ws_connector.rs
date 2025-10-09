@@ -23,7 +23,7 @@ const MAX_IO_ERRORS: usize = 5;
 // time that we wait for a new value before reconnecting
 const READ_TIMEOUT: Duration = Duration::from_secs(5);
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct ExternalWsPublisherConfig {
     pub url: String,
     pub auth_header: EnvOrValue<String>,

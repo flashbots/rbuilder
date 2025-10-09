@@ -14,7 +14,7 @@ use crate::{
     RPC_TIMEOUT,
 };
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct SimpleRelayPublisherConfig {
     /// Endpoint for an EL client. Example:"ws://127.0.0.1:8545"
     pub eth_provider_uri: String,

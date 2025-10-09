@@ -22,7 +22,7 @@ use tokio_tungstenite::{
 };
 use tracing::{debug, error, info};
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct BloxrouteWsPublisherConfig {
     /// Url to connect to. Example: "wss://mev-eth.blxrbdn.com/ws"
     pub bloxroute_url: String,

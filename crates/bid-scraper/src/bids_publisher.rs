@@ -21,7 +21,7 @@ use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, trace, warn};
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct RelayBidsPublisherConfig {
     #[serde(flatten)]
     pub simple_relay_cfg: SimpleRelayPublisherConfig,

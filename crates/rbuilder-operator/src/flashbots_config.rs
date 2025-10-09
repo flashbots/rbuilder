@@ -72,7 +72,7 @@ struct TBVPushRedisConfig {
 }
 
 #[serde_as]
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Derivative)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Derivative)]
 #[serde(default, deny_unknown_fields)]
 #[derivative(Default)]
 pub struct FlashbotsConfig {
@@ -131,8 +131,8 @@ impl LiveBuilderConfig for FlashbotsConfig {
     where
         P: StateProviderFactory + Clone + 'static,
     {
-        if self.l1_config.scraped_bids_publisher_url.is_none() {
-            eyre::bail!("scraped_bids_publisher_url is not set");
+        if self.l1_config.scraped_bids_publishers.is_empty() {
+            eyre::bail!("scraped_bids_publishers is not set");
         }
 
         let (wallet_balance_watcher, landed_blocks) =

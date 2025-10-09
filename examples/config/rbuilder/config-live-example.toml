@@ -21,8 +21,6 @@ jsonrpc_server_ip = "0.0.0.0"
 el_node_ipc_path = "/tmp/reth.ipc"
 extra_data = "⚡🤖"
 
-scraped_bids_publisher_url = "tcp://0.0.0.0:5555"
-
 blocklist_file_path = "./blocklist.json"
 
 ignore_cancellable_orders = true
@@ -66,3 +64,16 @@ algo = "parallel-builder"
 discard_txs = true
 num_threads = 25
 safe_sorting_only = false
+
+[[scraped_bids_publishers]]
+type = "ultrasound-ws"
+name = "ultrasound-ws-eu"
+ultrasound_url = "ws://relay-builders-eu.ultrasound.money/ws/v1/top_bid"
+relay_name = "ultrasound-money-eu"
+
+[[scraped_bids_publishers]]
+type = "ultrasound-ws"
+name = "ultrasound-ws-us"
+ultrasound_url = "ws://relay-builders-us.ultrasound.money/ws/v1/top_bid"
+relay_name = "ultrasound-money-us"
+

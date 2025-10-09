@@ -5,8 +5,7 @@ use super::{
     base_config::BaseConfig,
     block_output::{
         bidding_service_interface::{
-            BidObserver, BiddingService, BiddingService2ScrapedBidsObs, LandedBlockInfo,
-            NullBidObserver,
+            BidObserver, BiddingService, LandedBlockInfo, NullBidObserver,
         },
         relay_submit::{OptimisticConfig, RelaySubmitSinkFactory, SubmissionConfig},
         true_value_bidding_service::NewTrueBlockValueBiddingService,
@@ -31,7 +30,10 @@ use crate::{
         },
         PartialBlockExecutionTracer, Sorting,
     },
-    live_builder::{cli::LiveBuilderConfig, payload_events::MevBoostSlotDataGenerator},
+    live_builder::{
+        block_output::bidding_service_interface::BiddingService2BidSender, cli::LiveBuilderConfig,
+        payload_events::MevBoostSlotDataGenerator,
+    },
     mev_boost::{
         bloxroute_grpc, BLSBlockSigner, MevBoostRelayBidSubmitter, MevBoostRelaySlotInfoProvider,
         RelayClient, RelayConfig, RelaySubmitConfig,
@@ -45,7 +47,7 @@ use alloy_primitives::{
     utils::{format_ether, parse_ether},
     Address, FixedBytes, B256, U256,
 };
-use bid_scraper::bid_scraper_client::run_nng_subscriber_with_retries;
+use bid_scraper::config::NamedPublisherConfig;
 use ethereum_consensus::{
     builder::compute_builder_domain, crypto::SecretKey, primitives::Version,
     state_transition::Context as ContextEth,
@@ -101,7 +103,7 @@ pub struct BuilderConfig {
 }
 
 #[serde_as]
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     #[serde(flatten)]
@@ -126,7 +128,7 @@ const DEFAULT_ASK_FOR_FILTERING_VALIDATORS: bool = false;
 const DEFAULT_CAN_IGNORE_GAS_LIMIT: bool = false;
 
 #[serde_as]
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct L1Config {
     // Relay Submission configuration
@@ -150,8 +152,8 @@ pub struct L1Config {
 
     /// Genesis fork version for the chain. If not provided it will be fetched from the beacon client.
     pub genesis_fork_version: Option<String>,
-    /// Where the bids scraper publishes the bids. Example:"tcp://0.0.0.0:5555"
-    pub scraped_bids_publisher_url: Option<String>,
+    /// A bid scraper will be spawned for each NamedPublisherConfig.
+    pub scraped_bids_publishers: Vec<NamedPublisherConfig>,
 }
 
 impl Default for L1Config {
@@ -165,7 +167,7 @@ impl Default for L1Config {
             optimistic_max_bid_value_eth: "0.0".to_string(),
             cl_node_url: vec![EnvOrValue::from("http://127.0.0.1:3500")],
             genesis_fork_version: None,
-            scraped_bids_publisher_url: None,
+            scraped_bids_publishers: Default::default(),
             registration_update_interval_ms: None,
         }
     }
@@ -950,16 +952,13 @@ where
     let (sink_sealed_factory, slot_info_provider, adjustment_fee_payers) =
         l1_config.create_relays_sealed_sink_factory(base_config.chain_spec()?, bid_observer)?;
 
-    if let Some(scraped_bids_publisher_url) = l1_config.scraped_bids_publisher_url.clone() {
-        // Create a ScrapedBids2BlockBidWithStatsObs that will forward bids from run_nng_subscriber_with_retries to the bidding service.
-        let obs = BiddingService2ScrapedBidsObs::new(bidding_service.clone());
-        tokio::spawn(run_nng_subscriber_with_retries(
-            Arc::new(obs),
+    if !l1_config.scraped_bids_publishers.is_empty() {
+        let sender = Arc::new(BiddingService2BidSender::new(bidding_service.clone()));
+        bid_scraper::bid_scraper::run(
+            l1_config.scraped_bids_publishers.clone(),
+            sender,
             cancellation_token.clone(),
-            scraped_bids_publisher_url,
-            Duration::from_secs(BID_SOURCE_TIMEOUT_SECS),
-            Duration::from_secs(BID_SOURCE_WAIT_TIME_SECS),
-        ));
+        );
     }
 
     let sink_factory = UnfinishedBuiltBlocksInputFactory::new(

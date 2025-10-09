@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
 use alloy_primitives::{BlockHash, BlockNumber, U256};
-use bid_scraper::{bid_scraper_client::ScrapedBidsObs, types::ScrapedRelayBlockBid};
+use bid_scraper::{
+    bid_sender::{BidSender, BidSenderError},
+    types::ScrapedRelayBlockBid,
+};
 use derivative::Derivative;
 use mockall::automock;
 use rbuilder_primitives::mev_boost::SubmitBlockRequest;
@@ -162,19 +165,20 @@ pub trait BiddingService: Send + Sync {
     fn update_failed_reading_new_landed_blocks(&self);
 }
 
-pub struct BiddingService2ScrapedBidsObs {
+pub struct BiddingService2BidSender {
     inner: Arc<dyn BiddingService>,
 }
-impl BiddingService2ScrapedBidsObs {
+impl BiddingService2BidSender {
     pub fn new(inner: Arc<dyn BiddingService>) -> Self {
         Self { inner }
     }
 }
 
-impl ScrapedBidsObs for BiddingService2ScrapedBidsObs {
-    fn update_new_bid(&self, bid: ScrapedRelayBlockBid) {
+impl BidSender for BiddingService2BidSender {
+    fn send(&self, bid: ScrapedRelayBlockBid) -> Result<(), BidSenderError> {
         inc_bids_received(&bid);
         self.inner
-            .observe_relay_bids(ScrapedRelayBlockBidWithStats::new(bid))
+            .observe_relay_bids(ScrapedRelayBlockBidWithStats::new(bid));
+        Ok(())
     }
 }
