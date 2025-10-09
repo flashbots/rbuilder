@@ -21,7 +21,7 @@ use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, trace, warn};
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct RelayHeadersPublisherConfig {
     /// Endpoint for an CL client. Example:"ws://127.0.0.1:8545"
     pub beacon_node_uri: String,

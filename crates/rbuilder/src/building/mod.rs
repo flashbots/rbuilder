@@ -4,8 +4,6 @@ use crate::{
         block_list_provider::BlockList, order_input::mempool_txs_detector::MempoolTxsDetector,
         payload_events::InternalPayloadId,
     },
-    mev_boost::adjustment::BidAdjustmentData,
-    primitives::{Order, OrderId, SimValue, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs},
     provider::RootHasher,
     roothash::RootHashError,
     utils::{
@@ -36,6 +34,10 @@ use cached_reads::{LocalCachedReads, SharedCachedReads};
 use eth_sparse_mpt::SparseTrieLocalCache;
 use evm::EthCachedEvmFactory;
 use jsonrpsee::core::Serialize;
+use rbuilder_primitives::{
+    mev_boost::BidAdjustmentData, BlockSpace, Order, OrderId, SimValue, SimulatedOrder,
+    TransactionSignedEcRecoveredWithBlobs,
+};
 use reth::{
     payload::PayloadId,
     primitives::{Block, SealedBlock},
@@ -60,7 +62,6 @@ use serde::Deserialize;
 use std::{
     collections::{hash_map, HashMap, HashSet},
     hash::Hash,
-    ops::{Add, AddAssign, SubAssign},
     str::FromStr,
     sync::Arc,
     time::{Duration, Instant},
@@ -77,7 +78,6 @@ pub mod cached_reads;
 #[cfg(test)]
 pub mod conflict;
 pub mod evm;
-pub mod evm_inspector;
 pub mod fmt;
 pub mod order_commit;
 pub mod payout_tx;
@@ -119,6 +119,7 @@ pub struct BlockBuildingContext {
     pub tx_execution_cache: Arc<TxExecutionCache>,
     pub mempool_tx_detector: Arc<MempoolTxsDetector>,
     pub faster_finalize: bool,
+    pub mev_blocker_price: U256,
     pub adjustment_fee_payers: ahash::HashSet<Address>,
     /// Cached from evm_env.block_env.number but as BlockNumber. Avoid conversions all over the code.
     block_number: BlockNumber,
@@ -142,6 +143,7 @@ impl BlockBuildingContext {
         payload_id: InternalPayloadId,
         evm_caching_enable: bool,
         faster_finalize: bool,
+        mev_blocker_price: U256,
         adjustment_fee_payers: ahash::HashSet<Address>,
     ) -> Option<BlockBuildingContext> {
         let attributes = EthPayloadBuilderAttributes::try_new(
@@ -170,6 +172,7 @@ impl BlockBuildingContext {
                 },
             )
             .ok()?;
+        evm_env.cfg_env.tx_chain_id_check = true;
         evm_env.block_env.beneficiary = signer.address;
 
         let excess_blob_gas = if chain_spec.is_cancun_active_at_timestamp(attributes.timestamp) {
@@ -215,6 +218,7 @@ impl BlockBuildingContext {
             max_blob_gas_per_block,
             mempool_tx_detector: Arc::new(MempoolTxsDetector::new()),
             faster_finalize,
+            mev_blocker_price,
             adjustment_fee_payers,
             block_number,
         })
@@ -241,6 +245,7 @@ impl BlockBuildingContext {
         builder_signer: Signer,
         root_hasher: Arc<dyn RootHasher>,
         evm_caching_enable: bool,
+        mev_blocker_price: U256,
     ) -> BlockBuildingContext {
         let block_number = onchain_block.header.number;
 
@@ -320,6 +325,7 @@ impl BlockBuildingContext {
             max_blob_gas_per_block,
             mempool_tx_detector: Arc::new(MempoolTxsDetector::new()),
             faster_finalize: true,
+            mev_blocker_price,
             adjustment_fee_payers: Default::default(),
             block_number,
         }
@@ -342,6 +348,7 @@ impl BlockBuildingContext {
             Signer::random(),
             Arc::new(MockRootHasher {}),
             false,
+            U256::ZERO,
         )
     }
 
@@ -466,60 +473,6 @@ impl PartialBlockForkExecutionTracer for NullPartialBlockExecutionTracer {
     }
 }
 
-/// Models consumed/reserved space on a block to be able to insert payout tx when finished filling the block.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct BlockSpace {
-    pub gas: u64,
-    /// EIP-7934 limits the size of the final rlp block.
-    /// Estimation of the sum of the rlp txs sizes.
-    pub rlp_length: usize,
-    pub blob_gas: u64,
-}
-
-impl BlockSpace {
-    pub fn new(gas: u64, rlp_length: usize, blob_gas: u64) -> Self {
-        Self {
-            gas,
-            rlp_length,
-            blob_gas,
-        }
-    }
-
-    pub const ZERO: Self = Self {
-        gas: 0,
-        rlp_length: 0,
-        blob_gas: 0,
-    };
-}
-
-impl AddAssign for BlockSpace {
-    fn add_assign(&mut self, other: Self) {
-        self.gas += other.gas;
-        self.rlp_length += other.rlp_length;
-        self.blob_gas += other.blob_gas;
-    }
-}
-
-impl Add for BlockSpace {
-    type Output = Self;
-
-    fn add(self, other: Self) -> Self {
-        Self {
-            gas: self.gas + other.gas,
-            rlp_length: self.rlp_length + other.rlp_length,
-            blob_gas: self.blob_gas + other.blob_gas,
-        }
-    }
-}
-
-impl SubAssign for BlockSpace {
-    fn sub_assign(&mut self, other: Self) {
-        self.gas = self.gas.checked_sub(other.gas).unwrap();
-        self.rlp_length = self.rlp_length.checked_sub(other.rlp_length).unwrap();
-        self.blob_gas = self.blob_gas.checked_sub(other.blob_gas).unwrap();
-    }
-}
-
 /// Models the current state of the block building space.
 #[derive(Debug, Clone, Copy)]
 pub struct BlockBuildingSpaceState {
@@ -592,8 +545,10 @@ pub struct PartialBlock<
     pub coinbase_profit: U256,
     /// Tx execution info belonging to successfully executed orders.
     pub executed_tx_infos: Vec<TransactionExecutionInfo>,
-    /// Combined refunds.
+    /// Combined refunds to be paid at the end of the block.
     pub combined_refunds: HashMap<Address, U256>,
+    /// Cumulative delayed refund value which will be refunded via BuilderNet refund pipeline.
+    pub delayed_refund: U256,
     pub tracer: Tracer,
     partial_block_execution_tracer: PartialBlockExecutionTracerType,
 }
@@ -610,6 +565,7 @@ pub struct ExecutionResult {
     pub original_order_ids: Vec<OrderId>,
     pub nonces_updated: Vec<(Address, u64)>,
     pub paid_kickbacks: Vec<(Address, U256)>,
+    pub delayed_kickback: Option<DelayedKickback>,
 }
 
 #[derive(Error, Debug)]
@@ -706,9 +662,26 @@ impl FinalizeError {
 /// FinalizeRevertState accumulates data needed to revert state changes
 /// to run finalize on the same PartialBlock / BlockState again
 #[derive(Debug, Clone, Default)]
-pub struct FinalizeRevertState {
+pub struct FinalizeRevertStateCurrentIteration {
     pub last_tx_block_space: BlockSpace,
     pub state_reverts: usize,
+}
+
+/// FinalizeCachePreviousIteration has data collected during previous runs of finalize
+#[derive(Debug, Clone, Default)]
+pub struct FinalizeCachePreviousIteration {
+    /// Account changed in the last revertable batch of changes for finalize
+    pub account_changed_previous_iteration: Vec<Address>,
+}
+
+/// FinalizeCache is used to support finalization adjustment (resealing block with different payout tx value).
+#[derive(Debug, Clone, Default)]
+pub struct FinalizeAdjustmentState {
+    /// Accumulate changes done in current finalize so we can revert it for finalize adjustments
+    /// This state is cleared for every finalize call
+    pub revert_state: FinalizeRevertStateCurrentIteration,
+    /// Data from previous finalize call
+    pub previous_finalize_data: FinalizeCachePreviousIteration,
 }
 
 impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExecutionTracer>
@@ -724,6 +697,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             coinbase_profit: self.coinbase_profit,
             executed_tx_infos: self.executed_tx_infos,
             combined_refunds: self.combined_refunds,
+            delayed_refund: self.delayed_refund,
             tracer,
             partial_block_execution_tracer: self.partial_block_execution_tracer,
         }
@@ -801,16 +775,22 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         self.coinbase_profit += ok_result.coinbase_profit;
         self.executed_tx_infos.extend(ok_result.tx_infos.clone());
 
-        // Update combined refunds
+        // Update combined or delayed refunds
         if let Some(DelayedKickback {
             recipient,
             payout_value,
             payout_tx_space_needed,
+            should_pay_in_block,
             ..
-        }) = ok_result.delayed_kickback
+        }) = &ok_result.delayed_kickback
         {
-            self.space_state.reserve_block_space(payout_tx_space_needed);
-            *self.combined_refunds.entry(recipient).or_default() += payout_value;
+            if *should_pay_in_block {
+                self.space_state
+                    .reserve_block_space(*payout_tx_space_needed);
+                *self.combined_refunds.entry(*recipient).or_default() += *payout_value;
+            } else {
+                self.delayed_refund += *payout_value;
+            }
         }
 
         Ok(Ok(ExecutionResult {
@@ -822,10 +802,11 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             original_order_ids: ok_result.original_order_ids,
             nonces_updated: ok_result.nonces_updated,
             paid_kickbacks: ok_result.paid_kickbacks,
+            delayed_kickback: ok_result.delayed_kickback,
         }))
     }
 
-    /// Gets the block profit excluding the expected payout base gas that we'll pay.
+    /// Gets the block profit excluding the expected payout base gas that we'll pay and MEV blocker block price.
     pub fn get_proposer_payout_tx_value(
         &self,
         gas_limit: u64,
@@ -833,6 +814,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
     ) -> Result<U256, InsertPayoutTxErr> {
         self.coinbase_profit
             .checked_sub(U256::from(gas_limit) * U256::from(ctx.evm_env.block_env.basefee))
+            .and_then(|profit| profit.checked_sub(ctx.mev_blocker_price))
             .ok_or(InsertPayoutTxErr::ProfitTooLow)
     }
 
@@ -847,7 +829,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         local_ctx: &mut ThreadBlockBuildingContext,
         state: &mut BlockState,
         adjust_finalized_block: bool,
-        finalize_revert_state: &mut FinalizeRevertState,
+        finalize_revert_state: &mut FinalizeRevertStateCurrentIteration,
     ) -> Result<(), InsertPayoutTxErr> {
         let builder_signer = &ctx.builder_signer;
         self.free_reserved_block_space();
@@ -926,7 +908,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
 
     pub fn adjust_finalize_block_revert_to_prefinalized_state(
         &mut self,
-        finalize_revert_state: FinalizeRevertState,
+        finalize_revert_state: FinalizeRevertStateCurrentIteration,
         block_state: &mut BlockState,
     ) {
         self.space_state
@@ -943,7 +925,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         state: &mut BlockState,
         ctx: &BlockBuildingContext,
         local_ctx: &mut ThreadBlockBuildingContext,
-        finalize_revert_state: &mut FinalizeRevertState,
+        finalize_revert_state: &mut FinalizeRevertStateCurrentIteration,
     ) -> Result<(Option<Requests>, Option<B256>), FinalizeError> {
         let mut db = state.new_db_ref(&ctx.shared_cached_reads, &mut local_ctx.cached_reads);
 
@@ -1011,13 +993,17 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         ctx: &BlockBuildingContext,
         local_ctx: &mut ThreadBlockBuildingContext,
         adjust_finalize_block: bool,
-        finalize_revert_state: &mut FinalizeRevertState,
+        finalize_adjustment_state: &mut FinalizeAdjustmentState,
     ) -> Result<FinalizeResult, FinalizeError> {
         let start = Instant::now();
 
         let step_start = Instant::now();
-        let (requests, withdrawals_root) =
-            self.process_requests(state, ctx, local_ctx, finalize_revert_state)?;
+        let (requests, withdrawals_root) = self.process_requests(
+            state,
+            ctx,
+            local_ctx,
+            &mut finalize_adjustment_state.revert_state,
+        )?;
         let block_number = ctx.block();
 
         let request_processsing_time_ms = elapsed_ms(step_start);
@@ -1042,20 +1028,26 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         let bloom_time_ms = elapsed_ms(step_start);
         let step_start = Instant::now();
 
+        let finalize_last_changes_current_iteration = state
+            .get_changes_for_last_reverts(finalize_adjustment_state.revert_state.state_reverts);
         let incremental_change = if adjust_finalize_block {
-            // get list of account that changed after finalize was called
-            let mut result = Vec::new();
-            state
-                .bundle_state()
-                .reverts
-                .iter()
-                .rev()
-                .take(finalize_revert_state.state_reverts)
-                .for_each(|r| r.iter().for_each(|c| result.push(c.0)));
+            // We want to collect list of accounts that were changed in current and previous
+            // iteration of finalize so root hash implementation knows which accounts to update
+            let mut result = std::mem::take(
+                &mut finalize_adjustment_state
+                    .previous_finalize_data
+                    .account_changed_previous_iteration,
+            );
+            result.extend(finalize_last_changes_current_iteration.iter());
+            result.sort();
+            result.dedup();
             result
         } else {
             Vec::new()
         };
+        finalize_adjustment_state
+            .previous_finalize_data
+            .account_changed_previous_iteration = finalize_last_changes_current_iteration;
 
         // // calculate the state root
         let state_root =
@@ -1322,6 +1314,7 @@ impl PartialBlock<(), NullPartialBlockExecutionTracer> {
             coinbase_profit: U256::ZERO,
             executed_tx_infos: Vec::new(),
             combined_refunds: HashMap::default(),
+            delayed_refund: U256::ZERO,
             tracer: (),
             partial_block_execution_tracer: NullPartialBlockExecutionTracer {},
         }
@@ -1341,6 +1334,7 @@ impl<PartialBlockExecutionTracerType: PartialBlockExecutionTracer>
             coinbase_profit: U256::ZERO,
             executed_tx_infos: Vec::new(),
             combined_refunds: HashMap::default(),
+            delayed_refund: U256::ZERO,
             tracer: (),
             partial_block_execution_tracer,
         }
@@ -1396,10 +1390,8 @@ pub fn create_sim_value(
 mod test {
     use alloy_primitives::I256;
 
-    use crate::{
-        live_builder::order_input::mempool_txs_detector::MempoolTxsDetector,
-        primitives::{MempoolTx, Order, TestDataGenerator},
-    };
+    use crate::live_builder::order_input::mempool_txs_detector::MempoolTxsDetector;
+    use rbuilder_primitives::{MempoolTx, Order, TestDataGenerator};
 
     use super::{create_sim_value, OrderOk, TransactionExecutionInfo};
 

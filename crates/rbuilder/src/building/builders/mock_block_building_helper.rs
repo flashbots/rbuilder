@@ -1,15 +1,15 @@
 use crate::{
     building::{
-        BlockBuildingContext, BuiltBlockTrace, CriticalCommitOrderError, ExecutionError,
-        ExecutionResult, ThreadBlockBuildingContext,
+        builders::BuiltBlockId, BlockBuildingContext, BuiltBlockTrace, CriticalCommitOrderError,
+        ExecutionError, ExecutionResult, ThreadBlockBuildingContext,
     },
     live_builder::simulation::SimulatedOrderCommand,
-    primitives::{order_statistics::OrderStatistics, SimValue, SimulatedOrder},
     provider::RootHasher,
     roothash::RootHashError,
 };
 use alloy_primitives::{Address, Bytes, B256, U256};
 use eth_sparse_mpt::utils::{HashMap, HashSet};
+use rbuilder_primitives::{order_statistics::OrderStatistics, SimValue, SimulatedOrder};
 use reth_primitives::SealedBlock;
 use revm::database::BundleState;
 use time::OffsetDateTime;
@@ -34,7 +34,7 @@ impl MockBlockBuildingHelper {
     pub fn new(true_block_value: U256) -> Self {
         let built_block_trace = BuiltBlockTrace {
             true_bid_value: true_block_value,
-            ..Default::default()
+            ..BuiltBlockTrace::new(BuiltBlockId::ZERO)
         };
         Self {
             built_block_trace,

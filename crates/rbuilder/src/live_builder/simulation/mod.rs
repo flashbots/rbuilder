@@ -18,6 +18,7 @@ use crate::{
 };
 use ahash::HashMap;
 use parking_lot::Mutex;
+use rbuilder_primitives::{OrderId, SimulatedOrder};
 use simulation_job::SimulationJob;
 use std::sync::Arc;
 use tokio::{sync::mpsc, task::JoinHandle};
@@ -212,6 +213,7 @@ mod tests {
         utils::ProviderFactoryReopener,
     };
     use alloy_primitives::U256;
+    use rbuilder_primitives::{MempoolTx, Order, TransactionSignedEcRecoveredWithBlobs};
 
     #[tokio::test]
     async fn test_simulate_order_to_coinbase() {

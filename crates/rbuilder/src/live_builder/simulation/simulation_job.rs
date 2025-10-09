@@ -10,6 +10,7 @@ use crate::{
 };
 use ahash::HashSet;
 use alloy_primitives::utils::format_ether;
+use rbuilder_primitives::{Order, OrderId, OrderReplacementKey};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, trace, warn};

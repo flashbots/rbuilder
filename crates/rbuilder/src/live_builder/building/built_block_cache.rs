@@ -3,10 +3,8 @@ use std::{collections::HashMap, sync::Arc};
 use ahash::HashSet;
 use parking_lot::Mutex;
 
-use crate::{
-    building::builders::block_building_helper::BlockBuildingHelper,
-    primitives::{Order, OrderId},
-};
+use crate::building::builders::block_building_helper::BlockBuildingHelper;
+use rbuilder_primitives::{Order, OrderId};
 
 /// For this first version we only cache the set (so it's faster for searching) of orders.
 #[derive(Debug)]

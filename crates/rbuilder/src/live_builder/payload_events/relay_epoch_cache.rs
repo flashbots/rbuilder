@@ -1,12 +1,12 @@
 use crate::{
-    mev_boost::{RelayError, RelaySlotData, ValidatorSlotData},
-    primitives::mev_boost::{MevBoostRelayID, MevBoostRelaySlotInfoProvider},
+    mev_boost::{MevBoostRelaySlotInfoProvider, RelayError, RelaySlotData},
     telemetry::{inc_conn_relay_errors, inc_other_relay_errors, inc_too_many_req_relay_errors},
 };
 use ahash::{HashMap, HashSet};
 use alloy_primitives::Address;
+use alloy_rpc_types_beacon::BlsPublicKey;
 use parking_lot::RwLock;
-use primitive_types::H384;
+use rbuilder_primitives::mev_boost::{MevBoostRelayID, ValidatorSlotData};
 use std::{sync::Arc, time::Duration};
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
@@ -19,7 +19,7 @@ pub struct SlotData {
     pub fee_recipient: Address,
     pub gas_limit: u64,
     /// Selected registered validator for the slot key.
-    pub pubkey: H384,
+    pub pubkey: BlsPublicKey,
 }
 
 /// Validator slot data by relay.
@@ -216,13 +216,11 @@ fn resolve_relay_slot_data(
 
 #[cfg(test)]
 mod test {
-    use crate::{
-        mev_boost::{ValidatorRegistration, ValidatorRegistrationMessage},
-        utils::set_test_debug_tracing_subscriber,
-    };
+    use crate::utils::set_test_debug_tracing_subscriber;
 
     use super::*;
     use alloy_primitives::{address, Bytes};
+    use rbuilder_primitives::mev_boost::{ValidatorRegistration, ValidatorRegistrationMessage};
 
     fn make_test_data(fee_recipient: Address, timestamp: u64) -> RelaySlotData {
         RelaySlotData {
@@ -232,7 +230,7 @@ mod test {
                         fee_recipient,
                         gas_limit: 30000000,
                         timestamp,
-                        pubkey: H384::zero(),
+                        pubkey: BlsPublicKey::ZERO,
                     },
                     signature: Bytes::new(),
                 },
@@ -266,7 +264,7 @@ mod test {
             SlotData {
                 fee_recipient: address!("1111111111111111111111111111111111111111"),
                 gas_limit: 30000000,
-                pubkey: H384::zero(),
+                pubkey: BlsPublicKey::ZERO,
             },
             slot_data
         );
@@ -296,7 +294,7 @@ mod test {
             SlotData {
                 fee_recipient: address!("2222222222222222222222222222222222222222"),
                 gas_limit: 30000000,
-                pubkey: H384::zero(),
+                pubkey: BlsPublicKey::ZERO,
             },
             slot_data
         );
@@ -323,7 +321,7 @@ mod test {
             SlotData {
                 fee_recipient: address!("2222222222222222222222222222222222222222"),
                 gas_limit: 30000000,
-                pubkey: H384::zero(),
+                pubkey: BlsPublicKey::ZERO,
             },
             slot_data
         );
@@ -345,7 +343,7 @@ mod test {
             SlotData {
                 fee_recipient: address!("2222222222222222222222222222222222222222"),
                 gas_limit: 30000000,
-                pubkey: H384::zero(),
+                pubkey: BlsPublicKey::ZERO,
             },
             slot_data
         );

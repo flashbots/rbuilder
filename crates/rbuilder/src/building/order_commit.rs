@@ -6,16 +6,7 @@ use super::{
     BlockBuildingContext, EstimatePayoutGasErr, ThreadBlockBuildingContext,
 };
 use crate::{
-    building::{
-        estimate_payout_gas_limit,
-        evm::EvmFactory,
-        evm_inspector::{RBuilderEVMInspector, UsedStateTrace},
-        BlockBuildingSpaceState, BlockSpace,
-    },
-    primitives::{
-        Bundle, Order, OrderId, RefundConfig, ShareBundle, ShareBundleBody, ShareBundleInner,
-        TransactionSignedEcRecoveredWithBlobs,
-    },
+    building::{estimate_payout_gas_limit, evm::EvmFactory, BlockBuildingSpaceState},
     utils::{constants::BASE_TX_GAS, get_percent},
 };
 use ahash::HashSet;
@@ -24,6 +15,11 @@ use alloy_evm::Database;
 use alloy_primitives::{Address, B256, I256, U256};
 use alloy_rlp::Encodable;
 use itertools::Itertools;
+use rbuilder_primitives::{
+    evm_inspector::{RBuilderEVMInspector, UsedStateTrace},
+    BlockSpace, Bundle, Order, OrderId, RefundConfig, ShareBundle, ShareBundleBody,
+    ShareBundleInner, TransactionSignedEcRecoveredWithBlobs,
+};
 use reth::{
     consensus_common::validation::MAX_RLP_BLOCK_SIZE, revm::database::StateProviderDatabase,
 };
@@ -144,6 +140,22 @@ impl BlockState {
             .map(|acc| acc.code_hash)
             .unwrap_or_else(|| KECCAK_EMPTY))
     }
+
+    /// Get accounts that were changed for the last `num_reverts` revert.
+    /// Revert is created after .merge_transitions(BundleRetention::Reverts) is called
+    /// on the EVM database object
+    pub fn get_changes_for_last_reverts(&self, num_reverts: usize) -> Vec<Address> {
+        let mut result = Vec::new();
+        self.bundle_state()
+            .reverts
+            .iter()
+            .rev()
+            .take(num_reverts)
+            .for_each(|r| r.iter().for_each(|c| result.push(c.0)));
+        result.sort();
+        result.dedup();
+        result
+    }
 }
 
 /// A wrapper around a [`State`] that will return the [`BundleState`] back to [`BlockState`] when dropped.
@@ -236,12 +248,13 @@ pub enum TransactionErr {
     BlockSpaceLeft,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DelayedKickback {
     pub recipient: Address,
     pub payout_value: U256,
     pub payout_tx_fee: U256,
     pub payout_tx_space_needed: BlockSpace,
+    pub should_pay_in_block: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -893,6 +906,18 @@ impl<
             // Calculate the refund value without refund tx cost.
             let refundable_value = get_percent(refundable_profit, refunds_cfg.percent as usize);
 
+            if refunds_cfg.delayed {
+                // The refund value will be delayed to the BuilderNet refund pipeline.
+                insert.delayed_kickback = Some(DelayedKickback {
+                    recipient: refunds_cfg.recipient,
+                    payout_value: refundable_value,
+                    payout_tx_fee: U256::ZERO,
+                    payout_tx_space_needed: BlockSpace::ZERO,
+                    should_pay_in_block: false,
+                });
+                break 'refund;
+            }
+
             if combined_refunds.contains_key(&refunds_cfg.recipient) {
                 // We already determined that refund for this recipient will cost [`BASE_TX_GAS`]
                 // and previously inserted a bundle that is capable of paying this cost.
@@ -902,6 +927,7 @@ impl<
                     payout_value: refundable_value,
                     payout_tx_fee: U256::ZERO,
                     payout_tx_space_needed: BlockSpace::ZERO,
+                    should_pay_in_block: true,
                 });
                 break 'refund;
             }
@@ -926,6 +952,7 @@ impl<
                     payout_value: payout.tx_value,
                     payout_tx_fee: payout.base_fee,
                     payout_tx_space_needed: payout.space_limit,
+                    should_pay_in_block: true,
                 });
                 break 'refund;
             }
@@ -1041,11 +1068,11 @@ impl<
                         Ok(res) => {
                             if !res.tx_info.receipt.success {
                                 match sbundle_tx.revert_behavior {
-                                    crate::primitives::TxRevertBehavior::NotAllowed => {
+                                    rbuilder_primitives::TxRevertBehavior::NotAllowed => {
                                         return Ok(Err(BundleErr::TransactionReverted(tx.hash())));
                                     }
-                                    crate::primitives::TxRevertBehavior::AllowedIncluded => {}
-                                    crate::primitives::TxRevertBehavior::AllowedExcluded => {
+                                    rbuilder_primitives::TxRevertBehavior::AllowedIncluded => {}
+                                    rbuilder_primitives::TxRevertBehavior::AllowedExcluded => {
                                         self.rollback(rollback_point);
                                         continue;
                                     }
@@ -1203,6 +1230,9 @@ impl<
                     Ok(ok) => {
                         let coinbase_profit = if !ok.tx_info.coinbase_profit.is_negative() {
                             ok.tx_info.coinbase_profit.unsigned_abs()
+                        } else if tx.tx_with_blobs.metadata.is_system {
+                            // This is a system transaction which should not be counted towards the block profit.
+                            U256::ZERO
                         } else {
                             return Ok(Err(OrderErr::NegativeProfit(
                                 ok.tx_info.coinbase_profit.unsigned_abs(),

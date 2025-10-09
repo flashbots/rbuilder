@@ -13,16 +13,13 @@ use ahash::HashMap;
 pub use backtest_build_range::run_backtest_build_range;
 use std::collections::HashSet;
 
-use crate::{
-    mev_boost::BuilderBlockReceived,
-    primitives::{serialize::RawOrder, AccountNonce, Order, OrderId, OrderReplacementKey},
-    utils::offset_datetime_to_timestamp_ms,
-};
+use crate::{mev_boost::BuilderBlockReceived, utils::offset_datetime_to_timestamp_ms};
 use alloy_consensus::Transaction as TransactionTrait;
 use alloy_network_primitives::TransactionResponse;
 use alloy_primitives::{Address, TxHash, I256};
 use alloy_rpc_types::{BlockTransactions, Transaction};
 pub use fetch::HistoricalDataFetcher;
+use rbuilder_primitives::{serialize::RawOrder, AccountNonce, Order, OrderId, OrderReplacementKey};
 pub use results_store::{BacktestResultsStorage, StoredBacktestResult};
 use serde::{Deserialize, Serialize};
 pub use store::HistoricalDataStorage;
@@ -202,10 +199,19 @@ impl BlockData {
         });
     }
 
-    pub fn filter_out_ignored_signers(&mut self, ignored_signers: &[Address]) {
+    pub fn filter_out_ignored_signers(
+        &mut self,
+        ignored_signers: &[Address],
+        use_refund_identity: bool,
+    ) {
         self.available_orders.retain(|orders| {
             let order = &orders.order;
-            let signer = if let Some(signer) = order.signer() {
+            let signer = if use_refund_identity {
+                order.metadata().refund_identity.or_else(|| order.signer())
+            } else {
+                order.signer()
+            };
+            let signer = if let Some(signer) = signer {
                 signer
             } else {
                 return true;

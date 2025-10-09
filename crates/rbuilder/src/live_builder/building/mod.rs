@@ -2,7 +2,7 @@ pub mod built_block_cache;
 
 use crate::{
     building::{
-        builders::{BlockBuildingAlgorithm, BlockBuildingAlgorithmInput},
+        builders::{BlockBuildingAlgorithm, BlockBuildingAlgorithmInput, BuiltBlockIdSource},
         multi_share_bundle_merger::MultiShareBundleMerger,
         simulated_order_command_to_sink, BlockBuildingContext, SimulatedOrderSink,
     },
@@ -12,10 +12,10 @@ use crate::{
         order_input::replaceable_order_sink::ReplaceableOrderSink,
         payload_events::MevBoostSlotData, simulation::SlotOrderSimResults,
     },
-    primitives::{OrderId, SimulatedOrder},
     provider::StateProviderFactory,
 };
 use alloy_primitives::Address;
+use rbuilder_primitives::{OrderId, SimulatedOrder};
 use reth_chainspec::EthereumHardforks as _;
 use std::{cell::RefCell, rc::Rc, sync::Arc, thread, time::Duration};
 use tokio::sync::{broadcast, mpsc};
@@ -45,6 +45,7 @@ pub struct BlockBuildingPool<P> {
     run_sparse_trie_prefetcher: bool,
     sbundle_merger_selected_signers: Arc<Vec<Address>>,
     order_flow_tracer_manager: Box<dyn OrderFlowTracerManager>,
+    built_block_id_source: Arc<BuiltBlockIdSource>,
 }
 
 impl<P> BlockBuildingPool<P>
@@ -71,6 +72,7 @@ where
             run_sparse_trie_prefetcher,
             sbundle_merger_selected_signers,
             order_flow_tracer_manager,
+            built_block_id_source: Arc::new(BuiltBlockIdSource::new()),
         }
     }
 
@@ -186,6 +188,7 @@ where
                 sink: builder_sink.clone(),
                 cancel: cancel.clone(),
                 built_block_cache: built_block_cache.clone(),
+                built_block_id_source: self.built_block_id_source.clone(),
             };
             let builder = builder.clone();
             tokio::task::spawn_blocking(move || {

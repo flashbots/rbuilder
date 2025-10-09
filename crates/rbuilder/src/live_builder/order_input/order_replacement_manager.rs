@@ -1,6 +1,6 @@
 use ahash::HashMap;
 
-use crate::primitives::{
+use rbuilder_primitives::{
     BundleReplacementData, Order, OrderId, OrderReplacementKey, ShareBundleReplacementKey,
 };
 
@@ -169,20 +169,18 @@ mod test {
     use mockall::predicate::eq;
     use uuid::Uuid;
 
-    use crate::{
-        live_builder::order_input::{
-            order_sink::MockOrderSink, replaceable_order_sink::ReplaceableOrderSink,
-        },
-        primitives::{
-            AccountNonce, Bundle, BundleReplacementData, BundleReplacementKey, Order, ShareBundle,
-            ShareBundleReplacementData, ShareBundleReplacementKey,
-        },
+    use crate::live_builder::order_input::{
+        order_sink::MockOrderSink, replaceable_order_sink::ReplaceableOrderSink,
+    };
+    use rbuilder_primitives::{
+        AccountNonce, Bundle, BundleReplacementData, BundleReplacementKey, Order, ShareBundle,
+        ShareBundleReplacementData, ShareBundleReplacementKey,
     };
 
     use super::OrderReplacementManager;
 
     struct TestDataGenerator {
-        base: crate::primitives::TestDataGenerator,
+        base: rbuilder_primitives::TestDataGenerator,
         dont_care_nonce: AccountNonce,
     }
 
@@ -190,11 +188,11 @@ mod test {
 
     impl TestDataGenerator {
         fn new() -> Self {
-            let mut base = crate::primitives::TestDataGenerator::default();
+            let mut base = rbuilder_primitives::TestDataGenerator::default();
             Self {
                 dont_care_nonce: AccountNonce {
                     nonce: 0,
-                    account: base.base.create_address(),
+                    account: base.create_address(),
                 },
                 base,
             }
@@ -221,10 +219,7 @@ mod test {
 
         fn create_bundle_replacement_data(&mut self) -> BundleReplacementData {
             BundleReplacementData {
-                key: BundleReplacementKey::new(
-                    Uuid::new_v4(),
-                    Some(self.base.base.create_address()),
-                ),
+                key: BundleReplacementKey::new(Uuid::new_v4(), Some(self.base.create_address())),
                 sequence_number: 0,
             }
         }

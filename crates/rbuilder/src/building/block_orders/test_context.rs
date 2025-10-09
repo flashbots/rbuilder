@@ -2,12 +2,10 @@ use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 use alloy_primitives::{Address, U256};
 
-use crate::{
-    primitives::{
-        AccountNonce, Order, OrderId, Refund, RefundConfig, ShareBundle, ShareBundleBody,
-        ShareBundleInner, ShareBundleTx, SimValue, SimulatedOrder, TxRevertBehavior,
-    },
-    utils::int_percentage,
+use crate::utils::int_percentage;
+use rbuilder_primitives::{
+    AccountNonce, Order, OrderId, Refund, RefundConfig, ShareBundle, ShareBundleBody,
+    ShareBundleInner, ShareBundleTx, SimValue, SimulatedOrder, TxRevertBehavior,
 };
 
 use super::{order_dumper::OrderDumper, SimulatedOrderSink, TestDataGenerator};

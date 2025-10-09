@@ -1,11 +1,9 @@
 use std::fmt::Write;
 
-use crate::{
-    primitives::fmt::{write_order, write_sim_value},
-    utils::fmt::write_indent,
-};
+use crate::utils::fmt::write_indent;
 
 use super::ExecutionResult;
+use rbuilder_primitives::fmt::{write_order, write_sim_value};
 
 pub fn write_exec_res<Buffer: Write>(
     indent: usize,

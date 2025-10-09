@@ -9,7 +9,6 @@ use ethereum_consensus::{
     signing::sign_with_domain,
     ssz::prelude::*,
 };
-use primitive_types::H384;
 use reth_primitives::SealedBlock;
 use serde_with::{serde_as, DisplayFromStr};
 
@@ -39,8 +38,8 @@ impl BLSBlockSigner {
         Ok(signature.to_vec())
     }
 
-    pub fn pub_key(&self) -> H384 {
-        H384::from_slice(self.sec.public_key().as_slice())
+    pub fn pub_key(&self) -> BlsPublicKey {
+        BlsPublicKey::from_slice(&self.sec.public_key())
     }
 
     pub fn test_signer() -> Self {
@@ -92,7 +91,7 @@ fn a2e_hash32(h: &BlockHash) -> Hash32 {
 }
 
 fn a2e_pubkey(k: &BlsPublicKey) -> BlsPublicKey2 {
-    // Should not panic since H384 matches BlsPublicKey size
+    // Should not panic since both types are equal in size
     BlsPublicKey2::try_from(k.as_slice()).unwrap()
 }
 
@@ -105,15 +104,15 @@ pub fn sign_block_for_relay(
     signer: &BLSBlockSigner,
     sealed_block: &SealedBlock,
     attrs: &PayloadAttributesData,
-    pubkey: H384,
+    proposer_pubkey: BlsPublicKey,
     value: U256,
 ) -> eyre::Result<(BidTrace, BlsSignature)> {
     let message = BidTrace {
         slot: attrs.proposal_slot,
         parent_hash: attrs.parent_block_hash,
         block_hash: sealed_block.hash(),
-        builder_pubkey: FixedBytes::from_slice(signer.pub_key().as_bytes()),
-        proposer_pubkey: FixedBytes::from_slice(pubkey.as_bytes()),
+        builder_pubkey: signer.pub_key(),
+        proposer_pubkey,
         proposer_fee_recipient: attrs.payload_attributes.suggested_fee_recipient,
         gas_limit: sealed_block.gas_limit,
         gas_used: sealed_block.gas_used,
@@ -137,7 +136,7 @@ mod test {
             super::BLSBlockSigner::new(sec, Default::default()).expect("failed to contruct signer");
 
         let pub_key = signer.pub_key();
-        let expected_key = H384::from_slice(&alloy_primitives::bytes!("a1885d66bef164889a2e35845c3b626545d7b0e513efe335e97c3a45e534013fa3bc38c3b7e6143695aecc4872ac52c4").0);
+        let expected_key = BlsPublicKey::from_slice(&alloy_primitives::bytes!("a1885d66bef164889a2e35845c3b626545d7b0e513efe335e97c3a45e534013fa3bc38c3b7e6143695aecc4872ac52c4").0);
         assert_eq!(pub_key, expected_key);
     }
 

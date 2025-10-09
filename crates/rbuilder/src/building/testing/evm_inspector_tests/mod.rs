@@ -1,10 +1,10 @@
 use alloy_primitives::{B256, U256};
 use reth_primitives::TransactionSigned;
 
-use crate::building::{
-    evm_inspector::SlotKey,
-    testing::{evm_inspector_tests::setup::TestSetup, test_chain_state::NamedAddr},
+use crate::building::testing::{
+    evm_inspector_tests::setup::TestSetup, test_chain_state::NamedAddr,
 };
+use rbuilder_primitives::evm_inspector::SlotKey;
 
 pub mod setup;
 

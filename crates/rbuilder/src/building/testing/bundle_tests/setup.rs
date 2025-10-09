@@ -2,19 +2,17 @@
 //!
 //! test setup creates fake state with various and block (configurable with BlockArgs)
 //! test setup is used to build orders and commit them
-use crate::{
-    building::{
-        cached_reads::{LocalCachedReads, SharedCachedReads},
-        testing::test_chain_state::{BlockArgs, NamedAddr, TestChainState, TxArgs},
-        BlockState, ExecutionError, ExecutionResult, NullPartialBlockExecutionTracer, OrderErr,
-        PartialBlock, ThreadBlockBuildingContext,
-    },
-    primitives::{
-        order_builder::OrderBuilder, BundleRefund, BundleReplacementData, OrderId, Refund,
-        RefundConfig, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior,
-    },
+use crate::building::{
+    cached_reads::{LocalCachedReads, SharedCachedReads},
+    testing::test_chain_state::{BlockArgs, NamedAddr, TestChainState, TxArgs},
+    BlockState, ExecutionError, ExecutionResult, NullPartialBlockExecutionTracer, OrderErr,
+    PartialBlock, ThreadBlockBuildingContext,
 };
 use alloy_primitives::{Address, TxHash};
+use rbuilder_primitives::{
+    order_builder::OrderBuilder, BundleRefund, BundleReplacementData, OrderId, Refund,
+    RefundConfig, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior,
+};
 use reth_provider::StateProvider;
 use revm::database::states::BundleState;
 use std::sync::Arc;

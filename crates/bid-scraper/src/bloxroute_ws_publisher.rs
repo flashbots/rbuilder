@@ -1,5 +1,4 @@
 use crate::{
-    code_from_rbuilder::EnvOrValue,
     get_timestamp_f64,
     types::{PublisherType, ScrapedRelayBlockBid},
     ws_publisher::{ConnectionHandler, Service},
@@ -12,6 +11,7 @@ use futures::{
     StreamExt,
 };
 use futures_util::SinkExt;
+use rbuilder_config::EnvOrValue;
 use serde::Deserialize;
 use serde_json::json;
 use std::str::FromStr;
@@ -22,7 +22,7 @@ use tokio_tungstenite::{
 };
 use tracing::{debug, error, info};
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct BloxrouteWsPublisherConfig {
     /// Url to connect to. Example: "wss://mev-eth.blxrbdn.com/ws"
     pub bloxroute_url: String,

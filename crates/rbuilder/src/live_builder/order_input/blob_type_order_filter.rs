@@ -1,11 +1,8 @@
 use alloy_eips::{eip7594::BlobTransactionSidecarVariant, Typed2718};
 
-use crate::{
-    live_builder::order_input::replaceable_order_sink::ReplaceableOrderSink,
-    primitives::{
-        BundleReplacementData, Order, ShareBundleReplacementKey,
-        TransactionSignedEcRecoveredWithBlobs,
-    },
+use crate::live_builder::order_input::replaceable_order_sink::ReplaceableOrderSink;
+use rbuilder_primitives::{
+    BundleReplacementData, Order, ShareBundleReplacementKey, TransactionSignedEcRecoveredWithBlobs,
 };
 
 /// Filters out Orders with incorrect blobs (pre/post fusaka).

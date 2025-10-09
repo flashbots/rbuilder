@@ -1,11 +1,11 @@
 use crate::building::{
     cached_reads::LocalCachedReads,
     evm::EvmFactory,
-    evm_inspector::{RBuilderEVMInspector, UsedStateTrace},
     testing::test_chain_state::{BlockArgs, NamedAddr, TestChainState, TestContracts, TxArgs},
     BlockState,
 };
 use alloy_primitives::Address;
+use rbuilder_primitives::evm_inspector::{RBuilderEVMInspector, UsedStateTrace};
 use reth_evm::Evm;
 use reth_primitives::{Recovered, TransactionSigned};
 

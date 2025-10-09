@@ -8,6 +8,7 @@
 
 use ahash::HashMap;
 use alloy_primitives::utils::format_ether;
+use rbuilder_config::load_toml_config;
 use reth_db::DatabaseEnv;
 use reth_node_api::NodeTypesWithDBAdapter;
 use reth_node_ethereum::EthereumNode;
@@ -22,11 +23,12 @@ use crate::{
         BlockData, HistoricalDataStorage, OrdersWithTimestamp,
     },
     building::{builders::mock_block_building_helper::MockRootHasher, BlockBuildingContext},
-    live_builder::{
-        base_config::load_config_toml_and_env, block_list_provider::BlockList,
-        cli::LiveBuilderConfig,
+    live_builder::{block_list_provider::BlockList, cli::LiveBuilderConfig},
+    provider::StateProviderFactory,
+    utils::{
+        mevblocker::get_mevblocker_price, timestamp_as_u64, timestamp_ms_to_offset_datetime,
+        ProviderFactoryReopener,
     },
-    utils::{timestamp_as_u64, timestamp_ms_to_offset_datetime, ProviderFactoryReopener},
 };
 use clap::Parser;
 use std::{path::PathBuf, sync::Arc};
@@ -116,6 +118,10 @@ impl<ConfigType: LiveBuilderConfig>
 
     fn create_block_building_context(&self) -> eyre::Result<BlockBuildingContext> {
         let signer = self.config.base_config().coinbase_signer()?;
+        let state_provider = self
+            .create_provider_factory()?
+            .history_by_block_hash(self.block_data.onchain_block.header.parent_hash)?;
+        let mev_blocker_price = get_mevblocker_price(state_provider)?;
         Ok(BlockBuildingContext::from_onchain_block(
             self.block_data.onchain_block.clone(),
             self.config.base_config().chain_spec()?,
@@ -126,6 +132,7 @@ impl<ConfigType: LiveBuilderConfig>
             signer,
             Arc::new(MockRootHasher {}),
             self.config.base_config().evm_caching_enable,
+            mev_blocker_price,
         ))
     }
 
@@ -306,7 +313,7 @@ fn show_missing_txs(block_data: &BlockData) {
 
 pub async fn run_backtest<ConfigType: LiveBuilderConfig>() -> eyre::Result<()> {
     let cli = Cli::parse();
-    let config: ConfigType = load_config_toml_and_env(cli.build_block_cfg.config.clone())?;
+    let config: ConfigType = load_toml_config(cli.build_block_cfg.config.clone())?;
     let order_source = LandedBlockFromDBOrdersSource::new(cli.extra_cfg, config).await?;
     run_backtest_build_block(cli.build_block_cfg, order_source).await
 }

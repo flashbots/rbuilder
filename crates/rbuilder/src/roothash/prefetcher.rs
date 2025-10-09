@@ -14,9 +14,10 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, trace, warn};
 
 use crate::{
-    building::evm_inspector::SlotKey, live_builder::simulation::SimulatedOrderCommand,
-    telemetry::inc_root_hash_prefetch_count, utils::elapsed_ms,
+    live_builder::simulation::SimulatedOrderCommand, telemetry::inc_root_hash_prefetch_count,
+    utils::elapsed_ms,
 };
+use rbuilder_primitives::evm_inspector::SlotKey;
 
 const CONSUME_SIM_ORDERS_BATCH: usize = 128;
 

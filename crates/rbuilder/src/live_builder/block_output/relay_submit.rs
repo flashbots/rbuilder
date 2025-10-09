@@ -2,14 +2,8 @@ use crate::{
     building::builders::Block,
     live_builder::payload_events::MevBoostSlotData,
     mev_boost::{
-        adjustment::BidAdjustmentData,
-        sign_block_for_relay,
-        submission::{BidMetadata, BidValueMetadata, SubmitBlockRequestWithMetadata},
-        BLSBlockSigner, RelayError, RelaySlotData, SubmitBlockErr, ValidatorSlotData,
-    },
-    primitives::{
-        built_block::{block_to_execution_payload, SignedBuiltBlock},
-        mev_boost::{MevBoostRelayBidSubmitter, MevBoostRelayID},
+        sign_block_for_relay, BLSBlockSigner, MevBoostRelayBidSubmitter, RelayError, RelaySlotData,
+        SubmitBlockErr,
     },
     telemetry::{
         add_relay_submit_time, add_subsidy_value, inc_conn_relay_errors,
@@ -23,6 +17,13 @@ use ahash::HashMap;
 use alloy_primitives::{utils::format_ether, Address, U256};
 use mockall::automock;
 use parking_lot::Mutex;
+use rbuilder_primitives::{
+    built_block::{block_to_execution_payload, SignedBuiltBlock},
+    mev_boost::{
+        BidAdjustmentData, BidMetadata, BidValueMetadata, MevBoostRelayID,
+        SubmitBlockRequestWithMetadata, ValidatorSlotData,
+    },
+};
 use reth_chainspec::ChainSpec;
 use std::sync::Arc;
 use tokio::{sync::Notify, time::Instant};
@@ -104,6 +105,7 @@ struct BuiltBlockInfo {
     pub bid_value: U256,
     pub true_bid_value: U256,
 }
+
 /// `run_submit_to_relays_job` is a main function for submitting blocks to relays
 ///
 /// How submission works:
@@ -200,6 +202,7 @@ async fn run_submit_to_relays_job(
             order_ids: executed_orders.map(|o| o.id()).collect(),
         };
 
+        let latency = block.trace.orders_sealed_at - block.trace.orders_closed_at;
         let submission_span = info_span!(
             "bid",
             bid_value = format_ether(block.trace.bid_value),
@@ -216,6 +219,15 @@ async fn run_submit_to_relays_job(
             fill_time_ms = duration_ms(block.trace.fill_time),
             finalize_time_ms = duration_ms(block.trace.finalize_time),
             finalize_adjust_time_ms = duration_ms(block.trace.finalize_adjust_time),
+            l1_orders_closed_at = ?block.trace.orders_closed_at,
+            l2_chosen_as_best_at = ?block.trace.chosen_as_best_at,
+            l3_sent_to_bidder = ?block.trace.sent_to_bidder,
+            l4_bid_received_at = ?block.trace.bid_received_at,
+            l5_sent_to_sealer = ?block.trace.sent_to_sealer,
+            l6_picked_by_sealer_at = ?block.trace.picked_by_sealer_at,
+            l7_orders_sealed_at = ?block.trace.orders_sealed_at,
+            latency_ms = latency.whole_milliseconds(),
+            block_id = block.trace.build_block_id.0,
         );
         info!(
             parent: &submission_span,

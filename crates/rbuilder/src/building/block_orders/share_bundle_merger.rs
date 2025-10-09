@@ -10,7 +10,7 @@ use ahash::HashMap;
 use alloy_primitives::{TxHash, B256, U256};
 use tracing::{error, warn};
 
-use crate::primitives::{
+use rbuilder_primitives::{
     Order, OrderId, ShareBundle, ShareBundleBody, ShareBundleInner, SimulatedOrder,
 };
 
@@ -420,10 +420,8 @@ impl<SinkType: SimulatedOrderSink> SimulatedOrderSink for ShareBundleMerger<Sink
 #[cfg(test)]
 mod test {
 
-    use crate::{
-        building::block_orders::{order_dumper::OrderDumper, test_context::TestContext},
-        primitives::{AccountNonce, Order},
-    };
+    use crate::building::block_orders::{order_dumper::OrderDumper, test_context::TestContext};
+    use rbuilder_primitives::{AccountNonce, Order};
 
     use super::ShareBundleMerger;
 

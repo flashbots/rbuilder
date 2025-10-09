@@ -1,0 +1,137 @@
+syntax = "proto3";
+package bidding_service;
+
+// Protocol for the bidding service. It's used to marshal all the traits in src/block_descriptor_bidding/traits.rs
+// Usage:
+// The client connects to the server and calls Initialize, this call should create the real BiddingService on the server side.
+// Before calling Initialize any other call will fail. Initialize can be called again to recreate the BiddingService (eg: rbuilder reconnection).
+// After that, for each slot the client should call CreateSlotBidder to create the SlotBidder on the server side and DestroySlotBidder when the SlotBidder is not needed anymore.
+// Other calls are almost 1 to 1 with the original traits but for SlotBidder calls block/slot are added to identify the SlotBidder.
+// Notice that CreateSlotBidder returns a stream of Callback. This stream is used for 2 things:
+// - Send back bids made by the SlotBidder.
+// - Notify changes on the state of SlotBidder's can_use_suggested_fee_recipient_as_coinbase. We use this methodology instead of a 
+//   forward RPC call since can_use_suggested_fee_recipient_as_coinbase almost does not change and we want to avoid innecesary RPC calls during block building.
+service BiddingService {
+
+    // Call after connection before calling anything. This will really create the BiddingService on the server side.
+    // Returns the version info for the server side.
+    rpc Initialize(LandedBlocksParams) returns (BidderVersionInfo);
+
+    // BiddingService
+    rpc CreateSlotBidder(CreateSlotBidderParams) returns (stream Callback);
+    rpc DestroySlotBidder(DestroySlotBidderParams) returns (Empty);
+    rpc MustWinBlock(MustWinBlockParams) returns (Empty);
+    rpc UpdateNewLandedBlocksDetected(LandedBlocksParams) returns (Empty);
+    rpc UpdateFailedReadingNewLandedBlocks(Empty) returns (Empty);
+
+    // BiddingService->BlockBidWithStatsObs
+    rpc UpdateNewBid(UpdateNewBidParams) returns (Empty);
+
+
+    // UnfinishedBlockBuildingSink
+    rpc NewBlock(NewBlockParams) returns (Empty);
+
+
+
+}
+// Not using sub messages to avoid the extra Option generated in rust code.
+// uint64 block + uint64 slot should be something like BidderId
+
+
+// Mapping of build_info::Version
+message BidderVersionInfo {
+    string git_commit = 1;
+    string git_ref = 2;
+    string build_time_utc = 3;
+}
+
+message Empty {
+}
+
+
+message MustWinBlockParams {
+    uint64 block = 1;
+}
+
+enum PublisherType {
+  RelayBids = 0;
+  RelayHeaders = 1;
+  UltrasoundWs = 2;
+  BloxrouteWs = 3;
+  ExternalWs = 4;
+}
+
+
+message UpdateNewBidParams {
+    double seen_time = 1;
+    string publisher_name = 2;
+    PublisherType publisher_type = 3;
+    optional double relay_time = 4;
+    string relay_name = 5;
+    bytes block_hash = 6; // Array of 32 bytes
+    bytes parent_hash = 7; // Array of 32 bytes
+    repeated uint64 value = 8; // Array of 4 uint64
+    uint64 slot_number = 9;
+    uint64 block_number = 10;
+    bytes builder_pubkey = 11; // Array of 0 or 48 bytes
+    optional string extra_data = 12;
+    bytes fee_recipient = 13;// Array of 0 or 20 bytes
+    bytes proposer_fee_recipient = 14;// Array of 0 or 20 bytes
+    optional uint64 gas_used = 15;
+    optional bool optimistic_submission = 16;
+    uint64 creation_time_us = 17; // For metrics
+}
+
+message NewBlockParams{
+    uint64 session_id = 1;
+    repeated uint64 true_block_value = 2; // Array of 4 uint64
+    bool can_add_payout_tx = 3;
+    uint64 block_id = 4;
+    uint64 creation_time_us = 5;// For metrics
+}
+
+message DestroySlotBidderParams {
+    uint64 session_id = 1;
+}
+
+message CreateSlotBidderParams {
+    uint64 block = 1;
+    uint64 slot = 2;
+    bytes parent_hash = 3; // Array of 32 bytes
+    // Id identifying the session. Used in all following calls.
+    uint64 session_id = 4;
+    // unix ts
+    int64 slot_timestamp = 5;
+}
+
+
+// Info about a onchain block from reth.
+message LandedBlockInfo {
+    uint64 block_number = 1;
+    int64 block_timestamp = 2;
+    repeated uint64 builder_balance = 3; // Array of 4 uint64
+    // true -> we landed this block.
+    // If false we could have landed it in coinbase == fee recipient mode but balance wouldn't change so we don't care.
+    bool beneficiary_is_builder = 4;
+}
+
+message LandedBlocksParams {
+    repeated LandedBlockInfo landed_block_info = 1; // Added field name
+}
+
+message Bid {
+    // Optional implicitly by allowing empty
+    repeated uint64 payout_tx_value = 1; // Array of 4 uint64
+    uint64 block_id = 2;
+    // Optional implicitly by allowing empty
+    repeated uint64 seen_competition_bid = 3; // Array of 4 uint64
+    optional uint64 trigger_creation_time_us = 4;
+}    
+
+
+// Exactly 1 member will be not null.
+// Since this is not mapped to an enum we must be careful to manually update BiddingServiceClientAdapter.
+message Callback {
+    Bid bid = 1;
+    optional bool can_use_suggested_fee_recipient_as_coinbase_change = 2;
+}

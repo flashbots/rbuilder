@@ -11,16 +11,17 @@ use tracing::{debug, error, trace};
 
 use crate::{
     building::{
-        estimate_payout_gas_limit, tracers::GasUsedSimulationTracer, BlockBuildingContext,
-        BlockSpace, BlockState, BuiltBlockTrace, BuiltBlockTraceError, CriticalCommitOrderError,
-        EstimatePayoutGasErr, ExecutionError, ExecutionResult, FinalizeError, FinalizeResult,
-        FinalizeRevertState, NullPartialBlockExecutionTracer, PartialBlock,
+        builders::BuiltBlockId, estimate_payout_gas_limit, tracers::GasUsedSimulationTracer,
+        BlockBuildingContext, BlockSpace, BlockState, BuiltBlockTrace, BuiltBlockTraceError,
+        CriticalCommitOrderError, EstimatePayoutGasErr, ExecutionError, ExecutionResult,
+        FinalizeAdjustmentState, FinalizeError, FinalizeResult,
+        FinalizeRevertStateCurrentIteration, NullPartialBlockExecutionTracer, PartialBlock,
         PartialBlockExecutionTracer, ThreadBlockBuildingContext,
     },
-    primitives::{order_statistics::OrderStatistics, SimValue, SimulatedOrder},
     telemetry::{self, add_block_fill_time, add_order_simulation_time},
     utils::{check_block_hash_reader_health, elapsed_ms, HistoricalBlockError},
 };
+use rbuilder_primitives::{order_statistics::OrderStatistics, SimValue, SimulatedOrder};
 
 use super::Block;
 
@@ -74,6 +75,10 @@ pub trait BlockBuildingHelper: Send + Sync {
     /// BuiltBlockTrace for current state.
     fn built_block_trace(&self) -> &BuiltBlockTrace;
 
+    fn id(&self) -> BuiltBlockId {
+        self.built_block_trace().build_block_id
+    }
+
     /// BlockBuildingContext used for building.
     fn building_context(&self) -> &BlockBuildingContext;
 
@@ -96,6 +101,7 @@ pub trait BlockBuildingHelper: Send + Sync {
 pub struct BiddableUnfinishedBlock {
     pub block: Box<dyn BlockBuildingHelper>,
     pub true_block_value: U256,
+    pub chosen_as_best_at: OffsetDateTime,
 }
 
 impl Clone for BiddableUnfinishedBlock {
@@ -103,6 +109,7 @@ impl Clone for BiddableUnfinishedBlock {
         Self {
             block: self.block.box_clone(),
             true_block_value: self.true_block_value,
+            chosen_as_best_at: self.chosen_as_best_at,
         }
     }
 }
@@ -113,7 +120,11 @@ impl BiddableUnfinishedBlock {
         Ok(Self {
             block,
             true_block_value,
+            chosen_as_best_at: OffsetDateTime::now_utc(),
         })
+    }
+    pub fn id(&self) -> BuiltBlockId {
+        self.block.id()
     }
 
     pub fn block(&self) -> &dyn BlockBuildingHelper {
@@ -145,7 +156,7 @@ pub struct BlockBuildingHelperFromProvider<
     /// Token to cancel in case of fatal error (if we believe that it's impossible to build for this block).
     cancel_on_fatal_error: CancellationToken,
 
-    finalize_revert_state: Option<FinalizeRevertState>,
+    finalize_adjustment_state: Option<FinalizeAdjustmentState>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -188,7 +199,9 @@ pub struct FinalizeBlockResult {
 }
 
 impl BlockBuildingHelperFromProvider<NullPartialBlockExecutionTracer> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
+        built_block_id: BuiltBlockId,
         state_provider: Arc<dyn StateProvider>,
         building_ctx: BlockBuildingContext,
         local_ctx: &mut ThreadBlockBuildingContext,
@@ -198,6 +211,7 @@ impl BlockBuildingHelperFromProvider<NullPartialBlockExecutionTracer> {
         cancel_on_fatal_error: CancellationToken,
     ) -> Result<Self, BlockBuildingHelperError> {
         BlockBuildingHelperFromProvider::new_with_execution_tracer(
+            built_block_id,
             state_provider,
             building_ctx,
             local_ctx,
@@ -221,6 +235,7 @@ impl<
     /// - Estimate payout tx cost.
     #[allow(clippy::too_many_arguments)]
     pub fn new_with_execution_tracer(
+        built_block_id: BuiltBlockId,
         state_provider: Arc<dyn StateProvider>,
         building_ctx: BlockBuildingContext,
         local_ctx: &mut ThreadBlockBuildingContext,
@@ -253,7 +268,7 @@ impl<
         partial_block.reserve_block_space(payout_tx_space);
         let payout_tx_gas = payout_tx_space.gas;
 
-        let mut built_block_trace = BuiltBlockTrace::new();
+        let mut built_block_trace = BuiltBlockTrace::new(built_block_id);
         built_block_trace.available_orders_statistics = available_orders_statistics;
         Ok(Self {
             _fee_recipient_balance_start: fee_recipient_balance_start,
@@ -264,7 +279,7 @@ impl<
             building_ctx,
             built_block_trace,
             cancel_on_fatal_error,
-            finalize_revert_state: None,
+            finalize_adjustment_state: None,
         })
     }
 
@@ -312,7 +327,7 @@ impl<
         local_ctx: &mut ThreadBlockBuildingContext,
         payout_tx_value: U256,
         adjust_finalized_block: bool,
-        finalize_revert_state: &mut FinalizeRevertState,
+        finalize_revert_state: &mut FinalizeRevertStateCurrentIteration,
     ) -> Result<(), BlockBuildingHelperError> {
         self.built_block_trace.coinbase_reward = self.partial_block.coinbase_profit;
 
@@ -339,6 +354,7 @@ impl<
 
         self.built_block_trace.bid_value = max(bid_value, fee_recipient_balance_diff);
         self.built_block_trace.true_bid_value = true_value;
+        self.built_block_trace.mev_blocker_price = self.building_context().mev_blocker_price;
         Ok(())
     }
 
@@ -349,29 +365,35 @@ impl<
         seen_competition_bid: Option<U256>,
         adjust_finalized_block: bool,
     ) -> Result<FinalizeBlockResult, BlockBuildingHelperError> {
-        if adjust_finalized_block != self.finalize_revert_state.is_some() {
+        if adjust_finalized_block != self.finalize_adjustment_state.is_some() {
             return Err(BlockBuildingHelperError::BlockFinalizedIncorrectly);
         }
 
         let start_time = Instant::now();
         let step_start = Instant::now();
 
+        let FinalizeAdjustmentState {
+            revert_state,
+            previous_finalize_data,
+        } = self.finalize_adjustment_state.take().unwrap_or_default();
+
         if adjust_finalized_block {
-            let finalize_revert_state = self.finalize_revert_state.take().unwrap();
             self.partial_block
                 .adjust_finalize_block_revert_to_prefinalized_state(
-                    finalize_revert_state,
+                    revert_state,
                     &mut self.block_state,
                 );
         }
-
-        let mut finalize_revert_state = FinalizeRevertState::default();
+        let mut finalize_adjustment_state = FinalizeAdjustmentState {
+            revert_state: Default::default(),
+            previous_finalize_data,
+        };
 
         self.finalize_block_execution(
             local_ctx,
             payout_tx_value,
             adjust_finalized_block,
-            &mut finalize_revert_state,
+            &mut finalize_adjustment_state.revert_state,
         )?;
 
         if !adjust_finalized_block {
@@ -389,7 +411,7 @@ impl<
             &self.building_ctx,
             local_ctx,
             adjust_finalized_block,
-            &mut finalize_revert_state,
+            &mut finalize_adjustment_state,
         ) {
             Ok(finalized_block) => finalized_block,
             Err(err) => {
@@ -430,7 +452,7 @@ impl<
             sim_gas_used,
         );
 
-        self.finalize_revert_state = Some(finalize_revert_state);
+        self.finalize_adjustment_state = Some(finalize_adjustment_state);
 
         let block = Block {
             builder_name: self.builder_name.clone(),

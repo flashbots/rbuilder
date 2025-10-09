@@ -1,12 +1,7 @@
-use bid_scraper::bid_sender::NNGBidSender;
-use bid_scraper::code_from_rbuilder::{
-    load_config_toml_and_env, setup_tracing_subscriber, LoggerConfig,
-};
-use bid_scraper::config::Config;
-
+use bid_scraper::{bid_sender::NNGBidSender, config::Config};
+use rbuilder_config::{load_toml_config, LoggerConfig};
 use runng::Listen;
-use std::env;
-use std::sync::Arc;
+use std::{env, sync::Arc};
 use tokio::signal::ctrl_c;
 use tokio_util::sync::CancellationToken;
 
@@ -18,14 +13,14 @@ async fn main() -> eyre::Result<()> {
         return Ok(());
     }
 
-    let config: Config = load_config_toml_and_env(args[1].clone())?;
+    let config: Config = load_toml_config(args[1].clone())?;
 
-    let log_config = LoggerConfig {
+    let logger_config = LoggerConfig {
         env_filter: config.log_level.clone(),
         log_json: config.log_json,
         log_color: config.log_color,
     };
-    setup_tracing_subscriber(log_config)?;
+    logger_config.init_tracing()?;
 
     let global_cancel = CancellationToken::new();
     let global_cancel_clone = global_cancel.clone();

@@ -1,5 +1,6 @@
 [package]
 name = "bid-scraper"
+description = "bid-scraper"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,41 +9,58 @@ homepage.workspace = true
 repository.workspace = true
 exclude.workspace = true
 
+[package.metadata.deb]
+maintainer = "Flashbots Team <devops+ci@flashbots.net>"
+depends = "$auto"
+section = "network"
+priority = "optional"
+maintainer-scripts = "pkg/debian"
+assets = [
+    ["target/release/**/bid-scraper", "usr/bin/", "755"],
+    ["pkg/etc/config.toml", "etc/bid-scraper/", "644"],
+    ["../../LICENSE-APACHE", "usr/share/doc/bid-scraper/", "644"],
+    ["../../LICENSE-MIT", "usr/share/doc/bid-scraper/", "644"],
+]
+systemd-units = { enable = false, start = false, unit-name = "bid-scraper" }
+
 [dependencies]
-tokio = { version = "1.40", default-features = false, features = ["rt", "rt-multi-thread", "macros","signal"] }
-tokio-util = "0.7.12"
+rbuilder-config.workspace = true
+
+alloy-primitives.workspace = true
+alloy-provider.workspace = true
+alloy-rpc-types-beacon.workspace = true
+
+tokio = { workspace = true, default-features = false, features = ["rt", "rt-multi-thread", "macros","signal"] }
+tokio-util.workspace = true
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 log = "^0.4"
-clap = { version = "^3.2", features = ["derive"] }
+clap.workspace = true
 serde_json = { workspace = true }
 serde = { workspace = true }
 serde_with = { version = "3.9.0", features = ["time_0_3"] }
 chrono = "^0.4"
-futures = "^0.3"
+futures.workspace = true
 futures-retry = "0.6"
-rand = "^0.8"
+rand.workspace = true
 runng = "^0.3"
 reqwest = { version = "^0.11", default-features = false, features = ["rustls", "gzip", "brotli", "deflate", "json", "rustls-tls"] }
 lru = "^0.10"
 async-trait = "^0.1"
 tokio-tungstenite = { version = "0.26.2", features = ["rustls-tls-native-roots"] }
-tokio-stream = "0.1.16"
-futures-util = "^0.3"
+tokio-stream.workspace = true
+futures-util.workspace = true
 ethereum_ssz_derive = "0.9"
 ethereum_ssz = "0.9"
 ssz_types = "^0.5"
 hex = "^0.4"
-derivative = "2.2"
-toml = "0.8.8"
-eyre = "0.6.12"
-thiserror = { version = "1.0.64" }
-parking_lot = { version = "0.12.3" }
+derivative.workspace = true
+toml.workspace = true
+eyre.workspace = true
+thiserror.workspace = true
+parking_lot.workspace = true
 strum = { version = "0.25", features = ["derive"] }
-exponential-backoff = "1.2.0"
-alloy-primitives.workspace = true
-alloy-provider.workspace = true
-alloy-rpc-types-beacon.workspace = true
+exponential-backoff.workspace = true
 
 [dev-dependencies]
 proptest = "1.4"

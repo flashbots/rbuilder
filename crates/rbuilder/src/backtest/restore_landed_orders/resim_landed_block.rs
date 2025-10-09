@@ -1,15 +1,18 @@
 use crate::{
     building::{
-        evm_inspector::SlotKey, tracers::AccumulatorSimulationTracer, BlockBuildingContext,
-        BlockBuildingSpaceState, BlockState, PartialBlock, PartialBlockFork,
-        ThreadBlockBuildingContext,
+        tracers::AccumulatorSimulationTracer, BlockBuildingContext, BlockBuildingSpaceState,
+        BlockState, PartialBlock, PartialBlockFork, ThreadBlockBuildingContext,
     },
     provider::StateProviderFactory,
-    utils::{extract_onchain_block_txs, find_suggested_fee_recipient, signed_uint_delta, Signer},
+    utils::{
+        extract_onchain_block_txs, find_suggested_fee_recipient, mevblocker::get_mevblocker_price,
+        signed_uint_delta, Signer,
+    },
 };
 use ahash::{HashMap, HashSet};
 use alloy_primitives::{TxHash, B256, I256};
 use eyre::Context;
+use rbuilder_primitives::evm_inspector::SlotKey;
 use reth_chainspec::ChainSpec;
 use reth_primitives::{Receipt, Recovered, TransactionSigned};
 use std::sync::Arc;
@@ -47,6 +50,8 @@ where
 
     let builder_signer = Signer::random(); // signer will not be used here as we just replay onchain transactions
 
+    let mev_blocker_price =
+        get_mevblocker_price(provider.history_by_block_hash(onchain_block.header.parent_hash)?)?;
     let ctx = BlockBuildingContext::from_onchain_block(
         onchain_block,
         chain_spec,
@@ -57,6 +62,7 @@ where
         builder_signer,
         Arc::from(provider.root_hasher(parent_num_hash)?),
         false,
+        mev_blocker_price,
     );
 
     let mut local_ctx = ThreadBlockBuildingContext::default();

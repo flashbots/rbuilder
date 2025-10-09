@@ -1,11 +1,11 @@
+use clap::Parser;
+use rbuilder_config::load_toml_config;
+use serde::de::DeserializeOwned;
 use std::{
+    fmt::Debug,
     path::PathBuf,
     sync::{atomic::AtomicBool, Arc},
 };
-
-use clap::Parser;
-use serde::de::DeserializeOwned;
-use std::fmt::Debug;
 use sysperf::{format_results, gather_system_info, run_all_benchmarks};
 use tokio::signal::ctrl_c;
 use tokio_util::sync::CancellationToken;
@@ -15,7 +15,6 @@ use crate::{
         builders::{BacktestSimulateBlockInput, Block},
         PartialBlockExecutionTracer,
     },
-    live_builder::base_config::load_config_toml_and_env,
     provider::StateProviderFactory,
     telemetry,
     utils::{bls::generate_random_bls_address, build_info::Version},
@@ -88,7 +87,7 @@ where
     let cli = match cli {
         Cli::Run(cli) => cli,
         Cli::Config(cli) => {
-            let config: ConfigType = load_config_toml_and_env(cli.config)?;
+            let config: ConfigType = load_toml_config(cli.config)?;
             println!("{config:#?}");
             return Ok(());
         }
@@ -111,7 +110,7 @@ where
         }
     };
 
-    let config: ConfigType = load_config_toml_and_env(cli.config)?;
+    let config: ConfigType = load_toml_config(cli.config)?;
     config.base_config().setup_tracing_subscriber()?;
 
     let ready_to_build = Arc::new(AtomicBool::new(false));

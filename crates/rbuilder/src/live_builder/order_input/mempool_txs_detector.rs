@@ -4,7 +4,7 @@ use ahash::RandomState;
 use alloy_primitives::TxHash;
 use dashmap::DashSet;
 
-use crate::primitives::{
+use rbuilder_primitives::{
     BundleReplacementData, Order, ShareBundleReplacementKey, TransactionSignedEcRecoveredWithBlobs,
 };
 

@@ -17,10 +17,10 @@ use crate::{
         builders::BacktestSimulateBlockInput, BlockBuildingContext, NullPartialBlockExecutionTracer,
     },
     live_builder::cli::LiveBuilderConfig,
-    primitives::{order_statistics::OrderStatistics, Order, OrderId, SimulatedOrder},
     provider::StateProviderFactory,
 };
 use clap::Parser;
+use rbuilder_primitives::{order_statistics::OrderStatistics, Order, OrderId, SimulatedOrder};
 use std::{path::PathBuf, sync::Arc};
 
 #[derive(Parser, Debug)]

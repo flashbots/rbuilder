@@ -1,8 +1,8 @@
-use crate::primitives::{
-    serialize::CancelShareBundle, BundleReplacementData, Order, OrderId, ShareBundleReplacementKey,
-};
 use ahash::HashMap;
 use lru::LruCache;
+use rbuilder_primitives::{
+    serialize::CancelShareBundle, BundleReplacementData, Order, OrderId, ShareBundleReplacementKey,
+};
 use reth::providers::StateProviderBox;
 use reth_primitives_traits::InMemorySize;
 use std::{

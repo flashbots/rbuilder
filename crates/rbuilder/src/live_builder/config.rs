@@ -5,8 +5,7 @@ use super::{
     base_config::BaseConfig,
     block_output::{
         bidding_service_interface::{
-            BidObserver, BiddingService, BiddingService2ScrapedBidsObs, LandedBlockInfo,
-            NullBidObserver,
+            BidObserver, BiddingService, LandedBlockInfo, NullBidObserver,
         },
         relay_submit::{OptimisticConfig, RelaySubmitSinkFactory, SubmissionConfig},
         true_value_bidding_service::NewTrueBlockValueBiddingService,
@@ -32,12 +31,12 @@ use crate::{
         PartialBlockExecutionTracer, Sorting,
     },
     live_builder::{
-        base_config::EnvOrValue, cli::LiveBuilderConfig, payload_events::MevBoostSlotDataGenerator,
+        block_output::bidding_service_interface::BiddingService2BidSender, cli::LiveBuilderConfig,
+        payload_events::MevBoostSlotDataGenerator,
     },
-    mev_boost::{bloxroute_grpc, BLSBlockSigner, RelayClient},
-    primitives::mev_boost::{
-        MevBoostRelayBidSubmitter, MevBoostRelayID, MevBoostRelaySlotInfoProvider, RelayConfig,
-        RelayMode, RelaySubmitConfig,
+    mev_boost::{
+        bloxroute_grpc, BLSBlockSigner, MevBoostRelayBidSubmitter, MevBoostRelaySlotInfoProvider,
+        RelayClient, RelayConfig, RelaySubmitConfig,
     },
     provider::StateProviderFactory,
     roothash::RootHashContext,
@@ -48,13 +47,15 @@ use alloy_primitives::{
     utils::{format_ether, parse_ether},
     Address, FixedBytes, B256, U256,
 };
-use bid_scraper::bid_scraper_client::run_nng_subscriber_with_retries;
+use bid_scraper::config::NamedPublisherConfig;
 use ethereum_consensus::{
     builder::compute_builder_domain, crypto::SecretKey, primitives::Version,
     state_transition::Context as ContextEth,
 };
 use eyre::Context;
 use lazy_static::lazy_static;
+use rbuilder_config::EnvOrValue;
+use rbuilder_primitives::mev_boost::{MevBoostRelayID, RelayMode};
 use reth_chainspec::{Chain, ChainSpec, NamedChain};
 use reth_db::DatabaseEnv;
 use reth_node_api::NodeTypesWithDBAdapter;
@@ -102,7 +103,7 @@ pub struct BuilderConfig {
 }
 
 #[serde_as]
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     #[serde(flatten)]
@@ -127,7 +128,7 @@ const DEFAULT_ASK_FOR_FILTERING_VALIDATORS: bool = false;
 const DEFAULT_CAN_IGNORE_GAS_LIMIT: bool = false;
 
 #[serde_as]
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct L1Config {
     // Relay Submission configuration
@@ -151,8 +152,8 @@ pub struct L1Config {
 
     /// Genesis fork version for the chain. If not provided it will be fetched from the beacon client.
     pub genesis_fork_version: Option<String>,
-    /// Where the bids scraper publishes the bids. Example:"tcp://0.0.0.0:5555"
-    pub scraped_bids_publisher_url: Option<String>,
+    /// A bid scraper will be spawned for each NamedPublisherConfig.
+    pub relay_bid_scrapers: Vec<NamedPublisherConfig>,
 }
 
 impl Default for L1Config {
@@ -166,7 +167,7 @@ impl Default for L1Config {
             optimistic_max_bid_value_eth: "0.0".to_string(),
             cl_node_url: vec![EnvOrValue::from("http://127.0.0.1:3500")],
             genesis_fork_version: None,
-            scraped_bids_publisher_url: None,
+            relay_bid_scrapers: Default::default(),
             registration_update_interval_ms: None,
         }
     }
@@ -174,7 +175,7 @@ impl Default for L1Config {
 
 impl L1Config {
     pub fn resolve_cl_node_urls(&self) -> eyre::Result<Vec<String>> {
-        crate::live_builder::base_config::resolve_env_or_values::<String>(&self.cl_node_url)
+        rbuilder_config::resolve_env_or_values::<String>(&self.cl_node_url)
     }
 
     pub fn beacon_clients(&self) -> eyre::Result<Vec<Client>> {
@@ -951,16 +952,13 @@ where
     let (sink_sealed_factory, slot_info_provider, adjustment_fee_payers) =
         l1_config.create_relays_sealed_sink_factory(base_config.chain_spec()?, bid_observer)?;
 
-    if let Some(scraped_bids_publisher_url) = l1_config.scraped_bids_publisher_url.clone() {
-        // Create a ScrapedBids2BlockBidWithStatsObs that will forward bids from run_nng_subscriber_with_retries to the bidding service.
-        let obs = BiddingService2ScrapedBidsObs::new(bidding_service.clone());
-        tokio::spawn(run_nng_subscriber_with_retries(
-            Arc::new(obs),
+    if !l1_config.relay_bid_scrapers.is_empty() {
+        let sender = Arc::new(BiddingService2BidSender::new(bidding_service.clone()));
+        bid_scraper::bid_scraper::run(
+            l1_config.relay_bid_scrapers.clone(),
+            sender,
             cancellation_token.clone(),
-            scraped_bids_publisher_url,
-            Duration::from_secs(BID_SOURCE_TIMEOUT_SECS),
-            Duration::from_secs(BID_SOURCE_WAIT_TIME_SECS),
-        ));
+        );
     }
 
     let sink_factory = UnfinishedBuiltBlocksInputFactory::new(
@@ -1012,8 +1010,8 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::live_builder::base_config::load_config_toml_and_env;
     use alloy_primitives::{address, fixed_bytes};
+    use rbuilder_config::load_toml_config;
     use std::env;
     use url::Url;
 
@@ -1028,9 +1026,9 @@ mod test {
     #[test]
     fn test_parse_example_config() {
         let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        p.push("../../config-live-example.toml");
+        p.push("../../examples/config/rbuilder/config-live-example.toml");
 
-        let config: Config = load_config_toml_and_env(p.clone()).expect("Config load");
+        let config: Config = load_toml_config(p.clone()).expect("Config load");
 
         assert_eq!(
             config
@@ -1048,7 +1046,7 @@ mod test {
 
         env::set_var("CL_NODE_URL", "http://localhost:3500");
 
-        let config: Config = load_config_toml_and_env(p).expect("Config load");
+        let config: Config = load_toml_config(p).expect("Config load");
 
         assert_eq!(
             config
@@ -1071,7 +1069,7 @@ mod test {
         let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         p.push("./src/live_builder/testdata/config_with_relay_override.toml");
 
-        let config: Config = load_config_toml_and_env(p.clone()).expect("Config load");
+        let config: Config = load_toml_config(p.clone()).expect("Config load");
 
         let (_, slot_info_providers) = config.l1_config.create_relays().unwrap();
         assert_eq!(slot_info_providers.len(), 1);
@@ -1081,9 +1079,9 @@ mod test {
     #[test]
     fn test_parse_backtest_example_config() {
         let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        p.push("../../config-backtest-example.toml");
+        p.push("../../examples/config/rbuilder/config-backtest-example.toml");
 
-        load_config_toml_and_env::<Config>(p).expect("Config load");
+        load_toml_config::<Config>(p).expect("Config load");
     }
 
     #[test]

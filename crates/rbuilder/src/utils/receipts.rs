@@ -267,9 +267,10 @@ pub fn ordered_trie_root_and_proof(items: &[Bytes], proof_index: usize) -> (B256
 mod tests {
     use alloy_consensus::{TxReceipt, TxType};
     use alloy_primitives::{address, fixed_bytes};
+    use rbuilder_primitives::BlockSpace;
     use reth_primitives::{logs_bloom, Log, LogData};
 
-    use crate::{building::BlockSpace, utils::test_utils::tx};
+    use crate::utils::test_utils::tx;
 
     use super::*;
 

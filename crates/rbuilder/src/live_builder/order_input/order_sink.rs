@@ -4,8 +4,8 @@ use parking_lot::Mutex;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
-use crate::primitives::{Order, OrderId};
 use core::fmt::Debug;
+use rbuilder_primitives::{Order, OrderId};
 use std::sync::Arc;
 
 /// Receiver of order commands.

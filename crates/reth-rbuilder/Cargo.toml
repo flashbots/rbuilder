@@ -8,7 +8,8 @@ homepage.workspace = true
 repository.workspace = true
 
 [dependencies]
-rbuilder = { path = "../rbuilder" }
+rbuilder.workspace = true
+rbuilder-config.workspace = true
 
 reth.workspace = true
 reth-node-ethereum.workspace = true

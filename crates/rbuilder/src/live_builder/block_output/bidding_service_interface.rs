@@ -1,19 +1,28 @@
 use std::sync::Arc;
 
 use alloy_primitives::{BlockHash, BlockNumber, U256};
-use bid_scraper::{bid_scraper_client::ScrapedBidsObs, types::ScrapedRelayBlockBid};
+use bid_scraper::{
+    bid_sender::{BidSender, BidSenderError},
+    types::ScrapedRelayBlockBid,
+};
 use derivative::Derivative;
+use mockall::automock;
+use rbuilder_primitives::mev_boost::SubmitBlockRequest;
 use reth_primitives::SealedBlock;
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    building::{builders::block_building_helper::BiddableUnfinishedBlock, BuiltBlockTrace},
+    building::{
+        builders::{block_building_helper::BiddableUnfinishedBlock, BuiltBlockId},
+        BuiltBlockTrace,
+    },
     live_builder::payload_events::MevBoostSlotData,
-    mev_boost::submission::SubmitBlockRequest,
+    telemetry::inc_bids_received,
 };
 
 /// Trait that receives every bid made by us to the relays.
+#[automock]
 pub trait BidObserver: std::fmt::Debug {
     /// This should NOT block since it's executed in the submitting thread.
     fn block_submitted(
@@ -73,22 +82,19 @@ impl SlotBlockId {
     }
 }
 
-#[derive(Clone, Copy, Eq, PartialEq, Debug)]
-pub struct BlockId(pub u64);
-
 /// Selected information coming from a BlockBuildingHelper.
 #[derive(Derivative, Clone, Debug)]
 #[derivative(PartialEq, Eq)]
 pub struct BuiltBlockDescriptorForSlotBidder {
     pub true_block_value: U256,
-    pub id: BlockId,
+    pub id: BuiltBlockId,
     /// For metrics
     #[derivative(PartialEq = "ignore")]
     pub creation_time: OffsetDateTime,
 }
 
 impl BuiltBlockDescriptorForSlotBidder {
-    pub fn new(id: BlockId, unfinished_block: &BiddableUnfinishedBlock) -> Self {
+    pub fn new(id: BuiltBlockId, unfinished_block: &BiddableUnfinishedBlock) -> Self {
         Self {
             true_block_value: unfinished_block.true_block_value,
             id,
@@ -99,7 +105,7 @@ impl BuiltBlockDescriptorForSlotBidder {
 
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct SlotBidderSealBidCommand {
-    pub block_id: BlockId,
+    pub block_id: BuiltBlockId,
     pub payout_tx_value: U256,
     pub seen_competition_bid: Option<U256>,
     /// When this bid is a reaction so some event (eg: new block, new competition bid) we put here
@@ -107,6 +113,7 @@ pub struct SlotBidderSealBidCommand {
     pub trigger_creation_time: Option<OffsetDateTime>,
 }
 
+#[automock]
 pub trait BlockSealInterfaceForSlotBidder {
     fn seal_bid(&self, bid: SlotBidderSealBidCommand);
 }
@@ -137,6 +144,7 @@ impl ScrapedRelayBlockBidWithStats {
     }
 }
 
+#[automock]
 pub trait SlotBidder: Send + Sync {
     fn notify_new_built_block(&self, block_descriptor: BuiltBlockDescriptorForSlotBidder);
 }
@@ -157,18 +165,20 @@ pub trait BiddingService: Send + Sync {
     fn update_failed_reading_new_landed_blocks(&self);
 }
 
-pub struct BiddingService2ScrapedBidsObs {
+pub struct BiddingService2BidSender {
     inner: Arc<dyn BiddingService>,
 }
-impl BiddingService2ScrapedBidsObs {
+impl BiddingService2BidSender {
     pub fn new(inner: Arc<dyn BiddingService>) -> Self {
         Self { inner }
     }
 }
 
-impl ScrapedBidsObs for BiddingService2ScrapedBidsObs {
-    fn update_new_bid(&self, bid: ScrapedRelayBlockBid) {
+impl BidSender for BiddingService2BidSender {
+    fn send(&self, bid: ScrapedRelayBlockBid) -> Result<(), BidSenderError> {
+        inc_bids_received(&bid);
         self.inner
-            .observe_relay_bids(ScrapedRelayBlockBidWithStats::new(bid))
+            .observe_relay_bids(ScrapedRelayBlockBidWithStats::new(bid));
+        Ok(())
     }
 }

@@ -1,7 +1,7 @@
-use crate::primitives::OrderId;
 use ahash::HashMap;
 use alloy_primitives::U256;
 use parking_lot::RwLock as PLRwLock;
+use rbuilder_primitives::OrderId;
 use revm::database::BundleState;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},

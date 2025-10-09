@@ -10,7 +10,7 @@ repository.workspace = true
 
 [dependencies]
 thiserror = "1.0.61"
-serde = { version = "1.0.203", features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
 serde_json = "1.0.117"
 serde_with = "3.9.0"
 rustc-hash = "2.0.0"
@@ -51,7 +51,7 @@ benchmark-utils = ["dep:hash-db", "dep:triehash", "dep:flate2"]
 
 [dev-dependencies]
 criterion = { version = "0.4", features = ["html_reports"] }
-rand = { version = "0.8.5", features = ["small_rng"] }
+rand = { workspace = true, features = ["small_rng"] }
 proptest = "1.5.0"
 eth-sparse-mpt = { path = ".", features = ["benchmark-utils"] }
 

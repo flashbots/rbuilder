@@ -1,7 +1,7 @@
 //! Experimental tool to test the backruns a given mev share user got.
 //! Giver the user tx hash we look for oll the backrun bundles and try to execute them the block prefix just before the user tx.
 //! This way we can see how the bundles would be executed on the block prefix and see if the landed backrun really has best refund for the user..
-use alloy_primitives::{b256, TxHash};
+use alloy_primitives::{b256, TxHash, U256};
 use alloy_rpc_types::Block;
 use clap::Parser;
 use itertools::Itertools;
@@ -11,18 +11,22 @@ use rbuilder::{
         BlockData, HistoricalDataStorage, OrdersWithTimestamp,
     },
     building::{
-        builders::block_building_helper::{BlockBuildingHelper, BlockBuildingHelperFromProvider},
+        builders::{
+            block_building_helper::{BlockBuildingHelper, BlockBuildingHelperFromProvider},
+            BuiltBlockId,
+        },
         order_priority::{FullProfitInfoGetter, OrderMaxProfitPriority},
         BlockBuildingContext, ExecutionError, MockRootHasher, NullPartialBlockExecutionTracer,
         OrderPriority, ThreadBlockBuildingContext,
     },
-    live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig, config::Config},
-    primitives::{
-        order_statistics::OrderStatistics, MempoolTx, Order, SimValue, SimulatedOrder,
-        TransactionSignedEcRecoveredWithBlobs,
-    },
+    live_builder::{cli::LiveBuilderConfig, config::Config},
     provider::StateProviderFactory,
     utils::{extract_onchain_block_txs, find_suggested_fee_recipient},
+};
+use rbuilder_config::load_toml_config;
+use rbuilder_primitives::{
+    order_statistics::OrderStatistics, MempoolTx, Order, SimValue, SimulatedOrder,
+    TransactionSignedEcRecoveredWithBlobs,
 };
 use std::{
     path::{Path, PathBuf},
@@ -49,7 +53,7 @@ struct LandedBlockInfo {
 
 impl LandedBlockInfo {
     pub async fn new(path: impl AsRef<Path>, block: u64) -> eyre::Result<Self> {
-        let config: Config = load_config_toml_and_env(path)?;
+        let config: Config = load_toml_config(path)?;
         let mut historical_data_storage =
             HistoricalDataStorage::new_from_path(&config.base_config().backtest_fetch_output_file)
                 .await?;
@@ -140,6 +144,7 @@ impl LandedBlockInfo {
             signer,
             Arc::new(MockRootHasher {}),
             false,
+            U256::ZERO,
         ))
     }
 
@@ -157,6 +162,7 @@ impl LandedBlockInfo {
             .into();
         let order_statistics = OrderStatistics::new();
         Ok(BlockBuildingHelperFromProvider::new(
+            BuiltBlockId::ZERO,
             block_state,
             ctx,
             &mut self.local_ctx,

@@ -1,22 +1,20 @@
 use super::{OrderInputConfig, ReplaceableOrderPoolCommand};
-use crate::{
-    primitives::{
-        serialize::{
-            RawBundle, RawBundleDecodeResult, RawShareBundle, RawShareBundleDecodeResult, RawTx,
-            TxEncoding,
-        },
-        BundleReplacementData, BundleReplacementKey, MempoolTx, Order, OrderId,
-    },
-    telemetry::{
-        add_rpc_processing_time, inc_order_input_rpc_errors, mark_command_received,
-        scope_meter::ScopeMeter,
-    },
+use crate::telemetry::{
+    add_rpc_processing_time, inc_order_input_rpc_errors, mark_command_received,
+    scope_meter::ScopeMeter,
 };
 use alloy_primitives::{Address, Bytes};
 use jsonrpsee::{
     server::Server,
     types::{ErrorObject, Params},
     IntoResponse, RpcModule,
+};
+use rbuilder_primitives::{
+    serialize::{
+        RawBundle, RawBundleDecodeResult, RawShareBundle, RawShareBundleDecodeResult, RawTx,
+        TxEncoding,
+    },
+    BundleReplacementData, BundleReplacementKey, MempoolTx, Order, OrderId,
 };
 use serde::Deserialize;
 use std::{
@@ -96,8 +94,11 @@ pub async fn start_server_accepting_bundles(
         handle_cancel_bundle(results_clone.clone(), timeout, params)
     })?;
 
+    let builder_address = config.builder_address;
+    let system_recipient_allowlist = Arc::new(config.system_recipient_allowlist.clone());
     let results_clone = results.clone();
     register_metered_async_method(&mut module, ETH_SEND_RAW_TRANSACTION, move |params, _| {
+        let system_recipient_allowlist = system_recipient_allowlist.clone();
         let results = results_clone.clone();
         async move {
             let received_at = OffsetDateTime::now_utc();
@@ -112,7 +113,7 @@ pub async fn start_server_accepting_bundles(
             };
             let raw_tx_order = RawTx { tx: raw_tx };
 
-            let tx: MempoolTx = match raw_tx_order.decode(TxEncoding::WithBlobData) {
+            let mut tx: MempoolTx = match raw_tx_order.decode(TxEncoding::WithBlobData) {
                 Ok(tx) => tx,
                 Err(err) => {
                     warn!(?err, "Failed to decode raw transaction");
@@ -124,11 +125,22 @@ pub async fn start_server_accepting_bundles(
                     ));
                 }
             };
+
+            // Check if the received transaction is a system transaction.
+            if tx.tx_with_blobs.signer() == builder_address
+                && tx
+                    .tx_with_blobs
+                    .to()
+                    .is_some_and(|to| system_recipient_allowlist.contains(&to))
+            {
+                tx.tx_with_blobs.metadata.set_system(true);
+            }
+
             let hash = tx.tx_with_blobs.hash();
             let order = Order::Tx(tx);
             let parse_duration = start.elapsed();
             trace!(order = ?order.id(), parse_duration_mus = parse_duration.as_micros(), "Received mempool tx from API");
-            send_order(order, &results, timeout, received_at, None).await;
+            send_order(order, &results, timeout, received_at).await;
             Ok(hash)
         }
     })?;
@@ -170,10 +182,6 @@ async fn handle_eth_send_bundle(
         }
     };
 
-    let first_seen_at = raw_bundle.first_seen_at.and_then(|ts| {
-        let ts_nanos = (ts * 1_000_000_000.0) as i128;
-        OffsetDateTime::from_unix_timestamp_nanos(ts_nanos).ok()
-    });
     let bundle_res = match raw_bundle.decode(TxEncoding::WithBlobData) {
         Ok(bundle_res) => bundle_res,
         Err(err) => {
@@ -199,7 +207,7 @@ async fn handle_eth_send_bundle(
             let parse_duration = start.elapsed();
             let target_block = order.target_block().unwrap_or_default();
             trace!(order = ?order.id(), parse_duration_mus = parse_duration.as_micros(), target_block, "Received bundle");
-            send_order(order, &results, timeout, received_at, first_seen_at).await;
+            send_order(order, &results, timeout, received_at).await;
         }
         RawBundleDecodeResult::CancelBundle(replacement_data) => {
             send_command(
@@ -207,7 +215,6 @@ async fn handle_eth_send_bundle(
                 &results,
                 timeout,
                 received_at,
-                first_seen_at,
             )
             .await;
         }
@@ -245,7 +252,7 @@ async fn handle_mev_send_bundle(
             let parse_duration = start.elapsed();
             let target_block = order.target_block().unwrap_or_default();
             trace!(order = ?order.id(), parse_duration_mus = parse_duration.as_micros(), target_block, "Received share bundle");
-            send_order(order, &results, timeout, received_at, None).await;
+            send_order(order, &results, timeout, received_at).await;
         }
         RawShareBundleDecodeResult::CancelShareBundle(cancel) => {
             trace!(cancel = ?cancel, "Received share bundle cancellation");
@@ -254,7 +261,6 @@ async fn handle_mev_send_bundle(
                 &results,
                 timeout,
                 received_at,
-                None,
             )
             .await;
         }
@@ -266,14 +272,12 @@ async fn send_order(
     channel: &mpsc::Sender<ReplaceableOrderPoolCommand>,
     timeout: Duration,
     received_at: OffsetDateTime,
-    first_seen_at: Option<OffsetDateTime>,
 ) {
     send_command(
         ReplaceableOrderPoolCommand::Order(order),
         channel,
         timeout,
         received_at,
-        first_seen_at,
     )
     .await;
 }
@@ -284,9 +288,8 @@ async fn send_command(
     channel: &mpsc::Sender<ReplaceableOrderPoolCommand>,
     timeout: Duration,
     received_at: OffsetDateTime,
-    first_seen_at: Option<OffsetDateTime>,
 ) {
-    mark_command_received(&command, received_at, first_seen_at);
+    mark_command_received(&command, received_at);
     match channel.send_timeout(command, timeout).await {
         Ok(()) => {}
         Err(SendTimeoutError::Timeout(_)) => {
@@ -335,7 +338,6 @@ async fn handle_cancel_bundle(
         &results,
         timeout,
         received_at,
-        None,
     )
     .await;
 }

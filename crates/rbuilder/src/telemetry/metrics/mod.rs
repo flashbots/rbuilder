@@ -9,7 +9,6 @@
 use crate::{
     building::BuiltBlockTrace,
     live_builder::block_list_provider::{blocklist_hash, BlockList},
-    primitives::mev_boost::MevBoostRelayID,
     utils::{build_info::Version, duration_ms},
 };
 use alloy_consensus::constants::GWEI_TO_WEI;
@@ -21,9 +20,11 @@ use lazy_static::lazy_static;
 use metrics_macros::register_metrics;
 use parking_lot::Mutex;
 use prometheus::{
+    core::{Atomic, AtomicF64, AtomicI64, GenericGauge},
     Counter, Gauge, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
     Opts, Registry,
 };
+use rbuilder_primitives::mev_boost::MevBoostRelayID;
 use std::{
     sync::Arc,
     time::{Duration, Instant},
@@ -64,8 +65,66 @@ fn is_now_close_to_slot_end(block_timestamp: OffsetDateTime) -> bool {
     !too_early && !too_late
 }
 
+pub const MAX_FRESH_GAUGE_AGE: Duration = Duration::from_secs(60);
+
+/// Represents a Gauge that is always "fresh".
+/// If the info gets old the gauge is unregistered.
+/// @Pending: add this to crates/rbuilder/src/telemetry/servers/full.rs automatically (macro?).
+pub struct FreshGauge<P: Atomic + 'static> {
+    gauge: GenericGauge<P>,
+    last_update: Mutex<Option<OffsetDateTime>>,
+}
+
+impl<P: Atomic + 'static> FreshGauge<P> {
+    pub fn new(gauge: GenericGauge<P>) -> Self {
+        Self {
+            gauge: gauge.clone(),
+            last_update: Mutex::new(None),
+        }
+    }
+
+    fn update_use(&self) {
+        let mut last_update = self.last_update.lock();
+        if last_update.is_none() {
+            let _ = REGISTRY.register(Box::new(self.gauge.clone()));
+        }
+        *last_update = Some(OffsetDateTime::now_utc());
+    }
+
+    pub fn check_if_fresh(&self, now: OffsetDateTime) {
+        let mut last_update = self.last_update.lock();
+        if last_update.is_some_and(|last_update| last_update + MAX_FRESH_GAUGE_AGE < now) {
+            let _ = REGISTRY.unregister(Box::new(self.gauge.clone()));
+            *last_update = None;
+        }
+    }
+
+    pub fn set(&self, v: P::T) {
+        self.update_use();
+        self.gauge.set(v);
+    }
+}
+
 lazy_static! {
     pub static ref REGISTRY: Registry = Registry::new();
+    pub static ref BUILDER_BALANCE: FreshGauge<AtomicF64> = FreshGauge::<AtomicF64>::new(
+        Gauge::new("rbuilder_coinbase_balance", "balance of builder coinbase").unwrap()
+    );
+    pub static ref CURRENT_BLOCK: FreshGauge<AtomicI64> =
+        FreshGauge::<AtomicI64>::new(IntGauge::new("current_block", "Current Block").unwrap());
+    pub static ref ORDERPOOL_TXS: FreshGauge<AtomicI64> = FreshGauge::<AtomicI64>::new(
+        IntGauge::new("orderpool_txs", "Transactions In The Orderpool").unwrap()
+    );
+    pub static ref ORDERPOOL_TXS_SIZE: FreshGauge<AtomicI64> = FreshGauge::<AtomicI64>::new(
+        IntGauge::new(
+            "orderpool_txs_size",
+            "Aprox in memory size of transactions in the Orderpool (bytes)"
+        )
+        .unwrap()
+    );
+    pub static ref ORDERPOOL_BUNDLES: FreshGauge<AtomicI64> = FreshGauge::<AtomicI64>::new(
+        IntGauge::new("orderpool_bundles", "Bundles In The Orderpool").unwrap()
+    );
 }
 
 register_metrics! {
@@ -126,16 +185,6 @@ register_metrics! {
         &["relay_name", "publisher_name", "publisher_type"]
     )
     .unwrap();
-
-    pub static CURRENT_BLOCK: IntGauge =
-        IntGauge::new("current_block", "Current Block").unwrap();
-    pub static ORDERPOOL_TXS: IntGauge =
-        IntGauge::new("orderpool_txs", "Transactions In The Orderpool").unwrap();
-
-    pub static ORDERPOOL_TXS_SIZE: IntGauge =
-        IntGauge::new("orderpool_txs_size", "Aprox in memory size of transactions in the Orderpool (bytes)").unwrap();
-    pub static ORDERPOOL_BUNDLES: IntGauge =
-        IntGauge::new("orderpool_bundles", "Bundles In The Orderpool").unwrap();
 
     pub static ORDERPOOL_ORDERS_RECEIVED: IntCounterVec = IntCounterVec::new(
         Opts::new("orderpool_commands_received", "counter of orders received"),
@@ -249,7 +298,6 @@ register_metrics! {
      // SUBSIDY
      /////////////////////////////////
 
-    pub static BUILDER_BALANCE: Gauge = Gauge::new("rbuilder_coinbase_balance", "balance of builder coinbase").unwrap();
 
     /// We decide this at the end of the submission to relays
     pub static SUBSIDIZED_BLOCK_COUNT: IntCounterVec = IntCounterVec::new(
@@ -329,13 +377,7 @@ register_metrics! {
     // 1. Cover as many lines of code as possible without any gaps.
     // 2. Show E2E latency of the order that could be executed immediately and also arrived towards the end of the slot.
     // The path of order goes as follows:
-    // First seen(on infra) -> Received -> Simulated -> (builders start to build a block with it) -> block sealed -> block submit started
-    pub static ORDER_FIRST_SEEN_TO_ORDER_RECEIVED: HistogramVec = HistogramVec::new(
-        HistogramOpts::new("order_first_seen_to_received", "Time between when the order was first seen on infra in front of the builder and when it was received. (ms)")
-            .buckets(exponential_buckets_range(0.01, 2000.0, 300)),
-        &[]
-    )
-    .unwrap();
+    // Received -> Simulated -> (builders start to build a block with it) -> block sealed -> block submit started
     pub static ORDER_RECEIVED_TO_SIM_END_TIME: HistogramVec = HistogramVec::new(
         HistogramOpts::new("order_received_to_sim_end_time", "Time between when the order was received and top of the block simulation ended for orders that arrive after slot start. (ms)")
             .buckets(exponential_buckets_range(0.01, 200.0, 200)),
@@ -363,6 +405,13 @@ register_metrics! {
     pub static BLOCK_SEAL_END_SUBMIT_START_TIME: HistogramVec = HistogramVec::new(
         HistogramOpts::new("block_seal_end_submit_start_time", "Time between when the block sealed ended and the block submission started. (ms)")
             .buckets(exponential_buckets_range(0.01, 500.0, 300)),
+        &[]
+    )
+    .unwrap();
+
+    pub static TRIGGER_TO_BID_ROUND_TRIP_TIME: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("trigger_to_bid_round_trip_time_us", "Time (in microseconds) it takes from a trigger (new block or competition bid) to get a new bid to make")
+            .buckets(exponential_buckets_range(50.0, 2000000.0, 200)),
         &[]
     )
     .unwrap();
@@ -399,7 +448,6 @@ pub fn reset_histogram_metrics() {
     RELAY_SUBMIT_TIME.reset();
     TXFETCHER_TRANSACTION_QUERY_TIME.reset();
     SUBSIDY_VALUE.reset();
-    ORDER_FIRST_SEEN_TO_ORDER_RECEIVED.reset();
     ORDER_RECEIVED_TO_SIM_END_TIME.reset();
     ORDER_SIM_END_TO_FIRST_BUILD_STARTED_TIME.reset();
     ORDER_SIM_END_TO_FIRST_BUILD_STARTED_MIN_TIME.reset();
@@ -800,4 +848,10 @@ pub fn add_ordering_builder_pre_filtered_stage_stats(
     ratio: OrderInclusionRatio,
 ) {
     add_ordering_builder_orders_executed(builder_name, BUILDING_STEP_PRE_FILTERED, ratio);
+}
+
+pub fn add_trigger_to_bid_round_trip_time(duration: time::Duration) {
+    TRIGGER_TO_BID_ROUND_TRIP_TIME
+        .with_label_values(&[])
+        .observe(duration.as_seconds_f64() * 1_000_000.0);
 }
