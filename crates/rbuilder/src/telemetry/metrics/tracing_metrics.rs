@@ -103,7 +103,7 @@ pub fn mark_command_received(command: &ReplaceableOrderPoolCommand, received_at:
             }
         }
         ReplaceableOrderPoolCommand::CancelShareBundle(_)
-        | ReplaceableOrderPoolCommand::CancelBundle(_) => "replacement",
+        | ReplaceableOrderPoolCommand::CancelBundle(_) => "cancel",
     };
     ORDERPOOL_ORDERS_RECEIVED.with_label_values(&[kind]).inc();
 }

@@ -18,7 +18,7 @@ use crate::{
         watchdog::spawn_watchdog_thread,
     },
     provider::StateProviderFactory,
-    telemetry::{inc_active_slots, mark_building_started, reset_histogram_metrics},
+    telemetry::{inc_active_slots, mark_building_started},
     utils::{
         error_storage::spawn_error_storage_writer, format_offset_datetime_rfc3339,
         mevblocker::get_mevblocker_price, provider_head_state::ProviderHeadState, Signer,
@@ -210,8 +210,6 @@ where
 
         ready_to_build.store(true, Ordering::Relaxed);
         while let Some(payload) = payload_events_channel.recv().await {
-            reset_histogram_metrics();
-
             let blocklist = self.blocklist_provider.get_blocklist()?;
             if blocklist.contains(&payload.fee_recipient()) {
                 warn!(
