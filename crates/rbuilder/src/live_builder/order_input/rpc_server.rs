@@ -140,7 +140,7 @@ pub async fn start_server_accepting_bundles(
             let order = Order::Tx(tx);
             let parse_duration = start.elapsed();
             trace!(order = ?order.id(), parse_duration_mus = parse_duration.as_micros(), "Received mempool tx from API");
-            send_order(order, &results, timeout, received_at, None).await;
+            send_order(order, &results, timeout, received_at).await;
             Ok(hash)
         }
     })?;
@@ -182,10 +182,6 @@ async fn handle_eth_send_bundle(
         }
     };
 
-    let first_seen_at = raw_bundle.first_seen_at.and_then(|ts| {
-        let ts_nanos = (ts * 1_000_000_000.0) as i128;
-        OffsetDateTime::from_unix_timestamp_nanos(ts_nanos).ok()
-    });
     let bundle_res = match raw_bundle.decode(TxEncoding::WithBlobData) {
         Ok(bundle_res) => bundle_res,
         Err(err) => {
@@ -211,7 +207,7 @@ async fn handle_eth_send_bundle(
             let parse_duration = start.elapsed();
             let target_block = order.target_block().unwrap_or_default();
             trace!(order = ?order.id(), parse_duration_mus = parse_duration.as_micros(), target_block, "Received bundle");
-            send_order(order, &results, timeout, received_at, first_seen_at).await;
+            send_order(order, &results, timeout, received_at).await;
         }
         RawBundleDecodeResult::CancelBundle(replacement_data) => {
             send_command(
@@ -219,7 +215,6 @@ async fn handle_eth_send_bundle(
                 &results,
                 timeout,
                 received_at,
-                first_seen_at,
             )
             .await;
         }
@@ -257,7 +252,7 @@ async fn handle_mev_send_bundle(
             let parse_duration = start.elapsed();
             let target_block = order.target_block().unwrap_or_default();
             trace!(order = ?order.id(), parse_duration_mus = parse_duration.as_micros(), target_block, "Received share bundle");
-            send_order(order, &results, timeout, received_at, None).await;
+            send_order(order, &results, timeout, received_at).await;
         }
         RawShareBundleDecodeResult::CancelShareBundle(cancel) => {
             trace!(cancel = ?cancel, "Received share bundle cancellation");
@@ -266,7 +261,6 @@ async fn handle_mev_send_bundle(
                 &results,
                 timeout,
                 received_at,
-                None,
             )
             .await;
         }
@@ -278,14 +272,12 @@ async fn send_order(
     channel: &mpsc::Sender<ReplaceableOrderPoolCommand>,
     timeout: Duration,
     received_at: OffsetDateTime,
-    first_seen_at: Option<OffsetDateTime>,
 ) {
     send_command(
         ReplaceableOrderPoolCommand::Order(order),
         channel,
         timeout,
         received_at,
-        first_seen_at,
     )
     .await;
 }
@@ -296,9 +288,8 @@ async fn send_command(
     channel: &mpsc::Sender<ReplaceableOrderPoolCommand>,
     timeout: Duration,
     received_at: OffsetDateTime,
-    first_seen_at: Option<OffsetDateTime>,
 ) {
-    mark_command_received(&command, received_at, first_seen_at);
+    mark_command_received(&command, received_at);
     match channel.send_timeout(command, timeout).await {
         Ok(()) => {}
         Err(SendTimeoutError::Timeout(_)) => {
@@ -347,7 +338,6 @@ async fn handle_cancel_bundle(
         &results,
         timeout,
         received_at,
-        None,
     )
     .await;
 }
