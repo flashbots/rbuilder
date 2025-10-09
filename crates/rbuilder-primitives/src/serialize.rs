@@ -137,6 +137,9 @@ pub struct RawBundle {
     /// Address of the bundle sender.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signing_address: Option<Address>,
+    // refundIdentity (Optional) `String`, Address that BuilderNet refunds should be sent to instead of the bundle signer.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refund_identity: Option<Address>,
     /// minTimestamp (Optional) `Number`, the minimum timestamp for which this bundle is valid, in
     /// seconds since the unix epoch
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -268,6 +271,7 @@ impl RawBundle {
             min_timestamp: self.min_timestamp,
             max_timestamp: self.max_timestamp.filter(|t| *t != 0),
             signer: self.signing_address,
+            refund_identity: self.refund_identity,
             metadata: Default::default(),
             dropping_tx_hashes: self.dropping_tx_hashes,
             refund,
@@ -411,6 +415,7 @@ impl RawBundle {
             replacement_uuid,
             uuid: replacement_uuid,
             signing_address,
+            refund_identity: value.refund_identity,
             min_timestamp: value.min_timestamp,
             max_timestamp: value.max_timestamp,
             replacement_nonce,

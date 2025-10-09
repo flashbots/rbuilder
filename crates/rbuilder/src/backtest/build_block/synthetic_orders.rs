@@ -92,6 +92,7 @@ impl<ConfigType: LiveBuilderConfig> SyntheticOrdersSource<ConfigType> {
                 uuid: Uuid::nil(),
                 replacement_data: None,
                 signer: None,
+                refund_identity: None,
                 metadata: Metadata {
                     received_at_timestamp: time::OffsetDateTime::from_unix_timestamp(0).unwrap(),
                     is_system: false,

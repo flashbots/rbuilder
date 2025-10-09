@@ -199,6 +199,7 @@ pub struct Bundle {
     /// Bundle signer is redundant with self.signer.
     pub replacement_data: Option<BundleReplacementData>,
     pub signer: Option<Address>,
+    pub refund_identity: Option<Address>,
 
     #[derivative(PartialEq = "ignore", Hash = "ignore")]
     pub metadata: Metadata,

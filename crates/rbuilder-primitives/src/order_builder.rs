@@ -214,6 +214,7 @@ impl BundleBuilder {
             uuid: Default::default(),
             replacement_data: self.replacement_data,
             signer: None,
+            refund_identity: None,
             metadata: Default::default(),
             dropping_tx_hashes,
             refund: self.refund,
