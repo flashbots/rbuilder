@@ -208,7 +208,6 @@ mod tests {
             order_input::order_sink::OrderPoolCommand,
             simulation::simulation_job_tracer::NullSimulationJobTracer,
         },
-        primitives::{MempoolTx, Order, TransactionSignedEcRecoveredWithBlobs},
         utils::ProviderFactoryReopener,
     };
     use alloy_primitives::U256;
