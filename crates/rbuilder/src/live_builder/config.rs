@@ -39,8 +39,10 @@ use crate::{
         payload_events::MevBoostSlotDataGenerator,
     },
     mev_boost::{
-        bloxroute_grpc, optimistic_v3, BLSBlockSigner, MevBoostRelayBidSubmitter,
-        MevBoostRelaySlotInfoProvider, RelayClient, RelayConfig, RelaySubmitConfig,
+        bloxroute_grpc,
+        optimistic_v3::{self, OPTIMISTIC_V3_CHANNEL_SIZE},
+        BLSBlockSigner, MevBoostRelayBidSubmitter, MevBoostRelaySlotInfoProvider, RelayClient,
+        RelayConfig, RelaySubmitConfig,
     },
     provider::StateProviderFactory,
     roothash::RootHashContext,
@@ -394,7 +396,8 @@ impl L1Config {
                 warn!("Optimistic V3 is enabled, but no relay pubkeys have been configured");
             }
 
-            let (optimistic_v3_block_tx, optimistic_v3_block_rx) = broadcast::channel(100);
+            let (optimistic_v3_block_tx, optimistic_v3_block_rx) =
+                broadcast::channel(OPTIMISTIC_V3_CHANNEL_SIZE);
             optimistic_v3::spawn_server(
                 address,
                 signing_domain,

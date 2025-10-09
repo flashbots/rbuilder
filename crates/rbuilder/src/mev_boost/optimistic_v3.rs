@@ -28,8 +28,15 @@ register_metrics! {
    pub static BLOCK_NOT_FOUND_TOTAL: IntCounter = IntCounter::new("relay_server_block_not_found", "The total number of block not found errors on the optimistic V3 relay server").unwrap();
 }
 
+/// The channel buffer size for optimistic V3 broadcast channel
+pub const OPTIMISTIC_V3_CHANNEL_SIZE: usize = 100;
+
 /// The default number of blocks to keep in cache. With bid update latency of 1ms this would preserve the last second worth of submitted blocks.
 pub const OPTIMISTIC_V3_CACHE_SIZE_DEFAULT: u32 = 1_000;
+
+/// The content length limit for the incoming relay requests. The actual raw data should fit in roughly
+/// 96 (signature) + 32 (block hash) + 8 (timestamp) + 48 (pubkey) bytes plus the encoding overhead.
+pub const OPTIMISTIC_V3_SERVER_CONTENT_LENGTH_LIMIT: u64 = 1_024;
 
 /// Endpoint for returning for block payloads to the relays.
 /// Reference: <https://ethresear.ch/t/introduction-to-optimistic-v3-relays/22066#p-53641-technical-specification-8>
@@ -63,7 +70,9 @@ pub fn spawn_server(
         .and(warp::post())
         .and(warp::any().map(move || handler.clone()))
         .and(warp::header::<String>("content-type"))
-        .and(warp::body::content_length_limit(1_024))
+        .and(warp::body::content_length_limit(
+            OPTIMISTIC_V3_SERVER_CONTENT_LENGTH_LIMIT,
+        ))
         .and(warp::body::bytes())
         .map(Handler::get_payload_v3);
     tokio::spawn(warp::serve(path).run(address));
@@ -130,7 +139,6 @@ impl Handler {
             })?
         };
 
-        // TODO: remove bid adjustment data
         let (body, content_ty) = if is_json {
             let json = serde_json::to_vec(&block).map_err(|error| {
                 error!(target: "relay_server", %relay_pubkey, %block_hash, ?error, "error serializing the block");
