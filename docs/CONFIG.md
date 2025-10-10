@@ -17,6 +17,7 @@ Every field has a default if omitted.
 |el_node_ipc_path|optional string| Path for Ipc communication with reth's mempool, Usually something like "/tmp/reth.ipc". If not set mempool will not be used as a source of txs|None|
 |jsonrpc_server_port| int| |8645|
 |jsonrpc_server_ip|string||"0.0.0.0"|
+|jsonrpc_server_max_connections|int|The maximum number of connections|4096|
 |ignore_cancellable_orders|bool|If true any order with replacement id will be dropped|true|
 |ignore_blobs|bool|If true txs with blobs will be ignored|false|
 |chain|string| |"mainnet"|

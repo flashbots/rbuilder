@@ -74,6 +74,7 @@ pub struct BaseConfig {
     pub jsonrpc_server_port: u16,
     #[serde(default = "default_ip")]
     pub jsonrpc_server_ip: Ipv4Addr,
+    pub jsonrpc_server_max_connections: Option<u32>,
 
     pub ignore_cancellable_orders: bool,
     pub ignore_blobs: bool,
@@ -464,6 +465,7 @@ impl Default for BaseConfig {
             el_node_ipc_path: None,
             jsonrpc_server_port: DEFAULT_INCOMING_BUNDLES_PORT,
             jsonrpc_server_ip: default_ip(),
+            jsonrpc_server_max_connections: None,
             ignore_cancellable_orders: true,
             ignore_blobs: false,
             chain: "mainnet".to_string(),
