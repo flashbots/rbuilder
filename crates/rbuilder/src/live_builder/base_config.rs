@@ -140,6 +140,9 @@ pub struct BaseConfig {
     /// List of `builders` to be used for live building
     pub live_builders: Vec<String>,
 
+    /// See [BlockBuildingHelperFromProvider::max_order_execution_duration_warning]
+    pub max_order_execution_duration_warning_us: Option<u64>,
+
     /// Config for IPC state provider
     pub ipc_provider: Option<IpcProviderConfig>,
 
@@ -466,6 +469,10 @@ impl BaseConfig {
 
         Ok(path_expanded.parse()?)
     }
+    pub fn max_order_execution_duration_warning(&self) -> Option<Duration> {
+        self.max_order_execution_duration_warning_us
+            .map(Duration::from_micros)
+    }
 }
 
 pub const DEFAULT_CL_NODE_URL: &str = "http://127.0.0.1:3500";
@@ -530,6 +537,7 @@ impl Default for BaseConfig {
             orderflow_tracing_store_path: None,
             orderflow_tracing_max_blocks: 0,
             system_recipient_allowlist: Vec::new(),
+            max_order_execution_duration_warning_us: None,
         }
     }
 }

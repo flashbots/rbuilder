@@ -27,6 +27,7 @@ use std::{
         atomic::{AtomicU64, Ordering},
         Arc,
     },
+    time::Duration,
 };
 use tokio::sync::{
     broadcast,
@@ -91,6 +92,7 @@ pub struct LiveBuilderInput<P> {
     pub cancel: CancellationToken,
     pub built_block_cache: Arc<BuiltBlockCache>,
     pub built_block_id_source: Arc<BuiltBlockIdSource>,
+    pub max_order_execution_duration_warning: Option<Duration>,
 }
 
 /// Struct that helps reading new orders/cancellations

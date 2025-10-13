@@ -5,7 +5,10 @@ use super::{
 use ahash::HashMap;
 use alloy_primitives::utils::format_ether;
 use reth_provider::StateProvider;
-use std::{sync::Arc, time::Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
 use tracing::{info_span, trace};
@@ -39,6 +42,7 @@ pub struct BlockBuildingResultAssembler {
     run_id: u64,
     last_version: Option<u64>,
     built_block_id_source: Arc<BuiltBlockIdSource>,
+    max_order_execution_duration_warning: Option<Duration>,
 }
 
 impl BlockBuildingResultAssembler {
@@ -60,6 +64,7 @@ impl BlockBuildingResultAssembler {
         builder_name: String,
         sink: Option<UnfinishedBuiltBlocksInput>,
         built_block_id_source: Arc<BuiltBlockIdSource>,
+        max_order_execution_duration_warning: Option<Duration>,
     ) -> Self {
         Self {
             state,
@@ -73,6 +78,7 @@ impl BlockBuildingResultAssembler {
             run_id: 0,
             last_version: None,
             built_block_id_source,
+            max_order_execution_duration_warning,
         }
     }
 
@@ -189,6 +195,7 @@ impl BlockBuildingResultAssembler {
             self.discard_txs,
             OrderStatistics::default(),
             self.cancellation_token.clone(),
+            self.max_order_execution_duration_warning,
         )?;
         block_building_helper.set_trace_orders_closed_at(orders_closed_at);
 
@@ -263,6 +270,7 @@ impl BlockBuildingResultAssembler {
             self.discard_txs,
             OrderStatistics::default(),
             CancellationToken::new(),
+            self.max_order_execution_duration_warning,
         )?;
 
         block_building_helper.set_trace_orders_closed_at(orders_closed_at);

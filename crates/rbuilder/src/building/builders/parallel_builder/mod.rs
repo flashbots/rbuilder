@@ -22,7 +22,7 @@ use simulation_cache::SharedSimulationCache;
 use std::{
     sync::{mpsc as std_mpsc, Arc},
     thread,
-    time::Instant,
+    time::{Duration, Instant},
 };
 use task::*;
 use time::OffsetDateTime;
@@ -134,6 +134,7 @@ where
             input.builder_name.clone(),
             Some(input.sink.clone()),
             input.built_block_id_source.clone(),
+            input.max_order_execution_duration_warning,
         );
 
         let order_intake_consumer = OrderIntakeStore::new(input.input);
@@ -352,6 +353,7 @@ where
         String::from("backtest_builder"),
         None,
         Arc::new(BuiltBlockIdSource::new()),
+        None,
     );
     let assembler_duration = assembler_start.elapsed();
 
@@ -394,12 +396,21 @@ where
 #[derive(Debug)]
 pub struct ParallelBuildingAlgorithm {
     config: ParallelBuilderConfig,
+    max_order_execution_duration_warning: Option<Duration>,
     name: String,
 }
 
 impl ParallelBuildingAlgorithm {
-    pub fn new(config: ParallelBuilderConfig, name: String) -> Self {
-        Self { config, name }
+    pub fn new(
+        config: ParallelBuilderConfig,
+        max_order_execution_duration_warning: Option<Duration>,
+        name: String,
+    ) -> Self {
+        Self {
+            config,
+            max_order_execution_duration_warning,
+            name,
+        }
     }
 }
 
@@ -421,6 +432,7 @@ where
             cancel: input.cancel,
             built_block_cache: input.built_block_cache,
             built_block_id_source: input.built_block_id_source,
+            max_order_execution_duration_warning: self.max_order_execution_duration_warning,
         };
         run_parallel_builder(live_input, &self.config);
     }

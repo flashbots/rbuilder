@@ -7,7 +7,7 @@ use std::{
 };
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, trace};
+use tracing::{debug, error, trace, warn};
 
 use crate::{
     building::{
@@ -157,6 +157,10 @@ pub struct BlockBuildingHelperFromProvider<
     cancel_on_fatal_error: CancellationToken,
 
     finalize_adjustment_state: Option<FinalizeAdjustmentState>,
+
+    /// If an order execution duration (commit_order) is greater than this, we will log a warning with some info about the order.
+    /// This probably should not be implemented here and should be a wrapper but this is simpler.
+    max_order_execution_duration_warning: Option<Duration>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -209,6 +213,7 @@ impl BlockBuildingHelperFromProvider<NullPartialBlockExecutionTracer> {
         discard_txs: bool,
         available_orders_statistics: OrderStatistics,
         cancel_on_fatal_error: CancellationToken,
+        max_order_execution_duration_warning: Option<Duration>,
     ) -> Result<Self, BlockBuildingHelperError> {
         BlockBuildingHelperFromProvider::new_with_execution_tracer(
             built_block_id,
@@ -220,6 +225,7 @@ impl BlockBuildingHelperFromProvider<NullPartialBlockExecutionTracer> {
             available_orders_statistics,
             cancel_on_fatal_error,
             NullPartialBlockExecutionTracer {},
+            max_order_execution_duration_warning,
         )
     }
 }
@@ -244,6 +250,7 @@ impl<
         available_orders_statistics: OrderStatistics,
         cancel_on_fatal_error: CancellationToken,
         partial_block_execution_tracer: PartialBlockExecutionTracerType,
+        max_order_execution_duration_warning: Option<Duration>,
     ) -> Result<Self, BlockBuildingHelperError> {
         let last_committed_block = building_ctx.block() - 1;
         check_block_hash_reader_health(last_committed_block, &state_provider)?;
@@ -280,6 +287,7 @@ impl<
             built_block_trace,
             cancel_on_fatal_error,
             finalize_adjustment_state: None,
+            max_order_execution_duration_warning,
         })
     }
 
@@ -504,6 +512,12 @@ impl<
             Err(e) => (Err(e), false),
         };
         add_order_simulation_time(sim_time, &self.builder_name, sim_ok);
+        if self
+            .max_order_execution_duration_warning
+            .is_some_and(|max_dur| sim_time > max_dur)
+        {
+            warn!(sim_ok,?sim_time,builder_name=self.builder_name,id = ?order.id(),txs = ?order.order.list_txs().iter().map(|(tx, _)| tx.hash()).collect::<Vec<_>>(), "Slow order execution");
+        }
         result
     }
 

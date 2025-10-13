@@ -81,6 +81,7 @@ Every field has a default if omitted.
 |cl_node_url|vec[env/stirng]| Array if urls to CL clients to get the new payload events|["http://127.0.0.1:3500"]
 |genesis_fork_version|optional string|Genesis fork version for the chain. If not provided it will be fetched from the beacon client.|None|
 |relay_bid_scrapers||See [bid scraper publishers](../crates/bid-scraper/README.md) |Empty|
+|max_order_execution_duration_warning_us|optional u64| If set, while building a block if an order execution duration is greater than this, we will log a warning with some info about the order.|None|
 ## Building algorithms
 rbuilder can multiple building algorithms and each algorithm can be instantiated multiple times with it's own set of parameters each time.
 Each instantiated algorithm starts with:
