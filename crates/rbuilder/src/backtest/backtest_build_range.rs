@@ -230,7 +230,10 @@ where
                 print_backtest_value_diff(&stored_result, &o);
             } else if cli.store_backtest {
                 backtest_results_storage
-                    .store_backtest_results(time::OffsetDateTime::now_utc(), &[o.clone()])
+                    .store_backtest_results(
+                        time::OffsetDateTime::now_utc(),
+                        std::slice::from_ref(&o),
+                    )
                     .await?;
                 print_backtest_value(o);
             } else {

@@ -3,7 +3,10 @@ use crate::telemetry::{add_txfetcher_time_to_query, mark_command_received};
 use alloy_primitives::FixedBytes;
 use alloy_provider::{IpcConnect, Provider, ProviderBuilder};
 use futures::StreamExt;
-use rbuilder_primitives::{MempoolTx, Order, TransactionSignedEcRecoveredWithBlobs};
+use rbuilder_primitives::{
+    serialize::TxEncoding, MempoolTx, Order, RawTransactionDecodable,
+    TransactionSignedEcRecoveredWithBlobs,
+};
 use std::{pin::pin, time::Instant};
 use time::OffsetDateTime;
 use tokio::{
@@ -105,9 +108,8 @@ async fn get_tx_with_blobs(
     let Some(response) = provider.get_raw_transaction_by_hash(tx_hash).await? else {
         return Ok(None);
     };
-    Ok(Some(
-        TransactionSignedEcRecoveredWithBlobs::decode_enveloped_with_real_blobs(response)?,
-    ))
+    let raw_decodable = RawTransactionDecodable::new(response, TxEncoding::WithBlobData);
+    Ok(Some(raw_decodable.decode_enveloped()?))
 }
 
 #[cfg(test)]

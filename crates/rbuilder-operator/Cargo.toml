@@ -66,6 +66,8 @@ hyper = "0.14"
 hyper-util = "0.1.17"
 http = "0.2.9"
 tower = "0.4"
+iceoryx2 = "0.7.0"
+iceoryx2-bb-container = "0.7.0"
 prometheus.workspace = true
 ctor.workspace = true
 clickhouse = { version = "0.12.2", features = ["time", "uuid", "native-tls"] }

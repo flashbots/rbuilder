@@ -20,6 +20,7 @@ pub mod build_info;
 pub mod constants;
 
 mod noncer;
+pub mod sync;
 pub use noncer::NonceCache;
 
 pub mod error_storage;

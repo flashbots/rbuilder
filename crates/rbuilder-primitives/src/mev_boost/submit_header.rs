@@ -1,6 +1,10 @@
-use crate::mev_boost::adjustment::BidAdjustmentDataV2;
+use crate::mev_boost::{
+    adjustment::BidAdjustmentDataV2,
+    ssz_roots::{calculate_transactions_root_ssz, calculate_withdrawals_root_ssz},
+};
 use alloy_primitives::{Address, Bloom, Bytes, B256, U256};
 use alloy_rpc_types_beacon::{relay::BidTrace, requests::ExecutionRequestsV4, BlsSignature};
+use alloy_rpc_types_engine::ExecutionPayloadV3;
 use serde_with::{serde_as, DisplayFromStr};
 
 /// Optimistic V3 bid submission.
@@ -14,7 +18,7 @@ use serde_with::{serde_as, DisplayFromStr};
     ssz_derive::Encode,
     ssz_derive::Decode,
 )]
-pub struct HeaderSubmissionV3 {
+pub struct HeaderSubmissionOptimisticV3 {
     /// URL pointing to the builder's server endpoint for retrieving
     /// the full block payload if this header is selected.
     pub url: Vec<u8>,
@@ -38,9 +42,24 @@ pub struct HeaderSubmissionV3 {
 )]
 pub struct SignedHeaderSubmission {
     /// Electra header submission.
-    pub message: HeaderSubmissionElectra,
+    pub message: HeaderSubmission,
     /// Builder signature.
     pub signature: BlsSignature,
+}
+
+#[derive(
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    ssz_derive::Encode,
+    ssz_derive::Decode,
+)]
+#[ssz(enum_behaviour = "transparent")]
+pub enum HeaderSubmission {
+    Electra(HeaderSubmissionElectra),
 }
 
 /// Electra header submission.
@@ -124,4 +143,30 @@ pub struct ExecutionPayloadHeaderElectra {
     /// gas consumption decrease it (bounded at 0). This was added in EIP-4844.
     #[serde_as(as = "DisplayFromStr")]
     pub excess_blob_gas: u64,
+}
+
+impl From<&ExecutionPayloadV3> for ExecutionPayloadHeaderElectra {
+    fn from(v3: &ExecutionPayloadV3) -> Self {
+        let v2 = &v3.payload_inner;
+        let v1 = &v2.payload_inner;
+        ExecutionPayloadHeaderElectra {
+            parent_hash: v1.parent_hash,
+            fee_recipient: v1.fee_recipient,
+            state_root: v1.state_root,
+            receipts_root: v1.receipts_root,
+            logs_bloom: v1.logs_bloom,
+            prev_randao: v1.prev_randao,
+            block_number: v1.block_number,
+            gas_limit: v1.gas_limit,
+            gas_used: v1.gas_used,
+            timestamp: v1.timestamp,
+            extra_data: v1.extra_data.clone(),
+            base_fee_per_gas: v1.base_fee_per_gas,
+            block_hash: v1.block_hash,
+            transactions_root: calculate_transactions_root_ssz(&v1.transactions),
+            withdrawals_root: calculate_withdrawals_root_ssz(&v2.withdrawals),
+            blob_gas_used: v3.blob_gas_used,
+            excess_blob_gas: v3.excess_blob_gas,
+        }
+    }
 }

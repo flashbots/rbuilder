@@ -40,6 +40,8 @@ pub use test_data_generator::TestDataGenerator;
 use thiserror::Error;
 use uuid::Uuid;
 
+use crate::serialize::TxEncoding;
+
 /// Extra metadata for an order.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Metadata {
@@ -167,7 +169,7 @@ pub struct BundleRefund {
     pub delayed: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BundleVersion {
     V1,
     V2,
@@ -670,6 +672,47 @@ impl ShareBundle {
     }
 }
 
+#[derive(Error, Debug, derive_more::From)]
+pub enum TxWithBlobsCreateError {
+    #[error("Failed to decode transaction, error: {0}")]
+    FailedToDecodeTransaction(Eip2718Error),
+    #[error("Invalid transaction signature")]
+    InvalidTransactionSignature,
+    #[error("UnexpectedError")]
+    UnexpectedError,
+    /// This error is generated when we fail (like FailedToDecodeTransaction) parsing in TxEncoding::WithBlobData mode (Network encoding) but the header looks
+    /// like the beginning of an ethereum mainnet Canonical encoding 4484 tx.
+    /// To avoid consuming resources the generation of this error might not be perfect but helps 99% of the time.
+    #[error("Failed to decode transaction, error: {0}. It probably is a 4484 canonical tx.")]
+    FailedToDecodeTransactionProbablyIs4484Canonical(alloy_rlp::Error),
+    #[error("Tried to create an EIP4844 transaction without a blob")]
+    Eip4844MissingBlobSidecar,
+    #[error("Tried to create a non-EIP4844 transaction while passing blobs")]
+    BlobsMissingEip4844,
+    #[error("BlobStoreError: {0}")]
+    BlobStore(BlobStoreError),
+}
+
+trait FakeSidecar {
+    fn fake_sidecar(blob_versioned_hashes_len: usize) -> BlobTransactionSidecar;
+}
+
+impl FakeSidecar for BlobTransactionSidecar {
+    fn fake_sidecar(blob_versioned_hashes_len: usize) -> BlobTransactionSidecar {
+        let mut fake_sidecar = BlobTransactionSidecar::default();
+        for _ in 0..blob_versioned_hashes_len {
+            fake_sidecar.blobs.push(Blob::from([0u8; BYTES_PER_BLOB]));
+            fake_sidecar
+                .commitments
+                .push(Bytes48::from([0u8; BYTES_PER_COMMITMENT]));
+            fake_sidecar
+                .proofs
+                .push(Bytes48::from([0u8; BYTES_PER_PROOF]));
+        }
+        fake_sidecar
+    }
+}
+
 /// First idea to handle blobs, might change.
 /// Don't like the fact that blobs_sidecar exists no matter if Recovered<TransactionSigned> contains a non blob tx.
 /// Great effort was put in avoiding simple access to the internal tx so we don't accidentally leak information on logs (particularly the tx sign).
@@ -721,25 +764,36 @@ impl std::fmt::Debug for TransactionSignedEcRecoveredWithBlobs {
     }
 }
 
-#[derive(Error, Debug, derive_more::From)]
-pub enum TxWithBlobsCreateError {
-    #[error("Failed to decode transaction, error: {0}")]
-    FailedToDecodeTransaction(Eip2718Error),
-    #[error("Invalid transaction signature")]
-    InvalidTransactionSignature,
-    #[error("UnexpectedError")]
-    UnexpectedError,
-    /// This error is generated when we fail (like FailedToDecodeTransaction) parsing in TxEncoding::WithBlobData mode (Network encoding) but the header looks
-    /// like the beginning of an ethereum mainnet Canonical encoding 4484 tx.
-    /// To avoid consuming resources the generation of this error might not be perfect but helps 99% of the time.
-    #[error("Failed to decode transaction, error: {0}. It probably is a 4484 canonical tx.")]
-    FailedToDecodeTransactionProbablyIs4484Canonical(alloy_rlp::Error),
-    #[error("Tried to create an EIP4844 transaction without a blob")]
-    Eip4844MissingBlobSidecar,
-    #[error("Tried to create a non-EIP4844 transaction while passing blobs")]
-    BlobsMissingEip4844,
-    #[error("BlobStoreError: {0}")]
-    BlobStore(BlobStoreError),
+impl TryFrom<Recovered<PooledTransactionVariant>> for TransactionSignedEcRecoveredWithBlobs {
+    type Error = TxWithBlobsCreateError;
+
+    fn try_from(value: Recovered<PooledTransactionVariant>) -> Result<Self, Self::Error> {
+        let (tx, signer) = value.into_parts();
+
+        match tx {
+            PooledTransactionVariant::Legacy(_)
+            | PooledTransactionVariant::Eip2930(_)
+            | PooledTransactionVariant::Eip1559(_)
+            | PooledTransactionVariant::Eip7702(_) => {
+                let tx_signed = TransactionSigned::from(tx);
+                TransactionSignedEcRecoveredWithBlobs::new_no_blobs(tx_signed.with_signer(signer))
+            }
+            PooledTransactionVariant::Eip4844(blob_tx) => {
+                let (blob_tx, signature, hash) = blob_tx.into_parts();
+                let (blob_tx, sidecar) = blob_tx.into_parts();
+                let tx_signed = TransactionSigned::new_unchecked(
+                    Transaction::Eip4844(blob_tx),
+                    signature,
+                    hash,
+                );
+                Ok(TransactionSignedEcRecoveredWithBlobs {
+                    tx: tx_signed.with_signer(signer),
+                    blobs_sidecar: Arc::new(sidecar),
+                    metadata: Metadata::default(),
+                })
+            }
+        }
+    }
 }
 
 impl TransactionSignedEcRecoveredWithBlobs {
@@ -877,59 +931,93 @@ impl TransactionSignedEcRecoveredWithBlobs {
         self.tx.encode_2718(&mut buf);
         buf.into()
     }
+}
 
-    /// Decodes the "raw" format of transaction (e.g. `eth_sendRawTransaction`) with the blob data (network format)
-    pub fn decode_enveloped_with_real_blobs(
-        raw_tx: Bytes,
-    ) -> Result<TransactionSignedEcRecoveredWithBlobs, TxWithBlobsCreateError> {
-        let raw_tx = &mut raw_tx.as_ref();
-        let pooled_tx = PooledTransactionVariant::decode_2718(raw_tx)
-            .map_err(TxWithBlobsCreateError::FailedToDecodeTransaction)?;
-        let signer = pooled_tx
-            .recover_signer()
-            .map_err(|_| TxWithBlobsCreateError::InvalidTransactionSignature)?;
-        match pooled_tx {
-            PooledTransactionVariant::Legacy(_)
-            | PooledTransactionVariant::Eip2930(_)
-            | PooledTransactionVariant::Eip1559(_)
-            | PooledTransactionVariant::Eip7702(_) => {
-                let tx_signed = TransactionSigned::from(pooled_tx);
-                TransactionSignedEcRecoveredWithBlobs::new_no_blobs(tx_signed.with_signer(signer))
-            }
-            PooledTransactionVariant::Eip4844(blob_tx) => {
-                let (blob_tx, signature, hash) = blob_tx.into_parts();
-                let (blob_tx, sidecar) = blob_tx.into_parts();
-                let tx_signed = TransactionSigned::new_unchecked(
-                    Transaction::Eip4844(blob_tx),
-                    signature,
-                    hash,
-                );
-                Ok(TransactionSignedEcRecoveredWithBlobs {
-                    tx: tx_signed.with_signer(signer),
-                    blobs_sidecar: Arc::new(sidecar),
-                    metadata: Metadata::default(),
-                })
-            }
+/// Trait alias to lookup the signer of a tx by its hash.
+pub trait SignerLookup: Fn(B256) -> Option<Address> {}
+impl<T: Fn(B256) -> Option<Address>> SignerLookup for T {}
+
+/// Raw transaction bytes along with:
+/// - the encoding used (with or without blob data)
+/// - an optional signer lookup to avoid signature recovery when we already know the signer
+pub struct RawTransactionDecodable<T: SignerLookup> {
+    pub raw: Bytes,
+    pub encoding: TxEncoding,
+    signer_lookup: Option<T>,
+}
+
+impl RawTransactionDecodable<fn(B256) -> Option<Address>> {
+    pub fn new(raw: Bytes, encoding: TxEncoding) -> Self {
+        Self {
+            raw,
+            encoding,
+            signer_lookup: Option::<fn(B256) -> Option<Address>>::None,
         }
     }
-    /// Decodes the "raw" canonical format of transaction (NOT the one used in `eth_sendRawTransaction`) generating fake blob data for backtesting
-    pub fn decode_enveloped_with_fake_blobs(
-        raw_tx: Bytes,
-    ) -> Result<TransactionSignedEcRecoveredWithBlobs, TxWithBlobsCreateError> {
-        let decoded = TransactionSigned::decode_2718(&mut raw_tx.as_ref())
-            .map_err(TxWithBlobsCreateError::FailedToDecodeTransaction)?;
-        let tx = SignerRecoverable::try_into_recovered(decoded)
-            .map_err(|_| TxWithBlobsCreateError::InvalidTransactionSignature)?;
-        let mut fake_sidecar = BlobTransactionSidecar::default();
-        for _ in 0..tx.blob_versioned_hashes().map_or(0, |hashes| hashes.len()) {
-            fake_sidecar.blobs.push(Blob::from([0u8; BYTES_PER_BLOB]));
-            fake_sidecar
-                .commitments
-                .push(Bytes48::from([0u8; BYTES_PER_COMMITMENT]));
-            fake_sidecar
-                .proofs
-                .push(Bytes48::from([0u8; BYTES_PER_PROOF]));
+}
+
+impl<T: SignerLookup> RawTransactionDecodable<T> {
+    /// Allows to set a custom signer lookup.
+    pub fn with_signer_lookup<U: SignerLookup>(self, lookup: U) -> RawTransactionDecodable<U> {
+        RawTransactionDecodable {
+            raw: self.raw,
+            encoding: self.encoding,
+            signer_lookup: Some(lookup),
         }
+    }
+
+    /// Decodes the raw transaction bytes into a [`TransactionSignedEcRecoveredWithBlobs`].
+    ///
+    /// If the encoding is `TxEncoding::WithBlobData`, the blob data is expected to be
+    /// present in the raw bytes. Otherwise, fake blob data is generated.
+    pub fn decode_enveloped(
+        &self,
+    ) -> Result<TransactionSignedEcRecoveredWithBlobs, TxWithBlobsCreateError> {
+        match self.encoding {
+            TxEncoding::WithBlobData => self.decode_enveloped_with_real_blobs(),
+            TxEncoding::NoBlobData => self.decode_enveloped_with_fake_blobs(),
+        }
+    }
+
+    /// Decodes the "raw" format of transaction (e.g. `eth_sendRawTransaction`) with the blob data (network format)
+    fn decode_enveloped_with_real_blobs(
+        &self,
+    ) -> Result<TransactionSignedEcRecoveredWithBlobs, TxWithBlobsCreateError> {
+        let raw_tx = &mut self.raw.as_ref();
+
+        let pooled_tx = PooledTransactionVariant::decode_2718(raw_tx)
+            .map_err(TxWithBlobsCreateError::FailedToDecodeTransaction)?;
+
+        let signer = self
+            .signer_lookup
+            .as_ref()
+            .and_then(|sl| sl(*pooled_tx.tx_hash()))
+            .or_else(|| pooled_tx.recover_signer().ok())
+            .ok_or(TxWithBlobsCreateError::InvalidTransactionSignature)?;
+
+        Recovered::<PooledTransactionVariant>::new_unchecked(pooled_tx, signer).try_into()
+    }
+
+    /// Decodes the "raw" canonical format of transaction (NOT the one used in `eth_sendRawTransaction`) generating fake blob data for backtesting
+    fn decode_enveloped_with_fake_blobs(
+        &self,
+    ) -> Result<TransactionSignedEcRecoveredWithBlobs, TxWithBlobsCreateError> {
+        let decoded = TransactionSigned::decode_2718(&mut self.raw.as_ref())
+            .map_err(TxWithBlobsCreateError::FailedToDecodeTransaction)?;
+
+        let hash = *decoded.hash();
+
+        let signer = self
+            .signer_lookup
+            .as_ref()
+            .and_then(|sl| sl(hash))
+            .or_else(|| decoded.recover_signer().ok())
+            .ok_or(TxWithBlobsCreateError::InvalidTransactionSignature)?;
+
+        let tx = Recovered::new_unchecked(decoded, signer);
+        let hashes_len = tx.blob_versioned_hashes().map_or(0, |hashes| hashes.len());
+        let fake_sidecar = BlobTransactionSidecar::fake_sidecar(hashes_len);
+
         Ok(TransactionSignedEcRecoveredWithBlobs {
             tx,
             blobs_sidecar: Arc::new(BlobTransactionSidecarVariant::Eip4844(fake_sidecar)),

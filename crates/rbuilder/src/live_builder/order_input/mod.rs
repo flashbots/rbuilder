@@ -151,6 +151,10 @@ impl OrderInputConfig {
     }
 
     pub fn from_config(config: &BaseConfig) -> eyre::Result<Self> {
+        let serve_max_connections = config
+            .jsonrpc_server_max_connections
+            .unwrap_or(DEFAULT_SERVE_MAX_CONNECTIONS);
+
         let mempool = if let Some(provider) = &config.ipc_provider {
             Some(MempoolSource::Ws(provider.mempool_server_url.clone()))
         } else if let Some(path) = &config.el_node_ipc_path {
@@ -166,7 +170,7 @@ impl OrderInputConfig {
             mempool_source: mempool,
             server_port: config.jsonrpc_server_port,
             server_ip: config.jsonrpc_server_ip,
-            serve_max_connections: 4096,
+            serve_max_connections,
             results_channel_timeout: Duration::from_millis(50),
             input_channel_buffer_size: 10_000,
             time_to_keep_mempool_txs: Duration::from_secs(config.time_to_keep_mempool_txs_secs),
@@ -182,7 +186,7 @@ impl OrderInputConfig {
             ignore_cancellable_orders: false,
             ignore_blobs: false,
             input_channel_buffer_size: 10,
-            serve_max_connections: 4096,
+            serve_max_connections: DEFAULT_SERVE_MAX_CONNECTIONS,
             server_ip: Ipv4Addr::new(127, 0, 0, 1),
             server_port: 0,
             time_to_keep_mempool_txs: Duration::from_secs(DEFAULT_TIME_TO_KEEP_MEMPOOL_TXS_SECS),

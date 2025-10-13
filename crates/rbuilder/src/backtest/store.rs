@@ -704,7 +704,7 @@ mod test {
     use alloy_primitives::{address, hex, Address, Signature, B256, U256, U64};
     use alloy_rpc_types::{Block, BlockTransactions, Header, Transaction};
     use rbuilder_primitives::{
-        serialize::{RawBundle, RawTx},
+        serialize::{RawBundle, RawBundleMetadata, RawTx},
         BundleReplacementKey, ShareBundleReplacementKey, LAST_BUNDLE_VERSION,
     };
     use reth_primitives::Recovered;
@@ -733,24 +733,26 @@ mod test {
             RawReplaceableOrderPoolCommandWithTimestamp {
                 timestamp_ms: 11,
                 command: RawReplaceableOrderPoolCommand::Order(RawOrder::Bundle(RawBundle {
-                    block_number: Some(U64::from(12)),
                     txs: vec![tx.clone().into()],
-                    reverting_tx_hashes: vec![],
-                    replacement_uuid: Some(uuid::Uuid::from_u128(11)),
-                    signing_address: Some(alloy_primitives::address!(
-                        "0101010101010101010101010101010101010101"
-                    )),
-                    min_timestamp: None,
-                    max_timestamp: Some(100),
-                    replacement_nonce: Some(0),
-                    dropping_tx_hashes: vec![],
-                    uuid: None,
-                    refund_percent: None,
-                    refund_recipient: None,
-                    refund_tx_hashes: None,
-                    delayed_refund: None,
-                    refund_identity: None,
-                    version: Some(RawBundle::encode_version(LAST_BUNDLE_VERSION)),
+                    metadata: RawBundleMetadata {
+                        block_number: Some(U64::from(12)),
+                        reverting_tx_hashes: vec![],
+                        replacement_uuid: Some(uuid::Uuid::from_u128(11)),
+                        signing_address: Some(alloy_primitives::address!(
+                            "0101010101010101010101010101010101010101"
+                        )),
+                        min_timestamp: None,
+                        max_timestamp: Some(100),
+                        replacement_nonce: Some(0),
+                        dropping_tx_hashes: vec![],
+                        uuid: None,
+                        refund_percent: None,
+                        refund_recipient: None,
+                        refund_tx_hashes: None,
+                        delayed_refund: None,
+                        refund_identity: None,
+                        version: Some(RawBundle::encode_version(LAST_BUNDLE_VERSION)),
+                    },
                 })),
             }
             .decode(TxEncoding::WithBlobData)

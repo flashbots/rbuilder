@@ -30,7 +30,6 @@ use rbuilder::{
 };
 use rbuilder_config::EnvOrValue;
 use rbuilder_primitives::mev_boost::SubmitBlockRequest;
-use reth_primitives::SealedBlock;
 use serde::Deserialize;
 use serde_with::serde_as;
 use tokio_util::sync::CancellationToken;
@@ -138,7 +137,9 @@ impl LiveBuilderConfig for FlashbotsConfig {
         let (wallet_balance_watcher, landed_blocks) =
             create_wallet_balance_watcher(provider.clone(), &self.base_config).await?;
 
-        let bidding_service = self.create_bidding_service(&landed_blocks).await?;
+        let bidding_service = self
+            .create_bidding_service(&landed_blocks, cancellation_token.clone())
+            .await?;
 
         let bid_observer = self.create_bid_observer(&cancellation_token).await?;
 
@@ -240,11 +241,15 @@ impl FlashbotsConfig {
     pub async fn create_bidding_service(
         &self,
         landed_blocks_history: &[LandedBlockInfo],
+        cancellation_token: CancellationToken,
     ) -> eyre::Result<Arc<BiddingServiceClientAdapter>> {
-        let bidding_service_client =
-            BiddingServiceClientAdapter::new(&self.bidding_service_ipc_path, landed_blocks_history)
-                .await
-                .map_err(|e| eyre::Report::new(e).wrap_err("Unable to connect to remote bidder"))?;
+        let bidding_service_client = BiddingServiceClientAdapter::new(
+            &self.bidding_service_ipc_path,
+            landed_blocks_history,
+            cancellation_token,
+        )
+        .await
+        .map_err(|e| eyre::Report::new(e).wrap_err("Unable to connect to remote bidder"))?;
         Ok(Arc::new(bidding_service_client))
     }
 
@@ -427,7 +432,6 @@ impl BidObserver for RbuilderOperatorBidObserver {
     fn block_submitted(
         &self,
         slot_data: &MevBoostSlotData,
-        sealed_block: &SealedBlock,
         submit_block_request: &SubmitBlockRequest,
         built_block_trace: &BuiltBlockTrace,
         builder_name: String,
@@ -436,7 +440,6 @@ impl BidObserver for RbuilderOperatorBidObserver {
         if let Some(p) = self.block_processor.as_ref() {
             p.block_submitted(
                 slot_data,
-                sealed_block,
                 submit_block_request,
                 built_block_trace,
                 builder_name.clone(),
@@ -446,7 +449,6 @@ impl BidObserver for RbuilderOperatorBidObserver {
         if let Some(p) = self.tbv_pusher.as_ref() {
             p.block_submitted(
                 slot_data,
-                sealed_block,
                 submit_block_request,
                 built_block_trace,
                 builder_name,

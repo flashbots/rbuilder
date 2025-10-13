@@ -26,6 +26,8 @@ pub struct ReceiptsData {
     pub receipts_root: B256,
     /// Logs bloom for the block.
     pub logs_bloom: Bloom,
+    /// Logs bloom for the block before the last payment transaction.
+    pub pre_payment_logs_bloom: Bloom,
     /// Merkle proof of the last receipt.
     /// Used for bid adjustments.
     pub placeholder_receipt_proof: Vec<Bytes>,
@@ -67,6 +69,7 @@ pub fn calculate_receipts_data(
         cache.receipts_bloom_without_last_tx = receipts_blooms.clone();
     }
 
+    let pre_payment_logs_bloom = block_logs_bloom;
     {
         let executed_tx_info = executed_tx_infos.last().unwrap();
         let receipt = &executed_tx_info.receipt;
@@ -107,6 +110,7 @@ pub fn calculate_receipts_data(
 
     ReceiptsData {
         logs_bloom: block_logs_bloom,
+        pre_payment_logs_bloom,
         receipts_root,
         placeholder_receipt_proof,
     }

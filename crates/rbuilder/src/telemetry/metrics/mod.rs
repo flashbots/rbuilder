@@ -25,10 +25,7 @@ use prometheus::{
     Opts, Registry,
 };
 use rbuilder_primitives::mev_boost::MevBoostRelayID;
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::time::Duration;
 use time::OffsetDateTime;
 use tracing::error;
 
@@ -416,45 +413,6 @@ register_metrics! {
     )
     .unwrap();
 
-}
-
-// This function should be called periodically to reset histogram metrics.
-// If metrics are not reset histogram quantiles become rigid.
-// Reset period is 10 minutes.
-pub fn reset_histogram_metrics() {
-    const HISTOGRAM_METRIC_RESET_PERIOD: Duration = Duration::from_secs(10 * 60);
-
-    lazy_static! {
-        static ref LAST_RESET: Arc<Mutex<Instant>> = Arc::new(Mutex::new(Instant::now()));
-    }
-
-    let now = Instant::now();
-    let mut last_reset = LAST_RESET.lock();
-    if now.duration_since(*last_reset) < HISTOGRAM_METRIC_RESET_PERIOD {
-        return;
-    }
-    *last_reset = now;
-
-    // Reset all histogram metrics
-    BLOCK_BUILT_TXS.reset();
-    BLOCK_BUILT_BLOBS.reset();
-    BLOCK_BUILT_GAS_USED.reset();
-    BLOCK_BUILT_SIM_GAS_USED.reset();
-    BLOCK_VALIDATION_TIME.reset();
-    BLOCK_FILL_TIME.reset();
-    BLOCK_FINALIZE_TIME.reset();
-    BLOCK_ROOT_HASH_TIME.reset();
-    ORDER_SIMULATION_TIME.reset();
-    RELAY_SUBMIT_TIME.reset();
-    TXFETCHER_TRANSACTION_QUERY_TIME.reset();
-    SUBSIDY_VALUE.reset();
-    ORDER_RECEIVED_TO_SIM_END_TIME.reset();
-    ORDER_SIM_END_TO_FIRST_BUILD_STARTED_TIME.reset();
-    ORDER_SIM_END_TO_FIRST_BUILD_STARTED_MIN_TIME.reset();
-    BLOCK_FILL_START_SEAL_END_TIME.reset();
-    BLOCK_SEAL_END_SUBMIT_START_TIME.reset();
-    ORDERING_BUILDER_EXECUTED_ORDERS.reset();
-    ORDERING_BUILDER_EXECUTED_ORDERS_INCLUDE_RATIO.reset();
 }
 
 pub(super) fn set_version(version: Version) {

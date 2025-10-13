@@ -1,7 +1,7 @@
 use super::{
     Bundle, BundleRefund, BundleReplacementData, BundleReplacementKey, BundleVersion, MempoolTx,
-    Order, Refund, RefundConfig, ShareBundle, ShareBundleBody, ShareBundleInner,
-    ShareBundleReplacementData, ShareBundleReplacementKey, ShareBundleTx,
+    Order, RawTransactionDecodable, Refund, RefundConfig, ShareBundle, ShareBundleBody,
+    ShareBundleInner, ShareBundleReplacementData, ShareBundleReplacementKey, ShareBundleTx,
     TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior, TxWithBlobsCreateError,
     LAST_BUNDLE_VERSION,
 };
@@ -18,6 +18,7 @@ use tracing::error;
 use uuid::Uuid;
 
 /// Encoding mode for raw transactions (https://eips.ethereum.org/EIPS/eip-4844)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TxEncoding {
     /// Canonical encoding, for 4844 is only tx_payload_body
     NoBlobData,
@@ -31,22 +32,20 @@ impl TxEncoding {
         &self,
         raw_tx: Bytes,
     ) -> Result<TransactionSignedEcRecoveredWithBlobs, TxWithBlobsCreateError> {
+        // This clone is supposed to be cheap
+        let res = RawTransactionDecodable::new(raw_tx.clone(), *self).decode_enveloped();
+
         match self {
-            TxEncoding::NoBlobData => {
-                TransactionSignedEcRecoveredWithBlobs::decode_enveloped_with_fake_blobs(raw_tx)
-            }
+            TxEncoding::NoBlobData => res,
             TxEncoding::WithBlobData => {
-                let raw_tx_clone = raw_tx.clone(); // This clone is supposed to be cheap
-                let res =
-                    TransactionSignedEcRecoveredWithBlobs::decode_enveloped_with_real_blobs(raw_tx);
                 if let Err(TxWithBlobsCreateError::FailedToDecodeTransaction(
                     Eip2718Error::RlpError(err),
                 )) = res
                 {
-                    if Self::looks_like_canonical_blob_tx(raw_tx_clone) {
+                    if Self::looks_like_canonical_blob_tx(raw_tx) {
                         return Err(TxWithBlobsCreateError::FailedToDecodeTransactionProbablyIs4484Canonical(
-                            err,
-                        ));
+                    err,
+                ));
                     }
                 }
                 res
@@ -91,33 +90,17 @@ where
     deserialize_vec_from_null_or_string(deserializer)
 }
 
-fn deserialize_vec_bytes_from_null_or_string<'de, D>(
-    deserializer: D,
-) -> Result<Vec<Bytes>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    deserialize_vec_from_null_or_string(deserializer)
-}
-
-/// Struct to de/serialize json Bundles from bundles APIs and from/db.
-/// Does not assume a particular format on txs.
+/// Struct to de/serialize JSON bundles data from bundles APIs and from/db, except transactions.
+/// To be used long with `RawBundle<T>`.
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, Derivative)]
 #[derivative(PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct RawBundle {
+pub struct RawBundleMetadata {
     pub version: Option<String>,
     /// blockNumber (Optional) `String`, a hex encoded block number for which this bundle is valid
     /// on. If nil or 0, blockNumber will default to the current pending block
     pub block_number: Option<U64>,
-    /// txs `Array[String]`, A list of signed transactions to execute in an atomic bundle, list can
-    /// be empty for bundle cancellations
-    #[serde(
-        default,
-        deserialize_with = "deserialize_vec_bytes_from_null_or_string"
-    )]
-    pub txs: Vec<Bytes>,
     /// revertingTxHashes (Optional) `Array[String]`, A list of tx hashes that are allowed to
     /// revert
     #[serde(default, deserialize_with = "deserialize_vec_b256_from_null_or_string")]
@@ -172,6 +155,112 @@ pub struct RawBundle {
     pub delayed_refund: Option<bool>,
 }
 
+impl RawBundleMetadata {
+    /// consistency checks on raw data.
+    /// uuid takes priority over replacement_nonce
+    fn decode_replacement_data(
+        &self,
+    ) -> Result<Option<BundleReplacementData>, RawBundleConvertError> {
+        let uuid = self.uuid.or(self.replacement_uuid);
+
+        match uuid {
+            Some(uuid) => {
+                let replacement_nonce = self
+                    .replacement_nonce
+                    .ok_or(RawBundleConvertError::IncorrectReplacementData)?;
+
+                let signer = self
+                    .signing_address
+                    .ok_or(RawBundleConvertError::IncorrectReplacementData)?;
+
+                Ok(Some(BundleReplacementData {
+                    key: BundleReplacementKey::new(uuid, Some(signer)),
+                    sequence_number: replacement_nonce,
+                }))
+            }
+            None => Ok(None),
+        }
+    }
+
+    fn decode_version(&self) -> Result<BundleVersion, RawBundleConvertError> {
+        if let Some(version) = self.version.as_deref() {
+            match version {
+                BUNDLE_VERSION_V1 => Ok(BundleVersion::V1),
+                BUNDLE_VERSION_V2 => Ok(BundleVersion::V2),
+                _ => Err(RawBundleConvertError::UnsupportedVersion(
+                    version.to_string(),
+                )),
+            }
+        } else {
+            Ok(LAST_BUNDLE_VERSION)
+        }
+    }
+
+    /// Validates if all fields are valid for the version.
+    fn validate_fields(&self, version: BundleVersion) -> Result<(), RawBundleConvertError> {
+        match version {
+            BundleVersion::V1 => {
+                // Fields add on V2
+                if !self.dropping_tx_hashes.is_empty() {
+                    return Err(RawBundleConvertError::FieldNotSupportedByVersion(
+                        "dropping_tx_hashes".to_owned(),
+                        version,
+                    ));
+                }
+                if self.refund_percent.is_some() {
+                    return Err(RawBundleConvertError::FieldNotSupportedByVersion(
+                        "refund_percent".to_owned(),
+                        version,
+                    ));
+                }
+                if self.refund_recipient.is_some() {
+                    return Err(RawBundleConvertError::FieldNotSupportedByVersion(
+                        "refund_recipient".to_owned(),
+                        version,
+                    ));
+                }
+                if self.refund_tx_hashes.is_some() {
+                    return Err(RawBundleConvertError::FieldNotSupportedByVersion(
+                        "refund_tx_hashes".to_owned(),
+                        version,
+                    ));
+                }
+                if self.delayed_refund.is_some() {
+                    return Err(RawBundleConvertError::FieldNotSupportedByVersion(
+                        "delayed_refund".to_owned(),
+                        version,
+                    ));
+                }
+                Ok(())
+            }
+            BundleVersion::V2 => Ok(()),
+        }
+    }
+}
+
+/// Struct to de/serialize json Bundles from bundles APIs and from/db.
+/// Does not assume a particular format on txs.
+#[serde_as]
+#[derive(Debug, Clone, Serialize, Deserialize, Derivative)]
+#[derivative(PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RawBundle {
+    #[serde(flatten)]
+    pub metadata: RawBundleMetadata,
+    /// txs `Array[String]`, A list of signed transactions to execute in an atomic bundle, list can
+    /// be empty for bundle cancellations.
+    #[serde(default, deserialize_with = "deserialize_vec_from_null_or_string")]
+    pub txs: Vec<Bytes>,
+}
+
+/// A [`RawBundle`] with transactions already decoded and recovered.
+struct RawBundleRecovered {
+    pub metadata: RawBundleMetadata,
+    /// txs `Array[String]`, A list of signed transactions to execute in an atomic bundle, list can
+    /// be empty for bundle cancellations.
+    pub txs: Vec<TransactionSignedEcRecoveredWithBlobs>,
+}
+
 #[derive(Error, Debug)]
 pub enum RawBundleConvertError {
     #[error("Failed to decode transaction, idx: {0}, error: {1}")]
@@ -217,16 +306,26 @@ impl RawBundle {
     }
 
     pub fn decode(
-        mut self,
+        self,
         encoding: TxEncoding,
     ) -> Result<RawBundleDecodeResult, RawBundleConvertError> {
-        let replacement_data = Self::decode_replacement_data(
-            self.replacement_uuid,
-            self.uuid,
-            self.signing_address,
-            self.replacement_nonce,
-        )?;
-        // Check for cancellation
+        self.decode_inner(encoding, Option::<fn(B256) -> Option<Address>>::None)
+    }
+
+    pub fn decode_with_signer_lookup(
+        self,
+        encoding: TxEncoding,
+        signer_lookup: impl Fn(B256) -> Option<Address>,
+    ) -> Result<RawBundleDecodeResult, RawBundleConvertError> {
+        self.decode_inner(encoding, Some(signer_lookup))
+    }
+
+    fn decode_inner(
+        mut self,
+        encoding: TxEncoding,
+        signer_lookup: Option<impl Fn(B256) -> Option<Address>>,
+    ) -> Result<RawBundleDecodeResult, RawBundleConvertError> {
+        let replacement_data = self.metadata.decode_replacement_data()?; // Check for cancellation
         if self.txs.is_empty() {
             match replacement_data {
                 Some(replacement_data) => {
@@ -235,162 +334,56 @@ impl RawBundle {
                 None => return Err(RawBundleConvertError::EmptyBundle),
             }
         }
-        let version = Self::decode_version(self.version.clone())?;
-        self.validate_fields(version.clone())?;
-        let txs = self
-            .txs
+        let version = self.metadata.decode_version()?;
+        self.metadata.validate_fields(version)?;
+
+        self.metadata.reverting_tx_hashes.sort();
+        self.metadata.dropping_tx_hashes.sort();
+
+        let recovered_txs = std::mem::take(&mut self.txs)
             .into_iter()
             .enumerate()
             .map(|(idx, tx)| {
-                encoding
-                    .decode(tx)
+                let decodable = RawTransactionDecodable {
+                    raw: tx,
+                    encoding,
+                    signer_lookup: signer_lookup.as_ref(),
+                };
+                decodable
+                    .decode_enveloped()
                     .map_err(|e| RawBundleConvertError::FailedToDecodeTransaction(idx, e))
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let refund = Self::parse_refund(
-            self.refund_percent,
-            self.refund_recipient,
-            self.refund_tx_hashes,
-            self.delayed_refund,
-            &txs,
-        )?;
 
-        self.reverting_tx_hashes.sort();
-        self.dropping_tx_hashes.sort();
+        let mut recovered_bundle = self.into_recovered(recovered_txs);
 
-        let block = self.block_number.unwrap_or_default().to();
+        let refund = recovered_bundle.parse_refund()?;
+        let block = recovered_bundle
+            .metadata
+            .block_number
+            .unwrap_or_default()
+            .to();
 
+        let RawBundleRecovered { metadata, txs } = recovered_bundle;
         let mut bundle = Bundle {
             block: if block != 0 { Some(block) } else { None },
             txs,
-            reverting_tx_hashes: self.reverting_tx_hashes,
+            reverting_tx_hashes: metadata.reverting_tx_hashes,
             hash: Default::default(),
             uuid: Default::default(),
             replacement_data,
             // we assume that 0 timestamp is the same as timestamp not set
-            min_timestamp: self.min_timestamp,
-            max_timestamp: self.max_timestamp.filter(|t| *t != 0),
-            signer: self.signing_address,
-            refund_identity: self.refund_identity,
+            min_timestamp: metadata.min_timestamp,
+            max_timestamp: metadata.max_timestamp.filter(|t| *t != 0),
+            signer: metadata.signing_address,
+            refund_identity: metadata.refund_identity,
             metadata: Default::default(),
-            dropping_tx_hashes: self.dropping_tx_hashes,
+            dropping_tx_hashes: metadata.dropping_tx_hashes,
             refund,
             version,
         };
         bundle.hash_slow();
         Ok(RawBundleDecodeResult::NewBundle(bundle))
-    }
-
-    /// Validates if all fields are valid for the version.
-    fn validate_fields(&self, version: BundleVersion) -> Result<(), RawBundleConvertError> {
-        match version {
-            BundleVersion::V1 => {
-                // Fields add on V2
-                if !self.dropping_tx_hashes.is_empty() {
-                    return Err(RawBundleConvertError::FieldNotSupportedByVersion(
-                        "dropping_tx_hashes".to_owned(),
-                        version,
-                    ));
-                }
-                if self.refund_percent.is_some() {
-                    return Err(RawBundleConvertError::FieldNotSupportedByVersion(
-                        "refund_percent".to_owned(),
-                        version,
-                    ));
-                }
-                if self.refund_recipient.is_some() {
-                    return Err(RawBundleConvertError::FieldNotSupportedByVersion(
-                        "refund_recipient".to_owned(),
-                        version,
-                    ));
-                }
-                if self.refund_tx_hashes.is_some() {
-                    return Err(RawBundleConvertError::FieldNotSupportedByVersion(
-                        "refund_tx_hashes".to_owned(),
-                        version,
-                    ));
-                }
-                if self.delayed_refund.is_some() {
-                    return Err(RawBundleConvertError::FieldNotSupportedByVersion(
-                        "delayed_refund".to_owned(),
-                        version,
-                    ));
-                }
-                Ok(())
-            }
-            BundleVersion::V2 => Ok(()),
-        }
-    }
-
-    fn parse_refund(
-        mut refund_percent: Option<u8>,
-        refund_recipient: Option<Address>,
-        refund_tx_hashes: Option<Vec<TxHash>>,
-        delayed_refund: Option<bool>,
-        txs: &[TransactionSignedEcRecoveredWithBlobs],
-    ) -> Result<Option<BundleRefund>, RawBundleConvertError> {
-        // Validate refund percent setting.
-        if let Some(percent) = refund_percent {
-            if percent >= 100 {
-                return Err(RawBundleConvertError::InvalidRefundPercent(percent));
-            }
-            if percent == 0 {
-                refund_percent = None
-            }
-        }
-
-        let mut refund = None;
-        if let Some(percent) = refund_percent {
-            // Refund can be configured only if bundle is not empty.
-            // If bundle contains only one transaction, first == last.
-            // If refund_tx_hashes is empty we use the last tx.
-            if let Some((first_tx, last_tx)) = txs.first().zip(txs.last()) {
-                let tx_hash = if let Some(refund_tx_hashes) = refund_tx_hashes {
-                    if refund_tx_hashes.len() > 1 {
-                        return Err(RawBundleConvertError::MoreThanOneRefundTxHash);
-                    }
-                    refund_tx_hashes.first().copied()
-                } else {
-                    None
-                }
-                .unwrap_or(last_tx.hash());
-
-                refund = Some(BundleRefund {
-                    percent,
-                    recipient: refund_recipient.unwrap_or_else(|| first_tx.signer()),
-                    tx_hash,
-                    delayed: delayed_refund.unwrap_or_default(),
-                });
-            }
-        }
-        Ok(refund)
-    }
-
-    /// consistency checks on raw data.
-    /// uuid takes priority over replacement_nonce
-    fn decode_replacement_data(
-        replacement_uuid: Option<Uuid>,
-        mut uuid: Option<Uuid>,
-        signing_address: Option<Address>,
-        replacement_nonce: Option<u64>,
-    ) -> Result<Option<BundleReplacementData>, RawBundleConvertError> {
-        uuid = uuid.or(replacement_uuid);
-
-        match uuid {
-            Some(uuid) => {
-                let replacement_nonce =
-                    replacement_nonce.ok_or(RawBundleConvertError::IncorrectReplacementData)?;
-
-                let signer =
-                    signing_address.ok_or(RawBundleConvertError::IncorrectReplacementData)?;
-
-                Ok(Some(BundleReplacementData {
-                    key: BundleReplacementKey::new(uuid, Some(signer)),
-                    sequence_number: replacement_nonce,
-                }))
-            }
-            None => Ok(None),
-        }
     }
 
     /// See [TransactionSignedEcRecoveredWithBlobs::envelope_encoded_no_blobs]
@@ -404,38 +397,28 @@ impl RawBundle {
                 .and_then(|r| r.key.key().signer)
         });
         Self {
-            block_number: value.block.map(U64::from),
             txs: value
                 .txs
                 .into_iter()
                 .map(|tx| tx.envelope_encoded_no_blobs())
                 .collect(),
-            reverting_tx_hashes: value.reverting_tx_hashes,
-            dropping_tx_hashes: value.dropping_tx_hashes,
-            replacement_uuid,
-            uuid: replacement_uuid,
-            signing_address,
-            refund_identity: value.refund_identity,
-            min_timestamp: value.min_timestamp,
-            max_timestamp: value.max_timestamp,
-            replacement_nonce,
-            refund_percent: value.refund.as_ref().map(|br| br.percent),
-            refund_recipient: value.refund.as_ref().map(|br| br.recipient),
-            refund_tx_hashes: value.refund.as_ref().map(|br| vec![br.tx_hash]),
-            delayed_refund: value.refund.as_ref().map(|br| br.delayed),
-            version: Some(Self::encode_version(value.version)),
-        }
-    }
-
-    fn decode_version(version: Option<String>) -> Result<BundleVersion, RawBundleConvertError> {
-        if let Some(version) = version {
-            match version.as_str() {
-                BUNDLE_VERSION_V1 => Ok(BundleVersion::V1),
-                BUNDLE_VERSION_V2 => Ok(BundleVersion::V2),
-                _ => Err(RawBundleConvertError::UnsupportedVersion(version)),
-            }
-        } else {
-            Ok(LAST_BUNDLE_VERSION)
+            metadata: RawBundleMetadata {
+                block_number: value.block.map(U64::from),
+                reverting_tx_hashes: value.reverting_tx_hashes,
+                dropping_tx_hashes: value.dropping_tx_hashes,
+                replacement_uuid,
+                uuid: replacement_uuid,
+                signing_address,
+                refund_identity: value.refund_identity,
+                min_timestamp: value.min_timestamp,
+                max_timestamp: value.max_timestamp,
+                replacement_nonce,
+                refund_percent: value.refund.as_ref().map(|br| br.percent),
+                refund_recipient: value.refund.as_ref().map(|br| br.recipient),
+                refund_tx_hashes: value.refund.as_ref().map(|br| vec![br.tx_hash]),
+                delayed_refund: value.refund.as_ref().map(|br| br.delayed),
+                version: Some(Self::encode_version(value.version)),
+            },
         }
     }
 
@@ -444,6 +427,56 @@ impl RawBundle {
             BundleVersion::V1 => BUNDLE_VERSION_V1.to_string(),
             BundleVersion::V2 => BUNDLE_VERSION_V2.to_string(),
         }
+    }
+
+    fn into_recovered(self, txs: Vec<TransactionSignedEcRecoveredWithBlobs>) -> RawBundleRecovered {
+        RawBundleRecovered {
+            txs,
+            metadata: self.metadata,
+        }
+    }
+}
+
+impl RawBundleRecovered {
+    fn parse_refund(&mut self) -> Result<Option<BundleRefund>, RawBundleConvertError> {
+        // Validate refund percent setting.
+        if let Some(percent) = self.metadata.refund_percent {
+            if percent >= 100 {
+                return Err(RawBundleConvertError::InvalidRefundPercent(percent));
+            }
+            if percent == 0 {
+                self.metadata.refund_percent = None
+            }
+        }
+
+        let mut refund = None;
+        if let Some(percent) = self.metadata.refund_percent {
+            // Refund can be configured only if bundle is not empty.
+            // If bundle contains only one transaction, first == last.
+            // If refund_tx_hashes is empty we use the last tx.
+            if let Some((first_tx, last_tx)) = self.txs.first().zip(self.txs.last()) {
+                let tx_hash = if let Some(ref refund_tx_hashes) = self.metadata.refund_tx_hashes {
+                    if refund_tx_hashes.len() > 1 {
+                        return Err(RawBundleConvertError::MoreThanOneRefundTxHash);
+                    }
+                    refund_tx_hashes.first().copied()
+                } else {
+                    None
+                }
+                .unwrap_or(last_tx.hash());
+
+                refund = Some(BundleRefund {
+                    percent,
+                    recipient: self
+                        .metadata
+                        .refund_recipient
+                        .unwrap_or_else(|| first_tx.signer()),
+                    tx_hash,
+                    delayed: self.metadata.delayed_refund.unwrap_or_default(),
+                });
+            }
+        }
+        Ok(refund)
     }
 }
 

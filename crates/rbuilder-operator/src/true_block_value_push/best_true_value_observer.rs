@@ -7,7 +7,6 @@ use rbuilder::{
 };
 use rbuilder_primitives::mev_boost::SubmitBlockRequest;
 use redis::RedisError;
-use reth_primitives::SealedBlock;
 use tokio_util::sync::CancellationToken;
 
 use super::{
@@ -74,7 +73,6 @@ impl BidObserver for BestTrueValueObserver {
     fn block_submitted(
         &self,
         slot_data: &MevBoostSlotData,
-        _sealed_block: &SealedBlock,
         _submit_block_request: &SubmitBlockRequest,
         built_block_trace: &BuiltBlockTrace,
         builder_name: String,

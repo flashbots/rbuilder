@@ -1,24 +1,14 @@
-pub mod bloxroute_grpc;
-mod error;
-pub mod fake_mev_boost_relay;
-pub mod rpc;
-pub mod sign_payload;
-pub mod ssz_roots;
-
-use crate::mev_boost::bloxroute_grpc::GrpcRelayClient;
-use rbuilder_primitives::mev_boost::{
-    KnownRelay, MevBoostRelayID, RelayMode, SubmitBlockRequestNoBlobs,
-    SubmitBlockRequestWithMetadata, ValidatorRegistration, ValidatorSlotData,
-    MEV_BOOST_SLOT_INFO_REQUEST_TIMEOUT,
-};
-
 use super::utils::u256decimal_serde_helper;
-
 use alloy_primitives::{utils::parse_ether, Address, BlockHash, U256};
 use alloy_rpc_types_beacon::BlsPublicKey;
 use flate2::{write::GzEncoder, Compression};
 use governor::{DefaultDirectRateLimiter, Quota, RateLimiter};
 use itertools::Itertools;
+use rbuilder_primitives::mev_boost::{
+    HeaderSubmissionOptimisticV3, KnownRelay, MevBoostRelayID, RelayMode,
+    SubmitBlockRequestNoBlobs, SubmitBlockRequestWithMetadata, ValidatorRegistration,
+    ValidatorSlotData, MEV_BOOST_SLOT_INFO_REQUEST_TIMEOUT,
+};
 use reqwest::{
     header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_ENCODING, CONTENT_TYPE},
     Body, Response, StatusCode,
@@ -27,8 +17,17 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use ssz::Encode;
 use std::{io::Write, sync::Arc, time::Duration};
+use tracing::*;
 use url::Url;
 
+pub mod bloxroute_grpc;
+use bloxroute_grpc::GrpcRelayClient;
+
+mod error;
+pub mod fake_mev_boost_relay;
+pub mod optimistic_v3;
+pub mod rpc;
+pub mod sign_payload;
 pub use error::*;
 pub use sign_payload::*;
 
@@ -107,6 +106,9 @@ pub struct RelayConfig {
     /// If we submit a block with a different gas than the one the validator registered with in this relay the relay does not mind.
     /// None -> false
     pub can_ignore_gas_limit: Option<bool>,
+    /// Flag indicating whether optimistic V3 submissions should be used.
+    #[serde(default)]
+    pub optimistic_v3: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
@@ -233,13 +235,15 @@ pub struct MevBoostRelayBidSubmitter {
     /// Relay accepts optimistic submissions.
     optimistic: bool,
     submission_rate_limiter: Option<Arc<DefaultDirectRateLimiter>>,
-    /// This is not a real relay so we can send blocks to it even if it does not have any validator registered.
-    test_relay: bool,
     /// Parameter for the relay
     cancellations: bool,
+    /// Flag indicating whether optimistic v3 submissions should be used.
+    optimistic_v3: bool,
     /// Max bid we can submit to this relay. Any bid above this will be skipped.
     /// None -> No limit.
     max_bid: Option<U256>,
+    /// This is not a real relay so we can send blocks to it even if it does not have any validator registered.
+    test_relay: bool,
 }
 
 impl MevBoostRelayBidSubmitter {
@@ -247,6 +251,7 @@ impl MevBoostRelayBidSubmitter {
         client: RelayClient,
         id: String,
         config: &RelaySubmitConfig,
+        optimistic_v3: bool,
         test_relay: bool,
     ) -> eyre::Result<Self> {
         let max_bid = config
@@ -267,22 +272,27 @@ impl MevBoostRelayBidSubmitter {
             use_gzip_for_submit: config.use_gzip_for_submit,
             optimistic: config.optimistic,
             submission_rate_limiter,
-            test_relay,
             cancellations: true,
+            optimistic_v3,
             max_bid,
+            test_relay,
         })
-    }
-
-    pub fn test_relay(&self) -> bool {
-        self.test_relay
     }
 
     pub fn id(&self) -> &MevBoostRelayID {
         &self.id
     }
 
+    pub fn test_relay(&self) -> bool {
+        self.test_relay
+    }
+
     pub fn optimistic(&self) -> bool {
         self.optimistic
+    }
+
+    pub fn optimistic_v3(&self) -> bool {
+        self.optimistic_v3
     }
 
     pub fn max_bid(&self) -> Option<U256> {
@@ -300,19 +310,27 @@ impl MevBoostRelayBidSubmitter {
 
     pub async fn submit_block(
         &self,
-        data: &SubmitBlockRequestWithMetadata,
-        registration: &ValidatorSlotData,
+        data: SubmitBlockRequestWithMetadata,
+        registration: ValidatorSlotData,
     ) -> Result<(), SubmitBlockErr> {
         self.client
             .submit_block(
-                data,
-                registration,
+                &data,
+                &registration,
                 self.use_ssz_for_submit,
                 self.use_gzip_for_submit,
                 self.test_relay,
                 self.cancellations,
             )
             .await
+    }
+
+    pub async fn submit_optimistic_v3(
+        &self,
+        data: HeaderSubmissionOptimisticV3,
+        registration: ValidatorSlotData,
+    ) -> Result<(), SubmitBlockErr> {
+        self.client.submit_optimistic_v3(&data, &registration).await
     }
 }
 
@@ -496,7 +514,7 @@ pub enum SubmitBlockErr {
     #[error("Block known")]
     BlockKnown,
     #[error("gRPC error")]
-    Grpc(#[from] tonic::Status),
+    Grpc(#[from] Box<tonic::Status>),
 }
 
 impl std::fmt::Debug for SubmitBlockErr {
@@ -658,54 +676,33 @@ impl RelayClient {
         fake_relay: bool,
         cancellations: bool,
     ) -> Result<Response, SubmitBlockErr> {
-        let mut bloxroute_region = None;
-        let url = {
-            let maybe_regional_endpoint = self.bloxroute_rproxy_regions.iter().find_map(|region| {
-                registration
-                    .regional_endpoints
-                    .iter()
-                    .find(|r| r.region.ends_with(region.as_str()))
-            });
-            let mut url = if let Some(regional) = maybe_regional_endpoint {
-                Url::parse(&regional.http_endpoint).map_err(|error| {
-                    tracing::error!(?error, url = %regional.http_endpoint, "Error parsing rproxy URL");
-                    SubmitBlockErr::InvalidUrl(error)
-                })?
-            } else {
-                if self.is_bloxroute {
-                    // It's a bloxroute endpoint and we are not using rProxy, restrict to main relay region.
-                    bloxroute_region = Some(HeaderValue::from_static("na"));
-                }
-                self.url.clone()
-            };
+        let SubmitBlockRequestWithMetadata {
+            submission,
+            metadata,
+        } = submission_with_metadata;
 
-            url.set_path("/relay/v1/builder/blocks");
-            url.query_pairs_mut()
-                .append_pair("cancellations", if cancellations { "1" } else { "0" });
+        let mut headers = HeaderMap::new();
+        self.add_auth_headers(&mut headers)
+            .map_err(|_| SubmitBlockErr::InvalidHeader)?;
 
-            if submission_with_metadata.submission.has_adjustment_data() {
-                url.query_pairs_mut().append_pair("adjustments", "1");
-            }
-
-            url
-        };
+        let mut url = self.get_base_submit_block_url(registration, &mut headers)?;
+        url.set_path("/relay/v1/builder/blocks");
+        url.query_pairs_mut()
+            .append_pair("cancellations", if cancellations { "1" } else { "0" });
+        if submission.has_adjustment_data() {
+            url.query_pairs_mut().append_pair("adjustments", "1");
+        }
 
         let mut builder = self.client.post(url.clone());
-        let mut headers = HeaderMap::new();
         // SSZ vs JSON
         let (mut body_data, content_type) = if ssz {
-            (
-                submission_with_metadata.submission.as_ssz_bytes(),
-                SSZ_CONTENT_TYPE,
-            )
+            (submission.as_ssz_bytes(), SSZ_CONTENT_TYPE)
         } else {
             let json_result = if fake_relay {
                 // For the fake relay we remove the blobs
-                serde_json::to_vec(&SubmitBlockRequestNoBlobs(
-                    &submission_with_metadata.submission,
-                ))
+                serde_json::to_vec(&SubmitBlockRequestNoBlobs(submission))
             } else {
-                serde_json::to_vec(&submission_with_metadata.submission)
+                serde_json::to_vec(submission)
             };
 
             (
@@ -714,8 +711,6 @@ impl RelayClient {
             )
         };
         headers.insert(CONTENT_TYPE, HeaderValue::from_static(content_type));
-        self.add_auth_headers(&mut headers)
-            .map_err(|_| SubmitBlockErr::InvalidHeader)?;
 
         // GZIP
         if gzip {
@@ -734,13 +729,9 @@ impl RelayClient {
 
         // Set bloxroute specific headers.
         if self.is_bloxroute {
-            if let Some(region) = bloxroute_region {
-                headers.insert(BLOXROUTE_SHARE_HEADER, region);
-            }
             headers.insert(
                 BLOXROUTE_BUILDER_VALUE_HEADER,
-                submission_with_metadata
-                    .metadata
+                metadata
                     .value
                     .coinbase_reward
                     .to_string()
@@ -753,24 +744,17 @@ impl RelayClient {
         if fake_relay {
             builder = builder.header(
                 TOTAL_PAYMENT_HEADER,
-                submission_with_metadata
-                    .metadata
-                    .value
-                    .coinbase_reward
-                    .to_string(),
+                metadata.value.coinbase_reward.to_string(),
             );
-            if let Some(top_competitor_bid) =
-                submission_with_metadata.metadata.value.top_competitor_bid
-            {
+            if let Some(top_competitor_bid) = metadata.value.top_competitor_bid {
                 builder = builder.header(TOP_BID_HEADER, top_competitor_bid.to_string());
             }
-            if !submission_with_metadata.metadata.order_ids.is_empty() {
+            if !metadata.order_ids.is_empty() {
                 const MAX_BUNDLE_IDS: usize = 150;
-                let bundle_ids: Vec<_> = submission_with_metadata
-                    .metadata
+                let bundle_ids: Vec<_> = metadata
                     .order_ids
                     .iter()
-                    .filter_map(|or| match or {
+                    .filter_map(|order| match order {
                         rbuilder_primitives::OrderId::Tx(_fixed_bytes) => None,
                         rbuilder_primitives::OrderId::Bundle(uuid) => Some(uuid),
                         rbuilder_primitives::OrderId::ShareBundle(_fixed_bytes) => None,
@@ -807,10 +791,10 @@ impl RelayClient {
     async fn call_bloxroute_grpc_submit_block(
         &self,
         client: &GrpcRelayClient,
-        submission_with_metadata: &SubmitBlockRequestWithMetadata,
+        submission: &SubmitBlockRequestWithMetadata,
     ) -> Result<bloxroute_grpc::types::SubmitBlockResponse, SubmitBlockErr> {
         let mut request = tonic::Request::new(bloxroute_grpc::types::SubmitBlockRequest::from(
-            &submission_with_metadata.submission,
+            submission.submission.as_ref(),
         ));
         request.set_timeout(Duration::from_secs(2));
         request.metadata_mut().insert(
@@ -823,7 +807,7 @@ impl RelayClient {
         );
         request.metadata_mut().insert(
             BLOXROUTE_BUILDER_VALUE_HEADER,
-            submission_with_metadata
+            submission
                 .metadata
                 .value
                 .coinbase_reward
@@ -848,7 +832,12 @@ impl RelayClient {
                 .map_err(|_| SubmitBlockErr::InvalidHeader)?,
         );
 
-        let response = client.lock().await.submit_block(request).await?;
+        let response = client
+            .lock()
+            .await
+            .submit_block(request)
+            .await
+            .map_err(Box::new)?;
         Ok(response.into_inner())
     }
 
@@ -891,43 +880,63 @@ impl RelayClient {
             .call_relay_submit_block(data, registration, ssz, gzip, fake_relay, cancellations)
             .await?;
 
-        let status = response.status();
-        if status == StatusCode::TOO_MANY_REQUESTS {
-            return Err(RelayError::TooManyRequests.into());
-        }
-        if status == StatusCode::GATEWAY_TIMEOUT {
-            return Err(RelayError::ConnectionError.into());
-        }
+        map_response(response).await
+    }
 
-        let data = response
-            .bytes()
+    pub async fn submit_optimistic_v3(
+        &self,
+        request: &HeaderSubmissionOptimisticV3,
+        registration: &ValidatorSlotData,
+    ) -> Result<(), SubmitBlockErr> {
+        let mut headers = HeaderMap::new();
+        self.add_auth_headers(&mut headers)
+            .map_err(|_| SubmitBlockErr::InvalidHeader)?;
+
+        let mut url = self.get_base_submit_block_url(registration, &mut headers)?;
+        url.set_path("/relay/v3/builder/headers");
+
+        let body = request.as_ssz_bytes();
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static(SSZ_CONTENT_TYPE));
+
+        let response = self
+            .client
+            .post(url.clone())
+            .headers(headers)
+            .body(body)
+            .send()
             .await
-            .map_err(|err| RelayError::RequestError(err.into()))?;
+            .map_err(|e| RelayError::RequestError(e.into()))?;
 
-        if status == StatusCode::OK && data.is_empty() {
-            return Ok(());
+        map_response(response).await
+    }
+
+    /// Constructs the URL for block submission.
+    /// For the bloxroute relay, if there is no rproxy endpoint to submit to,
+    /// sets the sharing header restricting bids to the location of the main relay.
+    fn get_base_submit_block_url(
+        &self,
+        registration: &ValidatorSlotData,
+        headers: &mut HeaderMap,
+    ) -> Result<Url, SubmitBlockErr> {
+        let maybe_regional_endpoint = self.bloxroute_rproxy_regions.iter().find_map(|region| {
+            registration
+                .regional_endpoints
+                .iter()
+                .find(|r| r.region.ends_with(region.as_str()))
+        });
+
+        if let Some(regional) = maybe_regional_endpoint {
+            return Url::parse(&regional.http_endpoint).map_err(|error| {
+                error!(?error, url = %regional.http_endpoint, "Error parsing rproxy URL");
+                SubmitBlockErr::InvalidUrl(error)
+            });
         }
 
-        match serde_json::from_slice::<RelayResponse<()>>(&data) {
-            Ok(RelayResponse::Ok(_)) => Ok(()),
-            Ok(RelayResponse::Error(error)) => {
-                Err(map_relay_error_message(&error.message, error.code))
-            }
-            Err(_) => {
-                // bloxroute returns empty response in this format which we handle here because its not valid
-                // jsonrpc response
-                let data = String::from_utf8_lossy(&data).to_string();
-                if data.trim() == "{}" {
-                    return Ok(());
-                }
-
-                if is_ignorable_relay_error(status, &data) {
-                    Ok(())
-                } else {
-                    Err(RelayError::UnknownRelayError(status, data).into())
-                }
-            }
+        if self.is_bloxroute {
+            // It's a bloxroute endpoint and we are not using rProxy, restrict to main relay region.
+            headers.insert(BLOXROUTE_SHARE_HEADER, HeaderValue::from_static("na"));
         }
+        Ok(self.url.clone())
     }
 
     fn add_auth_headers(&self, headers: &mut HeaderMap) -> eyre::Result<()> {
@@ -947,6 +956,44 @@ impl RelayClient {
             headers.insert(API_TOKEN_HEADER, value);
         }
         Ok(())
+    }
+}
+
+async fn map_response(response: Response) -> Result<(), SubmitBlockErr> {
+    let status = response.status();
+    if status == StatusCode::TOO_MANY_REQUESTS {
+        return Err(RelayError::TooManyRequests.into());
+    }
+    if status == StatusCode::GATEWAY_TIMEOUT {
+        return Err(RelayError::ConnectionError.into());
+    }
+
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|err| RelayError::RequestError(err.into()))?;
+
+    if status == StatusCode::OK && bytes.is_empty() {
+        return Ok(());
+    }
+
+    match serde_json::from_slice::<RelayResponse<()>>(&bytes) {
+        Ok(RelayResponse::Ok(_)) => Ok(()),
+        Ok(RelayResponse::Error(error)) => Err(map_relay_error_message(&error.message, error.code)),
+        Err(_) => {
+            // bloxroute returns empty response in this format which we handle here because its not valid
+            // jsonrpc response
+            let data = String::from_utf8_lossy(&bytes).to_string();
+            if data.trim() == "{}" {
+                return Ok(());
+            }
+
+            if is_ignorable_relay_error(status, &data) {
+                Ok(())
+            } else {
+                Err(RelayError::UnknownRelayError(status, data).into())
+            }
+        }
     }
 }
 
@@ -1202,7 +1249,9 @@ mod tests {
         let relay_url = Url::from_str(&srv.endpoint()).unwrap();
         let relay =
             RelayClient::from_url(relay_url, None, None, None, false, Vec::new(), false, false);
-        let submission = SubmitBlockRequest::Deneb(generator.create_deneb_submit_block_request());
+        let submission = Arc::new(SubmitBlockRequest::Deneb(
+            generator.create_deneb_submit_block_request(),
+        ));
         let sub_relay = SubmitBlockRequestWithMetadata {
             submission,
             metadata: BidMetadata {
