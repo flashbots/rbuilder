@@ -1005,22 +1005,12 @@ impl<T: SignerLookup> RawTransactionDecodable<T> {
         let pooled_tx = PooledTransactionVariant::decode_2718(raw_tx)
             .map_err(TxWithBlobsCreateError::FailedToDecodeTransaction)?;
 
-        let recover_signer = || {
-            pooled_tx
-                .recover_signer()
-                .map_err(|_| TxWithBlobsCreateError::InvalidTransactionSignature)
-        };
-
-        // TODO: clean this after rust 1.89 and if let chains
-        let signer = if let Some(ref lookup) = self.signer_lookup {
-            if let Some(signer) = lookup.lookup(*pooled_tx.tx_hash()) {
-                signer
-            } else {
-                recover_signer()?
-            }
-        } else {
-            recover_signer()?
-        };
+        let signer = self
+            .signer_lookup
+            .as_ref()
+            .and_then(|sl| sl.lookup(*pooled_tx.tx_hash()))
+            .or_else(|| pooled_tx.recover_signer().ok())
+            .ok_or(TxWithBlobsCreateError::InvalidTransactionSignature)?;
 
         Recovered::<PooledTransactionVariant>::new_unchecked(pooled_tx, signer).try_into()
     }
@@ -1034,19 +1024,14 @@ impl<T: SignerLookup> RawTransactionDecodable<T> {
 
         let hash = *decoded.hash();
 
-        // TODO: clean this after rust 1.89 and if let chains
-        let tx = if let Some(ref lookup) = self.signer_lookup {
-            if let Some(signer) = lookup.lookup(hash) {
-                Recovered::new_unchecked(decoded, signer)
-            } else {
-                SignerRecoverable::try_into_recovered(decoded)
-                    .map_err(|_| TxWithBlobsCreateError::InvalidTransactionSignature)?
-            }
-        } else {
-            SignerRecoverable::try_into_recovered(decoded)
-                .map_err(|_| TxWithBlobsCreateError::InvalidTransactionSignature)?
-        };
+        let signer = self
+            .signer_lookup
+            .as_ref()
+            .and_then(|sl| sl.lookup(hash))
+            .or_else(|| decoded.recover_signer().ok())
+            .ok_or(TxWithBlobsCreateError::InvalidTransactionSignature)?;
 
+        let tx = Recovered::new_unchecked(decoded, signer);
         let hashes_len = tx.blob_versioned_hashes().map_or(0, |hashes| hashes.len());
         let fake_sidecar = BlobTransactionSidecar::fake_sidecar(hashes_len);
 
