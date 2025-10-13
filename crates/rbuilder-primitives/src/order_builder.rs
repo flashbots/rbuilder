@@ -211,6 +211,7 @@ impl BundleBuilder {
             txs,
             reverting_tx_hashes,
             hash: Default::default(),
+            raw_bundle_hash: Default::default(),
             uuid: Default::default(),
             replacement_data: self.replacement_data,
             signer: None,

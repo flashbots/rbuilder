@@ -13,6 +13,7 @@ use derivative::Derivative;
 use reth_chainspec::MAINNET;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_with::serde_as;
+use std::hash::{Hash, Hasher};
 use thiserror::Error;
 use tracing::error;
 use uuid::Uuid;
@@ -334,6 +335,7 @@ impl RawBundle {
                 None => return Err(RawBundleConvertError::EmptyBundle),
             }
         }
+        let raw_bundle_hash = self.raw_bundle_hash();
         let version = self.metadata.decode_version()?;
         self.metadata.validate_fields(version)?;
 
@@ -369,6 +371,7 @@ impl RawBundle {
             block: if block != 0 { Some(block) } else { None },
             txs,
             reverting_tx_hashes: metadata.reverting_tx_hashes,
+            raw_bundle_hash,
             hash: Default::default(),
             uuid: Default::default(),
             replacement_data,
@@ -420,6 +423,103 @@ impl RawBundle {
                 version: Some(Self::encode_version(value.version)),
             },
         }
+    }
+
+    pub fn raw_bundle_hash(&self) -> B256 {
+        fn hash(bundle: &RawBundle, state: &mut wyhash::WyHash) {
+            // We destructure here so we never miss any fields if new fields are added in the
+            // future.
+            let RawBundle {
+                metadata:
+                    RawBundleMetadata {
+                        block_number,
+                        reverting_tx_hashes,
+                        dropping_tx_hashes,
+                        uuid,
+                        replacement_uuid,
+                        replacement_nonce,
+                        refund_percent,
+                        refund_recipient,
+                        refund_tx_hashes,
+                        refund_identity,
+                        signing_address: _,
+                        version,
+                        min_timestamp,
+                        max_timestamp,
+                        delayed_refund,
+                    },
+                txs,
+            } = bundle;
+
+            if let Some(block_number) = block_number {
+                block_number.hash(state);
+            }
+
+            if !txs.is_empty() {
+                txs.hash(state);
+            }
+
+            if !reverting_tx_hashes.is_empty() {
+                reverting_tx_hashes.hash(state);
+            }
+
+            if !dropping_tx_hashes.is_empty() {
+                dropping_tx_hashes.hash(state);
+            }
+
+            // NOTE: Use uuid field if it is set, otherwise use replacement_uuid.
+            let replacement_uuid = uuid.or(*replacement_uuid).map(|uuid| uuid.to_string());
+            if let Some(replacement_uuid) = replacement_uuid {
+                replacement_uuid.hash(state);
+                if let Some(replacement_nonce) = replacement_nonce {
+                    replacement_nonce.hash(state);
+                }
+            }
+
+            if let Some(refund_percent) = refund_percent.map(|percent| percent as u64) {
+                refund_percent.hash(state);
+            }
+
+            if let Some(refund_recipient) = refund_recipient {
+                refund_recipient.hash(state);
+            }
+
+            if let Some(refund_tx_hashes) = refund_tx_hashes {
+                if !refund_tx_hashes.is_empty() {
+                    refund_tx_hashes.hash(state);
+                }
+            }
+
+            if let Some(refund_identity) = refund_identity {
+                refund_identity.hash(state);
+            }
+
+            if let Some(version) = version {
+                version.hash(state);
+            }
+
+            if let Some(min_timestamp) = min_timestamp {
+                min_timestamp.hash(state);
+            }
+
+            if let Some(max_timestamp) = max_timestamp {
+                max_timestamp.hash(state);
+            }
+
+            if let Some(delayed_refund) = delayed_refund {
+                delayed_refund.hash(state);
+            }
+        }
+
+        let mut hasher = wyhash::WyHash::default();
+        let mut bytes = [0u8; 32];
+        for i in 0..4 {
+            hash(self, &mut hasher);
+            let hash = hasher.finish();
+            bytes[(i * 8)..((i + 1) * 8)].copy_from_slice(&hash.to_be_bytes());
+        }
+
+        B256::from(bytes)
     }
 
     pub fn encode_version(version: BundleVersion) -> String {
@@ -913,6 +1013,10 @@ mod tests {
             bundle.hash,
             fixed_bytes!("cf3c567aede099e5455207ed81c4884f72a4c0c24ddca331163a335525cd22cc")
         );
+        assert_eq!(
+            bundle.raw_bundle_hash,
+            fixed_bytes!("c770a85fafc5a494bfd94c1fcd2653e3812d388b55fc8fe9cb496ce0e1187ed8")
+        );
         assert_eq!(bundle.uuid, uuid!("a90205bc-2afd-5afe-b315-f17d597ffd97"));
 
         assert_eq!(bundle.block, Some(18_050_847));
@@ -1003,6 +1107,10 @@ mod tests {
             bundle.hash,
             fixed_bytes!("cf3c567aede099e5455207ed81c4884f72a4c0c24ddca331163a335525cd22cc")
         );
+        assert_eq!(
+            bundle.raw_bundle_hash,
+            fixed_bytes!("c3fff1614c330107443a2f5a89a8dd0384193d36ddc036487d673b3a25e62dc2")
+        );
         assert_eq!(bundle.uuid, uuid!("5d5bf52c-ac3f-57eb-a3e9-fc01b18ca516"));
     }
 
@@ -1026,6 +1134,10 @@ mod tests {
         assert_eq!(
             bundle.hash,
             fixed_bytes!("cf3c567aede099e5455207ed81c4884f72a4c0c24ddca331163a335525cd22cc")
+        );
+        assert_eq!(
+            bundle.raw_bundle_hash,
+            fixed_bytes!("c3fff1614c330107443a2f5a89a8dd0384193d36ddc036487d673b3a25e62dc2")
         );
         assert_eq!(bundle.uuid, uuid!("5d5bf52c-ac3f-57eb-a3e9-fc01b18ca516"));
     }
@@ -1064,6 +1176,10 @@ mod tests {
             bundle.hash,
             fixed_bytes!("08b57aa2df6e4729c55b809d1110f16aba30956cfc17f7ad771441d6d418f991")
         );
+        assert_eq!(
+            bundle.raw_bundle_hash,
+            fixed_bytes!("69063bfba903cbd4a92d897328ed3914a6c578c7b52da991081ba8daa47481ba")
+        );
         assert_eq!(bundle.uuid, uuid!("0cc09d2b-6538-5d0e-a627-22c400845783"));
 
         assert!(bundle.reverting_tx_hashes.is_empty());
@@ -1099,6 +1215,10 @@ mod tests {
         assert_eq!(
             bundle.hash,
             fixed_bytes!("08b57aa2df6e4729c55b809d1110f16aba30956cfc17f7ad771441d6d418f991")
+        );
+        assert_eq!(
+            bundle.raw_bundle_hash,
+            fixed_bytes!("749954abcc291c3bf097d393e33ddf8cdb069d9e6c0c37e615ee264dbc908a16")
         );
         assert_eq!(bundle.uuid, uuid!("3255ceb4-fdc5-592d-a501-2183727ca3df"));
 
@@ -1183,6 +1303,10 @@ mod tests {
                 ),
                 delayed: false,
             })
+        );
+        assert_eq!(
+            bundle.raw_bundle_hash,
+            fixed_bytes!("ea2129b7dfb92b755936d075885eab1fdb8aefe5199a69065192a3bacf7cef20")
         );
         assert_eq!(bundle.uuid, uuid!("e2bdb8cd-9473-5a1b-b425-57fa7ecfe2c1"));
     }
@@ -1396,6 +1520,10 @@ mod tests {
 
         assert_eq!(bundle.min_timestamp, None);
         assert_eq!(bundle.max_timestamp, None);
+        assert_eq!(
+            bundle.raw_bundle_hash,
+            fixed_bytes!("b1f194176f86f414f7002eda13c2f5b8c4589a36879d419c1b5cf36f0f588f53")
+        );
         assert_eq!(bundle.uuid, uuid!("22dc6bf0-9a12-5a76-9bbd-98ab77423415"));
     }
 
@@ -1405,6 +1533,7 @@ mod tests {
         struct Test {
             rpc_json: &'static str,
             expected_uuid: Uuid,
+            expected_raw_bundle_hash: B256,
         }
         let tests = [
             Test {
@@ -1417,6 +1546,9 @@ mod tests {
         	}
             "#,
                 expected_uuid: uuid!("d9a3ae52-79a2-5ce9-a687-e2aa4183d5c6"),
+                expected_raw_bundle_hash: fixed_bytes!(
+                    "8dd906ce24248a099c03664ff8e4164b40a9f6fb7ebbae0f9baf18dfe647bdf8"
+                ),
             },
             Test {
                 rpc_json: r#"
@@ -1428,6 +1560,9 @@ mod tests {
 			}
                 "#,
                 expected_uuid: uuid!("d9a3ae52-79a2-5ce9-a687-e2aa4183d5c6"),
+                expected_raw_bundle_hash: fixed_bytes!(
+                    "277a19955acc5cd52cdcbbe5ea60dcb48769c300e5689e824a18a979e8396746"
+                ),
             },
             Test {
                 rpc_json: r#"
@@ -1439,6 +1574,9 @@ mod tests {
 			}
                 "#,
                 expected_uuid: uuid!("5d5bf52c-ac3f-57eb-a3e9-fc01b18ca516"),
+                expected_raw_bundle_hash: fixed_bytes!(
+                    "c3fff1614c330107443a2f5a89a8dd0384193d36ddc036487d673b3a25e62dc2"
+                ),
             },
             Test {
                 rpc_json: r#"
@@ -1449,6 +1587,9 @@ mod tests {
 			}
                 "#,
                 expected_uuid: uuid!("e9ced844-16d5-5884-8507-db9338950c5c"),
+                expected_raw_bundle_hash: fixed_bytes!(
+                    "4b5affabe78e8ef83c2de9be564f78aef07d4721772f9406b296dd62a75f0311"
+                ),
             },
             Test {
                 rpc_json: r#"
@@ -1460,6 +1601,9 @@ mod tests {
 			}
                 "#,
                 expected_uuid: uuid!("e9ced844-16d5-5884-8507-db9338950c5c"),
+                expected_raw_bundle_hash: fixed_bytes!(
+                    "fcfa9e336238e55ba76e24cb18881b83b8a13963ae6bb2c01a1dadbcd6183082"
+                ),
             },
             Test {
                 rpc_json: r#"
@@ -1471,6 +1615,9 @@ mod tests {
 			}
                 "#,
                 expected_uuid: uuid!("e9ced844-16d5-5884-8507-db9338950c5c"),
+                expected_raw_bundle_hash: fixed_bytes!(
+                    "4b5affabe78e8ef83c2de9be564f78aef07d4721772f9406b296dd62a75f0311"
+                ),
             },
             Test {
                 rpc_json: r#"
@@ -1490,6 +1637,9 @@ mod tests {
             }
                 "#,
                 expected_uuid: uuid!("e2bdb8cd-9473-5a1b-b425-57fa7ecfe2c1"),
+                expected_raw_bundle_hash: fixed_bytes!(
+                    "ea2129b7dfb92b755936d075885eab1fdb8aefe5199a69065192a3bacf7cef20"
+                ),
             },
             Test {
                 rpc_json: r#"
@@ -1507,6 +1657,9 @@ mod tests {
             }
                 "#,
                 expected_uuid: uuid!("e785c7c0-8bfa-508e-9c3f-cb24f1638de3"),
+                expected_raw_bundle_hash: fixed_bytes!(
+                    "51f509d308b85d7e05d3fb18a13d0288943a3960a8ce0fa2c1cf43cab5a4a413"
+                ),
             },
             Test {
                 rpc_json: r#"
@@ -1523,6 +1676,9 @@ mod tests {
             }
                 "#,
                 expected_uuid: uuid!("e785c7c0-8bfa-508e-9c3f-cb24f1638de3"),
+                expected_raw_bundle_hash: fixed_bytes!(
+                    "950a4bafb205f04ec58b9ef3039c83406a04be32c57e435f403da1bb5067a1bd"
+                ),
             },
             Test {
                 rpc_json: r#"
@@ -1538,6 +1694,9 @@ mod tests {
             }
                 "#,
                 expected_uuid: uuid!("e785c7c0-8bfa-508e-9c3f-cb24f1638de3"),
+                expected_raw_bundle_hash: fixed_bytes!(
+                    "c95452a236a027897dcfc19dc895ed8555b3b92cd0f93a08a671618bdda54e83"
+                ),
             },
             Test {
                 rpc_json: r#"
@@ -1551,6 +1710,9 @@ mod tests {
             }
                 "#,
                 expected_uuid: uuid!("22dc6bf0-9a12-5a76-9bbd-98ab77423415"),
+                expected_raw_bundle_hash: fixed_bytes!(
+                    "b1f194176f86f414f7002eda13c2f5b8c4589a36879d419c1b5cf36f0f588f53"
+                ),
             },
         ];
         for test in tests {
@@ -1562,6 +1724,7 @@ mod tests {
                 .decode_new_bundle(TxEncoding::WithBlobData)
                 .expect("failed to convert bundle request to bundle");
             assert_eq!(bundle.uuid, test.expected_uuid);
+            assert_eq!(bundle.raw_bundle_hash, test.expected_raw_bundle_hash);
         }
     }
 

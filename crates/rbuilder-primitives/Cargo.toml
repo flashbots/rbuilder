@@ -36,6 +36,7 @@ ssz_types = "0.8.0"
 tree_hash = "0.8.0"
 tree_hash_derive = "0.8.0"
 typenum = "1.17.0"
+wyhash = "0.6.0"
 
 # misc
 derivative.workspace = true
