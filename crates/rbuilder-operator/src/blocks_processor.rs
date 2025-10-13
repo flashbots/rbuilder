@@ -168,7 +168,7 @@ impl<HttpClientType: ClientT> BlocksProcessorClient<HttpClientType> {
                         eth_send_to_coinbase: U256::ZERO,
                         total_gas_used: res.inplace_sim.gas_used(),
                         original_bundle: encode_bundle_for_blocks_processor(bundle.clone()),
-			bundle_hash: bundle.hash,
+                        bundle_hash: bundle.hash,
                     })
                 } else {
                     None
@@ -434,31 +434,33 @@ mod tests {
 
     #[test]
     fn test_used_bundle_serialize() {
-	let value =  UsedBundle {
-	    mev_gas_price: U256::from(100),
-	    total_eth: U256::from(200),
-	    eth_send_to_coinbase: U256::from(300),
-	    total_gas_used: 21000,
-	    original_bundle: RawBundle {
-		version: None,
-		block_number: None,
-		txs: Vec::new(),
-		reverting_tx_hashes: Vec::new(),
-		dropping_tx_hashes: Vec::new(),
-		replacement_uuid: None,
-		uuid: None,
-		signing_address: None,
-		refund_identity: None,
-		min_timestamp: None,
-		max_timestamp: None,
-		replacement_nonce: None,
-		refund_percent: None,
-		refund_recipient: None,
-		refund_tx_hashes: None,
-		delayed_refund: None,
-	    },
-	    bundle_hash: fixed_bytes!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
-	};
+        let value = UsedBundle {
+            mev_gas_price: U256::from(100),
+            total_eth: U256::from(200),
+            eth_send_to_coinbase: U256::from(300),
+            total_gas_used: 21000,
+            original_bundle: RawBundle {
+                version: None,
+                block_number: None,
+                txs: Vec::new(),
+                reverting_tx_hashes: Vec::new(),
+                dropping_tx_hashes: Vec::new(),
+                replacement_uuid: None,
+                uuid: None,
+                signing_address: None,
+                refund_identity: None,
+                min_timestamp: None,
+                max_timestamp: None,
+                replacement_nonce: None,
+                refund_percent: None,
+                refund_recipient: None,
+                refund_tx_hashes: None,
+                delayed_refund: None,
+            },
+            bundle_hash: fixed_bytes!(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            ),
+        };
         let value_str = serde_json::to_string(&value).unwrap();
 
         let expected_str = r#"{"mevGasPrice":"100","totalEth":"200","ethSendToCoinbase":"300","totalGasUsed":"21000","originalBundle":{"version":null,"blockNumber":null,"txs":[],"revertingTxHashes":[],"droppingTxHashes":[]},"bundleHash":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}"#;
