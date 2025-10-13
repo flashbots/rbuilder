@@ -1,9 +1,7 @@
-use crate::RawTransactionDecodable;
-
 use super::{
     Bundle, BundleRefund, BundleReplacementData, BundleReplacementKey, BundleVersion, MempoolTx,
-    Order, Refund, RefundConfig, ShareBundle, ShareBundleBody, ShareBundleInner,
-    ShareBundleReplacementData, ShareBundleReplacementKey, ShareBundleTx,
+    Order, RawTransactionDecodable, Refund, RefundConfig, ShareBundle, ShareBundleBody,
+    ShareBundleInner, ShareBundleReplacementData, ShareBundleReplacementKey, ShareBundleTx,
     TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior, TxWithBlobsCreateError,
     LAST_BUNDLE_VERSION,
 };
