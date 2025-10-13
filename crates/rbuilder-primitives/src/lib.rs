@@ -933,42 +933,25 @@ impl TransactionSignedEcRecoveredWithBlobs {
     }
 }
 
-/// Trait to lookup the signer of a tx by its hash.
-pub trait SignerLookup {
-    fn lookup(&self, tx_hash: B256) -> Option<Address>;
-}
-
-/// Default implementation that does nothing.
-pub struct NoOpSignerLookup;
-
-impl SignerLookup for NoOpSignerLookup {
-    fn lookup(&self, _tx_hash: B256) -> Option<Address> {
-        None
-    }
-}
-
-/// Allows using a closure as a [`SignerLookup`].
-impl<T: Fn(B256) -> Option<Address>> SignerLookup for T {
-    fn lookup(&self, tx_hash: B256) -> Option<Address> {
-        self(tx_hash)
-    }
-}
+/// Trait alias to lookup the signer of a tx by its hash.
+pub trait SignerLookup: Fn(B256) -> Option<Address> {}
+impl<T: Fn(B256) -> Option<Address>> SignerLookup for T {}
 
 /// Raw transaction bytes along with:
 /// - the encoding used (with or without blob data)
 /// - an optional signer lookup to avoid signature recovery when we already know the signer
-pub struct RawTransactionDecodable<T: SignerLookup = NoOpSignerLookup> {
+pub struct RawTransactionDecodable<T: SignerLookup> {
     pub raw: Bytes,
     pub encoding: TxEncoding,
     signer_lookup: Option<T>,
 }
 
-impl RawTransactionDecodable<NoOpSignerLookup> {
+impl RawTransactionDecodable<fn(B256) -> Option<Address>> {
     pub fn new(raw: Bytes, encoding: TxEncoding) -> Self {
         Self {
             raw,
             encoding,
-            signer_lookup: None,
+            signer_lookup: Option::<fn(B256) -> Option<Address>>::None,
         }
     }
 }
@@ -1008,7 +991,7 @@ impl<T: SignerLookup> RawTransactionDecodable<T> {
         let signer = self
             .signer_lookup
             .as_ref()
-            .and_then(|sl| sl.lookup(*pooled_tx.tx_hash()))
+            .and_then(|sl| sl(*pooled_tx.tx_hash()))
             .or_else(|| pooled_tx.recover_signer().ok())
             .ok_or(TxWithBlobsCreateError::InvalidTransactionSignature)?;
 
@@ -1027,7 +1010,7 @@ impl<T: SignerLookup> RawTransactionDecodable<T> {
         let signer = self
             .signer_lookup
             .as_ref()
-            .and_then(|sl| sl.lookup(hash))
+            .and_then(|sl| sl(hash))
             .or_else(|| decoded.recover_signer().ok())
             .ok_or(TxWithBlobsCreateError::InvalidTransactionSignature)?;
 
