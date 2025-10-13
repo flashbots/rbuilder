@@ -142,7 +142,7 @@ register_metrics! {
     .unwrap();
     pub static BLOCK_BUILT_GAS_USED: HistogramVec = HistogramVec::new(
         HistogramOpts::new("block_built_gas_used", "Gas used in the built block")
-            .buckets(exponential_buckets_range(21_000.0, 30_000_000.0, 100)),
+            .buckets(exponential_buckets_range(21_000.0, 60_000_000.0, 100)),
         &["builder_name"]
     )
     .unwrap();
@@ -151,7 +151,7 @@ register_metrics! {
             "block_built_sim_gas_used",
             "Gas used in the built block including failing bundles"
         )
-        .buckets(exponential_buckets_range(21_000.0, 30_000_000.0, 100)),
+        .buckets(exponential_buckets_range(21_000.0, 60_000_000.0, 100)),
         &["builder_name"]
     )
     .unwrap();
