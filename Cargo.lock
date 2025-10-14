@@ -1711,7 +1711,7 @@ dependencies = [
  "ethereum-consensus",
  "http 0.2.12",
  "itertools 0.10.5",
- "mev-share-sse 0.1.6",
+ "mev-share-sse",
  "reqwest 0.11.27",
  "serde",
  "serde_json",
@@ -7112,26 +7112,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mev-share-sse"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd9e517b6c1d1143b35b716ec1107a493b2ce1143a35cbb9788e81f69c6f574c"
-dependencies = [
- "alloy-rpc-types-mev",
- "async-sse",
- "bytes",
- "futures-util",
- "http-types",
- "pin-project-lite",
- "reqwest 0.12.24",
- "serde",
- "serde_json",
- "thiserror 2.0.17",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9348,7 +9328,7 @@ dependencies = [
  "lz4_flex",
  "mempool-dumpster",
  "metrics_macros",
- "mev-share-sse 0.5.1",
+ "mev-share-sse",
  "mockall",
  "parking_lot",
  "priority-queue",
@@ -9670,6 +9650,7 @@ dependencies = [
 [[package]]
 name = "reipc"
 version = "0.1.0"
+source = "git+https://github.com/flashbots/reipc?rev=30797f25aba38632c74c7891263dd461749f255c#30797f25aba38632c74c7891263dd461749f255c"
 dependencies = [
  "alloy-json-rpc",
  "alloy-primitives 1.4.1",
