@@ -1,4 +1,4 @@
-use alloy_primitives::{utils::format_ether, U256};
+use alloy_primitives::{utils::format_ether, Address, TxHash, U256};
 use reth_provider::StateProvider;
 use std::{
     cmp::max,
@@ -21,7 +21,10 @@ use crate::{
     telemetry::{self, add_block_fill_time, add_order_simulation_time},
     utils::{check_block_hash_reader_health, elapsed_ms, HistoricalBlockError},
 };
-use rbuilder_primitives::{order_statistics::OrderStatistics, SimValue, SimulatedOrder};
+use rbuilder_primitives::{
+    order_statistics::OrderStatistics, SimValue, SimulatedOrder,
+    TransactionSignedEcRecoveredWithBlobs,
+};
 
 use super::Block;
 
@@ -472,6 +475,52 @@ impl<
         };
         Ok(FinalizeBlockResult { block })
     }
+
+    fn trace_slow_order_execution(
+        &self,
+        order: &SimulatedOrder,
+        sim_time: Duration,
+        result: &Result<Result<ExecutionResult, ExecutionError>, CriticalCommitOrderError>,
+    ) {
+        #[derive(Debug)]
+        #[allow(dead_code)]
+        struct TxInfo {
+            pub hash: TxHash,
+            pub signer: Address,
+            pub to: Option<Address>,
+        }
+        impl From<&TransactionSignedEcRecoveredWithBlobs> for TxInfo {
+            fn from(tx: &TransactionSignedEcRecoveredWithBlobs) -> Self {
+                Self {
+                    hash: tx.hash(),
+                    signer: tx.signer(),
+                    to: tx.to(),
+                }
+            }
+        }
+        impl TxInfo {
+            fn parse_order(order: &SimulatedOrder) -> Vec<Self> {
+                order
+                    .order
+                    .list_txs()
+                    .iter()
+                    .map(|(tx, _)| (*tx).into())
+                    .collect::<Vec<_>>()
+            }
+        }
+        match result {
+            Ok(Ok(result)) => {
+                warn!(?sim_time,builder_name=self.builder_name,id = ?order.id(),tob_sim_value = ?order.sim_value,txs = ?TxInfo::parse_order(order),
+                    space_used = ?result.space_used,coinbase_profit = ?result.coinbase_profit,inplace_sim = ?result.inplace_sim, "Slow order ok execution");
+            }
+            Ok(Err(err)) => {
+                warn!(?err,?sim_time,builder_name=self.builder_name,id = ?order.id(),tob_sim_value = ?order.sim_value,txs = ?TxInfo::parse_order(order), "Slow order failed execution.");
+            }
+            Err(err) => {
+                warn!(?err,?sim_time,builder_name=self.builder_name,id = ?order.id(),tob_sim_value = ?order.sim_value,txs = ?TxInfo::parse_order(order), "Slow order critical execution error.");
+            }
+        }
+    }
 }
 
 impl<
@@ -495,6 +544,13 @@ impl<
             result_filter,
         );
         let sim_time = start.elapsed();
+        if self
+            .max_order_execution_duration_warning
+            .is_some_and(|max_dur| sim_time > max_dur)
+        {
+            self.trace_slow_order_execution(order, sim_time, &result);
+        }
+
         let (result, sim_ok) = match result {
             Ok(ok_result) => match ok_result {
                 Ok(res) => {
@@ -512,12 +568,6 @@ impl<
             Err(e) => (Err(e), false),
         };
         add_order_simulation_time(sim_time, &self.builder_name, sim_ok);
-        if self
-            .max_order_execution_duration_warning
-            .is_some_and(|max_dur| sim_time > max_dur)
-        {
-            warn!(sim_ok,?sim_time,builder_name=self.builder_name,id = ?order.id(),txs = ?order.order.list_txs().iter().map(|(tx, _)| tx.hash()).collect::<Vec<_>>(), "Slow order execution");
-        }
         result
     }
 
