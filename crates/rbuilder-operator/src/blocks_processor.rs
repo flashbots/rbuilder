@@ -168,7 +168,7 @@ impl<HttpClientType: ClientT> BlocksProcessorClient<HttpClientType> {
                         eth_send_to_coinbase: U256::ZERO,
                         total_gas_used: res.inplace_sim.gas_used(),
                         original_bundle: encode_bundle_for_blocks_processor(bundle.clone()),
-                        bundle_hash: bundle.hash,
+                        bundle_hash: bundle.external_hash.unwrap_or(bundle.hash),
                     })
                 } else {
                     None
@@ -457,6 +457,7 @@ mod tests {
                     refund_recipient: None,
                     refund_tx_hashes: None,
                     delayed_refund: None,
+                    bundle_hash: None,
                 },
                 txs: Vec::new(),
             },
