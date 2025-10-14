@@ -130,9 +130,7 @@ bincode = "1.3"
 schnellru = "0.2.4"
 
 # IPC state provider deps
-# original dep was changed to a forked repo due to dep problems.
-# reipc = { git = "https://github.com/nethermindeth/reipc.git", rev = "3837f3539201f948dd1c2c96a85a60d589feb4c6" }
-reipc = { git = "https://github.com/flashbots/reipc", rev = "30797f25aba38632c74c7891263dd461749f255c" }
+reipc = { git = "https://github.com/nethermindeth/reipc.git", rev = "b0b70735cda6273652212d1591188642e3449ed7" }
 
 quick_cache = "0.6.11"
 
