@@ -384,7 +384,7 @@ impl RawBundle {
             dropping_tx_hashes: metadata.dropping_tx_hashes,
             refund,
             version,
-	    external_hash: metadata.bundle_hash,
+            external_hash: metadata.bundle_hash,
         };
         bundle.hash_slow();
         Ok(RawBundleDecodeResult::NewBundle(bundle))
@@ -422,7 +422,7 @@ impl RawBundle {
                 refund_tx_hashes: value.refund.as_ref().map(|br| vec![br.tx_hash]),
                 delayed_refund: value.refund.as_ref().map(|br| br.delayed),
                 version: Some(Self::encode_version(value.version)),
-		bundle_hash: value.external_hash,
+                bundle_hash: value.external_hash,
             },
         }
     }
