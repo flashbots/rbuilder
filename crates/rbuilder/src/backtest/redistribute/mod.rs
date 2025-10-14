@@ -557,7 +557,7 @@ fn split_orders_by_identities(
     for order in &block_data.available_orders {
         let id = order.order.id();
         if let Order::Bundle(bundle) = &order.order {
-            bundle_hash_by_id.insert(id, bundle.hash);
+            bundle_hash_by_id.insert(id, bundle.external_hash.unwrap_or(bundle.hash));
         };
         order_sender_by_id.insert(id, order_sender(&order.order));
         let address = match order_redistribution_address(&order.order, protect_signers) {
