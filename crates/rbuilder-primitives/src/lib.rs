@@ -289,7 +289,7 @@ impl Bundle {
             hasher.update(res);
             hasher.update(&buff);
             let output = hasher.finalize();
-            res.copy_from_slice(&output.as_slice()[0..16]);
+            res.copy_from_slice(&output[0..16]);
             res
         };
         uuid::Builder::from_sha1_bytes(hash).into_uuid()
