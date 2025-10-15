@@ -15,6 +15,8 @@ use alloy_evm::Database;
 use alloy_primitives::{Address, B256, I256, U256};
 use alloy_rlp::Encodable;
 use itertools::Itertools;
+use rbuilder_primitives::ace::AceExchange;
+use rbuilder_primitives::AceTx;
 use rbuilder_primitives::{
     evm_inspector::{RBuilderEVMInspector, UsedStateTrace},
     BlockSpace, Bundle, Order, OrderId, RefundConfig, ShareBundle, ShareBundleBody,
@@ -278,6 +280,19 @@ impl BundleOk {
     pub fn space_state(&self, reserved_block_space: BlockSpace) -> BlockBuildingSpaceState {
         BlockBuildingSpaceState::new(self.cumulative_space_used, reserved_block_space)
     }
+}
+
+/// Result of successfully executing an ACE transaction
+#[derive(Debug, Clone)]
+pub struct AceOk {
+    pub space_used: BlockSpace,
+    pub cumulative_space_used: BlockSpace,
+    pub tx_info: TransactionExecutionInfo,
+    pub nonces_updated: Vec<(Address, u64)>,
+    /// Whether the ACE transaction reverted (but is still included)
+    pub reverted: bool,
+    /// The ACE exchange this transaction interacted with
+    pub exchange: AceExchange,
 }
 
 #[derive(Error, Debug, PartialEq, Eq)]
@@ -544,6 +559,25 @@ impl<
         self.partial_block_fork_execution_tracer
             .update_commit_tx_executed(tx_with_blobs, space_state, &res);
         res
+    }
+
+    pub fn commit_ace(
+        &mut self,
+        tx: &AceTx,
+        space_state: BlockBuildingSpaceState,
+    ) -> Result<Result<AceOk, BundleErr>, CriticalCommitOrderError> {
+        let current_block = self.ctx.block();
+        // None is good for any block
+        if let Some(block) = tx.target_block() {
+            if block != current_block {
+                return Ok(Err(BundleErr::TargetBlockIncorrect {
+                    block: current_block,
+                    target_block: block,
+                    target_max_block: block,
+                }));
+            }
+        }
+        self.execute_with_rollback(|state| state.commit_ace_no_rollback(tx, space_state))
     }
 
     /// Checks if the tx can fit in the block by checking:
@@ -838,6 +872,48 @@ impl<
             }
         };
         Ok(Ok(()))
+    }
+
+    fn commit_ace_no_rollback(
+        &mut self,
+        ace_tx: &AceTx,
+        space_state: BlockBuildingSpaceState,
+    ) -> Result<Result<AceOk, BundleErr>, CriticalCommitOrderError> {
+        match ace_tx {
+            AceTx::Angstrom(angstrom_tx) => {
+                let tx_hash = angstrom_tx.tx.hash();
+
+                // Use the constant Angstrom exchange address
+                let exchange = AceExchange::angstrom();
+
+                // Commit the ACE transaction - no rollback for ACE
+                let result = self.commit_tx(&angstrom_tx.tx, space_state)?;
+
+                match result {
+                    Ok(res) => {
+                        // Check if the transaction reverted
+                        if !res.tx_info.receipt.success {
+                            // Reject reverted ACE transactions
+                            return Ok(Err(BundleErr::TransactionReverted(tx_hash)));
+                        }
+
+                        Ok(Ok(AceOk {
+                            space_used: res.space_used(),
+                            cumulative_space_used: res.cumulative_space_used,
+                            tx_info: res.tx_info,
+                            nonces_updated: vec![res.nonce_updated],
+                            reverted: false,
+                            exchange,
+                        }))
+                    }
+                    Err(err) => {
+                        // ACE transactions must not fail at the EVM level
+                        // These are critical errors that prevent the bundle
+                        Ok(Err(BundleErr::InvalidTransaction(tx_hash, err)))
+                    }
+                }
+            }
+        }
     }
 
     fn commit_bundle_no_rollback(
@@ -1264,6 +1340,46 @@ impl<
                 let res = self.commit_share_bundle(bundle, space_state, allow_tx_skip)?;
                 self.bundle_to_order_result(res, coinbase_balance_before)
             }
+            Order::AceTx(ace) => {
+                let coinbase_balance_before = self.coinbase_balance()?;
+                let res = self.commit_ace(ace, space_state)?;
+                self.ace_to_order_result(res, coinbase_balance_before)
+            }
+        }
+    }
+
+    fn ace_to_order_result(
+        &mut self,
+        ace_result: Result<AceOk, BundleErr>,
+        coinbase_balance_before: U256,
+    ) -> Result<Result<OrderOk, OrderErr>, CriticalCommitOrderError> {
+        match ace_result {
+            Ok(ok) => {
+                let coinbase_balance_after = self.coinbase_balance()?;
+                let coinbase_profit = if coinbase_balance_after >= coinbase_balance_before {
+                    coinbase_balance_after - coinbase_balance_before
+                } else {
+                    return Ok(Err(OrderErr::NegativeProfit(
+                        coinbase_balance_before - coinbase_balance_after,
+                    )));
+                };
+
+                // Get the tx hash before moving tx_info
+                let tx_hash = ok.tx_info.tx.hash();
+
+                Ok(Ok(OrderOk {
+                    coinbase_profit,
+                    space_used: ok.space_used,
+                    cumulative_space_used: ok.cumulative_space_used,
+                    tx_infos: vec![ok.tx_info],
+                    nonces_updated: ok.nonces_updated,
+                    paid_kickbacks: Vec::new(),
+                    delayed_kickback: None,
+                    used_state_trace: self.get_used_state_trace(),
+                    original_order_ids: vec![OrderId::Ace(tx_hash.into())],
+                }))
+            }
+            Err(err) => Ok(Err(err.into())),
         }
     }
 

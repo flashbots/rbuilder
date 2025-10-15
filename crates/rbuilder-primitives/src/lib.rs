@@ -35,8 +35,7 @@ use reth_transaction_pool::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
-    cmp::Ordering, collections::HashMap, fmt::Display, hash::Hash, mem, ops::Deref, str::FromStr,
-    sync::Arc,
+    cmp::Ordering, collections::HashMap, fmt::Display, hash::Hash, mem, str::FromStr, sync::Arc,
 };
 pub use test_data_generator::TestDataGenerator;
 use thiserror::Error;
@@ -1057,22 +1056,77 @@ impl InMemorySize for MempoolTx {
     }
 }
 
+/// The application that is being executed.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AceTx {
-    /// A protocol level tx,
-    Protocol(MempoolTx),
-    /// A unlocking tx.
-    Unlocking(MempoolTx),
+    Angstrom(AngstromTx),
 }
 
-impl Deref for AceTx {
-    type Target = MempoolTx;
-    fn deref(&self) -> &Self::Target {
+impl AceTx {
+    pub fn target_block(&self) -> Option<u64> {
         match self {
-            Self::Protocol(m) => m,
-            Self::Unlocking(m) => m,
+            Self::Angstrom(_) => None,
         }
     }
+    pub fn metadata(&self) -> &Metadata {
+        match self {
+            Self::Angstrom(ang) => &ang.meta,
+        }
+    }
+
+    pub fn list_txs_len(&self) -> usize {
+        match self {
+            Self::Angstrom(_) => 1,
+        }
+    }
+
+    pub fn nonces(&self) -> Vec<Nonce> {
+        match self {
+            Self::Angstrom(ang) => {
+                vec![Nonce {
+                    nonce: ang.tx.nonce(),
+                    address: ang.tx.signer(),
+                    optional: false,
+                }]
+            }
+        }
+    }
+
+    pub fn can_execute_with_block_base_fee(&self, base_fee: u128) -> bool {
+        match self {
+            Self::Angstrom(ang) => ang.tx.as_ref().max_fee_per_gas() >= base_fee,
+        }
+    }
+
+    pub fn list_txs_revert(
+        &self,
+    ) -> Vec<(&TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior)> {
+        match self {
+            Self::Angstrom(ang) => vec![(&ang.tx, TxRevertBehavior::NotAllowed)],
+        }
+    }
+
+    pub fn order_id(&self) -> B256 {
+        match self {
+            Self::Angstrom(ang) => ang.tx.hash(),
+        }
+    }
+
+    pub fn list_txs(&self) -> Vec<(&TransactionSignedEcRecoveredWithBlobs, bool)> {
+        match self {
+            Self::Angstrom(ang) => vec![(&ang.tx, false)],
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AngstromTx {
+    pub tx: TransactionSignedEcRecoveredWithBlobs,
+    pub meta: Metadata,
+    pub unlock_data: Bytes,
+    pub max_priority_fee_per_gas: u128,
+    /// Whether this is a forced unlock or optional
+    pub unlock_type: ace::AceUnlockType,
 }
 
 /// Main type used for block building, we build blocks as sequences of Orders
@@ -1128,7 +1182,7 @@ impl Order {
             Order::Bundle(bundle) => bundle.can_execute_with_block_base_fee(block_base_fee),
             Order::Tx(tx) => tx.tx_with_blobs.tx.max_fee_per_gas() >= block_base_fee,
             Order::ShareBundle(bundle) => bundle.can_execute_with_block_base_fee(block_base_fee),
-            Order::AceTx(tx) => tx.tx_with_blobs.tx.max_fee_per_gas() >= block_base_fee,
+            Order::AceTx(tx) => tx.can_execute_with_block_base_fee(block_base_fee),
         }
     }
 
@@ -1160,11 +1214,7 @@ impl Order {
                 address: tx.tx_with_blobs.tx.signer(),
                 optional: false,
             }],
-            Order::AceTx(tx) => vec![Nonce {
-                nonce: tx.tx_with_blobs.tx.nonce(),
-                address: tx.tx_with_blobs.tx.signer(),
-                optional: false,
-            }],
+            Order::AceTx(tx) => tx.nonces(),
             Order::ShareBundle(bundle) => bundle.nonces(),
         }
     }
@@ -1173,7 +1223,7 @@ impl Order {
         match self {
             Order::Bundle(bundle) => OrderId::Bundle(bundle.uuid),
             Order::Tx(tx) => OrderId::Tx(tx.tx_with_blobs.hash()),
-            Order::AceTx(tx) => OrderId::Tx(tx.tx_with_blobs.hash()),
+            Order::AceTx(ace) => OrderId::Tx(ace.order_id()),
             Order::ShareBundle(bundle) => OrderId::ShareBundle(bundle.hash),
         }
     }
@@ -1187,7 +1237,7 @@ impl Order {
         match self {
             Order::Bundle(bundle) => bundle.list_txs(),
             Order::Tx(tx) => vec![(&tx.tx_with_blobs, true)],
-            Order::AceTx(tx) => vec![(&tx.tx_with_blobs, true)],
+            Order::AceTx(tx) => tx.list_txs(),
             Order::ShareBundle(bundle) => bundle.list_txs(),
         }
     }
@@ -1198,7 +1248,7 @@ impl Order {
         match self {
             Order::Bundle(bundle) => bundle.list_txs_revert(),
             Order::Tx(tx) => vec![(&tx.tx_with_blobs, TxRevertBehavior::AllowedIncluded)],
-            Order::AceTx(tx) => vec![(&tx.tx_with_blobs, TxRevertBehavior::AllowedIncluded)],
+            Order::AceTx(tx) => tx.list_txs_revert(),
             Order::ShareBundle(bundle) => bundle.list_txs_revert(),
         }
     }
@@ -1260,7 +1310,7 @@ impl Order {
         match self {
             Order::Bundle(bundle) => &bundle.metadata,
             Order::Tx(tx) => &tx.tx_with_blobs.metadata,
-            Order::AceTx(tx) => &tx.tx_with_blobs.metadata,
+            Order::AceTx(tx) => tx.metadata(),
             Order::ShareBundle(bundle) => &bundle.metadata,
         }
     }
@@ -1404,12 +1454,13 @@ pub enum OrderId {
     Tx(B256),
     Bundle(Uuid),
     ShareBundle(B256),
+    Ace(B256),
 }
 
 impl OrderId {
     pub fn fixed_bytes(&self) -> B256 {
         match self {
-            Self::Tx(hash) | Self::ShareBundle(hash) => *hash,
+            Self::Tx(hash) | Self::ShareBundle(hash) | Self::Ace(hash) => *hash,
             Self::Bundle(uuid) => {
                 let mut out = [0u8; 32];
                 out[0..16].copy_from_slice(uuid.as_bytes());
@@ -1440,6 +1491,9 @@ impl FromStr for OrderId {
         } else if let Some(hash_str) = s.strip_prefix("sbundle:") {
             let hash = B256::from_str(hash_str)?;
             Ok(Self::ShareBundle(hash))
+        } else if let Some(hash_str) = s.strip_prefix("ace_tx:") {
+            let hash = B256::from_str(hash_str)?;
+            Ok(Self::Ace(hash))
         } else {
             Err(eyre::eyre!("invalid order id"))
         }
@@ -1453,6 +1507,7 @@ impl Display for OrderId {
             Self::Tx(hash) => write!(f, "tx:{hash:?}"),
             Self::Bundle(uuid) => write!(f, "bundle:{uuid:?}"),
             Self::ShareBundle(hash) => write!(f, "sbundle:{hash:?}"),
+            Self::Ace(hash) => write!(f, "ace_tx:{hash:?}"),
         }
     }
 }
@@ -1467,6 +1522,7 @@ impl Ord for OrderId {
     fn cmp(&self, other: &Self) -> Ordering {
         fn rank(id: &OrderId) -> usize {
             match id {
+                OrderId::Ace(_) => 0,
                 OrderId::Tx(_) => 1,
                 OrderId::Bundle(_) => 2,
                 OrderId::ShareBundle(_) => 3,

@@ -5,6 +5,7 @@ use super::{
     TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior, TxWithBlobsCreateError,
     LAST_BUNDLE_VERSION,
 };
+use crate::{ace::AceUnlockType, AceTx, AngstromTx, Metadata};
 use alloy_consensus::constants::EIP4844_TX_TYPE_ID;
 use alloy_eips::eip2718::Eip2718Error;
 use alloy_primitives::{Address, Bytes, TxHash, B256, U64};
@@ -505,6 +506,78 @@ impl RawTx {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type")]
+#[serde(rename_all = "camelCase")]
+pub enum RawAce {
+    Angstrom(RawAngstromTx),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RawAngstromTx {
+    pub tx: Bytes,
+    pub unlock_data: Bytes,
+    pub max_priority_fee_per_gas: u128,
+    pub unlock_type: AceUnlockType,
+}
+
+impl RawAce {
+    pub fn from_tx(ace: AceTx) -> Self {
+        match ace {
+            AceTx::Angstrom(angstrom_tx) => {
+                let tx_bytes = angstrom_tx.tx.envelope_encoded_no_blobs();
+                RawAce::Angstrom(RawAngstromTx {
+                    tx: tx_bytes,
+                    unlock_data: angstrom_tx.unlock_data,
+                    max_priority_fee_per_gas: angstrom_tx.max_priority_fee_per_gas,
+                    unlock_type: angstrom_tx.unlock_type,
+                })
+            }
+        }
+    }
+}
+
+/// Angstrom bundle submission structure
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AngstromIntegrationSubmission {
+    pub tx: Bytes,
+    pub unlock_data: Bytes,
+    pub max_priority_fee_per_gas: u128,
+}
+
+impl AngstromIntegrationSubmission {
+    /// Convert the submission to an AceTx order
+    pub fn to_ace_tx(
+        self,
+        received_at: time::OffsetDateTime,
+    ) -> Result<AceTx, TxWithBlobsCreateError> {
+        let tx =
+            RawTransactionDecodable::new(self.tx, TxEncoding::WithBlobData).decode_enveloped()?;
+
+        let unlock_type = if self.unlock_data.is_empty() {
+            AceUnlockType::Force
+        } else {
+            AceUnlockType::Optional
+        };
+
+        let angstrom_tx = AngstromTx {
+            tx,
+            meta: Metadata {
+                received_at_timestamp: received_at,
+                is_system: false,
+                refund_identity: None,
+            },
+            unlock_data: self.unlock_data,
+            max_priority_fee_per_gas: self.max_priority_fee_per_gas,
+            unlock_type,
+        };
+
+        Ok(AceTx::Angstrom(angstrom_tx))
+    }
+}
+
 /// Struct to de/serialize json Bundles from bundles APIs and from/db.
 /// Does not assume a particular format on txs.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -831,6 +904,7 @@ pub enum RawOrder {
     Bundle(RawBundle),
     Tx(RawTx),
     ShareBundle(RawShareBundle),
+    Ace(RawAce),
 }
 
 #[derive(Error, Debug)]
@@ -843,6 +917,8 @@ pub enum RawOrderConvertError {
     FailedToDecodeShareBundle(RawShareBundleConvertError),
     #[error("Blobs not supported by RawOrder")]
     BlobsNotSupported,
+    #[error("{0}")]
+    UnsupportedOrderType(String),
 }
 
 impl RawOrder {
@@ -863,6 +939,12 @@ impl RawOrder {
                     .decode_new_bundle(encoding)
                     .map_err(RawOrderConvertError::FailedToDecodeShareBundle)?,
             )),
+            RawOrder::Ace(_) => {
+                // ACE orders are not decoded from RawOrder - they come directly from RPC
+                Err(RawOrderConvertError::UnsupportedOrderType(
+                    "ACE orders cannot be decoded from RawOrder".to_string(),
+                ))
+            }
         }
     }
 }
@@ -872,6 +954,7 @@ impl From<Order> for RawOrder {
         match value {
             Order::Bundle(bundle) => Self::Bundle(RawBundle::encode_no_blobs(bundle)),
             Order::Tx(tx) => Self::Tx(RawTx::encode_no_blobs(tx)),
+            Order::AceTx(tx) => Self::Ace(RawAce::from_tx(tx)),
             Order::ShareBundle(bundle) => {
                 Self::ShareBundle(RawShareBundle::encode_no_blobs(bundle))
             }

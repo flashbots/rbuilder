@@ -67,6 +67,7 @@ pub enum InclusionChange {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ExtendedOrderId {
     Tx(B256),
+    AceTx(B256),
     Bundle { uuid: Uuid, hash: B256 },
     ShareBundle(B256),
 }
@@ -75,6 +76,7 @@ impl ExtendedOrderId {
     fn new(order_id: OrderId, bundle_hashes: &HashMap<OrderId, B256>) -> Self {
         match order_id {
             OrderId::Tx(hash) => ExtendedOrderId::Tx(hash),
+            OrderId::Ace(hash) => ExtendedOrderId::AceTx(hash),
             OrderId::Bundle(uuid) => {
                 let hash = bundle_hashes.get(&order_id).cloned().unwrap_or_default();
                 ExtendedOrderId::Bundle { uuid, hash }
@@ -317,6 +319,7 @@ where
             Order::Bundle(_) => bundles += 1,
             Order::Tx(_) => txs += 1,
             Order::ShareBundle(_) => share_bundles += 1,
+            Order::AceTx(_) => txs += 1,
         }
     }
     let total = txs + bundles + share_bundles;
@@ -1229,7 +1232,7 @@ fn order_redistribution_address(
             let (first_tx, _) = txs.first()?;
             Some((first_tx.signer(), true))
         }
-        Order::Tx(_) => {
+        Order::AceTx(_) | Order::Tx(_) => {
             unreachable!("Mempool tx order can't have signer");
         }
     }

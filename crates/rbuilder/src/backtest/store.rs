@@ -504,6 +504,7 @@ fn order_type(command: &RawReplaceableOrderPoolCommand) -> &'static str {
             RawOrder::Bundle(_) => "bundle",
             RawOrder::Tx(_) => "tx",
             RawOrder::ShareBundle(_) => "sbundle",
+            RawOrder::Ace(_) => "ace_tx",
         },
         RawReplaceableOrderPoolCommand::CancelShareBundle(_) => "cancel_sbundle",
         RawReplaceableOrderPoolCommand::CancelBundle(_) => "cancel_bundle",
