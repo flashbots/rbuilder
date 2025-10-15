@@ -26,7 +26,7 @@ use crate::{
 };
 use ahash::{HashMap, HashSet};
 use derivative::Derivative;
-use rbuilder_primitives::{AccountNonce, OrderId, SimValue, SimulatedOrder};
+use rbuilder_primitives::{AccountNonce, Order, OrderId, SimValue, SimulatedOrder};
 use reth_provider::StateProvider;
 use serde::Deserialize;
 use std::{
@@ -281,6 +281,18 @@ impl OrderingBuilderContext {
         self.failed_orders.clear();
         self.order_attempts.clear();
 
+        // Extract ACE protocol transactions (Order::AceTx) from block_orders
+        // These will be pre-committed at the top of the block
+        let all_orders = block_orders.get_all_orders();
+        let mut ace_txs = Vec::new();
+        for order in all_orders {
+            if matches!(order.order, Order::AceTx(_)) {
+                ace_txs.push(order.clone());
+                // Remove from block_orders so they don't get processed in fill_orders
+                block_orders.remove_order(order.id());
+            }
+        }
+
         let mut block_building_helper = BlockBuildingHelperFromProvider::new_with_execution_tracer(
             built_block_id,
             self.state.clone(),
@@ -293,6 +305,18 @@ impl OrderingBuilderContext {
             partial_block_execution_tracer,
             self.max_order_execution_duration_warning,
         )?;
+
+        // Pre-commit ACE protocol transactions at the top of the block
+        for ace_tx in &ace_txs {
+            trace!(order_id = ?ace_tx.id(), "Pre-committing ACE protocol tx");
+            if let Err(err) = block_building_helper.commit_order(
+                &mut self.local_ctx,
+                ace_tx,
+                &|_| Ok(()), // ACE protocol txs bypass profit validation
+            ) {
+                trace!(order_id = ?ace_tx.id(), ?err, "Failed to pre-commit ACE protocol tx");
+            }
+        }
         self.fill_orders(
             &mut block_building_helper,
             &mut block_orders,

@@ -18,7 +18,7 @@ use tracing::{debug, trace};
 #[derive(Debug)]
 pub struct AceBundler {
     /// ACE bundles organized by exchange
-    exchanges: std::collections::HashMap<AceExchange, AceExchangeData>,
+    exchanges: ahash::HashMap<AceExchange, AceExchangeData>,
 }
 
 /// Data for a specific ACE exchange including all transaction types and logic
@@ -235,7 +235,7 @@ impl AceExchangeData {
 impl AceBundler {
     pub fn new() -> Self {
         Self {
-            exchanges: std::collections::HashMap::new(),
+            exchanges: ahash::HashMap::default(),
         }
     }
 

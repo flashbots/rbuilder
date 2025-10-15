@@ -31,6 +31,7 @@ impl TestDataGenerator {
             order,
             sim_value,
             used_state_trace: None,
+            ace_interaction: None,
         })
     }
 }

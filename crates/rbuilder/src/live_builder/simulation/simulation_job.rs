@@ -1,7 +1,10 @@
 use std::{fmt, sync::Arc};
 
 use crate::{
-    building::sim::{SimTree, SimulatedResult, SimulationRequest},
+    building::{
+        ace_bundler::AceBundler,
+        sim::{SimTree, SimulatedResult, SimulationRequest},
+    },
     live_builder::{
         order_input::order_sink::OrderPoolCommand,
         simulation::simulation_job_tracer::SimulationJobTracer,
@@ -38,6 +41,7 @@ pub struct SimulationJob {
     /// Output of the simulations
     slot_sim_results_sender: mpsc::Sender<SimulatedOrderCommand>,
     sim_tree: SimTree,
+    ace_bundler: AceBundler,
 
     orders_received: OrderCounter,
     orders_simulated_ok: OrderCounter,
@@ -78,6 +82,7 @@ impl SimulationJob {
         sim_tracer: Arc<dyn SimulationJobTracer>,
     ) -> Self {
         Self {
+            ace_bundler: AceBundler::new(),
             block_cancellation,
             new_order_sub,
             sim_req_sender,

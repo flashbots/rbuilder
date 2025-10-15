@@ -15,7 +15,11 @@ use crate::{
 };
 use ahash::{HashMap, HashSet};
 use alloy_primitives::Address;
+use alloy_primitives::U256;
 use rand::seq::SliceRandom;
+use rbuilder_primitives::ace::{AceExchange, AceInteraction};
+use rbuilder_primitives::BlockSpace;
+use rbuilder_primitives::SimValue;
 use rbuilder_primitives::{Order, OrderId, SimulatedOrder};
 use reth_errors::ProviderError;
 use reth_provider::StateProvider;
@@ -25,6 +29,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
+use strum::IntoEnumIterator;
 use tracing::{error, trace};
 
 #[derive(Debug)]
@@ -422,10 +427,60 @@ pub fn simulate_order(
     let mut tracer = AccumulatorSimulationTracer::new();
     let mut fork = PartialBlockFork::new(state, ctx, local_ctx).with_tracer(&mut tracer);
     let rollback_point = fork.rollback_point();
-    let sim_res =
-        simulate_order_using_fork(parent_orders, order, &mut fork, &ctx.mempool_tx_detector);
+    let order_id = order.id();
+    let sim_res = simulate_order_using_fork(
+        parent_orders,
+        order.clone(),
+        &mut fork,
+        &ctx.mempool_tx_detector,
+    );
     fork.rollback(rollback_point);
-    let sim_res = sim_res?;
+    let mut sim_res = sim_res?;
+
+    let sim_success = matches!(&sim_res, OrderSimResult::Success(_, _));
+    let ace_interaction = AceExchange::iter().find_map(|exchange| {
+        exchange.classify_ace_interaction(&tracer.used_state_trace, sim_success)
+    });
+
+    match sim_res {
+        OrderSimResult::Failed(ref err) => {
+            // Check if failed order accessed ACE - if so, treat as successful with zero profit
+            if let Some(interaction @ AceInteraction::NonUnlocking { exchange }) = ace_interaction {
+                tracing::debug!(
+                    order = ?order_id,
+                    ?err,
+                    ?exchange,
+                    "Failed order accessed ACE - treating as successful non-unlocking ACE transaction"
+                );
+                sim_res = OrderSimResult::Success(
+                    Arc::new(SimulatedOrder {
+                        order,
+                        sim_value: SimValue::new(
+                            U256::ZERO,
+                            U256::ZERO,
+                            BlockSpace::new(tracer.used_gas, 0, 0),
+                            Vec::new(),
+                        ),
+                        used_state_trace: Some(tracer.used_state_trace.clone()),
+                        ace_interaction: Some(interaction),
+                    }),
+                    Vec::new(),
+                );
+            }
+        }
+        // If we have a sucessful simulation and we have detected an ace tx, this means that it is a
+        // unlocking mempool ace tx by default.
+        OrderSimResult::Success(..) => {
+            if let Some(interaction) = ace_interaction {
+                tracing::debug!(
+                    order = ?order.id(),
+                    ?interaction,
+                    "Order has ACE interaction"
+                );
+            }
+        }
+    }
+
     Ok(OrderSimResultWithGas {
         result: sim_res,
         gas_used: tracer.used_gas,
@@ -472,6 +527,7 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
                     order,
                     sim_value,
                     used_state_trace: res.used_state_trace,
+                    ace_interaction: None,
                 }),
                 new_nonces,
             ))

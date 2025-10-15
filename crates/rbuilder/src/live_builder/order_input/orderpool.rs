@@ -112,7 +112,7 @@ impl OrderPool {
         trace!(?order_id, "Adding order");
 
         let (order, target_block) = match &order {
-            Order::Tx(..) | Order::AceTx(_) => {
+            Order::Tx(..) => {
                 self.mempool_txs.push((order.clone(), Instant::now()));
                 self.mempool_txs_size += Self::measure_tx(order);
                 (order, None)
@@ -141,6 +141,10 @@ impl OrderPool {
                     .or_default();
                 bundles_store.bundles.push(order.clone());
                 (order, Some(target_block))
+            }
+            Order::AceTx(ace_tx) => {
+                self.bundles_for_current_block.push(order.clone());
+                (order, ace_tx.target_block())
             }
         };
         self.known_orders
@@ -300,7 +304,10 @@ impl OrderPool {
     pub fn measure_tx(order: &Order) -> usize {
         match order {
             Order::Tx(tx) => tx.size(),
-            Order::AceTx(_) => 0,
+            Order::AceTx(_) => {
+                error!("measure_tx called on an ace");
+                0
+            }
             Order::Bundle(_) => {
                 error!("measure_tx called on a bundle");
                 0

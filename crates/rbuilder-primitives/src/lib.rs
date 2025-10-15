@@ -41,7 +41,7 @@ pub use test_data_generator::TestDataGenerator;
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::serialize::TxEncoding;
+use crate::{ace::AceInteraction, serialize::TxEncoding};
 
 /// Extra metadata for an order.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -1435,6 +1435,7 @@ pub struct SimulatedOrder {
     pub sim_value: SimValue,
     /// Info about read/write slots during the simulation to help figure out what the Order is doing.
     pub used_state_trace: Option<UsedStateTrace>,
+    pub ace_interaction: Option<AceInteraction>,
 }
 
 impl SimulatedOrder {
