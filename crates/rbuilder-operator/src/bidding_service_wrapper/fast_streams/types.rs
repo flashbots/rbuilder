@@ -1,6 +1,6 @@
 //! Types used to communicate with the bidding service via iceoryx.
 //! They are mostly mappings of the originals but supporting ZeroCopySend.
-use alloy_primitives::U256;
+use alloy_primitives::{I256, U256};
 use bid_scraper::types::ScrapedRelayBlockBid;
 use iceoryx2::prelude::ZeroCopySend;
 use iceoryx2_bb_container::byte_string::FixedSizeByteString;
@@ -196,6 +196,7 @@ pub struct SlotBidderSealBidCommandRPC {
     pub session_id: u64,
     pub block_id: u64,
     pub payout_tx_value: [u8; U256_DATA_LENGTH],
+    pub subsidy: [u8; U256_DATA_LENGTH],
     pub seen_competition_bid: Option<[u8; U256_DATA_LENGTH]>,
     /// When this bid is a reaction so some event (eg: new block, new competition bid) we put here
     /// the creation time of that event so we can measure our reaction time.
@@ -213,6 +214,7 @@ impl From<SlotBidderSealBidCommandWithSessionId> for SlotBidderSealBidCommandRPC
                 .0
                 .trigger_creation_time
                 .map(offset_datetime_to_timestamp_us),
+            subsidy: value.0.subsidy.to_le_bytes(),
         }
     }
 }
@@ -222,6 +224,7 @@ impl From<SlotBidderSealBidCommandRPC> for SlotBidderSealBidCommand {
         SlotBidderSealBidCommand {
             block_id: BuiltBlockId(val.block_id),
             payout_tx_value: U256::from_le_bytes(val.payout_tx_value),
+            subsidy: I256::from_le_bytes(val.subsidy),
             seen_competition_bid: val.seen_competition_bid.map(|k| U256::from_le_bytes(k)),
             trigger_creation_time: val
                 .trigger_creation_time_us

@@ -7,7 +7,7 @@ use crate::{
     provider::RootHasher,
     roothash::RootHashError,
 };
-use alloy_primitives::{Address, Bytes, B256, U256};
+use alloy_primitives::{Address, Bytes, B256, I256, U256};
 use eth_sparse_mpt::utils::{HashMap, HashSet};
 use rbuilder_primitives::{order_statistics::OrderStatistics, SimValue, SimulatedOrder};
 use reth_primitives::SealedBlock;
@@ -85,11 +85,13 @@ impl BlockBuildingHelper for MockBlockBuildingHelper {
         &mut self,
         _local_ctx: &mut ThreadBlockBuildingContext,
         payout_tx_value: U256,
+        subsidy: I256,
         seen_competition_bid: Option<U256>,
     ) -> Result<FinalizeBlockResult, BlockBuildingHelperError> {
         self.built_block_trace.update_orders_sealed_at();
         self.built_block_trace.seen_competition_bid = seen_competition_bid;
         self.built_block_trace.bid_value = payout_tx_value;
+        self.built_block_trace.subsidy = subsidy;
         let block = Block {
             builder_name: "BlockBuildingHelper".to_string(),
             trace: self.built_block_trace.clone(),
@@ -127,6 +129,7 @@ impl BlockBuildingHelper for MockBlockBuildingHelper {
         &mut self,
         _local_ctx: &mut ThreadBlockBuildingContext,
         _payout_tx_value: U256,
+        _subsidy: I256,
         _seen_competition_bid: Option<U256>,
     ) -> Result<FinalizeBlockResult, BlockBuildingHelperError> {
         unimplemented!()

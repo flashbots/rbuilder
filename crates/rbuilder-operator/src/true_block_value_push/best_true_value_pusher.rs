@@ -1,9 +1,10 @@
 //! This module is responsible for syncing the best true value bid between the local state and redis.
 
-use alloy_primitives::U256;
+use alloy_primitives::{I256, U256};
 
 use parking_lot::Mutex;
 use rbuilder::utils::{
+    i256decimal_serde_helper,
     reconnect::{run_loop_with_reconnect, RunCommand},
     u256decimal_serde_helper,
 };
@@ -27,6 +28,9 @@ pub struct BuiltBlockInfo {
     /// Bid we made to the relay.
     #[serde(with = "u256decimal_serde_helper")]
     pub bid: U256,
+    #[serde(with = "i256decimal_serde_helper")]
+    pub subsidy: I256,
+
     pub builder: String,
     pub slot_end_timestamp: u64,
 }
@@ -37,6 +41,7 @@ impl BuiltBlockInfo {
         slot_number: u64,
         best_true_value: U256,
         bid: U256,
+        subsidy: I256,
         builder: String,
         slot_end_timestamp: u64,
     ) -> Self {
@@ -46,6 +51,7 @@ impl BuiltBlockInfo {
             slot_number,
             best_true_value,
             bid,
+            subsidy,
             builder,
             slot_end_timestamp,
         }

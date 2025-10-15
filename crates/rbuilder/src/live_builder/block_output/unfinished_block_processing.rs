@@ -11,7 +11,7 @@
 ///
 /// Alternatively if configured (adjust_finalized_blocks = true) to run using old flow `prefinalize_worker` would not do anything with the block
 /// and `finalize_worker` would do full finalization instead of adjustment of the finalize block.
-use alloy_primitives::{utils::format_ether, U256};
+use alloy_primitives::{utils::format_ether, I256, U256};
 use derivative::Derivative;
 use parking_lot::Mutex;
 use std::sync::Arc;
@@ -155,19 +155,20 @@ impl PrefinalizedBlockInner {
     fn finalize_block(
         &mut self,
         value: U256,
+        subsidy: I256,
         seen_competition_bid: Option<U256>,
         adjust_finalized_blocks: bool,
     ) -> Result<Option<FinalizeBlockResult>, BlockBuildingHelperError> {
         if let Some(local_ctx) = self.local_ctx.as_mut() {
             if adjust_finalized_blocks {
                 self.block_building_helper
-                    .adjust_finalized_block(local_ctx, value, seen_competition_bid)
+                    .adjust_finalized_block(local_ctx, value, subsidy, seen_competition_bid)
                     .map(Some)
             } else {
                 // we clone here because finalizing block multiple times is not supported
                 self.block_building_helper
                     .box_clone()
-                    .finalize_block(local_ctx, value, seen_competition_bid)
+                    .finalize_block(local_ctx, value, subsidy, seen_competition_bid)
                     .map(Some)
             }
         } else {
@@ -207,6 +208,7 @@ impl PrefinalizedBlock {
 struct FinalizeCommand {
     prefinalized_block: PrefinalizedBlock,
     value: U256,
+    subsidy: I256,
     seen_competition_bid: Option<U256>,
     /// Bid received from the bidder (UnfinishedBuiltBlocksInput::seal_command)
     bid_received_at: OffsetDateTime,
@@ -326,6 +328,7 @@ impl UnfinishedBuiltBlocksInput {
                 seen_competition_bid: bid.seen_competition_bid,
                 bid_received_at,
                 sent_to_sealer,
+                subsidy: bid.subsidy,
             };
             self.last_finalize_command.set(finalize_command);
         } else {
@@ -382,7 +385,8 @@ impl UnfinishedBuiltBlocksInput {
                         continue;
                     }
                 };
-                match block_building_helper.finalize_block(&mut local_ctx, value, None) {
+                match block_building_helper.finalize_block(&mut local_ctx, value, I256::ZERO, None)
+                {
                     Ok(_) => {
                         trace!("Prefinalized block");
                     }
@@ -437,6 +441,7 @@ impl UnfinishedBuiltBlocksInput {
 
             let mut result = match command.finalize_block(
                 finalize_command.value,
+                finalize_command.subsidy,
                 finalize_command.seen_competition_bid,
                 self.adjust_finalized_blocks,
             ) {

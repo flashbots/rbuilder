@@ -69,6 +69,31 @@ pub mod u256decimal_serde_helper {
     }
 }
 
+/// de/serializes U256 as decimal value (U256 serde default is hexa). Needed to interact with some JSONs (eg:ProposerPayloadDelivered in relay provider API)
+pub mod i256decimal_serde_helper {
+    use std::str::FromStr;
+
+    use alloy_primitives::I256;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(value: &I256, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        //fmt::Display for I256 uses decimal
+        serializer.serialize_str(&value.to_string())
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<I256, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        //from_str is robust, can take decimal or other prefixed (eg:"0x" hexa) formats.
+        I256::from_str(&s).map_err(serde::de::Error::custom)
+    }
+}
+
 pub fn http_provider(url: reqwest::Url) -> RootProvider {
     RootProvider::new_http(url)
 }

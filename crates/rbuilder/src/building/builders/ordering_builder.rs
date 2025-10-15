@@ -25,6 +25,7 @@ use crate::{
     utils::NonceCache,
 };
 use ahash::{HashMap, HashSet};
+use alloy_primitives::I256;
 use derivative::Derivative;
 use rbuilder_primitives::{AccountNonce, OrderId, SimValue, SimulatedOrder};
 use reth_provider::StateProvider;
@@ -198,7 +199,7 @@ where
 
     let payout_tx_value = block_builder.true_block_value()?;
     let finalize_block_result =
-        block_builder.finalize_block(&mut local_ctx, payout_tx_value, None)?;
+        block_builder.finalize_block(&mut local_ctx, payout_tx_value, I256::ZERO, None)?;
     Ok(finalize_block_result.block)
 }
 
