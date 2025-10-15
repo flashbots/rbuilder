@@ -75,6 +75,7 @@ use time::OffsetDateTime;
 use tracing::{error, trace};
 use tx_sim_cache::TxExecutionCache;
 
+pub mod ace_bundler;
 pub mod block_orders;
 pub mod builders;
 pub mod built_block_trace;

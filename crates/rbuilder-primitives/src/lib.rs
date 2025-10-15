@@ -1,5 +1,6 @@
 //! Order types used as elements for block building.
 
+pub mod ace;
 pub mod built_block;
 pub mod evm_inspector;
 pub mod fmt;
@@ -34,7 +35,8 @@ use reth_transaction_pool::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
-    cmp::Ordering, collections::HashMap, fmt::Display, hash::Hash, mem, str::FromStr, sync::Arc,
+    cmp::Ordering, collections::HashMap, fmt::Display, hash::Hash, mem, ops::Deref, str::FromStr,
+    sync::Arc,
 };
 pub use test_data_generator::TestDataGenerator;
 use thiserror::Error;
@@ -1055,12 +1057,31 @@ impl InMemorySize for MempoolTx {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum AceTx {
+    /// A protocol level tx,
+    Protocol(MempoolTx),
+    /// A unlocking tx.
+    Unlocking(MempoolTx),
+}
+
+impl Deref for AceTx {
+    type Target = MempoolTx;
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Protocol(m) => m,
+            Self::Unlocking(m) => m,
+        }
+    }
+}
+
 /// Main type used for block building, we build blocks as sequences of Orders
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Order {
     Bundle(Bundle),
     Tx(MempoolTx),
     ShareBundle(ShareBundle),
+    AceTx(AceTx),
 }
 
 /// Uniquely identifies a replaceable sbundle
@@ -1107,6 +1128,7 @@ impl Order {
             Order::Bundle(bundle) => bundle.can_execute_with_block_base_fee(block_base_fee),
             Order::Tx(tx) => tx.tx_with_blobs.tx.max_fee_per_gas() >= block_base_fee,
             Order::ShareBundle(bundle) => bundle.can_execute_with_block_base_fee(block_base_fee),
+            Order::AceTx(tx) => tx.tx_with_blobs.tx.max_fee_per_gas() >= block_base_fee,
         }
     }
 
@@ -1116,8 +1138,7 @@ impl Order {
     /// Non virtual orders should return self
     pub fn original_orders(&self) -> Vec<&Order> {
         match self {
-            Order::Bundle(_) => vec![self],
-            Order::Tx(_) => vec![self],
+            Order::Bundle(_) | Order::Tx(_) | Order::AceTx(_) => vec![self],
             Order::ShareBundle(sb) => {
                 let res = sb.original_orders();
                 if res.is_empty() {
@@ -1139,6 +1160,11 @@ impl Order {
                 address: tx.tx_with_blobs.tx.signer(),
                 optional: false,
             }],
+            Order::AceTx(tx) => vec![Nonce {
+                nonce: tx.tx_with_blobs.tx.nonce(),
+                address: tx.tx_with_blobs.tx.signer(),
+                optional: false,
+            }],
             Order::ShareBundle(bundle) => bundle.nonces(),
         }
     }
@@ -1147,6 +1173,7 @@ impl Order {
         match self {
             Order::Bundle(bundle) => OrderId::Bundle(bundle.uuid),
             Order::Tx(tx) => OrderId::Tx(tx.tx_with_blobs.hash()),
+            Order::AceTx(tx) => OrderId::Tx(tx.tx_with_blobs.hash()),
             Order::ShareBundle(bundle) => OrderId::ShareBundle(bundle.hash),
         }
     }
@@ -1160,6 +1187,7 @@ impl Order {
         match self {
             Order::Bundle(bundle) => bundle.list_txs(),
             Order::Tx(tx) => vec![(&tx.tx_with_blobs, true)],
+            Order::AceTx(tx) => vec![(&tx.tx_with_blobs, true)],
             Order::ShareBundle(bundle) => bundle.list_txs(),
         }
     }
@@ -1170,6 +1198,7 @@ impl Order {
         match self {
             Order::Bundle(bundle) => bundle.list_txs_revert(),
             Order::Tx(tx) => vec![(&tx.tx_with_blobs, TxRevertBehavior::AllowedIncluded)],
+            Order::AceTx(tx) => vec![(&tx.tx_with_blobs, TxRevertBehavior::AllowedIncluded)],
             Order::ShareBundle(bundle) => bundle.list_txs_revert(),
         }
     }
@@ -1178,7 +1207,7 @@ impl Order {
     pub fn list_txs_len(&self) -> usize {
         match self {
             Order::Bundle(bundle) => bundle.list_txs_len(),
-            Order::Tx(_) => 1,
+            Order::AceTx(_) | Order::Tx(_) => 1,
             Order::ShareBundle(bundle) => bundle.list_txs_len(),
         }
     }
@@ -1196,7 +1225,7 @@ impl Order {
                     r.sequence_number,
                 )
             }),
-            Order::Tx(_) => None,
+            Order::AceTx(_) | Order::Tx(_) => None,
             Order::ShareBundle(sbundle) => sbundle.replacement_data.as_ref().map(|r| {
                 (
                     OrderReplacementKey::ShareBundle(r.clone().key),
@@ -1213,7 +1242,7 @@ impl Order {
     pub fn target_block(&self) -> Option<u64> {
         match self {
             Order::Bundle(bundle) => bundle.block,
-            Order::Tx(_) => None,
+            Order::AceTx(_) | Order::Tx(_) => None,
             Order::ShareBundle(bundle) => Some(bundle.block),
         }
     }
@@ -1223,7 +1252,7 @@ impl Order {
         match self {
             Order::Bundle(bundle) => bundle.signer,
             Order::ShareBundle(bundle) => bundle.signer,
-            Order::Tx(_) => None,
+            Order::AceTx(_) | Order::Tx(_) => None,
         }
     }
 
@@ -1231,6 +1260,7 @@ impl Order {
         match self {
             Order::Bundle(bundle) => &bundle.metadata,
             Order::Tx(tx) => &tx.tx_with_blobs.metadata,
+            Order::AceTx(tx) => &tx.tx_with_blobs.metadata,
             Order::ShareBundle(bundle) => &bundle.metadata,
         }
     }
