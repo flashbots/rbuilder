@@ -37,7 +37,7 @@ use derive_more::Deref;
 use eth_sparse_mpt::SparseTrieLocalCache;
 use evm::EthCachedEvmFactory;
 use jsonrpsee::core::Serialize;
-use parking_lot::RwLock;
+use parking_lot::Mutex;
 use rbuilder_primitives::{
     mev_boost::BidAdjustmentData, BlockSpace, Order, OrderId, SimValue, SimulatedOrder,
     TransactionSignedEcRecoveredWithBlobs,
@@ -387,7 +387,7 @@ pub struct ThreadBlockBuildingContext {
 
 /// The cache for keeping the computed SSZ leaf roots for the transactions.
 #[derive(Clone, Default, Debug, Deref)]
-pub struct TransactionSszLeafRootCache(Arc<RwLock<HashMap<B256, B256>>>);
+pub struct TransactionSszLeafRootCache(Arc<Mutex<HashMap<B256, B256>>>);
 
 #[derive(Debug, Clone, Copy)]
 pub struct BlockBuildingConfig {

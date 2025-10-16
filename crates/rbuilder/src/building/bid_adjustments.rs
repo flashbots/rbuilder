@@ -106,20 +106,19 @@ pub fn compute_cl_placeholder_transaction_proof(
 ) -> Vec<B256> {
     let mut buf = Vec::new();
     let mut leaves = Vec::with_capacity(transactions.len());
+    let mut cache = cache.lock();
     for tx in transactions {
-        let leaf = match cache.read().get(tx.hash()) {
-            Some(leaf) => *leaf,
-            None => {
-                buf.clear();
-                tx.encode_2718(&mut buf);
-                let leaf_root = tx_ssz_leaf_root(&buf);
-                cache.write().insert(*tx.hash(), leaf_root);
-                leaf_root
-            }
+        let leaf = if let Some(leaf) = cache.get(tx.hash()) {
+            *leaf
+        } else {
+            buf.clear();
+            tx.encode_2718(&mut buf);
+            let leaf_root = tx_ssz_leaf_root(&buf);
+            cache.insert(*tx.hash(), leaf_root);
+            leaf_root
         };
         leaves.push(leaf);
     }
-
     let target = transactions.len().checked_sub(1).unwrap();
     CompactSszTransactionTree::from_leaves(leaves).proof(target)
 }
