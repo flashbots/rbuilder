@@ -65,3 +65,7 @@ ring = "0.17"
 [[bench]]
 name = "sha_pair"
 harness = false
+
+[[bench]]
+name = "ssz_proof"
+harness = false

@@ -32,12 +32,15 @@ use alloy_primitives::{Address, BlockNumber, Bytes, B256, I256, U256};
 use alloy_rlp::Encodable as _;
 use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
 use cached_reads::{LocalCachedReads, SharedCachedReads};
+use derive_more::Deref;
 use eth_sparse_mpt::SparseTrieLocalCache;
 use evm::EthCachedEvmFactory;
 use jsonrpsee::core::Serialize;
+use parking_lot::RwLock;
 use rbuilder_primitives::{
     mev_boost::{
-        ssz_roots::generate_transaction_proof_ssz, BidAdjustmentData, BidAdjustmentStateProofs,
+        ssz_roots::{tx_ssz_leaf_root, CompactSszTransactionTree},
+        BidAdjustmentData, BidAdjustmentStateProofs,
     },
     BlockSpace, Order, OrderId, SimValue, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs,
 };
@@ -382,7 +385,12 @@ pub struct ThreadBlockBuildingContext {
     pub bloom_cache: ReceiptsDataCache,
     pub tx_root_cache: TransactionRootCache,
     pub root_hash_calculator: SparseTrieLocalCache,
+    pub tx_ssz_leaf_root_cache: TransactionSszLeafRootCache,
 }
+
+/// The cache for keeping the computed SSZ leaf roots for the transactions.
+#[derive(Clone, Default, Debug, Deref)]
+pub struct TransactionSszLeafRootCache(Arc<RwLock<HashMap<B256, B256>>>);
 
 #[derive(Debug, Clone, Copy)]
 pub struct BlockBuildingConfig {
@@ -1150,16 +1158,6 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             },
         };
 
-        let cl_placeholder_transaction_proof = LazyCell::new(|| {
-            let target = self.executed_tx_infos.len().checked_sub(1).unwrap();
-            let encoded_txs = block
-                .body
-                .transactions
-                .iter()
-                .map(|tx| tx.encoded_2718().into())
-                .collect::<Vec<_>>();
-            generate_transaction_proof_ssz(&encoded_txs, target)
-        });
         let bid_adjustment_state_proofs =
             Self::generate_bid_adjustment_state_proofs(state, ctx, local_ctx)
                 .inspect_err(|error| {
@@ -1170,6 +1168,27 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
                     );
                 })
                 .unwrap_or_default();
+        let cl_placeholder_transaction_proof = LazyCell::new(|| {
+            let mut buf = Vec::new();
+            let mut leaves = Vec::with_capacity(block.body.transactions.len());
+            let cache = &local_ctx.tx_ssz_leaf_root_cache;
+            for tx in &block.body.transactions {
+                let leaf = match cache.read().get(tx.hash()) {
+                    Some(leaf) => *leaf,
+                    None => {
+                        buf.clear();
+                        tx.encode_2718(&mut buf);
+                        let leaf_root = tx_ssz_leaf_root(&buf);
+                        cache.write().insert(*tx.hash(), leaf_root);
+                        leaf_root
+                    }
+                };
+                leaves.push(leaf);
+            }
+
+            let target = self.executed_tx_infos.len().checked_sub(1).unwrap();
+            CompactSszTransactionTree::from_leaves(leaves).proof(target)
+        });
         let bid_adjustments = bid_adjustment_state_proofs
             .into_iter()
             .map(|(fee_payer, state_proofs)| {
