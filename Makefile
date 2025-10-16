@@ -128,8 +128,8 @@ lint: ## Run the linters
 	cargo clippy --workspace --features "$(FEATURES)" -- -D warnings
 
 .PHONY: test
-test: ## Run the tests for rbuilder
-	cargo test --verbose --features "$(FEATURES)"
+test: ## Run the tests for rbuilder. At reth 1.8.2 we started getting some memory errors (when creating the tmp dbs) so we had to limit the number of threads.
+	cargo test --verbose --features "$(FEATURES)" -- --test-threads=10
 
 .PHONY: lt
 lt: lint test ## Run "lint" and "test"
