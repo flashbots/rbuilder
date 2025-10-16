@@ -179,6 +179,7 @@ prost = "0.13"
 prost-types = "0.13"
 exponential-backoff = "1.2.0"
 derivative = "2.2"
+sha2 = "0.10.8"
 
 libc = { version = "0.2.161" }
 lazy_static = "1.4.0"
@@ -188,6 +189,9 @@ metrics = { version = "0.24.1" }
 ahash = "0.8.6"
 time = { version = "0.3.36", features = ["macros", "formatting", "parsing"] }
 uuid = { version = "1.6.1", features = ["serde", "v5", "v4"] }
+
+criterion = "0.5.1"
+proptest = "1.5"
 
 eth-sparse-mpt = { path = "crates/eth-sparse-mpt" }
 bid-scraper = { path = "crates/bid-scraper" }

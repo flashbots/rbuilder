@@ -109,7 +109,7 @@ lru = "0.12.1"
 flume = "0.11.0"
 crossbeam-queue = "0.3.10"
 integer-encoding = "4.0.0"
-sha2 = "0.10.8"
+sha2.workspace = true
 lz4_flex = "0.11.2"
 exponential-backoff.workspace = true
 governor = "0.6.3"
@@ -147,7 +147,7 @@ alloy-node-bindings.workspace = true
 foldhash = "0.1.3"
 tempfile = "3.8"
 assert_matches = "1.5.0"
-criterion = { version = "0.5.1", features = ["html_reports", "async_tokio"] }
+criterion = { workspace = true, features = ["html_reports", "async_tokio"] }
 
 [features]
 # TODO: remove?

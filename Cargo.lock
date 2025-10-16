@@ -1819,17 +1819,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
-name = "atty"
-version = "0.2.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d9b39be18770d11421cdb1b9947a45dd3f37e93092cbf377614828a319d5fee8"
-dependencies = [
- "hermit-abi 0.1.19",
- "libc",
- "winapi",
-]
-
-[[package]]
 name = "aurora-engine-modexp"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1988,7 +1977,7 @@ name = "beacon-api-client"
 version = "0.1.0"
 source = "git+https://github.com/ralexstokes/ethereum-consensus/?rev=5031d31e318dd861cf3373702c5d92f085d926e4#5031d31e318dd861cf3373702c5d92f085d926e4"
 dependencies = [
- "clap 4.5.36",
+ "clap",
  "ethereum-consensus",
  "http 0.2.12",
  "itertools 0.10.5",
@@ -2020,7 +2009,7 @@ dependencies = [
  "alloy-rpc-types-beacon",
  "async-trait",
  "chrono",
- "clap 4.5.36",
+ "clap",
  "derivative",
  "ethereum_ssz 0.9.0",
  "ethereum_ssz_derive",
@@ -2726,18 +2715,6 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "3.2.25"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ea181bf566f71cb9a5d17a59e1871af638180a18fb0035c92ae62b705207123"
-dependencies = [
- "bitflags 1.3.2",
- "clap_lex 0.2.4",
- "indexmap 1.9.3",
- "textwrap",
-]
-
-[[package]]
-name = "clap"
 version = "4.5.36"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2df961d8c8a0d08aa9945718ccf584145eee3f3aa06cddbeac12933781102e04"
@@ -2754,7 +2731,7 @@ checksum = "132dbda40fb6753878316a489d5a1242a8ef2f0d9e47ba01c951ea8aa7d013a5"
 dependencies = [
  "anstream",
  "anstyle",
- "clap_lex 0.7.4",
+ "clap_lex",
  "strsim",
 ]
 
@@ -2768,15 +2745,6 @@ dependencies = [
  "proc-macro2 1.0.95",
  "quote 1.0.40",
  "syn 2.0.100",
-]
-
-[[package]]
-name = "clap_lex"
-version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2850f2f5a82cbf437dd5af4d49848fbdfc27c157c3d010345776f952765261c5"
-dependencies = [
- "os_str_bytes",
 ]
 
 [[package]]
@@ -3054,32 +3022,6 @@ dependencies = [
 
 [[package]]
 name = "criterion"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7c76e09c1aae2bc52b3d2f29e13c6572553b30c4aa1b8a49fd70de6412654cb"
-dependencies = [
- "anes",
- "atty",
- "cast",
- "ciborium",
- "clap 3.2.25",
- "criterion-plot",
- "itertools 0.10.5",
- "lazy_static",
- "num-traits",
- "oorandom",
- "plotters",
- "rayon",
- "regex",
- "serde",
- "serde_derive",
- "serde_json",
- "tinytemplate",
- "walkdir",
-]
-
-[[package]]
-name = "criterion"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2b12d017a929603d80db1831cd3a24082f8137ce19c69e6447f54f5fc8d692f"
@@ -3087,7 +3029,7 @@ dependencies = [
  "anes",
  "cast",
  "ciborium",
- "clap 4.5.36",
+ "clap",
  "criterion-plot",
  "futures",
  "is-terminal",
@@ -4051,7 +3993,7 @@ dependencies = [
  "alloy-rlp",
  "alloy-trie 0.8.1",
  "arrayvec",
- "criterion 0.4.0",
+ "criterion",
  "dashmap 6.1.0",
  "eth-sparse-mpt",
  "eyre",
@@ -5150,15 +5092,6 @@ name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
-
-[[package]]
-name = "hermit-abi"
-version = "0.1.19"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62b467343b94ba476dcb2500d242dadbb39557df889310ac77c5d99100aaac33"
-dependencies = [
- "libc",
-]
 
 [[package]]
 name = "hermit-abi"
@@ -7148,7 +7081,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b453bd8e35ec92138b093172731fe7920cdf397f2a709e789243147a79772b9d"
 dependencies = [
  "chrono",
- "clap 4.5.36",
+ "clap",
  "csv",
  "eyre",
  "indicatif",
@@ -7952,12 +7885,6 @@ name = "option-ext"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
-
-[[package]]
-name = "os_str_bytes"
-version = "6.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2355d85b9a3786f481747ced0e0ff2ba35213a1f9bd406ed906554d7af805a1"
 
 [[package]]
 name = "overload"
@@ -9417,8 +9344,8 @@ dependencies = [
  "bigdecimal 0.4.8",
  "bincode",
  "built",
- "clap 4.5.36",
- "criterion 0.5.1",
+ "clap",
+ "criterion",
  "crossbeam",
  "crossbeam-queue",
  "ctor",
@@ -9582,6 +9509,7 @@ dependencies = [
  "alloy-rpc-types-beacon",
  "alloy-rpc-types-engine",
  "alloy-rpc-types-eth 1.0.27",
+ "criterion",
  "derivative",
  "derive_more 2.0.1",
  "ethereum-consensus",
@@ -9590,6 +9518,7 @@ dependencies = [
  "eyre",
  "governor",
  "integer-encoding",
+ "proptest",
  "rand 0.8.5",
  "reqwest 0.12.15",
  "reth-chainspec",
@@ -9599,6 +9528,7 @@ dependencies = [
  "reth-transaction-pool",
  "revm",
  "revm-inspectors",
+ "ring 0.17.14",
  "serde",
  "serde_json",
  "serde_with",
@@ -9625,7 +9555,7 @@ dependencies = [
  "alloy-rpc-types-eth 1.0.27",
  "alloy-signer",
  "alloy-signer-local",
- "clap 4.5.36",
+ "clap",
  "eyre",
  "futures",
  "rbuilder-config",
@@ -9890,7 +9820,7 @@ source = "git+https://github.com/paradigmxyz/reth?rev=0b316160a9915ac80c4ae867f6
 dependencies = [
  "alloy-rpc-types",
  "aquamarine",
- "clap 4.5.36",
+ "clap",
  "eyre",
  "reth-chainspec",
  "reth-cli-runner",
@@ -10010,7 +9940,7 @@ version = "1.6.0"
 source = "git+https://github.com/paradigmxyz/reth?rev=0b316160a9915ac80c4ae867f69e304aca85ec01#0b316160a9915ac80c4ae867f69e304aca85ec01"
 dependencies = [
  "alloy-genesis",
- "clap 4.5.36",
+ "clap",
  "eyre",
  "reth-cli-runner",
  "reth-db",
@@ -10030,7 +9960,7 @@ dependencies = [
  "alloy-primitives 1.3.1",
  "alloy-rlp",
  "backon",
- "clap 4.5.36",
+ "clap",
  "comfy-table",
  "crossterm",
  "eyre",
@@ -10716,7 +10646,7 @@ name = "reth-ethereum-cli"
 version = "1.6.0"
 source = "git+https://github.com/paradigmxyz/reth?rev=0b316160a9915ac80c4ae867f69e304aca85ec01#0b316160a9915ac80c4ae867f69e304aca85ec01"
 dependencies = [
- "clap 4.5.36",
+ "clap",
  "eyre",
  "reth-chainspec",
  "reth-cli",
@@ -11329,7 +11259,7 @@ dependencies = [
  "alloy-eips 1.0.27",
  "alloy-primitives 1.3.1",
  "alloy-rpc-types-engine",
- "clap 4.5.36",
+ "clap",
  "derive_more 2.0.1",
  "dirs-next",
  "eyre",
@@ -11710,7 +11640,7 @@ name = "reth-rbuilder"
 version = "0.1.0"
 dependencies = [
  "alloy-rlp",
- "clap 4.5.36",
+ "clap",
  "eyre",
  "libc",
  "rbuilder",
@@ -12209,7 +12139,7 @@ version = "1.6.0"
 source = "git+https://github.com/paradigmxyz/reth?rev=0b316160a9915ac80c4ae867f69e304aca85ec01#0b316160a9915ac80c4ae867f69e304aca85ec01"
 dependencies = [
  "alloy-primitives 1.3.1",
- "clap 4.5.36",
+ "clap",
  "derive_more 2.0.1",
  "serde",
  "strum 0.27.1",
@@ -12287,7 +12217,7 @@ name = "reth-tracing"
 version = "1.6.0"
 source = "git+https://github.com/paradigmxyz/reth?rev=0b316160a9915ac80c4ae867f69e304aca85ec01#0b316160a9915ac80c4ae867f69e304aca85ec01"
 dependencies = [
- "clap 4.5.36",
+ "clap",
  "eyre",
  "rolling-file",
  "tracing",
@@ -13615,6 +13545,16 @@ dependencies = [
  "cfg-if",
  "cpufeatures",
  "digest 0.10.7",
+ "sha2-asm",
+]
+
+[[package]]
+name = "sha2-asm"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b845214d6175804686b2bd482bcffe96651bb2d1200742b712003504a2dac1ab"
+dependencies = [
+ "cc",
 ]
 
 [[package]]
@@ -14567,7 +14507,7 @@ dependencies = [
  "alloy-json-rpc 1.0.27",
  "alloy-primitives 1.3.1",
  "alloy-provider",
- "clap 4.5.36",
+ "clap",
  "clap_builder",
  "ctor",
  "ethereum_ssz 0.9.0",
@@ -14602,12 +14542,6 @@ dependencies = [
  "syn 2.0.100",
  "which",
 ]
-
-[[package]]
-name = "textwrap"
-version = "0.16.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c13547615a44dc9c452a8a534638acdf07120d4b6847c8178705da06306a3057"
 
 [[package]]
 name = "thin-vec"
