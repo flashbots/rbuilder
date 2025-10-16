@@ -133,7 +133,10 @@ mod impls {
     ) -> Vec<B256> {
         current_buf.clear();
         for idx in 0..MAX_CHUNK_COUNT {
-            let leaf = txs.get(idx).map(tx_ssz_leaf_root).unwrap_or(B256::ZERO);
+            let leaf = txs
+                .get(idx)
+                .map(|tx| tx_ssz_leaf_root(&tx))
+                .unwrap_or(B256::ZERO);
             current_buf.insert(idx, leaf);
         }
 
