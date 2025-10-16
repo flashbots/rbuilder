@@ -1,4 +1,4 @@
-use alloy_primitives::{Address, BlockHash, U256};
+use alloy_primitives::{Address, BlockHash, B256, U256};
 use exponential_backoff::Backoff;
 use jsonrpsee::core::{client::ClientT, traits::ToRpcParams};
 use rbuilder::{
@@ -45,6 +45,8 @@ struct UsedBundle {
     #[serde_as(as = "DisplayFromStr")]
     total_gas_used: u64,
     original_bundle: RawBundle,
+    #[serde_as(as = "DisplayFromStr")]
+    bundle_hash: B256,
 }
 
 /// Header used by block_consumeBuiltBlockV2. Since docs are not up to date I copied RbuilderHeader from block-processor/ports/models.go (commit b341b35)
@@ -166,6 +168,7 @@ impl<HttpClientType: ClientT> BlocksProcessorClient<HttpClientType> {
                         eth_send_to_coinbase: U256::ZERO,
                         total_gas_used: res.inplace_sim.gas_used(),
                         original_bundle: encode_bundle_for_blocks_processor(bundle.clone()),
+                        bundle_hash: bundle.external_hash.unwrap_or(bundle.hash),
                     })
                 } else {
                     None
@@ -379,6 +382,8 @@ fn backoff() -> Backoff {
 
 #[cfg(test)]
 mod tests {
+    use alloy_primitives::fixed_bytes;
+    use rbuilder_primitives::serialize::RawBundleMetadata;
     use uuid::Uuid;
 
     use super::*;
@@ -425,6 +430,44 @@ mod tests {
 
         let expected_str = r#"{"source":"mev_blocker","value":"0x10","address":"0x0000000000000000000000000000000000000000"}"#;
 
+        assert_eq!(value_str, expected_str);
+    }
+
+    #[test]
+    fn test_used_bundle_serialize() {
+        let value = UsedBundle {
+            mev_gas_price: U256::from(100),
+            total_eth: U256::from(200),
+            eth_send_to_coinbase: U256::from(300),
+            total_gas_used: 21000,
+            original_bundle: RawBundle {
+                metadata: RawBundleMetadata {
+                    version: None,
+                    block_number: None,
+                    reverting_tx_hashes: Vec::new(),
+                    dropping_tx_hashes: Vec::new(),
+                    replacement_uuid: None,
+                    uuid: None,
+                    signing_address: None,
+                    refund_identity: None,
+                    min_timestamp: None,
+                    max_timestamp: None,
+                    replacement_nonce: None,
+                    refund_percent: None,
+                    refund_recipient: None,
+                    refund_tx_hashes: None,
+                    delayed_refund: None,
+                    bundle_hash: None,
+                },
+                txs: Vec::new(),
+            },
+            bundle_hash: fixed_bytes!(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            ),
+        };
+        let value_str = serde_json::to_string(&value).unwrap();
+
+        let expected_str = r#"{"mevGasPrice":"100","totalEth":"200","ethSendToCoinbase":"300","totalGasUsed":"21000","originalBundle":{"version":null,"blockNumber":null,"revertingTxHashes":[],"droppingTxHashes":[],"txs":[]},"bundleHash":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}"#;
         assert_eq!(value_str, expected_str);
     }
 }

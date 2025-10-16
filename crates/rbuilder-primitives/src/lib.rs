@@ -208,6 +208,9 @@ pub struct Bundle {
 
     /// Bundle refund data.
     pub refund: Option<BundleRefund>,
+
+    /// Unique identifier for a bundle that was set by the sender of the bundle
+    pub external_hash: Option<B256>,
 }
 
 impl Bundle {

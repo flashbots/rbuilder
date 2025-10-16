@@ -153,6 +153,9 @@ pub struct RawBundleMetadata {
     /// delayedRefund (Optional) `Boolean`, A flag indicating whether the refund should be delayed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delayed_refund: Option<bool>,
+    /// bundleHash, externally set unique identifier for the bundle
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bundle_hash: Option<B256>,
 }
 
 impl RawBundleMetadata {
@@ -381,6 +384,7 @@ impl RawBundle {
             dropping_tx_hashes: metadata.dropping_tx_hashes,
             refund,
             version,
+            external_hash: metadata.bundle_hash,
         };
         bundle.hash_slow();
         Ok(RawBundleDecodeResult::NewBundle(bundle))
@@ -418,6 +422,7 @@ impl RawBundle {
                 refund_tx_hashes: value.refund.as_ref().map(|br| vec![br.tx_hash]),
                 delayed_refund: value.refund.as_ref().map(|br| br.delayed),
                 version: Some(Self::encode_version(value.version)),
+                bundle_hash: value.external_hash,
             },
         }
     }

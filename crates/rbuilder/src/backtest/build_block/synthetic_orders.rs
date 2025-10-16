@@ -101,6 +101,7 @@ impl<ConfigType: LiveBuilderConfig> SyntheticOrdersSource<ConfigType> {
                 dropping_tx_hashes: Default::default(),
                 refund: None,
                 version: LAST_BUNDLE_VERSION,
+                external_hash: None,
             };
             bundle.hash_slow();
             orders.push(OrdersWithTimestamp {

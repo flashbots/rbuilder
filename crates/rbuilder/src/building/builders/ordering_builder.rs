@@ -116,6 +116,7 @@ pub fn run_ordering_builder<P, OrderPriorityType>(
         input.builder_name,
         input.ctx,
         config.clone(),
+        input.max_order_execution_duration_warning,
         input.built_block_cache,
     );
 
@@ -185,6 +186,7 @@ where
         input.builder_name,
         input.ctx.clone(),
         ordering_config,
+        None,
         Arc::new(BuiltBlockCache::new()),
     );
     let mut block_builder = builder.build_block_with_execution_tracer(
@@ -208,6 +210,8 @@ pub struct OrderingBuilderContext {
     builder_name: String,
     ctx: BlockBuildingContext,
     config: OrderingBuilderConfig,
+    /// See [BlockBuildingHelperFromProvider::max_order_execution_duration_warning]
+    max_order_execution_duration_warning: Option<Duration>,
 
     // caches
     local_ctx: ThreadBlockBuildingContext,
@@ -224,6 +228,7 @@ impl OrderingBuilderContext {
         builder_name: String,
         ctx: BlockBuildingContext,
         config: OrderingBuilderConfig,
+        max_order_execution_duration_warning: Option<Duration>,
         built_block_cache: Arc<BuiltBlockCache>,
     ) -> Self {
         Self {
@@ -235,6 +240,7 @@ impl OrderingBuilderContext {
             failed_orders: HashSet::default(),
             order_attempts: HashMap::default(),
             built_block_cache,
+            max_order_execution_duration_warning,
         }
     }
 
@@ -285,6 +291,7 @@ impl OrderingBuilderContext {
             block_orders.orders_statistics(),
             cancel_block,
             partial_block_execution_tracer,
+            self.max_order_execution_duration_warning,
         )?;
         self.fill_orders(
             &mut block_building_helper,
@@ -449,15 +456,21 @@ impl OrderingBuilderContext {
 pub struct OrderingBuildingAlgorithm<OrderPriorityType> {
     config: OrderingBuilderConfig,
     name: String,
+    max_order_execution_duration_warning: Option<Duration>,
     /// The ordering priority type used to sort simulated orders.
     order_priority: PhantomData<OrderPriorityType>,
 }
 
 impl<OrderPriorityType> OrderingBuildingAlgorithm<OrderPriorityType> {
-    pub fn new(config: OrderingBuilderConfig, name: String) -> Self {
+    pub fn new(
+        config: OrderingBuilderConfig,
+        max_order_execution_duration_warning: Option<Duration>,
+        name: String,
+    ) -> Self {
         Self {
             config,
             name,
+            max_order_execution_duration_warning,
             order_priority: PhantomData,
         }
     }
@@ -483,6 +496,7 @@ where
             cancel: input.cancel,
             built_block_cache: input.built_block_cache,
             built_block_id_source: input.built_block_id_source,
+            max_order_execution_duration_warning: self.max_order_execution_duration_warning,
         };
         run_ordering_builder::<P, OrderPriorityType>(live_input, &self.config);
     }

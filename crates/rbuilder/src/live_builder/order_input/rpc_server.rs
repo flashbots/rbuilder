@@ -182,6 +182,10 @@ async fn handle_eth_send_bundle(
         }
     };
 
+    if raw_bundle.metadata.bundle_hash.is_none() {
+        warn!("Bundle hash is not set");
+    }
+
     let bundle_res = match raw_bundle.decode(TxEncoding::WithBlobData) {
         Ok(bundle_res) => bundle_res,
         Err(err) => {

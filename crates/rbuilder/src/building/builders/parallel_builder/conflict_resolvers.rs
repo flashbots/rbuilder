@@ -526,6 +526,7 @@ mod tests {
                 refund: None,
                 refund_identity: None,
                 version: LAST_BUNDLE_VERSION,
+                external_hash: None,
             };
 
             Arc::new(SimulatedOrder {

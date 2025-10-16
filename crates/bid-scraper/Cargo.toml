@@ -63,4 +63,4 @@ strum = { version = "0.25", features = ["derive"] }
 exponential-backoff.workspace = true
 
 [dev-dependencies]
-proptest = "1.4"
+proptest.workspace = true

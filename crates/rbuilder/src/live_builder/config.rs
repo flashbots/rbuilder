@@ -508,7 +508,10 @@ impl LiveBuilderConfig for Config {
             cancellation_token,
         )
         .await?;
-        let builders = create_builders(self.live_builders()?);
+        let builders = create_builders(
+            self.live_builders()?,
+            self.base_config.max_order_execution_duration_warning(),
+        );
         Ok(live_builder.with_builders(builders))
     }
 
@@ -752,33 +755,55 @@ pub fn coinbase_signer_from_secret_key(secret_key: &str) -> eyre::Result<Signer>
     Ok(Signer::try_from_secret(secret_key)?)
 }
 
-pub fn create_builders<P>(configs: Vec<BuilderConfig>) -> Vec<Arc<dyn BlockBuildingAlgorithm<P>>>
+pub fn create_builders<P>(
+    configs: Vec<BuilderConfig>,
+    max_order_execution_duration_warning: Option<Duration>,
+) -> Vec<Arc<dyn BlockBuildingAlgorithm<P>>>
 where
     P: StateProviderFactory + Clone + 'static,
 {
-    configs.into_iter().map(|cfg| create_builder(cfg)).collect()
+    configs
+        .into_iter()
+        .map(|cfg| create_builder(cfg, max_order_execution_duration_warning))
+        .collect()
 }
 
-fn create_builder<P>(cfg: BuilderConfig) -> Arc<dyn BlockBuildingAlgorithm<P>>
+fn create_builder<P>(
+    cfg: BuilderConfig,
+    max_order_execution_duration_warning: Option<Duration>,
+) -> Arc<dyn BlockBuildingAlgorithm<P>>
 where
     P: StateProviderFactory + Clone + 'static,
 {
     match cfg.builder {
         SpecificBuilderConfig::OrderingBuilder(order_cfg) => {
             if order_cfg.ignore_mempool_profit_on_bundles {
-                create_ordering_builder::<P, NonMempoolProfitInfoGetter>(order_cfg, cfg.name)
+                create_ordering_builder::<P, NonMempoolProfitInfoGetter>(
+                    order_cfg,
+                    max_order_execution_duration_warning,
+                    cfg.name,
+                )
             } else {
-                create_ordering_builder::<P, FullProfitInfoGetter>(order_cfg, cfg.name)
+                create_ordering_builder::<P, FullProfitInfoGetter>(
+                    order_cfg,
+                    max_order_execution_duration_warning,
+                    cfg.name,
+                )
             }
         }
         SpecificBuilderConfig::ParallelBuilder(parallel_cfg) => {
-            Arc::new(ParallelBuildingAlgorithm::new(parallel_cfg, cfg.name))
+            Arc::new(ParallelBuildingAlgorithm::new(
+                parallel_cfg,
+                max_order_execution_duration_warning,
+                cfg.name,
+            ))
         }
     }
 }
 
 fn create_ordering_builder<P, ProfitInfoGetterType: ProfitInfoGetter + 'static>(
     cfg: OrderingBuilderConfig,
+    max_order_execution_duration_warning: Option<Duration>,
     name: String,
 ) -> Arc<dyn BlockBuildingAlgorithm<P>>
 where
@@ -787,19 +812,33 @@ where
     match cfg.sorting {
         Sorting::MevGasPrice => Arc::new(OrderingBuildingAlgorithm::<
             OrderMevGasPricePriority<ProfitInfoGetterType>,
-        >::new(cfg, name)),
+        >::new(
+            cfg, max_order_execution_duration_warning, name
+        )),
         Sorting::MaxProfit => Arc::new(OrderingBuildingAlgorithm::<
             OrderMaxProfitPriority<ProfitInfoGetterType>,
-        >::new(cfg, name)),
+        >::new(
+            cfg, max_order_execution_duration_warning, name
+        )),
         Sorting::TypeMaxProfit => Arc::new(OrderingBuildingAlgorithm::<
             OrderTypePriority<ProfitInfoGetterType>,
-        >::new(cfg, name)),
-        Sorting::LengthThreeMaxProfit => Arc::new(OrderingBuildingAlgorithm::<
-            OrderLengthThreeMaxProfitPriority<ProfitInfoGetterType>,
-        >::new(cfg, name)),
-        Sorting::LengthThreeMevGasPrice => Arc::new(OrderingBuildingAlgorithm::<
-            OrderLengthThreeMevGasPricePriority<ProfitInfoGetterType>,
-        >::new(cfg, name)),
+        >::new(
+            cfg, max_order_execution_duration_warning, name
+        )),
+        Sorting::LengthThreeMaxProfit => {
+            Arc::new(OrderingBuildingAlgorithm::<
+                OrderLengthThreeMaxProfitPriority<ProfitInfoGetterType>,
+            >::new(
+                cfg, max_order_execution_duration_warning, name
+            ))
+        }
+        Sorting::LengthThreeMevGasPrice => {
+            Arc::new(OrderingBuildingAlgorithm::<
+                OrderLengthThreeMevGasPricePriority<ProfitInfoGetterType>,
+            >::new(
+                cfg, max_order_execution_duration_warning, name
+            ))
+        }
     }
 }
 

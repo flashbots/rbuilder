@@ -969,6 +969,7 @@ mod tests {
             refund: Default::default(),
             refund_identity: None,
             version: LAST_BUNDLE_VERSION,
+            external_hash: None,
         });
         let expected = SimplifiedOrder::new(
             OrderId::Bundle(uuid::uuid!("00000000-0000-0000-0000-ffff00000002")),
@@ -1004,6 +1005,7 @@ mod tests {
             }),
             refund_identity: None,
             version: LAST_BUNDLE_VERSION,
+            external_hash: None,
         });
         let expected = SimplifiedOrder::new(
             OrderId::Bundle(uuid::uuid!("00000000-0000-0000-0000-ffff00000002")),

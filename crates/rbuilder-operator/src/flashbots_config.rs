@@ -170,7 +170,10 @@ impl LiveBuilderConfig for FlashbotsConfig {
             handle_subsidise_block(bidding_service.clone(), params)
         })?;
         let live_builder = live_builder.with_extra_rpc(module);
-        let builders = create_builders(self.live_builders()?);
+        let builders = create_builders(
+            self.live_builders()?,
+            self.base_config.max_order_execution_duration_warning(),
+        );
         Ok(live_builder.with_builders(builders))
     }
 

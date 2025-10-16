@@ -40,7 +40,7 @@ typenum = "1.17.0"
 # misc
 derivative.workspace = true
 integer-encoding = "4.0.0"
-sha2 = "0.10.8"
+sha2 = { workspace = true, features = ["asm"] }
 uuid = { version = "1.6.1", features = ["serde", "v5", "v4"] }
 governor = "0.6.3"
 ahash.workspace = true
@@ -56,4 +56,12 @@ derive_more.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+alloy-primitives = { workspace = true, features = ["arbitrary"] }
 rand.workspace = true
+criterion.workspace = true
+proptest.workspace = true
+ring = "0.17"
+
+[[bench]]
+name = "sha_pair"
+harness = false

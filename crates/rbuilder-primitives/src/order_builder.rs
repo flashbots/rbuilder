@@ -219,6 +219,7 @@ impl BundleBuilder {
             dropping_tx_hashes,
             refund: self.refund,
             version: LAST_BUNDLE_VERSION,
+            external_hash: None,
         };
         bundle.hash_slow();
         bundle

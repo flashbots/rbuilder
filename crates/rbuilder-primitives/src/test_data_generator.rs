@@ -101,6 +101,7 @@ impl TestDataGenerator {
             dropping_tx_hashes: vec![],
             refund: None,
             version: LAST_BUNDLE_VERSION,
+            external_hash: None,
         };
         res.hash_slow();
         res
@@ -166,6 +167,7 @@ impl TestDataGenerator {
             dropping_tx_hashes: Default::default(),
             refund: None,
             version: LAST_BUNDLE_VERSION,
+            external_hash: None,
         };
         bundle.hash_slow();
         bundle
