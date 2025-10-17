@@ -1,5 +1,7 @@
 use crate::{
-    building::cached_reads::CachedDB,
+    building::bid_adjustments::{
+        compute_cl_placeholder_transaction_proof, generate_bid_adjustment_state_proofs,
+    },
     live_builder::{
         block_list_provider::BlockList, order_input::mempool_txs_detector::MempoolTxsDetector,
         payload_events::InternalPayloadId,
@@ -25,26 +27,24 @@ use alloy_eips::{
     eip7685::Requests,
     eip7840::BlobParams,
     merge::BEACON_NONCE,
-    Encodable2718,
 };
 use alloy_evm::{block::system_calls::SystemCaller, env::EvmEnv, eth::eip6110};
 use alloy_primitives::{Address, BlockNumber, Bytes, B256, I256, U256};
 use alloy_rlp::Encodable as _;
 use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
 use cached_reads::{LocalCachedReads, SharedCachedReads};
+use derive_more::Deref;
 use eth_sparse_mpt::SparseTrieLocalCache;
 use evm::EthCachedEvmFactory;
 use jsonrpsee::core::Serialize;
+use parking_lot::Mutex;
 use rbuilder_primitives::{
-    mev_boost::{
-        ssz_roots::generate_transaction_proof_ssz, BidAdjustmentData, BidAdjustmentStateProofs,
-    },
-    BlockSpace, Order, OrderId, SimValue, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs,
+    mev_boost::BidAdjustmentData, BlockSpace, Order, OrderId, SimValue, SimulatedOrder,
+    TransactionSignedEcRecoveredWithBlobs,
 };
 use reth::{
     payload::PayloadId,
     primitives::{Block, SealedBlock},
-    revm::database::StateProviderDatabase,
 };
 use reth_chainspec::{ChainSpec, EthChainSpec, EthereumHardforks};
 use reth_errors::{BlockExecutionError, BlockValidationError, ProviderError};
@@ -57,14 +57,13 @@ use reth_primitives_traits::{proofs, Block as _};
 use revm::{
     context::BlockEnv,
     context_interface::{block::BlobExcessGasAndPrice, result::InvalidTransaction},
-    database::{states::bundle_state::BundleRetention, BundleAccount},
+    database::states::bundle_state::BundleRetention,
     primitives::hardfork::SpecId,
-    Database as _,
 };
 use serde::Deserialize;
 use std::{
     cell::LazyCell,
-    collections::{hash_map, HashMap, HashSet},
+    collections::HashMap,
     hash::Hash,
     str::FromStr,
     sync::Arc,
@@ -75,6 +74,7 @@ use time::OffsetDateTime;
 use tracing::{error, trace};
 use tx_sim_cache::TxExecutionCache;
 
+pub mod bid_adjustments;
 pub mod block_orders;
 pub mod builders;
 pub mod built_block_trace;
@@ -382,7 +382,12 @@ pub struct ThreadBlockBuildingContext {
     pub bloom_cache: ReceiptsDataCache,
     pub tx_root_cache: TransactionRootCache,
     pub root_hash_calculator: SparseTrieLocalCache,
+    pub tx_ssz_leaf_root_cache: TransactionSszLeafRootCache,
 }
+
+/// The cache for keeping the computed SSZ leaf roots for the transactions.
+#[derive(Clone, Default, Debug, Deref)]
+pub struct TransactionSszLeafRootCache(Arc<Mutex<HashMap<B256, B256>>>);
 
 #[derive(Debug, Clone, Copy)]
 pub struct BlockBuildingConfig {
@@ -1150,18 +1155,8 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             },
         };
 
-        let cl_placeholder_transaction_proof = LazyCell::new(|| {
-            let target = self.executed_tx_infos.len().checked_sub(1).unwrap();
-            let encoded_txs = block
-                .body
-                .transactions
-                .iter()
-                .map(|tx| tx.encoded_2718().into())
-                .collect::<Vec<_>>();
-            generate_transaction_proof_ssz(&encoded_txs, target)
-        });
         let bid_adjustment_state_proofs =
-            Self::generate_bid_adjustment_state_proofs(state, ctx, local_ctx)
+            generate_bid_adjustment_state_proofs(state, ctx, local_ctx)
                 .inspect_err(|error| {
                     error!(
                         block_number = block.number,
@@ -1170,6 +1165,12 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
                     );
                 })
                 .unwrap_or_default();
+        let cl_placeholder_transaction_proof = LazyCell::new(|| {
+            compute_cl_placeholder_transaction_proof(
+                &block.body.transactions,
+                &local_ctx.tx_ssz_leaf_root_cache,
+            )
+        });
         let bid_adjustments = bid_adjustment_state_proofs
             .into_iter()
             .map(|(fee_payer, state_proofs)| {
@@ -1213,91 +1214,6 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         );
 
         Ok(result)
-    }
-
-    fn generate_bid_adjustment_state_proofs(
-        block_state: &mut BlockState,
-        ctx: &BlockBuildingContext,
-        local_ctx: &mut ThreadBlockBuildingContext,
-    ) -> Result<HashMap<Address, BidAdjustmentStateProofs>, FinalizeError> {
-        if ctx.adjustment_fee_payers.is_empty() {
-            return Ok(Default::default());
-        }
-
-        let builder_signer = &ctx.builder_signer;
-        let builder_address = builder_signer.address;
-        let fee_recipient_address = ctx.attributes.suggested_fee_recipient;
-
-        let proof_targets = HashSet::from_iter(
-            [builder_address, fee_recipient_address]
-                .into_iter()
-                .chain(ctx.adjustment_fee_payers.clone()),
-        );
-
-        // Pre-load all proof targets that are missing from the bundle state.
-        // This is a requirement for accounts to become a part of the trie and be able to generate proofs for them.
-        let mut cachedb = CachedDB::new(
-            StateProviderDatabase::new(block_state.state_provider()),
-            &mut local_ctx.cached_reads,
-            &ctx.shared_cached_reads,
-        );
-        for fee_payer in &ctx.adjustment_fee_payers {
-            if let hash_map::Entry::Vacant(entry) =
-                block_state.bundle_state_mut().state.entry(*fee_payer)
-            {
-                let account_info = cachedb
-                    .basic(*fee_payer)
-                    .map_err(|error| FinalizeError::Other(error.into()))?;
-                entry.insert(BundleAccount {
-                    original_info: account_info.clone(),
-                    info: account_info,
-                    status: revm::database::AccountStatus::Loaded,
-                    storage: Default::default(),
-                });
-            }
-        }
-
-        let mut account_proofs = ctx.root_hasher.account_proofs(
-            block_state.bundle_state(),
-            &proof_targets,
-            local_ctx,
-        )?;
-
-        let Some(builder_proof) = account_proofs.remove(&builder_address) else {
-            return Err(FinalizeError::Other(eyre::eyre!(
-                "account proof for builder {builder_address} is missing"
-            )));
-        };
-        let Some(fee_recipient_proof) = account_proofs.remove(&fee_recipient_address) else {
-            return Err(FinalizeError::Other(eyre::eyre!(
-                "account proof for proposer {fee_recipient_address} is missing"
-            )));
-        };
-
-        let mut bid_adjustments = HashMap::default();
-        for fee_payer_address in &ctx.adjustment_fee_payers {
-            let Some(fee_payer_proof) = account_proofs.remove(fee_payer_address) else {
-                error!(
-                    %fee_payer_address,
-                    "Fee payer proof is missing"
-                );
-                continue;
-            };
-
-            bid_adjustments.insert(
-                *fee_payer_address,
-                BidAdjustmentStateProofs {
-                    builder_address,
-                    builder_proof: builder_proof.clone(),
-                    fee_recipient_address,
-                    fee_recipient_proof: fee_recipient_proof.clone(),
-                    fee_payer_address: *fee_payer_address,
-                    fee_payer_proof,
-                },
-            );
-        }
-
-        Ok(bid_adjustments)
     }
 
     /// Standard pre block ETH stuff + space allocation for rlp length
