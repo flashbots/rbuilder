@@ -43,6 +43,9 @@ integer-encoding = "4.0.0"
 sha2 = { workspace = true, features = ["asm"] }
 uuid = { version = "1.6.1", features = ["serde", "v5", "v4"] }
 governor = "0.6.3"
+fulgurance = "0.4.1"
+bincode = "1.3"
+tempfile = "3.8"
 ahash.workspace = true
 reqwest = { workspace = true, features = ["blocking"] }
 serde_with = { workspace = true, features = ["time_0_3"] }

@@ -6,6 +6,7 @@ pub mod fmt;
 pub mod mev_boost;
 pub mod order_builder;
 pub mod order_statistics;
+pub mod robust_saver;
 pub mod serialize;
 mod test_data_generator;
 

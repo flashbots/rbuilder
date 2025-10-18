@@ -4266,6 +4266,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a06f77d526c1a601b7c4cdd98f54b5eaabffc14d5f2f0296febdc7f357c6d3ba"
 
 [[package]]
+name = "fulgurance"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a030d979db7d6bd356843ae91267a527055b259f0df1eda43102fc17616a85a9"
+dependencies = [
+ "rand 0.8.5",
+]
+
+[[package]]
 name = "funty"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9393,6 +9402,7 @@ dependencies = [
  "alloy-rpc-types-beacon",
  "alloy-rpc-types-engine",
  "alloy-rpc-types-eth",
+ "bincode",
  "criterion",
  "derivative",
  "derive_more 2.0.1",
@@ -9400,6 +9410,7 @@ dependencies = [
  "ethereum_ssz 0.9.1",
  "ethereum_ssz_derive",
  "eyre",
+ "fulgurance",
  "governor",
  "integer-encoding",
  "proptest",
@@ -9418,6 +9429,7 @@ dependencies = [
  "serde_with",
  "sha2 0.10.9",
  "ssz_types 0.8.0",
+ "tempfile",
  "thiserror 1.0.69",
  "time",
  "toml 0.8.23",
