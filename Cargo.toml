@@ -10,6 +10,7 @@ exclude = [".github/"]
 [workspace]
 members = [
     "crates/rbuilder-primitives",
+    "crates/rbuilder-utils",
     "crates/rbuilder-config",
     "crates/rbuilder",
     "crates/rbuilder-operator",
@@ -28,6 +29,7 @@ default-members = [
     "crates/reth-rbuilder",
     "crates/rbuilder-rebalancer",
     "crates/rbuilder-primitives",
+    "crates/rbuilder-utils",
     "crates/test-relay",
     "crates/bid-scraper",
 ]
@@ -197,6 +199,7 @@ eth-sparse-mpt = { path = "crates/eth-sparse-mpt" }
 bid-scraper = { path = "crates/bid-scraper" }
 rbuilder = { path = "crates/rbuilder" }
 rbuilder-primitives = { path = "crates/rbuilder-primitives" }
+rbuilder-utils =  { path = "crates/rbuilder-utils" }
 rbuilder-config = { path = "crates/rbuilder-config" }
 sysperf = { path = "crates/sysperf" }
 metrics_macros = { path = "crates/rbuilder/src/telemetry/metrics_macros" }
