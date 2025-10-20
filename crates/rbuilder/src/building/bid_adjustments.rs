@@ -4,15 +4,13 @@ use rbuilder_primitives::mev_boost::{
     ssz_roots::{tx_ssz_leaf_root, CompactSszTransactionTree},
     BidAdjustmentStateProofs,
 };
-use reth::revm::database::StateProviderDatabase;
 use reth_primitives::TransactionSigned;
-use revm::{database::BundleAccount, Database as _};
-use std::collections::{hash_map, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use tracing::*;
 
 use crate::building::{
-    cached_reads::CachedDB, BlockBuildingContext, BlockState, FinalizeError,
-    ThreadBlockBuildingContext, TransactionSszLeafRootCache,
+    BlockBuildingContext, BlockState, FinalizeError, ThreadBlockBuildingContext,
+    TransactionSszLeafRootCache,
 };
 
 /// Generate bid adjustment state proofs.
@@ -34,29 +32,6 @@ pub fn generate_bid_adjustment_state_proofs(
             .into_iter()
             .chain(ctx.adjustment_fee_payers.clone()),
     );
-
-    // Pre-load all proof targets that are missing from the bundle state.
-    // This is a requirement for accounts to become a part of the trie and be able to generate proofs for them.
-    let mut cachedb = CachedDB::new(
-        StateProviderDatabase::new(block_state.state_provider()),
-        &mut local_ctx.cached_reads,
-        &ctx.shared_cached_reads,
-    );
-    for fee_payer in &ctx.adjustment_fee_payers {
-        if let hash_map::Entry::Vacant(entry) =
-            block_state.bundle_state_mut().state.entry(*fee_payer)
-        {
-            let account_info = cachedb
-                .basic(*fee_payer)
-                .map_err(|error| FinalizeError::Other(error.into()))?;
-            entry.insert(BundleAccount {
-                original_info: account_info.clone(),
-                info: account_info,
-                status: revm::database::AccountStatus::Loaded,
-                storage: Default::default(),
-            });
-        }
-    }
 
     let mut account_proofs =
         ctx.root_hasher

@@ -881,7 +881,9 @@ impl RootHashCalculator {
                         .proof_result
                         .push((account_trie.proof_account_keys[i], proof));
                 }
-                Err(ProofError::TrieIsDirty) => panic!("Trie is not hashed before fetching proofs"),
+                Err(ProofError::TrieIsDirty) => {
+                    eyre::bail!("Trie is not hashed before fetching proofs")
+                }
                 Err(ProofError::NodeNotFound(NodeNotFound(missing_node))) => {
                     account_trie.missing_nodes.push(missing_node);
                 }
@@ -1030,7 +1032,12 @@ impl RootHashCalculator {
                 stats.measure_proof_fetch(false);
                 // if we needed to fetch some proofs we need to rehash trie
                 stats.start();
-                self.hash_account_trie(&shared_cache);
+                self.account_trie
+                    .trie
+                    .root_hash(true, &shared_cache.account_trie)
+                    .map_err(|err| {
+                        eyre::eyre!("failed to hash account trie (account proofs) {err:?}")
+                    })?;
                 stats.measure_other();
                 continue;
             }

@@ -1068,6 +1068,7 @@ impl Trie {
                 .nodes
                 .get(current_node)
                 .ok_or_else(|| NodeNotFound::new(&path[..path_walked]))?;
+            self.hashed_nodes[current_node] = false;
             match node {
                 DiffTrieNode::Branch { children } => {
                     let children = *children;
