@@ -84,10 +84,27 @@ pub const SCRAPED_BIDS_MAX_BUFFERS: usize = 1000;
 /// New samples can eventually come from different scrapers each with it's own thread but we will never have more than 100 different scrapers.
 const SCRAPED_MAX_LOAN_SAMPLES: usize = 100;
 
+/// Should have only a single publisher.
+const BLOCKS_SERVICE_MAX_PUBLISHERS: usize = 5;
+/// Should have only a single subscriber.
+const BLOCKS_SERVICE_MAX_SUBSCRIBERS: usize = 5;
+
+/// Should have only a single publisher.
+const SCRAPED_BIDS_SERVICE_MAX_PUBLISHERS: usize = 5;
+/// Should have only a single subscriber..
+const SCRAPED_BIDS_SERVICE_MAX_SUBSCRIBERS: usize = 5;
+
 /// We only want newest item.
 pub const LAST_ITEM_MAX_BUFFERS: usize = 1;
 /// Access should be sequential so a single buffer is enough.
 pub const LAST_ITEM_MAX_LOAN_SAMPLES: usize = 2;
+
+/// We create a publisher for active block. We usually can have 2 (prev and current) but with forks we could have more.
+/// I don't think we would ever have more than 5 but we play it safe.
+pub const SLOT_BIDDER_SEAL_BID_COMMAND_SERVICE_MAX_PUBLISHERS: usize = 50;
+/// We should only have a single subscriber to the slot bidder seal bid command service since we spawn a single thread to poll for them.
+/// The other 4 are for luck...
+pub const SLOT_BIDDER_SEAL_BID_COMMAND_SERVICE_MAX_SUBSCRIBERS: usize = 5;
 
 /// Always use this function to create a node builder to avoid issues with signal handling.
 pub fn create_node_builder() -> Result<Node<ipc::Service>, Error> {
@@ -103,6 +120,8 @@ pub fn create_scraped_bids_service(
         .service_builder(&SCRAPED_BIDS_SERVICE_NAME.try_into()?)
         .publish_subscribe::<ScrapedRelayBlockBidRPC>()
         .subscriber_max_buffer_size(SCRAPED_BIDS_MAX_BUFFERS)
+        .max_publishers(SCRAPED_BIDS_SERVICE_MAX_PUBLISHERS)
+        .max_subscribers(SCRAPED_BIDS_SERVICE_MAX_SUBSCRIBERS)
         .open_or_create()?)
 }
 
@@ -116,6 +135,8 @@ pub fn create_blocks_service(
         .service_builder(&BLOCKS_SERVICE_NAME.try_into()?)
         .publish_subscribe::<BuiltBlockDescriptorForSlotBidderRPC>()
         .subscriber_max_buffer_size(LAST_ITEM_MAX_BUFFERS)
+        .max_publishers(BLOCKS_SERVICE_MAX_PUBLISHERS)
+        .max_subscribers(BLOCKS_SERVICE_MAX_SUBSCRIBERS)
         .open_or_create()?)
 }
 
@@ -126,6 +147,8 @@ pub fn create_slot_bidder_seal_bid_command_service(
         .service_builder(&SLOT_BIDDER_SEAL_BID_COMMAND_SERVICE_NAME.try_into()?)
         .publish_subscribe::<SlotBidderSealBidCommandRPC>()
         .subscriber_max_buffer_size(LAST_ITEM_MAX_BUFFERS)
+        .max_publishers(SLOT_BIDDER_SEAL_BID_COMMAND_SERVICE_MAX_PUBLISHERS)
+        .max_subscribers(SLOT_BIDDER_SEAL_BID_COMMAND_SERVICE_MAX_SUBSCRIBERS)
         .open_or_create()?)
 }
 
@@ -164,11 +187,15 @@ impl<ItemTypeRPC: std::fmt::Debug + ZeroCopySend + 'static> NotifyingPublisher<I
         got_item_event_name: &'static str,
         max_subscriber_buffers: usize,
         max_publisher_loan_buffers: usize,
+        max_publishers: usize,
+        max_subscribers: usize,
     ) -> Result<Self, Error> {
         let node = create_node_builder()?;
         let item_service = node
             .service_builder(&item_service_name.try_into()?)
             .publish_subscribe::<ItemTypeRPC>()
+            .max_publishers(max_publishers)
+            .max_subscribers(max_subscribers)
             .subscriber_max_buffer_size(max_subscriber_buffers)
             .open_or_create()?;
         let got_item = node
@@ -213,6 +240,8 @@ impl ScrapedBidsPublisher {
                 GOT_SCRAPED_BIDS_OR_BLOCKS_EVENT_NAME,
                 SCRAPED_BIDS_MAX_BUFFERS,
                 SCRAPED_MAX_LOAN_SAMPLES,
+                SCRAPED_BIDS_SERVICE_MAX_PUBLISHERS,
+                SCRAPED_BIDS_SERVICE_MAX_SUBSCRIBERS,
             ) {
                 Ok(notifying_publisher) => {
                     init_done.set(Ok(()));
@@ -258,6 +287,8 @@ impl<ItemType: Send + Sync + 'static> LastItemPublisher<ItemType> {
     pub fn new<ItemTypeRPC: std::fmt::Debug + ZeroCopySend + From<ItemType> + 'static>(
         item_service_name: &'static str,
         got_item_event_name: &'static str,
+        max_publishers: usize,
+        max_subscribers: usize,
         cancellation_token: CancellationToken,
     ) -> Result<Self, Error> {
         let last_item: Arc<Watch<ItemType>> = Arc::new(Watch::new());
@@ -271,6 +302,8 @@ impl<ItemType: Send + Sync + 'static> LastItemPublisher<ItemType> {
                 got_item_event_name,
                 LAST_ITEM_MAX_BUFFERS,
                 LAST_ITEM_MAX_LOAN_SAMPLES,
+                max_publishers,
+                max_subscribers,
             ) {
                 Ok(notifying_publisher) => {
                     init_done.set(Ok(()));
@@ -310,6 +343,8 @@ pub fn create_blocks_publisher(
     BlocksPublisher::new::<BuiltBlockDescriptorForSlotBidderRPC>(
         BLOCKS_SERVICE_NAME,
         GOT_SCRAPED_BIDS_OR_BLOCKS_EVENT_NAME,
+        BLOCKS_SERVICE_MAX_PUBLISHERS,
+        BLOCKS_SERVICE_MAX_SUBSCRIBERS,
         cancellation_token,
     )
 }
@@ -322,6 +357,8 @@ pub fn create_slot_bidder_seal_bid_command_publisher(
     SlotBidderSealBidCommandPublisher::new::<SlotBidderSealBidCommandRPC>(
         SLOT_BIDDER_SEAL_BID_COMMAND_SERVICE_NAME,
         GOT_SLOT_BIDDER_SEAL_BID_COMMAND_EVENT_NAME,
+        SLOT_BIDDER_SEAL_BID_COMMAND_SERVICE_MAX_PUBLISHERS,
+        SLOT_BIDDER_SEAL_BID_COMMAND_SERVICE_MAX_SUBSCRIBERS,
         cancellation_token,
     )
 }
