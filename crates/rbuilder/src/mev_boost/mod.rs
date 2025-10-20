@@ -750,27 +750,22 @@ impl RelayClient {
                 builder = builder.header(TOP_BID_HEADER, top_competitor_bid.to_string());
             }
             if !metadata.order_ids.is_empty() {
-                const MAX_BUNDLE_IDS: usize = 150;
-                let bundle_ids: Vec<_> = metadata
-                    .order_ids
-                    .iter()
-                    .filter_map(|order| match order {
-                        rbuilder_primitives::OrderId::Tx(_fixed_bytes) => None,
-                        rbuilder_primitives::OrderId::Bundle(uuid) => Some(uuid),
-                        rbuilder_primitives::OrderId::ShareBundle(_fixed_bytes) => None,
-                    })
-                    .collect();
-                let total_bundles = bundle_ids.len();
-                let mut bundle_ids = bundle_ids
-                    .iter()
-                    .take(MAX_BUNDLE_IDS)
-                    .map(|uuid| format!("{uuid:?}"));
-                let bundle_ids = if total_bundles > MAX_BUNDLE_IDS {
-                    bundle_ids.join(",") + ",CAPPED"
-                } else {
-                    bundle_ids.join(",")
-                };
-                builder = builder.header(BUNDLE_HASHES_HEADER, bundle_ids);
+                const MAX_BUNDLE_HASHES: usize = 150;
+                if !metadata.bundle_hashes.is_empty() {
+                    let mut bundle_hashes: Vec<_> = metadata
+                        .bundle_hashes
+                        .iter()
+                        .take(MAX_BUNDLE_HASHES)
+                        .map(|h| format!("{h:?}"))
+                        .collect();
+
+                    let bundle_hashes = if bundle_hashes.len() > MAX_BUNDLE_HASHES {
+                        bundle_hashes.join(",") + ",CAPPED"
+                    } else {
+                        bundle_hashes.join(",")
+                    };
+                    builder = builder.header(BUNDLE_HASHES_HEADER, bundle_hashes);
+                }
 
                 let sent_at = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)

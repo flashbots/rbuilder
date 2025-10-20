@@ -1,5 +1,5 @@
 use crate::OrderId;
-use alloy_primitives::{Address, Bytes, U256};
+use alloy_primitives::{Address, Bytes, B256, U256};
 use alloy_rpc_types_beacon::{
     relay::BidTrace, requests::ExecutionRequestsV4, BlsPublicKey, BlsSignature,
 };
@@ -200,6 +200,7 @@ pub struct BloxrouteRegionalEndpoint {
 pub struct BidMetadata {
     pub value: BidValueMetadata,
     pub order_ids: Vec<OrderId>,
+    pub bundle_hashes: Vec<B256>,
 }
 
 #[derive(Clone, Copy, Default, Debug)]
