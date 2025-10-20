@@ -1151,7 +1151,7 @@ impl Order {
         }
     }
 
-    pub fn bundle_hash(&self) -> Option<B256> {
+    pub fn external_bundle_hash(&self) -> Option<B256> {
         match self {
             Order::Bundle(b) => b.external_hash,
             _ => None,
