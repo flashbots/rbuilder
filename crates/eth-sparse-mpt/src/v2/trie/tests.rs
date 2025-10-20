@@ -116,7 +116,7 @@ fn verify_proof(key: &[u8], proof: Vec<(Nibbles, Vec<u8>)>) -> B256 {
 
 #[test]
 fn do_empty_trie() {
-    compare_impls(&[])
+    compare_impls(&[]);
 }
 
 #[test]
@@ -473,7 +473,7 @@ proptest! {
             }
             (k.to_vec(), v)
         }).collect();
-        compare_with_removals(&data, &keys_to_remove).unwrap()
+        compare_with_removals(&data, &keys_to_remove).unwrap();
     }
 
     #[test]

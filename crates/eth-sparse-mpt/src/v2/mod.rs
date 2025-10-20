@@ -1030,7 +1030,7 @@ impl RootHashCalculator {
                 stats.start();
                 self.fetch_missing_account_trie_nodes(&consistent_db_view, &mut stats)?;
                 stats.measure_proof_fetch(false);
-                // if we needed to fetch some proofs we need to rehash trie
+                // if we fetched proofs we need to rehash account trie
                 stats.start();
                 self.account_trie
                     .trie
