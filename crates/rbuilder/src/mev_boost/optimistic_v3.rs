@@ -1,4 +1,7 @@
-use crate::telemetry::REGISTRY;
+use crate::{
+    telemetry::{exponential_buckets_range, REGISTRY},
+    utils,
+};
 use alloy_primitives::{bytes::Bytes, B256};
 use alloy_rpc_types_beacon::BlsPublicKey;
 use ctor::ctor;
@@ -6,13 +9,13 @@ use futures::StreamExt as _;
 use lazy_static::lazy_static;
 use metrics_macros::register_metrics;
 use parking_lot::Mutex;
-use prometheus::IntCounter;
+use prometheus::{HistogramOpts, HistogramVec, IntCounter};
 use rbuilder_primitives::mev_boost::{
     verify_signed_relay_request, SignedGetPayloadV3, SubmitBlockRequest,
 };
 use schnellru::{ByLength, LruMap};
 use ssz::{Decode as _, Encode};
-use std::{collections::HashSet, net::SocketAddr, sync::Arc};
+use std::{collections::HashSet, net::SocketAddr, sync::Arc, time::Instant};
 use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
 use tracing::*;
 use warp::{
@@ -22,6 +25,11 @@ use warp::{
 
 register_metrics! {
     pub static REQUESTS_TOTAL: IntCounter = IntCounter::new("relay_server_requests", "The total number of requests on the optimistic V3 relay server").unwrap();
+    pub static RESPONSE_LATENCY: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("relay_server_response_latency", "The number of milliseconds for returning optimistic V3 relay response")
+            .buckets(exponential_buckets_range(0.01, 300.0, 200)),
+        &[]
+    ).unwrap();
    pub static BAD_REQUESTS_TOTAL: IntCounter = IntCounter::new("relay_server_bad_requests", "The total number of bad requests on the optimistic V3 relay server").unwrap();
    pub static UNKNOWN_PUBKEY_TOTAL: IntCounter = IntCounter::new("relay_server_unknown_pubkey", "The total number of unknown pubkey errors on the optimistic V3 relay server").unwrap();
    pub static INVALID_SIGNATURE_TOTAL: IntCounter = IntCounter::new("relay_server_invalid_signature", "The total number of invalid signature errors on the optimistic V3 relay server").unwrap();
@@ -74,7 +82,7 @@ pub fn spawn_server(
             OPTIMISTIC_V3_SERVER_CONTENT_LENGTH_LIMIT,
         ))
         .and(warp::body::bytes())
-        .map(Handler::get_payload_v3);
+        .map(Handler::get_payload_v3_metered);
     tokio::spawn(warp::serve(path).run(address));
     info!(target: "relay_server", %address, "Relay server listening");
 
@@ -89,13 +97,25 @@ struct Handler {
 }
 
 impl Handler {
-    fn get_payload_v3(
+    fn get_payload_v3_metered(
         self,
         content_type: String,
         bytes: Bytes,
     ) -> Result<warp::reply::Response, StatusCode> {
         REQUESTS_TOTAL.inc();
+        let start = Instant::now();
+        let response = Self::get_payload_v3(self, content_type, bytes);
+        RESPONSE_LATENCY
+            .with_label_values(&[])
+            .observe(utils::duration_ms(start.elapsed()));
+        response
+    }
 
+    fn get_payload_v3(
+        self,
+        content_type: String,
+        bytes: Bytes,
+    ) -> Result<warp::reply::Response, StatusCode> {
         let mut is_json = false;
         let request: SignedGetPayloadV3 = if content_type == "application/json" {
             is_json = true;
