@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use alloy_primitives::{keccak256, Bytes, B256};
+use alloy_primitives::{keccak256, B256};
 use alloy_rlp::EMPTY_STRING_CODE;
 use arrayvec::ArrayVec;
 
@@ -938,14 +938,6 @@ impl Trie {
         }
 
         Ok(result)
-    }
-
-    pub fn proof(
-        &self,
-        _target_key: &Nibbles,
-        _proof_store: &ProofStore,
-    ) -> Result<Vec<Bytes>, ProofError> {
-        unimplemented!()
     }
 
     pub fn debug_print_node(&self, node_idx: usize) {
