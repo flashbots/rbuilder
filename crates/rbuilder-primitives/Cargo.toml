@@ -32,6 +32,8 @@ reth-transaction-pool.workspace = true
 ethereum-consensus.workspace = true
 ethereum_ssz.workspace = true
 ethereum_ssz_derive.workspace = true
+
+tokio-util.workspace = true
 ssz_types = "0.8.0"
 tree_hash = "0.8.0"
 tree_hash_derive = "0.8.0"
@@ -57,6 +59,7 @@ eyre.workspace = true
 serde.workspace = true
 derive_more.workspace = true
 serde_json.workspace = true
+mockall = "0.12.1"
 
 [dev-dependencies]
 alloy-primitives = { workspace = true, features = ["arbitrary"] }
