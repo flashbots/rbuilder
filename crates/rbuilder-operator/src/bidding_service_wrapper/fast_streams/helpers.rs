@@ -5,6 +5,7 @@ use std::{
 };
 
 use iceoryx2::{
+    config::Config,
     node::{Node, NodeBuilder, NodeCreationFailure},
     port::{
         listener::{Listener, ListenerCreateError},
@@ -85,14 +86,14 @@ pub const SCRAPED_BIDS_MAX_BUFFERS: usize = 1000;
 const SCRAPED_MAX_LOAN_SAMPLES: usize = 100;
 
 /// Should have only a single publisher.
-const BLOCKS_SERVICE_MAX_PUBLISHERS: usize = 5;
+const BLOCKS_SERVICE_MAX_PUBLISHERS: usize = 1;
 /// Should have only a single subscriber.
-const BLOCKS_SERVICE_MAX_SUBSCRIBERS: usize = 5;
+const BLOCKS_SERVICE_MAX_SUBSCRIBERS: usize = 1;
 
 /// Should have only a single publisher.
-const SCRAPED_BIDS_SERVICE_MAX_PUBLISHERS: usize = 5;
+const SCRAPED_BIDS_SERVICE_MAX_PUBLISHERS: usize = 1;
 /// Should have only a single subscriber..
-const SCRAPED_BIDS_SERVICE_MAX_SUBSCRIBERS: usize = 5;
+const SCRAPED_BIDS_SERVICE_MAX_SUBSCRIBERS: usize = 1;
 
 /// We only want newest item.
 pub const LAST_ITEM_MAX_BUFFERS: usize = 1;
@@ -101,14 +102,20 @@ pub const LAST_ITEM_MAX_LOAN_SAMPLES: usize = 2;
 
 /// We create a publisher for active block. We usually can have 2 (prev and current) but with forks we could have more.
 /// I don't think we would ever have more than 5 but we play it safe.
-pub const SLOT_BIDDER_SEAL_BID_COMMAND_SERVICE_MAX_PUBLISHERS: usize = 50;
+pub const SLOT_BIDDER_SEAL_BID_COMMAND_SERVICE_MAX_PUBLISHERS: usize = 10;
 /// We should only have a single subscriber to the slot bidder seal bid command service since we spawn a single thread to poll for them.
-/// The other 4 are for luck...
-pub const SLOT_BIDDER_SEAL_BID_COMMAND_SERVICE_MAX_SUBSCRIBERS: usize = 5;
+pub const SLOT_BIDDER_SEAL_BID_COMMAND_SERVICE_MAX_SUBSCRIBERS: usize = 1;
+
+pub const SERVICE_MAX_PUBLISHERS: usize = 10;
+pub const SERVICE_MAX_SUBSCRIBERS: usize = 10;
 
 /// Always use this function to create a node builder to avoid issues with signal handling.
 pub fn create_node_builder() -> Result<Node<ipc::Service>, Error> {
+    let mut config = Config::global_config().clone();
+    config.defaults.publish_subscribe.max_publishers = SERVICE_MAX_PUBLISHERS;
+    config.defaults.publish_subscribe.max_subscribers = SERVICE_MAX_SUBSCRIBERS;
     Ok(NodeBuilder::new()
+        .config(&config)
         .signal_handling_mode(SignalHandlingMode::Disabled)
         .create::<ipc::Service>()?)
 }
