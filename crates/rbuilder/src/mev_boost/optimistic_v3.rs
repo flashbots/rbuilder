@@ -137,6 +137,9 @@ impl Handler {
         };
 
         let relay_pubkey = request.message.relay_public_key;
+        let block_hash = request.message.block_hash;
+        debug!(target: "relay_server", %relay_pubkey, %block_hash, "Serving get payload request");
+
         if !self.relay_pubkeys.contains(&relay_pubkey) {
             UNKNOWN_PUBKEY_TOTAL.inc();
             debug!(target: "relay_server", %relay_pubkey, "unknown relay pubkey");
@@ -149,7 +152,6 @@ impl Handler {
             return Err(StatusCode::UNAUTHORIZED);
         }
 
-        let block_hash = request.message.block_hash;
         let block = {
             let mut blocks = self.blocks.lock();
             blocks.get(&block_hash).cloned().ok_or_else(|| {
@@ -170,6 +172,7 @@ impl Handler {
             (ssz, "application/octet-stream")
         };
 
+        debug!(target: "relay_server", %relay_pubkey, %block_hash, "Returning payload for request");
         let mut res = warp::http::Response::new(body.into());
         res.headers_mut()
             .insert(CONTENT_TYPE, HeaderValue::from_static(content_ty));
