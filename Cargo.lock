@@ -2480,7 +2480,7 @@ dependencies = [
  "bstr",
  "bytes",
  "cityhash-rs",
- "clickhouse-derive",
+ "clickhouse-derive 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures",
  "futures-channel",
  "http-body-util",
@@ -2489,10 +2489,39 @@ dependencies = [
  "hyper-util",
  "lz4_flex",
  "replace_with",
- "sealed",
+ "sealed 0.5.0",
  "serde",
  "static_assertions",
  "thiserror 1.0.69",
+ "time",
+ "tokio",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "clickhouse"
+version = "0.13.3"
+source = "git+https://github.com/ClickHouse/clickhouse-rs?rev=8cf3d2e138dd121367fa10e875d3f91374b075b2#8cf3d2e138dd121367fa10e875d3f91374b075b2"
+dependencies = [
+ "bstr",
+ "bytes",
+ "cityhash-rs",
+ "clickhouse-derive 0.2.0 (git+https://github.com/ClickHouse/clickhouse-rs?rev=8cf3d2e138dd121367fa10e875d3f91374b075b2)",
+ "clickhouse-types",
+ "futures-channel",
+ "futures-util",
+ "http-body-util",
+ "hyper 1.7.0",
+ "hyper-tls 0.6.0",
+ "hyper-util",
+ "lz4_flex",
+ "quanta",
+ "replace_with",
+ "sealed 0.6.0",
+ "serde",
+ "static_assertions",
+ "thiserror 2.0.17",
  "time",
  "tokio",
  "url",
@@ -2509,6 +2538,26 @@ dependencies = [
  "quote 1.0.41",
  "serde_derive_internals",
  "syn 2.0.106",
+]
+
+[[package]]
+name = "clickhouse-derive"
+version = "0.2.0"
+source = "git+https://github.com/ClickHouse/clickhouse-rs?rev=8cf3d2e138dd121367fa10e875d3f91374b075b2#8cf3d2e138dd121367fa10e875d3f91374b075b2"
+dependencies = [
+ "proc-macro2 1.0.101",
+ "quote 1.0.41",
+ "serde_derive_internals",
+ "syn 2.0.106",
+]
+
+[[package]]
+name = "clickhouse-types"
+version = "0.1.0"
+source = "git+https://github.com/ClickHouse/clickhouse-rs?rev=8cf3d2e138dd121367fa10e875d3f91374b075b2#8cf3d2e138dd121367fa10e875d3f91374b075b2"
+dependencies = [
+ "bytes",
+ "thiserror 2.0.17",
 ]
 
 [[package]]
@@ -9341,7 +9390,7 @@ dependencies = [
  "alloy-transport-http",
  "bid-scraper",
  "built",
- "clickhouse",
+ "clickhouse 0.12.2",
  "ctor",
  "derivative",
  "exponential-backoff",
@@ -9454,6 +9503,31 @@ dependencies = [
 [[package]]
 name = "rbuilder-utils"
 version = "0.1.0"
+dependencies = [
+ "ahash",
+ "alloy-primitives 1.4.1",
+ "clickhouse 0.13.3",
+ "clickhouse-derive 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "derivative",
+ "derive_more 2.0.1",
+ "eyre",
+ "governor",
+ "integer-encoding",
+ "redb",
+ "reqwest 0.12.24",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "sha2 0.10.9",
+ "strum 0.27.2",
+ "strum_macros 0.27.2",
+ "thiserror 1.0.69",
+ "time",
+ "tokio",
+ "toml 0.8.23",
+ "tracing",
+ "uuid",
+]
 
 [[package]]
 name = "rdrand"
@@ -9469,6 +9543,15 @@ name = "recvmsg"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3edd4d5d42c92f0a659926464d4cce56b562761267ecf0f469d85b7de384175"
+
+[[package]]
+name = "redb"
+version = "3.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae323eb086579a3769daa2c753bb96deb95993c534711e0dbe881b5192906a06"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "redis"
@@ -13093,6 +13176,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f4a8caec23b7800fb97971a1c6ae365b6239aaeddfb934d6265f8505e795699d"
 dependencies = [
  "heck 0.4.1",
+ "proc-macro2 1.0.101",
+ "quote 1.0.41",
+ "syn 2.0.106",
+]
+
+[[package]]
+name = "sealed"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22f968c5ea23d555e670b449c1c5e7b2fc399fdaec1d304a17cd48e288abc107"
+dependencies = [
  "proc-macro2 1.0.101",
  "quote 1.0.41",
  "syn 2.0.106",
