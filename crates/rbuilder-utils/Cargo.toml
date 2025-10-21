@@ -8,18 +8,7 @@ homepage.workspace = true
 repository.workspace = true
 exclude.workspace = true
 
-strum = "0.27"
-strum_macros = "0.27"
-tokio = { version = "1.40.0", default-features = false }
-clickhouse = { git = "https://github.com/ClickHouse/clickhouse-rs", rev = "8cf3d2e138dd121367fa10e875d3f91374b075b2", features = [
-  "inserter",
-  "time",
-  "uuid",
-  "native-tls"
-] }
-clickhouse-derive = { version = "0.2.0" }
-redb = { version = "3.1.0" }
-
+[dependencies]
 # misc
 derivative.workspace = true
 integer-encoding = "4.0.0"
@@ -38,3 +27,18 @@ serde.workspace = true
 derive_more.workspace = true
 serde_json.workspace = true
 
+
+# alloy
+alloy-primitives.workspace = true
+
+strum = "0.27"
+strum_macros = "0.27"
+tokio = { version = "1.40.0", default-features = false }
+clickhouse = { git = "https://github.com/ClickHouse/clickhouse-rs", rev = "8cf3d2e138dd121367fa10e875d3f91374b075b2", features = [
+  "inserter",
+  "time",
+  "uuid",
+  "native-tls"
+] }
+clickhouse-derive = { version = "0.2.0" }
+redb = { version = "3.1.0" }

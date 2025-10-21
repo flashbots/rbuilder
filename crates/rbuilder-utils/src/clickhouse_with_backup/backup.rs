@@ -6,11 +6,13 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use clickhouse::inserter::Inserter;
+use clickhouse::inserter::{Inserter, Quantities};
 use derive_more::{Deref, DerefMut};
 use redb::{ReadableDatabase, ReadableTable, ReadableTableMetadata};
 use strum::AsRefStr;
 use tokio::sync::mpsc;
+
+use crate::clickhouse_with_backup::primitives::{ClickhouseIndexableOrder, ClickhouseRowExt};
 
 /// A default maximum size in bytes for the in-memory backup of failed commits.
 pub(crate) const MAX_MEMORY_BACKUP_SIZE_BYTES: u64 = 1024 * 1024 * 1024; // 1 GiB
