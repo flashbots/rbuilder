@@ -6,33 +6,26 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use clickhouse::inserter::{Inserter, Quantities};
+use clickhouse::inserter::Inserter;
 use derive_more::{Deref, DerefMut};
 use redb::{ReadableDatabase, ReadableTable, ReadableTableMetadata};
 use strum::AsRefStr;
 use tokio::sync::mpsc;
 
-use crate::clickhouse_with_backup::primitives::{ClickhouseIndexableOrder, ClickhouseRowExt};
+use crate::{
+    clickhouse::Quantities,
+    clickhouse_with_backup::{
+        default_disk_backup_database_path,
+        metrics::Metrics,
+        primitives::{ClickhouseIndexableOrder, ClickhouseRowExt},
+        MAX_DISK_BACKUP_SIZE_BYTES, MAX_MEMORY_BACKUP_SIZE_BYTES,
+    },
+    format::FormatBytes,
+    metrics::backoff::BackoffInterval,
+    tokio::TaskExecutor,
+};
 
-/// A default maximum size in bytes for the in-memory backup of failed commits.
-pub(crate) const MAX_MEMORY_BACKUP_SIZE_BYTES: u64 = 1024 * 1024 * 1024; // 1 GiB
-/// A default maximum size in bytes for the disk backup of failed commits.
-pub(crate) const MAX_DISK_BACKUP_SIZE_BYTES: u64 = 10 * 1024 * 1024 * 1024; // 10 GiB
-
-/// The default path where the backup database is stored. For tests, a temporary file is used.
-fn default_disk_backup_database_path() -> PathBuf {
-    #[cfg(test)]
-    return tempfile::NamedTempFile::new().unwrap().path().to_path_buf();
-    #[cfg(not(test))]
-    {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        PathBuf::from(home)
-            .join(".buildernet-orderflow-proxy")
-            .join("clickhouse_backup.db")
-    }
-}
-
-/// Tracing target for the backup actor.
+/// @PendingDX REMOVETracing target for the backup actor.
 const TARGET: &str = "indexer::backup";
 
 /// A type alias for disk backup keys.
@@ -129,7 +122,7 @@ pub(crate) struct DiskBackupConfig {
 impl DiskBackupConfig {
     pub(crate) fn new() -> Self {
         Self {
-            path: default_disk_backup_database_path(),
+            path: default_disk_backup_database_path().into(),
             max_size_bytes: MAX_DISK_BACKUP_SIZE_BYTES,
             flush_interval: tokio::time::interval(Duration::from_secs(30)),
         }
@@ -491,7 +484,7 @@ impl<T> Default for MemoryBackup<T> {
 /// data structure holds. Once this has been hit, pressure applies, meaning that we try again a
 /// certain failed commit for a finite number of times, and then we discard it to accomdate new
 /// data.
-pub(crate) struct Backup<T: ClickhouseRowExt> {
+pub(crate) struct Backup<T: ClickhouseRowExt, MetricsType: Metrics> {
     /// The receiver of failed commit attempts.
     ///
     /// Rationale for sending multiple rows instead of sending rows: the backup abstraction must
@@ -516,9 +509,10 @@ pub(crate) struct Backup<T: ClickhouseRowExt> {
     /// Whether to use only the in-memory backup (for testing purposes).
     #[cfg(test)]
     use_only_memory_backup: bool,
+    _metrics_phantom: std::marker::PhantomData<MetricsType>,
 }
 
-impl<T: ClickhouseRowExt> Backup<T> {
+impl<T: ClickhouseRowExt, MetricsType: Metrics> Backup<T, MetricsType> {
     pub(crate) fn new(
         rx: mpsc::Receiver<FailedCommit<T>>,
         inserter: Inserter<T>,
@@ -533,6 +527,7 @@ impl<T: ClickhouseRowExt> Backup<T> {
             last_cached: None,
             #[cfg(test)]
             use_only_memory_backup: false,
+            _metrics_phantom: std::marker::PhantomData,
         }
     }
 
@@ -561,7 +556,7 @@ impl<T: ClickhouseRowExt> Backup<T> {
         match self.disk_backup.save(&failed_commit) {
             Ok(stats) => {
                 tracing::debug!(target: TARGET, order = T::ORDER, total_size = stats.size_bytes.format_bytes(), elapsed = ?start.elapsed(), "saved failed commit to disk");
-                IndexerMetrics::set_clickhouse_disk_backup_size(
+                MetricsType::set_clickhouse_disk_backup_size(
                     stats.size_bytes,
                     stats.total_batches,
                     T::ORDER,
@@ -571,12 +566,12 @@ impl<T: ClickhouseRowExt> Backup<T> {
             }
             Err(e) => {
                 tracing::error!(target: TARGET, order = T::ORDER, ?e, "failed to write commit, trying in-memory");
-                IndexerMetrics::increment_clickhouse_backup_disk_errors(T::ORDER, e.as_ref());
+                MetricsType::increment_clickhouse_backup_disk_errors(T::ORDER, e.as_ref());
             }
         };
 
         let stats = self.memory_backup.save(failed_commit);
-        IndexerMetrics::set_clickhouse_memory_backup_size(
+        MetricsType::set_clickhouse_memory_backup_size(
             stats.size_bytes,
             stats.total_batches,
             T::ORDER,
@@ -585,7 +580,7 @@ impl<T: ClickhouseRowExt> Backup<T> {
 
         if let Some((stats, oldest_quantities)) = self.memory_backup.drop_excess() {
             tracing::warn!(target: TARGET, order = T::ORDER, ?stats, "failed commits exceeded max memory backup size, dropping oldest");
-            IndexerMetrics::process_clickhouse_backup_data_lost_quantities(&oldest_quantities);
+            MetricsType::process_clickhouse_backup_data_lost_quantities(&oldest_quantities);
             // Clear the cached last commit if it was from memory and we just dropped it.
             self.last_cached = self
                 .last_cached
@@ -621,7 +616,7 @@ impl<T: ClickhouseRowExt> Backup<T> {
             }
             Err(e) => {
                 tracing::error!(target: TARGET, order = T::ORDER, ?e, "failed to retrieve oldest failed commit from disk");
-                IndexerMetrics::increment_clickhouse_backup_disk_errors(T::ORDER, e.as_ref());
+                MetricsType::increment_clickhouse_backup_disk_errors(T::ORDER, e.as_ref());
                 None
             }
         }
@@ -633,7 +628,7 @@ impl<T: ClickhouseRowExt> Backup<T> {
             let value_ref = T::to_row_ref(row);
 
             if let Err(e) = self.inserter.write(value_ref).await {
-                IndexerMetrics::increment_clickhouse_write_failures(e.to_string());
+                MetricsType::increment_clickhouse_write_failures(e.to_string());
                 tracing::error!(target: TARGET, order = T::ORDER, ?e, "failed to write to backup inserter");
                 continue;
             }
@@ -647,7 +642,7 @@ impl<T: ClickhouseRowExt> Backup<T> {
             match self.disk_backup.delete(key) {
                 Ok(stats) => {
                     tracing::debug!(target: TARGET, order = T::ORDER, total_size = stats.size_bytes.format_bytes(), elapsed = ?start.elapsed(), "deleted failed commit from disk");
-                    IndexerMetrics::set_clickhouse_disk_backup_size(
+                    MetricsType::set_clickhouse_disk_backup_size(
                         stats.size_bytes,
                         stats.total_batches,
                         T::ORDER,
@@ -678,7 +673,7 @@ impl<T: ClickhouseRowExt> Backup<T> {
                 _ = self.interval.tick() => {
                     let Some(oldest) = self.retrieve_oldest() else {
                         self.interval.reset();
-                        IndexerMetrics::set_clickhouse_backup_empty_size(T::ORDER);
+                        MetricsType::set_clickhouse_backup_empty_size(T::ORDER);
                         continue // Nothing to do!
                     };
 
@@ -688,14 +683,14 @@ impl<T: ClickhouseRowExt> Backup<T> {
                     match self.inserter.force_commit().await {
                         Ok(quantities) => {
                             tracing::info!(target: TARGET, order = T::ORDER, ?quantities, "successfully backed up");
-                            IndexerMetrics::process_clickhouse_backup_data_quantities(&quantities.into());
-                            IndexerMetrics::record_clickhouse_batch_commit_time(start.elapsed());
+                            MetricsType::process_clickhouse_backup_data_quantities(&quantities.into());
+                            MetricsType::record_clickhouse_batch_commit_time(start.elapsed());
                             self.interval.reset();
                             self.purge_commit(&oldest).await;
                         }
                         Err(e) => {
                             tracing::error!(target: TARGET, order = T::ORDER, ?e, quantities = ?oldest.commit.quantities, "failed to commit bundle to clickhouse from backup");
-                            IndexerMetrics::increment_clickhouse_commit_failures(e.to_string());
+                            MetricsType::increment_clickhouse_commit_failures(e.to_string());
                             self.last_cached = Some(oldest);
                             continue;
                         }
@@ -714,24 +709,24 @@ impl<T: ClickhouseRowExt> Backup<T> {
 
                 if let Err(e) = self.inserter.write(value_ref).await {
                     tracing::error!( target: TARGET, order = T::ORDER, ?e, "failed to write to backup inserter during shutdown");
-                    IndexerMetrics::increment_clickhouse_write_failures(e.to_string());
+                    MetricsType::increment_clickhouse_write_failures(e.to_string());
                     continue;
                 }
             }
             if let Err(e) = self.inserter.force_commit().await {
                 tracing::error!(target: TARGET, order = T::ORDER, ?e, "failed to commit backup to CH during shutdown, trying disk");
-                IndexerMetrics::increment_clickhouse_commit_failures(e.to_string());
+                MetricsType::increment_clickhouse_commit_failures(e.to_string());
             }
 
             if let Err(e) = self.disk_backup.save(&failed_commit) {
                 tracing::error!(target: TARGET, order = T::ORDER, ?e, "failed to write commit to disk backup during shutdown");
-                IndexerMetrics::increment_clickhouse_backup_disk_errors(T::ORDER, e.as_ref());
+                MetricsType::increment_clickhouse_backup_disk_errors(T::ORDER, e.as_ref());
             }
         }
 
         if let Err(e) = self.disk_backup.flush().await {
             tracing::error!(target: TARGET, order = T::ORDER, ?e, "failed to flush disk backup during shutdown");
-            IndexerMetrics::increment_clickhouse_backup_disk_errors(T::ORDER, e.as_ref());
+            MetricsType::increment_clickhouse_backup_disk_errors(T::ORDER, e.as_ref());
         } else {
             tracing::info!(target: TARGET, order = T::ORDER, "flushed disk backup during shutdown");
         }
@@ -740,118 +735,6 @@ impl<T: ClickhouseRowExt> Backup<T> {
             tracing::error!(target: TARGET, order = T::ORDER, ?e, "failed to end backup inserter during shutdown");
         } else {
             tracing::info!(target: TARGET, order = T::ORDER, "successfully ended backup inserter during shutdown");
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::time::Duration;
-
-    use super::*;
-
-    use crate::{
-        indexer::{
-            click::{
-                models::BundleRow,
-                tests::{create_clickhouse_bundles_table, create_test_clickhouse_client},
-            },
-            tests::system_bundle_example,
-            BUNDLE_TABLE_NAME,
-        },
-        spawn_clickhouse_backup,
-        tasks::TaskManager,
-    };
-
-    // Uncomment to enable logging during tests.
-    // use tracing::level_filters::LevelFilter;
-    // use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _, EnvFilter};
-
-    impl<T: ClickhouseRowExt> Backup<T> {
-        fn new_test(
-            rx: mpsc::Receiver<FailedCommit<T>>,
-            inserter: Inserter<T>,
-            disk_backup: DiskBackup<T>,
-            use_only_memory_backup: bool,
-        ) -> Self {
-            Self {
-                rx,
-                inserter,
-                interval: Default::default(),
-                memory_backup: MemoryBackup::default(),
-                disk_backup,
-                last_cached: None,
-                use_only_memory_backup,
-            }
-        }
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn backup_e2e_works() {
-        // Uncomment to toggle logs.
-        // let registry = tracing_subscriber::registry().with(
-        //     EnvFilter::builder().with_default_directive(LevelFilter::DEBUG.into()).
-        // from_env_lossy(), );
-        // let _ = registry.with(tracing_subscriber::fmt::layer()).try_init();
-
-        let memory_backup_only = [false, true];
-
-        let task_manager = TaskManager::new(tokio::runtime::Handle::current());
-        let task_executor = task_manager.executor();
-
-        for use_memory_only in memory_backup_only {
-            println!(
-                "---- Running backup_memory_e2e_works with use_memory_only = {use_memory_only} ----"
-            );
-
-            // 1. Spin up Clickhouse. No validation because we're testing both receipts and bundles,
-            // and validation on U256 is not supported.
-            let (image, client, _) = create_test_clickhouse_client(false).await.unwrap();
-            create_clickhouse_bundles_table(&client).await.unwrap();
-
-            let tempfile = tempfile::NamedTempFile::new().unwrap();
-
-            let disk_backup = DiskBackup::new(
-                DiskBackupConfig::new().with_path(tempfile.path().to_path_buf().into()),
-                &task_executor,
-            )
-            .expect("could not create disk backup");
-
-            let (tx, rx) = mpsc::channel(128);
-            let mut bundle_backup = Backup::<BundleRow>::new_test(
-                rx,
-                client
-                    .inserter(BUNDLE_TABLE_NAME)
-                    .with_timeouts(Some(Duration::from_secs(2)), Some(Duration::from_secs(12))),
-                disk_backup,
-                use_memory_only,
-            );
-
-            spawn_clickhouse_backup!(task_executor, bundle_backup, "bundles");
-
-            let quantities = Quantities {
-                bytes: 512,
-                rows: 1,
-                transactions: 1,
-            }; // approximated
-            let bundle_row: BundleRow = (system_bundle_example(), "buildernet".to_string()).into();
-            let bundle_rows = Vec::from([bundle_row]);
-            let failed_commit = FailedCommit::<BundleRow>::new(bundle_rows.clone(), quantities);
-
-            tx.send(failed_commit).await.unwrap();
-            // Wait some time to let the backup process it
-            tokio::time::sleep(Duration::from_millis(100)).await;
-
-            let results = client
-                .query(&format!("select * from {BUNDLE_TABLE_NAME}"))
-                .fetch_all::<BundleRow>()
-                .await
-                .unwrap();
-
-            assert_eq!(results.len(), 1);
-            assert_eq!(bundle_rows, results, "expected, got");
-
-            drop(image);
         }
     }
 }

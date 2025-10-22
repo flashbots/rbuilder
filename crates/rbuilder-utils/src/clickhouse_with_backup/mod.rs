@@ -5,17 +5,56 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// The tracing target for this indexer crate. @PendingDX REMOVE
+const TARGET: &str = "indexer";
+
 use clickhouse::{
-    error::Result as ClickhouseResult,
-    inserter::{Inserter, Quantities},
-    Client as ClickhouseClient, Row,
+    error::Result as ClickhouseResult, inserter::Inserter, Client as ClickhouseClient, Row,
 };
 use tokio::sync::mpsc;
 
-use crate::clickhouse_with_backup::primitives::{ClickhouseIndexableOrder, ClickhouseRowExt};
+use crate::{
+    clickhouse::Quantities,
+    clickhouse_with_backup::{
+        backup::FailedCommit,
+        metrics::Metrics,
+        primitives::{ClickhouseIndexableOrder, ClickhouseRowExt},
+    },
+    metrics::Sampler,
+};
 
 mod backup;
+pub mod macros;
+pub mod metrics;
+/// mod macros;
+/// mod models;
 pub(crate) mod primitives;
+
+/// A default maximum size in bytes for the in-memory backup of failed commits.
+pub(crate) const MAX_MEMORY_BACKUP_SIZE_BYTES: u64 = 1024 * 1024 * 1024; // 1 GiB
+/// A default maximum size in bytes for the disk backup of failed commits.
+pub(crate) const MAX_DISK_BACKUP_SIZE_BYTES: u64 = 10 * 1024 * 1024 * 1024; // 10 GiB
+
+/// The default path where the backup database is stored. For tests, a temporary file is used.
+pub(crate) fn default_disk_backup_database_path() -> String {
+    #[cfg(test)]
+    return tempfile::NamedTempFile::new()
+        .unwrap()
+        .path()
+        .to_string_lossy()
+        .to_string();
+    #[cfg(not(test))]
+    {
+        use std::path::PathBuf;
+
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        PathBuf::from(home)
+            .join(".buildernet-orderflow-proxy")
+            .join("clickhouse_backup.db")
+            .to_string_lossy()
+            .to_string()
+    }
+}
 
 /// An clickhouse inserter with some sane defaults.
 fn default_inserter<T: Row>(client: &ClickhouseClient, table_name: &str) -> Inserter<T> {
@@ -33,7 +72,7 @@ fn default_inserter<T: Row>(client: &ClickhouseClient, table_name: &str) -> Inse
 }
 
 /// A wrapper over a Clickhouse [`Inserter`] that supports a backup mechanism.
-struct ClickhouseInserter<T: ClickhouseRowExt> {
+struct ClickhouseInserter<T: ClickhouseRowExt, MetricsType> {
     /// The inner Clickhouse inserter client.
     inner: Inserter<T>,
     /// A small in-memory backup of the current data we're trying to commit. In case this fails to
@@ -41,15 +80,17 @@ struct ClickhouseInserter<T: ClickhouseRowExt> {
     rows_backup: Vec<T>,
     /// The channel where to send data to be backed up.
     backup_tx: mpsc::Sender<FailedCommit<T>>,
+    _metrics_phantom: std::marker::PhantomData<MetricsType>,
 }
 
-impl<T: ClickhouseRowExt> ClickhouseInserter<T> {
+impl<T: ClickhouseRowExt, MetricsType: Metrics> ClickhouseInserter<T, MetricsType> {
     fn new(inner: Inserter<T>, backup_tx: mpsc::Sender<FailedCommit<T>>) -> Self {
         let rows_backup = Vec::new();
         Self {
             inner,
             rows_backup,
             backup_tx,
+            _metrics_phantom: std::marker::PhantomData,
         }
     }
 
@@ -59,7 +100,7 @@ impl<T: ClickhouseRowExt> ClickhouseInserter<T> {
         let value_ref = ClickhouseRowExt::to_row_ref(&row);
 
         if let Err(e) = self.inner.write(value_ref).await {
-            IndexerMetrics::increment_clickhouse_write_failures(e.to_string());
+            MetricsType::increment_clickhouse_write_failures(e.to_string());
             tracing::error!(target: TARGET, order = T::ORDER, ?e, %hash, "failed to write to clickhouse inserter");
             return;
         }
@@ -81,14 +122,14 @@ impl<T: ClickhouseRowExt> ClickhouseInserter<T> {
                     tracing::trace!(target: TARGET, order = T::ORDER, "committed to inserter");
                 } else {
                     tracing::debug!(target: TARGET, order = T::ORDER, ?quantities, "inserted batch to clickhouse");
-                    IndexerMetrics::process_clickhouse_quantities(&quantities.into());
-                    IndexerMetrics::record_clickhouse_batch_commit_time(start.elapsed());
+                    MetricsType::process_clickhouse_quantities(&quantities.into());
+                    MetricsType::record_clickhouse_batch_commit_time(start.elapsed());
                     // Clear the backup rows.
                     self.rows_backup.clear();
                 }
             }
             Err(e) => {
-                IndexerMetrics::increment_clickhouse_commit_failures(e.to_string());
+                MetricsType::increment_clickhouse_commit_failures(e.to_string());
                 tracing::error!(target: TARGET, order = T::ORDER, ?e, "failed to commit bundle to clickhouse");
 
                 let rows = std::mem::take(&mut self.rows_backup);
@@ -107,7 +148,7 @@ impl<T: ClickhouseRowExt> ClickhouseInserter<T> {
     }
 }
 
-impl<T: ClickhouseRowExt> std::fmt::Debug for ClickhouseInserter<T> {
+impl<T: ClickhouseRowExt, MetricsType> std::fmt::Debug for ClickhouseInserter<T, MetricsType> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ClickhouseInserter")
             .field("inserter", &T::ORDER.to_string())
@@ -118,19 +159,19 @@ impl<T: ClickhouseRowExt> std::fmt::Debug for ClickhouseInserter<T> {
 
 /// A long-lived actor to run a [`ClickhouseIndexer`] until it possible to receive new order to
 /// index.
-struct InserterRunner<T: ClickhouseIndexableOrder> {
+struct InserterRunner<T: ClickhouseIndexableOrder, MetricsType: Metrics> {
     /// The channel from which we can receive new orders to index.
     rx: mpsc::Receiver<T>,
     /// The underlying Clickhouse inserter.
-    inserter: ClickhouseInserter<T::ClickhouseRowType>,
+    inserter: ClickhouseInserter<T::ClickhouseRowType, MetricsType>,
     /// The name of the local operator to use when adding data to clickhouse.
     builder_name: String,
 }
 
-impl<T: ClickhouseIndexableOrder> InserterRunner<T> {
+impl<T: ClickhouseIndexableOrder, MetricsType: Metrics> InserterRunner<T, MetricsType> {
     fn new(
         rx: mpsc::Receiver<T>,
-        inserter: ClickhouseInserter<T::ClickhouseRowType>,
+        inserter: ClickhouseInserter<T::ClickhouseRowType, MetricsType>,
         builder_name: String,
     ) -> Self {
         Self {
@@ -149,7 +190,7 @@ impl<T: ClickhouseIndexableOrder> InserterRunner<T> {
         while let Some(order) = self.rx.recv().await {
             tracing::trace!(target: TARGET, order = T::ORDER, hash = %order.hash(), "received data to index");
             sampler.sample(|| {
-                IndexerMetrics::set_clickhouse_queue_size(self.rx.len(), T::ORDER);
+                MetricsType::set_clickhouse_queue_size(self.rx.len(), T::ORDER);
             });
 
             let row = order.to_row(self.builder_name.clone());
@@ -170,7 +211,8 @@ pub(crate) struct ClickhouseClientConfig {
     validation: bool,
 }
 
-impl ClickhouseClientConfig {
+/// @PendingDX
+/*impl ClickhouseClientConfig {
     fn new(args: &ClickhouseArgs, validation: bool) -> Self {
         Self {
             host: args.host.clone().expect("host is set"),
@@ -181,6 +223,7 @@ impl ClickhouseClientConfig {
         }
     }
 }
+*/
 
 impl From<ClickhouseClientConfig> for ClickhouseClient {
     fn from(config: ClickhouseClientConfig) -> Self {

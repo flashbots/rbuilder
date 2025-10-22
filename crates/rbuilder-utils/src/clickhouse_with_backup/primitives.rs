@@ -1,6 +1,7 @@
 use alloy_primitives::B256;
 use clickhouse::{Row, RowWrite};
 use serde::{de::DeserializeOwned, Serialize};
+
 pub(crate) trait ClickhouseRowExt:
     Row + RowWrite + Serialize + DeserializeOwned + Sync + Send + 'static
 {
