@@ -85,15 +85,18 @@ pub const SCRAPED_BIDS_MAX_BUFFERS: usize = 1000;
 /// New samples can eventually come from different scrapers each with it's own thread but we will never have more than 100 different scrapers.
 const SCRAPED_MAX_LOAN_SAMPLES: usize = 100;
 
-/// Should have only a single publisher.
-const BLOCKS_SERVICE_MAX_PUBLISHERS: usize = 1;
-/// Should have only a single subscriber.
-const BLOCKS_SERVICE_MAX_SUBSCRIBERS: usize = 1;
+/// IMPORTANT: MAX_PUBLISHERS must be >= 2 since with 1, if the process dies, we've seen the connection fail for ever. We choose 3 to be safe.
+/// We also chose 3 instead of 1 to be safe with the MAX_SUBSCRIBERS.
 
 /// Should have only a single publisher.
-const SCRAPED_BIDS_SERVICE_MAX_PUBLISHERS: usize = 1;
+const BLOCKS_SERVICE_MAX_PUBLISHERS: usize = 3;
+/// Should have only a single subscriber.
+const BLOCKS_SERVICE_MAX_SUBSCRIBERS: usize = 3;
+
+/// Should have only a single publisher.
+const SCRAPED_BIDS_SERVICE_MAX_PUBLISHERS: usize = 3;
 /// Should have only a single subscriber..
-const SCRAPED_BIDS_SERVICE_MAX_SUBSCRIBERS: usize = 1;
+const SCRAPED_BIDS_SERVICE_MAX_SUBSCRIBERS: usize = 3;
 
 /// We only want newest item.
 pub const LAST_ITEM_MAX_BUFFERS: usize = 1;
@@ -104,7 +107,7 @@ pub const LAST_ITEM_MAX_LOAN_SAMPLES: usize = 2;
 /// I don't think we would ever have more than 5 but we play it safe.
 pub const SLOT_BIDDER_SEAL_BID_COMMAND_SERVICE_MAX_PUBLISHERS: usize = 10;
 /// We should only have a single subscriber to the slot bidder seal bid command service since we spawn a single thread to poll for them.
-pub const SLOT_BIDDER_SEAL_BID_COMMAND_SERVICE_MAX_SUBSCRIBERS: usize = 1;
+pub const SLOT_BIDDER_SEAL_BID_COMMAND_SERVICE_MAX_SUBSCRIBERS: usize = 3;
 
 pub const SERVICE_MAX_PUBLISHERS: usize = 10;
 pub const SERVICE_MAX_SUBSCRIBERS: usize = 10;
