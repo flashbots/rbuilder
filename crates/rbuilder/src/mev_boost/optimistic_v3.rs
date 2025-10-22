@@ -15,7 +15,12 @@ use rbuilder_primitives::mev_boost::{
 };
 use schnellru::{ByLength, LruMap};
 use ssz::{Decode as _, Encode};
-use std::{collections::HashSet, net::SocketAddr, sync::Arc, time::Instant};
+use std::{
+    collections::HashSet,
+    net::SocketAddr,
+    sync::Arc,
+    time::{Duration, Instant, SystemTime},
+};
 use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
 use tracing::*;
 use warp::{
@@ -25,6 +30,11 @@ use warp::{
 
 register_metrics! {
     pub static REQUESTS_TOTAL: IntCounter = IntCounter::new("relay_server_requests", "The total number of requests on the optimistic V3 relay server").unwrap();
+     pub static RELAY_REQUEST_LATENCY: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("relay_server_relay_request_latency", "The number of milliseconds elapsed since relay request timestamp")
+            .buckets(exponential_buckets_range(0.01, 300.0, 200)),
+        &[]
+    ).unwrap();
     pub static RESPONSE_LATENCY: HistogramVec = HistogramVec::new(
         HistogramOpts::new("relay_server_response_latency", "The number of milliseconds for returning optimistic V3 relay response")
             .buckets(exponential_buckets_range(0.01, 300.0, 200)),
@@ -135,6 +145,14 @@ impl Handler {
             BAD_REQUESTS_TOTAL.inc();
             return Err(StatusCode::BAD_REQUEST);
         };
+
+        if let Ok(relay_latency) = SystemTime::now().duration_since(
+            std::time::UNIX_EPOCH + Duration::from_millis(request.message.request_ts),
+        ) {
+            RELAY_REQUEST_LATENCY
+                .with_label_values(&[])
+                .observe(relay_latency.as_millis() as f64);
+        }
 
         let relay_pubkey = request.message.relay_public_key;
         let block_hash = request.message.block_hash;
