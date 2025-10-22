@@ -329,7 +329,9 @@ impl MevBoostRelayBidSubmitter {
         data: HeaderSubmissionOptimisticV3,
         registration: ValidatorSlotData,
     ) -> Result<(), SubmitBlockErr> {
-        self.client.submit_optimistic_v3(&data, &registration).await
+        self.client
+            .submit_optimistic_v3(&data, &registration, self.cancellations)
+            .await
     }
 }
 
@@ -880,6 +882,7 @@ impl RelayClient {
         &self,
         request: &HeaderSubmissionOptimisticV3,
         registration: &ValidatorSlotData,
+        cancellations: bool,
     ) -> Result<(), SubmitBlockErr> {
         let mut headers = HeaderMap::new();
         self.add_auth_headers(&mut headers)
@@ -887,6 +890,8 @@ impl RelayClient {
 
         let mut url = self.get_base_submit_block_url(registration, &mut headers)?;
         url.set_path("/relay/v3/builder/headers");
+        url.query_pairs_mut()
+            .append_pair("cancellations", if cancellations { "1" } else { "0" });
 
         let body = request.as_ssz_bytes();
         headers.insert(CONTENT_TYPE, HeaderValue::from_static(SSZ_CONTENT_TYPE));
