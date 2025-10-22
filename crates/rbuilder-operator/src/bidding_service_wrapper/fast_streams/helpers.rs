@@ -87,7 +87,6 @@ const SCRAPED_MAX_LOAN_SAMPLES: usize = 100;
 
 /// IMPORTANT: MAX_PUBLISHERS must be >= 2 since with 1, if the process dies, we've seen the connection fail for ever. We choose 3 to be safe.
 /// We also chose 3 instead of 1 to be safe with the MAX_SUBSCRIBERS.
-
 /// Should have only a single publisher.
 const BLOCKS_SERVICE_MAX_PUBLISHERS: usize = 3;
 /// Should have only a single subscriber.
