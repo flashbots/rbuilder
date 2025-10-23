@@ -1,4 +1,4 @@
-use std::env;
+use std::{collections::HashMap, env};
 
 use super::*;
 use crate::{test_utils::reference_trie_hash_vec, utils::HashSet};
@@ -6,19 +6,30 @@ use proptest::prelude::*;
 
 fn compare_impls(data: &[(Vec<u8>, Vec<u8>)]) {
     let mut trie = Trie::new_empty();
+    let empty_proof_store = ProofStore::default();
     for (key, value) in data {
         trie.insert(key, value).unwrap();
     }
-    let got_hash = trie.root_hash(false, &ProofStore::default()).unwrap();
+    let got_hash = trie.root_hash(false, &empty_proof_store).unwrap();
+
     if std::env::var("ETH_SPARSE_MPT_TEST_PRINT").is_ok() {
         trie.debug_print_node(0);
     }
     let expected_hash = reference_trie_hash_vec(data);
     assert_eq!(expected_hash, got_hash);
+
+    for (key, expected_value) in calculate_final_trie_values(data, &[]) {
+        let ProofWithValue { proof, value } = trie
+            .get_proof(&key, &empty_proof_store)
+            .expect("failed to get proof");
+        assert_eq!(expected_value, value, "proof value mismatch");
+        let proof_hash = verify_proof(&key, proof);
+        assert_eq!(got_hash, proof_hash);
+    }
 }
 
 fn compare_with_removals(data: &[(Vec<u8>, Vec<u8>)], remove: &[Vec<u8>]) -> eyre::Result<()> {
-    let proof_store = ProofStore::default();
+    let empty_proof_store = ProofStore::default();
     let mut trie = Trie::new_empty();
     for (key, value) in data {
         trie.insert(key, value)?;
@@ -32,7 +43,7 @@ fn compare_with_removals(data: &[(Vec<u8>, Vec<u8>)], remove: &[Vec<u8>]) -> eyr
     for key in remove {
         trie.delete(key)?;
     }
-    let got_hash = trie.root_hash(false, &proof_store).unwrap();
+    let got_hash = trie.root_hash(false, &empty_proof_store).unwrap();
     if env::var("ETH_SPARSE_MPT_TEST_PRINT").is_ok() {
         println!("Trie after deletes");
         trie.debug_print_node(0);
@@ -52,24 +63,66 @@ fn compare_with_removals(data: &[(Vec<u8>, Vec<u8>)], remove: &[Vec<u8>]) -> eyr
         for (key, value) in &filtered_data {
             trie.insert(key, value).unwrap();
         }
-        trie.root_hash(false, &proof_store).unwrap();
+        trie.root_hash(false, &empty_proof_store).unwrap();
         trie.debug_print_node(0);
         println!();
     }
     let expected_hash = reference_trie_hash_vec(&filtered_data);
     assert_eq!(expected_hash, got_hash);
+
+    for (key, expected_value) in calculate_final_trie_values(data, remove) {
+        let ProofWithValue { proof, value } = trie
+            .get_proof(&key, &empty_proof_store)
+            .expect("failed to get proof");
+        assert_eq!(expected_value, value, "proof value mismatch");
+        let proof_hash = verify_proof(&key, proof);
+        assert_eq!(got_hash, proof_hash);
+    }
+
     Ok(())
+}
+
+// resolves multiple inserts and removals
+fn calculate_final_trie_values(
+    data: &[(Vec<u8>, Vec<u8>)],
+    remove: &[Vec<u8>],
+) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
+    let mut result: HashMap<Vec<u8>, Option<Vec<u8>>> = HashMap::default();
+    for (key, value) in data {
+        result.insert(key.clone(), Some(value.clone()));
+    }
+    for key in remove {
+        result.insert(key.clone(), None);
+    }
+    let mut result: Vec<_> = result.into_iter().collect();
+    result.sort_by_key(|(k, _)| k.clone());
+    result
+}
+
+fn verify_proof(key: &[u8], proof: Vec<(Nibbles, Vec<u8>)>) -> B256 {
+    let nibble_key = Nibbles::unpack(key);
+    let proof_store = ProofStore::default();
+    proof_store
+        .add_proof(nibble_key.clone(), proof)
+        .expect("failed to add proof to proof store");
+    let mut trie = Trie::default();
+    let found = trie
+        .try_add_proof_from_proof_store(&nibble_key, &proof_store)
+        .expect("failed to add proof to the trie");
+    assert!(found, "proof was not found in proof store");
+    trie.root_hash(false, &proof_store)
+        .expect("failed to calc root hash from proof")
 }
 
 #[test]
 fn do_empty_trie() {
-    compare_impls(&[])
+    compare_impls(&[]);
 }
 
 #[test]
 fn do_one_element_trie() {
     let data = [(vec![1, 1], vec![0xa, 0xa])];
-    compare_impls(&data)
+    compare_impls(&data);
 }
 
 #[test]
@@ -420,7 +473,7 @@ proptest! {
             }
             (k.to_vec(), v)
         }).collect();
-        compare_with_removals(&data, &keys_to_remove).unwrap()
+        compare_with_removals(&data, &keys_to_remove).unwrap();
     }
 
     #[test]

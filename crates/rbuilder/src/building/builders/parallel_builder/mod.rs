@@ -7,6 +7,7 @@ pub mod order_intake_store;
 pub mod results_aggregator;
 pub mod simulation_cache;
 pub mod task;
+use alloy_primitives::I256;
 pub use groups::*;
 
 use ahash::HashMap;
@@ -377,6 +378,7 @@ where
     let finalize_block_result = block_building_helper.finalize_block(
         &mut block_building_result_assembler.local_ctx,
         payout_tx_value,
+        I256::ZERO,
         None,
     )?;
     let building_duration = building_start.elapsed();

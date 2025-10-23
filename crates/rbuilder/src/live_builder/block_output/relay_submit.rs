@@ -202,7 +202,10 @@ async fn run_submit_to_relays_job(
                 coinbase_reward: block.trace.coinbase_reward,
                 top_competitor_bid: block.trace.seen_competition_bid,
             },
-            order_ids: executed_orders.map(|o| o.id()).collect(),
+            order_ids: executed_orders.clone().map(|o| o.id()).collect(),
+            bundle_hashes: executed_orders
+                .filter_map(|o| o.external_bundle_hash())
+                .collect(),
         };
 
         let latency = block.trace.orders_sealed_at - block.trace.orders_closed_at;

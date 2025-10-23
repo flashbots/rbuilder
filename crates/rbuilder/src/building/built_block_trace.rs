@@ -2,7 +2,7 @@ use crate::building::builders::BuiltBlockId;
 
 use super::ExecutionResult;
 use ahash::{AHasher, HashMap, HashSet};
-use alloy_primitives::{Address, TxHash, U256};
+use alloy_primitives::{Address, TxHash, I256, U256};
 use rbuilder_primitives::{
     order_statistics::OrderStatistics, Order, OrderId, OrderReplacementKey, SimulatedOrder,
 };
@@ -18,6 +18,8 @@ pub struct BuiltBlockTrace {
     pub included_orders: Vec<ExecutionResult>,
     /// How much we bid (pay to the validator)
     pub bid_value: U256,
+    /// Subsidy used in the bid.
+    pub subsidy: I256,
     /// coinbase balance delta before the payout tx.
     pub coinbase_reward: U256,
     /// True block value (coinbase balance delta) excluding the cost of the payout to validator
@@ -96,6 +98,7 @@ impl BuiltBlockTrace {
             sent_to_sealer: OffsetDateTime::now_utc(),
             picked_by_sealer_at: OffsetDateTime::now_utc(),
             build_block_id,
+            subsidy: I256::ZERO,
         }
     }
 

@@ -3,7 +3,6 @@ use alloy_primitives::{utils::parse_ether, Address, BlockHash, U256};
 use alloy_rpc_types_beacon::BlsPublicKey;
 use flate2::{write::GzEncoder, Compression};
 use governor::{DefaultDirectRateLimiter, Quota, RateLimiter};
-use itertools::Itertools;
 use rbuilder_primitives::mev_boost::{
     HeaderSubmissionOptimisticV3, KnownRelay, MevBoostRelayID, RelayMode,
     SubmitBlockRequestNoBlobs, SubmitBlockRequestWithMetadata, ValidatorRegistration,
@@ -330,7 +329,9 @@ impl MevBoostRelayBidSubmitter {
         data: HeaderSubmissionOptimisticV3,
         registration: ValidatorSlotData,
     ) -> Result<(), SubmitBlockErr> {
-        self.client.submit_optimistic_v3(&data, &registration).await
+        self.client
+            .submit_optimistic_v3(&data, &registration, self.cancellations)
+            .await
     }
 }
 
@@ -772,13 +773,30 @@ impl RelayClient {
                     bundle_ids.join(",")
                 };
                 builder = builder.header(BUNDLE_HASHES_HEADER, bundle_ids);
-
-                let sent_at = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs_f64();
-                builder = builder.header("X-BuilderNet-SentAt", sent_at.to_string());
             }
+
+            const MAX_BUNDLE_HASHES: usize = 150;
+            if !metadata.bundle_hashes.is_empty() {
+                let bundle_hashes: Vec<_> = metadata
+                    .bundle_hashes
+                    .iter()
+                    .take(MAX_BUNDLE_HASHES)
+                    .map(|h| format!("{h:?}"))
+                    .collect();
+
+                let bundle_hashes = if bundle_hashes.len() > MAX_BUNDLE_HASHES {
+                    bundle_hashes.join(",") + ",CAPPED"
+                } else {
+                    bundle_hashes.join(",")
+                };
+                builder = builder.header(BUNDLE_HASHES_HEADER, bundle_hashes);
+            }
+
+            let sent_at = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs_f64();
+            builder = builder.header("X-BuilderNet-SentAt", sent_at.to_string());
         }
 
         let response = builder
@@ -888,6 +906,7 @@ impl RelayClient {
         &self,
         request: &HeaderSubmissionOptimisticV3,
         registration: &ValidatorSlotData,
+        cancellations: bool,
     ) -> Result<(), SubmitBlockErr> {
         let mut headers = HeaderMap::new();
         self.add_auth_headers(&mut headers)
@@ -895,6 +914,8 @@ impl RelayClient {
 
         let mut url = self.get_base_submit_block_url(registration, &mut headers)?;
         url.set_path("/relay/v3/builder/headers");
+        url.query_pairs_mut()
+            .append_pair("cancellations", if cancellations { "1" } else { "0" });
 
         let body = request.as_ssz_bytes();
         headers.insert(CONTENT_TYPE, HeaderValue::from_static(SSZ_CONTENT_TYPE));
@@ -1261,6 +1282,7 @@ mod tests {
                     top_competitor_bid: None,
                 },
                 order_ids: vec![],
+                bundle_hashes: vec![],
             },
         };
         let registration = ValidatorSlotData {

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use alloy_primitives::{BlockHash, BlockNumber, U256};
+use alloy_primitives::{BlockHash, BlockNumber, I256, U256};
 use bid_scraper::{
     bid_sender::{BidSender, BidSenderError},
     types::ScrapedRelayBlockBid,
@@ -104,6 +104,8 @@ impl BuiltBlockDescriptorForSlotBidder {
 pub struct SlotBidderSealBidCommand {
     pub block_id: BuiltBlockId,
     pub payout_tx_value: U256,
+    /// Subsidy used in the bid.
+    pub subsidy: I256,
     pub seen_competition_bid: Option<U256>,
     /// When this bid is a reaction so some event (eg: new block, new competition bid) we put here
     /// the creation time of that event so we can measure our reaction time.

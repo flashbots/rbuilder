@@ -1,4 +1,4 @@
-use alloy_primitives::{utils::format_ether, Address, TxHash, U256};
+use alloy_primitives::{utils::format_ether, Address, TxHash, I256, U256};
 use reth_provider::StateProvider;
 use std::{
     cmp::max,
@@ -68,10 +68,12 @@ pub trait BlockBuildingHelper: Send + Sync {
     /// Finalize block for submission.
     /// if adjust_finalized_block is implemented, finalize_blocks should prepare helper
     /// for faster adjustments.
+    /// subsidy is how much of payout_tx_value we consider to be subsidy.
     fn finalize_block(
         &mut self,
         local_ctx: &mut ThreadBlockBuildingContext,
         payout_tx_value: U256,
+        subsidy: I256,
         seen_competition_bid: Option<U256>,
     ) -> Result<FinalizeBlockResult, BlockBuildingHelperError>;
 
@@ -96,6 +98,7 @@ pub trait BlockBuildingHelper: Send + Sync {
         &mut self,
         local_ctx: &mut ThreadBlockBuildingContext,
         payout_tx_value: U256,
+        subsidy: I256,
         seen_competition_bid: Option<U256>,
     ) -> Result<FinalizeBlockResult, BlockBuildingHelperError>;
 }
@@ -337,6 +340,7 @@ impl<
         &mut self,
         local_ctx: &mut ThreadBlockBuildingContext,
         payout_tx_value: U256,
+        subsidy: I256,
         adjust_finalized_block: bool,
         finalize_revert_state: &mut FinalizeRevertStateCurrentIteration,
     ) -> Result<(), BlockBuildingHelperError> {
@@ -364,6 +368,7 @@ impl<
             .unwrap_or_default();
 
         self.built_block_trace.bid_value = max(bid_value, fee_recipient_balance_diff);
+        self.built_block_trace.subsidy = subsidy;
         self.built_block_trace.true_bid_value = true_value;
         self.built_block_trace.mev_blocker_price = self.building_context().mev_blocker_price;
         Ok(())
@@ -373,6 +378,7 @@ impl<
         &mut self,
         local_ctx: &mut ThreadBlockBuildingContext,
         payout_tx_value: U256,
+        subsidy: I256,
         seen_competition_bid: Option<U256>,
         adjust_finalized_block: bool,
     ) -> Result<FinalizeBlockResult, BlockBuildingHelperError> {
@@ -403,6 +409,7 @@ impl<
         self.finalize_block_execution(
             local_ctx,
             payout_tx_value,
+            subsidy,
             adjust_finalized_block,
             &mut finalize_adjustment_state.revert_state,
         )?;
@@ -590,9 +597,16 @@ impl<
         &mut self,
         local_ctx: &mut ThreadBlockBuildingContext,
         payout_tx_value: U256,
+        subsidy: I256,
         seen_competition_bid: Option<U256>,
     ) -> Result<FinalizeBlockResult, BlockBuildingHelperError> {
-        self.finalize_block_impl(local_ctx, payout_tx_value, seen_competition_bid, false)
+        self.finalize_block_impl(
+            local_ctx,
+            payout_tx_value,
+            subsidy,
+            seen_competition_bid,
+            false,
+        )
     }
 
     fn built_block_trace(&self) -> &BuiltBlockTrace {
@@ -624,8 +638,15 @@ impl<
         &mut self,
         local_ctx: &mut ThreadBlockBuildingContext,
         payout_tx_value: U256,
+        subsidy: I256,
         seen_competition_bid: Option<U256>,
     ) -> Result<FinalizeBlockResult, BlockBuildingHelperError> {
-        self.finalize_block_impl(local_ctx, payout_tx_value, seen_competition_bid, true)
+        self.finalize_block_impl(
+            local_ctx,
+            payout_tx_value,
+            subsidy,
+            seen_competition_bid,
+            true,
+        )
     }
 }

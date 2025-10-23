@@ -26,6 +26,7 @@ impl SlotBidder for NewTrueBlockValueSlotBidder {
             payout_tx_value: block_descriptor.true_block_value + self.subsidy,
             seen_competition_bid: None,
             trigger_creation_time: Some(time::OffsetDateTime::now_utc()),
+            subsidy: self.subsidy.try_into().unwrap(),
         })
     }
 }

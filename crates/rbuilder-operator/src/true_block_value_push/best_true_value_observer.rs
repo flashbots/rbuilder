@@ -83,6 +83,7 @@ impl BidObserver for BestTrueValueObserver {
             slot_data.slot(),
             built_block_trace.true_bid_value,
             built_block_trace.bid_value,
+            built_block_trace.subsidy,
             builder_name,
             slot_data.timestamp().unix_timestamp() as u64,
         );

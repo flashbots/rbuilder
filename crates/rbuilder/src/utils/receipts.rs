@@ -142,7 +142,14 @@ fn calculate_receipts_root_and_placeholder_proof_with_cache(
 
     let target_idx = receipts.len().checked_sub(1).unwrap();
     let nibbles = Nibbles::unpack(alloy_rlp::encode_fixed_size(&target_idx));
-    let proof = trie.proof(&nibbles, &cache.empty_proof_store).unwrap();
+    let proof_with_value = trie
+        .get_proof_nibbles_key(&nibbles, &cache.empty_proof_store)
+        .unwrap();
+    let proof = proof_with_value
+        .proof
+        .into_iter()
+        .map(|(_, n)| n.into())
+        .collect();
 
     (root, proof)
 }
@@ -217,7 +224,14 @@ fn calculate_tx_root_and_placeholder_proof_with_cache(
 
     let target_idx = executed_tx_infos.len().checked_sub(1).unwrap();
     let nibbles = Nibbles::unpack(alloy_rlp::encode_fixed_size(&target_idx));
-    let proof = trie.proof(&nibbles, &cache.empty_proof_store).unwrap();
+    let proof_with_value = trie
+        .get_proof_nibbles_key(&nibbles, &cache.empty_proof_store)
+        .unwrap();
+    let proof = proof_with_value
+        .proof
+        .into_iter()
+        .map(|(_, n)| n.into())
+        .collect();
 
     (root, proof)
 }

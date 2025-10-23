@@ -293,7 +293,7 @@ impl Bundle {
             hasher.update(res);
             hasher.update(&buff);
             let output = hasher.finalize();
-            res.copy_from_slice(&output.as_slice()[0..16]);
+            res.copy_from_slice(&output[0..16]);
             res
         };
         uuid::Builder::from_sha1_bytes(hash).into_uuid()
@@ -1225,6 +1225,13 @@ impl Order {
             Order::Tx(tx) => OrderId::Tx(tx.tx_with_blobs.hash()),
             Order::AceTx(ace) => OrderId::Tx(ace.order_id()),
             Order::ShareBundle(bundle) => OrderId::ShareBundle(bundle.hash),
+        }
+    }
+
+    pub fn external_bundle_hash(&self) -> Option<B256> {
+        match self {
+            Order::Bundle(b) => b.external_hash,
+            _ => None,
         }
     }
 
