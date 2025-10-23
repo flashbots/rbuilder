@@ -1,10 +1,7 @@
 use std::{fmt, sync::Arc};
 
 use crate::{
-    building::{
-        ace_bundler::AceBundler,
-        sim::{SimTree, SimulatedResult, SimulationRequest},
-    },
+    building::sim::{SimTree, SimulatedResult, SimulationRequest},
     live_builder::{
         order_input::order_sink::OrderPoolCommand,
         simulation::simulation_job_tracer::SimulationJobTracer,
@@ -207,6 +204,7 @@ impl SimulationJob {
                 self.unique_replacement_key_bundles_sim_ok.insert(repl_key);
                 self.orders_with_replacement_key_sim_ok += 1;
             }
+
             // Skip cancelled orders and remove from in_flight_orders
             if self
                 .in_flight_orders

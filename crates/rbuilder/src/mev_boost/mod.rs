@@ -1,4 +1,6 @@
 use super::utils::u256decimal_serde_helper;
+use itertools::Itertools;
+
 use alloy_primitives::{utils::parse_ether, Address, BlockHash, U256};
 use alloy_rpc_types_beacon::BlsPublicKey;
 use flate2::{write::GzEncoder, Compression};

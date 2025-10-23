@@ -470,13 +470,15 @@ pub fn simulate_order(
         }
         // If we have a sucessful simulation and we have detected an ace tx, this means that it is a
         // unlocking mempool ace tx by default.
-        OrderSimResult::Success(..) => {
+        OrderSimResult::Success(ref mut simulated_order, _) => {
             if let Some(interaction) = ace_interaction {
                 tracing::debug!(
                     order = ?order.id(),
                     ?interaction,
                     "Order has ACE interaction"
                 );
+                // Update the SimulatedOrder to include ace_interaction
+                Arc::make_mut(simulated_order).ace_interaction = Some(interaction);
             }
         }
     }
