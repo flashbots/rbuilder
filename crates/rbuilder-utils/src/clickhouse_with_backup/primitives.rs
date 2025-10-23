@@ -2,7 +2,7 @@ use alloy_primitives::B256;
 use clickhouse::{Row, RowWrite};
 use serde::{de::DeserializeOwned, Serialize};
 
-pub(crate) trait ClickhouseRowExt:
+pub trait ClickhouseRowExt:
     Row + RowWrite + Serialize + DeserializeOwned + Sync + Send + 'static
 {
     /// The type of such row, e.g. "bundles" or "bundle_receipts". Used as backup db table name and
@@ -19,7 +19,7 @@ pub(crate) trait ClickhouseRowExt:
 }
 
 /// An high-level order type that can be indexed in clickhouse.
-pub(crate) trait ClickhouseIndexableOrder: Sized {
+pub trait ClickhouseIndexableOrder: Sized {
     /// The associated inner row type that can be serialized into Clickhouse data.
     type ClickhouseRowType: ClickhouseRowExt;
 

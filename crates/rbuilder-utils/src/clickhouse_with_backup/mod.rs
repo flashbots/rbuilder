@@ -23,20 +23,20 @@ use crate::{
     metrics::Sampler,
 };
 
-mod backup;
+pub mod backup;
 pub mod macros;
 pub mod metrics;
 /// mod macros;
 /// mod models;
-pub(crate) mod primitives;
+pub mod primitives;
 
 /// A default maximum size in bytes for the in-memory backup of failed commits.
-pub(crate) const MAX_MEMORY_BACKUP_SIZE_BYTES: u64 = 1024 * 1024 * 1024; // 1 GiB
+pub const MAX_MEMORY_BACKUP_SIZE_BYTES: u64 = 1024 * 1024 * 1024; // 1 GiB
 /// A default maximum size in bytes for the disk backup of failed commits.
-pub(crate) const MAX_DISK_BACKUP_SIZE_BYTES: u64 = 10 * 1024 * 1024 * 1024; // 10 GiB
+pub const MAX_DISK_BACKUP_SIZE_BYTES: u64 = 10 * 1024 * 1024 * 1024; // 10 GiB
 
 /// The default path where the backup database is stored. For tests, a temporary file is used.
-pub(crate) fn default_disk_backup_database_path() -> String {
+pub fn default_disk_backup_database_path() -> String {
     #[cfg(test)]
     return tempfile::NamedTempFile::new()
         .unwrap()
@@ -57,7 +57,7 @@ pub(crate) fn default_disk_backup_database_path() -> String {
 }
 
 /// An clickhouse inserter with some sane defaults.
-fn default_inserter<T: Row>(client: &ClickhouseClient, table_name: &str) -> Inserter<T> {
+pub fn default_inserter<T: Row>(client: &ClickhouseClient, table_name: &str) -> Inserter<T> {
     // TODO: make this configurable.
     let send_timeout = Duration::from_secs(2);
     let end_timeout = Duration::from_secs(3);
@@ -72,7 +72,7 @@ fn default_inserter<T: Row>(client: &ClickhouseClient, table_name: &str) -> Inse
 }
 
 /// A wrapper over a Clickhouse [`Inserter`] that supports a backup mechanism.
-struct ClickhouseInserter<T: ClickhouseRowExt, MetricsType> {
+pub struct ClickhouseInserter<T: ClickhouseRowExt, MetricsType> {
     /// The inner Clickhouse inserter client.
     inner: Inserter<T>,
     /// A small in-memory backup of the current data we're trying to commit. In case this fails to
@@ -84,7 +84,7 @@ struct ClickhouseInserter<T: ClickhouseRowExt, MetricsType> {
 }
 
 impl<T: ClickhouseRowExt, MetricsType: Metrics> ClickhouseInserter<T, MetricsType> {
-    fn new(inner: Inserter<T>, backup_tx: mpsc::Sender<FailedCommit<T>>) -> Self {
+    pub fn new(inner: Inserter<T>, backup_tx: mpsc::Sender<FailedCommit<T>>) -> Self {
         let rows_backup = Vec::new();
         Self {
             inner,
@@ -100,7 +100,7 @@ impl<T: ClickhouseRowExt, MetricsType: Metrics> ClickhouseInserter<T, MetricsTyp
         let value_ref = ClickhouseRowExt::to_row_ref(&row);
 
         if let Err(e) = self.inner.write(value_ref).await {
-            MetricsType::increment_clickhouse_write_failures(e.to_string());
+            MetricsType::increment_write_failures(e.to_string());
             tracing::error!(target: TARGET, order = T::ORDER, ?e, %hash, "failed to write to clickhouse inserter");
             return;
         }
@@ -122,14 +122,14 @@ impl<T: ClickhouseRowExt, MetricsType: Metrics> ClickhouseInserter<T, MetricsTyp
                     tracing::trace!(target: TARGET, order = T::ORDER, "committed to inserter");
                 } else {
                     tracing::debug!(target: TARGET, order = T::ORDER, ?quantities, "inserted batch to clickhouse");
-                    MetricsType::process_clickhouse_quantities(&quantities.into());
-                    MetricsType::record_clickhouse_batch_commit_time(start.elapsed());
+                    MetricsType::process_quantities(&quantities.into());
+                    MetricsType::record_batch_commit_time(start.elapsed());
                     // Clear the backup rows.
                     self.rows_backup.clear();
                 }
             }
             Err(e) => {
-                MetricsType::increment_clickhouse_commit_failures(e.to_string());
+                MetricsType::increment_commit_failures(e.to_string());
                 tracing::error!(target: TARGET, order = T::ORDER, ?e, "failed to commit bundle to clickhouse");
 
                 let rows = std::mem::take(&mut self.rows_backup);
@@ -143,7 +143,7 @@ impl<T: ClickhouseRowExt, MetricsType: Metrics> ClickhouseInserter<T, MetricsTyp
     }
 
     /// Ends the current `INSERT` and whole `Inserter` unconditionally.
-    async fn end(self) -> ClickhouseResult<Quantities> {
+    pub async fn end(self) -> ClickhouseResult<Quantities> {
         self.inner.end().await.map(Into::into)
     }
 }
@@ -159,7 +159,7 @@ impl<T: ClickhouseRowExt, MetricsType> std::fmt::Debug for ClickhouseInserter<T,
 
 /// A long-lived actor to run a [`ClickhouseIndexer`] until it possible to receive new order to
 /// index.
-struct InserterRunner<T: ClickhouseIndexableOrder, MetricsType: Metrics> {
+pub struct InserterRunner<T: ClickhouseIndexableOrder, MetricsType: Metrics> {
     /// The channel from which we can receive new orders to index.
     rx: mpsc::Receiver<T>,
     /// The underlying Clickhouse inserter.
@@ -169,7 +169,7 @@ struct InserterRunner<T: ClickhouseIndexableOrder, MetricsType: Metrics> {
 }
 
 impl<T: ClickhouseIndexableOrder, MetricsType: Metrics> InserterRunner<T, MetricsType> {
-    fn new(
+    pub fn new(
         rx: mpsc::Receiver<T>,
         inserter: ClickhouseInserter<T::ClickhouseRowType, MetricsType>,
         builder_name: String,
@@ -182,7 +182,7 @@ impl<T: ClickhouseIndexableOrder, MetricsType: Metrics> InserterRunner<T, Metric
     }
 
     /// Run the inserter until it is possible to receive new orders.
-    async fn run_loop(&mut self) {
+    pub async fn run_loop(&mut self) {
         let mut sampler = Sampler::default()
             .with_sample_size(self.rx.capacity() / 2)
             .with_interval(Duration::from_secs(4));
@@ -190,7 +190,7 @@ impl<T: ClickhouseIndexableOrder, MetricsType: Metrics> InserterRunner<T, Metric
         while let Some(order) = self.rx.recv().await {
             tracing::trace!(target: TARGET, order = T::ORDER, hash = %order.hash(), "received data to index");
             sampler.sample(|| {
-                MetricsType::set_clickhouse_queue_size(self.rx.len(), T::ORDER);
+                MetricsType::set_queue_size(self.rx.len(), T::ORDER);
             });
 
             let row = order.to_row(self.builder_name.clone());
@@ -210,20 +210,6 @@ pub(crate) struct ClickhouseClientConfig {
     password: String,
     validation: bool,
 }
-
-/// @PendingDX
-/*impl ClickhouseClientConfig {
-    fn new(args: &ClickhouseArgs, validation: bool) -> Self {
-        Self {
-            host: args.host.clone().expect("host is set"),
-            database: args.database.clone().expect("database is set"),
-            username: args.username.clone().expect("username is set"),
-            password: args.password.clone().expect("password is set"),
-            validation,
-        }
-    }
-}
-*/
 
 impl From<ClickhouseClientConfig> for ClickhouseClient {
     fn from(config: ClickhouseClientConfig) -> Self {

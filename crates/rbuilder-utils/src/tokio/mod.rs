@@ -63,7 +63,7 @@ pub mod shutdown;
 ///
 /// ```
 /// # async fn t() {
-/// use buildernet_orderflow_proxy::tasks::{TaskSpawner, TokioTaskExecutor};
+/// use rbuilder_utils::tokio::{TaskSpawner, TokioTaskExecutor};
 /// let executor = TokioTaskExecutor::default();
 ///
 /// let task = executor.spawn(Box::pin(async {
@@ -76,9 +76,9 @@ pub mod shutdown;
 /// Use the [`TaskExecutor`] that spawns task directly onto the tokio runtime via the [Handle].
 ///
 /// ```
-/// # use buildernet_orderflow_proxy::tasks::TaskManager;
+/// # use rbuilder_utils::tokio::TaskManager;
 /// fn t() {
-///  use buildernet_orderflow_proxy::tasks::TaskSpawner;
+///  use rbuilder_utils::tokio::TaskSpawner;
 /// let rt = tokio::runtime::Runtime::new().unwrap();
 /// let manager = TaskManager::new(rt.handle().clone());
 /// let executor = manager.executor();
@@ -239,7 +239,10 @@ impl TaskManager {
         drop(self.signal);
         let when = timeout.map(|t| std::time::Instant::now() + t);
         while self.graceful_tasks.load(Ordering::Relaxed) > 0 {
-            if when.map(|when| std::time::Instant::now() > when).unwrap_or(false) {
+            if when
+                .map(|when| std::time::Instant::now() > when)
+                .unwrap_or(false)
+            {
                 tracing::debug!("graceful shutdown timed out");
                 return false;
             }
@@ -500,7 +503,7 @@ impl TaskExecutor {
     /// # Example
     ///
     /// ```no_run
-    /// # async fn t(executor: buildernet_orderflow_proxy::tasks::TaskExecutor) {
+    /// # async fn t(executor: rbuilder_utils::tokio::TaskExecutor) {
     ///
     /// executor.spawn_critical_with_graceful_shutdown_signal("grace", |shutdown| async move {
     ///     // await the shutdown signal
@@ -548,7 +551,7 @@ impl TaskExecutor {
     /// # Example
     ///
     /// ```no_run
-    /// # async fn t(executor: buildernet_orderflow_proxy::tasks::TaskExecutor) {
+    /// # async fn t(executor: rbuilder_utils::tokio::TaskExecutor) {
     ///
     /// executor.spawn_with_graceful_shutdown_signal(|shutdown| async move {
     ///     // await the shutdown signal
@@ -707,11 +710,16 @@ mod tests {
         let manager = TaskManager::new(handle);
         let executor = manager.executor();
 
-        executor.spawn_critical("this is a critical task", async { panic!("intentionally panic") });
+        executor.spawn_critical("this is a critical task", async {
+            panic!("intentionally panic")
+        });
 
         runtime.block_on(async move {
             let err_result = manager.await;
-            assert!(err_result.is_err(), "Expected TaskManager to return an error due to panic");
+            assert!(
+                err_result.is_err(),
+                "Expected TaskManager to return an error due to panic"
+            );
             let panicked_err = err_result.unwrap_err();
 
             assert_eq!(panicked_err.task_name, "this is a critical task");
@@ -845,7 +853,10 @@ mod tests {
 
         let manager_final_result = runtime.block_on(manager_future_handle);
 
-        assert!(manager_final_result.is_ok(), "TaskManager task should not panic");
+        assert!(
+            manager_final_result.is_ok(),
+            "TaskManager task should not panic"
+        );
         assert_eq!(
             manager_final_result.unwrap(),
             Ok(()),
@@ -853,7 +864,10 @@ mod tests {
         );
 
         let task_join_result = runtime.block_on(spawned_task_handle);
-        assert!(task_join_result.is_ok(), "Spawned task should complete without panic");
+        assert!(
+            task_join_result.is_ok(),
+            "Spawned task should complete without panic"
+        );
 
         assert!(
             task_did_shutdown_flag.load(Ordering::Relaxed),
