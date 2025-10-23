@@ -168,6 +168,17 @@ pub struct InserterRunner<T: ClickhouseIndexableOrder, MetricsType: Metrics> {
     builder_name: String,
 }
 
+impl<T: ClickhouseIndexableOrder, MetricsType: Metrics> std::fmt::Debug
+    for InserterRunner<T, MetricsType>
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("InserterRunner")
+            .field("inserter", &T::ORDER.to_string())
+            .field("rx", &self.rx)
+            .finish()
+    }
+}
+
 impl<T: ClickhouseIndexableOrder, MetricsType: Metrics> InserterRunner<T, MetricsType> {
     pub fn new(
         rx: mpsc::Receiver<T>,
@@ -199,16 +210,20 @@ impl<T: ClickhouseIndexableOrder, MetricsType: Metrics> InserterRunner<T, Metric
         }
         tracing::error!(target: TARGET, order = T::ORDER, "tx channel closed, indexer will stop running");
     }
+
+    pub async fn end(self) -> ClickhouseResult<Quantities> {
+        self.inserter.end().await
+    }
 }
 
 /// The configuration used in a [`ClickhouseClient`].
 #[derive(Debug, Clone)]
-pub(crate) struct ClickhouseClientConfig {
-    host: String,
-    database: String,
-    username: String,
-    password: String,
-    validation: bool,
+pub struct ClickhouseClientConfig {
+    pub host: String,
+    pub database: String,
+    pub username: String,
+    pub password: String,
+    pub validation: bool,
 }
 
 impl From<ClickhouseClientConfig> for ClickhouseClient {

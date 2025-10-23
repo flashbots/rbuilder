@@ -5,25 +5,25 @@
 
 #[macro_export]
 macro_rules! spawn_clickhouse_inserter {
-    ($executor:ident, $runner:ident, $name:expr) => {{
+    ($executor:ident, $runner:ident, $name:expr, $target:expr) => {{
         $executor.spawn_with_graceful_shutdown_signal(|shutdown| async move {
             let mut shutdown_guard = None;
             tokio::select! {
                 _ = $runner.run_loop() => {
-                    tracing::info!(target: TARGET, "clickhouse {} indexer channel closed", $name);
+                    tracing::info!(target: $target, "clickhouse {} indexer channel closed", $name);
                 }
                 guard = shutdown => {
-                    tracing::info!(target: TARGET, "Received shutdown for {} indexer, performing cleanup", $name);
+                    tracing::info!(target: $target, "Received shutdown for {} indexer, performing cleanup", $name);
                     shutdown_guard = Some(guard);
                 },
             }
 
-            match $runner.inserter.end().await {
+            match $runner.end().await {
                 Ok(quantities) => {
-                    tracing::info!(target: TARGET, ?quantities, "finalized clickhouse {} inserter", $name);
+                    tracing::info!(target: $target, ?quantities, "finalized clickhouse {} inserter", $name);
                 }
                 Err(e) => {
-                    tracing::error!(target: TARGET, ?e, "failed to write end insertion of {} to indexer", $name);
+                    tracing::error!(target: $target, ?e, "failed to write end insertion of {} to indexer", $name);
                 }
             }
 
@@ -34,15 +34,15 @@ macro_rules! spawn_clickhouse_inserter {
 
 #[macro_export]
 macro_rules! spawn_clickhouse_backup {
-    ($executor:ident, $backup:ident, $name: expr) => {{
+    ($executor:ident, $backup:ident, $name: expr, $target:expr) => {{
         $executor.spawn_with_graceful_shutdown_signal(|shutdown| async move {
             let mut shutdown_guard = None;
             tokio::select! {
                 _ = $backup.run() => {
-                    tracing::info!(target: TARGET, "clickhouse {} backup channel closed", $name);
+                    tracing::info!(target: $target, "clickhouse {} backup channel closed", $name);
                 }
                 guard = shutdown => {
-                    tracing::info!(target: TARGET, "Received shutdown for {} backup, performing cleanup", $name);
+                    tracing::info!(target: $target, "Received shutdown for {} backup, performing cleanup", $name);
                     shutdown_guard = Some(guard);
                 },
             }

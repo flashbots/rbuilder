@@ -512,7 +512,7 @@ pub struct Backup<T: ClickhouseRowExt, MetricsType: Metrics> {
     last_cached: Option<RetrievedFailedCommit<T>>,
 
     /// Whether to use only the in-memory backup (for testing purposes).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-utils"))]
     use_only_memory_backup: bool,
     _metrics_phantom: std::marker::PhantomData<MetricsType>,
 }
@@ -530,7 +530,7 @@ impl<T: ClickhouseRowExt, MetricsType: Metrics> Backup<T, MetricsType> {
             memory_backup: MemoryBackup::default(),
             disk_backup,
             last_cached: None,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-utils"))]
             use_only_memory_backup: false,
             _metrics_phantom: std::marker::PhantomData,
         }
@@ -547,7 +547,7 @@ impl<T: ClickhouseRowExt, MetricsType: Metrics> Backup<T, MetricsType> {
         let quantities = failed_commit.quantities;
         tracing::debug!(target: TARGET, order = T::ORDER, bytes = ?quantities.bytes, rows = ?quantities.rows, "backing up failed commit");
 
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-utils"))]
         if self.use_only_memory_backup {
             self.memory_backup.save(failed_commit);
             self.last_cached = self
@@ -732,6 +732,27 @@ impl<T: ClickhouseRowExt, MetricsType: Metrics> Backup<T, MetricsType> {
             tracing::error!(target: TARGET, order = T::ORDER, ?e, "failed to end backup inserter during shutdown");
         } else {
             tracing::info!(target: TARGET, order = T::ORDER, "successfully ended backup inserter during shutdown");
+        }
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl<T: ClickhouseRowExt, MetricsType: Metrics> Backup<T, MetricsType> {
+    pub fn new_test(
+        rx: mpsc::Receiver<FailedCommit<T>>,
+        inserter: Inserter<T>,
+        disk_backup: DiskBackup<T>,
+        use_only_memory_backup: bool,
+    ) -> Self {
+        Self {
+            rx,
+            inserter,
+            interval: Default::default(),
+            memory_backup: MemoryBackup::default(),
+            disk_backup,
+            last_cached: None,
+            use_only_memory_backup,
+            _metrics_phantom: PhantomData,
         }
     }
 }
