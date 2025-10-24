@@ -1,3 +1,7 @@
+pub mod macros;
+pub mod metrics;
+pub mod primitives;
+
 use std::{
     collections::VecDeque,
     marker::PhantomData,
@@ -13,16 +17,20 @@ use strum::AsRefStr;
 use tokio::sync::mpsc;
 
 use crate::{
-    clickhouse::Quantities,
-    clickhouse_with_backup::{
-        default_disk_backup_database_path,
-        metrics::Metrics,
-        primitives::{ClickhouseIndexableOrder, ClickhouseRowExt},
-        MAX_DISK_BACKUP_SIZE_BYTES, MAX_MEMORY_BACKUP_SIZE_BYTES,
+    backoff::BackoffInterval,
+    clickhouse::{
+        backup::{
+            metrics::Metrics,
+            primitives::{ClickhouseIndexableOrder, ClickhouseRowExt},
+        },
+        indexer::{
+            default_disk_backup_database_path, MAX_DISK_BACKUP_SIZE_BYTES,
+            MAX_MEMORY_BACKUP_SIZE_BYTES,
+        },
+        Quantities,
     },
     format::FormatBytes,
-    metrics::backoff::BackoffInterval,
-    tokio::TaskExecutor,
+    tasks::TaskExecutor,
 };
 
 const TARGET: &str = "clickhouse_with_backup::backup";

@@ -1,5 +1,3 @@
-pub mod backoff;
-
 use std::time::{Duration, Instant};
 
 /// A simple sampler that executes a closure every `sample_size` calls, or if a certain amount of

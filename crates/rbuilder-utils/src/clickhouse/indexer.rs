@@ -14,21 +14,16 @@ use clickhouse::{
 use tokio::sync::mpsc;
 
 use crate::{
-    clickhouse::Quantities,
-    clickhouse_with_backup::{
-        backup::FailedCommit,
-        metrics::Metrics,
-        primitives::{ClickhouseIndexableOrder, ClickhouseRowExt},
+    clickhouse::{
+        backup::{
+            metrics::Metrics,
+            primitives::{ClickhouseIndexableOrder, ClickhouseRowExt},
+            FailedCommit,
+        },
+        Quantities,
     },
     metrics::Sampler,
 };
-
-pub mod backup;
-pub mod macros;
-pub mod metrics;
-/// mod macros;
-/// mod models;
-pub mod primitives;
 
 /// A default maximum size in bytes for the in-memory backup of failed commits.
 pub const MAX_MEMORY_BACKUP_SIZE_BYTES: u64 = 1024 * 1024 * 1024; // 1 GiB

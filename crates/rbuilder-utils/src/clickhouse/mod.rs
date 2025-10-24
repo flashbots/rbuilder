@@ -1,3 +1,5 @@
+pub mod backup;
+pub mod indexer;
 use serde::{Deserialize, Serialize};
 
 /// Equilalent of `clickhouse::inserter::Quantities` with more traits derived.
