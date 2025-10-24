@@ -112,21 +112,27 @@ impl<'a> UsedStateEVMInspector<'a> {
     /// This method is used to mark nonce change as a slot read / write.
     /// Txs with the same nonce are in conflict and origin address is EOA that does not have storage.
     /// We convert nonce change to the slot 0 read and write of the signer
-    fn use_tx_nonce(&mut self, tx: &Recovered<TransactionSigned>) {
+    /// 
+    /// Generic version that takes raw data
+    fn use_tx_nonce_data(&mut self, signer: Address, nonce: u64) {
         self.used_state_trace.read_slot_values.insert(
             SlotKey {
-                address: tx.signer(),
+                address: signer,
                 key: Default::default(),
             },
-            U256::from(tx.nonce()).into(),
+            U256::from(nonce).into(),
         );
         self.used_state_trace.written_slot_values.insert(
             SlotKey {
-                address: tx.signer(),
+                address: signer,
                 key: Default::default(),
             },
-            U256::from(tx.nonce() + 1).into(),
+            U256::from(nonce + 1).into(),
         );
+    }
+
+    fn use_tx_nonce(&mut self, tx: &Recovered<TransactionSigned>) {
+        self.use_tx_nonce_data(tx.signer(), tx.nonce());
     }
 }
 
@@ -272,6 +278,29 @@ impl<'a> RBuilderEVMInspector<'a> {
         let mut used_state_inspector = used_state_trace.map(UsedStateEVMInspector::new);
         if let Some(i) = &mut used_state_inspector {
             i.use_tx_nonce(tx);
+        }
+
+        Self {
+            access_list_inspector,
+            used_state_inspector,
+        }
+    }
+    
+    /// Constructor for any generic Recovered<T> where T implements Transaction
+    /// This is designed for rblib's generic transaction types.
+    pub fn new_from_recovered<T>(
+        recovered_tx: &Recovered<T>,
+        used_state_trace: Option<&'a mut UsedStateTrace>,
+    ) -> Self
+    where
+        T: Transaction,
+    {
+        let access_list_inspector =
+            AccessListInspector::new(recovered_tx.access_list().cloned().unwrap_or_default());
+
+        let mut used_state_inspector = used_state_trace.map(UsedStateEVMInspector::new);
+        if let Some(i) = &mut used_state_inspector {
+            i.use_tx_nonce_data(recovered_tx.signer(), recovered_tx.nonce());
         }
 
         Self {
