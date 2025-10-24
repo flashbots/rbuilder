@@ -14,6 +14,7 @@ members = [
     "crates/rbuilder",
     "crates/rbuilder-operator",
     "crates/rbuilder-rebalancer",
+    "crates/used-state-evm-inspector",
     "crates/reth-rbuilder",
     "crates/rbuilder/src/test_utils",
     "crates/rbuilder/src/telemetry/metrics_macros",
@@ -28,6 +29,7 @@ default-members = [
     "crates/reth-rbuilder",
     "crates/rbuilder-rebalancer",
     "crates/rbuilder-primitives",
+    "crates/used-state-evm-inspector",
     "crates/test-relay",
     "crates/bid-scraper",
 ]
@@ -198,5 +200,6 @@ bid-scraper = { path = "crates/bid-scraper" }
 rbuilder = { path = "crates/rbuilder" }
 rbuilder-primitives = { path = "crates/rbuilder-primitives" }
 rbuilder-config = { path = "crates/rbuilder-config" }
+used-state-evm-inspector = { path = "crates/used-state-evm-inspector" }
 sysperf = { path = "crates/sysperf" }
 metrics_macros = { path = "crates/rbuilder/src/telemetry/metrics_macros" }
