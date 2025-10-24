@@ -46,7 +46,7 @@ impl SimplifiedOrder {
                 )],
             ),
             Order::Bundle(bundle) => {
-                let (refund_percent, receiver_hash) = if let Some(refund) = &bundle.refund {
+                let (refund_percent, refund_payer_hash) = if let Some(refund) = &bundle.refund {
                     (refund.percent as usize, Some(refund.tx_hash))
                 } else {
                     (0, None)
@@ -55,10 +55,10 @@ impl SimplifiedOrder {
                     .list_txs_revert()
                     .into_iter()
                     .map(|(tx, revert)| {
-                        let tx_refund_percent = if Some(tx.hash()) == receiver_hash {
-                            0
-                        } else {
+                        let tx_refund_percent = if Some(tx.hash()) == refund_payer_hash {
                             refund_percent
+                        } else {
+                            0
                         };
                         OrderTxData::new(tx.hash(), revert, tx_refund_percent)
                     })
@@ -1000,7 +1000,7 @@ mod tests {
             refund: Some(BundleRefund {
                 percent: 10,
                 recipient: Default::default(),
-                tx_hash: hash(0x01),
+                tx_hash: hash(0x02),
                 delayed: false,
             }),
             refund_identity: None,
