@@ -80,6 +80,20 @@ pub enum AceInteraction {
     NonUnlocking { exchange: AceExchange },
 }
 
+impl AceInteraction {
+    pub fn is_unlocking(&self) -> bool {
+        matches!(self, Self::Unlocking { .. })
+    }
+
+    pub fn get_exchange(&self) -> AceExchange {
+        match self {
+            AceInteraction::Unlocking { exchange } | AceInteraction::NonUnlocking { exchange } => {
+                *exchange
+            }
+        }
+    }
+}
+
 /// Type of unlock for ACE protocol transactions (Order::Ace)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum AceUnlockType {

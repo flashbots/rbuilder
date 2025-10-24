@@ -1,3 +1,4 @@
+use crate::building::ace_bundler::AceBundler;
 use std::{fmt, sync::Arc};
 
 use crate::{
@@ -185,6 +186,18 @@ impl SimulationJob {
         }
     }
 
+    /// Returns weather or not to continue the processing of this tx.
+    fn handle_ace_tx(&mut self, res: &SimulatedResult) -> bool {
+        let ace_interaction = res.simulated_order.ace_interaction.unwrap();
+        if ace_interaction.is_unlocking() {
+            self.ace_bundler
+                .add_mempool_ace_tx(res.clone(), ace_interaction);
+            return true;
+        }
+
+        false
+    }
+
     /// updates the sim_tree and notifies new orders
     /// ONLY not cancelled are considered
     /// return if everything went OK
@@ -200,11 +213,18 @@ impl SimulationJob {
             profit = format_ether(sim_result.simulated_order.sim_value.full_profit_info().coinbase_profit()), "Order simulated");
             self.orders_simulated_ok
                 .accumulate(&sim_result.simulated_order.order);
+
             if let Some(repl_key) = sim_result.simulated_order.order.replacement_key() {
                 self.unique_replacement_key_bundles_sim_ok.insert(repl_key);
                 self.orders_with_replacement_key_sim_ok += 1;
             }
 
+            // first we need to check if this interacted with a ace tx and if so what type.
+            if sim_result.simulated_order.ace_interaction.is_some() {
+                if !self.handle_ace_tx(&sim_result) {
+                    continue;
+                }
+            }
             // Skip cancelled orders and remove from in_flight_orders
             if self
                 .in_flight_orders
