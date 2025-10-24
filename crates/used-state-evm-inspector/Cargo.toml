@@ -1,0 +1,26 @@
+[package]
+name = "used-state-evm-inspector"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+exclude.workspace = true
+
+[dependencies]
+# alloy
+alloy-primitives.workspace = true
+alloy-consensus.workspace = true
+alloy-rpc-types.workspace = true
+
+# reth
+reth-primitives.workspace = true
+
+# revm
+revm.workspace = true
+revm-inspectors.workspace = true
+
+# misc
+ahash.workspace = true
+

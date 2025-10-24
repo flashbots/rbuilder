@@ -15,8 +15,8 @@ use alloy_evm::Database;
 use alloy_primitives::{Address, B256, I256, U256};
 use alloy_rlp::Encodable;
 use itertools::Itertools;
+use used_state_evm_inspector::{RBuilderEVMInspector, UsedStateTrace};
 use rbuilder_primitives::{
-    evm_inspector::{RBuilderEVMInspector, UsedStateTrace},
     BlockSpace, Bundle, Order, OrderId, RefundConfig, ShareBundle, ShareBundleBody,
     ShareBundleInner, TransactionSignedEcRecoveredWithBlobs,
 };

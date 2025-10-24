@@ -29,6 +29,9 @@ reth-primitives.workspace = true
 reth-ethereum-primitives.workspace = true
 reth-transaction-pool.workspace = true
 
+# rbuilder
+used-state-evm-inspector.workspace = true
+
 ethereum-consensus.workspace = true
 ethereum_ssz.workspace = true
 ethereum_ssz_derive.workspace = true

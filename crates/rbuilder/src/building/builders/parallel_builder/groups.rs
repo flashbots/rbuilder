@@ -1,7 +1,8 @@
 use ahash::{HashMap, HashSet};
 use alloy_primitives::{Address, B256, U256};
 use itertools::Itertools;
-use rbuilder_primitives::{evm_inspector::SlotKey, OrderId, SimulatedOrder};
+use used_state_evm_inspector::SlotKey;
+use rbuilder_primitives::{OrderId, SimulatedOrder};
 use std::sync::Arc;
 
 /// ResolutionResult describes order of certain groups of orders.

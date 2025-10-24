@@ -7,7 +7,7 @@ use ahash::RandomState;
 use alloy_primitives::{Address, B256, I256, U256};
 use dashmap::DashMap;
 use itertools::Itertools;
-use rbuilder_primitives::evm_inspector::UsedStateTrace;
+use used_state_evm_inspector::UsedStateTrace;
 use result_store::{ActionResult, ExecutionResultStore, NextAction};
 use reth_errors::ProviderError;
 use revm::{context::result::ResultAndState, state::AccountInfo, Database};

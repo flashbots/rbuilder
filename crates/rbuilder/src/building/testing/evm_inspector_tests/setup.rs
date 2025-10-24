@@ -5,7 +5,7 @@ use crate::building::{
     BlockState,
 };
 use alloy_primitives::Address;
-use rbuilder_primitives::evm_inspector::{RBuilderEVMInspector, UsedStateTrace};
+use used_state_evm_inspector::{RBuilderEVMInspector, UsedStateTrace};
 use reth_evm::Evm;
 use reth_primitives::{Recovered, TransactionSigned};
 

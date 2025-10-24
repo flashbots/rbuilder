@@ -421,8 +421,8 @@ mod tests {
     use super::*;
     use alloy_consensus::TxLegacy;
     use alloy_primitives::{Address, TxHash, B256, U256};
+    use used_state_evm_inspector::{SlotKey, UsedStateTrace};
     use rbuilder_primitives::{
-        evm_inspector::{SlotKey, UsedStateTrace},
         MempoolTx, Order, SimValue, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs,
     };
     use reth::primitives::{Transaction, TransactionSigned};

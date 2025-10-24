@@ -4,7 +4,7 @@ use reth_primitives::TransactionSigned;
 use crate::building::testing::{
     evm_inspector_tests::setup::TestSetup, test_chain_state::NamedAddr,
 };
-use rbuilder_primitives::evm_inspector::SlotKey;
+use used_state_evm_inspector::SlotKey;
 
 pub mod setup;
 

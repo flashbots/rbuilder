@@ -1,7 +1,6 @@
 //! Order types used as elements for block building.
 
 pub mod built_block;
-pub mod evm_inspector;
 pub mod fmt;
 pub mod mev_boost;
 pub mod order_builder;
@@ -19,7 +18,7 @@ use alloy_eips::{
 use alloy_primitives::{keccak256, Address, Bytes, TxHash, B256, U256};
 use alloy_rlp::Encodable as _;
 use derivative::Derivative;
-use evm_inspector::UsedStateTrace;
+use used_state_evm_inspector::UsedStateTrace;
 use integer_encoding::VarInt;
 use reth_ethereum_primitives::PooledTransactionVariant;
 use reth_primitives::{
