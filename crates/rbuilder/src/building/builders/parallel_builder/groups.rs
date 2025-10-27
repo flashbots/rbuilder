@@ -479,6 +479,7 @@ mod tests {
                 }),
                 used_state_trace: Some(trace),
                 sim_value: SimValue::default(),
+                ace_interaction: None,
             })
         }
     }

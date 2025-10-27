@@ -61,7 +61,7 @@ impl AceExchange {
                 .keys()
                 .any(|k| k.address == angstrom_address);
 
-        accessed_exchange.then(|| {
+        accessed_exchange.then_some({
             if sim_success {
                 AceInteraction::Unlocking { exchange }
             } else {

@@ -18,14 +18,14 @@ use crate::{building::sim::SimulationRequest, live_builder::simulation::Simulate
 /// protocol, there bundler can collect all the orders that interact with the protocol and then
 /// generate a bundle with the protocol tx first with all other orders following and set to
 /// droppable with a order that they want.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct AceBundler {
     /// ACE bundles organized by exchange
     exchanges: ahash::HashMap<AceExchange, AceExchangeData>,
 }
 
 /// Data for a specific ACE exchange including all transaction types and logic
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AceExchangeData {
     /// Force ACE protocol tx - always included
     pub force_ace_tx: Option<AceOrderEntry>,
@@ -82,13 +82,10 @@ impl AceExchangeData {
     }
 
     pub fn try_generate_sim_request(&self, order: &Order) -> Option<SimulationRequest> {
-        let Some(parent) = self
+        let parent = self
             .optional_ace_tx
             .as_ref()
-            .or_else(|| self.force_ace_tx.as_ref())
-        else {
-            return None;
-        };
+            .or(self.force_ace_tx.as_ref())?;
 
         Some(SimulationRequest {
             id: rand::random(),
@@ -132,9 +129,7 @@ impl AceExchangeData {
 
 impl AceBundler {
     pub fn new() -> Self {
-        Self {
-            exchanges: ahash::HashMap::default(),
-        }
+        Self::default()
     }
 
     /// Add an ACE protocol transaction (Order::Ace)
@@ -151,7 +146,7 @@ impl AceBundler {
 
     pub fn has_unlocking(&self, exchange: &AceExchange) -> bool {
         self.exchanges
-            .get(&exchange)
+            .get(exchange)
             .map(|e| e.has_unlocking)
             .unwrap_or_default()
     }
@@ -180,16 +175,5 @@ impl AceBundler {
     /// Clear all orders
     pub fn clear(&mut self) {
         self.exchanges.clear();
-    }
-}
-
-impl Default for AceExchangeData {
-    fn default() -> Self {
-        Self {
-            force_ace_tx: None,
-            optional_ace_tx: None,
-            has_unlocking: false,
-            non_unlocking_mempool_txs: Vec::new(),
-        }
     }
 }

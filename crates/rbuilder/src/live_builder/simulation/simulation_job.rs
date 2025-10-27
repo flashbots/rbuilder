@@ -226,13 +226,11 @@ impl SimulationJob {
             }
 
             return true;
-        } else {
-            if let Some(order) = self.ace_bundler.add_mempool_ace_tx(
-                res.simulated_order.clone(),
-                res.simulated_order.ace_interaction.unwrap(),
-            ) {
-                self.sim_tree.ready_orders.push(order);
-            }
+        } else if let Some(order) = self.ace_bundler.add_mempool_ace_tx(
+            res.simulated_order.clone(),
+            res.simulated_order.ace_interaction.unwrap(),
+        ) {
+            self.sim_tree.ready_orders.push(order);
         }
 
         false
@@ -260,10 +258,10 @@ impl SimulationJob {
             }
 
             // first we need to check if this interacted with a ace tx and if so what type.
-            if sim_result.simulated_order.ace_interaction.is_some() {
-                if !self.handle_ace_tx(&sim_result) {
-                    continue;
-                }
+            if sim_result.simulated_order.ace_interaction.is_some()
+                && !self.handle_ace_tx(sim_result)
+            {
+                continue;
             }
 
             // Skip cancelled orders and remove from in_flight_orders

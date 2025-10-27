@@ -169,6 +169,7 @@ impl<TestedSinkType: SimulatedOrderSink> TestContext<TestedSinkType> {
             order,
             sim_value,
             used_state_trace: None,
+            ace_interaction: None,
         })
     }
 
@@ -213,6 +214,7 @@ impl<TestedSinkType: SimulatedOrderSink> TestContext<TestedSinkType> {
             Order::Bundle(_) => panic!("Order::Bundle expecting ShareBundle"),
             Order::Tx(_) => panic!("Order::Tx expecting ShareBundle"),
             Order::ShareBundle(sb) => sb,
+            Order::AceTx(_) => panic!("Order::AceTx expecting ShareBundle"),
         }
     }
 

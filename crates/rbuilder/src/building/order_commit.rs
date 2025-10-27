@@ -1376,7 +1376,7 @@ impl<
                     paid_kickbacks: Vec::new(),
                     delayed_kickback: None,
                     used_state_trace: self.get_used_state_trace(),
-                    original_order_ids: vec![OrderId::Ace(tx_hash.into())],
+                    original_order_ids: vec![OrderId::Ace(tx_hash)],
                 }))
             }
             Err(err) => Ok(Err(err.into())),

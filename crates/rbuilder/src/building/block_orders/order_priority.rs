@@ -332,6 +332,7 @@ mod test {
                     U256::from(non_mempool_profit),
                     gas,
                 ),
+                ace_interaction: None,
                 used_state_trace: None,
             })
         }
