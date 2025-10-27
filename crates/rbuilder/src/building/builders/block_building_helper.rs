@@ -1,7 +1,6 @@
 use alloy_primitives::{utils::format_ether, Address, TxHash, I256, U256};
 use reth_provider::StateProvider;
 use std::{
-    cmp::max,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -358,16 +357,7 @@ impl<
 
         let (bid_value, true_value) = (payout_tx_value, self.true_block_value()?);
 
-        let fee_recipient_balance_after = self.block_state.balance(
-            self.building_ctx.attributes.suggested_fee_recipient,
-            &self.building_ctx.shared_cached_reads,
-            &mut local_ctx.cached_reads,
-        )?;
-        let fee_recipient_balance_diff = fee_recipient_balance_after
-            .checked_sub(self._fee_recipient_balance_start)
-            .unwrap_or_default();
-
-        self.built_block_trace.bid_value = max(bid_value, fee_recipient_balance_diff);
+        self.built_block_trace.bid_value = bid_value;
         self.built_block_trace.subsidy = subsidy;
         self.built_block_trace.true_bid_value = true_value;
         self.built_block_trace.mev_blocker_price = self.building_context().mev_blocker_price;
