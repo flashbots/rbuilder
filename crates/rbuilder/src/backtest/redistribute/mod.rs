@@ -332,7 +332,7 @@ where
         warn!("Block has no bundles");
     }
     if share_bundles == 0 {
-        warn!("Block has no share bundles");
+        debug!("Block has no share bundles");
     }
 
     let block_profit = if built_block_data.profit.is_positive() {
@@ -591,7 +591,7 @@ fn split_orders_by_identities(
     }
 
     if !protect_signer_seen {
-        warn!("No orders from protect signer");
+        debug!("No orders from protect signer");
     }
 
     let mut included_orders_by_address: Vec<(Address, Vec<OrderId>)> =
