@@ -88,7 +88,7 @@ pub struct SimTree {
     pending_orders: HashMap<OrderId, PendingOrder>,
     pending_nonces: HashMap<NonceKey, Vec<OrderId>>,
 
-    ready_orders: Vec<SimulationRequest>,
+    pub(crate) ready_orders: Vec<SimulationRequest>,
 }
 
 #[derive(Debug)]
@@ -428,6 +428,7 @@ pub fn simulate_order(
     let mut fork = PartialBlockFork::new(state, ctx, local_ctx).with_tracer(&mut tracer);
     let rollback_point = fork.rollback_point();
     let order_id = order.id();
+    let has_parents = !parent_orders.is_empty();
     let sim_res = simulate_order_using_fork(
         parent_orders,
         order.clone(),
@@ -446,26 +447,29 @@ pub fn simulate_order(
         OrderSimResult::Failed(ref err) => {
             // Check if failed order accessed ACE - if so, treat as successful with zero profit
             if let Some(interaction @ AceInteraction::NonUnlocking { exchange }) = ace_interaction {
-                tracing::debug!(
-                    order = ?order_id,
-                    ?err,
-                    ?exchange,
-                    "Failed order accessed ACE - treating as successful non-unlocking ACE transaction"
-                );
-                sim_res = OrderSimResult::Success(
-                    Arc::new(SimulatedOrder {
-                        order,
-                        sim_value: SimValue::new(
-                            U256::ZERO,
-                            U256::ZERO,
-                            BlockSpace::new(tracer.used_gas, 0, 0),
-                            Vec::new(),
-                        ),
-                        used_state_trace: Some(tracer.used_state_trace.clone()),
-                        ace_interaction: Some(interaction),
-                    }),
-                    Vec::new(),
-                );
+                // Ace can inject parent orders, we want to ignore these.
+                if !has_parents {
+                    tracing::debug!(
+                        order = ?order_id,
+                        ?err,
+                        ?exchange,
+                        "Failed order accessed ACE - treating as successful non-unlocking ACE transaction"
+                    );
+                    sim_res = OrderSimResult::Success(
+                        Arc::new(SimulatedOrder {
+                            order,
+                            sim_value: SimValue::new(
+                                U256::ZERO,
+                                U256::ZERO,
+                                BlockSpace::new(tracer.used_gas, 0, 0),
+                                Vec::new(),
+                            ),
+                            used_state_trace: Some(tracer.used_state_trace.clone()),
+                            ace_interaction: Some(interaction),
+                        }),
+                        Vec::new(),
+                    );
+                }
             }
         }
         // If we have a sucessful simulation and we have detected an ace tx, this means that it is a

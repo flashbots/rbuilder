@@ -100,6 +100,11 @@ impl AceExchangeData {
     // If we have a regular mempool unlocking tx, we don't want to include the optional ace
     // transaction ad will cancel it.
     pub fn has_unlocking(&mut self) -> Option<SimulatedOrderCommand> {
+        // we only want to send this once.
+        if self.has_unlocking {
+            return None;
+        }
+
         self.has_unlocking = true;
 
         self.optional_ace_tx
@@ -138,9 +143,17 @@ impl AceBundler {
         simulated: Arc<SimulatedOrder>,
         unlock_type: AceUnlockType,
         exchange: AceExchange,
-    ) {
+    ) -> Vec<SimulationRequest> {
         let data = self.exchanges.entry(exchange).or_default();
-        data.add_ace_protocol_tx(simulated, unlock_type);
+
+        data.add_ace_protocol_tx(simulated, unlock_type)
+    }
+
+    pub fn has_unlocking(&self, exchange: &AceExchange) -> bool {
+        self.exchanges
+            .get(&exchange)
+            .map(|e| e.has_unlocking)
+            .unwrap_or_default()
     }
 
     pub fn have_unlocking(&mut self, exchange: AceExchange) -> Option<SimulatedOrderCommand> {

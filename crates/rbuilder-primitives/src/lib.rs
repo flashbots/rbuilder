@@ -41,7 +41,10 @@ pub use test_data_generator::TestDataGenerator;
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::{ace::AceInteraction, serialize::TxEncoding};
+use crate::{
+    ace::{AceExchange, AceInteraction, AceUnlockType},
+    serialize::TxEncoding,
+};
 
 /// Extra metadata for an order.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -1115,6 +1118,18 @@ impl AceTx {
     pub fn list_txs(&self) -> Vec<(&TransactionSignedEcRecoveredWithBlobs, bool)> {
         match self {
             Self::Angstrom(ang) => vec![(&ang.tx, false)],
+        }
+    }
+
+    pub fn ace_unlock_type(&self) -> AceUnlockType {
+        match self {
+            AceTx::Angstrom(ang) => ang.unlock_type,
+        }
+    }
+
+    pub fn exchange(&self) -> AceExchange {
+        match self {
+            AceTx::Angstrom(_) => AceExchange::Angstrom,
         }
     }
 }
