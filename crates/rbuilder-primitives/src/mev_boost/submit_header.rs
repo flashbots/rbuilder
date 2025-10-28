@@ -60,6 +60,7 @@ pub struct SignedHeaderSubmission {
 #[ssz(enum_behaviour = "transparent")]
 pub enum HeaderSubmission {
     Electra(HeaderSubmissionElectra),
+    Fulu(HeaderSubmissionElectra),
 }
 
 /// Electra header submission.

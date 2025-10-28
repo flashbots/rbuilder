@@ -357,41 +357,46 @@ fn create_submit_block_request(
     .into_request(chain_spec)
 }
 
-// TODO: support Fulu
 fn create_optimistic_v3_request(
     builder_url: &[u8],
     request: &SubmitBlockRequest,
     maybe_adjustment_data: Option<&BidAdjustmentData>,
 ) -> eyre::Result<HeaderSubmissionOptimisticV3> {
-    let SubmitBlockRequest::Electra(request) = request else {
-        eyre::bail!("only electra requests are supported")
-    };
-
     let Some(adjustment_data) = maybe_adjustment_data else {
         eyre::bail!("adjustment data must exist")
     };
 
-    let execution_payload_header = ExecutionPayloadHeaderElectra::from(&request.execution_payload);
-    let header_submission = HeaderSubmission::Electra(HeaderSubmissionElectra {
-        bid_trace: request.message.clone(),
-        execution_payload_header,
-        execution_requests: request.execution_requests.clone(),
-        commitments: request.blobs_bundle.commitments.clone(),
-        adjustment_data: adjustment_data.clone().into_v2(),
-    });
+    let header_submission = match request {
+        SubmitBlockRequest::Electra(request) => {
+            let header = ExecutionPayloadHeaderElectra::from(&request.execution_payload);
+            HeaderSubmission::Electra(HeaderSubmissionElectra {
+                bid_trace: request.message.clone(),
+                execution_payload_header: header,
+                execution_requests: request.execution_requests.clone(),
+                commitments: request.blobs_bundle.commitments.clone(),
+                adjustment_data: adjustment_data.clone().into_v2(),
+            })
+        }
+        SubmitBlockRequest::Fulu(request) => {
+            let header = ExecutionPayloadHeaderElectra::from(&request.execution_payload);
+            HeaderSubmission::Fulu(HeaderSubmissionElectra {
+                bid_trace: request.message.clone(),
+                execution_payload_header: header,
+                execution_requests: request.execution_requests.clone(),
+                commitments: request.blobs_bundle.commitments.clone(),
+                adjustment_data: adjustment_data.clone().into_v2(),
+            })
+        }
+        _ => eyre::bail!("optimistic v3 submission is not supported for this fork"),
+    };
 
-    let tx_count = request
-        .execution_payload
-        .payload_inner
-        .payload_inner
-        .transactions
-        .len();
+    let tx_count = request.execution_payload_v1().transactions.len();
     Ok(HeaderSubmissionOptimisticV3 {
         url: builder_url.to_vec(),
         tx_count: tx_count as u32,
         submission: SignedHeaderSubmission {
             message: header_submission,
-            signature: request.signature,
+            signature: request.signature(),
         },
     })
 }
