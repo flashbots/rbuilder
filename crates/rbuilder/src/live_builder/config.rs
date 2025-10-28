@@ -231,7 +231,6 @@ impl L1Config {
                     client.clone(),
                     relay_config.name.clone(),
                     submit_config,
-                    relay_config.optimistic_v3,
                     relay_config.mode == RelayMode::Test,
                 )?);
             } else {
@@ -384,7 +383,11 @@ impl L1Config {
         )?;
 
         let mut optimistic_v3_config = None;
-        if self.relays.iter().any(|r| r.optimistic_v3) {
+        if self
+            .relays
+            .iter()
+            .any(|r| r.submit_config.as_ref().is_some_and(|c| c.optimistic_v3))
+        {
             let address = SocketAddr::V4(SocketAddrV4::new(
                 self.optimistic_v3_server_ip,
                 self.optimistic_v3_server_port,
@@ -905,6 +908,8 @@ lazy_static! {
                     optimistic: false,
                     interval_between_submissions_ms: Some(250),
                     max_bid_eth: None,
+                    optimistic_v3: false,
+                    optimistic_v3_bid_adjustment_required: false,
                 }),
                 priority: Some(0),
                 authorization_header: None,
@@ -915,7 +920,6 @@ lazy_static! {
                 bloxroute_rproxy_regions: Vec::new(),
                 ask_for_filtering_validators: None,
                 can_ignore_gas_limit: None,
-                optimistic_v3: false,
             },
         );
         map.insert(
@@ -931,6 +935,8 @@ lazy_static! {
                     optimistic: true,
                     interval_between_submissions_ms: None,
                     max_bid_eth: None,
+                    optimistic_v3: false,
+                    optimistic_v3_bid_adjustment_required: false,
                 }),
                 priority: Some(0),
                 authorization_header: None,
@@ -941,7 +947,6 @@ lazy_static! {
                 bloxroute_rproxy_regions: Vec::new(),
                 ask_for_filtering_validators: None,
                 can_ignore_gas_limit: None,
-                optimistic_v3: false,
             },
         );
         map.insert(
@@ -957,6 +962,8 @@ lazy_static! {
                     optimistic: true,
                     interval_between_submissions_ms: None,
                     max_bid_eth: None,
+                    optimistic_v3: false,
+                    optimistic_v3_bid_adjustment_required: false,
                 }),
                 priority: Some(0),
                 authorization_header: None,
@@ -967,7 +974,6 @@ lazy_static! {
                 bloxroute_rproxy_regions: Vec::new(),
                 ask_for_filtering_validators: None,
                 can_ignore_gas_limit: None,
-                optimistic_v3: false,
             },
         );
         map.insert(
@@ -983,7 +989,10 @@ lazy_static! {
                     optimistic: true,
                     interval_between_submissions_ms: None,
                     max_bid_eth: None,
-                }),                priority: Some(0),
+                    optimistic_v3: false,
+                    optimistic_v3_bid_adjustment_required: false,
+                }),
+                priority: Some(0),
                 authorization_header: None,
                 builder_id_header: None,
                 api_token_header: None,
@@ -992,7 +1001,6 @@ lazy_static! {
                 bloxroute_rproxy_regions: Vec::new(),
                 ask_for_filtering_validators: None,
                 can_ignore_gas_limit: None,
-                optimistic_v3: false
             },
         );
         map.insert(
@@ -1008,6 +1016,8 @@ lazy_static! {
                     optimistic: false,
                     interval_between_submissions_ms: None,
                     max_bid_eth: None,
+                    optimistic_v3: false,
+                    optimistic_v3_bid_adjustment_required: false,
                 }),
                 priority: Some(0),
                 authorization_header: None,
@@ -1018,7 +1028,6 @@ lazy_static! {
                 bloxroute_rproxy_regions: Vec::new(),
                 ask_for_filtering_validators: None,
                 can_ignore_gas_limit: None,
-                optimistic_v3: false
             },
         );
         map

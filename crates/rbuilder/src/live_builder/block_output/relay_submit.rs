@@ -361,10 +361,12 @@ fn create_optimistic_v3_request(
     builder_url: &[u8],
     request: &SubmitBlockRequest,
     maybe_adjustment_data: Option<&BidAdjustmentData>,
+    adjustment_data_required: bool,
 ) -> eyre::Result<HeaderSubmissionOptimisticV3> {
-    let Some(adjustment_data) = maybe_adjustment_data else {
-        eyre::bail!("adjustment data must exist")
-    };
+    let maybe_adjustment_data_v2 = maybe_adjustment_data.map(|d| d.clone().into_v2());
+    if maybe_adjustment_data_v2.is_none() && adjustment_data_required {
+        eyre::bail!("adjustment data is required")
+    }
 
     let header_submission = match request {
         SubmitBlockRequest::Electra(request) => {
@@ -374,7 +376,7 @@ fn create_optimistic_v3_request(
                 execution_payload_header: header,
                 execution_requests: request.execution_requests.clone(),
                 commitments: request.blobs_bundle.commitments.clone(),
-                adjustment_data: adjustment_data.clone().into_v2(),
+                adjustment_data: maybe_adjustment_data_v2,
             })
         }
         SubmitBlockRequest::Fulu(request) => {
@@ -384,7 +386,7 @@ fn create_optimistic_v3_request(
                 execution_payload_header: header,
                 execution_requests: request.execution_requests.clone(),
                 commitments: request.blobs_bundle.commitments.clone(),
-                adjustment_data: adjustment_data.clone().into_v2(),
+                adjustment_data: maybe_adjustment_data_v2,
             })
         }
         _ => eyre::bail!("optimistic v3 submission is not supported for this fork"),
@@ -440,6 +442,7 @@ fn submit_block_to_relays(
                     &config.builder_url,
                     request,
                     maybe_adjustment_data,
+                    relay.optimistic_v3_bid_adjustment_required(),
                 )
                 .map(|request| (config.clone(), request))
                 .inspect_err(|error| {
