@@ -121,7 +121,7 @@ pub struct RelaySubmitConfig {
     #[serde(default)]
     pub optimistic_v3: bool,
     /// Flag indicating whether bid adjustments are required for optimistic v3 submissions.
-    ///#[serde(default)]
+    #[serde(default)]
     pub optimistic_v3_bid_adjustment_required: bool,
     #[serde(default)]
     pub interval_between_submissions_ms: Option<u64>,
