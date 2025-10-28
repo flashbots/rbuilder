@@ -1,3 +1,4 @@
+use ahash::HashMap;
 /// Unfinished block processing handles blocks that are produced by block building algorithms.
 ///
 /// 1. Block building algorithm produces unfinished blocks `BiddableUnfinishedBlock` and submits it to the `UnfinishedBuiltBlocksInput`
@@ -14,7 +15,8 @@
 use alloy_primitives::{utils::format_ether, I256, U256};
 use derivative::Derivative;
 use parking_lot::Mutex;
-use std::sync::Arc;
+use rbuilder_primitives::mev_boost::MevBoostRelayID;
+use std::{sync::Arc, time::Instant};
 use time::OffsetDateTime;
 
 use tracing::{error, info, trace, warn};
@@ -33,7 +35,11 @@ use crate::{
         InsertPayoutTxErr, ThreadBlockBuildingContext,
     },
     live_builder::{
-        payload_events::MevBoostSlotData, wallet_balance_watcher::WalletBalanceWatcher,
+        block_output::{
+            bidding_service_interface::RelaySet, relay_submit::MultiRelayBlockBuildingSink,
+        },
+        payload_events::MevBoostSlotData,
+        wallet_balance_watcher::WalletBalanceWatcher,
     },
     provider::StateProviderFactory,
     telemetry::add_trigger_to_bid_round_trip_time,
@@ -49,7 +55,6 @@ use super::{
     relay_submit::RelaySubmitSinkFactory,
 };
 
-use super::relay_submit::BlockBuildingSink;
 use crate::live_builder::building::built_block_cache::BuiltBlockCache;
 
 /// UnfinishedBlockBuildingSinkFactory creates UnfinishedBuiltBlocksInput
@@ -70,6 +75,8 @@ pub struct UnfinishedBuiltBlocksInputFactory<P> {
     /// If set to true blocks will be finalized before notifying BiddingService
     /// This reduces latency for creating block with concrete proposer payout value.
     adjust_finalized_blocks: bool,
+    /// relay sets well get on bids.
+    relay_sets: Vec<RelaySet>,
 }
 
 impl<P: StateProviderFactory> UnfinishedBuiltBlocksInputFactory<P> {
@@ -78,12 +85,14 @@ impl<P: StateProviderFactory> UnfinishedBuiltBlocksInputFactory<P> {
         block_sink_factory: RelaySubmitSinkFactory,
         wallet_balance_watcher: WalletBalanceWatcher<P>,
         adjust_finalized_blocks: bool,
+        relay_sets: Vec<RelaySet>,
     ) -> Self {
         Self {
             bidding_service,
             block_sink_factory,
             wallet_balance_watcher,
             adjust_finalized_blocks,
+            relay_sets,
         }
     }
 
@@ -107,14 +116,11 @@ impl<P: StateProviderFactory> UnfinishedBuiltBlocksInputFactory<P> {
             }
         }
 
-        let finished_block_sink = self
-            .block_sink_factory
-            .create_builder_sink(slot_data.clone(), cancel.clone());
-
         let input = UnfinishedBuiltBlocksInput::new(
             built_block_cache,
-            finished_block_sink,
+            slot_data.relay_registrations.keys().cloned().collect(),
             self.adjust_finalized_blocks,
+            self.relay_sets.clone(),
             cancel.clone(),
         );
 
@@ -131,12 +137,32 @@ impl<P: StateProviderFactory> UnfinishedBuiltBlocksInputFactory<P> {
             .spawn(move || input_clone.run_prefinalize_thread(slot_bidder))
             .unwrap();
 
-        let input_clone = input.clone();
-        std::thread::Builder::new()
-            .name("finalize_worker".into())
-            .spawn(move || input_clone.run_finalize_thread())
-            .unwrap();
+        let block_sink: Arc<dyn MultiRelayBlockBuildingSink> = self
+            .block_sink_factory
+            .create_builder_sink(slot_data.clone(), cancel.clone())
+            .into();
 
+        for (relay_set, last_finalize_command) in input.last_finalize_commands.iter() {
+            let finalized_blocks = input.finalized_blocks.clone();
+            let cancellation_token = cancel.clone();
+            let adjust_finalized_blocks = self.adjust_finalized_blocks;
+            let relay_set = relay_set.clone();
+            let last_finalize_command = last_finalize_command.clone();
+            let block_sink = block_sink.clone();
+            std::thread::Builder::new()
+                .name("finalize_worker".into())
+                .spawn(move || {
+                    UnfinishedBuiltBlocksInput::run_finalize_thread(
+                        relay_set,
+                        block_sink,
+                        finalized_blocks,
+                        last_finalize_command,
+                        adjust_finalized_blocks,
+                        cancellation_token,
+                    )
+                })
+                .unwrap();
+        }
         input
     }
 }
@@ -175,6 +201,14 @@ impl PrefinalizedBlockInner {
             Ok(None)
         }
     }
+
+    /// Warning: this is a little bit expensive (that why I don't implement it as clone() so it's harder to use accidentally)
+    pub fn deep_clone(&self) -> Self {
+        Self {
+            block_building_helper: self.block_building_helper.box_clone(),
+            local_ctx: self.local_ctx.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -202,6 +236,17 @@ impl PrefinalizedBlock {
             chosen_as_best_at,
         }
     }
+
+    /// Clones inner contents, not just the Arc.
+    pub fn deep_clone(&self) -> Self {
+        let inner = (*self.inner.lock()).deep_clone();
+        Self {
+            block_id: self.block_id,
+            inner: Arc::new(Mutex::new(inner)),
+            sent_to_bidder: self.sent_to_bidder,
+            chosen_as_best_at: self.chosen_as_best_at,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -216,35 +261,63 @@ struct FinalizeCommand {
     sent_to_sealer: OffsetDateTime,
 }
 
+/// UnfinishedBuiltBlocksInput is the main struct that handles the unfinished blocks.
+/// A run_finalize_thread is spawned for each relay set.
+/// Has 2 modes:
+/// - adjust_finalized_blocks: we should end with only using this mode.
+///   New blocks are stored on last_unfinalized_block
+///   run_prefinalize_thread polls last_unfinalized_block prefinalizes them (calling block_building_helper.finalize_block) and adds them to finalized_blocks
+///   When we get a bid (seal_command) we search for the corresponding prefinalized block in finalized_blocks and set a new last_finalize_command for the associated relay set.
+///   run_finalize_thread polls last_finalize_command and finalizes them by adjusting the payout value (command.finalize_block calls block_building_helper.adjust_finalized_block)
+///   block is send! self.block_building_sink.new_block
+///
+/// - !adjust_finalized_blocks: to be deprecated.
+///   New blocks are stored on last_unfinalized_block
+///   run_prefinalize_thread polls last_unfinalized_block adds them to finalized_blocks (no work is done here)
+///   When we get a bid (seal_command) we search for the corresponding prefinalized block in finalized_blocks and set a new last_finalize_command for the associated relay set.
+///   run_finalize_thread polls last_finalize_command and seals if from scratch (command.finalize_block calls block_building_helper.finalize_block)
+///   block is send! self.block_building_sink.new_block
 #[derive(Derivative, Clone)]
 #[derivative(Debug)]
 pub struct UnfinishedBuiltBlocksInput {
+    /// We call update_from_new_unfinished_block for each new_block.
     built_block_cache: Arc<BuiltBlockCache>,
-
     best_block_from_algorithms: Arc<Mutex<BestBlockFromAlgorithms>>,
 
+    /// Last unfinalized block we got on new_block.
+    /// It's waiting to be prefinalized by run_prefinalize_thread.
     #[derivative(Debug = "ignore")]
     last_unfinalized_block: Arc<Watch<BiddableUnfinishedBlock>>,
 
     unused_prefinalized_blocks: Arc<Mutex<Vec<PrefinalizedBlock>>>,
     last_block_id: Arc<Mutex<u64>>,
+    /// run_prefinalize_thread leaves blocks here (can be prefinalized or not depending on adjust_finalized_blocks)
     finalized_blocks: Arc<Mutex<Vec<PrefinalizedBlock>>>,
 
-    last_finalize_command: Arc<Watch<FinalizeCommand>>,
+    /// Set by seal_command.
+    /// There is one spawned run_finalize_thread polling the asociated Watch<FinalizeCommand>.
+    /// Each run_finalize_thread finalizes the FinalizeCommands (bid adjust or full seal depending on adjust_finalized_blocks) and sends them to block_building_sink.
+    last_finalize_commands: HashMap<RelaySet, Arc<Watch<FinalizeCommand>>>,
 
     cancellation_token: CancellationToken,
-    #[derivative(Debug = "ignore")]
-    block_building_sink: Arc<dyn BlockBuildingSink>,
+    /// See [UnfinishedBuiltBlocksInput] comments.
     adjust_finalized_blocks: bool,
+    /// Registered relays for this slot, useful to avoid sealing bids for relays that are not registered for this slot.
+    registered_relays: Vec<MevBoostRelayID>,
 }
 
 impl UnfinishedBuiltBlocksInput {
     fn new(
         built_block_cache: Arc<BuiltBlockCache>,
-        block_building_sink: Box<dyn BlockBuildingSink>,
+        registered_relays: Vec<MevBoostRelayID>,
         adjust_finalized_blocks: bool,
+        relay_sets: Vec<RelaySet>,
         cancellation_token: CancellationToken,
     ) -> Self {
+        let last_finalize_commands = relay_sets
+            .iter()
+            .map(|relay_set| (relay_set.clone(), Arc::new(Watch::new())))
+            .collect();
         Self {
             built_block_cache,
             best_block_from_algorithms: Arc::new(Mutex::new(BestBlockFromAlgorithms::default())),
@@ -252,10 +325,10 @@ impl UnfinishedBuiltBlocksInput {
             unused_prefinalized_blocks: Arc::new(Mutex::new(Vec::new())),
             last_block_id: Arc::new(Mutex::new(0)),
             finalized_blocks: Arc::new(Mutex::new(Vec::new())),
-            last_finalize_command: Arc::new(Watch::new()),
+            last_finalize_commands,
             cancellation_token,
-            block_building_sink: block_building_sink.into(),
             adjust_finalized_blocks,
+            registered_relays,
         }
     }
 
@@ -321,16 +394,37 @@ impl UnfinishedBuiltBlocksInput {
             .lock()
             .append(&mut unused_blocks);
         if let Some(prefinalized_block) = found_block {
-            let sent_to_sealer = OffsetDateTime::now_utc();
-            let finalize_command = FinalizeCommand {
-                prefinalized_block,
-                value: bid.payout_tx_value,
-                seen_competition_bid: bid.seen_competition_bid,
-                bid_received_at,
-                sent_to_sealer,
-                subsidy: bid.subsidy,
-            };
-            self.last_finalize_command.set(finalize_command);
+            let last_index = bid.payout_info.len() - 1;
+            for (index, payout_info) in bid.payout_info.into_iter().enumerate() {
+                if let Some(last_finalize_command) =
+                    self.last_finalize_commands.get(&payout_info.relays)
+                {
+                    let sent_to_sealer = OffsetDateTime::now_utc();
+                    let finalize_command = FinalizeCommand {
+                        prefinalized_block: if index == last_index {
+                            prefinalized_block.clone()
+                        } else {
+                            //prefinalized_block.clone()
+                            let start_time = Instant::now();
+                            let res = prefinalized_block.deep_clone();
+                            let elapsed = start_time.elapsed();
+                            //@PendingDX remove and maybe make metric
+                            info!(?elapsed, "Deep cloned prefinalized block");
+                            res
+                        },
+                        value: payout_info.payout_tx_value,
+                        seen_competition_bid: bid.seen_competition_bid,
+                        bid_received_at,
+                        sent_to_sealer,
+                        subsidy: payout_info.subsidy,
+                    };
+                    last_finalize_command.set(finalize_command);
+                } else {
+                    error!(
+                        "Seal command discarded, last_finalize_command was not found for relay set"
+                    );
+                }
+            }
         } else {
             warn!("Seal command discarded, prefinalized block was not found");
         }
@@ -416,13 +510,19 @@ impl UnfinishedBuiltBlocksInput {
 
 // finalize_worker
 impl UnfinishedBuiltBlocksInput {
-    fn run_finalize_thread(self) {
+    fn run_finalize_thread(
+        relay_set: RelaySet,
+        block_building_sink: Arc<dyn MultiRelayBlockBuildingSink>,
+        finalized_blocks: Arc<Mutex<Vec<PrefinalizedBlock>>>,
+        last_finalize_command: Arc<Watch<FinalizeCommand>>,
+        adjust_finalized_blocks: bool,
+        cancellation_token: CancellationToken,
+    ) {
         loop {
-            if self.cancellation_token.is_cancelled() {
+            if cancellation_token.is_cancelled() {
                 break;
             }
-            let finalize_command = if let Some(command) = self.last_finalize_command.wait_for_data()
-            {
+            let finalize_command = if let Some(command) = last_finalize_command.wait_for_data() {
                 command
             } else {
                 continue;
@@ -443,7 +543,7 @@ impl UnfinishedBuiltBlocksInput {
                 finalize_command.value,
                 finalize_command.subsidy,
                 finalize_command.seen_competition_bid,
-                self.adjust_finalized_blocks,
+                adjust_finalized_blocks,
             ) {
                 Ok(Some(result)) => {
                     trace!("Finalized block");
@@ -455,11 +555,11 @@ impl UnfinishedBuiltBlocksInput {
                 }
                 Err(err) => {
                     // remove this block from a list of prefinalized blocks as it can be inconsistent
-                    self.finalized_blocks.lock().retain(|block| {
+                    finalized_blocks.lock().retain(|block| {
                         block.block_id != finalize_command.prefinalized_block.block_id
                     });
 
-                    let log_error = if self.adjust_finalized_blocks {
+                    let log_error = if adjust_finalized_blocks {
                         // always log this error as its not expected when adjusting blocks
                         true
                     } else {
@@ -480,7 +580,7 @@ impl UnfinishedBuiltBlocksInput {
             result.block.trace.chosen_as_best_at =
                 finalize_command.prefinalized_block.chosen_as_best_at;
             result.block.trace.sent_to_bidder = finalize_command.prefinalized_block.sent_to_bidder;
-            self.block_building_sink.new_block(result.block);
+            block_building_sink.new_block(relay_set.clone(), result.block);
         }
     }
 }

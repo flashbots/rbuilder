@@ -71,7 +71,7 @@ fn is_ignorable_relay_error(code: StatusCode, text: &str) -> bool {
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
 #[serde(deny_unknown_fields)]
 pub struct RelayConfig {
-    pub name: String,
+    pub name: MevBoostRelayID,
     pub url: String,
     #[serde(default)]
     pub grpc_url: Option<String>,
@@ -248,7 +248,7 @@ pub struct MevBoostRelayBidSubmitter {
 impl MevBoostRelayBidSubmitter {
     pub fn new(
         client: RelayClient,
-        id: String,
+        id: MevBoostRelayID,
         config: &RelaySubmitConfig,
         optimistic_v3: bool,
         test_relay: bool,

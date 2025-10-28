@@ -15,7 +15,9 @@ use rbuilder::{
     },
     live_builder::{
         base_config::BaseConfig,
-        block_output::bidding_service_interface::{BidObserver, LandedBlockInfo},
+        block_output::bidding_service_interface::{
+            BidObserver, BiddingService, LandedBlockInfo, RelaySet,
+        },
         cli::LiveBuilderConfig,
         config::{
             build_backtest_block_ordering_builder, create_builder_from_sink, create_builders,
@@ -138,7 +140,11 @@ impl LiveBuilderConfig for FlashbotsConfig {
             create_wallet_balance_watcher(provider.clone(), &self.base_config).await?;
 
         let bidding_service = self
-            .create_bidding_service(&landed_blocks, cancellation_token.clone())
+            .create_bidding_service(
+                &landed_blocks,
+                self.l1_config.relays_ids(),
+                cancellation_token.clone(),
+            )
             .await?;
 
         let bid_observer = self.create_bid_observer(&cancellation_token).await?;
@@ -147,6 +153,7 @@ impl LiveBuilderConfig for FlashbotsConfig {
             create_sink_factory_and_relays(
                 &self.base_config,
                 &self.l1_config,
+                bidding_service.relay_sets().to_vec(),
                 wallet_balance_watcher,
                 bid_observer,
                 bidding_service.clone(),
@@ -244,11 +251,13 @@ impl FlashbotsConfig {
     pub async fn create_bidding_service(
         &self,
         landed_blocks_history: &[LandedBlockInfo],
+        all_relay_ids: RelaySet,
         cancellation_token: CancellationToken,
     ) -> eyre::Result<Arc<BiddingServiceClientAdapter>> {
         let bidding_service_client = BiddingServiceClientAdapter::new(
             &self.bidding_service_ipc_path,
             landed_blocks_history,
+            all_relay_ids,
             cancellation_token,
         )
         .await
