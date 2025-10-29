@@ -127,13 +127,18 @@ impl PartialEq for EstimatePayoutGasErr {
 impl Eq for EstimatePayoutGasErr {}
 
 fn estimate_payout_tx_space(ctx: &BlockBuildingContext) -> Result<BlockSpace, secp256k1::Error> {
+    let gas_limit = ctx
+        .evm_env
+        .cfg_env
+        .tx_gas_limit_cap
+        .unwrap_or(ctx.evm_env.block_env.gas_limit);
     let tx = create_payout_tx(
         ctx.chain_spec.as_ref(),
         ctx.evm_env.block_env.basefee,
         &ctx.builder_signer,
         0,
         Address::ZERO,
-        ctx.evm_env.cfg_env.tx_gas_limit_cap,
+        gas_limit,
         U256::ZERO,
     )?;
     Ok(BlockSpace::new(
