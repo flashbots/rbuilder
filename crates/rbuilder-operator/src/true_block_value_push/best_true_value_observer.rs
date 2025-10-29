@@ -2,7 +2,8 @@ use alloy_signer_local::PrivateKeySigner;
 use rbuilder::{
     building::BuiltBlockTrace,
     live_builder::{
-        block_output::bidding_service_interface::BidObserver, payload_events::MevBoostSlotData,
+        block_output::bidding_service_interface::{BidObserver, RelaySet},
+        payload_events::MevBoostSlotData,
     },
 };
 use rbuilder_primitives::mev_boost::SubmitBlockRequest;
@@ -77,6 +78,7 @@ impl BidObserver for BestTrueValueObserver {
         built_block_trace: &BuiltBlockTrace,
         builder_name: String,
         _best_bid_value: alloy_primitives::U256,
+        _relays: &RelaySet,
     ) {
         let block_info = BuiltBlockInfo::new(
             slot_data.block(),

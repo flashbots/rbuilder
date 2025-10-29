@@ -150,6 +150,14 @@ async fn run_submit_to_relays_job(
 ) -> Option<BuiltBlockInfo> {
     let mut res = None;
 
+    let relay_set = RelaySet::new(
+        relays
+            .iter()
+            .map(|relay| relay.id())
+            .cloned()
+            .collect::<Vec<_>>(),
+    );
+
     let (regular_relays, optimistic_relays): (
         Vec<MevBoostRelayBidSubmitter>,
         Vec<MevBoostRelayBidSubmitter>,
@@ -157,12 +165,12 @@ async fn run_submit_to_relays_job(
 
     let regular_relays_ids = regular_relays
         .iter()
-        .map(|relay| relay.id().as_str())
+        .map(|relay| relay.id())
         .collect::<Vec<_>>();
 
     let optimistic_relays_ids = optimistic_relays
         .iter()
-        .map(|relay| relay.id().as_str())
+        .map(|relay| relay.id())
         .collect::<Vec<_>>();
 
     let mut last_bid_hash = None;
@@ -350,6 +358,7 @@ async fn run_submit_to_relays_job(
                     &block.trace,
                     builder_name,
                     bid_metadata.value.top_competitor_bid.unwrap_or_default(),
+                    &relay_set,
                 );
             })
         }

@@ -448,6 +448,7 @@ impl BidObserver for RbuilderOperatorBidObserver {
         built_block_trace: &BuiltBlockTrace,
         builder_name: String,
         best_bid_value: U256,
+        relays: &RelaySet,
     ) {
         if let Some(p) = self.block_processor.as_ref() {
             p.block_submitted(
@@ -456,6 +457,7 @@ impl BidObserver for RbuilderOperatorBidObserver {
                 built_block_trace,
                 builder_name.clone(),
                 best_bid_value,
+                relays,
             )
         }
         if let Some(p) = self.tbv_pusher.as_ref() {
@@ -465,6 +467,7 @@ impl BidObserver for RbuilderOperatorBidObserver {
                 built_block_trace,
                 builder_name,
                 best_bid_value,
+                relays,
             )
         }
     }

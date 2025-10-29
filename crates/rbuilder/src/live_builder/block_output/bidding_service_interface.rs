@@ -31,6 +31,7 @@ pub trait BidObserver: std::fmt::Debug {
         built_block_trace: &BuiltBlockTrace,
         builder_name: String,
         best_bid_value: U256,
+        relays: &RelaySet,
     );
 }
 
@@ -45,6 +46,7 @@ impl BidObserver for NullBidObserver {
         _built_block_trace: &BuiltBlockTrace,
         _builder_name: String,
         _best_bid_value: U256,
+        _relays: &RelaySet,
     ) {
     }
 }
