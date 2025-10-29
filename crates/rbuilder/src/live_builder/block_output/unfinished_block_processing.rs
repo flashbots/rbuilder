@@ -16,7 +16,10 @@ use alloy_primitives::{utils::format_ether, I256, U256};
 use derivative::Derivative;
 use parking_lot::Mutex;
 use rbuilder_primitives::mev_boost::MevBoostRelayID;
-use std::sync::Arc;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use time::OffsetDateTime;
 
 use tracing::{error, info, trace, warn};
@@ -42,7 +45,7 @@ use crate::{
         wallet_balance_watcher::WalletBalanceWatcher,
     },
     provider::StateProviderFactory,
-    telemetry::add_trigger_to_bid_round_trip_time,
+    telemetry::{add_block_multi_bid_copy_duration, add_trigger_to_bid_round_trip_time},
     utils::sync::Watch,
 };
 
@@ -242,6 +245,8 @@ struct FinalizeCommand {
     bid_received_at: OffsetDateTime,
     /// Bid sent to the sealer thread
     sent_to_sealer: OffsetDateTime,
+    /// Overhead added by creating the MultiPrefinalizedBlock which makes some extra copies.
+    multi_bid_copy_duration: Duration,
 }
 
 #[derive(Debug, Clone)]
@@ -255,11 +260,12 @@ struct PrefinalizedBlockWithFinalizeInput {
 struct MultiPrefinalizedBlock {
     pub block_id: BuiltBlockId,
     pub prefinalized_blocks_by_relay_set: HashMap<RelaySet, PrefinalizedBlockWithFinalizeInput>,
+    pub creation_duration: Duration,
 }
 
 impl MultiPrefinalizedBlock {
     /// Creates one PrefinalizedBlock per RelaySet cloning block_building_helper/local_ctx for all but the last one.
-    fn new_multi_prefinalized_block(
+    fn new(
         block_id: BuiltBlockId,
         last_finalize_commands: &HashMap<RelaySet, Arc<Watch<FinalizeCommand>>>,
         chosen_as_best_at: OffsetDateTime,
@@ -267,6 +273,7 @@ impl MultiPrefinalizedBlock {
         block_building_helper: Box<dyn BlockBuildingHelper>,
         local_ctx: ThreadBlockBuildingContext,
     ) -> Self {
+        let start = Instant::now();
         let last_index = last_finalize_commands.len() - 1;
         let mut prefinalized_blocks_by_relay_set = HashMap::default();
 
@@ -307,41 +314,12 @@ impl MultiPrefinalizedBlock {
             }
         }
 
+        let creation_duration = start.elapsed();
+        add_block_multi_bid_copy_duration(creation_duration);
         Self {
             block_id,
             prefinalized_blocks_by_relay_set,
-        }
-    }
-
-    /// Creates a single shared PrefinalizedBlock for all RelaySet.
-    fn new_single_prefinalized_block(
-        block_id: BuiltBlockId,
-        last_finalize_commands: &HashMap<RelaySet, Arc<Watch<FinalizeCommand>>>,
-        chosen_as_best_at: OffsetDateTime,
-        sent_to_bidder: OffsetDateTime,
-        block_building_helper: Box<dyn BlockBuildingHelper>,
-        local_ctx: ThreadBlockBuildingContext,
-    ) -> Self {
-        let prefinalized_block = PrefinalizedBlock::new(
-            block_id,
-            chosen_as_best_at,
-            sent_to_bidder,
-            block_building_helper,
-            local_ctx,
-        );
-        let mut prefinalized_blocks_by_relay_set = HashMap::default();
-        for (relay_set, last_finalize_command) in last_finalize_commands.iter() {
-            prefinalized_blocks_by_relay_set.insert(
-                relay_set.clone(),
-                PrefinalizedBlockWithFinalizeInput {
-                    prefinalized_block: prefinalized_block.clone(),
-                    finalize_input: last_finalize_command.clone(),
-                },
-            );
-        }
-        Self {
-            block_id,
-            prefinalized_blocks_by_relay_set,
+            creation_duration,
         }
     }
 }
@@ -510,6 +488,7 @@ impl UnfinishedBuiltBlocksInput {
                         bid_received_at,
                         sent_to_sealer,
                         subsidy: payout_info.subsidy,
+                        multi_bid_copy_duration: multi_prefinalized_block.creation_duration,
                     };
                     prefinalized_block_with_finalize_input
                         .finalize_input
@@ -589,7 +568,7 @@ impl UnfinishedBuiltBlocksInput {
             }
 
             //let multi_prefinalized_block = MultiPrefinalizedBlock::new_single_prefinalized_block(
-            let multi_prefinalized_block = MultiPrefinalizedBlock::new_multi_prefinalized_block(
+            let multi_prefinalized_block = MultiPrefinalizedBlock::new(
                 block_id,
                 &self.last_finalize_commands,
                 chosen_as_best_at,
@@ -677,6 +656,7 @@ impl UnfinishedBuiltBlocksInput {
                 }
             };
             result.block.trace.bid_received_at = finalize_command.bid_received_at;
+            result.block.trace.multi_bid_copy_duration = finalize_command.multi_bid_copy_duration;
             result.block.trace.sent_to_sealer = finalize_command.sent_to_sealer;
             result.block.trace.picked_by_sealer_at = picked_by_sealer_at;
             result.block.trace.chosen_as_best_at =

@@ -112,6 +112,13 @@ pub struct BuilderConfig {
     pub builder: SpecificBuilderConfig,
 }
 
+#[derive(Debug, Clone, Deserialize, PartialEq, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct SubsidyConfig {
+    pub relay: MevBoostRelayID,
+    pub value: String,
+}
+
 #[serde_as]
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
@@ -130,6 +137,9 @@ pub struct Config {
     pub slot_delta_to_start_bidding_ms: Option<i64>,
     /// Value added to the bids (see TrueBlockValueBiddingService).
     pub subsidy: Option<String>,
+    /// Overrides subsidy.
+    #[serde(default)]
+    pub subsidy_overrides: Vec<SubsidyConfig>,
 }
 
 const DEFAULT_SLOT_DELTA_TO_START_BIDDING_MS: i64 = -8000;
@@ -488,11 +498,19 @@ impl LiveBuilderConfig for Config {
         );
 
         let all_relays_set = self.l1_config.relays_ids();
+        let mut subsidy_overrides = HashMap::default();
+        for subsidy_override in self.subsidy_overrides.iter() {
+            subsidy_overrides.insert(
+                subsidy_override.relay.clone(),
+                parse_ether(&subsidy_override.value)?,
+            );
+        }
         let bidding_service = Arc::new(NewTrueBlockValueBiddingService::new(
             subsidy
                 .as_ref()
                 .map(|s| parse_ether(s))
                 .unwrap_or(Ok(U256::ZERO))?,
+            subsidy_overrides,
             slot_delta_to_start_bidding_ms,
             all_relays_set.clone(),
         ));
@@ -715,6 +733,7 @@ impl Default for Config {
             ],
             slot_delta_to_start_bidding_ms: None,
             subsidy: None,
+            subsidy_overrides: Vec::new(),
         }
     }
 }

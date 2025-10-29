@@ -217,6 +217,7 @@ impl PayoutInfoRPC {
 
     /// If it fails to find the relay set, returns None.
     /// relay_sets should be the same as the ones returned by the bidding service on initialize.
+    #[allow(clippy::wrong_self_convention)]
     fn into_play_info(&self, relay_sets: &[RelaySet]) -> Option<PayoutInfo> {
         Some(PayoutInfo {
             relays: relay_sets.get(self.relay_set_index)?.clone(),

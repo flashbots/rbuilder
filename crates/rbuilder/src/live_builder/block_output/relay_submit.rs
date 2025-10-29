@@ -266,6 +266,7 @@ async fn run_submit_to_relays_job(
             fill_time_ms = duration_ms(block.trace.fill_time),
             finalize_time_ms = duration_ms(block.trace.finalize_time),
             finalize_adjust_time_ms = duration_ms(block.trace.finalize_adjust_time),
+            multi_bid_copy_duration_ms = duration_ms(block.trace.multi_bid_copy_duration),
             l1_orders_closed_at = ?block.trace.orders_closed_at,
             l2_chosen_as_best_at = ?block.trace.chosen_as_best_at,
             l3_sent_to_bidder = ?block.trace.sent_to_bidder,
