@@ -269,24 +269,9 @@ impl MultiPrefinalizedBlock {
     ) -> Self {
         let last_index = last_finalize_commands.len() - 1;
         let mut prefinalized_blocks_by_relay_set = HashMap::default();
-        for (index, (relay_set, last_finalize_command)) in last_finalize_commands.iter().enumerate()
-        {
-            if index != last_index {
-                let prefinalized_block = PrefinalizedBlock::new(
-                    block_id,
-                    chosen_as_best_at,
-                    sent_to_bidder,
-                    block_building_helper.box_clone(),
-                    local_ctx.clone(),
-                );
-                prefinalized_blocks_by_relay_set.insert(
-                    relay_set.clone(),
-                    PrefinalizedBlockWithFinalizeInput {
-                        prefinalized_block,
-                        finalize_input: last_finalize_command.clone(),
-                    },
-                );
-            } else {
+
+        let mut insert_prefinalized_block =
+            |block_building_helper, local_ctx, relay_set, finalize_input| {
                 let prefinalized_block = PrefinalizedBlock::new(
                     block_id,
                     chosen_as_best_at,
@@ -295,11 +280,28 @@ impl MultiPrefinalizedBlock {
                     local_ctx,
                 );
                 prefinalized_blocks_by_relay_set.insert(
-                    relay_set.clone(),
+                    relay_set,
                     PrefinalizedBlockWithFinalizeInput {
                         prefinalized_block,
-                        finalize_input: last_finalize_command.clone(),
+                        finalize_input,
                     },
+                );
+            };
+        for (index, (relay_set, last_finalize_command)) in last_finalize_commands.iter().enumerate()
+        {
+            if index != last_index {
+                insert_prefinalized_block(
+                    block_building_helper.box_clone(),
+                    local_ctx.clone(),
+                    relay_set.clone(),
+                    last_finalize_command.clone(),
+                );
+            } else {
+                insert_prefinalized_block(
+                    block_building_helper,
+                    local_ctx,
+                    relay_set.clone(),
+                    last_finalize_command.clone(),
                 );
                 break;
             }
