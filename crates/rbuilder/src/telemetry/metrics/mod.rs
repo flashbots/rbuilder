@@ -220,7 +220,7 @@ register_metrics! {
 
     pub static RELAY_SUBMIT_TIME: HistogramVec = HistogramVec::new(
         HistogramOpts::new("relay_submit_time", "Time to send bid to the relay (ms)")
-            .buckets(linear_buckets_range(0.0, 3000.0, 50)),
+            .buckets(exponential_buckets_range(0.5, 3000.0, 50)),
         &["relay"],
     )
     .unwrap();
