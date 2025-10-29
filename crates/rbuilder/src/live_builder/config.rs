@@ -504,7 +504,7 @@ impl LiveBuilderConfig for Config {
             create_sink_factory_and_relays(
                 &self.base_config,
                 &self.l1_config,
-                vec![all_relays_set],
+                bidding_service.relay_sets(),
                 wallet_balance_watcher,
                 Box::new(NullBidObserver {}),
                 bidding_service,
