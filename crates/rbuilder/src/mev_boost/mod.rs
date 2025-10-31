@@ -4,8 +4,8 @@ use alloy_rpc_types_beacon::BlsPublicKey;
 use flate2::{write::GzEncoder, Compression};
 use governor::{DefaultDirectRateLimiter, Quota, RateLimiter};
 use rbuilder_primitives::mev_boost::{
-    HeaderSubmissionOptimisticV3, KnownRelay, MevBoostRelayID, RelayMode,
-    SubmitBlockRequestNoBlobs, SubmitBlockRequestWithMetadata, ValidatorRegistration,
+    KnownRelay, MevBoostRelayID, RelayMode, SubmitBlockRequestNoBlobs,
+    SubmitBlockRequestWithMetadata, SubmitHeaderRequestWithMetadata, ValidatorRegistration,
     ValidatorSlotData, MEV_BOOST_SLOT_INFO_REQUEST_TIMEOUT,
 };
 use reqwest::{
@@ -35,6 +35,7 @@ const BUNDLE_HASHES_HEADER: &str = "Bundle-Hashes";
 const TOP_BID_HEADER: &str = "Top-Bid";
 const BLOXROUTE_SHARE_HEADER: &str = "share";
 const BLOXROUTE_BUILDER_VALUE_HEADER: &str = "builder-value";
+const X_SEQUENCE_HEADER: &str = "x-sequence";
 
 const JSON_CONTENT_TYPE: &str = "application/json";
 const SSZ_CONTENT_TYPE: &str = "application/octet-stream";
@@ -343,7 +344,7 @@ impl MevBoostRelayBidSubmitter {
 
     pub async fn submit_optimistic_v3(
         &self,
-        data: HeaderSubmissionOptimisticV3,
+        data: SubmitHeaderRequestWithMetadata,
         registration: ValidatorSlotData,
     ) -> Result<(), SubmitBlockErr> {
         self.client
@@ -702,6 +703,7 @@ impl RelayClient {
         } = submission_with_metadata;
 
         let mut headers = HeaderMap::new();
+        headers.insert(X_SEQUENCE_HEADER, metadata.sequence.into());
         self.add_auth_headers(&mut headers)
             .map_err(|_| SubmitBlockErr::InvalidHeader)?;
 
@@ -899,11 +901,17 @@ impl RelayClient {
 
     pub async fn submit_optimistic_v3(
         &self,
-        request: &HeaderSubmissionOptimisticV3,
+        request: &SubmitHeaderRequestWithMetadata,
         registration: &ValidatorSlotData,
         cancellations: bool,
     ) -> Result<(), SubmitBlockErr> {
+        let SubmitHeaderRequestWithMetadata {
+            submission,
+            metadata,
+        } = request;
+
         let mut headers = HeaderMap::new();
+        headers.insert(X_SEQUENCE_HEADER, metadata.sequence.into());
         self.add_auth_headers(&mut headers)
             .map_err(|_| SubmitBlockErr::InvalidHeader)?;
 
@@ -912,7 +920,7 @@ impl RelayClient {
         url.query_pairs_mut()
             .append_pair("cancellations", if cancellations { "1" } else { "0" });
 
-        let body = request.as_ssz_bytes();
+        let body = submission.as_ssz_bytes();
         headers.insert(CONTENT_TYPE, HeaderValue::from_static(SSZ_CONTENT_TYPE));
 
         let response = self
@@ -1284,6 +1292,7 @@ mod tests {
         let sub_relay = SubmitBlockRequestWithMetadata {
             submission,
             metadata: BidMetadata {
+                sequence: 0,
                 value: BidValueMetadata {
                     coinbase_reward: Default::default(),
                     top_competitor_bid: None,
