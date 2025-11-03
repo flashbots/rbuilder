@@ -20,6 +20,7 @@ governor = "0.6.3"
 ahash.workspace = true
 reqwest = { workspace = true, features = ["blocking"] }
 serde_with = { workspace = true, features = ["time_0_3"] }
+serde_bytes = "0.11"
 toml.workspace = true
 tracing.workspace = true
 time.workspace = true
@@ -43,7 +44,7 @@ tokio = { version = "1.40.0", default-features = false, features = [
   "test-util"
 ] }
 
-clickhouse = { git = "https://github.com/ClickHouse/clickhouse-rs", rev = "8cf3d2e138dd121367fa10e875d3f91374b075b2", features = [
+clickhouse = { version = "0.14.0", features = [
   "inserter",
   "time",
   "uuid",
