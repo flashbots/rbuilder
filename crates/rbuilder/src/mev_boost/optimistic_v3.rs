@@ -3,6 +3,7 @@ use crate::{
     utils,
 };
 use alloy_primitives::{bytes::Bytes, B256};
+use alloy_rpc_types_beacon::relay::SubmitBlockRequest as AlloySubmitBlockRequest;
 use alloy_rpc_types_beacon::BlsPublicKey;
 use ctor::ctor;
 use futures::StreamExt as _;
@@ -10,9 +11,7 @@ use lazy_static::lazy_static;
 use metrics_macros::register_metrics;
 use parking_lot::Mutex;
 use prometheus::{HistogramOpts, HistogramVec, IntCounter};
-use rbuilder_primitives::mev_boost::{
-    verify_signed_relay_request, SignedGetPayloadV3, SubmitBlockRequest,
-};
+use rbuilder_primitives::mev_boost::{verify_signed_relay_request, SignedGetPayloadV3};
 use schnellru::{ByLength, LruMap};
 use ssz::{Decode as _, Encode};
 use std::{
@@ -65,7 +64,7 @@ pub fn spawn_server(
     address: impl Into<SocketAddr>,
     domain: B256,
     relay_pubkeys: HashSet<BlsPublicKey>,
-    bid_stream: BroadcastStream<Arc<SubmitBlockRequest>>,
+    bid_stream: BroadcastStream<Arc<AlloySubmitBlockRequest>>,
 ) -> eyre::Result<()> {
     let blocks = Arc::new(Mutex::new(LruMap::new(ByLength::new(
         OPTIMISTIC_V3_CACHE_SIZE_DEFAULT,
@@ -103,7 +102,7 @@ pub fn spawn_server(
 struct Handler {
     domain: B256,
     relay_pubkeys: HashSet<BlsPublicKey>,
-    blocks: Arc<Mutex<LruMap<B256, Arc<SubmitBlockRequest>>>>,
+    blocks: Arc<Mutex<LruMap<B256, Arc<AlloySubmitBlockRequest>>>>,
 }
 
 impl Handler {
@@ -199,8 +198,8 @@ impl Handler {
 }
 
 async fn maintain_block_cache(
-    mut bid_stream: BroadcastStream<Arc<SubmitBlockRequest>>,
-    blocks: Arc<Mutex<LruMap<B256, Arc<SubmitBlockRequest>>>>,
+    mut bid_stream: BroadcastStream<Arc<AlloySubmitBlockRequest>>,
+    blocks: Arc<Mutex<LruMap<B256, Arc<AlloySubmitBlockRequest>>>>,
 ) {
     loop {
         match bid_stream.next().await {
