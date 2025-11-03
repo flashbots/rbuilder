@@ -1256,10 +1256,10 @@ mod tests {
         let relay_url = Url::from_str(&srv.endpoint()).unwrap();
         let relay =
             RelayClient::from_url(relay_url, None, None, None, false, Vec::new(), false, false);
-        let submission = Arc::new(SubmitBlockRequest {
-            request: generator.create_deneb_submit_block_request(),
+        let submission = SubmitBlockRequest {
+            request: Arc::new(generator.create_deneb_submit_block_request()),
             adjustment_data: None,
-        });
+        };
         let sub_relay = SubmitBlockRequestWithMetadata {
             submission,
             metadata: BidMetadata {
