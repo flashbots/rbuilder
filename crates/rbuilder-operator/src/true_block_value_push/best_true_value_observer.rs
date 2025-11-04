@@ -1,3 +1,4 @@
+use alloy_rpc_types_beacon::relay::SubmitBlockRequest as AlloySubmitBlockRequest;
 use alloy_signer_local::PrivateKeySigner;
 use rbuilder::{
     building::BuiltBlockTrace,
@@ -5,7 +6,6 @@ use rbuilder::{
         block_output::bidding_service_interface::BidObserver, payload_events::MevBoostSlotData,
     },
 };
-use rbuilder_primitives::mev_boost::SubmitBlockRequest;
 use redis::RedisError;
 use tokio_util::sync::CancellationToken;
 
@@ -73,7 +73,7 @@ impl BidObserver for BestTrueValueObserver {
     fn block_submitted(
         &self,
         slot_data: &MevBoostSlotData,
-        _submit_block_request: &SubmitBlockRequest,
+        _submit_block_request: &AlloySubmitBlockRequest,
         built_block_trace: &BuiltBlockTrace,
         builder_name: String,
         _best_bid_value: alloy_primitives::U256,

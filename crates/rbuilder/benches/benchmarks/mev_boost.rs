@@ -1,16 +1,16 @@
 use alloy_consensus::{Block, Header};
 use alloy_eips::{eip4844::BlobTransactionSidecar, eip7594::BlobTransactionSidecarVariant};
 use alloy_primitives::U256;
+use alloy_rpc_types_beacon::relay::SubmitBlockRequest as AlloySubmitBlockRequest;
 use alloy_rpc_types_beacon::BlsPublicKey;
 use criterion::{criterion_group, Criterion};
 use rbuilder::mev_boost::{rpc::TestDataGenerator, sign_block_for_relay, BLSBlockSigner};
-use rbuilder_primitives::mev_boost::DenebSubmitBlockRequest;
 use reth::primitives::SealedBlock;
 use reth_primitives::kzg::Blob;
 use ssz::Encode;
 use std::{fs, path::PathBuf, sync::Arc};
 
-fn mev_boost_serialize_submit_block(data: DenebSubmitBlockRequest) {
+fn mev_boost_serialize_submit_block(data: AlloySubmitBlockRequest) {
     data.as_ssz_bytes();
 }
 

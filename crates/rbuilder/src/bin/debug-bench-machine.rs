@@ -5,6 +5,7 @@ use alloy_consensus::TxEnvelope;
 use alloy_eips::Decodable2718;
 use alloy_primitives::address;
 use alloy_provider::Provider;
+use alloy_rpc_types_beacon::relay::SubmitBlockRequest as AlloySubmitBlockRequest;
 use clap::Parser;
 use eyre::Context;
 use itertools::Itertools;
@@ -180,11 +181,11 @@ async fn main() -> eyre::Result<()> {
 fn read_execution_payload_from_json(path: PathBuf) -> eyre::Result<alloy_rpc_types::Block> {
     let req = std::fs::read_to_string(&path)?;
     let req: SubmitBlockRequest = serde_json::from_str(&req)?;
-    let block_raw = match req {
-        SubmitBlockRequest::Capella(req) => req.execution_payload.clone().into_block_raw()?,
-        SubmitBlockRequest::Fulu(req) => req.execution_payload.clone().into_block_raw()?,
-        SubmitBlockRequest::Deneb(req) => req.execution_payload.clone().into_block_raw()?,
-        SubmitBlockRequest::Electra(req) => req.execution_payload.clone().into_block_raw()?,
+    let block_raw = match req.request.as_ref() {
+        AlloySubmitBlockRequest::Capella(req) => req.execution_payload.clone().into_block_raw()?,
+        AlloySubmitBlockRequest::Fulu(req) => req.execution_payload.clone().into_block_raw()?,
+        AlloySubmitBlockRequest::Deneb(req) => req.execution_payload.clone().into_block_raw()?,
+        AlloySubmitBlockRequest::Electra(req) => req.execution_payload.clone().into_block_raw()?,
     };
     let rpc_block = alloy_rpc_types::Block::from_consensus(block_raw, None);
     let rpc_block = rpc_block.try_map_transactions(|bytes| -> eyre::Result<_> {

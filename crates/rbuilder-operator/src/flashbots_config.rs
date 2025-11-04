@@ -3,6 +3,7 @@
 //! @Pending make this copy/paste generic code on the library
 
 use alloy_primitives::U256;
+use alloy_rpc_types_beacon::relay::SubmitBlockRequest as AlloySubmitBlockRequest;
 use alloy_signer_local::PrivateKeySigner;
 use derivative::Derivative;
 use eyre::Context;
@@ -29,7 +30,6 @@ use rbuilder::{
     utils::build_info::Version,
 };
 use rbuilder_config::EnvOrValue;
-use rbuilder_primitives::mev_boost::SubmitBlockRequest;
 use serde::Deserialize;
 use serde_with::serde_as;
 use tokio_util::sync::CancellationToken;
@@ -431,7 +431,7 @@ impl BidObserver for RbuilderOperatorBidObserver {
     fn block_submitted(
         &self,
         slot_data: &MevBoostSlotData,
-        submit_block_request: &SubmitBlockRequest,
+        submit_block_request: &AlloySubmitBlockRequest,
         built_block_trace: &BuiltBlockTrace,
         builder_name: String,
         best_bid_value: U256,
