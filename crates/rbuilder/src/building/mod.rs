@@ -1346,7 +1346,7 @@ mod test {
         let profit_1 = I256::unchecked_from(1000);
         let profit_2 = I256::unchecked_from(10000);
         let order_ok = OrderOk {
-            coinbase_profit: Default::default(),
+            coinbase_profit: (profit_1 + profit_2).unsigned_abs(),
             space_used: Default::default(),
             cumulative_space_used: Default::default(),
             tx_infos: vec![
