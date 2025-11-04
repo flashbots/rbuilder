@@ -31,13 +31,35 @@ impl ssz::Encode for SubmitBlockRequest {
     }
 
     fn ssz_append(&self, buf: &mut Vec<u8>) {
-        let mut offset = <AlloySubmitBlockRequest as ssz::Encode>::ssz_fixed_len();
+        // Every request contains bid trace and signature.
+        let mut offset = <BidTrace as ssz::Encode>::ssz_fixed_len()
+            + <BlsSignature as ssz::Encode>::ssz_fixed_len();
+        // Amend offset with fork specific fields.
+        offset += match &self.request.as_ref() {
+            AlloySubmitBlockRequest::Fulu(_) => {
+                <ExecutionPayloadV3 as ssz::Encode>::ssz_fixed_len()
+                    + <BlobsBundleV2 as ssz::Encode>::ssz_fixed_len()
+                    + <ExecutionRequestsV4 as ssz::Encode>::ssz_fixed_len()
+            }
+            AlloySubmitBlockRequest::Electra(_) => {
+                <ExecutionPayloadV3 as ssz::Encode>::ssz_fixed_len()
+                    + <BlobsBundleV1 as ssz::Encode>::ssz_fixed_len()
+                    + <ExecutionRequestsV4 as ssz::Encode>::ssz_fixed_len()
+            }
+            AlloySubmitBlockRequest::Deneb(_) => {
+                <ExecutionPayloadV3 as ssz::Encode>::ssz_fixed_len()
+                    + <BlobsBundleV1 as ssz::Encode>::ssz_fixed_len()
+            }
+            AlloySubmitBlockRequest::Capella(_) => {
+                <ExecutionPayloadV2 as ssz::Encode>::ssz_fixed_len()
+            }
+        };
+        // Add adjustment data offset if present.
         if self.adjustment_data.is_some() {
             offset += <BidAdjustmentDataV1 as ssz::Encode>::ssz_fixed_len();
         }
 
         let mut encoder = ssz::SszEncoder::container(buf, offset);
-
         match self.request.as_ref() {
             AlloySubmitBlockRequest::Fulu(request) => {
                 let SignedBidSubmissionV5 {
