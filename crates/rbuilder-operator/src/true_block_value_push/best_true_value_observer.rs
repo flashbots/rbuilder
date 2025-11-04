@@ -7,6 +7,7 @@ use rbuilder::{
     },
 };
 use redis::RedisError;
+use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
 use super::{
@@ -73,8 +74,8 @@ impl BidObserver for BestTrueValueObserver {
     fn block_submitted(
         &self,
         slot_data: &MevBoostSlotData,
-        _submit_block_request: &AlloySubmitBlockRequest,
-        built_block_trace: &BuiltBlockTrace,
+        _submit_block_request: Arc<AlloySubmitBlockRequest>,
+        built_block_trace: Arc<BuiltBlockTrace>,
         builder_name: String,
         _best_bid_value: alloy_primitives::U256,
     ) {

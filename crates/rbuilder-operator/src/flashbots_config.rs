@@ -431,16 +431,16 @@ impl BidObserver for RbuilderOperatorBidObserver {
     fn block_submitted(
         &self,
         slot_data: &MevBoostSlotData,
-        submit_block_request: &AlloySubmitBlockRequest,
-        built_block_trace: &BuiltBlockTrace,
+        submit_block_request: Arc<AlloySubmitBlockRequest>,
+        built_block_trace: Arc<BuiltBlockTrace>,
         builder_name: String,
         best_bid_value: U256,
     ) {
         if let Some(p) = self.block_processor.as_ref() {
             p.block_submitted(
                 slot_data,
-                submit_block_request,
-                built_block_trace,
+                submit_block_request.clone(),
+                built_block_trace.clone(),
                 builder_name.clone(),
                 best_bid_value,
             )
