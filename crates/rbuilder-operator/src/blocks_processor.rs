@@ -356,15 +356,13 @@ impl<HttpClientType: ClientT + Clone + Send + Sync + std::fmt::Debug + 'static> 
     fn block_submitted(
         &self,
         _slot_data: &MevBoostSlotData,
-        submit_block_request: &AlloySubmitBlockRequest,
-        built_block_trace: &BuiltBlockTrace,
+        submit_block_request: Arc<AlloySubmitBlockRequest>,
+        built_block_trace: Arc<BuiltBlockTrace>,
         builder_name: String,
         best_bid_value: U256,
     ) {
         let client = self.client.clone();
         let parent_span = Span::current();
-        let submit_block_request = submit_block_request.clone();
-        let built_block_trace = built_block_trace.clone();
         tokio::spawn(async move {
             let block_processor_result = client
                 .submit_built_block(

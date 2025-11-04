@@ -323,8 +323,8 @@ async fn run_submit_to_relays_job(
                 // NOTE: we only notify normal submission here because they have the same contents but different pubkeys
                 config.bid_observer.block_submitted(
                     &slot_data,
-                    &request,
-                    &block.trace,
+                    request,
+                    Arc::new(block.trace),
                     builder_name,
                     bid_metadata.value.top_competitor_bid.unwrap_or_default(),
                 );
