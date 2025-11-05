@@ -17,6 +17,7 @@ use crate::{
 };
 use ahash::HashMap;
 use alloy_primitives::{utils::format_ether, Address, U256};
+use alloy_rpc_types_beacon::relay::SubmitBlockRequest as AlloySubmitBlockRequest;
 use alloy_rpc_types_engine::ExecutionPayload;
 use futures::FutureExt as _;
 use mockall::automock;
@@ -124,7 +125,7 @@ pub struct OptimisticV3Config {
     /// The URL where the relay can call to retrieve the block.
     pub builder_url: Vec<u8>,
     /// Sender for Optimistic V3 blocks.
-    pub block_sender: broadcast::Sender<Arc<SubmitBlockRequest>>,
+    pub block_sender: broadcast::Sender<Arc<AlloySubmitBlockRequest>>,
 }
 
 /// Values from [`BuiltBlockTrace`]
@@ -177,7 +178,7 @@ async fn run_submit_to_relays_job(
     'submit: loop {
         tokio::select! {
             _ = cancel.cancelled() => {
-                info!( block = slot_data.block(), "run_submit_to_relays_job cancelled");
+                info!(block = slot_data.block(), "run_submit_to_relays_job cancelled");
                 break 'submit res;
             },
             _ = pending_bid.wait_for_change() => {}
@@ -322,7 +323,7 @@ async fn run_submit_to_relays_job(
         mark_submission_start_time(block.trace.orders_sealed_at);
         if let Some(request) = &regular_request {
             submit_block_to_relays(
-                request,
+                request.clone(),
                 &bid_metadata,
                 &block.bid_adjustments,
                 &regular_relays,
@@ -340,7 +341,7 @@ async fn run_submit_to_relays_job(
             .or(regular_request.map(|req| (req, false)));
         if let Some((request, optimistic)) = optimistic_request {
             submit_block_to_relays(
-                &request,
+                request.clone(),
                 &bid_metadata,
                 &block.bid_adjustments,
                 &optimistic_relays,
@@ -355,8 +356,8 @@ async fn run_submit_to_relays_job(
                 // NOTE: we only notify normal submission here because they have the same contents but different pubkeys
                 config.bid_observer.block_submitted(
                     &slot_data,
-                    &request,
-                    &block.trace,
+                    request,
+                    Arc::new(block.trace),
                     builder_name,
                     bid_metadata.value.top_competitor_bid.unwrap_or_default(),
                     &relay_set,
@@ -373,7 +374,7 @@ fn create_submit_block_request(
     slot_data: &MevBoostSlotData,
     block: &Block,
     execution_payload: &ExecutionPayload,
-) -> eyre::Result<SubmitBlockRequest> {
+) -> eyre::Result<Arc<AlloySubmitBlockRequest>> {
     let (message, signature) = sign_block_for_relay(
         signer,
         &block.sealed_block,
@@ -389,50 +390,76 @@ fn create_submit_block_request(
         execution_requests: block.execution_requests.clone(),
     }
     .into_request(chain_spec)
+    .map(Arc::new)
 }
 
-// TODO: support Fulu
 fn create_optimistic_v3_request(
     builder_url: &[u8],
-    request: &SubmitBlockRequest,
+    request: &AlloySubmitBlockRequest,
     maybe_adjustment_data: Option<&BidAdjustmentData>,
+    adjustment_data_required: bool,
 ) -> eyre::Result<HeaderSubmissionOptimisticV3> {
-    let SubmitBlockRequest::Electra(request) = request else {
-        eyre::bail!("only electra requests are supported")
+    let maybe_adjustment_data_v2 = maybe_adjustment_data.map(|d| d.clone().into_v2());
+    if maybe_adjustment_data_v2.is_none() && adjustment_data_required {
+        eyre::bail!("adjustment data is required")
+    }
+
+    let (submission, tx_count) = match &request {
+        AlloySubmitBlockRequest::Electra(request) => {
+            let tx_count = request
+                .execution_payload
+                .payload_inner
+                .payload_inner
+                .transactions
+                .len();
+            let submission = SignedHeaderSubmission {
+                message: HeaderSubmission::Electra(HeaderSubmissionElectra {
+                    bid_trace: request.message.clone(),
+                    execution_payload_header: ExecutionPayloadHeaderElectra::from(
+                        &request.execution_payload,
+                    ),
+                    execution_requests: request.execution_requests.clone(),
+                    commitments: request.blobs_bundle.commitments.clone(),
+                    adjustment_data: maybe_adjustment_data_v2,
+                }),
+                signature: request.signature,
+            };
+            (submission, tx_count)
+        }
+        AlloySubmitBlockRequest::Fulu(request) => {
+            let tx_count = request
+                .execution_payload
+                .payload_inner
+                .payload_inner
+                .transactions
+                .len();
+            let submission = SignedHeaderSubmission {
+                message: HeaderSubmission::Fulu(HeaderSubmissionElectra {
+                    bid_trace: request.message.clone(),
+                    execution_payload_header: ExecutionPayloadHeaderElectra::from(
+                        &request.execution_payload,
+                    ),
+                    execution_requests: request.execution_requests.clone(),
+                    commitments: request.blobs_bundle.commitments.clone(),
+                    adjustment_data: maybe_adjustment_data_v2,
+                }),
+                signature: request.signature,
+            };
+            (submission, tx_count)
+        }
+        _ => eyre::bail!("optimistic v3 submission is not supported for this fork"),
     };
 
-    let Some(adjustment_data) = maybe_adjustment_data else {
-        eyre::bail!("adjustment data must exist")
-    };
-
-    let execution_payload_header = ExecutionPayloadHeaderElectra::from(&request.execution_payload);
-    let header_submission = HeaderSubmission::Electra(HeaderSubmissionElectra {
-        bid_trace: request.message.clone(),
-        execution_payload_header,
-        execution_requests: request.execution_requests.clone(),
-        commitments: request.blobs_bundle.commitments.clone(),
-        adjustment_data: adjustment_data.clone().into_v2(),
-    });
-
-    let tx_count = request
-        .execution_payload
-        .payload_inner
-        .payload_inner
-        .transactions
-        .len();
     Ok(HeaderSubmissionOptimisticV3 {
         url: builder_url.to_vec(),
         tx_count: tx_count as u32,
-        submission: SignedHeaderSubmission {
-            message: header_submission,
-            signature: request.signature,
-        },
+        submission,
     })
 }
 
 #[allow(clippy::too_many_arguments)]
 fn submit_block_to_relays(
-    request: &SubmitBlockRequest,
+    request: Arc<AlloySubmitBlockRequest>,
     bid_metadata: &BidMetadata,
     bid_adjustments: &std::collections::HashMap<Address, BidAdjustmentData>,
     relays: &Vec<MevBoostRelayBidSubmitter>,
@@ -467,8 +494,9 @@ fn submit_block_to_relays(
             if let Some(config) = optimistic_v3_config {
                 optimistic_v3 = create_optimistic_v3_request(
                     &config.builder_url,
-                    request,
+                    request.as_ref(),
                     maybe_adjustment_data,
+                    relay.optimistic_v3_bid_adjustment_required(),
                 )
                 .map(|request| (config.clone(), request))
                 .inspect_err(|error| {
@@ -478,16 +506,15 @@ fn submit_block_to_relays(
             }
         }
 
-        let mut request = request.clone();
-
-        // We only set adjustment data on non optimistic v3 submissions.
-        // For optimistic v3, it is already included in the header submission.
-        if let Some(adjustment_data) = maybe_adjustment_data.filter(|_| optimistic_v3.is_none()) {
-            request.set_adjustment_data(adjustment_data.clone().into_v1());
-        }
-
         let submission = SubmitBlockRequestWithMetadata {
-            submission: Arc::new(request),
+            submission: SubmitBlockRequest {
+                request: request.clone(),
+                // We only set adjustment data on non optimistic v3 submissions.
+                // For optimistic v3, it is already included in the header submission.
+                adjustment_data: maybe_adjustment_data
+                    .filter(|_| optimistic_v3.is_none())
+                    .map(|adjustment_data| adjustment_data.clone().into_v1()),
+            },
             metadata: bid_metadata.clone(),
         };
 
@@ -531,7 +558,7 @@ async fn submit_bid_to_the_relay(
         // Send the block to be saved in cache
         let _ = config
             .block_sender
-            .send(submit_block_request.submission.clone());
+            .send(submit_block_request.submission.request.clone());
         relay
             .submit_optimistic_v3(request, registration)
             .left_future()

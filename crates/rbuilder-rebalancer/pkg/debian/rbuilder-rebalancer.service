@@ -1,0 +1,14 @@
+[Unit]
+Description=A small, standalone service that moves funds between BuilderNet accounts to keep operational wallets topped up and tidy.
+Documentation=https://github.com/flashbots/rbuilder
+Wants=network-online.target
+After=network.target network-online.target rbuilder-operator.service
+
+[Service]
+Type=exec
+DynamicUser=yes
+ConfigurationDirectory=rbuilder-rebalancer
+ExecStart=/usr/bin/rbuilder-rebalancer /etc/rbuilder-rebalancer/config.toml
+
+[Install]
+WantedBy=multi-user.target

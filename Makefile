@@ -82,6 +82,10 @@ build-bid-scraper: ## Build the bid-scraper binary (release version)
 build-rbuilder-operator: ## Build the rbuilder-operator binary (release version)
 	$(BUILD_ENV) cargo build --features "$(FEATURES)" --locked $(if $(BUILD_TARGET),--target $(BUILD_TARGET)) --bin rbuilder-operator --profile $(BUILD_PROFILE)
 
+.PHONY: build-rbuilder-rebalancer
+build-rbuilder-rebalancer: ## Build the rbuilder-rebalancer binary (release version)
+	$(BUILD_ENV) cargo build --features "$(FEATURES)" --locked $(if $(BUILD_TARGET),--target $(BUILD_TARGET)) --bin rbuilder-rebalancer --profile $(BUILD_PROFILE)
+
 .PHONY: build-dev
 build-dev: ## Build (debug version)
 	cargo build --features "$(FEATURES)"
@@ -117,8 +121,15 @@ build-deb-rbuilder-operator: install-cargo-deb build-rbuilder-operator ## Build 
 		$(if $(BUILD_TARGET),--target $(BUILD_TARGET)) \
 		$(if $(VERSION),--deb-version "1~$(VERSION)")
 
+.PHONY: build-deb-rbuilder-rebalancer
+build-deb-rbuilder-rebalancer: install-cargo-deb build-rbuilder-rebalancer ## Build rbuilder-rebalancer Debian package
+	cargo deb --profile $(BUILD_PROFILE) --no-build --no-dbgsym --no-strip \
+		-p rbuilder-rebalancer \
+		$(if $(BUILD_TARGET),--target $(BUILD_TARGET)) \
+		$(if $(VERSION),--deb-version "1~$(VERSION)")
+
 .PHONY: build-deb
-build-deb: build-deb-bid-scraper build-deb-rbuilder-operator ## Build all Debian packages
+build-deb: build-deb-bid-scraper build-deb-rbuilder-operator build-deb-rbuilder-rebalancer ## Build all Debian packages
 
 ##@ Dev
 

@@ -1301,17 +1301,18 @@ pub fn create_sim_value(
         // We don't filter for mempool txs.
         order_ok.coinbase_profit
     } else {
-        let non_mempool_coinbase_profit = order_ok
+        let mempool_coinbase_profit = order_ok
             .tx_infos
             .iter()
-            .filter(|tx_info| !mempool_detector.is_mempool(&tx_info.tx))
+            .filter(|tx_info| mempool_detector.is_mempool(&tx_info.tx))
             .map(|tx_info| tx_info.coinbase_profit)
             .sum::<I256>();
-        if non_mempool_coinbase_profit.is_zero() || non_mempool_coinbase_profit.is_positive() {
-            non_mempool_coinbase_profit.unsigned_abs()
+        if mempool_coinbase_profit.is_positive() {
+            order_ok
+                .coinbase_profit
+                .saturating_sub(mempool_coinbase_profit.unsigned_abs())
         } else {
-            // This could be a bundle which was positive thanks to the inclusion of mempool txs.
-            U256::ZERO
+            order_ok.coinbase_profit
         }
     };
 
@@ -1345,7 +1346,7 @@ mod test {
         let profit_1 = I256::unchecked_from(1000);
         let profit_2 = I256::unchecked_from(10000);
         let order_ok = OrderOk {
-            coinbase_profit: Default::default(),
+            coinbase_profit: (profit_1 + profit_2).unsigned_abs(),
             space_used: Default::default(),
             cumulative_space_used: Default::default(),
             tx_infos: vec![

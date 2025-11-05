@@ -2,7 +2,8 @@
 //! This code has lots of copy/paste from the example config but it's not really copy/paste since we use our own private types.
 //! @Pending make this copy/paste generic code on the library
 
-use alloy_primitives::{Address, U256};
+use alloy_primitives::U256;
+use alloy_rpc_types_beacon::relay::SubmitBlockRequest as AlloySubmitBlockRequest;
 use alloy_signer_local::PrivateKeySigner;
 use derivative::Derivative;
 use eyre::Context;
@@ -31,7 +32,6 @@ use rbuilder::{
     utils::build_info::Version,
 };
 use rbuilder_config::EnvOrValue;
-use rbuilder_primitives::mev_boost::SubmitBlockRequest;
 use serde::Deserialize;
 use serde_with::serde_as;
 use tokio_util::sync::CancellationToken;
@@ -113,10 +113,6 @@ pub struct FlashbotsConfig {
     /// For production we always need some tbv push (since it's used by smart-multiplexing.) so:
     /// !Some(key_registration_url) => Some(tbv_push_redis)
     tbv_push_redis: Option<TBVPushRedisConfig>,
-
-    /// Bundles with refund identity or signer set to these will not receive any redistributions.
-    #[serde(default)]
-    pub backtest_ignored_signers: Vec<Address>,
 }
 
 impl LiveBuilderConfig for FlashbotsConfig {
@@ -444,8 +440,8 @@ impl BidObserver for RbuilderOperatorBidObserver {
     fn block_submitted(
         &self,
         slot_data: &MevBoostSlotData,
-        submit_block_request: &SubmitBlockRequest,
-        built_block_trace: &BuiltBlockTrace,
+        submit_block_request: Arc<AlloySubmitBlockRequest>,
+        built_block_trace: Arc<BuiltBlockTrace>,
         builder_name: String,
         best_bid_value: U256,
         relays: &RelaySet,
@@ -453,8 +449,8 @@ impl BidObserver for RbuilderOperatorBidObserver {
         if let Some(p) = self.block_processor.as_ref() {
             p.block_submitted(
                 slot_data,
-                submit_block_request,
-                built_block_trace,
+                submit_block_request.clone(),
+                built_block_trace.clone(),
                 builder_name.clone(),
                 best_bid_value,
                 relays,

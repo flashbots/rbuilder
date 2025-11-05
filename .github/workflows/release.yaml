@@ -127,6 +127,12 @@ jobs:
           name: bid-scraper-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
           path: target/${{ matrix.configs.target }}/${{ matrix.configs.profile }}/bid-scraper
 
+      - name: Upload rbuilder-rebalancer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rbuilder-rebalancer-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
+          path: target/${{ matrix.configs.target }}/${{ matrix.configs.profile }}/rbuilder-rebalancer
+
       - name: Upload *.deb packages
         uses: actions/upload-artifact@v4
         with:

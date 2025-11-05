@@ -105,9 +105,6 @@ pub struct RelayConfig {
     /// If we submit a block with a different gas than the one the validator registered with in this relay the relay does not mind.
     /// None -> false
     pub can_ignore_gas_limit: Option<bool>,
-    /// Flag indicating whether optimistic V3 submissions should be used.
-    #[serde(default)]
-    pub optimistic_v3: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
@@ -120,6 +117,12 @@ pub struct RelaySubmitConfig {
     pub use_gzip_for_submit: bool,
     #[serde(default)]
     pub optimistic: bool,
+    /// Flag indicating whether optimistic V3 submissions should be used.
+    #[serde(default)]
+    pub optimistic_v3: bool,
+    /// Flag indicating whether bid adjustments are required for optimistic v3 submissions.
+    #[serde(default)]
+    pub optimistic_v3_bid_adjustment_required: bool,
     #[serde(default)]
     pub interval_between_submissions_ms: Option<u64>,
     /// Max bid we can submit to this relay. Any bid above this will be skipped.
@@ -238,6 +241,8 @@ pub struct MevBoostRelayBidSubmitter {
     cancellations: bool,
     /// Flag indicating whether optimistic v3 submissions should be used.
     optimistic_v3: bool,
+    /// Flag indicating whether bid adjustments are required for optimistic v3 submissions.
+    optimistic_v3_bid_adjustment_required: bool,
     /// Max bid we can submit to this relay. Any bid above this will be skipped.
     /// None -> No limit.
     max_bid: Option<U256>,
@@ -250,7 +255,6 @@ impl MevBoostRelayBidSubmitter {
         client: RelayClient,
         id: MevBoostRelayID,
         config: &RelaySubmitConfig,
-        optimistic_v3: bool,
         test_relay: bool,
     ) -> eyre::Result<Self> {
         let max_bid = config
@@ -272,7 +276,8 @@ impl MevBoostRelayBidSubmitter {
             optimistic: config.optimistic,
             submission_rate_limiter,
             cancellations: true,
-            optimistic_v3,
+            optimistic_v3: config.optimistic_v3,
+            optimistic_v3_bid_adjustment_required: config.optimistic_v3_bid_adjustment_required,
             max_bid,
             test_relay,
         })
@@ -292,6 +297,10 @@ impl MevBoostRelayBidSubmitter {
 
     pub fn optimistic_v3(&self) -> bool {
         self.optimistic_v3
+    }
+
+    pub fn optimistic_v3_bid_adjustment_required(&self) -> bool {
+        self.optimistic_v3_bid_adjustment_required
     }
 
     pub fn max_bid(&self) -> Option<U256> {
@@ -789,7 +798,7 @@ impl RelayClient {
         submission: &SubmitBlockRequestWithMetadata,
     ) -> Result<bloxroute_grpc::types::SubmitBlockResponse, SubmitBlockErr> {
         let mut request = tonic::Request::new(bloxroute_grpc::types::SubmitBlockRequest::from(
-            submission.submission.as_ref(),
+            &submission.submission,
         ));
         request.set_timeout(Duration::from_secs(2));
         request.metadata_mut().insert(
@@ -1247,9 +1256,10 @@ mod tests {
         let relay_url = Url::from_str(&srv.endpoint()).unwrap();
         let relay =
             RelayClient::from_url(relay_url, None, None, None, false, Vec::new(), false, false);
-        let submission = Arc::new(SubmitBlockRequest::Deneb(
-            generator.create_deneb_submit_block_request(),
-        ));
+        let submission = SubmitBlockRequest {
+            request: Arc::new(generator.create_deneb_submit_block_request()),
+            adjustment_data: None,
+        };
         let sub_relay = SubmitBlockRequestWithMetadata {
             submission,
             metadata: BidMetadata {

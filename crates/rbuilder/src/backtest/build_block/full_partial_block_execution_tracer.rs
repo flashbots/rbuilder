@@ -3,7 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use alloy_primitives::{utils::format_ether, TxHash, U256};
+use alloy_primitives::{utils::format_ether, TxHash, I256, U256};
 
 use crate::building::{
     BlockBuildingSpaceState, CriticalCommitOrderError, ExecutionError, ExecutionResult,
@@ -64,17 +64,21 @@ impl SimpleTxExecutionResult {
 struct TxExecutionSummary {
     base: BaseExecutionSummary,
     hash: TxHash,
+    coinbase_delta: I256,
+    gas_used: u64,
     result: SimpleTxExecutionResult,
 }
 
 impl TxExecutionSummary {
     fn print_summary_indented(&self, indent: usize) {
         println!(
-            "{} {: <indent$}TX {:?} {} {}",
+            "{} {: <indent$}TX {:?} {} D {:>22} G {:>8} {}",
             format_duration(self.base.execution_start),
             "",
             self.hash,
             format_duration(self.base.execution_time),
+            format_ether(self.coinbase_delta),
+            self.gas_used,
             self.result.label()
         );
     }
@@ -268,7 +272,7 @@ impl PartialBlockForkExecutionTracer for FullPartialBlockExecutionTracer {
             execution_start: self.last_tx_start_time - self.execution_start.unwrap(),
             execution_time: self.last_tx_start_time.elapsed(),
         };
-        let result = match &res {
+        let (result, coinbase_delta, gas_used) = match &res {
             Ok(Ok(tx_ok)) => match tx_ok.exec_result {
                 revm::context::result::ExecutionResult::Success {
                     reason: _,
@@ -276,22 +280,40 @@ impl PartialBlockForkExecutionTracer for FullPartialBlockExecutionTracer {
                     gas_refunded: _,
                     logs: _,
                     output: _,
-                } => SimpleTxExecutionResult::OkSuccess,
+                } => (
+                    SimpleTxExecutionResult::OkSuccess,
+                    tx_ok.tx_info.coinbase_profit,
+                    tx_ok.tx_info.space_used.gas,
+                ),
                 revm::context::result::ExecutionResult::Revert {
                     gas_used: _,
                     output: _,
-                } => SimpleTxExecutionResult::OkRevert,
+                } => (
+                    SimpleTxExecutionResult::OkRevert,
+                    tx_ok.tx_info.coinbase_profit,
+                    tx_ok.tx_info.space_used.gas,
+                ),
                 revm::context::result::ExecutionResult::Halt {
                     reason: _,
                     gas_used: _,
-                } => SimpleTxExecutionResult::OkHalt,
+                } => (
+                    SimpleTxExecutionResult::OkHalt,
+                    tx_ok.tx_info.coinbase_profit,
+                    tx_ok.tx_info.space_used.gas,
+                ),
             },
-            Ok(Err(_)) => SimpleTxExecutionResult::Err,
-            Err(_) => SimpleTxExecutionResult::CriticalCommitOrderError,
+            Ok(Err(_)) => (SimpleTxExecutionResult::Err, I256::ZERO, 0),
+            Err(_) => (
+                SimpleTxExecutionResult::CriticalCommitOrderError,
+                I256::ZERO,
+                0,
+            ),
         };
         let summary = TxExecutionSummary {
             base,
             hash: tx_with_blobs.hash(),
+            coinbase_delta,
+            gas_used,
             result,
         };
         if self.last_order_start_time.is_some() {
