@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
 use alloy_primitives::{BlockHash, BlockNumber, I256, U256};
+use alloy_rpc_types_beacon::relay::SubmitBlockRequest as AlloySubmitBlockRequest;
 use bid_scraper::{
     bid_sender::{BidSender, BidSenderError},
     types::ScrapedRelayBlockBid,
 };
 use derivative::Derivative;
 use mockall::automock;
-use rbuilder_primitives::mev_boost::SubmitBlockRequest;
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
 
@@ -27,8 +27,8 @@ pub trait BidObserver: std::fmt::Debug {
     fn block_submitted(
         &self,
         slot_data: &MevBoostSlotData,
-        submit_block_request: &SubmitBlockRequest,
-        built_block_trace: &BuiltBlockTrace,
+        submit_block_request: Arc<AlloySubmitBlockRequest>,
+        built_block_trace: Arc<BuiltBlockTrace>,
         builder_name: String,
         best_bid_value: U256,
     );
@@ -41,8 +41,8 @@ impl BidObserver for NullBidObserver {
     fn block_submitted(
         &self,
         _slot_data: &MevBoostSlotData,
-        _submit_block_request: &SubmitBlockRequest,
-        _built_block_trace: &BuiltBlockTrace,
+        _submit_block_request: Arc<AlloySubmitBlockRequest>,
+        _built_block_trace: Arc<BuiltBlockTrace>,
         _builder_name: String,
         _best_bid_value: U256,
     ) {

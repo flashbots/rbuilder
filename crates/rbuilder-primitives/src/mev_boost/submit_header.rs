@@ -64,16 +64,7 @@ pub enum HeaderSubmission {
 }
 
 /// Electra header submission.
-#[derive(
-    PartialEq,
-    Eq,
-    Clone,
-    Debug,
-    serde::Serialize,
-    serde::Deserialize,
-    ssz_derive::Encode,
-    ssz_derive::Decode,
-)]
+#[derive(PartialEq, Eq, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct HeaderSubmissionElectra {
     /// Bid trace.
     pub bid_trace: BidTrace,
@@ -84,7 +75,104 @@ pub struct HeaderSubmissionElectra {
     /// Blob KZG commitments.
     pub commitments: Vec<alloy_consensus::Bytes48>,
     /// Bid adjustment data V2.
-    pub adjustment_data: BidAdjustmentDataV2,
+    pub adjustment_data: Option<BidAdjustmentDataV2>,
+}
+
+impl ssz::Encode for HeaderSubmissionElectra {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        let mut offset = <BidTrace as ssz::Encode>::ssz_fixed_len()
+            + <ExecutionPayloadHeaderElectra as ssz::Encode>::ssz_fixed_len()
+            + <ExecutionRequestsV4 as ssz::Encode>::ssz_fixed_len()
+            + <Vec<alloy_consensus::Bytes48> as ssz::Encode>::ssz_fixed_len();
+        if self.adjustment_data.is_some() {
+            offset += <BidAdjustmentDataV2 as ssz::Encode>::ssz_fixed_len();
+        }
+
+        let mut encoder = ssz::SszEncoder::container(buf, offset);
+
+        encoder.append(&self.bid_trace);
+        encoder.append(&self.execution_payload_header);
+        encoder.append(&self.execution_requests);
+        encoder.append(&self.commitments);
+        if let Some(adjustment) = &self.adjustment_data {
+            encoder.append(&adjustment);
+        }
+
+        encoder.finalize();
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        let mut len = <BidTrace as ssz::Encode>::ssz_bytes_len(&self.bid_trace)
+            + <ExecutionPayloadHeaderElectra as ssz::Encode>::ssz_bytes_len(
+                &self.execution_payload_header,
+            )
+            + <ExecutionRequestsV4 as ssz::Encode>::ssz_bytes_len(&self.execution_requests)
+            + <Vec<alloy_consensus::Bytes48> as ssz::Encode>::ssz_bytes_len(&self.commitments);
+        if let Some(adjustment) = &self.adjustment_data {
+            len += <BidAdjustmentDataV2 as ssz::Encode>::ssz_bytes_len(adjustment);
+        }
+        len
+    }
+}
+
+impl ssz::Decode for HeaderSubmissionElectra {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
+        #[derive(ssz_derive::Decode)]
+        struct HeaderSubmissionElectraSszHelper {
+            bid_trace: BidTrace,
+            execution_payload_header: ExecutionPayloadHeaderElectra,
+            execution_requests: ExecutionRequestsV4,
+            commitments: Vec<alloy_consensus::Bytes48>,
+            adjustment_data: BidAdjustmentDataV2,
+        }
+
+        #[derive(ssz_derive::Decode)]
+        struct HeaderSubmissionElectraNoAdjustmentsSszHelper {
+            bid_trace: BidTrace,
+            execution_payload_header: ExecutionPayloadHeaderElectra,
+            execution_requests: ExecutionRequestsV4,
+            commitments: Vec<alloy_consensus::Bytes48>,
+        }
+
+        if let Ok(submission) = HeaderSubmissionElectraSszHelper::from_ssz_bytes(bytes) {
+            let HeaderSubmissionElectraSszHelper {
+                bid_trace,
+                execution_payload_header,
+                execution_requests,
+                commitments,
+                adjustment_data,
+            } = submission;
+            Ok(Self {
+                bid_trace,
+                execution_payload_header,
+                execution_requests,
+                commitments,
+                adjustment_data: Some(adjustment_data),
+            })
+        } else {
+            let HeaderSubmissionElectraNoAdjustmentsSszHelper {
+                bid_trace,
+                execution_payload_header,
+                execution_requests,
+                commitments,
+            } = HeaderSubmissionElectraNoAdjustmentsSszHelper::from_ssz_bytes(bytes)?;
+            Ok(Self {
+                bid_trace,
+                execution_payload_header,
+                execution_requests,
+                commitments,
+                adjustment_data: None,
+            })
+        }
+    }
 }
 
 /// Electra execution payload header.
