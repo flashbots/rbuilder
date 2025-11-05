@@ -1,8 +1,9 @@
 //! Clickhouse integration to save all the blocks we build and submit to relays.
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use alloy_primitives::{utils::format_ether, Address, U256};
+use alloy_rpc_types_beacon::relay::SubmitBlockRequest as AlloySubmitBlockRequest;
 use clickhouse::{Client, Row};
 use rbuilder::{
     building::BuiltBlockTrace,
@@ -10,7 +11,7 @@ use rbuilder::{
         block_output::bidding_service_interface::BidObserver, payload_events::MevBoostSlotData,
     },
 };
-use rbuilder_primitives::{mev_boost::SubmitBlockRequest, Order, OrderId};
+use rbuilder_primitives::{Order, OrderId};
 use rbuilder_utils::clickhouse::{
     backup::{
         metrics::NullMetrics,
@@ -213,18 +214,30 @@ impl BidObserver for BuiltBlocksWriter {
     fn block_submitted(
         &self,
         slot_data: &MevBoostSlotData,
-        submit_block_request: &SubmitBlockRequest,
-        built_block_trace: &BuiltBlockTrace,
+        submit_block_request: Arc<AlloySubmitBlockRequest>,
+        built_block_trace: Arc<BuiltBlockTrace>,
         builder_name: String,
         best_bid_value: U256,
     ) {
-        let submit_block_request = submit_block_request.clone();
-        let built_block_trace = built_block_trace.clone();
-        let slot_data = slot_data.clone();
+        let slot = slot_data.slot();
+        let block_number = slot_data.block();
         let blocks_tx = self.blocks_tx.clone();
         tokio::spawn(async move {
             let submit_trace = submit_block_request.bid_trace();
-            let execution_payload_v1 = submit_block_request.execution_payload_v1();
+            let execution_payload_v1 = match submit_block_request.as_ref() {
+                AlloySubmitBlockRequest::Capella(request) => {
+                    &request.execution_payload.payload_inner
+                }
+                AlloySubmitBlockRequest::Deneb(request) => {
+                    &request.execution_payload.payload_inner.payload_inner
+                }
+                AlloySubmitBlockRequest::Electra(request) => {
+                    &request.execution_payload.payload_inner.payload_inner
+                }
+                AlloySubmitBlockRequest::Fulu(request) => {
+                    &request.execution_payload.payload_inner.payload_inner
+                }
+            };
             let mut used_bundle_hashes = Vec::new();
             let mut used_bundle_uuids = Vec::new();
             for res in &built_block_trace.included_orders {
@@ -242,9 +255,9 @@ impl BidObserver for BuiltBlocksWriter {
                 .map(|address| address.to_string())
                 .collect();
             let block_row = BlockRow {
-                block_number: slot_data.block(),
+                block_number,
                 profit: format_ether(built_block_trace.true_bid_value),
-                slot: slot_data.slot(),
+                slot,
                 hash: execution_payload_v1.block_hash.to_string(),
                 gas_limit: submit_trace.gas_limit,
                 gas_used: submit_trace.gas_used,
