@@ -43,11 +43,12 @@ use crate::{
         SIGNED_BLOCK_CONSUME_BUILT_BLOCK_METHOD,
     },
     build_info::rbuilder_version,
+    clickhouse::BuiltBlocksWriter,
     true_block_value_push::best_true_value_observer::BestTrueValueObserver,
 };
 
 use clickhouse::Client;
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
 pub struct ClickhouseConfig {
@@ -70,6 +71,20 @@ struct TBVPushRedisConfig {
     pub channel: String,
 }
 
+/// Config used to record built blocks to clickhouse using a local
+/// storage on errors.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
+pub struct BuiltBlocksClickhouseConfig {
+    /// clickhouse host url (starts with http/https)
+    pub host: String,
+    pub database: String,
+    pub username: String,
+    pub password: String,
+    pub disk_database_path: PathBuf,
+    pub disk_max_size_mb: Option<u64>,
+    pub memory_max_size_mb: Option<u64>,
+}
+
 #[serde_as]
 #[derive(Debug, Clone, Deserialize, PartialEq, Derivative)]
 #[serde(default, deny_unknown_fields)]
@@ -81,6 +96,8 @@ pub struct FlashbotsConfig {
     #[serde(flatten)]
     pub l1_config: L1Config,
 
+    /// Clickhouse config for fetching blocks from clickhouse for backtesting.
+    /// This should not be here....
     #[serde(flatten)]
     clickhouse: ClickhouseConfig,
 
@@ -111,6 +128,9 @@ pub struct FlashbotsConfig {
     /// For production we always need some tbv push (since it's used by smart-multiplexing.) so:
     /// !Some(key_registration_url) => Some(tbv_push_redis)
     tbv_push_redis: Option<TBVPushRedisConfig>,
+
+    /// Should always be set on buildernet.
+    built_blocks_clickhouse_config: Option<BuiltBlocksClickhouseConfig>,
 }
 
 impl LiveBuilderConfig for FlashbotsConfig {
@@ -279,8 +299,17 @@ impl FlashbotsConfig {
     /// - Secure block processor client (using block_processor_key to sign)
     fn create_block_processor_client(
         &self,
+        cancellation_token: &CancellationToken,
         block_processor_key: Option<PrivateKeySigner>,
     ) -> eyre::Result<Option<Box<dyn BidObserver + Send + Sync>>> {
+        if let Some(built_blocks_clickhouse_config) = &self.built_blocks_clickhouse_config {
+            let writer = BuiltBlocksWriter::new(
+                built_blocks_clickhouse_config.clone(),
+                cancellation_token.clone(),
+            );
+            return Ok(Some(Box::new(writer)));
+        }
+
         if let Some(url) = &self.blocks_processor_url {
             let bid_observer: Box<dyn BidObserver + Send + Sync> = if let Some(
                 block_processor_key,
@@ -326,7 +355,8 @@ impl FlashbotsConfig {
         };
 
         let bid_observer = RbuilderOperatorBidObserver {
-            block_processor: self.create_block_processor_client(block_processor_key.clone())?,
+            block_processor: self
+                .create_block_processor_client(cancellation_token, block_processor_key.clone())?,
             tbv_pusher: self.create_tbv_pusher(block_processor_key, cancellation_token)?,
         };
         Ok(Box::new(bid_observer))
