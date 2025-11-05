@@ -6,7 +6,7 @@
 //! backtest-build-block --config /home/happy_programmer/config.toml --builders mgp-ordering --builders mp-ordering 19380913 --show-orders --show-missing
 
 use ahash::HashMap;
-use alloy_primitives::utils::format_ether;
+use alloy_primitives::{utils::format_ether, TxHash};
 
 use crate::{
     backtest::{
@@ -14,7 +14,8 @@ use crate::{
         OrdersWithTimestamp,
     },
     building::{
-        builders::BacktestSimulateBlockInput, BlockBuildingContext, NullPartialBlockExecutionTracer,
+        builders::BacktestSimulateBlockInput, BlockBuildingContext, ExecutionResult,
+        NullPartialBlockExecutionTracer,
     },
     live_builder::cli::LiveBuilderConfig,
     provider::StateProviderFactory,
@@ -44,6 +45,11 @@ pub struct BuildBlockCfg {
         help = "Traces block building execution (shows all executed orders and txs)"
     )]
     pub trace_block_building: bool,
+    #[clap(
+        long,
+        help = "Shows any order and sim order containing this tx hash. Example: --show-tx-extra-data 0x4905f253e997236afecddb080e38028227b083c4d9921209df7fda192f0ec428"
+    )]
+    pub show_tx_extra_data: Option<TxHash>,
 }
 
 /// Provides all the orders needed to simulate the construction of a block.
@@ -78,6 +84,8 @@ where
     ProviderType: StateProviderFactory + Clone + 'static,
     OrdersSourceType: OrdersSource<ConfigType, ProviderType>,
 {
+    let ctx = orders_source.create_block_building_context()?;
+
     let config = orders_source.config();
     config.base_config().setup_tracing_subscriber()?;
 
@@ -86,24 +94,28 @@ where
     for order in &available_orders {
         order_statistics.add(&order.order);
     }
+    println!("mev_blocker_price {}", format_ether(ctx.mev_blocker_price));
+    println!("Available orders: {}", available_orders.len());
     println!("Available orders: {}", available_orders.len());
     println!("Order statistics: {order_statistics:?}");
 
-    if build_block_cfg.show_orders {
-        print_order_and_timestamp(&available_orders, orders_source.block_time_as_unix_ms());
-    }
-
     let provider_factory = orders_source.create_provider_factory()?;
-
     orders_source.print_custom_stats(provider_factory.clone())?;
 
-    let ctx = orders_source.create_block_building_context()?;
     let BacktestBlockInput { sim_orders, .. } = backtest_prepare_orders_from_building_context(
         ctx.clone(),
         available_orders.clone(),
         provider_factory.clone(),
         &config.base_config().sbundle_mergeable_signers(),
     )?;
+
+    if let Some(tx_hash) = build_block_cfg.show_tx_extra_data {
+        print_orders_with_tx_hash(tx_hash, &available_orders, &sim_orders);
+    }
+
+    if build_block_cfg.show_orders {
+        print_order_and_timestamp(&available_orders, orders_source.block_time_as_unix_ms());
+    }
 
     if build_block_cfg.show_sim {
         let order_and_timestamp: HashMap<OrderId, u64> = available_orders
@@ -153,29 +165,7 @@ where
                     "Number of used orders: {}",
                     block.trace.included_orders.len()
                 );
-
-                //println!("Used orders:");
-                for order_result in &block.trace.included_orders {
-                    println!(
-                        "{:>74} gas: {:>8} profit: {}",
-                        order_result.order.id().to_string(),
-                        order_result.space_used.gas,
-                        format_ether(order_result.coinbase_profit),
-                    );
-                    if let Order::Bundle(_) | Order::ShareBundle(_) = order_result.order {
-                        for tx in order_result.tx_infos.iter().map(|info| &info.tx) {
-                            println!("      ↳ {:?}", tx.hash());
-                        }
-
-                        for (to, value) in &order_result.paid_kickbacks {
-                            println!(
-                                "      - kickback to: {:?} value: {}",
-                                to,
-                                format_ether(*value)
-                            );
-                        }
-                    }
-                }
+                block.trace.included_orders.iter().for_each(print_order_execution_result);
                 Some((builder_name.clone(), block.trace.bid_value))
             })
             .max_by_key(|(_, value)| *value);
@@ -192,6 +182,91 @@ where
     Ok(())
 }
 
+fn print_order(order: &Order) {
+    println!("{}", order.id().to_string());
+    if let Order::Bundle(_) | Order::ShareBundle(_) = order {
+        for (tx, _) in order.list_txs() {
+            println!("      ↳ {:?}", tx.hash());
+        }
+    }
+}
+
+fn print_sim_order(sim_order: &SimulatedOrder) {
+    print_order(&sim_order.order);
+    let sim_value = &sim_order.sim_value;
+    let profit_info = [
+        ("full", sim_value.full_profit_info()),
+        ("non_mempool", sim_value.non_mempool_profit_info()),
+    ];
+    for (name, profit_info) in profit_info {
+        println!(
+            "      * {name}: coinbase_profit {} mev_gas_price {}",
+            format_ether(profit_info.coinbase_profit()),
+            format_ether(profit_info.mev_gas_price())
+        );
+    }
+    println!("      * gas_used {:?}", sim_value.gas_used());
+}
+
+fn print_orders_with_tx_hash(
+    tx_hash: TxHash,
+    available_orders: &Vec<OrdersWithTimestamp>,
+    sim_orders: &Vec<Arc<SimulatedOrder>>,
+) {
+    println!("---- BEGIN Orders with tx hash: {:?}", tx_hash);
+    println!("ORDERS:");
+
+    available_orders
+        .iter()
+        .map(|order_with_timestamp| &order_with_timestamp.order)
+        .filter(|order| order.list_txs().iter().any(|(tx, _)| tx.hash() == tx_hash))
+        .for_each(print_order);
+    println!("\nSIM ORDERS:");
+    sim_orders
+        .iter()
+        .filter(|order| {
+            order
+                .order
+                .list_txs()
+                .iter()
+                .any(|(tx, _)| tx.hash() == tx_hash)
+        })
+        .for_each(|sim_order| print_sim_order(sim_order.as_ref()));
+    println!("---- END Orders with tx hash: {:?}", tx_hash);
+}
+
+fn print_order_execution_result(order_result: &ExecutionResult) {
+    println!(
+        "{:<74} gas: {:>8} profit: {}",
+        order_result.order.id().to_string(),
+        order_result.space_used.gas,
+        format_ether(order_result.coinbase_profit),
+    );
+    if let Order::Bundle(_) | Order::ShareBundle(_) = order_result.order {
+        for tx in order_result.tx_infos.iter().map(|info| &info.tx) {
+            println!("      ↳ {:?}", tx.hash());
+        }
+
+        for (to, value) in &order_result.paid_kickbacks {
+            println!(
+                "      $ Paid kickback to: {:?} value: {}",
+                to,
+                format_ether(*value)
+            );
+        }
+
+        if let Some(delayed_kickback) = &order_result.delayed_kickback {
+            println!(
+                "      $ Delayed kickback to: {:?} value: {} tx_fee: {} paid at end of block: {}",
+                delayed_kickback.recipient,
+                format_ether(delayed_kickback.payout_value),
+                format_ether(delayed_kickback.payout_tx_fee),
+                delayed_kickback.should_pay_in_block
+            );
+        }
+    }
+}
+
 /// Convert a timestamp in milliseconds to the slot time relative to the given block timestamp.
 fn timestamp_ms_to_slot_time(timestamp_ms: u64, block_timestamp: u64) -> i64 {
     (block_timestamp * 1000) as i64 - (timestamp_ms as i64)
@@ -199,6 +274,7 @@ fn timestamp_ms_to_slot_time(timestamp_ms: u64, block_timestamp: u64) -> i64 {
 
 /// Print the available orders sorted by timestamp.
 fn print_order_and_timestamp(orders_with_ts: &[OrdersWithTimestamp], block_time_as_unix_ms: u64) {
+    println!("---- BEGIN Orders and timestamp:");
     let mut order_by_ts = orders_with_ts.to_vec();
     order_by_ts.sort_by_key(|owt| owt.timestamp_ms);
     for owt in order_by_ts {
@@ -218,6 +294,7 @@ fn print_order_and_timestamp(orders_with_ts: &[OrdersWithTimestamp], block_time_
             )
         }
     }
+    println!("---- END Orders and timestamp");
 }
 
 /// Print information about simulated orders.
