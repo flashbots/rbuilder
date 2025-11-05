@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use alloy_primitives::{utils::format_ether, U256};
+use alloy_primitives::{utils::format_ether, Address, U256};
 use clickhouse::{Client, Row};
 use rbuilder::{
     building::BuiltBlockTrace,
@@ -10,7 +10,7 @@ use rbuilder::{
         block_output::bidding_service_interface::BidObserver, payload_events::MevBoostSlotData,
     },
 };
-use rbuilder_primitives::mev_boost::SubmitBlockRequest;
+use rbuilder_primitives::{mev_boost::SubmitBlockRequest, Order, OrderId};
 use rbuilder_utils::clickhouse::{
     backup::{
         metrics::NullMetrics,
@@ -20,6 +20,7 @@ use rbuilder_utils::clickhouse::{
     spawn_clickhouse_inserter_and_backup,
 };
 use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::error;
@@ -94,11 +95,12 @@ impl ClickhouseIndexableData for BlockRow {
 const KILO: u64 = 1024;
 const MEGA: u64 = KILO * KILO;
 
-// Super worst scenario we submit 500 blocks per second so we have 2 seconds of buffer.
-const BUILT_BLOCKS_CHANNEL_SIZE: usize = 1024;
+// Super worst scenario we submit 500 blocks per second so we have 10 seconds of buffer.
+// After this having this queued blocks we will start to drop. BlockRow is small enough (in the order of 10K, only hashes/ids, not full orders) so 5K BlockRows is not too much memory.
+const BUILT_BLOCKS_CHANNEL_SIZE: usize = 5 * 1024;
 const BLOCKS_TABLE_NAME: &str = "blocks";
 const DEFAULT_MAX_DISK_SIZE_MB: u64 = 10 * KILO;
-const DEFAULT_MAX_MEMORY_SIZE_MB: u64 = 1 * KILO;
+const DEFAULT_MAX_MEMORY_SIZE_MB: u64 = KILO;
 #[derive(Debug)]
 pub struct BuiltBlocksWriter {
     blocks_tx: mpsc::Sender<BlockRow>,
@@ -144,6 +146,69 @@ impl BuiltBlocksWriter {
     }
 }
 
+fn offset_date_to_clickhouse_timestamp(date: OffsetDateTime) -> i64 {
+    (date.unix_timestamp_nanos() / 1000) as i64
+}
+
+fn get_used_sbundles_hashes(built_block_trace: &BuiltBlockTrace) -> Vec<String> {
+    built_block_trace
+        .included_orders
+        .iter()
+        .flat_map(|exec_result| {
+            if let Order::ShareBundle(sbundle) = &exec_result.order {
+                // don't like having special cases (merged vs not merged), can we improve this?
+                if sbundle.is_merged_order() {
+                    exec_result
+                        .original_order_ids
+                        .iter()
+                        .map(|id| id.to_string())
+                        .collect()
+                } else if exec_result.tx_infos.is_empty() {
+                    // non merged empty execution sbundle
+                    vec![]
+                } else {
+                    // non merged non empty execution sbundle
+                    vec![exec_result.order.id().to_string()]
+                }
+            } else {
+                Vec::new()
+            }
+        })
+        .collect()
+}
+
+const MEV_VIRTUAL_BLOCKER_SOURCE: &str = "mev_blocker";
+const MEV_VIRTUAL_ADDRESS: Address = Address::ZERO;
+
+/// (sources, values, addresses)
+fn get_delayed_payments(
+    built_block_trace: &BuiltBlockTrace,
+) -> (Vec<String>, Vec<U256>, Vec<Address>) {
+    let mut sources = Vec::new();
+    let mut values = Vec::new();
+    let mut addresses = Vec::new();
+    for res in &built_block_trace.included_orders {
+        if let Some(delayed_kickback) = &res.delayed_kickback {
+            if !delayed_kickback.should_pay_in_block {
+                match res.order.id() {
+                    OrderId::Bundle(uuid) => {
+                        sources.push(uuid.to_string());
+                        values.push(delayed_kickback.payout_value);
+                        addresses.push(delayed_kickback.recipient);
+                    }
+                    _ => {
+                        error!(order = ?res.order.id(), "Delayed kickback is found for non-bundle");
+                    }
+                }
+            }
+        }
+    }
+    sources.push(MEV_VIRTUAL_BLOCKER_SOURCE.into());
+    values.push(built_block_trace.mev_blocker_price);
+    addresses.push(MEV_VIRTUAL_ADDRESS);
+    (sources, values, addresses)
+}
+
 impl BidObserver for BuiltBlocksWriter {
     fn block_submitted(
         &self,
@@ -153,42 +218,63 @@ impl BidObserver for BuiltBlocksWriter {
         builder_name: String,
         best_bid_value: U256,
     ) {
-        let submit_trace = submit_block_request.bid_trace();
-        let execution_payload_v1 = submit_block_request.execution_payload_v1();
-        let block_row = BlockRow {
-            block_number: slot_data.block(),
-            profit: format_ether(built_block_trace.true_bid_value),
-            slot: slot_data.slot(),
-            hash: execution_payload_v1.block_hash.to_string(),
-            gas_limit: submit_trace.gas_limit,
-            gas_used: submit_trace.gas_used,
-            base_fee: execution_payload_v1
-                .base_fee_per_gas
-                .try_into()
-                .unwrap_or_default(),
-            parent_hash: submit_trace.parent_hash.to_string(),
-            proposer_pubkey: "0x123...".to_string(),
-            proposer_fee_recipient: "0x456...".to_string(),
-            builder_pubkey: "0x789...".to_string(),
-            timestamp: 1699999999,
-            timestamp_datetime: 1699999999000000,
-            orders_closed_at: 1699999998000000,
-            sealed_at: 1699999998500000,
-            algorithm: "greedy".to_string(),
-            true_value: Some(U256::from(123u64)),
-            best_relay_value: Some(U256::from(1234u64)),
-            block_value: None,
-            used_bundle_hashes: vec!["0xbundle1".to_string()],
-            used_bundle_uuids: vec!["uuid-1".to_string()],
-            used_sbundles_hashes: vec!["0xsbundle1".to_string()],
-            delayed_payment_sources: vec!["relay1".to_string()],
-            delayed_payment_values: vec![U256::from(123456u64), U256::from(1234567u64)],
-            delayed_payment_addresses: vec!["0xaddr1".to_string()],
-        };
+        let submit_block_request = submit_block_request.clone();
+        let built_block_trace = built_block_trace.clone();
+        let slot_data = slot_data.clone();
         let blocks_tx = self.blocks_tx.clone();
         tokio::spawn(async move {
-            if let Err(error) = blocks_tx.send(block_row).await {
-                error!(?error, "Failed to send block to clickhouse");
+            let submit_trace = submit_block_request.bid_trace();
+            let execution_payload_v1 = submit_block_request.execution_payload_v1();
+            let mut used_bundle_hashes = Vec::new();
+            let mut used_bundle_uuids = Vec::new();
+            for res in &built_block_trace.included_orders {
+                if let Order::Bundle(bundle) = &res.order {
+                    used_bundle_hashes
+                        .push(bundle.external_hash.unwrap_or(bundle.hash).to_string());
+                    used_bundle_uuids.push(bundle.uuid.to_string());
+                }
+            }
+            let used_sbundles_hashes = get_used_sbundles_hashes(&built_block_trace);
+            let (delayed_payment_sources, delayed_payment_values, delayed_payment_addresses) =
+                get_delayed_payments(&built_block_trace);
+            let delayed_payment_addresses = delayed_payment_addresses
+                .iter()
+                .map(|address| address.to_string())
+                .collect();
+            let block_row = BlockRow {
+                block_number: slot_data.block(),
+                profit: format_ether(built_block_trace.true_bid_value),
+                slot: slot_data.slot(),
+                hash: execution_payload_v1.block_hash.to_string(),
+                gas_limit: submit_trace.gas_limit,
+                gas_used: submit_trace.gas_used,
+                base_fee: execution_payload_v1
+                    .base_fee_per_gas
+                    .try_into()
+                    .unwrap_or_default(),
+                parent_hash: submit_trace.parent_hash.to_string(),
+                proposer_pubkey: submit_trace.proposer_pubkey.to_string(),
+                proposer_fee_recipient: submit_trace.proposer_fee_recipient.to_string(),
+                builder_pubkey: submit_trace.builder_pubkey.to_string(),
+                timestamp: execution_payload_v1.timestamp,
+                timestamp_datetime: execution_payload_v1.timestamp as i64 * 1_000_000,
+                orders_closed_at: offset_date_to_clickhouse_timestamp(
+                    built_block_trace.orders_closed_at,
+                ),
+                sealed_at: offset_date_to_clickhouse_timestamp(built_block_trace.orders_sealed_at),
+                algorithm: builder_name,
+                true_value: Some(built_block_trace.true_bid_value),
+                best_relay_value: Some(best_bid_value),
+                block_value: Some(submit_trace.value),
+                used_bundle_hashes,
+                used_bundle_uuids,
+                used_sbundles_hashes,
+                delayed_payment_sources,
+                delayed_payment_values,
+                delayed_payment_addresses,
+            };
+            if let Err(err) = blocks_tx.try_send(block_row) {
+                error!(?err, "Failed to send block to clickhouse");
             }
         });
     }

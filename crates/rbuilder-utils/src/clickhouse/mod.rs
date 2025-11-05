@@ -61,6 +61,7 @@ const CLICKHOUSE_INSERT_TIMEOUT: Duration = Duration::from_secs(2);
 const CLICKHOUSE_END_TIMEOUT: Duration = Duration::from_secs(4);
 
 /// Main func to spawn the clickhouse inserter and backup tasks.
+#[allow(clippy::too_many_arguments)]
 pub fn spawn_clickhouse_inserter_and_backup<
     DataType: ClickhouseIndexableData + Send + Sync + 'static,
     RowType: ClickhouseRowExt,
@@ -87,7 +88,7 @@ pub fn spawn_clickhouse_inserter_and_backup<
     )
     .expect("could not create disk backup");
     let (failed_commit_tx, failed_commit_rx) = mpsc::channel(BACKUP_INPUT_CHANNEL_BUFFER_SIZE);
-    let inserter = default_inserter(&client, &clickhouse_table_name);
+    let inserter = default_inserter(client, &clickhouse_table_name);
     let inserter = ClickhouseInserter::<_, MetricsType>::new(inserter, failed_commit_tx);
     // Node name is not used for Blocks.
     let inserter_runner = InserterRunner::new(data_rx, inserter, builder_name);
@@ -101,6 +102,6 @@ pub fn spawn_clickhouse_inserter_and_backup<
         disk_backup.clone(),
     )
     .with_memory_backup_config(MemoryBackupConfig::new(memory_max_size_bytes));
-    inserter_runner.spawn(&task_executor, backup_table_name.clone(), tracing_target);
-    backup.spawn(&task_executor, backup_table_name, tracing_target);
+    inserter_runner.spawn(task_executor, backup_table_name.clone(), tracing_target);
+    backup.spawn(task_executor, backup_table_name, tracing_target);
 }
