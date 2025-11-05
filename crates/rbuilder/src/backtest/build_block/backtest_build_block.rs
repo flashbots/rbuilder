@@ -183,7 +183,7 @@ where
 }
 
 fn print_order(order: &Order) {
-    println!("{}", order.id().to_string());
+    println!("{}", order.id());
     if let Order::Bundle(_) | Order::ShareBundle(_) = order {
         for (tx, _) in order.list_txs() {
             println!("      ↳ {:?}", tx.hash());
@@ -210,8 +210,8 @@ fn print_sim_order(sim_order: &SimulatedOrder) {
 
 fn print_orders_with_tx_hash(
     tx_hash: TxHash,
-    available_orders: &Vec<OrdersWithTimestamp>,
-    sim_orders: &Vec<Arc<SimulatedOrder>>,
+    available_orders: &[OrdersWithTimestamp],
+    sim_orders: &[Arc<SimulatedOrder>],
 ) {
     println!("---- BEGIN Orders with tx hash: {:?}", tx_hash);
     println!("ORDERS:");
