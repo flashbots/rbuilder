@@ -98,6 +98,9 @@ pub struct RelayConfig {
     /// The list of bloxroute rproxy regions to send to order by preference.
     #[serde(default)]
     pub bloxroute_rproxy_regions: Vec<String>,
+    /// Flag indicating whether the builder should only submit to rproxy endpoinds if available.
+    #[serde(default)]
+    pub bloxroute_rproxy_only: bool,
     /// Adds "filtering=true" as query to the call relay/v1/builder/validators to get all validators (including those filtering OFAC)
     /// On 2025/06/24 (my birthday!) only supported by ultrasound.
     /// None -> false
@@ -162,6 +165,8 @@ pub struct RelayClient {
     is_bloxroute: bool,
     /// Bloxroute rproxy regions.
     bloxroute_rproxy_regions: Vec<String>,
+    /// Flag indicating whether rproxy regions are required.
+    bloxroute_rproxy_only: bool,
     /// Adds "filtering=true" as query
     ask_for_filtering_validators: bool,
     /// If we submit a block with a different gas than the one the validator registered with in this relay the relay does not mind.
@@ -177,6 +182,7 @@ impl RelayClient {
         api_token_header: Option<String>,
         is_bloxroute: bool,
         bloxroute_rproxy_regions: Vec<String>,
+        bloxroute_rproxy_only: bool,
         ask_for_filtering_validators: bool,
         can_ignore_gas_limit: bool,
     ) -> Self {
@@ -189,6 +195,7 @@ impl RelayClient {
             api_token_header,
             is_bloxroute,
             bloxroute_rproxy_regions,
+            bloxroute_rproxy_only,
             ask_for_filtering_validators,
             can_ignore_gas_limit,
         }
@@ -202,6 +209,7 @@ impl RelayClient {
             None,
             relay.is_bloxroute(),
             Vec::new(),
+            false,
             false,
             false,
         )
@@ -523,6 +531,8 @@ pub enum SubmitBlockErr {
     InvalidHeader,
     #[error("Block known")]
     BlockKnown,
+    #[error("No rproxy available")]
+    NoRproxyAvailable,
     #[error("gRPC error")]
     Grpc(#[from] Box<tonic::Status>),
 }
@@ -937,6 +947,8 @@ impl RelayClient {
                 error!(?error, url = %regional.http_endpoint, "Error parsing rproxy URL");
                 SubmitBlockErr::InvalidUrl(error)
             });
+        } else if self.bloxroute_rproxy_only {
+            return Err(SubmitBlockErr::NoRproxyAvailable);
         }
 
         if self.is_bloxroute {
