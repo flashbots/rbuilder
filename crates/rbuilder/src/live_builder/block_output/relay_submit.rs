@@ -159,16 +159,14 @@ async fn run_submit_to_relays_job(
             .collect::<Vec<_>>(),
     );
 
-    let (regular_relays, optimistic_relays): (
-        Vec<MevBoostRelayBidSubmitter>,
-        Vec<MevBoostRelayBidSubmitter>,
-    ) = relays.into_iter().partition(|relay| !relay.optimistic());
+    let (regular_relays, optimistic_relays) = relays
+        .into_iter()
+        .partition::<Vec<_>, _>(|relay| !relay.optimistic());
 
     let regular_relays_ids = regular_relays
         .iter()
         .map(|relay| relay.id())
         .collect::<Vec<_>>();
-
     let optimistic_relays_ids = optimistic_relays
         .iter()
         .map(|relay| relay.id())
@@ -286,20 +284,25 @@ async fn run_submit_to_relays_job(
             &block.sealed_block,
         );
         let (regular_request, optimistic_request) = {
-            let regular = create_submit_block_request(
-                &config.signer,
-                &config.chain_spec,
-                &slot_data,
-                &block,
-                &execution_payload,
-            )
-            .inspect_err(|error| {
-                error!(parent: &submission_span, ?error, "Error creating regular submit block request");
-            })
-            .ok();
+            let mut regular = None;
+            if optimistic_config.is_none() || !regular_relays.is_empty() {
+                regular = create_submit_block_request(
+                    &config.signer,
+                    &config.chain_spec,
+                    &slot_data,
+                    &block,
+                    &execution_payload,
+                )
+                .inspect_err(|error| {
+                    error!(parent: &submission_span, ?error, "Error creating regular submit block request");
+                })
+                .ok();
+            }
 
             let mut optimistic = None;
-            if let Some(optimistic_config) = optimistic_config {
+            if let Some(optimistic_config) =
+                optimistic_config.filter(|_| !optimistic_relays.is_empty())
+            {
                 optimistic = create_submit_block_request(
                     &optimistic_config.signer,
                     &config.chain_spec,
@@ -316,7 +319,9 @@ async fn run_submit_to_relays_job(
         };
 
         if regular_request.is_none() && optimistic_request.is_none() {
-            error!(parent: &submission_span, "Unable to construct request from the built block");
+            let regular_relays_len = regular_relays.len();
+            let optimistic_relays_len = optimistic_relays.len();
+            error!(parent: &submission_span, regular_relays_len, optimistic_relays_len, "Unable to construct request from the built block");
             continue 'submit;
         }
 
