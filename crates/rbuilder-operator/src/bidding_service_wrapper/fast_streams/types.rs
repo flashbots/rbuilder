@@ -7,10 +7,12 @@ use iceoryx2_bb_container::byte_string::FixedSizeByteString;
 use rbuilder::{
     building::builders::BuiltBlockId,
     live_builder::block_output::bidding_service_interface::{
-        BuiltBlockDescriptorForSlotBidder, ScrapedRelayBlockBidWithStats, SlotBidderSealBidCommand,
+        BuiltBlockDescriptorForSlotBidder, PayoutInfo, RelaySet, ScrapedRelayBlockBidWithStats,
+        SlotBidderSealBidCommand,
     },
     utils::{offset_datetime_to_timestamp_us, timestamp_us_to_offset_datetime},
 };
+use tracing::error;
 
 /// Used sometimes to generalize some latency code checks.
 pub trait WithCreationTime {
@@ -54,6 +56,8 @@ impl From<PublisherType> for bid_scraper::types::PublisherType {
 const MAX_RELAY_NAME_LENGTH: usize = 100;
 const MAX_PUBLISHER_NAME_LENGTH: usize = 100;
 const MAX_EXTRA_DATA_LENGTH: usize = 32;
+/// In practice we will never have more than a few (2).
+const MAX_RELAY_SETS_COUNT: usize = 10;
 const ADDRESS_DATA_LENGTH: usize = 20;
 const HASH_DATA_LENGTH: usize = 32;
 const U256_DATA_LENGTH: usize = 32;
@@ -189,47 +193,102 @@ impl From<BuiltBlockDescriptorForSlotBidderRPC> for BuiltBlockDescriptorForSlotB
 
 pub type SlotBidderSealBidCommandWithSessionId = (SlotBidderSealBidCommand, u64);
 
-#[derive(Debug, Clone, Copy, ZeroCopySend)]
+#[derive(Debug, Copy, Clone, ZeroCopySend, Default)]
+#[type_name("PayoutInfoRPC")]
+#[repr(C)]
+pub struct PayoutInfoRPC {
+    /// Index of the relay set returned by the bidding service on initialize.
+    pub relay_set_index: usize,
+    pub payout_tx_value: [u8; U256_DATA_LENGTH],
+    pub subsidy: [u8; U256_DATA_LENGTH],
+}
+
+impl PayoutInfoRPC {
+    /// If it fails to find the relay set, returns None.
+    /// relay_sets should be the same as the ones returned by the bidding service on initialize.
+    fn try_from(value: PayoutInfo, relay_sets: &[RelaySet]) -> Option<Self> {
+        let relay_set_index = relay_sets.iter().position(|r| r == &value.relays)?;
+        Some(Self {
+            relay_set_index,
+            payout_tx_value: value.payout_tx_value.to_le_bytes(),
+            subsidy: value.subsidy.to_le_bytes(),
+        })
+    }
+
+    /// If it fails to find the relay set, returns None.
+    /// relay_sets should be the same as the ones returned by the bidding service on initialize.
+    #[allow(clippy::wrong_self_convention)]
+    fn into_play_info(&self, relay_sets: &[RelaySet]) -> Option<PayoutInfo> {
+        Some(PayoutInfo {
+            relays: relay_sets.get(self.relay_set_index)?.clone(),
+            payout_tx_value: U256::from_le_bytes(self.payout_tx_value),
+            subsidy: I256::from_le_bytes(self.subsidy),
+        })
+    }
+}
+
+#[derive(Debug, Copy, Clone, ZeroCopySend)]
 #[type_name("SlotBidderSealBidCommandRPC")]
 #[repr(C)]
 pub struct SlotBidderSealBidCommandRPC {
     pub session_id: u64,
     pub block_id: u64,
-    pub payout_tx_value: [u8; U256_DATA_LENGTH],
-    pub subsidy: [u8; U256_DATA_LENGTH],
     pub seen_competition_bid: Option<[u8; U256_DATA_LENGTH]>,
     /// When this bid is a reaction so some event (eg: new block, new competition bid) we put here
     /// the creation time of that event so we can measure our reaction time.
     pub trigger_creation_time_us: Option<u64>,
+    /// Count of valid payout infos.
+    pub payout_infos_count: usize,
+    /// Payout infos beyond payout_infos_count will be ignored.
+    pub payout_infos: [PayoutInfoRPC; MAX_RELAY_SETS_COUNT],
 }
 
-impl From<SlotBidderSealBidCommandWithSessionId> for SlotBidderSealBidCommandRPC {
-    fn from(value: SlotBidderSealBidCommandWithSessionId) -> Self {
-        Self {
+impl SlotBidderSealBidCommandRPC {
+    pub fn try_from(
+        value: SlotBidderSealBidCommandWithSessionId,
+        relay_sets: &[RelaySet],
+    ) -> Option<Self> {
+        let mut payout_infos = [PayoutInfoRPC::default(); MAX_RELAY_SETS_COUNT];
+        let payout_infos_count = value.0.payout_info.len();
+        if payout_infos_count > MAX_RELAY_SETS_COUNT {
+            error!(
+                payout_infos_count,
+                MAX_RELAY_SETS_COUNT, "Too many payout infos"
+            );
+            return None;
+        }
+        for (index, payout_info_item) in value.0.payout_info.into_iter().enumerate() {
+            payout_infos[index] = PayoutInfoRPC::try_from(payout_info_item, relay_sets)?;
+        }
+        Some(Self {
             session_id: value.1,
             block_id: value.0.block_id.0,
-            payout_tx_value: value.0.payout_tx_value.to_le_bytes(),
             seen_competition_bid: value.0.seen_competition_bid.map(|k| k.to_le_bytes()),
             trigger_creation_time_us: value
                 .0
                 .trigger_creation_time
                 .map(offset_datetime_to_timestamp_us),
-            subsidy: value.0.subsidy.to_le_bytes(),
-        }
+            payout_infos_count,
+            payout_infos,
+        })
     }
-}
 
-impl From<SlotBidderSealBidCommandRPC> for SlotBidderSealBidCommand {
-    fn from(val: SlotBidderSealBidCommandRPC) -> Self {
-        SlotBidderSealBidCommand {
+    pub fn into_slot_bidder_seal_bid_command(
+        val: &SlotBidderSealBidCommandRPC,
+        relay_sets: &[RelaySet],
+    ) -> Option<SlotBidderSealBidCommand> {
+        let mut payout_info = Vec::new();
+        for index in 0..std::cmp::min(val.payout_infos_count, MAX_RELAY_SETS_COUNT) {
+            payout_info.push(val.payout_infos[index].into_play_info(relay_sets)?);
+        }
+        Some(SlotBidderSealBidCommand {
             block_id: BuiltBlockId(val.block_id),
-            payout_tx_value: U256::from_le_bytes(val.payout_tx_value),
-            subsidy: I256::from_le_bytes(val.subsidy),
             seen_competition_bid: val.seen_competition_bid.map(|k| U256::from_le_bytes(k)),
             trigger_creation_time: val
                 .trigger_creation_time_us
                 .map(timestamp_us_to_offset_datetime),
-        }
+            payout_info,
+        })
     }
 }
 

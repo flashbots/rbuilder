@@ -27,7 +27,7 @@ use iceoryx2::{
 use parking_lot::Mutex;
 use rbuilder::{
     live_builder::block_output::bidding_service_interface::{
-        BlockSealInterfaceForSlotBidder, ScrapedRelayBlockBidWithStats,
+        BlockSealInterfaceForSlotBidder, RelaySet, ScrapedRelayBlockBidWithStats,
     },
     utils::sync::{Watch, THREAD_BLOCKING_DURATION},
 };
@@ -293,11 +293,12 @@ pub struct LastItemPublisher<ItemType> {
 }
 
 impl<ItemType: Send + Sync + 'static> LastItemPublisher<ItemType> {
-    pub fn new<ItemTypeRPC: std::fmt::Debug + ZeroCopySend + From<ItemType> + 'static>(
+    pub fn new<ItemTypeRPC: std::fmt::Debug + ZeroCopySend + 'static>(
         item_service_name: &'static str,
         got_item_event_name: &'static str,
         max_publishers: usize,
         max_subscribers: usize,
+        item_to_rpc: impl Fn(ItemType) -> Option<ItemTypeRPC> + Send + Sync + 'static,
         cancellation_token: CancellationToken,
     ) -> Result<Self, Error> {
         let last_item: Arc<Watch<ItemType>> = Arc::new(Watch::new());
@@ -325,8 +326,15 @@ impl<ItemType: Send + Sync + 'static> LastItemPublisher<ItemType> {
             };
             while !cancellation_token.is_cancelled() {
                 if let Some(item) = last_item.wait_for_data() {
-                    if let Err(err) = notifying_publisher.send(ItemTypeRPC::from(item)) {
-                        error!(item_service_name,err=?err, "LastItemPublisher notifying_publisher.send failed. Bid lost.");
+                    if let Some(item_rpc) = item_to_rpc(item) {
+                        if let Err(err) = notifying_publisher.send(item_rpc) {
+                            error!(item_service_name,err=?err, "LastItemPublisher notifying_publisher.send failed. Bid lost.");
+                        }
+                    } else {
+                        error!(
+                            item_service_name,
+                            "LastItemPublisher item_to_rpc returned None. Item lost."
+                        );
                     }
                 }
             }
@@ -340,6 +348,24 @@ impl<ItemType: Send + Sync + 'static> LastItemPublisher<ItemType> {
         }
     }
 
+    /// Same as new when ItemTypeRPC is From<ItemType>.
+    pub fn new_with_from<ItemTypeRPC: std::fmt::Debug + ZeroCopySend + From<ItemType> + 'static>(
+        item_service_name: &'static str,
+        got_item_event_name: &'static str,
+        max_publishers: usize,
+        max_subscribers: usize,
+        cancellation_token: CancellationToken,
+    ) -> Result<Self, Error> {
+        Self::new(
+            item_service_name,
+            got_item_event_name,
+            max_publishers,
+            max_subscribers,
+            |item| Some(ItemTypeRPC::from(item)),
+            cancellation_token,
+        )
+    }
+
     pub fn send(&self, item: ItemType) {
         self.last_item.set(item);
     }
@@ -349,7 +375,7 @@ pub type BlocksPublisher = LastItemPublisher<BuiltBlockDescriptorForSlotBidderWi
 pub fn create_blocks_publisher(
     cancellation_token: CancellationToken,
 ) -> Result<BlocksPublisher, Error> {
-    BlocksPublisher::new::<BuiltBlockDescriptorForSlotBidderRPC>(
+    BlocksPublisher::new_with_from::<BuiltBlockDescriptorForSlotBidderRPC>(
         BLOCKS_SERVICE_NAME,
         GOT_SCRAPED_BIDS_OR_BLOCKS_EVENT_NAME,
         BLOCKS_SERVICE_MAX_PUBLISHERS,
@@ -361,13 +387,16 @@ pub fn create_blocks_publisher(
 pub type SlotBidderSealBidCommandPublisher =
     LastItemPublisher<SlotBidderSealBidCommandWithSessionId>;
 pub fn create_slot_bidder_seal_bid_command_publisher(
+    relay_sets: &[RelaySet],
     cancellation_token: CancellationToken,
 ) -> Result<SlotBidderSealBidCommandPublisher, Error> {
+    let relay_sets = relay_sets.to_vec();
     SlotBidderSealBidCommandPublisher::new::<SlotBidderSealBidCommandRPC>(
         SLOT_BIDDER_SEAL_BID_COMMAND_SERVICE_NAME,
         GOT_SLOT_BIDDER_SEAL_BID_COMMAND_EVENT_NAME,
         SLOT_BIDDER_SEAL_BID_COMMAND_SERVICE_MAX_PUBLISHERS,
         SLOT_BIDDER_SEAL_BID_COMMAND_SERVICE_MAX_SUBSCRIBERS,
+        move |item| SlotBidderSealBidCommandRPC::try_from(item, &relay_sets),
         cancellation_token,
     )
 }
@@ -400,6 +429,7 @@ pub fn spawn_slot_bidder_seal_bid_command_subscriber(
     session_id_to_slot_bidder: Arc<
         Mutex<HashMap<u64, Arc<dyn BlockSealInterfaceForSlotBidder + Send + Sync>>>,
     >,
+    relay_sets: Vec<RelaySet>,
     cancellation_token: CancellationToken,
 ) -> Result<(), Error> {
     let init_done = Arc::new(Watch::<Result<(), Error>>::new());
@@ -425,7 +455,11 @@ pub fn spawn_slot_bidder_seal_bid_command_subscriber(
                         .get_mut(&sample.session_id)
                         .cloned();
                     if let Some(bidder) = bidder {
-                        bidder.seal_bid(sample.into());
+                        if let Some(sample) = SlotBidderSealBidCommandRPC::into_slot_bidder_seal_bid_command(&sample, &relay_sets) {
+                            bidder.seal_bid(sample);
+                        } else {
+                            error!("got seal bid command but could not convert to SlotBidderSealBidCommand");
+                        }
                     } else {
                         warn!("got seal bid command but no bidder found",);
                     }

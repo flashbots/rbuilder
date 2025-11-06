@@ -5,7 +5,8 @@ use jsonrpsee::core::{client::ClientT, traits::ToRpcParams};
 use rbuilder::{
     building::BuiltBlockTrace,
     live_builder::{
-        block_output::bidding_service_interface::BidObserver, payload_events::MevBoostSlotData,
+        block_output::bidding_service_interface::{BidObserver, RelaySet},
+        payload_events::MevBoostSlotData,
     },
     utils::error_storage::store_error_event,
 };
@@ -74,16 +75,26 @@ pub struct BlockProcessorDelayedPayments {
 
 type ConsumeBuiltBlockRequest = (
     BlocksProcessorHeader,
+    // ordersClosedAt
     String,
+    // sealedAt
     String,
+    //  commitedBundles
     Vec<UsedBundle>,
+    // allBundles
     Vec<UsedBundle>,
+    // usedSbundles
     Vec<UsedSbundle>,
     alloy_rpc_types_beacon::relay::BidTrace,
+    // builderName
     String,
+    // trueBidValue
     U256,
+    // bestBidValue
     U256,
     Vec<BlockProcessorDelayedPayments>,
+    // Relays
+    Vec<String>,
 );
 
 /// Struct to avoid copying ConsumeBuiltBlockRequest since HttpClient::request eats the parameter.
@@ -139,6 +150,7 @@ impl<HttpClientType: ClientT> BlocksProcessorClient<HttpClientType> {
         built_block_trace: &BuiltBlockTrace,
         builder_name: String,
         best_bid_value: U256,
+        relays: RelaySet,
     ) -> eyre::Result<()> {
         let execution_payload_v1 = match submit_block_request {
             AlloySubmitBlockRequest::Capella(request) => &request.execution_payload.payload_inner,
@@ -236,6 +248,11 @@ impl<HttpClientType: ClientT> BlocksProcessorClient<HttpClientType> {
             built_block_trace.true_bid_value,
             best_bid_value,
             delayed_payments,
+            relays
+                .relays()
+                .iter()
+                .map(|relay| relay.to_string())
+                .collect(),
         );
         let request = ConsumeBuiltBlockRequestArc::new(params);
         let backoff = backoff();
@@ -360,9 +377,11 @@ impl<HttpClientType: ClientT + Clone + Send + Sync + std::fmt::Debug + 'static> 
         built_block_trace: Arc<BuiltBlockTrace>,
         builder_name: String,
         best_bid_value: U256,
+        relays: &RelaySet,
     ) {
         let client = self.client.clone();
         let parent_span = Span::current();
+        let relays = relays.clone();
         tokio::spawn(async move {
             let block_processor_result = client
                 .submit_built_block(
@@ -370,6 +389,7 @@ impl<HttpClientType: ClientT + Clone + Send + Sync + std::fmt::Debug + 'static> 
                     &built_block_trace,
                     builder_name,
                     best_bid_value,
+                    relays,
                 )
                 .await;
             if let Err(err) = block_processor_result {

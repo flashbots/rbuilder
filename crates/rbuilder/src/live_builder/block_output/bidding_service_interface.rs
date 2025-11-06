@@ -8,6 +8,7 @@ use bid_scraper::{
 };
 use derivative::Derivative;
 use mockall::automock;
+use rbuilder_primitives::mev_boost::MevBoostRelayID;
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
 
@@ -31,6 +32,7 @@ pub trait BidObserver: std::fmt::Debug {
         built_block_trace: Arc<BuiltBlockTrace>,
         builder_name: String,
         best_bid_value: U256,
+        relays: &RelaySet,
     );
 }
 
@@ -45,6 +47,7 @@ impl BidObserver for NullBidObserver {
         _built_block_trace: Arc<BuiltBlockTrace>,
         _builder_name: String,
         _best_bid_value: U256,
+        _relays: &RelaySet,
     ) {
     }
 }
@@ -100,16 +103,48 @@ impl BuiltBlockDescriptorForSlotBidder {
     }
 }
 
+/// A set of relays that get the same bid.
+#[derive(Clone, Eq, PartialEq, Debug, Hash)]
+pub struct RelaySet {
+    /// sorted alphabetically to make eq work
+    relays: Vec<MevBoostRelayID>,
+}
+
+impl RelaySet {
+    pub fn new(mut relays: Vec<MevBoostRelayID>) -> Self {
+        relays.sort();
+        Self { relays }
+    }
+
+    pub fn relays(&self) -> &[MevBoostRelayID] {
+        &self.relays
+    }
+}
+
+impl From<Vec<MevBoostRelayID>> for RelaySet {
+    fn from(relays: Vec<MevBoostRelayID>) -> Self {
+        Self::new(relays)
+    }
+}
+
 #[derive(Clone, Eq, PartialEq, Debug)]
-pub struct SlotBidderSealBidCommand {
-    pub block_id: BuiltBlockId,
+pub struct PayoutInfo {
+    /// Relays that should get this bid.
+    pub relays: RelaySet,
     pub payout_tx_value: U256,
     /// Subsidy used in the bid.
     pub subsidy: I256,
+}
+
+#[derive(Clone, Eq, PartialEq, Debug)]
+pub struct SlotBidderSealBidCommand {
+    pub block_id: BuiltBlockId,
     pub seen_competition_bid: Option<U256>,
     /// When this bid is a reaction so some event (eg: new block, new competition bid) we put here
     /// the creation time of that event so we can measure our reaction time.
     pub trigger_creation_time: Option<OffsetDateTime>,
+    /// All the different bids to be made.
+    pub payout_info: Vec<PayoutInfo>,
 }
 
 #[automock]
@@ -156,6 +191,9 @@ pub trait BiddingService: Send + Sync {
         block_seal_handle: Box<dyn BlockSealInterfaceForSlotBidder + Send + Sync>,
         cancel: CancellationToken,
     ) -> Arc<dyn SlotBidder>;
+    /// set of all RelaySet that will be used to bid.
+    /// Not &[RelaySet] because it caused problems with some Mutex<BiddingService>.
+    fn relay_sets(&self) -> Vec<RelaySet>;
 
     fn observe_relay_bids(&self, bid: ScrapedRelayBlockBidWithStats);
 
@@ -167,6 +205,7 @@ pub trait BiddingService: Send + Sync {
 pub struct BiddingService2BidSender {
     inner: Arc<dyn BiddingService>,
 }
+
 impl BiddingService2BidSender {
     pub fn new(inner: Arc<dyn BiddingService>) -> Self {
         Self { inner }
