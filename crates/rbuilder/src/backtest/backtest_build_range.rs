@@ -20,7 +20,7 @@ use crate::{
     live_builder::cli::LiveBuilderConfig,
     utils::timestamp_ms_to_offset_datetime,
 };
-use alloy_primitives::{utils::format_ether, Address, U256};
+use alloy_primitives::{utils::format_ether, U256};
 use clap::Parser;
 use rayon::prelude::*;
 use rbuilder_config::load_toml_config;
@@ -58,8 +58,6 @@ struct Cli {
     compare_backtest: bool,
     #[clap(long, help = "Path to csv file to write output to")]
     csv: Option<PathBuf>,
-    #[clap(long, help = "Ignored signers")]
-    ignored_signers: Vec<Address>,
     #[clap(help = "Blocks")]
     blocks: Vec<u64>,
 }
@@ -145,7 +143,6 @@ where
         historical_data_storage,
         blocks.clone(),
         cli.build_block_lag_ms as i64,
-        cli.ignored_signers,
         cancel_token.clone(),
     );
 
@@ -409,7 +406,6 @@ fn spawn_block_fetcher(
     mut historical_data_storage: HistoricalDataStorage,
     blocks: Vec<u64>,
     build_block_lag_ms: i64,
-    ignored_signers: Vec<Address>,
     cancellation_token: CancellationToken,
 ) -> mpsc::Receiver<Vec<BlockData>> {
     let (sender, receiver) = mpsc::channel(10);
@@ -433,10 +429,7 @@ fn spawn_block_fetcher(
                         (full_block.winning_bid_trace.timestamp_ms as i64 - build_block_lag_ms)
                             as u64,
                     )) {
-                        Ok(mut block) => {
-                            block.filter_out_ignored_signers(&ignored_signers, false);
-                            Some(block)
-                        }
+                        Ok(block) => Some(block),
                         Err(err) => {
                             error!(
                                 err = ?err,

@@ -22,6 +22,8 @@ use tokio_tungstenite::{
 };
 use tracing::{debug, error, info};
 
+pub type BloxrouteWsPublisher = Service<BloxrouteWsConnectionHandler>;
+
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct BloxrouteWsPublisherConfig {
     /// Url to connect to. Example: "wss://mev-eth.blxrbdn.com/ws"
@@ -189,5 +191,3 @@ mod tests {
         assert!(serde_json::from_str::<BloxrouteWsBid>(raw).is_ok());
     }
 }
-
-pub type BloxrouteWsPublisher = Service<BloxrouteWsConnectionHandler>;

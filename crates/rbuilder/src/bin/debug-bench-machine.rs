@@ -3,7 +3,9 @@
 //! It downloads block after the last one synced and re-executes all the txs in it.
 use alloy_consensus::TxEnvelope;
 use alloy_eips::Decodable2718;
+use alloy_primitives::address;
 use alloy_provider::Provider;
+use alloy_rpc_types_beacon::relay::SubmitBlockRequest as AlloySubmitBlockRequest;
 use clap::Parser;
 use eyre::Context;
 use itertools::Itertools;
@@ -111,7 +113,14 @@ async fn main() -> eyre::Result<()> {
     let mut build_times_ms = Vec::new();
     let mut finalize_time_ms = Vec::new();
     for _ in 0..cli.iters {
-        let ctx = ctx.clone();
+        let mut ctx = ctx.clone();
+        // add one random empty account and real adjusted fee payer to hit a code path for creating bid adjustment data in finalization
+        ctx.adjustment_fee_payers = [
+            address!("a41772428931BE72C28011f114A15B4211DFdfE5"),
+            address!("59CadF9199248b50d40a6891c9E329eA13a88d31"),
+        ]
+        .into_iter()
+        .collect();
         let txs = txs.clone();
         let state_provider = state_provider.clone();
         let (build_time, finalize_time) =
@@ -172,11 +181,11 @@ async fn main() -> eyre::Result<()> {
 fn read_execution_payload_from_json(path: PathBuf) -> eyre::Result<alloy_rpc_types::Block> {
     let req = std::fs::read_to_string(&path)?;
     let req: SubmitBlockRequest = serde_json::from_str(&req)?;
-    let block_raw = match req {
-        SubmitBlockRequest::Capella(req) => req.execution_payload.clone().into_block_raw()?,
-        SubmitBlockRequest::Fulu(req) => req.execution_payload.clone().into_block_raw()?,
-        SubmitBlockRequest::Deneb(req) => req.execution_payload.clone().into_block_raw()?,
-        SubmitBlockRequest::Electra(req) => req.execution_payload.clone().into_block_raw()?,
+    let block_raw = match req.request.as_ref() {
+        AlloySubmitBlockRequest::Capella(req) => req.execution_payload.clone().into_block_raw()?,
+        AlloySubmitBlockRequest::Fulu(req) => req.execution_payload.clone().into_block_raw()?,
+        AlloySubmitBlockRequest::Deneb(req) => req.execution_payload.clone().into_block_raw()?,
+        AlloySubmitBlockRequest::Electra(req) => req.execution_payload.clone().into_block_raw()?,
     };
     let rpc_block = alloy_rpc_types::Block::from_consensus(block_raw, None);
     let rpc_block = rpc_block.try_map_transactions(|bytes| -> eyre::Result<_> {

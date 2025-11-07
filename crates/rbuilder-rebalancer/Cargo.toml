@@ -7,6 +7,20 @@ license.workspace = true
 homepage.workspace = true
 repository.workspace = true
 
+[package.metadata.deb]
+maintainer = "Flashbots Team <devops+ci@flashbots.net>"
+depends = "$auto"
+section = "network"
+priority = "optional"
+maintainer-scripts = "pkg/debian"
+assets = [
+    ["target/release/**/rbuilder-rebalancer", "usr/bin/", "755"],
+    ["pkg/etc/config.toml", "etc/rbuilder-rebalancer/", "644"],
+    ["../../LICENSE-APACHE", "usr/share/doc/rbuilder-rebalancer/", "644"],
+    ["../../LICENSE-MIT", "usr/share/doc/rbuilder-rebalancer/", "644"],
+]
+systemd-units = { enable = false, start = false, unit-name = "rbuilder-rebalancer" }
+
 [dependencies]
 rbuilder-config.workspace = true
 

@@ -127,13 +127,18 @@ impl PartialEq for EstimatePayoutGasErr {
 impl Eq for EstimatePayoutGasErr {}
 
 fn estimate_payout_tx_space(ctx: &BlockBuildingContext) -> Result<BlockSpace, secp256k1::Error> {
+    let gas_limit = ctx
+        .evm_env
+        .cfg_env
+        .tx_gas_limit_cap
+        .unwrap_or(ctx.evm_env.block_env.gas_limit);
     let tx = create_payout_tx(
         ctx.chain_spec.as_ref(),
         ctx.evm_env.block_env.basefee,
         &ctx.builder_signer,
         0,
         Address::ZERO,
-        ctx.evm_env.block_env.gas_limit,
+        gas_limit,
         U256::ZERO,
     )?;
     Ok(BlockSpace::new(
@@ -159,10 +164,12 @@ pub fn estimate_payout_gas_limit(
     }
 
     // We probably have a bug here since no reserved space was propagated but with a little bit of luck it will work because we call can_fit_tx later?
-    let gas_left = ctx
+    let max_tx_gas_limit = ctx
         .evm_env
-        .block_env
-        .gas_limit
+        .cfg_env
+        .tx_gas_limit_cap
+        .unwrap_or(ctx.evm_env.block_env.gas_limit);
+    let gas_left = max_tx_gas_limit
         .checked_sub(space_used.gas)
         .unwrap_or_default();
     let estimation = insert_test_payout_tx(to, ctx, local_ctx, state, gas_left)?

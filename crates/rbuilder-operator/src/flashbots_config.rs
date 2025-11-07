@@ -2,7 +2,8 @@
 //! This code has lots of copy/paste from the example config but it's not really copy/paste since we use our own private types.
 //! @Pending make this copy/paste generic code on the library
 
-use alloy_primitives::{Address, U256};
+use alloy_primitives::U256;
+use alloy_rpc_types_beacon::relay::SubmitBlockRequest as AlloySubmitBlockRequest;
 use alloy_signer_local::PrivateKeySigner;
 use derivative::Derivative;
 use eyre::Context;
@@ -15,7 +16,9 @@ use rbuilder::{
     },
     live_builder::{
         base_config::BaseConfig,
-        block_output::bidding_service_interface::{BidObserver, LandedBlockInfo},
+        block_output::bidding_service_interface::{
+            BidObserver, BiddingService, LandedBlockInfo, RelaySet,
+        },
         cli::LiveBuilderConfig,
         config::{
             build_backtest_block_ordering_builder, create_builder_from_sink, create_builders,
@@ -29,7 +32,6 @@ use rbuilder::{
     utils::build_info::Version,
 };
 use rbuilder_config::EnvOrValue;
-use rbuilder_primitives::mev_boost::SubmitBlockRequest;
 use serde::Deserialize;
 use serde_with::serde_as;
 use tokio_util::sync::CancellationToken;
@@ -111,10 +113,6 @@ pub struct FlashbotsConfig {
     /// For production we always need some tbv push (since it's used by smart-multiplexing.) so:
     /// !Some(key_registration_url) => Some(tbv_push_redis)
     tbv_push_redis: Option<TBVPushRedisConfig>,
-
-    /// Bundles with refund identity or signer set to these will not receive any redistributions.
-    #[serde(default)]
-    pub backtest_ignored_signers: Vec<Address>,
 }
 
 impl LiveBuilderConfig for FlashbotsConfig {
@@ -138,7 +136,11 @@ impl LiveBuilderConfig for FlashbotsConfig {
             create_wallet_balance_watcher(provider.clone(), &self.base_config).await?;
 
         let bidding_service = self
-            .create_bidding_service(&landed_blocks, cancellation_token.clone())
+            .create_bidding_service(
+                &landed_blocks,
+                self.l1_config.relays_ids(),
+                cancellation_token.clone(),
+            )
             .await?;
 
         let bid_observer = self.create_bid_observer(&cancellation_token).await?;
@@ -147,6 +149,7 @@ impl LiveBuilderConfig for FlashbotsConfig {
             create_sink_factory_and_relays(
                 &self.base_config,
                 &self.l1_config,
+                bidding_service.relay_sets().to_vec(),
                 wallet_balance_watcher,
                 bid_observer,
                 bidding_service.clone(),
@@ -244,11 +247,13 @@ impl FlashbotsConfig {
     pub async fn create_bidding_service(
         &self,
         landed_blocks_history: &[LandedBlockInfo],
+        all_relay_ids: RelaySet,
         cancellation_token: CancellationToken,
     ) -> eyre::Result<Arc<BiddingServiceClientAdapter>> {
         let bidding_service_client = BiddingServiceClientAdapter::new(
             &self.bidding_service_ipc_path,
             landed_blocks_history,
+            all_relay_ids,
             cancellation_token,
         )
         .await
@@ -435,18 +440,20 @@ impl BidObserver for RbuilderOperatorBidObserver {
     fn block_submitted(
         &self,
         slot_data: &MevBoostSlotData,
-        submit_block_request: &SubmitBlockRequest,
-        built_block_trace: &BuiltBlockTrace,
+        submit_block_request: Arc<AlloySubmitBlockRequest>,
+        built_block_trace: Arc<BuiltBlockTrace>,
         builder_name: String,
         best_bid_value: U256,
+        relays: &RelaySet,
     ) {
         if let Some(p) = self.block_processor.as_ref() {
             p.block_submitted(
                 slot_data,
-                submit_block_request,
-                built_block_trace,
+                submit_block_request.clone(),
+                built_block_trace.clone(),
                 builder_name.clone(),
                 best_bid_value,
+                relays,
             )
         }
         if let Some(p) = self.tbv_pusher.as_ref() {
@@ -456,6 +463,7 @@ impl BidObserver for RbuilderOperatorBidObserver {
                 built_block_trace,
                 builder_name,
                 best_bid_value,
+                relays,
             )
         }
     }

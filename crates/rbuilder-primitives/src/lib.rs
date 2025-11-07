@@ -1152,6 +1152,13 @@ impl Order {
         }
     }
 
+    pub fn external_bundle_hash(&self) -> Option<B256> {
+        match self {
+            Order::Bundle(b) => b.external_hash,
+            _ => None,
+        }
+    }
+
     pub fn is_tx(&self) -> bool {
         matches!(self, Order::Tx(_))
     }

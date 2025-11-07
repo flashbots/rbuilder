@@ -16,7 +16,7 @@ use std::collections::HashSet;
 use crate::{mev_boost::BuilderBlockReceived, utils::offset_datetime_to_timestamp_ms};
 use alloy_consensus::Transaction as TransactionTrait;
 use alloy_network_primitives::TransactionResponse;
-use alloy_primitives::{Address, TxHash, I256};
+use alloy_primitives::{TxHash, I256};
 use alloy_rpc_types::{BlockTransactions, Transaction};
 pub use fetch::HistoricalDataFetcher;
 use rbuilder_primitives::{serialize::RawOrder, AccountNonce, Order, OrderId, OrderReplacementKey};
@@ -69,7 +69,12 @@ pub enum OrderFilteredReason {
     Ids,
     /// Order signer was explicitly filtered out
     Signer,
+    /// Order was filtered out for other reasons
+    Other { reason: String },
 }
+
+pub trait OrderFilterFn: Fn(&Order) -> Option<OrderFilteredReason> {}
+impl<T> OrderFilterFn for T where T: Fn(&Order) -> Option<OrderFilteredReason> {}
 
 #[derive(Debug, Clone)]
 pub struct BlockData {
@@ -199,30 +204,15 @@ impl BlockData {
         });
     }
 
-    pub fn filter_out_ignored_signers(
-        &mut self,
-        ignored_signers: &[Address],
-        use_refund_identity: bool,
-    ) {
+    pub fn filter_out_orders<Filter: OrderFilterFn>(&mut self, filter: Filter) {
         self.available_orders.retain(|orders| {
             let order = &orders.order;
-            let signer = if use_refund_identity {
-                order.metadata().refund_identity.or_else(|| order.signer())
-            } else {
-                order.signer()
-            };
-            let signer = if let Some(signer) = signer {
-                signer
-            } else {
-                return true;
-            };
-            if !ignored_signers.contains(&signer) {
-                true
-            } else {
-                trace!(order = ?order.id(), "order filtered by ignored signers");
-                self.filtered_orders
-                    .insert(order.id(), OrderFilteredReason::Signer);
+            if let Some(reason) = filter(order) {
+                trace!(order = ?order.id(), "order filtered out");
+                self.filtered_orders.insert(order.id(), reason);
                 false
+            } else {
+                true
             }
         });
     }

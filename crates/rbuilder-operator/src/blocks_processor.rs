@@ -1,15 +1,16 @@
 use alloy_primitives::{Address, BlockHash, B256, U256};
+use alloy_rpc_types_beacon::relay::SubmitBlockRequest as AlloySubmitBlockRequest;
 use exponential_backoff::Backoff;
 use jsonrpsee::core::{client::ClientT, traits::ToRpcParams};
 use rbuilder::{
     building::BuiltBlockTrace,
     live_builder::{
-        block_output::bidding_service_interface::BidObserver, payload_events::MevBoostSlotData,
+        block_output::bidding_service_interface::{BidObserver, RelaySet},
+        payload_events::MevBoostSlotData,
     },
     utils::error_storage::store_error_event,
 };
 use rbuilder_primitives::{
-    mev_boost::SubmitBlockRequest,
     serialize::{RawBundle, RawShareBundle},
     Bundle, Order, OrderId,
 };
@@ -74,16 +75,26 @@ pub struct BlockProcessorDelayedPayments {
 
 type ConsumeBuiltBlockRequest = (
     BlocksProcessorHeader,
+    // ordersClosedAt
     String,
+    // sealedAt
     String,
+    //  commitedBundles
     Vec<UsedBundle>,
+    // allBundles
     Vec<UsedBundle>,
+    // usedSbundles
     Vec<UsedSbundle>,
     alloy_rpc_types_beacon::relay::BidTrace,
+    // builderName
     String,
+    // trueBidValue
     U256,
+    // bestBidValue
     U256,
     Vec<BlockProcessorDelayedPayments>,
+    // Relays
+    Vec<String>,
 );
 
 /// Struct to avoid copying ConsumeBuiltBlockRequest since HttpClient::request eats the parameter.
@@ -135,12 +146,24 @@ impl<HttpClientType: ClientT> BlocksProcessorClient<HttpClientType> {
     }
     pub async fn submit_built_block(
         &self,
-        submit_block_request: &SubmitBlockRequest,
+        submit_block_request: &AlloySubmitBlockRequest,
         built_block_trace: &BuiltBlockTrace,
         builder_name: String,
         best_bid_value: U256,
+        relays: RelaySet,
     ) -> eyre::Result<()> {
-        let execution_payload_v1 = submit_block_request.execution_payload_v1();
+        let execution_payload_v1 = match submit_block_request {
+            AlloySubmitBlockRequest::Capella(request) => &request.execution_payload.payload_inner,
+            AlloySubmitBlockRequest::Deneb(request) => {
+                &request.execution_payload.payload_inner.payload_inner
+            }
+            AlloySubmitBlockRequest::Electra(request) => {
+                &request.execution_payload.payload_inner.payload_inner
+            }
+            AlloySubmitBlockRequest::Fulu(request) => {
+                &request.execution_payload.payload_inner.payload_inner
+            }
+        };
         let header = BlocksProcessorHeader {
             hash: execution_payload_v1.block_hash,
             gas_limit: U256::from(execution_payload_v1.gas_limit),
@@ -225,6 +248,11 @@ impl<HttpClientType: ClientT> BlocksProcessorClient<HttpClientType> {
             built_block_trace.true_bid_value,
             best_bid_value,
             delayed_payments,
+            relays
+                .relays()
+                .iter()
+                .map(|relay| relay.to_string())
+                .collect(),
         );
         let request = ConsumeBuiltBlockRequestArc::new(params);
         let backoff = backoff();
@@ -345,15 +373,15 @@ impl<HttpClientType: ClientT + Clone + Send + Sync + std::fmt::Debug + 'static> 
     fn block_submitted(
         &self,
         _slot_data: &MevBoostSlotData,
-        submit_block_request: &SubmitBlockRequest,
-        built_block_trace: &BuiltBlockTrace,
+        submit_block_request: Arc<AlloySubmitBlockRequest>,
+        built_block_trace: Arc<BuiltBlockTrace>,
         builder_name: String,
         best_bid_value: U256,
+        relays: &RelaySet,
     ) {
         let client = self.client.clone();
         let parent_span = Span::current();
-        let submit_block_request = submit_block_request.clone();
-        let built_block_trace = built_block_trace.clone();
+        let relays = relays.clone();
         tokio::spawn(async move {
             let block_processor_result = client
                 .submit_built_block(
@@ -361,6 +389,7 @@ impl<HttpClientType: ClientT + Clone + Send + Sync + std::fmt::Debug + 'static> 
                     &built_block_trace,
                     builder_name,
                     best_bid_value,
+                    relays,
                 )
                 .await;
             if let Err(err) = block_processor_result {

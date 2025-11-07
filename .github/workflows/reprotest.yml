@@ -1,0 +1,78 @@
+name: reproducible-build-test
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "0 1 */2 * *"
+
+jobs:
+  build:
+    name: build reproducible binaries
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - runner: warp-ubuntu-2404-x64-32x
+            machine: machine-1
+          - runner: warp-ubuntu-2204-x64-32x
+            machine: machine-2
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Install rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+
+      - name: Build reproducible binary with Docker
+        run: |
+          RUST_TOOLCHAIN=$(rustc --version | cut -d' ' -f2)
+          docker build \
+            --build-arg "RUST_TOOLCHAIN=${RUST_TOOLCHAIN}" \
+            -f docker/Dockerfile.reproducible -t rbuilder:release \
+            --output type=local,dest=./target .
+
+      - name: Calculate SHA256
+        id: sha256
+        run: |
+          sha256sum target/reproducible/{rbuilder-operator,rbuilder-rebalancer} > checksums.sha256
+          echo "Binaries SHA256 on ${{ matrix.machine }}: $(cat checksums.sha256)"
+      - name: Upload the hash
+        uses: actions/upload-artifact@v4
+        with:
+          name: checksums-${{ matrix.machine }}
+          path: |
+            checksums.sha256
+          retention-days: 1
+
+  compare:
+    name: compare reproducible binaries
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts from machine-1
+        uses: actions/download-artifact@v4
+        with:
+          name: checksums-machine-1
+          path: machine-1/
+      - name: Download artifacts from machine-2
+        uses: actions/download-artifact@v4
+        with:
+          name: checksums-machine-2
+          path: machine-2/
+      - name: Compare SHA256 hashes
+        run: |
+          echo "=== SHA256 Comparison ==="
+          echo "Machine 1 hashes:"
+          cat machine-1/checksums.sha256
+          echo "Machine 2 hashes:"
+          cat machine-2/checksums.sha256
+
+          if cmp -s machine-1/checksums.sha256 machine-2/checksums.sha256; then
+            echo "✅ SUCCESS: Binaries are identical (reproducible build verified)"
+          else
+            echo "❌ FAILURE: Binaries differ (reproducible build failed)"
+            exit 1
+          fi

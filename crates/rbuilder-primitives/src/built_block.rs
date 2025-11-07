@@ -1,7 +1,3 @@
-use crate::mev_boost::{
-    BidAdjustmentDataV1, CapellaSubmitBlockRequest, DenebSubmitBlockRequest,
-    ElectraSubmitBlockRequest, FuluSubmitBlockRequest, SubmitBlockRequest,
-};
 use alloy_eips::{
     eip2718::Encodable2718,
     eip4844::BlobTransactionSidecar,
@@ -10,6 +6,7 @@ use alloy_eips::{
 };
 use alloy_primitives::{Bytes, U256};
 use alloy_rpc_types::Withdrawals;
+use alloy_rpc_types_beacon::relay::SubmitBlockRequest as AlloySubmitBlockRequest;
 use alloy_rpc_types_beacon::{
     events::PayloadAttributesData,
     relay::{
@@ -37,42 +34,18 @@ pub struct SignedBuiltBlock {
 }
 
 impl SignedBuiltBlock {
-    /// Convert the signed block into [`SubmitBlockRequest`].
-    /// NOTE: This does not set bid adjustment data. Use [`Self::into_request_with_adjustment_data`] instead.
-    pub fn into_request(self, chain_spec: &ChainSpec) -> eyre::Result<SubmitBlockRequest> {
-        self.into_request_inner(chain_spec, None)
-    }
-
-    /// Convert the signed block into [`SubmitBlockRequest`] with ad
-    pub fn into_request_with_adjustment_data(
-        self,
-        chain_spec: &ChainSpec,
-        adjustment_data: Option<BidAdjustmentDataV1>,
-    ) -> eyre::Result<SubmitBlockRequest> {
-        self.into_request_inner(chain_spec, adjustment_data)
-    }
-
-    /// Convert the signed block into [`SubmitBlockRequest`].
-    /// NOTE:
-    fn into_request_inner(
-        self,
-        chain_spec: &ChainSpec,
-        adjustment_data: Option<BidAdjustmentDataV1>,
-    ) -> eyre::Result<SubmitBlockRequest> {
+    /// Convert the signed block into [`SubmitBlockRequest`](`alloy_rpc_types_beacon::relay::SubmitBlockRequest`).
+    pub fn into_request(self, chain_spec: &ChainSpec) -> eyre::Result<AlloySubmitBlockRequest> {
         match self.execution_payload {
             ExecutionPayload::V1(_v1) => {
                 eyre::bail!("v1 payloads are not supported");
             }
             ExecutionPayload::V2(v2) => {
-                let submission = SignedBidSubmissionV2 {
+                Ok(AlloySubmitBlockRequest::Capella(SignedBidSubmissionV2 {
                     message: self.message,
                     execution_payload: v2,
                     signature: self.signature,
-                };
-                Ok(SubmitBlockRequest::capella(CapellaSubmitBlockRequest::new(
-                    submission,
-                    adjustment_data,
-                )))
+                }))
             }
             ExecutionPayload::V3(v3) => {
                 if chain_spec.is_osaka_active_at_timestamp(v3.timestamp()) {
@@ -80,17 +53,13 @@ impl SignedBuiltBlock {
                         self.execution_requests.to_vec(),
                     ))?;
                     let blobs_bundle_v2 = marshall_txs_blobs_sidecars_v2(&self.blob_sidecars);
-                    let submission = SignedBidSubmissionV5 {
+                    return Ok(AlloySubmitBlockRequest::Fulu(SignedBidSubmissionV5 {
                         message: self.message,
                         execution_payload: v3,
                         blobs_bundle: blobs_bundle_v2,
                         signature: self.signature,
                         execution_requests,
-                    };
-                    return Ok(SubmitBlockRequest::fulu(FuluSubmitBlockRequest::new(
-                        submission,
-                        adjustment_data,
-                    )));
+                    }));
                 }
 
                 let blobs_bundle = marshal_txs_blobs_sidecars(&self.blob_sidecars);
@@ -98,29 +67,21 @@ impl SignedBuiltBlock {
                     let execution_requests = ExecutionRequestsV4::try_from(Requests::new(
                         self.execution_requests.to_vec(),
                     ))?;
-                    let submission = SignedBidSubmissionV4 {
+                    return Ok(AlloySubmitBlockRequest::Electra(SignedBidSubmissionV4 {
                         message: self.message,
                         execution_payload: v3,
                         blobs_bundle,
                         signature: self.signature,
                         execution_requests,
-                    };
-                    return Ok(SubmitBlockRequest::electra(ElectraSubmitBlockRequest::new(
-                        submission,
-                        adjustment_data,
-                    )));
+                    }));
                 }
 
-                let submission = SignedBidSubmissionV3 {
+                Ok(AlloySubmitBlockRequest::Deneb(SignedBidSubmissionV3 {
                     message: self.message,
                     execution_payload: v3,
                     blobs_bundle,
                     signature: self.signature,
-                };
-                Ok(SubmitBlockRequest::deneb(DenebSubmitBlockRequest::new(
-                    submission,
-                    adjustment_data,
-                )))
+                }))
             }
         }
     }

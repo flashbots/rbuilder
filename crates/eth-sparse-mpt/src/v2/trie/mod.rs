@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use alloy_primitives::{keccak256, Bytes, B256};
+use alloy_primitives::{keccak256, B256};
 use alloy_rlp::EMPTY_STRING_CODE;
 use arrayvec::ArrayVec;
 
@@ -86,8 +86,6 @@ pub enum ProofError {
     NodeNotFound(#[from] NodeNotFound),
     #[error("Trie is dirty")]
     TrieIsDirty,
-    #[error("Key node not found in the trie")]
-    KeyNotFound,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -104,6 +102,12 @@ impl NodeNotFound {
 pub enum InsertValue<'a> {
     Value(&'a [u8]),
     StoredValue(Range<usize>),
+}
+
+#[derive(Debug, Clone)]
+pub struct ProofWithValue {
+    pub proof: Vec<(Nibbles, Vec<u8>)>,
+    pub value: Option<Vec<u8>>,
 }
 
 impl Trie {
@@ -848,14 +852,26 @@ impl Trie {
         }
     }
 
+    pub fn get_proof(
+        &self,
+        key: &[u8],
+        proof_store: &ProofStore,
+    ) -> Result<ProofWithValue, ProofError> {
+        let n = Nibbles::unpack(key);
+        self.get_proof_nibbles_key(&n, proof_store)
+    }
+
     /// Generate proof for the target key.
-    pub fn proof(
+    pub fn get_proof_nibbles_key(
         &self,
         target_key: &Nibbles,
         proof_store: &ProofStore,
-    ) -> Result<Vec<Bytes>, ProofError> {
+    ) -> Result<ProofWithValue, ProofError> {
         let mut buf = Vec::new();
-        let mut proof = Vec::new();
+        let mut result = ProofWithValue {
+            proof: Vec::new(),
+            value: None,
+        };
 
         let mut current_node = 0;
         let mut path_walked = 0;
@@ -870,17 +886,20 @@ impl Trie {
                 return Err(ProofError::TrieIsDirty);
             }
 
+            self.rlp_encode_node(current_node, &mut buf, proof_store);
+            let current_node_path =
+                Nibbles::from_nibbles_unchecked(&target_key.as_slice()[..path_walked]);
+            result.proof.push((current_node_path, buf.clone()));
+
             match node {
                 DiffTrieNode::Branch { children } => {
                     if target_key.len() == path_walked {
-                        return Err(ProofError::KeyNotFound);
+                        break;
                     }
 
                     let children = *children;
 
                     let n = target_key[path_walked];
-                    self.rlp_encode_node(current_node, &mut buf, proof_store);
-                    proof.push(Bytes::copy_from_slice(&buf));
                     path_walked += 1;
 
                     if let Some(child_ptr) = self.branch_node_children[children][n as usize] {
@@ -890,15 +909,13 @@ impl Trie {
                         continue;
                     }
 
-                    return Err(ProofError::KeyNotFound);
+                    break;
                 }
                 DiffTrieNode::Extension { key, next_node } => {
                     let key = key.clone();
                     let next_node = *next_node;
 
                     if target_key[path_walked..].starts_with(&self.keys[key.clone()]) {
-                        self.rlp_encode_node(current_node, &mut buf, proof_store);
-                        proof.push(Bytes::copy_from_slice(&buf));
                         path_walked += key.len();
                         current_node = next_node
                             .as_local()
@@ -906,23 +923,21 @@ impl Trie {
                         continue;
                     }
 
-                    return Err(ProofError::KeyNotFound);
+                    break;
                 }
-                DiffTrieNode::Leaf { key, .. } => {
+                DiffTrieNode::Leaf { key, value } => {
                     if self.keys[key.clone()] == target_key[path_walked..] {
-                        self.rlp_encode_node(current_node, &mut buf, proof_store);
-                        proof.push(Bytes::copy_from_slice(&buf));
-                        break;
+                        result.value = Some(self.values[value.clone()].to_vec());
                     }
-                    return Err(ProofError::KeyNotFound);
+                    break;
                 }
                 DiffTrieNode::Null => {
-                    return Err(ProofError::KeyNotFound);
+                    break;
                 }
             }
         }
 
-        Ok(proof)
+        Ok(result)
     }
 
     pub fn debug_print_node(&self, node_idx: usize) {
@@ -1053,6 +1068,7 @@ impl Trie {
                 .nodes
                 .get(current_node)
                 .ok_or_else(|| NodeNotFound::new(&path[..path_walked]))?;
+            self.hashed_nodes[current_node] = false;
             match node {
                 DiffTrieNode::Branch { children } => {
                     let children = *children;

@@ -4,7 +4,7 @@ use parking_lot::Mutex;
 use rbuilder::{
     live_builder::block_output::bidding_service_interface::{
         BiddingService, BlockSealInterfaceForSlotBidder, LandedBlockInfo as RealLandedBlockInfo,
-        ScrapedRelayBlockBidWithStats, SlotBidder, SlotBlockId,
+        RelaySet, ScrapedRelayBlockBidWithStats, SlotBidder, SlotBlockId,
     },
     utils::build_info::Version,
 };
@@ -21,17 +21,19 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tonic::transport::{Channel, Endpoint, Uri};
 use tower::service_fn;
-use tracing::error;
+use tracing::{error, info};
 
 use crate::{
     bidding_service_wrapper::{
         bidding_service_client::BiddingServiceClient,
-        conversion::{real2rpc_block_hash, real2rpc_landed_block_info},
+        conversion::{
+            real2rpc_block_hash, real2rpc_landed_block_info, real2rpc_relay_set, rpc2real_relay_set,
+        },
         fast_streams::helpers::{
             self, create_blocks_publisher, spawn_slot_bidder_seal_bid_command_subscriber,
             BlocksPublisher, ScrapedBidsPublisher,
         },
-        CreateSlotBidderParams, DestroySlotBidderParams, Empty, LandedBlocksParams,
+        CreateSlotBidderParams, DestroySlotBidderParams, Empty, InitParams, LandedBlocksParams,
         MustWinBlockParams,
     },
     metrics::set_bidding_service_version,
@@ -66,6 +68,7 @@ pub struct BiddingServiceClientAdapter {
     last_session_id: AtomicU64,
     scraped_bids_publisher: ScrapedBidsPublisher,
     blocks_publisher: Arc<BlocksPublisher>,
+    relay_sets: Vec<RelaySet>,
 }
 
 impl std::fmt::Debug for BiddingServiceClientAdapter {
@@ -93,6 +96,8 @@ pub enum Error {
     InitFailed(tonic::Status),
     #[error("ScrapedBidsPublisher error : {0}")]
     ScrapedBidsPublisher(#[from] helpers::Error),
+    #[error("Bidder version not found")]
+    BidderVersionNotFound,
 }
 
 pub type Result<T> = core::result::Result<T, Error>;
@@ -102,17 +107,20 @@ impl BiddingServiceClientAdapter {
     pub async fn new(
         uds_path: &str,
         landed_blocks_history: &[RealLandedBlockInfo],
+        all_relay_ids: RelaySet,
         cancellation_token: CancellationToken,
     ) -> Result<Self> {
         let session_id_to_slot_bidder = Arc::new(Mutex::new(HashMap::new()));
-        let commands_sender = Self::init_sender_task(
+        let (commands_sender, relay_sets) = Self::init_sender_task(
             uds_path,
             landed_blocks_history,
+            all_relay_ids,
             session_id_to_slot_bidder.clone(),
         )
         .await?;
         spawn_slot_bidder_seal_bid_command_subscriber(
             session_id_to_slot_bidder,
+            relay_sets.clone(),
             cancellation_token.clone(),
         )?;
         let scraped_bids_publisher = ScrapedBidsPublisher::new()?;
@@ -122,6 +130,7 @@ impl BiddingServiceClientAdapter {
             last_session_id: AtomicU64::new(0),
             scraped_bids_publisher,
             blocks_publisher,
+            relay_sets,
         })
     }
 
@@ -129,13 +138,18 @@ impl BiddingServiceClientAdapter {
         self.last_session_id.fetch_add(1, Ordering::Relaxed)
     }
 
+    // returns the commands_sender to send commands to the bidding service and the relay_sets that it got on the initialize call.
     async fn init_sender_task(
         uds_path: &str,
         landed_blocks_history: &[RealLandedBlockInfo],
+        all_relay_ids: RelaySet,
         session_id_to_slot_bidder: Arc<
             Mutex<HashMap<u64, Arc<dyn BlockSealInterfaceForSlotBidder + Send + Sync>>>,
         >,
-    ) -> Result<mpsc::UnboundedSender<BiddingServiceClientCommand>> {
+    ) -> Result<(
+        mpsc::UnboundedSender<BiddingServiceClientCommand>,
+        Vec<RelaySet>,
+    )> {
         let uds_path = uds_path.to_string();
         // Url us dummy but needed to create the Endpoint.
         let channel = Endpoint::try_from("http://[::]:50051")
@@ -148,23 +162,42 @@ impl BiddingServiceClientAdapter {
             .await?;
         // Create a client
         let mut client = BiddingServiceClient::new(channel);
-        let init_params = LandedBlocksParams {
+        let init_params = InitParams {
             landed_block_info: landed_blocks_history
                 .iter()
                 .map(real2rpc_landed_block_info)
                 .collect(),
+            all_relay_ids: Some(real2rpc_relay_set(&all_relay_ids)),
         };
-        let bidding_service_version = client
+        let init_res = client
             .initialize(init_params)
             .await
             .map_err(Error::InitFailed)?;
-        let bidding_service_version = bidding_service_version.into_inner();
+        let init_res = init_res.into_inner();
+        let bidding_service_version = init_res
+            .bidder_version
+            .ok_or(Error::BidderVersionNotFound)?;
+        let relay_sets = init_res.relay_sets.iter().map(rpc2real_relay_set).collect();
+        info!(?relay_sets, "relay sets received from bidding service");
         set_bidding_service_version(Version {
             git_commit: bidding_service_version.git_commit,
             git_ref: bidding_service_version.git_ref,
             build_time_utc: bidding_service_version.build_time_utc,
         });
-        let (commands_sender, mut rx) = mpsc::unbounded_channel::<BiddingServiceClientCommand>();
+        let (commands_sender, rx) = mpsc::unbounded_channel::<BiddingServiceClientCommand>();
+        Self::spawn_sender_loop_task(rx, client, session_id_to_slot_bidder);
+        Ok((commands_sender, relay_sets))
+    }
+
+    /// Spawns a task to execute on client commands received via the channel.
+    /// Sessions are kept in session_id_to_slot_bidder.
+    fn spawn_sender_loop_task(
+        mut rx: mpsc::UnboundedReceiver<BiddingServiceClientCommand>,
+        mut client: BiddingServiceClient<Channel>,
+        session_id_to_slot_bidder: Arc<
+            Mutex<HashMap<u64, Arc<dyn BlockSealInterfaceForSlotBidder + Send + Sync>>>,
+        >,
+    ) {
         // Spawn a task to execute received futures
         tokio::spawn(async move {
             while let Some(command) = rx.recv().await {
@@ -201,7 +234,6 @@ impl BiddingServiceClientAdapter {
                 }
             }
         });
-        Ok(commands_sender)
     }
 
     /// Calls create_slot_bidder via RPC to init the bidder.
@@ -274,6 +306,10 @@ impl BiddingService for BiddingServiceClientAdapter {
             self.commands_sender.clone(),
             self.blocks_publisher.clone(),
         ))
+    }
+
+    fn relay_sets(&self) -> Vec<RelaySet> {
+        self.relay_sets.clone()
     }
 
     fn update_new_landed_blocks_detected(&self, landed_blocks: &[RealLandedBlockInfo]) {

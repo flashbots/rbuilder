@@ -1,13 +1,10 @@
 use crate::OrderId;
-use alloy_primitives::{Address, Bytes, U256};
-use alloy_rpc_types_beacon::{
-    relay::BidTrace, requests::ExecutionRequestsV4, BlsPublicKey, BlsSignature,
-};
-use alloy_rpc_types_engine::{BlobsBundleV1, BlobsBundleV2, ExecutionPayloadV3};
+use alloy_primitives::{Address, Bytes, B256, U256};
+use alloy_rpc_types_beacon::BlsPublicKey;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 mod submit_block;
 pub use submit_block::*;
@@ -73,9 +70,10 @@ pub enum KnownRelay {
     Agnostic,
     Aestus,
     Wenmerge,
+    Titan,
 }
 
-pub const RELAYS: [KnownRelay; 9] = [
+pub const RELAYS: [KnownRelay; 10] = [
     KnownRelay::Flashbots,
     KnownRelay::BloxrouteMaxProfit,
     KnownRelay::BloxrouteRegulated,
@@ -85,6 +83,7 @@ pub const RELAYS: [KnownRelay; 9] = [
     KnownRelay::Agnostic,
     KnownRelay::Aestus,
     KnownRelay::Wenmerge,
+    KnownRelay::Titan,
 ];
 
 impl KnownRelay {
@@ -100,6 +99,7 @@ impl KnownRelay {
             KnownRelay::Agnostic => "https://0xa7ab7a996c8584251c8f925da3170bdfd6ebc75d50f5ddc4050a6fdc77f2a3b5fce2cc750d0865e05d7228af97d69561@agnostic-relay.net",
             KnownRelay::Aestus => "https://0xa15b52576bcbf1072f4a011c0f99f9fb6c66f3e1ff321f11f461d15e31b1cb359caa092c71bbded0bae5b5ea401aab7e@aestus.live",
             KnownRelay::Wenmerge => "https://0x8c7d33605ecef85403f8b7289c8058f440cbb6bf72b055dfe2f3e2c6695b6a1ea5a9cd0eb3a7982927a463feb4c3dae2@relay.wenmerge.com",
+            KnownRelay::Titan => "https://0x8c4ed5e24fe5c6ae21018437bde147693f68cda427cd1122cf20819c30eda7ed74f72dece09bb313f2a1855595ab677d@titanrelay.xyz",
         }).unwrap()
     }
 
@@ -115,6 +115,7 @@ impl KnownRelay {
             KnownRelay::Agnostic => "agnostic",
             KnownRelay::Aestus => "aestus",
             KnownRelay::Wenmerge => "wenmerge",
+            KnownRelay::Titan => "titan",
         }
         .to_string()
     }
@@ -142,6 +143,7 @@ impl std::str::FromStr for KnownRelay {
             "agnostic" => Ok(KnownRelay::Agnostic),
             "aestus" => Ok(KnownRelay::Aestus),
             "wenmerge" => Ok(KnownRelay::Wenmerge),
+            "titan" => Ok(KnownRelay::Titan),
             _ => Err(()),
         }
     }
@@ -200,6 +202,7 @@ pub struct BloxrouteRegionalEndpoint {
 pub struct BidMetadata {
     pub value: BidValueMetadata,
     pub order_ids: Vec<OrderId>,
+    pub bundle_hashes: Vec<B256>,
 }
 
 #[derive(Clone, Copy, Default, Debug)]
@@ -210,85 +213,6 @@ pub struct BidValueMetadata {
 
 #[derive(Clone, Debug)]
 pub struct SubmitBlockRequestWithMetadata {
-    pub submission: Arc<SubmitBlockRequest>,
+    pub submission: SubmitBlockRequest,
     pub metadata: BidMetadata,
-}
-
-/// Signed bid submission that is serialized without blobs bundle.
-#[derive(Debug)]
-pub struct SubmitBlockRequestNoBlobs<'a>(pub &'a SubmitBlockRequest);
-
-impl serde::Serialize for SubmitBlockRequestNoBlobs<'_> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self.0 {
-            SubmitBlockRequest::Capella(v2) => v2.serialize(serializer),
-            SubmitBlockRequest::Deneb(v3) => {
-                #[derive(serde::Serialize)]
-                struct SignedBidSubmissionV3Ref<'a> {
-                    message: &'a BidTrace,
-                    #[serde(with = "alloy_rpc_types_beacon::payload::beacon_payload_v3")]
-                    execution_payload: &'a ExecutionPayloadV3,
-                    blobs_bundle: &'a BlobsBundleV1,
-                    signature: &'a BlsSignature,
-                    #[serde(skip_serializing_if = "Option::is_none")]
-                    adjustment_data: &'a Option<BidAdjustmentDataV1>,
-                }
-
-                SignedBidSubmissionV3Ref {
-                    message: &v3.message,
-                    execution_payload: &v3.execution_payload,
-                    blobs_bundle: &BlobsBundleV1::new([]), // override blobs bundle with empty one
-                    signature: &v3.signature,
-                    adjustment_data: &v3.adjustment_data,
-                }
-                .serialize(serializer)
-            }
-            SubmitBlockRequest::Electra(v4) => {
-                #[derive(serde::Serialize)]
-                struct SignedBidSubmissionV4Ref<'a> {
-                    message: &'a BidTrace,
-                    #[serde(with = "alloy_rpc_types_beacon::payload::beacon_payload_v3")]
-                    execution_payload: &'a ExecutionPayloadV3,
-                    blobs_bundle: &'a BlobsBundleV1,
-                    execution_requests: &'a ExecutionRequestsV4,
-                    signature: &'a BlsSignature,
-                    #[serde(skip_serializing_if = "Option::is_none")]
-                    adjustment_data: &'a Option<BidAdjustmentDataV1>,
-                }
-
-                SignedBidSubmissionV4Ref {
-                    message: &v4.message,
-                    execution_payload: &v4.execution_payload,
-                    blobs_bundle: &BlobsBundleV1::new([]), // override blobs bundle with empty one
-                    signature: &v4.signature,
-                    execution_requests: &v4.execution_requests,
-                    adjustment_data: &v4.adjustment_data,
-                }
-                .serialize(serializer)
-            }
-            SubmitBlockRequest::Fulu(v5) => {
-                #[derive(serde::Serialize)]
-                struct SignedBidSubmissionV5Ref<'a> {
-                    message: &'a BidTrace,
-                    #[serde(with = "alloy_rpc_types_beacon::payload::beacon_payload_v3")]
-                    execution_payload: &'a ExecutionPayloadV3,
-                    blobs_bundle: &'a BlobsBundleV2,
-                    execution_requests: &'a ExecutionRequestsV4,
-                    signature: &'a BlsSignature,
-                }
-
-                SignedBidSubmissionV5Ref {
-                    message: &v5.message,
-                    execution_payload: &v5.execution_payload,
-                    blobs_bundle: &BlobsBundleV2::new([]), // override blobs bundle with empty one
-                    signature: &v5.signature,
-                    execution_requests: &v5.execution_requests,
-                }
-                .serialize(serializer)
-            }
-        }
-    }
 }
