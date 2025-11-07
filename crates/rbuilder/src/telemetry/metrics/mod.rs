@@ -362,12 +362,20 @@ register_metrics! {
         &[]
     )
     .unwrap();
+    pub static BLOCK_MULTI_BID_COPY_DURATION: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("block_multi_bid_copy_duration", "Block Multi Bid Copy Duration overhead (ms)")
+            .buckets(exponential_buckets_range(0.01, 50.0, 100)),
+        &[]
+    )
+    .unwrap();
+
     pub static ORDER_SIMULATION_TIME: HistogramVec = HistogramVec::new(
         HistogramOpts::new("order_simulation_time", "Order Simulation Time (ms)")
             .buckets(exponential_buckets_range(0.01, 200.0, 200)),
         &["builder_name", "status"]
     )
     .unwrap();
+
 
     // E2E tracing metrics
     // The goal of these two metrics is:
@@ -483,6 +491,12 @@ pub fn set_ordepool_stats(txs: usize, bundles: usize, txs_size: usize) {
 
 pub fn inc_order_input_rpc_errors(method: &str) {
     ORDER_INPUT_RPC_ERROR.with_label_values(&[method]).inc();
+}
+
+pub fn add_block_multi_bid_copy_duration(duration: Duration) {
+    BLOCK_MULTI_BID_COPY_DURATION
+        .with_label_values(&[])
+        .observe(duration_ms(duration));
 }
 
 #[allow(clippy::too_many_arguments)]

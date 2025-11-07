@@ -1,0 +1,18 @@
+ARG RUST_TOOLCHAIN=1.89.0
+FROM docker.io/rust:$RUST_TOOLCHAIN-trixie AS builder
+
+ARG FEATURES VERSION
+# Switch to snapshot repository
+RUN sed -i '/^# http/{N;s|^# \(http[^ ]*\)\nURIs: .*|# \1\nURIs: \1|}' /etc/apt/sources.list.d/debian.sources
+RUN apt-get -o Acquire::Check-Valid-Until=false update && \
+    apt-get install -y \
+        libjemalloc-dev \
+        libclang-dev \
+        protobuf-compiler \
+        cmake
+WORKDIR /build
+COPY . .
+RUN SOURCE_DATE=1730000000 make build && make build-deb
+
+FROM scratch AS artifacts
+COPY --from=builder /build/target/x86_64-unknown-linux-gnu/ /

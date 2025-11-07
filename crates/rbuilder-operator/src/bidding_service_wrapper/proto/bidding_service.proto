@@ -15,7 +15,7 @@ service BiddingService {
 
     // Call after connection before calling anything. This will really create the BiddingService on the server side.
     // Returns the version info for the server side.
-    rpc Initialize(LandedBlocksParams) returns (BidderVersionInfo);
+    rpc Initialize(InitParams) returns (InitReturn);
 
     // BiddingService
     rpc CreateSlotBidder(CreateSlotBidderParams) returns (Empty);
@@ -23,14 +23,6 @@ service BiddingService {
     rpc MustWinBlock(MustWinBlockParams) returns (Empty);
     rpc UpdateNewLandedBlocksDetected(LandedBlocksParams) returns (Empty);
     rpc UpdateFailedReadingNewLandedBlocks(Empty) returns (Empty);
-}
-
-
-// Mapping of build_info::Version
-message BidderVersionInfo {
-    string git_commit = 1;
-    string git_ref = 2;
-    string build_time_utc = 3;
 }
 
 message Empty {
@@ -66,5 +58,29 @@ message LandedBlockInfo {
 }
 
 message LandedBlocksParams {
-    repeated LandedBlockInfo landed_block_info = 1; // Added field name
+    repeated LandedBlockInfo landed_block_info = 1;
+}
+
+message RelaySet {
+    // Ids of the relays (MevBoostRelayIDs)
+    repeated string relay_ids = 2;
+}
+
+message InitParams {
+    repeated LandedBlockInfo landed_block_info = 1;
+    // All the relays we bid to.
+    RelaySet all_relay_ids = 2;
+}
+
+// Mapping of build_info::Version
+message BidderVersionInfo {
+    string git_commit = 1;
+    string git_ref = 2;
+    string build_time_utc = 3;
+}
+
+message InitReturn {
+    BidderVersionInfo bidder_version = 1;
+    // RelaySets the bidder will use.
+    repeated RelaySet relay_sets = 2;
 }

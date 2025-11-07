@@ -1,6 +1,8 @@
 use crate::{
     building::builders::Block,
-    live_builder::payload_events::MevBoostSlotData,
+    live_builder::{
+        block_output::bidding_service_interface::RelaySet, payload_events::MevBoostSlotData,
+    },
     mev_boost::{
         sign_block_for_relay, BLSBlockSigner, MevBoostRelayBidSubmitter, RelayError, RelaySlotData,
         SubmitBlockErr,
@@ -86,7 +88,15 @@ impl BlockBuildingSink for PendingBlockCellToBlockBuildingSink {
     }
 }
 
+/// Sink that can sends a block to a specific relay set.
+/// A little ugly add the Relay concept at this level....
+#[automock]
+pub trait MultiRelayBlockBuildingSink: std::fmt::Debug + Send + Sync {
+    fn new_block(&self, relay_set: RelaySet, block: Block);
+}
+
 /// Final destination of blocks (eg: submit to the relays).
+/// The destination of the blocks is abstracted, can be a single relay or a set of relays.
 #[automock]
 pub trait BlockBuildingSink: std::fmt::Debug + Send + Sync {
     fn new_block(&self, block: Block);
@@ -141,8 +151,26 @@ async fn run_submit_to_relays_job(
 ) -> Option<BuiltBlockInfo> {
     let mut res = None;
 
-    let (regular_relays, optimistic_relays) =
-        relays.into_iter().partition(|relay| !relay.optimistic());
+    let relay_set = RelaySet::new(
+        relays
+            .iter()
+            .map(|relay| relay.id())
+            .cloned()
+            .collect::<Vec<_>>(),
+    );
+
+    let (regular_relays, optimistic_relays) = relays
+        .into_iter()
+        .partition::<Vec<_>, _>(|relay| !relay.optimistic());
+
+    let regular_relays_ids = regular_relays
+        .iter()
+        .map(|relay| relay.id())
+        .collect::<Vec<_>>();
+    let optimistic_relays_ids = optimistic_relays
+        .iter()
+        .map(|relay| relay.id())
+        .collect::<Vec<_>>();
 
     let mut last_bid_hash = None;
     'submit: loop {
@@ -220,21 +248,10 @@ async fn run_submit_to_relays_job(
             payload_id = slot_data.payload_id,
             hash = ?block.sealed_block.hash(),
             gas = block.sealed_block.gas_used,
-            txs = block.sealed_block.body().transactions.len(),
-            bundles,
-            builder_name = block.builder_name,
-            fill_time_ms = duration_ms(block.trace.fill_time),
-            finalize_time_ms = duration_ms(block.trace.finalize_time),
-            finalize_adjust_time_ms = duration_ms(block.trace.finalize_adjust_time),
-            l1_orders_closed_at = ?block.trace.orders_closed_at,
-            l2_chosen_as_best_at = ?block.trace.chosen_as_best_at,
-            l3_sent_to_bidder = ?block.trace.sent_to_bidder,
-            l4_bid_received_at = ?block.trace.bid_received_at,
-            l5_sent_to_sealer = ?block.trace.sent_to_sealer,
-            l6_picked_by_sealer_at = ?block.trace.picked_by_sealer_at,
-            l7_orders_sealed_at = ?block.trace.orders_sealed_at,
-            latency_ms = latency.whole_milliseconds(),
             block_id = block.trace.build_block_id.0,
+            builder_name = block.builder_name,
+            regular_relays_ids = ?regular_relays_ids,
+            optimistic_relays_ids = ?optimistic_relays_ids,
         );
         info!(
             parent: &submission_span,
@@ -243,6 +260,20 @@ async fn run_submit_to_relays_job(
             failed_orders_statistics = ?block.trace.failed_orders_statistics,
             filtered_build_considered_orders_statistics = ?block.trace.filtered_build_considered_orders_statistics,
             filtered_build_failed_orders_statistics = ?block.trace.filtered_build_failed_orders_statistics,
+            bundles,
+            txs = block.sealed_block.body().transactions.len(),
+            fill_time_ms = duration_ms(block.trace.fill_time),
+            finalize_time_ms = duration_ms(block.trace.finalize_time),
+            finalize_adjust_time_ms = duration_ms(block.trace.finalize_adjust_time),
+            multi_bid_copy_duration_ms = duration_ms(block.trace.multi_bid_copy_duration),
+            l1_orders_closed_at = ?block.trace.orders_closed_at,
+            l2_chosen_as_best_at = ?block.trace.chosen_as_best_at,
+            l3_sent_to_bidder = ?block.trace.sent_to_bidder,
+            l4_bid_received_at = ?block.trace.bid_received_at,
+            l5_sent_to_sealer = ?block.trace.sent_to_sealer,
+            l6_picked_by_sealer_at = ?block.trace.picked_by_sealer_at,
+            l7_orders_sealed_at = ?block.trace.orders_sealed_at,
+            latency_ms = latency.whole_milliseconds(),
             "Submitting bid",
         );
         inc_initiated_submissions(optimistic_config.is_some());
@@ -253,20 +284,25 @@ async fn run_submit_to_relays_job(
             &block.sealed_block,
         );
         let (regular_request, optimistic_request) = {
-            let regular = create_submit_block_request(
-                &config.signer,
-                &config.chain_spec,
-                &slot_data,
-                &block,
-                &execution_payload,
-            )
-            .inspect_err(|error| {
-                error!(parent: &submission_span, ?error, "Error creating regular submit block request");
-            })
-            .ok();
+            let mut regular = None;
+            if optimistic_config.is_none() || !regular_relays.is_empty() {
+                regular = create_submit_block_request(
+                    &config.signer,
+                    &config.chain_spec,
+                    &slot_data,
+                    &block,
+                    &execution_payload,
+                )
+                .inspect_err(|error| {
+                    error!(parent: &submission_span, ?error, "Error creating regular submit block request");
+                })
+                .ok();
+            }
 
             let mut optimistic = None;
-            if let Some(optimistic_config) = optimistic_config {
+            if let Some(optimistic_config) =
+                optimistic_config.filter(|_| !optimistic_relays.is_empty())
+            {
                 optimistic = create_submit_block_request(
                     &optimistic_config.signer,
                     &config.chain_spec,
@@ -283,7 +319,9 @@ async fn run_submit_to_relays_job(
         };
 
         if regular_request.is_none() && optimistic_request.is_none() {
-            error!(parent: &submission_span, "Unable to construct request from the built block");
+            let regular_relays_len = regular_relays.len();
+            let optimistic_relays_len = optimistic_relays.len();
+            error!(parent: &submission_span, regular_relays_len, optimistic_relays_len, "Unable to construct request from the built block");
             continue 'submit;
         }
 
@@ -327,6 +365,7 @@ async fn run_submit_to_relays_job(
                     Arc::new(block.trace),
                     builder_name,
                     bid_metadata.value.top_competitor_bid.unwrap_or_default(),
+                    &relay_set,
                 );
             })
         }
@@ -611,34 +650,39 @@ async fn submit_bid_to_the_relay(
         Err(SubmitBlockErr::InvalidUrl(error)) => {
             error!(err = ?error, "Error parsing URL");
         }
+        Err(SubmitBlockErr::NoRproxyAvailable) => {} // noop
     }
 }
 
-/// Real life BuilderSinkFactory that send the blocks to the Relay
+/// Real life MultiRelayBlockBuildingSink that send the blocks to the Relays
 #[derive(Debug)]
 pub struct RelaySubmitSinkFactory {
     submission_config: Arc<SubmissionConfig>,
     relays: Vec<MevBoostRelayBidSubmitter>,
+    /// We expect to get bids only for this specific relay sets.
+    relay_sets: Vec<RelaySet>,
 }
 
 impl RelaySubmitSinkFactory {
     pub fn new(
         submission_config: SubmissionConfig,
         relays: Vec<MevBoostRelayBidSubmitter>,
+        relay_sets: Vec<RelaySet>,
     ) -> Self {
         Self {
             submission_config: Arc::new(submission_config),
             relays,
+            relay_sets,
         }
     }
 
+    /// Creates a run_submit_to_relays_job task per RelaySet and returns a RelaySetDispatcher that will submit the blocks to associated task.
+    /// Filters out RelaySet with no registered relays.
     pub fn create_builder_sink(
         &self,
         slot_data: MevBoostSlotData,
         cancel: CancellationToken,
-    ) -> Box<dyn BlockBuildingSink> {
-        let pending_block_cell = Arc::new(PendingBlockCell::default());
-
+    ) -> Box<dyn MultiRelayBlockBuildingSink> {
         // Collect all relays to submit to.
         let mut relays = Vec::new();
         for relay in &self.relays {
@@ -650,23 +694,67 @@ impl RelaySubmitSinkFactory {
                 relays.push(relay.clone());
             }
         }
-
-        // Spawn the task to submit to selected relays and keep track of subsidized blocks.
-        tokio::spawn({
-            let pending = pending_block_cell.clone();
-            let config = self.submission_config.clone();
-            async move {
-                let last_info =
-                    run_submit_to_relays_job(pending, slot_data, relays, config, cancel).await;
-                if let Some(info) = last_info {
-                    if info.bid_value > info.true_bid_value {
-                        inc_subsidized_blocks(false);
-                        add_subsidy_value(info.bid_value - info.true_bid_value, false);
+        let mut sinks = HashMap::<_, Box<dyn BlockBuildingSink>>::default();
+        for relay_set in &self.relay_sets {
+            let relays_in_set = relays
+                .iter()
+                .filter(|relay| relay_set.relays().contains(relay.id()))
+                .cloned()
+                .collect::<Vec<_>>();
+            if !relays_in_set.is_empty() {
+                let pending_block_cell = Arc::new(PendingBlockCell::default());
+                // Spawn the task to submit to selected relays and keep track of subsidized blocks.
+                tokio::spawn({
+                    let pending = pending_block_cell.clone();
+                    let config = self.submission_config.clone();
+                    let slot_data = slot_data.clone();
+                    let cancel = cancel.clone();
+                    async move {
+                        let last_info = run_submit_to_relays_job(
+                            pending,
+                            slot_data,
+                            relays_in_set,
+                            config,
+                            cancel,
+                        )
+                        .await;
+                        if let Some(info) = last_info {
+                            if info.bid_value > info.true_bid_value {
+                                inc_subsidized_blocks(false);
+                                add_subsidy_value(info.bid_value - info.true_bid_value, false);
+                            }
+                        }
                     }
-                }
+                });
+                sinks.insert(
+                    relay_set.clone(),
+                    Box::new(PendingBlockCellToBlockBuildingSink { pending_block_cell }),
+                );
             }
-        });
+        }
+        Box::new(RelaySetDispatcher::new(sinks))
+    }
+}
 
-        Box::new(PendingBlockCellToBlockBuildingSink { pending_block_cell })
+/// Implements MultiRelayBlockBuildingSink by dispatching the blocks to the corresponding relay sets.
+
+#[derive(Debug)]
+struct RelaySetDispatcher {
+    sinks: HashMap<RelaySet, Box<dyn BlockBuildingSink>>,
+}
+
+impl RelaySetDispatcher {
+    pub fn new(sinks: HashMap<RelaySet, Box<dyn BlockBuildingSink>>) -> Self {
+        Self { sinks }
+    }
+}
+
+impl MultiRelayBlockBuildingSink for RelaySetDispatcher {
+    fn new_block(&self, relay_set: RelaySet, block: Block) {
+        if let Some(sink) = self.sinks.get(&relay_set) {
+            sink.new_block(block);
+        } else {
+            error!(relay_set = ?relay_set, "Relay set not found");
+        }
     }
 }

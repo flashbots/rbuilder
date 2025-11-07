@@ -154,6 +154,7 @@ criterion = { workspace = true, features = ["html_reports", "async_tokio"] }
 # TODO: remove?
 optimism = []
 redact-sensitive = []
+jemalloc-unprefixed = ["tikv-jemallocator/unprefixed_malloc_on_supported_platforms"]
 
 [[bench]]
 name = "bench_main"

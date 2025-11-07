@@ -61,7 +61,8 @@ ifeq ($(IS_X86_64),1)
     BUILD_ENV = SOURCE_DATE_EPOCH=$(SOURCE_DATE) \
                 RUSTFLAGS="${RUST_BUILD_FLAGS}" \
                 LC_ALL=${LOCALE_VAL} \
-                TZ=${TZ_VAL}
+                TZ=${TZ_VAL} \
+                JEMALLOC_OVERRIDE=/usr/lib/x86_64-linux-gnu/libjemalloc.a
 else
     # Non-x86_64: Use release profile without reproducible build flags
     BUILD_PROFILE = release
@@ -72,7 +73,7 @@ endif
 
 .PHONY: build
 build: ## Build (release version)
-	$(BUILD_ENV) cargo build --features "$(FEATURES)" --locked $(if $(BUILD_TARGET),--target $(BUILD_TARGET)) --profile $(BUILD_PROFILE) --workspace
+	$(BUILD_ENV) cargo build --features "$(FEATURES) jemalloc-unprefixed" --locked $(if $(BUILD_TARGET),--target $(BUILD_TARGET)) --profile $(BUILD_PROFILE) --workspace
 
 .PHONY: build-bid-scraper
 build-bid-scraper: ## Build the bid-scraper binary (release version)
@@ -80,11 +81,11 @@ build-bid-scraper: ## Build the bid-scraper binary (release version)
 
 .PHONY: build-rbuilder-operator
 build-rbuilder-operator: ## Build the rbuilder-operator binary (release version)
-	$(BUILD_ENV) cargo build --features "$(FEATURES)" --locked $(if $(BUILD_TARGET),--target $(BUILD_TARGET)) --bin rbuilder-operator --profile $(BUILD_PROFILE)
+	$(BUILD_ENV) cargo build --features "$(FEATURES) jemalloc-unprefixed" --locked $(if $(BUILD_TARGET),--target $(BUILD_TARGET)) --bin rbuilder-operator --profile $(BUILD_PROFILE)
 
 .PHONY: build-rbuilder-rebalancer
 build-rbuilder-rebalancer: ## Build the rbuilder-rebalancer binary (release version)
-	$(BUILD_ENV) cargo build --features "$(FEATURES)" --locked $(if $(BUILD_TARGET),--target $(BUILD_TARGET)) --bin rbuilder-rebalancer --profile $(BUILD_PROFILE)
+	$(BUILD_ENV) cargo build --features "$(FEATURES) jemalloc-unprefixed" --locked $(if $(BUILD_TARGET),--target $(BUILD_TARGET)) --bin rbuilder-rebalancer --profile $(BUILD_PROFILE)
 
 .PHONY: build-dev
 build-dev: ## Build (debug version)
@@ -94,8 +95,9 @@ build-dev: ## Build (debug version)
 docker-image-rbuilder: ## Build a rbuilder Docker image
 	docker build --platform linux/amd64 --target rbuilder-runtime --build-arg FEATURES="$(FEATURES)" -t rbuilder -f docker/Dockerfile.rbuilder .
 
-.PHONE: docker-image-rbuilder-operator
-	docker build --platform linux/amd64 --target rbuilder-runtime --build-arg FEATURES="$(FEATURES)" -t rbuilder -f docker/Dockerfile.rbuilder-operator .
+.PHONY: docker-image-rbuilder-operator
+docker-image-rbuilder-operator: ## Build a rbuilder-operator Docker image
+	docker build --platform linux/amd64 --target rbuilder-runtime --build-arg FEATURES="$(FEATURES) jemalloc-unprefixed" -t rbuilder-operator -f docker/Dockerfile.rbuilder-operator .
 
 .PHONY: docker-image-test-relay
 docker-image-test-relay: ## Build a test relay Docker image
@@ -103,26 +105,41 @@ docker-image-test-relay: ## Build a test relay Docker image
 
 ##@ Debian Packages
 
+# Define binary paths for smart dependencies
+BID_SCRAPER_BIN := target/$(if $(BUILD_TARGET),$(BUILD_TARGET)/)$(BUILD_PROFILE)/bid-scraper
+RBUILDER_OPERATOR_BIN := target/$(if $(BUILD_TARGET),$(BUILD_TARGET)/)$(BUILD_PROFILE)/rbuilder-operator
+RBUILDER_REBALANCER_BIN := target/$(if $(BUILD_TARGET),$(BUILD_TARGET)/)$(BUILD_PROFILE)/rbuilder-rebalancer
+
 .PHONY: install-cargo-deb
 install-cargo-deb:
 	@command -v cargo-deb >/dev/null 2>&1 || cargo install cargo-deb@3.6.0 --locked
 
+# Build individual binaries only if they don't exist - delegate to existing build targets
+$(BID_SCRAPER_BIN): build-bid-scraper
+	@# Binary built by build-bid-scraper target
+
+$(RBUILDER_OPERATOR_BIN): build-rbuilder-operator
+	@# Binary built by build-rbuilder-operator target
+
+$(RBUILDER_REBALANCER_BIN): build-rbuilder-rebalancer
+	@# Binary built by build-rbuilder-rebalancer target
+
 .PHONY: build-deb-bid-scraper
-build-deb-bid-scraper: install-cargo-deb build-bid-scraper ## Build bid-scraper Debian package
+build-deb-bid-scraper: install-cargo-deb $(BID_SCRAPER_BIN) ## Build bid-scraper Debian package
 	cargo deb --profile $(BUILD_PROFILE) --no-build --no-dbgsym --no-strip \
 		-p bid-scraper \
 		$(if $(BUILD_TARGET),--target $(BUILD_TARGET)) \
 		$(if $(VERSION),--deb-version "1~$(VERSION)")
 
 .PHONY: build-deb-rbuilder-operator
-build-deb-rbuilder-operator: install-cargo-deb build-rbuilder-operator ## Build rbuilder-operator Debian package
+build-deb-rbuilder-operator: install-cargo-deb $(RBUILDER_OPERATOR_BIN) ## Build rbuilder-operator Debian package
 	cargo deb --profile $(BUILD_PROFILE) --no-build --no-dbgsym --no-strip \
 		-p rbuilder-operator \
 		$(if $(BUILD_TARGET),--target $(BUILD_TARGET)) \
 		$(if $(VERSION),--deb-version "1~$(VERSION)")
 
 .PHONY: build-deb-rbuilder-rebalancer
-build-deb-rbuilder-rebalancer: install-cargo-deb build-rbuilder-rebalancer ## Build rbuilder-rebalancer Debian package
+build-deb-rbuilder-rebalancer: install-cargo-deb $(RBUILDER_REBALANCER_BIN) ## Build rbuilder-rebalancer Debian package
 	cargo deb --profile $(BUILD_PROFILE) --no-build --no-dbgsym --no-strip \
 		-p rbuilder-rebalancer \
 		$(if $(BUILD_TARGET),--target $(BUILD_TARGET)) \
