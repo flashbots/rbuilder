@@ -33,7 +33,7 @@ on:
 jobs:
   extract-version:
     name: Extract version
-    runs-on: warp-ubuntu-2404-x64-16x
+    runs-on: warp-ubuntu-2404-x64-2x
     outputs:
       VERSION: ${{ steps.extract_version.outputs.VERSION }}
     steps:
@@ -82,62 +82,60 @@ jobs:
           - ${{ github.event.inputs.features || '' }}
 
     steps:
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            cmake \
-            curl \
-            git \
-            libclang-dev \
-            libssl-dev \
-            pkg-config \
-            protobuf-compiler
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-
       - uses: actions/checkout@v4
 
-      - name: Build
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Install rust
         run: |
-          FEATURES=${{ matrix.features }} make build
-          VERSION=${{ needs.extract-version.outputs.VERSION }} make build-deb
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+
+      - name: Build reproducible binary with Docker
+        run: |
+          RUST_TOOLCHAIN=$(rustc --version | cut -d' ' -f2)
+          docker build \
+            --build-arg "RUST_TOOLCHAIN=${RUST_TOOLCHAIN}" \
+            --build-arg "FEATURES=${{ matrix.features }}" \
+            --build-arg "VERSION=${{ needs.extract-version.outputs.VERSION }}" \
+            -f docker/Dockerfile.reproducible -t rbuilder:release \
+            --output type=local,dest=./target .
 
       - name: Upload rbuilder artifact
         uses: actions/upload-artifact@v4
         with:
           name: rbuilder-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
-          path: target/${{ matrix.configs.target }}/${{ matrix.configs.profile }}/rbuilder
+          path: target/${{ matrix.configs.profile }}/rbuilder
 
       - name: Upload rbuilder-operator artifact
         uses: actions/upload-artifact@v4
         with:
           name: rbuilder-operator-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
-          path: target/${{ matrix.configs.target }}/${{ matrix.configs.profile }}/rbuilder-operator
+          path: target/${{ matrix.configs.profile }}/rbuilder-operator
 
       - name: Upload reth-rbuilder artifact
         uses: actions/upload-artifact@v4
         with:
           name: reth-rbuilder-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
-          path: target/${{ matrix.configs.target }}/${{ matrix.configs.profile }}/reth-rbuilder
+          path: target/${{ matrix.configs.profile }}/reth-rbuilder
 
       - name: Upload bid-scraper artifact
         uses: actions/upload-artifact@v4
         with:
           name: bid-scraper-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
-          path: target/${{ matrix.configs.target }}/${{ matrix.configs.profile }}/bid-scraper
+          path: target/${{ matrix.configs.profile }}/bid-scraper
 
       - name: Upload rbuilder-rebalancer artifact
         uses: actions/upload-artifact@v4
         with:
           name: rbuilder-rebalancer-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
-          path: target/${{ matrix.configs.target }}/${{ matrix.configs.profile }}/rbuilder-rebalancer
+          path: target/${{ matrix.configs.profile }}/rbuilder-rebalancer
 
       - name: Upload *.deb packages
         uses: actions/upload-artifact@v4
         with:
           name: deb-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
-          path: target/${{ matrix.configs.target }}/debian/*.deb
+          path: target/debian/*.deb
 
 
   draft-release:
