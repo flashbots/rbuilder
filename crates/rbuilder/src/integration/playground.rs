@@ -161,6 +161,7 @@ impl Playground {
             Vec::new(),
             false,
             false,
+            false,
         );
 
         let payload = client

@@ -650,6 +650,7 @@ async fn submit_bid_to_the_relay(
         Err(SubmitBlockErr::InvalidUrl(error)) => {
             error!(err = ?error, "Error parsing URL");
         }
+        Err(SubmitBlockErr::NoRproxyAvailable) => {} // noop
     }
 }
 
