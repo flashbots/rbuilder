@@ -220,6 +220,7 @@ async fn main() -> eyre::Result<()> {
             order,
             sim_value: Default::default(),
             used_state_trace: Default::default(),
+            is_ace: false,
             ace_interaction: None,
         };
         let res = builder.commit_order(&mut block_info.local_ctx, &sim_order, &|_| Ok(()))?;
@@ -317,6 +318,7 @@ fn execute_orders_on_tob(
             sim_value: Default::default(),
             used_state_trace: Default::default(),
             ace_interaction: None,
+            is_ace: false,
         };
         let res = builder.commit_order(&mut block_info.local_ctx, &sim_order, &|_| Ok(()))?;
         let profit = res

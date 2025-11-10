@@ -149,6 +149,7 @@ impl<SinkType: SimulatedOrderSink> MultiBackrunManager<SinkType> {
             sim_value: highest_payback_order.sim_order.sim_value.clone(),
             used_state_trace: highest_payback_order.sim_order.used_state_trace.clone(),
             ace_interaction: highest_payback_order.sim_order.ace_interaction,
+            is_ace: highest_payback_order.sim_order.is_ace,
         }))
     }
 

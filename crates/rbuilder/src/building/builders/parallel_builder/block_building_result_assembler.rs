@@ -27,7 +27,7 @@ use crate::{
     telemetry::mark_builder_considers_order,
     utils::elapsed_ms,
 };
-use rbuilder_primitives::{order_statistics::OrderStatistics, Order};
+use rbuilder_primitives::order_statistics::OrderStatistics;
 
 /// Assembles block building results from the best orderings of order groups.
 pub struct BlockBuildingResultAssembler {
@@ -191,7 +191,7 @@ impl BlockBuildingResultAssembler {
         let mut ace_txs = Vec::new();
         for (_, group) in best_orderings_per_group.iter() {
             for order in group.orders.iter() {
-                if matches!(order.order, Order::AceTx(_)) {
+                if order.is_ace {
                     ace_txs.push(order.clone());
                 }
             }
@@ -202,9 +202,7 @@ impl BlockBuildingResultAssembler {
             // Filter out ACE orders from the sequence
             resolution_result
                 .sequence_of_orders
-                .retain(|(order_idx, _)| {
-                    !matches!(group.orders[*order_idx].order, Order::AceTx(_))
-                });
+                .retain(|(order_idx, _)| !group.orders[*order_idx].is_ace);
         }
 
         let mut block_building_helper = BlockBuildingHelperFromProvider::new(
@@ -302,7 +300,7 @@ impl BlockBuildingResultAssembler {
         let mut ace_txs = Vec::new();
         for (_, group) in best_orderings_per_group.iter() {
             for order in group.orders.iter() {
-                if matches!(order.order, Order::AceTx(_)) {
+                if order.is_ace {
                     ace_txs.push(order.clone());
                 }
             }
@@ -313,9 +311,7 @@ impl BlockBuildingResultAssembler {
             // Filter out ACE orders from the sequence
             resolution_result
                 .sequence_of_orders
-                .retain(|(order_idx, _)| {
-                    !matches!(group.orders[*order_idx].order, Order::AceTx(_))
-                });
+                .retain(|(order_idx, _)| !group.orders[*order_idx].is_ace);
         }
 
         let mut block_building_helper = BlockBuildingHelperFromProvider::new(

@@ -1450,6 +1450,7 @@ pub struct SimulatedOrder {
     pub sim_value: SimValue,
     /// Info about read/write slots during the simulation to help figure out what the Order is doing.
     pub used_state_trace: Option<UsedStateTrace>,
+    pub is_ace: bool,
     pub ace_interaction: Option<AceInteraction>,
 }
 

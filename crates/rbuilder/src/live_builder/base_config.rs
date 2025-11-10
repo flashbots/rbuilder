@@ -170,6 +170,9 @@ pub struct BaseConfig {
     pub orderflow_tracing_store_path: Option<PathBuf>,
     /// Max number of blocks to keep in disk.
     pub orderflow_tracing_max_blocks: usize,
+
+    /// Ace Configurations
+    pub ace_protocols: Vec<super::config::AceConfig>,
 }
 
 pub fn default_ip() -> Ipv4Addr {
@@ -219,7 +222,6 @@ impl BaseConfig {
         slot_source: MevBoostSlotDataGenerator,
         provider: P,
         blocklist_provider: Arc<dyn BlockListProvider>,
-        ace_config: Vec<super::config::AceConfig>,
     ) -> eyre::Result<super::LiveBuilder<P>>
     where
         P: StateProviderFactory,
@@ -271,7 +273,7 @@ impl BaseConfig {
             simulation_use_random_coinbase: self.simulation_use_random_coinbase,
             faster_finalize: self.faster_finalize,
             order_flow_tracer_manager,
-            ace_config,
+            ace_config: self.ace_protocols.clone(),
         })
     }
 
@@ -489,6 +491,7 @@ pub const DEFAULT_TIME_TO_KEEP_MEMPOOL_TXS_SECS: u64 = 60;
 impl Default for BaseConfig {
     fn default() -> Self {
         Self {
+            ace_protocols: vec![],
             full_telemetry_server_port: 6069,
             full_telemetry_server_ip: default_ip(),
             redacted_telemetry_server_port: 6070,

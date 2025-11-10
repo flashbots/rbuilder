@@ -144,7 +144,6 @@ pub async fn start_server_accepting_bundles(
             Ok(hash)
         }
     })?;
-    let results_clone = results.clone();
 
     module.merge(extra_rpc)?;
     let handle = server.start(module);

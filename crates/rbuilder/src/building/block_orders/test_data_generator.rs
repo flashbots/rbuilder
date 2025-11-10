@@ -32,6 +32,7 @@ impl TestDataGenerator {
             sim_value,
             used_state_trace: None,
             ace_interaction: None,
+            is_ace: false,
         })
     }
 }

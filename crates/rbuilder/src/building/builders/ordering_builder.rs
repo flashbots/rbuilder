@@ -27,7 +27,7 @@ use crate::{
 use ahash::{HashMap, HashSet};
 use alloy_primitives::I256;
 use derivative::Derivative;
-use rbuilder_primitives::{AccountNonce, Order, OrderId, SimValue, SimulatedOrder};
+use rbuilder_primitives::{AccountNonce, OrderId, SimValue, SimulatedOrder};
 use reth_provider::StateProvider;
 use serde::Deserialize;
 use std::{
@@ -287,7 +287,7 @@ impl OrderingBuilderContext {
         let all_orders = block_orders.get_all_orders();
         let mut ace_txs = Vec::new();
         for order in all_orders {
-            if matches!(order.order, Order::AceTx(_)) {
+            if order.is_ace {
                 ace_txs.push(order.clone());
                 // Remove from block_orders so they don't get processed in fill_orders
                 block_orders.remove_order(order.id());

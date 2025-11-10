@@ -146,9 +146,6 @@ pub struct Config {
     /// selected builder configurations
     pub builders: Vec<BuilderConfig>,
 
-    /// Ace Configurations
-    pub ace_protocols: Vec<AceConfig>,
-
     /// When the sample bidder (see TrueBlockValueBiddingService) will start bidding.
     /// Usually a negative number.
     pub slot_delta_to_start_bidding_ms: Option<i64>,
@@ -559,7 +556,6 @@ impl LiveBuilderConfig for Config {
             slot_info_provider,
             adjustment_fee_payers,
             cancellation_token,
-            self.ace_protocols.clone(),
         )
         .await?;
         let builders = create_builders(
@@ -753,7 +749,6 @@ impl Default for Config {
                     }),
                 },
             ],
-            ace_protocols: vec![],
             slot_delta_to_start_bidding_ms: None,
             subsidy: None,
             subsidy_overrides: Vec::new(),
@@ -1158,7 +1153,6 @@ pub async fn create_builder_from_sink<P>(
     slot_info_provider: Vec<MevBoostRelaySlotInfoProvider>,
     adjustment_fee_payers: ahash::HashMap<MevBoostRelayID, Address>,
     cancellation_token: CancellationToken,
-    ace_config: Vec<AceConfig>,
 ) -> eyre::Result<super::LiveBuilder<P>>
 where
     P: StateProviderFactory,
@@ -1182,7 +1176,6 @@ where
             payload_event,
             provider,
             blocklist_provider,
-            ace_config,
         )
         .await
 }

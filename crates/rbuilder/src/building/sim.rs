@@ -464,6 +464,7 @@ pub fn simulate_order(
                                 BlockSpace::new(tracer.used_gas, 0, 0),
                                 Vec::new(),
                             ),
+                            is_ace: false,
                             used_state_trace: Some(tracer.used_state_trace.clone()),
                             ace_interaction: Some(interaction),
                         }),
@@ -534,6 +535,7 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
                     sim_value,
                     used_state_trace: res.used_state_trace,
                     ace_interaction: None,
+                    is_ace: false,
                 }),
                 new_nonces,
             ))
