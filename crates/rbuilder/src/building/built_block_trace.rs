@@ -137,14 +137,13 @@ impl BuiltBlockTrace {
     }
 
     // txs, bundles, share bundles
-    pub fn used_order_count(&self) -> (usize, usize, usize, usize) {
+    pub fn used_order_count(&self) -> (usize, usize, usize) {
         self.included_orders
             .iter()
-            .fold((0, 0, 0, 0), |acc, order| match order.order {
-                Order::Tx(_) => (acc.0 + 1, acc.1, acc.2, acc.3),
-                Order::Bundle(_) => (acc.0, acc.1 + 1, acc.2, acc.3),
-                Order::ShareBundle(_) => (acc.0, acc.1, acc.2 + 1, acc.3),
-                Order::AceTx(_) => (acc.0, acc.1, acc.2, acc.3 + 1),
+            .fold((0, 0, 0), |acc, order| match order.order {
+                Order::Tx(_) => (acc.0 + 1, acc.1, acc.2),
+                Order::Bundle(_) => (acc.0, acc.1 + 1, acc.2),
+                Order::ShareBundle(_) => (acc.0, acc.1, acc.2 + 1),
             })
     }
 

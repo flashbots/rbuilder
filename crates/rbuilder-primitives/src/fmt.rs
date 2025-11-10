@@ -50,7 +50,6 @@ pub fn write_order<Buffer: Write>(
             tx.tx_with_blobs.hash(),
             tx.tx_with_blobs.value()
         )),
-        Order::AceTx(ace) => buf.write_str(&format!("ace {}\n", ace.order_id())),
         Order::ShareBundle(sb) => {
             buf.write_str(&format!("ShB {:?}\n", sb.hash))?;
             write_share_bundle_inner(indent + 1, buf, &sb.inner_bundle)

@@ -142,10 +142,6 @@ impl OrderPool {
                 bundles_store.bundles.push(order.clone());
                 (order, Some(target_block))
             }
-            Order::AceTx(ace_tx) => {
-                self.bundles_for_current_block.push(order.clone());
-                (order, ace_tx.target_block())
-            }
         };
         self.known_orders
             .put((order.id(), target_block.unwrap_or_default()), ());
@@ -304,10 +300,6 @@ impl OrderPool {
     pub fn measure_tx(order: &Order) -> usize {
         match order {
             Order::Tx(tx) => tx.size(),
-            Order::AceTx(_) => {
-                error!("measure_tx called on an ace");
-                0
-            }
             Order::Bundle(_) => {
                 error!("measure_tx called on a bundle");
                 0

@@ -195,25 +195,26 @@ impl SimulationJob {
         }
 
         // check to see if this is a ace specific tx.
-        if let Order::AceTx(ref ace) = res.simulated_order.order {
-            let unlock_type = ace.ace_unlock_type();
-            let exchange = ace.exchange();
 
-            for sim_order in self.ace_bundler.add_ace_protocol_tx(
-                res.simulated_order.clone(),
-                unlock_type,
-                exchange,
-            ) {
-                self.sim_tree.ready_orders.push(sim_order);
-            }
-
-            // If its a force, we pass through. If its a optional, we only want to have it be
-            // inlcuded if we don't have an unlocking tx.
-            return match unlock_type {
-                AceUnlockType::Force => true,
-                AceUnlockType::Optional => !self.ace_bundler.has_unlocking(&exchange),
-            };
-        }
+        // if let Order::AceTx(ref ace) = res.simulated_order.order {
+        //     let unlock_type = ace.ace_unlock_type();
+        //     let exchange = ace.exchange();
+        //
+        //     for sim_order in self.ace_bundler.add_ace_protocol_tx(
+        //         res.simulated_order.clone(),
+        //         unlock_type,
+        //         exchange,
+        //     ) {
+        //         self.sim_tree.ready_orders.push(sim_order);
+        //     }
+        //
+        //     // If its a force, we pass through. If its a optional, we only want to have it be
+        //     // inlcuded if we don't have an unlocking tx.
+        //     return match unlock_type {
+        //         AceUnlockType::Force => true,
+        //         AceUnlockType::Optional => !self.ace_bundler.has_unlocking(&exchange),
+        //     };
+        // }
 
         // we need to know if this ace tx has already been simulated or not.
         let ace_interaction = res.simulated_order.ace_interaction.unwrap();
@@ -372,19 +373,17 @@ struct OrderCounter {
     mempool_txs: usize,
     bundles: usize,
     share_bundles: usize,
-    ace_tx: usize,
 }
 
 impl fmt::Debug for OrderCounter {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "OrderCounter {{ total: {}, mempool_txs: {}, bundles {}, share_bundles {}, ace_txs {} }}",
+            "OrderCounter {{ total: {}, mempool_txs: {}, bundles {}, share_bundles {} }}",
             self.total(),
             self.mempool_txs,
             self.bundles,
             self.share_bundles,
-            self.ace_tx
         )
     }
 }
@@ -395,10 +394,9 @@ impl OrderCounter {
             Order::Tx(_) => self.mempool_txs += 1,
             Order::Bundle(_) => self.bundles += 1,
             Order::ShareBundle(_) => self.share_bundles += 1,
-            Order::AceTx(_) => self.ace_tx += 1,
         }
     }
     fn total(&self) -> usize {
-        self.mempool_txs + self.bundles + self.share_bundles + self.ace_tx
+        self.mempool_txs + self.bundles + self.share_bundles
     }
 }

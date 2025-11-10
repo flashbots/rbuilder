@@ -561,25 +561,6 @@ impl<
         res
     }
 
-    pub fn commit_ace(
-        &mut self,
-        tx: &AceTx,
-        space_state: BlockBuildingSpaceState,
-    ) -> Result<Result<AceOk, BundleErr>, CriticalCommitOrderError> {
-        let current_block = self.ctx.block();
-        // None is good for any block
-        if let Some(block) = tx.target_block() {
-            if block != current_block {
-                return Ok(Err(BundleErr::TargetBlockIncorrect {
-                    block: current_block,
-                    target_block: block,
-                    target_max_block: block,
-                }));
-            }
-        }
-        self.execute_with_rollback(|state| state.commit_ace_no_rollback(tx, space_state))
-    }
-
     /// Checks if the tx can fit in the block by checking:
     /// - Gas left
     /// - Blob gas left
@@ -1340,46 +1321,6 @@ impl<
                 let res = self.commit_share_bundle(bundle, space_state, allow_tx_skip)?;
                 self.bundle_to_order_result(res, coinbase_balance_before)
             }
-            Order::AceTx(ace) => {
-                let coinbase_balance_before = self.coinbase_balance()?;
-                let res = self.commit_ace(ace, space_state)?;
-                self.ace_to_order_result(res, coinbase_balance_before)
-            }
-        }
-    }
-
-    fn ace_to_order_result(
-        &mut self,
-        ace_result: Result<AceOk, BundleErr>,
-        coinbase_balance_before: U256,
-    ) -> Result<Result<OrderOk, OrderErr>, CriticalCommitOrderError> {
-        match ace_result {
-            Ok(ok) => {
-                let coinbase_balance_after = self.coinbase_balance()?;
-                let coinbase_profit = if coinbase_balance_after >= coinbase_balance_before {
-                    coinbase_balance_after - coinbase_balance_before
-                } else {
-                    return Ok(Err(OrderErr::NegativeProfit(
-                        coinbase_balance_before - coinbase_balance_after,
-                    )));
-                };
-
-                // Get the tx hash before moving tx_info
-                let tx_hash = ok.tx_info.tx.hash();
-
-                Ok(Ok(OrderOk {
-                    coinbase_profit,
-                    space_used: ok.space_used,
-                    cumulative_space_used: ok.cumulative_space_used,
-                    tx_infos: vec![ok.tx_info],
-                    nonces_updated: ok.nonces_updated,
-                    paid_kickbacks: Vec::new(),
-                    delayed_kickback: None,
-                    used_state_trace: self.get_used_state_trace(),
-                    original_order_ids: vec![OrderId::Ace(tx_hash)],
-                }))
-            }
-            Err(err) => Ok(Err(err.into())),
         }
     }
 

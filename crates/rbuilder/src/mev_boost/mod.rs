@@ -780,7 +780,6 @@ impl RelayClient {
                         rbuilder_primitives::OrderId::Tx(_fixed_bytes) => None,
                         rbuilder_primitives::OrderId::Bundle(uuid) => Some(uuid),
                         rbuilder_primitives::OrderId::ShareBundle(_fixed_bytes) => None,
-                        rbuilder_primitives::OrderId::Ace(_fixed_bytes) => None,
                     })
                     .collect();
                 let total_bundles = bundle_ids.len();

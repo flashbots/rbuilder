@@ -45,14 +45,6 @@ impl SimplifiedOrder {
                     0,
                 )],
             ),
-            Order::AceTx(_) => {
-                let txs = order
-                    .list_txs_revert()
-                    .into_iter()
-                    .map(|(tx, revert)| OrderTxData::new(tx.hash(), revert, 0))
-                    .collect();
-                SimplifiedOrder::new(id, txs)
-            }
             Order::Bundle(bundle) => {
                 let (refund_percent, refund_payer_hash) = if let Some(refund) = &bundle.refund {
                     (refund.percent as usize, Some(refund.tx_hash))

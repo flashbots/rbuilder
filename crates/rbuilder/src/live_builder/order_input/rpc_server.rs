@@ -9,7 +9,6 @@ use jsonrpsee::{
     types::{ErrorObject, Params},
     IntoResponse, RpcModule,
 };
-use rbuilder_primitives::serialize::AngstromIntegrationSubmission;
 use rbuilder_primitives::{
     serialize::{
         RawBundle, RawBundleDecodeResult, RawShareBundle, RawShareBundleDecodeResult, RawTx,
@@ -37,7 +36,6 @@ const ETH_SEND_BUNDLE: &str = "eth_sendBundle";
 const MEV_SEND_BUNDLE: &str = "mev_sendBundle";
 const ETH_CANCEL_BUNDLE: &str = "eth_cancelBundle";
 const ETH_SEND_RAW_TRANSACTION: &str = "eth_sendRawTransaction";
-const ANG_BUNDLE: &str = "angstrom_submitBundle";
 
 /// Adds metrics to the callback and registers via module.register_async_method.
 pub fn register_metered_async_method<'a, R, Fun, Fut>(
@@ -147,9 +145,6 @@ pub async fn start_server_accepting_bundles(
         }
     })?;
     let results_clone = results.clone();
-    register_metered_async_method(&mut module, ANG_BUNDLE, move |params, _| {
-        handle_angstrom_bundle(results_clone.clone(), timeout, params)
-    })?;
 
     module.merge(extra_rpc)?;
     let handle = server.start(module);
@@ -275,44 +270,6 @@ async fn handle_mev_send_bundle(
             .await;
         }
     };
-}
-
-/// Handles angstrom_submitBundle RPC call
-async fn handle_angstrom_bundle(
-    results: mpsc::Sender<ReplaceableOrderPoolCommand>,
-    timeout: Duration,
-    params: jsonrpsee::types::Params<'static>,
-) {
-    let received_at = OffsetDateTime::now_utc();
-    let start = Instant::now();
-
-    let submission: AngstromIntegrationSubmission = match params.one() {
-        Ok(submission) => submission,
-        Err(err) => {
-            warn!(?err, "Failed to parse Angstrom bundle");
-            inc_order_input_rpc_errors(ANG_BUNDLE);
-            return;
-        }
-    };
-
-    let ace_tx = match submission.to_ace_tx(received_at) {
-        Ok(ace_tx) => ace_tx,
-        Err(err) => {
-            warn!(?err, "Failed to decode Angstrom bundle");
-            inc_order_input_rpc_errors(ANG_BUNDLE);
-            return;
-        }
-    };
-
-    let order = Order::AceTx(ace_tx);
-    let parse_duration = start.elapsed();
-    trace!(
-        order = ?order.id(),
-        parse_duration_mus = parse_duration.as_micros(),
-        "Received Angstrom ACE bundle from API"
-    );
-
-    send_order(order, &results, timeout, received_at).await;
 }
 
 async fn send_order(

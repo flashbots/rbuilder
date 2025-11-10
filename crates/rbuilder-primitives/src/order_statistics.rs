@@ -7,7 +7,6 @@ pub struct OrderStatistics {
     tx_count: i32,
     bundle_count: i32,
     sbundle_count: i32,
-    ace_count: i32,
 }
 
 impl OrderStatistics {
@@ -19,7 +18,6 @@ impl OrderStatistics {
         match order {
             Order::Bundle(_) => self.bundle_count += 1,
             Order::Tx(_) => self.tx_count += 1,
-            Order::AceTx(_) => self.ace_count += 1,
             Order::ShareBundle(_) => self.sbundle_count += 1,
         }
     }
@@ -28,7 +26,6 @@ impl OrderStatistics {
         match order {
             Order::Bundle(_) => self.bundle_count -= 1,
             Order::Tx(_) => self.tx_count -= 1,
-            Order::AceTx(_) => self.ace_count -= 1,
             Order::ShareBundle(_) => self.sbundle_count -= 1,
         }
     }
@@ -44,7 +41,6 @@ impl Add for OrderStatistics {
     fn add(self, other: Self) -> Self::Output {
         Self {
             tx_count: self.tx_count + other.tx_count,
-            ace_count: self.ace_count + other.ace_count,
             bundle_count: self.bundle_count + other.bundle_count,
             sbundle_count: self.sbundle_count + other.sbundle_count,
         }
@@ -58,7 +54,6 @@ impl Sub for OrderStatistics {
         Self {
             tx_count: self.tx_count - other.tx_count,
             bundle_count: self.bundle_count - other.bundle_count,
-            ace_count: self.ace_count - other.ace_count,
             sbundle_count: self.sbundle_count - other.sbundle_count,
         }
     }
