@@ -133,6 +133,8 @@ where
     pub simulation_use_random_coinbase: bool,
 
     pub order_flow_tracer_manager: Box<dyn OrderFlowTracerManager>,
+
+    pub ace_config: Vec<config::AceConfig>,
 }
 
 impl<P> LiveBuilder<P>
@@ -200,6 +202,7 @@ where
             self.run_sparse_trie_prefetcher,
             self.sbundle_merger_selected_signers.clone(),
             self.order_flow_tracer_manager,
+            self.ace_config.clone(),
         );
 
         let watchdog_sender = match self.watchdog_timeout {

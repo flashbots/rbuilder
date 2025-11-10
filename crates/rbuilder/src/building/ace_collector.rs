@@ -1,34 +1,28 @@
-use ahash::HashSet;
-use alloy_primitives::{Address, U256};
+use ahash::HashMap;
+use alloy_primitives::U256;
 use alloy_rpc_types::TransactionTrait;
 use itertools::Itertools;
 use rbuilder_primitives::{
     ace::{AceExchange, AceInteraction, AceUnlockType},
     Order, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs,
 };
-use serde::Deserialize;
 use std::sync::Arc;
 use tracing::trace;
 
-use crate::{building::sim::SimulationRequest, live_builder::simulation::SimulatedOrderCommand};
+use crate::{
+    building::sim::SimulationRequest,
+    live_builder::{config::AceConfig, simulation::SimulatedOrderCommand},
+};
 
 /// Collects Ace Orders
 #[derive(Debug, Default)]
 pub struct AceCollector {
     /// ACE bundles organized by exchange
     exchanges: ahash::HashMap<AceExchange, AceExchangeData>,
-    ace_tx_lookup: ahash::HashMap<AceExchange, AceTxData>,
+    ace_tx_lookup: ahash::HashMap<AceExchange, AceConfig>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct AceTxData {
-    pub from_addresses: HashSet<Address>,
-    pub to_addresses: HashSet<Address>,
-    pub unlock_signatures: HashSet<[u8; 4]>,
-    pub force_signatures: HashSet<[u8; 4]>,
-}
-
-impl AceTxData {
+impl AceConfig {
     pub fn is_ace(&self, tx: &TransactionSignedEcRecoveredWithBlobs) -> bool {
         let internal = tx.internal_tx_unsecure();
         self.from_addresses.contains(&internal.signer())
@@ -40,12 +34,12 @@ impl AceTxData {
     pub fn ace_type(&self, tx: &TransactionSignedEcRecoveredWithBlobs) -> Option<AceUnlockType> {
         if self
             .force_signatures
-            .contains(&tx.internal_tx_unsecure().inner().input()[0..4])
+            .contains(tx.internal_tx_unsecure().inner().input())
         {
             Some(AceUnlockType::Force)
         } else if self
             .unlock_signatures
-            .contains(&tx.internal_tx_unsecure().inner().input()[0..4])
+            .contains(tx.internal_tx_unsecure().inner().input())
         {
             Some(AceUnlockType::Optional)
         } else {
@@ -158,8 +152,20 @@ impl AceExchangeData {
 }
 
 impl AceCollector {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(config: Vec<AceConfig>) -> Self {
+        let mut lookup = HashMap::default();
+        let mut exchanges = HashMap::default();
+
+        for ace in config {
+            let protocol = ace.protocol;
+            lookup.insert(protocol, ace);
+            exchanges.insert(protocol, Default::default());
+        }
+
+        Self {
+            exchanges,
+            ace_tx_lookup: lookup,
+        }
     }
 
     /// Add an ACE protocol transaction (Order::Ace)

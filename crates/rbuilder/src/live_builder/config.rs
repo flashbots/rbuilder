@@ -50,6 +50,7 @@ use crate::{
     utils::{build_info::rbuilder_version, ProviderFactoryReopener, Signer},
 };
 use alloy_chains::ChainKind;
+use alloy_primitives::Bytes;
 use alloy_primitives::{
     utils::{format_ether, parse_ether},
     Address, FixedBytes, B256, U256,
@@ -63,7 +64,10 @@ use ethereum_consensus::{
 use eyre::Context;
 use lazy_static::lazy_static;
 use rbuilder_config::EnvOrValue;
-use rbuilder_primitives::mev_boost::{MevBoostRelayID, RelayMode};
+use rbuilder_primitives::{
+    ace::AceExchange,
+    mev_boost::{MevBoostRelayID, RelayMode},
+};
 use reth_chainspec::{Chain, ChainSpec, NamedChain};
 use reth_db::DatabaseEnv;
 use reth_node_api::NodeTypesWithDBAdapter;
@@ -72,8 +76,9 @@ use reth_primitives::StaticFileSegment;
 use reth_provider::StaticFileProviderFactory;
 use serde::Deserialize;
 use serde_with::{serde_as, OneOrMany};
+use std::collections::HashSet;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     fmt::Debug,
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     path::{Path, PathBuf},
@@ -112,6 +117,15 @@ pub struct BuilderConfig {
     pub builder: SpecificBuilderConfig,
 }
 
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct AceConfig {
+    pub protocol: AceExchange,
+    pub from_addresses: HashSet<Address>,
+    pub to_addresses: HashSet<Address>,
+    pub unlock_signatures: HashSet<Bytes>,
+    pub force_signatures: HashSet<Bytes>,
+}
+
 #[derive(Debug, Clone, Deserialize, PartialEq, Default)]
 #[serde(default, deny_unknown_fields)]
 pub struct SubsidyConfig {
@@ -131,6 +145,9 @@ pub struct Config {
 
     /// selected builder configurations
     pub builders: Vec<BuilderConfig>,
+
+    /// Ace Configurations
+    pub ace_protocols: Vec<AceConfig>,
 
     /// When the sample bidder (see TrueBlockValueBiddingService) will start bidding.
     /// Usually a negative number.
@@ -542,6 +559,7 @@ impl LiveBuilderConfig for Config {
             slot_info_provider,
             adjustment_fee_payers,
             cancellation_token,
+            self.ace_protocols.clone(),
         )
         .await?;
         let builders = create_builders(
@@ -735,6 +753,7 @@ impl Default for Config {
                     }),
                 },
             ],
+            ace_protocols: vec![],
             slot_delta_to_start_bidding_ms: None,
             subsidy: None,
             subsidy_overrides: Vec::new(),
@@ -1139,6 +1158,7 @@ pub async fn create_builder_from_sink<P>(
     slot_info_provider: Vec<MevBoostRelaySlotInfoProvider>,
     adjustment_fee_payers: ahash::HashMap<MevBoostRelayID, Address>,
     cancellation_token: CancellationToken,
+    ace_config: Vec<AceConfig>,
 ) -> eyre::Result<super::LiveBuilder<P>>
 where
     P: StateProviderFactory,
@@ -1162,6 +1182,7 @@ where
             payload_event,
             provider,
             blocklist_provider,
+            ace_config,
         )
         .await
 }

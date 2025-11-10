@@ -1,9 +1,11 @@
 use crate::evm_inspector::UsedStateTrace;
 use alloy_primitives::{address, Address};
+use derive_more::FromStr;
+use serde::Deserialize;
 use strum::EnumIter;
 
 /// What ace based exchanges that rbuilder supports.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumIter)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumIter, Deserialize, FromStr)]
 pub enum AceExchange {
     Angstrom,
 }

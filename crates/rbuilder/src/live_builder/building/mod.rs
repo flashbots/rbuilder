@@ -46,6 +46,7 @@ pub struct BlockBuildingPool<P> {
     sbundle_merger_selected_signers: Arc<Vec<Address>>,
     order_flow_tracer_manager: Box<dyn OrderFlowTracerManager>,
     built_block_id_source: Arc<BuiltBlockIdSource>,
+    ace_config: Vec<super::config::AceConfig>,
 }
 
 impl<P> BlockBuildingPool<P>
@@ -62,6 +63,7 @@ where
         run_sparse_trie_prefetcher: bool,
         sbundle_merger_selected_signers: Arc<Vec<Address>>,
         order_flow_tracer_manager: Box<dyn OrderFlowTracerManager>,
+        ace_config: Vec<super::config::AceConfig>,
     ) -> Self {
         BlockBuildingPool {
             provider,
@@ -73,6 +75,7 @@ where
             sbundle_merger_selected_signers,
             order_flow_tracer_manager,
             built_block_id_source: Arc::new(BuiltBlockIdSource::new()),
+            ace_config,
         }
     }
 
@@ -149,6 +152,7 @@ where
             orders_for_block,
             block_cancellation.clone(),
             sim_tracer,
+            self.ace_config.clone(),
         );
         self.start_building_job(
             block_ctx,

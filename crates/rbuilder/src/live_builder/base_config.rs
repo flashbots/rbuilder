@@ -219,6 +219,7 @@ impl BaseConfig {
         slot_source: MevBoostSlotDataGenerator,
         provider: P,
         blocklist_provider: Arc<dyn BlockListProvider>,
+        ace_config: Vec<super::config::AceConfig>,
     ) -> eyre::Result<super::LiveBuilder<P>>
     where
         P: StateProviderFactory,
@@ -270,6 +271,7 @@ impl BaseConfig {
             simulation_use_random_coinbase: self.simulation_use_random_coinbase,
             faster_finalize: self.faster_finalize,
             order_flow_tracer_manager,
+            ace_config,
         })
     }
 

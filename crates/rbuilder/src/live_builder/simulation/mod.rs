@@ -117,6 +117,7 @@ where
         input: OrdersForBlock,
         block_cancellation: CancellationToken,
         sim_tracer: Arc<dyn SimulationJobTracer>,
+        ace_config: Vec<super::config::AceConfig>,
     ) -> SlotOrderSimResults {
         let (slot_sim_results_sender, slot_sim_results_receiver) = mpsc::channel(10_000);
 
@@ -174,6 +175,7 @@ where
                     slot_sim_results_sender,
                     sim_tree,
                     sim_tracer,
+                    ace_config,
                 );
 
                 simulation_job.run().await;
@@ -236,6 +238,7 @@ mod tests {
             orders_for_block,
             cancel.clone(),
             Arc::new(NullSimulationJobTracer {}),
+            vec![],
         );
         // Create a simple tx that sends to coinbase 5 wei.
         let coinbase_profit = 5;
