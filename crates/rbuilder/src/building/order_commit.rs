@@ -345,6 +345,8 @@ pub enum OrderErr {
     Transaction(#[from] TransactionErr),
     #[error("Bundle error: {0}")]
     Bundle(#[from] BundleErr),
+    #[error("No exclusive profit")]
+    NoExclusiveProfit,
     #[error("Negative profit: {0}")]
     NegativeProfit(U256),
 }

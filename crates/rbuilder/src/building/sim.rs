@@ -466,6 +466,14 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
     match result {
         Ok(res) => {
             let sim_value = create_sim_value(&order, &res, mempool_tx_detector);
+            if sim_value
+                .non_mempool_profit_info()
+                .coinbase_profit()
+                .is_zero()
+            {
+                return Ok(OrderSimResult::Failed(OrderErr::NoExclusiveProfit));
+            }
+
             let new_nonces = res.nonces_updated.into_iter().collect::<Vec<_>>();
             Ok(OrderSimResult::Success(
                 Arc::new(SimulatedOrder {
