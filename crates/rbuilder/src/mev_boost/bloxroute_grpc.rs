@@ -5,15 +5,12 @@ use alloy_eips::{
 use alloy_rpc_types_beacon::{
     relay::{
         BidTrace, SignedBidSubmissionV2, SignedBidSubmissionV3, SignedBidSubmissionV4,
-        SignedBidSubmissionV5,
+        SignedBidSubmissionV5, SubmitBlockRequest as AlloySubmitBlockRequest,
     },
     requests::ExecutionRequestsV4,
 };
 use alloy_rpc_types_engine::{ExecutionPayloadV1, ExecutionPayloadV2, ExecutionPayloadV3};
-use rbuilder_primitives::mev_boost::{
-    CapellaSubmitBlockRequest, DenebSubmitBlockRequest, ElectraSubmitBlockRequest,
-    FuluSubmitBlockRequest, SubmitBlockRequest,
-};
+use rbuilder_primitives::mev_boost::SubmitBlockRequest;
 use std::sync::Arc;
 
 /// Bloxroute gRPC types.
@@ -43,131 +40,98 @@ pub type GrpcRelayClient =
 
 impl From<&SubmitBlockRequest> for types::SubmitBlockRequest {
     fn from(value: &SubmitBlockRequest) -> Self {
-        let (
-            version,
-            execution_payload,
-            bid_trace,
-            signature,
-            blobs_bundle,
-            execution_requests,
-            adjustment_data,
-        ) = match value {
-            SubmitBlockRequest::Capella(request) => {
-                let CapellaSubmitBlockRequest {
-                    submission:
-                        SignedBidSubmissionV2 {
-                            execution_payload,
-                            message,
-                            signature,
-                        },
-                    adjustment_data,
-                } = request;
+        let (version, execution_payload, bid_trace, signature, blobs_bundle, execution_requests) =
+            match value.request.as_ref() {
+                AlloySubmitBlockRequest::Capella(request) => {
+                    let SignedBidSubmissionV2 {
+                        execution_payload,
+                        message,
+                        signature,
+                    } = request;
 
-                let version = DataVersion::Capella;
-                let execution_payload = types::ExecutionPayload::from_v2(execution_payload);
-                let bid_trace = types::BidTrace::new(message, None, None);
-                (
-                    version,
-                    execution_payload,
-                    bid_trace,
-                    signature,
-                    None,
-                    None,
-                    adjustment_data,
-                )
-            }
-            SubmitBlockRequest::Deneb(request) => {
-                let DenebSubmitBlockRequest {
-                    submission:
-                        SignedBidSubmissionV3 {
-                            execution_payload,
-                            message,
-                            signature,
-                            blobs_bundle,
-                        },
-                    adjustment_data,
-                } = request;
+                    let version = DataVersion::Capella;
+                    let execution_payload = types::ExecutionPayload::from_v2(execution_payload);
+                    let bid_trace = types::BidTrace::new(message, None, None);
+                    (version, execution_payload, bid_trace, signature, None, None)
+                }
+                AlloySubmitBlockRequest::Deneb(request) => {
+                    let SignedBidSubmissionV3 {
+                        execution_payload,
+                        message,
+                        signature,
+                        blobs_bundle,
+                    } = request;
 
-                let version = DataVersion::Deneb;
-                let execution_payload = types::ExecutionPayload::from_v3(execution_payload);
-                let bid_trace = types::BidTrace::new(
-                    message,
-                    Some(execution_payload.blob_gas_used),
-                    Some(execution_payload.excess_blob_gas),
-                );
-                (
-                    version,
-                    execution_payload,
-                    bid_trace,
-                    signature,
-                    Some(types::BlobsBundle::from(blobs_bundle)),
-                    None,
-                    adjustment_data,
-                )
-            }
-            SubmitBlockRequest::Electra(request) => {
-                let ElectraSubmitBlockRequest {
-                    submission:
-                        SignedBidSubmissionV4 {
-                            execution_payload,
-                            message,
-                            signature,
-                            blobs_bundle,
-                            execution_requests,
-                        },
-                    adjustment_data,
-                } = request;
+                    let version = DataVersion::Deneb;
+                    let execution_payload = types::ExecutionPayload::from_v3(execution_payload);
+                    let bid_trace = types::BidTrace::new(
+                        message,
+                        Some(execution_payload.blob_gas_used),
+                        Some(execution_payload.excess_blob_gas),
+                    );
+                    (
+                        version,
+                        execution_payload,
+                        bid_trace,
+                        signature,
+                        Some(types::BlobsBundle::from(blobs_bundle)),
+                        None,
+                    )
+                }
+                AlloySubmitBlockRequest::Electra(request) => {
+                    let SignedBidSubmissionV4 {
+                        execution_payload,
+                        message,
+                        signature,
+                        blobs_bundle,
+                        execution_requests,
+                    } = request;
 
-                let version = DataVersion::Electra;
-                let execution_payload = types::ExecutionPayload::from_v3(execution_payload);
-                let bid_trace = types::BidTrace::new(
-                    message,
-                    Some(execution_payload.blob_gas_used),
-                    Some(execution_payload.excess_blob_gas),
-                );
-                (
-                    version,
-                    execution_payload,
-                    bid_trace,
-                    signature,
-                    Some(types::BlobsBundle::from(blobs_bundle)),
-                    Some(execution_requests),
-                    adjustment_data,
-                )
-            }
-            SubmitBlockRequest::Fulu(request) => {
-                let FuluSubmitBlockRequest {
-                    submission:
-                        SignedBidSubmissionV5 {
-                            execution_payload,
-                            message,
-                            signature,
-                            blobs_bundle,
-                            execution_requests,
-                        },
-                    adjustment_data,
-                } = request;
+                    let version = DataVersion::Electra;
+                    let execution_payload = types::ExecutionPayload::from_v3(execution_payload);
+                    let bid_trace = types::BidTrace::new(
+                        message,
+                        Some(execution_payload.blob_gas_used),
+                        Some(execution_payload.excess_blob_gas),
+                    );
+                    (
+                        version,
+                        execution_payload,
+                        bid_trace,
+                        signature,
+                        Some(types::BlobsBundle::from(blobs_bundle)),
+                        Some(execution_requests),
+                    )
+                }
+                AlloySubmitBlockRequest::Fulu(request) => {
+                    let SignedBidSubmissionV5 {
+                        execution_payload,
+                        message,
+                        signature,
+                        blobs_bundle,
+                        execution_requests,
+                    } = request;
 
-                let version = DataVersion::Electra;
-                let execution_payload = types::ExecutionPayload::from_v3(execution_payload);
-                let bid_trace = types::BidTrace::new(
-                    message,
-                    Some(execution_payload.blob_gas_used),
-                    Some(execution_payload.excess_blob_gas),
-                );
-                (
-                    version,
-                    execution_payload,
-                    bid_trace,
-                    signature,
-                    Some(types::BlobsBundle::from(blobs_bundle)),
-                    Some(execution_requests),
-                    adjustment_data,
-                )
-            }
-        };
+                    let version = DataVersion::Electra;
+                    let execution_payload = types::ExecutionPayload::from_v3(execution_payload);
+                    let bid_trace = types::BidTrace::new(
+                        message,
+                        Some(execution_payload.blob_gas_used),
+                        Some(execution_payload.excess_blob_gas),
+                    );
+                    (
+                        version,
+                        execution_payload,
+                        bid_trace,
+                        signature,
+                        Some(types::BlobsBundle::from(blobs_bundle)),
+                        Some(execution_requests),
+                    )
+                }
+            };
         let execution_requests = execution_requests.map(types::ExecutionRequests::from);
-        let adjustment_data = adjustment_data
+        let adjustment_data = value
+            .adjustment_data
             .as_ref()
             .map(ssz::Encode::as_ssz_bytes)
             .unwrap_or_default();

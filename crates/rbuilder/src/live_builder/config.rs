@@ -33,7 +33,8 @@ use crate::{
     live_builder::{
         base_config::default_ip,
         block_output::{
-            bidding_service_interface::BiddingService2BidSender, relay_submit::OptimisticV3Config,
+            bidding_service_interface::{BiddingService2BidSender, RelaySet},
+            relay_submit::OptimisticV3Config,
         },
         cli::LiveBuilderConfig,
         payload_events::MevBoostSlotDataGenerator,
@@ -111,6 +112,13 @@ pub struct BuilderConfig {
     pub builder: SpecificBuilderConfig,
 }
 
+#[derive(Debug, Clone, Deserialize, PartialEq, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct SubsidyConfig {
+    pub relay: MevBoostRelayID,
+    pub value: String,
+}
+
 #[serde_as]
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
@@ -129,6 +137,9 @@ pub struct Config {
     pub slot_delta_to_start_bidding_ms: Option<i64>,
     /// Value added to the bids (see TrueBlockValueBiddingService).
     pub subsidy: Option<String>,
+    /// Overrides subsidy.
+    #[serde(default)]
+    pub subsidy_overrides: Vec<SubsidyConfig>,
 }
 
 const DEFAULT_SLOT_DELTA_TO_START_BIDDING_MS: i64 = -8000;
@@ -231,7 +242,6 @@ impl L1Config {
                     client.clone(),
                     relay_config.name.clone(),
                     submit_config,
-                    relay_config.optimistic_v3,
                     relay_config.mode == RelayMode::Test,
                 )?);
             } else {
@@ -251,6 +261,16 @@ impl L1Config {
         Ok(())
     }
 
+    pub fn relays_ids(&self) -> RelaySet {
+        let mut effective_enabled_relays: std::collections::HashSet<MevBoostRelayID> =
+            self.enabled_relays.iter().cloned().collect();
+        effective_enabled_relays.extend(self.relays.iter().map(|r| r.name.clone()));
+        effective_enabled_relays
+            .into_iter()
+            .collect::<Vec<MevBoostRelayID>>()
+            .into()
+    }
+
     pub fn create_relays(
         &self,
     ) -> eyre::Result<(
@@ -263,13 +283,11 @@ impl L1Config {
             relay_configs.insert(relay.name.clone(), relay);
         }
         // For backwards compatibility: add all user-configured relays to enabled_relays
-        let mut effective_enabled_relays: std::collections::HashSet<String> =
-            self.enabled_relays.iter().cloned().collect();
-        effective_enabled_relays.extend(self.relays.iter().map(|r| r.name.clone()));
+        let effective_enabled_relays = self.relays_ids();
         // Create enabled relays
         let mut submitters = Vec::new();
         let mut slot_info_providers = Vec::new();
-        for relay_name in effective_enabled_relays.iter() {
+        for relay_name in effective_enabled_relays.relays().iter() {
             match relay_configs.get(relay_name) {
                 Some(relay_config) => {
                     let url = match relay_config.url.parse() {
@@ -288,6 +306,7 @@ impl L1Config {
                         relay_config.api_token_header.clone(),
                         relay_config.is_bloxroute,
                         relay_config.bloxroute_rproxy_regions.clone(),
+                        relay_config.bloxroute_rproxy_only,
                         relay_config
                             .ask_for_filtering_validators
                             .unwrap_or(DEFAULT_ASK_FOR_FILTERING_VALIDATORS),
@@ -371,6 +390,7 @@ impl L1Config {
     pub fn create_relays_sealed_sink_factory(
         &self,
         chain_spec: Arc<ChainSpec>,
+        relay_sets: Vec<RelaySet>,
         bid_observer: Box<dyn BidObserver + Send + Sync>,
     ) -> eyre::Result<(
         RelaySubmitSinkFactory,
@@ -384,7 +404,11 @@ impl L1Config {
         )?;
 
         let mut optimistic_v3_config = None;
-        if self.relays.iter().any(|r| r.optimistic_v3) {
+        if self
+            .relays
+            .iter()
+            .any(|r| r.submit_config.as_ref().is_some_and(|c| c.optimistic_v3))
+        {
             let address = SocketAddr::V4(SocketAddrV4::new(
                 self.optimistic_v3_server_ip,
                 self.optimistic_v3_server_port,
@@ -435,7 +459,8 @@ impl L1Config {
             eyre::bail!("No slot info providers provided");
         }
 
-        let sink_factory = RelaySubmitSinkFactory::new(submission_config, submitters.clone());
+        let sink_factory =
+            RelaySubmitSinkFactory::new(submission_config, submitters.clone(), relay_sets);
 
         let adjustment_fee_payers = self
             .relays
@@ -476,13 +501,23 @@ impl LiveBuilderConfig for Config {
                 .unwrap_or(DEFAULT_SLOT_DELTA_TO_START_BIDDING_MS),
         );
 
-        let bidding_service = Arc::new(NewTrueBlockValueBiddingService {
-            subsidy: subsidy
+        let all_relays_set = self.l1_config.relays_ids();
+        let mut subsidy_overrides = HashMap::default();
+        for subsidy_override in self.subsidy_overrides.iter() {
+            subsidy_overrides.insert(
+                subsidy_override.relay.clone(),
+                parse_ether(&subsidy_override.value)?,
+            );
+        }
+        let bidding_service = Arc::new(NewTrueBlockValueBiddingService::new(
+            subsidy
                 .as_ref()
                 .map(|s| parse_ether(s))
                 .unwrap_or(Ok(U256::ZERO))?,
-            slot_delta_to_start_bidding: slot_delta_to_start_bidding_ms,
-        });
+            subsidy_overrides,
+            slot_delta_to_start_bidding_ms,
+            all_relays_set.clone(),
+        ));
 
         let (wallet_balance_watcher, _) =
             create_wallet_balance_watcher(provider.clone(), &self.base_config).await?;
@@ -491,6 +526,7 @@ impl LiveBuilderConfig for Config {
             create_sink_factory_and_relays(
                 &self.base_config,
                 &self.l1_config,
+                bidding_service.relay_sets(),
                 wallet_balance_watcher,
                 Box::new(NullBidObserver {}),
                 bidding_service,
@@ -701,6 +737,7 @@ impl Default for Config {
             ],
             slot_delta_to_start_bidding_ms: None,
             subsidy: None,
+            subsidy_overrides: Vec::new(),
         }
     }
 }
@@ -905,6 +942,8 @@ lazy_static! {
                     optimistic: false,
                     interval_between_submissions_ms: Some(250),
                     max_bid_eth: None,
+                    optimistic_v3: false,
+                    optimistic_v3_bid_adjustment_required: false,
                 }),
                 priority: Some(0),
                 authorization_header: None,
@@ -913,9 +952,9 @@ lazy_static! {
                 adjustment_fee_payer: None,
                 is_bloxroute: false,
                 bloxroute_rproxy_regions: Vec::new(),
+                bloxroute_rproxy_only: false,
                 ask_for_filtering_validators: None,
                 can_ignore_gas_limit: None,
-                optimistic_v3: false,
             },
         );
         map.insert(
@@ -931,6 +970,8 @@ lazy_static! {
                     optimistic: true,
                     interval_between_submissions_ms: None,
                     max_bid_eth: None,
+                    optimistic_v3: false,
+                    optimistic_v3_bid_adjustment_required: false,
                 }),
                 priority: Some(0),
                 authorization_header: None,
@@ -939,9 +980,9 @@ lazy_static! {
                 adjustment_fee_payer: None,
                 is_bloxroute: false,
                 bloxroute_rproxy_regions: Vec::new(),
+                bloxroute_rproxy_only: false,
                 ask_for_filtering_validators: None,
                 can_ignore_gas_limit: None,
-                optimistic_v3: false,
             },
         );
         map.insert(
@@ -957,6 +998,8 @@ lazy_static! {
                     optimistic: true,
                     interval_between_submissions_ms: None,
                     max_bid_eth: None,
+                    optimistic_v3: false,
+                    optimistic_v3_bid_adjustment_required: false,
                 }),
                 priority: Some(0),
                 authorization_header: None,
@@ -965,9 +1008,9 @@ lazy_static! {
                 adjustment_fee_payer: None,
                 is_bloxroute: false,
                 bloxroute_rproxy_regions: Vec::new(),
+                bloxroute_rproxy_only: false,
                 ask_for_filtering_validators: None,
                 can_ignore_gas_limit: None,
-                optimistic_v3: false,
             },
         );
         map.insert(
@@ -983,16 +1026,19 @@ lazy_static! {
                     optimistic: true,
                     interval_between_submissions_ms: None,
                     max_bid_eth: None,
-                }),                priority: Some(0),
+                    optimistic_v3: false,
+                    optimistic_v3_bid_adjustment_required: false,
+                }),
+                priority: Some(0),
                 authorization_header: None,
                 builder_id_header: None,
                 api_token_header: None,
                 adjustment_fee_payer: None,
                 is_bloxroute: false,
                 bloxroute_rproxy_regions: Vec::new(),
+                bloxroute_rproxy_only: false,
                 ask_for_filtering_validators: None,
                 can_ignore_gas_limit: None,
-                optimistic_v3: false
             },
         );
         map.insert(
@@ -1008,6 +1054,8 @@ lazy_static! {
                     optimistic: false,
                     interval_between_submissions_ms: None,
                     max_bid_eth: None,
+                    optimistic_v3: false,
+                    optimistic_v3_bid_adjustment_required: false,
                 }),
                 priority: Some(0),
                 authorization_header: None,
@@ -1016,9 +1064,9 @@ lazy_static! {
                 adjustment_fee_payer: None,
                 is_bloxroute: false,
                 bloxroute_rproxy_regions: Vec::new(),
+                bloxroute_rproxy_only: false,
                 ask_for_filtering_validators: None,
                 can_ignore_gas_limit: None,
-                optimistic_v3: false
             },
         );
         map
@@ -1042,6 +1090,7 @@ where
 pub async fn create_sink_factory_and_relays<P>(
     base_config: &BaseConfig,
     l1_config: &L1Config,
+    relay_sets: Vec<RelaySet>,
     wallet_balance_watcher: WalletBalanceWatcher<P>,
     bid_observer: Box<dyn BidObserver + Send + Sync>,
     bidding_service: Arc<dyn BiddingService>,
@@ -1054,8 +1103,12 @@ pub async fn create_sink_factory_and_relays<P>(
 where
     P: StateProviderFactory + Clone + 'static,
 {
-    let (sink_sealed_factory, slot_info_provider, adjustment_fee_payers) =
-        l1_config.create_relays_sealed_sink_factory(base_config.chain_spec()?, bid_observer)?;
+    let (sink_sealed_factory, slot_info_provider, adjustment_fee_payers) = l1_config
+        .create_relays_sealed_sink_factory(
+            base_config.chain_spec()?,
+            relay_sets.clone(),
+            bid_observer,
+        )?;
 
     if !l1_config.relay_bid_scrapers.is_empty() {
         let sender = Arc::new(BiddingService2BidSender::new(bidding_service.clone()));
@@ -1071,6 +1124,7 @@ where
         sink_sealed_factory,
         wallet_balance_watcher,
         base_config.adjust_finalized_blocks,
+        relay_sets,
     );
 
     Ok((sink_factory, slot_info_provider, adjustment_fee_payers))

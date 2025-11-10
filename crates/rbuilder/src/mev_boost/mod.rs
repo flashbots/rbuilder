@@ -73,7 +73,7 @@ fn is_ignorable_relay_error(code: StatusCode, text: &str) -> bool {
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
 #[serde(deny_unknown_fields)]
 pub struct RelayConfig {
-    pub name: String,
+    pub name: MevBoostRelayID,
     pub url: String,
     #[serde(default)]
     pub grpc_url: Option<String>,
@@ -100,6 +100,9 @@ pub struct RelayConfig {
     /// The list of bloxroute rproxy regions to send to order by preference.
     #[serde(default)]
     pub bloxroute_rproxy_regions: Vec<String>,
+    /// Flag indicating whether the builder should only submit to rproxy endpoinds if available.
+    #[serde(default)]
+    pub bloxroute_rproxy_only: bool,
     /// Adds "filtering=true" as query to the call relay/v1/builder/validators to get all validators (including those filtering OFAC)
     /// On 2025/06/24 (my birthday!) only supported by ultrasound.
     /// None -> false
@@ -107,9 +110,6 @@ pub struct RelayConfig {
     /// If we submit a block with a different gas than the one the validator registered with in this relay the relay does not mind.
     /// None -> false
     pub can_ignore_gas_limit: Option<bool>,
-    /// Flag indicating whether optimistic V3 submissions should be used.
-    #[serde(default)]
-    pub optimistic_v3: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
@@ -122,6 +122,12 @@ pub struct RelaySubmitConfig {
     pub use_gzip_for_submit: bool,
     #[serde(default)]
     pub optimistic: bool,
+    /// Flag indicating whether optimistic V3 submissions should be used.
+    #[serde(default)]
+    pub optimistic_v3: bool,
+    /// Flag indicating whether bid adjustments are required for optimistic v3 submissions.
+    #[serde(default)]
+    pub optimistic_v3_bid_adjustment_required: bool,
     #[serde(default)]
     pub interval_between_submissions_ms: Option<u64>,
     /// Max bid we can submit to this relay. Any bid above this will be skipped.
@@ -161,6 +167,8 @@ pub struct RelayClient {
     is_bloxroute: bool,
     /// Bloxroute rproxy regions.
     bloxroute_rproxy_regions: Vec<String>,
+    /// Flag indicating whether rproxy regions are required.
+    bloxroute_rproxy_only: bool,
     /// Adds "filtering=true" as query
     ask_for_filtering_validators: bool,
     /// If we submit a block with a different gas than the one the validator registered with in this relay the relay does not mind.
@@ -176,6 +184,7 @@ impl RelayClient {
         api_token_header: Option<String>,
         is_bloxroute: bool,
         bloxroute_rproxy_regions: Vec<String>,
+        bloxroute_rproxy_only: bool,
         ask_for_filtering_validators: bool,
         can_ignore_gas_limit: bool,
     ) -> Self {
@@ -188,6 +197,7 @@ impl RelayClient {
             api_token_header,
             is_bloxroute,
             bloxroute_rproxy_regions,
+            bloxroute_rproxy_only,
             ask_for_filtering_validators,
             can_ignore_gas_limit,
         }
@@ -201,6 +211,7 @@ impl RelayClient {
             None,
             relay.is_bloxroute(),
             Vec::new(),
+            false,
             false,
             false,
         )
@@ -240,6 +251,8 @@ pub struct MevBoostRelayBidSubmitter {
     cancellations: bool,
     /// Flag indicating whether optimistic v3 submissions should be used.
     optimistic_v3: bool,
+    /// Flag indicating whether bid adjustments are required for optimistic v3 submissions.
+    optimistic_v3_bid_adjustment_required: bool,
     /// Max bid we can submit to this relay. Any bid above this will be skipped.
     /// None -> No limit.
     max_bid: Option<U256>,
@@ -250,9 +263,8 @@ pub struct MevBoostRelayBidSubmitter {
 impl MevBoostRelayBidSubmitter {
     pub fn new(
         client: RelayClient,
-        id: String,
+        id: MevBoostRelayID,
         config: &RelaySubmitConfig,
-        optimistic_v3: bool,
         test_relay: bool,
     ) -> eyre::Result<Self> {
         let max_bid = config
@@ -274,7 +286,8 @@ impl MevBoostRelayBidSubmitter {
             optimistic: config.optimistic,
             submission_rate_limiter,
             cancellations: true,
-            optimistic_v3,
+            optimistic_v3: config.optimistic_v3,
+            optimistic_v3_bid_adjustment_required: config.optimistic_v3_bid_adjustment_required,
             max_bid,
             test_relay,
         })
@@ -294,6 +307,10 @@ impl MevBoostRelayBidSubmitter {
 
     pub fn optimistic_v3(&self) -> bool {
         self.optimistic_v3
+    }
+
+    pub fn optimistic_v3_bid_adjustment_required(&self) -> bool {
+        self.optimistic_v3_bid_adjustment_required
     }
 
     pub fn max_bid(&self) -> Option<U256> {
@@ -516,6 +533,8 @@ pub enum SubmitBlockErr {
     InvalidHeader,
     #[error("Block known")]
     BlockKnown,
+    #[error("No rproxy available")]
+    NoRproxyAvailable,
     #[error("gRPC error")]
     Grpc(#[from] Box<tonic::Status>),
 }
@@ -815,7 +834,7 @@ impl RelayClient {
         submission: &SubmitBlockRequestWithMetadata,
     ) -> Result<bloxroute_grpc::types::SubmitBlockResponse, SubmitBlockErr> {
         let mut request = tonic::Request::new(bloxroute_grpc::types::SubmitBlockRequest::from(
-            submission.submission.as_ref(),
+            &submission.submission,
         ));
         request.set_timeout(Duration::from_secs(2));
         request.metadata_mut().insert(
@@ -954,6 +973,8 @@ impl RelayClient {
                 error!(?error, url = %regional.http_endpoint, "Error parsing rproxy URL");
                 SubmitBlockErr::InvalidUrl(error)
             });
+        } else if self.bloxroute_rproxy_only {
+            return Err(SubmitBlockErr::NoRproxyAvailable);
         }
 
         if self.is_bloxroute {
@@ -1271,11 +1292,21 @@ mod tests {
         let mut generator = TestDataGenerator::default();
 
         let relay_url = Url::from_str(&srv.endpoint()).unwrap();
-        let relay =
-            RelayClient::from_url(relay_url, None, None, None, false, Vec::new(), false, false);
-        let submission = Arc::new(SubmitBlockRequest::Deneb(
-            generator.create_deneb_submit_block_request(),
-        ));
+        let relay = RelayClient::from_url(
+            relay_url,
+            None,
+            None,
+            None,
+            false,
+            Vec::new(),
+            false,
+            false,
+            false,
+        );
+        let submission = SubmitBlockRequest {
+            request: Arc::new(generator.create_deneb_submit_block_request()),
+            adjustment_data: None,
+        };
         let sub_relay = SubmitBlockRequestWithMetadata {
             submission,
             metadata: BidMetadata {

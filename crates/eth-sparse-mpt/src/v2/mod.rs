@@ -47,7 +47,7 @@ impl SharedCacheV2 {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum StorageTrieStatus {
     InsertsNotProcessed,
     InsertsProcessed,
@@ -64,7 +64,6 @@ impl StorageTrieStatus {
     }
 }
 
-/// WARN: Clone will not clone changed tries
 #[derive(Debug, Default)]
 pub struct RootHashCalculator {
     storage: DashMap<Address, Arc<Mutex<StorageCalculator>>, FxBuildHasher>,
@@ -81,8 +80,20 @@ pub struct RootHashCalculator {
 impl Clone for RootHashCalculator {
     fn clone(&self) -> Self {
         Self {
+            storage: self
+                .storage
+                .iter()
+                .map(|entry| {
+                    (
+                        *entry.key(),
+                        Arc::new(Mutex::new(entry.value().lock().clone())),
+                    )
+                })
+                .collect(),
+            changed_account: Arc::new(RwLock::new(self.changed_account.read().clone())),
+            account_trie: self.account_trie.clone(),
             shared_cache: self.shared_cache.clone(),
-            ..Default::default()
+            incremental_account_change: self.incremental_account_change.clone(),
         }
     }
 }

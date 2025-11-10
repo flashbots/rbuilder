@@ -1,0 +1,19 @@
+rpc_url = "http://127.0.0.1:8545"
+builder_url = "http://127.0.0.1:8645"
+transfer_max_priority_fee_per_gas = "1000000000"
+
+env_filter = "info"
+log_color = false
+log_json = true
+
+[[account]]
+id = "builder-eoa"
+secret = "0x0000000000000000000000000000000000000000000000000000000000000000"
+min_balance = "20000000000000000000"
+
+[[rule]]
+description = ""
+source_id = "builder-eoa"
+destination = "0x0000000000000000000000000000000000000000"
+destination_min_balance = "2500000000000000000"
+destination_target_balance = "5000000000000000000"

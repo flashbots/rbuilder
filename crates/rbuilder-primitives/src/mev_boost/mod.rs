@@ -1,13 +1,10 @@
 use crate::OrderId;
 use alloy_primitives::{Address, Bytes, B256, U256};
-use alloy_rpc_types_beacon::{
-    relay::BidTrace, requests::ExecutionRequestsV4, BlsPublicKey, BlsSignature,
-};
-use alloy_rpc_types_engine::{BlobsBundleV1, BlobsBundleV2, ExecutionPayloadV3};
+use alloy_rpc_types_beacon::BlsPublicKey;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 mod submit_block;
 pub use submit_block::*;
@@ -216,85 +213,6 @@ pub struct BidValueMetadata {
 
 #[derive(Clone, Debug)]
 pub struct SubmitBlockRequestWithMetadata {
-    pub submission: Arc<SubmitBlockRequest>,
+    pub submission: SubmitBlockRequest,
     pub metadata: BidMetadata,
-}
-
-/// Signed bid submission that is serialized without blobs bundle.
-#[derive(Debug)]
-pub struct SubmitBlockRequestNoBlobs<'a>(pub &'a SubmitBlockRequest);
-
-impl serde::Serialize for SubmitBlockRequestNoBlobs<'_> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self.0 {
-            SubmitBlockRequest::Capella(v2) => v2.serialize(serializer),
-            SubmitBlockRequest::Deneb(v3) => {
-                #[derive(serde::Serialize)]
-                struct SignedBidSubmissionV3Ref<'a> {
-                    message: &'a BidTrace,
-                    #[serde(with = "alloy_rpc_types_beacon::payload::beacon_payload_v3")]
-                    execution_payload: &'a ExecutionPayloadV3,
-                    blobs_bundle: &'a BlobsBundleV1,
-                    signature: &'a BlsSignature,
-                    #[serde(skip_serializing_if = "Option::is_none")]
-                    adjustment_data: &'a Option<BidAdjustmentDataV1>,
-                }
-
-                SignedBidSubmissionV3Ref {
-                    message: &v3.message,
-                    execution_payload: &v3.execution_payload,
-                    blobs_bundle: &BlobsBundleV1::new([]), // override blobs bundle with empty one
-                    signature: &v3.signature,
-                    adjustment_data: &v3.adjustment_data,
-                }
-                .serialize(serializer)
-            }
-            SubmitBlockRequest::Electra(v4) => {
-                #[derive(serde::Serialize)]
-                struct SignedBidSubmissionV4Ref<'a> {
-                    message: &'a BidTrace,
-                    #[serde(with = "alloy_rpc_types_beacon::payload::beacon_payload_v3")]
-                    execution_payload: &'a ExecutionPayloadV3,
-                    blobs_bundle: &'a BlobsBundleV1,
-                    execution_requests: &'a ExecutionRequestsV4,
-                    signature: &'a BlsSignature,
-                    #[serde(skip_serializing_if = "Option::is_none")]
-                    adjustment_data: &'a Option<BidAdjustmentDataV1>,
-                }
-
-                SignedBidSubmissionV4Ref {
-                    message: &v4.message,
-                    execution_payload: &v4.execution_payload,
-                    blobs_bundle: &BlobsBundleV1::new([]), // override blobs bundle with empty one
-                    signature: &v4.signature,
-                    execution_requests: &v4.execution_requests,
-                    adjustment_data: &v4.adjustment_data,
-                }
-                .serialize(serializer)
-            }
-            SubmitBlockRequest::Fulu(v5) => {
-                #[derive(serde::Serialize)]
-                struct SignedBidSubmissionV5Ref<'a> {
-                    message: &'a BidTrace,
-                    #[serde(with = "alloy_rpc_types_beacon::payload::beacon_payload_v3")]
-                    execution_payload: &'a ExecutionPayloadV3,
-                    blobs_bundle: &'a BlobsBundleV2,
-                    execution_requests: &'a ExecutionRequestsV4,
-                    signature: &'a BlsSignature,
-                }
-
-                SignedBidSubmissionV5Ref {
-                    message: &v5.message,
-                    execution_payload: &v5.execution_payload,
-                    blobs_bundle: &BlobsBundleV2::new([]), // override blobs bundle with empty one
-                    signature: &v5.signature,
-                    execution_requests: &v5.execution_requests,
-                }
-                .serialize(serializer)
-            }
-        }
-    }
 }

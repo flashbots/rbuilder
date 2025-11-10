@@ -44,6 +44,8 @@ pub struct BuiltBlockTrace {
     pub fill_time: Duration,
     pub finalize_time: Duration,
     pub finalize_adjust_time: Duration,
+    /// Overhead added by creating the MultiPrefinalizedBlock which makes some extra copies.
+    pub multi_bid_copy_duration: Duration,
     pub root_hash_time: Duration,
     /// Value we saw in the competition when we decided to make this bid.
     pub seen_competition_bid: Option<U256>,
@@ -99,6 +101,7 @@ impl BuiltBlockTrace {
             picked_by_sealer_at: OffsetDateTime::now_utc(),
             build_block_id,
             subsidy: I256::ZERO,
+            multi_bid_copy_duration: Duration::ZERO,
         }
     }
 

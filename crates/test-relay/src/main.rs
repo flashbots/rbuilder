@@ -101,7 +101,17 @@ async fn main() -> eyre::Result<()> {
 
     let relay = {
         let url: Url = cli.relay.parse()?;
-        let client = RelayClient::from_url(url, None, None, None, false, Vec::new(), false, false);
+        let client = RelayClient::from_url(
+            url,
+            None,
+            None,
+            None,
+            false,
+            Vec::new(),
+            false,
+            false,
+            false,
+        );
         MevBoostRelaySlotInfoProvider::new(client, "relay".to_string())
     };
 
