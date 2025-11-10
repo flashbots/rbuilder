@@ -1,27 +1,57 @@
-use alloy_primitives::U256;
+use ahash::HashSet;
+use alloy_primitives::{Address, U256};
+use alloy_rpc_types::TransactionTrait;
 use itertools::Itertools;
 use rbuilder_primitives::{
     ace::{AceExchange, AceInteraction, AceUnlockType},
-    Order, SimulatedOrder,
+    Order, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs,
 };
+use serde::Deserialize;
 use std::sync::Arc;
 use tracing::trace;
 
 use crate::{building::sim::SimulationRequest, live_builder::simulation::SimulatedOrderCommand};
 
-/// The ACE bundler sits between the sim-tree and the builder itself. We put the bundler here as it
-/// gives maximum flexibility for ACE protocols for defining ordering and handling cases were
-/// certain tx's depend on other tx's. With this, a simple ace detection can be ran on incoming
-/// orders. Before the orders get sent to the builders, Ace orders get intercepted here and then can
-/// follow protocol specific ordering by leveraging the current bundling design. For example, if a
-/// ace protocol wants to have a protocol transaction first and then sort everything greedly for there
-/// protocol, there bundler can collect all the orders that interact with the protocol and then
-/// generate a bundle with the protocol tx first with all other orders following and set to
-/// droppable with a order that they want.
+/// Collects Ace Orders
 #[derive(Debug, Default)]
-pub struct AceBundler {
+pub struct AceCollector {
     /// ACE bundles organized by exchange
     exchanges: ahash::HashMap<AceExchange, AceExchangeData>,
+    ace_tx_lookup: ahash::HashMap<AceExchange, AceTxData>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AceTxData {
+    pub from_addresses: HashSet<Address>,
+    pub to_addresses: HashSet<Address>,
+    pub unlock_signatures: HashSet<[u8; 4]>,
+    pub force_signatures: HashSet<[u8; 4]>,
+}
+
+impl AceTxData {
+    pub fn is_ace(&self, tx: &TransactionSignedEcRecoveredWithBlobs) -> bool {
+        let internal = tx.internal_tx_unsecure();
+        self.from_addresses.contains(&internal.signer())
+            && self
+                .to_addresses
+                .contains(&internal.inner().to().unwrap_or_default())
+    }
+
+    pub fn ace_type(&self, tx: &TransactionSignedEcRecoveredWithBlobs) -> Option<AceUnlockType> {
+        if self
+            .force_signatures
+            .contains(&tx.internal_tx_unsecure().inner().input()[0..4])
+        {
+            Some(AceUnlockType::Force)
+        } else if self
+            .unlock_signatures
+            .contains(&tx.internal_tx_unsecure().inner().input()[0..4])
+        {
+            Some(AceUnlockType::Optional)
+        } else {
+            None
+        }
+    }
 }
 
 /// Data for a specific ACE exchange including all transaction types and logic
@@ -127,7 +157,7 @@ impl AceExchangeData {
     }
 }
 
-impl AceBundler {
+impl AceCollector {
     pub fn new() -> Self {
         Self::default()
     }
