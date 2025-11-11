@@ -1,11 +1,21 @@
 use crate::mev_boost::{
     adjustment::BidAdjustmentDataV2,
     ssz_roots::{calculate_transactions_root_ssz, calculate_withdrawals_root_ssz},
+    BidMetadata,
 };
 use alloy_primitives::{Address, Bloom, Bytes, B256, U256};
 use alloy_rpc_types_beacon::{relay::BidTrace, requests::ExecutionRequestsV4, BlsSignature};
 use alloy_rpc_types_engine::ExecutionPayloadV3;
 use serde_with::{serde_as, DisplayFromStr};
+
+/// Optimistic V3 bid submission with metadata.
+#[derive(Clone, Debug)]
+pub struct SubmitHeaderRequestWithMetadata {
+    /// Header submission.
+    pub submission: SubmitHeaderRequest,
+    /// Bid metadata.
+    pub metadata: BidMetadata,
+}
 
 /// Optimistic V3 bid submission.
 #[derive(
@@ -18,7 +28,7 @@ use serde_with::{serde_as, DisplayFromStr};
     ssz_derive::Encode,
     ssz_derive::Decode,
 )]
-pub struct HeaderSubmissionOptimisticV3 {
+pub struct SubmitHeaderRequest {
     /// URL pointing to the builder's server endpoint for retrieving
     /// the full block payload if this header is selected.
     pub url: Vec<u8>,
