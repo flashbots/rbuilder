@@ -188,38 +188,24 @@ impl SimulationJob {
     }
 
     /// Returns weather or not to continue the processing of this tx.
-    fn handle_ace_tx(&mut self, res: &SimulatedResult) -> bool {
+    fn handle_ace_tx(&mut self, mut res: SimulatedResult) -> Option<SimulatedResult> {
         // this means that we have frontran this with an ace unlocking tx in the simulator.
         // We cannot do anything else at this point so we yield to the default flow.
         if !res.previous_orders.is_empty() {
-            return true;
+            return Some(res);
         }
 
-        // check to see if this is a ace specific tx.
-
-        // if let Order::AceTx(ref ace) = res.simulated_order.order {
-        //     let unlock_type = ace.ace_unlock_type();
-        //     let exchange = ace.exchange();
-        //
-        //     for sim_order in self.ace_bundler.add_ace_protocol_tx(
-        //         res.simulated_order.clone(),
-        //         unlock_type,
-        //         exchange,
-        //     ) {
-        //         self.sim_tree.ready_orders.push(sim_order);
-        //     }
-        //
-        //     // If its a force, we pass through. If its a optional, we only want to have it be
-        //     // inlcuded if we don't have an unlocking tx.
-        //     return match unlock_type {
-        //         AceUnlockType::Force => true,
-        //         AceUnlockType::Optional => !self.ace_bundler.has_unlocking(&exchange),
-        //     };
-        // }
+        let is_ace = if self.ace_bundler.is_ace(&res.simulated_order.order) {
+            Arc::make_mut(&mut res.simulated_order).is_ace = true;
+            // assert that this order is fully correct.
+            true
+        } else {
+            false
+        };
 
         // we need to know if this ace tx has already been simulated or not.
         let ace_interaction = res.simulated_order.ace_interaction.unwrap();
-        if ace_interaction.is_unlocking() {
+        if is_ace {
             if let Some(cmd) = self
                 .ace_bundler
                 .have_unlocking(ace_interaction.get_exchange())
@@ -227,15 +213,15 @@ impl SimulationJob {
                 let _ = self.slot_sim_results_sender.try_send(cmd);
             }
 
-            return true;
+            return Some(res);
         } else if let Some(order) = self.ace_bundler.add_mempool_ace_tx(
             res.simulated_order.clone(),
             res.simulated_order.ace_interaction.unwrap(),
         ) {
-            self.sim_tree.ready_orders.push(order);
+            self.sim_tree.requeue_ace_order(order);
         }
 
-        false
+        None
     }
 
     /// updates the sim_tree and notifies new orders
@@ -259,12 +245,14 @@ impl SimulationJob {
                 self.orders_with_replacement_key_sim_ok += 1;
             }
 
-            // first we need to check if this interacted with a ace tx and if so what type.
-            if sim_result.simulated_order.ace_interaction.is_some()
-                && !self.handle_ace_tx(sim_result)
-            {
-                continue;
-            }
+            let sim_result = if sim_result.simulated_order.ace_interaction.is_some() {
+                let Some(unlocking_ace) = self.handle_ace_tx(sim_result.clone()) else {
+                    continue;
+                };
+                unlocking_ace
+            } else {
+                sim_result.clone()
+            };
 
             // Skip cancelled orders and remove from in_flight_orders
             if self
@@ -287,7 +275,7 @@ impl SimulationJob {
                     {
                         return false; //receiver closed :(
                     } else {
-                        self.sim_tracer.update_simulation_sent(sim_result);
+                        self.sim_tracer.update_simulation_sent(&sim_result);
                     }
                 }
             }

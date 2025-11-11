@@ -88,7 +88,7 @@ pub struct SimTree {
     pending_orders: HashMap<OrderId, PendingOrder>,
     pending_nonces: HashMap<NonceKey, Vec<OrderId>>,
 
-    pub(crate) ready_orders: Vec<SimulationRequest>,
+    ready_orders: Vec<SimulationRequest>,
 }
 
 #[derive(Debug)]
@@ -108,6 +108,10 @@ impl SimTree {
             pending_nonces: HashMap::default(),
             ready_orders: Vec::default(),
         }
+    }
+
+    pub fn requeue_ace_order(&mut self, req: SimulationRequest) {
+        self.ready_orders.push(req);
     }
 
     fn push_order(&mut self, order: Order) -> Result<(), ProviderError> {

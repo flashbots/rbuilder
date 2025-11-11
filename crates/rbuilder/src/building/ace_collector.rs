@@ -168,7 +168,16 @@ impl AceCollector {
         }
     }
 
-    /// Add an ACE protocol transaction (Order::Ace)
+    pub fn is_ace(&self, order: &Order) -> bool {
+        match order {
+            Order::Tx(tx) => self
+                .ace_tx_lookup
+                .values()
+                .any(|config| config.is_ace(&tx.tx_with_blobs)),
+            _ => false,
+        }
+    }
+
     pub fn add_ace_protocol_tx(
         &mut self,
         simulated: Arc<SimulatedOrder>,

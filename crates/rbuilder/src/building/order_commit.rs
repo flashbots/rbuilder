@@ -16,7 +16,6 @@ use alloy_primitives::{Address, B256, I256, U256};
 use alloy_rlp::Encodable;
 use itertools::Itertools;
 use rbuilder_primitives::ace::AceExchange;
-use rbuilder_primitives::AceTx;
 use rbuilder_primitives::{
     evm_inspector::{RBuilderEVMInspector, UsedStateTrace},
     BlockSpace, Bundle, Order, OrderId, RefundConfig, ShareBundle, ShareBundleBody,
@@ -853,48 +852,6 @@ impl<
             }
         };
         Ok(Ok(()))
-    }
-
-    fn commit_ace_no_rollback(
-        &mut self,
-        ace_tx: &AceTx,
-        space_state: BlockBuildingSpaceState,
-    ) -> Result<Result<AceOk, BundleErr>, CriticalCommitOrderError> {
-        match ace_tx {
-            AceTx::Angstrom(angstrom_tx) => {
-                let tx_hash = angstrom_tx.tx.hash();
-
-                // Use the constant Angstrom exchange address
-                let exchange = AceExchange::angstrom();
-
-                // Commit the ACE transaction - no rollback for ACE
-                let result = self.commit_tx(&angstrom_tx.tx, space_state)?;
-
-                match result {
-                    Ok(res) => {
-                        // Check if the transaction reverted
-                        if !res.tx_info.receipt.success {
-                            // Reject reverted ACE transactions
-                            return Ok(Err(BundleErr::TransactionReverted(tx_hash)));
-                        }
-
-                        Ok(Ok(AceOk {
-                            space_used: res.space_used(),
-                            cumulative_space_used: res.cumulative_space_used,
-                            tx_info: res.tx_info,
-                            nonces_updated: vec![res.nonce_updated],
-                            reverted: false,
-                            exchange,
-                        }))
-                    }
-                    Err(err) => {
-                        // ACE transactions must not fail at the EVM level
-                        // These are critical errors that prevent the bundle
-                        Ok(Err(BundleErr::InvalidTransaction(tx_hash, err)))
-                    }
-                }
-            }
-        }
     }
 
     fn commit_bundle_no_rollback(
