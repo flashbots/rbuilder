@@ -18,7 +18,7 @@ use itertools::Itertools;
 use rbuilder_primitives::{
     evm_inspector::{RBuilderEVMInspector, UsedStateTrace},
     BlockSpace, Bundle, Order, OrderId, RefundConfig, ShareBundle, ShareBundleBody,
-    ShareBundleInner, TransactionSignedEcRecoveredWithBlobs,
+    ShareBundleInner, SimValue, TransactionSignedEcRecoveredWithBlobs,
 };
 use reth::{
     consensus_common::validation::MAX_RLP_BLOCK_SIZE, revm::database::StateProviderDatabase,
@@ -345,10 +345,25 @@ pub enum OrderErr {
     Transaction(#[from] TransactionErr),
     #[error("Bundle error: {0}")]
     Bundle(#[from] BundleErr),
+    /// This is not really an error from order execution. We should probably move it away from here.
+    /// It's used after simulation to reject orders with no exclusive profit (only profit from mempool txs)
     #[error("No exclusive profit")]
     NoExclusiveProfit,
     #[error("Negative profit: {0}")]
     NegativeProfit(U256),
+}
+
+/// Sometimes we want to reject orders that pass simulation but we think are not going to be good for the block.
+pub fn order_is_worth_executing(sim_value: &SimValue) -> Result<(), OrderErr> {
+    if sim_value
+        .non_mempool_profit_info()
+        .coinbase_profit()
+        .is_zero()
+    {
+        Err(OrderErr::NoExclusiveProfit)
+    } else {
+        Ok(())
+    }
 }
 
 /// Tracer for PartialBlockFork execution.
