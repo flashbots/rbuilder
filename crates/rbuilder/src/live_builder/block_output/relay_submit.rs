@@ -107,17 +107,8 @@ pub trait BlockBuildingSink: std::fmt::Debug + Send + Sync {
 pub struct SubmissionConfig {
     pub chain_spec: Arc<ChainSpec>,
     pub signer: BLSBlockSigner,
-
-    pub optimistic_config: Option<OptimisticConfig>,
     pub optimistic_v3_config: Option<OptimisticV3Config>,
     pub bid_observer: Box<dyn BidObserver + Send + Sync>,
-}
-
-/// Configuration for optimistic block submission to relays.
-#[derive(Debug, Clone)]
-pub struct OptimisticConfig {
-    pub signer: BLSBlockSigner,
-    pub max_bid_value: U256,
 }
 
 /// Configuration for optimistic V3.
@@ -160,19 +151,6 @@ async fn run_submit_to_relays_job(
             .collect::<Vec<_>>(),
     );
 
-    let (regular_relays, optimistic_relays) = relays
-        .into_iter()
-        .partition::<Vec<_>, _>(|relay| !relay.optimistic());
-
-    let regular_relays_ids = regular_relays
-        .iter()
-        .map(|relay| relay.id())
-        .collect::<Vec<_>>();
-    let optimistic_relays_ids = optimistic_relays
-        .iter()
-        .map(|relay| relay.id())
-        .collect::<Vec<_>>();
-
     let mut last_bid_hash = None;
     'submit: loop {
         tokio::select! {
@@ -210,18 +188,6 @@ async fn run_submit_to_relays_job(
             .filter(|o| !o.order.is_tx())
             .count();
 
-        // Only enable the optimistic config for this block if the bid value is below the max bid value
-        let optimistic_config = config
-            .optimistic_config
-            .as_ref()
-            .and_then(|optimistic_config| {
-                if block.trace.bid_value < optimistic_config.max_bid_value {
-                    Some(optimistic_config)
-                } else {
-                    None
-                }
-            });
-
         // SAFETY: UNIX timestamp in nanos won't exceed u64::MAX until year 2554
         let sequence = OffsetDateTime::now_utc().unix_timestamp_nanos() as u64;
         let executed_orders = block
@@ -254,8 +220,7 @@ async fn run_submit_to_relays_job(
             gas = block.sealed_block.gas_used,
             block_id = block.trace.build_block_id.0,
             builder_name = block.builder_name,
-            regular_relays_ids = ?regular_relays_ids,
-            optimistic_relays_ids = ?optimistic_relays_ids,
+            ?relay_set
         );
         info!(
             parent: &submission_span,
@@ -280,99 +245,50 @@ async fn run_submit_to_relays_job(
             latency_ms = latency.whole_milliseconds(),
             "Submitting bid",
         );
-        inc_initiated_submissions(optimistic_config.is_some());
+        inc_initiated_submissions(true);
 
         let execution_payload = block_to_execution_payload(
             &config.chain_spec,
             &slot_data.payload_attributes_event.data,
             &block.sealed_block,
         );
-        let (regular_request, optimistic_request) = {
-            let mut regular = None;
-            if optimistic_config.is_none() || !regular_relays.is_empty() {
-                regular = create_submit_block_request(
-                    &config.signer,
-                    &config.chain_spec,
-                    &slot_data,
-                    &block,
-                    &execution_payload,
-                )
-                .inspect_err(|error| {
-                    error!(parent: &submission_span, ?error, "Error creating regular submit block request");
-                })
-                .ok();
+        let request = match create_submit_block_request(
+            &config.signer,
+            &config.chain_spec,
+            &slot_data,
+            &block,
+            &execution_payload,
+        ) {
+            Ok(request) => request,
+            Err(error) => {
+                error!(parent: &submission_span, ?error, "Error creating submit block request");
+                continue 'submit;
             }
-
-            let mut optimistic = None;
-            if let Some(optimistic_config) =
-                optimistic_config.filter(|_| !optimistic_relays.is_empty())
-            {
-                optimistic = create_submit_block_request(
-                    &optimistic_config.signer,
-                    &config.chain_spec,
-                    &slot_data,
-                    &block,
-                    &execution_payload,
-                ).inspect_err(|error| {
-                    error!(parent: &submission_span, ?error, "Error creating optimistic submit block request");
-                })
-                .ok();
-            }
-
-            (regular, optimistic)
         };
 
-        if regular_request.is_none() && optimistic_request.is_none() {
-            let regular_relays_len = regular_relays.len();
-            let optimistic_relays_len = optimistic_relays.len();
-            error!(parent: &submission_span, regular_relays_len, optimistic_relays_len, "Unable to construct request from the built block");
-            continue 'submit;
-        }
-
         mark_submission_start_time(block.trace.orders_sealed_at);
-        if let Some(request) = &regular_request {
-            submit_block_to_relays(
-                request.clone(),
-                &bid_metadata,
-                &block.bid_adjustments,
-                &regular_relays,
-                &slot_data.relay_registrations,
-                false,
-                &config.optimistic_v3_config,
-                &submission_span,
-                &cancel,
-            )
-        }
+        submit_block_to_relays(
+            request.clone(),
+            &bid_metadata,
+            &block.bid_adjustments,
+            &relays,
+            &slot_data.relay_registrations,
+            &config.optimistic_v3_config,
+            &submission_span,
+            &cancel,
+        );
 
-        let optimistic_request = optimistic_request
-            .map(|req| (req, true))
-            // non-optimistic submission to optimistic relays
-            .or(regular_request.map(|req| (req, false)));
-        if let Some((request, optimistic)) = optimistic_request {
-            submit_block_to_relays(
-                request.clone(),
-                &bid_metadata,
-                &block.bid_adjustments,
-                &optimistic_relays,
-                &slot_data.relay_registrations,
-                optimistic,
-                &config.optimistic_v3_config,
-                &submission_span,
-                &cancel,
+        submission_span.in_scope(|| {
+            // NOTE: we only notify normal submission here because they have the same contents but different pubkeys
+            config.bid_observer.block_submitted(
+                &slot_data,
+                request,
+                Arc::new(block.trace),
+                builder_name,
+                bid_metadata.value.top_competitor_bid.unwrap_or_default(),
+                &relay_set,
             );
-
-            submission_span.in_scope(|| {
-                // NOTE: we only notify normal submission here because they have the same contents but different pubkeys
-                config.bid_observer.block_submitted(
-                    &slot_data,
-                    request,
-                    Arc::new(block.trace),
-                    builder_name,
-                    bid_metadata.value.top_competitor_bid.unwrap_or_default(),
-                    &relay_set,
-                );
-            })
-        }
+        });
     }
 }
 
@@ -473,7 +389,6 @@ fn submit_block_to_relays(
     bid_adjustments: &std::collections::HashMap<Address, BidAdjustmentData>,
     relays: &Vec<MevBoostRelayBidSubmitter>,
     registrations: &HashMap<MevBoostRelayID, RelaySlotData>,
-    optimistic: bool,
     optimistic_v3_config: &Option<OptimisticV3Config>,
     submission_span: &Span,
     cancel: &CancellationToken,
@@ -530,8 +445,7 @@ fn submit_block_to_relays(
             metadata: bid_metadata.clone(),
         };
 
-        let span =
-            info_span!(parent: submission_span, "relay_submit", relay = &relay.id(), optimistic);
+        let span = info_span!(parent: submission_span, "relay_submit", relay = &relay.id(), optimistic = true);
         let relay = relay.clone();
         let cancel = cancel.clone();
         tokio::spawn(
@@ -541,7 +455,6 @@ fn submit_block_to_relays(
                     submission,
                     optimistic_v3,
                     registration.registration,
-                    optimistic,
                     cancel,
                 )
                 .await;
@@ -556,7 +469,6 @@ async fn submit_bid_to_the_relay(
     submit_block_request: SubmitBlockRequestWithMetadata,
     optimistic_v3_request: Option<(OptimisticV3Config, SubmitHeaderRequestWithMetadata)>,
     registration: ValidatorSlotData,
-    optimistic: bool,
     cancel: CancellationToken,
 ) {
     let submit_start = Instant::now();
@@ -591,7 +503,7 @@ async fn submit_bid_to_the_relay(
         Ok(()) => {
             trace!("Block submitted to the relay successfully");
             add_relay_submit_time(relay.id(), submit_time);
-            inc_relay_accepted_submissions(relay.id(), optimistic);
+            inc_relay_accepted_submissions(relay.id(), true);
         }
         Err(SubmitBlockErr::PayloadDelivered | SubmitBlockErr::PastSlot) => {
             trace!("Block already delivered by the relay, cancelling");
