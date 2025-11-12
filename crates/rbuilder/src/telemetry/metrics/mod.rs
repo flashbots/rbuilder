@@ -209,15 +209,11 @@ register_metrics! {
         IntCounter::new("simulation_gas_used", "Simulation gas used").unwrap();
     pub static ACTIVE_SLOTS: IntCounter =
         IntCounter::new("active_slots", "Slots when builder was active").unwrap();
-    pub static INITIATED_SUBMISSIONS: IntCounterVec = IntCounterVec::new(
-        Opts::new(
+    pub static INITIATED_SUBMISSIONS: IntCounter = IntCounter::new(
             "initiated_submissions",
             "Number of initiated submissions to the relays"
-        ),
-        &["optimistic"],
     )
     .unwrap();
-
     pub static RELAY_SUBMIT_TIME: HistogramVec = HistogramVec::new(
         HistogramOpts::new("relay_submit_time", "Time to send bid to the relay (ms)")
             .buckets(exponential_buckets_range(0.5, 3000.0, 50)),
@@ -567,10 +563,8 @@ pub fn inc_active_slots() {
     ACTIVE_SLOTS.inc();
 }
 
-pub fn inc_initiated_submissions(optimistic: bool) {
-    INITIATED_SUBMISSIONS
-        .with_label_values(&[&optimistic.to_string()])
-        .inc();
+pub fn inc_initiated_submissions() {
+    INITIATED_SUBMISSIONS.inc();
 }
 
 pub fn add_relay_submit_time(relay: &MevBoostRelayID, duration: Duration) {

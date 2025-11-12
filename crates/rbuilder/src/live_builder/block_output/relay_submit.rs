@@ -245,7 +245,7 @@ async fn run_submit_to_relays_job(
             latency_ms = latency.whole_milliseconds(),
             "Submitting bid",
         );
-        inc_initiated_submissions(true);
+        inc_initiated_submissions();
 
         let execution_payload = block_to_execution_payload(
             &config.chain_spec,
@@ -445,7 +445,7 @@ fn submit_block_to_relays(
             metadata: bid_metadata.clone(),
         };
 
-        let span = info_span!(parent: submission_span, "relay_submit", relay = &relay.id(), optimistic = true);
+        let span = info_span!(parent: submission_span, "relay_submit", relay = &relay.id());
         let relay = relay.clone();
         let cancel = cancel.clone();
         tokio::spawn(
@@ -503,7 +503,7 @@ async fn submit_bid_to_the_relay(
         Ok(()) => {
             trace!("Block submitted to the relay successfully");
             add_relay_submit_time(relay.id(), submit_time);
-            inc_relay_accepted_submissions(relay.id(), true);
+            inc_relay_accepted_submissions(relay.id(), relay.optimistic());
         }
         Err(SubmitBlockErr::PayloadDelivered | SubmitBlockErr::PastSlot) => {
             trace!("Block already delivered by the relay, cancelling");

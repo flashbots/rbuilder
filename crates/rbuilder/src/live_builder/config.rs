@@ -410,7 +410,7 @@ impl L1Config {
             optimistic_v3_config,
         )?;
         info!(
-            "Builder mev boost normal relay pubkey: {:?}",
+            "Builder mev boost relay pubkey: {:?}",
             submission_config.signer.pub_key()
         );
 
