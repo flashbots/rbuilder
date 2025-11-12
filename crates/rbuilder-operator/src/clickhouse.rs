@@ -252,11 +252,11 @@ impl BidObserver for BuiltBlocksWriter {
                 get_delayed_payments(&built_block_trace);
             let delayed_payment_addresses = delayed_payment_addresses
                 .iter()
-                .map(|address| address.to_string())
+                .map(|address| address.to_string().to_lowercase())
                 .collect();
             let block_row = BlockRow {
                 block_number,
-                profit: format_ether(built_block_trace.true_bid_value),
+                profit: format_ether(submit_trace.value),
                 slot,
                 hash: execution_payload_v1.block_hash.to_string(),
                 gas_limit: submit_trace.gas_limit,
