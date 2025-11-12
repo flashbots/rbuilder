@@ -93,8 +93,8 @@ type ConsumeBuiltBlockRequest = (
     // bestBidValue
     U256,
     Vec<BlockProcessorDelayedPayments>,
-    // Relays
-    Vec<String>,
+    // Relays. Temporarily disabled since we don't use it and we did't updated blockprocessor to use it.
+    //    Vec<String>,
 );
 
 /// Struct to avoid copying ConsumeBuiltBlockRequest since HttpClient::request eats the parameter.
@@ -150,7 +150,7 @@ impl<HttpClientType: ClientT> BlocksProcessorClient<HttpClientType> {
         built_block_trace: &BuiltBlockTrace,
         builder_name: String,
         best_bid_value: U256,
-        relays: RelaySet,
+        _relays: RelaySet,
     ) -> eyre::Result<()> {
         let execution_payload_v1 = match submit_block_request {
             AlloySubmitBlockRequest::Capella(request) => &request.execution_payload.payload_inner,
@@ -248,11 +248,12 @@ impl<HttpClientType: ClientT> BlocksProcessorClient<HttpClientType> {
             built_block_trace.true_bid_value,
             best_bid_value,
             delayed_payments,
-            relays
-                .relays()
-                .iter()
-                .map(|relay| relay.to_string())
-                .collect(),
+            /*    Temporarily disabled since we don't use it and we did't updated blockprocessor to use it.
+             relays
+            .relays()
+            .iter()
+            .map(|relay| relay.to_string())
+            .collect(),*/
         );
         let request = ConsumeBuiltBlockRequestArc::new(params);
         let backoff = backoff();
