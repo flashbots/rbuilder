@@ -26,13 +26,14 @@ use rbuilder_primitives::{
     built_block::{block_to_execution_payload, SignedBuiltBlock},
     mev_boost::{
         BidAdjustmentData, BidMetadata, BidValueMetadata, ExecutionPayloadHeaderElectra,
-        HeaderSubmission, HeaderSubmissionElectra, HeaderSubmissionOptimisticV3, MevBoostRelayID,
-        SignedHeaderSubmission, SubmitBlockRequest, SubmitBlockRequestWithMetadata,
-        ValidatorSlotData,
+        HeaderSubmission, HeaderSubmissionElectra, MevBoostRelayID, SignedHeaderSubmission,
+        SubmitBlockRequest, SubmitBlockRequestWithMetadata, SubmitHeaderRequest,
+        SubmitHeaderRequestWithMetadata, ValidatorSlotData,
     },
 };
 use reth_chainspec::ChainSpec;
 use std::sync::Arc;
+use time::OffsetDateTime;
 use tokio::{
     sync::{broadcast, Notify},
     time::Instant,
@@ -221,12 +222,15 @@ async fn run_submit_to_relays_job(
                 }
             });
 
+        // SAFETY: UNIX timestamp in nanos won't exceed u64::MAX until year 2554
+        let sequence = OffsetDateTime::now_utc().unix_timestamp_nanos() as u64;
         let executed_orders = block
             .trace
             .included_orders
             .iter()
             .flat_map(|exec_res| exec_res.order.original_orders());
         let bid_metadata = BidMetadata {
+            sequence,
             value: BidValueMetadata {
                 coinbase_reward: block.trace.coinbase_reward,
                 top_competitor_bid: block.trace.seen_competition_bid,
@@ -403,7 +407,7 @@ fn create_optimistic_v3_request(
     request: &AlloySubmitBlockRequest,
     maybe_adjustment_data: Option<&BidAdjustmentData>,
     adjustment_data_required: bool,
-) -> eyre::Result<HeaderSubmissionOptimisticV3> {
+) -> eyre::Result<SubmitHeaderRequest> {
     let maybe_adjustment_data_v2 = maybe_adjustment_data.map(|d| d.clone().into_v2());
     if maybe_adjustment_data_v2.is_none() && adjustment_data_required {
         eyre::bail!("adjustment data is required")
@@ -455,7 +459,7 @@ fn create_optimistic_v3_request(
         _ => eyre::bail!("optimistic v3 submission is not supported for this fork"),
     };
 
-    Ok(HeaderSubmissionOptimisticV3 {
+    Ok(SubmitHeaderRequest {
         url: builder_url.to_vec(),
         tx_count: tx_count as u32,
         submission,
@@ -503,7 +507,10 @@ fn submit_block_to_relays(
                     maybe_adjustment_data,
                     relay.optimistic_v3_bid_adjustment_required(),
                 )
-                .map(|request| (config.clone(), request))
+                .map(|request| (config.clone(), SubmitHeaderRequestWithMetadata {
+                    submission: request,
+                    metadata: bid_metadata.clone()
+                }))
                 .inspect_err(|error| {
                     error!(parent: submission_span, ?error, "Unable to create optimistic V3 request");
                 })
@@ -547,7 +554,7 @@ fn submit_block_to_relays(
 async fn submit_bid_to_the_relay(
     relay: &MevBoostRelayBidSubmitter,
     submit_block_request: SubmitBlockRequestWithMetadata,
-    optimistic_v3_request: Option<(OptimisticV3Config, HeaderSubmissionOptimisticV3)>,
+    optimistic_v3_request: Option<(OptimisticV3Config, SubmitHeaderRequestWithMetadata)>,
     registration: ValidatorSlotData,
     optimistic: bool,
     cancel: CancellationToken,

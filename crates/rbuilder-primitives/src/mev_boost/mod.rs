@@ -200,6 +200,7 @@ pub struct BloxrouteRegionalEndpoint {
 
 #[derive(Clone, Debug)]
 pub struct BidMetadata {
+    pub sequence: u64,
     pub value: BidValueMetadata,
     pub order_ids: Vec<OrderId>,
     pub bundle_hashes: Vec<B256>,
