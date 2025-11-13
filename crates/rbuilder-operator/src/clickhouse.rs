@@ -14,12 +14,9 @@ use rbuilder::{
 };
 use rbuilder_primitives::{Order, OrderId};
 use rbuilder_utils::clickhouse::{
-    backup::{
-        metrics::NullMetrics,
-        primitives::{ClickhouseIndexableData, ClickhouseRowExt},
-    },
+    backup::primitives::{ClickhouseIndexableData, ClickhouseRowExt},
     serde::{option_u256, vec_u256},
-    spawn_clickhouse_inserter_and_backup, Quantities,
+    spawn_clickhouse_inserter_and_backup,
 };
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
