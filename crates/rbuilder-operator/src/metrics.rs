@@ -40,11 +40,10 @@ register_metrics! {
     pub static CLICKHOUSE_BYTES_COMMITTED_FROM_BACKUP: IntCounter = IntCounter::new("clickhouse_bytes_committed_from_backup", "Clickhouse built blocks bytes commited to clickhouse from the local backup")
     .unwrap();
 
-    pub static CLICKHOUSE_ROWS_LOST: IntCounter = IntCounter::new("clickhouse_rows_lost", "")
+    pub static CLICKHOUSE_ROWS_LOST: IntCounter = IntCounter::new("clickhouse_rows_lost", "clickhouse_rows_lost")
     .unwrap();
-    pub static CLICKHOUSE_BYTES_LOST: IntCounter = IntCounter::new("clickhouse_bytes_lost", "")
+    pub static CLICKHOUSE_BYTES_LOST: IntCounter = IntCounter::new("clickhouse_bytes_lost", "clickhouse_bytes_lost")
     .unwrap();
-
 
 
     pub static CLICKHOUSE_COMMIT_FAILURES: IntCounter = IntCounter::new("clickhouse_commit_failures", "Clickhouse built blocks batches commited failures")
