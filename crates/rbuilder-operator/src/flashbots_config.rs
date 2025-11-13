@@ -40,12 +40,7 @@ use url::Url;
 
 use crate::{
     bidding_service_wrapper::client::bidding_service_client_adapter::BiddingServiceClientAdapter,
-    blocks_processor::{
-        BlocksProcessorClient, BlocksProcessorClientBidObserver,
-        SIGNED_BLOCK_CONSUME_BUILT_BLOCK_METHOD,
-    },
-    build_info::rbuilder_version,
-    clickhouse::BuiltBlocksWriter,
+    build_info::rbuilder_version, clickhouse::BuiltBlocksWriter,
     true_block_value_push::best_true_value_observer::BestTrueValueObserver,
 };
 
@@ -317,26 +312,6 @@ impl FlashbotsConfig {
                 cancellation_token.clone(),
             );
             return Ok(Some(Box::new(writer)));
-        }
-
-        if let Some(url) = &self.blocks_processor_url {
-            let bid_observer: Box<dyn BidObserver + Send + Sync> = if let Some(
-                block_processor_key,
-            ) = block_processor_key
-            {
-                let client = crate::signed_http_client::create_client(
-                    url,
-                    block_processor_key,
-                    self.blocks_processor_max_request_size_bytes,
-                    self.blocks_processor_max_concurrent_requests,
-                )?;
-                let block_processor =
-                    BlocksProcessorClient::new(client, SIGNED_BLOCK_CONSUME_BUILT_BLOCK_METHOD);
-                Box::new(BlocksProcessorClientBidObserver::new(block_processor))
-            } else {
-                eyre::bail!("Unsigned block processing is not supported: if blocks_processor_url is set, a block_processor_key must also be provided");
-            };
-            Ok(Some(bid_observer))
         } else {
             if block_processor_key.is_some() {
                 return Self::bail_blocks_processor_url_not_set();

@@ -8,7 +8,8 @@ use clickhouse::{Client, Row};
 use rbuilder::{
     building::BuiltBlockTrace,
     live_builder::{
-        block_output::bidding_service_interface::BidObserver, payload_events::MevBoostSlotData,
+        block_output::bidding_service_interface::{BidObserver, RelaySet},
+        payload_events::MevBoostSlotData,
     },
 };
 use rbuilder_primitives::{Order, OrderId};
@@ -218,6 +219,7 @@ impl BidObserver for BuiltBlocksWriter {
         built_block_trace: Arc<BuiltBlockTrace>,
         builder_name: String,
         best_bid_value: U256,
+        _relays: &RelaySet,
     ) {
         let slot = slot_data.slot();
         let block_number = slot_data.block();
