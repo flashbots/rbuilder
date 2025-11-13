@@ -26,7 +26,7 @@ use rbuilder::{
             SpecificBuilderConfig,
         },
         payload_events::MevBoostSlotData,
-        LiveBuilder,
+        LiveBuilder, ProcessKiller,
     },
     provider::StateProviderFactory,
     utils::build_info::Version,
@@ -155,6 +155,7 @@ impl LiveBuilderConfig for FlashbotsConfig {
                 &landed_blocks,
                 self.l1_config.relays_ids(),
                 cancellation_token.clone(),
+                ProcessKiller::new(cancellation_token.clone()),
             )
             .await?;
 
@@ -264,12 +265,14 @@ impl FlashbotsConfig {
         landed_blocks_history: &[LandedBlockInfo],
         all_relay_ids: RelaySet,
         cancellation_token: CancellationToken,
+        process_killer: ProcessKiller,
     ) -> eyre::Result<Arc<BiddingServiceClientAdapter>> {
         let bidding_service_client = BiddingServiceClientAdapter::new(
             &self.bidding_service_ipc_path,
             landed_blocks_history,
             all_relay_ids,
             cancellation_token,
+            process_killer,
         )
         .await
         .map_err(|e| eyre::Report::new(e).wrap_err("Unable to connect to remote bidder"))?;

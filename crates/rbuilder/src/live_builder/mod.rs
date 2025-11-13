@@ -118,6 +118,7 @@ where
     pub blocklist_provider: Arc<dyn BlockListProvider>,
 
     pub global_cancellation: CancellationToken,
+    pub process_killer: ProcessKiller,
 
     pub unfinished_built_blocks_input_factory: UnfinishedBuiltBlocksInputFactory<P>,
     pub builders: Vec<Arc<dyn BlockBuildingAlgorithm<P>>>,
@@ -206,6 +207,7 @@ where
             Some(duration) => Some(spawn_watchdog_thread(
                 duration,
                 "block build started".to_string(),
+                self.process_killer.clone(),
             )?),
             None => {
                 info!("Watchdog not enabled");
@@ -467,5 +469,46 @@ async fn try_send_to_orderpool<V, T, S>(
         Err(e) => {
             error!("Error creating order from transaction: {:#}", e);
         }
+    }
+}
+
+/// This time should be enough to let the process to finish its work and exit gracefully.
+/// Example of this need is the clickhouse backup that takes a while to finish and we don't want to loose any blocks.
+const PROCESS_KILLER_WAIT_TIME: Duration = Duration::from_secs(12);
+#[derive(Debug, Clone)]
+pub struct ProcessKiller {
+    cancellation_token: CancellationToken,
+}
+
+impl ProcessKiller {
+    pub fn new(cancellation_token: CancellationToken) -> Self {
+        Self { cancellation_token }
+    }
+
+    /// is_error -> This is a critical kill.
+    /// !is_error -> This is a graceful kill.
+    pub fn kill(&self, reason: &str, is_error: bool) {
+        // puaj, copy paste
+        if is_error {
+            error!(
+                reason,
+                wait_time_secs = PROCESS_KILLER_WAIT_TIME.as_secs(),
+                "Process killing started, signaling cancellation token and waiting"
+            );
+        } else {
+            info!(
+                reason,
+                wait_time_secs = PROCESS_KILLER_WAIT_TIME.as_secs(),
+                "Process killing started, signaling cancellation token and waiting"
+            );
+        }
+        self.cancellation_token.cancel();
+        std::thread::sleep(PROCESS_KILLER_WAIT_TIME);
+        if is_error {
+            error!(reason, "Killing process");
+        } else {
+            info!(reason, "Killing process");
+        }
+        std::process::exit(1);
     }
 }

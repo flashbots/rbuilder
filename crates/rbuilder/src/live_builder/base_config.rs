@@ -6,7 +6,7 @@ use crate::{
             NullOrderFlowTracerManager, OrderFlowTracerManager, OrderFlowTracerManagerImpl,
         },
         order_input::OrderInputConfig,
-        LiveBuilder,
+        LiveBuilder, ProcessKiller,
     },
     provider::{
         ipc_state_provider::{IpcProviderConfig, IpcStateProviderFactory},
@@ -254,8 +254,8 @@ impl BaseConfig {
             extra_data: self.extra_data.clone(),
             blocklist_provider,
 
-            global_cancellation: cancellation_token,
-
+            global_cancellation: cancellation_token.clone(),
+            process_killer: ProcessKiller::new(cancellation_token),
             extra_rpc: RpcModule::new(()),
             unfinished_built_blocks_input_factory,
             builders: Vec::new(),
