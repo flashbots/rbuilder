@@ -5,13 +5,11 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// The tracing target for this indexer crate. @PendingDX REMOVE
-const TARGET: &str = "indexer";
-
 use clickhouse::{
     error::Result as ClickhouseResult, inserter::Inserter, Client as ClickhouseClient, Row,
 };
 use tokio::sync::mpsc;
+use tracing::Instrument;
 
 use crate::{
     clickhouse::{
@@ -91,12 +89,11 @@ impl<T: ClickhouseRowExt, MetricsType: Metrics> ClickhouseInserter<T, MetricsTyp
 
     /// Writes the provided order into the inner Clickhouse writer buffer.
     async fn write(&mut self, row: T) {
-        let hash = row.hash();
         let value_ref = ClickhouseRowExt::to_row_ref(&row);
 
         if let Err(e) = self.inner.write(value_ref).await {
             MetricsType::increment_write_failures(e.to_string());
-            tracing::error!(target: TARGET, order = T::ORDER, ?e, %hash, "failed to write to clickhouse inserter");
+            tracing::error!(?e, "failed to write to inserter");
             return;
         }
 
@@ -114,9 +111,9 @@ impl<T: ClickhouseRowExt, MetricsType: Metrics> ClickhouseInserter<T, MetricsTyp
         match self.inner.commit().await {
             Ok(quantities) => {
                 if quantities == Quantities::ZERO.into() {
-                    tracing::trace!(target: TARGET, order = T::ORDER, "committed to inserter");
+                    tracing::trace!("committed batch to inserter");
                 } else {
-                    tracing::debug!(target: TARGET, order = T::ORDER, ?quantities, "inserted batch to clickhouse");
+                    tracing::debug!(?quantities, "committed batch to server");
                     MetricsType::process_quantities(&quantities.into());
                     MetricsType::record_batch_commit_time(start.elapsed());
                     // Clear the backup rows.
@@ -125,13 +122,13 @@ impl<T: ClickhouseRowExt, MetricsType: Metrics> ClickhouseInserter<T, MetricsTyp
             }
             Err(e) => {
                 MetricsType::increment_commit_failures(e.to_string());
-                tracing::error!(target: TARGET, order = T::ORDER, ?e, "failed to commit bundle to clickhouse");
+                tracing::error!(?e, "failed to commit bundle");
 
                 let rows = std::mem::take(&mut self.rows_backup);
                 let failed_commit = FailedCommit::new(rows, pending);
 
                 if let Err(e) = self.backup_tx.try_send(failed_commit) {
-                    tracing::error!(target: TARGET, order = T::ORDER, ?e, "failed to send rows backup");
+                    tracing::error!(?e, "failed to send rows backup");
                 }
             }
         }
@@ -194,16 +191,26 @@ impl<T: ClickhouseIndexableOrder, MetricsType: Metrics> InserterRunner<T, Metric
             .with_interval(Duration::from_secs(4));
 
         while let Some(order) = self.rx.recv().await {
-            tracing::trace!(target: TARGET, order = T::ORDER, hash = %order.hash(), "received data to index");
             sampler.sample(|| {
                 MetricsType::set_queue_size(self.rx.len(), T::ORDER);
             });
-
-            let row = order.to_row(self.builder_name.clone());
-            self.inserter.write(row).await;
-            self.inserter.commit().await;
+            self.on_order(order).await;
         }
-        tracing::error!(target: TARGET, order = T::ORDER, "tx channel closed, indexer will stop running");
+        tracing::error!(
+            order = T::ORDER,
+            "tx channel closed, indexer will stop running"
+        );
+    }
+
+    /// Process a new order to index.
+    #[tracing::instrument(skip_all, name = "indexer_inserter", fields(order = T::ORDER, hash = %order.hash()))]
+    pub async fn on_order(&mut self, order: T) {
+        tracing::trace!("received order to index");
+
+        let span = tracing::Span::current();
+        let row = order.to_row(self.builder_name.clone());
+        self.inserter.write(row).instrument(span.clone()).await;
+        self.inserter.commit().instrument(span).await;
     }
 
     pub async fn end(self) -> ClickhouseResult<Quantities> {
