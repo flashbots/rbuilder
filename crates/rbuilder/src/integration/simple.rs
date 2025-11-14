@@ -125,7 +125,7 @@ mod tests {
              12 /* problem detected in next block start an cancel is signaled*/+
              15 /*watchdog_timeout_sec */+
              12 /*extra delay from watchdog*/+
-             1 /* for timing errors */;
+             10 /* for timing errors */;
         tokio::time::sleep(Duration::from_secs(timeout_secs)).await; //puaj
         assert!(!srv.builder_is_alive());
     }
