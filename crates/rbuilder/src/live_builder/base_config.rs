@@ -6,7 +6,8 @@ use crate::{
             NullOrderFlowTracerManager, OrderFlowTracerManager, OrderFlowTracerManagerImpl,
         },
         order_input::OrderInputConfig,
-        LiveBuilder, ProcessKiller,
+        process_killer::ProcessKiller,
+        LiveBuilder,
     },
     provider::{
         ipc_state_provider::{IpcProviderConfig, IpcStateProviderFactory},

@@ -437,12 +437,16 @@ impl<T> MemoryBackup<T> {
         self.stats.size_bytes > self.config.max_size_bytes && self.failed_commits.len() > 1
     }
 
-    /// Drops the oldest failed commit if the threshold has been exceeded, returning the updated
-    /// stats
+    /// Drops the oldest failed commit if the threshold has been exceeded,
+    /// returning (updated stats, Quantities of the dropped commit)
     fn drop_excess(&mut self) -> Option<(BackupSourceStats, Quantities)> {
         if self.threshold_exceeded() {
-            self.failed_commits.pop_back();
-            Some((self.update_stats(), self.failed_commits.quantities()))
+            let dropped_quantities = self
+                .failed_commits
+                .pop_back()
+                .map(|commit| commit.quantities)
+                .unwrap_or(Quantities::ZERO);
+            Some((self.update_stats(), dropped_quantities))
         } else {
             None
         }
@@ -569,9 +573,9 @@ impl<T: ClickhouseRowExt, MetricsType: Metrics> Backup<T, MetricsType> {
         MetricsType::set_memory_backup_size(stats.size_bytes, stats.total_batches, T::TABLE_NAME);
         tracing::debug!(target: TARGET, order = T::TABLE_NAME, bytes = ?quantities.bytes, rows = ?quantities.rows, ?stats, "saved failed commit in-memory");
 
-        if let Some((stats, oldest_quantities)) = self.memory_backup.drop_excess() {
+        if let Some((stats, dropped_quantities)) = self.memory_backup.drop_excess() {
             tracing::warn!(target: TARGET, order = T::TABLE_NAME, ?stats, "failed commits exceeded max memory backup size, dropping oldest");
-            MetricsType::process_backup_data_lost_quantities(&oldest_quantities);
+            MetricsType::process_backup_data_lost_quantities(&dropped_quantities);
             // Clear the cached last commit if it was from memory and we just dropped it.
             self.last_cached = self
                 .last_cached
@@ -655,7 +659,7 @@ impl<T: ClickhouseRowExt, MetricsType: Metrics> Backup<T, MetricsType> {
             tokio::select! {
                 maybe_failed_commit = self.rx.recv() => {
                     let Some(failed_commit) = maybe_failed_commit else {
-                        tracing::error!(target: TARGET, order = T::TABLE_NAME, "backup channel closed");
+                        tracing::error!(target: TARGET, order = T::TABLE_NAME, "Backup channel closed");
                         break;
                     };
 
@@ -716,16 +720,16 @@ impl<T: ClickhouseRowExt, MetricsType: Metrics> Backup<T, MetricsType> {
         }
 
         if let Err(e) = self.disk_backup.flush().await {
-            tracing::error!(target: TARGET, order = T::TABLE_NAME, ?e, "failed to flush disk backup during shutdown");
+            tracing::error!(target: TARGET, order = T::TABLE_NAME, ?e, "Failed to flush disk backup during shutdown");
             MetricsType::increment_backup_disk_errors(T::TABLE_NAME, e.as_ref());
         } else {
-            tracing::info!(target: TARGET, order = T::TABLE_NAME, "flushed disk backup during shutdown");
+            tracing::info!(target: TARGET, order = T::TABLE_NAME, "Flushed disk backup during shutdown");
         }
 
         if let Err(e) = self.inserter.end().await {
-            tracing::error!(target: TARGET, order = T::TABLE_NAME, ?e, "failed to end backup inserter during shutdown");
+            tracing::error!(target: TARGET, order = T::TABLE_NAME, ?e, "Failed to end backup inserter during shutdown");
         } else {
-            tracing::info!(target: TARGET, order = T::TABLE_NAME, "successfully ended backup inserter during shutdown");
+            tracing::info!(target: TARGET, order = T::TABLE_NAME, "Successfully ended backup inserter during shutdown");
         }
     }
 
@@ -739,14 +743,19 @@ impl<T: ClickhouseRowExt, MetricsType: Metrics> Backup<T, MetricsType> {
             let mut shutdown_guard = None;
             tokio::select! {
                 _ = self.run() => {
-                    tracing::info!(target, "clickhouse {} backup channel closed", name);
+                    tracing::info!(target,table_name = name, "Clickhouse backup channel closed");
                 }
                 guard = shutdown => {
-                    tracing::info!(target, "Received shutdown for {} backup, performing cleanup", name);
+                    tracing::info!(target, table_name = name,"Received shutdown backup, performing clickhouse backup cleanup");
                     shutdown_guard = Some(guard);
                 },
             }
             self.end().await;
+            tracing::info!(
+                target,
+                table_name = name,
+                "Clickhouse backup cleanup complete"
+            );
             drop(shutdown_guard);
         });
     }

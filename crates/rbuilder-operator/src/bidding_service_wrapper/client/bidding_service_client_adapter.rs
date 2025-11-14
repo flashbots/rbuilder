@@ -8,7 +8,7 @@ use rbuilder::{
             LandedBlockInfo as RealLandedBlockInfo, RelaySet, ScrapedRelayBlockBidWithStats,
             SlotBidder, SlotBlockId,
         },
-        ProcessKiller,
+        process_killer::ProcessKiller,
     },
     utils::build_info::Version,
 };
@@ -283,7 +283,7 @@ impl BiddingServiceClientAdapter {
     ) -> bool {
         if let Err(error) = &result {
             error!(error=?error,"RPC call error, killing process so it reconnects");
-            process_killer.kill("RPC call error", true);
+            process_killer.kill("RPC call error");
             true
         } else {
             false

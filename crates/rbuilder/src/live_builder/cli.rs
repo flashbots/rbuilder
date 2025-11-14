@@ -3,18 +3,21 @@ use rbuilder_config::load_toml_config;
 use serde::de::DeserializeOwned;
 use std::{
     fmt::Debug,
+    io::Write,
     path::PathBuf,
     sync::{atomic::AtomicBool, Arc},
 };
 use sysperf::{format_results, gather_system_info, run_all_benchmarks};
-use tokio::signal::ctrl_c;
+use tokio::signal::{ctrl_c, unix::SignalKind};
 use tokio_util::sync::CancellationToken;
+use tracing::error;
 
 use crate::{
     building::{
         builders::{BacktestSimulateBlockInput, Block},
         PartialBlockExecutionTracer,
     },
+    live_builder::process_killer::{FLUSH_TRACE_TIME, MAX_WAIT_TIME},
     provider::StateProviderFactory,
     telemetry,
     utils::{bls::generate_random_bls_address, build_info::Version},
@@ -127,13 +130,19 @@ where
         config.version_for_telemetry(),
     )
     .await?;
-    if config.base_config().ipc_provider.is_some() {
+    let res = if config.base_config().ipc_provider.is_some() {
         let provider = config.base_config().create_ipc_provider_factory()?;
         run_builder(provider, config, on_run, ready_to_build).await
     } else {
         let provider = config.base_config().create_reth_provider_factory(false)?;
         run_builder(provider, config, on_run, ready_to_build).await
-    }
+    };
+    // Flush the stdout and stderr buffers so all tracing messages are flushed.
+    std::io::stdout().flush().ok();
+    std::io::stderr().flush().ok();
+    // Small delay to let any async work complete so flushed buffers are actually flushed.
+    std::thread::sleep(FLUSH_TRACE_TIME);
+    res
 }
 
 async fn run_builder<P, ConfigType>(
@@ -149,8 +158,18 @@ where
     let cancel = CancellationToken::new();
     let builder = config.new_builder(provider, cancel.clone()).await?;
 
+    let terminate = async {
+        tokio::signal::unix::signal(SignalKind::terminate())
+            .expect("failed to install signal handler")
+            .recv()
+            .await;
+    };
+
     let ctrlc = tokio::spawn(async move {
-        ctrl_c().await.unwrap_or_default();
+        tokio::select! {
+            _ = ctrl_c() => { tracing::info!("Received SIGINT, closing down..."); },
+            _ = terminate => { tracing::info!("Received SIGTERM, closing down..."); },
+        }
         cancel.cancel()
     });
     if let Some(on_run) = on_run {
@@ -158,5 +177,8 @@ where
     }
     builder.run(ready_to_build).await?;
     ctrlc.await.unwrap_or_default();
+    error!("Main thread waiting to die...");
+    std::thread::sleep(MAX_WAIT_TIME);
+    error!("Main thread exiting");
     Ok(())
 }

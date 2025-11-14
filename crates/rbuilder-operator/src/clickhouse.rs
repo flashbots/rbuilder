@@ -10,6 +10,7 @@ use rbuilder::{
     live_builder::{
         block_output::bidding_service_interface::{BidObserver, RelaySet},
         payload_events::MevBoostSlotData,
+        process_killer::RUN_SUBMIT_TO_RELAYS_JOB_CANCEL_TIME,
     },
 };
 use rbuilder_primitives::{Order, OrderId};
@@ -136,7 +137,7 @@ impl BuiltBlocksWriter {
         tokio::spawn(async move {
             cancellation_token.cancelled().await;
             // @Pending: Needed to avoid losing blocks but we should try to avoid this.
-            tokio::time::sleep(Duration::from_secs(1)).await;
+            tokio::time::sleep(RUN_SUBMIT_TO_RELAYS_JOB_CANCEL_TIME).await;
             task_manager.graceful_shutdown_with_timeout(Duration::from_secs(5));
         });
         Self {
