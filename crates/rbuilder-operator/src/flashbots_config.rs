@@ -315,7 +315,7 @@ impl FlashbotsConfig {
                 built_blocks_clickhouse_config.clone(),
                 cancellation_token.clone(),
             );
-            return Ok(Some(Box::new(writer)));
+            Ok(Some(Box::new(writer)))
         } else {
             if block_processor_key.is_some() {
                 return Self::bail_blocks_processor_url_not_set();
