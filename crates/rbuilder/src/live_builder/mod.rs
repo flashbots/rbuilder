@@ -55,7 +55,7 @@ use std::{
     time::Duration,
 };
 use time::OffsetDateTime;
-use tokio::sync::mpsc;
+use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 use tracing::*;
 
@@ -151,6 +151,28 @@ where
     }
 
     pub async fn run(self, ready_to_build: Arc<AtomicBool>) -> eyre::Result<()> {
+        let global_cancellation = self.global_cancellation.clone();
+        let mut inner_jobs_handles = Vec::new();
+        let res = self
+            .run_no_cleanup(ready_to_build, &mut inner_jobs_handles)
+            .await;
+        info!("Builder shutting down");
+        global_cancellation.cancel();
+        for handle in inner_jobs_handles {
+            handle
+                .await
+                .map_err(|err| warn!(?err, "Job handle await error"))
+                .unwrap_or_default();
+        }
+        res
+    }
+
+    /// Run the builder without cleaning up after itself.
+    pub async fn run_no_cleanup(
+        self,
+        ready_to_build: Arc<AtomicBool>,
+        inner_jobs_handles: &mut Vec<JoinHandle<()>>,
+    ) -> eyre::Result<()> {
         info!(
             "Builder initial block list size: {}",
             self.blocklist_provider.get_blocklist()?.len(),
@@ -167,7 +189,6 @@ where
                 .with_context(|| "Error spawning error storage writer")?;
         }
 
-        let mut inner_jobs_handles = Vec::new();
         let mut payload_events_channel = self.blocks_source.recv_slot_channel();
 
         let (header_sender, header_receiver) = mpsc::channel(CLEAN_TASKS_CHANNEL_SIZE);
@@ -333,15 +354,6 @@ where
                     watchdog_sender.try_send(()).unwrap_or_default();
                 };
             }
-        }
-
-        info!("Builder shutting down");
-        self.global_cancellation.cancel();
-        for handle in inner_jobs_handles {
-            handle
-                .await
-                .map_err(|err| warn!(?err, "Job handle await error"))
-                .unwrap_or_default();
         }
         Ok(())
     }
