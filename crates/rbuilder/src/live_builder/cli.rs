@@ -9,7 +9,7 @@ use std::{
 use sysperf::{format_results, gather_system_info, run_all_benchmarks};
 use tokio::signal::{ctrl_c, unix::SignalKind};
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info};
+use tracing::info;
 
 use crate::{
     building::{
