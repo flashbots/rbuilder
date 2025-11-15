@@ -3,7 +3,7 @@
 //! some modules need to finish their work so we must give them some time before killing the process.
 //! Here we centralize all this hacky stuff so at least we can see all the constants in one place.
 
-use std::{io::Write, time::Duration};
+use std::time::Duration;
 
 use alloy_eips::merge::SLOT_DURATION_SECS;
 use tokio_util::sync::CancellationToken;
@@ -63,10 +63,9 @@ impl ProcessKiller {
     }
 }
 
+/// Tries to guarantee that all tracing is flushed.
+/// Sadly my attempts to flush the buffers failed (std::io::stdout().flush() hanged) so we just sleep for a while.
 pub fn ensure_tracing_buffers_flushed() {
-    // Flush the stdout and stderr buffers so all tracing messages are flushed.
-    let _ = std::io::stdout().flush();
-    let _ = std::io::stderr().flush();
     // Small delay to let any async work complete so flushed buffers are actually flushed.
     std::thread::sleep(FLUSH_TRACE_TIME);
 }

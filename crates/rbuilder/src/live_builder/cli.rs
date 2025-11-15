@@ -167,18 +167,20 @@ where
             _ = cancel.cancelled() => { tracing::info!("Received cancellation token cancellation, closing down..."); },
         }
         cancel.cancel();
-        // Just in case the main thread fails to end gracefully, we kill it abruptly.
-        // We should never reach this the "process::exit" inside wait_and_kill if the main thread ended (as expected).
+        // Just in case the main thread fails to end gracefully, we kill it abruptly so the service stops.
+        // We should never reach the "process::exit" inside wait_and_kill if the main thread ended (as expected).
         ProcessKiller::wait_and_kill("Main thread received termination signal");
     });
     if let Some(on_run) = on_run {
         on_run();
     }
     builder.run(ready_to_build).await?;
-    info!("Main thread waiting to die...");
+    info!(
+        wait_time_secs = MAX_WAIT_TIME.as_secs(),
+        "Main thread waiting to die..."
+    );
     std::thread::sleep(MAX_WAIT_TIME);
-    info!("Main thread killing process!");
-    //ensure_tracing_buffers_flushed();
-    info!("Main thread killing process2");
-    std::process::exit(1);
+    info!("Main thread exiting");
+    ensure_tracing_buffers_flushed();
+    Ok(())
 }
