@@ -3,7 +3,7 @@
 //! some modules need to finish their work so we must give them some time before killing the process.
 //! Here we centralize all this hacky stuff so at least we can see all the constants in one place.
 
-use std::time::Duration;
+use std::{io::Write, time::Duration};
 
 use alloy_eips::merge::SLOT_DURATION_SECS;
 use tokio_util::sync::CancellationToken;
@@ -30,8 +30,9 @@ pub const MAX_WAIT_TIME: Duration = Duration::from_secs(MAX_WAIT_TIME_SECONDS);
 pub const FLUSH_TRACE_TIME_MILLI_SECONDS: u64 = 200;
 pub const FLUSH_TRACE_TIME: Duration = Duration::from_secs(FLUSH_TRACE_TIME_MILLI_SECONDS);
 
+/// Time we wait before killing the process abruptly in ProcessKiller::kill().
 /// We add 1 second to allow the process to finish its work and exit gracefully.
-const PROCESS_KILLER_WAIT_TIME: Duration = Duration::from_secs(MAX_WAIT_TIME_SECONDS + 1);
+pub const PROCESS_KILLER_WAIT_TIME: Duration = Duration::from_secs(MAX_WAIT_TIME_SECONDS + 1);
 
 #[derive(Debug, Clone)]
 pub struct ProcessKiller {
@@ -50,8 +51,22 @@ impl ProcessKiller {
             "Process killing started, signaling cancellation token and waiting"
         );
         self.cancellation_token.cancel();
+        Self::wait_and_kill(reason);
+    }
+
+    /// Waits some time to give the process a chance to finish its work and exit gracefully and then kills it abruptly.
+    pub fn wait_and_kill(reason: &str) {
         std::thread::sleep(PROCESS_KILLER_WAIT_TIME);
         error!(reason, "Killing process");
+        ensure_tracing_buffers_flushed();
         std::process::exit(1);
     }
+}
+
+pub fn ensure_tracing_buffers_flushed() {
+    // Flush the stdout and stderr buffers so all tracing messages are flushed.
+    let _ = std::io::stdout().flush();
+    let _ = std::io::stderr().flush();
+    // Small delay to let any async work complete so flushed buffers are actually flushed.
+    std::thread::sleep(FLUSH_TRACE_TIME);
 }
