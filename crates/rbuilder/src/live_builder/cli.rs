@@ -177,7 +177,7 @@ where
     builder.run(ready_to_build).await?;
     info!("Main thread waiting to die...");
     std::thread::sleep(MAX_WAIT_TIME);
-    info!("Main thread exiting");
+    info!("Main thread killing process");
     ensure_tracing_buffers_flushed();
     std::process::exit(1);
 }
