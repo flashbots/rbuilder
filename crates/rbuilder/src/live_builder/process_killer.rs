@@ -27,8 +27,7 @@ pub const MAX_WAIT_TIME_SECONDS: u64 = BLOCK_BUILDING_CLOSE_TIME_SECONDS;
 pub const MAX_WAIT_TIME: Duration = Duration::from_secs(MAX_WAIT_TIME_SECONDS);
 
 /// Time needed to let the tracing subscriber to flush its buffers.
-pub const FLUSH_TRACE_TIME_MILLI_SECONDS: u64 = 200;
-pub const FLUSH_TRACE_TIME: Duration = Duration::from_secs(FLUSH_TRACE_TIME_MILLI_SECONDS);
+pub const FLUSH_TRACE_TIME: Duration = Duration::from_millis(200);
 
 /// Time we wait before killing the process abruptly in ProcessKiller::kill().
 /// We add 1 second to allow the process to finish its work and exit gracefully.
