@@ -179,5 +179,6 @@ where
     std::thread::sleep(MAX_WAIT_TIME);
     info!("Main thread killing process");
     ensure_tracing_buffers_flushed();
+    info!("Main thread killing process2");
     std::process::exit(1);
 }
