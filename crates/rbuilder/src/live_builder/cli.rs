@@ -16,7 +16,7 @@ use crate::{
         builders::{BacktestSimulateBlockInput, Block},
         PartialBlockExecutionTracer,
     },
-    live_builder::process_killer::{ensure_tracing_buffers_flushed, ProcessKiller, MAX_WAIT_TIME},
+    live_builder::process_killer::{ProcessKiller, MAX_WAIT_TIME},
     provider::StateProviderFactory,
     telemetry,
     utils::{bls::generate_random_bls_address, build_info::Version},
@@ -136,7 +136,6 @@ where
         let provider = config.base_config().create_reth_provider_factory(false)?;
         run_builder(provider, config, on_run, ready_to_build).await
     };
-    ensure_tracing_buffers_flushed();
     res
 }
 
@@ -181,6 +180,5 @@ where
     );
     std::thread::sleep(MAX_WAIT_TIME);
     info!("Main thread exiting");
-    ensure_tracing_buffers_flushed();
     Ok(())
 }
