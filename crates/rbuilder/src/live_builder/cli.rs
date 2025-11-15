@@ -9,7 +9,7 @@ use std::{
 use sysperf::{format_results, gather_system_info, run_all_benchmarks};
 use tokio::signal::{ctrl_c, unix::SignalKind};
 use tokio_util::sync::CancellationToken;
-use tracing::error;
+use tracing::{error, info};
 
 use crate::{
     building::{
@@ -175,8 +175,9 @@ where
         on_run();
     }
     builder.run(ready_to_build).await?;
-    error!("Main thread waiting to die...");
+    info!("Main thread waiting to die...");
     std::thread::sleep(MAX_WAIT_TIME);
-    error!("Main thread exiting");
-    Ok(())
+    info!("Main thread exiting");
+    ensure_tracing_buffers_flushed();
+    std::process::exit(1);
 }
