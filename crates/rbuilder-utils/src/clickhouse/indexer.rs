@@ -224,7 +224,7 @@ impl<T: ClickhouseIndexableData, MetricsType: Metrics> InserterRunner<T, Metrics
             let mut shutdown_guard = None;
             tokio::select! {
                 _ = self.run_loop() => {
-                    tracing::info!(target,table_name = name, "clickhouse indexer channel closed");
+                    tracing::info!(target,table_name = name, "Clickhouse indexer channel closed");
                 }
                 guard = shutdown => {
                     tracing::info!(target,table_name = name, "Received shutdown for indexer, performing cleanup");
@@ -234,10 +234,10 @@ impl<T: ClickhouseIndexableData, MetricsType: Metrics> InserterRunner<T, Metrics
 
             match self.end().await {
                 Ok(quantities) => {
-                    tracing::info!(target, ?quantities, table_name = name, "finalized clickhouse inserter");
+                    tracing::info!(target, ?quantities, table_name = name, "Finalized clickhouse inserter");
                 }
                 Err(e) => {
-                    tracing::error!(target,error = ?e, table_name = name, "failed to write end insertion of indexer");
+                    tracing::error!(target,error = ?e, table_name = name, "Failed to write end insertion of indexer");
                 }
             }
             drop(shutdown_guard);
