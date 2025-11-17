@@ -11,13 +11,14 @@ const TARGET: &str = "indexer";
 use clickhouse::{
     error::Result as ClickhouseResult, inserter::Inserter, Client as ClickhouseClient, Row,
 };
+use reth_tasks::TaskExecutor;
 use tokio::sync::mpsc;
 
 use crate::{
     clickhouse::{
         backup::{
             metrics::Metrics,
-            primitives::{ClickhouseIndexableOrder, ClickhouseRowExt},
+            primitives::{ClickhouseIndexableData, ClickhouseRowExt},
             FailedCommit,
         },
         Quantities,
@@ -78,7 +79,9 @@ pub struct ClickhouseInserter<T: ClickhouseRowExt, MetricsType> {
     _metrics_phantom: std::marker::PhantomData<MetricsType>,
 }
 
-impl<T: ClickhouseRowExt, MetricsType: Metrics> ClickhouseInserter<T, MetricsType> {
+impl<T: ClickhouseRowExt + Send + Sync + 'static, MetricsType: Metrics>
+    ClickhouseInserter<T, MetricsType>
+{
     pub fn new(inner: Inserter<T>, backup_tx: mpsc::Sender<FailedCommit<T>>) -> Self {
         let rows_backup = Vec::new();
         Self {
@@ -91,12 +94,12 @@ impl<T: ClickhouseRowExt, MetricsType: Metrics> ClickhouseInserter<T, MetricsTyp
 
     /// Writes the provided order into the inner Clickhouse writer buffer.
     async fn write(&mut self, row: T) {
-        let hash = row.hash();
+        let trace_id = row.trace_id();
         let value_ref = ClickhouseRowExt::to_row_ref(&row);
 
         if let Err(e) = self.inner.write(value_ref).await {
             MetricsType::increment_write_failures(e.to_string());
-            tracing::error!(target: TARGET, order = T::ORDER, ?e, %hash, "failed to write to clickhouse inserter");
+            tracing::error!(target: TARGET, table = T::TABLE_NAME, ?e, %trace_id, "failed to write to clickhouse inserter");
             return;
         }
 
@@ -114,9 +117,9 @@ impl<T: ClickhouseRowExt, MetricsType: Metrics> ClickhouseInserter<T, MetricsTyp
         match self.inner.commit().await {
             Ok(quantities) => {
                 if quantities == Quantities::ZERO.into() {
-                    tracing::trace!(target: TARGET, order = T::ORDER, "committed to inserter");
+                    tracing::trace!(target: TARGET, table = T::TABLE_NAME, "committed to inserter");
                 } else {
-                    tracing::debug!(target: TARGET, order = T::ORDER, ?quantities, "inserted batch to clickhouse");
+                    tracing::debug!(target: TARGET, table = T::TABLE_NAME, ?quantities, "inserted batch to clickhouse");
                     MetricsType::process_quantities(&quantities.into());
                     MetricsType::record_batch_commit_time(start.elapsed());
                     // Clear the backup rows.
@@ -125,13 +128,13 @@ impl<T: ClickhouseRowExt, MetricsType: Metrics> ClickhouseInserter<T, MetricsTyp
             }
             Err(e) => {
                 MetricsType::increment_commit_failures(e.to_string());
-                tracing::error!(target: TARGET, order = T::ORDER, ?e, "failed to commit bundle to clickhouse");
+                tracing::error!(target: TARGET, table = T::TABLE_NAME, ?e, "failed to commit bundle to clickhouse");
 
                 let rows = std::mem::take(&mut self.rows_backup);
                 let failed_commit = FailedCommit::new(rows, pending);
 
                 if let Err(e) = self.backup_tx.try_send(failed_commit) {
-                    tracing::error!(target: TARGET, order = T::ORDER, ?e, "failed to send rows backup");
+                    tracing::error!(target: TARGET, table = T::TABLE_NAME, ?e, "failed to send rows backup");
                 }
             }
         }
@@ -146,7 +149,7 @@ impl<T: ClickhouseRowExt, MetricsType: Metrics> ClickhouseInserter<T, MetricsTyp
 impl<T: ClickhouseRowExt, MetricsType> std::fmt::Debug for ClickhouseInserter<T, MetricsType> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ClickhouseInserter")
-            .field("inserter", &T::ORDER.to_string())
+            .field("inserter", &T::TABLE_NAME.to_string())
             .field("rows_backup_len", &self.rows_backup.len())
             .finish()
     }
@@ -154,7 +157,7 @@ impl<T: ClickhouseRowExt, MetricsType> std::fmt::Debug for ClickhouseInserter<T,
 
 /// A long-lived actor to run a [`ClickhouseIndexer`] until it possible to receive new order to
 /// index.
-pub struct InserterRunner<T: ClickhouseIndexableOrder, MetricsType: Metrics> {
+pub struct InserterRunner<T: ClickhouseIndexableData, MetricsType: Metrics> {
     /// The channel from which we can receive new orders to index.
     rx: mpsc::Receiver<T>,
     /// The underlying Clickhouse inserter.
@@ -163,18 +166,18 @@ pub struct InserterRunner<T: ClickhouseIndexableOrder, MetricsType: Metrics> {
     builder_name: String,
 }
 
-impl<T: ClickhouseIndexableOrder, MetricsType: Metrics> std::fmt::Debug
+impl<T: ClickhouseIndexableData, MetricsType: Metrics> std::fmt::Debug
     for InserterRunner<T, MetricsType>
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("InserterRunner")
-            .field("inserter", &T::ORDER.to_string())
+            .field("inserter", &T::DATA_NAME.to_string())
             .field("rx", &self.rx)
             .finish()
     }
 }
 
-impl<T: ClickhouseIndexableOrder, MetricsType: Metrics> InserterRunner<T, MetricsType> {
+impl<T: ClickhouseIndexableData, MetricsType: Metrics> InserterRunner<T, MetricsType> {
     pub fn new(
         rx: mpsc::Receiver<T>,
         inserter: ClickhouseInserter<T::ClickhouseRowType, MetricsType>,
@@ -188,26 +191,58 @@ impl<T: ClickhouseIndexableOrder, MetricsType: Metrics> InserterRunner<T, Metric
     }
 
     /// Run the inserter until it is possible to receive new orders.
-    pub async fn run_loop(&mut self) {
+    async fn run_loop(&mut self) {
         let mut sampler = Sampler::default()
             .with_sample_size(self.rx.capacity() / 2)
             .with_interval(Duration::from_secs(4));
 
         while let Some(order) = self.rx.recv().await {
-            tracing::trace!(target: TARGET, order = T::ORDER, hash = %order.hash(), "received data to index");
+            tracing::trace!(target: TARGET, table = T::DATA_NAME, hash = %order.trace_id(), "received data to index");
             sampler.sample(|| {
-                MetricsType::set_queue_size(self.rx.len(), T::ORDER);
+                MetricsType::set_queue_size(self.rx.len(), T::DATA_NAME);
             });
 
             let row = order.to_row(self.builder_name.clone());
             self.inserter.write(row).await;
             self.inserter.commit().await;
         }
-        tracing::error!(target: TARGET, order = T::ORDER, "tx channel closed, indexer will stop running");
+        tracing::error!(target: TARGET, table = T::DATA_NAME, "tx channel closed, indexer will stop running");
     }
 
-    pub async fn end(self) -> ClickhouseResult<Quantities> {
+    async fn end(self) -> ClickhouseResult<Quantities> {
         self.inserter.end().await
+    }
+
+    /// Spawns the inserter runner on the given task executor.
+    pub fn spawn(mut self, task_executor: &TaskExecutor, name: String, target: &'static str)
+    where
+        T: Send + Sync + 'static,
+        MetricsType: Send + Sync + 'static,
+        for<'a> <T::ClickhouseRowType as Row>::Value<'a>: Sync,
+    {
+        task_executor.spawn_with_graceful_shutdown_signal(|shutdown| async move {
+            let mut shutdown_guard = None;
+            tokio::select! {
+                _ = self.run_loop() => {
+                    tracing::info!(target,table_name = name, "Clickhouse indexer channel closed");
+                }
+                guard = shutdown => {
+                    tracing::info!(target,table_name = name, "Received shutdown for indexer, performing cleanup");
+                    shutdown_guard = Some(guard);
+                },
+            }
+
+            match self.end().await {
+                Ok(quantities) => {
+                    tracing::info!(target, ?quantities, table_name = name, "Finalized clickhouse inserter");
+                }
+                Err(e) => {
+                    tracing::error!(target,error = ?e, table_name = name, "Failed to write end insertion of indexer");
+                }
+            }
+            drop(shutdown_guard);
+
+        });
     }
 }
 
