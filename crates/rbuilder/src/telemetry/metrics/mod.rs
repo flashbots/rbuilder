@@ -32,6 +32,18 @@ use tracing::error;
 pub mod scope_meter;
 mod tracing_metrics;
 pub use tracing_metrics::*;
+
+const FINALIZE_MODE_ADJUSTED: &str = "adjusted";
+const FINALIZE_MODE_NORMAL: &str = "normal";
+
+fn finalize_mode_label(adjusted: bool) -> &'static str {
+    if adjusted {
+        FINALIZE_MODE_ADJUSTED
+    } else {
+        FINALIZE_MODE_NORMAL
+    }
+}
+
 const SUBSIDY_ATTEMPT: &str = "attempt";
 const SUBSIDY_LANDED: &str = "landed";
 
@@ -342,20 +354,14 @@ register_metrics! {
     .unwrap();
     pub static BLOCK_FINALIZE_TIME: HistogramVec = HistogramVec::new(
         HistogramOpts::new("block_finalize_time", "Block Finalize Times (ms)")
-            .buckets(exponential_buckets_range(0.01, 3000.0, 200)),
-        &[]
-    )
-    .unwrap();
-    pub static BLOCK_FINALIZE_ADJUST_TIME: HistogramVec = HistogramVec::new(
-        HistogramOpts::new("block_finalize_adjust_time", "Block Finalize Adjust Times (ms)")
-            .buckets(exponential_buckets_range(0.01, 300.0, 200)),
-        &[]
+            .buckets(exponential_buckets_range(0.01, 2000.0, 200)),
+        &["mode"]
     )
     .unwrap();
     pub static BLOCK_ROOT_HASH_TIME: HistogramVec = HistogramVec::new(
         HistogramOpts::new("block_root_hash_time", "Block Root Hash Time (ms)")
             .buckets(exponential_buckets_range(0.01, 2000.0, 200)),
-        &[]
+        &["mode"]
     )
     .unwrap();
     pub static BLOCK_MULTI_BID_COPY_DURATION: HistogramVec = HistogramVec::new(
@@ -504,19 +510,22 @@ pub fn add_finalized_block_metrics(
     sim_gas_used: u64,
     builder_name: &str,
     block_timestamp: OffsetDateTime,
+    block_was_adjusted: bool,
 ) {
     if !is_now_close_to_slot_end(block_timestamp) {
         return;
     }
 
     BLOCK_FINALIZE_TIME
-        .with_label_values(&[])
-        .observe(duration_ms(built_block_trace.finalize_time));
-    BLOCK_FINALIZE_ADJUST_TIME
-        .with_label_values(&[])
-        .observe(duration_ms(built_block_trace.finalize_adjust_time));
+        .with_label_values(&[finalize_mode_label(block_was_adjusted)])
+        .observe(duration_ms(if block_was_adjusted {
+            built_block_trace.finalize_adjust_time
+        } else {
+            built_block_trace.finalize_time
+        }));
+
     BLOCK_ROOT_HASH_TIME
-        .with_label_values(&[])
+        .with_label_values(&[finalize_mode_label(block_was_adjusted)])
         .observe(duration_ms(built_block_trace.root_hash_time));
 
     BLOCK_BUILT_TXS

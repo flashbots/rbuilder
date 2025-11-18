@@ -304,6 +304,7 @@ impl<
         building_ctx: &BlockBuildingContext,
         built_block_trace: &BuiltBlockTrace,
         sim_gas_used: u64,
+        block_was_adjusted: bool,
     ) {
         let txs = finalized_block.sealed_block.body().transactions.len();
         let gas_used = finalized_block.sealed_block.gas_used;
@@ -317,6 +318,7 @@ impl<
             sim_gas_used,
             builder_name,
             building_ctx.timestamp(),
+            block_was_adjusted,
         );
 
         trace!(
@@ -468,6 +470,7 @@ impl<
             &self.building_ctx,
             &self.built_block_trace,
             sim_gas_used,
+            adjust_finalized_block,
         );
 
         self.finalize_adjustment_state = Some(finalize_adjustment_state);
