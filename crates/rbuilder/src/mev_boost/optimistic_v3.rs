@@ -21,6 +21,7 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
+use tokio_util::sync::CancellationToken;
 use tracing::*;
 use warp::{
     http::{header::CONTENT_TYPE, HeaderValue, StatusCode},
@@ -65,6 +66,7 @@ pub fn spawn_server(
     domain: B256,
     relay_pubkeys: HashSet<BlsPublicKey>,
     bid_stream: BroadcastStream<Arc<AlloySubmitBlockRequest>>,
+    cancellation: CancellationToken,
 ) -> eyre::Result<()> {
     let blocks = Arc::new(Mutex::new(LruMap::new(ByLength::new(
         OPTIMISTIC_V3_CACHE_SIZE_DEFAULT,
@@ -92,7 +94,16 @@ pub fn spawn_server(
         ))
         .and(warp::body::bytes())
         .map(Handler::get_payload_v3_metered);
-    tokio::spawn(warp::serve(path).run(address));
+
+    let (_, server) = warp::serve(path).bind_with_graceful_shutdown(address, async move {
+        cancellation.cancelled().await;
+        let now = std::time::Instant::now();
+        info!(target: "relay_server", "Received cancellation, initiating graceful shutdown");
+        // Sleep for 12 seconds to avoid being demoted for the current slot.
+        tokio::time::sleep(Duration::from_secs(12)).await;
+        info!(target: "relay_server", elapsed = ?now.elapsed(), "Graceful shutdown complete");
+    });
+    tokio::spawn(server);
     info!(target: "relay_server", %address, "Relay server listening");
 
     Ok(())
