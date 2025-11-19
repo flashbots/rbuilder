@@ -267,6 +267,7 @@ async fn run_submit_to_relays_job(
         };
 
         mark_submission_start_time(block.trace.orders_sealed_at);
+        let sent_to_relay_at = OffsetDateTime::now_utc();
         submit_block_to_relays(
             request.clone(),
             &bid_metadata,
@@ -286,6 +287,7 @@ async fn run_submit_to_relays_job(
                 builder_name,
                 bid_metadata.value.top_competitor_bid.unwrap_or_default(),
                 &relay_set,
+                sent_to_relay_at,
             );
         });
     }

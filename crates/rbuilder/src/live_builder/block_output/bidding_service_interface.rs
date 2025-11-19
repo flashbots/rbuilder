@@ -25,6 +25,7 @@ use crate::{
 #[automock]
 pub trait BidObserver: std::fmt::Debug {
     /// This should NOT block since it's executed in the submitting thread.
+    #[allow(clippy::too_many_arguments)]
     fn block_submitted(
         &self,
         slot_data: &MevBoostSlotData,
@@ -33,6 +34,7 @@ pub trait BidObserver: std::fmt::Debug {
         builder_name: String,
         best_bid_value: U256,
         relays: &RelaySet,
+        sent_to_relay_at: OffsetDateTime,
     );
 }
 
@@ -48,6 +50,7 @@ impl BidObserver for NullBidObserver {
         _builder_name: String,
         _best_bid_value: U256,
         _relays: &RelaySet,
+        _sent_to_relay_at: OffsetDateTime,
     ) {
     }
 }
