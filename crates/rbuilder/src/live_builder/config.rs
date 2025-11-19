@@ -360,6 +360,7 @@ impl L1Config {
         chain_spec: Arc<ChainSpec>,
         relay_sets: Vec<RelaySet>,
         bid_observer: Box<dyn BidObserver + Send + Sync>,
+        cancellation_token: CancellationToken,
     ) -> eyre::Result<(
         RelaySubmitSinkFactory,
         Vec<MevBoostRelaySlotInfoProvider>,
@@ -395,6 +396,7 @@ impl L1Config {
                 signing_domain,
                 self.optimistic_v3_relay_pubkeys.clone(),
                 BroadcastStream::from(optimistic_v3_block_rx),
+                cancellation_token,
             )?;
 
             optimistic_v3_config = Some(OptimisticV3Config {
@@ -1068,6 +1070,7 @@ where
             base_config.chain_spec()?,
             relay_sets.clone(),
             bid_observer,
+            cancellation_token.clone(),
         )?;
 
     if !l1_config.relay_bid_scrapers.is_empty() {
