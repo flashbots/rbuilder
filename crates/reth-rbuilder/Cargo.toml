@@ -19,6 +19,7 @@ reth-cli-util.workspace = true
 alloy-rlp.workspace = true
 
 tokio.workspace = true
+tokio-util.workspace = true
 clap.workspace = true
 eyre.workspace = true
 tracing.workspace = true

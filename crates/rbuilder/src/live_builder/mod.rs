@@ -19,7 +19,6 @@ use crate::{
         order_input::{start_orderpool_jobs, OrderInputConfig},
         process_killer::ProcessKiller,
         simulation::OrderSimulationPool,
-        watchdog::spawn_watchdog_thread,
     },
     provider::StateProviderFactory,
     telemetry::{inc_active_slots, mark_building_started},
@@ -150,11 +149,19 @@ where
         Self { builders, ..self }
     }
 
-    pub async fn run(self, ready_to_build: Arc<AtomicBool>) -> eyre::Result<()> {
+    pub async fn run(
+        self,
+        ready_to_build: Arc<AtomicBool>, // If Some, we should send a message for every slot we start building.
+        start_slot_watchdog_sender: Option<flume::Sender<()>>,
+    ) -> eyre::Result<()> {
         let global_cancellation = self.global_cancellation.clone();
         let mut inner_jobs_handles = Vec::new();
         let res = self
-            .run_no_cleanup(ready_to_build, &mut inner_jobs_handles)
+            .run_no_cleanup(
+                ready_to_build,
+                &mut inner_jobs_handles,
+                start_slot_watchdog_sender,
+            )
             .await;
         info!("Builder shutting down");
         global_cancellation.cancel();
@@ -172,6 +179,8 @@ where
         self,
         ready_to_build: Arc<AtomicBool>,
         inner_jobs_handles: &mut Vec<JoinHandle<()>>,
+        // If Some, we should send a message for every slot we start building.
+        start_slot_watchdog_sender: Option<flume::Sender<()>>,
     ) -> eyre::Result<()> {
         info!(
             "Builder initial block list size: {}",
@@ -225,18 +234,6 @@ where
             self.sbundle_merger_selected_signers.clone(),
             self.order_flow_tracer_manager,
         );
-
-        let watchdog_sender = match self.watchdog_timeout {
-            Some(duration) => Some(spawn_watchdog_thread(
-                duration,
-                "block build started".to_string(),
-                self.process_killer.clone(),
-            )?),
-            None => {
-                info!("Watchdog not enabled");
-                None
-            }
-        };
 
         ready_to_build.store(true, Ordering::Relaxed);
         while let Some(payload) = payload_events_channel.recv().await {
@@ -350,7 +347,7 @@ where
                     self.global_cancellation.clone(),
                     time_until_slot_end.try_into().unwrap_or_default(),
                 );
-                if let Some(watchdog_sender) = watchdog_sender.as_ref() {
+                if let Some(watchdog_sender) = start_slot_watchdog_sender.as_ref() {
                     watchdog_sender.try_send(()).unwrap_or_default();
                 };
             }
