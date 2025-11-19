@@ -41,7 +41,7 @@ use crate::{
     },
     mev_boost::{
         bloxroute_grpc,
-        optimistic_v3::{self, OPTIMISTIC_V3_CHANNEL_SIZE},
+        optimistic_v3::{self, OptimisticV3BlockCache},
         BLSBlockSigner, MevBoostRelayBidSubmitter, MevBoostRelaySlotInfoProvider, RelayClient,
         RelayConfig, RelaySubmitConfig,
     },
@@ -78,8 +78,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use tokio::sync::{broadcast, Mutex as TokioMutex};
-use tokio_stream::wrappers::BroadcastStream;
+use tokio::sync::Mutex as TokioMutex;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use url::Url;
@@ -389,19 +388,18 @@ impl L1Config {
                 warn!("Optimistic V3 is enabled, but no relay pubkeys have been configured");
             }
 
-            let (optimistic_v3_block_tx, optimistic_v3_block_rx) =
-                broadcast::channel(OPTIMISTIC_V3_CHANNEL_SIZE);
+            let optimistic_v3_cache = OptimisticV3BlockCache::default();
             optimistic_v3::spawn_server(
                 address,
                 signing_domain,
                 self.optimistic_v3_relay_pubkeys.clone(),
-                BroadcastStream::from(optimistic_v3_block_rx),
+                optimistic_v3_cache.clone(),
                 cancellation_token,
             )?;
 
             optimistic_v3_config = Some(OptimisticV3Config {
                 builder_url: builder_url.into_bytes(),
-                block_sender: optimistic_v3_block_tx,
+                cache: optimistic_v3_cache,
             })
         }
 

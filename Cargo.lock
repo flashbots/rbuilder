@@ -11627,6 +11627,7 @@ dependencies = [
  "reth-transaction-pool",
  "tikv-jemallocator",
  "tokio",
+ "tokio-util",
  "tracing",
 ]
 

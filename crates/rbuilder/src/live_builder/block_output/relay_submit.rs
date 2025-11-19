@@ -4,8 +4,8 @@ use crate::{
         block_output::bidding_service_interface::RelaySet, payload_events::MevBoostSlotData,
     },
     mev_boost::{
-        sign_block_for_relay, BLSBlockSigner, MevBoostRelayBidSubmitter, RelayError, RelaySlotData,
-        SubmitBlockErr,
+        optimistic_v3::OptimisticV3BlockCache, sign_block_for_relay, BLSBlockSigner,
+        MevBoostRelayBidSubmitter, RelayError, RelaySlotData, SubmitBlockErr,
     },
     telemetry::{
         add_relay_submit_time, add_subsidy_value, inc_conn_relay_errors,
@@ -34,10 +34,7 @@ use rbuilder_primitives::{
 use reth_chainspec::ChainSpec;
 use std::sync::Arc;
 use time::OffsetDateTime;
-use tokio::{
-    sync::{broadcast, Notify},
-    time::Instant,
-};
+use tokio::{sync::Notify, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, info_span, trace, warn, Instrument, Span};
 
@@ -116,8 +113,8 @@ pub struct SubmissionConfig {
 pub struct OptimisticV3Config {
     /// The URL where the relay can call to retrieve the block.
     pub builder_url: Vec<u8>,
-    /// Sender for Optimistic V3 blocks.
-    pub block_sender: broadcast::Sender<Arc<AlloySubmitBlockRequest>>,
+    /// Cache for blocks submitted via optimistic v3.
+    pub cache: OptimisticV3BlockCache,
 }
 
 /// Values from [`BuiltBlockTrace`]
@@ -478,10 +475,10 @@ async fn submit_bid_to_the_relay(
     };
 
     let request_fut = if let Some((config, request)) = optimistic_v3_request {
-        // Send the block to be saved in cache
-        let _ = config
-            .block_sender
-            .send(submit_block_request.submission.request.clone());
+        // Save block to cache
+        config
+            .cache
+            .insert(submit_block_request.submission.request.clone());
         relay
             .submit_optimistic_v3(request, registration)
             .left_future()
