@@ -63,6 +63,8 @@ pub struct BlockRow {
     pub delayed_payment_values: Vec<U256>,
 
     pub delayed_payment_addresses: Vec<String>,
+    pub sent_to_relay_at: i64,
+    pub tx_hashes: Vec<String>,
 }
 
 impl ClickhouseRowExt for BlockRow {
@@ -218,6 +220,7 @@ impl BidObserver for BuiltBlocksWriter {
         builder_name: String,
         best_bid_value: U256,
         _relays: &RelaySet,
+        sent_to_relay_at: OffsetDateTime,
     ) {
         let slot = slot_data.slot();
         let block_number = slot_data.block();
@@ -254,6 +257,11 @@ impl BidObserver for BuiltBlocksWriter {
                 .iter()
                 .map(|address| address.to_string().to_lowercase())
                 .collect();
+            let tx_hashes = built_block_trace
+                .included_orders
+                .iter()
+                .flat_map(|res| res.tx_infos.iter().map(|info| info.tx.hash().to_string()))
+                .collect();
             let block_row = BlockRow {
                 block_number,
                 profit: format_ether(submit_trace.value),
@@ -285,6 +293,8 @@ impl BidObserver for BuiltBlocksWriter {
                 delayed_payment_sources,
                 delayed_payment_values,
                 delayed_payment_addresses,
+                sent_to_relay_at: offset_date_to_clickhouse_timestamp(sent_to_relay_at),
+                tx_hashes,
             };
             if let Err(err) = blocks_tx.try_send(block_row) {
                 error!(?err, "Failed to send block to clickhouse");

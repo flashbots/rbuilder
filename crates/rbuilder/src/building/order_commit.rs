@@ -261,6 +261,7 @@ pub struct DelayedKickback {
 pub struct BundleOk {
     pub space_used: BlockSpace,
     pub cumulative_space_used: BlockSpace,
+    /// Landed txs execution info.
     pub tx_infos: Vec<TransactionExecutionInfo>,
     /// nonces_updates has a set of deduplicated final nonces of the txs in the order
     pub nonces_updated: Vec<(Address, u64)>,

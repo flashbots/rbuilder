@@ -35,6 +35,7 @@ use rbuilder::{
 use rbuilder_config::EnvOrValue;
 use serde::Deserialize;
 use serde_with::serde_as;
+use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, warn};
 use url::Url;
@@ -454,6 +455,7 @@ impl BidObserver for RbuilderOperatorBidObserver {
         builder_name: String,
         best_bid_value: U256,
         relays: &RelaySet,
+        sent_to_relay_at: OffsetDateTime,
     ) {
         if let Some(p) = self.block_processor.as_ref() {
             p.block_submitted(
@@ -463,6 +465,7 @@ impl BidObserver for RbuilderOperatorBidObserver {
                 builder_name.clone(),
                 best_bid_value,
                 relays,
+                sent_to_relay_at,
             )
         }
         if let Some(p) = self.tbv_pusher.as_ref() {
@@ -473,6 +476,7 @@ impl BidObserver for RbuilderOperatorBidObserver {
                 builder_name,
                 best_bid_value,
                 relays,
+                sent_to_relay_at,
             )
         }
     }

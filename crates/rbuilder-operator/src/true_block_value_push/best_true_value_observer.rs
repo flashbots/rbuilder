@@ -9,6 +9,7 @@ use rbuilder::{
 };
 use redis::RedisError;
 use std::sync::Arc;
+use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
 
 use super::{
@@ -80,6 +81,7 @@ impl BidObserver for BestTrueValueObserver {
         builder_name: String,
         _best_bid_value: alloy_primitives::U256,
         _relays: &RelaySet,
+        _sent_to_relay_at: OffsetDateTime,
     ) {
         let block_info = BuiltBlockInfo::new(
             slot_data.block(),

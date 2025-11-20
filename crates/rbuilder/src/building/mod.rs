@@ -568,6 +568,7 @@ pub struct ExecutionResult {
     pub inplace_sim: SimValue,
     pub space_used: BlockSpace,
     pub order: Order,
+    /// Landed txs execution info.
     pub tx_infos: Vec<TransactionExecutionInfo>,
     /// Patch to get the executed OrderIds for merged sbundles (see: [`BundleOk::original_order_ids`],[`ShareBundleMerger`] )
     /// Fully dropped orders (TxRevertBehavior::AllowedExcluded allows it!) are not included.
