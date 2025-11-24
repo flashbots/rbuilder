@@ -1325,6 +1325,7 @@ mod tests {
                 signature: Default::default(),
             },
             regional_endpoints: Vec::new(),
+            preferences: None,
         };
         relay
             .submit_block(&sub_relay, &registration, true, true, false, false)

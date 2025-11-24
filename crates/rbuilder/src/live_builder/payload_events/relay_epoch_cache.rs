@@ -237,6 +237,7 @@ mod test {
                 validator_index: 1,
                 slot: 2,
                 regional_endpoints: Vec::new(),
+                preferences: None,
             },
             adjustment_fee_payer: None,
         }
