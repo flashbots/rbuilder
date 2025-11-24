@@ -181,6 +181,9 @@ pub struct ValidatorSlotData {
     /// (Bloxroute) Collection of regional endpoints validator is connected to.
     #[serde(default)]
     pub regional_endpoints: Vec<BloxrouteRegionalEndpoint>,
+    /// (Titan) Validator preferences.
+    #[serde(default)]
+    pub preferences: Option<TitanValidatorPreferences>,
 }
 
 /// Bloxroute validator RProxy details.
@@ -196,6 +199,13 @@ pub struct BloxrouteRegionalEndpoint {
     pub grpc_endpoint: String,
     /// RProxy WS endpoint.
     pub websocket_endpoint: String,
+}
+
+/// Titan validator preferences.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+pub struct TitanValidatorPreferences {
+    /// Flag indicating whether the validator is censoring.
+    pub censoring: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -216,4 +226,75 @@ pub struct BidValueMetadata {
 pub struct SubmitBlockRequestWithMetadata {
     pub submission: SubmitBlockRequest,
     pub metadata: BidMetadata,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validator_slot_data_ser_deser() {
+        let registrations = [
+            r#"
+                {
+                    "slot": "123",
+                    "validator_index": "123",
+                    "entry": {
+                        "message": {
+                            "fee_recipient": "0x0000000000000000000000000000000000000000",
+                            "gas_limit": "60000000",
+                            "timestamp": "123",
+                            "pubkey": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+                        },
+                        "signature": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+                    }
+                }
+            "#,
+            r#"
+                {
+                    "slot": "123",
+                    "validator_index": "123",
+                    "entry": {
+                        "message": {
+                            "fee_recipient": "0x0000000000000000000000000000000000000000",
+                            "gas_limit": "60000000",
+                            "timestamp": "123",
+                            "pubkey": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+                        },
+                        "signature": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+                    },
+                    "regional_endpoints": [
+                        {
+                            "name": "",
+                            "region": "",
+                            "http_endpoint": "http://0.0.0.0",
+                            "grpc_endpoint": "grpc://0.0.0.0",
+                            "websocket_endpoint": "ws://0.0.0.0"
+                        }
+                    ]
+                }
+            "#,
+            r#"
+                {
+                    "slot": "123",
+                    "validator_index": "123",
+                    "entry": {
+                        "message": {
+                            "fee_recipient": "0x0000000000000000000000000000000000000000",
+                            "gas_limit": "60000000",
+                            "timestamp": "123",
+                            "pubkey": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+                        },
+                        "signature": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+                    },
+                    "preferences": {
+                        "censoring": false
+                    }
+                }
+            "#,
+        ];
+        for raw in registrations {
+            assert!(serde_json::from_str::<ValidatorSlotData>(raw).is_ok());
+        }
+    }
 }

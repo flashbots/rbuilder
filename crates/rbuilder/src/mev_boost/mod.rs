@@ -102,9 +102,10 @@ pub struct RelayConfig {
     /// Flag indicating whether the builder should only submit to rproxy endpoinds if available.
     #[serde(default)]
     pub bloxroute_rproxy_only: bool,
-    /// Adds "filtering=true" as query to the call relay/v1/builder/validators to get all validators (including those filtering OFAC)
-    /// On 2025/06/24 (my birthday!) only supported by ultrasound.
-    /// None -> false
+    /// Retrieves registrations for all validators, including filtering ones.
+    /// For ultrasound relay, the behavior is to add `filtering=true` as a query parameter.
+    /// For titan relay if the value is not set, the registrations will be filtered by `censoring=false` by default.
+    /// If the value is set to `true`, `censoring=true` validators would be included.
     pub ask_for_filtering_validators: Option<bool>,
     /// If we submit a block with a different gas than the one the validator registered with in this relay the relay does not mind.
     /// None -> false
@@ -674,15 +675,25 @@ impl RelayClient {
         let mut headers = HeaderMap::new();
         self.add_auth_headers(&mut headers)
             .map_err(|_| RelayError::InvalidHeader)?;
-        let validators = req
+        let registrations = req
             .headers(headers)
             .send()
             .await?
             .json::<RelayResponse<Vec<ValidatorSlotData>>>()
             .await?;
 
-        match validators {
-            RelayResponse::Ok(validators) => Ok(validators),
+        match registrations {
+            RelayResponse::Ok(registrations) => {
+                let registrations = registrations
+                    .into_iter()
+                    .filter(|r| {
+                        r.preferences
+                            .as_ref()
+                            .is_none_or(|p| !p.censoring || self.ask_for_filtering_validators)
+                    })
+                    .collect();
+                Ok(registrations)
+            }
             RelayResponse::Error(error) => Err(RelayError::RelayError(error)),
         }
     }
