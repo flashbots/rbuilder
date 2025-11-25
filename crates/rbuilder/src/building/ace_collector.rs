@@ -23,28 +23,12 @@ pub struct AceCollector {
 }
 
 impl AceConfig {
-    pub fn is_ace(&self, tx: &TransactionSignedEcRecoveredWithBlobs) -> bool {
+    pub fn is_ace_force(&self, tx: &TransactionSignedEcRecoveredWithBlobs) -> bool {
         let internal = tx.internal_tx_unsecure();
         self.from_addresses.contains(&internal.signer())
             && self
                 .to_addresses
                 .contains(&internal.inner().to().unwrap_or_default())
-    }
-
-    pub fn ace_type(&self, tx: &TransactionSignedEcRecoveredWithBlobs) -> Option<AceUnlockType> {
-        if self
-            .force_signatures
-            .contains(tx.internal_tx_unsecure().inner().input())
-        {
-            Some(AceUnlockType::Force)
-        } else if self
-            .unlock_signatures
-            .contains(tx.internal_tx_unsecure().inner().input())
-        {
-            Some(AceUnlockType::Optional)
-        } else {
-            None
-        }
     }
 }
 
@@ -70,7 +54,7 @@ pub struct AceOrderEntry {
 
 impl AceExchangeData {
     /// Add an ACE protocol transaction
-    pub fn add_ace_protocol_tx(
+    fn add_ace_protocol_tx(
         &mut self,
         simulated: Arc<SimulatedOrder>,
         unlock_type: AceUnlockType,
@@ -105,7 +89,7 @@ impl AceExchangeData {
             .collect_vec()
     }
 
-    pub fn try_generate_sim_request(&self, order: &Order) -> Option<SimulationRequest> {
+    fn try_generate_sim_request(&self, order: &Order) -> Option<SimulationRequest> {
         let parent = self
             .optional_ace_tx
             .as_ref()
@@ -120,7 +104,7 @@ impl AceExchangeData {
 
     // If we have a regular mempool unlocking tx, we don't want to include the optional ace
     // transaction ad will cancel it.
-    pub fn has_unlocking(&mut self) -> Option<SimulatedOrderCommand> {
+    fn has_unlocking(&mut self) -> Option<SimulatedOrderCommand> {
         // we only want to send this once.
         if self.has_unlocking {
             return None;
@@ -133,7 +117,7 @@ impl AceExchangeData {
             .map(|order| SimulatedOrderCommand::Cancellation(order.simulated.order.id()))
     }
 
-    pub fn add_mempool_tx(&mut self, simulated: Arc<SimulatedOrder>) -> Option<SimulationRequest> {
+    fn add_mempool_tx(&mut self, simulated: Arc<SimulatedOrder>) -> Option<SimulationRequest> {
         if let Some(req) = self.try_generate_sim_request(&simulated.order) {
             return Some(req);
         }
@@ -168,12 +152,12 @@ impl AceCollector {
         }
     }
 
-    pub fn is_ace(&self, order: &Order) -> bool {
+    pub fn is_ace_force(&self, order: &Order) -> bool {
         match order {
             Order::Tx(tx) => self
                 .ace_tx_lookup
                 .values()
-                .any(|config| config.is_ace(&tx.tx_with_blobs)),
+                .any(|config| config.is_ace_force(&tx.tx_with_blobs)),
             _ => false,
         }
     }

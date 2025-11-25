@@ -70,6 +70,7 @@ pub struct SimulationJob {
 }
 
 impl SimulationJob {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         block_cancellation: CancellationToken,
         new_order_sub: mpsc::UnboundedReceiver<OrderPoolCommand>,
@@ -195,9 +196,28 @@ impl SimulationJob {
             return Some(res);
         }
 
-        let is_ace = if self.ace_bundler.is_ace(&res.simulated_order.order) {
+        let is_ace = if self.ace_bundler.is_ace_force(&res.simulated_order.order) {
             Arc::make_mut(&mut res.simulated_order).is_ace = true;
+
+            // Is a force tx given that it is being sent directly to the ace protocol tx
+            // but isn't reverting.
+            self.ace_bundler.add_ace_protocol_tx(
+                res.simulated_order.clone(),
+                rbuilder_primitives::ace::AceUnlockType::Force,
+                res.simulated_order.ace_interaction.unwrap().get_exchange(),
+            );
+
             // assert that this order is fully correct.
+            true
+        } else if let Some(ace) = res.simulated_order.ace_interaction {
+            if ace.is_unlocking() {
+                self.ace_bundler.add_ace_protocol_tx(
+                    res.simulated_order.clone(),
+                    rbuilder_primitives::ace::AceUnlockType::Optional,
+                    res.simulated_order.ace_interaction.unwrap().get_exchange(),
+                );
+            }
+
             true
         } else {
             false
@@ -212,7 +232,6 @@ impl SimulationJob {
             {
                 let _ = self.slot_sim_results_sender.try_send(cmd);
             }
-
             return Some(res);
         } else if let Some(order) = self.ace_bundler.add_mempool_ace_tx(
             res.simulated_order.clone(),

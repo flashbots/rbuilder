@@ -15,7 +15,6 @@ use alloy_evm::Database;
 use alloy_primitives::{Address, B256, I256, U256};
 use alloy_rlp::Encodable;
 use itertools::Itertools;
-use rbuilder_primitives::ace::AceExchange;
 use rbuilder_primitives::{
     evm_inspector::{RBuilderEVMInspector, UsedStateTrace},
     BlockSpace, Bundle, Order, OrderId, RefundConfig, ShareBundle, ShareBundleBody,
@@ -279,19 +278,6 @@ impl BundleOk {
     pub fn space_state(&self, reserved_block_space: BlockSpace) -> BlockBuildingSpaceState {
         BlockBuildingSpaceState::new(self.cumulative_space_used, reserved_block_space)
     }
-}
-
-/// Result of successfully executing an ACE transaction
-#[derive(Debug, Clone)]
-pub struct AceOk {
-    pub space_used: BlockSpace,
-    pub cumulative_space_used: BlockSpace,
-    pub tx_info: TransactionExecutionInfo,
-    pub nonces_updated: Vec<(Address, u64)>,
-    /// Whether the ACE transaction reverted (but is still included)
-    pub reverted: bool,
-    /// The ACE exchange this transaction interacted with
-    pub exchange: AceExchange,
 }
 
 #[derive(Error, Debug, PartialEq, Eq)]
