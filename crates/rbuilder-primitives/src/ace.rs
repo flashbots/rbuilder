@@ -11,22 +11,10 @@ pub enum AceExchange {
 }
 
 impl AceExchange {
-    /// Get the Angstrom variant
-    pub const fn angstrom() -> Self {
-        Self::Angstrom
-    }
-
     /// Get the address for this exchange
-    pub fn address(&self) -> Address {
+    fn address(&self) -> Address {
         match self {
             AceExchange::Angstrom => address!("0000000aa232009084Bd71A5797d089AA4Edfad4"),
-        }
-    }
-
-    /// Get the number of blocks this ACE exchange's transactions should be valid for
-    pub fn blocks_to_live(&self) -> u64 {
-        match self {
-            AceExchange::Angstrom => 1,
         }
     }
 

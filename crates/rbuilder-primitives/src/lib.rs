@@ -41,10 +41,7 @@ pub use test_data_generator::TestDataGenerator;
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::{
-    ace::{AceExchange, AceInteraction, AceUnlockType},
-    serialize::TxEncoding,
-};
+use crate::{ace::AceInteraction, serialize::TxEncoding};
 
 /// Extra metadata for an order.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -1057,91 +1054,6 @@ impl InMemorySize for MempoolTx {
             + self.tx_with_blobs.blobs_sidecar.size()
             + self.tx_with_blobs.metadata.size()
     }
-}
-
-/// The application that is being executed.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum AceTx {
-    Angstrom(AngstromTx),
-}
-
-impl AceTx {
-    pub fn target_block(&self) -> Option<u64> {
-        match self {
-            Self::Angstrom(_) => None,
-        }
-    }
-    pub fn metadata(&self) -> &Metadata {
-        match self {
-            Self::Angstrom(ang) => &ang.meta,
-        }
-    }
-
-    pub fn list_txs_len(&self) -> usize {
-        match self {
-            Self::Angstrom(_) => 1,
-        }
-    }
-
-    pub fn nonces(&self) -> Vec<Nonce> {
-        match self {
-            Self::Angstrom(ang) => {
-                vec![Nonce {
-                    nonce: ang.tx.nonce(),
-                    address: ang.tx.signer(),
-                    optional: false,
-                }]
-            }
-        }
-    }
-
-    pub fn can_execute_with_block_base_fee(&self, base_fee: u128) -> bool {
-        match self {
-            Self::Angstrom(ang) => ang.tx.as_ref().max_fee_per_gas() >= base_fee,
-        }
-    }
-
-    pub fn list_txs_revert(
-        &self,
-    ) -> Vec<(&TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior)> {
-        match self {
-            Self::Angstrom(ang) => vec![(&ang.tx, TxRevertBehavior::NotAllowed)],
-        }
-    }
-
-    pub fn order_id(&self) -> B256 {
-        match self {
-            Self::Angstrom(ang) => ang.tx.hash(),
-        }
-    }
-
-    pub fn list_txs(&self) -> Vec<(&TransactionSignedEcRecoveredWithBlobs, bool)> {
-        match self {
-            Self::Angstrom(ang) => vec![(&ang.tx, false)],
-        }
-    }
-
-    pub fn ace_unlock_type(&self) -> AceUnlockType {
-        match self {
-            AceTx::Angstrom(ang) => ang.unlock_type,
-        }
-    }
-
-    pub fn exchange(&self) -> AceExchange {
-        match self {
-            AceTx::Angstrom(_) => AceExchange::Angstrom,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct AngstromTx {
-    pub tx: TransactionSignedEcRecoveredWithBlobs,
-    pub meta: Metadata,
-    pub unlock_data: Bytes,
-    pub max_priority_fee_per_gas: u128,
-    /// Whether this is a forced unlock or optional
-    pub unlock_type: ace::AceUnlockType,
 }
 
 /// Main type used for block building, we build blocks as sequences of Orders
