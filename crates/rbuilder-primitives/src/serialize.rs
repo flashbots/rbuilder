@@ -843,8 +843,6 @@ pub enum RawOrderConvertError {
     FailedToDecodeShareBundle(RawShareBundleConvertError),
     #[error("Blobs not supported by RawOrder")]
     BlobsNotSupported,
-    #[error("{0}")]
-    UnsupportedOrderType(String),
 }
 
 impl RawOrder {
