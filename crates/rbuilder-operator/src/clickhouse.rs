@@ -31,7 +31,9 @@ use crate::{flashbots_config::BuiltBlocksClickhouseConfig, metrics::ClickhouseMe
 #[derive(Debug, Clone, Serialize, Deserialize, Row)]
 pub struct BlockRow {
     pub block_number: u64,
+    /// name of the node that submitted the block
     pub builder_name: String,
+    /// git commit of the rbuilder running
     pub rbuilder_commit: String,
     pub profit: String,
     pub slot: u64,
@@ -47,6 +49,7 @@ pub struct BlockRow {
     pub timestamp_datetime: i64,
     pub orders_closed_at: i64,
     pub sealed_at: i64,
+    /// name of the algorithm that created the block
     pub algorithm: String,
 
     #[serde(with = "option_u256")]
