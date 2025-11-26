@@ -72,13 +72,16 @@ struct TBVPushRedisConfig {
 
 /// Config used to record built blocks to clickhouse using a local
 /// storage on errors.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct BuiltBlocksClickhouseConfig {
     /// clickhouse host url (starts with http/https)
     pub host: String,
     pub database: String,
     pub username: String,
-    pub password: String,
+    /// Unique id for this server.
+    /// Since this is only used in clickhouse to identify the builder blocks we put it here but we could have it in the base_config.
+    pub builder_name: String,
+    pub password: EnvOrValue<String>,
     pub disk_database_path: PathBuf,
     pub disk_max_size_mb: Option<u64>,
     pub memory_max_size_mb: Option<u64>,
@@ -312,10 +315,12 @@ impl FlashbotsConfig {
         block_processor_key: Option<PrivateKeySigner>,
     ) -> eyre::Result<Option<Box<dyn BidObserver + Send + Sync>>> {
         if let Some(built_blocks_clickhouse_config) = &self.built_blocks_clickhouse_config {
+            let rbuilder_version = rbuilder_version();
             let writer = BuiltBlocksWriter::new(
                 built_blocks_clickhouse_config.clone(),
+                rbuilder_version.git_commit,
                 cancellation_token.clone(),
-            );
+            )?;
             Ok(Some(Box::new(writer)))
         } else {
             if block_processor_key.is_some() {
@@ -452,7 +457,7 @@ impl BidObserver for RbuilderOperatorBidObserver {
         slot_data: &MevBoostSlotData,
         submit_block_request: Arc<AlloySubmitBlockRequest>,
         built_block_trace: Arc<BuiltBlockTrace>,
-        builder_name: String,
+        builder_algorithm_name: String,
         best_bid_value: U256,
         relays: &RelaySet,
         sent_to_relay_at: OffsetDateTime,
@@ -462,7 +467,7 @@ impl BidObserver for RbuilderOperatorBidObserver {
                 slot_data,
                 submit_block_request.clone(),
                 built_block_trace.clone(),
-                builder_name.clone(),
+                builder_algorithm_name.clone(),
                 best_bid_value,
                 relays,
                 sent_to_relay_at,
@@ -473,7 +478,7 @@ impl BidObserver for RbuilderOperatorBidObserver {
                 slot_data,
                 submit_block_request,
                 built_block_trace,
-                builder_name,
+                builder_algorithm_name,
                 best_bid_value,
                 relays,
                 sent_to_relay_at,

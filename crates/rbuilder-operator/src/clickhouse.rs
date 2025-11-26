@@ -31,6 +31,8 @@ use crate::{flashbots_config::BuiltBlocksClickhouseConfig, metrics::ClickhouseMe
 #[derive(Debug, Clone, Serialize, Deserialize, Row)]
 pub struct BlockRow {
     pub block_number: u64,
+    pub builder_name: String,
+    pub rbuilder_commit: String,
     pub profit: String,
     pub slot: u64,
     pub hash: String,
@@ -106,15 +108,21 @@ const DEFAULT_MAX_MEMORY_SIZE_MB: u64 = KILO;
 #[derive(Debug)]
 pub struct BuiltBlocksWriter {
     blocks_tx: mpsc::Sender<BlockRow>,
+    rbuilder_commit: String,
+    builder_name: String,
 }
 
 impl BuiltBlocksWriter {
-    pub fn new(config: BuiltBlocksClickhouseConfig, cancellation_token: CancellationToken) -> Self {
+    pub fn new(
+        config: BuiltBlocksClickhouseConfig,
+        rbuilder_commit: String,
+        cancellation_token: CancellationToken,
+    ) -> eyre::Result<Self> {
         let client = Client::default()
             .with_url(config.host)
             .with_database(config.database)
             .with_user(config.username)
-            .with_password(config.password)
+            .with_password(config.password.value()?)
             .with_validation(false); // CRITICAL for U256 serialization.
 
         let task_manager = rbuilder_utils::tasks::TaskManager::current();
@@ -142,9 +150,11 @@ impl BuiltBlocksWriter {
             tokio::time::sleep(RUN_SUBMIT_TO_RELAYS_JOB_CANCEL_TIME).await;
             task_manager.graceful_shutdown_with_timeout(Duration::from_secs(5));
         });
-        Self {
+        Ok(Self {
             blocks_tx: block_tx,
-        }
+            rbuilder_commit,
+            builder_name: config.builder_name,
+        })
     }
 }
 
@@ -217,7 +227,7 @@ impl BidObserver for BuiltBlocksWriter {
         slot_data: &MevBoostSlotData,
         submit_block_request: Arc<AlloySubmitBlockRequest>,
         built_block_trace: Arc<BuiltBlockTrace>,
-        builder_name: String,
+        builder_algorithm_name: String,
         best_bid_value: U256,
         _relays: &RelaySet,
         sent_to_relay_at: OffsetDateTime,
@@ -225,6 +235,8 @@ impl BidObserver for BuiltBlocksWriter {
         let slot = slot_data.slot();
         let block_number = slot_data.block();
         let blocks_tx = self.blocks_tx.clone();
+        let rbuilder_commit = self.rbuilder_commit.clone();
+        let builder_name = self.builder_name.clone();
         tokio::spawn(async move {
             let submit_trace = submit_block_request.bid_trace();
             let execution_payload_v1 = match submit_block_request.as_ref() {
@@ -264,6 +276,8 @@ impl BidObserver for BuiltBlocksWriter {
                 .collect();
             let block_row = BlockRow {
                 block_number,
+                builder_name,
+                rbuilder_commit,
                 profit: format_ether(submit_trace.value),
                 slot,
                 hash: execution_payload_v1.block_hash.to_string(),
@@ -283,7 +297,7 @@ impl BidObserver for BuiltBlocksWriter {
                     built_block_trace.orders_closed_at,
                 ),
                 sealed_at: offset_date_to_clickhouse_timestamp(built_block_trace.orders_sealed_at),
-                algorithm: builder_name,
+                algorithm: builder_algorithm_name,
                 true_value: Some(built_block_trace.true_bid_value),
                 best_relay_value: Some(best_bid_value),
                 block_value: Some(submit_trace.value),
