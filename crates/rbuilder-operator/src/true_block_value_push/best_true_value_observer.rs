@@ -78,7 +78,7 @@ impl BidObserver for BestTrueValueObserver {
         slot_data: &MevBoostSlotData,
         _submit_block_request: Arc<AlloySubmitBlockRequest>,
         built_block_trace: Arc<BuiltBlockTrace>,
-        builder_name: String,
+        builder_algorithm_name: String,
         _best_bid_value: alloy_primitives::U256,
         _relays: &RelaySet,
         _sent_to_relay_at: OffsetDateTime,
@@ -89,7 +89,7 @@ impl BidObserver for BestTrueValueObserver {
             built_block_trace.true_bid_value,
             built_block_trace.bid_value,
             built_block_trace.subsidy,
-            builder_name,
+            builder_algorithm_name,
             slot_data.timestamp().unix_timestamp() as u64,
         );
         self.best_local_value.update_value_safe(block_info);
