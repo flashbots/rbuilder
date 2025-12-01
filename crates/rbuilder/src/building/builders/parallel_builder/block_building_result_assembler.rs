@@ -186,13 +186,13 @@ impl BlockBuildingResultAssembler {
     ) -> eyre::Result<Box<dyn BlockBuildingHelper>> {
         let build_start = Instant::now();
 
-        // Extract ACE protocol transactions (Order::AceTx) from all groups
+        // Extract ACE protocol orders from all groups
         // These will be pre-committed at the top of the block
-        let mut ace_txs = Vec::new();
+        let mut ace_orders = Vec::new();
         for (_, group) in best_orderings_per_group.iter() {
             for order in group.orders.iter() {
-                if order.is_ace {
-                    ace_txs.push(order.clone());
+                if order.ace_interaction.map(|a| a.is_force()).unwrap_or(false) {
+                    ace_orders.push(order.clone());
                 }
             }
         }
@@ -202,7 +202,12 @@ impl BlockBuildingResultAssembler {
             // Filter out ACE orders from the sequence
             resolution_result
                 .sequence_of_orders
-                .retain(|(order_idx, _)| !group.orders[*order_idx].is_ace);
+                .retain(|(order_idx, _)| {
+                    !group.orders[*order_idx]
+                        .ace_interaction
+                        .map(|a| a.is_force())
+                        .unwrap_or(false)
+                });
         }
 
         let mut block_building_helper = BlockBuildingHelperFromProvider::new(
@@ -218,15 +223,15 @@ impl BlockBuildingResultAssembler {
         )?;
         block_building_helper.set_trace_orders_closed_at(orders_closed_at);
 
-        // Pre-commit ACE protocol transactions at the top of the block
-        for ace_tx in &ace_txs {
-            trace!(order_id = ?ace_tx.id(), "Pre-committing ACE protocol tx");
+        // Pre-commit ACE protocol orders at the top of the block
+        for ace_order in &ace_orders {
+            trace!(order_id = ?ace_order.id(), "Pre-committing ACE protocol order");
             if let Err(err) = block_building_helper.commit_order(
                 &mut self.local_ctx,
-                ace_tx,
-                &|_| Ok(()), // ACE protocol txs bypass profit validation
+                ace_order,
+                &|_| Ok(()), // ACE protocol orders bypass profit validation
             ) {
-                trace!(order_id = ?ace_tx.id(), ?err, "Failed to pre-commit ACE protocol tx");
+                trace!(order_id = ?ace_order.id(), ?err, "Failed to pre-commit ACE protocol order");
             }
         }
 
@@ -295,13 +300,13 @@ impl BlockBuildingResultAssembler {
         let mut best_orderings_per_group: Vec<(ResolutionResult, ConflictGroup)> =
             best_results.into_values().collect();
 
-        // Extract ACE protocol transactions (Order::AceTx) from all groups
+        // Extract ACE protocol orders from all groups
         // These will be pre-committed at the top of the block
-        let mut ace_txs = Vec::new();
+        let mut ace_orders = Vec::new();
         for (_, group) in best_orderings_per_group.iter() {
             for order in group.orders.iter() {
-                if order.is_ace {
-                    ace_txs.push(order.clone());
+                if order.ace_interaction.map(|a| a.is_force()).unwrap_or(false) {
+                    ace_orders.push(order.clone());
                 }
             }
         }
@@ -311,7 +316,12 @@ impl BlockBuildingResultAssembler {
             // Filter out ACE orders from the sequence
             resolution_result
                 .sequence_of_orders
-                .retain(|(order_idx, _)| !group.orders[*order_idx].is_ace);
+                .retain(|(order_idx, _)| {
+                    !group.orders[*order_idx]
+                        .ace_interaction
+                        .map(|a| a.is_force())
+                        .unwrap_or(false)
+                });
         }
 
         let mut block_building_helper = BlockBuildingHelperFromProvider::new(
@@ -328,15 +338,15 @@ impl BlockBuildingResultAssembler {
 
         block_building_helper.set_trace_orders_closed_at(orders_closed_at);
 
-        // Pre-commit ACE protocol transactions at the top of the block
-        for ace_tx in &ace_txs {
-            trace!(order_id = ?ace_tx.id(), "Pre-committing ACE protocol tx in backtest");
+        // Pre-commit ACE protocol orders at the top of the block
+        for ace_order in &ace_orders {
+            trace!(order_id = ?ace_order.id(), "Pre-committing ACE protocol order in backtest");
             if let Err(err) = block_building_helper.commit_order(
                 &mut self.local_ctx,
-                ace_tx,
-                &|_| Ok(()), // ACE protocol txs bypass profit validation
+                ace_order,
+                &|_| Ok(()), // ACE protocol orders bypass profit validation
             ) {
-                trace!(order_id = ?ace_tx.id(), ?err, "Failed to pre-commit ACE protocol tx in backtest");
+                trace!(order_id = ?ace_order.id(), ?err, "Failed to pre-commit ACE protocol order in backtest");
             }
         }
 

@@ -39,6 +39,9 @@ pub struct SimulationContext {
     pub requests: flume::Receiver<SimulationRequest>,
     /// Simulation results go out through this channel.
     pub results: mpsc::Sender<SimulatedResult>,
+    /// ACE configuration for this simulation context.
+    pub ace_configs:
+        ahash::HashMap<rbuilder_primitives::ace::AceExchange, rbuilder_primitives::AceConfig>,
 }
 
 /// All active SimulationContexts
@@ -154,7 +157,14 @@ where
                     NonceCache::new(state.into())
                 };
 
-                let sim_tree = SimTree::new(nonces);
+                // Convert ace_config Vec to HashMap for efficient lookup
+                let ace_configs_map: ahash::HashMap<_, _> = ace_config
+                    .iter()
+                    .filter(|c| c.enabled)
+                    .map(|c| (c.protocol, c.clone()))
+                    .collect();
+
+                let sim_tree = SimTree::new(nonces, ace_config);
                 let new_order_sub = input.new_order_sub;
                 let (sim_req_sender, sim_req_receiver) = flume::unbounded();
                 let (sim_results_sender, sim_results_receiver) = mpsc::channel(1024);
@@ -164,6 +174,7 @@ where
                         block_ctx: ctx,
                         requests: sim_req_receiver,
                         results: sim_results_sender,
+                        ace_configs: ace_configs_map,
                     };
                     contexts.contexts.insert(block_context, sim_context);
                 }
@@ -175,7 +186,6 @@ where
                     slot_sim_results_sender,
                     sim_tree,
                     sim_tracer,
-                    ace_config,
                 );
 
                 simulation_job.run().await;

@@ -1,72 +1,116 @@
 use crate::evm_inspector::UsedStateTrace;
-use alloy_primitives::{address, Address};
+use alloy_primitives::{Address, Bytes};
 use derive_more::FromStr;
 use serde::Deserialize;
+use std::collections::HashSet;
 use strum::EnumIter;
 
-/// What ace based exchanges that rbuilder supports.
+/// Configuration for an ACE (Atomic Clearing Engine) protocol
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct AceConfig {
+    /// Whether this ACE config is enabled
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+    /// Which ACE protocol this config is for
+    pub protocol: AceExchange,
+    /// Addresses that send ACE orders (used to identify force unlocks)
+    pub from_addresses: HashSet<Address>,
+    /// Addresses that receive ACE orders (the ACE contract addresses)
+    pub to_addresses: HashSet<Address>,
+    /// Function signatures that indicate an unlock operation
+    pub unlock_signatures: HashSet<Bytes>,
+    /// Function signatures that indicate a forced unlock operation
+    pub force_signatures: HashSet<Bytes>,
+}
+
+fn default_enabled() -> bool {
+    true
+}
+
+/// What ACE based exchanges that rbuilder supports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumIter, Deserialize, FromStr)]
 pub enum AceExchange {
     Angstrom,
 }
 
 impl AceExchange {
-    /// Get the address for this exchange
-    fn address(&self) -> Address {
-        match self {
-            AceExchange::Angstrom => address!("0000000aa232009084Bd71A5797d089AA4Edfad4"),
-        }
-    }
-
-    /// Classify an ACE transaction interaction type based on state trace and simulation success
+    /// Classify an ACE order interaction type based on state trace, simulation success, and config.
+    /// Uses both state trace (address access) AND function signatures to determine interaction type.
     pub fn classify_ace_interaction(
         &self,
         state_trace: &UsedStateTrace,
         sim_success: bool,
+        config: &AceConfig,
+        selector: Option<&[u8]>,
     ) -> Option<AceInteraction> {
         match self {
-            AceExchange::Angstrom => {
-                Self::angstrom_classify_interaction(state_trace, sim_success, *self)
-            }
+            AceExchange::Angstrom => Self::angstrom_classify_interaction(
+                state_trace,
+                sim_success,
+                *self,
+                config,
+                selector,
+            ),
         }
     }
 
-    /// Angstrom-specific classification logic
+    /// Angstrom-specific classification logic using both state trace and signatures
     fn angstrom_classify_interaction(
         state_trace: &UsedStateTrace,
         sim_success: bool,
         exchange: AceExchange,
+        config: &AceConfig,
+        selector: Option<&[u8]>,
     ) -> Option<AceInteraction> {
-        let angstrom_address = exchange.address();
-
-        // We need to include read here as if it tries to reads the lastBlockUpdated on the pre swap
-        // hook. it will revert and not make any changes if the pools not unlocked. We want to capture
-        // this.
-        let accessed_exchange = state_trace
-            .read_slot_values
-            .keys()
-            .any(|k| k.address == angstrom_address)
-            || state_trace
-                .written_slot_values
+        // Check state trace for ACE address access using config addresses
+        let accessed_exchange = config.to_addresses.iter().any(|addr| {
+            state_trace
+                .read_slot_values
                 .keys()
-                .any(|k| k.address == angstrom_address);
+                .any(|k| &k.address == addr)
+                || state_trace
+                    .written_slot_values
+                    .keys()
+                    .any(|k| &k.address == addr)
+        });
 
-        accessed_exchange.then_some({
-            if sim_success {
-                AceInteraction::Unlocking { exchange }
-            } else {
-                AceInteraction::NonUnlocking { exchange }
-            }
-        })
+        if !accessed_exchange {
+            return None;
+        }
+
+        // Check function signatures to determine if this is a force or regular unlock
+        let is_force = selector.map_or(false, |sel| {
+            config
+                .force_signatures
+                .iter()
+                .any(|sig| sig.starts_with(sel))
+        });
+
+        let is_unlock = selector.map_or(false, |sel| {
+            config
+                .unlock_signatures
+                .iter()
+                .any(|sig| sig.starts_with(sel))
+        });
+
+        if sim_success && (is_force || is_unlock) {
+            Some(AceInteraction::Unlocking { exchange, is_force })
+        } else {
+            Some(AceInteraction::NonUnlocking { exchange })
+        }
     }
 }
 
-/// Type of ACE interaction for mempool transactions
+/// Type of ACE interaction for orders
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AceInteraction {
-    /// Unlocking ACE tx,  doesn't revert without an ACE tx, must be placed with ACE bundle
-    Unlocking { exchange: AceExchange },
-    /// Requires an unlocking ACE tx, will revert otherwise
+    /// Unlocking ACE order - doesn't revert without an ACE order, must be placed with ACE bundle.
+    /// `is_force` indicates if this is a forced unlock (must always be included) vs optional.
+    Unlocking {
+        exchange: AceExchange,
+        is_force: bool,
+    },
+    /// Requires an unlocking ACE order, will revert otherwise
     NonUnlocking { exchange: AceExchange },
 }
 
@@ -75,11 +119,14 @@ impl AceInteraction {
         matches!(self, Self::Unlocking { .. })
     }
 
+    pub fn is_force(&self) -> bool {
+        matches!(self, Self::Unlocking { is_force: true, .. })
+    }
+
     pub fn get_exchange(&self) -> AceExchange {
         match self {
-            AceInteraction::Unlocking { exchange } | AceInteraction::NonUnlocking { exchange } => {
-                *exchange
-            }
+            AceInteraction::Unlocking { exchange, .. }
+            | AceInteraction::NonUnlocking { exchange } => *exchange,
         }
     }
 }

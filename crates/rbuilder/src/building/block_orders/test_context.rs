@@ -168,7 +168,6 @@ impl<TestedSinkType: SimulatedOrderSink> TestContext<TestedSinkType> {
         Arc::new(SimulatedOrder {
             order,
             sim_value,
-            is_ace: false,
             used_state_trace: None,
             ace_interaction: None,
         })

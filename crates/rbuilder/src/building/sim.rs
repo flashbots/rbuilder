@@ -16,8 +16,10 @@ use crate::{
 use ahash::{HashMap, HashSet};
 use alloy_primitives::Address;
 use alloy_primitives::U256;
+use alloy_rpc_types::TransactionTrait;
 use rand::seq::SliceRandom;
 use rbuilder_primitives::ace::{AceExchange, AceInteraction};
+use rbuilder_primitives::AceConfig;
 use rbuilder_primitives::BlockSpace;
 use rbuilder_primitives::SimValue;
 use rbuilder_primitives::{Order, OrderId, SimulatedOrder};
@@ -29,7 +31,6 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use strum::IntoEnumIterator;
 use tracing::{error, trace};
 
 #[derive(Debug)]
@@ -52,10 +53,56 @@ pub struct NonceKey {
     pub nonce: u64,
 }
 
+/// Generic dependency key - represents something an order needs before it can execute
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum DependencyKey {
+    /// Order needs a specific nonce to be filled
+    Nonce(NonceKey),
+    /// Order needs an ACE unlock transaction for the given exchange
+    AceUnlock(AceExchange),
+}
+
+impl From<NonceKey> for DependencyKey {
+    fn from(nonce: NonceKey) -> Self {
+        DependencyKey::Nonce(nonce)
+    }
+}
+
+/// State for a specific ACE exchange
+#[derive(Debug, Clone, Default)]
+pub struct AceExchangeState {
+    /// Force ACE protocol order - always included
+    pub force_unlock_order: Option<Arc<SimulatedOrder>>,
+    /// Optional ACE protocol order - can be cancelled if mempool unlock arrives
+    pub optional_unlock_order: Option<Arc<SimulatedOrder>>,
+    /// Whether we've seen a mempool unlocking order (cancels optional)
+    pub has_mempool_unlock: bool,
+}
+
+impl AceExchangeState {
+    /// Get the best available unlock order.
+    /// Selects the cheapest (lowest gas) for frontrunning when both are available.
+    pub fn get_unlock_order(&self) -> Option<&Arc<SimulatedOrder>> {
+        match (&self.force_unlock_order, &self.optional_unlock_order) {
+            (Some(force), Some(optional)) => {
+                // Select cheapest (lowest gas) for frontrunning
+                if force.sim_value.gas_used() <= optional.sim_value.gas_used() {
+                    Some(force)
+                } else {
+                    Some(optional)
+                }
+            }
+            (Some(force), None) => Some(force),
+            (None, Some(optional)) => Some(optional),
+            (None, None) => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PendingOrder {
     order: Order,
-    unsatisfied_nonces: usize,
+    unsatisfied_dependencies: usize,
 }
 
 pub type SimulationId = u64;
@@ -72,7 +119,8 @@ pub struct SimulatedResult {
     pub id: SimulationId,
     pub simulated_order: Arc<SimulatedOrder>,
     pub previous_orders: Vec<Order>,
-    pub nonces_after: Vec<NonceKey>,
+    /// Dependencies this simulation satisfies (nonces updated, ACE unlocks provided)
+    pub dependencies_satisfied: Vec<DependencyKey>,
     pub simulation_time: Duration,
 }
 
@@ -83,35 +131,61 @@ pub struct SimTree {
     nonces: NonceCache,
 
     sims: HashMap<SimulationId, SimulatedResult>,
-    sims_that_update_one_nonce: HashMap<NonceKey, SimulationId>,
+    /// Maps a dependency to the simulation that provides it (for single-dependency sims)
+    dependency_providers: HashMap<DependencyKey, SimulationId>,
 
     pending_orders: HashMap<OrderId, PendingOrder>,
-    pending_nonces: HashMap<NonceKey, Vec<OrderId>>,
+
+    /// Orders waiting on each dependency
+    pending_dependencies: HashMap<DependencyKey, Vec<OrderId>>,
 
     ready_orders: Vec<SimulationRequest>,
+
+    // ACE state management
+    /// ACE configuration lookup by exchange
+    ace_config: HashMap<AceExchange, AceConfig>,
+    /// ACE exchange state (force/optional unlocks, mempool unlock tracking)
+    ace_state: HashMap<AceExchange, AceExchangeState>,
 }
 
 #[derive(Debug)]
-enum OrderNonceState {
+enum OrderDependencyState {
     Invalid,
-    PendingNonces(Vec<NonceKey>),
+    Pending(Vec<DependencyKey>),
     Ready(Vec<Order>),
 }
 
 impl SimTree {
-    pub fn new(nonce_cache_ref: NonceCache) -> Self {
+    pub fn new(nonce_cache_ref: NonceCache, ace_configs: Vec<AceConfig>) -> Self {
+        let mut ace_config = HashMap::default();
+        let mut ace_state = HashMap::default();
+
+        for config in ace_configs {
+            let protocol = config.protocol;
+            ace_config.insert(protocol, config);
+            ace_state.insert(protocol, AceExchangeState::default());
+        }
+
         Self {
             nonces: nonce_cache_ref,
             sims: HashMap::default(),
-            sims_that_update_one_nonce: HashMap::default(),
+            dependency_providers: HashMap::default(),
             pending_orders: HashMap::default(),
-            pending_nonces: HashMap::default(),
+            pending_dependencies: HashMap::default(),
             ready_orders: Vec::default(),
+            ace_config,
+            ace_state,
         }
     }
 
-    pub fn requeue_ace_order(&mut self, req: SimulationRequest) {
-        self.ready_orders.push(req);
+    /// Get the ACE configs
+    pub fn ace_configs(&self) -> &HashMap<AceExchange, AceConfig> {
+        &self.ace_config
+    }
+
+    /// Get the ACE exchange state for a given exchange
+    pub fn get_ace_state(&self, exchange: &AceExchange) -> Option<&AceExchangeState> {
+        self.ace_state.get(exchange)
     }
 
     fn push_order(&mut self, order: Order) -> Result<(), ProviderError> {
@@ -119,20 +193,20 @@ impl SimTree {
             return Ok(());
         }
 
-        let order_nonce_state = self.get_order_nonce_state(&order)?;
+        let order_dep_state = self.get_order_dependency_state(&order)?;
 
         let order_id = order.id();
 
-        match order_nonce_state {
-            OrderNonceState::Invalid => {
+        match order_dep_state {
+            OrderDependencyState::Invalid => {
                 return Ok(());
             }
-            OrderNonceState::PendingNonces(pending_nonces) => {
+            OrderDependencyState::Pending(pending_deps) => {
                 mark_order_pending_nonce(order_id);
-                let unsatisfied_nonces = pending_nonces.len();
-                for nonce in pending_nonces {
-                    self.pending_nonces
-                        .entry(nonce)
+                let unsatisfied_dependencies = pending_deps.len();
+                for dep in pending_deps {
+                    self.pending_dependencies
+                        .entry(dep)
                         .or_default()
                         .push(order.id());
                 }
@@ -140,11 +214,11 @@ impl SimTree {
                     order.id(),
                     PendingOrder {
                         order,
-                        unsatisfied_nonces,
+                        unsatisfied_dependencies,
                     },
                 );
             }
-            OrderNonceState::Ready(parents) => {
+            OrderDependencyState::Ready(parents) => {
                 self.ready_orders.push(SimulationRequest {
                     id: rand::random(),
                     order,
@@ -155,17 +229,21 @@ impl SimTree {
         Ok(())
     }
 
-    fn get_order_nonce_state(&mut self, order: &Order) -> Result<OrderNonceState, ProviderError> {
+    fn get_order_dependency_state(
+        &mut self,
+        order: &Order,
+    ) -> Result<OrderDependencyState, ProviderError> {
         let mut onchain_nonces_incremented = HashSet::default();
-        let mut pending_nonces = Vec::new();
+        let mut pending_deps = Vec::new();
         let mut parent_orders = Vec::new();
 
+        // Check nonce dependencies
         for nonce in order.nonces() {
             let onchain_nonce = self.nonces.nonce(nonce.address)?;
 
             match onchain_nonce.cmp(&nonce.nonce) {
                 Ordering::Equal => {
-                    // nonce, valid
+                    // nonce valid
                     onchain_nonces_incremented.insert(nonce.address);
                     continue;
                 }
@@ -178,7 +256,7 @@ impl SimTree {
                             ?nonce,
                             "Dropping order because of nonce"
                         );
-                        return Ok(OrderNonceState::Invalid);
+                        return Ok(OrderDependencyState::Invalid);
                     } else {
                         // we can ignore this tx
                         continue;
@@ -196,8 +274,9 @@ impl SimTree {
                         address: nonce.address,
                         nonce: nonce.nonce,
                     };
+                    let dep_key = DependencyKey::Nonce(nonce_key);
 
-                    if let Some(sim_id) = self.sims_that_update_one_nonce.get(&nonce_key) {
+                    if let Some(sim_id) = self.dependency_providers.get(&dep_key) {
                         // we have something that fills this nonce
                         let sim = self.sims.get(sim_id).expect("we never delete sims");
                         parent_orders.extend_from_slice(&sim.previous_orders);
@@ -205,16 +284,54 @@ impl SimTree {
                         continue;
                     }
 
-                    pending_nonces.push(nonce_key);
+                    pending_deps.push(dep_key);
                 }
             }
         }
 
-        if pending_nonces.is_empty() {
-            Ok(OrderNonceState::Ready(parent_orders))
+        if pending_deps.is_empty() {
+            Ok(OrderDependencyState::Ready(parent_orders))
         } else {
-            Ok(OrderNonceState::PendingNonces(pending_nonces))
+            Ok(OrderDependencyState::Pending(pending_deps))
         }
+    }
+
+    /// Check if an order needs ACE unlock and add that dependency.
+    /// Called after initial simulation when we detect a NonUnlocking ACE interaction.
+    fn add_ace_dependency_for_order(
+        &mut self,
+        order: Order,
+        exchange: AceExchange,
+    ) -> Result<(), ProviderError> {
+        let dep_key = DependencyKey::AceUnlock(exchange);
+
+        // Check if we already have an unlock provider
+        if let Some(sim_id) = self.dependency_providers.get(&dep_key) {
+            let sim = self.sims.get(sim_id).expect("we never delete sims");
+            let mut parents = sim.previous_orders.clone();
+            parents.push(sim.simulated_order.order.clone());
+
+            // Order is ready with the unlock tx as parent
+            self.ready_orders.push(SimulationRequest {
+                id: rand::random(),
+                order,
+                parents,
+            });
+        } else {
+            // No unlock yet - add to pending
+            self.pending_dependencies
+                .entry(dep_key)
+                .or_default()
+                .push(order.id());
+            self.pending_orders.insert(
+                order.id(),
+                PendingOrder {
+                    order,
+                    unsatisfied_dependencies: 1,
+                },
+            );
+        }
+        Ok(())
     }
 
     pub fn push_orders(&mut self, orders: Vec<Order>) -> Result<(), ProviderError> {
@@ -236,11 +353,14 @@ impl SimTree {
     ) -> Result<(), ProviderError> {
         self.sims.insert(result.id, result.clone());
         let mut orders_ready = Vec::new();
-        if result.nonces_after.len() == 1 {
-            let updated_nonce = result.nonces_after.first().unwrap().clone();
 
-            match self.sims_that_update_one_nonce.entry(updated_nonce.clone()) {
+        // Process each dependency this simulation satisfies
+        if result.dependencies_satisfied.len() == 1 {
+            let dep_key = result.dependencies_satisfied.first().unwrap().clone();
+
+            match self.dependency_providers.entry(dep_key.clone()) {
                 Entry::Occupied(mut entry) => {
+                    // Already have a provider - check if this one is more profitable
                     let current_sim_profit = {
                         let sim_id = entry.get_mut();
                         self.sims
@@ -262,15 +382,17 @@ impl SimTree {
                     }
                 }
                 Entry::Vacant(entry) => {
+                    // First provider for this dependency
                     entry.insert(result.id);
 
-                    if let Some(pending_orders) = self.pending_nonces.remove(&updated_nonce) {
-                        for order in pending_orders {
-                            match self.pending_orders.entry(order) {
+                    // Unblock orders waiting on this dependency
+                    if let Some(pending_order_ids) = self.pending_dependencies.remove(&dep_key) {
+                        for order_id in pending_order_ids {
+                            match self.pending_orders.entry(order_id) {
                                 Entry::Occupied(mut entry) => {
                                     let pending_order = entry.get_mut();
-                                    pending_order.unsatisfied_nonces -= 1;
-                                    if pending_order.unsatisfied_nonces == 0 {
+                                    pending_order.unsatisfied_dependencies -= 1;
+                                    if pending_order.unsatisfied_dependencies == 0 {
                                         orders_ready.push(entry.remove().order);
                                     }
                                 }
@@ -286,26 +408,122 @@ impl SimTree {
         }
 
         for ready_order in orders_ready {
-            let pending_state = self.get_order_nonce_state(&ready_order)?;
+            let pending_state = self.get_order_dependency_state(&ready_order)?;
             match pending_state {
-                OrderNonceState::Ready(parents) => {
+                OrderDependencyState::Ready(parents) => {
                     self.ready_orders.push(SimulationRequest {
                         id: rand::random(),
                         order: ready_order,
                         parents,
                     });
                 }
-                OrderNonceState::Invalid => {
+                OrderDependencyState::Invalid => {
                     // @Metric bug counter
                     error!("SimTree bug order became invalid");
                 }
-                OrderNonceState::PendingNonces(_) => {
+                OrderDependencyState::Pending(_) => {
                     // @Metric bug counter
                     error!("SimTree bug order became pending again");
                 }
             }
         }
         Ok(())
+    }
+
+    /// Handle ACE interaction after simulation.
+    /// Returns (was_handled, optional_cancellation_order_id)
+    /// - For Unlocking interactions: registers as force or optional unlock provider
+    /// - For NonUnlocking interactions: adds order as pending on ACE unlock dependency
+    /// - Returns cancellation OrderId if a mempool unlock cancels an optional ACE tx
+    pub fn handle_ace_interaction(
+        &mut self,
+        result: &mut SimulatedResult,
+    ) -> Result<(bool, Option<OrderId>), ProviderError> {
+        let Some(interaction) = result.simulated_order.ace_interaction else {
+            return Ok((false, None));
+        };
+
+        // If this order already has parents, it was re-simulated with unlock - just pass through
+        if !result.previous_orders.is_empty() {
+            return Ok((false, None));
+        }
+
+        let mut cancellation = None;
+
+        match interaction {
+            AceInteraction::Unlocking { exchange, is_force } => {
+                // Register the unlock in ACE state
+                let state = self.ace_state.entry(exchange).or_default();
+
+                if is_force {
+                    state.force_unlock_order = Some(result.simulated_order.clone());
+                    trace!("Added forced ACE protocol unlock order for {:?}", exchange);
+                } else {
+                    state.optional_unlock_order = Some(result.simulated_order.clone());
+                    trace!(
+                        "Added optional ACE protocol unlock order for {:?}",
+                        exchange
+                    );
+                }
+
+                // Check if we should cancel the optional ACE order (mempool unlock arrived first)
+                if state.has_mempool_unlock {
+                    if let Some(optional) = state.optional_unlock_order.take() {
+                        cancellation = Some(optional.order.id());
+                    }
+                }
+
+                // Make sure the ACE unlock dependency is in dependencies_satisfied
+                let dep_key = DependencyKey::AceUnlock(exchange);
+                if !result.dependencies_satisfied.contains(&dep_key) {
+                    result.dependencies_satisfied.push(dep_key);
+                }
+
+                // Process this result to unblock pending orders
+                self.process_simulation_task_result(result.clone())?;
+            }
+            AceInteraction::NonUnlocking { exchange } => {
+                // This is a mempool order that needs ACE unlock
+                let state = self.ace_state.entry(exchange).or_default();
+
+                // Check if we have an unlock order to use as parent
+                if let Some(unlock_order) = state.get_unlock_order().cloned() {
+                    // Re-queue with the unlock as parent
+                    self.ready_orders.push(SimulationRequest {
+                        id: rand::random(),
+                        order: result.simulated_order.order.clone(),
+                        parents: vec![unlock_order.order.clone()],
+                    });
+                } else {
+                    // No unlock yet - add as pending on ACE dependency
+                    self.add_ace_dependency_for_order(
+                        result.simulated_order.order.clone(),
+                        exchange,
+                    )?;
+                }
+                return Ok((true, None));
+            }
+        }
+
+        Ok((true, cancellation))
+    }
+
+    /// Mark that a mempool unlocking order has been seen for an exchange.
+    /// Returns the OrderId of the optional ACE order to cancel, if any.
+    pub fn mark_mempool_unlock(&mut self, exchange: AceExchange) -> Option<OrderId> {
+        let state = self.ace_state.entry(exchange).or_default();
+
+        // Only cancel once
+        if state.has_mempool_unlock {
+            return None;
+        }
+        state.has_mempool_unlock = true;
+
+        // Cancel the optional ACE order if present
+        state
+            .optional_unlock_order
+            .take()
+            .map(|order| order.order.id())
     }
 
     pub fn submit_simulation_tasks_results(
@@ -327,6 +545,7 @@ pub fn simulate_all_orders_with_sim_tree<P>(
     ctx: &BlockBuildingContext,
     orders: &[Order],
     randomize_insertion: bool,
+    ace_config: Vec<AceConfig>,
 ) -> Result<(Vec<Arc<SimulatedOrder>>, Vec<OrderErr>), CriticalCommitOrderError>
 where
     P: StateProviderFactory + Clone,
@@ -335,7 +554,7 @@ where
         let state = provider.history_by_block_hash(ctx.attributes.parent)?;
         NonceCache::new(state.into())
     };
-    let mut sim_tree = SimTree::new(nonces);
+    let mut sim_tree = SimTree::new(nonces, ace_config);
 
     let mut orders = orders.to_vec();
     let random_insert_size = max(orders.len() / 20, 1);
@@ -378,6 +597,7 @@ where
                 ctx,
                 &mut local_ctx,
                 &mut block_state,
+                sim_tree.ace_configs(),
             )?;
             let (_, provider) = block_state.into_parts();
             state_for_sim = provider;
@@ -392,15 +612,23 @@ where
                     continue;
                 }
                 OrderSimResult::Success(sim_order, nonces) => {
+                    let mut dependencies_satisfied: Vec<DependencyKey> = nonces
+                        .into_iter()
+                        .map(|(address, nonce)| DependencyKey::Nonce(NonceKey { address, nonce }))
+                        .collect();
+
+                    // If this is an unlocking ACE order, add the ACE dependency
+                    if let Some(AceInteraction::Unlocking { exchange, .. }) =
+                        sim_order.ace_interaction
+                    {
+                        dependencies_satisfied.push(DependencyKey::AceUnlock(exchange));
+                    }
+
                     let result = SimulatedResult {
                         id: sim_task.id,
                         simulated_order: sim_order,
                         previous_orders: sim_task.parents,
-                        nonces_after: nonces
-                            .into_iter()
-                            .map(|(address, nonce)| NonceKey { address, nonce })
-                            .collect(),
-
+                        dependencies_satisfied,
                         simulation_time: start_time.elapsed(),
                     };
                     sim_results.push(result);
@@ -427,70 +655,20 @@ pub fn simulate_order(
     ctx: &BlockBuildingContext,
     local_ctx: &mut ThreadBlockBuildingContext,
     state: &mut BlockState,
+    ace_configs: &HashMap<AceExchange, AceConfig>,
 ) -> Result<OrderSimResultWithGas, CriticalCommitOrderError> {
     let mut tracer = AccumulatorSimulationTracer::new();
     let mut fork = PartialBlockFork::new(state, ctx, local_ctx).with_tracer(&mut tracer);
     let rollback_point = fork.rollback_point();
-    let order_id = order.id();
-    let has_parents = !parent_orders.is_empty();
     let sim_res = simulate_order_using_fork(
         parent_orders,
-        order.clone(),
+        order,
         &mut fork,
         &ctx.mempool_tx_detector,
+        ace_configs,
     );
     fork.rollback(rollback_point);
-    let mut sim_res = sim_res?;
-
-    let sim_success = matches!(&sim_res, OrderSimResult::Success(_, _));
-    let ace_interaction = AceExchange::iter().find_map(|exchange| {
-        exchange.classify_ace_interaction(&tracer.used_state_trace, sim_success)
-    });
-
-    match sim_res {
-        OrderSimResult::Failed(ref err) => {
-            // Check if failed order accessed ACE - if so, treat as successful with zero profit
-            if let Some(interaction @ AceInteraction::NonUnlocking { exchange }) = ace_interaction {
-                // Ace can inject parent orders, we want to ignore these.
-                if !has_parents {
-                    tracing::debug!(
-                        order = ?order_id,
-                        ?err,
-                        ?exchange,
-                        "Failed order accessed ACE - treating as successful non-unlocking ACE transaction"
-                    );
-                    sim_res = OrderSimResult::Success(
-                        Arc::new(SimulatedOrder {
-                            order,
-                            sim_value: SimValue::new(
-                                U256::ZERO,
-                                U256::ZERO,
-                                BlockSpace::new(tracer.used_gas, 0, 0),
-                                Vec::new(),
-                            ),
-                            is_ace: false,
-                            used_state_trace: Some(tracer.used_state_trace.clone()),
-                            ace_interaction: Some(interaction),
-                        }),
-                        Vec::new(),
-                    );
-                }
-            }
-        }
-        // If we have a sucessful simulation and we have detected an ace tx, this means that it is a
-        // unlocking mempool ace tx by default.
-        OrderSimResult::Success(ref mut simulated_order, _) => {
-            if let Some(interaction) = ace_interaction {
-                tracing::debug!(
-                    order = ?order.id(),
-                    ?interaction,
-                    "Order has ACE interaction"
-                );
-                // Update the SimulatedOrder to include ace_interaction
-                Arc::make_mut(simulated_order).ace_interaction = Some(interaction);
-            }
-        }
-    }
+    let sim_res = sim_res?;
 
     Ok(OrderSimResultWithGas {
         result: sim_res,
@@ -504,8 +682,11 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
     order: Order,
     fork: &mut PartialBlockFork<'_, '_, '_, '_, Tracer, NullPartialBlockForkExecutionTracer>,
     mempool_tx_detector: &MempoolTxsDetector,
+    ace_configs: &HashMap<AceExchange, AceConfig>,
 ) -> Result<OrderSimResult, CriticalCommitOrderError> {
     let start = Instant::now();
+    let has_parents = !parent_orders.is_empty();
+
     // simulate parents
     let mut space_state = BlockBuildingSpaceState::ZERO;
     // We use empty combined refunds because the value of the bundle will
@@ -527,7 +708,40 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
     // simulate
     let result = fork.commit_order(&order, space_state, true, &combined_refunds)?;
     let sim_time = start.elapsed();
-    add_order_simulation_time(sim_time, "sim", result.is_ok()); // we count parent sim time + order sim time time here
+    let sim_success = result.is_ok();
+    add_order_simulation_time(sim_time, "sim", sim_success); // we count parent sim time + order sim time time here
+
+    // Get the used_state_trace from tracer (available regardless of success/failure)
+    let used_state_trace = fork
+        .tracer
+        .as_ref()
+        .and_then(|t| t.get_used_state_tracer())
+        .cloned();
+
+    // Detect ACE interaction from the state trace using config
+    // Get function selector from order's first transaction
+    let selector: Option<[u8; 4]> = order.list_txs().first().and_then(|(tx, _)| {
+        let input = tx.tx.input();
+        if input.len() >= 4 {
+            Some([input[0], input[1], input[2], input[3]])
+        } else {
+            None
+        }
+    });
+
+    let ace_interaction = used_state_trace.as_ref().and_then(|trace| {
+        ace_configs.iter().find_map(|(exchange, config)| {
+            if !config.enabled {
+                return None;
+            }
+            exchange.classify_ace_interaction(
+                trace,
+                sim_success,
+                config,
+                selector.as_ref().map(|s| s.as_slice()),
+            )
+        })
+    });
 
     match result {
         Ok(res) => {
@@ -538,12 +752,42 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
                     order,
                     sim_value,
                     used_state_trace: res.used_state_trace,
-                    ace_interaction: None,
-                    is_ace: false,
+                    ace_interaction,
                 }),
                 new_nonces,
             ))
         }
-        Err(err) => Ok(OrderSimResult::Failed(err)),
+        Err(err) => {
+            // Check if failed order accessed ACE - if so, treat as successful with zero profit
+            if let Some(interaction @ AceInteraction::NonUnlocking { exchange }) = ace_interaction {
+                // ACE can inject parent orders, we want to ignore these.
+                if !has_parents {
+                    tracing::debug!(
+                        order = ?order.id(),
+                        ?err,
+                        ?exchange,
+                        "Failed order accessed ACE - treating as successful non-unlocking ACE order"
+                    );
+                    // For failed-but-ACE orders, we use 0 gas since the order
+                    // didn't actually succeed - it's just marked as a non-unlocking ACE interaction
+                    let gas_used = 0;
+                    return Ok(OrderSimResult::Success(
+                        Arc::new(SimulatedOrder {
+                            order,
+                            sim_value: SimValue::new(
+                                U256::ZERO,
+                                U256::ZERO,
+                                BlockSpace::new(gas_used, 0, 0),
+                                Vec::new(),
+                            ),
+                            used_state_trace,
+                            ace_interaction: Some(interaction),
+                        }),
+                        Vec::new(),
+                    ));
+                }
+            }
+            Ok(OrderSimResult::Failed(err))
+        }
     }
 }

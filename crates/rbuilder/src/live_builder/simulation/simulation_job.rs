@@ -1,4 +1,3 @@
-use crate::building::ace_collector::AceCollector;
 use std::{fmt, sync::Arc};
 
 use crate::{
@@ -21,7 +20,7 @@ use super::SimulatedOrderCommand;
 /// Create and call run()
 /// The flow is:
 /// 1 New orders are polled from new_order_sub and inserted en the SimTree.
-/// 2 SimTree is polled for nonce-ready orders and are sent to be simulated (sent to sim_req_sender).
+/// 2 SimTree is polled for dependency-ready orders and are sent to be simulated (sent to sim_req_sender).
 /// 3 Simulation results are polled from sim_results_receiver and sent to slot_sim_results_sender.
 /// Cancellation flow: we add every order we start to process to in_flight_orders.
 /// If we get a cancellation and the order is not in in_flight_orders we forward the cancellation.
@@ -39,7 +38,6 @@ pub struct SimulationJob {
     /// Output of the simulations
     slot_sim_results_sender: mpsc::Sender<SimulatedOrderCommand>,
     sim_tree: SimTree,
-    ace_bundler: AceCollector,
 
     orders_received: OrderCounter,
     orders_simulated_ok: OrderCounter,
@@ -70,7 +68,6 @@ pub struct SimulationJob {
 }
 
 impl SimulationJob {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         block_cancellation: CancellationToken,
         new_order_sub: mpsc::UnboundedReceiver<OrderPoolCommand>,
@@ -79,10 +76,8 @@ impl SimulationJob {
         slot_sim_results_sender: mpsc::Sender<SimulatedOrderCommand>,
         sim_tree: SimTree,
         sim_tracer: Arc<dyn SimulationJobTracer>,
-        ace_config: Vec<crate::live_builder::config::AceConfig>,
     ) -> Self {
         Self {
-            ace_bundler: AceCollector::new(ace_config),
             block_cancellation,
             new_order_sub,
             sim_req_sender,
@@ -188,61 +183,6 @@ impl SimulationJob {
         }
     }
 
-    /// Returns weather or not to continue the processing of this tx.
-    fn handle_ace_tx(&mut self, mut res: SimulatedResult) -> Option<SimulatedResult> {
-        // this means that we have frontran this with an ace unlocking tx in the simulator.
-        // We cannot do anything else at this point so we yield to the default flow.
-        if !res.previous_orders.is_empty() {
-            return Some(res);
-        }
-
-        let is_ace = if self.ace_bundler.is_ace_force(&res.simulated_order.order) {
-            Arc::make_mut(&mut res.simulated_order).is_ace = true;
-
-            // Is a force tx given that it is being sent directly to the ace protocol tx
-            // but isn't reverting.
-            self.ace_bundler.add_ace_protocol_tx(
-                res.simulated_order.clone(),
-                rbuilder_primitives::ace::AceUnlockType::Force,
-                res.simulated_order.ace_interaction.unwrap().get_exchange(),
-            );
-
-            // assert that this order is fully correct.
-            true
-        } else if let Some(ace) = res.simulated_order.ace_interaction {
-            if ace.is_unlocking() {
-                self.ace_bundler.add_ace_protocol_tx(
-                    res.simulated_order.clone(),
-                    rbuilder_primitives::ace::AceUnlockType::Optional,
-                    res.simulated_order.ace_interaction.unwrap().get_exchange(),
-                );
-            }
-
-            true
-        } else {
-            false
-        };
-
-        // we need to know if this ace tx has already been simulated or not.
-        let ace_interaction = res.simulated_order.ace_interaction.unwrap();
-        if is_ace {
-            if let Some(cmd) = self
-                .ace_bundler
-                .have_unlocking(ace_interaction.get_exchange())
-            {
-                let _ = self.slot_sim_results_sender.try_send(cmd);
-            }
-            return Some(res);
-        } else if let Some(order) = self.ace_bundler.add_mempool_ace_tx(
-            res.simulated_order.clone(),
-            res.simulated_order.ace_interaction.unwrap(),
-        ) {
-            self.sim_tree.requeue_ace_order(order);
-        }
-
-        None
-    }
-
     /// updates the sim_tree and notifies new orders
     /// ONLY not cancelled are considered
     /// return if everything went OK
@@ -264,14 +204,30 @@ impl SimulationJob {
                 self.orders_with_replacement_key_sim_ok += 1;
             }
 
-            let sim_result = if sim_result.simulated_order.ace_interaction.is_some() {
-                let Some(unlocking_ace) = self.handle_ace_tx(sim_result.clone()) else {
-                    continue;
-                };
-                unlocking_ace
-            } else {
-                sim_result.clone()
-            };
+            // Handle ACE interactions through the SimTree's dependency system
+            // NonUnlocking ACE orders get added as pending, Unlocking orders provide the dependency
+            match self.sim_tree.handle_ace_interaction(sim_result) {
+                Ok((handled, cancellation)) => {
+                    // Send cancellation for optional ACE tx if needed
+                    if let Some(cancel_id) = cancellation {
+                        let _ = self
+                            .slot_sim_results_sender
+                            .try_send(SimulatedOrderCommand::Cancellation(cancel_id));
+                    }
+                    // If this was a non-unlocking ACE tx that got queued for re-sim, skip forwarding
+                    if handled
+                        && sim_result
+                            .simulated_order
+                            .ace_interaction
+                            .is_some_and(|i| !i.is_unlocking())
+                    {
+                        continue;
+                    }
+                }
+                Err(err) => {
+                    error!(?err, "Failed to handle ACE interaction");
+                }
+            }
 
             // Skip cancelled orders and remove from in_flight_orders
             if self
@@ -294,7 +250,7 @@ impl SimulationJob {
                     {
                         return false; //receiver closed :(
                     } else {
-                        self.sim_tracer.update_simulation_sent(&sim_result);
+                        self.sim_tracer.update_simulation_sent(sim_result);
                     }
                 }
             }

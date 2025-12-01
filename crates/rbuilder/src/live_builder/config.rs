@@ -64,6 +64,7 @@ use ethereum_consensus::{
 use eyre::Context;
 use lazy_static::lazy_static;
 use rbuilder_config::EnvOrValue;
+pub use rbuilder_primitives::AceConfig;
 use rbuilder_primitives::{
     ace::AceExchange,
     mev_boost::{MevBoostRelayID, RelayMode},
@@ -115,15 +116,6 @@ pub struct BuilderConfig {
     pub name: String,
     #[serde(flatten)]
     pub builder: SpecificBuilderConfig,
-}
-
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
-pub struct AceConfig {
-    pub protocol: AceExchange,
-    pub from_addresses: HashSet<Address>,
-    pub to_addresses: HashSet<Address>,
-    pub unlock_signatures: HashSet<Bytes>,
-    pub force_signatures: HashSet<Bytes>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Default)]

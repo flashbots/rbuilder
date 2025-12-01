@@ -532,7 +532,6 @@ mod tests {
             Arc::new(SimulatedOrder {
                 order: Order::Bundle(bundle),
                 used_state_trace: None,
-                is_ace: false,
                 sim_value,
                 ace_interaction: None,
             })

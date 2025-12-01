@@ -496,7 +496,6 @@ mod tests {
                 }),
                 sim_value,
                 used_state_trace: Some(trace),
-                is_ace: false,
                 ace_interaction: None,
             })
         }

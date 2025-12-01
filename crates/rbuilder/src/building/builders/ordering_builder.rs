@@ -282,13 +282,13 @@ impl OrderingBuilderContext {
         self.failed_orders.clear();
         self.order_attempts.clear();
 
-        // Extract ACE protocol transactions (Order::AceTx) from block_orders
+        // Extract ACE protocol orders from block_orders
         // These will be pre-committed at the top of the block
         let all_orders = block_orders.get_all_orders();
-        let mut ace_txs = Vec::new();
+        let mut ace_orders = Vec::new();
         for order in all_orders {
-            if order.is_ace {
-                ace_txs.push(order.clone());
+            if order.ace_interaction.map(|a| a.is_force()).unwrap_or(false) {
+                ace_orders.push(order.clone());
                 // Remove from block_orders so they don't get processed in fill_orders
                 block_orders.remove_order(order.id());
             }
@@ -307,15 +307,15 @@ impl OrderingBuilderContext {
             self.max_order_execution_duration_warning,
         )?;
 
-        // Pre-commit ACE protocol transactions at the top of the block
-        for ace_tx in &ace_txs {
-            trace!(order_id = ?ace_tx.id(), "Pre-committing ACE protocol tx");
+        // Pre-commit ACE protocol orders at the top of the block
+        for ace_order in &ace_orders {
+            trace!(order_id = ?ace_order.id(), "Pre-committing ACE protocol order");
             if let Err(err) = block_building_helper.commit_order(
                 &mut self.local_ctx,
-                ace_tx,
-                &|_| Ok(()), // ACE protocol txs bypass profit validation
+                ace_order,
+                &|_| Ok(()), // ACE protocol orders bypass profit validation
             ) {
-                trace!(order_id = ?ace_tx.id(), ?err, "Failed to pre-commit ACE protocol tx");
+                trace!(order_id = ?ace_order.id(), ?err, "Failed to pre-commit ACE protocol order");
             }
         }
         self.fill_orders(

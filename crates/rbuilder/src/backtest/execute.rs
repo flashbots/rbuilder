@@ -107,7 +107,7 @@ where
     }
 
     let (sim_orders, sim_errors) =
-        simulate_all_orders_with_sim_tree(provider, &ctx, &orders, false)?;
+        simulate_all_orders_with_sim_tree(provider, &ctx, &orders, false, vec![])?;
 
     // Apply bundle merging as in live building.
     let order_store = Rc::new(RefCell::new(SimulatedOrderStore::new()));
