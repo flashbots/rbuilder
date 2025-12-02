@@ -58,10 +58,6 @@ impl<CTX: ContextTr, P: PrecompileProvider<CTX, Output = InterpreterResult>> Pre
         context: &mut CTX,
         inputs: &CallInputs,
     ) -> Result<Option<Self::Output>, String> {
-        // address: &Address,
-        // inputs: &InputsImpl,
-        // is_static: bool,
-        // gas_limit: u64,
         let key = (self.spec, inputs.input.bytes(context), inputs.gas_limit);
 
         // get the result if it exists

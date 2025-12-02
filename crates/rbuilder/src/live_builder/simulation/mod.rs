@@ -215,7 +215,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_simulate_order_to_coinbase() {
-        let test_context = TestChainState::new(BlockArgs::default().number(11)).unwrap();
+        let test_context = TestChainState::new(BlockArgs::default()).unwrap();
 
         // Create simulation core
         let cancel = CancellationToken::new();

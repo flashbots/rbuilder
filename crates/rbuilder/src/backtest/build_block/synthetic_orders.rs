@@ -63,8 +63,8 @@ fn create_tip_tx(
 
 impl<ConfigType: LiveBuilderConfig> SyntheticOrdersSource<ConfigType> {
     fn new(extra_cfg: ExtraCfg, config: ConfigType) -> eyre::Result<Self> {
-        let block_number = 1;
-        let test_chain_state = TestChainState::new(BlockArgs::default().number(block_number))?;
+        let block_number = BlockArgs::MIN_BLOCK_NUMBER;
+        let test_chain_state = TestChainState::new(BlockArgs::default().with_number(block_number))?;
         let mut orders = Vec::new();
         for i in 0..extra_cfg.tx_count {
             let order = Order::Tx(MempoolTx::new(create_tip_tx(
