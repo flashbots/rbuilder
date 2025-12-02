@@ -50,7 +50,6 @@ use crate::{
     utils::{build_info::rbuilder_version, ProviderFactoryReopener, Signer},
 };
 use alloy_chains::ChainKind;
-use alloy_primitives::Bytes;
 use alloy_primitives::{
     utils::{format_ether, parse_ether},
     Address, FixedBytes, B256, U256,
@@ -64,11 +63,8 @@ use ethereum_consensus::{
 use eyre::Context;
 use lazy_static::lazy_static;
 use rbuilder_config::EnvOrValue;
+use rbuilder_primitives::mev_boost::{MevBoostRelayID, RelayMode};
 pub use rbuilder_primitives::AceConfig;
-use rbuilder_primitives::{
-    ace::AceExchange,
-    mev_boost::{MevBoostRelayID, RelayMode},
-};
 use reth_chainspec::{Chain, ChainSpec, NamedChain};
 use reth_db::DatabaseEnv;
 use reth_node_api::NodeTypesWithDBAdapter;

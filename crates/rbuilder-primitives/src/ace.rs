@@ -79,14 +79,14 @@ impl AceExchange {
         }
 
         // Check function signatures to determine if this is a force or regular unlock
-        let is_force = selector.map_or(false, |sel| {
+        let is_force = selector.is_some_and(|sel| {
             config
                 .force_signatures
                 .iter()
                 .any(|sig| sig.starts_with(sel))
         });
 
-        let is_unlock = selector.map_or(false, |sel| {
+        let is_unlock = selector.is_some_and(|sel| {
             config
                 .unlock_signatures
                 .iter()

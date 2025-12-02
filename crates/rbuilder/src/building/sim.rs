@@ -356,7 +356,11 @@ impl SimTree {
 
         // Process each dependency this simulation satisfies
         if result.dependencies_satisfied.len() == 1 {
-            let dep_key = result.dependencies_satisfied.first().unwrap().clone();
+            let dep_key = result
+                .dependencies_satisfied
+                .first()
+                .expect("checked len == 1")
+                .clone();
 
             match self.dependency_providers.entry(dep_key.clone()) {
                 Entry::Occupied(mut entry) => {
@@ -721,7 +725,7 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
     // Detect ACE interaction from the state trace using config
     // Get function selector from order's first transaction
     let selector: Option<[u8; 4]> = order.list_txs().first().and_then(|(tx, _)| {
-        let input = tx.tx.input();
+        let input = tx.internal_tx_unsecure().input();
         if input.len() >= 4 {
             Some([input[0], input[1], input[2], input[3]])
         } else {
