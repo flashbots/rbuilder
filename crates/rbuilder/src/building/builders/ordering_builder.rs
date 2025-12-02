@@ -282,12 +282,16 @@ impl OrderingBuilderContext {
         self.failed_orders.clear();
         self.order_attempts.clear();
 
-        // Extract ACE protocol orders from block_orders
+        // Extract ACE protocol orders (direct calls to protocol) from block_orders
         // These will be pre-committed at the top of the block
         let all_orders = block_orders.get_all_orders();
         let mut ace_orders = Vec::new();
         for order in all_orders {
-            if order.ace_interaction.map(|a| a.is_force()).unwrap_or(false) {
+            if order
+                .ace_interaction
+                .map(|a| a.is_protocol_tx())
+                .unwrap_or(false)
+            {
                 ace_orders.push(order.clone());
                 // Remove from block_orders so they don't get processed in fill_orders
                 block_orders.remove_order(order.id());

@@ -89,6 +89,8 @@ from_addresses = [
     "0x693ca5c6852a7d212dabc98b28e15257465c11f3",
 ]
 to_addresses = ["0x0000000aa232009084Bd71A5797d089AA4Edfad4"]
+# _lastBlockUpdated storage slot (slot 3)
+detection_slots = ["0x0000000000000000000000000000000000000000000000000000000000000003"]
 # unlockWithEmptyAttestation(address,bytes) nonpayable
 unlock_signatures = ["0x1828e0e7"]
 # execute(bytes) nonpayable

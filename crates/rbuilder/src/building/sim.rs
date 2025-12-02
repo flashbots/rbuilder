@@ -18,7 +18,7 @@ use alloy_primitives::Address;
 use alloy_primitives::U256;
 use alloy_rpc_types::TransactionTrait;
 use rand::seq::SliceRandom;
-use rbuilder_primitives::ace::{AceExchange, AceInteraction};
+use rbuilder_primitives::ace::{AceExchange, AceInteraction, AceUnlockSource};
 use rbuilder_primitives::AceConfig;
 use rbuilder_primitives::BlockSpace;
 use rbuilder_primitives::SimValue;
@@ -455,11 +455,11 @@ impl SimTree {
         let mut cancellation = None;
 
         match interaction {
-            AceInteraction::Unlocking { exchange, is_force } => {
+            AceInteraction::Unlocking { exchange, source } => {
                 // Register the unlock in ACE state
                 let state = self.ace_state.entry(exchange).or_default();
 
-                if is_force {
+                if source == AceUnlockSource::ProtocolForce {
                     state.force_unlock_order = Some(result.simulated_order.clone());
                     trace!("Added forced ACE protocol unlock order for {:?}", exchange);
                 } else {
@@ -723,15 +723,17 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
         .cloned();
 
     // Detect ACE interaction from the state trace using config
-    // Get function selector from order's first transaction
-    let selector: Option<[u8; 4]> = order.list_txs().first().and_then(|(tx, _)| {
-        let input = tx.internal_tx_unsecure().input();
-        if input.len() >= 4 {
-            Some([input[0], input[1], input[2], input[3]])
-        } else {
-            None
-        }
-    });
+    // Get function selector and tx.to from order's first transaction
+    let (selector, tx_to): (Option<[u8; 4]>, Option<Address>) =
+        order.list_txs().first().map_or((None, None), |(tx, _)| {
+            let input = tx.internal_tx_unsecure().input();
+            let sel = if input.len() >= 4 {
+                Some([input[0], input[1], input[2], input[3]])
+            } else {
+                None
+            };
+            (sel, tx.to())
+        });
 
     let ace_interaction = used_state_trace.as_ref().and_then(|trace| {
         ace_configs.iter().find_map(|(exchange, config)| {
@@ -743,6 +745,7 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
                 sim_success,
                 config,
                 selector.as_ref().map(|s| s.as_slice()),
+                tx_to,
             )
         })
     });

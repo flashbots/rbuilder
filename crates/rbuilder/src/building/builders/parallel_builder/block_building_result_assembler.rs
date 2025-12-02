@@ -186,12 +186,16 @@ impl BlockBuildingResultAssembler {
     ) -> eyre::Result<Box<dyn BlockBuildingHelper>> {
         let build_start = Instant::now();
 
-        // Extract ACE protocol orders from all groups
+        // Extract ACE protocol orders (direct calls to protocol) from all groups
         // These will be pre-committed at the top of the block
         let mut ace_orders = Vec::new();
         for (_, group) in best_orderings_per_group.iter() {
             for order in group.orders.iter() {
-                if order.ace_interaction.map(|a| a.is_force()).unwrap_or(false) {
+                if order
+                    .ace_interaction
+                    .map(|a| a.is_protocol_tx())
+                    .unwrap_or(false)
+                {
                     ace_orders.push(order.clone());
                 }
             }
@@ -205,7 +209,7 @@ impl BlockBuildingResultAssembler {
                 .retain(|(order_idx, _)| {
                     !group.orders[*order_idx]
                         .ace_interaction
-                        .map(|a| a.is_force())
+                        .map(|a| a.is_protocol_tx())
                         .unwrap_or(false)
                 });
         }
@@ -300,12 +304,16 @@ impl BlockBuildingResultAssembler {
         let mut best_orderings_per_group: Vec<(ResolutionResult, ConflictGroup)> =
             best_results.into_values().collect();
 
-        // Extract ACE protocol orders from all groups
+        // Extract ACE protocol orders (direct calls to protocol) from all groups
         // These will be pre-committed at the top of the block
         let mut ace_orders = Vec::new();
         for (_, group) in best_orderings_per_group.iter() {
             for order in group.orders.iter() {
-                if order.ace_interaction.map(|a| a.is_force()).unwrap_or(false) {
+                if order
+                    .ace_interaction
+                    .map(|a| a.is_protocol_tx())
+                    .unwrap_or(false)
+                {
                     ace_orders.push(order.clone());
                 }
             }
@@ -319,7 +327,7 @@ impl BlockBuildingResultAssembler {
                 .retain(|(order_idx, _)| {
                     !group.orders[*order_idx]
                         .ace_interaction
-                        .map(|a| a.is_force())
+                        .map(|a| a.is_protocol_tx())
                         .unwrap_or(false)
                 });
         }
