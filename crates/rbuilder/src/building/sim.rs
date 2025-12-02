@@ -18,7 +18,9 @@ use alloy_primitives::Address;
 use alloy_primitives::U256;
 use alloy_rpc_types::TransactionTrait;
 use rand::seq::SliceRandom;
-use rbuilder_primitives::ace::{AceExchange, AceInteraction, AceUnlockSource};
+use rbuilder_primitives::ace::{
+    classify_ace_interaction, AceInteraction, AceUnlockSource, Selector,
+};
 use rbuilder_primitives::AceConfig;
 use rbuilder_primitives::BlockSpace;
 use rbuilder_primitives::SimValue;
@@ -58,8 +60,8 @@ pub struct NonceKey {
 pub enum DependencyKey {
     /// Order needs a specific nonce to be filled
     Nonce(NonceKey),
-    /// Order needs an ACE unlock transaction for the given exchange
-    AceUnlock(AceExchange),
+    /// Order needs an ACE unlock transaction for the given contract address
+    AceUnlock(Address),
 }
 
 impl From<NonceKey> for DependencyKey {
@@ -142,10 +144,10 @@ pub struct SimTree {
     ready_orders: Vec<SimulationRequest>,
 
     // ACE state management
-    /// ACE configuration lookup by exchange
-    ace_config: HashMap<AceExchange, AceConfig>,
-    /// ACE exchange state (force/optional unlocks, mempool unlock tracking)
-    ace_state: HashMap<AceExchange, AceExchangeState>,
+    /// ACE configuration lookup by contract address
+    ace_config: HashMap<Address, AceConfig>,
+    /// ACE state (force/optional unlocks, mempool unlock tracking) by contract address
+    ace_state: HashMap<Address, AceExchangeState>,
 }
 
 #[derive(Debug)]
@@ -161,9 +163,9 @@ impl SimTree {
         let mut ace_state = HashMap::default();
 
         for config in ace_configs {
-            let protocol = config.protocol;
-            ace_config.insert(protocol, config);
-            ace_state.insert(protocol, AceExchangeState::default());
+            let contract_address = config.contract_address;
+            ace_config.insert(contract_address, config);
+            ace_state.insert(contract_address, AceExchangeState::default());
         }
 
         Self {
@@ -179,13 +181,13 @@ impl SimTree {
     }
 
     /// Get the ACE configs
-    pub fn ace_configs(&self) -> &HashMap<AceExchange, AceConfig> {
+    pub fn ace_configs(&self) -> &HashMap<Address, AceConfig> {
         &self.ace_config
     }
 
-    /// Get the ACE exchange state for a given exchange
-    pub fn get_ace_state(&self, exchange: &AceExchange) -> Option<&AceExchangeState> {
-        self.ace_state.get(exchange)
+    /// Get the ACE state for a given contract address
+    pub fn get_ace_state(&self, contract_address: &Address) -> Option<&AceExchangeState> {
+        self.ace_state.get(contract_address)
     }
 
     fn push_order(&mut self, order: Order) -> Result<(), ProviderError> {
@@ -301,9 +303,9 @@ impl SimTree {
     fn add_ace_dependency_for_order(
         &mut self,
         order: Order,
-        exchange: AceExchange,
+        contract_address: Address,
     ) -> Result<(), ProviderError> {
-        let dep_key = DependencyKey::AceUnlock(exchange);
+        let dep_key = DependencyKey::AceUnlock(contract_address);
 
         // Check if we already have an unlock provider
         if let Some(sim_id) = self.dependency_providers.get(&dep_key) {
@@ -455,18 +457,24 @@ impl SimTree {
         let mut cancellation = None;
 
         match interaction {
-            AceInteraction::Unlocking { exchange, source } => {
+            AceInteraction::Unlocking {
+                contract_address,
+                source,
+            } => {
                 // Register the unlock in ACE state
-                let state = self.ace_state.entry(exchange).or_default();
+                let state = self.ace_state.entry(contract_address).or_default();
 
                 if source == AceUnlockSource::ProtocolForce {
                     state.force_unlock_order = Some(result.simulated_order.clone());
-                    trace!("Added forced ACE protocol unlock order for {:?}", exchange);
+                    trace!(
+                        "Added forced ACE protocol unlock order for {:?}",
+                        contract_address
+                    );
                 } else {
                     state.optional_unlock_order = Some(result.simulated_order.clone());
                     trace!(
                         "Added optional ACE protocol unlock order for {:?}",
-                        exchange
+                        contract_address
                     );
                 }
 
@@ -478,7 +486,7 @@ impl SimTree {
                 }
 
                 // Make sure the ACE unlock dependency is in dependencies_satisfied
-                let dep_key = DependencyKey::AceUnlock(exchange);
+                let dep_key = DependencyKey::AceUnlock(contract_address);
                 if !result.dependencies_satisfied.contains(&dep_key) {
                     result.dependencies_satisfied.push(dep_key);
                 }
@@ -486,9 +494,9 @@ impl SimTree {
                 // Process this result to unblock pending orders
                 self.process_simulation_task_result(result.clone())?;
             }
-            AceInteraction::NonUnlocking { exchange } => {
+            AceInteraction::NonUnlocking { contract_address } => {
                 // This is a mempool order that needs ACE unlock
-                let state = self.ace_state.entry(exchange).or_default();
+                let state = self.ace_state.entry(contract_address).or_default();
 
                 // Check if we have an unlock order to use as parent
                 if let Some(unlock_order) = state.get_unlock_order().cloned() {
@@ -502,7 +510,7 @@ impl SimTree {
                     // No unlock yet - add as pending on ACE dependency
                     self.add_ace_dependency_for_order(
                         result.simulated_order.order.clone(),
-                        exchange,
+                        contract_address,
                     )?;
                 }
                 return Ok((true, None));
@@ -512,10 +520,10 @@ impl SimTree {
         Ok((true, cancellation))
     }
 
-    /// Mark that a mempool unlocking order has been seen for an exchange.
+    /// Mark that a mempool unlocking order has been seen for a contract address.
     /// Returns the OrderId of the optional ACE order to cancel, if any.
-    pub fn mark_mempool_unlock(&mut self, exchange: AceExchange) -> Option<OrderId> {
-        let state = self.ace_state.entry(exchange).or_default();
+    pub fn mark_mempool_unlock(&mut self, contract_address: Address) -> Option<OrderId> {
+        let state = self.ace_state.entry(contract_address).or_default();
 
         // Only cancel once
         if state.has_mempool_unlock {
@@ -622,10 +630,11 @@ where
                         .collect();
 
                     // If this is an unlocking ACE order, add the ACE dependency
-                    if let Some(AceInteraction::Unlocking { exchange, .. }) =
-                        sim_order.ace_interaction
+                    if let Some(AceInteraction::Unlocking {
+                        contract_address, ..
+                    }) = sim_order.ace_interaction
                     {
-                        dependencies_satisfied.push(DependencyKey::AceUnlock(exchange));
+                        dependencies_satisfied.push(DependencyKey::AceUnlock(contract_address));
                     }
 
                     let result = SimulatedResult {
@@ -659,7 +668,7 @@ pub fn simulate_order(
     ctx: &BlockBuildingContext,
     local_ctx: &mut ThreadBlockBuildingContext,
     state: &mut BlockState,
-    ace_configs: &HashMap<AceExchange, AceConfig>,
+    ace_configs: &HashMap<Address, AceConfig>,
 ) -> Result<OrderSimResultWithGas, CriticalCommitOrderError> {
     let mut tracer = AccumulatorSimulationTracer::new();
     let mut fork = PartialBlockFork::new(state, ctx, local_ctx).with_tracer(&mut tracer);
@@ -686,7 +695,7 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
     order: Order,
     fork: &mut PartialBlockFork<'_, '_, '_, '_, Tracer, NullPartialBlockForkExecutionTracer>,
     mempool_tx_detector: &MempoolTxsDetector,
-    ace_configs: &HashMap<AceExchange, AceConfig>,
+    ace_configs: &HashMap<Address, AceConfig>,
 ) -> Result<OrderSimResult, CriticalCommitOrderError> {
     let start = Instant::now();
     let has_parents = !parent_orders.is_empty();
@@ -724,11 +733,11 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
 
     // Detect ACE interaction from the state trace using config
     // Get function selector and tx.to from order's first transaction
-    let (selector, tx_to): (Option<[u8; 4]>, Option<Address>) =
+    let (selector, tx_to): (Option<Selector>, Option<Address>) =
         order.list_txs().first().map_or((None, None), |(tx, _)| {
             let input = tx.internal_tx_unsecure().input();
             let sel = if input.len() >= 4 {
-                Some([input[0], input[1], input[2], input[3]])
+                Some(Selector::from_slice(&input[..4]))
             } else {
                 None
             };
@@ -736,17 +745,11 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
         });
 
     let ace_interaction = used_state_trace.as_ref().and_then(|trace| {
-        ace_configs.iter().find_map(|(exchange, config)| {
+        ace_configs.iter().find_map(|(_, config)| {
             if !config.enabled {
                 return None;
             }
-            exchange.classify_ace_interaction(
-                trace,
-                sim_success,
-                config,
-                selector.as_ref().map(|s| s.as_slice()),
-                tx_to,
-            )
+            classify_ace_interaction(trace, sim_success, config, selector, tx_to)
         })
     });
 
@@ -766,13 +769,15 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
         }
         Err(err) => {
             // Check if failed order accessed ACE - if so, treat as successful with zero profit
-            if let Some(interaction @ AceInteraction::NonUnlocking { exchange }) = ace_interaction {
+            if let Some(interaction @ AceInteraction::NonUnlocking { contract_address }) =
+                ace_interaction
+            {
                 // ACE can inject parent orders, we want to ignore these.
                 if !has_parents {
                     tracing::debug!(
                         order = ?order.id(),
                         ?err,
-                        ?exchange,
+                        ?contract_address,
                         "Failed order accessed ACE - treating as successful non-unlocking ACE order"
                     );
                     // For failed-but-ACE orders, we use 0 gas since the order

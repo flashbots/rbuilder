@@ -85,10 +85,12 @@ pub fn run_sim_worker<P>(
                                 .collect();
 
                             // If this is an unlocking ACE order, add the ACE dependency
-                            if let Some(AceInteraction::Unlocking { exchange, .. }) =
-                                simulated_order.ace_interaction
+                            if let Some(AceInteraction::Unlocking {
+                                contract_address, ..
+                            }) = simulated_order.ace_interaction
                             {
-                                dependencies_satisfied.push(DependencyKey::AceUnlock(exchange));
+                                dependencies_satisfied
+                                    .push(DependencyKey::AceUnlock(contract_address));
                             }
 
                             let result = SimulatedResult {

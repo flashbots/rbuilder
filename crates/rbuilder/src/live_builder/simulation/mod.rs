@@ -40,8 +40,7 @@ pub struct SimulationContext {
     /// Simulation results go out through this channel.
     pub results: mpsc::Sender<SimulatedResult>,
     /// ACE configuration for this simulation context.
-    pub ace_configs:
-        ahash::HashMap<rbuilder_primitives::ace::AceExchange, rbuilder_primitives::AceConfig>,
+    pub ace_configs: ahash::HashMap<alloy_primitives::Address, rbuilder_primitives::AceConfig>,
 }
 
 /// All active SimulationContexts
@@ -161,7 +160,7 @@ where
                 let ace_configs_map: ahash::HashMap<_, _> = ace_config
                     .iter()
                     .filter(|c| c.enabled)
-                    .map(|c| (c.protocol, c.clone()))
+                    .map(|c| (c.contract_address, c.clone()))
                     .collect();
 
                 let sim_tree = SimTree::new(nonces, ace_config);
