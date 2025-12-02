@@ -23,7 +23,7 @@ use reth::{
 use reth_node_ethereum::{node::EthereumAddOns, EthereumNode};
 use reth_provider::{
     providers::BlockchainProvider, BlockReader, ChainSpecProvider, DatabaseProviderFactory,
-    HeaderProvider,
+    HeaderProvider, PruneCheckpointReader, StageCheckpointReader, TrieReader,
 };
 use reth_transaction_pool::{blobstore::DiskFileBlobStore, EthTransactionPool};
 use std::{
@@ -87,8 +87,9 @@ fn spawn_rbuilder<P>(
     pool: EthTransactionPool<P, DiskFileBlobStore>,
     config_path: PathBuf,
 ) where
-    P: DatabaseProviderFactory<Provider: BlockReader>
-        + reth_provider::StateProviderFactory
+    P: DatabaseProviderFactory<
+            Provider: BlockReader + TrieReader + StageCheckpointReader + PruneCheckpointReader,
+        > + reth_provider::StateProviderFactory
         + HeaderProvider<Header = Header>
         + reth_provider::ChainSpecProvider
         + Clone

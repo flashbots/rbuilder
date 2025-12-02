@@ -3,7 +3,10 @@ use alloy_eips::BlockNumHash;
 use alloy_primitives::{Address, Bytes, B256};
 use eth_sparse_mpt::*;
 use reth::providers::providers::ConsistentDbView;
-use reth_provider::{BlockReader, DatabaseProviderFactory, HashedPostStateProvider};
+use reth_provider::{
+    providers::OverlayStateProviderFactory, BlockReader, DatabaseProviderFactory,
+    HashedPostStateProvider, PruneCheckpointReader, StageCheckpointReader, TrieReader,
+};
 use reth_trie::TrieInput;
 use reth_trie_parallel::root::{ParallelStateRoot, ParallelStateRootError};
 use revm::database::BundleState;
@@ -77,7 +80,12 @@ pub fn calculate_account_proofs<P>(
     config: &RootHashContext,
 ) -> Result<utils::HashMap<Address, Vec<Bytes>>, RootHashError>
 where
-    P: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync + Clone + 'static,
+    P: DatabaseProviderFactory<
+            Provider: BlockReader + TrieReader + StageCheckpointReader + PruneCheckpointReader,
+        > + Send
+        + Sync
+        + Clone
+        + 'static,
 {
     let consistent_db_view = match config.mode {
         RootHashMode::CorrectRoot => ConsistentDbView::new(
@@ -108,16 +116,24 @@ where
 fn calculate_parallel_root_hash<P, HasherType>(
     hasher: &HasherType,
     outcome: &BundleState,
-    consistent_db_view: ConsistentDbView<P>,
+    provider: P,
 ) -> Result<B256, ParallelStateRootError>
 where
     HasherType: HashedPostStateProvider,
-    P: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync + Clone + 'static,
+    P: DatabaseProviderFactory<
+            Provider: BlockReader + TrieReader + StageCheckpointReader + PruneCheckpointReader,
+        > + Send
+        + Sync
+        + Clone
+        + 'static,
 {
+    let overlay = OverlayStateProviderFactory::new(provider);
     let hashed_post_state = hasher.hashed_post_state(outcome);
     let parallel_root_calculator = ParallelStateRoot::new(
-        consistent_db_view.clone(),
-        TrieInput::from_state(hashed_post_state),
+        overlay,
+        TrieInput::from_state(hashed_post_state)
+            .prefix_sets
+            .freeze(),
     );
     parallel_root_calculator.incremental_root()
 }
@@ -135,7 +151,12 @@ pub fn calculate_state_root<P, HasherType>(
 ) -> Result<B256, RootHashError>
 where
     HasherType: HashedPostStateProvider,
-    P: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync + Clone + 'static,
+    P: DatabaseProviderFactory<
+            Provider: BlockReader + TrieReader + StageCheckpointReader + PruneCheckpointReader,
+        > + Send
+        + Sync
+        + Clone
+        + 'static,
 {
     let consistent_db_view = match config.mode {
         RootHashMode::CorrectRoot => ConsistentDbView::new(
@@ -151,12 +172,10 @@ where
         if let Some(thread_pool) = &config.thread_pool {
             thread_pool
                 .rayon_pool
-                .install(|| {
-                    calculate_parallel_root_hash(hasher, outcome, consistent_db_view.clone())
-                })
+                .install(|| calculate_parallel_root_hash(hasher, outcome, provider.clone()))
                 .map_err(|err| RootHashError::Other(err.into()))?
         } else {
-            calculate_parallel_root_hash(hasher, outcome, consistent_db_view.clone())
+            calculate_parallel_root_hash(hasher, outcome, provider.clone())
                 .map_err(|err| RootHashError::Other(err.into()))?
         }
     } else {
@@ -185,7 +204,7 @@ where
             }
         }
     } else {
-        calculate_parallel_root_hash(hasher, outcome, consistent_db_view)
+        calculate_parallel_root_hash(hasher, outcome, provider.clone())
             .map_err(|err| RootHashError::Other(err.into()))?
     };
 
