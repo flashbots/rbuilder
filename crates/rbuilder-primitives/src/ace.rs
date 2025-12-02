@@ -6,7 +6,7 @@ use std::collections::HashSet;
 /// 4-byte function selector
 pub type Selector = FixedBytes<4>;
 
-/// Configuration for an ACE (Atomic Clearing Engine) protocol
+/// Configuration for an ACE (Application Controlled Execution) protocol
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct AceConfig {
     /// Whether this ACE config is enabled
