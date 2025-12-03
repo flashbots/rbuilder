@@ -157,7 +157,3 @@ jemalloc-unprefixed = [
 [[bench]]
 name = "bench_main"
 harness = false
-
-[package.metadata.cargo-shear]
-# cargo-shear invalidly marks these as unused.
-ignored = ["prost", "prost-types"]

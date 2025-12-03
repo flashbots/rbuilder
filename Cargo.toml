@@ -180,3 +180,8 @@ rbuilder-utils = { path = "crates/rbuilder-utils" }
 rbuilder-config = { path = "crates/rbuilder-config" }
 sysperf = { path = "crates/sysperf" }
 metrics_macros = { path = "crates/rbuilder/src/telemetry/metrics_macros" }
+
+
+[workspace.metadata.cargo-shear]
+# cargo-shear invalidly marks these as unused.
+ignored = ["prost", "prost-types"]
