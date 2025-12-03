@@ -7,8 +7,8 @@ use iceoryx2_bb_container::byte_string::FixedSizeByteString;
 use rbuilder::{
     building::builders::BuiltBlockId,
     live_builder::block_output::bidding_service_interface::{
-        BuiltBlockDescriptorForSlotBidder, PayoutInfo, RelaySet, ScrapedRelayBlockBidWithStats,
-        SlotBidderSealBidCommand,
+        BidSourceInfo, BidWithInfo, BuiltBlockDescriptorForSlotBidder, CompetitionBidContext,
+        PayoutInfo, RelaySet, ScrapedRelayBlockBidWithStats, SlotBidderSealBidCommand,
     },
     utils::{offset_datetime_to_timestamp_us, timestamp_us_to_offset_datetime},
 };
@@ -228,12 +228,91 @@ impl PayoutInfoRPC {
 }
 
 #[derive(Debug, Copy, Clone, ZeroCopySend)]
+#[type_name("BidSourceInfoRPC")]
+#[repr(C)]
+pub struct BidSourceInfoRPC {
+    pub seen_time_us: u64,
+    pub relay: FixedSizeByteString<MAX_RELAY_NAME_LENGTH>,
+}
+
+impl From<BidSourceInfo> for BidSourceInfoRPC {
+    fn from(value: BidSourceInfo) -> Self {
+        Self {
+            seen_time_us: offset_datetime_to_timestamp_us(value.seen_time),
+            relay: FixedSizeByteString::<MAX_RELAY_NAME_LENGTH>::from_str_truncated(&value.relay),
+        }
+    }
+}
+
+impl From<BidSourceInfoRPC> for BidSourceInfo {
+    fn from(value: BidSourceInfoRPC) -> Self {
+        Self {
+            seen_time: timestamp_us_to_offset_datetime(value.seen_time_us),
+            relay: value.relay.to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, ZeroCopySend)]
+#[type_name("BidWithInfoRPC")]
+#[repr(C)]
+pub struct BidWithInfoRPC {
+    pub value: [u8; U256_DATA_LENGTH],
+    pub info: BidSourceInfoRPC,
+}
+
+impl From<BidWithInfo> for BidWithInfoRPC {
+    fn from(bid_with_info: BidWithInfo) -> Self {
+        Self {
+            value: bid_with_info.value.to_le_bytes(),
+            info: bid_with_info.info.into(),
+        }
+    }
+}
+
+impl From<BidWithInfoRPC> for BidWithInfo {
+    fn from(bid_with_info: BidWithInfoRPC) -> Self {
+        Self {
+            value: U256::from_le_bytes(bid_with_info.value),
+            info: bid_with_info.info.into(),
+        }
+    }
+}
+
+/// Context about the competitions bids that we used to generate our bid.
+#[derive(Debug, Copy, Clone, ZeroCopySend)]
+#[type_name("CompetitionBidContextRPC")]
+#[repr(C)]
+pub struct CompetitionBidContextRPC {
+    pub seen_competition_bid: Option<BidWithInfoRPC>,
+    pub triggering_bid_source_info: Option<BidSourceInfoRPC>,
+}
+
+impl From<CompetitionBidContext> for CompetitionBidContextRPC {
+    fn from(value: CompetitionBidContext) -> Self {
+        Self {
+            seen_competition_bid: value.seen_competition_bid.map(|k| k.into()),
+            triggering_bid_source_info: value.triggering_bid_source_info.map(|k| k.into()),
+        }
+    }
+}
+
+impl From<CompetitionBidContextRPC> for CompetitionBidContext {
+    fn from(value: CompetitionBidContextRPC) -> Self {
+        Self {
+            seen_competition_bid: value.seen_competition_bid.map(|k| k.into()),
+            triggering_bid_source_info: value.triggering_bid_source_info.map(|k| k.into()),
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, ZeroCopySend)]
 #[type_name("SlotBidderSealBidCommandRPC")]
 #[repr(C)]
 pub struct SlotBidderSealBidCommandRPC {
     pub session_id: u64,
     pub block_id: u64,
-    pub seen_competition_bid: Option<[u8; U256_DATA_LENGTH]>,
+    pub competition_bid_context: CompetitionBidContextRPC,
     /// When this bid is a reaction so some event (eg: new block, new competition bid) we put here
     /// the creation time of that event so we can measure our reaction time.
     pub trigger_creation_time_us: Option<u64>,
@@ -263,7 +342,7 @@ impl SlotBidderSealBidCommandRPC {
         Some(Self {
             session_id: value.1,
             block_id: value.0.block_id.0,
-            seen_competition_bid: value.0.seen_competition_bid.map(|k| k.to_le_bytes()),
+            competition_bid_context: value.0.competition_bid_context.into(),
             trigger_creation_time_us: value
                 .0
                 .trigger_creation_time
@@ -283,7 +362,7 @@ impl SlotBidderSealBidCommandRPC {
         }
         Some(SlotBidderSealBidCommand {
             block_id: BuiltBlockId(val.block_id),
-            seen_competition_bid: val.seen_competition_bid.map(|k| U256::from_le_bytes(k)),
+            competition_bid_context: val.competition_bid_context.into(),
             trigger_creation_time: val
                 .trigger_creation_time_us
                 .map(timestamp_us_to_offset_datetime),

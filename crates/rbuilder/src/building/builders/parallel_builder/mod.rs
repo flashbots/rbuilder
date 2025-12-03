@@ -35,6 +35,7 @@ use crate::{
         BacktestSimulateBlockInput, Block, BlockBuildingAlgorithm, BlockBuildingAlgorithmInput,
         BuiltBlockIdSource, LiveBuilderInput,
     },
+    live_builder::block_output::bidding_service_interface::CompetitionBidContext,
     provider::StateProviderFactory,
     utils::elapsed_ms,
 };
@@ -379,7 +380,7 @@ where
         &mut block_building_result_assembler.local_ctx,
         payout_tx_value,
         I256::ZERO,
-        None,
+        CompetitionBidContext::no_competition_bid(),
     )?;
     let building_duration = building_start.elapsed();
     let total_duration = start_time.elapsed();

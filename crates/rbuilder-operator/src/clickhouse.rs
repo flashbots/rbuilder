@@ -1,6 +1,6 @@
 //! Clickhouse integration to save all the blocks we build and submit to relays.
 
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use alloy_primitives::{utils::format_ether, Address, U256};
 use alloy_rpc_types_beacon::relay::SubmitBlockRequest as AlloySubmitBlockRequest;
@@ -31,6 +31,10 @@ use crate::{flashbots_config::BuiltBlocksClickhouseConfig, metrics::ClickhouseMe
 #[derive(Debug, Clone, Serialize, Deserialize, Row)]
 pub struct BlockRow {
     pub block_number: u64,
+    pub block_id: u64,
+    /// Number of times this block_id was used by the builder to bid before this.
+    /// Starts with 0 on the first bid.
+    pub block_uses: u64,
     /// name of the node that submitted the block
     pub builder_name: String,
     /// git commit of the rbuilder running
@@ -70,6 +74,15 @@ pub struct BlockRow {
     pub delayed_payment_addresses: Vec<String>,
     pub sent_to_relay_at: i64,
     pub tx_hashes: Vec<String>,
+
+    /// Info about the bid that triggered the bid to be generated.
+    /// Notice this may not be the top bid since a builder lowering it's bid could trigger a new bid
+    /// against the new winner.
+    pub triggering_bid_seen_time: Option<i64>,
+    pub triggering_bid_relay: Option<String>,
+    /// Info about the top bid among all relays we are trying to beat (best_relay_value)
+    pub bid_to_beat_seen_time: Option<i64>,
+    pub bid_to_beat_seen_relay: Option<String>,
 }
 
 impl ClickhouseRowExt for BlockRow {
@@ -231,7 +244,6 @@ impl BidObserver for BuiltBlocksWriter {
         submit_block_request: Arc<AlloySubmitBlockRequest>,
         built_block_trace: Arc<BuiltBlockTrace>,
         builder_algorithm_name: String,
-        best_bid_value: U256,
         _relays: &RelaySet,
         sent_to_relay_at: OffsetDateTime,
     ) {
@@ -241,6 +253,9 @@ impl BidObserver for BuiltBlocksWriter {
         let rbuilder_commit = self.rbuilder_commit.clone();
         let builder_name = self.builder_name.clone();
         tokio::spawn(async move {
+            // How many times we submitted this block_id to the relay.
+            let mut block_uses = HashMap::new();
+
             let submit_trace = submit_block_request.bid_trace();
             let execution_payload_v1 = match submit_block_request.as_ref() {
                 AlloySubmitBlockRequest::Capella(request) => {
@@ -277,8 +292,41 @@ impl BidObserver for BuiltBlocksWriter {
                 .iter()
                 .flat_map(|res| res.tx_infos.iter().map(|info| info.tx.hash().to_string()))
                 .collect();
+            let block_uses = block_uses
+                .entry(built_block_trace.build_block_id)
+                .or_insert(0);
+
+            let (triggering_bid_seen_time, triggering_bid_relay) = built_block_trace
+                .competition_bid_context
+                .triggering_bid_source_info
+                .as_ref()
+                .map(|info| {
+                    (
+                        Some(offset_date_to_clickhouse_timestamp(info.seen_time)),
+                        Some(info.relay.clone()),
+                    )
+                })
+                .unwrap_or_default();
+
+            let (bid_to_beat_seen_time, bid_to_beat_seen_relay, best_relay_value) =
+                built_block_trace
+                    .competition_bid_context
+                    .seen_competition_bid
+                    .as_ref()
+                    .map(|bid_with_info| {
+                        (
+                            Some(offset_date_to_clickhouse_timestamp(
+                                bid_with_info.info.seen_time,
+                            )),
+                            Some(bid_with_info.info.relay.clone()),
+                            Some(bid_with_info.value),
+                        )
+                    })
+                    .unwrap_or_default();
+
             let block_row = BlockRow {
                 block_number,
+                block_id: built_block_trace.build_block_id.0,
                 builder_name,
                 rbuilder_commit,
                 profit: format_ether(submit_trace.value),
@@ -302,7 +350,7 @@ impl BidObserver for BuiltBlocksWriter {
                 sealed_at: offset_date_to_clickhouse_timestamp(built_block_trace.orders_sealed_at),
                 algorithm: builder_algorithm_name,
                 true_value: Some(built_block_trace.true_bid_value),
-                best_relay_value: Some(best_bid_value),
+                best_relay_value,
                 block_value: Some(submit_trace.value),
                 used_bundle_hashes,
                 used_bundle_uuids,
@@ -312,7 +360,14 @@ impl BidObserver for BuiltBlocksWriter {
                 delayed_payment_addresses,
                 sent_to_relay_at: offset_date_to_clickhouse_timestamp(sent_to_relay_at),
                 tx_hashes,
+                block_uses: *block_uses,
+                triggering_bid_seen_time,
+                triggering_bid_relay,
+                bid_to_beat_seen_time,
+                bid_to_beat_seen_relay,
             };
+            *block_uses += 1;
+
             if let Err(err) = blocks_tx.try_send(block_row) {
                 error!(?err, "Failed to send block to clickhouse");
             }
