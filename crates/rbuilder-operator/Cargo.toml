@@ -16,10 +16,26 @@ section = "network"
 priority = "optional"
 maintainer-scripts = "pkg/debian"
 assets = [
-    ["target/release/**/rbuilder-operator", "usr/bin/", "755"],
-    ["pkg/etc/config.toml", "etc/rbuilder-operator/", "644"],
-    ["../../LICENSE-APACHE", "usr/share/doc/rbuilder-operator/", "644"],
-    ["../../LICENSE-MIT", "usr/share/doc/rbuilder-operator/", "644"],
+    [
+        "target/release/**/rbuilder-operator",
+        "usr/bin/",
+        "755",
+    ],
+    [
+        "pkg/etc/config.toml",
+        "etc/rbuilder-operator/",
+        "644",
+    ],
+    [
+        "../../LICENSE-APACHE",
+        "usr/share/doc/rbuilder-operator/",
+        "644",
+    ],
+    [
+        "../../LICENSE-MIT",
+        "usr/share/doc/rbuilder-operator/",
+        "644",
+    ],
 ]
 systemd-units = { enable = false, start = false, unit-name = "rbuilder-operator" }
 
@@ -33,17 +49,9 @@ bid-scraper.workspace = true
 
 # alloy
 alloy-primitives.workspace = true
-alloy-provider = { workspace = true, features = ["ipc", "pubsub"] }
-alloy-json-rpc.workspace = true
-alloy-transport-http.workspace = true
-alloy-transport.workspace = true
 alloy-rpc-types-beacon = { workspace = true, features = ["ssz"] }
 alloy-signer-local.workspace = true
 alloy-signer.workspace = true
-alloy-rpc-client.workspace = true
-
-# reth
-reth-primitives.workspace = true
 
 serde.workspace = true
 serde_json.workspace = true
@@ -58,7 +66,6 @@ time.workspace = true
 tracing.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
-tokio-stream.workspace = true
 url.workspace = true
 thiserror.workspace = true
 derivative.workspace = true
@@ -75,7 +82,6 @@ clickhouse = { version = "0.14.0", features = ["time", "uuid", "native-tls"] }
 futures-util.workspace = true
 parking_lot.workspace = true
 lazy_static.workspace = true
-uuid.workspace = true
 
 [build-dependencies]
 built = { version = "0.7.1", features = ["git2", "chrono"] }
