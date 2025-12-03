@@ -301,8 +301,14 @@ impl L1Config {
                     );
                     if let Some(grpc_url) = relay_config.grpc_url.clone() {
                         let grpc_client = bloxroute_grpc::types::relay_client::RelayClient::new(
-                            tonic::transport::Endpoint::try_from(grpc_url)?.connect_lazy(),
+                            tonic::transport::Endpoint::try_from(grpc_url)?
+                                .keep_alive_while_idle(true)
+                                .keep_alive_timeout(Duration::from_secs(12))
+                                // Default is 1 KB, a little low for a block.
+                                .buffer_size(8 * 1024)
+                                .connect_lazy(),
                         );
+
                         client = client.with_grpc_client(grpc_client);
                     }
                     Self::create_relay_sub_objects(
