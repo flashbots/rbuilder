@@ -133,3 +133,20 @@ jobs:
           name: playground-logs
           path: /tmp/playground-logs
           retention-days: 5
+
+  # Find unused dependencies, this will fail if any are found.
+  cargo-shear:
+    runs-on: warp-ubuntu-latest-x64-32x
+    timeout-minutes: 5
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v6
+
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@main
+
+      - name: Install cargo-shear
+        run: cargo binstall --no-confirm cargo-shear
+
+      - name: Run cargo shear
+        run: cargo shear
