@@ -178,30 +178,33 @@ async fn run_submit_to_relays_job(
 
         let builder_name = block.builder_name.clone();
 
-        let bundles = block
-            .trace
-            .included_orders
-            .iter()
-            .filter(|o| !o.order.is_tx())
-            .count();
+        let mut bundles = 0;
+        let mut order_ids = Vec::with_capacity(block.trace.included_orders.len());
+        let mut bundle_hashes = Vec::with_capacity(block.trace.included_orders.len());
+
+        for exec_res in &block.trace.included_orders {
+            if !exec_res.order.is_tx() {
+                bundles += 1;
+            }
+
+            for order in exec_res.order.original_orders() {
+                order_ids.push(order.id());
+                if let Some(bundle_hash) = order.external_bundle_hash() {
+                    bundle_hashes.push(bundle_hash);
+                }
+            }
+        }
 
         // SAFETY: UNIX timestamp in nanos won't exceed u64::MAX until year 2554
         let sequence = OffsetDateTime::now_utc().unix_timestamp_nanos() as u64;
-        let executed_orders = block
-            .trace
-            .included_orders
-            .iter()
-            .flat_map(|exec_res| exec_res.order.original_orders());
         let bid_metadata = BidMetadata {
             sequence,
             value: BidValueMetadata {
                 coinbase_reward: block.trace.coinbase_reward,
                 top_competitor_bid: block.trace.seen_competition_bid,
             },
-            order_ids: executed_orders.clone().map(|o| o.id()).collect(),
-            bundle_hashes: executed_orders
-                .filter_map(|o| o.external_bundle_hash())
-                .collect(),
+            order_ids,
+            bundle_hashes,
         };
 
         let latency = block.trace.orders_sealed_at - block.trace.orders_closed_at;

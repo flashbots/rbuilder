@@ -21,8 +21,8 @@ use metrics_macros::register_metrics;
 use parking_lot::Mutex;
 use prometheus::{
     core::{Atomic, AtomicF64, AtomicI64, GenericGauge},
-    Counter, Gauge, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
-    Opts, Registry,
+    Counter, Gauge, Histogram, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge,
+    IntGaugeVec, Opts, Registry,
 };
 use rbuilder_primitives::mev_boost::MevBoostRelayID;
 use std::time::Duration;
@@ -230,6 +230,20 @@ register_metrics! {
         HistogramOpts::new("relay_submit_time", "Time to send bid to the relay (ms)")
             .buckets(exponential_buckets_range(0.5, 3000.0, 50)),
         &["relay"],
+    )
+    .unwrap();
+
+    pub static SSZ_ENCODING_TIME: Histogram = Histogram::with_opts(
+        HistogramOpts::new("payload_ssz_encoding_time", "Time to encode a full payload in SSZ (ms)")
+            // Range: 100us - 100ms
+            .buckets(exponential_buckets_range(0.1, 100.0, 20)),
+    )
+    .unwrap();
+
+    pub static GZIP_COMPRESSION_TIME: Histogram = Histogram::with_opts(
+        HistogramOpts::new("payload_gzip_compression_time", "Time to compress a full payload in GZIP (ms)")
+            // Range: 100us - 200ms
+            .buckets(exponential_buckets_range(0.1, 200.0, 50)),
     )
     .unwrap();
 
@@ -580,6 +594,14 @@ pub fn add_relay_submit_time(relay: &MevBoostRelayID, duration: Duration) {
     RELAY_SUBMIT_TIME
         .with_label_values(&[relay.as_str()])
         .observe(duration_ms(duration));
+}
+
+pub fn add_ssz_encoding_time(duration: Duration) {
+    SSZ_ENCODING_TIME.observe(duration_ms(duration));
+}
+
+pub fn add_gzip_compression_time(duration: Duration) {
+    GZIP_COMPRESSION_TIME.observe(duration_ms(duration));
 }
 
 const BIG_RPC_DATA_THRESHOLD: usize = 50000;

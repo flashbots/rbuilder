@@ -1,3 +1,5 @@
+use crate::telemetry::{add_gzip_compression_time, add_ssz_encoding_time};
+
 use super::utils::u256decimal_serde_helper;
 use alloy_primitives::{utils::parse_ether, Address, BlockHash, U256};
 use alloy_rpc_types_beacon::BlsPublicKey;
@@ -729,7 +731,11 @@ impl RelayClient {
         let mut builder = self.client.post(url.clone());
         // SSZ vs JSON
         let (mut body_data, content_type) = if ssz {
-            (submission.as_ssz_bytes(), SSZ_CONTENT_TYPE)
+            let ssz_start = std::time::Instant::now();
+            let encoded = submission.as_ssz_bytes();
+
+            add_ssz_encoding_time(ssz_start.elapsed());
+            (encoded, SSZ_CONTENT_TYPE)
         } else {
             let json_result = if fake_relay {
                 // For the fake relay we remove the blobs
@@ -751,13 +757,19 @@ impl RelayClient {
                 CONTENT_ENCODING,
                 HeaderValue::from_static(GZIP_CONTENT_ENCODING),
             );
-            let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+            let gzip_start = std::time::Instant::now();
+            // NOTE: Pre-allocate the buffer to avoid reallocations during compression.
+            // This should be more efficient even if we over-allocate (uncompressed > compressed)
+            let mut encoder =
+                GzEncoder::new(Vec::with_capacity(body_data.len()), Compression::default());
             encoder
                 .write_all(&body_data)
                 .map_err(|e| SubmitBlockErr::RPCSerializationError(e.to_string()))?;
             body_data = encoder
                 .finish()
                 .map_err(|e| SubmitBlockErr::RPCSerializationError(e.to_string()))?;
+
+            add_gzip_compression_time(gzip_start.elapsed());
         }
 
         // Set bloxroute specific headers.
