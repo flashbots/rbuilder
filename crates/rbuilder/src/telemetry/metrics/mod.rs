@@ -234,14 +234,14 @@ register_metrics! {
     .unwrap();
 
     pub static SSZ_ENCODING_TIME: Histogram = Histogram::with_opts(
-        HistogramOpts::new("ssz_encoding_time", "Time to encode the block in SSZ (ms)")
+        HistogramOpts::new("payload_ssz_encoding_time", "Time to encode a full payload in SSZ (ms)")
             // Range: 100us - 100ms
             .buckets(exponential_buckets_range(0.1, 100.0, 20)),
     )
     .unwrap();
 
     pub static GZIP_COMPRESSION_TIME: Histogram = Histogram::with_opts(
-        HistogramOpts::new("gzip_compression_time", "Time to compress the block in GZIP (ms)")
+        HistogramOpts::new("payload_gzip_compression_time", "Time to compress a full payload in GZIP (ms)")
             // Range: 100us - 200ms
             .buckets(exponential_buckets_range(0.1, 200.0, 50)),
     )
