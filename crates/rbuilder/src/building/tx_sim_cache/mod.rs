@@ -1,28 +1,21 @@
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering;
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+    Arc,
+};
 
 use ahash::RandomState;
-use alloy_primitives::Address;
-use alloy_primitives::B256;
-use alloy_primitives::I256;
-use alloy_primitives::U256;
+use alloy_primitives::{Address, B256, I256, U256};
 use dashmap::DashMap;
 use itertools::Itertools;
-use result_store::ActionResult;
-use result_store::ExecutionResultStore;
-use result_store::NextAction;
+use rbuilder_primitives::evm_inspector::UsedStateTrace;
+use result_store::{ActionResult, ExecutionResultStore, NextAction};
 use reth_errors::ProviderError;
-use revm::state::AccountInfo;
-use revm::{context::result::ResultAndState, Database};
+use revm::{context::result::ResultAndState, state::AccountInfo, Database};
 use tracing::info;
 
 use crate::utils::signed_uint_delta;
 
-use super::evm_inspector::UsedStateTrace;
-use super::CriticalCommitOrderError;
-use super::TransactionErr;
+use super::{CriticalCommitOrderError, TransactionErr};
 
 mod evm_db;
 mod result_store;

@@ -1,7 +1,6 @@
 use crate::{
-    code_from_rbuilder::EnvOrValue,
     get_timestamp_f64,
-    types::{BlockBid, PublisherType},
+    types::{PublisherType, ScrapedRelayBlockBid},
     ws_publisher::{ConnectionHandler, Service},
     DynResult, RPC_TIMEOUT,
 };
@@ -12,6 +11,7 @@ use futures::{
     StreamExt,
 };
 use futures_util::SinkExt;
+use rbuilder_config::EnvOrValue;
 use serde::Deserialize;
 use serde_json::json;
 use std::str::FromStr;
@@ -22,7 +22,9 @@ use tokio_tungstenite::{
 };
 use tracing::{debug, error, info};
 
-#[derive(Debug, Clone, Deserialize)]
+pub type BloxrouteWsPublisher = Service<BloxrouteWsConnectionHandler>;
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct BloxrouteWsPublisherConfig {
     /// Url to connect to. Example: "wss://mev-eth.blxrbdn.com/ws"
     pub bloxroute_url: String,
@@ -59,7 +61,7 @@ impl BloxrouteWsConnectionHandler {
         Self { cfg, name }
     }
 
-    fn parse_bid(&self, json_bid: &serde_json::Value) -> DynResult<Option<BlockBid>> {
+    fn parse_bid(&self, json_bid: &serde_json::Value) -> DynResult<Option<ScrapedRelayBlockBid>> {
         let parsed = match serde_json::from_value::<BloxrouteWsBid>(json_bid.clone()) {
             Ok(bid) => bid,
             Err(error) => {
@@ -70,7 +72,7 @@ impl BloxrouteWsConnectionHandler {
 
         let relay_name = format!("bloxroute-{}", parsed.relay_type);
 
-        let bid = BlockBid {
+        let bid = ScrapedRelayBlockBid {
             publisher_name: self.name.clone(),
             publisher_type: PublisherType::BloxrouteWs,
             builder_pubkey: Some(BlsPublicKey::from_str(&parsed.builder_pubkey)?),
@@ -133,7 +135,7 @@ impl ConnectionHandler for BloxrouteWsConnectionHandler {
         Ok(())
     }
 
-    fn parse(&self, message: Message) -> eyre::Result<Option<BlockBid>> {
+    fn parse(&self, message: Message) -> eyre::Result<Option<ScrapedRelayBlockBid>> {
         match message {
             Message::Text(data) => {
                 let json_bid: serde_json::Value =
@@ -189,5 +191,3 @@ mod tests {
         assert!(serde_json::from_str::<BloxrouteWsBid>(raw).is_ok());
     }
 }
-
-pub type BloxrouteWsPublisher = Service<BloxrouteWsConnectionHandler>;

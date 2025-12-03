@@ -1,5 +1,5 @@
 use crate::{
-    types::{block_bid_from_update, BlockBid, PublisherType, TopBidUpdate},
+    types::{block_bid_from_update, PublisherType, ScrapedRelayBlockBid, TopBidUpdate},
     ws_publisher::{ConnectionHandler, Service},
 };
 use eyre::{eyre, Context};
@@ -13,7 +13,7 @@ use tokio_tungstenite::{
 };
 use tracing::debug;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct UltrasoundWsPublisherConfig {
     /// Url to connect to. Example: "ws://relay-builders-eu.ultrasound.money/ws/v1/top_bid"
     pub ultrasound_url: String,
@@ -63,7 +63,7 @@ impl ConnectionHandler for UltrasoundWsConnectionHandler {
         Ok(())
     }
 
-    fn parse(&self, message: Message) -> eyre::Result<Option<BlockBid>> {
+    fn parse(&self, message: Message) -> eyre::Result<Option<ScrapedRelayBlockBid>> {
         match message {
             Message::Binary(data) => {
                 let update = TopBidUpdate::from_ssz_bytes(&data)

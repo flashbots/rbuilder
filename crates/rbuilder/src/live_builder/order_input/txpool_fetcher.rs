@@ -1,11 +1,12 @@
 use super::{MempoolSource, OrderInputConfig, ReplaceableOrderPoolCommand};
-use crate::{
-    primitives::{MempoolTx, Order, TransactionSignedEcRecoveredWithBlobs},
-    telemetry::{add_txfetcher_time_to_query, mark_command_received},
-};
+use crate::telemetry::{add_txfetcher_time_to_query, mark_command_received};
 use alloy_primitives::FixedBytes;
 use alloy_provider::{IpcConnect, Provider, ProviderBuilder};
 use futures::StreamExt;
+use rbuilder_primitives::{
+    serialize::TxEncoding, MempoolTx, Order, RawTransactionDecodable,
+    TransactionSignedEcRecoveredWithBlobs,
+};
 use std::{pin::pin, time::Instant};
 use time::OffsetDateTime;
 use tokio::{
@@ -76,7 +77,7 @@ pub async fn subscribe_to_txpool_with_blobs(
             add_txfetcher_time_to_query(parse_duration);
 
             let orderpool_command = ReplaceableOrderPoolCommand::Order(order);
-            mark_command_received(&orderpool_command, received_at, None);
+            mark_command_received(&orderpool_command, received_at);
             match results
                 .send_timeout(orderpool_command, config.results_channel_timeout)
                 .await
@@ -107,9 +108,8 @@ async fn get_tx_with_blobs(
     let Some(response) = provider.get_raw_transaction_by_hash(tx_hash).await? else {
         return Ok(None);
     };
-    Ok(Some(
-        TransactionSignedEcRecoveredWithBlobs::decode_enveloped_with_real_blobs(response)?,
-    ))
+    let raw_decodable = RawTransactionDecodable::new(response, TxEncoding::WithBlobData);
+    Ok(Some(raw_decodable.decode_enveloped()?))
 }
 
 #[cfg(test)]
@@ -183,7 +183,7 @@ mod test {
         .unwrap();
 
         assert_eq!(tx_with_blobs.hash(), *pending_tx.tx_hash());
-        assert_eq!(tx_with_blobs.blobs_sidecar.blobs.len(), 1);
+        assert_eq!(tx_with_blobs.blobs_len(), 1);
 
         // send another tx without blobs
         let tx = TransactionRequest::default()
@@ -205,6 +205,6 @@ mod test {
         .unwrap();
 
         assert_eq!(tx_without_blobs.hash(), *pending_tx.tx_hash());
-        assert_eq!(tx_without_blobs.blobs_sidecar.blobs.len(), 0);
+        assert_eq!(tx_without_blobs.blobs_len(), 0);
     }
 }

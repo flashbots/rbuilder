@@ -11,11 +11,14 @@ build = "build.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+rbuilder-primitives.workspace = true
+rbuilder-config.workspace = true
+
 serde = { workspace = true }
 derive_more = { workspace = true }
 serde_json = { workspace = true }
 tokio.workspace = true
-tokio-stream = { workspace = true }
+tokio-stream.workspace = true
 tokio-util = { workspace = true }
 eyre.workspace = true
 thiserror.workspace = true
@@ -28,6 +31,7 @@ reth-trie-parallel.workspace = true
 reth-node-api.workspace = true
 reth-node-core.workspace = true
 reth-primitives.workspace = true
+reth-ethereum-primitives.workspace = true
 reth-primitives-traits.workspace = true
 reth-provider.workspace = true
 reth-chainspec.workspace = true
@@ -52,6 +56,7 @@ alloy-rpc-types-eth.workspace = true
 alloy-consensus.workspace = true
 alloy-signer-local.workspace = true
 alloy-eips.workspace = true
+alloy-trie.workspace = true
 
 ethereum_ssz_derive.workspace = true
 ethereum_ssz.workspace = true
@@ -61,7 +66,6 @@ metrics_macros = { path = "src/telemetry/metrics_macros" }
 
 reqwest = { workspace = true, features = ["blocking"] }
 serde_with = { workspace = true, features = ["time_0_3"] }
-primitive-types = "0.12.1"
 url.workspace = true
 sqlx = { version = "0.7.1", features = [
     "runtime-tokio-native-tls",
@@ -74,7 +78,7 @@ sqlx = { version = "0.7.1", features = [
 ] }
 tracing.workspace = true
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
-futures = "0.3.28"
+futures.workspace = true
 time.workspace = true
 bigdecimal = "0.4.1"
 mempool-dumpster = "0.1.1"
@@ -89,27 +93,27 @@ secp256k1 = { workspace = true, features = [
 rayon = "1.8.0"
 flate2.workspace = true
 # Version required by ethereum-consensus beacon-api-client
-mev-share-sse = { git = "https://github.com/paradigmxyz/mev-share-rs", rev = "9eb2b0138ab3202b9eb3af4b19c7b3bf40b0faa8", default-features = false }
+mev-share-sse.workspace = true
+beacon-api-client.workspace = true
+ethereum-consensus.workspace = true
 jsonrpsee = { version = "0.20.3", features = ["full"] }
-beacon-api-client = { git = "https://github.com/ralexstokes/ethereum-consensus/", rev = "ade5ce6c4a19107c1059e5338d8f18855bd2d931" }
-ethereum-consensus = { git = "https://github.com/ralexstokes/ethereum-consensus/", rev = "ade5ce6c4a19107c1059e5338d8f18855bd2d931" }
-uuid = { version = "1.6.1", features = ["serde", "v5", "v4"] }
+uuid.workspace = true
 prometheus.workspace = true
 warp.workspace = true
 lazy_static.workspace = true
 ctor.workspace = true
-toml = { version = "0.8.8", default-features = false }
+toml.workspace = true
 ahash.workspace = true
-rand = "0.8.5"
+rand.workspace = true
 lru = "0.12.1"
 flume = "0.11.0"
 crossbeam-queue = "0.3.10"
 integer-encoding = "4.0.0"
-sha2 = "0.10.8"
+sha2.workspace = true
 lz4_flex = "0.11.2"
-exponential-backoff = "1.2.0"
+exponential-backoff.workspace = true
 governor = "0.6.3"
-derivative = "2.2.0"
+derivative.workspace = true
 mockall = "0.12.1"
 shellexpand = "3.1.0"
 async-trait = "0.1.80"
@@ -119,12 +123,15 @@ sysperf.workspace = true
 crossbeam = "0.8.4"
 parking_lot.workspace = true
 dashmap = "6.1.0"
-tonic = "0.13"
-prost = "0.13"
-prost-types = "0.13"
+tonic.workspace = true
+prost.workspace = true
+prost-types.workspace = true
+bincode = "1.3"
+schnellru = "0.2.4"
 
 # IPC state provider deps
-reipc = { git = "https://github.com/nethermindeth/reipc.git", rev = "3837f3539201f948dd1c2c96a85a60d589feb4c6" }
+reipc = { git = "https://github.com/nethermindeth/reipc.git", rev = "b0b70735cda6273652212d1591188642e3449ed7" }
+
 quick_cache = "0.6.11"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
@@ -141,12 +148,13 @@ alloy-node-bindings.workspace = true
 foldhash = "0.1.3"
 tempfile = "3.8"
 assert_matches = "1.5.0"
-criterion = { version = "0.5.1", features = ["html_reports", "async_tokio"] }
+criterion = { workspace = true, features = ["html_reports", "async_tokio"] }
 
 [features]
 # TODO: remove?
 optimism = []
 redact-sensitive = []
+jemalloc-unprefixed = ["tikv-jemallocator/unprefixed_malloc_on_supported_platforms"]
 
 [[bench]]
 name = "bench_main"

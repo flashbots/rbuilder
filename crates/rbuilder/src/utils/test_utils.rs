@@ -1,5 +1,5 @@
-use crate::primitives::{OrderId, TransactionSignedEcRecoveredWithBlobs};
 use alloy_primitives::{Address, Signature, B256, I256, U256};
+use rbuilder_primitives::{OrderId, TransactionSignedEcRecoveredWithBlobs};
 use reth_primitives::{Recovered, Transaction, TransactionSigned};
 
 pub fn order_id(id: u64) -> OrderId {

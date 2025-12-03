@@ -1,23 +1,22 @@
 use alloy_primitives::B256;
 use clap::{command, Parser};
+use rbuilder_config::load_toml_config;
+use rbuilder_primitives::{
+    Bundle, MempoolTx, Metadata, Order, TransactionSignedEcRecoveredWithBlobs, LAST_BUNDLE_VERSION,
+};
 use reth_provider::test_utils::MockNodeTypesWithDB;
 use uuid::Uuid;
 
+use super::backtest_build_block::{run_backtest_build_block, BuildBlockCfg, OrdersSource};
 use crate::{
     backtest::OrdersWithTimestamp,
     building::{
         testing::test_chain_state::{BlockArgs, NamedAddr, TestChainState, TxArgs},
         BlockBuildingContext,
     },
-    live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig},
-    primitives::{
-        Bundle, MempoolTx, Metadata, Order, TransactionSignedEcRecoveredWithBlobs,
-        LAST_BUNDLE_VERSION,
-    },
+    live_builder::cli::LiveBuilderConfig,
     provider::state_provider_factory_from_provider_factory::StateProviderFactoryFromProviderFactory,
 };
-
-use super::backtest_build_block::{run_backtest_build_block, BuildBlockCfg, OrdersSource};
 
 #[derive(Parser, Debug)]
 struct ExtraCfg {
@@ -93,13 +92,16 @@ impl<ConfigType: LiveBuilderConfig> SyntheticOrdersSource<ConfigType> {
                 uuid: Uuid::nil(),
                 replacement_data: None,
                 signer: None,
+                refund_identity: None,
                 metadata: Metadata {
                     received_at_timestamp: time::OffsetDateTime::from_unix_timestamp(0).unwrap(),
+                    is_system: false,
                     refund_identity: None,
                 },
                 dropping_tx_hashes: Default::default(),
                 refund: None,
                 version: LAST_BUNDLE_VERSION,
+                external_hash: None,
             };
             bundle.hash_slow();
             orders.push(OrdersWithTimestamp {
@@ -155,7 +157,7 @@ impl<ConfigType: LiveBuilderConfig>
 
 pub async fn run_backtest<ConfigType: LiveBuilderConfig>() -> eyre::Result<()> {
     let cli = Cli::parse();
-    let config: ConfigType = load_config_toml_and_env(cli.build_block_cfg.config.clone())?;
+    let config: ConfigType = load_toml_config(cli.build_block_cfg.config.clone())?;
     let order_source = SyntheticOrdersSource::new(cli.extra_cfg, config)?;
     run_backtest_build_block(cli.build_block_cfg, order_source).await
 }

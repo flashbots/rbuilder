@@ -4,13 +4,15 @@ use std::{
     time::{Duration, Instant},
 };
 
-use alloy_primitives::{utils::format_ether, U256};
+use alloy_primitives::{utils::format_ether, I256, U256};
 
 use crate::{
-    building::builders::block_building_helper::BlockBuildingHelper,
+    building::{builders::block_building_helper::BlockBuildingHelper, ThreadBlockBuildingContext},
     live_builder::order_input::mempool_txs_detector::MempoolTxsDetector,
-    primitives::{OrderId, SimulatedOrder},
 };
+use rbuilder_primitives::{order_statistics::OrderStatistics, OrderId, SimulatedOrder};
+
+use super::block_building_helper::{BlockBuildingHelperError, FinalizeBlockResult};
 
 /// Wraps a BlockBuildingHelper and stores info about every commit_order as lightweight as possible.
 pub struct BlockBuildingHelperStatsLogger<'a> {
@@ -58,7 +60,7 @@ impl BlockBuildingHelperCommitLog {
             Some(ExecutionResult {
                 landed_tx_count: exec_ok.tx_infos.len(),
                 coinbase_profit: exec_ok.coinbase_profit,
-                gas_used: exec_ok.gas_used,
+                gas_used: exec_ok.space_used.gas,
             })
         } else {
             None
@@ -162,10 +164,10 @@ impl BlockBuildingHelper for BlockBuildingHelperStatsLogger<'_> {
 
     fn commit_order(
         &mut self,
-        local_ctx: &mut crate::building::ThreadBlockBuildingContext,
-        order: &crate::primitives::SimulatedOrder,
+        local_ctx: &mut ThreadBlockBuildingContext,
+        order: &rbuilder_primitives::SimulatedOrder,
         result_filter: &dyn Fn(
-            &crate::primitives::SimValue,
+            &rbuilder_primitives::SimValue,
         ) -> Result<(), crate::building::ExecutionError>,
     ) -> Result<
         Result<&crate::building::ExecutionResult, crate::building::ExecutionError>,
@@ -195,10 +197,6 @@ impl BlockBuildingHelper for BlockBuildingHelperStatsLogger<'_> {
             .set_trace_orders_closed_at(orders_closed_at);
     }
 
-    fn can_add_payout_tx(&self) -> bool {
-        self.block_building_helper.can_add_payout_tx()
-    }
-
     fn true_block_value(
         &self,
     ) -> Result<alloy_primitives::U256, super::block_building_helper::BlockBuildingHelperError>
@@ -207,14 +205,12 @@ impl BlockBuildingHelper for BlockBuildingHelperStatsLogger<'_> {
     }
 
     fn finalize_block(
-        self: Box<Self>,
+        &mut self,
         _local_ctx: &mut crate::building::ThreadBlockBuildingContext,
-        _payout_tx_value: Option<alloy_primitives::U256>,
+        _payout_tx_value: alloy_primitives::U256,
+        _subsidy: alloy_primitives::I256,
         _seen_competition_bid: Option<alloy_primitives::U256>,
-    ) -> Result<
-        super::block_building_helper::FinalizeBlockResult,
-        super::block_building_helper::BlockBuildingHelperError,
-    > {
+    ) -> Result<FinalizeBlockResult, BlockBuildingHelperError> {
         panic!("finalize_block not implemented. This is only for testing.");
     }
 
@@ -228,5 +224,24 @@ impl BlockBuildingHelper for BlockBuildingHelperStatsLogger<'_> {
 
     fn builder_name(&self) -> &str {
         self.block_building_helper.builder_name()
+    }
+
+    fn set_filtered_build_statistics(
+        &mut self,
+        considered_orders_statistics: OrderStatistics,
+        failed_orders_statistics: OrderStatistics,
+    ) {
+        self.block_building_helper
+            .set_filtered_build_statistics(considered_orders_statistics, failed_orders_statistics);
+    }
+
+    fn adjust_finalized_block(
+        &mut self,
+        _local_ctx: &mut ThreadBlockBuildingContext,
+        _payout_tx_value: U256,
+        _subsidy: I256,
+        _seen_competition_bid: Option<U256>,
+    ) -> Result<FinalizeBlockResult, BlockBuildingHelperError> {
+        unimplemented!()
     }
 }

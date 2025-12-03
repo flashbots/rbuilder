@@ -1,7 +1,7 @@
 use tracing::info;
 
-use crate::primitives::{BundleReplacementData, Order, ShareBundleReplacementKey};
 use core::fmt::Debug;
+use rbuilder_primitives::{BundleReplacementData, Order, ShareBundleReplacementKey};
 
 /// Receiver of order commands in a low level order stream (mempool + RPC calls).
 /// Orders are assumed to be immutable so there is no update.
@@ -51,5 +51,26 @@ impl ReplaceableOrderSink for ReplaceableOrderPrinter {
 impl Drop for ReplaceableOrderPrinter {
     fn drop(&mut self) {
         println!("OrderPrinter Dropped");
+    }
+}
+
+#[derive(Debug)]
+pub struct NullReplaceableOrderSink {}
+
+impl ReplaceableOrderSink for NullReplaceableOrderSink {
+    fn insert_order(&mut self, _order: Order) -> bool {
+        true
+    }
+
+    fn remove_bundle(&mut self, _replacement_data: BundleReplacementData) -> bool {
+        true
+    }
+
+    fn remove_sbundle(&mut self, _key: ShareBundleReplacementKey) -> bool {
+        true
+    }
+
+    fn is_alive(&self) -> bool {
+        true
     }
 }

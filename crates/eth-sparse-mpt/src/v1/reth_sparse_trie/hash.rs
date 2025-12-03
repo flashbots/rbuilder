@@ -55,6 +55,7 @@ pub enum RootHashError {
 }
 
 impl EthSparseTries {
+    #[allow(clippy::result_large_err)]
     pub fn calculate_root_hash(
         &mut self,
         changes: ETHTrieChangeSet,
@@ -112,6 +113,7 @@ impl EthSparseTries {
         }
     }
 
+    #[allow(clippy::result_large_err)]
     fn calculate_account_hashes_seq(
         &mut self,
         changes: &ETHTrieChangeSet,
@@ -140,6 +142,7 @@ impl EthSparseTries {
         Ok(account_hashes)
     }
 
+    #[allow(clippy::result_large_err)]
     fn calculate_account_hashes_parallel(
         &mut self,
         changes: &ETHTrieChangeSet,
@@ -172,6 +175,7 @@ impl EthSparseTries {
     }
 }
 
+#[allow(clippy::result_large_err)]
 fn hash_storage_trie(
     storage_trie: &mut DiffTrie,
     account: &Bytes,

@@ -4,7 +4,7 @@ use ahash::HashMap;
 use alloy_primitives::Address;
 use tracing::error;
 
-use crate::primitives::{OrderId, SimulatedOrder};
+use rbuilder_primitives::{OrderId, SimulatedOrder};
 
 use super::{share_bundle_merger::ShareBundleMerger, SimulatedOrderSink};
 
@@ -82,7 +82,7 @@ impl<SinkType: SimulatedOrderSink> SimulatedOrderSink for MultiShareBundleMerger
         self.get_merger(&signer).borrow_mut().insert_order(order);
     }
 
-    fn remove_order(&mut self, id: crate::primitives::OrderId) -> Option<Arc<SimulatedOrder>> {
+    fn remove_order(&mut self, id: rbuilder_primitives::OrderId) -> Option<Arc<SimulatedOrder>> {
         match self.inserted_orders_signers.get(&id).cloned() {
             Some(signer) => self.get_merger(&signer).borrow_mut().remove_order(id),
             None => {

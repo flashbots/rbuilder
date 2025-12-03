@@ -1,0 +1,11 @@
+log_level = "info"
+log_json  = true
+log_color = false
+publisher_url = "tcp://127.0.0.1:5555"
+
+[[publishers]]
+type = "external-ws"
+name = "external-ws"
+relay_name = "external-ws"
+url = "ws://127.0.0.1:12345"
+auth_header = ""

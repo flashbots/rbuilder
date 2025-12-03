@@ -3,10 +3,9 @@ use ahash::HashMap;
 use metrics::spawn_metrics_server;
 use rbuilder::{
     beacon_api_client::Client,
-    mev_boost::RelayClient,
-    primitives::mev_boost::MevBoostRelaySlotInfoProvider,
-    utils::tracing::{setup_tracing_subscriber, LoggerConfig},
+    mev_boost::{MevBoostRelaySlotInfoProvider, RelayClient},
 };
+use rbuilder_config::LoggerConfig;
 use relay::spawn_relay_server;
 use std::net::SocketAddr;
 use tokio_util::sync::CancellationToken;
@@ -82,12 +81,12 @@ async fn main() -> eyre::Result<()> {
 
     let global_cancellation = CancellationToken::new();
 
-    let config = LoggerConfig {
+    let logger_config = LoggerConfig {
         env_filter: cli.rust_log,
         log_json: cli.log_json,
         log_color: false,
     };
-    setup_tracing_subscriber(config)?;
+    logger_config.init_tracing()?;
 
     spawn_metrics_server(cli.metrics_address);
 
@@ -102,7 +101,17 @@ async fn main() -> eyre::Result<()> {
 
     let relay = {
         let url: Url = cli.relay.parse()?;
-        let client = RelayClient::from_url(url, None, None, None, false, false, false);
+        let client = RelayClient::from_url(
+            url,
+            None,
+            None,
+            None,
+            false,
+            Vec::new(),
+            false,
+            false,
+            false,
+        );
         MevBoostRelaySlotInfoProvider::new(client, "relay".to_string())
     };
 

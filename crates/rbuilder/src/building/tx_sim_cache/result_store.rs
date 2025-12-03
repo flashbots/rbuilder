@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
-use alloy_primitives::Address;
-use alloy_primitives::U256;
+use alloy_primitives::{Address, U256};
 use revm::state::AccountInfo;
 
 use parking_lot::RwLock;

@@ -1,4 +1,6 @@
-use crate::{bid_sender::BidSender, types::BlockBid, RPC_TIMEOUT};
+use std::sync::Arc;
+
+use crate::{bid_sender::BidSender, types::ScrapedRelayBlockBid, RPC_TIMEOUT};
 use eyre::{eyre, Context};
 use futures::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
@@ -23,11 +25,11 @@ pub trait ConnectionHandler {
         read: &mut SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     ) -> eyre::Result<()>;
     /// No need to handle ping/pong. Only any accepted data.
-    fn parse(&self, message: Message) -> eyre::Result<Option<BlockBid>>;
+    fn parse(&self, message: Message) -> eyre::Result<Option<ScrapedRelayBlockBid>>;
 }
 pub struct Service<ConnectionHandlerType: 'static> {
     handler: ConnectionHandlerType,
-    sender: BidSender,
+    sender: Arc<dyn BidSender>,
     cancel: CancellationToken,
 }
 
@@ -37,7 +39,7 @@ where
 {
     pub async fn new(
         handler: ConnectionHandlerType,
-        sender: BidSender,
+        sender: Arc<dyn BidSender>,
         cancel: CancellationToken,
     ) -> Self {
         Self {

@@ -1,7 +1,7 @@
 use crate::get_timestamp_f64;
 
 pub mod bid;
-pub use bid::{BlockBid, PublisherType};
+pub use bid::{PublisherType, ScrapedRelayBlockBid};
 
 mod bid_update;
 pub use bid_update::TopBidUpdate;
@@ -11,8 +11,8 @@ pub fn block_bid_from_update(
     relay_name: &str,
     publisher_name: &str,
     publisher_type: PublisherType,
-) -> BlockBid {
-    BlockBid {
+) -> ScrapedRelayBlockBid {
+    ScrapedRelayBlockBid {
         publisher_name: publisher_name.to_owned(),
         publisher_type: publisher_type.to_owned(),
         builder_pubkey: Some(update.builder_pubkey),

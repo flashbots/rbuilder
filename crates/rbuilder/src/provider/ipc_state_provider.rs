@@ -18,7 +18,7 @@ use reipc::rpc_provider::RpcProvider;
 use reth_errors::{ProviderError, ProviderResult};
 use reth_primitives::{Account, Bytecode};
 use reth_provider::{
-    errors::any::AnyError, AccountReader, BlockHashReader, HashedPostStateProvider,
+    errors::any::AnyError, AccountReader, BlockHashReader, BytecodeReader, HashedPostStateProvider,
     StateProofProvider, StateProvider, StateProviderBox, StateRootProvider, StorageRootProvider,
 };
 use reth_trie::{
@@ -36,6 +36,7 @@ use tracing::{trace, trace_span};
 
 use crate::{
     building::ThreadBlockBuildingContext, live_builder::simulation::SimulatedOrderCommand,
+    roothash::RootHashError,
 };
 
 use super::{RootHasher, StateProviderFactory};
@@ -242,24 +243,7 @@ impl IpcStateProvider {
     }
 }
 
-impl StateProvider for IpcStateProvider {
-    /// Get storage of given account
-    fn storage(
-        &self,
-        account: Address,
-        storage_key: StorageKey,
-    ) -> ProviderResult<Option<StorageValue>> {
-        if let Some(storage) = self.storage_cache.get(&(account, storage_key)) {
-            return Ok(*storage);
-        }
-
-        let key: U256 = storage_key.into();
-        let storage = rpc_call(&self.ipc_provider, "eth_getStorageAt", (account, key))?;
-        self.storage_cache.insert((account, storage_key), storage);
-
-        Ok(storage)
-    }
-
+impl BytecodeReader for IpcStateProvider {
     /// Get account code by its hash
     /// IMPORTANT: Assumes remote provider (node) has RPC call:"rbuilder_getCodeByHash"
     fn bytecode_by_hash(&self, code_hash: &B256) -> ProviderResult<Option<Bytecode>> {
@@ -284,6 +268,25 @@ impl StateProvider for IpcStateProvider {
         });
 
         Ok(bytecode)
+    }
+}
+
+impl StateProvider for IpcStateProvider {
+    /// Get storage of given account
+    fn storage(
+        &self,
+        account: Address,
+        storage_key: StorageKey,
+    ) -> ProviderResult<Option<StorageValue>> {
+        if let Some(storage) = self.storage_cache.get(&(account, storage_key)) {
+            return Ok(*storage);
+        }
+
+        let key: U256 = storage_key.into();
+        let storage = rpc_call(&self.ipc_provider, "eth_getStorageAt", (account, key))?;
+        self.storage_cache.insert((account, storage_key), storage);
+
+        Ok(storage)
     }
 }
 
@@ -442,15 +445,24 @@ impl RootHasher for StatRootHashCalculator {
         unimplemented!()
     }
 
+    fn account_proofs(
+        &self,
+        _outcome: &BundleState,
+        _addresses: &eth_sparse_mpt::utils::HashSet<Address>,
+        _local_ctx: &mut ThreadBlockBuildingContext,
+    ) -> Result<eth_sparse_mpt::utils::HashMap<Address, Vec<Bytes>>, RootHashError> {
+        Err(RootHashError::Other(eyre::eyre!("method not implemented")))
+    }
+
     /// Calculates the state root given changed accounts
     /// IMPORTANT: Assumes IPC provider (node) has RPC call:"rbuilder_calculateStateRoot"
     fn state_root(
         &self,
-        outcome: &reth_provider::ExecutionOutcome,
+        outcome: &BundleState,
+        _incremental_change: &[Address],
         _local_ctx: &mut ThreadBlockBuildingContext,
-    ) -> Result<B256, crate::roothash::RootHashError> {
+    ) -> Result<B256, RootHashError> {
         let account_diff: HashMap<Address, AccountDiff> = outcome
-            .bundle
             .state
             .iter()
             .map(|(address, diff)| (*address, diff.clone().into()))
@@ -461,7 +473,7 @@ impl RootHasher for StatRootHashCalculator {
             "rbuilder_calculateStateRoot",
             (BlockId::Hash(self.parent_hash.into()), account_diff),
         )
-        .map_err(|err| crate::roothash::RootHashError::Other(err.into()))?;
+        .map_err(|err| RootHashError::Other(err.into()))?;
 
         Ok(hash)
     }

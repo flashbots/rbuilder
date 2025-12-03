@@ -1,8 +1,8 @@
-use crate::{
-    mev_boost::{BuilderBlockReceived, RelayClient, RelayError, RELAYS},
-    primitives::mev_boost::{MevBoostRelayID, MevBoostRelaySlotInfoProvider},
+use crate::mev_boost::{
+    BuilderBlockReceived, MevBoostRelaySlotInfoProvider, RelayClient, RelayError,
 };
 use futures::{stream::FuturesUnordered, StreamExt};
+use rbuilder_primitives::mev_boost::{MevBoostRelayID, RELAYS};
 use std::collections::HashMap;
 use tracing::trace;
 

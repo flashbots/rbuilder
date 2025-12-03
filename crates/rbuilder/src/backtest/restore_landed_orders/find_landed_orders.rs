@@ -1,11 +1,9 @@
 use std::ops::Range;
 
-use crate::{
-    primitives::{Order, OrderId, ShareBundleBody, ShareBundleInner, TxRevertBehavior},
-    utils::get_percent,
-};
+use crate::utils::get_percent;
 use ahash::HashMap;
 use alloy_primitives::{B256, I256, U256};
+use rbuilder_primitives::{Order, OrderId, ShareBundleBody, ShareBundleInner, TxRevertBehavior};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct OrderTxData {
@@ -48,7 +46,7 @@ impl SimplifiedOrder {
                 )],
             ),
             Order::Bundle(bundle) => {
-                let (refund_percent, receiver_hash) = if let Some(refund) = &bundle.refund {
+                let (refund_percent, refund_payer_hash) = if let Some(refund) = &bundle.refund {
                     (refund.percent as usize, Some(refund.tx_hash))
                 } else {
                     (0, None)
@@ -57,10 +55,10 @@ impl SimplifiedOrder {
                     .list_txs_revert()
                     .into_iter()
                     .map(|(tx, revert)| {
-                        let tx_refund_percent = if Some(tx.hash()) == receiver_hash {
-                            0
-                        } else {
+                        let tx_refund_percent = if Some(tx.hash()) == refund_payer_hash {
                             refund_percent
+                        } else {
+                            0
                         };
                         OrderTxData::new(tx.hash(), revert, tx_refund_percent)
                     })
@@ -440,12 +438,9 @@ fn find_allowed_range(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        primitives::{
-            Bundle, BundleRefund, MempoolTx, Refund, ShareBundle, ShareBundleTx,
-            LAST_BUNDLE_VERSION,
-        },
-        utils::test_utils::*,
+    use crate::utils::test_utils::*;
+    use rbuilder_primitives::{
+        Bundle, BundleRefund, MempoolTx, Refund, ShareBundle, ShareBundleTx, LAST_BUNDLE_VERSION,
     };
 
     #[test]
@@ -460,7 +455,7 @@ mod tests {
         ];
         for (idx, (chunk_idx, chunk_txs_block_idx, expected)) in cases.into_iter().enumerate() {
             let got = find_allowed_range(block_len, chunk_idx, &chunk_txs_block_idx);
-            assert_eq!(expected, got, "Test index: {}", idx);
+            assert_eq!(expected, got, "Test index: {idx}");
         }
     }
 
@@ -474,7 +469,7 @@ mod tests {
         for expected_result in expected {
             let got_result = got
                 .get(&expected_result.order)
-                .unwrap_or_else(|| panic!("Order not found: {:?}", expected_result));
+                .unwrap_or_else(|| panic!("Order not found: {expected_result:?}"));
             assert_eq!(expected_result, *got_result);
         }
     }
@@ -972,7 +967,9 @@ mod tests {
             metadata: Default::default(),
             dropping_tx_hashes: Default::default(),
             refund: Default::default(),
+            refund_identity: None,
             version: LAST_BUNDLE_VERSION,
+            external_hash: None,
         });
         let expected = SimplifiedOrder::new(
             OrderId::Bundle(uuid::uuid!("00000000-0000-0000-0000-ffff00000002")),
@@ -1003,9 +1000,12 @@ mod tests {
             refund: Some(BundleRefund {
                 percent: 10,
                 recipient: Default::default(),
-                tx_hash: hash(0x01),
+                tx_hash: hash(0x02),
+                delayed: false,
             }),
+            refund_identity: None,
             version: LAST_BUNDLE_VERSION,
+            external_hash: None,
         });
         let expected = SimplifiedOrder::new(
             OrderId::Bundle(uuid::uuid!("00000000-0000-0000-0000-ffff00000002")),

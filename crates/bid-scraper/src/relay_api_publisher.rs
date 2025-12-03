@@ -10,10 +10,11 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
 use crate::{
-    bid_sender::BidSender, get_timestamp_f64, slot, types::BlockBid, REQUEST_TIMEOUT, RPC_TIMEOUT,
+    bid_sender::BidSender, get_timestamp_f64, slot, types::ScrapedRelayBlockBid, REQUEST_TIMEOUT,
+    RPC_TIMEOUT,
 };
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct SimpleRelayPublisherConfig {
     /// Endpoint for an EL client. Example:"ws://127.0.0.1:8545"
     pub eth_provider_uri: String,
@@ -60,7 +61,7 @@ pub trait Service<CfgType: CfgWithSimpleRelayPublisherConfig>: Clone + Sized + S
     fn cancellation_token(&self) -> CancellationToken;
     fn new_(
         name: String,
-        sender: Arc<BidSender>,
+        sender: Arc<dyn BidSender>,
         inner: Arc<Mutex<ServiceInner<CfgType>>>,
         cancel: CancellationToken,
     ) -> Self;
@@ -96,14 +97,14 @@ pub trait Service<CfgType: CfgWithSimpleRelayPublisherConfig>: Clone + Sized + S
         self,
         relay_name: String,
         relay_endpoint: String,
-        bids_seen: Arc<Mutex<LruCache<BlockBid, ()>>>,
+        bids_seen: Arc<Mutex<LruCache<ScrapedRelayBlockBid, ()>>>,
         client: Arc<reqwest::Client>,
     );
 
     async fn new<'a>(
         cfg: CfgType,
         name: String,
-        sender: BidSender,
+        sender: Arc<dyn BidSender>,
         cancel: CancellationToken,
     ) -> eyre::Result<Self>
     where
@@ -142,7 +143,7 @@ pub trait Service<CfgType: CfgWithSimpleRelayPublisherConfig>: Clone + Sized + S
         }
         Ok(Self::new_(
             name,
-            Arc::new(sender),
+            sender,
             Arc::new(Mutex::new(ServiceInner::<CfgType> {
                 cfg,
                 relays,
@@ -186,7 +187,7 @@ pub trait Service<CfgType: CfgWithSimpleRelayPublisherConfig>: Clone + Sized + S
             return Ok(());
         }
 
-        let headers_seen: Arc<Mutex<LruCache<BlockBid, ()>>> =
+        let headers_seen: Arc<Mutex<LruCache<ScrapedRelayBlockBid, ()>>> =
             Arc::new(Mutex::new(LruCache::new(NonZeroUsize::new(4096).unwrap())));
         let client = Arc::new(
             reqwest::Client::builder()

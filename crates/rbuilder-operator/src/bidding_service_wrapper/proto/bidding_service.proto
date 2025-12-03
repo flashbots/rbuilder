@@ -1,0 +1,86 @@
+syntax = "proto3";
+package bidding_service;
+
+// Protocol for the bidding service. It's used to marshal all the traits in src/block_descriptor_bidding/traits.rs
+// Usage:
+// The client connects to the server and calls Initialize, this call should create the real BiddingService on the server side.
+// Before calling Initialize any other call will fail. Initialize can be called again to recreate the BiddingService (eg: rbuilder reconnection).
+// After that, for each slot the client should call CreateSlotBidder to create the SlotBidder on the server side and DestroySlotBidder when the SlotBidder is not needed anymore.
+// Other calls are almost 1 to 1 with the original traits but for SlotBidder calls block/slot are added to identify the SlotBidder.
+// Notice that CreateSlotBidder returns a stream of Callback. This stream is used for 2 things:
+// - Send back bids made by the SlotBidder.
+// - Notify changes on the state of SlotBidder's can_use_suggested_fee_recipient_as_coinbase. We use this methodology instead of a 
+//   forward RPC call since can_use_suggested_fee_recipient_as_coinbase almost does not change and we want to avoid innecesary RPC calls during block building.
+service BiddingService {
+
+    // Call after connection before calling anything. This will really create the BiddingService on the server side.
+    // Returns the version info for the server side.
+    rpc Initialize(InitParams) returns (InitReturn);
+
+    // BiddingService
+    rpc CreateSlotBidder(CreateSlotBidderParams) returns (Empty);
+    rpc DestroySlotBidder(DestroySlotBidderParams) returns (Empty);
+    rpc MustWinBlock(MustWinBlockParams) returns (Empty);
+    rpc UpdateNewLandedBlocksDetected(LandedBlocksParams) returns (Empty);
+    rpc UpdateFailedReadingNewLandedBlocks(Empty) returns (Empty);
+}
+
+message Empty {
+}
+
+message MustWinBlockParams {
+    uint64 block = 1;
+}
+
+message DestroySlotBidderParams {
+    uint64 session_id = 1;
+}
+
+message CreateSlotBidderParams {
+    uint64 block = 1;
+    uint64 slot = 2;
+    bytes parent_hash = 3; // Array of 32 bytes
+    // Id identifying the session. Used in all following calls.
+    uint64 session_id = 4;
+    // unix ts
+    int64 slot_timestamp = 5;
+}
+
+
+// Info about a onchain block from reth.
+message LandedBlockInfo {
+    uint64 block_number = 1;
+    int64 block_timestamp = 2;
+    repeated uint64 builder_balance = 3; // Array of 4 uint64
+    // true -> we landed this block.
+    // If false we could have landed it in coinbase == fee recipient mode but balance wouldn't change so we don't care.
+    bool beneficiary_is_builder = 4;
+}
+
+message LandedBlocksParams {
+    repeated LandedBlockInfo landed_block_info = 1;
+}
+
+message RelaySet {
+    // Ids of the relays (MevBoostRelayIDs)
+    repeated string relay_ids = 2;
+}
+
+message InitParams {
+    repeated LandedBlockInfo landed_block_info = 1;
+    // All the relays we bid to.
+    RelaySet all_relay_ids = 2;
+}
+
+// Mapping of build_info::Version
+message BidderVersionInfo {
+    string git_commit = 1;
+    string git_ref = 2;
+    string build_time_utc = 3;
+}
+
+message InitReturn {
+    BidderVersionInfo bidder_version = 1;
+    // RelaySets the bidder will use.
+    repeated RelaySet relay_sets = 2;
+}

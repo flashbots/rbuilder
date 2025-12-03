@@ -1,15 +1,15 @@
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-
-use alloy_primitives::{utils::format_ether, TxHash, U256};
-
-use crate::{
-    building::{
-        CriticalCommitOrderError, ExecutionError, ExecutionResult, PartialBlockExecutionTracer,
-        PartialBlockForkExecutionTracer, TransactionErr, TransactionOk,
-    },
-    primitives::{OrderId, TransactionSignedEcRecoveredWithBlobs},
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
 };
+
+use alloy_primitives::{utils::format_ether, TxHash, I256, U256};
+
+use crate::building::{
+    BlockBuildingSpaceState, CriticalCommitOrderError, ExecutionError, ExecutionResult,
+    PartialBlockExecutionTracer, PartialBlockForkExecutionTracer, TransactionErr, TransactionOk,
+};
+use rbuilder_primitives::{OrderId, TransactionSignedEcRecoveredWithBlobs};
 
 const INDENT_SIZE: usize = 2;
 
@@ -64,17 +64,21 @@ impl SimpleTxExecutionResult {
 struct TxExecutionSummary {
     base: BaseExecutionSummary,
     hash: TxHash,
+    coinbase_delta: I256,
+    gas_used: u64,
     result: SimpleTxExecutionResult,
 }
 
 impl TxExecutionSummary {
     fn print_summary_indented(&self, indent: usize) {
         println!(
-            "{} {: <indent$}TX {:?} {} {}",
+            "{} {: <indent$}TX {:?} {} D {:>22} G {:>8} {}",
             format_duration(self.base.execution_start),
             "",
             self.hash,
             format_duration(self.base.execution_time),
+            format_ether(self.coinbase_delta),
+            self.gas_used,
             self.result.label()
         );
     }
@@ -190,7 +194,10 @@ impl FullPartialBlockExecutionTracer {
 }
 
 impl PartialBlockExecutionTracer for FullPartialBlockExecutionTracer {
-    fn update_commit_order_about_to_execute(&mut self, _order: &crate::primitives::SimulatedOrder) {
+    fn update_commit_order_about_to_execute(
+        &mut self,
+        _order: &rbuilder_primitives::SimulatedOrder,
+    ) {
         assert!(self.last_order_start_time.is_none());
         assert!(self.order_executed_txs.is_empty());
         self.last_order_start_time = Some(Instant::now());
@@ -201,7 +208,7 @@ impl PartialBlockExecutionTracer for FullPartialBlockExecutionTracer {
 
     fn update_commit_order_executed(
         &mut self,
-        order: &crate::primitives::SimulatedOrder,
+        order: &rbuilder_primitives::SimulatedOrder,
         res: &Result<Result<ExecutionResult, ExecutionError>, CriticalCommitOrderError>,
     ) {
         let base = BaseExecutionSummary {
@@ -247,9 +254,7 @@ impl PartialBlockForkExecutionTracer for FullPartialBlockExecutionTracer {
     fn update_commit_tx_about_to_execute(
         &mut self,
         _tx_with_blobs: &TransactionSignedEcRecoveredWithBlobs,
-        _cumulative_gas_used: u64,
-        _gas_reserved: u64,
-        _cumulative_blob_gas_used: u64,
+        _space_state: BlockBuildingSpaceState,
     ) {
         self.last_tx_start_time = Instant::now();
         if self.execution_start.is_none() {
@@ -259,17 +264,15 @@ impl PartialBlockForkExecutionTracer for FullPartialBlockExecutionTracer {
 
     fn update_commit_tx_executed(
         &mut self,
-        tx_with_blobs: &crate::primitives::TransactionSignedEcRecoveredWithBlobs,
-        _cumulative_gas_used: u64,
-        _gas_reserved: u64,
-        _cumulative_blob_gas_used: u64,
+        tx_with_blobs: &rbuilder_primitives::TransactionSignedEcRecoveredWithBlobs,
+        _space_state: BlockBuildingSpaceState,
         res: &Result<Result<TransactionOk, TransactionErr>, CriticalCommitOrderError>,
     ) {
         let base = BaseExecutionSummary {
             execution_start: self.last_tx_start_time - self.execution_start.unwrap(),
             execution_time: self.last_tx_start_time.elapsed(),
         };
-        let result = match &res {
+        let (result, coinbase_delta, gas_used) = match &res {
             Ok(Ok(tx_ok)) => match tx_ok.exec_result {
                 revm::context::result::ExecutionResult::Success {
                     reason: _,
@@ -277,22 +280,40 @@ impl PartialBlockForkExecutionTracer for FullPartialBlockExecutionTracer {
                     gas_refunded: _,
                     logs: _,
                     output: _,
-                } => SimpleTxExecutionResult::OkSuccess,
+                } => (
+                    SimpleTxExecutionResult::OkSuccess,
+                    tx_ok.tx_info.coinbase_profit,
+                    tx_ok.tx_info.space_used.gas,
+                ),
                 revm::context::result::ExecutionResult::Revert {
                     gas_used: _,
                     output: _,
-                } => SimpleTxExecutionResult::OkRevert,
+                } => (
+                    SimpleTxExecutionResult::OkRevert,
+                    tx_ok.tx_info.coinbase_profit,
+                    tx_ok.tx_info.space_used.gas,
+                ),
                 revm::context::result::ExecutionResult::Halt {
                     reason: _,
                     gas_used: _,
-                } => SimpleTxExecutionResult::OkHalt,
+                } => (
+                    SimpleTxExecutionResult::OkHalt,
+                    tx_ok.tx_info.coinbase_profit,
+                    tx_ok.tx_info.space_used.gas,
+                ),
             },
-            Ok(Err(_)) => SimpleTxExecutionResult::Err,
-            Err(_) => SimpleTxExecutionResult::CriticalCommitOrderError,
+            Ok(Err(_)) => (SimpleTxExecutionResult::Err, I256::ZERO, 0),
+            Err(_) => (
+                SimpleTxExecutionResult::CriticalCommitOrderError,
+                I256::ZERO,
+                0,
+            ),
         };
         let summary = TxExecutionSummary {
             base,
             hash: tx_with_blobs.hash(),
+            coinbase_delta,
+            gas_used,
             result,
         };
         if self.last_order_start_time.is_some() {

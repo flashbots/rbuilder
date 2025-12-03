@@ -1,0 +1,70 @@
+[package]
+name = "rbuilder-utils"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+exclude.workspace = true
+
+[dependencies]
+reth-tasks = { git = "https://github.com/paradigmxyz/reth", rev = "9c30bf7af5e0d45deaf5917375c9922c16654b28" }
+
+# misc
+derivative.workspace = true
+integer-encoding = "4.0.0"
+sha2 = { workspace = true, features = ["asm"] }
+uuid = { version = "1.6.1", features = ["serde", "v5", "v4"] }
+governor = "0.6.3"
+ahash.workspace = true
+reqwest = { workspace = true, features = ["blocking"] }
+serde_with = { workspace = true, features = ["time_0_3"] }
+serde_bytes = "0.11"
+toml.workspace = true
+tracing.workspace = true
+time.workspace = true
+thiserror.workspace = true
+eyre.workspace = true
+serde.workspace = true
+derive_more.workspace = true
+serde_json.workspace = true
+
+
+# alloy
+alloy-primitives.workspace = true
+
+strum = "0.27"
+strum_macros = "0.27"
+tokio = { version = "1.40.0", default-features = false, features = [
+  "sync",
+  "time",
+  "rt-multi-thread",
+  "macros",
+  "test-util"
+] }
+
+clickhouse = { version = "0.14.0", features = [
+  "inserter",
+  "time",
+  "uuid",
+  "native-tls"
+] }
+clickhouse-derive = { version = "0.2.0" }
+redb = { version = "3.1.0" }
+tempfile = { version = "3.23.0" }
+rand = "0.9.2"
+futures = { version = "0.3" }
+futures-util = { version = "0.3.31" }
+
+# tracing
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-futures = "0.2.5"
+
+# misc
+auto_impl = "1.3.0"
+dyn-clone = "1.0.20"
+
+[features]
+default = []
+test-utils = []

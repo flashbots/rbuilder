@@ -8,7 +8,7 @@ use crate::{
     ultrasound_ws_publisher::UltrasoundWsPublisherConfig,
 };
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum PublisherConfig {
     RelayBids(RelayBidsPublisherConfig),
@@ -18,7 +18,7 @@ pub enum PublisherConfig {
     ExternalWs(ExternalWsPublisherConfig),
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct NamedPublisherConfig {
     pub name: String,
     #[serde(flatten)]

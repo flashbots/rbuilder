@@ -1,7 +1,7 @@
-use crate::primitives::OrderId;
 use ahash::HashMap;
 use alloy_primitives::U256;
 use parking_lot::RwLock as PLRwLock;
+use rbuilder_primitives::OrderId;
 use revm::database::BundleState;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
@@ -185,7 +185,10 @@ mod tests {
     use super::*;
     use alloy_primitives::{Address, B256, U256};
     use revm::{
-        database::states::{AccountStatus, BundleAccount, StorageSlot},
+        database::{
+            states::{AccountStatus, BundleAccount, StorageSlot},
+            StorageWithOriginalValues,
+        },
         state::AccountInfo,
     };
     use std::collections::HashMap;
@@ -212,8 +215,8 @@ mod tests {
             let mut storage = AlloyHashMap::default();
             storage.insert(U256::from(self.last_used_id), U256::from(self.last_used_id));
 
-            let mut storage_bundle_account: AlloyHashMap<U256, StorageSlot> =
-                AlloyHashMap::default();
+            let mut storage_bundle_account: StorageWithOriginalValues =
+                StorageWithOriginalValues::default();
             let storage_slot = StorageSlot::new_changed(
                 U256::from(self.last_used_id),
                 U256::from(self.last_used_id + 1),

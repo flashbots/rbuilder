@@ -1,28 +1,32 @@
-mod unfinished_block_building_sink_muxer;
+pub mod built_block_cache;
 
 use crate::{
     building::{
-        builders::{
-            BlockBuildingAlgorithm, BlockBuildingAlgorithmInput, UnfinishedBlockBuildingSinkFactory,
-        },
+        builders::{BlockBuildingAlgorithm, BlockBuildingAlgorithmInput, BuiltBlockIdSource},
         multi_share_bundle_merger::MultiShareBundleMerger,
         simulated_order_command_to_sink, BlockBuildingContext, SimulatedOrderSink,
     },
-    live_builder::{payload_events::MevBoostSlotData, simulation::SlotOrderSimResults},
-    primitives::{OrderId, SimulatedOrder},
+    live_builder::{
+        building::built_block_cache::BuiltBlockCache,
+        order_flow_tracing::order_flow_tracer_manager::OrderFlowTracerManager,
+        order_input::replaceable_order_sink::ReplaceableOrderSink,
+        payload_events::MevBoostSlotData, simulation::SlotOrderSimResults,
+    },
     provider::StateProviderFactory,
 };
 use alloy_primitives::Address;
+use rbuilder_primitives::{OrderId, SimulatedOrder};
+use reth_chainspec::EthereumHardforks as _;
 use std::{cell::RefCell, rc::Rc, sync::Arc, thread, time::Duration};
 use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, trace, warn};
-use unfinished_block_building_sink_muxer::UnfinishedBlockBuildingSinkMuxer;
 
 /// Interval for checking if last block still corresponds to the parent of the given block building context
 const CHECK_LAST_BLOCK_INTERVAL: Duration = Duration::from_millis(100);
 
 use super::{
+    block_output::unfinished_block_processing::UnfinishedBuiltBlocksInputFactory,
     order_input::{
         self, order_replacement_manager::OrderReplacementManager, orderpool::OrdersForBlock,
     },
@@ -35,25 +39,29 @@ use super::{
 pub struct BlockBuildingPool<P> {
     provider: P,
     builders: Vec<Arc<dyn BlockBuildingAlgorithm<P>>>,
-    sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
+    sink_factory: UnfinishedBuiltBlocksInputFactory<P>,
     orderpool_subscriber: order_input::OrderPoolSubscriber,
     order_simulation_pool: OrderSimulationPool<P>,
     run_sparse_trie_prefetcher: bool,
     sbundle_merger_selected_signers: Arc<Vec<Address>>,
+    order_flow_tracer_manager: Box<dyn OrderFlowTracerManager>,
+    built_block_id_source: Arc<BuiltBlockIdSource>,
 }
 
 impl<P> BlockBuildingPool<P>
 where
     P: StateProviderFactory + Clone + 'static,
 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         provider: P,
         builders: Vec<Arc<dyn BlockBuildingAlgorithm<P>>>,
-        sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
+        sink_factory: UnfinishedBuiltBlocksInputFactory<P>,
         orderpool_subscriber: order_input::OrderPoolSubscriber,
         order_simulation_pool: OrderSimulationPool<P>,
         run_sparse_trie_prefetcher: bool,
         sbundle_merger_selected_signers: Arc<Vec<Address>>,
+        order_flow_tracer_manager: Box<dyn OrderFlowTracerManager>,
     ) -> Self {
         BlockBuildingPool {
             provider,
@@ -63,10 +71,16 @@ where
             order_simulation_pool,
             run_sparse_trie_prefetcher,
             sbundle_merger_selected_signers,
+            order_flow_tracer_manager,
+            built_block_id_source: Arc::new(BuiltBlockIdSource::new()),
         }
     }
 
-    /// Connects OrdersForBlock->OrderReplacementManager->Simulations and calls start_building_job
+    /// Connects OrdersForBlock (source of orders) ->
+    /// [Optional] OrderFlowTracerManager provided tracer ->
+    /// ReplaceableOrderStreamSniffer (notifies mempool txs to MempoolTxsDetector) ->
+    /// BlobTypeOrderFilter (filters out Orders with incorrect blobs (pre/post fusaka)) ->
+    /// OrderReplacementManager (Handles cancellations and replacements) -> Simulations and calls start_building_job
     pub fn start_block_building(
         &mut self,
         payload: payload_events::MevBoostSlotData,
@@ -75,7 +89,6 @@ where
         max_time_to_build: Duration,
     ) {
         let block_cancellation = global_cancellation.child_token();
-
         let cancel = block_cancellation.clone();
         let block = block_ctx.block();
         let payload_id = block_ctx.payload_id;
@@ -101,21 +114,41 @@ where
         // add OrderReplacementManager to manage replacements and cancellations
         let order_replacement_manager = OrderReplacementManager::new(Box::new(sink));
 
+        let blob_type_order_filter: Box<dyn ReplaceableOrderSink> = if block_ctx
+            .chain_spec
+            .is_osaka_active_at_timestamp(block_ctx.attributes.timestamp)
+        {
+            Box::new(order_input::blob_type_order_filter::new_fusaka(Box::new(
+                order_replacement_manager,
+            )))
+        } else {
+            Box::new(order_input::blob_type_order_filter::new_pre_fusaka(
+                Box::new(order_replacement_manager),
+            ))
+        };
+
         let mempool_txs_detector_sniffer =
             order_input::mempool_txs_detector::ReplaceableOrderStreamSniffer::new(
-                Box::new(order_replacement_manager),
+                blob_type_order_filter,
                 block_ctx.mempool_tx_detector.clone(),
             );
-        // sink removal is automatic via OrderSink::is_alive false
-        let _block_sub = self.orderpool_subscriber.add_sink(
-            block_ctx.evm_env.block_env.number,
+
+        // order_flow_tracer_manager may add some extra  ReplaceableOrderSink on the chain.
+        let (sim_tracer, order_flow_input) = self.order_flow_tracer_manager.create_tracers(
+            payload.slot_block_id(),
             Box::new(mempool_txs_detector_sniffer),
         );
+
+        // sink removal is automatic via OrderSink::is_alive false
+        let _block_sub = self
+            .orderpool_subscriber
+            .add_sink(block_ctx.block(), order_flow_input);
 
         let simulations_for_block = self.order_simulation_pool.spawn_simulation_job(
             block_ctx.clone(),
             orders_for_block,
             block_cancellation.clone(),
+            sim_tracer,
         );
         self.start_building_job(
             block_ctx,
@@ -133,12 +166,12 @@ where
         input: SlotOrderSimResults,
         cancel: CancellationToken,
     ) {
-        let builder_sink = self.sink_factory.create_sink(slot_data, cancel.clone());
+        let built_block_cache = Arc::new(BuiltBlockCache::new());
+        let builder_sink =
+            self.sink_factory
+                .create_sink(slot_data, built_block_cache.clone(), cancel.clone());
         let (broadcast_input, _) = broadcast::channel(10_000);
-        let muxer = Arc::new(UnfinishedBlockBuildingSinkMuxer::new(builder_sink));
-
-        let block_number = ctx.evm_env.block_env.number;
-
+        let block_number = ctx.block();
         for builder in self.builders.iter() {
             let builder_name = builder.name();
             debug!(
@@ -147,12 +180,15 @@ where
                 builder_name,
                 "Spawning builder job"
             );
+
             let input = BlockBuildingAlgorithmInput::<P> {
                 provider: self.provider.clone(),
                 ctx: ctx.clone(),
                 input: broadcast_input.subscribe(),
-                sink: muxer.clone(),
+                sink: builder_sink.clone(),
                 cancel: cancel.clone(),
+                built_block_cache: built_block_cache.clone(),
+                built_block_id_source: self.built_block_id_source.clone(),
             };
             let builder = builder.clone();
             tokio::task::spawn_blocking(move || {

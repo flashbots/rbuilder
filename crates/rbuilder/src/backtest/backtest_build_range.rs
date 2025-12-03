@@ -17,12 +17,13 @@ use crate::{
         execute::{backtest_simulate_block, BlockBacktestValue},
         BacktestResultsStorage, BlockData, HistoricalDataStorage, StoredBacktestResult,
     },
-    live_builder::{base_config::load_config_toml_and_env, cli::LiveBuilderConfig},
+    live_builder::cli::LiveBuilderConfig,
     utils::timestamp_ms_to_offset_datetime,
 };
-use alloy_primitives::{utils::format_ether, Address, U256};
+use alloy_primitives::{utils::format_ether, U256};
 use clap::Parser;
 use rayon::prelude::*;
+use rbuilder_config::load_toml_config;
 use std::{
     fs::File,
     io::{self, Write},
@@ -57,8 +58,6 @@ struct Cli {
     compare_backtest: bool,
     #[clap(long, help = "Path to csv file to write output to")]
     csv: Option<PathBuf>,
-    #[clap(long, help = "Ignored signers")]
-    ignored_signers: Vec<Address>,
     #[clap(help = "Blocks")]
     blocks: Vec<u64>,
 }
@@ -74,7 +73,7 @@ where
             "Cannot store and compare backtest results at the same time."
         ));
     }
-    let config: ConfigType = load_config_toml_and_env(cli.config.clone())?;
+    let config: ConfigType = load_toml_config(cli.config.clone())?;
     config.base_config().setup_tracing_subscriber()?;
 
     let builders_names = config.base_config().backtest_builders.clone();
@@ -144,7 +143,6 @@ where
         historical_data_storage,
         blocks.clone(),
         cli.build_block_lag_ms as i64,
-        cli.ignored_signers,
         cancel_token.clone(),
     );
 
@@ -229,7 +227,10 @@ where
                 print_backtest_value_diff(&stored_result, &o);
             } else if cli.store_backtest {
                 backtest_results_storage
-                    .store_backtest_results(time::OffsetDateTime::now_utc(), &[o.clone()])
+                    .store_backtest_results(
+                        time::OffsetDateTime::now_utc(),
+                        std::slice::from_ref(&o),
+                    )
                     .await?;
                 print_backtest_value(o);
             } else {
@@ -370,9 +371,9 @@ impl CSVResultWriter {
         let mut line = String::new();
         line.push_str("block_number,winning_bid_value,simulated_orders_count");
         for builder_name in &self.builder_names {
-            line.push_str(&format!(",{}", builder_name));
+            line.push_str(&format!(",{builder_name}"));
         }
-        writeln!(self.file, "{}", line)?;
+        writeln!(self.file, "{line}")?;
         self.file.flush()
     }
 
@@ -393,7 +394,7 @@ impl CSVResultWriter {
                 .unwrap_or_default();
             line.push_str(&format!(",{}", format_ether(builder_res)));
         }
-        writeln!(self.file, "{}", line)?;
+        writeln!(self.file, "{line}")?;
         self.file.flush()
     }
 }
@@ -405,7 +406,6 @@ fn spawn_block_fetcher(
     mut historical_data_storage: HistoricalDataStorage,
     blocks: Vec<u64>,
     build_block_lag_ms: i64,
-    ignored_signers: Vec<Address>,
     cancellation_token: CancellationToken,
 ) -> mpsc::Receiver<Vec<BlockData>> {
     let (sender, receiver) = mpsc::channel(10);
@@ -429,10 +429,7 @@ fn spawn_block_fetcher(
                         (full_block.winning_bid_trace.timestamp_ms as i64 - build_block_lag_ms)
                             as u64,
                     )) {
-                        Ok(mut block) => {
-                            block.filter_out_ignored_signers(&ignored_signers);
-                            Some(block)
-                        }
+                        Ok(block) => Some(block),
                         Err(err) => {
                             error!(
                                 err = ?err,

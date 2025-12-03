@@ -1,11 +1,12 @@
 use alloy_json_rpc::{ErrorPayload, RpcError};
-use std::{fmt::Debug, sync::Arc};
-
 use alloy_primitives::B256;
 use alloy_provider::{Provider, RootProvider};
-use rbuilder::{mev_boost::submission::SubmitBlockRequest, utils::http_provider};
+use alloy_rpc_types_beacon::relay::SubmitBlockRequest as AlloySubmitBlockRequest;
+use rbuilder::utils::http_provider;
+use rbuilder_primitives::mev_boost::SubmitBlockRequest;
 use serde::Serialize;
 use serde_with::{serde_as, DisplayFromStr};
+use std::{fmt::Debug, sync::Arc};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info_span, warn};
@@ -43,7 +44,7 @@ pub enum ValidationError {
 
 impl Debug for ValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self)
+        write!(f, "{self}")
     }
 }
 
@@ -68,10 +69,11 @@ impl ValidationAPIClient {
             return Err(ValidationError::NoValidationNodes);
         }
 
-        let method = match req {
-            SubmitBlockRequest::Capella(_) => "flashbots_validateBuilderSubmissionV2",
-            SubmitBlockRequest::Deneb(_) => "flashbots_validateBuilderSubmissionV3",
-            SubmitBlockRequest::Electra(_) => "flashbots_validateBuilderSubmissionV4",
+        let method = match req.request.as_ref() {
+            AlloySubmitBlockRequest::Capella(_) => "flashbots_validateBuilderSubmissionV2",
+            AlloySubmitBlockRequest::Deneb(_) => "flashbots_validateBuilderSubmissionV3",
+            AlloySubmitBlockRequest::Electra(_) => "flashbots_validateBuilderSubmissionV4",
+            AlloySubmitBlockRequest::Fulu(_) => "flashbots_validateBuilderSubmissionV5",
         };
         let request = ValidRequest {
             req: req.clone(),

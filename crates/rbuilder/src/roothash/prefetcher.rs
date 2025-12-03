@@ -5,7 +5,7 @@ use alloy_eips::BlockNumHash;
 use alloy_primitives::Address;
 use eth_sparse_mpt::*;
 use reth::providers::providers::ConsistentDbView;
-use reth_provider::{BlockReader, DatabaseProviderFactory, StateCommitmentProvider};
+use reth_provider::{BlockReader, DatabaseProviderFactory};
 use tokio::sync::broadcast::{
     self,
     error::{RecvError, TryRecvError},
@@ -14,9 +14,10 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, trace, warn};
 
 use crate::{
-    building::evm_inspector::SlotKey, live_builder::simulation::SimulatedOrderCommand,
-    telemetry::inc_root_hash_prefetch_count, utils::elapsed_ms,
+    live_builder::simulation::SimulatedOrderCommand, telemetry::inc_root_hash_prefetch_count,
+    utils::elapsed_ms,
 };
+use rbuilder_primitives::evm_inspector::SlotKey;
 
 const CONSUME_SIM_ORDERS_BATCH: usize = 128;
 
@@ -31,7 +32,6 @@ pub fn run_trie_prefetcher<P>(
     cancel: CancellationToken,
 ) where
     P: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync + Clone,
-    P: StateCommitmentProvider,
 {
     let consistent_db_view = ConsistentDbView::new(
         provider,

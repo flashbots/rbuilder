@@ -85,6 +85,6 @@ mod tests {
         // validate that the stream is not empty
         // TODO: add timeout
         let event = stream.next().await.unwrap().unwrap();
-        print!("{:?}", event);
+        print!("{event:?}");
     }
 }

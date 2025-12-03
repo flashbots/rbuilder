@@ -1,5 +1,5 @@
-use crate::primitives::{ProfitInfo, SimValue, SimulatedOrder};
 use alloy_primitives::U256;
+use rbuilder_primitives::{ProfitInfo, SimValue, SimulatedOrder};
 use std::{cmp::Ordering, sync::Arc};
 
 /// Trait to specify how we prioritize orders (eg: which we try first when are building blocks)
@@ -253,10 +253,8 @@ mod test {
 
     use alloy_primitives::U256;
 
-    use crate::{
-        building::order_priority::NonMempoolProfitInfoGetter,
-        primitives::{AccountNonce, BundledTxInfo, Order, SimValue, SimulatedOrder},
-    };
+    use crate::building::order_priority::NonMempoolProfitInfoGetter;
+    use rbuilder_primitives::{AccountNonce, BundledTxInfo, Order, SimValue, SimulatedOrder};
 
     use super::{
         FullProfitInfoGetter, OrderLengthThreeMaxProfitPriority,
@@ -272,7 +270,7 @@ mod test {
 
     #[derive(Default)]
     struct TestContext {
-        data_gen: crate::primitives::TestDataGenerator,
+        data_gen: rbuilder_primitives::TestDataGenerator,
     }
 
     impl TestContext {
@@ -280,7 +278,7 @@ mod test {
         fn create_nonce(&mut self) -> AccountNonce {
             AccountNonce {
                 nonce: Default::default(),
-                account: self.data_gen.base.create_address(),
+                account: self.data_gen.create_address(),
             }
         }
 

@@ -2,14 +2,14 @@
 
 use std::time::{Duration, Instant};
 
-use crate::primitives::{
-    serialize::{RawTx, TxEncoding},
-    TransactionSignedEcRecoveredWithBlobs,
-};
 use alloy_consensus::TxEnvelope;
 use alloy_eips::eip2718::Encodable2718;
 use alloy_primitives::{Address, Sign, I256, U256};
 use alloy_provider::RootProvider;
+use rbuilder_primitives::{
+    serialize::{RawTx, TxEncoding},
+    TransactionSignedEcRecoveredWithBlobs,
+};
 use reth_chainspec::ChainSpec;
 use reth_evm_ethereum::revm_spec_by_timestamp_and_block_number;
 use revm::context::CfgEnv;
@@ -20,6 +20,7 @@ pub mod build_info;
 pub mod constants;
 
 mod noncer;
+pub mod sync;
 pub use noncer::NonceCache;
 
 pub mod error_storage;
@@ -33,15 +34,12 @@ pub use provider_factory_reopen::{
 
 pub mod reconnect;
 
-mod test_data_generator;
-pub use test_data_generator::TestDataGenerator;
-
 mod tx_signer;
 pub use tx_signer::Signer;
 
+pub mod mevblocker;
 pub mod provider_head_state;
 pub mod receipts;
-pub mod tracing;
 
 #[cfg(test)]
 pub mod test_utils;
@@ -68,6 +66,31 @@ pub mod u256decimal_serde_helper {
         let s = String::deserialize(deserializer)?;
         //from_str is robust, can take decimal or other prefixed (eg:"0x" hexa) formats.
         U256::from_str(&s).map_err(serde::de::Error::custom)
+    }
+}
+
+/// de/serializes U256 as decimal value (U256 serde default is hexa). Needed to interact with some JSONs (eg:ProposerPayloadDelivered in relay provider API)
+pub mod i256decimal_serde_helper {
+    use std::str::FromStr;
+
+    use alloy_primitives::I256;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(value: &I256, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        //fmt::Display for I256 uses decimal
+        serializer.serialize_str(&value.to_string())
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<I256, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        //from_str is robust, can take decimal or other prefixed (eg:"0x" hexa) formats.
+        I256::from_str(&s).map_err(serde::de::Error::custom)
     }
 }
 

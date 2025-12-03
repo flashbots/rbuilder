@@ -3,22 +3,21 @@
 
 use rbuilder::{
     backtest::fetch::{
-        backtest_fetch::run_backtest_fetch, data_source::DataSource, flashbots_db::RelayDB,
+        backtest_fetch::run_backtest_fetch, data_source::DataSource,
+        mempool::MempoolDumpsterDatasource,
     },
     live_builder::{cli::LiveBuilderConfig, config::Config},
 };
 
-async fn create_bundle_source(config: Config) -> eyre::Result<Option<Box<dyn DataSource>>> {
-    if let Some(db) = config.base_config().flashbots_db.clone() {
-        let relay_db = RelayDB::from_url(db.value()?).await?;
-        Ok(Some(Box::new(relay_db)))
-    } else {
-        Ok(None)
-    }
+async fn create_order_source(config: Config) -> eyre::Result<Box<dyn DataSource>> {
+    // create paths for backtest_fetch_mempool_data_dir (i.e "~/.rbuilder/mempool-data" and ".../transactions")
+    let backtest_fetch_mempool_data_dir = config.base_config().backtest_fetch_mempool_data_dir()?;
+    let mempool_datasource = MempoolDumpsterDatasource::new(backtest_fetch_mempool_data_dir)?;
+    Ok(Box::new(mempool_datasource))
 }
 
 #[tokio::main]
 #[allow(clippy::needless_borrow)]
 async fn main() -> eyre::Result<()> {
-    run_backtest_fetch::<Config, _, _>(create_bundle_source).await
+    run_backtest_fetch::<Config, _, _>(create_order_source).await
 }

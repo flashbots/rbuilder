@@ -1,21 +1,18 @@
 //! Implementation of [`DataSource`] to bring mempool txs from flashbots' mempool dumpster.
 //! It downloads all the needed parquet files and keeps them cached for future use.
-use crate::{
-    backtest::{
-        fetch::data_source::{
-            get_full_slot_data_from_data, BlockRef, DataSource, DatasourceData,
-            FullSlotDatasourceData,
-        },
-        OrdersWithTimestamp,
+use crate::backtest::{
+    fetch::data_source::{
+        get_full_slot_data_from_data, BlockRef, DataSource, DatasourceData, FullSlotDatasourceData,
     },
-    primitives::{
-        serialize::{RawOrder, RawTx, TxEncoding},
-        Order,
-    },
+    OrdersWithTimestamp,
 };
 use async_trait::async_trait;
 use eyre::WrapErr;
 use mempool_dumpster::TransactionRangeError;
+use rbuilder_primitives::{
+    serialize::{RawOrder, RawTx, TxEncoding},
+    Order,
+};
 use sqlx::types::chrono::DateTime;
 use std::{
     fs::create_dir_all,
@@ -62,7 +59,7 @@ pub fn get_mempool_transactions(
 }
 
 fn path_transactions(data_dir: &Path, day: &str) -> PathBuf {
-    data_dir.join(format!("transactions/{}.parquet", day))
+    data_dir.join(format!("transactions/{day}.parquet"))
 }
 
 /// Downloads missing files to data_dir for the given interval

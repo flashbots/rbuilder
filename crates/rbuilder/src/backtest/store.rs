@@ -7,20 +7,19 @@ use crate::{
     },
     live_builder::order_input::ReplaceableOrderPoolCommand,
     mev_boost::BuilderBlockReceived,
-    primitives::{
-        serialize::{CancelShareBundle, RawOrder, RawOrderConvertError, TxEncoding},
-        BundleReplacementData, OrderId,
-    },
     utils::timestamp_ms_to_offset_datetime,
 };
 use ahash::{HashMap, HashSet};
 use alloy_primitives::{
     utils::{format_ether, parse_ether, ParseUnits, Unit},
-    I256,
+    Address, B256, I256, U256,
 };
-use alloy_primitives::{Address, B256, U256};
 use lz4_flex::{block::DecompressError, compress_prepend_size, decompress_size_prepended};
 use rayon::prelude::*;
+use rbuilder_primitives::{
+    serialize::{CancelShareBundle, RawOrder, RawOrderConvertError, TxEncoding},
+    BundleReplacementData, OrderId,
+};
 use serde::{Deserialize, Serialize};
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqliteRow},
@@ -631,6 +630,7 @@ fn group_rows_into_block_data(
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(clippy::large_enum_variant)]
 pub enum RawReplaceableOrderPoolCommand {
     /// New or update order
     Order(RawOrder),
@@ -698,16 +698,15 @@ impl RawReplaceableOrderPoolCommandWithTimestamp {
 mod test {
     use super::*;
     use crate::{
-        backtest::full_slot_block_data::FullSlotBlockData,
-        mev_boost::BuilderBlockReceived,
-        primitives::{
-            serialize::{RawBundle, RawTx},
-            BundleReplacementKey, ShareBundleReplacementKey, LAST_BUNDLE_VERSION,
-        },
+        backtest::full_slot_block_data::FullSlotBlockData, mev_boost::BuilderBlockReceived,
     };
     use alloy_consensus::{EthereumTxEnvelope, Signed, TxEip1559};
     use alloy_primitives::{address, hex, Address, Signature, B256, U256, U64};
     use alloy_rpc_types::{Block, BlockTransactions, Header, Transaction};
+    use rbuilder_primitives::{
+        serialize::{RawBundle, RawBundleMetadata, RawTx},
+        BundleReplacementKey, ShareBundleReplacementKey, LAST_BUNDLE_VERSION,
+    };
     use reth_primitives::Recovered;
     use time::OffsetDateTime;
     use uuid::uuid;
@@ -734,23 +733,27 @@ mod test {
             RawReplaceableOrderPoolCommandWithTimestamp {
                 timestamp_ms: 11,
                 command: RawReplaceableOrderPoolCommand::Order(RawOrder::Bundle(RawBundle {
-                    block_number: Some(U64::from(12)),
                     txs: vec![tx.clone().into()],
-                    reverting_tx_hashes: vec![],
-                    replacement_uuid: Some(uuid::Uuid::from_u128(11)),
-                    signing_address: Some(alloy_primitives::address!(
-                        "0101010101010101010101010101010101010101"
-                    )),
-                    min_timestamp: None,
-                    max_timestamp: Some(100),
-                    replacement_nonce: Some(0),
-                    dropping_tx_hashes: vec![],
-                    uuid: None,
-                    refund_percent: None,
-                    refund_recipient: None,
-                    refund_tx_hashes: None,
-                    first_seen_at: None,
-                    version: Some(RawBundle::encode_version(LAST_BUNDLE_VERSION)),
+                    metadata: RawBundleMetadata {
+                        block_number: Some(U64::from(12)),
+                        reverting_tx_hashes: vec![],
+                        replacement_uuid: Some(uuid::Uuid::from_u128(11)),
+                        signing_address: Some(alloy_primitives::address!(
+                            "0101010101010101010101010101010101010101"
+                        )),
+                        min_timestamp: None,
+                        max_timestamp: Some(100),
+                        replacement_nonce: Some(0),
+                        dropping_tx_hashes: vec![],
+                        uuid: None,
+                        refund_percent: None,
+                        refund_recipient: None,
+                        refund_tx_hashes: None,
+                        delayed_refund: None,
+                        refund_identity: None,
+                        version: Some(RawBundle::encode_version(LAST_BUNDLE_VERSION)),
+                        bundle_hash: None,
+                    },
                 })),
             }
             .decode(TxEncoding::WithBlobData)

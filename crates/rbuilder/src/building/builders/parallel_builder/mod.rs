@@ -7,6 +7,7 @@ pub mod order_intake_store;
 pub mod results_aggregator;
 pub mod simulation_cache;
 pub mod task;
+use alloy_primitives::I256;
 pub use groups::*;
 
 use ahash::HashMap;
@@ -22,7 +23,7 @@ use simulation_cache::SharedSimulationCache;
 use std::{
     sync::{mpsc as std_mpsc, Arc},
     thread,
-    time::Instant,
+    time::{Duration, Instant},
 };
 use task::*;
 use time::OffsetDateTime;
@@ -32,7 +33,7 @@ use tracing::{error, trace};
 use crate::{
     building::builders::{
         BacktestSimulateBlockInput, Block, BlockBuildingAlgorithm, BlockBuildingAlgorithmInput,
-        LiveBuilderInput,
+        BuiltBlockIdSource, LiveBuilderInput,
     },
     provider::StateProviderFactory,
     utils::elapsed_ms,
@@ -57,8 +58,6 @@ pub struct ParallelBuilderConfig {
     pub discard_txs: bool,
     pub num_threads: usize,
     pub safe_sorting_only: bool,
-    #[serde(default)]
-    pub coinbase_payment: bool,
 }
 
 fn get_communication_channels() -> (
@@ -134,8 +133,9 @@ where
             input.ctx.clone(),
             input.cancel.clone(),
             input.builder_name.clone(),
-            input.sink.can_use_suggested_fee_recipient_as_coinbase(),
             Some(input.sink.clone()),
+            input.built_block_id_source.clone(),
+            input.max_order_execution_duration_warning,
         );
 
         let order_intake_consumer = OrderIntakeStore::new(input.input);
@@ -352,7 +352,8 @@ where
         input.ctx.clone(),
         CancellationToken::new(),
         String::from("backtest_builder"),
-        true,
+        None,
+        Arc::new(BuiltBlockIdSource::new()),
         None,
     );
     let assembler_duration = assembler_start.elapsed();
@@ -370,17 +371,14 @@ where
 
     // Block building
     let building_start = Instant::now();
-    let block_building_helper = block_building_result_assembler
+    let mut block_building_helper = block_building_result_assembler
         .build_backtest_block(best_results, OffsetDateTime::now_utc())?;
 
-    let payout_tx_value = if config.coinbase_payment {
-        None
-    } else {
-        Some(block_building_helper.true_block_value()?)
-    };
+    let payout_tx_value = block_building_helper.true_block_value()?;
     let finalize_block_result = block_building_helper.finalize_block(
         &mut block_building_result_assembler.local_ctx,
         payout_tx_value,
+        I256::ZERO,
         None,
     )?;
     let building_duration = building_start.elapsed();
@@ -400,12 +398,21 @@ where
 #[derive(Debug)]
 pub struct ParallelBuildingAlgorithm {
     config: ParallelBuilderConfig,
+    max_order_execution_duration_warning: Option<Duration>,
     name: String,
 }
 
 impl ParallelBuildingAlgorithm {
-    pub fn new(config: ParallelBuilderConfig, name: String) -> Self {
-        Self { config, name }
+    pub fn new(
+        config: ParallelBuilderConfig,
+        max_order_execution_duration_warning: Option<Duration>,
+        name: String,
+    ) -> Self {
+        Self {
+            config,
+            max_order_execution_duration_warning,
+            name,
+        }
     }
 }
 
@@ -425,6 +432,9 @@ where
             sink: input.sink,
             builder_name: self.name.clone(),
             cancel: input.cancel,
+            built_block_cache: input.built_block_cache,
+            built_block_id_source: input.built_block_id_source,
+            max_order_execution_duration_warning: self.max_order_execution_duration_warning,
         };
         run_parallel_builder(live_input, &self.config);
     }

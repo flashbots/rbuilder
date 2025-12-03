@@ -9,12 +9,12 @@ use std::{sync::Arc, time::Duration};
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
-use crate::types::BlockBid;
+use crate::types::ScrapedRelayBlockBid;
 
 /// Sink for scraped bids.
 pub trait ScrapedBidsObs: Send + Sync {
     /// Be careful, we don't assume any kind of filtering here so bid may contain our own bids.
-    fn update_new_bid(&self, bid: BlockBid);
+    fn update_new_bid(&self, bid: ScrapedRelayBlockBid);
 }
 
 /// NNG subscriber with infinite retries.
@@ -63,7 +63,7 @@ async fn run_nng_subscriber(
 
     loop {
         let msg = tokio::time::timeout(timeout, nng_reader.receive()).await??;
-        let block_bid: BlockBid = serde_json::from_slice(msg.body())?;
+        let block_bid: ScrapedRelayBlockBid = serde_json::from_slice(msg.body())?;
         obs.update_new_bid(block_bid);
     }
 }

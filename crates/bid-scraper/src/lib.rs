@@ -6,9 +6,9 @@ mod slot;
 pub mod ultrasound_ws_publisher;
 
 pub mod best_bid_ws_connector;
+pub mod bid_scraper;
 pub mod bid_scraper_client;
 pub mod bid_sender;
-pub mod code_from_rbuilder;
 pub mod config;
 pub mod headers_publisher;
 pub mod reconnect;

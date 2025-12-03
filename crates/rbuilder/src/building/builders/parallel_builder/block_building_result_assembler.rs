@@ -5,7 +5,10 @@ use super::{
 use ahash::HashMap;
 use alloy_primitives::utils::format_ether;
 use reth_provider::StateProvider;
-use std::{sync::Arc, time::Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
 use tracing::{info_span, trace};
@@ -16,14 +19,15 @@ use crate::{
             block_building_helper::{
                 BiddableUnfinishedBlock, BlockBuildingHelper, BlockBuildingHelperFromProvider,
             },
-            handle_building_error, UnfinishedBlockBuildingSink,
+            handle_building_error, BuiltBlockIdSource,
         },
         BlockBuildingContext, ThreadBlockBuildingContext,
     },
-    primitives::order_statistics::OrderStatistics,
+    live_builder::block_output::unfinished_block_processing::UnfinishedBuiltBlocksInput,
     telemetry::mark_builder_considers_order,
     utils::elapsed_ms,
 };
+use rbuilder_primitives::order_statistics::OrderStatistics;
 
 /// Assembles block building results from the best orderings of order groups.
 pub struct BlockBuildingResultAssembler {
@@ -32,13 +36,13 @@ pub struct BlockBuildingResultAssembler {
     pub local_ctx: ThreadBlockBuildingContext,
     cancellation_token: CancellationToken,
     discard_txs: bool,
-    coinbase_payment: bool,
-    can_use_suggested_fee_recipient_as_coinbase: bool,
     builder_name: String,
-    sink: Option<Arc<dyn UnfinishedBlockBuildingSink>>,
+    sink: Option<UnfinishedBuiltBlocksInput>,
     best_results: Arc<BestResults>,
     run_id: u64,
     last_version: Option<u64>,
+    built_block_id_source: Arc<BuiltBlockIdSource>,
+    max_order_execution_duration_warning: Option<Duration>,
 }
 
 impl BlockBuildingResultAssembler {
@@ -58,8 +62,9 @@ impl BlockBuildingResultAssembler {
         ctx: BlockBuildingContext,
         cancellation_token: CancellationToken,
         builder_name: String,
-        can_use_suggested_fee_recipient_as_coinbase: bool,
-        sink: Option<Arc<dyn UnfinishedBlockBuildingSink>>,
+        sink: Option<UnfinishedBuiltBlocksInput>,
+        built_block_id_source: Arc<BuiltBlockIdSource>,
+        max_order_execution_duration_warning: Option<Duration>,
     ) -> Self {
         Self {
             state,
@@ -67,13 +72,13 @@ impl BlockBuildingResultAssembler {
             local_ctx: Default::default(),
             cancellation_token,
             discard_txs: config.discard_txs,
-            coinbase_payment: config.coinbase_payment,
-            can_use_suggested_fee_recipient_as_coinbase,
             builder_name,
             sink,
             best_results,
             run_id: 0,
             last_version: None,
+            built_block_id_source,
+            max_order_execution_duration_warning,
         }
     }
 
@@ -146,10 +151,6 @@ impl BlockBuildingResultAssembler {
                         "Parallel builder built new block",
                     );
 
-                    if new_block.built_block_trace().got_no_signer_error {
-                        self.can_use_suggested_fee_recipient_as_coinbase = false;
-                    }
-
                     if let Some(sink) = &self.sink {
                         if let Ok(new_block) = BiddableUnfinishedBlock::new(new_block) {
                             sink.new_block(new_block);
@@ -185,24 +186,16 @@ impl BlockBuildingResultAssembler {
     ) -> eyre::Result<Box<dyn BlockBuildingHelper>> {
         let build_start = Instant::now();
 
-        let use_suggested_fee_recipient_as_coinbase = self.coinbase_payment
-            && !self.contains_refunds(best_orderings_per_group)
-            && self.can_use_suggested_fee_recipient_as_coinbase;
-
-        // Create a new ctx to remove builder_signer if necessary
-        let mut ctx = self.ctx.clone();
-        if use_suggested_fee_recipient_as_coinbase {
-            ctx.modify_use_suggested_fee_recipient_as_coinbase();
-        }
-
         let mut block_building_helper = BlockBuildingHelperFromProvider::new(
+            self.built_block_id_source.get_new_id(),
             self.state.clone(),
-            ctx,
+            self.ctx.clone(),
             &mut self.local_ctx,
             self.builder_name.clone(),
             self.discard_txs,
             OrderStatistics::default(),
             self.cancellation_token.clone(),
+            self.max_order_execution_duration_warning,
         )?;
         block_building_helper.set_trace_orders_closed_at(orders_closed_at);
 
@@ -242,7 +235,7 @@ impl BlockBuildingResultAssembler {
                 let success = commit_result.is_ok();
                 match commit_result {
                     Ok(res) => {
-                        gas_used = res.gas_used;
+                        gas_used = res.space_used.gas;
                     }
                     Err(err) => execution_error = Some(err),
                 }
@@ -269,6 +262,7 @@ impl BlockBuildingResultAssembler {
         orders_closed_at: OffsetDateTime,
     ) -> eyre::Result<Box<dyn BlockBuildingHelper>> {
         let mut block_building_helper = BlockBuildingHelperFromProvider::new(
+            self.built_block_id_source.get_new_id(),
             self.state.clone(),
             self.ctx.clone(),
             &mut self.local_ctx,
@@ -276,6 +270,7 @@ impl BlockBuildingResultAssembler {
             self.discard_txs,
             OrderStatistics::default(),
             CancellationToken::new(),
+            self.max_order_execution_duration_warning,
         )?;
 
         block_building_helper.set_trace_orders_closed_at(orders_closed_at);
@@ -287,15 +282,6 @@ impl BlockBuildingResultAssembler {
         best_orderings_per_group.sort_by(|(a_ordering, _), (b_ordering, _)| {
             b_ordering.total_profit.cmp(&a_ordering.total_profit)
         });
-
-        let use_suggested_fee_recipient_as_coinbase =
-            self.coinbase_payment && !self.contains_refunds(&best_orderings_per_group);
-
-        // Modify ctx if necessary
-        let mut ctx = self.ctx.clone();
-        if use_suggested_fee_recipient_as_coinbase {
-            ctx.modify_use_suggested_fee_recipient_as_coinbase();
-        }
 
         let build_start = Instant::now();
 
@@ -312,7 +298,7 @@ impl BlockBuildingResultAssembler {
                         tracing::trace!(
                             order_id = ?sim_order.id(),
                             success = true,
-                            gas_used = res.gas_used,
+                            gas_used = res.space_used.gas,
                             "Executed order in backtest"
                         );
                     }
@@ -331,28 +317,5 @@ impl BlockBuildingResultAssembler {
         block_building_helper.set_trace_fill_time(build_start.elapsed());
 
         Ok(Box::new(block_building_helper))
-    }
-
-    /// Checks if any of the orders in the given orderings contain refunds.
-    ///
-    /// # Arguments
-    ///
-    /// * `orderings` - A slice of tuples containing group orderings and order groups.
-    ///
-    /// # Returns
-    ///
-    /// `true` if any order contains refunds, `false` otherwise.
-    fn contains_refunds(&self, orderings: &[(ResolutionResult, ConflictGroup)]) -> bool {
-        orderings.iter().any(|(sequence_of_orders, order_group)| {
-            sequence_of_orders
-                .sequence_of_orders
-                .iter()
-                .any(|(order_idx, _)| {
-                    !order_group.orders[*order_idx]
-                        .sim_value
-                        .paid_kickbacks()
-                        .is_empty()
-                })
-        })
     }
 }

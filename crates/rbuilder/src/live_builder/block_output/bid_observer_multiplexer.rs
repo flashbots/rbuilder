@@ -1,9 +1,6 @@
 use reth_primitives::SealedBlock;
 
-use crate::{
-    building::BuiltBlockTrace, live_builder::payload_events::MevBoostSlotData,
-    mev_boost::submission::SubmitBlockRequest,
-};
+use crate::{building::BuiltBlockTrace, live_builder::payload_events::MevBoostSlotData};
 
 use super::bid_observer::BidObserver;
 
@@ -29,17 +26,14 @@ impl BidObserver for BidObserverMultiplexer {
     fn block_submitted(
         &self,
         slot_data: &MevBoostSlotData,
-        sealed_block: &SealedBlock,
         submit_block_request: &SubmitBlockRequest,
         built_block_trace: &BuiltBlockTrace,
-        builder_name: String,
+        builder_algorithm_name: String,
         best_bid_value: alloy_primitives::U256,
     ) {
         for obs in &self.observers {
             obs.block_submitted(
                 slot_data,
-                sealed_block,
-                submit_block_request,
                 built_block_trace,
                 builder_name.clone(),
                 best_bid_value,

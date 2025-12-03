@@ -1,4 +1,3 @@
-use alloy_primitives::Bytes;
 use alloy_rlp::Decodable;
 use parking_lot::{lock_api::RwLockReadGuard, RawRwLock, RwLock};
 use std::sync::Arc;
@@ -6,7 +5,7 @@ use std::sync::Arc;
 use alloy_trie::nodes::TrieNode as AlloyTrieNode;
 use arrayvec::ArrayVec;
 use dashmap::DashMap;
-use reth_trie::Nibbles;
+use nybbles::Nibbles;
 use rustc_hash::FxBuildHasher;
 
 #[derive(Debug, Clone)]
@@ -52,10 +51,10 @@ impl ProofStore {
         self.proofs.contains_key(key)
     }
 
-    pub fn add_proof(
+    pub fn add_proof<P: AsRef<[u8]>>(
         &self,
         key: Nibbles,
-        proof: Vec<(Nibbles, Bytes)>,
+        proof: Vec<(Nibbles, P)>,
     ) -> Result<(), alloy_rlp::Error> {
         if self.proofs.contains_key(&key) {
             return Ok(());

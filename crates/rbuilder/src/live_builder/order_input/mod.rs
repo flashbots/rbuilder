@@ -1,5 +1,6 @@
 //! order_input handles receiving new orders from the ipc mempool subscription and json rpc server
 //!
+pub mod blob_type_order_filter;
 pub mod mempool_txs_detector;
 pub mod order_replacement_manager;
 pub mod order_sink;
@@ -12,17 +13,22 @@ use self::{
     orderpool::{OrderPool, OrderPoolSubscriptionId},
     replaceable_order_sink::ReplaceableOrderSink,
 };
-use crate::provider::StateProviderFactory;
-use crate::telemetry::{set_current_block, set_ordepool_stats};
 use crate::{
     live_builder::base_config::DEFAULT_TIME_TO_KEEP_MEMPOOL_TXS_SECS,
-    primitives::{serialize::CancelShareBundle, BundleReplacementData, Order},
+    provider::StateProviderFactory,
+    telemetry::{set_current_block, set_ordepool_stats},
 };
 use alloy_consensus::Header;
+use alloy_primitives::Address;
 use jsonrpsee::RpcModule;
 use parking_lot::Mutex;
-use std::{net::Ipv4Addr, path::PathBuf, sync::Arc, time::Duration};
-use std::{path::Path, time::Instant};
+use rbuilder_primitives::{serialize::CancelShareBundle, BundleReplacementData, Order};
+use std::{
+    net::Ipv4Addr,
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, trace, warn};
@@ -106,6 +112,10 @@ pub struct OrderInputConfig {
     pub input_channel_buffer_size: usize,
     /// See [OrderPool::time_to_keep_mempool_txs]
     time_to_keep_mempool_txs: Duration,
+    /// The address of coinbase signer for identifying system transactions.
+    builder_address: Address,
+    /// The allowlisted recipients for system transactions.
+    system_recipient_allowlist: Vec<Address>,
 }
 pub const DEFAULT_SERVE_MAX_CONNECTIONS: u32 = 4096;
 pub const DEFAULT_RESULTS_CHANNEL_TIMEOUT: Duration = Duration::from_millis(50);
@@ -122,6 +132,8 @@ impl OrderInputConfig {
         results_channel_timeout: Duration,
         input_channel_buffer_size: usize,
         time_to_keep_mempool_txs: Duration,
+        builder_address: Address,
+        system_recipient_allowlist: Vec<Address>,
     ) -> Self {
         Self {
             ignore_cancellable_orders,
@@ -133,10 +145,16 @@ impl OrderInputConfig {
             results_channel_timeout,
             input_channel_buffer_size,
             time_to_keep_mempool_txs,
+            builder_address,
+            system_recipient_allowlist,
         }
     }
 
     pub fn from_config(config: &BaseConfig) -> eyre::Result<Self> {
+        let serve_max_connections = config
+            .jsonrpc_server_max_connections
+            .unwrap_or(DEFAULT_SERVE_MAX_CONNECTIONS);
+
         let mempool = if let Some(provider) = &config.ipc_provider {
             Some(MempoolSource::Ws(provider.mempool_server_url.clone()))
         } else if let Some(path) = &config.el_node_ipc_path {
@@ -152,10 +170,12 @@ impl OrderInputConfig {
             mempool_source: mempool,
             server_port: config.jsonrpc_server_port,
             server_ip: config.jsonrpc_server_ip,
-            serve_max_connections: 4096,
+            serve_max_connections,
             results_channel_timeout: Duration::from_millis(50),
             input_channel_buffer_size: 10_000,
             time_to_keep_mempool_txs: Duration::from_secs(config.time_to_keep_mempool_txs_secs),
+            builder_address: config.coinbase_signer().unwrap().address,
+            system_recipient_allowlist: config.system_recipient_allowlist.clone(),
         })
     }
 
@@ -166,10 +186,12 @@ impl OrderInputConfig {
             ignore_cancellable_orders: false,
             ignore_blobs: false,
             input_channel_buffer_size: 10,
-            serve_max_connections: 4096,
+            serve_max_connections: DEFAULT_SERVE_MAX_CONNECTIONS,
             server_ip: Ipv4Addr::new(127, 0, 0, 1),
             server_port: 0,
             time_to_keep_mempool_txs: Duration::from_secs(DEFAULT_TIME_TO_KEEP_MEMPOOL_TXS_SECS),
+            builder_address: Address::ZERO,
+            system_recipient_allowlist: Vec::new(),
         }
     }
 }
@@ -177,6 +199,7 @@ impl OrderInputConfig {
 /// Commands we can get from RPC or mempool fetcher.
 #[derive(Debug, Clone)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
+#[allow(clippy::large_enum_variant)]
 pub enum ReplaceableOrderPoolCommand {
     /// New or update order
     Order(Order),

@@ -5,7 +5,7 @@ use crate::{
         CfgWithSimpleRelayPublisherConfig, Service, ServiceInner, SimpleRelayPublisherConfig,
     },
     slot,
-    types::{BlockBid, PublisherType},
+    types::{PublisherType, ScrapedRelayBlockBid},
     DynResult, RPC_TIMEOUT,
 };
 use alloy_primitives::{Address, BlockHash, U256};
@@ -21,7 +21,7 @@ use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, trace, warn};
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct RelayBidsPublisherConfig {
     #[serde(flatten)]
     pub simple_relay_cfg: SimpleRelayPublisherConfig,
@@ -36,7 +36,7 @@ impl CfgWithSimpleRelayPublisherConfig for RelayBidsPublisherConfig {
 /// Publisher that scraps a relay by calling /relay/v1/data/bidtraces/builder_blocks_received
 #[derive(Clone)]
 pub struct BidsPublisherService {
-    sender: Arc<BidSender>,
+    sender: Arc<dyn BidSender>,
     inner: Arc<Mutex<ServiceInner<RelayBidsPublisherConfig>>>,
     name: String,
     cancellation_token: CancellationToken,
@@ -55,7 +55,7 @@ impl Service<RelayBidsPublisherConfig> for BidsPublisherService {
 
     fn new_(
         name: String,
-        sender: Arc<BidSender>,
+        sender: Arc<dyn BidSender>,
         inner: Arc<Mutex<ServiceInner<RelayBidsPublisherConfig>>>,
         cancellation_token: CancellationToken,
     ) -> Self {
@@ -70,7 +70,7 @@ impl Service<RelayBidsPublisherConfig> for BidsPublisherService {
         self,
         relay_name: String,
         relay_endpoint: String,
-        bids_seen: Arc<Mutex<LruCache<BlockBid, ()>>>,
+        bids_seen: Arc<Mutex<LruCache<ScrapedRelayBlockBid, ()>>>,
         client: Arc<reqwest::Client>,
     ) {
         let mut new_bids = 0;
@@ -153,12 +153,11 @@ impl BidsPublisherService {
         relay_name: &str,
         relay_endpoint: &str,
         client: &reqwest::Client,
-    ) -> DynResult<Vec<BlockBid>> {
+    ) -> DynResult<Vec<ScrapedRelayBlockBid>> {
         debug!("Getting bids for relay {relay_name}");
         let block_number = self.inner().last_block_number + 1;
         let url = format!(
-            "{}/relay/v1/data/bidtraces/builder_blocks_received?block_number={}&order_by=-value",
-            relay_endpoint, block_number
+            "{relay_endpoint}/relay/v1/data/bidtraces/builder_blocks_received?block_number={block_number}&order_by=-value",
         );
         // By default it's ordered by slot (so, no effect). So we order by decreasing value
         // instead, it's more interesting to us.
@@ -176,7 +175,7 @@ impl BidsPublisherService {
 
         let mut bids = Vec::with_capacity(json_bids.len());
         for json_bid in json_bids.iter_mut() {
-            let bid = BlockBid {
+            let bid = ScrapedRelayBlockBid {
                 publisher_name: self.name.clone(),
                 publisher_type: PublisherType::RelayBids,
                 builder_pubkey: Some(BlsPublicKey::from_str(

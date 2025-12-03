@@ -1,0 +1,82 @@
+[package]
+name = "rbuilder-operator"
+description = "rbuilder-operator"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+exclude.workspace = true
+
+[package.metadata.deb]
+maintainer = "Flashbots Team <devops+ci@flashbots.net>"
+depends = "$auto"
+section = "network"
+priority = "optional"
+maintainer-scripts = "pkg/debian"
+assets = [
+    ["target/release/**/rbuilder-operator", "usr/bin/", "755"],
+    ["pkg/etc/config.toml", "etc/rbuilder-operator/", "644"],
+    ["../../LICENSE-APACHE", "usr/share/doc/rbuilder-operator/", "644"],
+    ["../../LICENSE-MIT", "usr/share/doc/rbuilder-operator/", "644"],
+]
+systemd-units = { enable = false, start = false, unit-name = "rbuilder-operator" }
+
+[dependencies]
+rbuilder-primitives.workspace = true
+rbuilder-utils.workspace = true
+rbuilder-config.workspace = true
+rbuilder.workspace = true
+metrics_macros.workspace = true
+bid-scraper.workspace = true
+
+# alloy
+alloy-primitives.workspace = true
+alloy-provider = { workspace = true, features = ["ipc", "pubsub"] }
+alloy-json-rpc.workspace = true
+alloy-transport-http.workspace = true
+alloy-transport.workspace = true
+alloy-rpc-types-beacon = { workspace = true, features = ["ssz"] }
+alloy-signer-local.workspace = true
+alloy-signer.workspace = true
+alloy-rpc-client.workspace = true
+
+# reth
+reth-primitives.workspace = true
+
+serde.workspace = true
+serde_json.workspace = true
+serde_with.workspace = true
+eyre.workspace = true
+jsonrpsee = { version = "0.20.3", features = ["full"] }
+tonic.workspace = true
+prost.workspace = true
+redis = "0.25.4"
+exponential-backoff.workspace = true
+time.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tokio-stream.workspace = true
+url.workspace = true
+thiserror.workspace = true
+derivative.workspace = true
+reqwest.workspace = true
+hyper = "0.14"
+hyper-util = "0.1.17"
+http = "0.2.9"
+tower = "0.4"
+iceoryx2 = "0.7.0"
+iceoryx2-bb-container = "0.7.0"
+prometheus.workspace = true
+ctor.workspace = true
+clickhouse = { version = "0.14.0", features = ["time", "uuid", "native-tls"] }
+futures-util.workspace = true
+parking_lot.workspace = true
+lazy_static.workspace = true
+uuid.workspace = true
+
+[build-dependencies]
+built = { version = "0.7.1", features = ["git2", "chrono"] }
+tonic-build = "0.13"

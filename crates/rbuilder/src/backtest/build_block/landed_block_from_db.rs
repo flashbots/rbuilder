@@ -8,6 +8,8 @@
 
 use ahash::HashMap;
 use alloy_primitives::utils::format_ether;
+use rbuilder_config::load_toml_config;
+use rbuilder_primitives::OrderId;
 use reth_db::DatabaseEnv;
 use reth_node_api::NodeTypesWithDBAdapter;
 use reth_node_ethereum::EthereumNode;
@@ -22,14 +24,15 @@ use crate::{
         BlockData, HistoricalDataStorage, OrdersWithTimestamp,
     },
     building::{builders::mock_block_building_helper::MockRootHasher, BlockBuildingContext},
-    live_builder::{
-        base_config::load_config_toml_and_env, block_list_provider::BlockList,
-        cli::LiveBuilderConfig,
+    live_builder::{block_list_provider::BlockList, cli::LiveBuilderConfig},
+    provider::StateProviderFactory,
+    utils::{
+        mevblocker::get_mevblocker_price, timestamp_as_u64, timestamp_ms_to_offset_datetime,
+        ProviderFactoryReopener,
     },
-    utils::{timestamp_as_u64, timestamp_ms_to_offset_datetime, ProviderFactoryReopener},
 };
 use clap::Parser;
-use std::{path::PathBuf, sync::Arc};
+use std::{path::PathBuf, str::FromStr, sync::Arc};
 
 use super::backtest_build_block::{run_backtest_build_block, BuildBlockCfg, OrdersSource};
 
@@ -73,7 +76,13 @@ impl<ConfigType: LiveBuilderConfig> LandedBlockFromDBOrdersSource<ConfigType> {
         let block_data = read_block_data(
             &config.base_config().backtest_fetch_output_file,
             extra_cfg.block,
-            extra_cfg.only_order_ids,
+            extra_cfg
+                .only_order_ids
+                .iter()
+                .map(|id| {
+                    OrderId::from_str(id).map_err(|e| eyre::eyre!("invalid order id: {id}: {e}"))
+                })
+                .collect::<Result<Vec<OrderId>, eyre::Error>>()?,
             extra_cfg.block_building_time_ms,
             extra_cfg.show_missing,
         )
@@ -116,6 +125,10 @@ impl<ConfigType: LiveBuilderConfig>
 
     fn create_block_building_context(&self) -> eyre::Result<BlockBuildingContext> {
         let signer = self.config.base_config().coinbase_signer()?;
+        let state_provider = self
+            .create_provider_factory()?
+            .history_by_block_hash(self.block_data.onchain_block.header.parent_hash)?;
+        let mev_blocker_price = get_mevblocker_price(state_provider)?;
         Ok(BlockBuildingContext::from_onchain_block(
             self.block_data.onchain_block.clone(),
             self.config.base_config().chain_spec()?,
@@ -123,9 +136,10 @@ impl<ConfigType: LiveBuilderConfig>
             self.blocklist.clone(),
             signer.address,
             self.block_data.winning_bid_trace.proposer_fee_recipient,
-            Some(signer),
+            signer,
             Arc::new(MockRootHasher {}),
             self.config.base_config().evm_caching_enable,
+            mev_blocker_price,
         ))
     }
 
@@ -156,7 +170,7 @@ impl<ConfigType: LiveBuilderConfig>
 async fn read_block_data(
     backtest_fetch_output_file: &PathBuf,
     block: u64,
-    only_order_ids: Vec<String>,
+    only_order_ids: Vec<OrderId>,
     block_building_time_ms: i64,
     show_missing: bool,
 ) -> eyre::Result<BlockData> {
@@ -268,10 +282,10 @@ fn print_onchain_block_data(tx_sim_results: Vec<ExecutedTxs>, block_data: &Block
                     order.error
                 );
                 for (other, tx) in &order.overlapping_txs {
-                    println!("    overlap with: {:>74} tx {:?}", other, tx);
+                    println!("    overlap with: {other:>74} tx {tx:?}");
                 }
             } else {
-                println!("{:>74} included order not found: ", included_order);
+                println!("{included_order:>74} included order not found: ");
             }
         }
     }
@@ -286,7 +300,7 @@ fn show_missing_txs(block_data: &BlockData) {
             missing_txs.len()
         );
         for missing_tx in missing_txs.iter() {
-            println!("Tx: {:?}", missing_tx);
+            println!("Tx: {missing_tx:?}");
         }
     }
     let missing_nonce_txs = block_data.search_missing_account_nonce_on_available_orders();
@@ -306,7 +320,7 @@ fn show_missing_txs(block_data: &BlockData) {
 
 pub async fn run_backtest<ConfigType: LiveBuilderConfig>() -> eyre::Result<()> {
     let cli = Cli::parse();
-    let config: ConfigType = load_config_toml_and_env(cli.build_block_cfg.config.clone())?;
+    let config: ConfigType = load_toml_config(cli.build_block_cfg.config.clone())?;
     let order_source = LandedBlockFromDBOrdersSource::new(cli.extra_cfg, config).await?;
     run_backtest_build_block(cli.build_block_cfg, order_source).await
 }

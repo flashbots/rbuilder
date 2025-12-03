@@ -15,7 +15,6 @@ use crate::{
     },
     building::BlockBuildingContext,
     live_builder::{block_list_provider::BlockList, cli::LiveBuilderConfig},
-    primitives::{Order, OrderId},
     provider::StateProviderFactory,
     utils::{elapsed_s, signed_uint_delta, u256decimal_serde_helper},
 };
@@ -23,6 +22,7 @@ use ahash::{HashMap, HashSet};
 use alloy_primitives::{utils::format_ether, Address, B256, I256, U256};
 use itertools::Itertools;
 use rayon::prelude::*;
+use rbuilder_primitives::{Order, OrderId};
 use reth_chainspec::ChainSpec;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -33,7 +33,7 @@ use std::{
 use tracing::{debug, error, info, info_span, trace, warn};
 use uuid::Uuid;
 
-use super::{execute::backtest_simulate_block_with_context, OrderFilteredReason};
+use super::{execute::backtest_simulate_block_with_context, OrderFilterFn, OrderFilteredReason};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -119,28 +119,36 @@ pub struct RedistributionBlockOutput {
     pub joint_contribution: Vec<JointContributionData>,
 }
 
-pub fn calc_redistributions<P, ConfigType>(
+pub fn calc_redistributions<P, ConfigType, OrderFilter>(
     provider: P,
     config: &ConfigType,
     block_data: BlockData,
     distribute_to_mempool_txs: bool,
     blocklist: BlockList,
+    order_filter: OrderFilter,
 ) -> eyre::Result<RedistributionBlockOutput>
 where
     P: StateProviderFactory + Clone + 'static,
     ConfigType: LiveBuilderConfig,
+    OrderFilter: OrderFilterFn,
 {
     let _block_span = info_span!("block", block = block_data.block_number).entered();
     let protect_signers = config.base_config().backtest_protect_bundle_signers.clone();
 
-    info!(?protect_signers, "Protect signers");
+    info!(
+        ?protect_signers,
+        blocklist_len = blocklist.len(),
+        distribute_to_mempool_txs,
+        "Started to calculate redistribution"
+    );
+
     if protect_signers.is_empty() {
         warn!("Protect signers are not set");
     }
 
     let start = Instant::now();
     let (onchain_block_profit, block_data, built_block_data) =
-        prepare_block_data(config, block_data)?;
+        prepare_block_data(config, block_data, order_filter)?;
 
     let included_orders_available =
         get_available_orders(&block_data, &built_block_data, distribute_to_mempool_txs);
@@ -266,12 +274,14 @@ where
     Ok(result)
 }
 
-fn prepare_block_data<ConfigType>(
+fn prepare_block_data<ConfigType, OrderFilter>(
     config: &ConfigType,
     mut block_data: BlockData,
+    order_filter: OrderFilter,
 ) -> eyre::Result<(U256, BlockData, BuiltBlockData)>
 where
     ConfigType: LiveBuilderConfig,
+    OrderFilter: OrderFilterFn,
 {
     let built_block_data = if let Some(block_data) = block_data.built_block_data.clone() {
         block_data
@@ -296,6 +306,7 @@ where
     // @TODO filter cancellations properly, for this we need actual cancellations in the backtest data
     // filter bundles made out of mempool txs
     block_data.filter_bundles_from_mempool();
+    block_data.filter_out_orders(order_filter);
 
     let filtered = orders_before_filtering - block_data.available_orders.len();
 
@@ -322,7 +333,7 @@ where
         warn!("Block has no bundles");
     }
     if share_bundles == 0 {
-        warn!("Block has no share bundles");
+        debug!("Block has no share bundles");
     }
 
     let block_profit = if built_block_data.profit.is_positive() {
@@ -354,6 +365,12 @@ fn get_available_orders(
             None => match block_data.filtered_orders.get(id) {
                 Some(OrderFilteredReason::MempoolTxs) => {
                     info!(order = ?id, "Included order was filtered because all txs are from mempool");
+                }
+                Some(OrderFilteredReason::Signer) => {
+                    info!(order = ?id, "Included order was filtered because signer is explicitly ignored");
+                }
+                Some(OrderFilteredReason::Other { reason }) => {
+                    info!(order = ?id, reason, "Included order was filtered explicitly");
                 }
                 Some(reason) => {
                     error!(order = ?id, ?reason, "Included order was filtered from available orders");
@@ -544,7 +561,7 @@ fn split_orders_by_identities(
     for order in &block_data.available_orders {
         let id = order.order.id();
         if let Order::Bundle(bundle) = &order.order {
-            bundle_hash_by_id.insert(id, bundle.hash);
+            bundle_hash_by_id.insert(id, bundle.external_hash.unwrap_or(bundle.hash));
         };
         order_sender_by_id.insert(id, order_sender(&order.order));
         let address = match order_redistribution_address(&order.order, protect_signers) {
@@ -578,7 +595,7 @@ fn split_orders_by_identities(
     }
 
     if !protect_signer_seen {
-        warn!("No orders from protect signer");
+        debug!("No orders from protect signer");
     }
 
     let mut included_orders_by_address: Vec<(Address, Vec<OrderId>)> =

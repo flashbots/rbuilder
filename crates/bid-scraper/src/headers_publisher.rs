@@ -6,7 +6,7 @@ use crate::{
         CfgWithSimpleRelayPublisherConfig, Service, ServiceInner, SimpleRelayPublisherConfig,
     },
     slot,
-    types::{BlockBid, PublisherType},
+    types::{PublisherType, ScrapedRelayBlockBid},
     DynResult, REQUEST_TIMEOUT, RPC_TIMEOUT,
 };
 use alloy_primitives::{Address, BlockHash, U256};
@@ -21,7 +21,7 @@ use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, trace, warn};
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct RelayHeadersPublisherConfig {
     /// Endpoint for an CL client. Example:"ws://127.0.0.1:8545"
     pub beacon_node_uri: String,
@@ -38,7 +38,7 @@ impl CfgWithSimpleRelayPublisherConfig for RelayHeadersPublisherConfig {
 /// Publisher that scraps a relay by calling /eth/v1/builder/header/
 #[derive(Clone)]
 pub struct HeadersPublisherService {
-    sender: Arc<BidSender>,
+    sender: Arc<dyn BidSender>,
     inner: Arc<Mutex<ServiceInner<RelayHeadersPublisherConfig>>>,
     name: String,
     cancellation_token: CancellationToken,
@@ -57,7 +57,7 @@ impl Service<RelayHeadersPublisherConfig> for HeadersPublisherService {
 
     fn new_(
         name: String,
-        sender: Arc<BidSender>,
+        sender: Arc<dyn BidSender>,
         inner: Arc<Mutex<ServiceInner<RelayHeadersPublisherConfig>>>,
         cancellation_token: CancellationToken,
     ) -> Self {
@@ -73,7 +73,7 @@ impl Service<RelayHeadersPublisherConfig> for HeadersPublisherService {
         self,
         relay_name: String,
         relay_endpoint: String,
-        headers_seen: Arc<Mutex<LruCache<BlockBid, ()>>>,
+        headers_seen: Arc<Mutex<LruCache<ScrapedRelayBlockBid, ()>>>,
         client: Arc<reqwest::Client>,
     ) {
         let header = match self.get_header(&relay_name, &relay_endpoint, &client).await {
@@ -190,7 +190,7 @@ impl HeadersPublisherService {
         relay_name: &str,
         relay_endpoint: &str,
         client: &reqwest::Client,
-    ) -> DynResult<Option<BlockBid>> {
+    ) -> DynResult<Option<ScrapedRelayBlockBid>> {
         debug!("Getting header for relay {relay_name}");
 
         let (next_slot, last_block_hash, next_validator_pubkey) = {
@@ -206,8 +206,7 @@ impl HeadersPublisherService {
         // instead, it's more interesting to us.
         let response = client
             .get(format!(
-                "{}/eth/v1/builder/header/{next_slot}/{last_block_hash}/{next_validator_pubkey}",
-                relay_endpoint,
+                "{relay_endpoint}/eth/v1/builder/header/{next_slot}/{last_block_hash}/{next_validator_pubkey}",
             ))
             .send()
             .await?;
@@ -229,7 +228,7 @@ impl HeadersPublisherService {
 
         let msg = &json_header["data"]["message"];
 
-        let header = BlockBid {
+        let header = ScrapedRelayBlockBid {
             publisher_name: self.name.clone(),
             publisher_type: PublisherType::RelayHeaders,
             relay_name: relay_name.to_string(),

@@ -1,10 +1,8 @@
 use alloy_primitives::B256;
 use change_set::{prepare_change_set, prepare_change_set_for_prefetch};
 use hash::RootHashError;
-use reth_provider::{
-    providers::ConsistentDbView, BlockReader, DatabaseProviderFactory, ExecutionOutcome,
-    StateCommitmentProvider,
-};
+use reth_provider::{providers::ConsistentDbView, BlockReader, DatabaseProviderFactory};
+use revm::database::BundleState;
 use std::time::{Duration, Instant};
 
 pub mod change_set;
@@ -12,8 +10,7 @@ pub mod hash;
 pub mod shared_cache;
 pub mod trie_fetcher;
 
-use crate::v1::sparse_mpt::AddNodeError;
-use crate::ChangedAccountData;
+use crate::{v1::sparse_mpt::AddNodeError, ChangedAccountData};
 
 use self::trie_fetcher::*;
 
@@ -58,6 +55,7 @@ impl SparseTrieError {
 }
 
 /// Prefetches data
+#[allow(clippy::result_large_err)]
 pub fn prefetch_tries_for_accounts<'a, Provider>(
     consistent_db_view: ConsistentDbView<Provider>,
     shared_cache: SparseTrieSharedCache,
@@ -65,7 +63,6 @@ pub fn prefetch_tries_for_accounts<'a, Provider>(
 ) -> Result<SparseTrieMetrics, SparseTrieError>
 where
     Provider: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync,
-    Provider: StateCommitmentProvider,
 {
     let mut metrics = SparseTrieMetrics::default();
 
@@ -106,19 +103,18 @@ where
 /// * It uses rayon for parallelism and the thread pool should be configured from outside.
 pub fn calculate_root_hash_with_sparse_trie<Provider>(
     consistent_db_view: ConsistentDbView<Provider>,
-    outcome: &ExecutionOutcome,
+    outcome: &BundleState,
     shared_cache: SparseTrieSharedCache,
 ) -> (Result<B256, SparseTrieError>, SparseTrieMetrics)
 where
     Provider: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync,
-    Provider: StateCommitmentProvider,
 {
     let mut metrics = SparseTrieMetrics::default();
 
     let fetcher = TrieFetcher::new(consistent_db_view);
 
     let start = Instant::now();
-    let change_set = prepare_change_set(outcome.bundle_accounts_iter());
+    let change_set = prepare_change_set(outcome.state.iter().map(|(a, acc)| (*a, acc)));
     metrics.change_set_time += start.elapsed();
 
     // {

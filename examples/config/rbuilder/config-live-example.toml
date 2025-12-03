@@ -1,0 +1,95 @@
+log_json = true
+log_level = "info,rbuilder=debug"
+redacted_telemetry_server_port = 6061
+redacted_telemetry_server_ip = "0.0.0.0"
+full_telemetry_server_port = 6060
+full_telemetry_server_ip = "0.0.0.0"
+
+
+chain = "mainnet"
+reth_datadir = "/mnt/data/reth"
+
+coinbase_secret_key = "env:COINBASE_SECRET_KEY"
+relay_secret_key = "env:RELAY_SECRET_KEY"
+
+# cl_node_url can be a single value, array of values, or passed by an environment variables with values separated with a comma
+# cl_node_url = "http://localhost:3500"
+cl_node_url = ["env:CL_NODE_URL"]
+jsonrpc_server_port = 8645
+jsonrpc_server_ip = "0.0.0.0"
+el_node_ipc_path = "/tmp/reth.ipc"
+extra_data = "⚡🤖"
+
+blocklist_file_path = "./blocklist.json"
+
+ignore_cancellable_orders = true
+
+# watchdog_timeout_sec = 600
+# simulation_threads = 4
+
+# genesis_fork_version = "0x00112233"
+
+sbundle_mergeable_signers = []
+live_builders = ["mp-ordering", "mgp-ordering", "parallel"]
+
+enabled_relays = ["flashbots"]
+
+
+subsidy = "0.01"
+
+[[subsidy_overrides]]
+relay = "flashbots_test2" 
+value = "0.05"
+
+# This can be used with test-relay
+[[relays]]
+name = "flashbots_test"
+url = "http://localhost:80"
+mode = "full"
+max_bid_eth = "0.05"
+
+
+# This can be used with test-relay
+[[relays]]
+name = "flashbots_test2"
+url = "http://localhost:80"
+mode = "full"
+max_bid_eth = "0.05"
+
+
+
+[[builders]]
+name = "mgp-ordering"
+algo = "ordering-builder"
+discard_txs = true
+sorting = "mev-gas-price"
+failed_order_retries = 1
+drop_failed_orders = true
+
+[[builders]]
+name = "mp-ordering"
+algo = "ordering-builder"
+discard_txs = true
+sorting = "max-profit"
+failed_order_retries = 1
+drop_failed_orders = true
+
+[[builders]]
+name = "parallel"
+algo = "parallel-builder"
+discard_txs = true
+num_threads = 25
+safe_sorting_only = false
+
+[[relay_bid_scrapers]]
+type = "ultrasound-ws"
+name = "ultrasound-ws-eu"
+ultrasound_url = "ws://relay-builders-eu.ultrasound.money/ws/v1/top_bid"
+relay_name = "ultrasound-money-eu"
+
+[[relay_bid_scrapers]]
+type = "ultrasound-ws"
+name = "ultrasound-ws-us"
+ultrasound_url = "ws://relay-builders-us.ultrasound.money/ws/v1/top_bid"
+relay_name = "ultrasound-money-us"
+

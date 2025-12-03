@@ -1,14 +1,19 @@
 //! Config should always be deserializable, default values should be used
 //!
 use crate::{
-    building::builders::UnfinishedBlockBuildingSinkFactory,
-    live_builder::{order_input::OrderInputConfig, LiveBuilder},
+    live_builder::{
+        order_flow_tracing::order_flow_tracer_manager::{
+            NullOrderFlowTracerManager, OrderFlowTracerManager, OrderFlowTracerManagerImpl,
+        },
+        order_input::OrderInputConfig,
+        process_killer::ProcessKiller,
+        LiveBuilder,
+    },
     provider::{
         ipc_state_provider::{IpcProviderConfig, IpcStateProviderFactory},
         StateProviderFactory,
     },
     roothash::RootHashContext,
-    utils::tracing::{setup_tracing_subscriber, LoggerConfig},
     utils::{
         constants::{MINS_PER_HOUR, SECS_PER_MINUTE},
         http_provider, ProviderFactoryReopener, Signer,
@@ -17,8 +22,9 @@ use crate::{
 use alloy_primitives::{Address, B256};
 use alloy_provider::RootProvider;
 use eth_sparse_mpt::{ETHSpareMPTVersion, RootHashThreadPool};
-use eyre::{eyre, Context};
+use eyre::Context;
 use jsonrpsee::RpcModule;
+use rbuilder_config::{EnvOrValue, LoggerConfig};
 use reth::chainspec::chain_value_parser;
 use reth_chainspec::ChainSpec;
 use reth_db::DatabaseEnv;
@@ -27,10 +33,8 @@ use reth_node_ethereum::EthereumNode;
 use reth_primitives::StaticFileSegment;
 use reth_provider::StaticFileProviderFactory;
 use serde::{Deserialize, Deserializer};
-use serde_with::{serde_as, DeserializeAs};
+use serde_with::serde_as;
 use std::{
-    env::var,
-    fs::read_to_string,
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     path::{Path, PathBuf},
     str::FromStr,
@@ -46,11 +50,9 @@ use super::{
         BlockListProvider, HttpBlockListProvider, NullBlockListProvider,
         StaticFileBlockListProvider,
     },
-    SlotSource,
+    block_output::unfinished_block_processing::UnfinishedBuiltBlocksInputFactory,
+    payload_events::MevBoostSlotDataGenerator,
 };
-
-/// Prefix for env variables in config
-const ENV_PREFIX: &str = "env:";
 
 /// Base config to be used by all builders.
 /// It allows us to create a base LiveBuilder with no algorithms or custom bidding.
@@ -75,12 +77,11 @@ pub struct BaseConfig {
 
     coinbase_secret_key: Option<EnvOrValue<String>>,
 
-    pub flashbots_db: Option<EnvOrValue<String>>,
-
     pub el_node_ipc_path: Option<PathBuf>,
     pub jsonrpc_server_port: u16,
     #[serde(default = "default_ip")]
     pub jsonrpc_server_ip: Ipv4Addr,
+    pub jsonrpc_server_max_connections: Option<u32>,
 
     pub ignore_cancellable_orders: bool,
     pub ignore_blobs: bool,
@@ -131,10 +132,17 @@ pub struct BaseConfig {
     /// if 0 global rayon pool is used
     root_hash_threads: usize,
 
+    /// use pipelined finalization where blocks are "prefinalized" first
+    /// and payment tx is inserted later for faster bidding response time
+    pub adjust_finalized_blocks: bool,
+
     pub watchdog_timeout_sec: Option<u64>,
 
     /// List of `builders` to be used for live building
     pub live_builders: Vec<String>,
+
+    /// See [BlockBuildingHelperFromProvider::max_order_execution_duration_warning]
+    pub max_order_execution_duration_warning_us: Option<u64>,
 
     /// Config for IPC state provider
     pub ipc_provider: Option<IpcProviderConfig>,
@@ -146,6 +154,9 @@ pub struct BaseConfig {
     /// See [OrderPool::time_to_keep_mempool_txs]
     pub time_to_keep_mempool_txs_secs: u64,
 
+    /// The array of senders incoming transactions from which will not be counted towards the coinbase profit.
+    pub system_recipient_allowlist: Vec<Address>,
+
     // backtest config
     backtest_fetch_mempool_data_dir: EnvOrValue<String>,
     pub backtest_fetch_eth_rpc_url: String,
@@ -155,34 +166,15 @@ pub struct BaseConfig {
     pub backtest_builders: Vec<String>,
     pub backtest_results_store_path: PathBuf,
     pub backtest_protect_bundle_signers: Vec<Address>,
+
+    /// We will store a file per block in this path.
+    pub orderflow_tracing_store_path: Option<PathBuf>,
+    /// Max number of blocks to keep in disk.
+    pub orderflow_tracing_max_blocks: usize,
 }
 
 pub fn default_ip() -> Ipv4Addr {
     Ipv4Addr::new(0, 0, 0, 0)
-}
-
-/// Loads config from toml file, some values can be loaded from env variables with the following syntax
-/// e.g. flashbots_db = "env:FLASHBOTS_DB"
-///
-/// variables that can be configured with env values:
-/// - log_level
-/// - coinbase_secret_key
-/// - flashbots_db
-/// - relay_secret_key
-/// - optimistic_relay_secret_key
-/// - backtest_fetch_mempool_data_dir
-pub fn load_config_toml_and_env<T: serde::de::DeserializeOwned>(
-    path: impl AsRef<Path>,
-) -> eyre::Result<T> {
-    let data = read_to_string(path.as_ref()).with_context(|| {
-        eyre!(
-            "Config file read error: {:?}",
-            path.as_ref().to_string_lossy()
-        )
-    })?;
-
-    let config: T = toml::from_str(&data).context("Config file parsing")?;
-    Ok(config)
 }
 
 impl BaseConfig {
@@ -193,7 +185,7 @@ impl BaseConfig {
             log_json: self.log_json,
             log_color: self.log_color,
         };
-        setup_tracing_subscriber(config)?;
+        config.init_tracing()?;
         Ok(())
     }
 
@@ -221,22 +213,36 @@ impl BaseConfig {
     }
 
     /// Allows instantiating a [`LiveBuilder`] with an existing provider factory
-    pub async fn create_builder_with_provider_factory<P, SlotSourceType>(
+    pub async fn create_builder_with_provider_factory<P>(
         &self,
         cancellation_token: tokio_util::sync::CancellationToken,
-        sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
-        slot_source: SlotSourceType,
+        unfinished_built_blocks_input_factory: UnfinishedBuiltBlocksInputFactory<P>,
+        slot_source: MevBoostSlotDataGenerator,
         provider: P,
         blocklist_provider: Arc<dyn BlockListProvider>,
-    ) -> eyre::Result<super::LiveBuilder<P, SlotSourceType>>
+    ) -> eyre::Result<super::LiveBuilder<P>>
     where
         P: StateProviderFactory,
-        SlotSourceType: SlotSource,
     {
         let order_input_config = OrderInputConfig::from_config(self)?;
         let (orderpool_sender, orderpool_receiver) =
             mpsc::channel(order_input_config.input_channel_buffer_size);
-        Ok(LiveBuilder::<P, SlotSourceType> {
+
+        let order_flow_tracer_manager: Box<dyn OrderFlowTracerManager> =
+            if let Some(orderflow_tracing_store_path) = &self.orderflow_tracing_store_path {
+                if self.orderflow_tracing_max_blocks != 0 {
+                    Box::new(OrderFlowTracerManagerImpl::new(
+                        orderflow_tracing_store_path.clone(),
+                        self.orderflow_tracing_max_blocks,
+                    )?)
+                } else {
+                    Box::new(NullOrderFlowTracerManager {})
+                }
+            } else {
+                Box::new(NullOrderFlowTracerManager {})
+            };
+
+        Ok(LiveBuilder::<P> {
             watchdog_timeout: self.watchdog_timeout(),
             error_storage_path: self.error_storage_path.clone(),
             simulation_threads: self.simulation_threads,
@@ -249,10 +255,10 @@ impl BaseConfig {
             extra_data: self.extra_data.clone(),
             blocklist_provider,
 
-            global_cancellation: cancellation_token,
-
+            global_cancellation: cancellation_token.clone(),
+            process_killer: ProcessKiller::new(cancellation_token),
             extra_rpc: RpcModule::new(()),
-            sink_factory,
+            unfinished_built_blocks_input_factory,
             builders: Vec::new(),
 
             run_sparse_trie_prefetcher: self.root_hash_use_sparse_trie,
@@ -264,6 +270,7 @@ impl BaseConfig {
             evm_caching_enable: self.evm_caching_enable,
             simulation_use_random_coinbase: self.simulation_use_random_coinbase,
             faster_finalize: self.faster_finalize,
+            order_flow_tracer_manager,
         })
     }
 
@@ -463,78 +470,9 @@ impl BaseConfig {
 
         Ok(path_expanded.parse()?)
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EnvOrValue<T>(String, std::marker::PhantomData<T>);
-
-impl<T: FromStr> EnvOrValue<T> {
-    pub fn value(&self) -> eyre::Result<String> {
-        let value = &self.0;
-        if value.starts_with(ENV_PREFIX) {
-            let var_name = value.trim_start_matches(ENV_PREFIX);
-            var(var_name).map_err(|_| eyre::eyre!("Env variable: {} not set", var_name))
-        } else {
-            Ok(value.to_string())
-        }
-    }
-}
-
-impl<T> From<&str> for EnvOrValue<T> {
-    fn from(s: &str) -> Self {
-        Self(s.to_string(), std::marker::PhantomData)
-    }
-}
-
-impl<'de, T: FromStr> Deserialize<'de> for EnvOrValue<T> {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        Ok(Self(s, std::marker::PhantomData))
-    }
-}
-
-// Helper function to resolve Vec<EnvOrValue<T>> to Vec<T>
-pub fn resolve_env_or_values<T: FromStr>(values: &[EnvOrValue<T>]) -> eyre::Result<Vec<T>> {
-    values
-        .iter()
-        .try_fold(Vec::new(), |mut acc, v| -> eyre::Result<Vec<T>> {
-            let value = v.value()?;
-            if v.0.starts_with(ENV_PREFIX) {
-                // If it's an environment variable, split by comma
-                let parsed: eyre::Result<Vec<T>> = value
-                    .split(',')
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .map(|s| {
-                        T::from_str(s).map_err(|_| eyre::eyre!("Failed to parse value: {}", s))
-                    })
-                    .collect();
-                acc.extend(parsed?);
-            } else {
-                // If it's not an environment variable, just return the single value
-                acc.push(
-                    T::from_str(&value)
-                        .map_err(|_| eyre::eyre!("Failed to parse value: {}", value))?,
-                );
-            }
-            Ok(acc)
-        })
-}
-
-impl<'de, T> DeserializeAs<'de, EnvOrValue<T>> for EnvOrValue<T>
-where
-    T: FromStr,
-    String: Deserialize<'de>,
-{
-    fn deserialize_as<D>(deserializer: D) -> Result<EnvOrValue<T>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        Ok(EnvOrValue(s, std::marker::PhantomData))
+    pub fn max_order_execution_duration_warning(&self) -> Option<Duration> {
+        self.max_order_execution_duration_warning_us
+            .map(Duration::from_micros)
     }
 }
 
@@ -559,10 +497,10 @@ impl Default for BaseConfig {
             log_color: false,
             error_storage_path: None,
             coinbase_secret_key: None,
-            flashbots_db: None,
             el_node_ipc_path: None,
             jsonrpc_server_port: DEFAULT_INCOMING_BUNDLES_PORT,
             jsonrpc_server_ip: default_ip(),
+            jsonrpc_server_max_connections: None,
             ignore_cancellable_orders: true,
             ignore_blobs: false,
             chain: "mainnet".to_string(),
@@ -578,6 +516,7 @@ impl Default for BaseConfig {
             root_hash_sparse_trie_version: "v1".to_string(),
             root_hash_compare_sparse_trie: false,
             root_hash_threads: 0,
+            adjust_finalized_blocks: false,
             watchdog_timeout_sec: None,
             backtest_fetch_mempool_data_dir: "/mnt/data/mempool".into(),
             backtest_fetch_eth_rpc_url: "http://127.0.0.1:8545".to_string(),
@@ -596,6 +535,10 @@ impl Default for BaseConfig {
             evm_caching_enable: false,
             faster_finalize: false,
             time_to_keep_mempool_txs_secs: DEFAULT_TIME_TO_KEEP_MEMPOOL_TXS_SECS,
+            orderflow_tracing_store_path: None,
+            orderflow_tracing_max_blocks: 0,
+            system_recipient_allowlist: Vec::new(),
+            max_order_execution_duration_warning_us: None,
         }
     }
 }
@@ -726,7 +669,7 @@ mod test {
         // Setup and initialize a temp reth db (with static files)
         let tempdir = TempDir::with_prefix_in("rbuilder-", "/tmp").unwrap();
 
-        let data_dir = MaybePlatformPath::<DataDirPath>::from(tempdir.into_path());
+        let data_dir = MaybePlatformPath::<DataDirPath>::from(tempdir.keep());
         let data_dir = data_dir.unwrap_or_chain_default(Chain::mainnet(), DatadirArgs::default());
 
         let db = Arc::new(init_db(data_dir.data_dir(), Default::default()).unwrap());

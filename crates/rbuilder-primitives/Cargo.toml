@@ -1,0 +1,71 @@
+[package]
+name = "rbuilder-primitives"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+exclude.workspace = true
+
+[dependencies]
+# alloy
+alloy-primitives.workspace = true
+alloy-consensus.workspace = true
+alloy-eips.workspace = true
+alloy-rlp.workspace = true
+alloy-rpc-types.workspace = true
+alloy-rpc-types-beacon.workspace = true
+alloy-rpc-types-engine.workspace = true
+alloy-rpc-types-eth.workspace = true
+
+revm.workspace = true
+revm-inspectors.workspace = true
+
+# reth
+reth-chainspec.workspace = true
+reth-primitives-traits.workspace = true
+reth-primitives.workspace = true
+reth-ethereum-primitives.workspace = true
+reth-transaction-pool.workspace = true
+
+ethereum-consensus.workspace = true
+ethereum_ssz.workspace = true
+ethereum_ssz_derive.workspace = true
+ssz_types = "0.8.0"
+tree_hash = "0.8.0"
+tree_hash_derive = "0.8.0"
+typenum = "1.17.0"
+
+# misc
+derivative.workspace = true
+integer-encoding = "4.0.0"
+sha2 = { workspace = true, features = ["asm"] }
+uuid = { version = "1.6.1", features = ["serde", "v5", "v4"] }
+governor = "0.6.3"
+ahash.workspace = true
+reqwest = { workspace = true, features = ["blocking"] }
+serde_with = { workspace = true, features = ["time_0_3"] }
+toml.workspace = true
+tracing.workspace = true
+time.workspace = true
+thiserror.workspace = true
+eyre.workspace = true
+serde.workspace = true
+derive_more.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+alloy-primitives = { workspace = true, features = ["arbitrary"] }
+rand.workspace = true
+criterion.workspace = true
+proptest.workspace = true
+ring = "0.17"
+
+[[bench]]
+name = "sha_pair"
+harness = false
+
+[[bench]]
+name = "ssz_proof"
+harness = false

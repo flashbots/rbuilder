@@ -10,12 +10,14 @@ repository.workspace = true
 
 [dependencies]
 thiserror = "1.0.61"
-serde = { version = "1.0.203", features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
 serde_json = "1.0.117"
 serde_with = "3.9.0"
 rustc-hash = "2.0.0"
 rayon = "1.10.0"
 smallvec = "1.13.2"
+alloy-trie.workspace = true
+nybbles = { version = "0.3.3", features = ["serde"] }
 
 tracing.workspace = true
 
@@ -32,7 +34,6 @@ revm.workspace = true
 # alloy
 alloy-primitives.workspace = true
 alloy-rlp.workspace = true
-alloy-trie.workspace = true
 
 # other
 parking_lot.workspace = true
@@ -49,9 +50,9 @@ flate2 = { workspace = true, optional = true }
 benchmark-utils = ["dep:hash-db", "dep:triehash", "dep:flate2"]
 
 [dev-dependencies]
-criterion = { version = "0.4", features = ["html_reports"] }
-rand = { version = "0.8.5", features = ["small_rng"] }
-proptest = "1.5.0"
+criterion = { workspace = true, features = ["html_reports"] }
+rand = { workspace = true, features = ["small_rng"] }
+proptest.workspace = true
 eth-sparse-mpt = { path = ".", features = ["benchmark-utils"] }
 
 [[bench]]

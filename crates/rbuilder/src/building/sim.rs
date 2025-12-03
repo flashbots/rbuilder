@@ -5,11 +5,10 @@ use super::{
 };
 use crate::{
     building::{
-        BlockBuildingContext, BlockState, CriticalCommitOrderError,
-        NullPartialBlockForkExecutionTracer,
+        order_is_worth_executing, BlockBuildingContext, BlockBuildingSpaceState, BlockState,
+        CriticalCommitOrderError, NullPartialBlockForkExecutionTracer,
     },
     live_builder::order_input::mempool_txs_detector::MempoolTxsDetector,
-    primitives::{Order, OrderId, SimulatedOrder},
     provider::StateProviderFactory,
     telemetry::{add_order_simulation_time, mark_order_pending_nonce},
     utils::NonceCache,
@@ -17,6 +16,7 @@ use crate::{
 use ahash::{HashMap, HashSet};
 use alloy_primitives::Address;
 use rand::seq::SliceRandom;
+use rbuilder_primitives::{Order, OrderId, SimulatedOrder};
 use reth_errors::ProviderError;
 use reth_provider::StateProvider;
 use std::{
@@ -28,8 +28,9 @@ use std::{
 use tracing::{error, trace};
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum OrderSimResult {
-    Success(SimulatedOrder, Vec<(Address, u64)>),
+    Success(Arc<SimulatedOrder>, Vec<(Address, u64)>),
     Failed(OrderErr),
 }
 
@@ -64,7 +65,7 @@ pub struct SimulationRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SimulatedResult {
     pub id: SimulationId,
-    pub simulated_order: SimulatedOrder,
+    pub simulated_order: Arc<SimulatedOrder>,
     pub previous_orders: Vec<Order>,
     pub nonces_after: Vec<NonceKey>,
     pub simulation_time: Duration,
@@ -317,7 +318,7 @@ pub fn simulate_all_orders_with_sim_tree<P>(
     ctx: &BlockBuildingContext,
     orders: &[Order],
     randomize_insertion: bool,
-) -> Result<(Vec<SimulatedOrder>, Vec<OrderErr>), CriticalCommitOrderError>
+) -> Result<(Vec<Arc<SimulatedOrder>>, Vec<OrderErr>), CriticalCommitOrderError>
 where
     P: StateProviderFactory + Clone,
 {
@@ -440,18 +441,15 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
 ) -> Result<OrderSimResult, CriticalCommitOrderError> {
     let start = Instant::now();
     // simulate parents
-    let mut gas_used = 0;
-    let mut blob_gas_used = 0;
+    let mut space_state = BlockBuildingSpaceState::ZERO;
     // We use empty combined refunds because the value of the bundle will
     // not change from batching.
     let combined_refunds = std::collections::HashMap::default();
     for parent in parent_orders {
-        let result =
-            fork.commit_order(&parent, gas_used, 0, blob_gas_used, true, &combined_refunds)?;
+        let result = fork.commit_order(&parent, space_state, true, &combined_refunds)?;
         match result {
             Ok(res) => {
-                gas_used += res.gas_used;
-                blob_gas_used += res.blob_gas_used;
+                space_state.use_space(res.space_used);
             }
             Err(err) => {
                 tracing::trace!(parent_order = ?parent.id(), ?err, "failed to simulate parent order");
@@ -461,20 +459,23 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
     }
 
     // simulate
-    let result = fork.commit_order(&order, gas_used, 0, blob_gas_used, true, &combined_refunds)?;
+    let result = fork.commit_order(&order, space_state, true, &combined_refunds)?;
     let sim_time = start.elapsed();
     add_order_simulation_time(sim_time, "sim", result.is_ok()); // we count parent sim time + order sim time time here
 
     match result {
         Ok(res) => {
             let sim_value = create_sim_value(&order, &res, mempool_tx_detector);
+            if let Err(err) = order_is_worth_executing(&sim_value) {
+                return Ok(OrderSimResult::Failed(err));
+            }
             let new_nonces = res.nonces_updated.into_iter().collect::<Vec<_>>();
             Ok(OrderSimResult::Success(
-                SimulatedOrder {
+                Arc::new(SimulatedOrder {
                     order,
                     sim_value,
                     used_state_trace: res.used_state_trace,
-                },
+                }),
                 new_nonces,
             ))
         }

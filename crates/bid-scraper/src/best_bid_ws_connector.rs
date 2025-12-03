@@ -1,18 +1,19 @@
 use alloy_primitives::{BlockHash, U256};
-use serde::Deserialize;
-use std::sync::Arc;
-use std::time::Duration;
+use rbuilder_config::EnvOrValue;
+use serde::{Deserialize, Serialize};
+use std::{sync::Arc, time::Duration};
 use tokio::net::TcpStream;
 use tokio_stream::StreamExt;
-use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-use tokio_tungstenite::tungstenite::handshake::client::Request;
-use tokio_tungstenite::tungstenite::Error;
-use tokio_tungstenite::{connect_async_with_config, tungstenite::protocol::Message};
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{
+    connect_async_with_config,
+    tungstenite::{
+        client::IntoClientRequest, handshake::client::Request, protocol::Message, Error,
+    },
+    MaybeTlsStream, WebSocketStream,
+};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, warn};
 
-use crate::code_from_rbuilder::EnvOrValue;
 use crate::reconnect::{run_async_loop_with_reconnect, RunCommand};
 
 type Connection = WebSocketStream<MaybeTlsStream<TcpStream>>;
@@ -22,13 +23,13 @@ const MAX_IO_ERRORS: usize = 5;
 // time that we wait for a new value before reconnecting
 const READ_TIMEOUT: Duration = Duration::from_secs(5);
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct ExternalWsPublisherConfig {
     pub url: String,
     pub auth_header: EnvOrValue<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct BestBidValue {
     pub block_number: u64,
@@ -60,7 +61,7 @@ impl<BestBidValueSinkType: BestBidValueSink> BestBidWSConnector<BestBidValueSink
         let mut connection_request = url.into_client_request()?;
         connection_request
             .headers_mut()
-            .insert("Authorization", format!("Basic {}", basic_auth).parse()?);
+            .insert("Authorization", format!("Basic {basic_auth}").parse()?);
 
         Ok(Self {
             connection_request,

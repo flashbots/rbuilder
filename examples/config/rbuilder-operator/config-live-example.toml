@@ -1,0 +1,64 @@
+log_json = true
+log_level = "info,rbuilder=debug"
+redacted_telemetry_server_port = 6061
+redacted_telemetry_server_ip = "0.0.0.0"
+full_telemetry_server_port = 6060
+full_telemetry_server_ip = "0.0.0.0"
+
+chain = "mainnet"
+reth_datadir = "/mnt/data/reth"
+
+coinbase_secret_key = "env:COINBASE_SECRET_KEY"
+
+cl_node_url = ["http://localhost:3500"]
+jsonrpc_server_port = 8645
+jsonrpc_server_ip = "0.0.0.0"
+el_node_ipc_path = "/tmp/reth.ipc"
+extra_data = "⚡🤖"
+
+blocklist_file_path = "./blocklist.json"
+
+
+blocks_processor_url = "http://block_processor.internal"
+key_registration_url = "http://127.0.0.1:8090"
+ignore_cancellable_orders = true
+
+sbundle_mergeabe_signers = []
+live_builders = ["mp-ordering", "mgp-ordering", "parallel"]
+
+bidding_service_ipc_path = "/tmp/rpc_bidding_server.sock"
+
+[tbv_push_redis]
+url = "env:BIDDING_REDIS_URL"
+channel = "best_true_value"
+
+
+[[relays]]
+name = "flashbots"
+url = "https://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@boost-relay.flashbots.net"
+priority = 0
+use_ssz_for_submit = false
+use_gzip_for_submit = false
+
+[[builders]]
+name = "mgp-ordering"
+algo = "ordering-builder"
+discard_txs = true
+sorting = "mev-gas-price"
+failed_order_retries = 1
+drop_failed_orders = true
+
+[[builders]]
+name = "mp-ordering"
+algo = "ordering-builder"
+discard_txs = true
+sorting = "max-profit"
+failed_order_retries = 1
+drop_failed_orders = true
+
+[[builders]]
+name = "parallel"
+algo = "parallel-builder"
+discard_txs = true
+num_threads = 5
+safe_sorting_only = false

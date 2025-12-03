@@ -195,7 +195,7 @@ mod tests {
             .await
             .expect("create db");
         storage
-            .store_backtest_results(time, &[backtest_value.clone()])
+            .store_backtest_results(time, std::slice::from_ref(&backtest_value))
             .await
             .unwrap();
         let res = storage

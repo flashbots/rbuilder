@@ -7,12 +7,12 @@ use crate::{
         TransactionErr,
     },
     live_builder::{block_list_provider::BlockList, cli::LiveBuilderConfig},
-    primitives::{OrderId, SimulatedOrder},
     provider::StateProviderFactory,
-    utils::{clean_extradata, Signer},
+    utils::{clean_extradata, mevblocker::get_mevblocker_price, Signer},
 };
 use alloy_eips::BlockNumHash;
 use alloy_primitives::{Address, U256};
+use rbuilder_primitives::{OrderId, SimulatedOrder};
 use reth_chainspec::ChainSpec;
 use serde::{Deserialize, Serialize};
 use std::{cell::RefCell, rc::Rc, sync::Arc};
@@ -71,6 +71,9 @@ where
         block_data.winning_bid_trace.block_number.saturating_sub(1),
         block_data.winning_bid_trace.parent_hash,
     );
+    let mev_blocker_price = get_mevblocker_price(
+        provider.history_by_block_hash(block_data.onchain_block.header.parent_hash)?,
+    )?;
     let ctx = BlockBuildingContext::from_onchain_block(
         block_data.onchain_block.clone(),
         chain_spec.clone(),
@@ -78,9 +81,10 @@ where
         blocklist,
         builder_signer.address,
         block_data.winning_bid_trace.proposer_fee_recipient,
-        Some(builder_signer),
+        builder_signer,
         Arc::from(provider.root_hasher(parent_num_hash)?),
         evm_caching_enable,
+        mev_blocker_price,
     );
     Ok(ctx)
 }
@@ -109,7 +113,7 @@ where
     let order_store = Rc::new(RefCell::new(SimulatedOrderStore::new()));
     let mut merger = MultiShareBundleMerger::new(sbundle_mergeable_signers, order_store.clone());
     for sim_order in sim_orders {
-        merger.insert_order(Arc::new(sim_order));
+        merger.insert_order(sim_order);
     }
     let sim_orders = order_store.borrow().get_orders();
     Ok(BacktestBlockInput {

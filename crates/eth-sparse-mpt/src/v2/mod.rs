@@ -1,24 +1,26 @@
-use rayon::prelude::*;
-use std::sync::Arc;
-use std::time::Instant;
-
-use alloy_primitives::{keccak256, Address, B256, U256};
+use alloy_primitives::{keccak256, Address, Bytes, B256, U256};
 use dashmap::DashMap;
 use fetch::MissingNodesFetcher;
+use nybbles::Nibbles;
 use parking_lot::{Mutex, RwLock};
-use reth_provider::{
-    providers::ConsistentDbView, BlockReader, DatabaseProviderFactory, ExecutionOutcome,
-    StateCommitmentProvider,
+use rayon::prelude::*;
+use reth_provider::{providers::ConsistentDbView, BlockReader, DatabaseProviderFactory};
+use reth_trie::TrieAccount;
+use revm::{
+    database::{BundleAccount, BundleState},
+    state::AccountInfo,
 };
-use reth_trie::{Nibbles, TrieAccount};
-use revm::state::AccountInfo;
 use rustc_hash::FxBuildHasher;
-use std::ops::Range;
-use trie::proof_store::ProofStore;
-use trie::{DeletionError, InsertValue, NodeNotFound, Trie};
+use std::{ops::Range, sync::Arc, time::Instant};
+use trie::{
+    proof_store::ProofStore, DeletionError, InsertValue, NodeNotFound, ProofError, ProofWithValue,
+    Trie,
+};
 
-use crate::utils::HashMap;
-use crate::{ChangedAccountData, SparseTrieError, SparseTrieMetrics};
+use crate::{
+    utils::{HashMap, HashSet},
+    ChangedAccountData, SparseTrieError, SparseTrieMetrics,
+};
 
 pub mod fetch;
 pub mod trie;
@@ -45,7 +47,7 @@ impl SharedCacheV2 {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum StorageTrieStatus {
     InsertsNotProcessed,
     InsertsProcessed,
@@ -62,7 +64,6 @@ impl StorageTrieStatus {
     }
 }
 
-/// WARN: Clone will not clone changed tries
 #[derive(Debug, Default)]
 pub struct RootHashCalculator {
     storage: DashMap<Address, Arc<Mutex<StorageCalculator>>, FxBuildHasher>,
@@ -71,13 +72,28 @@ pub struct RootHashCalculator {
     account_trie: AccountTrieCalculator,
 
     shared_cache: SharedCacheV2,
+
+    // if set, only changes for these accounts will be incrementally applied
+    incremental_account_change: HashSet<Address>,
 }
 
 impl Clone for RootHashCalculator {
     fn clone(&self) -> Self {
         Self {
+            storage: self
+                .storage
+                .iter()
+                .map(|entry| {
+                    (
+                        *entry.key(),
+                        Arc::new(Mutex::new(entry.value().lock().clone())),
+                    )
+                })
+                .collect(),
+            changed_account: Arc::new(RwLock::new(self.changed_account.read().clone())),
+            account_trie: self.account_trie.clone(),
             shared_cache: self.shared_cache.clone(),
-            ..Default::default()
+            incremental_account_change: self.incremental_account_change.clone(),
         }
     }
 }
@@ -108,6 +124,11 @@ struct AccountTrieCalculator {
     delete_account_keys: Vec<Address>,
     delete_ok: Vec<bool>,
 
+    proof_keys: Vec<Nibbles>,
+    proof_account_keys: Vec<Address>,
+    proof_ok: Vec<bool>,
+    proof_result: Vec<(Address, Vec<(Nibbles, Vec<u8>)>)>,
+
     missing_nodes: Vec<Nibbles>,
     missing_nodes_requested: Vec<Nibbles>,
 
@@ -129,6 +150,11 @@ impl AccountTrieCalculator {
         self.delete_account_keys.clear();
         self.delete_ok.clear();
         self.missing_nodes.clear();
+
+        self.proof_keys.clear();
+        self.proof_account_keys.clear();
+        self.proof_ok.clear();
+        self.proof_result.clear();
         // self.trie.clear();
     }
 }
@@ -220,8 +246,6 @@ impl StorageCalculator {
 
         self.missing_nodes.clear();
         self.missing_nodes_requested.clear();
-
-        self.hash = B256::ZERO;
     }
 }
 
@@ -232,7 +256,6 @@ pub fn prefetch_proofs<'a, Provider>(
 ) -> Result<SparseTrieMetrics, SparseTrieError>
 where
     Provider: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync,
-    Provider: StateCommitmentProvider,
 {
     let mut metrics = SparseTrieMetrics::default();
     let mut fetcher = MissingNodesFetcher::default();
@@ -258,6 +281,7 @@ impl RootHashCalculator {
             storage: DashMap::default(),
             changed_account: Default::default(),
             shared_cache,
+            incremental_account_change: Default::default(),
         }
     }
 
@@ -278,83 +302,121 @@ impl RootHashCalculator {
         }
     }
 
-    fn prepare_changes_for_storage_trie(&mut self, outcome: &ExecutionOutcome) -> eyre::Result<()> {
-        self.changed_account.write().clear();
+    fn prepare_changes_for_one_storage_trie(
+        &self,
+        address: Address,
+        bundle_account: &BundleAccount,
+    ) {
+        let storage_calc = self.get_account_storage(&address);
+        let mut storage_calc = storage_calc.lock();
+        let storage_calc = &mut *storage_calc;
 
-        outcome
-            .bundle_accounts_iter()
-            .par_bridge()
-            .for_each(|(address, bundle_account)| {
-                if bundle_account.status.is_not_modified() {
-                    return;
-                }
+        storage_calc.clear();
+        storage_calc.account_info = bundle_account.account_info().map(|a| a.without_code());
 
-                let storage_calc = self.get_account_storage(&address);
-                let mut storage_calc = storage_calc.lock();
+        if storage_calc.account_info.is_none() {
+            // account processed, no need to compute storage hash
+            storage_calc.hash = B256::ZERO;
+            self.changed_account
+                .write()
+                .push((address, StorageTrieStatus::Hashed));
+            return;
+        }
 
-                storage_calc.clear();
-                storage_calc.account_info = bundle_account.account_info().map(|a| a.without_code());
+        for (storage_key, storage_value) in &bundle_account.storage {
+            if !storage_value.is_changed() {
+                continue;
+            }
 
-                if storage_calc.account_info.is_none() {
-                    // account processed, no need to compute storage hash
-                    self.changed_account
-                        .write()
-                        .push((address, StorageTrieStatus::Hashed));
-                    return;
+            let storage_value = storage_value.present_value();
+
+            if let Some(applied_op) = storage_calc
+                .applied_storage_ops_previous_iteration
+                .remove(storage_key)
+            {
+                if applied_op.inserted_value == storage_value {
+                    storage_calc
+                        .applied_storage_ops_current_iteration
+                        .insert(*storage_key, applied_op);
+                    continue;
                 } else {
-                    self.changed_account
-                        .write()
-                        .push((address, StorageTrieStatus::InsertsNotProcessed));
-                }
-
-                for (storage_key, storage_value) in &bundle_account.storage {
-                    if !storage_value.is_changed() {
-                        continue;
-                    }
-
-                    let storage_value = storage_value.present_value();
-
-                    if let Some(applied_op) = storage_calc
-                        .applied_storage_ops_previous_iteration
-                        .remove(storage_key)
-                    {
-                        if applied_op.inserted_value == storage_value {
-                            storage_calc
-                                .applied_storage_ops_current_iteration
-                                .insert(*storage_key, applied_op);
-                            continue;
-                        } else {
-                            storage_calc.revert_storage_ops.push(applied_op);
-                            storage_calc.revert_storage_ops_done.push(false);
-                        }
-                    }
-
-                    let hashed_key =
-                        Nibbles::unpack(keccak256(B256::from(*storage_key)).as_slice());
-                    if !storage_value.is_zero() {
-                        let value = alloy_rlp::encode(storage_value);
-                        storage_calc.insert_keys.push(hashed_key);
-                        storage_calc.insert_values.push(value);
-                        storage_calc.insert_storage_key.push(*storage_key);
-                        storage_calc.insert_storage_value.push(storage_value);
-                        storage_calc.insert_ok.push(false);
-                    } else {
-                        storage_calc.delete_keys.push(hashed_key);
-                        storage_calc.delete_storage_key.push(*storage_key);
-                        storage_calc.delete_ok.push(false);
-                    }
-                }
-
-                // revert all applied ops from previous iteration
-                let mut applied_storage_ops_previous_iteration =
-                    std::mem::take(&mut storage_calc.applied_storage_ops_previous_iteration);
-                for (_, applied_op) in applied_storage_ops_previous_iteration.drain() {
                     storage_calc.revert_storage_ops.push(applied_op);
                     storage_calc.revert_storage_ops_done.push(false);
                 }
-                storage_calc.applied_storage_ops_previous_iteration =
-                    applied_storage_ops_previous_iteration;
+            }
+
+            let hashed_key = Nibbles::unpack(keccak256(B256::from(*storage_key)).as_slice());
+            if !storage_value.is_zero() {
+                let value = alloy_rlp::encode(storage_value);
+                storage_calc.insert_keys.push(hashed_key);
+                storage_calc.insert_values.push(value);
+                storage_calc.insert_storage_key.push(*storage_key);
+                storage_calc.insert_storage_value.push(storage_value);
+                storage_calc.insert_ok.push(false);
+            } else {
+                storage_calc.delete_keys.push(hashed_key);
+                storage_calc.delete_storage_key.push(*storage_key);
+                storage_calc.delete_ok.push(false);
+            }
+        }
+
+        // revert all applied ops from previous iteration
+        let mut applied_storage_ops_previous_iteration =
+            std::mem::take(&mut storage_calc.applied_storage_ops_previous_iteration);
+        for (_, applied_op) in applied_storage_ops_previous_iteration.drain() {
+            storage_calc.revert_storage_ops.push(applied_op);
+            storage_calc.revert_storage_ops_done.push(false);
+        }
+        storage_calc.applied_storage_ops_previous_iteration =
+            applied_storage_ops_previous_iteration;
+
+        if storage_calc.delete_keys.is_empty()
+            && storage_calc.insert_keys.is_empty()
+            && storage_calc.revert_storage_ops.is_empty()
+            && !storage_calc.hash.is_zero()
+            && !storage_calc.trie.is_uninit()
+        {
+            std::mem::swap(
+                &mut storage_calc.applied_storage_ops_previous_iteration,
+                &mut storage_calc.applied_storage_ops_current_iteration,
+            );
+            self.changed_account
+                .write()
+                .push((address, StorageTrieStatus::Hashed));
+        } else {
+            storage_calc.hash = B256::ZERO;
+            self.changed_account
+                .write()
+                .push((address, StorageTrieStatus::InsertsNotProcessed));
+        }
+    }
+
+    fn prepare_changes_for_storage_trie(&mut self, outcome: &BundleState) -> eyre::Result<()> {
+        self.changed_account.write().clear();
+
+        let incremental_change = !self.incremental_account_change.is_empty();
+
+        if incremental_change {
+            self.incremental_account_change.iter().for_each(|address| {
+                let bundle_account = outcome
+                    .account(address)
+                    .expect("account with incremental change is not in the BundleState");
+                self.prepare_changes_for_one_storage_trie(*address, bundle_account)
             });
+        } else {
+            outcome
+                .state()
+                .iter()
+                .map(|(a, acc)| (*a, acc))
+                .par_bridge()
+                .for_each(|(address, bundle_account)| {
+                    if bundle_account.status.is_not_modified() {
+                        return;
+                    }
+                    self.prepare_changes_for_one_storage_trie(address, bundle_account)
+                });
+        }
+
         Ok(())
     }
 
@@ -365,7 +427,6 @@ impl RootHashCalculator {
     ) -> Result<(), SparseTrieError>
     where
         Provider: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync,
-        Provider: StateCommitmentProvider,
     {
         stats.start();
 
@@ -562,28 +623,27 @@ impl RootHashCalculator {
     ) -> Result<(), SparseTrieError>
     where
         Provider: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync,
-        Provider: StateCommitmentProvider,
     {
         let fetcher = Arc::new(Mutex::new(MissingNodesFetcher::default()));
 
         self.changed_account.read().par_iter().for_each(|(address, status)| {
-	    if !status.needs_processing() {
-		return;
-	    }
+            if !status.needs_processing() {
+                return;
+            }
             let storage_calc = self.get_account_storage(address);
-	    let mut storage_calc = storage_calc.lock();
-	    let storage_calc = &mut *storage_calc;
-	    storage_calc.missing_nodes_requested.clear();
-	    for missing_node in storage_calc.missing_nodes.drain(..) {
-		if storage_calc.proof_store.has_proof(&missing_node) {
-		    let ok = storage_calc.trie.try_add_proof_from_proof_store(&missing_node, &storage_calc.proof_store).expect("should be able to insert proofs from proof store when they are found (storage trie)");
-		    assert!(ok, "proof is not added (storage trie)");
-		} else {
-		    storage_calc.missing_nodes_requested.push(missing_node.clone());
-		    fetcher.lock().add_missing_storage_node(&storage_calc.hashed_address, missing_node);
-		}
-	    }
-	});
+            let mut storage_calc = storage_calc.lock();
+            let storage_calc = &mut *storage_calc;
+            storage_calc.missing_nodes_requested.clear();
+            for missing_node in storage_calc.missing_nodes.drain(..) {
+                if storage_calc.proof_store.has_proof(&missing_node) {
+                    let ok = storage_calc.trie.try_add_proof_from_proof_store(&missing_node, &storage_calc.proof_store).expect("should be able to insert proofs from proof store when they are found (storage trie)");
+                    assert!(ok, "proof is not added (storage trie)");
+                } else {
+                    storage_calc.missing_nodes_requested.push(missing_node.clone());
+                    fetcher.lock().add_missing_storage_node(&storage_calc.hashed_address, missing_node);
+                }
+            }
+        });
 
         let mut fetcher = fetcher.lock();
         if !fetcher.is_empty() {
@@ -594,21 +654,21 @@ impl RootHashCalculator {
         }
 
         self.changed_account.read().par_iter().for_each(|(address, status)| {
-	    if !status.needs_processing() {
-		return;
-	    }
+            if !status.needs_processing() {
+                return;
+            }
             let storage_calc = self.get_account_storage(address);
-	    let mut storage_calc = storage_calc.lock();
-	    let storage_calc = &mut *storage_calc;
-	    for missing_node in storage_calc.missing_nodes_requested.drain(..) {
-		if storage_calc.proof_store.has_proof(&missing_node) {
-		    let ok = storage_calc.trie.try_add_proof_from_proof_store(&missing_node, &storage_calc.proof_store).expect("should be able to insert proofs from proof store when they are found (storage trie)");
-		    assert!(ok, "proof is not added (storage trie)");
-		} else {
-		    panic!("Missing node that was just fetched is not there (storage trie)");
-		}
-	    }
-	});
+            let mut storage_calc = storage_calc.lock();
+            let storage_calc = &mut *storage_calc;
+            for missing_node in storage_calc.missing_nodes_requested.drain(..) {
+                if storage_calc.proof_store.has_proof(&missing_node) {
+                    let ok = storage_calc.trie.try_add_proof_from_proof_store(&missing_node, &storage_calc.proof_store).expect("should be able to insert proofs from proof store when they are found (storage trie)");
+                    assert!(ok, "proof is not added (storage trie)");
+                } else {
+                    panic!("Missing node that was just fetched is not there (storage trie)");
+                }
+            }
+        });
         Ok(())
     }
 
@@ -640,7 +700,7 @@ impl RootHashCalculator {
             });
     }
 
-    fn prepare_changes_account_trie(&mut self) {
+    fn prepare_changes_account_trie(&mut self, proof_targets: &HashSet<Address>) {
         self.account_trie.clear();
 
         for (address, _) in &*self.changed_account.read() {
@@ -688,13 +748,30 @@ impl RootHashCalculator {
             }
         }
 
-        for (_, applied_op) in self
+        let incremental_change = !self.incremental_account_change.is_empty();
+
+        for (address, applied_op) in self
             .account_trie
             .applied_account_ops_previous_iteration
             .drain()
         {
-            self.account_trie.revert_account_ops.push(applied_op);
-            self.account_trie.revert_account_ops_done.push(false);
+            if incremental_change && !self.incremental_account_change.contains(&address) {
+                self.account_trie
+                    .applied_account_ops_current_iteration
+                    .insert(address, applied_op);
+            } else {
+                self.account_trie.revert_account_ops.push(applied_op);
+                self.account_trie.revert_account_ops_done.push(false);
+            }
+        }
+
+        for address in proof_targets {
+            let storage_calc = self.get_account_storage(address);
+            let storage_calc = storage_calc.lock();
+            let key = storage_calc.unpacked_hashed_address.clone();
+            self.account_trie.proof_keys.push(key);
+            self.account_trie.proof_account_keys.push(*address);
+            self.account_trie.proof_ok.push(false);
         }
     }
 
@@ -798,6 +875,34 @@ impl RootHashCalculator {
         Ok(account_trie.missing_nodes.is_empty())
     }
 
+    fn process_account_trie_proofs(&mut self, shared_cache: &SharedCacheV2) -> eyre::Result<bool> {
+        let account_trie = &mut self.account_trie;
+        account_trie.missing_nodes.clear();
+        for i in 0..account_trie.proof_ok.len() {
+            if account_trie.proof_ok[i] {
+                continue;
+            }
+            let proof_result = account_trie
+                .trie
+                .get_proof_nibbles_key(&account_trie.proof_keys[i], &shared_cache.account_trie);
+            match proof_result {
+                Ok(ProofWithValue { proof, .. }) => {
+                    account_trie.proof_ok[i] = true;
+                    account_trie
+                        .proof_result
+                        .push((account_trie.proof_account_keys[i], proof));
+                }
+                Err(ProofError::TrieIsDirty) => {
+                    eyre::bail!("Trie is not hashed before fetching proofs")
+                }
+                Err(ProofError::NodeNotFound(NodeNotFound(missing_node))) => {
+                    account_trie.missing_nodes.push(missing_node);
+                }
+            }
+        }
+        Ok(account_trie.missing_nodes.is_empty())
+    }
+
     fn fetch_missing_account_trie_nodes<Provider>(
         &mut self,
         consistent_db_view: &ConsistentDbView<Provider>,
@@ -805,7 +910,6 @@ impl RootHashCalculator {
     ) -> Result<(), SparseTrieError>
     where
         Provider: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync,
-        Provider: StateCommitmentProvider,
     {
         let mut fetcher = MissingNodesFetcher::default();
 
@@ -860,12 +964,19 @@ impl RootHashCalculator {
         &mut self,
         consistent_db_view: ConsistentDbView<Provider>,
         shared_cache: SharedCacheV2,
-        outcome: &ExecutionOutcome,
-    ) -> Result<(B256, SparseTrieMetrics), SparseTrieError>
+        outcome: &BundleState,
+        incremental_change: &[Address],
+        proof_targets: &HashSet<Address>,
+    ) -> Result<(B256, HashMap<Address, Vec<Bytes>>, SparseTrieMetrics), SparseTrieError>
     where
         Provider: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync,
-        Provider: StateCommitmentProvider,
     {
+        if !incremental_change.is_empty() {
+            self.incremental_account_change.extend(incremental_change);
+        } else {
+            self.incremental_account_change.clear();
+        }
+
         let mut stats = Stats::default();
         stats.start_global();
 
@@ -874,7 +985,9 @@ impl RootHashCalculator {
         stats.start();
         self.prepare_changes_for_storage_trie(outcome)?;
         stats.measure_prepare(true);
-        self.do_first_fetch(&consistent_db_view, &mut stats)?;
+        if self.incremental_account_change.is_empty() {
+            self.do_first_fetch(&consistent_db_view, &mut stats)?;
+        }
 
         let mut loop_break = false;
         for _ in 0..10 {
@@ -896,11 +1009,11 @@ impl RootHashCalculator {
         assert!(loop_break, "storage trie are not processed after 10 iters");
 
         stats.start();
-        self.prepare_changes_account_trie();
+        self.prepare_changes_account_trie(proof_targets);
         stats.measure_prepare(false);
 
         let mut loop_break = false;
-        let mut result = B256::ZERO;
+        let mut root_hash = B256::ZERO;
         for _ in 0..10 {
             stats.start();
             let ok = self.process_account_tries_update()?;
@@ -912,17 +1025,60 @@ impl RootHashCalculator {
                 continue;
             }
             stats.start();
-            result = self.hash_account_trie(&shared_cache);
+            root_hash = self.hash_account_trie(&shared_cache);
             stats.measure_hash(false);
             loop_break = true;
             break;
         }
         assert!(loop_break, "account trie are not processed after 10 iters");
 
+        let mut loop_break = false;
+        for _ in 0..10 {
+            stats.start();
+            let ok = self.process_account_trie_proofs(&shared_cache)?;
+            stats.measure_other();
+            if !ok {
+                stats.start();
+                self.fetch_missing_account_trie_nodes(&consistent_db_view, &mut stats)?;
+                stats.measure_proof_fetch(false);
+                // if we fetched proofs we need to rehash account trie
+                stats.start();
+                self.account_trie
+                    .trie
+                    .root_hash(true, &shared_cache.account_trie)
+                    .map_err(|err| {
+                        eyre::eyre!("failed to hash account trie (account proofs) {err:?}")
+                    })?;
+                stats.measure_other();
+                continue;
+            }
+            loop_break = true;
+            break;
+        }
+        assert!(
+            loop_break,
+            "account trie proofs are not processed after 10 iters"
+        );
+
+        let mut proofs = HashMap::default();
+        for (address, proof) in self.account_trie.proof_result.drain(..) {
+            proofs.insert(
+                address,
+                proof.into_iter().map(|(_, node)| node.into()).collect(),
+            );
+        }
+        for proof_target in proof_targets {
+            if !proofs.contains_key(proof_target) {
+                return Err(SparseTrieError::Other(eyre::eyre!(
+                    "Proof was not fethed correctly"
+                )));
+            }
+        }
+
         let mut metrics = SparseTrieMetrics::default();
         metrics.fetched_nodes = stats.fetched_nodes;
         stats.finalize_and_print();
-        Ok((result, metrics))
+        Ok((root_hash, proofs, metrics))
     }
 }
 

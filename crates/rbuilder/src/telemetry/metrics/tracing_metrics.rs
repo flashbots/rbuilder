@@ -1,18 +1,16 @@
 /// Tracing metrics are used to get a fine grained look at the path of the order through the builder.
 /// To start collecting this metric mark_building_started must be called at the start of each slot.
-use crate::{
-    live_builder::order_input::ReplaceableOrderPoolCommand,
-    primitives::{Order, OrderId},
-};
+use crate::live_builder::order_input::ReplaceableOrderPoolCommand;
 use ahash::RandomState;
 use dashmap::{DashMap, DashSet};
 use lazy_static::lazy_static;
+use rbuilder_primitives::{Order, OrderId};
 use std::sync::{Arc, RwLock};
 use time::OffsetDateTime;
 
 use super::{
     sim_status, BLOCK_METRICS_TIMESTAMP_LOWER_DELTA, BLOCK_METRICS_TIMESTAMP_UPPER_DELTA,
-    ORDERPOOL_ORDERS_RECEIVED, ORDER_FIRST_SEEN_TO_ORDER_RECEIVED, ORDER_RECEIVED_TO_SIM_END_TIME,
+    ORDERPOOL_ORDERS_RECEIVED, ORDER_RECEIVED_TO_SIM_END_TIME,
     ORDER_SIM_END_TO_FIRST_BUILD_STARTED_MIN_TIME, ORDER_SIM_END_TO_FIRST_BUILD_STARTED_TIME,
 };
 
@@ -94,20 +92,7 @@ pub fn mark_building_started(block_timestamp: OffsetDateTime) {
 }
 
 /// This should be called when ordrepool command appears in the builder. It can be a new order or order replacement.
-pub fn mark_command_received(
-    command: &ReplaceableOrderPoolCommand,
-    received_at: OffsetDateTime,
-    first_seen_at: Option<OffsetDateTime>,
-) {
-    if let Some(first_seen_at) = first_seen_at {
-        let first_seen_at_us = offset_datetime_to_timestamp_us(&first_seen_at);
-        let received_at_us = offset_datetime_to_timestamp_us(&received_at);
-        if received_at_us > first_seen_at_us {
-            ORDER_FIRST_SEEN_TO_ORDER_RECEIVED
-                .with_label_values(&[])
-                .observe((received_at_us - first_seen_at_us) as f64 / 1000.0);
-        }
-    }
+pub fn mark_command_received(command: &ReplaceableOrderPoolCommand, received_at: OffsetDateTime) {
     let kind = match command {
         ReplaceableOrderPoolCommand::Order(order) => {
             mark_order_received(order.id(), received_at);
@@ -118,7 +103,7 @@ pub fn mark_command_received(
             }
         }
         ReplaceableOrderPoolCommand::CancelShareBundle(_)
-        | ReplaceableOrderPoolCommand::CancelBundle(_) => "replacement",
+        | ReplaceableOrderPoolCommand::CancelBundle(_) => "cancel",
     };
     ORDERPOOL_ORDERS_RECEIVED.with_label_values(&[kind]).inc();
 }
