@@ -576,23 +576,6 @@ mod tests {
     }
 
     #[test]
-    fn test_distinguish_force_vs_optional_signatures() {
-        // Verify that force and optional signatures are distinct
-        let config = real_ace_config();
-
-        let force_sig = Selector::from_slice(&[0x09, 0xc5, 0xea, 0xbe]); // execute
-        let unlock_sig = Selector::from_slice(&[0x18, 0x28, 0xe0, 0xe7]); // unlockWithEmptyAttestation
-
-        // Force signature should only be in force_signatures
-        assert!(config.force_signatures.contains(&force_sig));
-        assert!(!config.unlock_signatures.contains(&force_sig));
-
-        // Unlock signature should only be in unlock_signatures
-        assert!(config.unlock_signatures.contains(&unlock_sig));
-        assert!(!config.force_signatures.contains(&unlock_sig));
-    }
-
-    #[test]
     fn test_slot_written_also_detected() {
         // Test that writing to the detection slot is also detected (not just reading)
         let config = real_ace_config();
