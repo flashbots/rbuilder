@@ -71,7 +71,6 @@ incremental = false
 
 [workspace.dependencies]
 reth = { git = "https://github.com/paradigmxyz/reth", rev = "42197415102b7a20be42e4fe919f024b81ceb55b" }
-reth-chain-state = { git = "https://github.com/paradigmxyz/reth", rev = "42197415102b7a20be42e4fe919f024b81ceb55b" }
 reth-cli-util = { git = "https://github.com/paradigmxyz/reth", rev = "42197415102b7a20be42e4fe919f024b81ceb55b" }
 reth-db = { git = "https://github.com/paradigmxyz/reth", rev = "42197415102b7a20be42e4fe919f024b81ceb55b" }
 reth-db-common = { git = "https://github.com/paradigmxyz/reth", rev = "42197415102b7a20be42e4fe919f024b81ceb55b" }
@@ -81,7 +80,6 @@ reth-node-api = { git = "https://github.com/paradigmxyz/reth", rev = "4219741510
 reth-node-ethereum = { git = "https://github.com/paradigmxyz/reth", rev = "42197415102b7a20be42e4fe919f024b81ceb55b" }
 reth-trie = { git = "https://github.com/paradigmxyz/reth", rev = "42197415102b7a20be42e4fe919f024b81ceb55b" }
 reth-trie-parallel = { git = "https://github.com/paradigmxyz/reth", rev = "42197415102b7a20be42e4fe919f024b81ceb55b" }
-reth-basic-payload-builder = { git = "https://github.com/paradigmxyz/reth", rev = "42197415102b7a20be42e4fe919f024b81ceb55b" }
 reth-node-core = { git = "https://github.com/paradigmxyz/reth", rev = "42197415102b7a20be42e4fe919f024b81ceb55b" }
 reth-primitives = { git = "https://github.com/paradigmxyz/reth", rev = "42197415102b7a20be42e4fe919f024b81ceb55b" }
 reth-ethereum-primitives = { git = "https://github.com/paradigmxyz/reth", rev = "42197415102b7a20be42e4fe919f024b81ceb55b" }
@@ -93,18 +91,8 @@ reth-chainspec = { git = "https://github.com/paradigmxyz/reth", rev = "421974151
 reth-evm = { git = "https://github.com/paradigmxyz/reth", rev = "42197415102b7a20be42e4fe919f024b81ceb55b" }
 reth-evm-ethereum = { git = "https://github.com/paradigmxyz/reth", rev = "42197415102b7a20be42e4fe919f024b81ceb55b" }
 reth-execution-errors = { git = "https://github.com/paradigmxyz/reth", rev = "42197415102b7a20be42e4fe919f024b81ceb55b" }
-reth-exex = { git = "https://github.com/paradigmxyz/reth", rev = "42197415102b7a20be42e4fe919f024b81ceb55b" }
-reth-metrics = { git = "https://github.com/paradigmxyz/reth", rev = "42197415102b7a20be42e4fe919f024b81ceb55b" }
 reth-trie-db = { git = "https://github.com/paradigmxyz/reth", rev = "42197415102b7a20be42e4fe919f024b81ceb55b" }
-reth-payload-primitives = { git = "https://github.com/paradigmxyz/reth", rev = "42197415102b7a20be42e4fe919f024b81ceb55b" }
 reth-transaction-pool = { git = "https://github.com/paradigmxyz/reth", rev = "42197415102b7a20be42e4fe919f024b81ceb55b" }
-reth-execution-types = { git = "https://github.com/paradigmxyz/reth", rev = "42197415102b7a20be42e4fe919f024b81ceb55b" }
-reth-revm = { git = "https://github.com/paradigmxyz/reth", rev = "42197415102b7a20be42e4fe919f024b81ceb55b" }
-reth-payload-builder-primitives = { git = "https://github.com/paradigmxyz/reth", rev = "42197415102b7a20be42e4fe919f024b81ceb55b" }
-reth-payload-util = { git = "https://github.com/paradigmxyz/reth", rev = "42197415102b7a20be42e4fe919f024b81ceb55b" }
-reth-rpc-layer = { git = "https://github.com/paradigmxyz/reth", rev = "42197415102b7a20be42e4fe919f024b81ceb55b" }
-reth-testing-utils = { git = "https://github.com/paradigmxyz/reth", rev = "42197415102b7a20be42e4fe919f024b81ceb55b" }
-reth-storage-api = { git = "https://github.com/paradigmxyz/reth", rev = "42197415102b7a20be42e4fe919f024b81ceb55b" }
 
 # compatible with reth 42197415102b7a20be42e4fe919f024b81ceb55b dependencies
 revm = { version = "29.0.1", features = [
@@ -125,24 +113,18 @@ alloy-chains = "0.2.5"
 alloy-trie = { version = "0.8.1", default-features = false }
 alloy-evm = { version = "0.21.1", default-features = false }
 alloy-provider = { version = "1.0.37", features = ["ipc", "pubsub", "ws"] }
-alloy-pubsub = { version = "1.0.37" }
 alloy-eips = { version = "1.0.37" }
 alloy-rpc-types = { version = "1.0.37" }
 alloy-json-rpc = { version = "1.0.37" }
-alloy-transport-http = { version = "1.0.37" }
 alloy-network = { version = "1.0.37" }
 alloy-network-primitives = { version = "1.0.37" }
-alloy-transport = { version = "1.0.37" }
 alloy-node-bindings = { version = "1.0.37" }
 alloy-consensus = { version = "1.0.37", features = ["kzg"] }
-alloy-serde = { version = "1.0.37" }
 alloy-rpc-types-beacon = { version = "1.0.37", features = ["ssz"] }
 alloy-rpc-types-engine = { version = "1.0.37", features = ["ssz"] }
 alloy-rpc-types-eth = { version = "1.0.37" }
 alloy-signer = { version = "1.0.37" }
 alloy-signer-local = { version = "1.0.37" }
-alloy-rpc-client = { version = "1.0.37" }
-alloy-genesis = { version = "1.0.37" }
 
 # Version required by ethereum-consensus beacon-api-client
 mev-share-sse = { git = "https://github.com/paradigmxyz/mev-share-rs", rev = "9eb2b0138ab3202b9eb3af4b19c7b3bf40b0faa8", default-features = false }
@@ -151,16 +133,13 @@ ethereum-consensus = { git = "https://github.com/ralexstokes/ethereum-consensus/
 
 async-trait = { version = "0.1.83" }
 clap = { version = "4.4.3", features = ["derive", "env"] }
-clap_builder = { version = "4.5.19" }
 thiserror = { version = "1.0.64" }
 eyre = { version = "0.6.12" }
 jsonrpsee = { version = "0.24.4" }
-jsonrpsee-types = { version = "0.24.4" }
 parking_lot = { version = "0.12.3" }
 tokio = { version = "1.40.0", default-features = false }
 futures = "0.3"
 futures-util = "0.3"
-auto_impl = { version = "1.2.0" }
 reqwest = { version = "0.12.8" }
 serde = { version = "1.0.210" }
 serde_json = { version = "1.0" }
@@ -183,11 +162,9 @@ exponential-backoff = "1.2.0"
 derivative = "2.2"
 sha2 = "0.10.8"
 
-libc = { version = "0.2.161" }
 lazy_static = "1.4.0"
 tikv-jemallocator = { version = "0.6" }
 tracing = "0.1.37"
-metrics = { version = "0.24.1" }
 ahash = "0.8.6"
 time = { version = "0.3.36", features = ["macros", "formatting", "parsing"] }
 uuid = { version = "1.6.1", features = ["serde", "v5", "v4"] }
@@ -199,7 +176,7 @@ eth-sparse-mpt = { path = "crates/eth-sparse-mpt" }
 bid-scraper = { path = "crates/bid-scraper" }
 rbuilder = { path = "crates/rbuilder" }
 rbuilder-primitives = { path = "crates/rbuilder-primitives" }
-rbuilder-utils =  { path = "crates/rbuilder-utils" }
+rbuilder-utils = { path = "crates/rbuilder-utils" }
 rbuilder-config = { path = "crates/rbuilder-config" }
 sysperf = { path = "crates/sysperf" }
 metrics_macros = { path = "crates/rbuilder/src/telemetry/metrics_macros" }

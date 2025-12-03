@@ -1106,9 +1106,11 @@ mod tests {
         mode = 'slot_info'
         ";
 
-        std::env::set_var("XXX", "AAA");
-        std::env::set_var("YYY", "BBB");
-        std::env::set_var("ZZZ", "CCC");
+        unsafe {
+            std::env::set_var("XXX", "AAA");
+            std::env::set_var("YYY", "BBB");
+            std::env::set_var("ZZZ", "CCC");
+        }
 
         let config: RelayConfig = toml::from_str(example).unwrap();
         assert_eq!(config.name, "relay1");

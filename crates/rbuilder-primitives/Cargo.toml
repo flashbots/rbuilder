@@ -17,7 +17,6 @@ alloy-rlp.workspace = true
 alloy-rpc-types.workspace = true
 alloy-rpc-types-beacon.workspace = true
 alloy-rpc-types-engine.workspace = true
-alloy-rpc-types-eth.workspace = true
 
 revm.workspace = true
 revm-inspectors.workspace = true
@@ -42,11 +41,9 @@ derivative.workspace = true
 integer-encoding = "4.0.0"
 sha2 = { workspace = true, features = ["asm"] }
 uuid = { version = "1.6.1", features = ["serde", "v5", "v4"] }
-governor = "0.6.3"
 ahash.workspace = true
 reqwest = { workspace = true, features = ["blocking"] }
 serde_with = { workspace = true, features = ["time_0_3"] }
-toml.workspace = true
 tracing.workspace = true
 time.workspace = true
 thiserror.workspace = true

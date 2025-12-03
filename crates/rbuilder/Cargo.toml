@@ -31,14 +31,12 @@ reth-trie-parallel.workspace = true
 reth-node-api.workspace = true
 reth-node-core.workspace = true
 reth-primitives.workspace = true
-reth-ethereum-primitives.workspace = true
 reth-primitives-traits.workspace = true
 reth-provider.workspace = true
 reth-chainspec.workspace = true
 reth-evm.workspace = true
 reth-evm-ethereum.workspace = true
 revm.workspace = true
-revm-inspectors.workspace = true
 reth-node-ethereum.workspace = true
 
 alloy-primitives.workspace = true
@@ -58,7 +56,6 @@ alloy-signer-local.workspace = true
 alloy-eips.workspace = true
 alloy-trie.workspace = true
 
-ethereum_ssz_derive.workspace = true
 ethereum_ssz.workspace = true
 
 test_utils = { path = "src/test_utils" }
@@ -108,7 +105,6 @@ rand.workspace = true
 lru = "0.12.1"
 flume = "0.11.0"
 crossbeam-queue = "0.3.10"
-integer-encoding = "4.0.0"
 sha2.workspace = true
 lz4_flex = "0.11.2"
 exponential-backoff.workspace = true
@@ -154,8 +150,14 @@ criterion = { workspace = true, features = ["html_reports", "async_tokio"] }
 # TODO: remove?
 optimism = []
 redact-sensitive = []
-jemalloc-unprefixed = ["tikv-jemallocator/unprefixed_malloc_on_supported_platforms"]
+jemalloc-unprefixed = [
+    "tikv-jemallocator/unprefixed_malloc_on_supported_platforms",
+]
 
 [[bench]]
 name = "bench_main"
 harness = false
+
+[package.metadata.cargo-shear]
+# cargo-shear invalidly marks these as unused.
+ignored = ["prost", "prost-types"]
