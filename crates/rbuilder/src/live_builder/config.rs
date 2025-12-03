@@ -304,8 +304,6 @@ impl L1Config {
                             tonic::transport::Endpoint::try_from(grpc_url)?
                                 .keep_alive_while_idle(true)
                                 .keep_alive_timeout(Duration::from_secs(12))
-                                // Default is 1 KB, a little low for a block.
-                                .buffer_size(8 * 1024)
                                 .connect_lazy(),
                         );
 
