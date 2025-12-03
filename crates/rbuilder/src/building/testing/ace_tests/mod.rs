@@ -9,10 +9,6 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use uuid::Uuid;
 
-// ============================================================================
-// Test Infrastructure & Helper Functions
-// ============================================================================
-
 /// Create a minimal order for testing (empty bundle with unique ID)
 fn create_test_order() -> Order {
     Order::Bundle(Bundle {
@@ -118,10 +114,6 @@ fn create_non_unlocking_order(contract: Address, gas_used: u64) -> Arc<Simulated
     })
 }
 
-// ============================================================================
-// 1. Dependency Tracking Tests
-// ============================================================================
-
 #[test]
 fn test_ace_exchange_state_get_unlock_order_force_only() {
     let order = create_force_unlock_order(
@@ -182,10 +174,6 @@ fn test_ace_exchange_state_get_unlock_order_none() {
     assert_eq!(state.get_unlock_order(), None);
 }
 
-// ============================================================================
-// 2. SimTree Initialization Tests
-// ============================================================================
-
 #[test]
 fn test_sim_tree_ace_config_registration() -> eyre::Result<()> {
     let test_chain = TestChainState::new(BlockArgs::default())?;
@@ -234,10 +222,6 @@ fn test_multiple_ace_contracts() -> eyre::Result<()> {
     Ok(())
 }
 
-// ============================================================================
-// 3. Cancellation Tests
-// ============================================================================
-
 #[test]
 fn test_mark_mempool_unlock_basic() -> eyre::Result<()> {
     let test_chain = TestChainState::new(BlockArgs::default())?;
@@ -279,14 +263,11 @@ fn test_handle_ace_interaction_with_mempool_unlock() -> eyre::Result<()> {
 
     let mut sim_tree = SimTree::new(nonce_cache, vec![ace_config]);
 
-    // Mark mempool unlock BEFORE optional order arrives
     let cancelled = sim_tree.mark_mempool_unlock(contract_addr);
     assert_eq!(cancelled, None); // Nothing to cancel yet
 
-    // Now add optional unlock order
     let optional_order = create_optional_unlock_order(contract_addr, 50_000);
 
-    // Create SimulatedResult for handle_ace_interaction
     let mut result = SimulatedResult {
         id: rand::random(),
         simulated_order: optional_order.clone(),
@@ -308,10 +289,6 @@ fn test_handle_ace_interaction_with_mempool_unlock() -> eyre::Result<()> {
 
     Ok(())
 }
-
-// ============================================================================
-// 4. Dependency Key Tests
-// ============================================================================
 
 #[test]
 fn test_dependency_key_from_nonce() {
