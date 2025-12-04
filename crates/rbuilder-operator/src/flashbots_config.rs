@@ -2,7 +2,6 @@
 //! This code has lots of copy/paste from the example config but it's not really copy/paste since we use our own private types.
 //! @Pending make this copy/paste generic code on the library
 
-use alloy_primitives::U256;
 use alloy_rpc_types_beacon::relay::SubmitBlockRequest as AlloySubmitBlockRequest;
 use alloy_signer_local::PrivateKeySigner;
 use derivative::Derivative;
@@ -458,7 +457,6 @@ impl BidObserver for RbuilderOperatorBidObserver {
         submit_block_request: Arc<AlloySubmitBlockRequest>,
         built_block_trace: Arc<BuiltBlockTrace>,
         builder_algorithm_name: String,
-        best_bid_value: U256,
         relays: &RelaySet,
         sent_to_relay_at: OffsetDateTime,
     ) {
@@ -468,7 +466,6 @@ impl BidObserver for RbuilderOperatorBidObserver {
                 submit_block_request.clone(),
                 built_block_trace.clone(),
                 builder_algorithm_name.clone(),
-                best_bid_value,
                 relays,
                 sent_to_relay_at,
             )
@@ -479,7 +476,6 @@ impl BidObserver for RbuilderOperatorBidObserver {
                 submit_block_request,
                 built_block_trace,
                 builder_algorithm_name,
-                best_bid_value,
                 relays,
                 sent_to_relay_at,
             )

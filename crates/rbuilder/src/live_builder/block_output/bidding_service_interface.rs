@@ -9,7 +9,10 @@ use bid_scraper::{
 use derivative::Derivative;
 use mockall::automock;
 use rbuilder_primitives::mev_boost::MevBoostRelayID;
-use time::OffsetDateTime;
+use time::{
+    convert::{Nanosecond, Second},
+    OffsetDateTime,
+};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -32,7 +35,6 @@ pub trait BidObserver: std::fmt::Debug {
         submit_block_request: Arc<AlloySubmitBlockRequest>,
         built_block_trace: Arc<BuiltBlockTrace>,
         builder_algorithm_name: String,
-        best_bid_value: U256,
         relays: &RelaySet,
         sent_to_relay_at: OffsetDateTime,
     );
@@ -48,7 +50,6 @@ impl BidObserver for NullBidObserver {
         _submit_block_request: Arc<AlloySubmitBlockRequest>,
         _built_block_trace: Arc<BuiltBlockTrace>,
         _builder_algorithm_name: String,
-        _best_bid_value: U256,
         _relays: &RelaySet,
         _sent_to_relay_at: OffsetDateTime,
     ) {
@@ -139,12 +140,70 @@ pub struct PayoutInfo {
     pub subsidy: I256,
 }
 
+/// Where/When we got the bid.
+#[derive(Clone, Eq, PartialEq, Debug)]
+pub struct BidSourceInfo {
+    /// When we saw the bid for the first time in the bid scraper (ScrapedRelayBlockBid::seen_time)
+    pub seen_time: OffsetDateTime,
+    /// Relay where we saw the bid.
+    pub relay: MevBoostRelayID,
+}
+
+impl From<&ScrapedRelayBlockBid> for BidSourceInfo {
+    fn from(bid: &ScrapedRelayBlockBid) -> Self {
+        Self {
+            seen_time: f64_to_offset_datetime(bid.seen_time),
+            relay: bid.relay_name.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Eq, PartialEq, Debug)]
+pub struct BidWithInfo {
+    pub value: U256,
+    pub info: BidSourceInfo,
+}
+
+/// @Pending: improve error handling here.
+pub fn f64_to_offset_datetime(timestamp: f64) -> OffsetDateTime {
+    OffsetDateTime::from_unix_timestamp_nanos((timestamp * Nanosecond::per(Second) as f64) as i128)
+        .unwrap_or(OffsetDateTime::UNIX_EPOCH)
+}
+
+impl From<&ScrapedRelayBlockBid> for BidWithInfo {
+    fn from(bid: &ScrapedRelayBlockBid) -> Self {
+        Self {
+            value: bid.value,
+            info: bid.into(),
+        }
+    }
+}
+
+/// Context about the competitions bids that we used to generate our bid.
+#[derive(Clone, Eq, PartialEq, Debug)]
+pub struct CompetitionBidContext {
+    pub seen_competition_bid: Option<BidWithInfo>,
+    /// Info about the bid that triggered the bid to be generated.
+    /// Notice this may not be the top bid since a builder lowering it's bid could trigger a new bid
+    /// against the new winner.
+    pub triggering_bid_source_info: Option<BidSourceInfo>,
+}
+
+impl CompetitionBidContext {
+    pub fn no_competition_bid() -> Self {
+        Self {
+            seen_competition_bid: None,
+            triggering_bid_source_info: None,
+        }
+    }
+}
+
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct SlotBidderSealBidCommand {
     pub block_id: BuiltBlockId,
-    pub seen_competition_bid: Option<U256>,
+    pub competition_bid_context: CompetitionBidContext,
     /// When this bid is a reaction so some event (eg: new block, new competition bid) we put here
-    /// the creation time of that event so we can measure our reaction time.
+    /// the creation time of that event so we can measure the reaction time of the bidding service communication.
     pub trigger_creation_time: Option<OffsetDateTime>,
     /// All the different bids to be made.
     pub payout_info: Vec<PayoutInfo>,

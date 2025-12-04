@@ -209,7 +209,7 @@ impl BlockBuildingHelper for BlockBuildingHelperStatsLogger<'_> {
         _local_ctx: &mut crate::building::ThreadBlockBuildingContext,
         _payout_tx_value: alloy_primitives::U256,
         _subsidy: alloy_primitives::I256,
-        _seen_competition_bid: Option<alloy_primitives::U256>,
+        _competition_bid_context: crate::live_builder::block_output::bidding_service_interface::CompetitionBidContext,
     ) -> Result<FinalizeBlockResult, BlockBuildingHelperError> {
         panic!("finalize_block not implemented. This is only for testing.");
     }
@@ -240,7 +240,7 @@ impl BlockBuildingHelper for BlockBuildingHelperStatsLogger<'_> {
         _local_ctx: &mut ThreadBlockBuildingContext,
         _payout_tx_value: U256,
         _subsidy: I256,
-        _seen_competition_bid: Option<U256>,
+        _competition_bid_context: crate::live_builder::block_output::bidding_service_interface::CompetitionBidContext,
     ) -> Result<FinalizeBlockResult, BlockBuildingHelperError> {
         unimplemented!()
     }

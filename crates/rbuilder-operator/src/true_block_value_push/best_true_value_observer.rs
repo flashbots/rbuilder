@@ -79,7 +79,6 @@ impl BidObserver for BestTrueValueObserver {
         _submit_block_request: Arc<AlloySubmitBlockRequest>,
         built_block_trace: Arc<BuiltBlockTrace>,
         builder_algorithm_name: String,
-        _best_bid_value: alloy_primitives::U256,
         _relays: &RelaySet,
         _sent_to_relay_at: OffsetDateTime,
     ) {

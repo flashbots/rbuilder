@@ -53,7 +53,7 @@ pub struct Block {
 }
 
 /// Id to uniquely identify every block built (unique even among different algorithms).
-#[derive(Clone, Copy, Eq, PartialEq, Debug)]
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Hash)]
 pub struct BuiltBlockId(pub u64);
 
 impl BuiltBlockId {

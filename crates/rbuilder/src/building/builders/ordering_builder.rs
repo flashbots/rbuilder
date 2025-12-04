@@ -16,7 +16,10 @@ use crate::{
         NullPartialBlockExecutionTracer, OrderPriority, PartialBlockExecutionTracer,
         PrioritizedOrderStore, SimulatedOrderSink, Sorting, ThreadBlockBuildingContext,
     },
-    live_builder::building::built_block_cache::BuiltBlockCache,
+    live_builder::{
+        block_output::bidding_service_interface::CompetitionBidContext,
+        building::built_block_cache::BuiltBlockCache,
+    },
     provider::StateProviderFactory,
     telemetry::{
         add_ordering_builder_base_stage_stats, add_ordering_builder_pre_filtered_stage_stats,
@@ -198,8 +201,12 @@ where
     )?;
 
     let payout_tx_value = block_builder.true_block_value()?;
-    let finalize_block_result =
-        block_builder.finalize_block(&mut local_ctx, payout_tx_value, I256::ZERO, None)?;
+    let finalize_block_result = block_builder.finalize_block(
+        &mut local_ctx,
+        payout_tx_value,
+        I256::ZERO,
+        CompetitionBidContext::no_competition_bid(),
+    )?;
     Ok(finalize_block_result.block)
 }
 

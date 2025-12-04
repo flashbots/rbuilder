@@ -201,7 +201,12 @@ async fn run_submit_to_relays_job(
             sequence,
             value: BidValueMetadata {
                 coinbase_reward: block.trace.coinbase_reward,
-                top_competitor_bid: block.trace.seen_competition_bid,
+                top_competitor_bid: block
+                    .trace
+                    .competition_bid_context
+                    .seen_competition_bid
+                    .as_ref()
+                    .map(|bid| bid.value),
             },
             order_ids,
             bundle_hashes,
@@ -212,7 +217,7 @@ async fn run_submit_to_relays_job(
             "bid",
             bid_value = format_ether(block.trace.bid_value),
             true_bid_value = format_ether(block.trace.true_bid_value),
-            seen_competition_bid = format_ether(block.trace.seen_competition_bid.unwrap_or_default()),
+            seen_competition_bid = format_ether(block.trace.competition_bid_context.seen_competition_bid.as_ref().map(|bid| bid.value).unwrap_or_default()),
             block = block.sealed_block.number,
             slot = slot_data.slot(),
             payload_id = slot_data.payload_id,
@@ -285,7 +290,6 @@ async fn run_submit_to_relays_job(
                 request,
                 Arc::new(block.trace),
                 builder_name,
-                bid_metadata.value.top_competitor_bid.unwrap_or_default(),
                 &relay_set,
                 sent_to_relay_at,
             );

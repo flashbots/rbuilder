@@ -1,4 +1,7 @@
-use crate::building::builders::BuiltBlockId;
+use crate::{
+    building::builders::BuiltBlockId,
+    live_builder::block_output::bidding_service_interface::CompetitionBidContext,
+};
 
 use super::ExecutionResult;
 use ahash::{AHasher, HashMap, HashSet};
@@ -47,8 +50,8 @@ pub struct BuiltBlockTrace {
     /// Overhead added by creating the MultiPrefinalizedBlock which makes some extra copies.
     pub multi_bid_copy_duration: Duration,
     pub root_hash_time: Duration,
-    /// Value we saw in the competition when we decided to make this bid.
-    pub seen_competition_bid: Option<U256>,
+    /// Context  we saw in the competition when we decided to make this bid.
+    pub competition_bid_context: CompetitionBidContext,
     /// Orders we had available to build the block (we might have not use all of them because of timeouts)
     pub available_orders_statistics: OrderStatistics,
     /// Every call to BlockBuildingHelper::commit_order impacts here.
@@ -88,7 +91,7 @@ impl BuiltBlockTrace {
             finalize_time: Duration::from_secs(0),
             finalize_adjust_time: Duration::from_secs(0),
             root_hash_time: Duration::from_secs(0),
-            seen_competition_bid: None,
+            competition_bid_context: CompetitionBidContext::no_competition_bid(),
             considered_orders_statistics: Default::default(),
             failed_orders_statistics: Default::default(),
             available_orders_statistics: Default::default(),
