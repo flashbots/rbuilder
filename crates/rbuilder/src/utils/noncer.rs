@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 /// Struct to get nonces for Addresses, caching the results.
 #[derive(Derivative)]
-#[derivative(Debug)]
+#[derivative(Debug, Clone)]
 pub struct NonceCache {
     #[derivative(Debug = "ignore")]
     state: Arc<dyn StateProvider>,
