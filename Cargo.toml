@@ -120,7 +120,6 @@ alloy-network = { version = "1.0.41" }
 alloy-network-primitives = { version = "1.0.41" }
 alloy-node-bindings = { version = "1.0.41" }
 alloy-consensus = { version = "1.0.41", features = ["kzg"] }
-alloy-serde = { version = "1.0.41" }
 alloy-rpc-types-beacon = { version = "1.0.41", features = ["ssz"] }
 alloy-rpc-types-engine = { version = "1.0.41", features = ["ssz"] }
 alloy-rpc-types-eth = { version = "1.0.41" }
