@@ -11,7 +11,7 @@ use crate::{
     utils::{
         a2r_withdrawal,
         constants::BASE_TX_GAS,
-        default_cfg_env, elapsed_ms,
+        elapsed_ms,
         receipts::{
             calculate_receipts_data, calculate_tx_root_and_placeholder_proof, ReceiptsData,
             ReceiptsDataCache, TransactionRootCache,
@@ -55,9 +55,7 @@ use reth_payload_builder::EthPayloadBuilderAttributes;
 use reth_primitives::BlockBody;
 use reth_primitives_traits::{proofs, Block as _};
 use revm::{
-    context::BlockEnv,
-    context_interface::{block::BlobExcessGasAndPrice, result::InvalidTransaction},
-    database::states::bundle_state::BundleRetention,
+    context_interface::result::InvalidTransaction, database::states::bundle_state::BundleRetention,
     primitives::hardfork::SpecId,
 };
 use serde::Deserialize;
@@ -252,37 +250,12 @@ impl BlockBuildingContext {
         mev_blocker_price: U256,
     ) -> BlockBuildingContext {
         let block_number = onchain_block.header.number;
-
-        let blob_excess_gas_and_price =
-            if chain_spec.is_cancun_active_at_timestamp(onchain_block.header.timestamp) {
-                Some(BlobExcessGasAndPrice::new(
-                    onchain_block.header.excess_blob_gas.unwrap_or_default(),
-                    chain_spec
-                        .blob_params_at_timestamp(onchain_block.header.timestamp)
-                        .unwrap_or(BlobParams::cancun())
-                        .update_fraction
-                        .try_into()
-                        .expect("update_fraction too large for u64"),
-                ))
-            } else {
-                None
-            };
-        let block_env = BlockEnv {
-            number: U256::from(block_number),
-            beneficiary,
-            timestamp: U256::from(onchain_block.header.timestamp),
-            difficulty: onchain_block.header.difficulty,
-            prevrandao: Some(onchain_block.header.mix_hash),
-            basefee: onchain_block
-                .header
-                .base_fee_per_gas
-                .expect("Failed to get basefee"), // TODO: improve
-            gas_limit: onchain_block.header.gas_limit,
-            blob_excess_gas_and_price,
-        };
-        let cfg = default_cfg_env(&chain_spec, timestamp_as_u64(&onchain_block), block_number);
-        // @TODO: revise
-        let evm_env = EvmEnv::from((cfg, block_env));
+        let eth_evm_config = EthEvmConfig::new(chain_spec.clone());
+        let mut evm_env = eth_evm_config
+            .evm_env(&onchain_block.header)
+            .expect("evm env config");
+        evm_env.block_env.beneficiary = beneficiary;
+        assert_eq!(evm_env.block_env.number, U256::from(block_number));
 
         let withdrawals = Withdrawals::new(
             onchain_block
