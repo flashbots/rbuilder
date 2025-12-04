@@ -28,9 +28,18 @@ secret = "<SECRET>" # Private key or env variable name containing the private ke
 min_balance = "<U256>"
 
 [[rule]]
-description = "" # information description of the rebalancing rule  
+description = "" # informational description of the rebalancing rule  
 source_id = "<ACCOUNT ID>" # rebalancing account ID referencing an account entry in `accounts`
 destination = "<ADDRESS>" # destination target address
-destination_min_balance = "2500000000000000000" # minimum balance. after going below it, the account will be topped up
+type = "fund" # funding type rule 
+destination_min_balance = "2500000000000000000" # minimum destination balance. after going below it, the destination account will be topped up
 destination_target_balance = "5000000000000000000" # the target balance to top up to
+
+[[rule]]
+description = "" # informational description of the rebalancing rule  
+source_id = "<ACCOUNT ID>" # rebalancing account ID referencing an account entry in `accounts`
+destination = "<ADDRESS>" # destination address
+type = "sweep" # sweeping type rule 
+source_target_balance = "2500000000000000000" # the target balance that should be remained after sweep
+source_max_balance = "5000000000000000000" # maximum source balance. after exceeding it, the source account balance will be swept
 ```
