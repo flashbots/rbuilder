@@ -20,7 +20,8 @@ use reth_node_api::{NodePrimitives, NodeTypesWithDB};
 use reth_provider::{
     providers::{ProviderNodeTypes, StaticFileProvider},
     BlockNumReader, BlockReader, DatabaseProviderFactory, HashedPostStateProvider, HeaderProvider,
-    StateProviderBox, StaticFileProviderFactory,
+    PruneCheckpointReader, StageCheckpointReader, StateProviderBox, StaticFileProviderFactory,
+    TrieReader,
 };
 use revm::database::BundleState;
 use std::{ops::DerefMut, path::PathBuf, sync::Arc};
@@ -217,7 +218,7 @@ where
         let provider = self
             .check_consistency_and_reopen_if_needed()
             .map_err(|e| ProviderError::Database(DatabaseError::Other(e.to_string())))?;
-        provider.header(block_hash)
+        provider.header(*block_hash)
     }
 
     fn header_by_number(&self, num: u64) -> ProviderResult<Option<Header>> {
@@ -292,7 +293,12 @@ impl<T, HasherType> RootHasherImpl<T, HasherType> {
 impl<T, HasherType> RootHasher for RootHasherImpl<T, HasherType>
 where
     HasherType: HashedPostStateProvider,
-    T: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync + Clone + 'static,
+    T: DatabaseProviderFactory<
+            Provider: BlockReader + TrieReader + StageCheckpointReader + PruneCheckpointReader,
+        > + Send
+        + Sync
+        + Clone
+        + 'static,
 {
     fn run_prefetcher(
         &self,

@@ -84,7 +84,7 @@ fn test_blocklist() -> eyre::Result<()> {
 
 #[test]
 fn test_target_block() -> eyre::Result<()> {
-    const BUILT_BLOCK_NUMBER: u64 = 11;
+    const BUILT_BLOCK_NUMBER: u64 = BlockArgs::MIN_BLOCK_NUMBER;
     const NEXT_BUILT_BLOCK_NUMBER: u64 = BUILT_BLOCK_NUMBER + 1;
     const PREV_BUILT_BLOCK_NUMBER: u64 = BUILT_BLOCK_NUMBER - 1;
     const NEXT_NEXT_BUILT_BLOCK_NUMBER: u64 = BUILT_BLOCK_NUMBER + 2;
@@ -92,7 +92,7 @@ fn test_target_block() -> eyre::Result<()> {
 
     {
         let mut test_setup =
-            TestSetup::gen_test_setup(BlockArgs::default().number(BUILT_BLOCK_NUMBER))?;
+            TestSetup::gen_test_setup(BlockArgs::default().with_number(BUILT_BLOCK_NUMBER))?;
         test_setup.begin_bundle_order(BUILT_BLOCK_NUMBER);
         test_setup.add_dummy_tx_0_1_no_rev()?;
         test_setup.commit_order_ok();
@@ -122,7 +122,7 @@ fn test_target_block() -> eyre::Result<()> {
 
     {
         let mut test_setup =
-            TestSetup::gen_test_setup(BlockArgs::default().number(BUILT_BLOCK_NUMBER))?;
+            TestSetup::gen_test_setup(BlockArgs::default().with_number(BUILT_BLOCK_NUMBER))?;
         test_setup.begin_share_bundle_order(PREV_BUILT_BLOCK_NUMBER, NEXT_BUILT_BLOCK_NUMBER);
         test_setup.add_dummy_tx_0_1_no_rev()?;
         test_setup.commit_order_ok();
@@ -163,11 +163,12 @@ fn test_target_block() -> eyre::Result<()> {
 
 #[test]
 fn test_bundle_timestamp() -> eyre::Result<()> {
+    let block_number = BlockArgs::MIN_BLOCK_NUMBER;
     {
-        let block_args = BlockArgs::default().number(11);
+        let block_args = BlockArgs::default().with_number(block_number);
         let base_ts = block_args.timestamp;
         // we cant't use 1000 since it's before Cancun, we must use the default (which we know executes ok) + 1000
-        let block_args = block_args.timestamp(base_ts + 1000);
+        let block_args = block_args.with_timestamp(base_ts + 1000);
         let mut test_setup = TestSetup::gen_test_setup(block_args)?;
 
         let adjust_ts = |ts: Option<i32>| ts.map(|delta| delta as u64 + base_ts);
@@ -181,7 +182,7 @@ fn test_bundle_timestamp() -> eyre::Result<()> {
         ];
 
         for (min_ts, max_ts) in ok_timestamp_params {
-            test_setup.begin_bundle_order(11);
+            test_setup.begin_bundle_order(block_number);
             test_setup.set_bundle_timestamp(adjust_ts(min_ts), adjust_ts(max_ts));
             test_setup.add_dummy_tx_0_1_no_rev()?;
             test_setup.commit_order_ok();
@@ -190,7 +191,7 @@ fn test_bundle_timestamp() -> eyre::Result<()> {
         let bad_timestamps = vec![(None, Some(999)), (Some(1001), None)];
 
         for (min_ts, max_ts) in bad_timestamps {
-            test_setup.begin_bundle_order(11);
+            test_setup.begin_bundle_order(block_number);
             test_setup.set_bundle_timestamp(adjust_ts(min_ts), adjust_ts(max_ts));
             test_setup.add_dummy_tx_0_1_no_rev()?;
             test_setup.commit_order_err_check_text("incorrect timestamp");
@@ -309,8 +310,8 @@ fn bundle_revert_tests(
 
 #[test]
 fn test_bundle_revert() -> eyre::Result<()> {
-    let target_block = 11;
-    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().number(target_block))?;
+    let target_block = BlockArgs::MIN_BLOCK_NUMBER;
+    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().with_number(target_block))?;
 
     bundle_revert_tests(&mut test_setup, target_block, false)?;
 
@@ -319,8 +320,8 @@ fn test_bundle_revert() -> eyre::Result<()> {
 
 #[test]
 fn test_share_bundle_revert() -> eyre::Result<()> {
-    let target_block = 11;
-    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().number(target_block))?;
+    let target_block = BlockArgs::MIN_BLOCK_NUMBER;
+    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().with_number(target_block))?;
 
     bundle_revert_tests(&mut test_setup, target_block, true)?;
 
@@ -330,12 +331,12 @@ fn test_share_bundle_revert() -> eyre::Result<()> {
 /// Test combined refunds
 #[test]
 fn test_bundle_combined_refunds() -> eyre::Result<()> {
-    let target_block = 11;
+    let target_block = BlockArgs::MIN_BLOCK_NUMBER;
     let profit: u64 = 100_000;
     let refund_percent: u8 = 90;
     let refundable_value = int_percentage(profit, refund_percent as usize);
 
-    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().number(target_block))?;
+    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().with_number(target_block))?;
     let recipient = NamedAddr::User(2);
     let recipient_address = test_setup.named_address(recipient)?;
     let recipient_balance_before = test_setup.balance(recipient)?;
@@ -406,13 +407,13 @@ fn test_bundle_combined_refunds() -> eyre::Result<()> {
 /// Test delayed refunds
 #[test]
 fn test_bundle_delayed_refunds() -> eyre::Result<()> {
-    let target_block = 11;
+    let target_block = BlockArgs::MIN_BLOCK_NUMBER;
     let profit: u64 = 100_000;
     let refund_percent: u8 = 90;
     let refundable_value = int_percentage(profit, refund_percent as usize);
     let coinbase_profit = profit - refundable_value;
 
-    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().number(target_block))?;
+    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().with_number(target_block))?;
     let recipient = NamedAddr::User(2);
     let recipient_address = test_setup.named_address(recipient)?;
     let recipient_balance_before = test_setup.balance(recipient)?;
@@ -483,12 +484,12 @@ fn test_bundle_delayed_refunds() -> eyre::Result<()> {
 /// Test immediate refunds to contract recipients
 #[test]
 fn test_bundle_contract_refunds() -> eyre::Result<()> {
-    let target_block = 11;
+    let target_block = BlockArgs::MIN_BLOCK_NUMBER;
     let profit: u64 = 100_000;
     let refund_percent: u8 = 90;
     let refundable_value = int_percentage(profit, refund_percent as usize);
 
-    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().number(target_block))?;
+    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().with_number(target_block))?;
     let recipient_named_address = NamedAddr::User(2);
     let recipient_contract_address = test_setup.named_address(recipient_named_address)?;
     test_setup
@@ -525,8 +526,8 @@ fn test_bundle_contract_refunds() -> eyre::Result<()> {
 
 #[test]
 fn test_bundle_ok_inner_tx_profits() -> eyre::Result<()> {
-    let target_block = 11;
-    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().number(target_block))?;
+    let target_block = BlockArgs::MIN_BLOCK_NUMBER;
+    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().with_number(target_block))?;
     let profits = [100_000u64, 200_000u64, 10u64];
     let mut tx_hashes = Vec::default();
     test_setup.begin_bundle_order(target_block);
@@ -545,10 +546,10 @@ fn test_bundle_ok_inner_tx_profits() -> eyre::Result<()> {
 
 #[test]
 fn test_mev_share_ok_refunds() -> eyre::Result<()> {
-    let target_block = 11;
-    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().number(target_block))?;
+    let target_block = BlockArgs::MIN_BLOCK_NUMBER;
+    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().with_number(target_block))?;
 
-    test_setup.begin_share_bundle_order(11, 11);
+    test_setup.begin_share_bundle_order(target_block, target_block);
     test_setup.add_dummy_tx_0_1_no_rev()?;
     test_setup.add_send_to_coinbase_tx(NamedAddr::User(1), 100_000)?;
     test_setup.set_inner_bundle_refund(vec![Refund {
@@ -564,7 +565,7 @@ fn test_mev_share_ok_refunds() -> eyre::Result<()> {
         )]
     );
 
-    test_setup.begin_share_bundle_order(11, 11);
+    test_setup.begin_share_bundle_order(target_block, target_block);
     test_setup.start_inner_bundle(false);
     test_setup.add_dummy_tx_0_1_no_rev()?;
     test_setup.finish_inner_bundle();
@@ -582,7 +583,7 @@ fn test_mev_share_ok_refunds() -> eyre::Result<()> {
         )]
     );
 
-    test_setup.begin_share_bundle_order(11, 11);
+    test_setup.begin_share_bundle_order(target_block, target_block);
     test_setup.start_inner_bundle(false);
     test_setup.add_dummy_tx_0_1_no_rev()?;
     test_setup.set_inner_bundle_refund_config(vec![RefundConfig {
@@ -604,7 +605,7 @@ fn test_mev_share_ok_refunds() -> eyre::Result<()> {
         )]
     );
 
-    test_setup.begin_share_bundle_order(11, 11);
+    test_setup.begin_share_bundle_order(target_block, target_block);
     test_setup.start_inner_bundle(false);
     test_setup.add_dummy_tx_0_1_no_rev()?;
     test_setup.set_inner_bundle_refund_config(vec![
@@ -655,7 +656,7 @@ fn test_mev_share_ok_refunds() -> eyre::Result<()> {
     // test refund config values above 100 percent
     // in this example refund set to 50% but refund config to 200%
     // that is equivalent to having refund set to 100% - all profit to the user
-    test_setup.begin_share_bundle_order(11, 11);
+    test_setup.begin_share_bundle_order(target_block, target_block);
     test_setup.start_inner_bundle(false);
     test_setup.add_dummy_tx_0_1_no_rev()?;
     test_setup.set_inner_bundle_refund_config(vec![RefundConfig {
@@ -682,10 +683,10 @@ fn test_mev_share_ok_refunds() -> eyre::Result<()> {
 
 #[test]
 fn test_mev_share_failed_refunds() -> eyre::Result<()> {
-    let target_block = 11;
-    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().number(target_block))?;
+    let target_block = BlockArgs::MIN_BLOCK_NUMBER;
+    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().with_number(target_block))?;
 
-    test_setup.begin_share_bundle_order(11, 11);
+    test_setup.begin_share_bundle_order(target_block, target_block);
     test_setup.add_dummy_tx_0_1_no_rev()?;
     test_setup.add_send_to_coinbase_tx(NamedAddr::User(1), 21_000)?;
     test_setup.set_inner_bundle_refund(vec![Refund {
@@ -704,7 +705,7 @@ fn test_mev_share_failed_refunds() -> eyre::Result<()> {
     });
 
     // this bundle tries to go into the builder balance by having really high refund config percent
-    test_setup.begin_share_bundle_order(11, 11);
+    test_setup.begin_share_bundle_order(target_block, target_block);
     test_setup.start_inner_bundle(false);
     test_setup.add_dummy_tx_0_1_no_rev()?;
     test_setup.set_inner_bundle_refund_config(vec![RefundConfig {
@@ -720,7 +721,7 @@ fn test_mev_share_failed_refunds() -> eyre::Result<()> {
     test_setup.commit_order_err_check(|err| assert!(matches!(err, OrderErr::NegativeProfit(_))));
 
     // this bundle tries to go into the builder balance by having high refund percentage
-    test_setup.begin_share_bundle_order(11, 11);
+    test_setup.begin_share_bundle_order(target_block, target_block);
     test_setup.add_dummy_tx_0_1_no_rev()?;
     test_setup.add_send_to_coinbase_tx(NamedAddr::User(1), 42_000)?;
     test_setup.set_inner_bundle_refund(vec![Refund {
@@ -734,7 +735,9 @@ fn test_mev_share_failed_refunds() -> eyre::Result<()> {
 
 #[test]
 fn test_bundle_consistency_check() -> eyre::Result<()> {
-    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().number(11))?;
+    let block_number = BlockArgs::MIN_BLOCK_NUMBER;
+
+    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().with_number(block_number))?;
 
     let blocklist = HashSet::default();
     // check revertible tx detection
@@ -742,7 +745,7 @@ fn test_bundle_consistency_check() -> eyre::Result<()> {
         let mut built_block_trace = BuiltBlockTrace::new(BuiltBlockId::ZERO);
 
         // send to the blocked address
-        test_setup.begin_bundle_order(11);
+        test_setup.begin_bundle_order(block_number);
         // this tx will revert
         test_setup.add_mev_test_increment_value_tx(
             CURR_NONCE,
@@ -775,7 +778,7 @@ fn test_bundle_consistency_check() -> eyre::Result<()> {
             .collect();
         let mut built_block_trace = BuiltBlockTrace::new(BuiltBlockId::ZERO);
 
-        test_setup.begin_bundle_order(11);
+        test_setup.begin_bundle_order(block_number);
         test_setup.add_dummy_tx_0_1_no_rev()?;
         let res = test_setup.commit_order_ok();
         built_block_trace.add_included_order(res);
@@ -793,7 +796,7 @@ fn test_bundle_consistency_check() -> eyre::Result<()> {
             .collect();
         let mut built_block_trace = BuiltBlockTrace::new(BuiltBlockId::ZERO);
 
-        test_setup.begin_bundle_order(11);
+        test_setup.begin_bundle_order(block_number);
         test_setup.add_dummy_tx_0_1_no_rev()?;
         let res = test_setup.commit_order_ok();
         built_block_trace.add_included_order(res);
@@ -817,11 +820,11 @@ fn test_bundle_revert_modes() -> eyre::Result<()> {
 
 ///Checks TxRevertBehavior::AllowedInclude/AllowedExcluded by checking the consumed gas.
 fn bundle_revert_modes_tests(share_bundle: bool) -> eyre::Result<()> {
-    let target_block = 11;
+    let target_block = BlockArgs::MIN_BLOCK_NUMBER;
     // 2 users to avoid caring about nonces
     let tx_sender0 = NamedAddr::User(0);
     let tx_sender1 = NamedAddr::User(1);
-    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().number(target_block))?;
+    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().with_number(target_block))?;
     let begin_bundle = |test_setup: &mut TestSetup| {
         if share_bundle {
             test_setup.begin_share_bundle_order(target_block, target_block);
@@ -875,11 +878,11 @@ fn bundle_revert_modes_tests(share_bundle: bool) -> eyre::Result<()> {
 #[test]
 /// Checks that failing subbundle with can_skip does not revert the parent bundle.
 fn test_subbundle_skip() -> eyre::Result<()> {
-    let target_block = 11;
+    let target_block = BlockArgs::MIN_BLOCK_NUMBER;
     // 2 users to avoid caring about nonces
     let tx_sender0 = NamedAddr::User(0);
     let tx_sender1 = NamedAddr::User(1);
-    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().number(target_block))?;
+    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().with_number(target_block))?;
 
     // First bundle not skipable , it fails -> the whole bundle fails
     test_setup.begin_share_bundle_order(target_block, target_block);
@@ -919,7 +922,7 @@ fn test_subbundle_skip() -> eyre::Result<()> {
 /// Usually, when executing normally, the second A will fail by nonce but that's ok, we will get A,Br1,Br2,Br3 and the user will have multiple paybacks!
 /// Br1/Br3 execute ok, Br2 fails
 fn test_mergeable_multibackrun() -> eyre::Result<()> {
-    let target_block = 11;
+    let target_block = BlockArgs::MIN_BLOCK_NUMBER;
     let a_sender = NamedAddr::User(0);
     let br1_sender = NamedAddr::User(1);
     let br2_sender = NamedAddr::User(2);
@@ -947,7 +950,7 @@ fn test_mergeable_multibackrun() -> eyre::Result<()> {
         test_setup.finish_inner_bundle();
     };
 
-    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().number(target_block))?;
+    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().with_number(target_block))?;
     test_setup.begin_share_bundle_order(target_block, target_block);
 
     //[A,Br1]
@@ -976,8 +979,8 @@ fn test_mergeable_multibackrun() -> eyre::Result<()> {
 #[test]
 /// Test the proper propagation of original_order_id on execution
 fn test_original_order_id() -> eyre::Result<()> {
-    let target_block = 11;
-    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().number(target_block))?;
+    let target_block = BlockArgs::MIN_BLOCK_NUMBER;
+    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().with_number(target_block))?;
     let original_order_id = OrderId::ShareBundle(B256::with_last_byte(123));
     // Simple good tx with bundle order it should report the order id
     test_setup.begin_share_bundle_order(target_block, target_block);
