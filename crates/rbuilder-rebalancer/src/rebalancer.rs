@@ -18,7 +18,7 @@ use std::{cell::OnceCell, time::Duration};
 use tokio::time;
 use tracing::*;
 
-use crate::config::{RebalancerAccount, RebalancerRule};
+use crate::config::{RebalancerAccount, RebalancerRule, RebalancerRuleType};
 
 pub struct Rebalancer<P> {
     provider: P,
@@ -109,25 +109,84 @@ impl<P: Provider> Rebalancer<P> {
         let accounts = self.fetch_accounts(header.hash).await?;
         debug!(target: "rebalancer", number = header.number, hash = %header.hash, accounts = accounts.len(), "Updated account infos for tracked accounts");
         let mut transfers_by_source = HashMap::<String, Vec<Transfer>>::default();
+
+        // First evaluate all destination funding rules.
         for rule in &self.rules {
+            let RebalancerRuleType::Fund {
+                destination_target_balance,
+                destination_min_balance,
+            } = rule.ty
+            else {
+                continue;
+            };
+
             let destination_balance = accounts
                 .get(&rule.destination)
-                .ok_or(eyre::eyre!("missing account for {}", rule.destination))?
+                .ok_or(eyre::eyre!("missing account {}", rule.destination))?
                 .balance;
 
-            if destination_balance > rule.destination_min_balance {
-                trace!(target: "rebalancer", number = header.number, hash = %header.hash, %rule.description, %rule.destination, %rule.destination_min_balance, %destination_balance, "Rebalancing destination balance above minimum");
+            if destination_balance > destination_min_balance {
+                trace!(target: "rebalancer", number = header.number, hash = %header.hash, %rule.description, %rule.destination, %destination_min_balance, %destination_balance, "Rebalancing destination balance above minimum");
                 continue;
             }
 
-            let destination_target_delta = rule
-                .destination_target_balance
+            let destination_target_delta = destination_target_balance
                 .checked_sub(destination_balance)
                 .expect("misconfiguration");
 
             let transfer = Transfer {
                 destination: rule.destination,
                 amount: destination_target_delta,
+                description: rule.description.clone(),
+            };
+            transfers_by_source
+                .entry(rule.source_id.clone())
+                .or_default()
+                .push(transfer);
+        }
+
+        // Then evaluate all source sweeping rules.
+        for rule in &self.rules {
+            let RebalancerRuleType::Sweep {
+                source_target_balance,
+                source_max_balance,
+            } = rule.ty
+            else {
+                continue;
+            };
+
+            let source = self
+                .accounts
+                .get(&rule.source_id)
+                .ok_or(eyre::eyre!("missing source {}", rule.source_id))?;
+            let source_address = source.secret.address();
+            let source_balance = accounts
+                .get(&source_address)
+                .ok_or(eyre::eyre!("missing account {source_address}"))?
+                .balance;
+
+            let total_amount_out = transfers_by_source
+                .get(&rule.source_id)
+                .map_or(U256::ZERO, |transfers| {
+                    transfers.iter().map(|t| t.amount).sum()
+                });
+
+            if source_balance
+                .checked_sub(total_amount_out)
+                .is_none_or(|balance| balance <= source_max_balance)
+            {
+                trace!(target: "rebalancer", number = header.number, hash = %header.hash, %rule.description, %rule.destination, %source_max_balance, %source_balance, %total_amount_out, "Rebalancing source balance below maximum");
+                continue;
+            }
+
+            let source_target_delta = source_balance
+                .checked_sub(total_amount_out)
+                .unwrap() // checked above
+                .checked_sub(source_target_balance)
+                .expect("misconfiguration");
+            let transfer = Transfer {
+                destination: rule.destination,
+                amount: source_target_delta,
                 description: rule.description.clone(),
             };
             transfers_by_source

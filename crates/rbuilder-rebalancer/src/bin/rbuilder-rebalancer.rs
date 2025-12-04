@@ -1,7 +1,10 @@
 use alloy_provider::ProviderBuilder;
 use alloy_signer_local::PrivateKeySigner;
 use clap::Parser;
-use rbuilder_rebalancer::{config::RebalancerConfig, rebalancer::Rebalancer};
+use rbuilder_rebalancer::{
+    config::{RebalancerConfig, RebalancerRuleType},
+    rebalancer::Rebalancer,
+};
 use std::{path::PathBuf, str::FromStr, time::Duration};
 use tracing::*;
 
@@ -30,13 +33,37 @@ impl Cli {
         }
 
         for rule in &config.rules {
-            if rule.destination_min_balance >= rule.destination_target_balance {
-                eyre::bail!("Invalid configuration for rule `{}`: minimum balance must be lower than the target", rule.description);
-            }
-
             if !config.accounts.iter().any(|acc| acc.id == rule.source_id) {
                 eyre::bail!("Invalid configuration for rule `{}`: account entry is missing for source account {}", rule.description, rule.source_id);
             }
+
+            match rule.ty {
+                RebalancerRuleType::Fund {
+                    destination_target_balance,
+                    destination_min_balance,
+                } => {
+                    if destination_min_balance >= destination_target_balance {
+                        eyre::bail!("Invalid configuration for rule `{}`: minimum balance must be lower than the target", rule.description);
+                    }
+                }
+                RebalancerRuleType::Sweep {
+                    source_target_balance,
+                    source_max_balance,
+                } => {
+                    if source_target_balance >= source_max_balance {
+                        eyre::bail!("Invalid configuration for rule `{}`: target balance must be lower than the max", rule.description);
+                    }
+
+                    let source = config
+                        .accounts
+                        .iter()
+                        .find(|acc| acc.id == rule.source_id)
+                        .expect("exists");
+                    if source_target_balance < source.min_balance {
+                        eyre::bail!("Invalid configuration for rule `{}`: target balance must be higher than the min source", rule.description);
+                    }
+                }
+            };
         }
 
         let rpc_provider = ProviderBuilder::new().connect(&config.rpc_url).await?;
