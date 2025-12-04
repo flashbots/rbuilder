@@ -84,9 +84,6 @@ fn test_target_block() -> eyre::Result<()> {
     const BUILT_BLOCK_NUMBER: u64 = BlockArgs::MIN_BLOCK_NUMBER;
     const NEXT_BUILT_BLOCK_NUMBER: u64 = BUILT_BLOCK_NUMBER + 1;
     const PREV_BUILT_BLOCK_NUMBER: u64 = BUILT_BLOCK_NUMBER - 1;
-    const NEXT_NEXT_BUILT_BLOCK_NUMBER: u64 = BUILT_BLOCK_NUMBER + 2;
-    const PREV_PREV_BUILT_BLOCK_NUMBER: u64 = BUILT_BLOCK_NUMBER - 2;
-
     {
         let mut test_setup =
             TestSetup::gen_test_setup(BlockArgs::default().with_number(BUILT_BLOCK_NUMBER))?;

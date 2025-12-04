@@ -382,13 +382,19 @@ impl TxRevertBehavior {
     }
 }
 
-/// Uniquely identifies a replaceable sbundle or bundle
+/// Uniquely identifies a replaceable bundle
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Copy, Serialize, Deserialize)]
-pub struct ReplacementKey {
+pub struct BundleReplacementKey {
     pub id: Uuid,
     /// None means we don't have signer so the identity will be only by uuid.
     /// Source not giving signer risk uuid collision but if uuid is properly generated is almost impossible.
     pub signer: Option<Address>,
+}
+
+impl BundleReplacementKey {
+    pub fn new(id: Uuid, signer: Option<Address>) -> Self {
+        Self { id, signer }
+    }
 }
 
 #[derive(Error, Debug, derive_more::From)]
@@ -776,18 +782,6 @@ impl InMemorySize for MempoolTx {
 pub enum Order {
     Bundle(Bundle),
     Tx(MempoolTx),
-}
-
-/// Uniquely identifies a replaceable bundle
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct BundleReplacementKey(ReplacementKey);
-impl BundleReplacementKey {
-    pub fn new(id: Uuid, signer: Option<Address>) -> Self {
-        Self(ReplacementKey { id, signer })
-    }
-    pub fn key(&self) -> ReplacementKey {
-        self.0
-    }
 }
 
 impl Order {

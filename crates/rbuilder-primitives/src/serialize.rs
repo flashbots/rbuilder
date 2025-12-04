@@ -390,14 +390,11 @@ impl RawBundle {
 
     /// See [TransactionSignedEcRecoveredWithBlobs::envelope_encoded_no_blobs]
     pub fn encode_no_blobs(value: Bundle) -> Self {
-        let replacement_uuid = value.replacement_data.as_ref().map(|r| r.key.key().id);
+        let replacement_uuid = value.replacement_data.as_ref().map(|r| r.key.id);
         let replacement_nonce = value.replacement_data.as_ref().map(|r| r.sequence_number);
-        let signing_address = value.signer.or_else(|| {
-            value
-                .replacement_data
-                .as_ref()
-                .and_then(|r| r.key.key().signer)
-        });
+        let signing_address = value
+            .signer
+            .or_else(|| value.replacement_data.as_ref().and_then(|r| r.key.signer));
         Self {
             txs: value
                 .txs
@@ -990,12 +987,9 @@ mod tests {
                 .decode(TxEncoding::WithBlobData)
                 .expect("failed to convert bundle request to RawBundleDecodeResult");
             if let RawBundleDecodeResult::CancelBundle(cancel) = bundle {
+                assert_eq!(cancel.key.id, uuid!("3255ceb4-fdc5-592d-a501-2183727ca3df"));
                 assert_eq!(
-                    cancel.key.key().id,
-                    uuid!("3255ceb4-fdc5-592d-a501-2183727ca3df")
-                );
-                assert_eq!(
-                    cancel.key.key().signer.unwrap(),
+                    cancel.key.signer.unwrap(),
                     address!("0x95222290dd7278aa3ddd389cc1e1d165cc4bafe5")
                 );
                 assert_eq!(cancel.sequence_number, 49);
