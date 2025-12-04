@@ -78,11 +78,13 @@ pub struct BlockRow {
     /// Info about the bid that triggered the bid to be generated.
     /// Notice this may not be the top bid since a builder lowering it's bid could trigger a new bid
     /// against the new winner.
-    pub triggering_bid_seen_time: Option<i64>,
-    pub triggering_bid_relay: Option<String>,
+    /// These 2 should be Option but for clickhouse optimization we use defaults as null values.
+    pub triggering_bid_seen_time: i64,
+    pub triggering_bid_relay: String,
     /// Info about the top bid among all relays we are trying to beat (best_relay_value)
-    pub bid_to_beat_seen_time: Option<i64>,
-    pub bid_to_beat_seen_relay: Option<String>,
+    /// These 2 should be Option but for clickhouse optimization we use defaults as null values.
+    pub bid_to_beat_seen_time: i64,
+    pub bid_to_beat_seen_relay: String,
 }
 
 impl ClickhouseRowExt for BlockRow {
@@ -295,19 +297,17 @@ impl BidObserver for BuiltBlocksWriter {
             let block_uses = block_uses
                 .entry(built_block_trace.build_block_id)
                 .or_insert(0);
-
             let (triggering_bid_seen_time, triggering_bid_relay) = built_block_trace
                 .competition_bid_context
                 .triggering_bid_source_info
                 .as_ref()
                 .map(|info| {
                     (
-                        Some(offset_date_to_clickhouse_timestamp(info.seen_time)),
-                        Some(info.relay.clone()),
+                        offset_date_to_clickhouse_timestamp(info.seen_time),
+                        info.relay.clone(),
                     )
                 })
                 .unwrap_or_default();
-
             let (bid_to_beat_seen_time, bid_to_beat_seen_relay, best_relay_value) =
                 built_block_trace
                     .competition_bid_context
@@ -315,10 +315,8 @@ impl BidObserver for BuiltBlocksWriter {
                     .as_ref()
                     .map(|bid_with_info| {
                         (
-                            Some(offset_date_to_clickhouse_timestamp(
-                                bid_with_info.info.seen_time,
-                            )),
-                            Some(bid_with_info.info.relay.clone()),
+                            offset_date_to_clickhouse_timestamp(bid_with_info.info.seen_time),
+                            bid_with_info.info.relay.clone(),
                             Some(bid_with_info.value),
                         )
                     })
