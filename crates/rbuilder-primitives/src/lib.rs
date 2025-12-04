@@ -382,155 +382,6 @@ impl TxRevertBehavior {
     }
 }
 
-/// Tx as part of a mev share body.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ShareBundleTx {
-    pub tx: TransactionSignedEcRecoveredWithBlobs,
-    pub revert_behavior: TxRevertBehavior,
-}
-
-impl ShareBundleTx {
-    pub fn hash(&self) -> TxHash {
-        self.tx.hash()
-    }
-}
-
-/// Body element of a mev share bundle.
-/// [`ShareBundleInner::body`] is formed by several of these.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[allow(clippy::large_enum_variant)]
-pub enum ShareBundleBody {
-    Tx(ShareBundleTx),
-    Bundle(ShareBundleInner),
-}
-
-impl ShareBundleBody {
-    pub fn refund_config(&self) -> Option<Vec<RefundConfig>> {
-        match self {
-            Self::Tx(sbundle_tx) => Some(vec![RefundConfig {
-                address: sbundle_tx.tx.signer(),
-                percent: 100,
-            }]),
-            Self::Bundle(b) => b.refund_config(),
-        }
-    }
-}
-
-/// Mev share contains 2 types of txs:
-/// - User txs: simple txs sent to us to be protected and to give kickbacks to the user.
-/// - Searcher txs: Txs added by a searcher to extract MEV from the user txs.
-///   Refund points to the user txs on the body and has the kickback percentage for it.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Refund {
-    /// Index of the ShareBundleInner::body for which this applies.
-    pub body_idx: usize,
-    /// Percent of the profit going back to the user as kickback.
-    pub percent: usize,
-}
-
-/// Users can specify how to get kickbacks and this is propagated by the MEV-Share Node to us.
-/// We get this configuration as multiple RefundConfigs, then the refunds are paid to the specified addresses in the indicated percentages.
-/// The sum of all RefundConfig::percent on a mev share bundle should be 100%.
-/// See [ShareBundleInner::refund_config] for more details.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RefundConfig {
-    pub address: Address,
-    pub percent: usize,
-}
-
-/// sub bundle as part of a mev share body
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ShareBundleInner {
-    pub body: Vec<ShareBundleBody>,
-    pub refund: Vec<Refund>,
-    /// Optional RefundConfig for this ShareBundleInner. see [ShareBundleInner::refund_config] for more details.
-    pub refund_config: Vec<RefundConfig>,
-    /// We are allowed to skip this sub bundle (either because of inner reverts or any other reason).
-    /// Added specifically to allow same user sbundle merging since we stick together many sbundles and allow some of them to fail.
-    pub can_skip: bool,
-    /// Patch to track the original orders when performing order merging (see [`ShareBundleMerger`]).
-    pub original_order_id: Option<OrderId>,
-}
-
-impl ShareBundleInner {
-    fn list_txs(&self) -> Vec<(&TransactionSignedEcRecoveredWithBlobs, bool)> {
-        self.body
-            .iter()
-            .flat_map(|b| match b {
-                ShareBundleBody::Tx(sbundle_tx) => {
-                    vec![(&sbundle_tx.tx, sbundle_tx.revert_behavior.can_revert())]
-                }
-                ShareBundleBody::Bundle(bundle) => bundle.list_txs(),
-            })
-            .collect()
-    }
-
-    pub fn list_txs_revert(
-        &self,
-    ) -> Vec<(&TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior)> {
-        self.body
-            .iter()
-            .flat_map(|b| match b {
-                ShareBundleBody::Tx(sbundle_tx) => {
-                    vec![(&sbundle_tx.tx, sbundle_tx.revert_behavior)]
-                }
-                ShareBundleBody::Bundle(bundle) => bundle.list_txs_revert(),
-            })
-            .collect()
-    }
-
-    pub fn list_txs_len(&self) -> usize {
-        self.body
-            .iter()
-            .map(|b| match b {
-                ShareBundleBody::Tx(_) => 1,
-                ShareBundleBody::Bundle(bundle) => bundle.list_txs_len(),
-            })
-            .sum()
-    }
-
-    /// Refunds config for the ShareBundleInner.
-    /// refund_config not empty -> we use it
-    /// refund_config empty:
-    ///     - body empty (illegal?) -> None
-    ///     - body not empty -> first child refund_config()
-    /// Since for ShareBundleBody::Tx we use 100% to the signer of the tx (see [ShareBundleBody::refund_config]) as RefundConfig this basically
-    /// makes DFS looking for the first ShareBundleInner with explicit RefundConfig or the first Tx.
-    pub fn refund_config(&self) -> Option<Vec<RefundConfig>> {
-        if !self.refund_config.is_empty() {
-            return Some(self.refund_config.clone());
-        }
-        if self.body.is_empty() {
-            return None;
-        }
-        self.body[0].refund_config()
-    }
-
-    // Recalculate bundle hash.
-    pub fn hash_slow(&self) -> B256 {
-        let hashes = self
-            .body
-            .iter()
-            .map(|b| match b {
-                ShareBundleBody::Tx(sbundle_tx) => sbundle_tx.tx.hash(),
-                ShareBundleBody::Bundle(inner) => inner.hash_slow(),
-            })
-            .collect::<Vec<_>>();
-        if hashes.len() == 1 {
-            hashes[0]
-        } else {
-            keccak256(
-                hashes
-                    .into_iter()
-                    .flat_map(|h| h.0.to_vec())
-                    .collect::<Vec<_>>(),
-            )
-        }
-    }
-}
-
 /// Uniquely identifies a replaceable sbundle or bundle
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Copy, Serialize, Deserialize)]
 pub struct ReplacementKey {
@@ -538,141 +389,6 @@ pub struct ReplacementKey {
     /// None means we don't have signer so the identity will be only by uuid.
     /// Source not giving signer risk uuid collision but if uuid is properly generated is almost impossible.
     pub signer: Option<Address>,
-}
-
-pub type ShareBundleReplacementData = ReplacementData<ShareBundleReplacementKey>;
-
-/// Preprocessed Share bundle originated by mev_sendBundle (https://docs.flashbots.net/flashbots-auction/advanced/rpc-endpoint#eth_sendbundle)
-/// Instead of having hashes (as in the original definition) it contains the actual txs.
-#[derive(Derivative)]
-#[derivative(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ShareBundle {
-    /// Hash for the ShareBundle (also used in OrderId::ShareBundle).
-    /// See [ShareBundle::hash_slow] for more details.
-    pub hash: B256,
-    pub block: u64,
-    pub max_block: u64,
-    inner_bundle: ShareBundleInner,
-    /// Cached inner_bundle.list_txs_len()
-    list_txs_len: usize,
-    pub signer: Option<Address>,
-    /// data that uniquely identifies this ShareBundle for update or cancellation
-    pub replacement_data: Option<ShareBundleReplacementData>,
-    /// Only used internally when we build a virtual (not part of the orderflow) ShareBundle from other orders.
-    pub original_orders: Vec<Order>,
-
-    #[derivative(PartialEq = "ignore", Hash = "ignore")]
-    pub metadata: Metadata,
-}
-
-impl ShareBundle {
-    pub fn new(
-        block: u64,
-        max_block: u64,
-        inner_bundle: ShareBundleInner,
-        signer: Option<Address>,
-        replacement_data: Option<ShareBundleReplacementData>,
-        original_orders: Vec<Order>,
-        metadata: Metadata,
-    ) -> Self {
-        let list_txs_len = inner_bundle.list_txs_len();
-        let mut sbundle = Self {
-            hash: B256::default(),
-            block,
-            max_block,
-            inner_bundle,
-            list_txs_len,
-            signer,
-            replacement_data,
-            original_orders,
-            metadata,
-        };
-        sbundle.hash_slow();
-        sbundle
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn new_with_fake_hash(
-        hash: B256,
-        block: u64,
-        max_block: u64,
-        inner_bundle: ShareBundleInner,
-        signer: Option<Address>,
-        replacement_data: Option<ShareBundleReplacementData>,
-        original_orders: Vec<Order>,
-        metadata: Metadata,
-    ) -> Self {
-        let list_txs_len = inner_bundle.list_txs_len();
-        Self {
-            hash,
-            block,
-            max_block,
-            inner_bundle,
-            list_txs_len,
-            signer,
-            replacement_data,
-            original_orders,
-            metadata,
-        }
-    }
-
-    pub fn with_inner_bundle(self, inner_bundle: ShareBundleInner) -> Self {
-        Self::new(
-            self.block,
-            self.max_block,
-            inner_bundle,
-            self.signer,
-            self.replacement_data,
-            self.original_orders,
-            self.metadata,
-        )
-    }
-
-    pub fn inner_bundle(&self) -> &ShareBundleInner {
-        &self.inner_bundle
-    }
-    pub fn can_execute_with_block_base_fee(&self, block_base_fee: u128) -> bool {
-        can_execute_with_block_base_fee(self.list_txs(), block_base_fee)
-    }
-
-    pub fn list_txs(&self) -> Vec<(&TransactionSignedEcRecoveredWithBlobs, bool)> {
-        self.inner_bundle.list_txs()
-    }
-
-    pub fn list_txs_revert(
-        &self,
-    ) -> Vec<(&TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior)> {
-        self.inner_bundle.list_txs_revert()
-    }
-
-    /// @Pending: optimize by caching (we need to enforce inner_bundle immutability)
-    pub fn list_txs_len(&self) -> usize {
-        self.list_txs_len
-    }
-
-    /// BundledTxInfo for all the child txs
-    pub fn nonces(&self) -> Vec<Nonce> {
-        bundle_nonces(self.inner_bundle.list_txs().into_iter())
-    }
-
-    pub fn flatten_txs(&self) -> Vec<(&TransactionSignedEcRecoveredWithBlobs, bool)> {
-        self.inner_bundle.list_txs()
-    }
-
-    // Recalculate bundle hash.
-    fn hash_slow(&mut self) {
-        self.hash = self.inner_bundle.hash_slow();
-    }
-
-    /// Patch to store the original orders for a merged order (see [`ShareBundleMerger`])
-    pub fn original_orders(&self) -> Vec<&Order> {
-        self.original_orders.iter().collect()
-    }
-
-    /// see [`ShareBundleMerger`]
-    pub fn is_merged_order(&self) -> bool {
-        !self.original_orders.is_empty()
-    }
 }
 
 #[derive(Error, Debug, derive_more::From)]
@@ -1060,23 +776,6 @@ impl InMemorySize for MempoolTx {
 pub enum Order {
     Bundle(Bundle),
     Tx(MempoolTx),
-    ShareBundle(ShareBundle),
-}
-
-/// Uniquely identifies a replaceable sbundle
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct ShareBundleReplacementKey(ReplacementKey);
-impl ShareBundleReplacementKey {
-    pub fn new(id: Uuid, signer: Address) -> Self {
-        Self(ReplacementKey {
-            id,
-            signer: Some(signer),
-        })
-    }
-
-    pub fn key(&self) -> ReplacementKey {
-        self.0
-    }
 }
 
 /// Uniquely identifies a replaceable bundle
@@ -1091,22 +790,12 @@ impl BundleReplacementKey {
     }
 }
 
-/// General type for both BundleReplacementKey and ShareBundleReplacementKey
-/// Even although BundleReplacementKey and ShareBundleReplacementKey have the same info they are kept
-/// as different types to avoid bugs.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum OrderReplacementKey {
-    Bundle(BundleReplacementKey),
-    ShareBundle(ShareBundleReplacementKey),
-}
-
 impl Order {
     /// Partial execution is valid as long as some tx is left.
     pub fn can_execute_with_block_base_fee(&self, block_base_fee: u128) -> bool {
         match self {
             Order::Bundle(bundle) => bundle.can_execute_with_block_base_fee(block_base_fee),
             Order::Tx(tx) => tx.tx_with_blobs.tx.max_fee_per_gas() >= block_base_fee,
-            Order::ShareBundle(bundle) => bundle.can_execute_with_block_base_fee(block_base_fee),
         }
     }
 
@@ -1118,15 +807,6 @@ impl Order {
         match self {
             Order::Bundle(_) => vec![self],
             Order::Tx(_) => vec![self],
-            Order::ShareBundle(sb) => {
-                let res = sb.original_orders();
-                if res.is_empty() {
-                    //fallback to this order
-                    vec![self]
-                } else {
-                    res
-                }
-            }
         }
     }
 
@@ -1139,7 +819,6 @@ impl Order {
                 address: tx.tx_with_blobs.tx.signer(),
                 optional: false,
             }],
-            Order::ShareBundle(bundle) => bundle.nonces(),
         }
     }
 
@@ -1147,7 +826,6 @@ impl Order {
         match self {
             Order::Bundle(bundle) => OrderId::Bundle(bundle.uuid),
             Order::Tx(tx) => OrderId::Tx(tx.tx_with_blobs.hash()),
-            Order::ShareBundle(bundle) => OrderId::ShareBundle(bundle.hash),
         }
     }
 
@@ -1167,7 +845,6 @@ impl Order {
         match self {
             Order::Bundle(bundle) => bundle.list_txs(),
             Order::Tx(tx) => vec![(&tx.tx_with_blobs, true)],
-            Order::ShareBundle(bundle) => bundle.list_txs(),
         }
     }
 
@@ -1177,7 +854,6 @@ impl Order {
         match self {
             Order::Bundle(bundle) => bundle.list_txs_revert(),
             Order::Tx(tx) => vec![(&tx.tx_with_blobs, TxRevertBehavior::AllowedIncluded)],
-            Order::ShareBundle(bundle) => bundle.list_txs_revert(),
         }
     }
 
@@ -1186,30 +862,21 @@ impl Order {
         match self {
             Order::Bundle(bundle) => bundle.list_txs_len(),
             Order::Tx(_) => 1,
-            Order::ShareBundle(bundle) => bundle.list_txs_len(),
         }
     }
 
-    pub fn replacement_key(&self) -> Option<OrderReplacementKey> {
+    pub fn replacement_key(&self) -> Option<BundleReplacementKey> {
         self.replacement_key_and_sequence_number()
             .map(|(key, _)| key)
     }
 
-    pub fn replacement_key_and_sequence_number(&self) -> Option<(OrderReplacementKey, u64)> {
+    pub fn replacement_key_and_sequence_number(&self) -> Option<(BundleReplacementKey, u64)> {
         match self {
-            Order::Bundle(bundle) => bundle.replacement_data.as_ref().map(|r| {
-                (
-                    OrderReplacementKey::Bundle(r.clone().key),
-                    r.sequence_number,
-                )
-            }),
+            Order::Bundle(bundle) => bundle
+                .replacement_data
+                .as_ref()
+                .map(|r| (r.clone().key, r.sequence_number)),
             Order::Tx(_) => None,
-            Order::ShareBundle(sbundle) => sbundle.replacement_data.as_ref().map(|r| {
-                (
-                    OrderReplacementKey::ShareBundle(r.clone().key),
-                    r.sequence_number,
-                )
-            }),
         }
     }
 
@@ -1221,7 +888,6 @@ impl Order {
         match self {
             Order::Bundle(bundle) => bundle.block,
             Order::Tx(_) => None,
-            Order::ShareBundle(bundle) => Some(bundle.block),
         }
     }
 
@@ -1229,7 +895,6 @@ impl Order {
     pub fn signer(&self) -> Option<Address> {
         match self {
             Order::Bundle(bundle) => bundle.signer,
-            Order::ShareBundle(bundle) => bundle.signer,
             Order::Tx(_) => None,
         }
     }
@@ -1238,7 +903,6 @@ impl Order {
         match self {
             Order::Bundle(bundle) => &bundle.metadata,
             Order::Tx(tx) => &tx.tx_with_blobs.metadata,
-            Order::ShareBundle(bundle) => &bundle.metadata,
         }
     }
 }

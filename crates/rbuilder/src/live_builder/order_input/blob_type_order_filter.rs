@@ -1,9 +1,7 @@
 use alloy_eips::{eip7594::BlobTransactionSidecarVariant, Typed2718};
 
 use crate::live_builder::order_input::replaceable_order_sink::ReplaceableOrderSink;
-use rbuilder_primitives::{
-    BundleReplacementData, Order, ShareBundleReplacementKey, TransactionSignedEcRecoveredWithBlobs,
-};
+use rbuilder_primitives::{BundleReplacementData, Order, TransactionSignedEcRecoveredWithBlobs};
 
 /// Filters out Orders with incorrect blobs (pre/post fusaka).
 /// Since it's very unlikely what we have many wrong blobs we only filter on insert_order without take note of filtered orders.
@@ -73,10 +71,6 @@ impl<FilterFunc: Fn(&TransactionSignedEcRecoveredWithBlobs) -> bool + Send + Syn
 
     fn remove_bundle(&mut self, replacement_data: BundleReplacementData) -> bool {
         self.sink.remove_bundle(replacement_data)
-    }
-
-    fn remove_sbundle(&mut self, key: ShareBundleReplacementKey) -> bool {
-        self.sink.remove_sbundle(key)
     }
 
     fn is_alive(&self) -> bool {

@@ -18,7 +18,6 @@ impl OrderStatistics {
         match order {
             Order::Bundle(_) => self.bundle_count += 1,
             Order::Tx(_) => self.tx_count += 1,
-            Order::ShareBundle(_) => self.sbundle_count += 1,
         }
     }
 
@@ -26,7 +25,6 @@ impl OrderStatistics {
         match order {
             Order::Bundle(_) => self.bundle_count -= 1,
             Order::Tx(_) => self.tx_count -= 1,
-            Order::ShareBundle(_) => self.sbundle_count -= 1,
         }
     }
 

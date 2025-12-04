@@ -29,7 +29,6 @@ ignore_cancellable_orders = true
 
 # genesis_fork_version = "0x00112233"
 
-sbundle_mergeable_signers = []
 live_builders = ["mp-ordering", "mgp-ordering", "parallel"]
 
 enabled_relays = ["flashbots"]

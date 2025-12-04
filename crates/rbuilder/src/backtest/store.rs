@@ -17,7 +17,7 @@ use alloy_primitives::{
 use lz4_flex::{block::DecompressError, compress_prepend_size, decompress_size_prepended};
 use rayon::prelude::*;
 use rbuilder_primitives::{
-    serialize::{CancelShareBundle, RawOrder, RawOrderConvertError, TxEncoding},
+    serialize::{RawOrder, RawOrderConvertError, TxEncoding},
     BundleReplacementData, OrderId,
 };
 use serde::{Deserialize, Serialize};
@@ -246,7 +246,6 @@ impl HistoricalDataStorage {
                 let raw_order: RawReplaceableOrderPoolCommandWithTimestamp = order.clone().into();
                 let order_id = match &order.command {
                     ReplaceableOrderPoolCommand::Order(order) => Some( order.id().to_string()),
-                    ReplaceableOrderPoolCommand::CancelShareBundle(_) => None,
                     ReplaceableOrderPoolCommand::CancelBundle(_) => None,
                 };
                 let order_json = compress_data(&serde_json::to_vec(&raw_order)?);
@@ -503,9 +502,7 @@ fn order_type(command: &RawReplaceableOrderPoolCommand) -> &'static str {
         RawReplaceableOrderPoolCommand::Order(raw_order) => match raw_order {
             RawOrder::Bundle(_) => "bundle",
             RawOrder::Tx(_) => "tx",
-            RawOrder::ShareBundle(_) => "sbundle",
         },
-        RawReplaceableOrderPoolCommand::CancelShareBundle(_) => "cancel_sbundle",
         RawReplaceableOrderPoolCommand::CancelBundle(_) => "cancel_bundle",
     }
 }
@@ -634,8 +631,6 @@ fn group_rows_into_block_data(
 pub enum RawReplaceableOrderPoolCommand {
     /// New or update order
     Order(RawOrder),
-    /// Cancellation for sbundle
-    CancelShareBundle(CancelShareBundle),
     CancelBundle(BundleReplacementData),
 }
 
@@ -644,9 +639,6 @@ impl From<ReplaceableOrderPoolCommand> for RawReplaceableOrderPoolCommand {
         match command {
             ReplaceableOrderPoolCommand::Order(order) => {
                 RawReplaceableOrderPoolCommand::Order(order.into())
-            }
-            ReplaceableOrderPoolCommand::CancelShareBundle(cancel_share_bundle) => {
-                RawReplaceableOrderPoolCommand::CancelShareBundle(cancel_share_bundle)
             }
             ReplaceableOrderPoolCommand::CancelBundle(replacement_data) => {
                 RawReplaceableOrderPoolCommand::CancelBundle(replacement_data)
@@ -683,9 +675,6 @@ impl RawReplaceableOrderPoolCommandWithTimestamp {
                 RawReplaceableOrderPoolCommand::Order(raw_order) => {
                     ReplaceableOrderPoolCommand::Order(raw_order.decode(encoding)?)
                 }
-                RawReplaceableOrderPoolCommand::CancelShareBundle(cancel_share_bundle) => {
-                    ReplaceableOrderPoolCommand::CancelShareBundle(cancel_share_bundle)
-                }
                 RawReplaceableOrderPoolCommand::CancelBundle(replacement_data) => {
                     ReplaceableOrderPoolCommand::CancelBundle(replacement_data)
                 }
@@ -705,7 +694,7 @@ mod test {
     use alloy_rpc_types::{Block, BlockTransactions, Header, Transaction};
     use rbuilder_primitives::{
         serialize::{RawBundle, RawBundleMetadata, RawTx},
-        BundleReplacementKey, ShareBundleReplacementKey, LAST_BUNDLE_VERSION,
+        BundleReplacementKey, LAST_BUNDLE_VERSION,
     };
     use reth_primitives::Recovered;
     use time::OffsetDateTime;
@@ -766,16 +755,6 @@ mod test {
                         Some(address!("f39Fd6e51aad88F6F4ce6aB8827279cffFb92266")),
                     ),
                     sequence_number: 876,
-                }),
-            },
-            ReplaceableOrderPoolCommandWithTimestamp {
-                timestamp_ms: 1234,
-                command: ReplaceableOrderPoolCommand::CancelShareBundle(CancelShareBundle {
-                    key: ShareBundleReplacementKey::new(
-                        uuid!("12345678-1234-1234-1234-123456789abc"),
-                        address!("f39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
-                    ),
-                    block: 12,
                 }),
             },
         ];

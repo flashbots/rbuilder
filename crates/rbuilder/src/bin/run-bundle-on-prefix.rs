@@ -115,7 +115,6 @@ impl LandedBlockInfo {
             self.config
                 .base_config()
                 .create_reth_provider_factory(true)?,
-            &self.config.base_config().sbundle_mergeable_signers(),
         )?;
         Ok(sim_orders)
     }

@@ -31,8 +31,6 @@ Every field has a default if omitted.
 |blocklist_url_max_age_secs|optional int|If the downloaded file get older than this we abort. Used for debugging only|None|
 |require_non_empty_blocklist|bool|if true will not allow to start without a blocklist or with an empty blocklist.|false|
 |extra_data|string|Extra data for generated blocks|"extra_data_change_me"|
-|sbundle_mergeable_signers|optional vec[string]|mev-share bundles coming from this address are treated in a special way(see [`ShareBundleMerger`])<br>Example:sbundle_mergeable_signers=["0x1234....","0x334344...."]|None|
-|sbundle_mergeabe_signers|optional vec[string]|Alias for sbundle_mergeable_signers.Backwards compatible typo soon to be removed. |None|
 |simulation_threads|int| Number of threads used for incoming order simulation|1|
 |simulation_use_random_coinbase|bool| |true|
 |root_hash_use_sparse_trie|bool| Uses cached sparse trie for root hash (much faster)|false|

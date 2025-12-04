@@ -22,7 +22,7 @@ use alloy_consensus::Header;
 use alloy_primitives::Address;
 use jsonrpsee::RpcModule;
 use parking_lot::Mutex;
-use rbuilder_primitives::{serialize::CancelShareBundle, BundleReplacementData, Order};
+use rbuilder_primitives::{BundleReplacementData, Order};
 use std::{
     net::Ipv4Addr,
     path::{Path, PathBuf},
@@ -203,8 +203,6 @@ impl OrderInputConfig {
 pub enum ReplaceableOrderPoolCommand {
     /// New or update order
     Order(Order),
-    /// Cancellation for sbundle
-    CancelShareBundle(CancelShareBundle),
     CancelBundle(BundleReplacementData),
 }
 
@@ -212,7 +210,6 @@ impl ReplaceableOrderPoolCommand {
     pub fn target_block(&self) -> Option<u64> {
         match self {
             ReplaceableOrderPoolCommand::Order(o) => o.target_block(),
-            ReplaceableOrderPoolCommand::CancelShareBundle(c) => Some(c.block),
             ReplaceableOrderPoolCommand::CancelBundle(_) => None,
         }
     }
@@ -305,7 +302,7 @@ where
                             }
                             o.replacement_key().is_some()
                         },
-                        ReplaceableOrderPoolCommand::CancelShareBundle(_)|ReplaceableOrderPoolCommand::CancelBundle(_) => true
+                        ReplaceableOrderPoolCommand::CancelBundle(_) => true
                     };
                     !cancellable_order
                 })
@@ -320,7 +317,7 @@ where
                             }
                             o.has_blobs()
                         },
-                        ReplaceableOrderPoolCommand::CancelShareBundle(_)|ReplaceableOrderPoolCommand::CancelBundle(_) => false
+                        ReplaceableOrderPoolCommand::CancelBundle(_) => false
                     };
                     !has_blobs
                 })

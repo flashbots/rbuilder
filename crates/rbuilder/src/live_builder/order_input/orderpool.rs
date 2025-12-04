@@ -1,8 +1,6 @@
 use ahash::HashMap;
 use lru::LruCache;
-use rbuilder_primitives::{
-    serialize::CancelShareBundle, BundleReplacementData, Order, OrderId, ShareBundleReplacementKey,
-};
+use rbuilder_primitives::{BundleReplacementData, Order, OrderId};
 use reth::providers::StateProviderBox;
 use reth_primitives_traits::InMemorySize;
 use std::{
@@ -45,7 +43,6 @@ impl OrdersForBlock {
 struct BundleBlockStore {
     /// Bundles and SharedBundles
     bundles: Vec<Order>,
-    cancelled_sbundles: Vec<ShareBundleReplacementKey>,
 }
 
 #[derive(Debug)]
@@ -133,26 +130,9 @@ impl OrderPool {
                 };
                 (order, target_block)
             }
-            Order::ShareBundle(bundle) => {
-                let target_block = bundle.block;
-                let bundles_store = self
-                    .bundles_by_target_block
-                    .entry(target_block)
-                    .or_default();
-                bundles_store.bundles.push(order.clone());
-                (order, Some(target_block))
-            }
         };
         self.known_orders
             .put((order.id(), target_block.unwrap_or_default()), ());
-    }
-
-    fn process_remove_sbundle(&mut self, cancellation: &CancelShareBundle) {
-        let bundles_store = self
-            .bundles_by_target_block
-            .entry(cancellation.block)
-            .or_default();
-        bundles_store.cancelled_sbundles.push(cancellation.key);
     }
 
     fn process_remove_bundle(&mut self, key: &BundleReplacementData) {
@@ -163,7 +143,6 @@ impl OrderPool {
     fn process_command(&mut self, command: ReplaceableOrderPoolCommand) {
         match &command {
             ReplaceableOrderPoolCommand::Order(order) => self.process_order(order),
-            ReplaceableOrderPoolCommand::CancelShareBundle(c) => self.process_remove_sbundle(c),
             ReplaceableOrderPoolCommand::CancelBundle(key) => self.process_remove_bundle(key),
         }
         let target_block = command.target_block();
@@ -174,9 +153,6 @@ impl OrderPool {
             if target_block.is_none() || target_block == Some(sub.block_number) {
                 let send_ok = match command.clone() {
                     ReplaceableOrderPoolCommand::Order(o) => sub.sink.insert_order(o),
-                    ReplaceableOrderPoolCommand::CancelShareBundle(cancel) => {
-                        sub.sink.remove_sbundle(cancel.key)
-                    }
                     ReplaceableOrderPoolCommand::CancelBundle(replacement_data) => {
                         sub.sink.remove_bundle(replacement_data)
                     }
@@ -205,9 +181,6 @@ impl OrderPool {
         if let Some(bundle_store) = self.bundles_by_target_block.get(&block_number) {
             for order in bundle_store.bundles.iter().cloned() {
                 sink.insert_order(order);
-            }
-            for key in bundle_store.cancelled_sbundles.iter().cloned() {
-                sink.remove_sbundle(key);
             }
         }
 
@@ -302,10 +275,6 @@ impl OrderPool {
             Order::Tx(tx) => tx.size(),
             Order::Bundle(_) => {
                 error!("measure_tx called on a bundle");
-                0
-            }
-            Order::ShareBundle(_) => {
-                error!("measure_tx called on an sbundle");
                 0
             }
         }

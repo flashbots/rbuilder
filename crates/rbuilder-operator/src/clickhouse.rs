@@ -65,7 +65,6 @@ pub struct BlockRow {
 
     pub used_bundle_hashes: Vec<String>,
     pub used_bundle_uuids: Vec<String>,
-    pub used_sbundles_hashes: Vec<String>,
     pub delayed_payment_sources: Vec<String>,
 
     #[serde(with = "vec_u256")]
@@ -178,33 +177,6 @@ fn offset_date_to_clickhouse_timestamp(date: OffsetDateTime) -> i64 {
     (date.unix_timestamp_nanos() / 1000) as i64
 }
 
-fn get_used_sbundles_hashes(built_block_trace: &BuiltBlockTrace) -> Vec<String> {
-    built_block_trace
-        .included_orders
-        .iter()
-        .flat_map(|exec_result| {
-            if let Order::ShareBundle(sbundle) = &exec_result.order {
-                // don't like having special cases (merged vs not merged), can we improve this?
-                if sbundle.is_merged_order() {
-                    exec_result
-                        .original_order_ids
-                        .iter()
-                        .map(|id| id.to_string())
-                        .collect()
-                } else if exec_result.tx_infos.is_empty() {
-                    // non merged empty execution sbundle
-                    vec![]
-                } else {
-                    // non merged non empty execution sbundle
-                    vec![exec_result.order.id().to_string()]
-                }
-            } else {
-                Vec::new()
-            }
-        })
-        .collect()
-}
-
 const MEV_VIRTUAL_BLOCKER_SOURCE: &str = "mev_blocker";
 const MEV_VIRTUAL_ADDRESS: Address = Address::ZERO;
 
@@ -280,7 +252,6 @@ impl BidObserver for BuiltBlocksWriter {
                     used_bundle_uuids.push(bundle.uuid.to_string());
                 }
             }
-            let used_sbundles_hashes = get_used_sbundles_hashes(&built_block_trace);
             let (delayed_payment_sources, delayed_payment_values, delayed_payment_addresses) =
                 get_delayed_payments(&built_block_trace);
             let delayed_payment_addresses = delayed_payment_addresses
@@ -354,7 +325,6 @@ impl BidObserver for BuiltBlocksWriter {
                 block_value: Some(submit_trace.value),
                 used_bundle_hashes,
                 used_bundle_uuids,
-                used_sbundles_hashes,
                 delayed_payment_sources,
                 delayed_payment_values,
                 delayed_payment_addresses,

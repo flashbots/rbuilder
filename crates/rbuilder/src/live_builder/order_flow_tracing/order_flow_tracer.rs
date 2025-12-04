@@ -14,7 +14,7 @@ use crate::{
         simulation::simulation_job_tracer::SimulationJobTracer,
     },
 };
-use rbuilder_primitives::{BundleReplacementData, Order, ShareBundleReplacementKey};
+use rbuilder_primitives::{BundleReplacementData, Order};
 
 /// Struct that stores all the input and simulation orderflow to later dump it.
 #[derive(Debug)]
@@ -66,11 +66,6 @@ impl OrderFlowTracer {
         let event = ReplaceableOrderEventWithTimestamp::new(ReplaceableOrderEvent::RemoveBundle(
             replacement_data.clone(),
         ));
-        self.order_input_events.lock().push(event);
-    }
-    fn remove_sbundle(&self, key: &ShareBundleReplacementKey) {
-        let event =
-            ReplaceableOrderEventWithTimestamp::new(ReplaceableOrderEvent::RemoveSBundle(*key));
         self.order_input_events.lock().push(event);
     }
 
@@ -139,11 +134,6 @@ impl ReplaceableOrderSink for ReplaceableOrderSniffer {
     fn remove_bundle(&mut self, replacement_data: BundleReplacementData) -> bool {
         self.tracer.remove_bundle(&replacement_data);
         self.sink.remove_bundle(replacement_data)
-    }
-
-    fn remove_sbundle(&mut self, key: ShareBundleReplacementKey) -> bool {
-        self.tracer.remove_sbundle(&key);
-        self.sink.remove_sbundle(key)
     }
 
     fn is_alive(&self) -> bool {
