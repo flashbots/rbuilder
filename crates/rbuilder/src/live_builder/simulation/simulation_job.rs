@@ -190,9 +190,10 @@ impl SimulationJob {
         &mut self,
         new_sim_results: &mut Vec<SimulatedResult>,
     ) -> bool {
-        // send results
         let mut valid_simulated_orders = Vec::new();
-        for sim_result in new_sim_results {
+
+        // Collect stats and filter to in-flight orders
+        for sim_result in new_sim_results.iter() {
             trace!(order_id=?sim_result.simulated_order.order.id(),
             sim_duration_mus = sim_result.simulation_time.as_micros(),
             profit = format_ether(sim_result.simulated_order.sim_value.full_profit_info().coinbase_profit()), "Order simulated");
@@ -204,66 +205,43 @@ impl SimulationJob {
                 self.orders_with_replacement_key_sim_ok += 1;
             }
 
-            // Handle ACE interactions through the SimTree's dependency system
-            // NonUnlocking ACE orders get added as pending, Unlocking orders provide the dependency
-            match self.sim_tree.handle_ace_interaction(sim_result) {
-                Ok((handled, cancellation)) => {
-                    // Send cancellation for optional ACE tx if needed
-                    if let Some(cancel_id) = cancellation {
-                        let _ = self
-                            .slot_sim_results_sender
-                            .try_send(SimulatedOrderCommand::Cancellation(cancel_id));
-                    }
-                    // If this was a non-unlocking ACE tx that got queued for re-sim, skip forwarding
-                    if handled
-                        && sim_result
-                            .simulated_order
-                            .ace_interaction
-                            .is_some_and(|i| !i.is_unlocking())
-                    {
-                        continue;
-                    }
-                }
-                Err(err) => {
-                    error!(?err, "Failed to handle ACE interaction");
-                }
-            }
-
-            // Skip cancelled orders and remove from in_flight_orders
             if self
                 .in_flight_orders
                 .remove(&sim_result.simulated_order.id())
             {
                 valid_simulated_orders.push(sim_result.clone());
-                // Only send if it's the first time.
+            }
+        }
+
+        if let Err(err) = self.sim_tree.submit_simulation_tasks_results(
+            &mut valid_simulated_orders,
+            &self.slot_sim_results_sender,
+        ) {
+            error!(?err, "Failed to push order sim results into the sim tree");
+            return false;
+        }
+
+        // Send filtered results downstream
+        for sim_result in &valid_simulated_orders {
+            if self
+                .not_cancelled_sent_simulated_orders
+                .insert(sim_result.simulated_order.id())
+            {
                 if self
-                    .not_cancelled_sent_simulated_orders
-                    .insert(sim_result.simulated_order.id())
+                    .slot_sim_results_sender
+                    .send(SimulatedOrderCommand::Simulation(
+                        sim_result.simulated_order.clone(),
+                    ))
+                    .await
+                    .is_err()
                 {
-                    if self
-                        .slot_sim_results_sender
-                        .send(SimulatedOrderCommand::Simulation(
-                            sim_result.simulated_order.clone(),
-                        ))
-                        .await
-                        .is_err()
-                    {
-                        return false; //receiver closed :(
-                    } else {
-                        self.sim_tracer.update_simulation_sent(sim_result);
-                    }
+                    return false;
+                } else {
+                    self.sim_tracer.update_simulation_sent(sim_result);
                 }
             }
         }
-        // update simtree
-        if let Err(err) = self
-            .sim_tree
-            .submit_simulation_tasks_results(valid_simulated_orders)
-        {
-            error!(?err, "Failed to push order sim results into the sim tree");
-            // @Metric
-            return false;
-        }
+
         true
     }
 

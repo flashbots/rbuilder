@@ -277,10 +277,10 @@ fn test_handle_ace_interaction_with_mempool_unlock() -> eyre::Result<()> {
     };
 
     // Handle the ACE interaction
-    let (handled, cancellation) = sim_tree.handle_ace_interaction(&mut result)?;
+    let (skip_forwarding, cancellation) = sim_tree.handle_ace_interaction(&mut result)?;
 
-    // Should be handled and immediately cancelled
-    assert!(handled);
+    // Unlocking orders are not skipped (they go downstream), but should be cancelled
+    assert!(!skip_forwarding);
     assert_eq!(cancellation, Some(optional_order.order.id()));
 
     // Optional order should NOT be stored

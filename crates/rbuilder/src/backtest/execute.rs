@@ -6,7 +6,9 @@ use crate::{
         NullPartialBlockExecutionTracer, OrderErr, SimulatedOrderSink, SimulatedOrderStore,
         TransactionErr,
     },
-    live_builder::{block_list_provider::BlockList, cli::LiveBuilderConfig},
+    live_builder::{
+        block_list_provider::BlockList, cli::LiveBuilderConfig, simulation::SimulatedOrderCommand,
+    },
     provider::StateProviderFactory,
     utils::{clean_extradata, mevblocker::get_mevblocker_price, Signer},
 };
@@ -16,6 +18,7 @@ use rbuilder_primitives::{OrderId, SimulatedOrder};
 use reth_chainspec::ChainSpec;
 use serde::{Deserialize, Serialize};
 use std::{cell::RefCell, rc::Rc, sync::Arc};
+use tokio::sync::mpsc;
 
 use super::OrdersWithTimestamp;
 
@@ -106,8 +109,15 @@ where
         ctx.mempool_tx_detector.add_tx(order);
     }
 
-    let (sim_orders, sim_errors) =
-        simulate_all_orders_with_sim_tree(provider, &ctx, &orders, false, vec![])?;
+    let (cancellation_sender, _) = mpsc::channel::<SimulatedOrderCommand>(1);
+    let (sim_orders, sim_errors) = simulate_all_orders_with_sim_tree(
+        provider,
+        &ctx,
+        &orders,
+        false,
+        vec![],
+        &cancellation_sender,
+    )?;
 
     // Apply bundle merging as in live building.
     let order_store = Rc::new(RefCell::new(SimulatedOrderStore::new()));

@@ -8,7 +8,9 @@ use crate::{
         order_is_worth_executing, BlockBuildingContext, BlockBuildingSpaceState, BlockState,
         CriticalCommitOrderError, NullPartialBlockForkExecutionTracer,
     },
-    live_builder::order_input::mempool_txs_detector::MempoolTxsDetector,
+    live_builder::{
+        order_input::mempool_txs_detector::MempoolTxsDetector, simulation::SimulatedOrderCommand,
+    },
     provider::StateProviderFactory,
     telemetry::{add_order_simulation_time, mark_order_pending_nonce},
     utils::NonceCache,
@@ -33,6 +35,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
+use tokio::sync::mpsc;
 use tracing::{error, trace};
 
 #[derive(Debug)]
@@ -437,9 +440,9 @@ impl SimTree {
     }
 
     /// Handle ACE interaction after simulation.
-    /// Returns (was_handled, optional_cancellation_order_id)
-    /// - For Unlocking interactions: registers as force or optional unlock provider
-    /// - For NonUnlocking interactions: adds order as pending on ACE unlock dependency
+    /// Returns (skip_forwarding, optional_cancellation_order_id)
+    /// - For Unlocking interactions: registers as force or optional unlock provider, skip_forwarding=false
+    /// - For NonUnlocking interactions: adds order as pending on ACE unlock dependency, skip_forwarding=true
     /// - Returns cancellation OrderId if a mempool unlock cancels an optional ACE tx
     pub fn handle_ace_interaction(
         &mut self,
@@ -517,7 +520,7 @@ impl SimTree {
             }
         }
 
-        Ok((true, cancellation))
+        Ok((false, cancellation))
     }
 
     /// Mark that a mempool unlocking order has been seen for a contract address.
@@ -538,13 +541,33 @@ impl SimTree {
             .map(|order| order.order.id())
     }
 
+    /// Process simulation results, handling ACE interactions and updating dependencies.
+    /// Filters out orders that should not be forwarded (e.g., ACE orders queued for re-sim).
+    /// Sends cancellation commands via the provided sender.
     pub fn submit_simulation_tasks_results(
         &mut self,
-        results: Vec<SimulatedResult>,
+        results: &mut Vec<SimulatedResult>,
+        cancellation_sender: &mpsc::Sender<SimulatedOrderCommand>,
     ) -> Result<(), ProviderError> {
-        for result in results {
-            self.process_simulation_task_result(result)?;
-        }
+        results.retain_mut(|result| {
+            let (skip, cancel) = self.handle_ace_interaction(result).unwrap_or_else(|err| {
+                error!(?err, "Failed to handle ACE interaction");
+                (false, None)
+            });
+
+            if let Some(id) = cancel {
+                let _ = cancellation_sender.try_send(SimulatedOrderCommand::Cancellation(id));
+            }
+
+            if !skip {
+                if let Err(err) = self.process_simulation_task_result(result.clone()) {
+                    error!(?err, "Failed to process simulation result");
+                }
+            }
+
+            !skip
+        });
+
         Ok(())
     }
 }
@@ -558,6 +581,7 @@ pub fn simulate_all_orders_with_sim_tree<P>(
     orders: &[Order],
     randomize_insertion: bool,
     ace_config: Vec<AceConfig>,
+    cancellation_sender: &mpsc::Sender<SimulatedOrderCommand>,
 ) -> Result<(Vec<Arc<SimulatedOrder>>, Vec<OrderErr>), CriticalCommitOrderError>
 where
     P: StateProviderFactory + Clone,
@@ -648,7 +672,7 @@ where
                 }
             }
         }
-        sim_tree.submit_simulation_tasks_results(sim_results)?;
+        sim_tree.submit_simulation_tasks_results(&mut sim_results, cancellation_sender)?;
     }
 
     Ok((
