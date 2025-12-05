@@ -777,7 +777,9 @@ mod test {
         };
         let onchain_block = create_test_block();
         let built_block_data = BuiltBlockData {
-            included_orders: vec![OrderId::ShareBundle(B256::random())],
+            included_orders: vec![OrderId::Bundle(uuid!(
+                "12345678-1234-1234-1234-123456789abc"
+            ))],
             orders_closed_at: OffsetDateTime::from_unix_timestamp_nanos(1719845355111000000)
                 .unwrap(),
             sealed_at: OffsetDateTime::from_unix_timestamp_nanos(1719845355123000000).unwrap(),

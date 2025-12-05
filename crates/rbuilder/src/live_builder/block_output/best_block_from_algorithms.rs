@@ -88,7 +88,6 @@ mod tests {
                         space_used: BlockSpace::default(),
                         coinbase_profit: I256::ZERO,
                     }],
-                    original_order_ids: Default::default(),
                     nonces_updated: Default::default(),
                     paid_kickbacks: Default::default(),
                     delayed_kickback: None,

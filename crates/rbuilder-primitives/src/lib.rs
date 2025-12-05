@@ -1237,15 +1237,6 @@ mod tests {
             serialized,
             r#"{"Bundle":"5d5bf52c-ac3f-57eb-a3e9-fc01b18ca516"}"#
         );
-
-        let id = OrderId::ShareBundle(fixed_bytes!(
-            "02e81e3cee67f25203db1178fb11070fcdace65c4eef80daa4037d9b49f011f5"
-        ));
-        let serialized = serde_json::to_string(&id).unwrap();
-        assert_eq!(
-            serialized,
-            r#"{"ShareBundle":"0x02e81e3cee67f25203db1178fb11070fcdace65c4eef80daa4037d9b49f011f5"}"#
-        );
     }
 
     #[test]
@@ -1283,12 +1274,5 @@ mod tests {
         // old sbundle should fail.
         let id = "sbundle:0x02e81e3cee67f25203db1178fb11070fcdace65c4eef80daa4037d9b49f011f5";
         assert!(OrderId::from_str(id).is_err());
-        let serialized = parsed.to_string();
-        assert_eq!(serialized, id);
-        let fixed_bytes = parsed.fixed_bytes();
-        assert_eq!(
-            fixed_bytes,
-            fixed_bytes!("02e81e3cee67f25203db1178fb11070fcdace65c4eef80daa4037d9b49f011f5")
-        );
     }
 }
