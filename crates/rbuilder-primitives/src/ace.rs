@@ -1,4 +1,4 @@
-use crate::evm_inspector::UsedStateTrace;
+use crate::evm_inspector::{SlotKey, UsedStateTrace};
 use alloy_primitives::{Address, FixedBytes, B256};
 use serde::Deserialize;
 use std::collections::HashSet;
@@ -39,21 +39,25 @@ pub fn classify_ace_interaction(
     selector: Option<Selector>,
     tx_to: Option<Address>,
 ) -> Option<AceInteraction> {
-    // Check that ALL detection slots are read or written from any of the ACE contract addresses
-    let all_slots_accessed = config.detection_slots.iter().all(|slot| {
-        config.to_addresses.iter().any(|addr| {
-            state_trace
-                .read_slot_values
-                .keys()
-                .any(|k| &k.address == addr && &k.key == slot)
-                || state_trace
-                    .written_slot_values
-                    .keys()
-                    .any(|k| &k.address == addr && &k.key == slot)
+    let any_ace_slots_accessed = config
+        .to_addresses
+        .iter()
+        .map(|address| {
+            config.detection_slots.iter().map(|slot| SlotKey {
+                address: *address,
+                key: *slot,
+            })
         })
-    });
+        .flatten()
+        .flat_map(|key| {
+            [
+                state_trace.read_slot_values.get(&key).is_some(),
+                state_trace.written_slot_values.get(&key).is_some(),
+            ]
+        })
+        .any(|read_slot_of_interest| read_slot_of_interest);
 
-    if !all_slots_accessed {
+    if !any_ace_slots_accessed {
         return None;
     }
 
