@@ -4,7 +4,7 @@ use rbuilder_primitives::{BundleReplacementData, BundleReplacementKey, Order, Or
 
 use super::{order_sink::OrderSink, replaceable_order_sink::ReplaceableOrderSink};
 
-/// Handles all replacement and cancellation for bundles and sbundles by receiving
+/// Handles all replacement and cancellation for bundles by receiving
 /// low level orderflow data via ReplaceableOrderSink and forwarding to an OrderSink.
 /// The OrderReplacementManager works for a single block.
 /// IMPORTANT: Due to infra problems we can get notifications our of order, we must always honor the one

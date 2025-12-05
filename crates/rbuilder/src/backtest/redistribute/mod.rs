@@ -79,7 +79,6 @@ impl ExtendedOrderId {
                 let hash = bundle_hashes.get(&order_id).cloned().unwrap_or_default();
                 ExtendedOrderId::Bundle { uuid, hash }
             }
-            OrderId::ShareBundle(hash) => ExtendedOrderId::ShareBundle(hash),
         }
     }
 }

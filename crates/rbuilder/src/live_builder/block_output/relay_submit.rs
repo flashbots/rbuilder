@@ -186,12 +186,9 @@ async fn run_submit_to_relays_job(
             if !exec_res.order.is_tx() {
                 bundles += 1;
             }
-
-            for order in exec_res.order.original_orders() {
-                order_ids.push(order.id());
-                if let Some(bundle_hash) = order.external_bundle_hash() {
-                    bundle_hashes.push(bundle_hash);
-                }
+            order_ids.push(exec_res.order.id());
+            if let Some(bundle_hash) = exec_res.order.external_bundle_hash() {
+                bundle_hashes.push(bundle_hash);
             }
         }
 

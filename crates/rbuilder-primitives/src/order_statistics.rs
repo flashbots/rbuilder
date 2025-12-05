@@ -6,7 +6,6 @@ use std::ops::{Add, Sub};
 pub struct OrderStatistics {
     tx_count: i32,
     bundle_count: i32,
-    sbundle_count: i32,
 }
 
 impl OrderStatistics {
@@ -29,7 +28,7 @@ impl OrderStatistics {
     }
 
     pub fn total(&self) -> u64 {
-        self.tx_count as u64 + self.bundle_count as u64 + self.sbundle_count as u64
+        self.tx_count as u64 + self.bundle_count as u64
     }
 }
 
@@ -40,7 +39,6 @@ impl Add for OrderStatistics {
         Self {
             tx_count: self.tx_count + other.tx_count,
             bundle_count: self.bundle_count + other.bundle_count,
-            sbundle_count: self.sbundle_count + other.sbundle_count,
         }
     }
 }
@@ -52,7 +50,6 @@ impl Sub for OrderStatistics {
         Self {
             tx_count: self.tx_count - other.tx_count,
             bundle_count: self.bundle_count - other.bundle_count,
-            sbundle_count: self.sbundle_count - other.sbundle_count,
         }
     }
 }

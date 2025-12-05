@@ -291,15 +291,6 @@ fn execute_sim_orders_on_tob(
             res.is_ok(),
             profit
         );
-        println!(
-            "    {:?}",
-            sim_order
-                .order
-                .original_orders()
-                .iter()
-                .map(|o| o.id())
-                .collect::<Vec<_>>()
-        );
     }
     Ok(())
 }

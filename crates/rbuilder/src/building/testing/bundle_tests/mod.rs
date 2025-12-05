@@ -522,7 +522,6 @@ fn bundle_revert_modes_tests() -> eyre::Result<()> {
     // Single revert tx AllowedExcluded -> NO GAS
     test_setup.begin_bundle_order(target_block);
     test_setup.add_revert(tx_sender0, TxRevertBehavior::AllowedExcluded)?;
-    // Bundles behave different to sbundles on empty execution
     test_setup.commit_order_err_check(|err| {
         assert!(matches!(err, OrderErr::Bundle(BundleErr::EmptyBundle)));
     });

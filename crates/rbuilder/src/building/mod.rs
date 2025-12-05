@@ -39,7 +39,7 @@ use evm::EthCachedEvmFactory;
 use jsonrpsee::core::Serialize;
 use parking_lot::Mutex;
 use rbuilder_primitives::{
-    mev_boost::BidAdjustmentData, BlockSpace, Order, OrderId, SimValue, SimulatedOrder,
+    mev_boost::BidAdjustmentData, BlockSpace, Order, SimValue, SimulatedOrder,
     TransactionSignedEcRecoveredWithBlobs,
 };
 use reth::{
@@ -405,7 +405,7 @@ pub enum Sorting {
     MevGasPrice,
     /// Sorts the SimulatedOrders by its absolute profit which is computed as the coinbase balance delta after executing the order
     MaxProfit,
-    /// Orders are ordered by their origin (bundle/sbundles then mempool) and then by their absolute profit.
+    /// Orders are ordered by their origin (bundle then mempool) and then by their absolute profit.
     TypeMaxProfit,
     /// Orders are ordered by length 3 (orders length >= 3 first) and then by their absolute profit.
     LengthThreeMaxProfit,
@@ -570,9 +570,6 @@ pub struct ExecutionResult {
     pub order: Order,
     /// Landed txs execution info.
     pub tx_infos: Vec<TransactionExecutionInfo>,
-    /// Patch to get the executed OrderIds for merged sbundles (see: [`BundleOk::original_order_ids`],[`ShareBundleMerger`] )
-    /// Fully dropped orders (TxRevertBehavior::AllowedExcluded allows it!) are not included.
-    pub original_order_ids: Vec<OrderId>,
     pub nonces_updated: Vec<(Address, u64)>,
     pub paid_kickbacks: Vec<(Address, U256)>,
     pub delayed_kickback: Option<DelayedKickback>,
@@ -809,7 +806,6 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             space_used: ok_result.space_used,
             order: order.order.clone(),
             tx_infos: ok_result.tx_infos,
-            original_order_ids: ok_result.original_order_ids,
             nonces_updated: ok_result.nonces_updated,
             paid_kickbacks: ok_result.paid_kickbacks,
             delayed_kickback: ok_result.delayed_kickback,

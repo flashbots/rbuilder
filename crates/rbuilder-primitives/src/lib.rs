@@ -793,17 +793,6 @@ impl Order {
         }
     }
 
-    /// Patch to allow virtual orders not originated from a source.
-    /// This patch allows to easily implement sbundle merging see ([`ShareBundleMerger`]) and keep the original
-    /// orders for post execution work (eg: logs).
-    /// Non virtual orders should return self
-    pub fn original_orders(&self) -> Vec<&Order> {
-        match self {
-            Order::Bundle(_) => vec![self],
-            Order::Tx(_) => vec![self],
-        }
-    }
-
     /// BundledTxInfo for all the child txs
     pub fn nonces(&self) -> Vec<Nonce> {
         match self {
@@ -1038,13 +1027,12 @@ impl SimulatedOrder {
 pub enum OrderId {
     Tx(B256),
     Bundle(Uuid),
-    ShareBundle(B256),
 }
 
 impl OrderId {
     pub fn fixed_bytes(&self) -> B256 {
         match self {
-            Self::Tx(hash) | Self::ShareBundle(hash) => *hash,
+            Self::Tx(hash) => *hash,
             Self::Bundle(uuid) => {
                 let mut out = [0u8; 32];
                 out[0..16].copy_from_slice(uuid.as_bytes());
@@ -1072,9 +1060,6 @@ impl FromStr for OrderId {
         } else if let Some(id_str) = s.strip_prefix("bundle:") {
             let uuid = Uuid::from_str(id_str)?;
             Ok(Self::Bundle(uuid))
-        } else if let Some(hash_str) = s.strip_prefix("sbundle:") {
-            let hash = B256::from_str(hash_str)?;
-            Ok(Self::ShareBundle(hash))
         } else {
             Err(eyre::eyre!("invalid order id"))
         }
@@ -1087,7 +1072,6 @@ impl Display for OrderId {
         match self {
             Self::Tx(hash) => write!(f, "tx:{hash:?}"),
             Self::Bundle(uuid) => write!(f, "bundle:{uuid:?}"),
-            Self::ShareBundle(hash) => write!(f, "sbundle:{hash:?}"),
         }
     }
 }
@@ -1104,7 +1088,6 @@ impl Ord for OrderId {
             match id {
                 OrderId::Tx(_) => 1,
                 OrderId::Bundle(_) => 2,
-                OrderId::ShareBundle(_) => 3,
             }
         }
 
@@ -1297,14 +1280,9 @@ mod tests {
             fixed_bytes!("02e81e3cee67f25203db1178fb11070fcdace65c4eef80daa4037d9b49f011f5")
         );
 
+        // old sbundle should fail.
         let id = "sbundle:0x02e81e3cee67f25203db1178fb11070fcdace65c4eef80daa4037d9b49f011f5";
-        let parsed = OrderId::from_str(id).unwrap();
-        assert_eq!(
-            parsed,
-            OrderId::ShareBundle(fixed_bytes!(
-                "02e81e3cee67f25203db1178fb11070fcdace65c4eef80daa4037d9b49f011f5"
-            ))
-        );
+        assert!(OrderId::from_str(id).is_err());
         let serialized = parsed.to_string();
         assert_eq!(serialized, id);
         let fixed_bytes = parsed.fixed_bytes();

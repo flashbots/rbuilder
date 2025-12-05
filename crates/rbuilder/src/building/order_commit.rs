@@ -16,7 +16,7 @@ use alloy_primitives::{Address, B256, I256, U256};
 use alloy_rlp::Encodable;
 use rbuilder_primitives::{
     evm_inspector::{RBuilderEVMInspector, UsedStateTrace},
-    BlockSpace, Bundle, Order, OrderId, SimValue, TransactionSignedEcRecoveredWithBlobs,
+    BlockSpace, Bundle, Order, SimValue, TransactionSignedEcRecoveredWithBlobs,
 };
 use reth::{
     consensus_common::validation::MAX_RLP_BLOCK_SIZE, revm::database::StateProviderDatabase,
@@ -266,10 +266,6 @@ pub struct BundleOk {
     pub paid_kickbacks: Vec<(Address, U256)>,
     /// The refund amount to accrue per recipient and be paid at the end of the block and tx fee value that is deducted from the profit of the first delayed refund bundle for the recipient in the block
     pub delayed_kickback: Option<DelayedKickback>,
-    /// Only for sbundles we accumulate ShareBundleInner::original_order_id that executed ok.
-    /// Its original use is for only one level or orders with original_order_id but if nesting happens the parent order original_order_id goes before its children (pre-order DFS)
-    /// Fully dropped orders (TxRevertBehavior::AllowedExcluded allows it!) are not included.
-    pub original_order_ids: Vec<OrderId>,
 }
 
 impl BundleOk {
@@ -329,8 +325,6 @@ pub struct OrderOk {
     pub space_used: BlockSpace,
     pub cumulative_space_used: BlockSpace,
     pub tx_infos: Vec<TransactionExecutionInfo>,
-    /// Patch to get the executed OrderIds for merged sbundles (see: [`BundleOk::original_order_ids`],[`ShareBundleMerger`] )
-    pub original_order_ids: Vec<OrderId>,
     /// nonces_updates has a set of deduplicated final nonces of the txs in the order
     pub nonces_updated: Vec<(Address, u64)>,
     pub paid_kickbacks: Vec<(Address, U256)>,
@@ -469,9 +463,9 @@ pub enum CriticalCommitOrderError {
 }
 
 /// For all funcs allow_tx_skip means:
-/// If a tx inside a bundle or sbundle fails with TransactionErr (don't confuse this with reverting which is TransactionOk with !.receipt.success)
-/// and it's configured as allowed to revert (for bundles tx in reverting_tx_hashes, for sbundles: TxRevertBehavior != NotAllowed) we continue the
-/// the execution of the bundle/sbundle.
+/// If a tx inside a bundle fails with TransactionErr (don't confuse this with reverting which is TransactionOk with !.receipt.success)
+/// and it's configured as allowed to revert (for bundles tx in reverting_tx_hashes) we continue the
+/// the execution of the bundle.
 impl<
         'a,
         'b,
@@ -866,7 +860,6 @@ impl<
             nonces_updated: Vec::new(),
             paid_kickbacks: Vec::new(),
             delayed_kickback: None,
-            original_order_ids: Vec::new(),
         };
         for tx_with_blobs in &bundle.txs {
             let tx_hash = tx_with_blobs.hash();
@@ -1031,7 +1024,6 @@ impl<
                             paid_kickbacks: Vec::new(),
                             delayed_kickback: None,
                             used_state_trace: self.get_used_state_trace(),
-                            original_order_ids: Vec::new(),
                         }))
                     }
                     Err(err) => Ok(Err(err.into())),
@@ -1077,7 +1069,6 @@ impl<
                     paid_kickbacks: ok.paid_kickbacks,
                     delayed_kickback: ok.delayed_kickback,
                     used_state_trace: self.get_used_state_trace(),
-                    original_order_ids: ok.original_order_ids,
                 }))
             }
             Err(err) => Ok(Err(err.into())),
