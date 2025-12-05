@@ -67,10 +67,38 @@ pub struct RebalancerRule {
     pub source_id: String,
     /// Destination address.
     pub destination: Address,
-    /// Destination target balance.
-    pub destination_target_balance: U256,
-    /// Destination minimum threshold balance after which rebalancing will be triggered.
-    pub destination_min_balance: U256,
+    /// Rebalancer rule type and details.
+    #[serde(flatten)]
+    pub ty: RebalancerRuleType,
+}
+
+#[derive(PartialEq, Eq, Debug, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum RebalancerRuleType {
+    Fund {
+        /// Destination target balance.
+        destination_target_balance: U256,
+        /// Destination minimum threshold balance after which funding will be triggered.
+        destination_min_balance: U256,
+    },
+    Sweep {
+        /// Source target balance.
+        source_target_balance: U256,
+        /// Source maximum threshold balance after which sweeping will be triggered.
+        source_max_balance: U256,
+    },
+}
+
+impl RebalancerRuleType {
+    /// Returns `true` if the rule is of type [`RebalancerRuleType::Fund`].
+    pub fn is_fund(&self) -> bool {
+        matches!(self, Self::Fund { .. })
+    }
+
+    /// Returns `true` if the rule is of type [`RebalancerRuleType::Sweep`].
+    pub fn is_sweep(&self) -> bool {
+        matches!(self, Self::Sweep { .. })
+    }
 }
 
 #[cfg(test)]
@@ -84,7 +112,7 @@ mod tests {
             rpc_url = ""
             builder_url = ""
             transfer_max_priority_fee_per_gas = "123"
-            
+
             env_filter = "info"
             log_color = true
 
@@ -92,8 +120,17 @@ mod tests {
             description = ""
             source_id = ""
             destination = "0x0000000000000000000000000000000000000000"
+            type = "fund"
             destination_target_balance = "1"
             destination_min_balance = "1"
+
+            [[rule]]
+            description = ""
+            source_id = ""
+            destination = "0x0000000000000000000000000000000000000000"
+            type = "sweep"
+            source_target_balance = "1"
+            source_max_balance = "1"
         "#,
         )
         .unwrap();
@@ -105,13 +142,26 @@ mod tests {
                 transfer_max_priority_fee_per_gas: U256::from(123),
                 logger: LoggerConfig::dev(),
                 accounts: Vec::new(),
-                rules: Vec::from([RebalancerRule {
-                    description: String::new(),
-                    source_id: String::new(),
-                    destination: Address::ZERO,
-                    destination_min_balance: U256::from(1),
-                    destination_target_balance: U256::from(1),
-                }])
+                rules: Vec::from([
+                    RebalancerRule {
+                        description: String::new(),
+                        source_id: String::new(),
+                        destination: Address::ZERO,
+                        ty: RebalancerRuleType::Fund {
+                            destination_target_balance: U256::from(1),
+                            destination_min_balance: U256::from(1),
+                        }
+                    },
+                    RebalancerRule {
+                        description: String::new(),
+                        source_id: String::new(),
+                        destination: Address::ZERO,
+                        ty: RebalancerRuleType::Sweep {
+                            source_target_balance: U256::from(1),
+                            source_max_balance: U256::from(1),
+                        }
+                    }
+                ])
             }
         );
     }
