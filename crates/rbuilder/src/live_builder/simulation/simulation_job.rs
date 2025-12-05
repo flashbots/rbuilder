@@ -20,7 +20,7 @@ use super::SimulatedOrderCommand;
 /// Create and call run()
 /// The flow is:
 /// 1 New orders are polled from new_order_sub and inserted en the SimTree.
-/// 2 SimTree is polled for dependency-ready orders and are sent to be simulated (sent to sim_req_sender).
+/// 2 SimTree is polled for nonce-ready orders and are sent to be simulated (sent to sim_req_sender).
 /// 3 Simulation results are polled from sim_results_receiver and sent to slot_sim_results_sender.
 /// Cancellation flow: we add every order we start to process to in_flight_orders.
 /// If we get a cancellation and the order is not in in_flight_orders we forward the cancellation.
@@ -190,58 +190,53 @@ impl SimulationJob {
         &mut self,
         new_sim_results: &mut Vec<SimulatedResult>,
     ) -> bool {
+        // send results
         let mut valid_simulated_orders = Vec::new();
-
-        // Collect stats and filter to in-flight orders
-        for sim_result in new_sim_results.iter() {
+        for sim_result in new_sim_results {
             trace!(order_id=?sim_result.simulated_order.order.id(),
             sim_duration_mus = sim_result.simulation_time.as_micros(),
             profit = format_ether(sim_result.simulated_order.sim_value.full_profit_info().coinbase_profit()), "Order simulated");
             self.orders_simulated_ok
                 .accumulate(&sim_result.simulated_order.order);
-
             if let Some(repl_key) = sim_result.simulated_order.order.replacement_key() {
                 self.unique_replacement_key_bundles_sim_ok.insert(repl_key);
                 self.orders_with_replacement_key_sim_ok += 1;
             }
-
+            // Skip cancelled orders and remove from in_flight_orders
             if self
                 .in_flight_orders
                 .remove(&sim_result.simulated_order.id())
             {
                 valid_simulated_orders.push(sim_result.clone());
+                // Only send if it's the first time.
+                if self
+                    .not_cancelled_sent_simulated_orders
+                    .insert(sim_result.simulated_order.id())
+                {
+                    if self
+                        .slot_sim_results_sender
+                        .send(SimulatedOrderCommand::Simulation(
+                            sim_result.simulated_order.clone(),
+                        ))
+                        .await
+                        .is_err()
+                    {
+                        return false; //receiver closed :(
+                    } else {
+                        self.sim_tracer.update_simulation_sent(sim_result);
+                    }
+                }
             }
         }
-
+        // update simtree
         if let Err(err) = self.sim_tree.submit_simulation_tasks_results(
             &mut valid_simulated_orders,
             &self.slot_sim_results_sender,
         ) {
             error!(?err, "Failed to push order sim results into the sim tree");
+            // @Metric
             return false;
         }
-
-        // Send filtered results downstream
-        for sim_result in &valid_simulated_orders {
-            if self
-                .not_cancelled_sent_simulated_orders
-                .insert(sim_result.simulated_order.id())
-            {
-                if self
-                    .slot_sim_results_sender
-                    .send(SimulatedOrderCommand::Simulation(
-                        sim_result.simulated_order.clone(),
-                    ))
-                    .await
-                    .is_err()
-                {
-                    return false;
-                } else {
-                    self.sim_tracer.update_simulation_sent(sim_result);
-                }
-            }
-        }
-
         true
     }
 
@@ -325,7 +320,7 @@ impl fmt::Debug for OrderCounter {
             self.total(),
             self.mempool_txs,
             self.bundles,
-            self.share_bundles,
+            self.share_bundles
         )
     }
 }
