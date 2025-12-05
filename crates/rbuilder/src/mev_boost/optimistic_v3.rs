@@ -6,7 +6,6 @@ use alloy_primitives::{bytes::Bytes, B256};
 use alloy_rpc_types_beacon::relay::SubmitBlockRequest as AlloySubmitBlockRequest;
 use alloy_rpc_types_beacon::BlsPublicKey;
 use ctor::ctor;
-use futures::StreamExt as _;
 use lazy_static::lazy_static;
 use metrics_macros::register_metrics;
 use parking_lot::Mutex;
@@ -20,7 +19,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant, SystemTime},
 };
-use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
+use tokio_util::sync::CancellationToken;
 use tracing::*;
 use warp::{
     http::{header::CONTENT_TYPE, HeaderValue, StatusCode},
@@ -45,9 +44,6 @@ register_metrics! {
    pub static BLOCK_NOT_FOUND_TOTAL: IntCounter = IntCounter::new("relay_server_block_not_found", "The total number of block not found errors on the optimistic V3 relay server").unwrap();
 }
 
-/// The channel buffer size for optimistic V3 broadcast channel
-pub const OPTIMISTIC_V3_CHANNEL_SIZE: usize = 100;
-
 /// The default number of blocks to keep in cache. With bid update latency of 1ms this would preserve the last second worth of submitted blocks.
 pub const OPTIMISTIC_V3_CACHE_SIZE_DEFAULT: u32 = 1_000;
 
@@ -59,23 +55,40 @@ pub const OPTIMISTIC_V3_SERVER_CONTENT_LENGTH_LIMIT: u64 = 1_024;
 /// Reference: <https://ethresear.ch/t/introduction-to-optimistic-v3-relays/22066#p-53641-technical-specification-8>
 pub const GET_PAYLOAD_V3: &str = "get_payload_v3";
 
+/// The cache containing blocks submitted via optimistic V3.
+#[derive(Clone, Debug)]
+pub struct OptimisticV3BlockCache(Arc<Mutex<LruMap<B256, Arc<AlloySubmitBlockRequest>>>>);
+
+impl Default for OptimisticV3BlockCache {
+    fn default() -> Self {
+        Self::new(OPTIMISTIC_V3_CACHE_SIZE_DEFAULT)
+    }
+}
+
+impl OptimisticV3BlockCache {
+    /// Create new cache with provided size.
+    pub fn new(size: u32) -> Self {
+        Self(Arc::new(Mutex::new(LruMap::new(ByLength::new(size)))))
+    }
+
+    pub fn insert(&self, block: Arc<AlloySubmitBlockRequest>) {
+        let block_hash = block.bid_trace().block_hash;
+        self.0.lock().insert(block_hash, block);
+    }
+
+    pub fn get(&self, hash: &B256) -> Option<Arc<AlloySubmitBlockRequest>> {
+        self.0.lock().get(hash).cloned()
+    }
+}
+
 /// Initialize the HTTP server.
 pub fn spawn_server(
     address: impl Into<SocketAddr>,
     domain: B256,
     relay_pubkeys: HashSet<BlsPublicKey>,
-    bid_stream: BroadcastStream<Arc<AlloySubmitBlockRequest>>,
+    blocks: OptimisticV3BlockCache,
+    cancellation: CancellationToken,
 ) -> eyre::Result<()> {
-    let blocks = Arc::new(Mutex::new(LruMap::new(ByLength::new(
-        OPTIMISTIC_V3_CACHE_SIZE_DEFAULT,
-    ))));
-
-    // Spawn block cache maintenance task.
-    tokio::spawn(Box::pin({
-        let blocks = blocks.clone();
-        async move { maintain_block_cache(bid_stream, blocks).await }
-    }));
-
     // Spawn relay server.
     let handler = Handler {
         domain,
@@ -92,7 +105,16 @@ pub fn spawn_server(
         ))
         .and(warp::body::bytes())
         .map(Handler::get_payload_v3_metered);
-    tokio::spawn(warp::serve(path).run(address));
+
+    let (_, server) = warp::serve(path).bind_with_graceful_shutdown(address, async move {
+        cancellation.cancelled().await;
+        let now = std::time::Instant::now();
+        info!(target: "relay_server", "Received cancellation, initiating graceful shutdown");
+        // Sleep for 12 seconds to avoid being demoted for the current slot.
+        tokio::time::sleep(Duration::from_secs(12)).await;
+        info!(target: "relay_server", elapsed = ?now.elapsed(), "Graceful shutdown complete");
+    });
+    tokio::spawn(server);
     info!(target: "relay_server", %address, "Relay server listening");
 
     Ok(())
@@ -102,7 +124,7 @@ pub fn spawn_server(
 struct Handler {
     domain: B256,
     relay_pubkeys: HashSet<BlsPublicKey>,
-    blocks: Arc<Mutex<LruMap<B256, Arc<AlloySubmitBlockRequest>>>>,
+    blocks: OptimisticV3BlockCache,
 }
 
 impl Handler {
@@ -169,14 +191,11 @@ impl Handler {
             return Err(StatusCode::UNAUTHORIZED);
         }
 
-        let block = {
-            let mut blocks = self.blocks.lock();
-            blocks.get(&block_hash).cloned().ok_or_else(|| {
-                debug!(target: "relay_server", %relay_pubkey, %block_hash, "block not found");
-                BLOCK_NOT_FOUND_TOTAL.inc();
-                StatusCode::NOT_FOUND
-            })?
-        };
+        let block = self.blocks.get(&block_hash).ok_or_else(|| {
+            debug!(target: "relay_server", %relay_pubkey, %block_hash, "block not found");
+            BLOCK_NOT_FOUND_TOTAL.inc();
+            StatusCode::NOT_FOUND
+        })?;
 
         let (body, content_ty) = if is_json {
             let json = serde_json::to_vec(&block).map_err(|error| {
@@ -194,26 +213,5 @@ impl Handler {
         res.headers_mut()
             .insert(CONTENT_TYPE, HeaderValue::from_static(content_ty));
         Ok(res)
-    }
-}
-
-async fn maintain_block_cache(
-    mut bid_stream: BroadcastStream<Arc<AlloySubmitBlockRequest>>,
-    blocks: Arc<Mutex<LruMap<B256, Arc<AlloySubmitBlockRequest>>>>,
-) {
-    loop {
-        match bid_stream.next().await {
-            Some(Ok(block)) => {
-                let block_hash = block.bid_trace().block_hash;
-                blocks.lock().insert(block_hash, block);
-                trace!(target: "relay_server", %block_hash, "Block added to the relay server cache")
-            }
-            Some(Err(BroadcastStreamRecvError::Lagged(lag))) => {
-                error!(target: "relay_server", lag, "Block stream lagging behind");
-            }
-            None => {
-                error!(target: "relay_server", "Block stream closed");
-            }
-        }
     }
 }

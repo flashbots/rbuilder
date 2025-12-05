@@ -1,3 +1,5 @@
+use crate::telemetry::{add_gzip_compression_time, add_ssz_encoding_time};
+
 use super::utils::u256decimal_serde_helper;
 use itertools::Itertools;
 
@@ -6,8 +8,8 @@ use alloy_rpc_types_beacon::BlsPublicKey;
 use flate2::{write::GzEncoder, Compression};
 use governor::{DefaultDirectRateLimiter, Quota, RateLimiter};
 use rbuilder_primitives::mev_boost::{
-    HeaderSubmissionOptimisticV3, KnownRelay, MevBoostRelayID, RelayMode,
-    SubmitBlockRequestNoBlobs, SubmitBlockRequestWithMetadata, ValidatorRegistration,
+    KnownRelay, MevBoostRelayID, RelayMode, SubmitBlockRequestNoBlobs,
+    SubmitBlockRequestWithMetadata, SubmitHeaderRequestWithMetadata, ValidatorRegistration,
     ValidatorSlotData, MEV_BOOST_SLOT_INFO_REQUEST_TIMEOUT,
 };
 use reqwest::{
@@ -37,6 +39,7 @@ const BUNDLE_HASHES_HEADER: &str = "Bundle-Hashes";
 const TOP_BID_HEADER: &str = "Top-Bid";
 const BLOXROUTE_SHARE_HEADER: &str = "share";
 const BLOXROUTE_BUILDER_VALUE_HEADER: &str = "builder-value";
+const X_SEQUENCE_HEADER: &str = "x-sequence";
 
 const JSON_CONTENT_TYPE: &str = "application/json";
 const SSZ_CONTENT_TYPE: &str = "application/octet-stream";
@@ -103,9 +106,10 @@ pub struct RelayConfig {
     /// Flag indicating whether the builder should only submit to rproxy endpoinds if available.
     #[serde(default)]
     pub bloxroute_rproxy_only: bool,
-    /// Adds "filtering=true" as query to the call relay/v1/builder/validators to get all validators (including those filtering OFAC)
-    /// On 2025/06/24 (my birthday!) only supported by ultrasound.
-    /// None -> false
+    /// Retrieves registrations for all validators, including filtering ones.
+    /// For ultrasound relay, the behavior is to add `filtering=true` as a query parameter.
+    /// For titan relay if the value is not set, the registrations will be filtered by `censoring=false` by default.
+    /// If the value is set to `true`, `censoring=true` validators would be included.
     pub ask_for_filtering_validators: Option<bool>,
     /// If we submit a block with a different gas than the one the validator registered with in this relay the relay does not mind.
     /// None -> false
@@ -345,7 +349,7 @@ impl MevBoostRelayBidSubmitter {
 
     pub async fn submit_optimistic_v3(
         &self,
-        data: HeaderSubmissionOptimisticV3,
+        data: SubmitHeaderRequestWithMetadata,
         registration: ValidatorSlotData,
     ) -> Result<(), SubmitBlockErr> {
         self.client
@@ -675,15 +679,25 @@ impl RelayClient {
         let mut headers = HeaderMap::new();
         self.add_auth_headers(&mut headers)
             .map_err(|_| RelayError::InvalidHeader)?;
-        let validators = req
+        let registrations = req
             .headers(headers)
             .send()
             .await?
             .json::<RelayResponse<Vec<ValidatorSlotData>>>()
             .await?;
 
-        match validators {
-            RelayResponse::Ok(validators) => Ok(validators),
+        match registrations {
+            RelayResponse::Ok(registrations) => {
+                let registrations = registrations
+                    .into_iter()
+                    .filter(|r| {
+                        r.preferences
+                            .as_ref()
+                            .is_none_or(|p| !p.censoring || self.ask_for_filtering_validators)
+                    })
+                    .collect();
+                Ok(registrations)
+            }
             RelayResponse::Error(error) => Err(RelayError::RelayError(error)),
         }
     }
@@ -704,6 +718,7 @@ impl RelayClient {
         } = submission_with_metadata;
 
         let mut headers = HeaderMap::new();
+        headers.insert(X_SEQUENCE_HEADER, metadata.sequence.into());
         self.add_auth_headers(&mut headers)
             .map_err(|_| SubmitBlockErr::InvalidHeader)?;
 
@@ -718,7 +733,11 @@ impl RelayClient {
         let mut builder = self.client.post(url.clone());
         // SSZ vs JSON
         let (mut body_data, content_type) = if ssz {
-            (submission.as_ssz_bytes(), SSZ_CONTENT_TYPE)
+            let ssz_start = std::time::Instant::now();
+            let encoded = submission.as_ssz_bytes();
+
+            add_ssz_encoding_time(ssz_start.elapsed());
+            (encoded, SSZ_CONTENT_TYPE)
         } else {
             let json_result = if fake_relay {
                 // For the fake relay we remove the blobs
@@ -740,13 +759,19 @@ impl RelayClient {
                 CONTENT_ENCODING,
                 HeaderValue::from_static(GZIP_CONTENT_ENCODING),
             );
-            let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+            let gzip_start = std::time::Instant::now();
+            // NOTE: Pre-allocate the buffer to avoid reallocations during compression.
+            // This should be more efficient even if we over-allocate (uncompressed > compressed)
+            let mut encoder =
+                GzEncoder::new(Vec::with_capacity(body_data.len()), Compression::default());
             encoder
                 .write_all(&body_data)
                 .map_err(|e| SubmitBlockErr::RPCSerializationError(e.to_string()))?;
             body_data = encoder
                 .finish()
                 .map_err(|e| SubmitBlockErr::RPCSerializationError(e.to_string()))?;
+
+            add_gzip_compression_time(gzip_start.elapsed());
         }
 
         // Set bloxroute specific headers.
@@ -924,11 +949,17 @@ impl RelayClient {
 
     pub async fn submit_optimistic_v3(
         &self,
-        request: &HeaderSubmissionOptimisticV3,
+        request: &SubmitHeaderRequestWithMetadata,
         registration: &ValidatorSlotData,
         cancellations: bool,
     ) -> Result<(), SubmitBlockErr> {
+        let SubmitHeaderRequestWithMetadata {
+            submission,
+            metadata,
+        } = request;
+
         let mut headers = HeaderMap::new();
+        headers.insert(X_SEQUENCE_HEADER, metadata.sequence.into());
         self.add_auth_headers(&mut headers)
             .map_err(|_| SubmitBlockErr::InvalidHeader)?;
 
@@ -937,7 +968,7 @@ impl RelayClient {
         url.query_pairs_mut()
             .append_pair("cancellations", if cancellations { "1" } else { "0" });
 
-        let body = request.as_ssz_bytes();
+        let body = submission.as_ssz_bytes();
         headers.insert(CONTENT_TYPE, HeaderValue::from_static(SSZ_CONTENT_TYPE));
 
         let response = self
@@ -1112,9 +1143,11 @@ mod tests {
         mode = 'slot_info'
         ";
 
-        std::env::set_var("XXX", "AAA");
-        std::env::set_var("YYY", "BBB");
-        std::env::set_var("ZZZ", "CCC");
+        unsafe {
+            std::env::set_var("XXX", "AAA");
+            std::env::set_var("YYY", "BBB");
+            std::env::set_var("ZZZ", "CCC");
+        }
 
         let config: RelayConfig = toml::from_str(example).unwrap();
         assert_eq!(config.name, "relay1");
@@ -1309,6 +1342,7 @@ mod tests {
         let sub_relay = SubmitBlockRequestWithMetadata {
             submission,
             metadata: BidMetadata {
+                sequence: 0,
                 value: BidValueMetadata {
                     coinbase_reward: Default::default(),
                     top_competitor_bid: None,
@@ -1330,6 +1364,7 @@ mod tests {
                 signature: Default::default(),
             },
             regional_endpoints: Vec::new(),
+            preferences: None,
         };
         relay
             .submit_block(&sub_relay, &registration, true, true, false, false)

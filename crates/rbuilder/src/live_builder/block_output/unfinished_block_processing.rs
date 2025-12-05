@@ -39,7 +39,8 @@ use crate::{
     },
     live_builder::{
         block_output::{
-            bidding_service_interface::RelaySet, relay_submit::MultiRelayBlockBuildingSink,
+            bidding_service_interface::{CompetitionBidContext, RelaySet},
+            relay_submit::MultiRelayBlockBuildingSink,
         },
         payload_events::MevBoostSlotData,
         wallet_balance_watcher::WalletBalanceWatcher,
@@ -185,19 +186,19 @@ impl PrefinalizedBlockInner {
         &mut self,
         value: U256,
         subsidy: I256,
-        seen_competition_bid: Option<U256>,
+        competition_bid_context: CompetitionBidContext,
         adjust_finalized_blocks: bool,
     ) -> Result<Option<FinalizeBlockResult>, BlockBuildingHelperError> {
         if let Some(local_ctx) = self.local_ctx.as_mut() {
             if adjust_finalized_blocks {
                 self.block_building_helper
-                    .adjust_finalized_block(local_ctx, value, subsidy, seen_competition_bid)
+                    .adjust_finalized_block(local_ctx, value, subsidy, competition_bid_context)
                     .map(Some)
             } else {
                 // we clone here because finalizing block multiple times is not supported
                 self.block_building_helper
                     .box_clone()
-                    .finalize_block(local_ctx, value, subsidy, seen_competition_bid)
+                    .finalize_block(local_ctx, value, subsidy, competition_bid_context)
                     .map(Some)
             }
         } else {
@@ -240,7 +241,7 @@ struct FinalizeCommand {
     prefinalized_block: PrefinalizedBlock,
     value: U256,
     subsidy: I256,
-    seen_competition_bid: Option<U256>,
+    competition_bid_context: CompetitionBidContext,
     /// Bid received from the bidder (UnfinishedBuiltBlocksInput::seal_command)
     bid_received_at: OffsetDateTime,
     /// Bid sent to the sealer thread
@@ -484,7 +485,7 @@ impl UnfinishedBuiltBlocksInput {
                         prefinalized_block: prefinalized_block_with_finalize_input
                             .prefinalized_block,
                         value: payout_info.payout_tx_value,
-                        seen_competition_bid: bid.seen_competition_bid,
+                        competition_bid_context: bid.competition_bid_context.clone(),
                         bid_received_at,
                         sent_to_sealer,
                         subsidy: payout_info.subsidy,
@@ -553,8 +554,13 @@ impl UnfinishedBuiltBlocksInput {
                         continue;
                     }
                 };
-                match block_building_helper.finalize_block(&mut local_ctx, value, I256::ZERO, None)
-                {
+                // This is a dummy pre finalize to get everything ready/cached, the finalize_block in run_finalize_thread will set the real values.
+                match block_building_helper.finalize_block(
+                    &mut local_ctx,
+                    value,
+                    I256::ZERO,
+                    CompetitionBidContext::no_competition_bid(),
+                ) {
                     Ok(_) => {
                         trace!("Prefinalized block");
                     }
@@ -623,7 +629,7 @@ impl UnfinishedBuiltBlocksInput {
             let mut result = match command.finalize_block(
                 finalize_command.value,
                 finalize_command.subsidy,
-                finalize_command.seen_competition_bid,
+                finalize_command.competition_bid_context,
                 adjust_finalized_blocks,
             ) {
                 Ok(Some(result)) => {

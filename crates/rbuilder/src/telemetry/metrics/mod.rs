@@ -21,8 +21,8 @@ use metrics_macros::register_metrics;
 use parking_lot::Mutex;
 use prometheus::{
     core::{Atomic, AtomicF64, AtomicI64, GenericGauge},
-    Counter, Gauge, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
-    Opts, Registry,
+    Counter, Gauge, Histogram, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge,
+    IntGaugeVec, Opts, Registry,
 };
 use rbuilder_primitives::mev_boost::MevBoostRelayID;
 use std::time::Duration;
@@ -32,6 +32,18 @@ use tracing::error;
 pub mod scope_meter;
 mod tracing_metrics;
 pub use tracing_metrics::*;
+
+const FINALIZE_MODE_ADJUSTED: &str = "adjusted";
+const FINALIZE_MODE_NORMAL: &str = "normal";
+
+fn finalize_mode_label(adjusted: bool) -> &'static str {
+    if adjusted {
+        FINALIZE_MODE_ADJUSTED
+    } else {
+        FINALIZE_MODE_NORMAL
+    }
+}
+
 const SUBSIDY_ATTEMPT: &str = "attempt";
 const SUBSIDY_LANDED: &str = "landed";
 
@@ -209,19 +221,29 @@ register_metrics! {
         IntCounter::new("simulation_gas_used", "Simulation gas used").unwrap();
     pub static ACTIVE_SLOTS: IntCounter =
         IntCounter::new("active_slots", "Slots when builder was active").unwrap();
-    pub static INITIATED_SUBMISSIONS: IntCounterVec = IntCounterVec::new(
-        Opts::new(
+    pub static INITIATED_SUBMISSIONS: IntCounter = IntCounter::new(
             "initiated_submissions",
             "Number of initiated submissions to the relays"
-        ),
-        &["optimistic"],
     )
     .unwrap();
-
     pub static RELAY_SUBMIT_TIME: HistogramVec = HistogramVec::new(
         HistogramOpts::new("relay_submit_time", "Time to send bid to the relay (ms)")
             .buckets(exponential_buckets_range(0.5, 3000.0, 50)),
         &["relay"],
+    )
+    .unwrap();
+
+    pub static SSZ_ENCODING_TIME: Histogram = Histogram::with_opts(
+        HistogramOpts::new("payload_ssz_encoding_time", "Time to encode a full payload in SSZ (ms)")
+            // Range: 100us - 100ms
+            .buckets(exponential_buckets_range(0.1, 100.0, 20)),
+    )
+    .unwrap();
+
+    pub static GZIP_COMPRESSION_TIME: Histogram = Histogram::with_opts(
+        HistogramOpts::new("payload_gzip_compression_time", "Time to compress a full payload in GZIP (ms)")
+            // Range: 100us - 200ms
+            .buckets(exponential_buckets_range(0.1, 200.0, 50)),
     )
     .unwrap();
 
@@ -346,20 +368,14 @@ register_metrics! {
     .unwrap();
     pub static BLOCK_FINALIZE_TIME: HistogramVec = HistogramVec::new(
         HistogramOpts::new("block_finalize_time", "Block Finalize Times (ms)")
-            .buckets(exponential_buckets_range(0.01, 3000.0, 200)),
-        &[]
-    )
-    .unwrap();
-    pub static BLOCK_FINALIZE_ADJUST_TIME: HistogramVec = HistogramVec::new(
-        HistogramOpts::new("block_finalize_adjust_time", "Block Finalize Adjust Times (ms)")
-            .buckets(exponential_buckets_range(0.01, 300.0, 200)),
-        &[]
+            .buckets(exponential_buckets_range(0.01, 2000.0, 200)),
+        &["mode"]
     )
     .unwrap();
     pub static BLOCK_ROOT_HASH_TIME: HistogramVec = HistogramVec::new(
         HistogramOpts::new("block_root_hash_time", "Block Root Hash Time (ms)")
             .buckets(exponential_buckets_range(0.01, 2000.0, 200)),
-        &[]
+        &["mode"]
     )
     .unwrap();
     pub static BLOCK_MULTI_BID_COPY_DURATION: HistogramVec = HistogramVec::new(
@@ -508,19 +524,22 @@ pub fn add_finalized_block_metrics(
     sim_gas_used: u64,
     builder_name: &str,
     block_timestamp: OffsetDateTime,
+    block_was_adjusted: bool,
 ) {
     if !is_now_close_to_slot_end(block_timestamp) {
         return;
     }
 
     BLOCK_FINALIZE_TIME
-        .with_label_values(&[])
-        .observe(duration_ms(built_block_trace.finalize_time));
-    BLOCK_FINALIZE_ADJUST_TIME
-        .with_label_values(&[])
-        .observe(duration_ms(built_block_trace.finalize_adjust_time));
+        .with_label_values(&[finalize_mode_label(block_was_adjusted)])
+        .observe(duration_ms(if block_was_adjusted {
+            built_block_trace.finalize_adjust_time
+        } else {
+            built_block_trace.finalize_time
+        }));
+
     BLOCK_ROOT_HASH_TIME
-        .with_label_values(&[])
+        .with_label_values(&[finalize_mode_label(block_was_adjusted)])
         .observe(duration_ms(built_block_trace.root_hash_time));
 
     BLOCK_BUILT_TXS
@@ -567,16 +586,22 @@ pub fn inc_active_slots() {
     ACTIVE_SLOTS.inc();
 }
 
-pub fn inc_initiated_submissions(optimistic: bool) {
-    INITIATED_SUBMISSIONS
-        .with_label_values(&[&optimistic.to_string()])
-        .inc();
+pub fn inc_initiated_submissions() {
+    INITIATED_SUBMISSIONS.inc();
 }
 
 pub fn add_relay_submit_time(relay: &MevBoostRelayID, duration: Duration) {
     RELAY_SUBMIT_TIME
         .with_label_values(&[relay.as_str()])
         .observe(duration_ms(duration));
+}
+
+pub fn add_ssz_encoding_time(duration: Duration) {
+    SSZ_ENCODING_TIME.observe(duration_ms(duration));
+}
+
+pub fn add_gzip_compression_time(duration: Duration) {
+    GZIP_COMPRESSION_TIME.observe(duration_ms(duration));
 }
 
 const BIG_RPC_DATA_THRESHOLD: usize = 50000;

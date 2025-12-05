@@ -2,7 +2,6 @@
 //! This code has lots of copy/paste from the example config but it's not really copy/paste since we use our own private types.
 //! @Pending make this copy/paste generic code on the library
 
-use alloy_primitives::U256;
 use alloy_rpc_types_beacon::relay::SubmitBlockRequest as AlloySubmitBlockRequest;
 use alloy_signer_local::PrivateKeySigner;
 use derivative::Derivative;
@@ -26,6 +25,7 @@ use rbuilder::{
             SpecificBuilderConfig,
         },
         payload_events::MevBoostSlotData,
+        process_killer::ProcessKiller,
         LiveBuilder,
     },
     provider::StateProviderFactory,
@@ -34,22 +34,19 @@ use rbuilder::{
 use rbuilder_config::EnvOrValue;
 use serde::Deserialize;
 use serde_with::serde_as;
+use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, warn};
 use url::Url;
 
 use crate::{
     bidding_service_wrapper::client::bidding_service_client_adapter::BiddingServiceClientAdapter,
-    blocks_processor::{
-        BlocksProcessorClient, BlocksProcessorClientBidObserver,
-        SIGNED_BLOCK_CONSUME_BUILT_BLOCK_METHOD,
-    },
-    build_info::rbuilder_version,
+    build_info::rbuilder_version, clickhouse::BuiltBlocksWriter,
     true_block_value_push::best_true_value_observer::BestTrueValueObserver,
 };
 
 use clickhouse::Client;
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
 pub struct ClickhouseConfig {
@@ -72,6 +69,23 @@ struct TBVPushRedisConfig {
     pub channel: String,
 }
 
+/// Config used to record built blocks to clickhouse using a local
+/// storage on errors.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct BuiltBlocksClickhouseConfig {
+    /// clickhouse host url (starts with http/https)
+    pub host: String,
+    pub database: String,
+    pub username: String,
+    /// Unique id for this server.
+    /// Since this is only used in clickhouse to identify the builder blocks we put it here but we could have it in the base_config.
+    pub builder_name: String,
+    pub password: EnvOrValue<String>,
+    pub disk_database_path: PathBuf,
+    pub disk_max_size_mb: Option<u64>,
+    pub memory_max_size_mb: Option<u64>,
+}
+
 #[serde_as]
 #[derive(Debug, Clone, Deserialize, PartialEq, Derivative)]
 #[serde(default, deny_unknown_fields)]
@@ -83,6 +97,8 @@ pub struct FlashbotsConfig {
     #[serde(flatten)]
     pub l1_config: L1Config,
 
+    /// Clickhouse config for fetching blocks from clickhouse for backtesting.
+    /// This should not be here....
     #[serde(flatten)]
     clickhouse: ClickhouseConfig,
 
@@ -113,6 +129,9 @@ pub struct FlashbotsConfig {
     /// For production we always need some tbv push (since it's used by smart-multiplexing.) so:
     /// !Some(key_registration_url) => Some(tbv_push_redis)
     tbv_push_redis: Option<TBVPushRedisConfig>,
+
+    /// Should always be set on buildernet.
+    built_blocks_clickhouse_config: Option<BuiltBlocksClickhouseConfig>,
 }
 
 impl LiveBuilderConfig for FlashbotsConfig {
@@ -140,6 +159,7 @@ impl LiveBuilderConfig for FlashbotsConfig {
                 &landed_blocks,
                 self.l1_config.relays_ids(),
                 cancellation_token.clone(),
+                ProcessKiller::new(cancellation_token.clone()),
             )
             .await?;
 
@@ -249,12 +269,14 @@ impl FlashbotsConfig {
         landed_blocks_history: &[LandedBlockInfo],
         all_relay_ids: RelaySet,
         cancellation_token: CancellationToken,
+        process_killer: ProcessKiller,
     ) -> eyre::Result<Arc<BiddingServiceClientAdapter>> {
         let bidding_service_client = BiddingServiceClientAdapter::new(
             &self.bidding_service_ipc_path,
             landed_blocks_history,
             all_relay_ids,
             cancellation_token,
+            process_killer,
         )
         .await
         .map_err(|e| eyre::Report::new(e).wrap_err("Unable to connect to remote bidder"))?;
@@ -288,26 +310,17 @@ impl FlashbotsConfig {
     /// - Secure block processor client (using block_processor_key to sign)
     fn create_block_processor_client(
         &self,
+        cancellation_token: &CancellationToken,
         block_processor_key: Option<PrivateKeySigner>,
     ) -> eyre::Result<Option<Box<dyn BidObserver + Send + Sync>>> {
-        if let Some(url) = &self.blocks_processor_url {
-            let bid_observer: Box<dyn BidObserver + Send + Sync> = if let Some(
-                block_processor_key,
-            ) = block_processor_key
-            {
-                let client = crate::signed_http_client::create_client(
-                    url,
-                    block_processor_key,
-                    self.blocks_processor_max_request_size_bytes,
-                    self.blocks_processor_max_concurrent_requests,
-                )?;
-                let block_processor =
-                    BlocksProcessorClient::new(client, SIGNED_BLOCK_CONSUME_BUILT_BLOCK_METHOD);
-                Box::new(BlocksProcessorClientBidObserver::new(block_processor))
-            } else {
-                eyre::bail!("Unsigned block processing is not supported: if blocks_processor_url is set, a block_processor_key must also be provided");
-            };
-            Ok(Some(bid_observer))
+        if let Some(built_blocks_clickhouse_config) = &self.built_blocks_clickhouse_config {
+            let rbuilder_version = rbuilder_version();
+            let writer = BuiltBlocksWriter::new(
+                built_blocks_clickhouse_config.clone(),
+                rbuilder_version.git_commit,
+                cancellation_token.clone(),
+            )?;
+            Ok(Some(Box::new(writer)))
         } else {
             if block_processor_key.is_some() {
                 return Self::bail_blocks_processor_url_not_set();
@@ -335,7 +348,8 @@ impl FlashbotsConfig {
         };
 
         let bid_observer = RbuilderOperatorBidObserver {
-            block_processor: self.create_block_processor_client(block_processor_key.clone())?,
+            block_processor: self
+                .create_block_processor_client(cancellation_token, block_processor_key.clone())?,
             tbv_pusher: self.create_tbv_pusher(block_processor_key, cancellation_token)?,
         };
         Ok(Box::new(bid_observer))
@@ -442,18 +456,18 @@ impl BidObserver for RbuilderOperatorBidObserver {
         slot_data: &MevBoostSlotData,
         submit_block_request: Arc<AlloySubmitBlockRequest>,
         built_block_trace: Arc<BuiltBlockTrace>,
-        builder_name: String,
-        best_bid_value: U256,
+        builder_algorithm_name: String,
         relays: &RelaySet,
+        sent_to_relay_at: OffsetDateTime,
     ) {
         if let Some(p) = self.block_processor.as_ref() {
             p.block_submitted(
                 slot_data,
                 submit_block_request.clone(),
                 built_block_trace.clone(),
-                builder_name.clone(),
-                best_bid_value,
+                builder_algorithm_name.clone(),
                 relays,
+                sent_to_relay_at,
             )
         }
         if let Some(p) = self.tbv_pusher.as_ref() {
@@ -461,9 +475,9 @@ impl BidObserver for RbuilderOperatorBidObserver {
                 slot_data,
                 submit_block_request,
                 built_block_trace,
-                builder_name,
-                best_bid_value,
+                builder_algorithm_name,
                 relays,
+                sent_to_relay_at,
             )
         }
     }

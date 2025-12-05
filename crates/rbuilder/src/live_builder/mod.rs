@@ -7,6 +7,7 @@ pub mod config;
 pub mod order_flow_tracing;
 pub mod order_input;
 pub mod payload_events;
+pub mod process_killer;
 pub mod simulation;
 pub mod wallet_balance_watcher;
 pub mod watchdog;
@@ -16,8 +17,8 @@ use crate::{
     live_builder::{
         order_flow_tracing::order_flow_tracer_manager::OrderFlowTracerManager,
         order_input::{start_orderpool_jobs, OrderInputConfig},
+        process_killer::ProcessKiller,
         simulation::OrderSimulationPool,
-        watchdog::spawn_watchdog_thread,
     },
     provider::StateProviderFactory,
     telemetry::{inc_active_slots, mark_building_started},
@@ -53,7 +54,7 @@ use std::{
     time::Duration,
 };
 use time::OffsetDateTime;
-use tokio::sync::mpsc;
+use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 use tracing::*;
 
@@ -118,6 +119,7 @@ where
     pub blocklist_provider: Arc<dyn BlockListProvider>,
 
     pub global_cancellation: CancellationToken,
+    pub process_killer: ProcessKiller,
 
     pub unfinished_built_blocks_input_factory: UnfinishedBuiltBlocksInputFactory<P>,
     pub builders: Vec<Arc<dyn BlockBuildingAlgorithm<P>>>,
@@ -149,7 +151,39 @@ where
         Self { builders, ..self }
     }
 
-    pub async fn run(self, ready_to_build: Arc<AtomicBool>) -> eyre::Result<()> {
+    pub async fn run(
+        self,
+        ready_to_build: Arc<AtomicBool>, // If Some, we should send a message for every slot we start building.
+        start_slot_watchdog_sender: Option<flume::Sender<()>>,
+    ) -> eyre::Result<()> {
+        let global_cancellation = self.global_cancellation.clone();
+        let mut inner_jobs_handles = Vec::new();
+        let res = self
+            .run_no_cleanup(
+                ready_to_build,
+                &mut inner_jobs_handles,
+                start_slot_watchdog_sender,
+            )
+            .await;
+        info!("Builder shutting down");
+        global_cancellation.cancel();
+        for handle in inner_jobs_handles {
+            handle
+                .await
+                .map_err(|err| warn!(?err, "Job handle await error"))
+                .unwrap_or_default();
+        }
+        res
+    }
+
+    /// Run the builder without cleaning up after itself.
+    pub async fn run_no_cleanup(
+        self,
+        ready_to_build: Arc<AtomicBool>,
+        inner_jobs_handles: &mut Vec<JoinHandle<()>>,
+        // If Some, we should send a message for every slot we start building.
+        start_slot_watchdog_sender: Option<flume::Sender<()>>,
+    ) -> eyre::Result<()> {
         info!(
             "Builder initial block list size: {}",
             self.blocklist_provider.get_blocklist()?.len(),
@@ -166,7 +200,6 @@ where
                 .with_context(|| "Error spawning error storage writer")?;
         }
 
-        let mut inner_jobs_handles = Vec::new();
         let mut payload_events_channel = self.blocks_source.recv_slot_channel();
 
         let (header_sender, header_receiver) = mpsc::channel(CLEAN_TASKS_CHANNEL_SIZE);
@@ -204,17 +237,6 @@ where
             self.order_flow_tracer_manager,
             self.ace_config.clone(),
         );
-
-        let watchdog_sender = match self.watchdog_timeout {
-            Some(duration) => Some(spawn_watchdog_thread(
-                duration,
-                "block build started".to_string(),
-            )?),
-            None => {
-                info!("Watchdog not enabled");
-                None
-            }
-        };
 
         ready_to_build.store(true, Ordering::Relaxed);
         while let Some(payload) = payload_events_channel.recv().await {
@@ -328,19 +350,10 @@ where
                     self.global_cancellation.clone(),
                     time_until_slot_end.try_into().unwrap_or_default(),
                 );
-                if let Some(watchdog_sender) = watchdog_sender.as_ref() {
+                if let Some(watchdog_sender) = start_slot_watchdog_sender.as_ref() {
                     watchdog_sender.try_send(()).unwrap_or_default();
                 };
             }
-        }
-
-        info!("Builder shutting down");
-        self.global_cancellation.cancel();
-        for handle in inner_jobs_handles {
-            handle
-                .await
-                .map_err(|err| warn!(?err, "Job handle await error"))
-                .unwrap_or_default();
         }
         Ok(())
     }

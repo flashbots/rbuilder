@@ -5,8 +5,8 @@ use super::{
 };
 use crate::{
     building::{
-        BlockBuildingContext, BlockBuildingSpaceState, BlockState, CriticalCommitOrderError,
-        NullPartialBlockForkExecutionTracer,
+        order_is_worth_executing, BlockBuildingContext, BlockBuildingSpaceState, BlockState,
+        CriticalCommitOrderError, NullPartialBlockForkExecutionTracer,
     },
     live_builder::order_input::mempool_txs_detector::MempoolTxsDetector,
     provider::StateProviderFactory,
@@ -756,6 +756,9 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
     match result {
         Ok(res) => {
             let sim_value = create_sim_value(&order, &res, mempool_tx_detector);
+            if let Err(err) = order_is_worth_executing(&sim_value) {
+                return Ok(OrderSimResult::Failed(err));
+            }
             let new_nonces = res.nonces_updated.into_iter().collect::<Vec<_>>();
             Ok(OrderSimResult::Success(
                 Arc::new(SimulatedOrder {

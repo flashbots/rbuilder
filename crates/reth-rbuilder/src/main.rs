@@ -7,7 +7,10 @@
 
 use clap::{Args, Parser};
 use rbuilder::{
-    live_builder::{cli::LiveBuilderConfig, config::Config},
+    live_builder::{
+        cli::{create_start_slot_watchdog, LiveBuilderConfig},
+        config::Config,
+    },
     provider::reth_prov::StateProviderFactoryFromRethProvider,
     telemetry,
 };
@@ -20,7 +23,7 @@ use reth::{
 use reth_node_ethereum::{node::EthereumAddOns, EthereumNode};
 use reth_provider::{
     providers::BlockchainProvider, BlockReader, ChainSpecProvider, DatabaseProviderFactory,
-    HeaderProvider,
+    HeaderProvider, PruneCheckpointReader, StageCheckpointReader, TrieReader,
 };
 use reth_transaction_pool::{blobstore::DiskFileBlobStore, EthTransactionPool};
 use std::{
@@ -29,6 +32,7 @@ use std::{
     sync::{atomic::AtomicBool, Arc},
 };
 use tokio::task;
+use tokio_util::sync::CancellationToken;
 use tracing::error;
 
 // Prefer jemalloc for performance reasons.
@@ -83,8 +87,9 @@ fn spawn_rbuilder<P>(
     pool: EthTransactionPool<P, DiskFileBlobStore>,
     config_path: PathBuf,
 ) where
-    P: DatabaseProviderFactory<Provider: BlockReader>
-        + reth_provider::StateProviderFactory
+    P: DatabaseProviderFactory<
+            Provider: BlockReader + TrieReader + StageCheckpointReader + PruneCheckpointReader,
+        > + reth_provider::StateProviderFactory
         + HeaderProvider<Header = Header>
         + reth_provider::ChainSpecProvider
         + Clone
@@ -94,6 +99,9 @@ fn spawn_rbuilder<P>(
     let _handle = task::spawn(async move {
         let result = async {
             let config: Config = load_toml_config(config_path)?;
+            let cancel = CancellationToken::new();
+            let start_slot_watchdog_sender =
+                create_start_slot_watchdog(config.base_config(), cancel.clone())?;
 
             let ready_to_build = Arc::new(AtomicBool::new(false));
             // Spawn redacted server that is safe for tdx builders to expose
@@ -116,11 +124,13 @@ fn spawn_rbuilder<P>(
                         provider,
                         config.base_config().live_root_hash_config()?,
                     ),
-                    Default::default(),
+                    cancel,
                 )
                 .await?;
             builder.connect_to_transaction_pool(pool).await?;
-            builder.run(ready_to_build).await?;
+            builder
+                .run(ready_to_build, start_slot_watchdog_sender)
+                .await?;
 
             Ok::<(), eyre::Error>(())
         }

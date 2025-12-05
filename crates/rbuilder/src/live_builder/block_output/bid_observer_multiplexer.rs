@@ -28,7 +28,7 @@ impl BidObserver for BidObserverMultiplexer {
         slot_data: &MevBoostSlotData,
         submit_block_request: &SubmitBlockRequest,
         built_block_trace: &BuiltBlockTrace,
-        builder_name: String,
+        builder_algorithm_name: String,
         best_bid_value: alloy_primitives::U256,
     ) {
         for obs in &self.observers {

@@ -18,6 +18,7 @@ use crate::{
         FinalizeRevertStateCurrentIteration, NullPartialBlockExecutionTracer, PartialBlock,
         PartialBlockExecutionTracer, ThreadBlockBuildingContext,
     },
+    live_builder::block_output::bidding_service_interface::CompetitionBidContext,
     telemetry::{self, add_block_fill_time, add_order_simulation_time},
     utils::{check_block_hash_reader_health, elapsed_ms, HistoricalBlockError},
 };
@@ -74,7 +75,7 @@ pub trait BlockBuildingHelper: Send + Sync {
         local_ctx: &mut ThreadBlockBuildingContext,
         payout_tx_value: U256,
         subsidy: I256,
-        seen_competition_bid: Option<U256>,
+        competition_bid_context: CompetitionBidContext,
     ) -> Result<FinalizeBlockResult, BlockBuildingHelperError>;
 
     /// BuiltBlockTrace for current state.
@@ -99,7 +100,7 @@ pub trait BlockBuildingHelper: Send + Sync {
         local_ctx: &mut ThreadBlockBuildingContext,
         payout_tx_value: U256,
         subsidy: I256,
-        seen_competition_bid: Option<U256>,
+        competition_bid_context: CompetitionBidContext,
     ) -> Result<FinalizeBlockResult, BlockBuildingHelperError>;
 }
 
@@ -304,6 +305,7 @@ impl<
         building_ctx: &BlockBuildingContext,
         built_block_trace: &BuiltBlockTrace,
         sim_gas_used: u64,
+        block_was_adjusted: bool,
     ) {
         let txs = finalized_block.sealed_block.body().transactions.len();
         let gas_used = finalized_block.sealed_block.gas_used;
@@ -317,6 +319,7 @@ impl<
             sim_gas_used,
             builder_name,
             building_ctx.timestamp(),
+            block_was_adjusted,
         );
 
         trace!(
@@ -379,7 +382,7 @@ impl<
         local_ctx: &mut ThreadBlockBuildingContext,
         payout_tx_value: U256,
         subsidy: I256,
-        seen_competition_bid: Option<U256>,
+        competition_bid_context: CompetitionBidContext,
         adjust_finalized_block: bool,
     ) -> Result<FinalizeBlockResult, BlockBuildingHelperError> {
         if adjust_finalized_block != self.finalize_adjustment_state.is_some() {
@@ -461,13 +464,14 @@ impl<
             self.built_block_trace.root_hash_time = finalized_block.root_hash_time;
             self.built_block_trace.finalize_time = start_time.elapsed();
         }
-        self.built_block_trace.seen_competition_bid = seen_competition_bid;
+        self.built_block_trace.competition_bid_context = competition_bid_context;
         Self::trace_finalized_block(
             &finalized_block,
             &self.builder_name,
             &self.building_ctx,
             &self.built_block_trace,
             sim_gas_used,
+            adjust_finalized_block,
         );
 
         self.finalize_adjustment_state = Some(finalize_adjustment_state);
@@ -598,13 +602,13 @@ impl<
         local_ctx: &mut ThreadBlockBuildingContext,
         payout_tx_value: U256,
         subsidy: I256,
-        seen_competition_bid: Option<U256>,
+        competition_bid_context: CompetitionBidContext,
     ) -> Result<FinalizeBlockResult, BlockBuildingHelperError> {
         self.finalize_block_impl(
             local_ctx,
             payout_tx_value,
             subsidy,
-            seen_competition_bid,
+            competition_bid_context,
             false,
         )
     }
@@ -639,13 +643,13 @@ impl<
         local_ctx: &mut ThreadBlockBuildingContext,
         payout_tx_value: U256,
         subsidy: I256,
-        seen_competition_bid: Option<U256>,
+        competition_bid_context: CompetitionBidContext,
     ) -> Result<FinalizeBlockResult, BlockBuildingHelperError> {
         self.finalize_block_impl(
             local_ctx,
             payout_tx_value,
             subsidy,
-            seen_competition_bid,
+            competition_bid_context,
             true,
         )
     }

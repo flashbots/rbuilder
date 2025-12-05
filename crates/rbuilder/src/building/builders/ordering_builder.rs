@@ -12,11 +12,14 @@ use crate::{
             block_building_helper::BlockBuildingHelper, BuiltBlockId, LiveBuilderInput,
             OrderIntakeConsumer,
         },
-        BlockBuildingContext, ExecutionError, NullPartialBlockExecutionTracer, OrderPriority,
-        PartialBlockExecutionTracer, PrioritizedOrderStore, SimulatedOrderSink, Sorting,
-        ThreadBlockBuildingContext,
+        order_is_worth_executing, BlockBuildingContext, ExecutionError,
+        NullPartialBlockExecutionTracer, OrderPriority, PartialBlockExecutionTracer,
+        PrioritizedOrderStore, SimulatedOrderSink, Sorting, ThreadBlockBuildingContext,
     },
-    live_builder::building::built_block_cache::BuiltBlockCache,
+    live_builder::{
+        block_output::bidding_service_interface::CompetitionBidContext,
+        building::built_block_cache::BuiltBlockCache,
+    },
     provider::StateProviderFactory,
     telemetry::{
         add_ordering_builder_base_stage_stats, add_ordering_builder_pre_filtered_stage_stats,
@@ -198,8 +201,12 @@ where
     )?;
 
     let payout_tx_value = block_builder.true_block_value()?;
-    let finalize_block_result =
-        block_builder.finalize_block(&mut local_ctx, payout_tx_value, I256::ZERO, None)?;
+    let finalize_block_result = block_builder.finalize_block(
+        &mut local_ctx,
+        payout_tx_value,
+        I256::ZERO,
+        CompetitionBidContext::no_competition_bid(),
+    )?;
     Ok(finalize_block_result.block)
 }
 
@@ -451,14 +458,17 @@ impl OrderingBuilderContext {
                 }
                 Err(err) => {
                     if let ExecutionError::LowerInsertedValue { inplace, .. } = &err {
-                        // try to reinsert order into the map
-                        let order_attempts = self.order_attempts.entry(sim_order.id()).or_insert(0);
-                        if *order_attempts < self.config.failed_order_retries {
-                            let mut new_order = (*sim_order).clone();
-                            new_order.sim_value = inplace.clone();
-                            block_orders.insert_order(Arc::new(new_order));
-                            *order_attempts += 1;
-                            reinserted = true;
+                        if order_is_worth_executing(inplace).is_ok() {
+                            // try to reinsert order into the map
+                            let order_attempts =
+                                self.order_attempts.entry(sim_order.id()).or_insert(0);
+                            if *order_attempts < self.config.failed_order_retries {
+                                let mut new_order = (*sim_order).clone();
+                                new_order.sim_value = inplace.clone();
+                                block_orders.insert_order(Arc::new(new_order));
+                                *order_attempts += 1;
+                                reinserted = true;
+                            }
                         }
                     }
                     if !reinserted {

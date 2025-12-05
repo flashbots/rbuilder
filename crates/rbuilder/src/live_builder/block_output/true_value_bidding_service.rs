@@ -55,7 +55,6 @@ impl SlotBidder for NewTrueBlockValueSlotBidder {
         }
         self.block_seal_handle.seal_bid(SlotBidderSealBidCommand {
             block_id: block_descriptor.id,
-            seen_competition_bid: None,
             trigger_creation_time: Some(time::OffsetDateTime::now_utc()),
             payout_info: self
                 .relay_sets_subsidies
@@ -66,6 +65,7 @@ impl SlotBidder for NewTrueBlockValueSlotBidder {
                     subsidy: (*subsidy).try_into().unwrap(),
                 })
                 .collect(),
+            competition_bid_context: CompetitionBidContext::no_competition_bid(),
         })
     }
 }

@@ -16,18 +16,15 @@ reth-node-ethereum.workspace = true
 reth-provider.workspace = true
 reth-transaction-pool.workspace = true
 reth-cli-util.workspace = true
-alloy-rlp.workspace = true
 
 tokio.workspace = true
+tokio-util.workspace = true
 clap.workspace = true
 eyre.workspace = true
 tracing.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 tikv-jemallocator = { workspace = true, optional = true }
-libc.workspace = true
 
 [features]
-jemalloc = [
-	"reth-cli-util/jemalloc"
-]
+jemalloc = ["reth-cli-util/jemalloc"]

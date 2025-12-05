@@ -7,7 +7,7 @@ use super::{
         bidding_service_interface::{
             BidObserver, BiddingService, LandedBlockInfo, NullBidObserver,
         },
-        relay_submit::{OptimisticConfig, RelaySubmitSinkFactory, SubmissionConfig},
+        relay_submit::{RelaySubmitSinkFactory, SubmissionConfig},
         true_value_bidding_service::NewTrueBlockValueBiddingService,
         unfinished_block_processing::UnfinishedBuiltBlocksInputFactory,
     },
@@ -41,7 +41,7 @@ use crate::{
     },
     mev_boost::{
         bloxroute_grpc,
-        optimistic_v3::{self, OPTIMISTIC_V3_CHANNEL_SIZE},
+        optimistic_v3::{self, OptimisticV3BlockCache},
         BLSBlockSigner, MevBoostRelayBidSubmitter, MevBoostRelaySlotInfoProvider, RelayClient,
         RelayConfig, RelaySubmitConfig,
     },
@@ -50,10 +50,7 @@ use crate::{
     utils::{build_info::rbuilder_version, ProviderFactoryReopener, Signer},
 };
 use alloy_chains::ChainKind;
-use alloy_primitives::{
-    utils::{format_ether, parse_ether},
-    Address, FixedBytes, B256, U256,
-};
+use alloy_primitives::{utils::parse_ether, Address, FixedBytes, B256, U256};
 use alloy_rpc_types_beacon::BlsPublicKey;
 use bid_scraper::config::NamedPublisherConfig;
 use ethereum_consensus::{
@@ -83,8 +80,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use tokio::sync::{broadcast, Mutex as TokioMutex};
-use tokio_stream::wrappers::BroadcastStream;
+use tokio::sync::Mutex as TokioMutex;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use url::Url;
@@ -160,13 +156,6 @@ pub struct L1Config {
     pub registration_update_interval_ms: Option<u64>,
     /// Secret key that will be used to sign normal submissions to the relay.
     relay_secret_key: Option<EnvOrValue<String>>,
-    /// Secret key that will be used to sign optimistic submissions to the relay.
-    optimistic_relay_secret_key: EnvOrValue<String>,
-    /// When enabled builer will make optimistic submissions to optimistic relays
-    /// influenced by `optimistic_max_bid_value_eth`
-    pub optimistic_enabled: bool,
-    /// Bids above this value will always be submitted in non-optimistic mode.
-    pub optimistic_max_bid_value_eth: String,
 
     /// Name kept singular for backwards compatibility
     #[serde_as(deserialize_as = "OneOrMany<EnvOrValue<String>>")]
@@ -194,9 +183,6 @@ impl Default for L1Config {
             relays: vec![],
             enabled_relays: vec![],
             relay_secret_key: None,
-            optimistic_relay_secret_key: "".into(),
-            optimistic_enabled: false,
-            optimistic_max_bid_value_eth: "0.0".to_string(),
             cl_node_url: vec![EnvOrValue::from("http://127.0.0.1:3500")],
             genesis_fork_version: None,
             relay_bid_scrapers: Default::default(),
@@ -360,28 +346,9 @@ impl L1Config {
         let signer = BLSBlockSigner::new(relay_secret_key, signing_domain)
             .map_err(|e| eyre::eyre!("Failed to create normal signer: {:?}", e))?;
 
-        let optimistic_signer = if self.optimistic_enabled {
-            BLSBlockSigner::from_string(self.optimistic_relay_secret_key.value()?, signing_domain)
-                .map_err(|e| eyre::eyre!("Failed to create optimistic signer: {:?}", e))?
-        } else {
-            // Placeholder value since it is required for SubmissionConfig. But after https://github.com/flashbots/rbuilder/pull/323
-            // we can return None
-            signer.clone()
-        };
-
-        let optimistic_config = if self.optimistic_enabled {
-            Some(OptimisticConfig {
-                signer: optimistic_signer,
-                max_bid_value: parse_ether(&self.optimistic_max_bid_value_eth)?,
-            })
-        } else {
-            None
-        };
-
         Ok(SubmissionConfig {
             chain_spec,
             signer,
-            optimistic_config,
             optimistic_v3_config,
             bid_observer,
         })
@@ -394,6 +361,7 @@ impl L1Config {
         chain_spec: Arc<ChainSpec>,
         relay_sets: Vec<RelaySet>,
         bid_observer: Box<dyn BidObserver + Send + Sync>,
+        cancellation_token: CancellationToken,
     ) -> eyre::Result<(
         RelaySubmitSinkFactory,
         Vec<MevBoostRelaySlotInfoProvider>,
@@ -422,18 +390,18 @@ impl L1Config {
                 warn!("Optimistic V3 is enabled, but no relay pubkeys have been configured");
             }
 
-            let (optimistic_v3_block_tx, optimistic_v3_block_rx) =
-                broadcast::channel(OPTIMISTIC_V3_CHANNEL_SIZE);
+            let optimistic_v3_cache = OptimisticV3BlockCache::default();
             optimistic_v3::spawn_server(
                 address,
                 signing_domain,
                 self.optimistic_v3_relay_pubkeys.clone(),
-                BroadcastStream::from(optimistic_v3_block_rx),
+                optimistic_v3_cache.clone(),
+                cancellation_token,
             )?;
 
             optimistic_v3_config = Some(OptimisticV3Config {
                 builder_url: builder_url.into_bytes(),
-                block_sender: optimistic_v3_block_tx,
+                cache: optimistic_v3_cache,
             })
         }
 
@@ -444,17 +412,9 @@ impl L1Config {
             optimistic_v3_config,
         )?;
         info!(
-            "Builder mev boost normal relay pubkey: {:?}",
+            "Builder mev boost relay pubkey: {:?}",
             submission_config.signer.pub_key()
         );
-
-        if let Some(optimitic_config) = submission_config.optimistic_config.as_ref() {
-            info!(
-                "Optimistic mode enabled, relay pubkey {:?}, max_value: {}",
-                optimitic_config.signer.pub_key(),
-                format_ether(optimitic_config.max_bid_value),
-            );
-        };
 
         let (submitters, slot_info_providers) = self.create_relays()?;
         if slot_info_providers.is_empty() {
@@ -1110,6 +1070,7 @@ where
             base_config.chain_spec()?,
             relay_sets.clone(),
             bid_observer,
+            cancellation_token.clone(),
         )?;
 
     if !l1_config.relay_bid_scrapers.is_empty() {

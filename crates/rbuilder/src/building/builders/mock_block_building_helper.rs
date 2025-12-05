@@ -3,7 +3,10 @@ use crate::{
         builders::BuiltBlockId, BlockBuildingContext, BuiltBlockTrace, CriticalCommitOrderError,
         ExecutionError, ExecutionResult, ThreadBlockBuildingContext,
     },
-    live_builder::simulation::SimulatedOrderCommand,
+    live_builder::{
+        block_output::bidding_service_interface::CompetitionBidContext,
+        simulation::SimulatedOrderCommand,
+    },
     provider::RootHasher,
     roothash::RootHashError,
 };
@@ -86,10 +89,10 @@ impl BlockBuildingHelper for MockBlockBuildingHelper {
         _local_ctx: &mut ThreadBlockBuildingContext,
         payout_tx_value: U256,
         subsidy: I256,
-        seen_competition_bid: Option<U256>,
+        competition_bid_context: CompetitionBidContext,
     ) -> Result<FinalizeBlockResult, BlockBuildingHelperError> {
         self.built_block_trace.update_orders_sealed_at();
-        self.built_block_trace.seen_competition_bid = seen_competition_bid;
+        self.built_block_trace.competition_bid_context = competition_bid_context;
         self.built_block_trace.bid_value = payout_tx_value;
         self.built_block_trace.subsidy = subsidy;
         let block = Block {
@@ -130,7 +133,7 @@ impl BlockBuildingHelper for MockBlockBuildingHelper {
         _local_ctx: &mut ThreadBlockBuildingContext,
         _payout_tx_value: U256,
         _subsidy: I256,
-        _seen_competition_bid: Option<U256>,
+        _competition_bid_context: CompetitionBidContext,
     ) -> Result<FinalizeBlockResult, BlockBuildingHelperError> {
         unimplemented!()
     }

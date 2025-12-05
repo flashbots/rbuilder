@@ -3,7 +3,10 @@ use alloy_consensus::Header;
 use alloy_eips::BlockNumHash;
 use alloy_primitives::{BlockHash, BlockNumber, B256};
 use reth_errors::ProviderResult;
-use reth_provider::{BlockReader, DatabaseProviderFactory, HeaderProvider, StateProviderBox};
+use reth_provider::{
+    BlockReader, DatabaseProviderFactory, HeaderProvider, PruneCheckpointReader,
+    StageCheckpointReader, StateProviderBox, TrieReader,
+};
 use tracing::error;
 
 use super::{RootHasher, StateProviderFactory};
@@ -26,8 +29,9 @@ impl<P> StateProviderFactoryFromRethProvider<P> {
 
 impl<P> StateProviderFactory for StateProviderFactoryFromRethProvider<P>
 where
-    P: DatabaseProviderFactory<Provider: BlockReader>
-        + reth_provider::StateProviderFactory
+    P: DatabaseProviderFactory<
+            Provider: BlockReader + TrieReader + StageCheckpointReader + PruneCheckpointReader,
+        > + reth_provider::StateProviderFactory
         + HeaderProvider<Header = Header>
         + Clone
         + 'static,
@@ -45,7 +49,7 @@ where
     }
 
     fn header(&self, block_hash: &BlockHash) -> ProviderResult<Option<Header>> {
-        self.provider.header(block_hash)
+        self.provider.header(*block_hash)
     }
 
     fn block_hash(&self, number: BlockNumber) -> ProviderResult<Option<B256>> {

@@ -9,6 +9,7 @@
 use ahash::HashMap;
 use alloy_primitives::utils::format_ether;
 use rbuilder_config::load_toml_config;
+use rbuilder_primitives::OrderId;
 use reth_db::DatabaseEnv;
 use reth_node_api::NodeTypesWithDBAdapter;
 use reth_node_ethereum::EthereumNode;
@@ -31,7 +32,7 @@ use crate::{
     },
 };
 use clap::Parser;
-use std::{path::PathBuf, sync::Arc};
+use std::{path::PathBuf, str::FromStr, sync::Arc};
 
 use super::backtest_build_block::{run_backtest_build_block, BuildBlockCfg, OrdersSource};
 
@@ -75,7 +76,13 @@ impl<ConfigType: LiveBuilderConfig> LandedBlockFromDBOrdersSource<ConfigType> {
         let block_data = read_block_data(
             &config.base_config().backtest_fetch_output_file,
             extra_cfg.block,
-            extra_cfg.only_order_ids,
+            extra_cfg
+                .only_order_ids
+                .iter()
+                .map(|id| {
+                    OrderId::from_str(id).map_err(|e| eyre::eyre!("invalid order id: {id}: {e}"))
+                })
+                .collect::<Result<Vec<OrderId>, eyre::Error>>()?,
             extra_cfg.block_building_time_ms,
             extra_cfg.show_missing,
         )
@@ -163,7 +170,7 @@ impl<ConfigType: LiveBuilderConfig>
 async fn read_block_data(
     backtest_fetch_output_file: &PathBuf,
     block: u64,
-    only_order_ids: Vec<String>,
+    only_order_ids: Vec<OrderId>,
     block_building_time_ms: i64,
     show_missing: bool,
 ) -> eyre::Result<BlockData> {

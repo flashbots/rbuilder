@@ -9,6 +9,7 @@ use rbuilder::{
 };
 use redis::RedisError;
 use std::sync::Arc;
+use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
 
 use super::{
@@ -77,9 +78,9 @@ impl BidObserver for BestTrueValueObserver {
         slot_data: &MevBoostSlotData,
         _submit_block_request: Arc<AlloySubmitBlockRequest>,
         built_block_trace: Arc<BuiltBlockTrace>,
-        builder_name: String,
-        _best_bid_value: alloy_primitives::U256,
+        builder_algorithm_name: String,
         _relays: &RelaySet,
+        _sent_to_relay_at: OffsetDateTime,
     ) {
         let block_info = BuiltBlockInfo::new(
             slot_data.block(),
@@ -87,7 +88,7 @@ impl BidObserver for BestTrueValueObserver {
             built_block_trace.true_bid_value,
             built_block_trace.bid_value,
             built_block_trace.subsidy,
-            builder_name,
+            builder_algorithm_name,
             slot_data.timestamp().unix_timestamp() as u64,
         );
         self.best_local_value.update_value_safe(block_info);

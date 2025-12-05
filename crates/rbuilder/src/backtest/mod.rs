@@ -191,9 +191,9 @@ impl BlockData {
         });
     }
 
-    pub fn filter_orders_by_ids(&mut self, order_ids: &[String]) {
+    pub fn filter_orders_by_ids(&mut self, order_ids: &[OrderId]) {
         self.available_orders.retain(|order| {
-            if order_ids.contains(&order.order.id().to_string()) {
+            if order_ids.contains(&order.order.id()) {
                 true
             } else {
                 trace!(order = ?order.order.id(), "order filtered by id");

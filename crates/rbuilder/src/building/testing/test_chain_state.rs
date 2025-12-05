@@ -23,8 +23,10 @@ use reth_db::{cursor::DbCursorRW, tables, transaction::DbTxMut};
 use reth_errors::ProviderResult;
 use reth_primitives::{Recovered, TransactionSigned};
 use reth_primitives_traits::Block as _;
-use reth_provider::test_utils::{create_test_provider_factory, MockNodeTypesWithDB};
-use revm::primitives::hardfork::SpecId;
+use reth_provider::{
+    test_utils::{create_test_provider_factory, MockNodeTypesWithDB},
+    BlockWriter,
+};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy)]
@@ -42,25 +44,30 @@ pub enum NamedAddr {
 pub struct BlockArgs {
     pub number: u64,
     pub timestamp: u64,
+    pub payload_attributes_version: String,
 }
 
 impl Default for BlockArgs {
     fn default() -> Self {
         Self {
-            number: 0,
+            number: Self::MIN_BLOCK_NUMBER,
             timestamp: EthereumHardfork::Cancun
                 .mainnet_activation_timestamp()
                 .unwrap(),
+            payload_attributes_version: "capella".to_string(),
         }
     }
 }
 
 impl BlockArgs {
-    pub fn number(self, number: u64) -> Self {
+    // revm needs to know that merge was activated
+    pub const MIN_BLOCK_NUMBER: u64 = EthereumHardfork::Prague.mainnet_activation_block().unwrap();
+
+    pub fn with_number(self, number: u64) -> Self {
         Self { number, ..self }
     }
 
-    pub fn timestamp(self, timestamp: u64) -> Self {
+    pub fn with_timestamp(self, timestamp: u64) -> Self {
         Self { timestamp, ..self }
     }
 }
@@ -129,7 +136,7 @@ impl TestChainState {
         let provider_factory = create_test_provider_factory();
         {
             let provider = provider_factory.provider_rw()?;
-            provider.insert_historical_block(
+            provider.insert_block(
                 Block::new(genesis_header.header().clone(), BlockBody::default())
                     .try_into_recovered()
                     .unwrap(),
@@ -343,7 +350,7 @@ impl TestBlockContextBuilder {
             block_number: block_args.number,
             parent_base_fee_per_gas: 1,
             builder_signer,
-            payload_attributes_version: "capella".to_string(),
+            payload_attributes_version: block_args.payload_attributes_version.clone(),
             slot_timestamp: block_args.timestamp,
             suggested_fee_recipient: fee_recipient,
             withdrawals: None,
@@ -369,7 +376,7 @@ impl TestBlockContextBuilder {
                     proposer_index: 0,
                     payload_attributes: PayloadAttributes {
                         timestamp: self.slot_timestamp,
-                        prev_randao: Default::default(),
+                        prev_randao: B256::random(),
                         suggested_fee_recipient: self.suggested_fee_recipient,
                         withdrawals: self.withdrawals,
                         parent_beacon_block_root: None,
@@ -390,7 +397,7 @@ impl TestBlockContextBuilder {
                 gas_limit: self.parent_gas_limit,
                 gas_used: self.parent_gas_used,
                 timestamp: self.parent_timestamp,
-                mix_hash: Default::default(),
+                mix_hash: B256::random(),
                 nonce: B64::ZERO,
                 base_fee_per_gas: Some(self.parent_base_fee_per_gas),
                 blob_gas_used: None,
@@ -404,7 +411,7 @@ impl TestBlockContextBuilder {
             self.blocklist,
             self.prefer_gas_limit,
             vec![],
-            Some(SpecId::SHANGHAI),
+            None,
             self.root_hasher,
             0,
             true,

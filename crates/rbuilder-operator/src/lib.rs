@@ -1,6 +1,6 @@
 pub mod bidding_service_wrapper;
-pub mod blocks_processor;
 pub mod build_info;
+pub mod clickhouse;
 pub mod flashbots_config;
 pub mod flashbots_signer;
 pub mod metrics;

@@ -9,6 +9,7 @@ use crate::building::{
     PartialBlock, ThreadBlockBuildingContext,
 };
 use alloy_primitives::{Address, TxHash};
+use parking_lot::Mutex;
 use rbuilder_primitives::{
     order_builder::OrderBuilder, BundleRefund, BundleReplacementData, OrderId, Refund,
     RefundConfig, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior,
@@ -16,6 +17,7 @@ use rbuilder_primitives::{
 use reth_provider::StateProvider;
 use revm::database::states::BundleState;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 pub enum NonceValue {
     /// Fixed value
@@ -34,6 +36,9 @@ pub struct TestSetup {
 
 impl TestSetup {
     pub fn gen_test_setup(block_args: BlockArgs) -> eyre::Result<Self> {
+        // this is a hack to work around error on db open when we create many test databases in parallel
+        static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        let _guard = TEST_LOCK.get_or_init(|| Mutex::new(())).lock();
         Ok(Self {
             partial_block: PartialBlock::new(true),
             order_builder: OrderBuilder::None,
