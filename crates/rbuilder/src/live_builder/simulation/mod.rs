@@ -1,6 +1,7 @@
 pub mod sim_worker;
 mod simulation_job;
 pub mod simulation_job_tracer;
+pub mod simulation_newpool;
 
 use crate::{
     building::{
@@ -12,6 +13,7 @@ use crate::{
         order_input::orderpool::OrdersForBlock,
         simulation::simulation_job_tracer::SimulationJobTracer,
     },
+    orderpool2::NewOrderPool,
     provider::StateProviderFactory,
     utils::{gen_uid, NonceCache, Signer},
 };

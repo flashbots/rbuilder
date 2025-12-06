@@ -12,7 +12,9 @@ use crate::{
         order_input::replaceable_order_sink::ReplaceableOrderSink,
         payload_events::MevBoostSlotData, simulation::SlotOrderSimResults,
     },
+    orderpool2::NewOrderPool,
     provider::StateProviderFactory,
+    utils::NonceCache,
 };
 use alloy_primitives::Address;
 use rbuilder_primitives::{OrderId, SimulatedOrder};
@@ -143,6 +145,15 @@ where
         let _block_sub = self
             .orderpool_subscriber
             .add_sink(block_ctx.block(), order_flow_input);
+
+        let nonce_cache = match self
+            .provider
+            .history_by_block_hash(block_ctx.attributes.parent)
+        {
+            Ok(state) => NonceCache::new(state.into()),
+            Err(_) => todo!(),
+        };
+        let new_pool = NewOrderPool::new(nonce_cache);
 
         let simulations_for_block = self.order_simulation_pool.spawn_simulation_job(
             block_ctx.clone(),
