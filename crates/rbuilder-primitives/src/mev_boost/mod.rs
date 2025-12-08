@@ -183,7 +183,7 @@ pub struct ValidatorSlotData {
     pub regional_endpoints: Vec<BloxrouteRegionalEndpoint>,
     /// (Titan) Validator preferences.
     #[serde(default)]
-    pub preferences: Option<TitanValidatorPreferences>,
+    pub preferences: Option<ValidatorPreferences>,
 }
 
 /// Bloxroute validator RProxy details.
@@ -199,6 +199,36 @@ pub struct BloxrouteRegionalEndpoint {
     pub grpc_endpoint: String,
     /// RProxy WS endpoint.
     pub websocket_endpoint: String,
+}
+
+/// Relay validator preferences.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Hash)]
+#[serde(untagged)]
+pub enum ValidatorPreferences {
+    Ultrasound(UltrasoundValidatorPreferences),
+    Titan(TitanValidatorPreferences),
+}
+
+impl ValidatorPreferences {
+    /// Returns [`TitanValidatorPreferences`] if the variant matches.
+    pub fn as_titan(&self) -> Option<&TitanValidatorPreferences> {
+        if let Self::Titan(preferences) = self {
+            Some(preferences)
+        } else {
+            None
+        }
+    }
+}
+
+/// Ultrasound validator preferences.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Hash)]
+pub struct UltrasoundValidatorPreferences {
+    /// Indicator whether the validator is filtering. Values: "none", "ofac".
+    filtering: String,
+    /// Flag indicating whether the validator is integrated with MEV Protect.
+    is_mev_protect: bool,
+    /// Flag indicating whether the validator is integrated with Primev.
+    is_primev: bool,
 }
 
 /// Titan validator preferences.
@@ -289,6 +319,26 @@ mod tests {
                     },
                     "preferences": {
                         "censoring": false
+                    }
+                }
+            "#,
+            r#"
+                {
+                    "slot": "123",
+                    "validator_index": "123",
+                    "entry": {
+                        "message": {
+                            "fee_recipient": "0x0000000000000000000000000000000000000000",
+                            "gas_limit": "60000000",
+                            "timestamp": "123",
+                            "pubkey": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+                        },
+                        "signature": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+                    },
+                    "preferences": {
+                        "filtering": "none",
+                        "is_mev_protect": false,
+                        "is_primev": false
                     }
                 }
             "#,

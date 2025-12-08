@@ -7,8 +7,8 @@ use flate2::{write::GzEncoder, Compression};
 use governor::{DefaultDirectRateLimiter, Quota, RateLimiter};
 use rbuilder_primitives::mev_boost::{
     KnownRelay, MevBoostRelayID, RelayMode, SubmitBlockRequestNoBlobs,
-    SubmitBlockRequestWithMetadata, SubmitHeaderRequestWithMetadata, ValidatorRegistration,
-    ValidatorSlotData, MEV_BOOST_SLOT_INFO_REQUEST_TIMEOUT,
+    SubmitBlockRequestWithMetadata, SubmitHeaderRequestWithMetadata, ValidatorPreferences,
+    ValidatorRegistration, ValidatorSlotData, MEV_BOOST_SLOT_INFO_REQUEST_TIMEOUT,
 };
 use reqwest::{
     header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_ENCODING, CONTENT_TYPE},
@@ -691,6 +691,7 @@ impl RelayClient {
                     .filter(|r| {
                         r.preferences
                             .as_ref()
+                            .and_then(ValidatorPreferences::as_titan)
                             .is_none_or(|p| !p.censoring || self.ask_for_filtering_validators)
                     })
                     .collect();
