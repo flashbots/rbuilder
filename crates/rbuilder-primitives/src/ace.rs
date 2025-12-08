@@ -42,17 +42,16 @@ pub fn classify_ace_interaction(
     let any_ace_slots_accessed = config
         .to_addresses
         .iter()
-        .map(|address| {
+        .flat_map(|address| {
             config.detection_slots.iter().map(|slot| SlotKey {
                 address: *address,
                 key: *slot,
             })
         })
-        .flatten()
         .flat_map(|key| {
             [
-                state_trace.read_slot_values.get(&key).is_some(),
-                state_trace.written_slot_values.get(&key).is_some(),
+                state_trace.read_slot_values.contains_key(&key),
+                state_trace.written_slot_values.contains_key(&key),
             ]
         })
         .any(|read_slot_of_interest| read_slot_of_interest);

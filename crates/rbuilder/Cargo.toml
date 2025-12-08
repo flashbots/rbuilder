@@ -129,7 +129,6 @@ schnellru = "0.2.4"
 reipc = { git = "https://github.com/nethermindeth/reipc.git", rev = "b0b70735cda6273652212d1591188642e3449ed7" }
 
 quick_cache = "0.6.11"
-strum = "0.27.2"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.6"

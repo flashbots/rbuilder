@@ -9532,7 +9532,6 @@ dependencies = [
  "sha2 0.10.9",
  "shellexpand",
  "sqlx",
- "strum 0.27.2",
  "sysperf",
  "tempfile",
  "test_utils",
