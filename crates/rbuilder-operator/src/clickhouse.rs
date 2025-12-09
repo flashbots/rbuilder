@@ -234,8 +234,8 @@ impl BidObserver for BuiltBlocksWriter {
         let slot = slot_data.slot();
         let block_number = slot_data.block();
         let blocks_tx = self.blocks_tx.clone();
-        let rbuilder_commit = self.rbuilder_commit.clone();
-        let builder_name = self.builder_name.clone();
+        let _rbuilder_commit = self.rbuilder_commit.clone();
+        let _builder_name = self.builder_name.clone();
         tokio::spawn(async move {
             // How many times we submitted this block_id to the relay.
             let mut block_uses = HashMap::new();
@@ -280,7 +280,7 @@ impl BidObserver for BuiltBlocksWriter {
                 .entry(built_block_trace.build_block_id)
                 .or_insert(0);
 
-            let (triggering_bid_seen_time, triggering_bid_relay) = built_block_trace
+            let (_triggering_bid_seen_time, _triggering_bid_relay) = built_block_trace
                 .competition_bid_context
                 .triggering_bid_source_info
                 .as_ref()
@@ -292,7 +292,7 @@ impl BidObserver for BuiltBlocksWriter {
                 })
                 .unwrap_or_default();
 
-            let (bid_to_beat_seen_time, bid_to_beat_seen_relay, best_relay_value) =
+            let (_bid_to_beat_seen_time, _bid_to_beat_seen_relay, best_relay_value) =
                 built_block_trace
                     .competition_bid_context
                     .seen_competition_bid
