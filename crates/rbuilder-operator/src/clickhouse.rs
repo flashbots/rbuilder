@@ -31,14 +31,14 @@ use crate::{flashbots_config::BuiltBlocksClickhouseConfig, metrics::ClickhouseMe
 #[derive(Debug, Clone, Serialize, Deserialize, Row)]
 pub struct BlockRow {
     pub block_number: u64,
-    pub block_id: u64,
+    //pub block_id: u64,
     /// Number of times this block_id was used by the builder to bid before this.
     /// Starts with 0 on the first bid.
-    pub block_uses: u64,
+    //pub block_uses: u64,
     /// name of the node that submitted the block
-    pub builder_name: String,
+    //pub builder_name: String,
     /// git commit of the rbuilder running
-    pub rbuilder_commit: String,
+    //pub rbuilder_commit: String,
     pub profit: String,
     pub slot: u64,
     pub hash: String,
@@ -78,11 +78,11 @@ pub struct BlockRow {
     /// Info about the bid that triggered the bid to be generated.
     /// Notice this may not be the top bid since a builder lowering it's bid could trigger a new bid
     /// against the new winner.
-    pub triggering_bid_seen_time: Option<i64>,
-    pub triggering_bid_relay: Option<String>,
+    //pub triggering_bid_seen_time: Option<i64>,
+    //pub triggering_bid_relay: Option<String>,
     /// Info about the top bid among all relays we are trying to beat (best_relay_value)
-    pub bid_to_beat_seen_time: Option<i64>,
-    pub bid_to_beat_seen_relay: Option<String>,
+    //pub bid_to_beat_seen_time: Option<i64>,
+    //pub bid_to_beat_seen_relay: Option<String>,
 }
 
 impl ClickhouseRowExt for BlockRow {
@@ -326,9 +326,9 @@ impl BidObserver for BuiltBlocksWriter {
 
             let block_row = BlockRow {
                 block_number,
-                block_id: built_block_trace.build_block_id.0,
-                builder_name,
-                rbuilder_commit,
+                //block_id: built_block_trace.build_block_id.0,
+                //builder_name,
+                //rbuilder_commit,
                 profit: format_ether(submit_trace.value),
                 slot,
                 hash: execution_payload_v1.block_hash.to_string(),
@@ -360,11 +360,11 @@ impl BidObserver for BuiltBlocksWriter {
                 delayed_payment_addresses,
                 sent_to_relay_at: offset_date_to_clickhouse_timestamp(sent_to_relay_at),
                 tx_hashes,
-                block_uses: *block_uses,
-                triggering_bid_seen_time,
-                triggering_bid_relay,
-                bid_to_beat_seen_time,
-                bid_to_beat_seen_relay,
+                //block_uses: *block_uses,
+                //triggering_bid_seen_time,
+                //triggering_bid_relay,
+                //bid_to_beat_seen_time,
+                //bid_to_beat_seen_relay,
             };
             *block_uses += 1;
 
