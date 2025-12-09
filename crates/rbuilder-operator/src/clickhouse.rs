@@ -31,14 +31,7 @@ use crate::{flashbots_config::BuiltBlocksClickhouseConfig, metrics::ClickhouseMe
 #[derive(Debug, Clone, Serialize, Deserialize, Row)]
 pub struct BlockRow {
     pub block_number: u64,
-    //pub block_id: u64,
-    /// Number of times this block_id was used by the builder to bid before this.
-    /// Starts with 0 on the first bid.
-    //pub block_uses: u64,
-    /// name of the node that submitted the block
-    //pub builder_name: String,
-    /// git commit of the rbuilder running
-    //pub rbuilder_commit: String,
+
     pub profit: String,
     pub slot: u64,
     pub hash: String,
@@ -74,15 +67,6 @@ pub struct BlockRow {
     pub delayed_payment_addresses: Vec<String>,
     pub sent_to_relay_at: i64,
     pub tx_hashes: Vec<String>,
-
-    /// Info about the bid that triggered the bid to be generated.
-    /// Notice this may not be the top bid since a builder lowering it's bid could trigger a new bid
-    /// against the new winner.
-    //pub triggering_bid_seen_time: Option<i64>,
-    //pub triggering_bid_relay: Option<String>,
-    /// Info about the top bid among all relays we are trying to beat (best_relay_value)
-    //pub bid_to_beat_seen_time: Option<i64>,
-    //pub bid_to_beat_seen_relay: Option<String>,
 }
 
 impl ClickhouseRowExt for BlockRow {
