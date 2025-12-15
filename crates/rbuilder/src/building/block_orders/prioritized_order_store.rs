@@ -155,6 +155,10 @@ impl<OrderPriorityType: OrderPriority> PrioritizedOrderStore<OrderPriorityType> 
         self.orders.values().cloned().collect()
     }
 
+    pub fn len(&self) -> usize {
+        self.main_queue.len()
+    }
+
     /// Removes from self.orders and updates statistics
     fn remove_from_orders(&mut self, id: &OrderId) -> Option<Arc<SimulatedOrder>> {
         let res = self.orders.remove(id);

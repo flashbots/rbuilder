@@ -20,6 +20,7 @@ use crate::{
         block_output::bidding_service_interface::CompetitionBidContext,
         building::built_block_cache::BuiltBlockCache,
     },
+    orderpool2::OrderScore,
     provider::StateProviderFactory,
     telemetry::{
         add_ordering_builder_base_stage_stats, add_ordering_builder_pre_filtered_stage_stats,
@@ -28,8 +29,9 @@ use crate::{
     utils::NonceCache,
 };
 use ahash::{HashMap, HashSet};
-use alloy_primitives::I256;
+use alloy_primitives::{utils::format_ether, I256, U256};
 use derivative::Derivative;
+use orderpool_global_priority::block_pool::OrderUpdate;
 use rbuilder_primitives::{AccountNonce, OrderId, SimValue, SimulatedOrder};
 use reth_provider::StateProvider;
 use serde::Deserialize;
@@ -112,8 +114,10 @@ pub fn run_ordering_builder<P, OrderPriorityType>(
 
     let nonces = NonceCache::new(block_state.clone());
 
-    let mut order_intake_consumer =
-        OrderIntakeConsumer::<OrderPriorityType>::new(nonces, input.input);
+    // input.new_pool
+
+    // let mut order_intake_consumer =
+    //     OrderIntakeConsumer::<OrderPriorityType>::new(nonces, input.input, input.new_pool);
 
     let mut builder = OrderingBuilderContext::new(
         block_state.clone(),
@@ -124,26 +128,77 @@ pub fn run_ordering_builder<P, OrderPriorityType>(
         input.built_block_cache,
     );
 
+    let orderpool_sub = input.new_pool.subscribe(
+        OrderScore {
+            is_simulated: false,
+            high_priority: true,
+            profit: U256::MAX,
+        }..OrderScore {
+            is_simulated: true,
+            high_priority: false,
+            profit: U256::MAX,
+        },
+    );
+    let mut prioritized_order_store = PrioritizedOrderStore::<OrderPriorityType>::new([]);
+
     // this is a hack to mark used orders until built block trace is implemented as a sane thing
-    let mut removed_orders = Vec::new();
+    // let mut removed_orders = Vec::new();
+    // let mut loop_id = 0;
+    // std::thread::sleep(std::time::Duration::from_secs(3));
     'building: loop {
+        // loop_id += 1;
         if input.cancel.is_cancelled() {
             break 'building;
         }
 
-        match order_intake_consumer.blocking_consume_next_batch() {
-            Ok(ok) => {
-                if !ok {
-                    break 'building;
+        while let Some(update) = orderpool_sub.next_update() {
+            match update {
+                OrderUpdate::Removed(id) => {
+                    // this is how we handle cancellations and things like that
+                    prioritized_order_store.remove_order(id);
                 }
+                // updates are not used in l1 builder
+                OrderUpdate::Updated(_) => {}
             }
-            Err(err) => {
-                error!(?err, "Error consuming next order batch");
-                continue;
+        }
+        for _ in 0..300 {
+            let new_order = match orderpool_sub.next_new_order() {
+                Ok(Some(id)) => id,
+                Ok(None) => {
+                    break;
+                }
+                Err(err) => {
+                    error!(
+                        ?err,
+                        "Failed to fetch next order from orderpool, cancelling building"
+                    );
+                    return;
+                }
+            };
+            if let Some(order) = orderpool_sub.clone_order(&new_order) {
+                let sim_order = order.sim_order.clone().expect("got unsimulated order");
+                // TMP
+                // tracing::warn!(?new_order, loop_id, val = format_ether(sim_order.sim_value.full_profit_info().coinbase_profit()), "New order build");
+
+                // wtf, how does that nonce thing actually work?
+                // prioritized_order_store.update_onchain_nonces()
+                prioritized_order_store.insert_order(sim_order);
             }
         }
 
-        let orders = order_intake_consumer.current_block_orders();
+        // match order_intake_consumer.blocking_consume_next_batch() {
+        //     Ok(ok) => {
+        //         if !ok {
+        //             break 'building;
+        //         }
+        //     }
+        //     Err(err) => {
+        //         error!(?err, "Error consuming next order batch");
+        //         continue;
+        //     }
+        // }
+
+        let orders = prioritized_order_store.clone();
         match builder.build_block(
             orders,
             input.built_block_id_source.get_new_id(),
@@ -161,8 +216,8 @@ pub fn run_ordering_builder<P, OrderPriorityType>(
             }
         }
         if config.drop_failed_orders {
-            let mut removed = order_intake_consumer.remove_orders(builder.failed_orders.drain());
-            removed_orders.append(&mut removed);
+            let mut removed = prioritized_order_store.remove_orders(builder.failed_orders.drain());
+            // removed_orders.append(&mut removed);
         }
     }
 }
@@ -502,6 +557,7 @@ where
             provider: input.provider,
             ctx: input.ctx.clone(),
             input: input.input,
+            new_pool: input.new_pool,
             sink: input.sink,
             builder_name: self.name.clone(),
             cancel: input.cancel,

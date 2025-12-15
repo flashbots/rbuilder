@@ -12,6 +12,7 @@ use crate::{
         building::built_block_cache::BuiltBlockCache, payload_events::InternalPayloadId,
         simulation::SimulatedOrderCommand,
     },
+    orderpool2::NewOrderPool,
     provider::StateProviderFactory,
     utils::{is_provider_factory_health_error, NonceCache},
 };
@@ -87,6 +88,7 @@ pub struct LiveBuilderInput<P> {
     pub provider: P,
     pub ctx: BlockBuildingContext,
     pub input: broadcast::Receiver<SimulatedOrderCommand>,
+    pub new_pool: NewOrderPool,
     pub sink: UnfinishedBuiltBlocksInput,
     pub builder_name: String,
     pub cancel: CancellationToken,
@@ -103,13 +105,16 @@ pub struct OrderConsumer {
     orders: broadcast::Receiver<SimulatedOrderCommand>,
     // consume_next_batch scratchpad
     new_commands: Vec<SimulatedOrderCommand>,
+    // new orderpool
+    new_pool: NewOrderPool,
 }
 
 impl OrderConsumer {
-    pub fn new(orders: broadcast::Receiver<SimulatedOrderCommand>) -> Self {
+    pub fn new(orders: broadcast::Receiver<SimulatedOrderCommand>, new_pool: NewOrderPool) -> Self {
         Self {
             orders,
             new_commands: Vec::new(),
+            new_pool,
         }
     }
 
@@ -169,12 +174,16 @@ pub struct OrderIntakeConsumer<OrderPriorityType> {
 
 impl<OrderPriorityType: OrderPriority> OrderIntakeConsumer<OrderPriorityType> {
     /// See [`ShareBundleMerger`] for sbundle_merger_selected_signers
-    pub fn new(nonces: NonceCache, orders: broadcast::Receiver<SimulatedOrderCommand>) -> Self {
+    pub fn new(
+        nonces: NonceCache,
+        orders: broadcast::Receiver<SimulatedOrderCommand>,
+        new_pool: NewOrderPool,
+    ) -> Self {
         Self {
             nonces,
             block_orders: PrioritizedOrderStore::new(vec![]),
             onchain_nonces_updated: HashSet::default(),
-            order_consumer: OrderConsumer::new(orders),
+            order_consumer: OrderConsumer::new(orders, new_pool),
         }
     }
 
@@ -238,6 +247,7 @@ pub struct BlockBuildingAlgorithmInput<P> {
     pub provider: P,
     pub ctx: BlockBuildingContext,
     pub input: broadcast::Receiver<SimulatedOrderCommand>,
+    pub new_pool: NewOrderPool,
     /// output for the blocks
     pub sink: UnfinishedBuiltBlocksInput,
     /// A cache common to several builders so they can optimize their work looking at other builders blocks.

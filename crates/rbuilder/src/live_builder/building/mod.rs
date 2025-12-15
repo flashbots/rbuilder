@@ -10,9 +10,10 @@ use crate::{
         building::built_block_cache::BuiltBlockCache,
         order_flow_tracing::order_flow_tracer_manager::OrderFlowTracerManager,
         order_input::replaceable_order_sink::ReplaceableOrderSink,
-        payload_events::MevBoostSlotData, simulation::SlotOrderSimResults,
+        payload_events::MevBoostSlotData,
+        simulation::{simulation_newpool::NewOrderSimulationPool, SlotOrderSimResults},
     },
-    orderpool2::NewOrderPool,
+    orderpool2::{push_to_new_orderpool, NewOrderPool},
     provider::StateProviderFactory,
     utils::NonceCache,
 };
@@ -155,16 +156,34 @@ where
         };
         let new_pool = NewOrderPool::new(nonce_cache);
 
-        let simulations_for_block = self.order_simulation_pool.spawn_simulation_job(
+        let new_sim_pool = NewOrderSimulationPool::new(self.provider.clone(), 1, true);
+        new_sim_pool.spawn_simulation_job(
             block_ctx.clone(),
-            orders_for_block,
+            new_pool.clone(),
             block_cancellation.clone(),
             sim_tracer,
         );
+
+        tokio::spawn(push_to_new_orderpool(
+            orders_for_block,
+            new_pool.clone(),
+            block_cancellation.clone(),
+        ));
+
+        let (tmp_send, tmp_recv) = mpsc::channel(10000);
+        let simulations_for_block = SlotOrderSimResults { orders: tmp_recv };
+
+        // let simulations_for_block = self.order_simulation_pool.spawn_simulation_job(
+        //     block_ctx.clone(),
+        //     orders_for_block,
+        //     block_cancellation.clone(),
+        //     sim_tracer,
+        // );
         self.start_building_job(
             block_ctx,
             payload,
             simulations_for_block,
+            new_pool,
             block_cancellation,
         );
     }
@@ -175,6 +194,7 @@ where
         ctx: BlockBuildingContext,
         slot_data: MevBoostSlotData,
         input: SlotOrderSimResults,
+        new_pool: NewOrderPool,
         cancel: CancellationToken,
     ) {
         let built_block_cache = Arc::new(BuiltBlockCache::new());
@@ -196,6 +216,7 @@ where
                 provider: self.provider.clone(),
                 ctx: ctx.clone(),
                 input: broadcast_input.subscribe(),
+                new_pool: new_pool.clone(),
                 sink: builder_sink.clone(),
                 cancel: cancel.clone(),
                 built_block_cache: built_block_cache.clone(),

@@ -114,6 +114,8 @@ where
             let Some(order) = subscription.clone_order(&order_id) else {
                 continue;
             };
+            // TMP
+            // tracing::warn!(?order_id, "New order for new sim");
             let id = order.id;
             sim_tree.push_orders(vec![order.order]).unwrap_or_default();
             let mut requests = sim_tree.pop_simulation_tasks(100);
@@ -180,6 +182,5 @@ where
                 );
             }
         }
-        todo!()
     }
 }

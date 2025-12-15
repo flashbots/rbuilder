@@ -430,6 +430,7 @@ where
             provider: input.provider,
             ctx: input.ctx.clone(),
             input: input.input,
+            new_pool: input.new_pool,
             sink: input.sink,
             builder_name: self.name.clone(),
             cancel: input.cancel,

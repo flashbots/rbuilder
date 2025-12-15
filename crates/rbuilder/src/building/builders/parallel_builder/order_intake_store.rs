@@ -22,7 +22,7 @@ impl OrderIntakeStore {
     pub fn new(orders_input_stream: broadcast::Receiver<SimulatedOrderCommand>) -> Self {
         let order_sink = SimulatedOrderStore::new();
         Self {
-            order_consumer: OrderConsumer::new(orders_input_stream),
+            order_consumer: OrderConsumer::new(orders_input_stream, todo!()),
             order_sink,
         }
     }
