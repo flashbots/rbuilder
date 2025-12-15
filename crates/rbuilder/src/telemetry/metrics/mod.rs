@@ -736,6 +736,7 @@ pub fn inc_bids_received(bid: &ScrapedRelayBlockBid) {
         bid_scraper::types::PublisherType::UltrasoundWs => "ultrasound_ws",
         bid_scraper::types::PublisherType::BloxrouteWs => "bloxroute_ws",
         bid_scraper::types::PublisherType::ExternalWs => "external_ws",
+        bid_scraper::types::PublisherType::TitanWs => "titan_ws",
     };
     BIDS_RECEIVED
         .with_label_values(&[relay_name, publisher_name, publisher_type])
