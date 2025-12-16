@@ -12,18 +12,6 @@ use tracing_subscriber::Layer;
 ///
 /// The guard may be used to produce a [`tracing`] layer that can be added to
 /// an existing [`tracing::Subscriber`].
-///
-/// ```
-/// # use rbuilder::utils::otlp::{OtelConfig, OtlpGuard};
-/// # fn test() {
-/// fn main() {
-///     let cfg = OtelConfig::from_env().unwrap();
-///     let guard = cfg.provider();
-///     // do stuff
-///     // drop the guard when the program is done
-/// }
-/// # }
-/// ```
 #[derive(Debug)]
 pub struct OtlpGuard(SdkTracerProvider);
 

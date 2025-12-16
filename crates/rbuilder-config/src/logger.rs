@@ -1,7 +1,6 @@
 use tracing_subscriber::{
     fmt::{
-        format::{DefaultFields, Format, Full, Json, JsonFields},
-        time::SystemTime,
+        format::{DefaultFields, Format, Json, JsonFields},
         SubscriberBuilder,
     },
     EnvFilter,
@@ -39,7 +38,7 @@ impl LoggerConfig {
     /// filter string is invalid.
     pub(crate) fn builder(
         &self,
-    ) -> eyre::Result<SubscriberBuilder<DefaultFields, Format<Full, SystemTime>, EnvFilter>> {
+    ) -> eyre::Result<SubscriberBuilder<DefaultFields, Format, EnvFilter>> {
         self.filter()
             .map(|filter| tracing_subscriber::fmt().with_env_filter(filter))
     }

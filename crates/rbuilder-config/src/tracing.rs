@@ -90,13 +90,10 @@ impl TracingConfig {
     /// exporter to the OTLP collector.
     ///
     /// ```
-    /// # use rbuilder_config::{TracingConfig, LoggingConfig, OtlpConfig};
+    /// # use rbuilder_config::{TracingConfig, LoggerConfig, OtlpConfig};
     /// # fn test() -> eyre::Result<()> {
-    /// let config = TracingConfig {
-    ///     logger: LoggingConfig::dev(),
-    ///     otlp: Some(OtlpConfig::dev()),
-    ///     ..
-    /// };
+    /// let config = TracingConfig::dev();
+    ///
     /// // Keep the guard
     /// let _guard = config.init_tracing()?;
     ///
@@ -106,7 +103,6 @@ impl TracingConfig {
     /// # Ok(())
     /// # }
     /// ```
-    #[must_use = "The OtelGuard should be held for the lifetime of the application"]
     pub fn init_tracing(self) -> eyre::Result<Option<OtlpGuard>> {
         if self.otlp.is_none() {
             #[allow(deprecated)]
