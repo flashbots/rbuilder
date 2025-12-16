@@ -1,7 +1,7 @@
 use tracing::info;
 
 use core::fmt::Debug;
-use rbuilder_primitives::{BundleReplacementData, Order, ShareBundleReplacementKey};
+use rbuilder_primitives::{BundleReplacementData, Order};
 
 /// Receiver of order commands in a low level order stream (mempool + RPC calls).
 /// Orders are assumed to be immutable so there is no update.
@@ -13,7 +13,6 @@ use rbuilder_primitives::{BundleReplacementData, Order, ShareBundleReplacementKe
 pub trait ReplaceableOrderSink: Debug + Send {
     fn insert_order(&mut self, order: Order) -> bool;
     fn remove_bundle(&mut self, replacement_data: BundleReplacementData) -> bool;
-    fn remove_sbundle(&mut self, key: ShareBundleReplacementKey) -> bool;
     /// @Pending remove this ugly hack to check if we can stop sending data.
     /// It should be replaced for a better control over object destruction
     fn is_alive(&self) -> bool;
@@ -41,11 +40,6 @@ impl ReplaceableOrderSink for ReplaceableOrderPrinter {
     fn is_alive(&self) -> bool {
         true
     }
-
-    fn remove_sbundle(&mut self, key: ShareBundleReplacementKey) -> bool {
-        info!(key=?key,"Cancelled SBundle");
-        true
-    }
 }
 
 impl Drop for ReplaceableOrderPrinter {
@@ -63,10 +57,6 @@ impl ReplaceableOrderSink for NullReplaceableOrderSink {
     }
 
     fn remove_bundle(&mut self, _replacement_data: BundleReplacementData) -> bool {
-        true
-    }
-
-    fn remove_sbundle(&mut self, _key: ShareBundleReplacementKey) -> bool {
         true
     }
 

@@ -169,9 +169,6 @@ impl FullSlotBlockData {
                     order_id_to_timestamp.insert(order.id(), command_ts.timestamp_ms);
                     order_manager.insert_order(order);
                 }
-                ReplaceableOrderPoolCommand::CancelShareBundle(cancel_share_bundle) => {
-                    order_manager.remove_sbundle(cancel_share_bundle.key);
-                }
                 ReplaceableOrderPoolCommand::CancelBundle(replacement_data) => {
                     order_manager.remove_bundle(replacement_data);
                 }

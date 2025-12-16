@@ -7,7 +7,7 @@ use super::ExecutionResult;
 use ahash::{AHasher, HashMap, HashSet};
 use alloy_primitives::{Address, TxHash, I256, U256};
 use rbuilder_primitives::{
-    order_statistics::OrderStatistics, Order, OrderId, OrderReplacementKey, SimulatedOrder,
+    order_statistics::OrderStatistics, BundleReplacementKey, Order, OrderId, SimulatedOrder,
 };
 use std::{collections::hash_map, hash::Hasher, time::Duration};
 use time::OffsetDateTime;
@@ -68,7 +68,7 @@ pub struct BuiltBlockTrace {
 #[derive(thiserror::Error, Debug)]
 pub enum BuiltBlockTraceError {
     #[error("More than one order is included with the same replacement data: {0:?}")]
-    DuplicateReplacementData(OrderReplacementKey),
+    DuplicateReplacementData(BundleReplacementKey),
     #[error("Included order had tx from or to blocked address")]
     BlockedAddress,
     #[error(
@@ -146,7 +146,6 @@ impl BuiltBlockTrace {
             .fold((0, 0, 0), |acc, order| match order.order {
                 Order::Tx(_) => (acc.0 + 1, acc.1, acc.2),
                 Order::Bundle(_) => (acc.0, acc.1 + 1, acc.2),
-                Order::ShareBundle(_) => (acc.0, acc.1, acc.2 + 1),
             })
     }
 

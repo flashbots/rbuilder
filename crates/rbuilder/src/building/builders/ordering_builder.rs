@@ -54,9 +54,9 @@ pub fn default_pre_filtered_build_duration_deadline_ms() -> Option<u64> {
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct OrderingBuilderConfig {
-    /// If a tx inside a bundle or sbundle fails with TransactionErr (don't confuse this with reverting which is TransactionOk with !.receipt.success)
-    /// and it's configured as allowed to revert (for bundles tx in reverting_tx_hashes or dropping_tx_hashes, for sbundles: TxRevertBehavior != NotAllowed)
-    /// we continue the  execution of the bundle/sbundle. The most typical value is true.
+    /// If a tx inside a bundle fails with TransactionErr (don't confuse this with reverting which is TransactionOk with !.receipt.success)
+    /// and it's configured as allowed to revert (for bundles tx in reverting_tx_hashes or dropping_tx_hashes)
+    /// we continue the  execution of the bundle. The most typical value is true.
     pub discard_txs: bool,
     pub sorting: Sorting,
     /// Only when a tx fails because the profit was worst than expected: Number of time an order can fail during a single block building iteration.

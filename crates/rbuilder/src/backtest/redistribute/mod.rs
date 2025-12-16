@@ -79,7 +79,6 @@ impl ExtendedOrderId {
                 let hash = bundle_hashes.get(&order_id).cloned().unwrap_or_default();
                 ExtendedOrderId::Bundle { uuid, hash }
             }
-            OrderId::ShareBundle(hash) => ExtendedOrderId::ShareBundle(hash),
         }
     }
 }
@@ -312,30 +311,21 @@ where
 
     let mut txs = 0;
     let mut bundles = 0;
-    let mut share_bundles = 0;
     for ts_order in &block_data.available_orders {
         match &ts_order.order {
             Order::Bundle(_) => bundles += 1,
             Order::Tx(_) => txs += 1,
-            Order::ShareBundle(_) => share_bundles += 1,
         }
     }
-    let total = txs + bundles + share_bundles;
+    let total = txs + bundles;
 
-    info!(
-        total,
-        txs, bundles, share_bundles, filtered, "Available orders"
-    );
+    info!(total, txs, bundles, filtered, "Available orders");
     if txs == 0 {
         error!("Block has no mempool txs");
     }
     if bundles == 0 {
         warn!("Block has no bundles");
     }
-    if share_bundles == 0 {
-        debug!("Block has no share bundles");
-    }
-
     let block_profit = if built_block_data.profit.is_positive() {
         built_block_data.profit.into_sign_and_abs().1
     } else {
@@ -1149,7 +1139,6 @@ where
         provider.clone(),
         base_config.backtest_builders.clone(),
         config,
-        &base_config.sbundle_mergeable_signers(),
     )?
     .builder_outputs
     .into_iter()
@@ -1219,19 +1208,6 @@ fn order_redistribution_address(
             // if its just a bundle we take origin tx of the first transaction
             let tx = bundle.txs.first()?;
             Some((tx.signer(), true))
-        }
-        Order::ShareBundle(bundle) => {
-            // if it is a share bundle we take either
-            // 1. first address from the refund config
-            // 2. origin of the first tx
-
-            if let Some(first_refund) = bundle.inner_bundle().refund_config.first() {
-                return Some((first_refund.address, true));
-            }
-
-            let txs = bundle.list_txs();
-            let (first_tx, _) = txs.first()?;
-            Some((first_tx.signer(), true))
         }
         Order::Tx(_) => {
             unreachable!("Mempool tx order can't have signer");

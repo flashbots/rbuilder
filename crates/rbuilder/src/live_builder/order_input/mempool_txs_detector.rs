@@ -4,9 +4,7 @@ use ahash::RandomState;
 use alloy_primitives::TxHash;
 use dashmap::DashSet;
 
-use rbuilder_primitives::{
-    BundleReplacementData, Order, ShareBundleReplacementKey, TransactionSignedEcRecoveredWithBlobs,
-};
+use rbuilder_primitives::{BundleReplacementData, Order, TransactionSignedEcRecoveredWithBlobs};
 
 use super::replaceable_order_sink::ReplaceableOrderSink;
 
@@ -35,10 +33,6 @@ impl ReplaceableOrderSink for ReplaceableOrderStreamSniffer {
 
     fn remove_bundle(&mut self, replacement_data: BundleReplacementData) -> bool {
         self.sink.remove_bundle(replacement_data)
-    }
-
-    fn remove_sbundle(&mut self, key: ShareBundleReplacementKey) -> bool {
-        self.sink.remove_sbundle(key)
     }
 
     fn is_alive(&self) -> bool {

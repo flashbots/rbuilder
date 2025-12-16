@@ -51,7 +51,8 @@ pub type ConflictResolutionResultPerGroup = (GroupId, (ResolutionResult, Conflic
 /// ParallelBuilderConfig configures parallel builder.
 /// * `num_threads` - number of threads to use for merging.
 /// * `merge_wait_time_ms` - time to wait for merging to finish before consuming new orders.
-/// * `safe_sorting_only` - Will only use sort modes that don't risk breaking the "best refund for user" since we don't megabundle the bundles (only the sbundles).
+/// * `safe_sorting_only` - Will only use sort modes that don't risk breaking much the "best refund for user"
+///   since random sorting might put the worst kickback first and let a blind backrun win.
 ///   This flag is just to test the algo until we solve every issue.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]

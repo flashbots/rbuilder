@@ -9,7 +9,7 @@ use crate::{
 };
 use ahash::HashSet;
 use alloy_primitives::utils::format_ether;
-use rbuilder_primitives::{Order, OrderId, OrderReplacementKey};
+use rbuilder_primitives::{BundleReplacementKey, Order, OrderId};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, trace, warn};
@@ -42,10 +42,10 @@ pub struct SimulationJob {
     orders_received: OrderCounter,
     orders_simulated_ok: OrderCounter,
 
-    unique_replacement_key_bundles: HashSet<OrderReplacementKey>,
+    unique_replacement_key_bundles: HashSet<BundleReplacementKey>,
     orders_with_replacement_key: usize,
 
-    unique_replacement_key_bundles_sim_ok: HashSet<OrderReplacementKey>,
+    unique_replacement_key_bundles_sim_ok: HashSet<BundleReplacementKey>,
     orders_with_replacement_key_sim_ok: usize,
 
     /// Orders we got via new_order_sub and are still being processed (they could be inside the SimTree or in the sim queue)
@@ -309,18 +309,16 @@ impl SimulationJob {
 struct OrderCounter {
     mempool_txs: usize,
     bundles: usize,
-    share_bundles: usize,
 }
 
 impl fmt::Debug for OrderCounter {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "OrderCounter {{ total: {}, mempool_txs: {}, bundles {}, share_bundles {} }}",
+            "OrderCounter {{ total: {}, mempool_txs: {}, bundles {} }}",
             self.total(),
             self.mempool_txs,
             self.bundles,
-            self.share_bundles
         )
     }
 }
@@ -330,10 +328,9 @@ impl OrderCounter {
         match order {
             Order::Tx(_) => self.mempool_txs += 1,
             Order::Bundle(_) => self.bundles += 1,
-            Order::ShareBundle(_) => self.share_bundles += 1,
         }
     }
     fn total(&self) -> usize {
-        self.mempool_txs + self.bundles + self.share_bundles
+        self.mempool_txs + self.bundles
     }
 }
