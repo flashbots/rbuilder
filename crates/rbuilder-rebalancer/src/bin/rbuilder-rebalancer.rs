@@ -26,7 +26,7 @@ impl Cli {
     async fn run(self) -> eyre::Result<()> {
         let config = RebalancerConfig::parse_toml_file(&self.config)?;
 
-        config.logger.init_tracing()?;
+        let _guard = config.tracing.init_tracing()?;
 
         if config.rules.is_empty() {
             warn!("No rebalancing rules have been configured, rebalancer will be idling");

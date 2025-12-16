@@ -24,7 +24,7 @@ use alloy_provider::RootProvider;
 use eth_sparse_mpt::{ETHSpareMPTVersion, RootHashThreadPool};
 use eyre::Context;
 use jsonrpsee::RpcModule;
-use rbuilder_config::{EnvOrValue, LoggerConfig};
+use rbuilder_config::{EnvOrValue, LoggerConfig, OtlpConfig, TracingConfig};
 use reth::chainspec::chain_value_parser;
 use reth_chainspec::ChainSpec;
 use reth_db::DatabaseEnv;
@@ -72,6 +72,8 @@ pub struct BaseConfig {
     pub log_json: bool,
     log_level: EnvOrValue<String>,
     pub log_color: bool,
+    /// Name of the OTEL environment, e.g. `production`, `staging`, etc.
+    pub otlp_env_name: Option<String>,
 
     pub error_storage_path: Option<PathBuf>,
 
@@ -174,12 +176,15 @@ pub fn default_ip() -> Ipv4Addr {
 impl BaseConfig {
     pub fn setup_tracing_subscriber(&self) -> eyre::Result<()> {
         let log_level = self.log_level.value()?;
-        let config = LoggerConfig {
+
+        let tracing_config = TracingConfig::new(LoggerConfig {
             env_filter: log_level,
             log_json: self.log_json,
             log_color: self.log_color,
-        };
-        config.init_tracing()?;
+        })
+        .with_otlp(OtlpConfig::new().with_environment(self.otlp_env_name.as_deref()));
+
+        let _guard = tracing_config.init_tracing()?;
         Ok(())
     }
 
@@ -473,6 +478,7 @@ impl Default for BaseConfig {
             log_json: false,
             log_level: "info".into(),
             log_color: false,
+            otlp_env_name: None,
             error_storage_path: None,
             coinbase_secret_key: None,
             el_node_ipc_path: None,

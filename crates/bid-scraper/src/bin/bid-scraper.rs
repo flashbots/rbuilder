@@ -1,5 +1,5 @@
 use bid_scraper::{bid_sender::NNGBidSender, config::Config};
-use rbuilder_config::{load_toml_config, LoggerConfig};
+use rbuilder_config::{load_toml_config, LoggerConfig, OtlpConfig, TracingConfig};
 use runng::Listen;
 use std::{env, sync::Arc};
 use tokio::signal::ctrl_c;
@@ -15,12 +15,14 @@ async fn main() -> eyre::Result<()> {
 
     let config: Config = load_toml_config(args[1].clone())?;
 
-    let logger_config = LoggerConfig {
+    let tracing_config = TracingConfig::from(LoggerConfig {
         env_filter: config.log_level.clone(),
         log_json: config.log_json,
         log_color: config.log_color,
-    };
-    logger_config.init_tracing()?;
+    })
+    .with_otlp(OtlpConfig::new().with_environment(config.otlp_env_name));
+
+    let _guard = tracing_config.init_tracing()?;
 
     let global_cancel = CancellationToken::new();
     let global_cancel_clone = global_cancel.clone();
