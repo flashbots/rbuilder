@@ -52,7 +52,7 @@ where
             let pool = pool.clone();
             let block_cancellation = block_cancellation.clone();
             let sim_tracer = sim_tracer.clone();
-	    let worker_count = self.workers;
+            let worker_count = self.workers;
             std::thread::Builder::new()
                 .name(format!("newpool_sim_thread:{worker_id}"))
                 .spawn(move || {
@@ -62,7 +62,7 @@ where
                         block_cancellation,
                         sim_tracer,
                         worker_id,
-			worker_count,
+                        worker_count,
                     )
                 });
         }
@@ -75,14 +75,20 @@ where
         block_cancellation: CancellationToken,
         sim_tracer: Arc<dyn SimulationJobTracer>,
         worker_id: usize,
-	worker_count: usize,
+        worker_count: usize,
     ) {
         let from = OrderScore {
             is_simulated: false,
             high_priority: false,
             profit: Default::default(),
         };
-        let subscription = pool.subscribe_with_shard(from.., Some(OrderpoolShard { shard_idx: worker_id as u64, shard_count: worker_count as u64}));
+        let subscription = pool.subscribe_with_shard(
+            from..,
+            Some(OrderpoolShard {
+                shard_idx: worker_id as u64,
+                shard_count: worker_count as u64,
+            }),
+        );
 
         let mut sim_tree = SimTree::new(pool.nonce_source.clone());
 
@@ -105,8 +111,7 @@ where
             let order_id = match subscription.next_new_order() {
                 Ok(Some(id)) => id,
                 Ok(None) => {
-                    // todo implement blocking next in new orderpool
-                    std::thread::sleep(Duration::from_millis(2));
+                    subscription.block_until_new_updates(Duration::from_millis(10));
                     continue;
                 }
                 Err(_) => {

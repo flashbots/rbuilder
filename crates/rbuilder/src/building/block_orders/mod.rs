@@ -104,25 +104,26 @@ pub fn block_orders_from_sim_orders<OrderPriorityType: OrderPriority>(
     sim_orders: &[Arc<SimulatedOrder>],
     state_provider: &StateProviderBox,
 ) -> ProviderResult<PrioritizedOrderStore<OrderPriorityType>> {
-    let mut onchain_nonces = vec![];
-    for order in sim_orders {
-        for nonce in order.order.nonces() {
-            let value = state_provider
-                .account_nonce(&nonce.address)?
-                .unwrap_or_default();
-            onchain_nonces.push(AccountNonce {
-                account: nonce.address,
-                nonce: value,
-            });
-        }
-    }
-    let mut block_orders = PrioritizedOrderStore::<OrderPriorityType>::new(onchain_nonces);
+    todo!()
+    // let mut onchain_nonces = vec![];
+    // for order in sim_orders {
+    //     for nonce in order.order.nonces() {
+    //         let value = state_provider
+    //             .account_nonce(&nonce.address)?
+    //             .unwrap_or_default();
+    //         onchain_nonces.push(AccountNonce {
+    //             account: nonce.address,
+    //             nonce: value,
+    //         });
+    //     }
+    // }
+    // let mut block_orders = PrioritizedOrderStore::<OrderPriorityType>::new(onchain_nonces);
 
-    for order in sim_orders.iter().cloned() {
-        block_orders.insert_order(order);
-    }
+    // for order in sim_orders.iter().cloned() {
+    //     block_orders.insert_order(order);
+    // }
 
-    Ok(block_orders)
+    // Ok(block_orders)
 }
 
 #[cfg(test)]
@@ -151,7 +152,7 @@ mod test {
                     data_gen,
                     order_pool:
                         PrioritizedOrderStore::<OrderMaxProfitPriority<FullProfitInfoGetter>>::new(
-                            vec![nonce],
+                            todo!(),
                         ),
                 },
             )
@@ -172,7 +173,7 @@ mod test {
                     data_gen,
                     order_pool:
                         PrioritizedOrderStore::<OrderMaxProfitPriority<FullProfitInfoGetter>>::new(
-                            vec![nonce_1, nonce_2],
+                            todo!(), // vec![nonce_1, nonce_2],
                         ),
                 },
             )

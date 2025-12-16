@@ -139,14 +139,15 @@ pub fn run_ordering_builder<P, OrderPriorityType>(
             profit: U256::MAX,
         },
     );
-    let mut prioritized_order_store = PrioritizedOrderStore::<OrderPriorityType>::new([]);
+    let mut prioritized_order_store =
+        PrioritizedOrderStore::<OrderPriorityType>::new(input.new_pool.nonce_source.clone());
 
     // this is a hack to mark used orders until built block trace is implemented as a sane thing
     // let mut removed_orders = Vec::new();
-    // let mut loop_id = 0;
+    let mut loop_id = 0;
     // std::thread::sleep(std::time::Duration::from_secs(3));
     'building: loop {
-        // loop_id += 1;
+        loop_id += 1;
         if input.cancel.is_cancelled() {
             break 'building;
         }
@@ -161,6 +162,7 @@ pub fn run_ordering_builder<P, OrderPriorityType>(
                 OrderUpdate::Updated(_) => {}
             }
         }
+        let mut new_orders_added = false;
         for _ in 0..300 {
             let new_order = match orderpool_sub.next_new_order() {
                 Ok(Some(id)) => id,
@@ -183,7 +185,12 @@ pub fn run_ordering_builder<P, OrderPriorityType>(
                 // wtf, how does that nonce thing actually work?
                 // prioritized_order_store.update_onchain_nonces()
                 prioritized_order_store.insert_order(sim_order);
+                new_orders_added = true;
             }
+        }
+        if !new_orders_added {
+            orderpool_sub.block_until_new_updates(Duration::from_millis(200));
+            continue;
         }
 
         // match order_intake_consumer.blocking_consume_next_batch() {

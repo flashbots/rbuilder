@@ -179,9 +179,10 @@ impl<OrderPriorityType: OrderPriority> OrderIntakeConsumer<OrderPriorityType> {
         orders: broadcast::Receiver<SimulatedOrderCommand>,
         new_pool: NewOrderPool,
     ) -> Self {
+        let onchain_nonces = nonces.clone();
         Self {
             nonces,
-            block_orders: PrioritizedOrderStore::new(vec![]),
+            block_orders: PrioritizedOrderStore::new(onchain_nonces),
             onchain_nonces_updated: HashSet::default(),
             order_consumer: OrderConsumer::new(orders, new_pool),
         }

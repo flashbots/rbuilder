@@ -4,7 +4,7 @@ use ahash::{HashMap, HashSet};
 use alloy_primitives::Address;
 use priority_queue::PriorityQueue;
 
-use crate::telemetry::mark_order_not_ready_for_immediate_inclusion;
+use crate::{telemetry::mark_order_not_ready_for_immediate_inclusion, utils::NonceCache};
 use rbuilder_primitives::{
     order_statistics::OrderStatistics, AccountNonce, Nonce, OrderId, SimulatedOrder,
 };
@@ -34,6 +34,7 @@ pub struct PrioritizedOrderStore<OrderPriorityType> {
     /// Up to date "onchain" nonces for the current block we are building.
     /// Special care must be taken to keep this in sync.
     onchain_nonces: HashMap<Address, u64>,
+    state_nonces: NonceCache,
 
     /// Orders waiting for an account to reach a particular nonce.
     pending_orders: HashMap<AccountNonce, Vec<OrderId>>,
@@ -44,15 +45,12 @@ pub struct PrioritizedOrderStore<OrderPriorityType> {
 }
 
 impl<OrderPriorityType: OrderPriority> PrioritizedOrderStore<OrderPriorityType> {
-    pub fn new(initial_onchain_nonces: impl IntoIterator<Item = AccountNonce>) -> Self {
-        let mut onchain_nonces = HashMap::default();
-        for onchain_nonce in initial_onchain_nonces {
-            onchain_nonces.insert(onchain_nonce.account, onchain_nonce.nonce);
-        }
+    pub fn new(state_nonces: NonceCache) -> Self {
         Self {
             main_queue: PriorityQueue::new(),
             main_queue_nonces: HashMap::default(),
-            onchain_nonces,
+            onchain_nonces: HashMap::default(),
+            state_nonces,
             pending_orders: HashMap::default(),
             orders: HashMap::default(),
             orders_statistics: Default::default(),
@@ -86,6 +84,15 @@ impl<OrderPriorityType: OrderPriority> PrioritizedOrderStore<OrderPriorityType> 
         Some(sim_order)
     }
 
+    fn get_current_onchain_nonce(&mut self, address: &Address) -> u64 {
+        if let Some(nonce) = self.onchain_nonces.get(address) {
+            return *nonce;
+        }
+        let state_nonce = self.state_nonces.nonce(*address).unwrap_or_default();
+        self.onchain_nonces.insert(*address, state_nonce);
+        state_nonce
+    }
+
     // if order updates onchain nonce from n -> n + 2, we get n + 2 as an arguments here
     pub fn update_onchain_nonces(&mut self, new_nonces: &[AccountNonce]) {
         let mut invalidated_orders = HashSet::default();
@@ -117,11 +124,7 @@ impl<OrderPriorityType: OrderPriority> PrioritizedOrderStore<OrderPriorityType> 
                 optional,
             } in order.nonces()
             {
-                let onchain_nonce = self
-                    .onchain_nonces
-                    .get(&address)
-                    .cloned()
-                    .unwrap_or_default();
+                let onchain_nonce = self.get_current_onchain_nonce(&address);
                 if onchain_nonce > nonce && !optional {
                     valid = false;
                     break;
@@ -183,11 +186,7 @@ impl<OrderPriorityType: OrderPriority> SimulatedOrderSink
             optional,
         } in sim_order.nonces()
         {
-            let onchain_nonce = self
-                .onchain_nonces
-                .get(&address)
-                .cloned()
-                .unwrap_or_default();
+            let onchain_nonce = self.get_current_onchain_nonce(&address);
             if onchain_nonce > nonce && !optional {
                 // order can't be included because of nonce
                 return;
