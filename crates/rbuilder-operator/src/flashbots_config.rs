@@ -36,7 +36,7 @@ use serde::Deserialize;
 use serde_with::serde_as;
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
-use tracing::{error, warn};
+use tracing::warn;
 use url::Url;
 
 use crate::{

@@ -1,5 +1,5 @@
 use alloy_primitives::B256;
-use clap::{command, Parser};
+use clap::Parser;
 use rbuilder_config::load_toml_config;
 use rbuilder_primitives::{
     Bundle, MempoolTx, Metadata, Order, TransactionSignedEcRecoveredWithBlobs, LAST_BUNDLE_VERSION,

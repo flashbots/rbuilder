@@ -3,7 +3,7 @@ use std::time::Duration;
 use alloy_primitives::{utils::format_ether, Address, BlockNumber, U256};
 use reth::providers::ProviderError;
 use time::{error, OffsetDateTime};
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 use crate::{
     provider::StateProviderFactory,
