@@ -12,7 +12,6 @@ use reth_chainspec::MAINNET;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_with::serde_as;
 use thiserror::Error;
-use tracing::error;
 use uuid::Uuid;
 
 /// Encoding mode for raw transactions (https://eips.ethereum.org/EIPS/eip-4844)

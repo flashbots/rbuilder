@@ -5,7 +5,6 @@ use crate::{
 use alloy_signer_local::PrivateKeySigner;
 use jsonrpsee::core::client::ClientT;
 use tokio::runtime::Runtime;
-use tracing::error;
 
 use super::best_true_value_pusher::{Backend, BuiltBlockInfo};
 

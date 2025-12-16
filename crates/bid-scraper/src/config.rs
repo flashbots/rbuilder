@@ -4,7 +4,7 @@ use serde_with::serde_as;
 use crate::{
     best_bid_ws_connector::ExternalWsPublisherConfig, bids_publisher::RelayBidsPublisherConfig,
     bloxroute_ws_publisher::BloxrouteWsPublisherConfig,
-    headers_publisher::RelayHeadersPublisherConfig,
+    headers_publisher::RelayHeadersPublisherConfig, titan_ws_publisher::TitanWsPublisherConfig,
     ultrasound_ws_publisher::UltrasoundWsPublisherConfig,
 };
 
@@ -14,6 +14,7 @@ pub enum PublisherConfig {
     RelayBids(RelayBidsPublisherConfig),
     RelayHeaders(RelayHeadersPublisherConfig),
     UltrasoundWs(UltrasoundWsPublisherConfig),
+    TitanWs(TitanWsPublisherConfig),
     BloxrouteWs(BloxrouteWsPublisherConfig),
     ExternalWs(ExternalWsPublisherConfig),
 }

@@ -1,19 +1,19 @@
 use std::time::Duration;
 
-pub mod bids_publisher;
-pub mod bloxroute_ws_publisher;
-mod slot;
-pub mod ultrasound_ws_publisher;
-
 pub mod best_bid_ws_connector;
 pub mod bid_scraper;
 pub mod bid_scraper_client;
 pub mod bid_sender;
+pub mod bids_publisher;
+pub mod bloxroute_ws_publisher;
 pub mod config;
 pub mod headers_publisher;
 pub mod reconnect;
 pub mod relay_api_publisher;
+mod slot;
+pub mod titan_ws_publisher;
 pub mod types;
+pub mod ultrasound_ws_publisher;
 pub mod ws_publisher;
 
 pub type DynResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;

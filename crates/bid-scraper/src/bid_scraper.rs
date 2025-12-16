@@ -10,6 +10,7 @@ use crate::{
     config::{NamedPublisherConfig, PublisherConfig},
     get_timestamp_f64,
     headers_publisher::{HeadersPublisherService, RelayHeadersPublisherConfig},
+    titan_ws_publisher::{TitanWsConnectionHandler, TitanWsPublisher, TitanWsPublisherConfig},
     types::{PublisherType, ScrapedRelayBlockBid},
     ultrasound_ws_publisher::{
         UltrasoundWsConnectionHandler, UltrasoundWsPublisher, UltrasoundWsPublisherConfig,
@@ -49,6 +50,26 @@ impl PublisherFactory<UltrasoundWsPublisherConfig, UltrasoundWsPublisher> for Ul
         .await)
     }
     async fn run(publisher: UltrasoundWsPublisher) {
+        publisher.run().await
+    }
+}
+
+struct TitanWsFactory;
+impl PublisherFactory<TitanWsPublisherConfig, TitanWsPublisher> for TitanWsFactory {
+    async fn create_publisher(
+        cfg: TitanWsPublisherConfig,
+        name: String,
+        sender: Arc<dyn BidSender>,
+        cancel: CancellationToken,
+    ) -> eyre::Result<TitanWsPublisher> {
+        Ok(TitanWsPublisher::new(
+            TitanWsConnectionHandler::new(cfg.clone(), name.clone()),
+            sender,
+            cancel,
+        )
+        .await)
+    }
+    async fn run(publisher: TitanWsPublisher) {
         publisher.run().await
     }
 }
@@ -138,6 +159,14 @@ pub fn run(
             }
             PublisherConfig::UltrasoundWs(cfg) => {
                 tokio::spawn(start_publisher::<_, _, UltrasoundWsFactory>(
+                    cfg,
+                    named_publisher.name,
+                    sender.clone(),
+                    global_cancel.clone(),
+                ));
+            }
+            PublisherConfig::TitanWs(cfg) => {
+                tokio::spawn(start_publisher::<_, _, TitanWsFactory>(
                     cfg,
                     named_publisher.name,
                     sender.clone(),

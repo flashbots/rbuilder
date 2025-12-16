@@ -1,5 +1,4 @@
 use redis::Commands;
-use tracing::error;
 
 use super::best_true_value_pusher::{Backend, BuiltBlockInfo};
 

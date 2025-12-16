@@ -27,6 +27,7 @@ pub enum PublisherType {
     UltrasoundWs = 2,
     BloxrouteWs = 3,
     ExternalWs = 4,
+    TitanWs = 5,
 }
 
 impl From<bid_scraper::types::PublisherType> for PublisherType {
@@ -37,6 +38,7 @@ impl From<bid_scraper::types::PublisherType> for PublisherType {
             bid_scraper::types::PublisherType::UltrasoundWs => PublisherType::UltrasoundWs,
             bid_scraper::types::PublisherType::BloxrouteWs => PublisherType::BloxrouteWs,
             bid_scraper::types::PublisherType::ExternalWs => PublisherType::ExternalWs,
+            bid_scraper::types::PublisherType::TitanWs => PublisherType::TitanWs,
         }
     }
 }
@@ -49,6 +51,7 @@ impl From<PublisherType> for bid_scraper::types::PublisherType {
             PublisherType::UltrasoundWs => bid_scraper::types::PublisherType::UltrasoundWs,
             PublisherType::BloxrouteWs => bid_scraper::types::PublisherType::BloxrouteWs,
             PublisherType::ExternalWs => bid_scraper::types::PublisherType::ExternalWs,
+            PublisherType::TitanWs => bid_scraper::types::PublisherType::TitanWs,
         }
     }
 }
