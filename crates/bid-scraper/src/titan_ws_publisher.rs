@@ -5,6 +5,7 @@ use crate::{
 };
 use eyre::Context;
 use futures::stream::{SplitSink, SplitStream};
+use rbuilder_config::EnvOrValue;
 use serde::Deserialize;
 use tokio::net::TcpStream;
 use tokio_tungstenite::{
@@ -19,7 +20,7 @@ pub struct TitanWsPublisherConfig {
     /// Be sure to use unique names. Maybe we can take it from the titan_url?
     pub relay_name: String,
     /// used as header X-Api-Token, for use with titan builder direct endpoint
-    pub api_token: String,
+    pub api_token: EnvOrValue<String>,
 }
 
 pub struct TitanWsConnectionHandler {
@@ -39,9 +40,10 @@ impl ConnectionHandler for TitanWsConnectionHandler {
     }
     fn configure_request(&self, request: &mut Request<()>) -> eyre::Result<()> {
         let headers = request.headers_mut();
-        let api_token_header_value =
-            tokio_tungstenite::tungstenite::http::HeaderValue::from_str(&self.cfg.api_token)
-                .wrap_err("Invalid header value for 'X-Api-Token'")?;
+        let api_token_header_value = tokio_tungstenite::tungstenite::http::HeaderValue::from_str(
+            &self.cfg.api_token.value()?,
+        )
+        .wrap_err("Invalid header value for 'X-Api-Token'")?;
         headers.insert("X-Api-Token", api_token_header_value);
         Ok(())
     }
