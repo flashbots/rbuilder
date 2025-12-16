@@ -73,14 +73,14 @@ pub struct OtlpConfig {
     /// "production", "staging". [See documentation here.]
     ///
     /// [See documentation here.]: https://opentelemetry.io/docs/specs/semconv/resource/deployment-environment/
-    pub environment: Option<String>,
+    pub otlp_environment: String,
 }
 
 impl OtlpConfig {
     /// Default OTEL configuration for development.
     pub fn dev() -> Self {
         Self {
-            environment: Some("development".to_owned()),
+            otlp_environment: "development".to_owned(),
         }
     }
 
@@ -90,8 +90,8 @@ impl OtlpConfig {
     }
 
     /// Set the environment name.
-    pub fn with_environment(mut self, name: Option<impl Into<String>>) -> Self {
-        self.environment = name.map(Into::into);
+    pub fn with_environment(mut self, name: impl Into<String>) -> Self {
+        self.otlp_environment = name.into();
         self
     }
 
@@ -101,12 +101,7 @@ impl OtlpConfig {
                 [
                     KeyValue::new(SERVICE_NAME, env!("CARGO_PKG_NAME")),
                     KeyValue::new(SERVICE_VERSION, env!("CARGO_PKG_VERSION")),
-                    KeyValue::new(
-                        DEPLOYMENT_ENVIRONMENT_NAME,
-                        self.environment
-                            .clone()
-                            .unwrap_or_else(|| "unknown".to_owned()),
-                    ),
+                    KeyValue::new(DEPLOYMENT_ENVIRONMENT_NAME, self.otlp_environment.clone()),
                 ],
                 SCHEMA_URL,
             )

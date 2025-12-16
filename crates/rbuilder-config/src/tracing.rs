@@ -8,8 +8,10 @@ use crate::{LoggerConfig, OtlpConfig, OtlpGuard};
 #[non_exhaustive]
 pub struct TracingConfig {
     /// Logger configuration.
+    #[serde(flatten)]
     pub logger: LoggerConfig,
     /// OTLP configuration.
+    #[serde(flatten, default)]
     pub otlp: Option<OtlpConfig>,
 }
 
@@ -64,12 +66,20 @@ impl TracingConfig {
         self
     }
 
-    /// Enable OTLP exporting with the given environment name.
+    /// Enable OTLP exporting with the given environment name
     ///
     /// If `environment` is `None`, the OTLP exporter will be created
     /// with the name `"unknown"`.
     pub fn with_otlp(mut self, otlp: OtlpConfig) -> Self {
         self.otlp = Some(otlp);
+        self
+    }
+
+    /// Optionally enable OTLP exporting. This is useful for setting OTLP
+    /// based on command-line arguments or environment variables, which
+    /// may or may not be present.
+    pub fn maybe_with_otlp(mut self, otlp: Option<OtlpConfig>) -> Self {
+        self.otlp = otlp;
         self
     }
 

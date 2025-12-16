@@ -182,7 +182,11 @@ impl BaseConfig {
             log_json: self.log_json,
             log_color: self.log_color,
         })
-        .with_otlp(OtlpConfig::new().with_environment(self.otlp_env_name.as_deref()));
+        .maybe_with_otlp(
+            self.otlp_env_name
+                .as_ref()
+                .map(|name| OtlpConfig::new().with_environment(name.clone())),
+        );
 
         let _guard = tracing_config.init_tracing()?;
         Ok(())

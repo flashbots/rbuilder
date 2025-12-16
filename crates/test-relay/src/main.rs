@@ -92,7 +92,11 @@ async fn main() -> eyre::Result<()> {
         log_json: cli.log_json,
         log_color: false,
     })
-    .with_otlp(OtlpConfig::new().with_environment(cli.otlp_env_name.as_deref()));
+    .maybe_with_otlp(
+        cli.otlp_env_name
+            .as_ref()
+            .map(|name| OtlpConfig::new().with_environment(name.clone())),
+    );
     let _guard = tracing_config.init_tracing()?;
 
     spawn_metrics_server(cli.metrics_address);

@@ -20,7 +20,12 @@ async fn main() -> eyre::Result<()> {
         log_json: config.log_json,
         log_color: config.log_color,
     })
-    .with_otlp(OtlpConfig::new().with_environment(config.otlp_env_name));
+    .maybe_with_otlp(
+        config
+            .otlp_env_name
+            .as_ref()
+            .map(|name| OtlpConfig::new().with_environment(name.clone())),
+    );
 
     let _guard = tracing_config.init_tracing()?;
 
