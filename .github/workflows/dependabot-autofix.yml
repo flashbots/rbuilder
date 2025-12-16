@@ -1,0 +1,165 @@
+name: Dependabot Auto-fix
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  build-and-fix:
+    # Only run on Dependabot PRs
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build and capture errors
+        id: build
+        continue-on-error: true
+        run: |
+          cargo build 2>&1 | tee build_output.txt
+          echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+
+      - name: Run Claude to fix issues
+        if: steps.build.outputs.exit_code != '0'
+        uses: anthropics/claude-code-action@beta
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            The Dependabot PR to update reth dependencies has build failures.
+
+            Build output is in build_output.txt. Please:
+            1. Read the build errors
+            2. Analyze what changes are needed to fix compatibility issues
+            3. Make the necessary code fixes
+            4. Do NOT change the dependency versions back - fix the code to work with the new versions
+
+            Focus on:
+            - API changes in reth crates
+            - Type signature changes
+            - Removed or renamed functions/structs
+            - New required trait implementations
+
+      - name: Generate diff
+        if: steps.build.outputs.exit_code != '0'
+        id: diff
+        run: |
+          git diff > suggested_fixes.diff
+          if [ -s suggested_fixes.diff ]; then
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Comment on PR with suggested fixes
+        if: steps.build.outputs.exit_code != '0' && steps.diff.outputs.has_changes == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const diff = fs.readFileSync('suggested_fixes.diff', 'utf8');
+            const buildOutput = fs.readFileSync('build_output.txt', 'utf8');
+
+            // Truncate build output if too long
+            const maxBuildLen = 3000;
+            const truncatedBuild = buildOutput.length > maxBuildLen
+              ? buildOutput.slice(-maxBuildLen) + '\n... (truncated)'
+              : buildOutput;
+
+            const body = `## 🤖 Claude Auto-fix Suggestions
+
+            The build failed with the following errors:
+
+            <details>
+            <summary>Build Output</summary>
+
+            \`\`\`
+            ${truncatedBuild}
+            \`\`\`
+
+            </details>
+
+            ### Suggested Fixes
+
+            Claude analyzed the build failures and suggests the following changes:
+
+            \`\`\`diff
+            ${diff}
+            \`\`\`
+
+            <details>
+            <summary>Apply this patch</summary>
+
+            \`\`\`bash
+            curl -sL ${{ github.event.pull_request.html_url }}.diff | git apply
+            # Or copy the diff above and run: git apply < suggested_fixes.diff
+            \`\`\`
+
+            </details>
+
+            ---
+            *Generated with [Claude Code](https://claude.ai/claude-code)*`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });
+
+      - name: Comment if no fixes found
+        if: steps.build.outputs.exit_code != '0' && steps.diff.outputs.has_changes == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const buildOutput = fs.readFileSync('build_output.txt', 'utf8');
+
+            const maxBuildLen = 5000;
+            const truncatedBuild = buildOutput.length > maxBuildLen
+              ? buildOutput.slice(-maxBuildLen) + '\n... (truncated)'
+              : buildOutput;
+
+            const body = `## 🤖 Claude Auto-fix Analysis
+
+            The build failed but Claude was unable to automatically generate fixes.
+
+            <details>
+            <summary>Build Output</summary>
+
+            \`\`\`
+            ${truncatedBuild}
+            \`\`\`
+
+            </details>
+
+            Manual intervention may be required to resolve these compatibility issues.
+
+            ---
+            *Generated with [Claude Code](https://claude.ai/claude-code)*`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });
