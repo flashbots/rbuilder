@@ -1,7 +1,6 @@
 use super::{
-    AccountNonce, Bundle, BundleReplacementData, BundledTxInfo, MempoolTx, Order, ShareBundle,
-    ShareBundleBody, ShareBundleInner, ShareBundleReplacementData, ShareBundleTx,
-    TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior, LAST_BUNDLE_VERSION,
+    AccountNonce, Bundle, BundleReplacementData, BundledTxInfo, MempoolTx, Order,
+    TransactionSignedEcRecoveredWithBlobs, LAST_BUNDLE_VERSION,
 };
 use alloy_consensus::TxLegacy;
 use alloy_primitives::{Address, BlockHash, Signature, TxHash, B256, U256};
@@ -95,7 +94,7 @@ impl TestDataGenerator {
             hash: B256::default(),
             uuid: Uuid::default(),
             replacement_data: replacement_data.clone(),
-            signer: replacement_data.as_ref().and_then(|r| r.key.key().signer),
+            signer: replacement_data.as_ref().and_then(|r| r.key.signer),
             refund_identity: None,
             metadata: Default::default(),
             dropping_tx_hashes: vec![],
@@ -105,35 +104,6 @@ impl TestDataGenerator {
         };
         res.hash_slow();
         res
-    }
-
-    /// Creates a sbundle with a single TX (non optional)
-    /// No refunds, only useful to check for identity
-    pub fn create_sbundle(
-        &mut self,
-        block: u64,
-        sender_nonce: AccountNonce,
-        replacement_data: Option<ShareBundleReplacementData>,
-    ) -> ShareBundle {
-        let inner_bundle = ShareBundleInner {
-            body: vec![ShareBundleBody::Tx(ShareBundleTx {
-                tx: self.create_tx_with_blobs_nonce(sender_nonce),
-                revert_behavior: TxRevertBehavior::NotAllowed,
-            })],
-            refund: Default::default(),
-            refund_config: Default::default(),
-            can_skip: true,
-            original_order_id: None,
-        };
-        ShareBundle::new(
-            block,
-            block,
-            inner_bundle,
-            replacement_data.as_ref().and_then(|r| r.key.key().signer),
-            replacement_data,
-            Vec::new(),
-            Default::default(),
-        )
     }
 
     /// Creates a bundle with a multiple txs
@@ -161,7 +131,7 @@ impl TestDataGenerator {
             hash: B256::default(),
             uuid: Uuid::default(),
             replacement_data: replacement_data.clone(),
-            signer: replacement_data.as_ref().and_then(|r| r.key.key().signer),
+            signer: replacement_data.as_ref().and_then(|r| r.key.signer),
             refund_identity: None,
             metadata: Default::default(),
             dropping_tx_hashes: Default::default(),

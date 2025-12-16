@@ -250,6 +250,9 @@ mod tests {
         block.header.base_fee_per_gas = Some(INITIAL_BASE_FEE);
         block.header.timestamp = cancun_timestamp + 1;
         block.header.gas_limit = 30_000_000;
+        block.header.mix_hash = B256::random();
+        block.header.number = EthereumHardfork::Prague.mainnet_activation_block().unwrap();
+        block.header.excess_blob_gas = Some(1000);
         let ctx = BlockBuildingContext::from_onchain_block(
             block,
             chain_spec,

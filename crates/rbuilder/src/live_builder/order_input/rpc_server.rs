@@ -10,10 +10,7 @@ use jsonrpsee::{
     IntoResponse, RpcModule,
 };
 use rbuilder_primitives::{
-    serialize::{
-        RawBundle, RawBundleDecodeResult, RawShareBundle, RawShareBundleDecodeResult, RawTx,
-        TxEncoding,
-    },
+    serialize::{RawBundle, RawBundleDecodeResult, RawTx, TxEncoding},
     BundleReplacementData, BundleReplacementKey, MempoolTx, Order, OrderId,
 };
 use serde::Deserialize;
@@ -33,7 +30,6 @@ use tracing::{info, trace, warn};
 use uuid::Uuid;
 
 const ETH_SEND_BUNDLE: &str = "eth_sendBundle";
-const MEV_SEND_BUNDLE: &str = "mev_sendBundle";
 const ETH_CANCEL_BUNDLE: &str = "eth_cancelBundle";
 const ETH_SEND_RAW_TRANSACTION: &str = "eth_sendRawTransaction";
 
@@ -82,11 +78,6 @@ pub async fn start_server_accepting_bundles(
     let results_clone = results.clone();
     register_metered_async_method(&mut module, ETH_SEND_BUNDLE, move |params, _| {
         handle_eth_send_bundle(results_clone.clone(), timeout, params)
-    })?;
-
-    let results_clone = results.clone();
-    register_metered_async_method(&mut module, MEV_SEND_BUNDLE, move |params, _| {
-        handle_mev_send_bundle(results_clone.clone(), timeout, params)
     })?;
 
     let results_clone = results.clone();
@@ -223,52 +214,6 @@ async fn handle_eth_send_bundle(
             .await;
         }
     }
-}
-
-/// Parses a mev share bundle packet and forwards it to the results.
-/// Here we can generate ReplaceableOrderPoolCommand::Order(ShareBundle)) or CancelShareBundle (identified using a "cancel" field (a little ugly)).
-async fn handle_mev_send_bundle(
-    results: mpsc::Sender<ReplaceableOrderPoolCommand>,
-    timeout: Duration,
-    params: jsonrpsee::types::Params<'static>,
-) {
-    let received_at = OffsetDateTime::now_utc();
-    let start = Instant::now();
-    let raw_bundle: RawShareBundle = match params.one() {
-        Ok(raw_bundle) => raw_bundle,
-        Err(err) => {
-            warn!(?err, "Failed to parse raw share bundle");
-            inc_order_input_rpc_errors(MEV_SEND_BUNDLE);
-            return;
-        }
-    };
-    let decode_res = match raw_bundle.decode(TxEncoding::WithBlobData) {
-        Ok(res) => res,
-        Err(err) => {
-            warn!(?err, "Failed to decode raw share bundle");
-            inc_order_input_rpc_errors(MEV_SEND_BUNDLE);
-            return;
-        }
-    };
-    match decode_res {
-        RawShareBundleDecodeResult::NewShareBundle(bundle) => {
-            let order = Order::ShareBundle(*bundle);
-            let parse_duration = start.elapsed();
-            let target_block = order.target_block().unwrap_or_default();
-            trace!(order = ?order.id(), parse_duration_mus = parse_duration.as_micros(), target_block, "Received share bundle");
-            send_order(order, &results, timeout, received_at).await;
-        }
-        RawShareBundleDecodeResult::CancelShareBundle(cancel) => {
-            trace!(cancel = ?cancel, "Received share bundle cancellation");
-            send_command(
-                ReplaceableOrderPoolCommand::CancelShareBundle(cancel),
-                &results,
-                timeout,
-                received_at,
-            )
-            .await;
-        }
-    };
 }
 
 async fn send_order(

@@ -23,7 +23,6 @@ blocks_processor_url = "http://block_processor.internal"
 key_registration_url = "http://127.0.0.1:8090"
 ignore_cancellable_orders = true
 
-sbundle_mergeabe_signers = []
 live_builders = ["mp-ordering", "mgp-ordering", "parallel"]
 
 bidding_service_ipc_path = "/tmp/rpc_bidding_server.sock"

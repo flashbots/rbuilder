@@ -31,8 +31,6 @@ Every field has a default if omitted.
 |blocklist_url_max_age_secs|optional int|If the downloaded file get older than this we abort. Used for debugging only|None|
 |require_non_empty_blocklist|bool|if true will not allow to start without a blocklist or with an empty blocklist.|false|
 |extra_data|string|Extra data for generated blocks|"extra_data_change_me"|
-|sbundle_mergeable_signers|optional vec[string]|mev-share bundles coming from this address are treated in a special way(see [`ShareBundleMerger`])<br>Example:sbundle_mergeable_signers=["0x1234....","0x334344...."]|None|
-|sbundle_mergeabe_signers|optional vec[string]|Alias for sbundle_mergeable_signers.Backwards compatible typo soon to be removed. |None|
 |simulation_threads|int| Number of threads used for incoming order simulation|1|
 |simulation_use_random_coinbase|bool| |true|
 |root_hash_use_sparse_trie|bool| Uses cached sparse trie for root hash (much faster)|false|
@@ -93,8 +91,8 @@ Each instantiated algorithm starts with:
 ### Fields for algo="ordering-builder"
 | Name | Type | Comments | Default |
 |------|------|-------------|---------|
-|discard_txs|mandatory bool| If a tx inside a bundle or sbundle fails with TransactionErr (don't confuse this with reverting which is TransactionOk with !.receipt.success) and it's configured as allowed to revert (for bundles tx in reverting_tx_hashes or dropping_tx_hashes, for sbundles: TxRevertBehavior != NotAllowed) we continue the  execution of the bundle/sbundle. The most typical value is true.||
-|sorting|mandatory string|Valid values:<br>-"mev-gas-price": Sorts the SimulatedOrders by its effective gas price. This not only includes the explicit gas price set in the tx but also the direct coinbase payments so we compute it as (coinbase balance delta after executing the order) / (gas used).<br>-"max-profit": Sorts the SimulatedOrders by its absolute profit which is computed as the coinbase balance delta after executing the order.<br>-"type-max-profit": (Experimental) Orders are ordered by their origin (bundle/sbundles then mempool) and then by their absolute profit.<br>-"length-three-max-profit":(Experimental) Orders are ordered by length 3 (orders length >= 3 first) and then by their absolute profit.<br>-"length-three-mev-gas-price":(Experimental) Orders are ordered by length 3 (orders length >= 3 first) and then by their mev gas price.||
+|discard_txs|mandatory bool| If a tx inside a bundle fails with TransactionErr (don't confuse this with reverting which is TransactionOk with !.receipt.success) and it's configured as allowed to revert (for bundles tx in reverting_tx_hashes or dropping_tx_hashes) we continue the  execution of the bundle. The most typical value is true.||
+|sorting|mandatory string|Valid values:<br>-"mev-gas-price": Sorts the SimulatedOrders by its effective gas price. This not only includes the explicit gas price set in the tx but also the direct coinbase payments so we compute it as (coinbase balance delta after executing the order) / (gas used).<br>-"max-profit": Sorts the SimulatedOrders by its absolute profit which is computed as the coinbase balance delta after executing the order.<br>-"type-max-profit": (Experimental) Orders are ordered by their origin (bundle then mempool) and then by their absolute profit.<br>-"length-three-max-profit":(Experimental) Orders are ordered by length 3 (orders length >= 3 first) and then by their absolute profit.<br>-"length-three-mev-gas-price":(Experimental) Orders are ordered by length 3 (orders length >= 3 first) and then by their mev gas price.||
 |failed_order_retries|mandatory int | Only when a tx fails because the profit was worst than expected: Number of time an order can fail during a single block building iteration.<br> When thi happens it gets reinserted in the PrioritizedOrderStore with the new simulated profit (the one that failed).||
 |drop_failed_orders|mandatory bool| if a tx fails in a block building iteration it's dropped so next iterations will not use it.||
 |build_duration_deadline_ms|optional int| Amount of time allocated for EVM execution while building block. If None it only stops when it tried all orders.| None|
@@ -106,7 +104,7 @@ Each instantiated algorithm starts with:
 
 | Name | Type | Comments | Default |
 |------|------|-------------|---------|
-|discard_txs|mandatory bool| If a tx inside a bundle or sbundle fails with TransactionErr (don't confuse this with reverting which is TransactionOk with !.receipt.success) and it's configured as allowed to revert (for bundles tx in reverting_tx_hashes or dropping_tx_hashes, for sbundles: TxRevertBehavior != NotAllowed) we continue the  execution of the bundle/sbundle. The most typical value is true.||
+|discard_txs|mandatory bool| If a tx inside a bundle fails with TransactionErr (don't confuse this with reverting which is TransactionOk with !.receipt.success) and it's configured as allowed to revert (for bundles tx in reverting_tx_hashes or dropping_tx_hashes) we continue the  execution of the bundle. The most typical value is true.||
 |num_threads| mandatory int| Number of threads to use for merging.||
 
 ## Bidding fields

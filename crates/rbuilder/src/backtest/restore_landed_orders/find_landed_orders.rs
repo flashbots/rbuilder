@@ -3,7 +3,7 @@ use std::ops::Range;
 use crate::utils::get_percent;
 use ahash::HashMap;
 use alloy_primitives::{B256, I256, U256};
-use rbuilder_primitives::{Order, OrderId, ShareBundleBody, ShareBundleInner, TxRevertBehavior};
+use rbuilder_primitives::{Order, OrderId, TxRevertBehavior};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct OrderTxData {
@@ -65,95 +65,8 @@ impl SimplifiedOrder {
                     .collect();
                 SimplifiedOrder::new(id, txs)
             }
-            Order::ShareBundle(bundle) => {
-                SimplifiedOrder::new(id, order_txs_from_inner_share_bundle(bundle.inner_bundle()))
-            }
         }
     }
-}
-
-pub fn order_txs_from_inner_share_bundle(inner: &ShareBundleInner) -> Vec<OrderTxData> {
-    let total_refund_percent = inner.refund.iter().map(|r| r.percent).sum::<usize>();
-
-    let mut accumulated_txs = Vec::new();
-
-    let mut prev_element_paid_refund = false;
-    let mut current_chunk_txs = Vec::new();
-
-    let release_chunk = |current_chunk_txs: &mut Vec<(B256, TxRevertBehavior)>,
-                         accumulated_txs: &mut Vec<OrderTxData>,
-                         kickback_percent| {
-        if !current_chunk_txs.is_empty() {
-            for (hash, revert) in current_chunk_txs.drain(..) {
-                accumulated_txs.push(OrderTxData::new(hash, revert, kickback_percent));
-            }
-        }
-    };
-
-    for (idx, body) in inner.body.iter().enumerate() {
-        let current_element_pays_refund = !inner.refund.iter().any(|r| r.body_idx == idx);
-
-        if prev_element_paid_refund != current_element_pays_refund {
-            let chunk_refund_percent = if prev_element_paid_refund {
-                total_refund_percent
-            } else {
-                0
-            };
-            release_chunk(
-                &mut current_chunk_txs,
-                &mut accumulated_txs,
-                chunk_refund_percent,
-            );
-            prev_element_paid_refund = current_element_pays_refund;
-        }
-
-        match body {
-            ShareBundleBody::Tx(tx) => {
-                current_chunk_txs.push((tx.hash(), tx.revert_behavior));
-            }
-            ShareBundleBody::Bundle(inner_bundle) => {
-                let chunk_refund_percent = if prev_element_paid_refund {
-                    total_refund_percent
-                } else {
-                    0
-                };
-                release_chunk(
-                    &mut current_chunk_txs,
-                    &mut accumulated_txs,
-                    chunk_refund_percent,
-                );
-
-                let mut inner_txs = order_txs_from_inner_share_bundle(inner_bundle);
-                for tx in &mut inner_txs {
-                    if current_element_pays_refund {
-                        tx.kickback_percent =
-                            multiply_inner_refunds(tx.kickback_percent, chunk_refund_percent);
-                    }
-                }
-                accumulated_txs.extend(inner_txs);
-            }
-        }
-    }
-
-    let chunk_refund_percent = if prev_element_paid_refund {
-        total_refund_percent
-    } else {
-        0
-    };
-    release_chunk(
-        &mut current_chunk_txs,
-        &mut accumulated_txs,
-        chunk_refund_percent,
-    );
-
-    accumulated_txs
-}
-
-fn multiply_inner_refunds(a: usize, b: usize) -> usize {
-    if a > 100 || b > 100 {
-        return 0;
-    }
-    100 - (100 - a) * (100 - b) / 100
 }
 
 /// ExecutedBlockTx is data from the tx executed in the block
@@ -439,9 +352,7 @@ fn find_allowed_range(
 mod tests {
     use super::*;
     use crate::utils::test_utils::*;
-    use rbuilder_primitives::{
-        Bundle, BundleRefund, MempoolTx, Refund, ShareBundle, ShareBundleTx, LAST_BUNDLE_VERSION,
-    };
+    use rbuilder_primitives::{Bundle, BundleRefund, MempoolTx, LAST_BUNDLE_VERSION};
 
     #[test]
     fn test_find_allowed_range() {
@@ -1017,94 +928,5 @@ mod tests {
 
         let got = SimplifiedOrder::new_from_order(&bundle);
         assert_eq!(expected, got);
-    }
-
-    #[test]
-    fn test_simplified_order_conversion_share_bundle() {
-        let bundle = Order::ShareBundle(ShareBundle::new_with_fake_hash(
-            hash(0xb1),
-            0,
-            0,
-            ShareBundleInner {
-                body: vec![
-                    ShareBundleBody::Tx(ShareBundleTx {
-                        tx: tx(0x01),
-                        revert_behavior: TxRevertBehavior::NotAllowed,
-                    }),
-                    ShareBundleBody::Tx(ShareBundleTx {
-                        tx: tx(0x02),
-                        revert_behavior: TxRevertBehavior::AllowedExcluded,
-                    }),
-                    ShareBundleBody::Tx(ShareBundleTx {
-                        tx: tx(0x03),
-                        revert_behavior: TxRevertBehavior::AllowedIncluded,
-                    }),
-                    ShareBundleBody::Bundle(ShareBundleInner {
-                        body: vec![
-                            ShareBundleBody::Bundle(ShareBundleInner {
-                                body: vec![ShareBundleBody::Tx(ShareBundleTx {
-                                    tx: tx(0x11),
-                                    revert_behavior: TxRevertBehavior::NotAllowed,
-                                })],
-                                refund: vec![],
-                                refund_config: vec![],
-                                can_skip: false,
-                                original_order_id: None,
-                            }),
-                            ShareBundleBody::Tx(ShareBundleTx {
-                                tx: tx(0x12),
-                                revert_behavior: TxRevertBehavior::NotAllowed,
-                            }),
-                        ],
-                        refund: vec![Refund {
-                            body_idx: 0,
-                            percent: 20,
-                        }],
-                        refund_config: vec![],
-                        can_skip: true,
-                        original_order_id: None,
-                    }),
-                    ShareBundleBody::Tx(ShareBundleTx {
-                        tx: tx(0x04),
-                        revert_behavior: TxRevertBehavior::AllowedIncluded,
-                    }),
-                ],
-                refund: vec![
-                    Refund {
-                        body_idx: 0,
-                        percent: 10,
-                    },
-                    Refund {
-                        body_idx: 1,
-                        percent: 20,
-                    },
-                    Refund {
-                        body_idx: 4,
-                        percent: 30,
-                    },
-                ],
-                refund_config: vec![],
-                can_skip: false,
-                original_order_id: None,
-            },
-            None,
-            None,
-            vec![],
-            Default::default(),
-        ));
-        let expected = SimplifiedOrder::new(
-            OrderId::ShareBundle(hash(0xb1)),
-            vec![
-                OrderTxData::new(hash(0x01), TxRevertBehavior::NotAllowed, 0),
-                OrderTxData::new(hash(0x02), TxRevertBehavior::AllowedExcluded, 0),
-                OrderTxData::new(hash(0x03), TxRevertBehavior::AllowedIncluded, 60),
-                OrderTxData::new(hash(0x11), TxRevertBehavior::NotAllowed, 60),
-                OrderTxData::new(hash(0x12), TxRevertBehavior::NotAllowed, 68),
-                OrderTxData::new(hash(0x04), TxRevertBehavior::AllowedIncluded, 0),
-            ],
-        );
-
-        let got = SimplifiedOrder::new_from_order(&bundle);
-        assert_eq!(got, expected);
     }
 }

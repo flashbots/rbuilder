@@ -1,8 +1,7 @@
 use std::mem;
 
 use super::{
-    Bundle, BundleRefund, BundleReplacementData, MempoolTx, Order, OrderId, Refund, RefundConfig,
-    ShareBundle, ShareBundleBody, ShareBundleInner, ShareBundleTx,
+    Bundle, BundleRefund, BundleReplacementData, MempoolTx, Order,
     TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior, LAST_BUNDLE_VERSION,
 };
 
@@ -12,7 +11,6 @@ use super::{
 pub enum OrderBuilder {
     MempoolTx(Option<TransactionSignedEcRecoveredWithBlobs>),
     Bundle(BundleBuilder),
-    ShareBundle(ShareBundleBuilder),
     None,
 }
 
@@ -25,7 +23,6 @@ impl OrderBuilder {
                 Order::Tx(MempoolTx::new(tx))
             }
             OrderBuilder::Bundle(builder) => Order::Bundle(builder.build()),
-            OrderBuilder::ShareBundle(builder) => Order::ShareBundle(builder.build()),
             OrderBuilder::None => panic!("Order building was not started"),
         }
     }
@@ -40,11 +37,6 @@ impl OrderBuilder {
     pub fn start_bundle_builder(&mut self, block: u64) {
         self.assert_none();
         *self = OrderBuilder::Bundle(BundleBuilder::new(block))
-    }
-
-    pub fn start_share_bundle_builder(&mut self, block: u64, max_block: u64) {
-        self.assert_none();
-        *self = OrderBuilder::ShareBundle(ShareBundleBuilder::new(block, max_block));
     }
 
     pub fn start_mempool_tx_builder(&mut self) {
@@ -67,9 +59,6 @@ impl OrderBuilder {
                 *opt = Some(tx_with_blobs);
             }
             OrderBuilder::Bundle(builder) => {
-                builder.add_tx(tx_with_blobs, revert_behavior);
-            }
-            OrderBuilder::ShareBundle(builder) => {
                 builder.add_tx(tx_with_blobs, revert_behavior);
             }
             OrderBuilder::None => {
@@ -97,58 +86,12 @@ impl OrderBuilder {
         }
     }
 
-    // nested bundle methods
-    pub fn start_inner_bundle(&mut self, can_skip: bool) {
-        match self {
-            OrderBuilder::ShareBundle(builder) => {
-                builder.start_inner_bundle(can_skip);
-            }
-            _ => panic!("Only ShareBundle can have inner bundle"),
-        }
-    }
-
-    pub fn finish_inner_bundle(&mut self) {
-        match self {
-            OrderBuilder::ShareBundle(builder) => {
-                builder.finish_inner_bundle();
-            }
-            _ => panic!("Only ShareBundle can have inner bundle"),
-        }
-    }
-
-    pub fn set_inner_bundle_refund(&mut self, refund: Vec<Refund>) {
-        match self {
-            OrderBuilder::ShareBundle(builder) => {
-                builder.set_inner_bundle_refund(refund);
-            }
-            _ => panic!("Only ShareBundle can have refund"),
-        }
-    }
-
     pub fn set_bundle_refund(&mut self, refund: BundleRefund) {
         match self {
             OrderBuilder::Bundle(builder) => {
                 builder.set_bundle_refund(refund);
             }
             _ => panic!("Only Bundle can have BundleRefund"),
-        }
-    }
-
-    pub fn set_inner_bundle_refund_config(&mut self, refund_config: Vec<RefundConfig>) {
-        match self {
-            OrderBuilder::ShareBundle(builder) => {
-                builder.set_inner_bundle_refund_config(refund_config);
-            }
-            _ => panic!("Only ShareBundle can have refund config"),
-        }
-    }
-
-    pub fn set_inner_bundle_original_order_id(&mut self, original_order_id: OrderId) {
-        match self {
-            OrderBuilder::ShareBundle(builder) => {
-                builder.set_inner_bundle_original_order_id(original_order_id);
-            }
-            _ => panic!("Only ShareBundle can have refund config"),
         }
     }
 }
@@ -231,80 +174,5 @@ impl BundleBuilder {
         revert_behavior: TxRevertBehavior,
     ) {
         self.txs.push((tx_with_blobs, revert_behavior));
-    }
-}
-
-#[derive(Debug)]
-pub struct ShareBundleBuilder {
-    block: u64,
-    max_block: u64,
-    inner_bundle_stack: Vec<ShareBundleInner>,
-}
-
-impl ShareBundleBuilder {
-    fn new(block: u64, max_block: u64) -> Self {
-        let mut res = Self {
-            block,
-            max_block,
-            inner_bundle_stack: Vec::new(),
-        };
-        res.start_inner_bundle(false);
-        res
-    }
-
-    fn build(mut self) -> ShareBundle {
-        let inner_bundle = self.inner_bundle_stack.pop().unwrap();
-        ShareBundle::new(
-            self.block,
-            self.max_block,
-            inner_bundle,
-            None,
-            None,
-            Vec::new(),
-            Default::default(),
-        )
-    }
-
-    fn start_inner_bundle(&mut self, can_skip: bool) {
-        self.inner_bundle_stack.push(ShareBundleInner {
-            body: vec![],
-            refund: vec![],
-            refund_config: vec![],
-            can_skip,
-            original_order_id: None,
-        });
-    }
-
-    fn set_inner_bundle_refund(&mut self, refund: Vec<Refund>) {
-        let last = self.inner_bundle_stack.last_mut().unwrap();
-        last.refund = refund;
-    }
-
-    fn set_inner_bundle_refund_config(&mut self, refund_config: Vec<RefundConfig>) {
-        let last = self.inner_bundle_stack.last_mut().unwrap();
-        last.refund_config = refund_config;
-    }
-
-    fn set_inner_bundle_original_order_id(&mut self, original_order_id: OrderId) {
-        let last = self.inner_bundle_stack.last_mut().unwrap();
-        last.original_order_id = Some(original_order_id);
-    }
-
-    fn finish_inner_bundle(&mut self) {
-        let inner_bundle = self.inner_bundle_stack.pop().unwrap();
-        let last = self.inner_bundle_stack.last_mut().unwrap();
-        last.body.push(ShareBundleBody::Bundle(inner_bundle));
-    }
-
-    fn add_tx(
-        &mut self,
-        tx: TransactionSignedEcRecoveredWithBlobs,
-        revert_behavior: TxRevertBehavior,
-    ) {
-        let last = self.inner_bundle_stack.last_mut().unwrap();
-        last.body.push(ShareBundleBody::Tx(ShareBundleTx {
-            tx,
-            revert_behavior,
-        }));
     }
 }

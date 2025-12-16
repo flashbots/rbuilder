@@ -99,11 +99,9 @@ pub fn mark_command_received(command: &ReplaceableOrderPoolCommand, received_at:
             match order {
                 Order::Bundle(_) => "bundle",
                 Order::Tx(_) => "tx",
-                Order::ShareBundle(_) => "sbundle",
             }
         }
-        ReplaceableOrderPoolCommand::CancelShareBundle(_)
-        | ReplaceableOrderPoolCommand::CancelBundle(_) => "cancel",
+        ReplaceableOrderPoolCommand::CancelBundle(_) => "cancel",
     };
     ORDERPOOL_ORDERS_RECEIVED.with_label_values(&[kind]).inc();
 }

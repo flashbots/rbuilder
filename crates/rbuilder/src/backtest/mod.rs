@@ -19,7 +19,9 @@ use alloy_network_primitives::TransactionResponse;
 use alloy_primitives::{TxHash, I256};
 use alloy_rpc_types::{BlockTransactions, Transaction};
 pub use fetch::HistoricalDataFetcher;
-use rbuilder_primitives::{serialize::RawOrder, AccountNonce, Order, OrderId, OrderReplacementKey};
+use rbuilder_primitives::{
+    serialize::RawOrder, AccountNonce, BundleReplacementKey, Order, OrderId,
+};
 pub use results_store::{BacktestResultsStorage, StoredBacktestResult};
 use serde::{Deserialize, Serialize};
 pub use store::HistoricalDataStorage;
@@ -141,7 +143,7 @@ impl BlockData {
                 .cmp(&a.timestamp_ms)
                 .then_with(|| a.order.id().cmp(&b.order.id()))
         });
-        let mut replacement_keys_seen: HashSet<OrderReplacementKey> = HashSet::default();
+        let mut replacement_keys_seen: HashSet<BundleReplacementKey> = HashSet::default();
 
         self.available_orders.retain(|orders| {
             if let Some(key) = orders.order.replacement_key() {
