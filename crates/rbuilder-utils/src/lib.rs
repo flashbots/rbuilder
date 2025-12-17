@@ -1,4 +1,5 @@
 pub mod backoff;
+pub mod build_info;
 pub mod clickhouse;
 pub mod format;
 pub mod metrics;

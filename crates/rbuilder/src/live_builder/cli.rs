@@ -1,5 +1,6 @@
 use clap::Parser;
 use rbuilder_config::load_toml_config;
+use rbuilder_utils::build_info::Version;
 use serde::de::DeserializeOwned;
 use std::{
     fmt::Debug,
@@ -22,7 +23,7 @@ use crate::{
     },
     provider::StateProviderFactory,
     telemetry,
-    utils::{bls::generate_random_bls_address, build_info::Version},
+    utils::bls::generate_random_bls_address,
 };
 
 use super::{base_config::BaseConfig, LiveBuilder};
