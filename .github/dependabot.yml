@@ -1,0 +1,17 @@
+version: 2
+updates:
+  # Update Cargo dependencies
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    # Group all reth-related updates together
+    groups:
+      reth:
+        patterns:
+          - "reth*"
+    # Only allow updates to reth packages
+    allow:
+      - dependency-name: "reth*"
+    commit-message:
+      prefix: "deps"
