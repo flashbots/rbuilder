@@ -1,7 +1,7 @@
 pub mod backup;
 pub mod indexer;
 pub mod serde;
-use std::{path::PathBuf, time::Duration};
+use std::time::Duration;
 
 use ::serde::{Deserialize, Serialize};
 use clickhouse::Client;
@@ -12,7 +12,7 @@ use crate::clickhouse::{
     backup::{
         metrics::Metrics,
         primitives::{ClickhouseIndexableData, ClickhouseRowExt},
-        Backup, DiskBackup, DiskBackupConfig, MemoryBackupConfig,
+        Backup, DiskBackup, MemoryBackupConfig,
     },
     indexer::{default_inserter, ClickhouseInserter, InserterRunner},
 };
@@ -72,21 +72,13 @@ pub fn spawn_clickhouse_inserter_and_backup<
     task_executor: &TaskExecutor,
     clickhouse_table_name: String,
     builder_name: String,
-    disk_database_path: Option<impl Into<PathBuf>>,
-    disk_max_size_bytes: Option<u64>,
+    disk_backup_db: DiskBackup,
     memory_max_size_bytes: u64,
     tracing_target: &'static str,
 ) where
     for<'a> <DataType::ClickhouseRowType as clickhouse::Row>::Value<'a>: Sync,
 {
     let backup_table_name = RowType::TABLE_NAME.to_string();
-    let disk_backup = DiskBackup::new(
-        DiskBackupConfig::new()
-            .with_path(disk_database_path)
-            .with_max_size_bytes(disk_max_size_bytes), // 1 GiB
-        task_executor,
-    )
-    .expect("could not create disk backup");
     let (failed_commit_tx, failed_commit_rx) = mpsc::channel(BACKUP_INPUT_CHANNEL_BUFFER_SIZE);
     let inserter = default_inserter(client, &clickhouse_table_name);
     let inserter = ClickhouseInserter::<_, MetricsType>::new(inserter, failed_commit_tx);
@@ -99,7 +91,7 @@ pub fn spawn_clickhouse_inserter_and_backup<
             Some(CLICKHOUSE_INSERT_TIMEOUT),
             Some(CLICKHOUSE_END_TIMEOUT),
         ),
-        disk_backup.clone(),
+        disk_backup_db,
     )
     .with_memory_backup_config(MemoryBackupConfig::new(memory_max_size_bytes));
     inserter_runner.spawn(task_executor, backup_table_name.clone(), tracing_target);
