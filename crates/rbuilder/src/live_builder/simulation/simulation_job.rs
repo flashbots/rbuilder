@@ -115,7 +115,8 @@ impl SimulationJob {
         let mut new_sim_results = Vec::new();
         loop {
             self.send_new_tasks_for_simulation();
-            // tokio::select appears to be fair so no channel will be polled more than the other
+            // tokio::select is fair according to its documentation
+            // https://docs.rs/tokio/latest/tokio/macro.select.html#fairness
             tokio::select! {
                 n = self.new_order_sub.recv_many(&mut new_commands, 1024) => {
                     if n != 0 {

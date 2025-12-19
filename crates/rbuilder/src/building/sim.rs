@@ -20,12 +20,13 @@ use rbuilder_primitives::{Order, OrderId, SimulatedOrder};
 use reth_errors::ProviderError;
 use reth_provider::StateProvider;
 use std::{
+    borrow::Cow,
     cmp::{max, min, Ordering},
     collections::hash_map::Entry,
     sync::Arc,
     time::{Duration, Instant},
 };
-use tracing::{error, trace};
+use tracing::{error, instrument, trace};
 
 #[derive(Debug)]
 #[allow(clippy::large_enum_variant)]
@@ -41,7 +42,7 @@ pub struct OrderSimResultWithGas {
     pub gas_used: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NonceKey {
     pub address: Address,
     pub nonce: u64,
@@ -226,11 +227,12 @@ impl SimTree {
         result: SimulatedResult,
     ) -> Result<(), ProviderError> {
         self.sims.insert(result.id, result.clone());
+
         let mut orders_ready = Vec::new();
         if result.nonces_after.len() == 1 {
-            let updated_nonce = result.nonces_after.first().unwrap().clone();
+            let updated_nonce = result.nonces_after.first().unwrap();
 
-            match self.sims_that_update_one_nonce.entry(updated_nonce.clone()) {
+            match self.sims_that_update_one_nonce.entry(*updated_nonce) {
                 Entry::Occupied(mut entry) => {
                     let current_sim_profit = {
                         let sim_id = entry.get_mut();
@@ -255,7 +257,7 @@ impl SimTree {
                 Entry::Vacant(entry) => {
                     entry.insert(result.id);
 
-                    if let Some(pending_orders) = self.pending_nonces.remove(&updated_nonce) {
+                    if let Some(pending_orders) = self.pending_nonces.remove(updated_nonce) {
                         for order in pending_orders {
                             match self.pending_orders.entry(order) {
                                 Entry::Occupied(mut entry) => {
@@ -364,8 +366,8 @@ where
             let start_time = Instant::now();
             let mut block_state = BlockState::new_arc(state_for_sim);
             let sim_result = simulate_order(
-                sim_task.parents.clone(),
-                sim_task.order.clone(),
+                &sim_task.parents,
+                Cow::Borrowed(&sim_task.order),
                 ctx,
                 &mut local_ctx,
                 &mut block_state,
@@ -412,9 +414,10 @@ where
 }
 
 /// Prepares context (fork + tracer) and calls simulate_order_using_fork
+#[instrument(skip_all, level = "debug", fields(order = ?order.id()))]
 pub fn simulate_order(
-    parent_orders: Vec<Order>,
-    order: Order,
+    parent_orders: &[Order],
+    order: Cow<'_, Order>,
     ctx: &BlockBuildingContext,
     local_ctx: &mut ThreadBlockBuildingContext,
     state: &mut BlockState,
@@ -434,8 +437,8 @@ pub fn simulate_order(
 
 /// Simulates order (including parent (those needed to reach proper nonces) orders) using a precreated fork
 pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
-    parent_orders: Vec<Order>,
-    order: Order,
+    parent_orders: &[Order],
+    order: Cow<'_, Order>,
     fork: &mut PartialBlockFork<'_, '_, '_, '_, Tracer, NullPartialBlockForkExecutionTracer>,
     mempool_tx_detector: &MempoolTxsDetector,
 ) -> Result<OrderSimResult, CriticalCommitOrderError> {
@@ -446,7 +449,7 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
     // not change from batching.
     let combined_refunds = std::collections::HashMap::default();
     for parent in parent_orders {
-        let result = fork.commit_order(&parent, space_state, true, &combined_refunds)?;
+        let result = fork.commit_order(parent, space_state, true, &combined_refunds)?;
         match result {
             Ok(res) => {
                 space_state.use_space(res.space_used);
@@ -472,7 +475,7 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
             let new_nonces = res.nonces_updated.into_iter().collect::<Vec<_>>();
             Ok(OrderSimResult::Success(
                 Arc::new(SimulatedOrder {
-                    order,
+                    order: order.into_owned(),
                     sim_value,
                     used_state_trace: res.used_state_trace,
                 }),

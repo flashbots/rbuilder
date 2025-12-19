@@ -9,6 +9,7 @@ use crate::{
 };
 use parking_lot::Mutex;
 use std::{
+    borrow::Cow,
     sync::Arc,
     thread::sleep,
     time::{Duration, Instant},
@@ -57,6 +58,7 @@ pub fn run_sim_worker<P>(
                     continue 'main;
                 }
             };
+
         while let Ok(task) = current_sim_context.requests.recv() {
             let sim_thread_wait_time = last_sim_finished.elapsed();
             let sim_start = Instant::now();
@@ -65,8 +67,8 @@ pub fn run_sim_worker<P>(
             let start_time = Instant::now();
             let mut block_state = BlockState::new_arc(state_provider.clone());
             let sim_result = simulate_order(
-                task.parents.clone(),
-                task.order,
+                &task.parents,
+                Cow::Owned(task.order),
                 &current_sim_context.block_ctx,
                 &mut local_ctx,
                 &mut block_state,
