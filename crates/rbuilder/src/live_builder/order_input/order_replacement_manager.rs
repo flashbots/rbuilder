@@ -218,7 +218,7 @@ mod test {
     fn test_insert_cancel() {
         let mut data_gen = TestDataGenerator::new();
         let replacement_data = data_gen.create_bundle_replacement_data();
-        let bundle = Order::Bundle(data_gen.create_bundle(Some(replacement_data.clone())));
+        let bundle = Order::Bundle(data_gen.create_bundle(Some(replacement_data)));
         let mut order_sink = MockOrderSink::new();
 
         // expect order added
@@ -251,7 +251,7 @@ mod test {
     fn test_insert_ignored_cancel() {
         let mut data_gen = TestDataGenerator::new();
         let replacement_data = data_gen.create_bundle_replacement_data();
-        let bundle = Order::Bundle(data_gen.create_bundle(Some(replacement_data.clone())));
+        let bundle = Order::Bundle(data_gen.create_bundle(Some(replacement_data)));
         let mut order_sink = MockOrderSink::new();
 
         // expect order added
@@ -282,7 +282,7 @@ mod test {
     fn test_cancel_insert() {
         let mut data_gen = TestDataGenerator::new();
         let replacement_data = data_gen.create_bundle_replacement_data();
-        let bundle = Order::Bundle(data_gen.create_bundle(Some(replacement_data.clone())));
+        let bundle = Order::Bundle(data_gen.create_bundle(Some(replacement_data)));
         let order_sink = MockOrderSink::new();
 
         let mut manager = OrderReplacementManager::new(Box::new(order_sink));
@@ -296,7 +296,7 @@ mod test {
         let mut data_gen = TestDataGenerator::new();
         let old_replacement_data = data_gen.create_bundle_replacement_data();
         let new_replacement_data = old_replacement_data.next();
-        let old_bundle = Order::Bundle(data_gen.create_bundle(Some(old_replacement_data.clone())));
+        let old_bundle = Order::Bundle(data_gen.create_bundle(Some(old_replacement_data)));
         let new_bundle = Order::Bundle(data_gen.create_bundle(Some(new_replacement_data)));
 
         let mut order_sink = MockOrderSink::new();
@@ -336,7 +336,7 @@ mod test {
         let mut data_gen = TestDataGenerator::new();
         let old_replacement_data = data_gen.create_bundle_replacement_data();
         let new_replacement_data = old_replacement_data.next();
-        let old_bundle = Order::Bundle(data_gen.create_bundle(Some(old_replacement_data.clone())));
+        let old_bundle = Order::Bundle(data_gen.create_bundle(Some(old_replacement_data)));
         let new_bundle = Order::Bundle(data_gen.create_bundle(Some(new_replacement_data)));
 
         let mut order_sink = MockOrderSink::new();
