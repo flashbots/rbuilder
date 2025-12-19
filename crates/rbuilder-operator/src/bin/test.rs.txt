@@ -1,0 +1,41 @@
+use std::cmp::max;
+use std::cmp::min;
+
+use rbuilder_operator::clickhouse::BlockRow;
+use rbuilder_utils::clickhouse::backup::FailedCommit;
+use redb::ReadableDatabase;
+use redb::ReadableTable;
+use redb::ReadableTableMetadata;
+#[tokio::main]
+async fn main() {
+    let db =
+        redb::Database::open("/home/daniel/code_disk/fb/tmp/clickhouse_back/failed_clickhouse.db")
+            .expect("failed to open database");
+    let reader = db.begin_read().unwrap();
+    let table: redb::ReadOnlyTable<u128, Vec<u8>> = reader
+        .open_table(redb::TableDefinition::new("blocks"))
+        .unwrap();
+    let stored_bytes = table.stats().unwrap().stored_bytes();
+    let rows = table.len().unwrap() as usize;
+    println!("Stored bytes: {}", stored_bytes);
+    println!("Rows: {}", rows);
+    let mut total = 0;
+    let mut min_block_number = u64::MAX;
+    let mut max_block_number = u64::MIN;
+    for item in table.iter().unwrap() {
+        let (key, value) = item.unwrap();
+        println!("Key: {}", key.value());
+        let commit: FailedCommit<BlockRow> = serde_json::from_slice(&value.value()).unwrap();
+        commit.rows.iter().for_each(|row| {
+            min_block_number = min(min_block_number, row.block_number);
+            max_block_number = max(max_block_number, row.block_number);
+        });
+        println!("Commit: {:?}", commit.quantities);
+        total += commit.rows.len();
+        // let v = value.value();
+        //   println!("Value: {}", v.len());
+    }
+    println!("Total rows: {}", total);
+    println!("Min block number: {}", min_block_number);
+    println!("Max block number: {}", max_block_number);
+}
