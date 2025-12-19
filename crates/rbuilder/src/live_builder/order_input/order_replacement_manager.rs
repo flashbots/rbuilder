@@ -4,13 +4,20 @@ use rbuilder_primitives::{BundleReplacementData, BundleReplacementKey, Order, Or
 
 use super::{order_sink::OrderSink, replaceable_order_sink::ReplaceableOrderSink};
 
-/// Handles all replacement and cancellation for bundles by receiving
-/// low level orderflow data via ReplaceableOrderSink and forwarding to an OrderSink.
-/// The OrderReplacementManager works for a single block.
-/// IMPORTANT: Due to infra problems we can get notifications our of order, we must always honor the one
-/// with higher sequence_number or the cancel.
-/// Although all the structs and fields say "bundle" we always reefer to Bundle or ShareBundle
-/// For each bundle we keep the current BundleReplacementState
+/// Handle all replacement and cancellation for bundles by receiving
+/// low level orderflow data via [`ReplaceableOrderSink`] and forwarding to an
+/// [`OrderSink`].
+///
+/// The `OrderReplacementManager` works for a single block.
+///
+/// IMPORTANT: Due to infra problems, notifications may arrive out of order.
+/// Cancels are treated as highest-priority, and after that we must always
+/// honor the replacement with highest `sequence_number`.
+///
+/// Although all the structs and fields say "bundle" we always refer to Bundle
+/// or ShareBundle.
+///
+/// For each bundle we keep the current [`BundleReplacementState`]
 #[derive(Debug)]
 pub struct OrderReplacementManager {
     sink: Box<dyn OrderSink>,
@@ -68,7 +75,7 @@ impl ReplaceableOrderSink for OrderReplacementManager {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 struct ValidBundleState {
     /// Current valid  sequence_number (larges we've seen)
     pub sequence_number: u64,
@@ -81,11 +88,11 @@ struct ValidBundleState {
 /// On new seq:
 ///     Valid upgrades if seq > current.
 ///     Cancelled ignores.
-/// On Cancel always ends in Cancelled.
-#[derive(Debug)]
+/// On Cancel always ends in [`Self::Cancelled`].
+#[derive(Debug, Copy, Clone)]
 enum BundleReplacementState {
     Valid(ValidBundleState),
-    // sequence number of the cancellation.
+    /// Sequence number of the cancellation.
     Cancelled(u64),
 }
 

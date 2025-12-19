@@ -54,4 +54,22 @@ pub enum ReplaceableOrderEvent {
     RemoveBundle(BundleReplacementData),
 }
 
+impl From<InsertOrderData> for ReplaceableOrderEvent {
+    fn from(data: InsertOrderData) -> Self {
+        ReplaceableOrderEvent::InsertOrder(data)
+    }
+}
+
+impl From<&BundleReplacementData> for ReplaceableOrderEvent {
+    fn from(data: &BundleReplacementData) -> Self {
+        ReplaceableOrderEvent::RemoveBundle(*data)
+    }
+}
+
+impl From<BundleReplacementData> for ReplaceableOrderEvent {
+    fn from(data: BundleReplacementData) -> Self {
+        ReplaceableOrderEvent::RemoveBundle(data)
+    }
+}
+
 pub type ReplaceableOrderEventWithTimestamp = EventWithTimestamp<ReplaceableOrderEvent>;

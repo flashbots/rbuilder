@@ -144,6 +144,8 @@ pub struct ReplacementData<KeyType> {
     pub sequence_number: u64,
 }
 
+impl<KeyType: Copy> Copy for ReplacementData<KeyType> {}
+
 impl<KeyType: Clone> ReplacementData<KeyType> {
     /// Next sequence_number, useful for testing.
     pub fn next(&self) -> Self {
@@ -858,7 +860,7 @@ impl Order {
             Order::Bundle(bundle) => bundle
                 .replacement_data
                 .as_ref()
-                .map(|r| (r.clone().key, r.sequence_number)),
+                .map(|r| (r.key, r.sequence_number)),
             Order::Tx(_) => None,
         }
     }
