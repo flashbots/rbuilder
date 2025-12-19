@@ -641,6 +641,7 @@ impl<
                 &mut db,
                 &self.ctx.blocklist,
             )?;
+            println!("res: {:?}", res);
 
             if caching_result.should_cache {
                 self.ctx
