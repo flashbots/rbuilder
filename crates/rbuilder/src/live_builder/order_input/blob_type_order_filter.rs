@@ -3,7 +3,9 @@ use rbuilder_primitives::{BundleReplacementData, Order, TransactionSignedEcRecov
 use tracing::trace;
 
 /// Filters out [`Order`]s based on their blob type. [`Order`]s that do not
-/// pass the filter are dropped not inserted.
+/// pass the filter are dropped not inserted. Preconfigured filters are
+/// provided to remove pre-Fusaka [EIP-4844] blobs ([`Self::new_fusaka`]) or
+/// post-Fusaka [EIP-7594] blobs ([`Self::new_pre_fusaka`]).
 ///
 /// Since it's very unlikely what we have many wrong blobs we only filter on
 /// [`ReplaceableOrderSink::insert_order`] without taking note of filtered
@@ -49,7 +51,7 @@ impl BlobTypeOrderFilter {
         }
     }
 
-    /// Filters out [EIP-4844] style, supports only [EIP-7594] style blobs.
+    /// Filters out [EIP-4844] style, allowing only [EIP-7594] style blobs.
     ///
     /// [EIP-4844]: https://eips.ethereum.org/EIPS/eip-4844
     /// [EIP-7594]: https://eips.ethereum.org/EIPS/eip-7594
@@ -61,7 +63,7 @@ impl BlobTypeOrderFilter {
         Self::new(sink, "fusaka", fusaka)
     }
 
-    /// Filters out [EIP-7594] style blobs, supports only [EIP-4844] style.
+    /// Filters out [EIP-7594] style blobs, allowing only [EIP-4844] style.
     ///
     /// [EIP-4844]: https://eips.ethereum.org/EIPS/eip-4844
     /// [EIP-7594]: https://eips.ethereum.org/EIPS/eip-7594
@@ -69,6 +71,7 @@ impl BlobTypeOrderFilter {
         fn pre_fusaka(tx: &TransactionSignedEcRecoveredWithBlobs) -> bool {
             tx.as_ref().is_eip4844() && tx.blobs_sidecar.is_eip4844()
         }
+
         Self::new(sink, "pre-fusaka", pre_fusaka)
     }
 }
