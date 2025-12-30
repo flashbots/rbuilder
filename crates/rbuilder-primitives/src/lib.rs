@@ -441,13 +441,17 @@ impl FakeSidecar for BlobTransactionSidecar {
 }
 
 /// First idea to handle blobs, might change.
-/// Don't like the fact that blobs_sidecar exists no matter if Recovered<TransactionSigned> contains a non blob tx.
-/// Great effort was put in avoiding simple access to the internal tx so we don't accidentally leak information on logs (particularly the tx sign).
+///
+/// Don't like the fact that blobs_sidecar exists no matter if
+/// [`Recovered<TransactionSigned>`] contains a non blob tx.
+///
+/// Great effort was put in avoiding simple access to the internal tx so we
+/// don't accidentally leak information on logs (particularly the tx sign).
 #[derive(Derivative)]
 #[derivative(Clone, PartialEq, Eq)]
 pub struct TransactionSignedEcRecoveredWithBlobs {
     tx: Recovered<TransactionSigned>,
-    /// Will have a non empty BlobTransactionSidecarVariant if Recovered<TransactionSigned> is 4844
+    /// Will have a non empty [`BlobTransactionSidecarVariant`] if [`Recovered<TransactionSigned>`] is 4844
     pub blobs_sidecar: Arc<BlobTransactionSidecarVariant>,
 
     #[derivative(PartialEq = "ignore", Hash = "ignore")]

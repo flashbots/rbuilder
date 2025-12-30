@@ -57,7 +57,7 @@ impl BlobTypeOrderFilter {
     /// [EIP-7594]: https://eips.ethereum.org/EIPS/eip-7594
     pub const fn new_fusaka(sink: Box<dyn ReplaceableOrderSink>) -> Self {
         fn fusaka(tx: &TransactionSignedEcRecoveredWithBlobs) -> bool {
-            tx.as_ref().is_eip4844() && tx.blobs_sidecar.is_eip7594()
+            !tx.as_ref().is_eip4844() || tx.blobs_sidecar.is_eip7594()
         }
 
         Self::new(sink, "fusaka", fusaka)
@@ -69,7 +69,7 @@ impl BlobTypeOrderFilter {
     /// [EIP-7594]: https://eips.ethereum.org/EIPS/eip-7594
     pub const fn new_pre_fusaka(sink: Box<dyn ReplaceableOrderSink>) -> Self {
         fn pre_fusaka(tx: &TransactionSignedEcRecoveredWithBlobs) -> bool {
-            tx.as_ref().is_eip4844() && tx.blobs_sidecar.is_eip4844()
+            !tx.as_ref().is_eip4844() || tx.blobs_sidecar.is_eip4844()
         }
 
         Self::new(sink, "pre-fusaka", pre_fusaka)
