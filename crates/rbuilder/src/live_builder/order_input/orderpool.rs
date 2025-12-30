@@ -74,7 +74,7 @@ pub struct OrderPoolSubscriptionId(u64);
 /// particular block even if the orders arrived in the past.
 ///
 /// Since by infra restrictions bundle cancellations don't have an associated
-/// block, we store them for a while and asume they are valid for all in
+/// block, we store them for a while and assume they are valid for all in
 /// progress sinks.
 #[derive(Debug)]
 pub struct OrderPool {
