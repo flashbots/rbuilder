@@ -52,8 +52,9 @@ struct BundleBlockStore {
     bundles: Vec<Order>,
 }
 
-/// A sink for [`ReplaceableOrderPoolCommand`] at a specific block. Stored in
-/// the [`OrderPool`], .
+/// A sink for [`ReplaceableOrderPoolCommand`] for a specific block. This sink
+/// is stored in the [`OrderPool`], and used to notify tasks about new orders
+/// and cancellations.
 #[derive(Debug)]
 struct SinkSubscription {
     sink: Box<dyn ReplaceableOrderSink>,
