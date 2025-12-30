@@ -7,7 +7,7 @@ use tracing::trace;
 /// provided to remove pre-Fusaka [EIP-4844] blobs ([`Self::new_fusaka`]) or
 /// post-Fusaka [EIP-7594] blobs ([`Self::new_pre_fusaka`]).
 ///
-/// Since it's very unlikely what we have many wrong blobs we only filter on
+/// Since it's very unlikely that we have many wrong blobs we only filter on
 /// [`ReplaceableOrderSink::insert_order`] without taking note of filtered
 /// [`Order`]s.
 ///

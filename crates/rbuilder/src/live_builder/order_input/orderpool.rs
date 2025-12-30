@@ -18,8 +18,10 @@ use tracing::{error, trace};
 
 const TIME_TO_KEEP_BUNDLE_CANCELLATIONS: Duration = Duration::from_secs(60);
 
-/// Push to pull for OrderSink. Just poll de UnboundedReceiver to get the
+/// Push to pull for OrderSink. Just poll the [`UnboundedReceiver`] to get the
 /// orders.
+///
+/// [`UnboundedReceiver`]: mpsc::UnboundedReceiver
 #[derive(Debug)]
 pub struct OrdersForBlock {
     /// Receiver for new orders/cancellations via [`OrderPoolCommand`].
