@@ -1,14 +1,15 @@
 use alloy_consensus::{
     EthereumTxEnvelope, EthereumTypedTransaction, SignableTransaction as _, TxEip1559, TxEip4844,
+    TxType,
 };
 use alloy_eips::{eip1559::BaseFeeParams, BlockId, Encodable2718};
 use alloy_primitives::{
     hex,
     map::{AddressMap, AddressSet, HashMap},
-    Address, Bytes, TxKind, B256, U256,
+    Address, TxKind, B256, U256,
 };
 use alloy_provider::Provider;
-use alloy_rpc_types_eth::{AccountInfo, Header};
+use alloy_rpc_types_eth::{AccountInfo, Header, TransactionRequest};
 use alloy_signer::SignerSync;
 use alloy_signer_local::PrivateKeySigner;
 use futures::{stream::FuturesUnordered, FutureExt, StreamExt as _};
@@ -32,7 +33,10 @@ pub struct Rebalancer<P> {
     retry_delay: Duration,
 }
 
-impl<P: Provider> Rebalancer<P> {
+impl<P> Rebalancer<P>
+where
+    P: Provider + Clone + 'static,
+{
     pub fn new(
         provider: P,
         builder_url: String,
@@ -220,6 +224,7 @@ impl<P: Provider> Rebalancer<P> {
                 continue;
             }
 
+            let provider = self.provider.clone();
             let client = self.builder_client.clone();
             let builder_url = self.builder_url.clone();
             let head = header.clone();
@@ -228,6 +233,7 @@ impl<P: Provider> Rebalancer<P> {
             let max_priority_fee_per_gas = self.transfer_max_priority_fee_per_gas;
             tokio::spawn(async move {
                 if let Err(error) = send_system_transactions(
+                    provider,
                     client,
                     &builder_url,
                     head.clone(),
@@ -260,7 +266,8 @@ impl<P: Provider> Rebalancer<P> {
     }
 }
 
-async fn send_system_transactions(
+async fn send_system_transactions<P: Provider>(
+    provider: P,
     client: Client,
     builder_url: &str,
     head: Header,
@@ -273,44 +280,60 @@ async fn send_system_transactions(
     let base_fee = head
         .next_block_base_fee(BaseFeeParams::ethereum())
         .unwrap_or_default();
+    let max_fee_per_gas = base_fee as u128 + max_priority_fee_per_gas;
+
     let mut futs = FuturesUnordered::default();
     let mut next_nonce = nonce;
     for transfer in transfers {
+        // Estimate transaction gas
+        let tx_request = TransactionRequest {
+            chain_id: Some(1),
+            from: Some(signer.address()),
+            to: Some(TxKind::Call(transfer.destination)),
+            value: Some(transfer.amount),
+            max_fee_per_gas: Some(max_fee_per_gas),
+            max_priority_fee_per_gas: Some(max_priority_fee_per_gas),
+            transaction_type: Some(TxType::Eip1559 as u8),
+            ..Default::default()
+        };
+        let gas_limit = match provider.estimate_gas(tx_request).await {
+            Ok(gas_limit) => gas_limit,
+            Err(error) => {
+                error!(target: "rebalancer", head_number = head.number, %head.hash, %signer_address, rule = %transfer.description, ?error, "Error estimating transaction gas");
+                continue; // nonce should not be incremented
+            }
+        };
+
         // Prepare transaction
-        let max_fee_per_gas = base_fee as u128 + max_priority_fee_per_gas;
         let transaction = EthereumTypedTransaction::<TxEip4844>::Eip1559(TxEip1559 {
             chain_id: 1,
             nonce: next_nonce,
             to: TxKind::Call(transfer.destination),
-            value: U256::from(transfer.amount),
-            gas_limit: 21_000,
+            value: transfer.amount,
+            gas_limit,
             max_fee_per_gas,
             max_priority_fee_per_gas,
-            access_list: Default::default(),
-            input: Bytes::default(),
+            ..Default::default()
         });
         let signature = signer.sign_hash_sync(&transaction.signature_hash())?;
         let signed = EthereumTxEnvelope::<TxEip4844>::new_unhashed(transaction, signature);
+        let tx_hash = *signed.tx_hash();
 
-        // Send the request to the builder
+        // Send transaction to the builder
+        info!(target: "rebalancer", head_number = head.number, %head.hash, %signer_address, %tx_hash, rule = %transfer.description, "Sending system transaction");
         let client = client.clone();
-        let tx_hash = *signed.hash();
-        info!(target: "rebalancer", head_number = head.number, %head.hash, %signer_address, rule = %transfer.description, "Sending system transaction");
-        futs.push(
-            async move {
-                let encoded = hex::encode_prefixed(signed.encoded_2718());
-                let request = json!({
-                    "id": 1,
-                    "jsonrpc": "2.0",
-                    "method": "eth_sendRawTransaction",
-                    "params": [encoded],
-                });
-                let response = client.post(builder_url).json(&request).send().await?;
-                Ok::<_, eyre::Error>(response)
-            }
-            .map(move |result| (tx_hash, transfer, result)),
-        );
-
+        let fut = async move {
+            let encoded = hex::encode_prefixed(signed.encoded_2718());
+            let request = json!({
+                "id": 1,
+                "jsonrpc": "2.0",
+                "method": "eth_sendRawTransaction",
+                "params": [encoded],
+            });
+            Ok::<_, eyre::Error>(client.post(builder_url).json(&request).send().await?)
+        }
+        .map(move |result| (tx_hash, transfer, result));
+        futs.push(fut);
         next_nonce += 1;
     }
 
@@ -322,7 +345,7 @@ async fn send_system_transactions(
                 info!(target: "rebalancer", head_number = head.number, %head.hash, %signer_address, %tx_hash, rule = %transfer.description, success, response = ?text, "System transaction submitted");
             }
             Err(error) => {
-                error!(target: "rebalancer", head_number = head.number, %head.hash, %signer_address, %tx_hash, rule = %transfer.description, ?error, "Error submitting system transaction")
+                error!(target: "rebalancer", head_number = head.number, %head.hash, %signer_address, rule = %transfer.description, ?error, "Error submitting system transaction")
             }
         }
     }
