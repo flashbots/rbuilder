@@ -266,6 +266,7 @@ where
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn send_system_transactions<P: Provider>(
     provider: P,
     client: Client,
