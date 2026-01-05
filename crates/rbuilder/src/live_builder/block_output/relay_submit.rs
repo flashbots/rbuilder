@@ -466,15 +466,6 @@ fn submit_block_to_relays(
     }
 }
 
-/// This means we probably have a bug/problem.
-/// Move to table if this grows to more errors.
-fn is_critical_sim_error(error_text: &str) -> bool {
-    // We are not MEV Protect compatible yet
-    // Full example error: "Simulation Error: simulation failed: proposer MEV Protect is enabled for this slot duty but the block is invalid: expected ≥ 0.0072 ETH (ratio 90), got 0.0072 ETH (ratio 89): simulation failed: proposer MEV Protect is enabled for this slot duty but the block is invalid: expected ≥ 0.0072 ETH (ratio 90), got 0.0072 ETH (ratio 89). This block was accepted but may be rejected in the future. Please contact bloXroute to learn more about supporting MEV Protect feature."
-    !error_text
-        .contains("proposer MEV Protect is enabled for this slot duty but the block is invalid")
-}
-
 async fn submit_bid_to_the_relay(
     relay: &MevBoostRelayBidSubmitter,
     submit_block_request: SubmitBlockRequestWithMetadata,
@@ -526,10 +517,13 @@ async fn submit_bid_to_the_relay(
                 "Block not accepted by the relay"
             );
         }
-        Err(SubmitBlockErr::SimError(_)) => {
+        Err(SubmitBlockErr::SimError {
+            text: _,
+            is_critical,
+        }) => {
             let error_text = relay_result.as_ref().unwrap_err().to_string();
             // Avoid rasing alarms or errors logs for non critical errors.
-            if is_critical_sim_error(&error_text) {
+            if is_critical {
                 inc_failed_block_simulations();
                 store_error_event(
                     SIM_ERROR_CATEGORY,
