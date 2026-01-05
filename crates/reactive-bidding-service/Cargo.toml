@@ -1,0 +1,32 @@
+[package]
+name = "reactive-bidding-service"
+description = "Standalone service for scraping top bids from relay websockets"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "reactive-bidding-service"
+path = "src/main.rs"
+
+[dependencies]
+alloy-primitives.workspace = true
+bid-scraper.workspace = true
+parking_lot.workspace = true
+serde_json.workspace = true
+tokio-util.workspace = true
+
+tokio = { workspace = true, default-features = false, features = [
+    "rt",
+    "rt-multi-thread",
+    "macros",
+    "signal",
+    "sync",
+    "time",
+] }
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde = { workspace = true, features = ["derive"] }
+toml = "0.8"
+eyre.workspace = true

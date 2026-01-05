@@ -7,6 +7,7 @@ use super::{
         bidding_service_interface::{
             BidObserver, BiddingService, LandedBlockInfo, NullBidObserver,
         },
+        reactive_bidding_service::ReactiveBuilderFeeBiddingService,
         relay_submit::{RelaySubmitSinkFactory, SubmissionConfig},
         true_value_bidding_service::NewTrueBlockValueBiddingService,
         unfinished_block_processing::UnfinishedBuiltBlocksInputFactory,
@@ -115,6 +116,17 @@ pub struct SubsidyConfig {
     pub value: String,
 }
 
+/// Which bidding service to use
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum BiddingServiceKind {
+    /// Bids true block value + subsidy (default)
+    #[default]
+    TrueValue,
+    /// Tracks competition bids and retains a builder fee
+    Reactive,
+}
+
 #[serde_as]
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
@@ -128,6 +140,9 @@ pub struct Config {
     /// selected builder configurations
     pub builders: Vec<BuilderConfig>,
 
+    /// Which bidding service to use: "true-value" (default) or "reactive"
+    pub bidding_service: BiddingServiceKind,
+
     /// When the sample bidder (see TrueBlockValueBiddingService) will start bidding.
     /// Usually a negative number.
     pub slot_delta_to_start_bidding_ms: Option<i64>,
@@ -136,6 +151,9 @@ pub struct Config {
     /// Overrides subsidy.
     #[serde(default)]
     pub subsidy_overrides: Vec<SubsidyConfig>,
+
+    /// Builder fee to retain from block value when using reactive bidding (e.g., "0.01" for 0.01 ETH)
+    pub builder_fee: Option<String>,
 }
 
 const DEFAULT_SLOT_DELTA_TO_START_BIDDING_MS: i64 = -8000;
@@ -455,29 +473,50 @@ impl LiveBuilderConfig for Config {
     where
         P: StateProviderFactory + Clone + 'static,
     {
-        let subsidy = self.subsidy.clone();
         let slot_delta_to_start_bidding_ms = time::Duration::milliseconds(
             self.slot_delta_to_start_bidding_ms
                 .unwrap_or(DEFAULT_SLOT_DELTA_TO_START_BIDDING_MS),
         );
 
         let all_relays_set = self.l1_config.relays_ids();
-        let mut subsidy_overrides = HashMap::default();
-        for subsidy_override in self.subsidy_overrides.iter() {
-            subsidy_overrides.insert(
-                subsidy_override.relay.clone(),
-                parse_ether(&subsidy_override.value)?,
-            );
-        }
-        let bidding_service = Arc::new(NewTrueBlockValueBiddingService::new(
-            subsidy
-                .as_ref()
-                .map(|s| parse_ether(s))
-                .unwrap_or(Ok(U256::ZERO))?,
-            subsidy_overrides,
-            slot_delta_to_start_bidding_ms,
-            all_relays_set.clone(),
-        ));
+
+        let bidding_service: Arc<dyn BiddingService> = match self.bidding_service {
+            BiddingServiceKind::Reactive => {
+                let builder_fee = self
+                    .builder_fee
+                    .as_ref()
+                    .map(|s| parse_ether(s))
+                    .unwrap_or(Ok(U256::ZERO))?;
+                info!(
+                    builder_fee = %builder_fee,
+                    "Using reactive bidding service with builder fee"
+                );
+                Arc::new(ReactiveBuilderFeeBiddingService::new(
+                    builder_fee,
+                    slot_delta_to_start_bidding_ms,
+                    all_relays_set.clone(),
+                ))
+            }
+            BiddingServiceKind::TrueValue => {
+                let subsidy = self.subsidy.clone();
+                let mut subsidy_overrides = HashMap::default();
+                for subsidy_override in self.subsidy_overrides.iter() {
+                    subsidy_overrides.insert(
+                        subsidy_override.relay.clone(),
+                        parse_ether(&subsidy_override.value)?,
+                    );
+                }
+                Arc::new(NewTrueBlockValueBiddingService::new(
+                    subsidy
+                        .as_ref()
+                        .map(|s| parse_ether(s))
+                        .unwrap_or(Ok(U256::ZERO))?,
+                    subsidy_overrides,
+                    slot_delta_to_start_bidding_ms,
+                    all_relays_set.clone(),
+                ))
+            }
+        };
 
         let (wallet_balance_watcher, _) =
             create_wallet_balance_watcher(provider.clone(), &self.base_config).await?;
@@ -695,9 +734,11 @@ impl Default for Config {
                     }),
                 },
             ],
+            bidding_service: BiddingServiceKind::default(),
             slot_delta_to_start_bidding_ms: None,
             subsidy: None,
             subsidy_overrides: Vec::new(),
+            builder_fee: None,
         }
     }
 }

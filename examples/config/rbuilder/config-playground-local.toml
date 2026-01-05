@@ -1,0 +1,91 @@
+# rbuilder config for use with builder-playground
+# 
+# Usage:
+#   1. Start playground: ./builder-playground start l1 --use-native-reth --secondary-el 9551
+#   2. Wait for "All services are healthy!"
+#   3. Run rbuilder: cargo run --release --bin rbuilder -- run examples/config/rbuilder/config-playground-local.toml
+
+log_json = false
+log_level = "info,rbuilder=debug"
+
+# Telemetry
+full_telemetry_server_port = 6060
+full_telemetry_server_ip = "0.0.0.0"
+
+# Chain config - playground generates genesis at ~/.playground/devnet/genesis.json
+chain = "$HOME/.playground/devnet/genesis.json"
+
+# Reth data directory - playground stores reth data here when using --use-native-reth
+reth_datadir = "$HOME/.playground/devnet/volume-el-data"
+
+# IPC path for mempool subscription (enabled in modified playground)
+el_node_ipc_path = "$HOME/.playground/devnet/volume-el-data/reth.ipc"
+
+# CL node URL - lighthouse beacon runs on port 3500
+cl_node_url = "http://localhost:3500"
+
+# Engine API - rbuilder listens here, playground connects via --secondary-el 9551
+jsonrpc_server_port = 9551
+jsonrpc_server_ip = "0.0.0.0"
+
+# Keys from playground's default configuration
+# Relay secret key (used for signing block submissions)
+relay_secret_key = "5eae315483f028b5cdd5d1090ff0c7618b18737ea9bf3c35047189db22835c48"
+
+# Coinbase secret key - this is the default dev account with funds
+coinbase_secret_key = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+
+# Builder identification
+extra_data = "⚡rbuilder-dev"
+
+# Bidding service configuration
+# Options: "true-value" (default) or "reactive"
+bidding_service = "reactive"
+
+# Builder fee to retain when using reactive bidding (in ETH)
+builder_fee = "0.01"
+
+# Start bidding earlier (12 seconds before slot) to catch more blocks in local devnet
+slot_delta_to_start_bidding_ms = -12000
+
+# Enabled algorithms
+live_builders = ["mgp-ordering"]
+
+# Use playground's mev-boost-relay
+enabled_relays = ["playground"]
+
+# Sparse trie for faster root hash calculation
+root_hash_use_sparse_trie = true
+root_hash_compare_sparse_trie = false
+
+# Builder configuration
+[[builders]]
+name = "mgp-ordering"
+algo = "ordering-builder"
+discard_txs = true
+sorting = "mev-gas-price"
+failed_order_retries = 1
+drop_failed_orders = true
+
+# Playground relay configuration
+[[relays]]
+name = "playground"
+url = "http://localhost:5555"
+mode = "full"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# BID SCRAPERS - Feed competition bids to ReactiveBuilderFeeBiddingService
+# ═══════════════════════════════════════════════════════════════════════════════
+# Uncomment for mainnet/testnet to track competition:
+#
+# [[relay_bid_scrapers]]
+# type = "ultrasound-ws"
+# name = "ultrasound-ws-eu"
+# ultrasound_url = "ws://relay-builders-eu.ultrasound.money/ws/v1/top_bid"
+# relay_name = "ultrasound-money-eu"
+#
+# [[relay_bid_scrapers]]
+# type = "ultrasound-ws"
+# name = "ultrasound-ws-us"
+# ultrasound_url = "ws://relay-builders-us.ultrasound.money/ws/v1/top_bid"
+# relay_name = "ultrasound-money-us"

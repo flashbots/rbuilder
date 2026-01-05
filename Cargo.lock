@@ -9706,6 +9706,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "reactive-bidding-service"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives 1.4.1",
+ "bid-scraper",
+ "eyre",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "toml 0.8.23",
+ "tracing",
+ "tracing-subscriber 0.3.22",
+]
+
+[[package]]
 name = "recvmsg"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

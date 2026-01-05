@@ -1,0 +1,58 @@
+# Reactive Bidding Service Configuration
+
+# Enable debug mode (logs all bids and exports to file)
+debug = true
+
+# Export auction data to JSON lines file (only used if debug = true)
+export_path = "/home/user/Projects/block_price_dynamics/data/auctions.jsonl"
+
+# ============================================================================
+# Bidding Strategy Configuration
+#
+# The strategy always evaluates incoming bids and sends counter-bids through
+# a channel. The channel can be consumed by other crates (e.g., rbuilder).
+# ============================================================================
+[bidding]
+# Increment to add on top of the current best bid (in ETH)
+# Based on observed data: median improvement is 0.000057 ETH, 90th percentile is 0.00058 ETH
+# Using 0.0001 ETH (0.1 mETH) as a competitive default
+increment_eth = 0.0001
+
+# Maximum bid cap - never bid above this (in ETH)
+max_bid_eth = 0.1
+
+# Minimum bid threshold - don't bid if best bid is below this (in ETH)
+min_bid_eth = 0.0001
+
+# Our builder public keys (we won't outbid ourselves)
+# Format: "0x" followed by 96-character hex string (48 bytes)
+our_builders = [
+    # "0xYOUR_BUILDER_PUBKEY_HERE"
+]
+
+# Whitelisted builder public keys (we won't outbid these partners)
+whitelisted_builders = [
+    # "0xPARTNER_BUILDER_PUBKEY_HERE"
+]
+
+# ============================================================================
+# Relay Configurations
+# ============================================================================
+[[relays]]
+name = "ultrasound-eu"
+url = "ws://relay-builders-eu.ultrasound.money/ws/v1/top_bid"
+
+[[relays]]
+name = "ultrasound-us"
+url = "ws://relay-builders-us.ultrasound.money/ws/v1/top_bid"
+
+[[relays]]
+name = "ultrasound-jp"
+url = "ws://relay-builders-jp.ultrasound.money/ws/v1/top_bid"
+
+# For direct connection with auth (faster):
+# [[relays]]
+# name = "ultrasound-direct"
+# url = "ws://relay-builders-eu.ultrasound.money/ws/v1/top_bid"
+# builder_id = "your-builder-id"
+# api_token = "your-api-token"
