@@ -253,7 +253,7 @@ fn test_mark_mempool_unlock_basic() -> eyre::Result<()> {
 // or integration with handle_ace_interaction which we'll test separately
 
 #[test]
-fn test_handle_ace_interaction_with_mempool_unlock() -> eyre::Result<()> {
+fn test_handle_ace_unlock_with_mempool_unlock() -> eyre::Result<()> {
     let test_chain = TestChainState::new(BlockArgs::default())?;
     let state = test_chain.provider_factory().latest()?;
     let nonce_cache = NonceCache::new(state.into());
@@ -268,7 +268,7 @@ fn test_handle_ace_interaction_with_mempool_unlock() -> eyre::Result<()> {
 
     let optional_order = create_optional_unlock_order(contract_addr, 50_000);
 
-    let mut result = SimulatedResult {
+    let mut result = SimulatedResult::Success {
         id: rand::random(),
         simulated_order: optional_order.clone(),
         previous_orders: Vec::new(),
@@ -276,11 +276,10 @@ fn test_handle_ace_interaction_with_mempool_unlock() -> eyre::Result<()> {
         simulation_time: std::time::Duration::from_millis(10),
     };
 
-    // Handle the ACE interaction
-    let (skip_forwarding, cancellation) = sim_tree.handle_ace_interaction(&mut result)?;
+    // Handle the ACE unlock
+    let cancellation = sim_tree.handle_ace_unlock(&mut result)?;
 
-    // Unlocking orders are not skipped (they go downstream), but should be cancelled
-    assert!(!skip_forwarding);
+    // Unlocking orders should be cancelled since mempool unlock was already marked
     assert_eq!(cancellation, Some(optional_order.order.id()));
 
     // Optional order should NOT be stored

@@ -67,11 +67,12 @@ pub fn run_sim_worker<P>(
             let mut block_state = BlockState::new_arc(state_provider.clone());
             let sim_result = simulate_order(
                 task.parents.clone(),
-                task.order,
+                task.order.clone(),
                 &current_sim_context.block_ctx,
                 &mut local_ctx,
                 &mut block_state,
                 &current_sim_context.ace_configs,
+                task.has_ace_unlock_parent,
             );
             let sim_ok = match sim_result {
                 Ok(sim_result) => {
@@ -93,18 +94,33 @@ pub fn run_sim_worker<P>(
                                     .push(DependencyKey::AceUnlock(contract_address));
                             }
 
-                            let result = SimulatedResult {
+                            let result = SimulatedResult::Success {
                                 id: task.id,
                                 simulated_order,
                                 previous_orders: task.parents,
                                 dependencies_satisfied,
                                 simulation_time: start_time.elapsed(),
                             };
-                            current_sim_context
-                                .results
-                                .try_send(result)
-                                .unwrap_or_default();
+                            if current_sim_context.results.try_send(result).is_err() {
+                                error!(
+                                    ?order_id,
+                                    "Failed to send simulation result - channel full or closed"
+                                );
+                            }
                             true
+                        }
+                        OrderSimResult::NonUnlockingAce {
+                            order,
+                            contract_address,
+                        } => {
+                            let result = SimulatedResult::NonUnlockingAce {
+                                order,
+                                contract_address,
+                            };
+                            if current_sim_context.results.try_send(result).is_err() {
+                                error!(?order_id, "Failed to send NonUnlockingAce result");
+                            }
+                            false
                         }
                         OrderSimResult::Failed(_) => false,
                     };
@@ -114,7 +130,6 @@ pub fn run_sim_worker<P>(
                 }
                 Err(err) => {
                     error!(?err, ?order_id, "Critical error while simulating order");
-                    // @Metric
                     break;
                 }
             };

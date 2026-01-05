@@ -136,6 +136,7 @@ where
 
     pub order_flow_tracer_manager: Box<dyn OrderFlowTracerManager>,
 
+    pub ace_enabled: bool,
     pub ace_config: Vec<config::AceConfig>,
 }
 
@@ -235,6 +236,7 @@ where
             self.run_sparse_trie_prefetcher,
             self.sbundle_merger_selected_signers.clone(),
             self.order_flow_tracer_manager,
+            self.ace_enabled,
             self.ace_config.clone(),
         );
 

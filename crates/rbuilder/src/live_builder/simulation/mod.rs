@@ -39,8 +39,10 @@ pub struct SimulationContext {
     pub requests: flume::Receiver<SimulationRequest>,
     /// Simulation results go out through this channel.
     pub results: mpsc::Sender<SimulatedResult>,
-    /// ACE configuration for this simulation context.
+    /// ACE configuration for this simulation context (empty if ACE is disabled).
     pub ace_configs: ahash::HashMap<alloy_primitives::Address, rbuilder_primitives::AceConfig>,
+    /// Whether ACE is enabled globally.
+    pub ace_enabled: bool,
 }
 
 /// All active SimulationContexts
@@ -119,6 +121,7 @@ where
         input: OrdersForBlock,
         block_cancellation: CancellationToken,
         sim_tracer: Arc<dyn SimulationJobTracer>,
+        ace_enabled: bool,
         ace_config: Vec<super::config::AceConfig>,
     ) -> SlotOrderSimResults {
         let (slot_sim_results_sender, slot_sim_results_receiver) = mpsc::channel(10_000);
@@ -157,13 +160,20 @@ where
                 };
 
                 // Convert ace_config Vec to HashMap for efficient lookup
-                let ace_configs_map: ahash::HashMap<_, _> = ace_config
-                    .iter()
-                    .filter(|c| c.enabled)
-                    .map(|c| (c.contract_address, c.clone()))
-                    .collect();
+                // When ace_enabled is false, we pass empty configs to disable all ACE logic
+                let ace_configs_map: ahash::HashMap<_, _> = if ace_enabled {
+                    ace_config
+                        .iter()
+                        .filter(|c| c.enabled)
+                        .map(|c| (c.contract_address, c.clone()))
+                        .collect()
+                } else {
+                    ahash::HashMap::default()
+                };
 
-                let sim_tree = SimTree::new(nonces, ace_config);
+                // Pass empty configs to SimTree when ACE is disabled
+                let sim_tree_configs = if ace_enabled { ace_config } else { Vec::new() };
+                let sim_tree = SimTree::new(nonces, sim_tree_configs);
                 let new_order_sub = input.new_order_sub;
                 let (sim_req_sender, sim_req_receiver) = flume::unbounded();
                 let (sim_results_sender, sim_results_receiver) = mpsc::channel(1024);
@@ -174,6 +184,7 @@ where
                         requests: sim_req_receiver,
                         results: sim_results_sender,
                         ace_configs: ace_configs_map,
+                        ace_enabled,
                     };
                     contexts.contexts.insert(block_context, sim_context);
                 }
@@ -247,6 +258,7 @@ mod tests {
             orders_for_block,
             cancel.clone(),
             Arc::new(NullSimulationJobTracer {}),
+            false, // ace_enabled
             vec![],
         );
         // Create a simple tx that sends to coinbase 5 wei.
