@@ -14,6 +14,7 @@ use warp::{Filter, Rejection, Reply};
 use crate::{
     telemetry::{
         metrics::{gather_prometheus_metrics, set_version},
+        tokio::register_tokio_metrics,
         BUILDER_BALANCE, CURRENT_BLOCK, MAX_FRESH_GAUGE_AGE, ORDERPOOL_BUNDLES, ORDERPOOL_TXS,
         ORDERPOOL_TXS_SIZE, REGISTRY,
     },
@@ -22,6 +23,7 @@ use crate::{
 
 pub async fn spawn(addr: SocketAddr, version: Version) -> eyre::Result<()> {
     set_version(version);
+    register_tokio_metrics(&REGISTRY)?;
     tokio::spawn(async move {
         loop {
             let now = OffsetDateTime::now_utc();
