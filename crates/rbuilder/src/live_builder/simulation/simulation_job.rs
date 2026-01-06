@@ -1,7 +1,7 @@
 use std::{fmt, sync::Arc};
 
 use crate::{
-    building::sim::{SimTree, SimulatedResult, SimulationRequest},
+    building::sim::{SimTree, SimulatedResult, SimulationFailure, SimulationRequest},
     live_builder::{
         order_input::order_sink::OrderPoolCommand,
         simulation::simulation_job_tracer::SimulationJobTracer,
@@ -228,10 +228,19 @@ impl SimulationJob {
                         sim_tree_results.push(sim_result);
                     }
                 }
-                SimulatedResult::Failed { .. } => {
+                SimulatedResult::Failed {
+                    failure:
+                        SimulationFailure {
+                            ace_dependency: Some(_),
+                            ..
+                        },
+                    ..
+                } => {
                     // Failed with ACE dependency - pass to sim_tree for re-queuing with unlock parent
-                    // Note: sim_worker only sends Failed results when ace_dependency.is_some()
                     sim_tree_results.push(sim_result);
+                }
+                SimulatedResult::Failed { .. } => {
+                    // Permanent failure without ACE dependency - nothing to do
                 }
             }
         }
