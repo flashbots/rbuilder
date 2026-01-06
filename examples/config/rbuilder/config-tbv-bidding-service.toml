@@ -1,0 +1,10 @@
+ipc_path = "/tmp/rpc_bidding_server.sock"
+log_json = true
+log_level = "info"
+log_color = false
+slot_delta_to_start_bidding_ms = -1000
+subsidy  = "0.01"
+
+[[subsidy_overrides]]
+relay = "flashbots" 
+value = "0.05"
