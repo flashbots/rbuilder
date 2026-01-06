@@ -472,7 +472,7 @@ mod test {
         // Insert hi expect an order with only br_hi
         context.insert_order(br_hi.clone());
         let generated_order = context.pop_insert();
-        context.assert_concatenated_sbundles_ok(&generated_order, &[br_hi.clone()]);
+        context.assert_concatenated_sbundles_ok(&generated_order, std::slice::from_ref(&br_hi));
 
         // Insert low expect a cancellation for prev order and hi+low
         context.insert_order(br_low.clone());
@@ -484,7 +484,7 @@ mod test {
         context.remove_order(br_hi.id());
         assert_eq!(context.pop_remove(), generated_order.id());
         let generated_order = context.pop_insert();
-        context.assert_concatenated_sbundles_ok(&generated_order, &[br_low.clone()]);
+        context.assert_concatenated_sbundles_ok(&generated_order, std::slice::from_ref(&br_low));
 
         // Remove low order expect a cancellation for prev order and nothing more (shoudn't insert an empty sbundle!)
         context.remove_order(br_low.id());
@@ -493,7 +493,7 @@ mod test {
         // We expect an order with only br_low
         context.insert_order(br_low.clone());
         let generated_order = context.pop_insert();
-        context.assert_concatenated_sbundles_ok(&generated_order, &[br_low.clone()]);
+        context.assert_concatenated_sbundles_ok(&generated_order, std::slice::from_ref(&br_low));
 
         // Insert hi expect a cancellation for prev order and hi+low
         context.insert_order(br_hi.clone());

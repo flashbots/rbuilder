@@ -97,6 +97,7 @@ fn create_optional_unlock_order(contract: Address, gas_used: u64) -> Arc<Simulat
 }
 
 /// Create a mock non-unlocking order (accesses ACE slot but doesn't unlock)
+#[allow(dead_code)]
 fn create_non_unlocking_order(contract: Address, gas_used: u64) -> Arc<SimulatedOrder> {
     let slot = b256!("0000000000000000000000000000000000000000000000000000000000000003");
     Arc::new(SimulatedOrder {
@@ -120,8 +121,10 @@ fn test_ace_exchange_state_get_unlock_order_force_only() {
         address!("0000000aa232009084Bd71A5797d089AA4Edfad4"),
         100_000,
     );
-    let mut state = AceExchangeState::default();
-    state.force_unlock_order = Some(order.clone());
+    let state = AceExchangeState {
+        force_unlock_order: Some(order.clone()),
+        ..Default::default()
+    };
 
     let result = state.get_unlock_order();
     assert_eq!(result, Some(&order));
@@ -131,8 +134,10 @@ fn test_ace_exchange_state_get_unlock_order_force_only() {
 fn test_ace_exchange_state_get_unlock_order_optional_only() {
     let order =
         create_optional_unlock_order(address!("0000000aa232009084Bd71A5797d089AA4Edfad4"), 50_000);
-    let mut state = AceExchangeState::default();
-    state.optional_unlock_order = Some(order.clone());
+    let state = AceExchangeState {
+        optional_unlock_order: Some(order.clone()),
+        ..Default::default()
+    };
 
     let result = state.get_unlock_order();
     assert_eq!(result, Some(&order));
@@ -144,9 +149,11 @@ fn test_cheapest_unlock_selected() {
     let expensive_order = create_force_unlock_order(contract, 100_000);
     let cheap_order = create_optional_unlock_order(contract, 50_000);
 
-    let mut state = AceExchangeState::default();
-    state.force_unlock_order = Some(expensive_order.clone());
-    state.optional_unlock_order = Some(cheap_order.clone());
+    let state = AceExchangeState {
+        force_unlock_order: Some(expensive_order.clone()),
+        optional_unlock_order: Some(cheap_order.clone()),
+        ..Default::default()
+    };
 
     // Should select the cheaper one (50k < 100k)
     let result = state.get_unlock_order();
@@ -159,9 +166,11 @@ fn test_equal_gas_prefers_force() {
     let force_order = create_force_unlock_order(contract, 100_000);
     let optional_order = create_optional_unlock_order(contract, 100_000);
 
-    let mut state = AceExchangeState::default();
-    state.force_unlock_order = Some(force_order.clone());
-    state.optional_unlock_order = Some(optional_order.clone());
+    let state = AceExchangeState {
+        force_unlock_order: Some(force_order.clone()),
+        optional_unlock_order: Some(optional_order.clone()),
+        ..Default::default()
+    };
 
     // When equal gas, should prefer force (d comparison)
     let result = state.get_unlock_order();

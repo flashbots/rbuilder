@@ -121,7 +121,7 @@ mod test {
         // first order generates a megabundle with it
         context.insert_order(br_hi.clone());
         let generated_order = context.pop_insert();
-        context.assert_concatenated_sbundles_ok(&generated_order, &[br_hi.clone()]);
+        context.assert_concatenated_sbundles_ok(&generated_order, std::slice::from_ref(&br_hi));
 
         // for second expect a cancellation and a new megabundle with both
         context.insert_order(br_low.clone());
@@ -141,17 +141,17 @@ mod test {
         // first order generates a megabundle with it
         context.insert_order(br_1.clone());
         let generated_order = context.pop_insert();
-        context.assert_concatenated_sbundles_ok(&generated_order, &[br_1.clone()]);
+        context.assert_concatenated_sbundles_ok(&generated_order, std::slice::from_ref(&br_1));
 
         // for second expect a new megabundle with it
         context.insert_order(br_2.clone());
         let generated_order = context.pop_insert();
-        context.assert_concatenated_sbundles_ok(&generated_order, &[br_2.clone()]);
+        context.assert_concatenated_sbundles_ok(&generated_order, std::slice::from_ref(&br_2));
 
         // for an unknown signer expect a new megabundle with it
         context.insert_order(br_3.clone());
         let generated_order = context.pop_insert();
-        context.assert_concatenated_sbundles_ok(&generated_order, &[br_3.clone()]);
+        context.assert_concatenated_sbundles_ok(&generated_order, std::slice::from_ref(&br_3));
     }
 
     #[test]
@@ -163,7 +163,7 @@ mod test {
         // first order generates a megabundle with it
         context.insert_order(br_hi.clone());
         let generated_order = context.pop_insert();
-        context.assert_concatenated_sbundles_ok(&generated_order, &[br_hi.clone()]);
+        context.assert_concatenated_sbundles_ok(&generated_order, std::slice::from_ref(&br_hi));
 
         // for second expect a cancellation and a new megabundle with both
         context.insert_order(br_low.clone());
