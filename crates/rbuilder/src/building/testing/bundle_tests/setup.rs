@@ -233,7 +233,7 @@ impl TestSetup {
             order: self.order_builder.build_order(),
             sim_value: Default::default(),
             used_state_trace: Default::default(),
-            ace_interaction: None,
+            ace_interactions: Vec::new(),
         };
 
         // we commit order twice to test evm caching

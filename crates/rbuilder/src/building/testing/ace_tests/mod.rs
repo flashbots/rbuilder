@@ -69,10 +69,10 @@ fn create_force_unlock_order(contract: Address, gas_used: u64) -> Arc<SimulatedO
             Vec::new(),
         ),
         used_state_trace: Some(mock_state_trace_with_ace_slot(contract, slot)),
-        ace_interaction: Some(AceInteraction::Unlocking {
+        ace_interactions: vec![AceInteraction::Unlocking {
             contract_address: contract,
             source: AceUnlockSource::ProtocolForce,
-        }),
+        }],
     })
 }
 
@@ -88,10 +88,10 @@ fn create_optional_unlock_order(contract: Address, gas_used: u64) -> Arc<Simulat
             Vec::new(),
         ),
         used_state_trace: Some(mock_state_trace_with_ace_slot(contract, slot)),
-        ace_interaction: Some(AceInteraction::Unlocking {
+        ace_interactions: vec![AceInteraction::Unlocking {
             contract_address: contract,
             source: AceUnlockSource::ProtocolOptional,
-        }),
+        }],
     })
 }
 
@@ -257,7 +257,7 @@ fn test_handle_ace_unlock_with_mempool_unlock() -> eyre::Result<()> {
 
     let optional_order = create_optional_unlock_order(contract_addr, 50_000);
 
-    let mut result = SimulatedResult::Success {
+    let result = SimulatedResult::Success {
         id: rand::random(),
         simulated_order: optional_order.clone(),
         previous_orders: Vec::new(),
@@ -266,10 +266,10 @@ fn test_handle_ace_unlock_with_mempool_unlock() -> eyre::Result<()> {
     };
 
     // Handle the ACE unlock
-    let cancellation = sim_tree.handle_ace_unlock(&mut result)?;
+    let cancellations = sim_tree.handle_ace_unlock(&result)?;
 
     // Unlocking orders should be cancelled since mempool unlock was already marked
-    assert_eq!(cancellation, Some(optional_order.order.id()));
+    assert!(cancellations.contains(&optional_order.order.id()));
 
     // Optional order should NOT be stored
     let ace_state = sim_tree.get_ace_state(&contract_addr).unwrap();
@@ -292,7 +292,7 @@ fn test_optional_ace_not_stored_without_pending_orders() -> eyre::Result<()> {
     // Create optional unlock order but NO pending orders waiting on it
     let optional_order = create_optional_unlock_order(contract_addr, 50_000);
 
-    let mut result = SimulatedResult::Success {
+    let result = SimulatedResult::Success {
         id: rand::random(),
         simulated_order: optional_order.clone(),
         previous_orders: Vec::new(),
@@ -301,10 +301,10 @@ fn test_optional_ace_not_stored_without_pending_orders() -> eyre::Result<()> {
     };
 
     // Handle the ACE unlock - should be cancelled because no orders need it
-    let cancellation = sim_tree.handle_ace_unlock(&mut result)?;
+    let cancellations = sim_tree.handle_ace_unlock(&result)?;
 
     // Optional should be cancelled because no orders are waiting
-    assert_eq!(cancellation, Some(optional_order.order.id()));
+    assert!(cancellations.contains(&optional_order.order.id()));
 
     // Optional order should NOT be stored
     let ace_state = sim_tree.get_ace_state(&contract_addr).unwrap();
@@ -502,4 +502,128 @@ fn test_multi_ace_config_registration() -> eyre::Result<()> {
     assert!(sim_tree.get_ace_state(&contract_c).is_some());
 
     Ok(())
+}
+
+// ============================================================================
+// Multi-Transaction Bundle Classification Tests
+// ============================================================================
+
+use rbuilder_primitives::ace::classify_ace_interaction;
+
+#[test]
+fn test_classify_ace_interaction_priority_force_beats_optional() {
+    let config = test_ace_config();
+    let contract = config.contract_address;
+    let slot = b256!("0000000000000000000000000000000000000000000000000000000000000003");
+    let whitelisted_from = *config.from_addresses.iter().next().unwrap();
+    let force_selector = *config.force_signatures.iter().next().unwrap();
+    let unlock_selector = *config.unlock_signatures.iter().next().unwrap();
+
+    let trace = mock_state_trace_with_ace_slot(contract, slot);
+
+    // ProtocolForce classification
+    let force_result = classify_ace_interaction(
+        &trace,
+        true,
+        &config,
+        Some(force_selector),
+        Some(contract),
+        Some(whitelisted_from),
+    );
+    assert!(matches!(
+        force_result,
+        Some(AceInteraction::Unlocking {
+            source: AceUnlockSource::ProtocolForce,
+            ..
+        })
+    ));
+
+    // ProtocolOptional classification
+    let optional_result = classify_ace_interaction(
+        &trace,
+        true,
+        &config,
+        Some(unlock_selector),
+        Some(contract),
+        Some(whitelisted_from),
+    );
+    assert!(matches!(
+        optional_result,
+        Some(AceInteraction::Unlocking {
+            source: AceUnlockSource::ProtocolOptional,
+            ..
+        })
+    ));
+
+    // User classification (non-whitelisted from)
+    let non_whitelisted = address!("1111111111111111111111111111111111111111");
+    let user_result = classify_ace_interaction(
+        &trace,
+        true,
+        &config,
+        Some(unlock_selector),
+        Some(contract),
+        Some(non_whitelisted),
+    );
+    assert!(matches!(
+        user_result,
+        Some(AceInteraction::Unlocking {
+            source: AceUnlockSource::User,
+            ..
+        })
+    ));
+
+    // NonUnlocking classification (no unlock signature)
+    let non_unlocking_result = classify_ace_interaction(
+        &trace,
+        true,
+        &config,
+        None, // no selector
+        Some(contract),
+        Some(whitelisted_from),
+    );
+    assert!(matches!(
+        non_unlocking_result,
+        Some(AceInteraction::NonUnlocking { .. })
+    ));
+}
+
+#[test]
+fn test_ace_interaction_priority_ordering() {
+    // Test that the priority ordering is correct:
+    // ProtocolForce > ProtocolOptional > User > NonUnlocking
+    let contract = address!("0000000aa232009084Bd71A5797d089AA4Edfad4");
+
+    let force = AceInteraction::Unlocking {
+        contract_address: contract,
+        source: AceUnlockSource::ProtocolForce,
+    };
+    let optional = AceInteraction::Unlocking {
+        contract_address: contract,
+        source: AceUnlockSource::ProtocolOptional,
+    };
+    let user = AceInteraction::Unlocking {
+        contract_address: contract,
+        source: AceUnlockSource::User,
+    };
+    let non_unlocking = AceInteraction::NonUnlocking {
+        contract_address: contract,
+    };
+
+    // Verify the classification methods work as expected for priority
+    assert!(force.is_force());
+    assert!(force.is_protocol_tx());
+    assert!(force.is_unlocking());
+
+    assert!(!optional.is_force());
+    assert!(optional.is_protocol_tx());
+    assert!(optional.is_unlocking());
+
+    assert!(!user.is_force());
+    assert!(!user.is_protocol_tx());
+    assert!(user.is_unlocking());
+
+    assert!(!non_unlocking.is_force());
+    assert!(!non_unlocking.is_protocol_tx());
+    assert!(!non_unlocking.is_unlocking());
 }

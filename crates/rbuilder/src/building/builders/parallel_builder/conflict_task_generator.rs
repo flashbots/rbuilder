@@ -496,7 +496,7 @@ mod tests {
                 }),
                 sim_value,
                 used_state_trace: Some(trace),
-                ace_interaction: None,
+                ace_interactions: Vec::new(),
             })
         }
     }

@@ -1363,9 +1363,9 @@ pub struct SimulatedOrder {
     pub sim_value: SimValue,
     /// Info about read/write slots during the simulation to help figure out what the Order is doing.
     pub used_state_trace: Option<UsedStateTrace>,
-    /// ACE interaction classification - None if not an ACE interaction.
-    /// Use `ace_interaction.map(|a| a.is_force()).unwrap_or(false)` to check if force unlock.
-    pub ace_interaction: Option<AceInteraction>,
+    /// ACE interactions - one per ACE contract this order interacts with.
+    /// Empty if no ACE interactions.
+    pub ace_interactions: Vec<AceInteraction>,
 }
 
 impl SimulatedOrder {

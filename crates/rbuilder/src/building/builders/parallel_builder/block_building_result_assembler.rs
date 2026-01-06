@@ -191,11 +191,7 @@ impl BlockBuildingResultAssembler {
         let mut ace_orders = Vec::new();
         for (_, group) in best_orderings_per_group.iter() {
             for order in group.orders.iter() {
-                if order
-                    .ace_interaction
-                    .map(|a| a.is_protocol_tx())
-                    .unwrap_or(false)
-                {
+                if order.ace_interactions.iter().any(|a| a.is_protocol_tx()) {
                     ace_orders.push(order.clone());
                 }
             }
@@ -208,9 +204,9 @@ impl BlockBuildingResultAssembler {
                 .sequence_of_orders
                 .retain(|(order_idx, _)| {
                     !group.orders[*order_idx]
-                        .ace_interaction
-                        .map(|a| a.is_protocol_tx())
-                        .unwrap_or(false)
+                        .ace_interactions
+                        .iter()
+                        .any(|a| a.is_protocol_tx())
                 });
         }
 
@@ -309,11 +305,7 @@ impl BlockBuildingResultAssembler {
         let mut ace_orders = Vec::new();
         for (_, group) in best_orderings_per_group.iter() {
             for order in group.orders.iter() {
-                if order
-                    .ace_interaction
-                    .map(|a| a.is_protocol_tx())
-                    .unwrap_or(false)
-                {
+                if order.ace_interactions.iter().any(|a| a.is_protocol_tx()) {
                     ace_orders.push(order.clone());
                 }
             }
@@ -326,9 +318,9 @@ impl BlockBuildingResultAssembler {
                 .sequence_of_orders
                 .retain(|(order_idx, _)| {
                     !group.orders[*order_idx]
-                        .ace_interaction
-                        .map(|a| a.is_protocol_tx())
-                        .unwrap_or(false)
+                        .ace_interactions
+                        .iter()
+                        .any(|a| a.is_protocol_tx())
                 });
         }
 

@@ -294,11 +294,7 @@ impl OrderingBuilderContext {
         let all_orders = block_orders.get_all_orders();
         let mut ace_orders = Vec::new();
         for order in all_orders {
-            if order
-                .ace_interaction
-                .map(|a| a.is_protocol_tx())
-                .unwrap_or(false)
-            {
+            if order.ace_interactions.iter().any(|a| a.is_protocol_tx()) {
                 ace_orders.push(order.clone());
                 // Remove from block_orders so they don't get processed in fill_orders
                 block_orders.remove_order(order.id());

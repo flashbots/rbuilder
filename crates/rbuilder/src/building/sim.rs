@@ -537,78 +537,93 @@ impl SimTree {
     pub fn handle_ace_unlock(
         &mut self,
         result: &SimulatedResult,
-    ) -> Result<Option<OrderId>, ProviderError> {
+    ) -> Result<Vec<OrderId>, ProviderError> {
         let SimulatedResult::Success {
             simulated_order,
             previous_orders,
             ..
         } = result
         else {
-            return Ok(None);
-        };
-
-        let Some(AceInteraction::Unlocking {
-            contract_address,
-            source,
-        }) = simulated_order.ace_interaction
-        else {
-            return Ok(None);
+            return Ok(Vec::new());
         };
 
         // If this order already has parents, it was re-simulated - just pass through
         if !previous_orders.is_empty() {
-            return Ok(None);
+            return Ok(Vec::new());
         }
 
-        // Register the unlock in ACE state based on source type
-        let cancellation = match source {
-            AceUnlockSource::ProtocolForce => {
-                let state = self.ace_state.entry(contract_address).or_default();
-                state.force_unlock_order = Some(simulated_order.clone());
-                trace!(
-                    "Added forced ACE protocol unlock order for {:?}",
-                    contract_address
-                );
-                None
-            }
-            AceUnlockSource::ProtocolOptional => {
-                let state = self.ace_state.entry(contract_address).or_default();
+        // Get all unlocking interactions
+        let unlocking_interactions: Vec<_> = simulated_order
+            .ace_interactions
+            .iter()
+            .filter_map(|i| match i {
+                AceInteraction::Unlocking {
+                    contract_address,
+                    source,
+                } => Some((*contract_address, *source)),
+                AceInteraction::NonUnlocking { .. } => None,
+            })
+            .collect();
 
-                // Check if user unlock already available - cancel optional
-                if state.has_mempool_unlock {
+        if unlocking_interactions.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut cancellations = Vec::new();
+
+        // Process each unlocking interaction
+        for (contract_address, source) in unlocking_interactions {
+            match source {
+                AceUnlockSource::ProtocolForce => {
+                    let state = self.ace_state.entry(contract_address).or_default();
+                    state.force_unlock_order = Some(simulated_order.clone());
                     trace!(
-                        "Cancelling optional ACE unlock for {:?} - user unlock exists",
+                        "Added forced ACE protocol unlock order for {:?}",
                         contract_address
                     );
-                    return Ok(Some(simulated_order.order.id()));
                 }
+                AceUnlockSource::ProtocolOptional => {
+                    let state = self.ace_state.entry(contract_address).or_default();
 
-                // Only include optional if there are orders waiting on this unlock
-                let dep_key = DependencyKey::AceUnlock(contract_address);
-                if !self.pending_dependencies.contains_key(&dep_key) {
+                    // Check if user unlock already available - cancel optional
+                    if state.has_mempool_unlock {
+                        trace!(
+                            "Cancelling optional ACE unlock for {:?} - user unlock exists",
+                            contract_address
+                        );
+                        cancellations.push(simulated_order.order.id());
+                        continue;
+                    }
+
+                    // Only include optional if there are orders waiting on this unlock
+                    let dep_key = DependencyKey::AceUnlock(contract_address);
+                    if !self.pending_dependencies.contains_key(&dep_key) {
+                        trace!(
+                            "Cancelling optional ACE unlock for {:?} - no pending orders need it",
+                            contract_address
+                        );
+                        cancellations.push(simulated_order.order.id());
+                        continue;
+                    }
+
+                    // Store optional unlock - there are orders waiting for it
+                    state.optional_unlock_order = Some(simulated_order.clone());
                     trace!(
-                        "Cancelling optional ACE unlock for {:?} - no pending orders need it",
+                        "Added optional ACE protocol unlock order for {:?}",
                         contract_address
                     );
-                    return Ok(Some(simulated_order.order.id()));
                 }
-
-                // Store optional unlock - there are orders waiting for it
-                state.optional_unlock_order = Some(simulated_order.clone());
-                trace!(
-                    "Added optional ACE protocol unlock order for {:?}",
-                    contract_address
-                );
-                None
+                AceUnlockSource::User => {
+                    // A user unlocked ACE via mempool - mark it and cancel any optional protocol order
+                    trace!("User mempool unlock detected for {:?}", contract_address);
+                    if let Some(cancelled_id) = self.mark_mempool_unlock(contract_address) {
+                        cancellations.push(cancelled_id);
+                    }
+                }
             }
-            AceUnlockSource::User => {
-                // A user unlocked ACE via mempool - mark it and cancel any optional protocol order
-                trace!("User mempool unlock detected for {:?}", contract_address);
-                self.mark_mempool_unlock(contract_address)
-            }
-        };
+        }
 
-        Ok(cancellation)
+        Ok(cancellations)
     }
 
     /// Mark that a mempool unlocking order has been seen for a contract address.
@@ -643,9 +658,7 @@ impl SimTree {
         for result in results {
             match result {
                 SimulatedResult::Success { .. } => {
-                    if let Some(id) = self.handle_ace_unlock(&result)? {
-                        cancellations.push(id);
-                    }
+                    cancellations.extend(self.handle_ace_unlock(&result)?);
                     // All successful results need to be processed for dependency tracking
                     self.process_simulation_task_result(&result)?;
                     successful_results.push(result);
@@ -769,12 +782,15 @@ where
                         .map(|(address, nonce)| DependencyKey::Nonce(NonceKey { address, nonce }))
                         .collect();
 
-                    // If this is an unlocking ACE order, add the ACE dependency
-                    if let Some(AceInteraction::Unlocking {
-                        contract_address, ..
-                    }) = sim_order.ace_interaction
-                    {
-                        dependencies_satisfied.push(DependencyKey::AceUnlock(contract_address));
+                    // Add ACE dependencies for all unlocking interactions
+                    for interaction in &sim_order.ace_interactions {
+                        if let AceInteraction::Unlocking {
+                            contract_address, ..
+                        } = interaction
+                        {
+                            dependencies_satisfied
+                                .push(DependencyKey::AceUnlock(*contract_address));
+                        }
                     }
 
                     let result = SimulatedResult::Success {
@@ -873,26 +889,47 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
     // Get the used_state_trace from tracer (available regardless of success/failure)
     let used_state_trace = fork.tracer.as_mut().and_then(|t| t.take_used_state_trace());
 
-    // Detect ACE interaction from the state trace using config
-    // Get function selector, tx.to, and tx.from from order's first transaction
-    let (selector, tx_to, tx_from): (Option<Selector>, Option<Address>, Option<Address>) = order
-        .list_txs()
-        .first()
-        .map_or((None, None, None), |(tx, _)| {
+    // Detect ACE interactions from the state trace using config
+    // Check ALL transactions in the order and collect ALL ACE interactions (one per contract)
+    // For each contract, keep the highest priority classification:
+    // Priority: ProtocolForce > ProtocolOptional > User > NonUnlocking
+    let ace_interactions: Vec<AceInteraction> = if let Some(trace) = used_state_trace.as_ref() {
+        // Use HashMap to track best interaction per contract
+        let mut per_contract: HashMap<Address, AceInteraction> = HashMap::default();
+
+        for (tx, _) in order.list_txs() {
             let input = tx.internal_tx_unsecure().input();
-            let sel = if input.len() >= 4 {
+            let selector = if input.len() >= 4 {
                 Some(Selector::from_slice(&input[..4]))
             } else {
                 None
             };
-            (sel, tx.to(), Some(tx.signer()))
-        });
+            let tx_to = tx.to();
+            let tx_from = Some(tx.signer());
 
-    let ace_interaction = used_state_trace.as_ref().and_then(|trace| {
-        ace_configs.iter().find_map(|(_, config)| {
-            classify_ace_interaction(trace, sim_success, config, selector, tx_to, tx_from)
-        })
-    });
+            // Check this transaction against all ACE configs
+            for (_, config) in ace_configs.iter() {
+                if let Some(interaction) =
+                    classify_ace_interaction(trace, sim_success, config, selector, tx_to, tx_from)
+                {
+                    let contract = interaction.get_contract_address();
+                    // Update if new interaction has higher priority for this contract
+                    per_contract
+                        .entry(contract)
+                        .and_modify(|existing| {
+                            if interaction_priority(&interaction) > interaction_priority(existing) {
+                                *existing = interaction;
+                            }
+                        })
+                        .or_insert(interaction);
+                }
+            }
+        }
+
+        per_contract.into_values().collect()
+    } else {
+        Vec::new()
+    };
 
     match result {
         Ok(res) => {
@@ -909,44 +946,64 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
                     order,
                     sim_value,
                     used_state_trace: res.used_state_trace,
-                    ace_interaction,
+                    ace_interactions,
                 }),
                 new_nonces,
             ))
         }
         Err(err) => {
             // Check if failed order accessed ACE - may need re-simulation with unlock parent
-            let ace_dependency = if let Some(AceInteraction::NonUnlocking { contract_address }) =
-                ace_interaction
-            {
-                if ace_unlock_contracts.contains(&contract_address) {
-                    // Already had unlock for this contract but still failed - genuine failure
-                    tracing::debug!(
-                        order = ?order.id(),
-                        ?err,
-                        ?contract_address,
-                        "Order failed despite having ACE unlock for this contract - genuine failure"
-                    );
-                    None
+            // Find the first NonUnlocking contract we don't already have an unlock for
+            let ace_dependency = ace_interactions.iter().find_map(|interaction| {
+                if let AceInteraction::NonUnlocking { contract_address } = interaction {
+                    if ace_unlock_contracts.contains(contract_address) {
+                        // Already had unlock for this contract but still failed - skip
+                        tracing::debug!(
+                            order = ?order.id(),
+                            ?err,
+                            ?contract_address,
+                            "Order failed despite having ACE unlock for this contract"
+                        );
+                        None
+                    } else {
+                        // Need unlock for this contract
+                        tracing::debug!(
+                            order = ?order.id(),
+                            ?err,
+                            ?contract_address,
+                            existing_unlocks = ?ace_unlock_contracts,
+                            "Order needs additional ACE unlock"
+                        );
+                        Some(*contract_address)
+                    }
                 } else {
-                    // Need unlock for this contract (might already have others)
-                    tracing::debug!(
-                        order = ?order.id(),
-                        ?err,
-                        ?contract_address,
-                        existing_unlocks = ?ace_unlock_contracts,
-                        "Order needs additional ACE unlock"
-                    );
-                    Some(contract_address)
+                    None
                 }
-            } else {
-                None
-            };
+            });
 
             Ok(OrderSimResult::Failed(SimulationFailure {
                 error: err,
                 ace_dependency,
             }))
         }
+    }
+}
+
+/// Returns priority score for ACE interaction (higher = more important)
+fn interaction_priority(interaction: &AceInteraction) -> u8 {
+    match interaction {
+        AceInteraction::Unlocking {
+            source: AceUnlockSource::ProtocolForce,
+            ..
+        } => 4,
+        AceInteraction::Unlocking {
+            source: AceUnlockSource::ProtocolOptional,
+            ..
+        } => 3,
+        AceInteraction::Unlocking {
+            source: AceUnlockSource::User,
+            ..
+        } => 2,
+        AceInteraction::NonUnlocking { .. } => 1,
     }
 }
