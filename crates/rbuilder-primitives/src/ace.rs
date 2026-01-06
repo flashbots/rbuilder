@@ -144,15 +144,6 @@ impl AceInteraction {
     }
 }
 
-/// Type of unlock for ACE protocol transactions (Order::Ace)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub enum AceUnlockType {
-    /// Must unlock, transaction will fail if unlock conditions aren't met
-    Force,
-    /// Optional unlock, transaction can proceed with or without unlock
-    Optional,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

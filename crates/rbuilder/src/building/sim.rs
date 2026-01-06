@@ -297,7 +297,11 @@ impl SimTree {
 
                     if let Some(sim_id) = self.dependency_providers.get(&dep_key) {
                         // we have something that fills this nonce
-                        let sim = self.sims.get(sim_id).expect("we never delete sims");
+                        let Some(sim) = self.sims.get(sim_id) else {
+                            error!("SimTree bug: dependency provider sim not found");
+                            pending_deps.push(dep_key);
+                            continue;
+                        };
                         if let SimulatedResult::Success {
                             previous_orders,
                             simulated_order,
@@ -333,7 +337,11 @@ impl SimTree {
 
         // Check if we already have an unlock provider
         if let Some(sim_id) = self.dependency_providers.get(&dep_key) {
-            let sim = self.sims.get(sim_id).expect("we never delete sims");
+            let Some(sim) = self.sims.get(sim_id) else {
+                error!("SimTree bug: ACE unlock provider sim not found");
+                // Fall through to pending logic below
+                return self.add_order_to_pending(order, dep_key);
+            };
             if let SimulatedResult::Success {
                 previous_orders,
                 simulated_order,
@@ -355,6 +363,15 @@ impl SimTree {
         }
 
         // No unlock yet - add to pending
+        self.add_order_to_pending(order, dep_key)
+    }
+
+    /// Helper to add an order to pending state with a single dependency
+    fn add_order_to_pending(
+        &mut self,
+        order: Order,
+        dep_key: DependencyKey,
+    ) -> Result<(), ProviderError> {
         self.pending_dependencies
             .entry(dep_key)
             .or_default()
@@ -400,13 +417,14 @@ impl SimTree {
 
         self.sims.insert(id, result.clone());
         let mut orders_ready = Vec::new();
+        let mut is_ace_dependency = false;
 
         // Process each dependency this simulation satisfies
-        if dependencies_satisfied.len() == 1 {
-            let dep_key = dependencies_satisfied
-                .first()
-                .expect("checked len == 1")
-                .clone();
+        for dep_key in dependencies_satisfied.iter().cloned() {
+            // Track if any dependency is an ACE unlock
+            if matches!(dep_key, DependencyKey::AceUnlock(_)) {
+                is_ace_dependency = true;
+            }
 
             match self.dependency_providers.entry(dep_key.clone()) {
                 Entry::Occupied(mut entry) => {
@@ -423,7 +441,7 @@ impl SimTree {
                                 .full_profit_info()
                                 .coinbase_profit()
                         } else {
-                            return Ok(());
+                            continue;
                         }
                     };
                     if simulated_order
@@ -460,12 +478,6 @@ impl SimTree {
                 }
             }
         }
-
-        // Determine if the satisfied dependency was an ACE unlock
-        let is_ace_dependency = matches!(
-            dependencies_satisfied.first(),
-            Some(DependencyKey::AceUnlock(_))
-        );
 
         for ready_order in orders_ready {
             let pending_state = self.get_order_dependency_state(&ready_order)?;
@@ -526,27 +538,35 @@ impl SimTree {
             return Ok(None);
         }
 
-        // Register the unlock in ACE state
-        let state = self.ace_state.entry(contract_address).or_default();
-
-        let cancellation = if source == AceUnlockSource::ProtocolForce {
-            state.force_unlock_order = Some(simulated_order.clone());
-            trace!(
-                "Added forced ACE protocol unlock order for {:?}",
-                contract_address
-            );
-            None
-        } else {
-            state.optional_unlock_order = Some(simulated_order.clone());
-            trace!(
-                "Added optional ACE protocol unlock order for {:?}",
-                contract_address
-            );
-            // Check if we should cancel the optional ACE order (mempool unlock arrived first)
-            if state.has_mempool_unlock {
-                state.optional_unlock_order.take().map(|o| o.order.id())
-            } else {
+        // Register the unlock in ACE state based on source type
+        let cancellation = match source {
+            AceUnlockSource::ProtocolForce => {
+                let state = self.ace_state.entry(contract_address).or_default();
+                state.force_unlock_order = Some(simulated_order.clone());
+                trace!(
+                    "Added forced ACE protocol unlock order for {:?}",
+                    contract_address
+                );
                 None
+            }
+            AceUnlockSource::ProtocolOptional => {
+                let state = self.ace_state.entry(contract_address).or_default();
+                state.optional_unlock_order = Some(simulated_order.clone());
+                trace!(
+                    "Added optional ACE protocol unlock order for {:?}",
+                    contract_address
+                );
+                // Check if we should cancel the optional ACE order (mempool unlock arrived first)
+                if state.has_mempool_unlock {
+                    state.optional_unlock_order.take().map(|o| o.order.id())
+                } else {
+                    None
+                }
+            }
+            AceUnlockSource::User => {
+                // A user unlocked ACE via mempool - mark it and cancel any optional protocol order
+                trace!("User mempool unlock detected for {:?}", contract_address);
+                self.mark_mempool_unlock(contract_address)
             }
         };
 
@@ -555,9 +575,6 @@ impl SimTree {
         if !dependencies_satisfied.contains(&dep_key) {
             dependencies_satisfied.push(dep_key);
         }
-
-        // Process this result to unblock pending orders
-        self.process_simulation_task_result(result.clone())?;
 
         Ok(cancellation)
     }
@@ -597,10 +614,9 @@ impl SimTree {
                     let mut result = result;
                     if let Some(id) = self.handle_ace_unlock(&mut result)? {
                         cancellations.push(id);
-                    } else {
-                        // Non-ACE-unlock results still need to be processed for nonce dependencies
-                        self.process_simulation_task_result(result.clone())?;
                     }
+                    // All successful results need to be processed for dependency tracking
+                    self.process_simulation_task_result(result.clone())?;
                     successful_results.push(result);
                 }
                 SimulatedResult::NonUnlockingAce {
