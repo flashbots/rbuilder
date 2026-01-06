@@ -72,7 +72,7 @@ pub fn run_sim_worker<P>(
                 &mut local_ctx,
                 &mut block_state,
                 &current_sim_context.ace_configs,
-                task.has_ace_unlock_parent,
+                &task.ace_unlock_contracts,
             );
             let sim_ok = match sim_result {
                 Ok(sim_result) => {
@@ -116,6 +116,7 @@ pub fn run_sim_worker<P>(
                                     id: task.id,
                                     order: task.order,
                                     failure,
+                                    ace_unlock_contracts: task.ace_unlock_contracts.clone(),
                                     simulation_time: start_time.elapsed(),
                                 };
                                 if current_sim_context.results.try_send(result).is_err() {

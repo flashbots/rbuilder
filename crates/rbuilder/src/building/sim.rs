@@ -114,17 +114,21 @@ impl AceExchangeState {
 struct PendingOrder {
     order: Order,
     unsatisfied_dependencies: usize,
+    /// ACE contracts already provided as unlock parents (for progressive multi-ACE discovery)
+    ace_unlock_contracts: HashSet<Address>,
 }
 
 pub type SimulationId = u64;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SimulationRequest {
     pub id: SimulationId,
     pub order: Order,
     pub parents: Vec<Order>,
-    /// Whether any parent is an ACE unlock tx (vs just nonce dependencies)
-    pub has_ace_unlock_parent: bool,
+    /// ACE contracts for which we've already provided unlock parents.
+    /// Used to determine if a failure is genuine (contract already unlocked) or needs retry.
+    /// Supports multiple ACE contracts - order can progressively discover needed unlocks.
+    pub ace_unlock_contracts: HashSet<Address>,
 }
 
 #[derive(Debug)]
@@ -144,6 +148,8 @@ pub enum SimulatedResult {
         id: SimulationId,
         order: Order,
         failure: SimulationFailure,
+        /// ACE contracts that were already provided as unlock parents (preserved for re-queuing)
+        ace_unlock_contracts: HashSet<Address>,
         simulation_time: Duration,
     },
 }
@@ -246,6 +252,7 @@ impl SimTree {
                     PendingOrder {
                         order,
                         unsatisfied_dependencies,
+                        ace_unlock_contracts: HashSet::default(),
                     },
                 );
             }
@@ -254,7 +261,7 @@ impl SimTree {
                     id: rand::random(),
                     order,
                     parents,
-                    has_ace_unlock_parent: false,
+                    ace_unlock_contracts: HashSet::default(),
                 });
             }
         }
@@ -333,43 +340,53 @@ impl SimTree {
     }
 
     /// Check if an order needs ACE unlock and add that dependency.
-    /// Called after initial simulation when we detect a NonUnlocking ACE interaction.
-    fn add_ace_dependency_for_order(
+    /// Called after simulation when we detect a NonUnlocking ACE interaction.
+    /// Supports progressive multi-ACE discovery - existing_ace_unlock_contracts contains
+    /// contracts we've already provided unlocks for in previous sim attempts.
+    pub fn add_ace_dependency_for_order(
         &mut self,
         order: Order,
-        contract_address: Address,
+        new_contract: Address,
+        mut existing_ace_unlock_contracts: HashSet<Address>,
     ) -> Result<(), ProviderError> {
-        let dep_key = DependencyKey::AceUnlock(contract_address);
+        // Add new contract to the set
+        existing_ace_unlock_contracts.insert(new_contract);
+        let dep_key = DependencyKey::AceUnlock(new_contract);
 
-        // Check if we already have an unlock provider
-        if let Some(sim_id) = self.dependency_providers.get(&dep_key) {
-            let Some(sim) = self.sims.get(sim_id) else {
-                error!("SimTree bug: ACE unlock provider sim not found");
-                // Fall through to pending logic below
-                return self.add_order_to_pending(order, dep_key);
-            };
-            let mut parents = sim.previous_orders.clone();
-            parents.push(sim.simulated_order.order.clone());
+        // Check if we already have an unlock provider for the new contract
+        if self.dependency_providers.contains_key(&dep_key) {
+            // Build parents from ALL ACE unlock contracts we need
+            let mut parents = Vec::new();
+            for contract in &existing_ace_unlock_contracts {
+                let key = DependencyKey::AceUnlock(*contract);
+                if let Some(sim_id) = self.dependency_providers.get(&key) {
+                    if let Some(sim) = self.sims.get(sim_id) {
+                        parents.extend(sim.previous_orders.clone());
+                        parents.push(sim.simulated_order.order.clone());
+                    }
+                }
+            }
 
-            // Order is ready with the unlock tx as parent
+            // Order is ready with all unlock txs as parents
             self.ready_orders.push(SimulationRequest {
                 id: rand::random(),
                 order,
                 parents,
-                has_ace_unlock_parent: true,
+                ace_unlock_contracts: existing_ace_unlock_contracts,
             });
             return Ok(());
         }
 
-        // No unlock yet - add to pending
-        self.add_order_to_pending(order, dep_key)
+        // New unlock not yet available - add to pending
+        self.add_order_to_pending_with_ace(order, dep_key, existing_ace_unlock_contracts)
     }
 
-    /// Helper to add an order to pending state with a single dependency
-    fn add_order_to_pending(
+    /// Helper to add an order to pending state with ACE unlock tracking
+    fn add_order_to_pending_with_ace(
         &mut self,
         order: Order,
         dep_key: DependencyKey,
+        ace_unlock_contracts: HashSet<Address>,
     ) -> Result<(), ProviderError> {
         self.pending_dependencies
             .entry(dep_key)
@@ -380,6 +397,7 @@ impl SimTree {
             PendingOrder {
                 order,
                 unsatisfied_dependencies: 1,
+                ace_unlock_contracts,
             },
         );
         Ok(())
@@ -421,14 +439,15 @@ impl SimTree {
                 simulated_order: simulated_order.clone(),
             },
         );
-        let mut orders_ready = Vec::new();
-        let mut is_ace_dependency = false;
+        // Track orders that become ready along with their ACE state
+        let mut orders_ready: Vec<PendingOrder> = Vec::new();
+        let mut ace_unlock_contract: Option<Address> = None;
 
         // Process each dependency this simulation satisfies
         for dep_key in dependencies_satisfied.iter().cloned() {
-            // Track if any dependency is an ACE unlock
-            if matches!(dep_key, DependencyKey::AceUnlock(_)) {
-                is_ace_dependency = true;
+            // Track if this dependency is an ACE unlock and which contract
+            if let DependencyKey::AceUnlock(contract) = dep_key {
+                ace_unlock_contract = Some(contract);
             }
 
             match self.dependency_providers.entry(dep_key.clone()) {
@@ -467,7 +486,7 @@ impl SimTree {
                                     let pending_order = entry.get_mut();
                                     pending_order.unsatisfied_dependencies -= 1;
                                     if pending_order.unsatisfied_dependencies == 0 {
-                                        orders_ready.push(entry.remove().order);
+                                        orders_ready.push(entry.remove());
                                     }
                                 }
                                 Entry::Vacant(_) => {
@@ -481,20 +500,22 @@ impl SimTree {
             }
         }
 
-        for ready_order in orders_ready {
-            let pending_state = self.get_order_dependency_state(&ready_order)?;
+        for mut ready_pending_order in orders_ready {
+            let pending_state = self.get_order_dependency_state(&ready_pending_order.order)?;
             match pending_state {
                 OrderDependencyState::Ready(mut parents) => {
                     // If this order became ready due to ACE unlock, add the unlock tx as parent
-                    if is_ace_dependency {
+                    // and track the contract in ace_unlock_contracts
+                    if let Some(contract) = ace_unlock_contract {
+                        ready_pending_order.ace_unlock_contracts.insert(contract);
                         parents.extend(previous_orders.iter().cloned());
                         parents.push(simulated_order.order.clone());
                     }
                     self.ready_orders.push(SimulationRequest {
                         id: rand::random(),
-                        order: ready_order,
+                        order: ready_pending_order.order,
                         parents,
-                        has_ace_unlock_parent: is_ace_dependency,
+                        ace_unlock_contracts: ready_pending_order.ace_unlock_contracts,
                     });
                 }
                 OrderDependencyState::Invalid => {
@@ -637,10 +658,16 @@ impl SimTree {
                             ace_dependency: Some(contract_address),
                             ..
                         },
+                    ace_unlock_contracts,
                     ..
                 } => {
                     // Order failed but needs ACE unlock - queue for re-simulation
-                    self.add_ace_dependency_for_order(order, contract_address)?;
+                    // Pass existing ace_unlock_contracts to support progressive multi-ACE discovery
+                    self.add_ace_dependency_for_order(
+                        order,
+                        contract_address,
+                        ace_unlock_contracts,
+                    )?;
                 }
                 SimulatedResult::Failed { .. } => {
                     // Permanent failure - nothing to do
@@ -713,7 +740,7 @@ where
                 &mut local_ctx,
                 &mut block_state,
                 sim_tree.ace_configs(),
-                sim_task.has_ace_unlock_parent,
+                &sim_task.ace_unlock_contracts,
             )?;
             let (_, provider) = block_state.into_parts();
             state_for_sim = provider;
@@ -721,7 +748,12 @@ where
                 OrderSimResult::Failed(failure) => {
                     if let Some(contract_address) = failure.ace_dependency {
                         // Order failed but needs ACE unlock - queue for re-simulation
-                        sim_tree.add_ace_dependency_for_order(sim_task.order, contract_address)?;
+                        // Pass existing ace_unlock_contracts for progressive multi-ACE discovery
+                        sim_tree.add_ace_dependency_for_order(
+                            sim_task.order,
+                            contract_address,
+                            sim_task.ace_unlock_contracts,
+                        )?;
                     } else {
                         // Permanent failure
                         trace!(
@@ -779,7 +811,7 @@ pub fn simulate_order(
     local_ctx: &mut ThreadBlockBuildingContext,
     state: &mut BlockState,
     ace_configs: &HashMap<Address, AceConfig>,
-    has_ace_unlock_parent: bool,
+    ace_unlock_contracts: &HashSet<Address>,
 ) -> Result<OrderSimResultWithGas, CriticalCommitOrderError> {
     let mut tracer = AccumulatorSimulationTracer::new();
     let mut fork = PartialBlockFork::new(state, ctx, local_ctx).with_tracer(&mut tracer);
@@ -790,7 +822,7 @@ pub fn simulate_order(
         &mut fork,
         &ctx.mempool_tx_detector,
         ace_configs,
-        has_ace_unlock_parent,
+        ace_unlock_contracts,
     );
     fork.rollback(rollback_point);
     let sim_res = sim_res?;
@@ -808,7 +840,7 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
     fork: &mut PartialBlockFork<'_, '_, '_, '_, Tracer, NullPartialBlockForkExecutionTracer>,
     mempool_tx_detector: &MempoolTxsDetector,
     ace_configs: &HashMap<Address, AceConfig>,
-    has_ace_unlock_parent: bool,
+    ace_unlock_contracts: &HashSet<Address>,
 ) -> Result<OrderSimResult, CriticalCommitOrderError> {
     let start = Instant::now();
 
@@ -886,22 +918,23 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
             let ace_dependency = if let Some(AceInteraction::NonUnlocking { contract_address }) =
                 ace_interaction
             {
-                if has_ace_unlock_parent {
-                    // Order had ACE unlock parent but still failed - genuine failure
+                if ace_unlock_contracts.contains(&contract_address) {
+                    // Already had unlock for this contract but still failed - genuine failure
                     tracing::debug!(
                         order = ?order.id(),
                         ?err,
                         ?contract_address,
-                        "Order failed despite having ACE unlock parent - treating as genuine failure"
+                        "Order failed despite having ACE unlock for this contract - genuine failure"
                     );
                     None
                 } else {
-                    // No ACE unlock parent - needs re-simulation with unlock
+                    // Need unlock for this contract (might already have others)
                     tracing::debug!(
                         order = ?order.id(),
                         ?err,
                         ?contract_address,
-                        "Order failed due to locked ACE - needs re-simulation with unlock"
+                        existing_unlocks = ?ace_unlock_contracts,
+                        "Order needs additional ACE unlock"
                     );
                     Some(contract_address)
                 }

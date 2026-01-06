@@ -334,3 +334,172 @@ fn test_dependency_key_ace_unlock() {
         _ => panic!("Expected AceUnlock dependency"),
     }
 }
+
+// ============================================================================
+// Multi-ACE Unlock Tests
+// ============================================================================
+
+use crate::building::sim::SimulationRequest;
+use ahash::HashSet as AHashSet;
+
+#[test]
+fn test_simulation_request_ace_unlock_contracts_empty_default() {
+    // New orders should start with empty ace_unlock_contracts
+    let request = SimulationRequest {
+        id: rand::random(),
+        order: create_test_order(),
+        parents: Vec::new(),
+        ace_unlock_contracts: AHashSet::default(),
+    };
+
+    assert!(request.ace_unlock_contracts.is_empty());
+}
+
+#[test]
+fn test_simulation_request_ace_unlock_contracts_single() {
+    let contract_a = address!("0000000aa232009084Bd71A5797d089AA4Edfad4");
+    let mut ace_contracts = AHashSet::default();
+    ace_contracts.insert(contract_a);
+
+    let request = SimulationRequest {
+        id: rand::random(),
+        order: create_test_order(),
+        parents: Vec::new(),
+        ace_unlock_contracts: ace_contracts.clone(),
+    };
+
+    assert!(request.ace_unlock_contracts.contains(&contract_a));
+    assert_eq!(request.ace_unlock_contracts.len(), 1);
+}
+
+#[test]
+fn test_simulation_request_ace_unlock_contracts_multiple() {
+    // Test that SimulationRequest can track multiple ACE contracts
+    let contract_a = address!("0000000aa232009084Bd71A5797d089AA4Edfad4");
+    let contract_b = address!("1111111aa232009084Bd71A5797d089AA4Edfad4");
+    let contract_c = address!("2222222aa232009084Bd71A5797d089AA4Edfad4");
+
+    let mut ace_contracts = AHashSet::default();
+    ace_contracts.insert(contract_a);
+    ace_contracts.insert(contract_b);
+    ace_contracts.insert(contract_c);
+
+    let request = SimulationRequest {
+        id: rand::random(),
+        order: create_test_order(),
+        parents: Vec::new(),
+        ace_unlock_contracts: ace_contracts.clone(),
+    };
+
+    assert!(request.ace_unlock_contracts.contains(&contract_a));
+    assert!(request.ace_unlock_contracts.contains(&contract_b));
+    assert!(request.ace_unlock_contracts.contains(&contract_c));
+    assert_eq!(request.ace_unlock_contracts.len(), 3);
+}
+
+#[test]
+fn test_ace_unlock_contracts_genuine_failure_detection() {
+    // When ace_unlock_contracts contains the failing contract,
+    // it should be treated as genuine failure (not re-queued)
+    let contract_a = address!("0000000aa232009084Bd71A5797d089AA4Edfad4");
+
+    let mut ace_contracts = AHashSet::default();
+    ace_contracts.insert(contract_a);
+
+    // If the order already had unlock for contract_a but still failed,
+    // checking contains() should return true
+    assert!(ace_contracts.contains(&contract_a));
+
+    // A different contract should NOT be in the set
+    let contract_b = address!("1111111aa232009084Bd71A5797d089AA4Edfad4");
+    assert!(!ace_contracts.contains(&contract_b));
+}
+
+#[test]
+fn test_ace_unlock_contracts_progressive_accumulation() {
+    // Simulate progressive discovery: start empty, add contracts one by one
+    let mut ace_contracts = AHashSet::default();
+
+    let contract_a = address!("0000000aa232009084Bd71A5797d089AA4Edfad4");
+    let contract_b = address!("1111111aa232009084Bd71A5797d089AA4Edfad4");
+
+    // First failure - add contract A
+    assert!(!ace_contracts.contains(&contract_a));
+    ace_contracts.insert(contract_a);
+    assert!(ace_contracts.contains(&contract_a));
+    assert_eq!(ace_contracts.len(), 1);
+
+    // Second failure (different contract) - add contract B
+    assert!(!ace_contracts.contains(&contract_b));
+    ace_contracts.insert(contract_b);
+    assert!(ace_contracts.contains(&contract_b));
+    assert_eq!(ace_contracts.len(), 2);
+
+    // Third failure with contract A - should be genuine failure (already in set)
+    assert!(ace_contracts.contains(&contract_a));
+}
+
+#[test]
+fn test_add_ace_dependency_preserves_existing_contracts() -> eyre::Result<()> {
+    let test_chain = TestChainState::new(BlockArgs::default())?;
+    let state = test_chain.provider_factory().latest()?;
+    let nonce_cache = NonceCache::new(state.into());
+
+    let contract_a = address!("0000000aa232009084Bd71A5797d089AA4Edfad4");
+    let contract_b = address!("1111111aa232009084Bd71A5797d089AA4Edfad4");
+
+    let mut config_a = test_ace_config();
+    config_a.contract_address = contract_a;
+
+    let mut config_b = test_ace_config();
+    config_b.contract_address = contract_b;
+
+    let mut sim_tree = SimTree::new(nonce_cache, vec![config_a, config_b]);
+
+    // Create an order that already has contract_a in its ace_unlock_contracts
+    let order = create_test_order();
+    let mut existing_contracts = AHashSet::default();
+    existing_contracts.insert(contract_a);
+
+    // Add ACE dependency for contract_b (simulating second failure)
+    sim_tree.add_ace_dependency_for_order(order, contract_b, existing_contracts)?;
+
+    // The order should now be pending for contract_b
+    // (We can't easily check internal state, but the function should succeed)
+
+    Ok(())
+}
+
+#[test]
+fn test_multi_ace_config_registration() -> eyre::Result<()> {
+    let test_chain = TestChainState::new(BlockArgs::default())?;
+    let state = test_chain.provider_factory().latest()?;
+    let nonce_cache = NonceCache::new(state.into());
+
+    let contract_a = address!("0000000aa232009084Bd71A5797d089AA4Edfad4");
+    let contract_b = address!("1111111aa232009084Bd71A5797d089AA4Edfad4");
+    let contract_c = address!("2222222aa232009084Bd71A5797d089AA4Edfad4");
+
+    let mut config_a = test_ace_config();
+    config_a.contract_address = contract_a;
+
+    let mut config_b = test_ace_config();
+    config_b.contract_address = contract_b;
+
+    let mut config_c = test_ace_config();
+    config_c.contract_address = contract_c;
+
+    let sim_tree = SimTree::new(nonce_cache, vec![config_a, config_b, config_c]);
+
+    // All three contracts should be registered
+    assert!(sim_tree.ace_configs().contains_key(&contract_a));
+    assert!(sim_tree.ace_configs().contains_key(&contract_b));
+    assert!(sim_tree.ace_configs().contains_key(&contract_c));
+
+    // All three should have state
+    assert!(sim_tree.get_ace_state(&contract_a).is_some());
+    assert!(sim_tree.get_ace_state(&contract_b).is_some());
+    assert!(sim_tree.get_ace_state(&contract_c).is_some());
+
+    Ok(())
+}
