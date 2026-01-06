@@ -1,7 +1,6 @@
 use crate::telemetry::{add_gzip_compression_time, add_ssz_encoding_time};
 
 use super::utils::u256decimal_serde_helper;
-use itertools::Itertools;
 
 use alloy_primitives::{utils::parse_ether, Address, BlockHash, U256};
 use alloy_rpc_types_beacon::BlsPublicKey;
@@ -795,29 +794,6 @@ impl RelayClient {
             );
             if let Some(top_competitor_bid) = metadata.value.top_competitor_bid {
                 builder = builder.header(TOP_BID_HEADER, top_competitor_bid.to_string());
-            }
-            if !metadata.order_ids.is_empty() {
-                const MAX_BUNDLE_IDS: usize = 150;
-                let bundle_ids: Vec<_> = metadata
-                    .order_ids
-                    .iter()
-                    .filter_map(|order| match order {
-                        rbuilder_primitives::OrderId::Tx(_fixed_bytes) => None,
-                        rbuilder_primitives::OrderId::Bundle(uuid) => Some(uuid),
-                        rbuilder_primitives::OrderId::ShareBundle(_fixed_bytes) => None,
-                    })
-                    .collect();
-                let total_bundles = bundle_ids.len();
-                let mut bundle_ids = bundle_ids
-                    .iter()
-                    .take(MAX_BUNDLE_IDS)
-                    .map(|uuid| format!("{uuid:?}"));
-                let bundle_ids = if total_bundles > MAX_BUNDLE_IDS {
-                    bundle_ids.join(",") + ",CAPPED"
-                } else {
-                    bundle_ids.join(",")
-                };
-                builder = builder.header(BUNDLE_HASHES_HEADER, bundle_ids);
             }
 
             const MAX_BUNDLE_HASHES: usize = 150;
