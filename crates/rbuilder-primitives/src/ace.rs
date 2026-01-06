@@ -9,9 +9,6 @@ pub type Selector = FixedBytes<4>;
 /// Configuration for an ACE (Application Controlled Execution) protocol
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct AceConfig {
-    /// Whether this ACE config is enabled
-    #[serde(default = "default_enabled")]
-    pub enabled: bool,
     /// The primary contract address for this ACE protocol (used as unique identifier)
     pub contract_address: Address,
     /// Addresses that send ACE orders (used to identify force unlocks)
@@ -24,10 +21,6 @@ pub struct AceConfig {
     pub unlock_signatures: HashSet<Selector>,
     /// Function selectors (4 bytes) that indicate a forced unlock operation
     pub force_signatures: HashSet<Selector>,
-}
-
-fn default_enabled() -> bool {
-    true
 }
 
 /// Classify an ACE order interaction type based on state trace, simulation success, and config.
@@ -154,7 +147,6 @@ mod tests {
     /// Create the real ACE config from the provided TOML configuration
     fn real_ace_config() -> AceConfig {
         AceConfig {
-            enabled: true,
             contract_address: address!("0000000aa232009084Bd71A5797d089AA4Edfad4"),
             from_addresses: HashSet::from([
                 address!("c41ae140ca9b281d8a1dc254c50e446019517d04"),
@@ -364,30 +356,6 @@ mod tests {
         assert_eq!(
             result, None,
             "Should return None when wrong slot is accessed"
-        );
-    }
-
-    #[test]
-    fn test_ace_disabled_config() {
-        let mut config = real_ace_config();
-        config.enabled = false;
-
-        let contract = config.contract_address;
-        let detection_slot = *config.detection_slots.iter().next().unwrap();
-        let force_selector = *config.force_signatures.iter().next().unwrap();
-
-        let trace = mock_state_trace_with_slot(contract, detection_slot);
-
-        // Classification still works even if disabled - filtering happens at higher level
-        let result =
-            classify_ace_interaction(&trace, true, &config, Some(force_selector), Some(contract));
-
-        assert_eq!(
-            result,
-            Some(AceInteraction::Unlocking {
-                contract_address: contract,
-                source: AceUnlockSource::ProtocolForce
-            })
         );
     }
 

@@ -849,9 +849,6 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
 
     let ace_interaction = used_state_trace.as_ref().and_then(|trace| {
         ace_configs.iter().find_map(|(_, config)| {
-            if !config.enabled {
-                return None;
-            }
             classify_ace_interaction(trace, sim_success, config, selector, tx_to)
         })
     });

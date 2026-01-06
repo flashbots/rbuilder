@@ -164,7 +164,6 @@ where
                 let ace_configs_map: ahash::HashMap<_, _> = if ace_enabled {
                     ace_config
                         .iter()
-                        .filter(|c| c.enabled)
                         .map(|c| (c.contract_address, c.clone()))
                         .collect()
                 } else {

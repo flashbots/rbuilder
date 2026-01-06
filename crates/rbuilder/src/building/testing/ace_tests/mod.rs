@@ -33,7 +33,6 @@ fn create_test_order() -> Order {
 /// Create the real ACE config for testing
 fn test_ace_config() -> AceConfig {
     AceConfig {
-        enabled: true,
         contract_address: address!("0000000aa232009084Bd71A5797d089AA4Edfad4"),
         from_addresses: HashSet::from([address!("c41ae140ca9b281d8a1dc254c50e446019517d04")]),
         to_addresses: HashSet::from([address!("0000000aa232009084Bd71A5797d089AA4Edfad4")]),
