@@ -95,25 +95,6 @@ fn create_optional_unlock_order(contract: Address, gas_used: u64) -> Arc<Simulat
     })
 }
 
-/// Create a mock non-unlocking order (accesses ACE slot but doesn't unlock)
-#[allow(dead_code)]
-fn create_non_unlocking_order(contract: Address, gas_used: u64) -> Arc<SimulatedOrder> {
-    let slot = b256!("0000000000000000000000000000000000000000000000000000000000000003");
-    Arc::new(SimulatedOrder {
-        order: create_test_order(),
-        sim_value: SimValue::new(
-            U256::from(15),
-            U256::from(15),
-            BlockSpace::new(gas_used, 0, 0),
-            Vec::new(),
-        ),
-        used_state_trace: Some(mock_state_trace_with_ace_slot(contract, slot)),
-        ace_interaction: Some(AceInteraction::NonUnlocking {
-            contract_address: contract,
-        }),
-    })
-}
-
 #[test]
 fn test_ace_exchange_state_get_unlock_order_force_only() {
     let order = create_force_unlock_order(
