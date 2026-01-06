@@ -190,8 +190,8 @@ impl SimulationJob {
         &mut self,
         new_sim_results: &mut Vec<SimulatedResult>,
     ) -> bool {
-        // send results
-        let mut valid_simulated_orders = Vec::new();
+        // Results to pass to sim_tree: successful sims and failed ones needing ACE re-queue
+        let mut sim_tree_results = Vec::new();
         for sim_result in new_sim_results.drain(..) {
             match &sim_result {
                 SimulatedResult::Success {
@@ -225,22 +225,20 @@ impl SimulationJob {
                                 self.sim_tracer.update_simulation_sent(&sim_result);
                             }
                         }
-                        valid_simulated_orders.push(sim_result);
+                        sim_tree_results.push(sim_result);
                     }
                 }
-                SimulatedResult::Failed { ref failure, .. } => {
-                    if failure.ace_dependency.is_some() {
-                        // Pass through to sim_tree for re-queuing with ACE unlock parent
-                        valid_simulated_orders.push(sim_result);
-                    }
-                    // Permanent failures are dropped
+                SimulatedResult::Failed { .. } => {
+                    // Failed with ACE dependency - pass to sim_tree for re-queuing with unlock parent
+                    // Note: sim_worker only sends Failed results when ace_dependency.is_some()
+                    sim_tree_results.push(sim_result);
                 }
             }
         }
         // update simtree
         let (_, cancellations) = match self
             .sim_tree
-            .submit_simulation_tasks_results(valid_simulated_orders)
+            .submit_simulation_tasks_results(sim_tree_results)
         {
             Ok(result) => result,
             Err(err) => {
