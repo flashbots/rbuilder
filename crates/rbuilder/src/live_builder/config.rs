@@ -511,7 +511,7 @@ impl LiveBuilderConfig for Config {
         Ok(live_builder.with_builders(builders))
     }
 
-    fn version_for_telemetry(&self) -> crate::utils::build_info::Version {
+    fn version_for_telemetry(&self) -> rbuilder_utils::build_info::Version {
         rbuilder_version()
     }
 

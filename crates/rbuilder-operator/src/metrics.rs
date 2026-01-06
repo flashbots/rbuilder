@@ -10,8 +10,9 @@ use prometheus::{
 };
 use rbuilder::{
     telemetry::{exponential_buckets_range, REGISTRY},
-    utils::{self, build_info::Version},
+    utils::{self},
 };
+use rbuilder_utils::build_info::Version;
 use rbuilder_utils::clickhouse::Quantities;
 
 register_metrics! {
