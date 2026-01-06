@@ -228,9 +228,12 @@ impl SimulationJob {
                         valid_simulated_orders.push(sim_result);
                     }
                 }
-                SimulatedResult::NonUnlockingAce { .. } => {
-                    // Pass through to sim_tree for re-queuing with ACE unlock parent
-                    valid_simulated_orders.push(sim_result);
+                SimulatedResult::Failed { ref failure, .. } => {
+                    if failure.ace_dependency.is_some() {
+                        // Pass through to sim_tree for re-queuing with ACE unlock parent
+                        valid_simulated_orders.push(sim_result);
+                    }
+                    // Permanent failures are dropped
                 }
             }
         }

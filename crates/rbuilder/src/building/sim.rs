@@ -32,19 +32,23 @@ use std::{
 };
 use tracing::{error, trace};
 
+/// Information about a simulation failure
+#[derive(Debug)]
+pub struct SimulationFailure {
+    /// The error that caused the failure
+    pub error: OrderErr,
+    /// If Some, this order needs an ACE unlock from this contract before it can succeed.
+    /// The order should be queued for re-simulation once the unlock tx is available.
+    pub ace_dependency: Option<Address>,
+}
+
 #[derive(Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum OrderSimResult {
     /// Order simulated successfully
     Success(Arc<SimulatedOrder>, Vec<(Address, u64)>),
     /// Order simulation failed
-    Failed(OrderErr),
-    /// Order failed but accessed an ACE exchange that wasn't unlocked.
-    /// This order should be queued for re-simulation once the unlock tx is available.
-    NonUnlockingAce {
-        order: Order,
-        contract_address: Address,
-    },
+    Failed(SimulationFailure),
 }
 
 #[derive(Debug)]
@@ -123,7 +127,7 @@ pub struct SimulationRequest {
     pub has_ace_unlock_parent: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum SimulatedResult {
     /// Successful simulation
@@ -135,11 +139,20 @@ pub enum SimulatedResult {
         dependencies_satisfied: Vec<DependencyKey>,
         simulation_time: Duration,
     },
-    /// Order failed due to locked ACE - needs re-simulation with unlock parent
-    NonUnlockingAce {
+    /// Order simulation failed
+    Failed {
+        id: SimulationId,
         order: Order,
-        contract_address: Address,
+        failure: SimulationFailure,
+        simulation_time: Duration,
     },
+}
+
+/// Minimal data stored for completed simulations (to avoid Clone on full SimulatedResult)
+#[derive(Debug, Clone)]
+struct StoredSimulation {
+    previous_orders: Vec<Order>,
+    simulated_order: Arc<SimulatedOrder>,
 }
 
 // @Feat replaceable orders
@@ -148,7 +161,7 @@ pub struct SimTree {
     // fields for nonce management
     nonces: NonceCache,
 
-    sims: HashMap<SimulationId, SimulatedResult>,
+    sims: HashMap<SimulationId, StoredSimulation>,
     /// Maps a dependency to the simulation that provides it (for single-dependency sims)
     dependency_providers: HashMap<DependencyKey, SimulationId>,
 
@@ -302,15 +315,8 @@ impl SimTree {
                             pending_deps.push(dep_key);
                             continue;
                         };
-                        if let SimulatedResult::Success {
-                            previous_orders,
-                            simulated_order,
-                            ..
-                        } = sim
-                        {
-                            parent_orders.extend_from_slice(previous_orders);
-                            parent_orders.push(simulated_order.order.clone());
-                        }
+                        parent_orders.extend_from_slice(&sim.previous_orders);
+                        parent_orders.push(sim.simulated_order.order.clone());
                         continue;
                     }
 
@@ -342,24 +348,17 @@ impl SimTree {
                 // Fall through to pending logic below
                 return self.add_order_to_pending(order, dep_key);
             };
-            if let SimulatedResult::Success {
-                previous_orders,
-                simulated_order,
-                ..
-            } = sim
-            {
-                let mut parents = previous_orders.clone();
-                parents.push(simulated_order.order.clone());
+            let mut parents = sim.previous_orders.clone();
+            parents.push(sim.simulated_order.order.clone());
 
-                // Order is ready with the unlock tx as parent
-                self.ready_orders.push(SimulationRequest {
-                    id: rand::random(),
-                    order,
-                    parents,
-                    has_ace_unlock_parent: true,
-                });
-                return Ok(());
-            }
+            // Order is ready with the unlock tx as parent
+            self.ready_orders.push(SimulationRequest {
+                id: rand::random(),
+                order,
+                parents,
+                has_ace_unlock_parent: true,
+            });
+            return Ok(());
         }
 
         // No unlock yet - add to pending
@@ -401,13 +400,13 @@ impl SimTree {
     // we don't really need state here because nonces are cached but its smaller if we reuse pending state fn
     fn process_simulation_task_result(
         &mut self,
-        result: SimulatedResult,
+        result: &SimulatedResult,
     ) -> Result<(), ProviderError> {
         let SimulatedResult::Success {
             id,
-            ref simulated_order,
-            ref previous_orders,
-            ref dependencies_satisfied,
+            simulated_order,
+            previous_orders,
+            dependencies_satisfied,
             ..
         } = result
         else {
@@ -415,7 +414,13 @@ impl SimTree {
             return Ok(());
         };
 
-        self.sims.insert(id, result.clone());
+        self.sims.insert(
+            *id,
+            StoredSimulation {
+                previous_orders: previous_orders.clone(),
+                simulated_order: simulated_order.clone(),
+            },
+        );
         let mut orders_ready = Vec::new();
         let mut is_ace_dependency = false;
 
@@ -431,12 +436,9 @@ impl SimTree {
                     // Already have a provider - check if this one is more profitable
                     let current_sim_profit = {
                         let sim_id = entry.get_mut();
-                        if let Some(SimulatedResult::Success {
-                            simulated_order: existing_order,
-                            ..
-                        }) = self.sims.get(sim_id)
-                        {
-                            existing_order
+                        if let Some(existing_sim) = self.sims.get(sim_id) {
+                            existing_sim
+                                .simulated_order
                                 .sim_value
                                 .full_profit_info()
                                 .coinbase_profit()
@@ -450,12 +452,12 @@ impl SimTree {
                         .coinbase_profit()
                         > current_sim_profit
                     {
-                        entry.insert(id);
+                        entry.insert(*id);
                     }
                 }
                 Entry::Vacant(entry) => {
                     // First provider for this dependency
-                    entry.insert(id);
+                    entry.insert(*id);
 
                     // Unblock orders waiting on this dependency
                     if let Some(pending_order_ids) = self.pending_dependencies.remove(&dep_key) {
@@ -518,7 +520,6 @@ impl SimTree {
         let SimulatedResult::Success {
             simulated_order,
             previous_orders,
-            dependencies_satisfied,
             ..
         } = result
         else {
@@ -551,17 +552,33 @@ impl SimTree {
             }
             AceUnlockSource::ProtocolOptional => {
                 let state = self.ace_state.entry(contract_address).or_default();
+
+                // Check if user unlock already available - cancel optional
+                if state.has_mempool_unlock {
+                    trace!(
+                        "Cancelling optional ACE unlock for {:?} - user unlock exists",
+                        contract_address
+                    );
+                    return Ok(Some(simulated_order.order.id()));
+                }
+
+                // Only include optional if there are orders waiting on this unlock
+                let dep_key = DependencyKey::AceUnlock(contract_address);
+                if !self.pending_dependencies.contains_key(&dep_key) {
+                    trace!(
+                        "Cancelling optional ACE unlock for {:?} - no pending orders need it",
+                        contract_address
+                    );
+                    return Ok(Some(simulated_order.order.id()));
+                }
+
+                // Store optional unlock - there are orders waiting for it
                 state.optional_unlock_order = Some(simulated_order.clone());
                 trace!(
                     "Added optional ACE protocol unlock order for {:?}",
                     contract_address
                 );
-                // Check if we should cancel the optional ACE order (mempool unlock arrived first)
-                if state.has_mempool_unlock {
-                    state.optional_unlock_order.take().map(|o| o.order.id())
-                } else {
-                    None
-                }
+                None
             }
             AceUnlockSource::User => {
                 // A user unlocked ACE via mempool - mark it and cancel any optional protocol order
@@ -569,12 +586,6 @@ impl SimTree {
                 self.mark_mempool_unlock(contract_address)
             }
         };
-
-        // Make sure the ACE unlock dependency is in dependencies_satisfied
-        let dep_key = DependencyKey::AceUnlock(contract_address);
-        if !dependencies_satisfied.contains(&dep_key) {
-            dependencies_satisfied.push(dep_key);
-        }
 
         Ok(cancellation)
     }
@@ -616,15 +627,23 @@ impl SimTree {
                         cancellations.push(id);
                     }
                     // All successful results need to be processed for dependency tracking
-                    self.process_simulation_task_result(result.clone())?;
+                    self.process_simulation_task_result(&result)?;
                     successful_results.push(result);
                 }
-                SimulatedResult::NonUnlockingAce {
+                SimulatedResult::Failed {
                     order,
-                    contract_address,
+                    failure:
+                        SimulationFailure {
+                            ace_dependency: Some(contract_address),
+                            ..
+                        },
+                    ..
                 } => {
-                    // Queue this order for re-simulation with ACE unlock parent
+                    // Order failed but needs ACE unlock - queue for re-simulation
                     self.add_ace_dependency_for_order(order, contract_address)?;
+                }
+                SimulatedResult::Failed { .. } => {
+                    // Permanent failure - nothing to do
                 }
             }
         }
@@ -699,20 +718,19 @@ where
             let (_, provider) = block_state.into_parts();
             state_for_sim = provider;
             match sim_result.result {
-                OrderSimResult::Failed(err) => {
-                    trace!(
-                        order = sim_task.order.id().to_string(),
-                        ?err,
-                        "Order simulation failed"
-                    );
-                    sim_errors.push(err);
-                }
-                OrderSimResult::NonUnlockingAce {
-                    order,
-                    contract_address,
-                } => {
-                    // Queue this order to be re-simulated once ACE unlock is available
-                    sim_tree.add_ace_dependency_for_order(order, contract_address)?;
+                OrderSimResult::Failed(failure) => {
+                    if let Some(contract_address) = failure.ace_dependency {
+                        // Order failed but needs ACE unlock - queue for re-simulation
+                        sim_tree.add_ace_dependency_for_order(sim_task.order, contract_address)?;
+                    } else {
+                        // Permanent failure
+                        trace!(
+                            order = sim_task.order.id().to_string(),
+                            ?failure,
+                            "Order simulation failed"
+                        );
+                        sim_errors.push(failure.error);
+                    }
                 }
                 OrderSimResult::Success(sim_order, nonces) => {
                     let mut dependencies_satisfied: Vec<DependencyKey> = nonces
@@ -747,16 +765,7 @@ where
         sim_tree
             .sims
             .into_values()
-            .filter_map(|sim| {
-                if let SimulatedResult::Success {
-                    simulated_order, ..
-                } = sim
-                {
-                    Some(simulated_order)
-                } else {
-                    None
-                }
-            })
+            .map(|sim| sim.simulated_order)
             .collect(),
         sim_errors,
     ))
@@ -816,7 +825,10 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
             }
             Err(err) => {
                 tracing::trace!(parent_order = ?parent.id(), ?err, "failed to simulate parent order");
-                return Ok(OrderSimResult::Failed(err));
+                return Ok(OrderSimResult::Failed(SimulationFailure {
+                    error: err,
+                    ace_dependency: None,
+                }));
             }
         }
     }
@@ -828,11 +840,7 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
     add_order_simulation_time(sim_time, "sim", sim_success); // we count parent sim time + order sim time time here
 
     // Get the used_state_trace from tracer (available regardless of success/failure)
-    let used_state_trace = fork
-        .tracer
-        .as_ref()
-        .and_then(|t| t.get_used_state_tracer())
-        .cloned();
+    let used_state_trace = fork.tracer.as_mut().and_then(|t| t.take_used_state_trace());
 
     // Detect ACE interaction from the state trace using config
     // Get function selector and tx.to from order's first transaction
@@ -857,7 +865,10 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
         Ok(res) => {
             let sim_value = create_sim_value(&order, &res, mempool_tx_detector);
             if let Err(err) = order_is_worth_executing(&sim_value) {
-                return Ok(OrderSimResult::Failed(err));
+                return Ok(OrderSimResult::Failed(SimulationFailure {
+                    error: err,
+                    ace_dependency: None,
+                }));
             }
             let new_nonces = res.nonces_updated.into_iter().collect::<Vec<_>>();
             Ok(OrderSimResult::Success(
@@ -871,8 +882,10 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
             ))
         }
         Err(err) => {
-            // Check if failed order accessed ACE - queue for re-simulation with unlock parent
-            if let Some(AceInteraction::NonUnlocking { contract_address }) = ace_interaction {
+            // Check if failed order accessed ACE - may need re-simulation with unlock parent
+            let ace_dependency = if let Some(AceInteraction::NonUnlocking { contract_address }) =
+                ace_interaction
+            {
                 if has_ace_unlock_parent {
                     // Order had ACE unlock parent but still failed - genuine failure
                     tracing::debug!(
@@ -881,21 +894,25 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
                         ?contract_address,
                         "Order failed despite having ACE unlock parent - treating as genuine failure"
                     );
+                    None
                 } else {
-                    // No ACE unlock parent - queue for re-simulation with unlock
+                    // No ACE unlock parent - needs re-simulation with unlock
                     tracing::debug!(
                         order = ?order.id(),
                         ?err,
                         ?contract_address,
-                        "Order failed due to locked ACE - queueing for re-simulation with unlock"
+                        "Order failed due to locked ACE - needs re-simulation with unlock"
                     );
-                    return Ok(OrderSimResult::NonUnlockingAce {
-                        order,
-                        contract_address,
-                    });
+                    Some(contract_address)
                 }
-            }
-            Ok(OrderSimResult::Failed(err))
+            } else {
+                None
+            };
+
+            Ok(OrderSimResult::Failed(SimulationFailure {
+                error: err,
+                ace_dependency,
+            }))
         }
     }
 }

@@ -279,6 +279,41 @@ fn test_handle_ace_unlock_with_mempool_unlock() -> eyre::Result<()> {
 }
 
 #[test]
+fn test_optional_ace_not_stored_without_pending_orders() -> eyre::Result<()> {
+    let test_chain = TestChainState::new(BlockArgs::default())?;
+    let state = test_chain.provider_factory().latest()?;
+    let nonce_cache = NonceCache::new(state.into());
+
+    let ace_config = test_ace_config();
+    let contract_addr = ace_config.contract_address;
+
+    let mut sim_tree = SimTree::new(nonce_cache, vec![ace_config]);
+
+    // Create optional unlock order but NO pending orders waiting on it
+    let optional_order = create_optional_unlock_order(contract_addr, 50_000);
+
+    let mut result = SimulatedResult::Success {
+        id: rand::random(),
+        simulated_order: optional_order.clone(),
+        previous_orders: Vec::new(),
+        dependencies_satisfied: Vec::new(),
+        simulation_time: std::time::Duration::from_millis(10),
+    };
+
+    // Handle the ACE unlock - should be cancelled because no orders need it
+    let cancellation = sim_tree.handle_ace_unlock(&mut result)?;
+
+    // Optional should be cancelled because no orders are waiting
+    assert_eq!(cancellation, Some(optional_order.order.id()));
+
+    // Optional order should NOT be stored
+    let ace_state = sim_tree.get_ace_state(&contract_addr).unwrap();
+    assert!(ace_state.optional_unlock_order.is_none());
+
+    Ok(())
+}
+
+#[test]
 fn test_dependency_key_from_nonce() {
     let nonce_key = NonceKey {
         address: address!("0000000000000000000000000000000000000001"),

@@ -16,6 +16,11 @@ pub trait SimulationTracer {
     fn get_used_state_tracer(&self) -> Option<&UsedStateTrace> {
         None
     }
+
+    /// Take ownership of the used state trace, leaving a default in its place.
+    fn take_used_state_trace(&mut self) -> Option<UsedStateTrace> {
+        None
+    }
 }
 
 impl SimulationTracer for () {}
@@ -68,5 +73,9 @@ impl SimulationTracer for AccumulatorSimulationTracer {
 
     fn get_used_state_tracer(&self) -> Option<&UsedStateTrace> {
         Some(&self.used_state_trace)
+    }
+
+    fn take_used_state_trace(&mut self) -> Option<UsedStateTrace> {
+        Some(std::mem::take(&mut self.used_state_trace))
     }
 }

@@ -109,20 +109,24 @@ pub fn run_sim_worker<P>(
                             }
                             true
                         }
-                        OrderSimResult::NonUnlockingAce {
-                            order,
-                            contract_address,
-                        } => {
-                            let result = SimulatedResult::NonUnlockingAce {
-                                order,
-                                contract_address,
-                            };
-                            if current_sim_context.results.try_send(result).is_err() {
-                                error!(?order_id, "Failed to send NonUnlockingAce result");
+                        OrderSimResult::Failed(failure) => {
+                            // Only send to SimTree if there's an ACE dependency to handle
+                            if failure.ace_dependency.is_some() {
+                                let result = SimulatedResult::Failed {
+                                    id: task.id,
+                                    order: task.order,
+                                    failure,
+                                    simulation_time: start_time.elapsed(),
+                                };
+                                if current_sim_context.results.try_send(result).is_err() {
+                                    error!(
+                                        ?order_id,
+                                        "Failed to send Failed result with ACE dependency"
+                                    );
+                                }
                             }
                             false
                         }
-                        OrderSimResult::Failed(_) => false,
                     };
                     telemetry::inc_simulated_orders(sim_ok);
                     telemetry::inc_simulation_gas_used(sim_result.gas_used);
