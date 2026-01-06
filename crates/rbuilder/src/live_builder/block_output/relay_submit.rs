@@ -517,17 +517,29 @@ async fn submit_bid_to_the_relay(
                 "Block not accepted by the relay"
             );
         }
-        Err(SubmitBlockErr::SimError(_)) => {
-            inc_failed_block_simulations();
-            store_error_event(
-                SIM_ERROR_CATEGORY,
-                relay_result.as_ref().unwrap_err().to_string().as_str(),
-                &submit_block_request.submission,
-            );
-            error!(
-                err = ?relay_result.unwrap_err(),
-                "Error block simulation fail, cancelling"
-            );
+        Err(SubmitBlockErr::SimError {
+            text: _,
+            is_critical,
+        }) => {
+            let error_text = relay_result.as_ref().unwrap_err().to_string();
+            // Avoid rasing alarms or errors logs for non critical errors.
+            if is_critical {
+                inc_failed_block_simulations();
+                store_error_event(
+                    SIM_ERROR_CATEGORY,
+                    &error_text,
+                    &submit_block_request.submission,
+                );
+                error!(
+                    err = ?relay_result.unwrap_err(),
+                    "Error block simulation fail, cancelling"
+                );
+            } else {
+                warn!(
+                    err = ?relay_result.unwrap_err(),
+                    "Non critical block simulation failure, cancelling"
+                );
+            }
             cancel.cancel();
         }
         Err(SubmitBlockErr::RelayError(RelayError::TooManyRequests)) => {

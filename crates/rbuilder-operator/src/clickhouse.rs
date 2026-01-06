@@ -15,7 +15,10 @@ use rbuilder::{
 };
 use rbuilder_primitives::{Order, OrderId};
 use rbuilder_utils::clickhouse::{
-    backup::primitives::{ClickhouseIndexableData, ClickhouseRowExt},
+    backup::{
+        primitives::{ClickhouseIndexableData, ClickhouseRowExt},
+        DiskBackup, DiskBackupConfig,
+    },
     serde::{option_u256, vec_u256},
     spawn_clickhouse_inserter_and_backup,
 };
@@ -153,14 +156,22 @@ impl BuiltBlocksWriter {
         set_disk_backup_max_size(backup_max_size_bytes);
 
         let (block_tx, block_rx) = mpsc::channel::<BlockRow>(BUILT_BLOCKS_CHANNEL_SIZE);
+        let disk_backup = DiskBackup::new(
+            DiskBackupConfig::new()
+                .with_path(Some(config.disk_database_path))
+                .with_max_size_bytes(Some(
+                    config.disk_max_size_mb.unwrap_or(DEFAULT_MAX_DISK_SIZE_MB) * MEGA,
+                )),
+            &task_executor,
+        )
+        .expect("could not create disk backup");
         spawn_clickhouse_inserter_and_backup::<BlockRow, BlockRow, ClickhouseMetrics>(
             &client,
             block_rx,
             &task_executor,
             BLOCKS_TABLE_NAME.to_string(),
             "".to_string(), // No buildername used in blocks table.
-            Some(config.disk_database_path),
-            Some(backup_max_size_bytes),
+            disk_backup,
             config
                 .memory_max_size_mb
                 .unwrap_or(DEFAULT_MAX_MEMORY_SIZE_MB)
