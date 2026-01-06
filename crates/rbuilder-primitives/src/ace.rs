@@ -25,12 +25,20 @@ pub struct AceConfig {
 
 /// Classify an ACE order interaction type based on state trace, simulation success, and config.
 /// Uses both state trace (address access) AND function signatures to determine interaction type.
+///
+/// For `ProtocolForce` and `ProtocolOptional` classification, the transaction must:
+/// 1. Be a direct call to the ACE contract (`tx_to` in `config.to_addresses`)
+/// 2. Have the appropriate signature (`force_signatures` or `unlock_signatures`)
+/// 3. Be from a whitelisted address (`tx_from` in `config.from_addresses`)
+///
+/// All other unlocking transactions are classified as `User`.
 pub fn classify_ace_interaction(
     state_trace: &UsedStateTrace,
     sim_success: bool,
     config: &AceConfig,
     selector: Option<Selector>,
     tx_to: Option<Address>,
+    tx_from: Option<Address>,
 ) -> Option<AceInteraction> {
     let any_ace_slots_accessed = config
         .to_addresses
@@ -56,6 +64,9 @@ pub fn classify_ace_interaction(
     // Check if this is a direct call to the protocol
     let is_direct_protocol_call = tx_to.is_some_and(|to| config.to_addresses.contains(&to));
 
+    // Check if transaction is from a whitelisted address (required for protocol orders)
+    let is_from_whitelisted = tx_from.is_some_and(|from| config.from_addresses.contains(&from));
+
     // Check function selectors with direct HashSet lookup
     let is_force_sig = selector.is_some_and(|sel| config.force_signatures.contains(&sel));
     let is_unlock_sig = selector.is_some_and(|sel| config.unlock_signatures.contains(&sel));
@@ -63,11 +74,13 @@ pub fn classify_ace_interaction(
     let contract_address = config.contract_address;
 
     if sim_success && (is_force_sig || is_unlock_sig) {
-        let source = if is_direct_protocol_call && is_force_sig {
+        // Protocol orders require: direct call + correct signature + whitelisted sender
+        let source = if is_direct_protocol_call && is_force_sig && is_from_whitelisted {
             AceUnlockSource::ProtocolForce
-        } else if is_direct_protocol_call && is_unlock_sig {
+        } else if is_direct_protocol_call && is_unlock_sig && is_from_whitelisted {
             AceUnlockSource::ProtocolOptional
         } else {
+            // Any unlock without all three requirements is a User unlock
             AceUnlockSource::User
         };
         Some(AceInteraction::Unlocking {
@@ -185,13 +198,20 @@ mod tests {
         let contract = config.contract_address;
         let detection_slot = *config.detection_slots.iter().next().unwrap();
         let force_selector = *config.force_signatures.iter().next().unwrap();
+        let whitelisted_from = *config.from_addresses.iter().next().unwrap();
 
         // Mock state trace with detection slot accessed
         let trace = mock_state_trace_with_slot(contract, detection_slot);
 
-        // Direct call to ACE contract with force signature should be ProtocolForce
-        let result =
-            classify_ace_interaction(&trace, true, &config, Some(force_selector), Some(contract));
+        // Direct call to ACE contract with force signature FROM WHITELISTED ADDRESS should be ProtocolForce
+        let result = classify_ace_interaction(
+            &trace,
+            true,
+            &config,
+            Some(force_selector),
+            Some(contract),
+            Some(whitelisted_from),
+        );
 
         assert_eq!(
             result,
@@ -213,13 +233,20 @@ mod tests {
         let contract = config.contract_address;
         let detection_slot = *config.detection_slots.iter().next().unwrap();
         let unlock_selector = *config.unlock_signatures.iter().next().unwrap();
+        let whitelisted_from = *config.from_addresses.iter().next().unwrap();
 
         // Mock state trace with detection slot accessed
         let trace = mock_state_trace_with_slot(contract, detection_slot);
 
-        // Direct call to ACE contract with unlock signature should be ProtocolOptional
-        let result =
-            classify_ace_interaction(&trace, true, &config, Some(unlock_selector), Some(contract));
+        // Direct call to ACE contract with unlock signature FROM WHITELISTED ADDRESS should be ProtocolOptional
+        let result = classify_ace_interaction(
+            &trace,
+            true,
+            &config,
+            Some(unlock_selector),
+            Some(contract),
+            Some(whitelisted_from),
+        );
 
         assert_eq!(
             result,
@@ -245,7 +272,16 @@ mod tests {
         let trace = mock_state_trace_with_slot(contract, detection_slot);
 
         // tx.to is NOT the ACE contract (indirect call via user tx) = User unlock
-        let result = classify_ace_interaction(&trace, true, &config, Some(unlock_selector), None);
+        // Even with whitelisted from address, indirect call is User
+        let whitelisted_from = *config.from_addresses.iter().next().unwrap();
+        let result = classify_ace_interaction(
+            &trace,
+            true,
+            &config,
+            Some(unlock_selector),
+            None,
+            Some(whitelisted_from),
+        );
 
         assert_eq!(
             result,
@@ -266,11 +302,19 @@ mod tests {
         let config = real_ace_config();
         let contract = config.contract_address;
         let detection_slot = *config.detection_slots.iter().next().unwrap();
+        let whitelisted_from = *config.from_addresses.iter().next().unwrap();
 
         let trace = mock_state_trace_with_slot(contract, detection_slot);
 
         // No unlock/force signature = NonUnlocking
-        let result = classify_ace_interaction(&trace, true, &config, None, Some(contract));
+        let result = classify_ace_interaction(
+            &trace,
+            true,
+            &config,
+            None,
+            Some(contract),
+            Some(whitelisted_from),
+        );
 
         assert_eq!(
             result,
@@ -290,6 +334,7 @@ mod tests {
         let contract = config.contract_address;
         let detection_slot = *config.detection_slots.iter().next().unwrap();
         let unlock_selector = *config.unlock_signatures.iter().next().unwrap();
+        let whitelisted_from = *config.from_addresses.iter().next().unwrap();
 
         let trace = mock_state_trace_with_slot(contract, detection_slot);
 
@@ -300,6 +345,7 @@ mod tests {
             &config,
             Some(unlock_selector),
             Some(contract),
+            Some(whitelisted_from),
         );
 
         assert_eq!(
@@ -319,6 +365,7 @@ mod tests {
         let config = real_ace_config();
         let empty_trace = UsedStateTrace::default();
         let force_selector = *config.force_signatures.iter().next().unwrap();
+        let whitelisted_from = *config.from_addresses.iter().next().unwrap();
 
         // Even with valid force signature, no slot access = None
         let result = classify_ace_interaction(
@@ -327,6 +374,7 @@ mod tests {
             &config,
             Some(force_selector),
             Some(config.contract_address),
+            Some(whitelisted_from),
         );
 
         assert_eq!(
@@ -341,6 +389,7 @@ mod tests {
         let config = real_ace_config();
         let wrong_slot = b256!("0000000000000000000000000000000000000000000000000000000000000099");
         let force_selector = *config.force_signatures.iter().next().unwrap();
+        let whitelisted_from = *config.from_addresses.iter().next().unwrap();
 
         let trace = mock_state_trace_with_slot(config.contract_address, wrong_slot);
 
@@ -351,6 +400,7 @@ mod tests {
             &config,
             Some(force_selector),
             Some(config.contract_address),
+            Some(whitelisted_from),
         );
 
         assert_eq!(
@@ -489,6 +539,7 @@ mod tests {
         let config = real_ace_config();
         let contract = config.contract_address;
         let slot = b256!("0000000000000000000000000000000000000000000000000000000000000003");
+        let whitelisted_from = *config.from_addresses.iter().next().unwrap();
 
         // Optional unlock signature from real transaction
         let unlock_selector = Selector::from_slice(&[0x18, 0x28, 0xe0, 0xe7]);
@@ -496,9 +547,15 @@ mod tests {
         // Mock state trace showing slot 3 was accessed
         let trace = mock_state_trace_with_slot(contract, slot);
 
-        // Test 1: Direct call to ACE contract = ProtocolOptional
-        let result =
-            classify_ace_interaction(&trace, true, &config, Some(unlock_selector), Some(contract));
+        // Test 1: Direct call to ACE contract FROM WHITELISTED ADDRESS = ProtocolOptional
+        let result = classify_ace_interaction(
+            &trace,
+            true,
+            &config,
+            Some(unlock_selector),
+            Some(contract),
+            Some(whitelisted_from),
+        );
 
         assert_eq!(
             result,
@@ -509,8 +566,14 @@ mod tests {
         );
 
         // Test 2: Indirect call (user tx) = User unlock
-        let result_indirect =
-            classify_ace_interaction(&trace, true, &config, Some(unlock_selector), None);
+        let result_indirect = classify_ace_interaction(
+            &trace,
+            true,
+            &config,
+            Some(unlock_selector),
+            None,
+            Some(whitelisted_from),
+        );
 
         assert_eq!(
             result_indirect,
@@ -527,6 +590,7 @@ mod tests {
             &config,
             Some(unlock_selector),
             Some(contract),
+            Some(whitelisted_from),
         );
 
         assert_eq!(
@@ -544,6 +608,7 @@ mod tests {
         let contract = config.contract_address;
         let detection_slot = *config.detection_slots.iter().next().unwrap();
         let force_selector = *config.force_signatures.iter().next().unwrap();
+        let whitelisted_from = *config.from_addresses.iter().next().unwrap();
 
         let mut trace = UsedStateTrace::default();
         // Write to slot instead of reading
@@ -556,14 +621,126 @@ mod tests {
         );
 
         // Writing to detection slot should still trigger classification
-        let result =
-            classify_ace_interaction(&trace, true, &config, Some(force_selector), Some(contract));
+        let result = classify_ace_interaction(
+            &trace,
+            true,
+            &config,
+            Some(force_selector),
+            Some(contract),
+            Some(whitelisted_from),
+        );
 
         assert_eq!(
             result,
             Some(AceInteraction::Unlocking {
                 contract_address: contract,
                 source: AceUnlockSource::ProtocolForce
+            })
+        );
+    }
+
+    #[test]
+    fn test_non_whitelisted_from_address_becomes_user() {
+        // Force call from non-whitelisted address should become User, not ProtocolForce
+        let config = real_ace_config();
+        let contract = config.contract_address;
+        let detection_slot = *config.detection_slots.iter().next().unwrap();
+        let force_selector = *config.force_signatures.iter().next().unwrap();
+
+        // Use an address NOT in the whitelist
+        let non_whitelisted = address!("1111111111111111111111111111111111111111");
+        assert!(
+            !config.from_addresses.contains(&non_whitelisted),
+            "Address should not be in whitelist for this test"
+        );
+
+        let trace = mock_state_trace_with_slot(contract, detection_slot);
+
+        // Direct call with force signature but from non-whitelisted address = User
+        let result = classify_ace_interaction(
+            &trace,
+            true,
+            &config,
+            Some(force_selector),
+            Some(contract),
+            Some(non_whitelisted),
+        );
+
+        assert_eq!(
+            result,
+            Some(AceInteraction::Unlocking {
+                contract_address: contract,
+                source: AceUnlockSource::User // NOT ProtocolForce!
+            })
+        );
+
+        // Should still be unlocking, but not a protocol tx
+        assert!(result.unwrap().is_unlocking());
+        assert!(!result.unwrap().is_protocol_tx());
+    }
+
+    #[test]
+    fn test_non_whitelisted_optional_unlock_becomes_user() {
+        // Optional unlock from non-whitelisted address should become User, not ProtocolOptional
+        let config = real_ace_config();
+        let contract = config.contract_address;
+        let detection_slot = *config.detection_slots.iter().next().unwrap();
+        let unlock_selector = *config.unlock_signatures.iter().next().unwrap();
+
+        // Use an address NOT in the whitelist
+        let non_whitelisted = address!("2222222222222222222222222222222222222222");
+        assert!(!config.from_addresses.contains(&non_whitelisted));
+
+        let trace = mock_state_trace_with_slot(contract, detection_slot);
+
+        // Direct call with unlock signature but from non-whitelisted address = User
+        let result = classify_ace_interaction(
+            &trace,
+            true,
+            &config,
+            Some(unlock_selector),
+            Some(contract),
+            Some(non_whitelisted),
+        );
+
+        assert_eq!(
+            result,
+            Some(AceInteraction::Unlocking {
+                contract_address: contract,
+                source: AceUnlockSource::User // NOT ProtocolOptional!
+            })
+        );
+
+        // Should be unlocking but not a protocol tx
+        assert!(result.unwrap().is_unlocking());
+        assert!(!result.unwrap().is_protocol_tx());
+    }
+
+    #[test]
+    fn test_none_from_address_becomes_user() {
+        // When tx_from is None, should classify as User even with correct signature and direct call
+        let config = real_ace_config();
+        let contract = config.contract_address;
+        let detection_slot = *config.detection_slots.iter().next().unwrap();
+        let force_selector = *config.force_signatures.iter().next().unwrap();
+
+        let trace = mock_state_trace_with_slot(contract, detection_slot);
+
+        // Direct call with force signature but tx_from = None = User
+        let result = classify_ace_interaction(
+            &trace,
+            true,
+            &config,
+            Some(force_selector),
+            Some(contract),
+            None, // No from address
+        );
+
+        assert_eq!(
+            result,
+            Some(AceInteraction::Unlocking {
+                contract_address: contract,
+                source: AceUnlockSource::User
             })
         );
     }

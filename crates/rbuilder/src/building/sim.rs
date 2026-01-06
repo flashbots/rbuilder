@@ -536,7 +536,7 @@ impl SimTree {
     /// Note: NonUnlocking ACE interactions are handled at the OrderSimResult level.
     pub fn handle_ace_unlock(
         &mut self,
-        result: &mut SimulatedResult,
+        result: &SimulatedResult,
     ) -> Result<Option<OrderId>, ProviderError> {
         let SimulatedResult::Success {
             simulated_order,
@@ -643,8 +643,7 @@ impl SimTree {
         for result in results {
             match result {
                 SimulatedResult::Success { .. } => {
-                    let mut result = result;
-                    if let Some(id) = self.handle_ace_unlock(&mut result)? {
+                    if let Some(id) = self.handle_ace_unlock(&result)? {
                         cancellations.push(id);
                     }
                     // All successful results need to be processed for dependency tracking
@@ -705,7 +704,7 @@ where
         // shuffle orders
         orders.shuffle(&mut rng);
     } else {
-        sim_tree.push_orders(orders.clone())?;
+        sim_tree.push_orders(std::mem::take(&mut orders))?;
     }
 
     let mut sim_errors = Vec::new();
@@ -875,21 +874,23 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
     let used_state_trace = fork.tracer.as_mut().and_then(|t| t.take_used_state_trace());
 
     // Detect ACE interaction from the state trace using config
-    // Get function selector and tx.to from order's first transaction
-    let (selector, tx_to): (Option<Selector>, Option<Address>) =
-        order.list_txs().first().map_or((None, None), |(tx, _)| {
+    // Get function selector, tx.to, and tx.from from order's first transaction
+    let (selector, tx_to, tx_from): (Option<Selector>, Option<Address>, Option<Address>) = order
+        .list_txs()
+        .first()
+        .map_or((None, None, None), |(tx, _)| {
             let input = tx.internal_tx_unsecure().input();
             let sel = if input.len() >= 4 {
                 Some(Selector::from_slice(&input[..4]))
             } else {
                 None
             };
-            (sel, tx.to())
+            (sel, tx.to(), Some(tx.signer()))
         });
 
     let ace_interaction = used_state_trace.as_ref().and_then(|trace| {
         ace_configs.iter().find_map(|(_, config)| {
-            classify_ace_interaction(trace, sim_success, config, selector, tx_to)
+            classify_ace_interaction(trace, sim_success, config, selector, tx_to, tx_from)
         })
     });
 
