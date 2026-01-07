@@ -7,6 +7,17 @@ use tokio_util::sync::CancellationToken;
 
 use super::bidding_service_interface::*;
 
+/// Parsed configuration for TrueBlockValueBiddingService.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TrueBlockValueBiddingServiceConfig {
+    /// Default subsidy value.
+    pub subsidy: U256,
+    /// Per-relay subsidy overrides.
+    pub subsidy_overrides: HashMap<MevBoostRelayID, U256>,
+    /// When the sample bidder will start bidding.
+    pub slot_delta_to_start_bidding: time::Duration,
+}
+
 /// Bidding service that bids the true block value + subsidy to all relays.
 pub struct NewTrueBlockValueBiddingService {
     slot_delta_to_start_bidding: time::Duration,
@@ -15,29 +26,28 @@ pub struct NewTrueBlockValueBiddingService {
 
 impl NewTrueBlockValueBiddingService {
     pub fn new(
-        subsidy: U256,
-        subsidy_overrides: HashMap<MevBoostRelayID, U256>,
-        slot_delta_to_start_bidding: time::Duration,
+        config: &TrueBlockValueBiddingServiceConfig,
         all_relays: RelaySet,
-    ) -> Self {
+    ) -> eyre::Result<Self> {
         let mut default_relay_set: HashSet<MevBoostRelayID> =
             all_relays.relays().iter().cloned().collect();
         let mut relay_sets_subsidies = HashMap::default();
-        for (relay, subsidy) in subsidy_overrides {
+
+        for (relay, subsidy) in config.subsidy_overrides.clone() {
             default_relay_set.remove(&relay);
             relay_sets_subsidies.insert(RelaySet::new(vec![relay]), subsidy);
         }
         if !default_relay_set.is_empty() {
             relay_sets_subsidies.insert(
                 RelaySet::new(default_relay_set.into_iter().collect()),
-                subsidy,
+                config.subsidy,
             );
         }
 
-        Self {
-            slot_delta_to_start_bidding,
+        Ok(Self {
+            slot_delta_to_start_bidding: config.slot_delta_to_start_bidding,
             relay_sets_subsidies,
-        }
+        })
     }
 }
 
