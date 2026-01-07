@@ -9,7 +9,7 @@
 use crate::{
     building::BuiltBlockTrace,
     live_builder::block_list_provider::{blocklist_hash, BlockList},
-    utils::{build_info::Version, duration_ms},
+    utils::duration_ms,
 };
 use alloy_consensus::constants::GWEI_TO_WEI;
 use alloy_primitives::{utils::Unit, U256};
@@ -25,6 +25,7 @@ use prometheus::{
     IntGaugeVec, Opts, Registry,
 };
 use rbuilder_primitives::mev_boost::MevBoostRelayID;
+use rbuilder_utils::build_info::Version;
 use std::time::Duration;
 use time::OffsetDateTime;
 use tracing::error;

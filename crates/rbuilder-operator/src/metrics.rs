@@ -10,8 +10,9 @@ use prometheus::{
 };
 use rbuilder::{
     telemetry::{exponential_buckets_range, REGISTRY},
-    utils::{self, build_info::Version},
+    utils::{self},
 };
+use rbuilder_utils::build_info::Version;
 use rbuilder_utils::clickhouse::Quantities;
 
 register_metrics! {
@@ -60,17 +61,15 @@ register_metrics! {
         IntGauge::new("clickhouse_queue_size", "Size of the queue of the task that is inserting into clickhouse").unwrap();
     pub static CLICKHOUSE_DISK_BACKUP_SIZE_BYTES: IntGauge =
         IntGauge::new("clickhouse_disk_backup_size_bytes", "Space used in bytes by the local DB for failed commit batches.").unwrap();
+    pub static CLICKHOUSE_DISK_BACKUP_MAX_SIZE_BYTES: IntGauge =
+        IntGauge::new("clickhouse_disk_backup_max_size_bytes", "Max space used in bytes by the local DB for failed commit batches. If clickhouse_disk_backup_size_bytes reaches this value we drop data").unwrap();
+
     pub static CLICKHOUSE_DISK_BACKUP_SIZE_BATCHES: IntGauge =
         IntGauge::new("clickhouse_disk_backup_size_batches", "Amount of batches in local DB for failed commit batches.").unwrap();
     pub static CLICKHOUSE_MEMORY_BACKUP_SIZE_BYTES: IntGauge =
         IntGauge::new("clickhouse_memory_backup_size_bytes", "Space used in bytes by the in memory DB for failed commit batches.").unwrap();
     pub static CLICKHOUSE_MEMORY_BACKUP_SIZE_BATCHES: IntGauge =
         IntGauge::new("clickhouse_memory_backup_size_batches", "Amount of batches in in memory DB for failed commit batches.").unwrap();
-
-
-
-
-
 }
 
 /*
@@ -101,6 +100,10 @@ pub(super) fn set_bidding_service_version(version: Version) {
 }
 
 pub(crate) struct ClickhouseMetrics {}
+
+pub(crate) fn set_disk_backup_max_size(max_size_bytes: u64) {
+    CLICKHOUSE_DISK_BACKUP_MAX_SIZE_BYTES.set(max_size_bytes as i64);
+}
 
 impl rbuilder_utils::clickhouse::backup::metrics::Metrics for ClickhouseMetrics {
     fn increment_write_failures(_err: String) {

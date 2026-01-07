@@ -7,6 +7,7 @@
 //!
 //! Full server may expose metrics that could leak information when running tdx.
 
+use rbuilder_utils::build_info::Version;
 use std::net::SocketAddr;
 use time::OffsetDateTime;
 use warp::{Filter, Rejection, Reply};
@@ -18,7 +19,6 @@ use crate::{
         BUILDER_BALANCE, CURRENT_BLOCK, MAX_FRESH_GAUGE_AGE, ORDERPOOL_BUNDLES, ORDERPOOL_TXS,
         ORDERPOOL_TXS_SIZE, REGISTRY,
     },
-    utils::build_info::Version,
 };
 
 pub async fn spawn(addr: SocketAddr, version: Version) -> eyre::Result<()> {

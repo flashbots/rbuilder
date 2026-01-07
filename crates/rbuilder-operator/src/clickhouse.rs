@@ -28,7 +28,10 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::error;
 
-use crate::{flashbots_config::BuiltBlocksClickhouseConfig, metrics::ClickhouseMetrics};
+use crate::{
+    flashbots_config::BuiltBlocksClickhouseConfig,
+    metrics::{set_disk_backup_max_size, ClickhouseMetrics},
+};
 
 /// BlockRow to insert in clickhouse and also as entry type for the indexer since the BlockRow is made from a few &objects so it makes no sense to have a Block type and copy all the fields.
 #[derive(Debug, Clone, Serialize, Deserialize, Row)]
@@ -147,6 +150,10 @@ impl BuiltBlocksWriter {
 
         let task_manager = rbuilder_utils::tasks::TaskManager::current();
         let task_executor = task_manager.executor();
+
+        let backup_max_size_bytes =
+            config.disk_max_size_mb.unwrap_or(DEFAULT_MAX_DISK_SIZE_MB) * MEGA;
+        set_disk_backup_max_size(backup_max_size_bytes);
 
         let (block_tx, block_rx) = mpsc::channel::<BlockRow>(BUILT_BLOCKS_CHANNEL_SIZE);
         let disk_backup = DiskBackup::new(

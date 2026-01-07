@@ -29,9 +29,9 @@ use rbuilder::{
         LiveBuilder,
     },
     provider::StateProviderFactory,
-    utils::build_info::Version,
 };
 use rbuilder_config::EnvOrValue;
+use rbuilder_utils::build_info::Version;
 use serde::Deserialize;
 use serde_with::serde_as;
 use time::OffsetDateTime;

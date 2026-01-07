@@ -1,17 +1,14 @@
 use futures_util::FutureExt;
 use hyper_util::rt::TokioIo;
 use parking_lot::Mutex;
-use rbuilder::{
-    live_builder::{
-        block_output::bidding_service_interface::{
-            BiddingService, BlockSealInterfaceForSlotBidder,
-            LandedBlockInfo as RealLandedBlockInfo, RelaySet, ScrapedRelayBlockBidWithStats,
-            SlotBidder, SlotBlockId,
-        },
-        process_killer::ProcessKiller,
+use rbuilder::live_builder::{
+    block_output::bidding_service_interface::{
+        BiddingService, BlockSealInterfaceForSlotBidder, LandedBlockInfo as RealLandedBlockInfo,
+        RelaySet, ScrapedRelayBlockBidWithStats, SlotBidder, SlotBlockId,
     },
-    utils::build_info::Version,
+    process_killer::ProcessKiller,
 };
+use rbuilder_utils::build_info::Version;
 use std::{
     collections::HashMap,
     path::PathBuf,

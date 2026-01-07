@@ -9566,6 +9566,7 @@ dependencies = [
 name = "rbuilder-operator"
 version = "0.1.0"
 dependencies = [
+ "ahash",
  "alloy-primitives 1.4.1",
  "alloy-rpc-types-beacon",
  "alloy-signer",
@@ -9601,6 +9602,7 @@ dependencies = [
  "thiserror 1.0.69",
  "time",
  "tokio",
+ "tokio-stream",
  "tokio-util",
  "tonic 0.13.1",
  "tonic-build",

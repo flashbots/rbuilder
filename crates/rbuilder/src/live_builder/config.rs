@@ -115,6 +115,20 @@ pub struct SubsidyConfig {
     pub value: String,
 }
 
+/// TOML configuration for TrueBlockValueBiddingService (deserializable from config files).
+#[derive(Debug, Clone, Deserialize, PartialEq, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct TrueBlockValueBiddingServiceConfigToml {
+    /// When the sample bidder (see TrueBlockValueBiddingService) will start bidding.
+    /// Usually a negative number.
+    pub slot_delta_to_start_bidding_ms: Option<i64>,
+    /// Value added to the bids (see TrueBlockValueBiddingService).
+    pub subsidy: Option<String>,
+    /// Overrides subsidy.
+    #[serde(default)]
+    pub subsidy_overrides: Vec<SubsidyConfig>,
+}
+
 #[serde_as]
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
@@ -128,17 +142,46 @@ pub struct Config {
     /// selected builder configurations
     pub builders: Vec<BuilderConfig>,
 
-    /// When the sample bidder (see TrueBlockValueBiddingService) will start bidding.
-    /// Usually a negative number.
-    pub slot_delta_to_start_bidding_ms: Option<i64>,
-    /// Value added to the bids (see TrueBlockValueBiddingService).
-    pub subsidy: Option<String>,
-    /// Overrides subsidy.
-    #[serde(default)]
-    pub subsidy_overrides: Vec<SubsidyConfig>,
+    #[serde(flatten)]
+    pub true_block_value_bidding_service_config: TrueBlockValueBiddingServiceConfigToml,
 }
 
 const DEFAULT_SLOT_DELTA_TO_START_BIDDING_MS: i64 = -8000;
+
+/// Parse TrueBlockValueBiddingServiceConfigToml into TrueBlockValueBiddingServiceConfig.
+/// This function converts the TOML config fields (Option<String> subsidy, Vec<SubsidyConfig>, Option<i64>)
+/// into the parsed types (U256, HashMap<MevBoostRelayID, U256>, Duration).
+pub fn parse_true_block_value_bidding_service_config(
+    config: &TrueBlockValueBiddingServiceConfigToml,
+) -> eyre::Result<super::block_output::true_value_bidding_service::TrueBlockValueBiddingServiceConfig>
+{
+    use super::block_output::true_value_bidding_service::TrueBlockValueBiddingServiceConfig;
+    let slot_delta_to_start_bidding = time::Duration::milliseconds(
+        config
+            .slot_delta_to_start_bidding_ms
+            .unwrap_or(DEFAULT_SLOT_DELTA_TO_START_BIDDING_MS),
+    );
+
+    let mut subsidy_overrides = HashMap::default();
+    for subsidy_override in config.subsidy_overrides.iter() {
+        subsidy_overrides.insert(
+            subsidy_override.relay.clone(),
+            parse_ether(&subsidy_override.value)?,
+        );
+    }
+
+    let subsidy = config
+        .subsidy
+        .as_ref()
+        .map(|s| parse_ether(s))
+        .unwrap_or(Ok(U256::ZERO))?;
+
+    Ok(TrueBlockValueBiddingServiceConfig {
+        subsidy,
+        subsidy_overrides,
+        slot_delta_to_start_bidding,
+    })
+}
 const DEFAULT_REGISTRATION_UPDATE_INTERVAL_MS: u64 = 5_000;
 const DEFAULT_ASK_FOR_FILTERING_VALIDATORS: bool = false;
 const DEFAULT_CAN_IGNORE_GAS_LIMIT: bool = false;
@@ -455,29 +498,14 @@ impl LiveBuilderConfig for Config {
     where
         P: StateProviderFactory + Clone + 'static,
     {
-        let subsidy = self.subsidy.clone();
-        let slot_delta_to_start_bidding_ms = time::Duration::milliseconds(
-            self.slot_delta_to_start_bidding_ms
-                .unwrap_or(DEFAULT_SLOT_DELTA_TO_START_BIDDING_MS),
-        );
-
+        let parsed_config = parse_true_block_value_bidding_service_config(
+            &self.true_block_value_bidding_service_config,
+        )?;
         let all_relays_set = self.l1_config.relays_ids();
-        let mut subsidy_overrides = HashMap::default();
-        for subsidy_override in self.subsidy_overrides.iter() {
-            subsidy_overrides.insert(
-                subsidy_override.relay.clone(),
-                parse_ether(&subsidy_override.value)?,
-            );
-        }
         let bidding_service = Arc::new(NewTrueBlockValueBiddingService::new(
-            subsidy
-                .as_ref()
-                .map(|s| parse_ether(s))
-                .unwrap_or(Ok(U256::ZERO))?,
-            subsidy_overrides,
-            slot_delta_to_start_bidding_ms,
+            &parsed_config,
             all_relays_set.clone(),
-        ));
+        )?);
 
         let (wallet_balance_watcher, _) =
             create_wallet_balance_watcher(provider.clone(), &self.base_config).await?;
@@ -511,7 +539,7 @@ impl LiveBuilderConfig for Config {
         Ok(live_builder.with_builders(builders))
     }
 
-    fn version_for_telemetry(&self) -> crate::utils::build_info::Version {
+    fn version_for_telemetry(&self) -> rbuilder_utils::build_info::Version {
         rbuilder_version()
     }
 
@@ -695,9 +723,8 @@ impl Default for Config {
                     }),
                 },
             ],
-            slot_delta_to_start_bidding_ms: None,
-            subsidy: None,
-            subsidy_overrides: Vec::new(),
+            true_block_value_bidding_service_config:
+                TrueBlockValueBiddingServiceConfigToml::default(),
         }
     }
 }
