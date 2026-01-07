@@ -9505,6 +9505,7 @@ dependencies = [
  "rayon",
  "rbuilder-config",
  "rbuilder-primitives",
+ "rbuilder-utils",
  "reipc",
  "reqwest 0.12.24",
  "reth",

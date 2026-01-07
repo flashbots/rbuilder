@@ -87,7 +87,7 @@ mod test {
     #[test]
     fn test_parse_config() {
         let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        p.push("../../examples/config/rbuilder/config-tbv-bidding-service.toml");
+        p.push("../../examples/config/rbuilder-operator/config-tbv-bidding-service.toml");
         let _ = load_toml_config::<Config>(p).expect("Config load");
     }
 }
