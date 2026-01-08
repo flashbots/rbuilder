@@ -7,9 +7,14 @@ use super::{
         bidding_service_interface::{
             BidObserver, BiddingService, LandedBlockInfo, NullBidObserver,
         },
+        block_observer,
         relay_submit::{RelaySubmitSinkFactory, SubmissionConfig},
         true_value_bidding_service::NewTrueBlockValueBiddingService,
         unfinished_block_processing::UnfinishedBuiltBlocksInputFactory,
+    },
+    builder_api::{
+        EpbsBuilderServer, EpbsBuilderServerConfig, LiveEpbsBidProvider,
+        LiveEpbsBidProviderConfig,
     },
     wallet_balance_watcher::WalletBalanceWatcher,
 };
@@ -42,6 +47,7 @@ use crate::{
     mev_boost::{
         bloxroute_grpc,
         optimistic_v3::{self, OptimisticV3BlockCache},
+        sign_epbs::EpbsBidSigner,
         BLSBlockSigner, MevBoostRelayBidSubmitter, MevBoostRelaySlotInfoProvider, RelayClient,
         RelayConfig, RelaySubmitConfig,
     },
@@ -93,6 +99,19 @@ pub const DEFAULT_MAX_CONCURRENT_SEALS: u64 = 1;
 pub const BID_SOURCE_TIMEOUT_SECS: u64 = 28;
 /// Don't want to waste too much time in case i failed to non-boost block.
 pub const BID_SOURCE_WAIT_TIME_SECS: u64 = 2;
+
+pub const DEFAULT_EPBS_SERVER_PORT: u16 = 18551;
+
+/// Default for epbs_enabled - enabled by default.
+/// Signing domain will be fetched from beacon chain in background if not configured
+fn default_epbs_enabled() -> bool {
+    true
+}
+
+/// Default EPBS server port
+fn default_epbs_server_port() -> u16 {
+    DEFAULT_EPBS_SERVER_PORT
+}
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(tag = "algo", rename_all = "kebab-case", deny_unknown_fields)]
@@ -216,6 +235,23 @@ pub struct L1Config {
     pub optimistic_v3_public_url: String,
     /// The relay pubkey.
     pub optimistic_v3_relay_pubkeys: HashSet<BlsPublicKey>,
+
+    /// Enable EPBS Builder API server.
+    #[serde(default = "default_epbs_enabled")]
+    pub epbs_enabled: bool,
+    /// EPBS Builder API server IP.
+    #[serde(default = "default_ip")]
+    pub epbs_server_ip: Ipv4Addr,
+    /// EPBS Builder API server port.
+    #[serde(default = "default_epbs_server_port")]
+    pub epbs_server_port: u16,
+    /// Secret key for the builder's validator (for signing EPBS bids).
+    /// If not provided, relay_secret_key will be used.
+    epbs_builder_secret_key: Option<EnvOrValue<String>>,
+    /// Signing domain for EPBS bids (32 bytes hex).
+    /// Computed from: DOMAIN_BEACON_BUILDER + fork_data_root
+    /// Can be set via env var: "$EPBS_SIGNING_DOMAIN"
+    epbs_signing_domain: Option<EnvOrValue<String>>,
 }
 
 impl Default for L1Config {
@@ -232,6 +268,12 @@ impl Default for L1Config {
             optimistic_v3_server_port: 6071,
             optimistic_v3_public_url: String::new(),
             optimistic_v3_relay_pubkeys: HashSet::default(),
+            // EPBS defaults - enabled by default for testing
+            epbs_enabled: true,
+            epbs_server_ip: default_ip(),
+            epbs_server_port: DEFAULT_EPBS_SERVER_PORT,
+            epbs_builder_secret_key: None,
+            epbs_signing_domain: None,
         }
     }
 }
@@ -249,6 +291,232 @@ impl L1Config {
                 Ok(Client::new(url))
             })
             .collect()
+    }
+
+    pub fn epbs_server_addr(&self) -> SocketAddr {
+        SocketAddr::V4(SocketAddrV4::new(self.epbs_server_ip, self.epbs_server_port))
+    }
+
+    /// Returns the EPBS builder secret key, falling back to relay_secret_key if not set.
+    pub fn epbs_secret_key(&self) -> eyre::Result<Option<SecretKey>> {
+        let key_str = if let Some(key) = &self.epbs_builder_secret_key {
+            Some(key.value()?)
+        } else if let Some(key) = &self.relay_secret_key {
+            Some(key.value()?)
+        } else {
+            None
+        };
+
+        match key_str {
+            Some(s) => {
+                let key = SecretKey::try_from(s)
+                    .map_err(|e| eyre::eyre!("Failed to parse EPBS secret key: {:?}", e))?;
+                Ok(Some(key))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Returns the EPBS signing domain from config/env if set.
+    ///
+    /// The signing domain should be computed as:
+    /// `DOMAIN_BEACON_BUILDER (4 bytes) + fork_data_root[0:28]`
+    ///
+    /// Can be configured via:
+    /// - Config file: `epbs_signing_domain = "0x..."`
+    /// - Environment variable: `epbs_signing_domain = "$EPBS_SIGNING_DOMAIN"`
+    ///
+    /// Returns None if not configured (will be fetched from beacon chain).
+    pub fn epbs_signing_domain(&self) -> eyre::Result<Option<B256>> {
+        match &self.epbs_signing_domain {
+            Some(domain) => {
+                let domain_str = domain.value()?;
+                let domain_str = domain_str.strip_prefix("0x").unwrap_or(&domain_str);
+                let bytes = hex::decode(domain_str)
+                    .map_err(|e| eyre::eyre!("Failed to decode EPBS signing domain: {}", e))?;
+                if bytes.len() != 32 {
+                    return Err(eyre::eyre!(
+                        "EPBS signing domain must be 32 bytes, got {}",
+                        bytes.len()
+                    ));
+                }
+                let mut arr = [0u8; 32];
+                arr.copy_from_slice(&bytes);
+                Ok(Some(B256::from(arr)))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Create EPBS components if enabled.
+    ///
+    /// The builder_index and signing_domain are fetched from the beacon chain
+    /// in a background task, allowing the server to start immediately without blocking.
+    ///
+    /// Returns:
+    /// - The EPBS bid provider (also implements BlockObserver)
+    /// - The EPBS server (to be spawned)
+    ///
+    /// Returns None if EPBS is not enabled.
+    pub fn create_epbs_components(
+        &self,
+    ) -> eyre::Result<Option<(Arc<LiveEpbsBidProvider>, EpbsBuilderServer)>> {
+        use crate::mev_boost::sign_epbs::compute_epbs_domain;
+
+        if !self.epbs_enabled {
+            info!("EPBS Builder API server is disabled");
+            return Ok(None);
+        }
+
+        info!(
+            listen_addr = %self.epbs_server_addr(),
+            "EPBS Builder API server is enabled"
+        );
+
+        let secret_key = self
+            .epbs_secret_key()?
+            .ok_or_else(|| eyre::eyre!("EPBS secret key is required when epbs_enabled is true"))?;
+
+        // get pubkey for retreiving builder_index
+        let pubkey = secret_key.public_key();
+        let pubkey_bytes = pubkey.as_ref().to_vec();
+
+        // Get signing domain from config (optional - will be fetched if not provided)
+        let signing_domain = self.epbs_signing_domain()?;
+
+        let clients = self.beacon_clients()?;
+        if clients.is_empty() {
+            return Err(eyre::eyre!(
+                "No beacon chain clients configured. Set cl_node_url for EPBS."
+            ));
+        }
+
+        // Create provider without signer - will be initialized in background
+        // after fetching builder_index and signing domain from beacon chain
+        info!("Will fetch builder_index and signing domain from beacon chain in background");
+        let provider = Arc::new(LiveEpbsBidProvider::new_uninitialized(
+            LiveEpbsBidProviderConfig::default(),
+        ));
+
+        // Spawn background task to fetch builder_index and signing domain, then initialize signer
+        let provider_clone = provider.clone();
+        tokio::spawn(async move {
+            // retry config
+            const MAX_RETRIES: u32 = 120; // ~20 minutes with max backoff
+            const INITIAL_BACKOFF_MS: u64 = 1000;
+            const MAX_BACKOFF_MS: u64 = 10000;
+
+            let mut last_error: Option<eyre::Report> = None;
+            let mut attempt = 0;
+
+            loop {
+                attempt += 1;
+
+                for client in &clients {
+                    // Look up builder_index by public key
+                    let builder_index = match client.get_validator_by_pubkey(&pubkey_bytes).await {
+                        Ok(validator) => {
+                            info!(
+                                builder_index = validator.index,
+                                pubkey = %validator.validator.pubkey,
+                                status = %validator.status,
+                                "Found builder validator on beacon chain"
+                            );
+
+                            // Check if the validator is a builder (has BUILDER_WITHDRAWAL_PREFIX)
+                            if !validator
+                                .validator
+                                .withdrawal_credentials
+                                .starts_with("0x03")
+                            {
+                                tracing::warn!(
+                                    withdrawal_credentials = %validator.validator.withdrawal_credentials,
+                                    "Validator does not have BUILDER_WITHDRAWAL_PREFIX (0x03). \
+                                     This validator may not be recognized as a builder."
+                                );
+                            }
+
+                            validator.index
+                        }
+                        Err(e) => {
+                            last_error = Some(e);
+                            continue;
+                        }
+                    };
+
+                    // Get signing domain (from config or beacon chain)
+                    let domain = if let Some(domain) = signing_domain {
+                        info!("Using configured EPBS signing domain");
+                        domain
+                    } else {
+                        match client.get_genesis().await {
+                            Ok(genesis) => {
+                                let domain = compute_epbs_domain(
+                                    genesis.genesis_fork_version,
+                                    genesis.genesis_validators_root,
+                                );
+                                info!(
+                                    ?domain,
+                                    genesis_fork_version = ?genesis.genesis_fork_version,
+                                    genesis_validators_root = ?genesis.genesis_validators_root,
+                                    "Computed EPBS signing domain from beacon chain"
+                                );
+                                domain
+                            }
+                            Err(e) => {
+                                last_error = Some(e);
+                                continue;
+                            }
+                        }
+                    };
+
+                    // Create and set the signer
+                    let signer = EpbsBidSigner::new(secret_key, builder_index, domain);
+                    provider_clone.set_signer(signer);
+                    info!(
+                        builder_index,
+                        "EPBS signer initialized, bid generation is now enabled"
+                    );
+                    return;
+                }
+
+                if attempt >= MAX_RETRIES {
+                    tracing::error!(
+                        "Failed to initialize EPBS signer after {} attempts: {:?}. EPBS bids will not be generated.",
+                        MAX_RETRIES,
+                        last_error
+                    );
+                    return;
+                }
+
+                let backoff_ms: u64 =
+                    std::cmp::min(INITIAL_BACKOFF_MS * 2u64.pow(attempt - 1), MAX_BACKOFF_MS);
+
+                info!(
+                    attempt,
+                    max_retries = MAX_RETRIES,
+                    backoff_ms,
+                    error = ?last_error,
+                    "Beacon client not ready, retrying in background..."
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
+            }
+        });
+
+        let server_config = EpbsBuilderServerConfig {
+            listen_addr: self.epbs_server_addr(),
+            ..Default::default()
+        };
+
+        // Create the server
+        let server = EpbsBuilderServer::new(server_config, provider.clone());
+
+        info!(
+            listen_addr = %self.epbs_server_addr(),
+            "EPBS Builder API server configured (waiting for beacon chain for builder_index)"
+        );
+
+        Ok(Some((provider, server)))
     }
 
     /// Analyzes relay_config and creates MevBoostRelayBidSubmitter/MevBoostRelaySlotInfoProvider as needed.
@@ -510,6 +778,16 @@ impl LiveBuilderConfig for Config {
         let (wallet_balance_watcher, _) =
             create_wallet_balance_watcher(provider.clone(), &self.base_config).await?;
 
+        // Create EPBS components if enabled
+        let epbs_components = self.l1_config.create_epbs_components()?;
+        let (block_observer, epbs_server): (
+            Option<Arc<dyn block_observer::BlockObserver>>,
+            Option<EpbsBuilderServer>,
+        ) = match epbs_components {
+            Some((bid_provider, server)) => (Some(bid_provider), Some(server)),
+            None => (None, None),
+        };
+
         let (sink_factory, slot_info_provider, adjustment_fee_payers) =
             create_sink_factory_and_relays(
                 &self.base_config,
@@ -519,10 +797,11 @@ impl LiveBuilderConfig for Config {
                 Box::new(NullBidObserver {}),
                 bidding_service,
                 cancellation_token.clone(),
+                block_observer,
             )
             .await?;
 
-        let live_builder = create_builder_from_sink(
+        let mut live_builder = create_builder_from_sink(
             &self.base_config,
             &self.l1_config,
             provider,
@@ -532,6 +811,12 @@ impl LiveBuilderConfig for Config {
             cancellation_token,
         )
         .await?;
+
+        // Set EPBS server if enabled
+        if let Some(server) = epbs_server {
+            live_builder = live_builder.with_epbs_server(server);
+        }
+
         let builders = create_builders(
             self.live_builders()?,
             self.base_config.max_order_execution_duration_warning(),
@@ -1082,6 +1367,7 @@ pub async fn create_sink_factory_and_relays<P>(
     bid_observer: Box<dyn BidObserver + Send + Sync>,
     bidding_service: Arc<dyn BiddingService>,
     cancellation_token: CancellationToken,
+    block_observer: Option<Arc<dyn block_observer::BlockObserver>>,
 ) -> eyre::Result<(
     UnfinishedBuiltBlocksInputFactory<P>,
     Vec<MevBoostRelaySlotInfoProvider>,
@@ -1107,13 +1393,18 @@ where
         );
     }
 
-    let sink_factory = UnfinishedBuiltBlocksInputFactory::new(
+    let mut sink_factory = UnfinishedBuiltBlocksInputFactory::new(
         bidding_service,
         sink_sealed_factory,
         wallet_balance_watcher,
         base_config.adjust_finalized_blocks,
         relay_sets,
     );
+
+    // Wire block observer for EPBS integration
+    if let Some(observer) = block_observer {
+        sink_factory = sink_factory.with_block_observer(observer);
+    }
 
     Ok((sink_factory, slot_info_provider, adjustment_fee_payers))
 }
