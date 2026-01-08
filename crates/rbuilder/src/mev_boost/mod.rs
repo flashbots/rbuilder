@@ -28,8 +28,10 @@ mod error;
 pub mod fake_mev_boost_relay;
 pub mod optimistic_v3;
 pub mod rpc;
+pub mod sign_epbs;
 pub mod sign_payload;
 pub use error::*;
+pub use sign_epbs::*;
 pub use sign_payload::*;
 
 const TOTAL_PAYMENT_HEADER: &str = "Total-Payment";

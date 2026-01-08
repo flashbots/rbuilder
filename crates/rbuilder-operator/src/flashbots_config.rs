@@ -174,6 +174,7 @@ impl LiveBuilderConfig for FlashbotsConfig {
                 bid_observer,
                 bidding_service.clone(),
                 cancellation_token.clone(),
+                None, // No EPBS block observer in flashbots config
             )
             .await?;
 
