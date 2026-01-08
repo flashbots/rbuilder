@@ -31,6 +31,7 @@ use time::OffsetDateTime;
 use tracing::error;
 
 pub mod scope_meter;
+pub mod tokio;
 mod tracing_metrics;
 pub use tracing_metrics::*;
 
