@@ -85,6 +85,9 @@ lazy_static.workspace = true
 ahash.workspace = true
 tokio-stream = { version = "0.1", features = ["net"] }
 
+[features]
+test-utils = []
+
 [build-dependencies]
 built = { version = "0.7.1", features = ["git2", "chrono"] }
 tonic-build = "0.13"
