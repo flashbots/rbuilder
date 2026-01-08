@@ -73,7 +73,7 @@ impl BiddingServiceServerInitializer {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-utils"))]
     pub fn new_initialized(
         service: Box<
             dyn rbuilder::live_builder::block_output::bidding_service_interface::BiddingService,
