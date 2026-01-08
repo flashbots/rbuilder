@@ -9650,7 +9650,6 @@ dependencies = [
  "ssz_types",
  "thiserror 1.0.69",
  "time",
- "tracing",
  "tree_hash 0.8.0",
  "tree_hash_derive 0.8.0",
  "typenum",

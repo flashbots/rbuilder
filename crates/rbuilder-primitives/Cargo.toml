@@ -44,7 +44,6 @@ uuid = { version = "1.6.1", features = ["serde", "v5", "v4"] }
 ahash.workspace = true
 reqwest = { workspace = true, features = ["blocking"] }
 serde_with = { workspace = true, features = ["time_0_3"] }
-tracing.workspace = true
 time.workspace = true
 thiserror.workspace = true
 eyre.workspace = true
