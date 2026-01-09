@@ -170,10 +170,7 @@ mod tests {
         let relay_sets = service.relay_sets();
         assert_eq!(relay_sets.len(), 2);
         assert!(relay_sets.contains(&RelaySet::new(vec![relay("solo")])));
-        assert!(relay_sets.contains(&RelaySet::new(vec![
-            relay("shared_a"),
-            relay("shared_b")
-        ])));
+        assert!(relay_sets.contains(&RelaySet::new(vec![relay("shared_a"), relay("shared_b")])));
     }
 
     #[test]
