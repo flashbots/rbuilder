@@ -106,3 +106,149 @@ impl BiddingService for NewTrueBlockValueBiddingService {
 
     fn update_failed_reading_new_landed_blocks(&self) {}
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        building::builders::BuiltBlockId,
+        live_builder::block_output::bidding_service_interface::{
+            BlockSealInterfaceForSlotBidder, BuiltBlockDescriptorForSlotBidder,
+            CompetitionBidContext, SlotBidderSealBidCommand, SlotBlockId,
+        },
+    };
+    use alloy_primitives::{BlockHash, I256};
+    use parking_lot::Mutex;
+    use std::{collections::HashMap as StdHashMap, sync::Arc};
+    use time::{Duration, OffsetDateTime};
+
+    #[derive(Clone, Default)]
+    struct RecordingSealHandle {
+        sent: Arc<Mutex<Vec<SlotBidderSealBidCommand>>>,
+    }
+
+    impl RecordingSealHandle {
+        fn new() -> Self {
+            Self::default()
+        }
+
+        fn sent_commands(&self) -> Vec<SlotBidderSealBidCommand> {
+            self.sent.lock().clone()
+        }
+    }
+
+    impl BlockSealInterfaceForSlotBidder for RecordingSealHandle {
+        fn seal_bid(&self, bid: SlotBidderSealBidCommand) {
+            self.sent.lock().push(bid);
+        }
+    }
+
+    fn relay(name: &str) -> MevBoostRelayID {
+        name.to_string()
+    }
+
+    fn descriptor_with_value(value: u64) -> BuiltBlockDescriptorForSlotBidder {
+        BuiltBlockDescriptorForSlotBidder {
+            true_block_value: U256::from(value),
+            id: BuiltBlockId(value),
+            creation_time: OffsetDateTime::now_utc(),
+        }
+    }
+
+    #[test]
+    fn relay_sets_respect_overrides() {
+        let mut overrides = HashMap::default();
+        overrides.insert(relay("solo"), U256::from(5));
+
+        let service = NewTrueBlockValueBiddingService::new(
+            U256::from(1),
+            overrides,
+            Duration::ZERO,
+            RelaySet::new(vec![relay("solo"), relay("shared_a"), relay("shared_b")]),
+        );
+
+        let relay_sets = service.relay_sets();
+        assert_eq!(relay_sets.len(), 2);
+        assert!(relay_sets.contains(&RelaySet::new(vec![relay("solo")])));
+        assert!(relay_sets.contains(&RelaySet::new(vec![
+            relay("shared_a"),
+            relay("shared_b")
+        ])));
+    }
+
+    #[test]
+    fn slot_bidder_waits_until_start_time() {
+        let service = NewTrueBlockValueBiddingService::new(
+            U256::from(1),
+            HashMap::default(),
+            Duration::seconds(60),
+            RelaySet::new(vec![relay("relay")]),
+        );
+        let recording_handle = RecordingSealHandle::new();
+        let bidder = service.create_slot_bidder(
+            SlotBlockId::new(1, 1, BlockHash::ZERO),
+            OffsetDateTime::now_utc(),
+            Box::new(recording_handle.clone()),
+            CancellationToken::new(),
+        );
+
+        bidder.notify_new_built_block(descriptor_with_value(42));
+        assert!(recording_handle.sent_commands().is_empty());
+    }
+
+    #[test]
+    fn slot_bidder_emits_payout_for_each_relay_set() {
+        let mut overrides = HashMap::default();
+        overrides.insert(relay("solo"), U256::from(3));
+
+        let service = NewTrueBlockValueBiddingService::new(
+            U256::from(1),
+            overrides,
+            Duration::ZERO,
+            RelaySet::new(vec![relay("solo"), relay("shared")]),
+        );
+
+        let recording_handle = RecordingSealHandle::new();
+        let bidder = service.create_slot_bidder(
+            SlotBlockId::new(1, 1, BlockHash::ZERO),
+            OffsetDateTime::now_utc() - Duration::seconds(1),
+            Box::new(recording_handle.clone()),
+            CancellationToken::new(),
+        );
+        let descriptor = descriptor_with_value(100);
+
+        bidder.notify_new_built_block(descriptor.clone());
+
+        let commands = recording_handle.sent_commands();
+        assert_eq!(commands.len(), 1);
+        let command = &commands[0];
+        assert_eq!(command.block_id, descriptor.id);
+        assert_eq!(
+            command.competition_bid_context,
+            CompetitionBidContext::no_competition_bid()
+        );
+        assert!(command.trigger_creation_time.is_some());
+
+        let payouts: StdHashMap<RelaySet, (U256, I256)> = command
+            .payout_info
+            .iter()
+            .map(|info| (info.relays.clone(), (info.payout_tx_value, info.subsidy)))
+            .collect();
+
+        assert_eq!(payouts.len(), 2);
+        assert_eq!(
+            payouts
+                .get(&RelaySet::new(vec![relay("solo")]))
+                .copied()
+                .unwrap(),
+            (descriptor.true_block_value + U256::from(3), I256::from(3))
+        );
+        assert_eq!(
+            payouts
+                .get(&RelaySet::new(vec![relay("shared")]))
+                .copied()
+                .unwrap(),
+            (descriptor.true_block_value + U256::from(1), I256::from(1))
+        );
+    }
+}
