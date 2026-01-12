@@ -116,6 +116,9 @@ pub enum AceInteraction {
 }
 
 impl AceInteraction {
+    pub fn needs_unlock(&self) -> bool {
+        matches!(self, Self::NonUnlocking { .. })
+    }
     pub fn is_unlocking(&self) -> bool {
         matches!(self, Self::Unlocking { .. })
     }
