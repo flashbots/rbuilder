@@ -229,17 +229,14 @@ impl SimulationJob {
                     }
                 }
                 SimulatedResult::Failed {
-                    failure:
-                        SimulationFailure {
-                            ace_dependency: Some(_),
-                            ..
-                        },
+                    failure: SimulationFailure { ref ace_state, .. },
                     ..
                 } => {
-                    // Failed with ACE dependency - pass to sim_tree for re-queuing with unlock parent
-                    sim_tree_results.push(sim_result);
-                }
-                SimulatedResult::Failed { .. } => {
+                    // Check if there are unhandled ACE dependencies
+                    if !ace_state.all_dependencies_accounted() {
+                        // Failed with ACE dependency - pass to sim_tree for re-queuing with unlock parent
+                        sim_tree_results.push(sim_result);
+                    }
                     // Permanent failure without ACE dependency - nothing to do
                 }
             }

@@ -72,7 +72,7 @@ pub fn run_sim_worker<P>(
                 &mut local_ctx,
                 &mut block_state,
                 &current_sim_context.ace_configs,
-                &task.ace_unlock_contracts,
+                &task.ace_state,
             );
             let sim_ok = match sim_result {
                 Ok(sim_result) => {
@@ -113,12 +113,11 @@ pub fn run_sim_worker<P>(
                         }
                         OrderSimResult::Failed(failure) => {
                             // Only send to SimTree if there's an ACE dependency to handle
-                            if failure.ace_dependency.is_some() {
+                            if !failure.ace_state.all_dependencies_accounted() {
                                 let result = SimulatedResult::Failed {
                                     id: task.id,
                                     order: task.order,
                                     failure,
-                                    ace_unlock_contracts: task.ace_unlock_contracts.clone(),
                                     simulation_time: start_time.elapsed(),
                                 };
                                 if current_sim_context.results.try_send(result).is_err() {

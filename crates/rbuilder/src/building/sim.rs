@@ -17,7 +17,6 @@ use ahash::{HashMap, HashSet};
 use alloy_primitives::Address;
 use alloy_rpc_types::TransactionTrait;
 use itertools::Itertools;
-use quick_cache::Equivalent;
 use rand::seq::SliceRandom;
 use rbuilder_primitives::ace::{
     classify_ace_interaction, AceInteraction, AceUnlockSource, Selector,
@@ -118,30 +117,40 @@ impl AceExchangeState {
 ///    new NonUnlocking dependencies vs already-accounted-for interactions
 /// 4) If unhandled set is empty -> done, else -> repeat from 3
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-struct AceSimulationState {
+pub struct AceSimulationState {
     /// ACE interactions detected
     /// Includes both Unlocking (parent providers) and NonUnlocking (need parents).
-    detected_interactions: HashSet<AceInteraction>,
+    pub detected_interactions: HashSet<AceInteraction>,
 
     /// ACE interactions (by contract address) for which we've already provided
     /// unlock parents in previous simulation attempts.
-    accounted_for_interactions: HashSet<AceInteraction>,
+    pub accounted_for_interactions: HashSet<AceInteraction>,
 }
 
 impl AceSimulationState {
+    /// Returns NonUnlocking interactions that still need unlock parents.
+    /// Filters out interactions where we already have an Unlocking interaction
+    /// for the same contract in accounted_for_interactions.
     pub fn dependencies_to_handle(&self) -> HashSet<AceInteraction> {
-        todo!()
-        // self.detected_interactions
-        //     .iter()
-        //     .filter(|interaction| interaction.needs_unlock())
-        //     .copied()
-        //     .collect::<HashSet<_>>()
-        //     .symmetric_difference(&self.accounted_for_interactions)
-        //     .collect()
+        // Get contract addresses for which we have unlocks accounted for
+        let accounted_contracts: HashSet<Address> = self
+            .accounted_for_interactions
+            .iter()
+            .filter(|i| i.is_unlocking())
+            .map(|i| i.get_contract_address())
+            .collect();
+
+        // Return NonUnlocking interactions whose contracts aren't yet accounted for
+        self.detected_interactions
+            .iter()
+            .filter(|i| i.needs_unlock())
+            .filter(|i| !accounted_contracts.contains(&i.get_contract_address()))
+            .copied()
+            .collect()
     }
 
     pub fn all_dependencies_accounted(&self) -> bool {
-        todo!()
+        self.dependencies_to_handle().is_empty()
     }
 
     pub fn add_accounted_interactions(&mut self, actions: impl Iterator<Item = AceInteraction>) {
@@ -152,8 +161,7 @@ impl AceSimulationState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PendingOrder {
     order: Order,
-    unsatisfied_dependencies: usize,
-    /// ACE contracts already provided as unlock parents (for progressive multi-ACE discovery)
+    /// ACE state tracking detected and accounted-for interactions
     ace_state: AceSimulationState,
 }
 
@@ -285,7 +293,6 @@ impl SimTree {
             }
             OrderDependencyState::Pending(pending_deps) => {
                 mark_order_pending_nonce(order_id);
-                let unsatisfied_dependencies = pending_deps.len();
                 for dep in pending_deps {
                     self.pending_dependencies
                         .entry(dep)
@@ -296,7 +303,6 @@ impl SimTree {
                     order.id(),
                     PendingOrder {
                         order,
-                        unsatisfied_dependencies,
                         ace_state: AceSimulationState::default(),
                     },
                 );
@@ -393,8 +399,8 @@ impl SimTree {
         mut ace_state: AceSimulationState,
     ) {
         let difference = ace_state.dependencies_to_handle();
-        //  If we have handled all dependencies, this order will not be valid and thus we will
-        //  ignore it.
+        // If we have handled all dependencies, this order will not be valid and thus we will
+        // ignore it.
         if difference.is_empty() {
             return;
         }
@@ -410,7 +416,7 @@ impl SimTree {
                     Some(key) => Some(key),
 
                     None => {
-                        is_ready |= false;
+                        is_ready = false;
                         self.pending_dependencies
                             .entry(dep_key)
                             .or_default()
@@ -421,8 +427,10 @@ impl SimTree {
             })
             .collect_vec();
 
-        // this is fine as we add the order to pending_dependencies
+        // Order needs to wait for ACE unlock dependencies
         if !is_ready {
+            self.pending_orders
+                .insert(order.id(), PendingOrder { order, ace_state });
             return;
         }
 
@@ -472,12 +480,10 @@ impl SimTree {
         &mut self,
         result: &SimulatedResult,
     ) -> Result<(), ProviderError> {
-        if result.is_success() {
-            return Ok(());
-        }
         let SimulatedResult::Success {
             previous_orders,
             simulated_order,
+            dependencies_satisfied,
             id,
             ..
         } = result
@@ -493,17 +499,12 @@ impl SimTree {
                 simulated_order: simulated_order.clone(),
             },
         );
-        // Track orders that become ready along with their ACE state
+
+        // Track orders that become ready (all deps satisfied)
         let mut orders_ready: Vec<PendingOrder> = Vec::new();
-        let mut ace_unlock_contract: Option<Address> = None;
 
         // Process each dependency this simulation satisfies
         for dep_key in dependencies_satisfied.iter().cloned() {
-            // Track if this dependency is an ACE unlock and which contract
-            if let DependencyKey::AceUnlock(contract) = dep_key {
-                ace_unlock_contract = Some(contract);
-            }
-
             match self.dependency_providers.entry(dep_key.clone()) {
                 Entry::Occupied(mut entry) => {
                     // Already have a provider - check if this one is more profitable
@@ -532,21 +533,25 @@ impl SimTree {
                     // First provider for this dependency
                     entry.insert(*id);
 
-                    // Unblock orders waiting on this dependency
+                    // Update orders waiting on this dependency
                     if let Some(pending_order_ids) = self.pending_dependencies.remove(&dep_key) {
                         for order_id in pending_order_ids {
-                            match self.pending_orders.entry(order_id) {
-                                Entry::Occupied(mut entry) => {
-                                    let pending_order = entry.get_mut();
-                                    pending_order.unsatisfied_dependencies -= 1;
-                                    if pending_order.unsatisfied_dependencies == 0 {
-                                        orders_ready.push(entry.remove());
-                                    }
+                            if let Entry::Occupied(mut entry) = self.pending_orders.entry(order_id)
+                            {
+                                let pending_order = entry.get_mut();
+
+                                // Add the unlock interactions to the order's accounted_for set
+                                if matches!(dep_key, DependencyKey::AceUnlock(_)) {
+                                    pending_order.ace_state.add_accounted_interactions(
+                                        simulated_order.ace_interactions.iter().copied(),
+                                    );
                                 }
-                                Entry::Vacant(_) => {
-                                    error!("SimTree bug order not found");
-                                    // @Metric bug counter
+
+                                // Check if all ACE deps are now accounted for
+                                if pending_order.ace_state.all_dependencies_accounted() {
+                                    orders_ready.push(entry.remove());
                                 }
+                                // Otherwise order stays pending, waiting for more deps
                             }
                         }
                     }
@@ -554,30 +559,38 @@ impl SimTree {
             }
         }
 
-        for mut ready_pending_order in orders_ready {
+        // Process orders that are now fully ready
+        for ready_pending_order in orders_ready {
             let pending_state = self.get_order_dependency_state(&ready_pending_order.order)?;
             match pending_state {
                 OrderDependencyState::Ready(mut parents) => {
-                    // If this order became ready due to ACE unlock, add the unlock tx as parent
-                    // and track the contract in ace_unlock_contracts
-                    if let Some(contract) = ace_unlock_contract {
-                        ready_pending_order.ace_unlock_contracts.insert(contract);
-                        parents.extend(previous_orders.iter().cloned());
-                        parents.push(simulated_order.order.clone());
+                    let ace_state = ready_pending_order.ace_state;
+
+                    // Collect ALL ACE parent orders from dependency_providers
+                    for interaction in ace_state.detected_interactions.iter() {
+                        if interaction.needs_unlock() {
+                            let dep_key =
+                                DependencyKey::AceUnlock(interaction.get_contract_address());
+                            if let Some(sim_id) = self.dependency_providers.get(&dep_key) {
+                                if let Some(sim) = self.sims.get(sim_id) {
+                                    parents.extend(sim.parent_orders.iter().cloned());
+                                    parents.push(sim.simulated_order.order.clone());
+                                }
+                            }
+                        }
                     }
+
                     self.ready_orders.push(SimulationRequest {
                         id: rand::random(),
                         order: ready_pending_order.order,
                         parents,
-                        ace_unlock_contracts: ready_pending_order.ace_unlock_contracts,
+                        ace_state,
                     });
                 }
                 OrderDependencyState::Invalid => {
-                    // @Metric bug counter
                     error!("SimTree bug order became invalid");
                 }
                 OrderDependencyState::Pending(_) => {
-                    // @Metric bug counter
                     error!("SimTree bug order became pending again");
                 }
             }
@@ -751,7 +764,7 @@ where
         sim_tree.push_orders(std::mem::take(&mut orders))?;
     }
 
-    let mut sim_errors = Vec::new();
+    let sim_errors = Vec::new();
     let mut state_for_sim =
         Arc::<dyn StateProvider>::from(provider.history_by_block_hash(ctx.attributes.parent)?);
     let mut local_ctx = ThreadBlockBuildingContext::default();
@@ -956,9 +969,10 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
         Ok(res) => {
             let sim_value = create_sim_value(&order, &res, mempool_tx_detector);
             if let Err(err) = order_is_worth_executing(&sim_value) {
+                // Not an ACE-related failure, use default state
                 return Ok(OrderSimResult::Failed(SimulationFailure {
                     error: err,
-                    ace_dependency: ace_interactions,
+                    ace_state: AceSimulationState::default(),
                 }));
             }
             let new_nonces = res.nonces_updated.into_iter().collect::<Vec<_>>();
@@ -972,10 +986,24 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
                 new_nonces,
             ))
         }
-        Err(err) => Ok(OrderSimResult::Failed(SimulationFailure {
-            error: err,
-            ace_dependency: ace_interactions,
-        })),
+        Err(err) => {
+            // Build ACE state with only NonUnlocking interactions (they need unlock parents)
+            let non_unlocking: HashSet<AceInteraction> = ace_interactions
+                .iter()
+                .filter(|i| i.needs_unlock())
+                .copied()
+                .collect();
+
+            Ok(OrderSimResult::Failed(SimulationFailure {
+                error: err,
+                ace_state: AceSimulationState {
+                    detected_interactions: non_unlocking,
+                    accounted_for_interactions: current_ace_state
+                        .accounted_for_interactions
+                        .clone(),
+                },
+            }))
+        }
     }
 }
 

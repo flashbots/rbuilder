@@ -1,5 +1,8 @@
 use super::test_chain_state::{BlockArgs, TestChainState};
-use crate::building::sim::{AceExchangeState, DependencyKey, NonceKey, SimTree, SimulatedResult};
+use crate::building::sim::{
+    AceExchangeState, AceSimulationState, DependencyKey, NonceKey, SimTree, SimulatedResult,
+    SimulationRequest,
+};
 use crate::utils::NonceCache;
 use alloy_primitives::{address, b256, Address, B256, U256};
 use rbuilder_primitives::ace::{AceConfig, AceInteraction, AceUnlockSource, Selector};
@@ -124,20 +127,20 @@ fn test_ace_exchange_state_get_unlock_order_optional_only() {
 }
 
 #[test]
-fn test_cheapest_unlock_selected() {
+fn test_force_unlock_always_preferred() {
     let contract = address!("0000000aa232009084Bd71A5797d089AA4Edfad4");
-    let expensive_order = create_force_unlock_order(contract, 100_000);
-    let cheap_order = create_optional_unlock_order(contract, 50_000);
+    let force_order = create_force_unlock_order(contract, 100_000);
+    let optional_order = create_optional_unlock_order(contract, 50_000);
 
     let state = AceExchangeState {
-        force_unlock_order: Some(expensive_order.clone()),
-        optional_unlock_order: Some(cheap_order.clone()),
+        force_unlock_order: Some(force_order.clone()),
+        optional_unlock_order: Some(optional_order.clone()),
         ..Default::default()
     };
 
-    // Should select the cheaper one (50k < 100k)
+    // Force is always preferred over optional, regardless of gas cost
     let result = state.get_unlock_order();
-    assert_eq!(result.unwrap().sim_value.gas_used(), 50_000);
+    assert_eq!(result, Some(&force_order));
 }
 
 #[test]
@@ -336,111 +339,131 @@ fn test_dependency_key_ace_unlock() {
 }
 
 // ============================================================================
-// Multi-ACE Unlock Tests
+// AceSimulationState Tests
 // ============================================================================
 
-use crate::building::sim::SimulationRequest;
 use ahash::HashSet as AHashSet;
 
 #[test]
-fn test_simulation_request_ace_unlock_contracts_empty_default() {
-    // New orders should start with empty ace_unlock_contracts
+fn test_simulation_request_ace_state_empty_default() {
+    // New orders should start with empty ace_state
     let request = SimulationRequest {
         id: rand::random(),
         order: create_test_order(),
         parents: Vec::new(),
-        ace_unlock_contracts: AHashSet::default(),
+        ace_state: AceSimulationState::default(),
     };
 
-    assert!(request.ace_unlock_contracts.is_empty());
+    assert!(request.ace_state.all_dependencies_accounted());
 }
 
 #[test]
-fn test_simulation_request_ace_unlock_contracts_single() {
+fn test_ace_simulation_state_single_dependency() {
     let contract_a = address!("0000000aa232009084Bd71A5797d089AA4Edfad4");
-    let mut ace_contracts = AHashSet::default();
-    ace_contracts.insert(contract_a);
 
-    let request = SimulationRequest {
-        id: rand::random(),
-        order: create_test_order(),
-        parents: Vec::new(),
-        ace_unlock_contracts: ace_contracts.clone(),
+    // Order detected a NonUnlocking interaction (needs unlock)
+    let mut detected = AHashSet::default();
+    detected.insert(AceInteraction::NonUnlocking {
+        contract_address: contract_a,
+    });
+
+    let ace_state = AceSimulationState {
+        detected_interactions: detected,
+        accounted_for_interactions: AHashSet::default(),
     };
 
-    assert!(request.ace_unlock_contracts.contains(&contract_a));
-    assert_eq!(request.ace_unlock_contracts.len(), 1);
+    // Should have unhandled dependencies
+    assert!(!ace_state.all_dependencies_accounted());
+
+    let deps = ace_state.dependencies_to_handle();
+    assert_eq!(deps.len(), 1);
 }
 
 #[test]
-fn test_simulation_request_ace_unlock_contracts_multiple() {
-    // Test that SimulationRequest can track multiple ACE contracts
+fn test_ace_simulation_state_multiple_dependencies() {
     let contract_a = address!("0000000aa232009084Bd71A5797d089AA4Edfad4");
     let contract_b = address!("1111111aa232009084Bd71A5797d089AA4Edfad4");
     let contract_c = address!("2222222aa232009084Bd71A5797d089AA4Edfad4");
 
-    let mut ace_contracts = AHashSet::default();
-    ace_contracts.insert(contract_a);
-    ace_contracts.insert(contract_b);
-    ace_contracts.insert(contract_c);
+    let mut detected = AHashSet::default();
+    detected.insert(AceInteraction::NonUnlocking {
+        contract_address: contract_a,
+    });
+    detected.insert(AceInteraction::NonUnlocking {
+        contract_address: contract_b,
+    });
+    detected.insert(AceInteraction::NonUnlocking {
+        contract_address: contract_c,
+    });
 
-    let request = SimulationRequest {
-        id: rand::random(),
-        order: create_test_order(),
-        parents: Vec::new(),
-        ace_unlock_contracts: ace_contracts.clone(),
+    let ace_state = AceSimulationState {
+        detected_interactions: detected,
+        accounted_for_interactions: AHashSet::default(),
     };
 
-    assert!(request.ace_unlock_contracts.contains(&contract_a));
-    assert!(request.ace_unlock_contracts.contains(&contract_b));
-    assert!(request.ace_unlock_contracts.contains(&contract_c));
-    assert_eq!(request.ace_unlock_contracts.len(), 3);
+    let deps = ace_state.dependencies_to_handle();
+    assert_eq!(deps.len(), 3);
 }
 
 #[test]
-fn test_ace_unlock_contracts_genuine_failure_detection() {
-    // When ace_unlock_contracts contains the failing contract,
-    // it should be treated as genuine failure (not re-queued)
-    let contract_a = address!("0000000aa232009084Bd71A5797d089AA4Edfad4");
-
-    let mut ace_contracts = AHashSet::default();
-    ace_contracts.insert(contract_a);
-
-    // If the order already had unlock for contract_a but still failed,
-    // checking contains() should return true
-    assert!(ace_contracts.contains(&contract_a));
-
-    // A different contract should NOT be in the set
-    let contract_b = address!("1111111aa232009084Bd71A5797d089AA4Edfad4");
-    assert!(!ace_contracts.contains(&contract_b));
-}
-
-#[test]
-fn test_ace_unlock_contracts_progressive_accumulation() {
-    // Simulate progressive discovery: start empty, add contracts one by one
-    let mut ace_contracts = AHashSet::default();
-
+fn test_ace_simulation_state_partial_unlock() {
+    // Test that partial unlocks are tracked correctly
     let contract_a = address!("0000000aa232009084Bd71A5797d089AA4Edfad4");
     let contract_b = address!("1111111aa232009084Bd71A5797d089AA4Edfad4");
 
-    // First failure - add contract A
-    assert!(!ace_contracts.contains(&contract_a));
-    ace_contracts.insert(contract_a);
-    assert!(ace_contracts.contains(&contract_a));
-    assert_eq!(ace_contracts.len(), 1);
+    let mut detected = AHashSet::default();
+    detected.insert(AceInteraction::NonUnlocking {
+        contract_address: contract_a,
+    });
+    detected.insert(AceInteraction::NonUnlocking {
+        contract_address: contract_b,
+    });
 
-    // Second failure (different contract) - add contract B
-    assert!(!ace_contracts.contains(&contract_b));
-    ace_contracts.insert(contract_b);
-    assert!(ace_contracts.contains(&contract_b));
-    assert_eq!(ace_contracts.len(), 2);
+    // We've accounted for unlock on contract_a
+    let mut accounted = AHashSet::default();
+    accounted.insert(AceInteraction::Unlocking {
+        contract_address: contract_a,
+        source: AceUnlockSource::User,
+    });
 
-    // Third failure with contract A - should be genuine failure (already in set)
-    assert!(ace_contracts.contains(&contract_a));
+    let ace_state = AceSimulationState {
+        detected_interactions: detected,
+        accounted_for_interactions: accounted,
+    };
+
+    // Should still have one unhandled dependency (contract_b)
+    assert!(!ace_state.all_dependencies_accounted());
+    let deps = ace_state.dependencies_to_handle();
+    assert_eq!(deps.len(), 1);
 }
 
 #[test]
-fn test_add_ace_dependency_preserves_existing_contracts() -> eyre::Result<()> {
+fn test_ace_simulation_state_all_accounted() {
+    // When all unlocks are accounted for, should be fully resolved
+    let contract_a = address!("0000000aa232009084Bd71A5797d089AA4Edfad4");
+
+    let mut detected = AHashSet::default();
+    detected.insert(AceInteraction::NonUnlocking {
+        contract_address: contract_a,
+    });
+
+    let mut accounted = AHashSet::default();
+    accounted.insert(AceInteraction::Unlocking {
+        contract_address: contract_a,
+        source: AceUnlockSource::User,
+    });
+
+    let ace_state = AceSimulationState {
+        detected_interactions: detected,
+        accounted_for_interactions: accounted,
+    };
+
+    assert!(ace_state.all_dependencies_accounted());
+    assert!(ace_state.dependencies_to_handle().is_empty());
+}
+
+#[test]
+fn test_handle_ace_dependencies_with_existing_accounted() -> eyre::Result<()> {
     let test_chain = TestChainState::new(BlockArgs::default())?;
     let state = test_chain.provider_factory().latest()?;
     let nonce_cache = NonceCache::new(state.into());
@@ -456,16 +479,33 @@ fn test_add_ace_dependency_preserves_existing_contracts() -> eyre::Result<()> {
 
     let mut sim_tree = SimTree::new(nonce_cache, vec![config_a, config_b]);
 
-    // Create an order that already has contract_a in its ace_unlock_contracts
+    // Create an order with ACE state: detected both contracts, accounted for contract_a
     let order = create_test_order();
-    let mut existing_contracts = AHashSet::default();
-    existing_contracts.insert(contract_a);
 
-    // Add ACE dependency for contract_b (simulating second failure)
-    sim_tree.add_ace_dependency_for_order(order, contract_b, existing_contracts)?;
+    let mut detected = AHashSet::default();
+    detected.insert(AceInteraction::NonUnlocking {
+        contract_address: contract_a,
+    });
+    detected.insert(AceInteraction::NonUnlocking {
+        contract_address: contract_b,
+    });
 
-    // The order should now be pending for contract_b
-    // (We can't easily check internal state, but the function should succeed)
+    let mut accounted = AHashSet::default();
+    accounted.insert(AceInteraction::Unlocking {
+        contract_address: contract_a,
+        source: AceUnlockSource::User,
+    });
+
+    let ace_state = AceSimulationState {
+        detected_interactions: detected,
+        accounted_for_interactions: accounted,
+    };
+
+    // Handle ACE dependencies - should add order to pending for contract_b
+    sim_tree.handle_ace_dependencies_for_order(order, ace_state);
+
+    // The order should now be pending for contract_b unlock
+    // (Function should succeed without error)
 
     Ok(())
 }
