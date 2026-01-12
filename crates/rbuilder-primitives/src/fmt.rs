@@ -1,40 +1,10 @@
 use std::fmt::Write;
 
-use super::{Order, ShareBundleBody, ShareBundleInner, ShareBundleTx, SimValue, SimulatedOrder};
+use super::{Order, SimValue, SimulatedOrder};
 
 /// Writes indent spaces
 pub fn write_indent<Buffer: Write>(indent: usize, buf: &mut Buffer) -> std::fmt::Result {
     buf.write_str(&format!("{: <1$}", "", indent))
-}
-
-pub fn write_share_bundle_tx<Buffer: Write>(
-    indent: usize,
-    buf: &mut Buffer,
-    tx: &ShareBundleTx,
-) -> std::fmt::Result {
-    write_indent(indent, buf)?;
-    buf.write_str(&format!(
-        "TX {} Rev  {:?} val {}\n",
-        tx.tx.hash(),
-        tx.revert_behavior,
-        tx.tx.value()
-    ))
-}
-
-pub fn write_share_bundle_inner<Buffer: Write>(
-    indent: usize,
-    buf: &mut Buffer,
-    inner: &ShareBundleInner,
-) -> std::fmt::Result {
-    write_indent(indent, buf)?;
-    buf.write_str(&format!("Inner can skip {} \n", inner.can_skip))?;
-    for item in &inner.body {
-        match item {
-            ShareBundleBody::Tx(tx) => write_share_bundle_tx(indent + 1, buf, tx)?,
-            ShareBundleBody::Bundle(sb) => write_share_bundle_inner(indent + 1, buf, sb)?,
-        }
-    }
-    Ok(())
 }
 
 pub fn write_order<Buffer: Write>(
@@ -50,10 +20,6 @@ pub fn write_order<Buffer: Write>(
             tx.tx_with_blobs.hash(),
             tx.tx_with_blobs.value()
         )),
-        Order::ShareBundle(sb) => {
-            buf.write_str(&format!("ShB {:?}\n", sb.hash))?;
-            write_share_bundle_inner(indent + 1, buf, &sb.inner_bundle)
-        }
     }
 }
 

@@ -14,11 +14,9 @@ use alloy_consensus::{constants::KECCAK_EMPTY, Transaction};
 use alloy_evm::Database;
 use alloy_primitives::{Address, B256, I256, U256};
 use alloy_rlp::Encodable;
-use itertools::Itertools;
 use rbuilder_primitives::{
     evm_inspector::{RBuilderEVMInspector, UsedStateTrace},
-    BlockSpace, Bundle, Order, OrderId, RefundConfig, ShareBundle, ShareBundleBody,
-    ShareBundleInner, SimValue, TransactionSignedEcRecoveredWithBlobs,
+    BlockSpace, Bundle, Order, SimValue, TransactionSignedEcRecoveredWithBlobs,
 };
 use reth::{
     consensus_common::validation::MAX_RLP_BLOCK_SIZE, revm::database::StateProviderDatabase,
@@ -268,10 +266,6 @@ pub struct BundleOk {
     pub paid_kickbacks: Vec<(Address, U256)>,
     /// The refund amount to accrue per recipient and be paid at the end of the block and tx fee value that is deducted from the profit of the first delayed refund bundle for the recipient in the block
     pub delayed_kickback: Option<DelayedKickback>,
-    /// Only for sbundles we accumulate ShareBundleInner::original_order_id that executed ok.
-    /// Its original use is for only one level or orders with original_order_id but if nesting happens the parent order original_order_id goes before its children (pre-order DFS)
-    /// Fully dropped orders (TxRevertBehavior::AllowedExcluded allows it!) are not included.
-    pub original_order_ids: Vec<OrderId>,
 }
 
 impl BundleOk {
@@ -331,8 +325,6 @@ pub struct OrderOk {
     pub space_used: BlockSpace,
     pub cumulative_space_used: BlockSpace,
     pub tx_infos: Vec<TransactionExecutionInfo>,
-    /// Patch to get the executed OrderIds for merged sbundles (see: [`BundleOk::original_order_ids`],[`ShareBundleMerger`] )
-    pub original_order_ids: Vec<OrderId>,
     /// nonces_updates has a set of deduplicated final nonces of the txs in the order
     pub nonces_updated: Vec<(Address, u64)>,
     pub paid_kickbacks: Vec<(Address, U256)>,
@@ -471,9 +463,9 @@ pub enum CriticalCommitOrderError {
 }
 
 /// For all funcs allow_tx_skip means:
-/// If a tx inside a bundle or sbundle fails with TransactionErr (don't confuse this with reverting which is TransactionOk with !.receipt.success)
-/// and it's configured as allowed to revert (for bundles tx in reverting_tx_hashes, for sbundles: TxRevertBehavior != NotAllowed) we continue the
-/// the execution of the bundle/sbundle.
+/// If a tx inside a bundle fails with TransactionErr (don't confuse this with reverting which is TransactionOk with !.receipt.success)
+/// and it's configured as allowed to revert (for bundles tx in reverting_tx_hashes) we continue the
+/// the execution of the bundle.
 impl<
         'a,
         'b,
@@ -520,11 +512,6 @@ impl<
             &self.ctx.shared_cached_reads,
             &mut self.local_ctx.cached_reads,
         )
-    }
-
-    /// If current balance < initial balance returns 0.
-    fn saturating_coinbase_delta(&mut self, initial_balance: U256) -> Result<U256, ProviderError> {
-        Ok(self.coinbase_balance()?.saturating_sub(initial_balance))
     }
 
     /// Helper func that executes f and rollbacks on Ok(Err).
@@ -873,7 +860,6 @@ impl<
             nonces_updated: Vec::new(),
             paid_kickbacks: Vec::new(),
             delayed_kickback: None,
-            original_order_ids: Vec::new(),
         };
         for tx_with_blobs in &bundle.txs {
             let tx_hash = tx_with_blobs.hash();
@@ -988,233 +974,6 @@ impl<
         Ok(Ok(insert))
     }
 
-    /// block check + commit_share_bundle_no_rollback + rollback
-    fn commit_share_bundle(
-        &mut self,
-        bundle: &ShareBundle,
-        space_state: BlockBuildingSpaceState,
-        allow_tx_skip: bool,
-    ) -> Result<Result<BundleOk, BundleErr>, CriticalCommitOrderError> {
-        let current_block = self.ctx.block();
-        if !(bundle.block <= current_block && current_block <= bundle.max_block) {
-            return Ok(Err(BundleErr::TargetBlockIncorrect {
-                block: current_block,
-                target_block: bundle.block,
-                target_max_block: bundle.max_block,
-            }));
-        }
-        self.execute_with_rollback(|s| {
-            s.commit_share_bundle_no_rollback(bundle, space_state, allow_tx_skip)
-        })
-    }
-
-    /// Calls commit_share_bundle_inner to do all the hard work and, if everting goes ok, pays kickbacks
-    fn commit_share_bundle_no_rollback(
-        &mut self,
-        bundle: &ShareBundle,
-        space_state: BlockBuildingSpaceState,
-        allow_tx_skip: bool,
-    ) -> Result<Result<BundleOk, BundleErr>, CriticalCommitOrderError> {
-        let res =
-            self.commit_share_bundle_inner(bundle.inner_bundle(), space_state, allow_tx_skip)?;
-        let res = match res {
-            Ok(r) => r,
-            Err(e) => {
-                return Ok(Err(e));
-            }
-        };
-
-        let mut insert = res.bundle_ok;
-
-        // now pay all kickbacks
-        for (to, payout) in res.payouts_promissed.into_iter().sorted_by_key(|(a, _)| *a) {
-            if let Err(err) = self.insert_refund_payout_tx(
-                payout,
-                to,
-                space_state.reserved_block_space,
-                &mut insert,
-            )? {
-                return Ok(Err(err));
-            }
-        }
-        Ok(Ok(insert))
-    }
-
-    /// Only changes the state on Ok(Ok)
-    fn commit_share_bundle_inner(
-        &mut self,
-        bundle: &ShareBundleInner,
-        space_state: BlockBuildingSpaceState,
-        allow_tx_skip: bool,
-    ) -> Result<Result<ShareBundleCommitResult, BundleErr>, CriticalCommitOrderError> {
-        self.execute_with_rollback(|s| {
-            s.commit_share_bundle_inner_no_rollback(bundle, space_state, allow_tx_skip)
-        })
-    }
-
-    fn commit_share_bundle_inner_no_rollback(
-        &mut self,
-        bundle: &ShareBundleInner,
-        space_state: BlockBuildingSpaceState,
-        allow_tx_skip: bool,
-    ) -> Result<Result<ShareBundleCommitResult, BundleErr>, CriticalCommitOrderError> {
-        let mut insert = BundleOk {
-            space_used: BlockSpace::ZERO,
-            cumulative_space_used: space_state.space_used(),
-            tx_infos: Vec::new(),
-            nonces_updated: Vec::new(),
-            paid_kickbacks: Vec::new(),
-            delayed_kickback: None,
-            original_order_ids: Vec::new(),
-        };
-        let coinbase_balance_before = self.coinbase_balance()?;
-        let refundable_elements = bundle
-            .refund
-            .iter()
-            .map(|r| (r.body_idx, r.percent))
-            .collect::<HashMap<_, _>>();
-        let mut refundable_profit = U256::from(0);
-        let mut inner_payouts = HashMap::new();
-        for (idx, body) in bundle.body.iter().enumerate() {
-            match body {
-                ShareBundleBody::Tx(sbundle_tx) => {
-                    let rollback_point = self.rollback_point();
-                    let tx = &sbundle_tx.tx;
-                    let result =
-                        self.commit_tx(tx, insert.space_state(space_state.reserved_block_space()))?;
-                    match result {
-                        Ok(res) => {
-                            if !res.tx_info.receipt.success {
-                                match sbundle_tx.revert_behavior {
-                                    rbuilder_primitives::TxRevertBehavior::NotAllowed => {
-                                        return Ok(Err(BundleErr::TransactionReverted(tx.hash())));
-                                    }
-                                    rbuilder_primitives::TxRevertBehavior::AllowedIncluded => {}
-                                    rbuilder_primitives::TxRevertBehavior::AllowedExcluded => {
-                                        self.rollback(rollback_point);
-                                        continue;
-                                    }
-                                }
-                            }
-                            if res.tx_info.coinbase_profit.is_positive()
-                                && !refundable_elements.contains_key(&idx)
-                            {
-                                refundable_profit += res.tx_info.coinbase_profit.unsigned_abs();
-                            }
-                            Self::accumulate_tx_execution(res, &mut insert);
-                        }
-                        Err(err) => {
-                            // if optional transaction, skip
-                            if allow_tx_skip && sbundle_tx.revert_behavior.can_revert() {
-                                continue;
-                            } else {
-                                return Ok(Err(BundleErr::InvalidTransaction(tx.hash(), err)));
-                            }
-                        }
-                    }
-                }
-                ShareBundleBody::Bundle(inner_bundle) => {
-                    let inner_res = self.commit_share_bundle_inner(
-                        inner_bundle,
-                        insert.space_state(space_state.reserved_block_space()),
-                        allow_tx_skip,
-                    )?;
-                    match inner_res {
-                        Ok(res) => {
-                            if let Some(original_order_id) = inner_bundle.original_order_id {
-                                if !res.bundle_ok.tx_infos.is_empty() {
-                                    // We only consider this order executed if something was so we exclude 100% dropped bundles.
-                                    insert.original_order_ids.push(original_order_id);
-                                }
-                            }
-                            if res.coinbase_diff_before_payouts > res.total_payouts_promissed
-                                && !refundable_elements.contains_key(&idx)
-                            {
-                                refundable_profit +=
-                                    res.coinbase_diff_before_payouts - res.total_payouts_promissed
-                            }
-                            insert
-                                .original_order_ids
-                                .extend(res.bundle_ok.original_order_ids);
-                            insert.space_used += res.bundle_ok.space_used;
-                            insert.cumulative_space_used = res.bundle_ok.cumulative_space_used;
-                            insert.tx_infos.extend(res.bundle_ok.tx_infos);
-                            update_nonce_list_with_updates(
-                                &mut insert.nonces_updated,
-                                res.bundle_ok.nonces_updated,
-                            );
-
-                            for (addr, reserve) in res.payouts_promissed {
-                                inner_payouts
-                                    .entry(addr)
-                                    .and_modify(|v| {
-                                        *v += reserve.total_refundable_value;
-                                    })
-                                    .or_insert(reserve.total_refundable_value);
-                            }
-                        }
-                        Err(err) => {
-                            if inner_bundle.can_skip {
-                                continue;
-                            } else {
-                                return Ok(Err(err));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        for (idx, percent) in refundable_elements {
-            let refund_config =
-                if let Some(config) = bundle.body.get(idx).and_then(|b| b.refund_config()) {
-                    config
-                } else {
-                    return Ok(Err(BundleErr::IncorrectRefundableElement(idx)));
-                };
-
-            let total_value = get_percent(refundable_profit, percent);
-            for RefundConfig { address, percent } in refund_config {
-                let value = get_percent(total_value, percent);
-                inner_payouts
-                    .entry(address)
-                    .and_modify(|v| {
-                        *v += value;
-                    })
-                    .or_insert(value);
-            }
-        }
-
-        // calculate gas limits
-        let mut payouts_promised = HashMap::new();
-        for (to, refundable_value) in inner_payouts.drain() {
-            let payout = match self.estimate_refund_payout_tx(
-                to,
-                refundable_value,
-                insert.cumulative_space_used,
-            ) {
-                Ok(payout) => payout,
-                Err(err) => return Ok(Err(err)),
-            };
-            payouts_promised.insert(to, payout);
-        }
-
-        let coinbase_diff_before_payouts = self
-            .saturating_coinbase_delta(coinbase_balance_before)
-            .unwrap_or_default();
-        let total_payouts_promissed = payouts_promised
-            .values()
-            .map(|v| v.total_refundable_value)
-            .sum::<U256>();
-
-        Ok(Ok(ShareBundleCommitResult {
-            bundle_ok: insert,
-            coinbase_diff_before_payouts,
-            total_payouts_promissed,
-            payouts_promissed: payouts_promised,
-        }))
-    }
-
     fn get_used_state_trace(&mut self) -> Option<UsedStateTrace> {
         self.tracer
             .as_mut()
@@ -1265,7 +1024,6 @@ impl<
                             paid_kickbacks: Vec::new(),
                             delayed_kickback: None,
                             used_state_trace: self.get_used_state_trace(),
-                            original_order_ids: Vec::new(),
                         }))
                     }
                     Err(err) => Ok(Err(err.into())),
@@ -1275,11 +1033,6 @@ impl<
                 let coinbase_balance_before = self.coinbase_balance()?;
                 let res =
                     self.commit_bundle(bundle, space_state, allow_tx_skip, combined_refunds)?;
-                self.bundle_to_order_result(res, coinbase_balance_before)
-            }
-            Order::ShareBundle(bundle) => {
-                let coinbase_balance_before = self.coinbase_balance()?;
-                let res = self.commit_share_bundle(bundle, space_state, allow_tx_skip)?;
                 self.bundle_to_order_result(res, coinbase_balance_before)
             }
         }
@@ -1316,7 +1069,6 @@ impl<
                     paid_kickbacks: ok.paid_kickbacks,
                     delayed_kickback: ok.delayed_kickback,
                     used_state_trace: self.get_used_state_trace(),
-                    original_order_ids: ok.original_order_ids,
                 }))
             }
             Err(err) => Ok(Err(err.into())),
@@ -1388,15 +1140,6 @@ fn update_nonce_list(nonces_updated: &mut Vec<(Address, u64)>, new_update: (Addr
         }
     }
     nonces_updated.push(new_update);
-}
-
-fn update_nonce_list_with_updates(
-    nonces_updated: &mut Vec<(Address, u64)>,
-    new_updates: Vec<(Address, u64)>,
-) {
-    for new_update in new_updates {
-        update_nonce_list(nonces_updated, new_update);
-    }
 }
 
 /// This method is used to clearly outline inputs and outputs for the EVM interpreter execution

@@ -74,3 +74,13 @@ This publisher connects to a relay using bloxroute websocket bids protocol.
     |relay_name| Be sure to use unique names. Maybe we can take it from the bloxroute_url?|
     |auth_header|string or env var|Added as "Authorization" header. Example: "env:BLOXROUTE_AUTH_HEADER"|
 
+
+* Titan websocket (type = "titan-ws")
+This publisher connects to a relay using titan websocket top bid protocol (almost identical to Ultrasound).
+
+    ##### Fields
+    | Name | Type | Comments |
+    |------|------|-------------|
+    |titan_url|string|Url to connect to. Example: "ws://us.titanrelay.xyz/builder/top_bid"|
+    |relay_name|string|Be sure to use unique names. Maybe we can take it from the titan_url?|
+    |api_token|string|Mandatory auth used as header X-Api-Token|

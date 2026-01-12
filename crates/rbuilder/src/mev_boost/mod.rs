@@ -8,8 +8,8 @@ use flate2::{write::GzEncoder, Compression};
 use governor::{DefaultDirectRateLimiter, Quota, RateLimiter};
 use rbuilder_primitives::mev_boost::{
     KnownRelay, MevBoostRelayID, RelayMode, SubmitBlockRequestNoBlobs,
-    SubmitBlockRequestWithMetadata, SubmitHeaderRequestWithMetadata, ValidatorRegistration,
-    ValidatorSlotData, MEV_BOOST_SLOT_INFO_REQUEST_TIMEOUT,
+    SubmitBlockRequestWithMetadata, SubmitHeaderRequestWithMetadata, ValidatorPreferences,
+    ValidatorRegistration, ValidatorSlotData, MEV_BOOST_SLOT_INFO_REQUEST_TIMEOUT,
 };
 use reqwest::{
     header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_ENCODING, CONTENT_TYPE},
@@ -517,9 +517,18 @@ pub enum SubmitBlockErr {
     PayloadDelivered,
     #[error("Bid below floor")]
     BidBelowFloor,
-    #[cfg_attr(not(feature = "redact-sensitive"), error("Simulation Error: {0}"))]
-    #[cfg_attr(feature = "redact-sensitive", error("Simulation Error: [REDACTED]"))]
-    SimError(String),
+    // Simulation failed. We should stop block building.
+    // If the error is critical, we should raise an alarm.
+    // Example of non critical error: MEV Protect block. We know we don't comply so we should not continue building.
+    #[cfg_attr(
+        not(feature = "redact-sensitive"),
+        error("Simulation Error: {text} {is_critical}")
+    )]
+    #[cfg_attr(
+        feature = "redact-sensitive",
+        error("Simulation Error: [REDACTED] {is_critical}")
+    )]
+    SimError { text: String, is_critical: bool },
     #[error("RPC conversion Error")]
     /// RPC validates the submissions (eg: limit of txs) much more that our model.
     RPCConversionError(Error),
@@ -692,6 +701,7 @@ impl RelayClient {
                     .filter(|r| {
                         r.preferences
                             .as_ref()
+                            .and_then(ValidatorPreferences::as_titan)
                             .is_none_or(|p| !p.censoring || self.ask_for_filtering_validators)
                     })
                     .collect();
@@ -1048,6 +1058,15 @@ async fn map_response(response: Response) -> Result<(), SubmitBlockErr> {
     }
 }
 
+/// This means we probably have a bug/problem.
+/// Move to table if this grows to more errors.
+fn is_critical_sim_error(error_text: &str) -> bool {
+    // We are not MEV Protect compatible yet
+    // Full example error: "Simulation Error: simulation failed: proposer MEV Protect is enabled for this slot duty but the block is invalid: expected ≥ 0.0072 ETH (ratio 90), got 0.0072 ETH (ratio 89): simulation failed: proposer MEV Protect is enabled for this slot duty but the block is invalid: expected ≥ 0.0072 ETH (ratio 90), got 0.0072 ETH (ratio 89). This block was accepted but may be rejected in the future. Please contact bloXroute to learn more about supporting MEV Protect feature."
+    !error_text
+        .contains("proposer MEV Protect is enabled for this slot duty but the block is invalid")
+}
+
 fn map_relay_error_message(msg: &str, code: Option<u64>) -> SubmitBlockErr {
     match msg {
         "payload attributes not (yet) known" => SubmitBlockErr::PayloadAttributesNotKnown,
@@ -1063,7 +1082,10 @@ fn map_relay_error_message(msg: &str, code: Option<u64>) -> SubmitBlockErr {
             {
                 RelayError::InternalError.into()
             } else {
-                SubmitBlockErr::SimError(msg.to_string())
+                SubmitBlockErr::SimError {
+                    text: msg.to_string(),
+                    is_critical: is_critical_sim_error(msg),
+                }
             }
         }
         _ if msg.contains("request timeout hit") => RelayError::ConnectionError.into(),

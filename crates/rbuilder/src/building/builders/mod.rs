@@ -149,7 +149,7 @@ impl OrderConsumer {
         &self.new_commands
     }
 
-    // Apply insertions and sbundle cancellations on sink
+    // Apply insertions and cancellations on sink
     pub fn apply_new_commands<SinkType: SimulatedOrderSink>(&mut self, sink: &mut SinkType) {
         for order_command in self.new_commands.drain(..) {
             simulated_order_command_to_sink(order_command, sink);
@@ -168,7 +168,6 @@ pub struct OrderIntakeConsumer<OrderPriorityType> {
 }
 
 impl<OrderPriorityType: OrderPriority> OrderIntakeConsumer<OrderPriorityType> {
-    /// See [`ShareBundleMerger`] for sbundle_merger_selected_signers
     pub fn new(nonces: NonceCache, orders: broadcast::Receiver<SimulatedOrderCommand>) -> Self {
         Self {
             nonces,

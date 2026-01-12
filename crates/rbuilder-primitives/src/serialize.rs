@@ -1,8 +1,6 @@
 use super::{
     Bundle, BundleRefund, BundleReplacementData, BundleReplacementKey, BundleVersion, MempoolTx,
-    Order, RawTransactionDecodable, Refund, RefundConfig, ShareBundle, ShareBundleBody,
-    ShareBundleInner, ShareBundleReplacementData, ShareBundleReplacementKey, ShareBundleTx,
-    TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior, TxWithBlobsCreateError,
+    Order, RawTransactionDecodable, TransactionSignedEcRecoveredWithBlobs, TxWithBlobsCreateError,
     LAST_BUNDLE_VERSION,
 };
 use alloy_consensus::constants::EIP4844_TX_TYPE_ID;
@@ -14,7 +12,6 @@ use reth_chainspec::MAINNET;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_with::serde_as;
 use thiserror::Error;
-use tracing::error;
 use uuid::Uuid;
 
 /// Encoding mode for raw transactions (https://eips.ethereum.org/EIPS/eip-4844)
@@ -392,14 +389,11 @@ impl RawBundle {
 
     /// See [TransactionSignedEcRecoveredWithBlobs::envelope_encoded_no_blobs]
     pub fn encode_no_blobs(value: Bundle) -> Self {
-        let replacement_uuid = value.replacement_data.as_ref().map(|r| r.key.key().id);
+        let replacement_uuid = value.replacement_data.as_ref().map(|r| r.key.id);
         let replacement_nonce = value.replacement_data.as_ref().map(|r| r.sequence_number);
-        let signing_address = value.signer.or_else(|| {
-            value
-                .replacement_data
-                .as_ref()
-                .and_then(|r| r.key.key().signer)
-        });
+        let signing_address = value
+            .signer
+            .or_else(|| value.replacement_data.as_ref().and_then(|r| r.key.signer));
         Self {
             txs: value
                 .txs
@@ -505,332 +499,13 @@ impl RawTx {
     }
 }
 
-/// Struct to de/serialize json Bundles from bundles APIs and from/db.
-/// Does not assume a particular format on txs.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RawShareBundle {
-    pub version: String,
-    pub inclusion: RawShareBundleInclusion,
-    pub body: Vec<RawShareBundleBody>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub validity: Option<RawShareBundleValidity>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<RawShareBundleMetadatada>,
-    pub replacement_uuid: Option<Uuid>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RawShareBundleInclusion {
-    pub block: U64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_block: Option<U64>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RawShareBundleBody {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tx: Option<Bytes>,
-    #[serde(default)]
-    pub can_revert: bool,
-    pub revert_mode: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub bundle: Option<Box<RawShareBundle>>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RawShareBundleValidity {
-    #[serde(default)]
-    pub refund: Vec<Refund>,
-    #[serde(default)]
-    pub refund_config: Vec<RefundConfig>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RawShareBundleMetadatada {
-    #[serde(default)]
-    pub signer: Option<Address>,
-    /// See [`ShareBundleReplacementData`] sequence_number
-    pub replacement_nonce: Option<u64>,
-    /// Used for cancelling. When true the only thing we care about is signer,replacement_nonce and RawShareBundle::replacement_uuid
-    #[serde(default)]
-    pub cancelled: bool,
-}
-
-#[derive(Error, Debug)]
-pub enum RawShareBundleConvertError {
-    #[error("Failed to decode transaction, idx: {0}, error: {1}")]
-    FailedToDecodeTransaction(usize, TxWithBlobsCreateError),
-    #[error("Bundle too deep")]
-    BundleTooDeep,
-    #[error("Incorrect version")]
-    IncorrectVersion,
-    #[error("Empty body")]
-    EmptyBody,
-    #[error("Total refund percent exceeds 100")]
-    TotalRefundTooBig,
-    #[error("Refund config does not add to 100")]
-    RefundConfigIncorrect,
-    #[error("Found cancel on decode_new_bundle")]
-    FoundCancelExpectingBundle,
-    #[error("Unable to parse a Cancel")]
-    CancelError,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct CancelShareBundle {
-    pub block: u64,
-    pub key: ShareBundleReplacementKey,
-}
-/// Since we use the same API (mev_sendBundle) to get new bundles and also to cancel them we need this struct
-#[allow(clippy::large_enum_variant)]
-pub enum RawShareBundleDecodeResult {
-    NewShareBundle(Box<ShareBundle>),
-    CancelShareBundle(CancelShareBundle),
-}
-
-impl RawShareBundle {
-    /// Same as decode but fails on cancel
-    pub fn decode_new_bundle(
-        self,
-        encoding: TxEncoding,
-    ) -> Result<ShareBundle, RawShareBundleConvertError> {
-        let decode_res = self.decode(encoding)?;
-        match decode_res {
-            RawShareBundleDecodeResult::NewShareBundle(b) => Ok(*b),
-            RawShareBundleDecodeResult::CancelShareBundle(_) => {
-                Err(RawShareBundleConvertError::FoundCancelExpectingBundle)
-            }
-        }
-    }
-
-    pub fn decode(
-        self,
-        encoding: TxEncoding,
-    ) -> Result<RawShareBundleDecodeResult, RawShareBundleConvertError> {
-        let (block, max_block) = (
-            self.inclusion.block.to(),
-            self.inclusion
-                .max_block
-                .unwrap_or(self.inclusion.block)
-                .to(),
-        );
-
-        let signer = self.metadata.as_ref().and_then(|m| m.signer);
-        let replacement_nonce = self.metadata.as_ref().and_then(|m| m.replacement_nonce);
-        let replacement_data =
-            if let (Some(replacement_uuid), Some(signer), Some(replacement_nonce)) =
-                (self.replacement_uuid, signer, replacement_nonce)
-            {
-                Some(ShareBundleReplacementData {
-                    key: ShareBundleReplacementKey::new(replacement_uuid, signer),
-                    sequence_number: replacement_nonce,
-                })
-            } else {
-                None
-            };
-
-        if self.metadata.as_ref().is_some_and(|r| r.cancelled) {
-            return Ok(RawShareBundleDecodeResult::CancelShareBundle(
-                CancelShareBundle {
-                    block,
-                    key: replacement_data
-                        .ok_or(RawShareBundleConvertError::CancelError)?
-                        .key,
-                },
-            ));
-        }
-
-        let (_, inner_bundle) = extract_inner_bundle(0, 0, self, &encoding)?;
-        let bundle = ShareBundle::new(
-            block,
-            max_block,
-            inner_bundle,
-            signer,
-            replacement_data,
-            Vec::new(),
-            Default::default(),
-        );
-        Ok(RawShareBundleDecodeResult::NewShareBundle(Box::new(bundle)))
-    }
-
-    /// See [TransactionSignedEcRecoveredWithBlobs::envelope_encoded_no_blobs]
-    pub fn encode_no_blobs(value: ShareBundle) -> Self {
-        let inclusion = RawShareBundleInclusion {
-            block: U64::from(value.block),
-            max_block: (value.block != value.max_block).then_some(U64::from(value.max_block)),
-        };
-        let mut result = inner_bundle_to_raw_bundle_no_blobs(inclusion, value.inner_bundle);
-        result.metadata = value.signer.map(|signer| RawShareBundleMetadatada {
-            signer: Some(signer),
-            replacement_nonce: value.replacement_data.as_ref().map(|r| r.sequence_number),
-            cancelled: false,
-        });
-        result.replacement_uuid = value.replacement_data.map(|r| r.key.0.id);
-        result
-    }
-}
-
-const TX_REVERT_NOT_ALLOWED: &str = "fail";
-const TX_REVERT_ALLOWED_INCLUDED: &str = "allow";
-const TX_REVERT_ALLOWED_EXCLUDED: &str = "drop";
-fn serialize_revert_behavior(revert: TxRevertBehavior) -> String {
-    match revert {
-        TxRevertBehavior::NotAllowed => TX_REVERT_NOT_ALLOWED.to_owned(),
-        TxRevertBehavior::AllowedIncluded => TX_REVERT_ALLOWED_INCLUDED.to_owned(),
-        TxRevertBehavior::AllowedExcluded => TX_REVERT_ALLOWED_EXCLUDED.to_owned(),
-    }
-}
-
-fn parse_revert_behavior(can_revert: bool, revert_mode: Option<String>) -> TxRevertBehavior {
-    if let Some(revert_mode) = revert_mode {
-        match revert_mode.as_str() {
-            TX_REVERT_NOT_ALLOWED => TxRevertBehavior::NotAllowed,
-            TX_REVERT_ALLOWED_INCLUDED => TxRevertBehavior::AllowedIncluded,
-            TX_REVERT_ALLOWED_EXCLUDED => TxRevertBehavior::AllowedExcluded,
-            _ => {
-                error!(?revert_mode, "Illegal revert mode");
-                TxRevertBehavior::NotAllowed
-            }
-        }
-    } else {
-        TxRevertBehavior::from_old_bool(can_revert)
-    }
-}
-
-fn extract_inner_bundle(
-    depth: usize,
-    mut tx_count: usize,
-    raw: RawShareBundle,
-    encoding: &TxEncoding,
-) -> Result<(usize, ShareBundleInner), RawShareBundleConvertError> {
-    if depth > 5 {
-        return Err(RawShareBundleConvertError::BundleTooDeep);
-    }
-    if raw.version != "v0.1" && raw.version != "version-1" && raw.version != "beta-1" {
-        return Err(RawShareBundleConvertError::IncorrectVersion);
-    }
-
-    let body = raw
-        .body
-        .into_iter()
-        .map(
-            |body| -> Result<ShareBundleBody, RawShareBundleConvertError> {
-                if let Some(tx) = body.tx {
-                    let tx = encoding.decode(tx).map_err(|e| {
-                        RawShareBundleConvertError::FailedToDecodeTransaction(tx_count, e)
-                    })?;
-                    tx_count += 1;
-                    return Ok(ShareBundleBody::Tx(ShareBundleTx {
-                        tx,
-                        revert_behavior: parse_revert_behavior(body.can_revert, body.revert_mode),
-                    }));
-                }
-
-                if let Some(bundle) = body.bundle {
-                    // TODO: check that inclusion is correct
-
-                    let (new_tx_count, extracted_inner_bundle) =
-                        extract_inner_bundle(depth + 1, tx_count, *bundle, encoding)?;
-                    tx_count = new_tx_count;
-                    return Ok(ShareBundleBody::Bundle(extracted_inner_bundle));
-                }
-
-                Err(RawShareBundleConvertError::EmptyBody)
-            },
-        )
-        .collect::<Result<Vec<_>, _>>()?;
-
-    let (refund, refund_config) = raw
-        .validity
-        .map(|v| {
-            if v.refund.iter().map(|r| r.percent).sum::<usize>() > 100 {
-                return Err(RawShareBundleConvertError::TotalRefundTooBig);
-            }
-
-            if !v.refund_config.is_empty()
-                && v.refund_config.iter().map(|r| r.percent).sum::<usize>() > 100
-            {
-                return Err(RawShareBundleConvertError::RefundConfigIncorrect);
-            }
-
-            Ok((v.refund, v.refund_config))
-        })
-        .unwrap_or_else(|| Ok((Vec::new(), Vec::new())))?;
-
-    Ok((
-        tx_count,
-        ShareBundleInner {
-            body,
-            refund,
-            refund_config,
-            // mev-share does not allow this yet.
-            can_skip: false,
-            original_order_id: None,
-        },
-    ))
-}
-
-/// Txs serialized without blobs data (canonical format)
-fn inner_bundle_to_raw_bundle_no_blobs(
-    inclusion: RawShareBundleInclusion,
-    inner: ShareBundleInner,
-) -> RawShareBundle {
-    let body = inner
-        .body
-        .into_iter()
-        .map(|b| match b {
-            ShareBundleBody::Bundle(inner) => RawShareBundleBody {
-                tx: None,
-                can_revert: false,
-                revert_mode: None,
-                bundle: Some(Box::new(inner_bundle_to_raw_bundle_no_blobs(
-                    inclusion.clone(),
-                    inner,
-                ))),
-            },
-            ShareBundleBody::Tx(sbundle_tx) => {
-                // We don't really need this since revert_mode takes priority over can_revert but just in case...
-                let can_revert = sbundle_tx.revert_behavior.can_revert();
-                let revert_mode = Some(serialize_revert_behavior(sbundle_tx.revert_behavior));
-                RawShareBundleBody {
-                    tx: Some(sbundle_tx.tx.envelope_encoded_no_blobs()),
-                    can_revert,
-                    revert_mode,
-                    bundle: None,
-                }
-            }
-        })
-        .collect();
-
-    let validity = (!inner.refund.is_empty() || !inner.refund_config.is_empty()).then_some(
-        RawShareBundleValidity {
-            refund: inner.refund,
-            refund_config: inner.refund_config,
-        },
-    );
-
-    RawShareBundle {
-        version: String::from("v0.1"),
-        inclusion,
-        body,
-        validity,
-        metadata: None,
-        replacement_uuid: None,
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[serde(tag = "type")]
+#[allow(clippy::large_enum_variant)]
 pub enum RawOrder {
     Bundle(RawBundle),
     Tx(RawTx),
-    ShareBundle(RawShareBundle),
 }
 
 #[derive(Error, Debug)]
@@ -839,8 +514,6 @@ pub enum RawOrderConvertError {
     FailedToDecodeBundle(RawBundleConvertError),
     #[error("Failed to decode transaction, error: {0}")]
     FailedToDecodeTransaction(TxWithBlobsCreateError),
-    #[error("Failed to decode share bundle`, error: {0}")]
-    FailedToDecodeShareBundle(RawShareBundleConvertError),
     #[error("Blobs not supported by RawOrder")]
     BlobsNotSupported,
 }
@@ -857,12 +530,6 @@ impl RawOrder {
                 tx.decode(encoding)
                     .map_err(RawOrderConvertError::FailedToDecodeTransaction)?,
             )),
-
-            RawOrder::ShareBundle(bundle) => Ok(Order::ShareBundle(
-                bundle
-                    .decode_new_bundle(encoding)
-                    .map_err(RawOrderConvertError::FailedToDecodeShareBundle)?,
-            )),
         }
     }
 }
@@ -872,9 +539,6 @@ impl From<Order> for RawOrder {
         match value {
             Order::Bundle(bundle) => Self::Bundle(RawBundle::encode_no_blobs(bundle)),
             Order::Tx(tx) => Self::Tx(RawTx::encode_no_blobs(tx)),
-            Order::ShareBundle(bundle) => {
-                Self::ShareBundle(RawShareBundle::encode_no_blobs(bundle))
-            }
         }
     }
 }
@@ -882,10 +546,9 @@ impl From<Order> for RawOrder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ReplacementData;
     use alloy_consensus::Transaction;
     use alloy_eips::eip2718::Encodable2718;
-    use alloy_primitives::{address, b256, bytes, fixed_bytes, keccak256, U256};
+    use alloy_primitives::{address, b256, bytes, fixed_bytes, U256};
     use std::str::FromStr;
     use uuid::uuid;
 
@@ -1323,12 +986,9 @@ mod tests {
                 .decode(TxEncoding::WithBlobData)
                 .expect("failed to convert bundle request to RawBundleDecodeResult");
             if let RawBundleDecodeResult::CancelBundle(cancel) = bundle {
+                assert_eq!(cancel.key.id, uuid!("3255ceb4-fdc5-592d-a501-2183727ca3df"));
                 assert_eq!(
-                    cancel.key.key().id,
-                    uuid!("3255ceb4-fdc5-592d-a501-2183727ca3df")
-                );
-                assert_eq!(
-                    cancel.key.key().signer.unwrap(),
+                    cancel.key.signer.unwrap(),
                     address!("0x95222290dd7278aa3ddd389cc1e1d165cc4bafe5")
                 );
                 assert_eq!(cancel.sequence_number, 49);
@@ -1603,209 +1263,6 @@ mod tests {
             Some(address!("3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD"))
         );
         assert_eq!(tx.value(), U256::from(36280797113317316u128));
-    }
-
-    #[test]
-    fn test_correct_share_bundle_decoding() {
-        // raw json string
-        let bundle_json = r#"
-        {
-            "version": "v0.1",
-            "inclusion": {
-              "block": "0x1",
-              "maxBlock": "0x11"
-            },
-            "body": [
-              {
-                "bundle": {
-                  "version": "v0.1",
-                  "inclusion": {
-                    "block": "0x1"
-                  },
-                  "body": [
-                    {
-                      "tx": "0x02f86b0180843b9aca00852ecc889a0082520894c87037874aed04e51c29f582394217a0a2b89d808080c080a0a463985c616dd8ee17d7ef9112af4e6e06a27b071525b42182fe7b0b5c8b4925a00af5ca177ffef2ff28449292505d41be578bebb77110dfc09361d2fb56998260",
-                      "canRevert": true
-                    },
-                    {
-                      "tx": "0x02f8730180843b9aca00852ecc889a008288b894c10000000000000000000000000000000000000088016345785d8a000080c001a07c8890151fed9a826f241d5a37c84062ebc55ca7f5caef4683dcda6ac99dbffba069108de72e4051a764f69c51a6b718afeff4299107963a5d84d5207b2d6932a4",
-                      "revertMode": "drop"
-                    }
-                  ],
-                  "validity": {
-                    "refund": [
-                      {
-                        "bodyIdx": 0,
-                        "percent": 90
-                      }
-                    ],
-                    "refundConfig": [
-                      {
-                        "address": "0x3e7dfb3e26a16e3dbf6dfeeff8a5ae7a04f73aad",
-                        "percent": 100
-                      }
-                    ]
-                  }
-                }
-              },
-              {
-                "tx": "0x02f8730101843b9aca00852ecc889a008288b894c10000000000000000000000000000000000000088016345785d8a000080c001a0650c394d77981e46be3d8cf766ecc435ec3706375baed06eb9bef21f9da2828da064965fdf88b91575cd74f20301649c9d011b234cefb6c1761cc5dd579e4750b1"
-              }
-            ],
-            "validity": {
-              "refund": [
-                {
-                  "bodyIdx": 0,
-                  "percent": 80
-                }
-              ]
-            },
-            "metadata": {
-                "signer": "0x4696595f68034b47BbEc82dB62852B49a8EE7105",
-                "replacementNonce": 17
-            },
-            "replacementUuid": "3255ceb4-fdc5-592d-a501-2183727ca3df"
-        }
-        "#;
-
-        let bundle_request: RawShareBundle =
-            serde_json::from_str(bundle_json).expect("failed to decode share bundle");
-
-        let bundle = bundle_request
-            .clone()
-            .decode_new_bundle(TxEncoding::WithBlobData)
-            .expect("failed to convert share bundle request to share bundle");
-        let bundle_clone = bundle.clone();
-
-        assert_eq!(bundle.block, 0x1);
-        assert_eq!(bundle.max_block, 0x11);
-        assert_eq!(
-            bundle
-                .flatten_txs()
-                .into_iter()
-                .map(|(tx, opt)| (tx.hash(), opt))
-                .collect::<Vec<_>>(),
-            vec![
-                (
-                    fixed_bytes!(
-                        "ec5dd7d793a20885a822169df4030d92fbc8d3ac5bd9eaa190b82196ea2858da"
-                    ),
-                    true
-                ),
-                (
-                    fixed_bytes!(
-                        "ba8dd77f4e9cf3c833399dc7f25408bb35fee78787a039e0ce3c80b04c537a71"
-                    ),
-                    true
-                ),
-                (
-                    fixed_bytes!(
-                        "e8953f516797ef26566c705be13c7cc77dd0f557c734b8278fac091f13b0d46a"
-                    ),
-                    false
-                ),
-            ]
-        );
-
-        let expected_hash = keccak256(
-            [
-                keccak256(
-                    [
-                        fixed_bytes!(
-                            "ec5dd7d793a20885a822169df4030d92fbc8d3ac5bd9eaa190b82196ea2858da"
-                        )
-                        .to_vec(),
-                        fixed_bytes!(
-                            "ba8dd77f4e9cf3c833399dc7f25408bb35fee78787a039e0ce3c80b04c537a71"
-                        )
-                        .to_vec(),
-                    ]
-                    .concat(),
-                )
-                .to_vec(),
-                fixed_bytes!("e8953f516797ef26566c705be13c7cc77dd0f557c734b8278fac091f13b0d46a")
-                    .to_vec(),
-            ]
-            .concat(),
-        );
-        assert_eq!(bundle.hash, expected_hash);
-        assert_eq!(
-            bundle.signer,
-            Some(address!("4696595f68034b47BbEc82dB62852B49a8EE7105"))
-        );
-
-        let b = bundle.inner_bundle;
-        assert_eq!(b.body.len(), 2);
-        assert!(matches!(b.body[0], ShareBundleBody::Bundle(..)));
-        assert!(matches!(
-            b.body[1],
-            ShareBundleBody::Tx(ShareBundleTx {
-                revert_behavior: TxRevertBehavior::NotAllowed,
-                ..
-            })
-        ));
-        assert_eq!(
-            b.refund,
-            vec![Refund {
-                body_idx: 0,
-                percent: 80
-            }]
-        );
-        assert!(b.refund_config.is_empty());
-
-        let b = if let ShareBundleBody::Bundle(b) = &b.body[0] {
-            b.clone()
-        } else {
-            unreachable!()
-        };
-        assert_eq!(b.body.len(), 2);
-        assert!(matches!(
-            b.body[0],
-            ShareBundleBody::Tx(ShareBundleTx {
-                revert_behavior: TxRevertBehavior::AllowedIncluded,
-                ..
-            })
-        ));
-        assert!(matches!(
-            b.body[1],
-            ShareBundleBody::Tx(ShareBundleTx {
-                revert_behavior: TxRevertBehavior::AllowedExcluded,
-                ..
-            })
-        ));
-        assert_eq!(
-            b.refund,
-            vec![Refund {
-                body_idx: 0,
-                percent: 90
-            }]
-        );
-        assert_eq!(
-            b.refund_config,
-            vec![RefundConfig {
-                address: address!("3e7dfb3e26a16e3dbf6dfeeff8a5ae7a04f73aad"),
-                percent: 100
-            }]
-        );
-
-        assert_eq!(
-            bundle.replacement_data,
-            Some(ReplacementData {
-                key: ShareBundleReplacementKey::new(
-                    uuid!("3255ceb4-fdc5-592d-a501-2183727ca3df"),
-                    address!("4696595f68034b47BbEc82dB62852B49a8EE7105")
-                ),
-                sequence_number: 17,
-            })
-        );
-
-        // There are differences in json when decoding and encdoding bundle but we want our internal structures to match
-        let bundle_roundtrip = RawShareBundle::encode_no_blobs(bundle_clone.clone());
-        let bundle_roundtrip = bundle_roundtrip
-            .clone()
-            .decode_new_bundle(TxEncoding::WithBlobData)
-            .expect("failed to convert roundrrip share bundle request to share bundle");
-        assert_eq!(bundle_clone, bundle_roundtrip);
     }
 
     #[test]

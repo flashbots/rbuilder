@@ -4,9 +4,7 @@ use alloy_primitives::{TxHash, U256};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
-use rbuilder_primitives::{
-    BundleReplacementData, OrderId, OrderReplacementKey, ShareBundleReplacementKey,
-};
+use rbuilder_primitives::{BundleReplacementData, BundleReplacementKey, OrderId};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct EventWithTimestamp<EventType> {
@@ -27,7 +25,7 @@ impl<EventType> EventWithTimestamp<EventType> {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SimulatedOrderData {
     pub order_id: OrderId,
-    pub replacement_key_and_sequence_number: Option<(OrderReplacementKey, u64)>,
+    pub replacement_key_and_sequence_number: Option<(BundleReplacementKey, u64)>,
     pub simulation_time: Duration,
     pub full_profit: U256,
     pub non_mempool_profit: U256,
@@ -46,7 +44,7 @@ pub type SimulationEventWithTimestamp = EventWithTimestamp<SimulationEvent>;
 #[derive(Debug, Serialize, Deserialize)]
 pub struct InsertOrderData {
     pub order_id: OrderId,
-    pub replacement_key_and_sequence_number: Option<(OrderReplacementKey, u64)>,
+    pub replacement_key_and_sequence_number: Option<(BundleReplacementKey, u64)>,
     pub tx_hashes: Vec<TxHash>,
 }
 
@@ -54,7 +52,6 @@ pub struct InsertOrderData {
 pub enum ReplaceableOrderEvent {
     InsertOrder(InsertOrderData),
     RemoveBundle(BundleReplacementData),
-    RemoveSBundle(ShareBundleReplacementKey),
 }
 
 pub type ReplaceableOrderEventWithTimestamp = EventWithTimestamp<ReplaceableOrderEvent>;

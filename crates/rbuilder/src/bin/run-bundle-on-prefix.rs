@@ -115,7 +115,6 @@ impl LandedBlockInfo {
             self.config
                 .base_config()
                 .create_reth_provider_factory(true)?,
-            &self.config.base_config().sbundle_mergeable_signers(),
         )?;
         Ok(sim_orders)
     }
@@ -292,15 +291,6 @@ fn execute_sim_orders_on_tob(
             sim_order.id(),
             res.is_ok(),
             profit
-        );
-        println!(
-            "    {:?}",
-            sim_order
-                .order
-                .original_orders()
-                .iter()
-                .map(|o| o.id())
-                .collect::<Vec<_>>()
         );
     }
     Ok(())

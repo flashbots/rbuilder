@@ -113,6 +113,12 @@ jobs:
           name: rbuilder-operator-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
           path: target/${{ matrix.configs.profile }}/rbuilder-operator
 
+      - name: Upload tbv-bidding-service artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tbv-bidding-service-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
+          path: target/${{ matrix.configs.profile }}/tbv-bidding-service
+
       - name: Upload reth-rbuilder artifact
         uses: actions/upload-artifact@v4
         with:

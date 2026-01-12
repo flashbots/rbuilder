@@ -15,7 +15,10 @@ use rbuilder::{
 };
 use rbuilder_primitives::{Order, OrderId};
 use rbuilder_utils::clickhouse::{
-    backup::primitives::{ClickhouseIndexableData, ClickhouseRowExt},
+    backup::{
+        primitives::{ClickhouseIndexableData, ClickhouseRowExt},
+        DiskBackup, DiskBackupConfig,
+    },
     serde::{option_u256, vec_u256},
     spawn_clickhouse_inserter_and_backup,
 };
@@ -25,7 +28,10 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::error;
 
-use crate::{flashbots_config::BuiltBlocksClickhouseConfig, metrics::ClickhouseMetrics};
+use crate::{
+    flashbots_config::BuiltBlocksClickhouseConfig,
+    metrics::{set_disk_backup_max_size, ClickhouseMetrics},
+};
 
 /// BlockRow to insert in clickhouse and also as entry type for the indexer since the BlockRow is made from a few &objects so it makes no sense to have a Block type and copy all the fields.
 #[derive(Debug, Clone, Serialize, Deserialize, Row)]
@@ -65,7 +71,6 @@ pub struct BlockRow {
 
     pub used_bundle_hashes: Vec<String>,
     pub used_bundle_uuids: Vec<String>,
-    pub used_sbundles_hashes: Vec<String>,
     pub delayed_payment_sources: Vec<String>,
 
     #[serde(with = "vec_u256")]
@@ -78,11 +83,13 @@ pub struct BlockRow {
     /// Info about the bid that triggered the bid to be generated.
     /// Notice this may not be the top bid since a builder lowering it's bid could trigger a new bid
     /// against the new winner.
-    pub triggering_bid_seen_time: Option<i64>,
-    pub triggering_bid_relay: Option<String>,
+    /// These 2 should be Option but for clickhouse optimization we use defaults as null values.
+    pub triggering_bid_seen_time: i64,
+    pub triggering_bid_relay: String,
     /// Info about the top bid among all relays we are trying to beat (best_relay_value)
-    pub bid_to_beat_seen_time: Option<i64>,
-    pub bid_to_beat_seen_relay: Option<String>,
+    /// These 2 should be Option but for clickhouse optimization we use defaults as null values.
+    pub bid_to_beat_seen_time: i64,
+    pub bid_to_beat_seen_relay: String,
 }
 
 impl ClickhouseRowExt for BlockRow {
@@ -144,15 +151,27 @@ impl BuiltBlocksWriter {
         let task_manager = rbuilder_utils::tasks::TaskManager::current();
         let task_executor = task_manager.executor();
 
+        let backup_max_size_bytes =
+            config.disk_max_size_mb.unwrap_or(DEFAULT_MAX_DISK_SIZE_MB) * MEGA;
+        set_disk_backup_max_size(backup_max_size_bytes);
+
         let (block_tx, block_rx) = mpsc::channel::<BlockRow>(BUILT_BLOCKS_CHANNEL_SIZE);
+        let disk_backup = DiskBackup::new(
+            DiskBackupConfig::new()
+                .with_path(Some(config.disk_database_path))
+                .with_max_size_bytes(Some(
+                    config.disk_max_size_mb.unwrap_or(DEFAULT_MAX_DISK_SIZE_MB) * MEGA,
+                )),
+            &task_executor,
+        )
+        .expect("could not create disk backup");
         spawn_clickhouse_inserter_and_backup::<BlockRow, BlockRow, ClickhouseMetrics>(
             &client,
             block_rx,
             &task_executor,
             BLOCKS_TABLE_NAME.to_string(),
             "".to_string(), // No buildername used in blocks table.
-            Some(config.disk_database_path),
-            Some(config.disk_max_size_mb.unwrap_or(DEFAULT_MAX_DISK_SIZE_MB) * MEGA),
+            disk_backup,
             config
                 .memory_max_size_mb
                 .unwrap_or(DEFAULT_MAX_MEMORY_SIZE_MB)
@@ -176,33 +195,6 @@ impl BuiltBlocksWriter {
 
 fn offset_date_to_clickhouse_timestamp(date: OffsetDateTime) -> i64 {
     (date.unix_timestamp_nanos() / 1000) as i64
-}
-
-fn get_used_sbundles_hashes(built_block_trace: &BuiltBlockTrace) -> Vec<String> {
-    built_block_trace
-        .included_orders
-        .iter()
-        .flat_map(|exec_result| {
-            if let Order::ShareBundle(sbundle) = &exec_result.order {
-                // don't like having special cases (merged vs not merged), can we improve this?
-                if sbundle.is_merged_order() {
-                    exec_result
-                        .original_order_ids
-                        .iter()
-                        .map(|id| id.to_string())
-                        .collect()
-                } else if exec_result.tx_infos.is_empty() {
-                    // non merged empty execution sbundle
-                    vec![]
-                } else {
-                    // non merged non empty execution sbundle
-                    vec![exec_result.order.id().to_string()]
-                }
-            } else {
-                Vec::new()
-            }
-        })
-        .collect()
 }
 
 const MEV_VIRTUAL_BLOCKER_SOURCE: &str = "mev_blocker";
@@ -280,7 +272,6 @@ impl BidObserver for BuiltBlocksWriter {
                     used_bundle_uuids.push(bundle.uuid.to_string());
                 }
             }
-            let used_sbundles_hashes = get_used_sbundles_hashes(&built_block_trace);
             let (delayed_payment_sources, delayed_payment_values, delayed_payment_addresses) =
                 get_delayed_payments(&built_block_trace);
             let delayed_payment_addresses = delayed_payment_addresses
@@ -295,19 +286,17 @@ impl BidObserver for BuiltBlocksWriter {
             let block_uses = block_uses
                 .entry(built_block_trace.build_block_id)
                 .or_insert(0);
-
             let (triggering_bid_seen_time, triggering_bid_relay) = built_block_trace
                 .competition_bid_context
                 .triggering_bid_source_info
                 .as_ref()
                 .map(|info| {
                     (
-                        Some(offset_date_to_clickhouse_timestamp(info.seen_time)),
-                        Some(info.relay.clone()),
+                        offset_date_to_clickhouse_timestamp(info.seen_time),
+                        info.relay.clone(),
                     )
                 })
                 .unwrap_or_default();
-
             let (bid_to_beat_seen_time, bid_to_beat_seen_relay, best_relay_value) =
                 built_block_trace
                     .competition_bid_context
@@ -315,10 +304,8 @@ impl BidObserver for BuiltBlocksWriter {
                     .as_ref()
                     .map(|bid_with_info| {
                         (
-                            Some(offset_date_to_clickhouse_timestamp(
-                                bid_with_info.info.seen_time,
-                            )),
-                            Some(bid_with_info.info.relay.clone()),
+                            offset_date_to_clickhouse_timestamp(bid_with_info.info.seen_time),
+                            bid_with_info.info.relay.clone(),
                             Some(bid_with_info.value),
                         )
                     })
@@ -354,7 +341,6 @@ impl BidObserver for BuiltBlocksWriter {
                 block_value: Some(submit_trace.value),
                 used_bundle_hashes,
                 used_bundle_uuids,
-                used_sbundles_hashes,
                 delayed_payment_sources,
                 delayed_payment_values,
                 delayed_payment_addresses,

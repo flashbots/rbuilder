@@ -1,12 +1,10 @@
 use ahash::HashMap;
 
-use rbuilder_primitives::{
-    BundleReplacementData, Order, OrderId, OrderReplacementKey, ShareBundleReplacementKey,
-};
+use rbuilder_primitives::{BundleReplacementData, BundleReplacementKey, Order, OrderId};
 
 use super::{order_sink::OrderSink, replaceable_order_sink::ReplaceableOrderSink};
 
-/// Handles all replacement and cancellation for bundles and sbundles by receiving
+/// Handles all replacement and cancellation for bundles by receiving
 /// low level orderflow data via ReplaceableOrderSink and forwarding to an OrderSink.
 /// The OrderReplacementManager works for a single block.
 /// IMPORTANT: Due to infra problems we can get notifications our of order, we must always honor the one
@@ -16,7 +14,7 @@ use super::{order_sink::OrderSink, replaceable_order_sink::ReplaceableOrderSink}
 #[derive(Debug)]
 pub struct OrderReplacementManager {
     sink: Box<dyn OrderSink>,
-    replacement_states: HashMap<OrderReplacementKey, BundleReplacementState>,
+    replacement_states: HashMap<BundleReplacementKey, BundleReplacementState>,
 }
 
 impl OrderReplacementManager {
@@ -27,9 +25,6 @@ impl OrderReplacementManager {
         }
     }
 }
-
-// SBundle has no cancellation sequence numbers, cancellations at considered final so we use u64::MAX (ugly? maybe I should make it Option?)
-const SBUNDLE_SEQUENCE_NUMBER: u64 = u64::MAX;
 
 impl ReplaceableOrderSink for OrderReplacementManager {
     fn insert_order(&mut self, order: Order) -> bool {
@@ -54,10 +49,7 @@ impl ReplaceableOrderSink for OrderReplacementManager {
     }
 
     fn remove_bundle(&mut self, replacement_data: BundleReplacementData) -> bool {
-        match self
-            .replacement_states
-            .entry(OrderReplacementKey::Bundle(replacement_data.key))
-        {
+        match self.replacement_states.entry(replacement_data.key) {
             std::collections::hash_map::Entry::Occupied(mut e) => e
                 .get_mut()
                 .cancel_order(replacement_data.sequence_number, &mut self.sink),
@@ -66,22 +58,6 @@ impl ReplaceableOrderSink for OrderReplacementManager {
                 e.insert(BundleReplacementState::Cancelled(
                     replacement_data.sequence_number,
                 ));
-                true
-            }
-        }
-    }
-
-    fn remove_sbundle(&mut self, key: ShareBundleReplacementKey) -> bool {
-        match self
-            .replacement_states
-            .entry(OrderReplacementKey::ShareBundle(key))
-        {
-            std::collections::hash_map::Entry::Occupied(mut e) => e
-                .get_mut()
-                .cancel_order(SBUNDLE_SEQUENCE_NUMBER, &mut self.sink),
-            std::collections::hash_map::Entry::Vacant(e) => {
-                // New cancelled element (usually out of order notification)
-                e.insert(BundleReplacementState::Cancelled(SBUNDLE_SEQUENCE_NUMBER));
                 true
             }
         }
@@ -173,8 +149,7 @@ mod test {
         order_sink::MockOrderSink, replaceable_order_sink::ReplaceableOrderSink,
     };
     use rbuilder_primitives::{
-        AccountNonce, Bundle, BundleReplacementData, BundleReplacementKey, Order, ShareBundle,
-        ShareBundleReplacementData, ShareBundleReplacementKey,
+        AccountNonce, Bundle, BundleReplacementData, BundleReplacementKey, Order,
     };
 
     use super::OrderReplacementManager;
@@ -200,17 +175,6 @@ mod test {
 
         fn create_bundle(&mut self, replacement_data: Option<BundleReplacementData>) -> Bundle {
             self.base.create_bundle(
-                DONT_CARE_BLOCK,
-                self.dont_care_nonce.clone(),
-                replacement_data,
-            )
-        }
-
-        fn create_sbundle(
-            &mut self,
-            replacement_data: Option<ShareBundleReplacementData>,
-        ) -> ShareBundle {
-            self.base.create_sbundle(
                 DONT_CARE_BLOCK,
                 self.dont_care_nonce.clone(),
                 replacement_data,
@@ -381,62 +345,5 @@ mod test {
         let mut manager = OrderReplacementManager::new(Box::new(order_sink));
         manager.insert_order(new_bundle);
         manager.insert_order(old_bundle);
-    }
-
-    /// bundle uuids and sbundle uuids should be independent (can repeat and everything should work).
-    #[test]
-    fn test_bundle_sbundle_mix() {
-        let mut data_gen = TestDataGenerator::new();
-        let bundle_replacement_data = data_gen.create_bundle_replacement_data();
-        let sbundle_replacement_data = ShareBundleReplacementData {
-            key: ShareBundleReplacementKey::new(
-                bundle_replacement_data.key.key().id,
-                bundle_replacement_data.key.key().signer.unwrap(),
-            ),
-            sequence_number: bundle_replacement_data.sequence_number,
-        };
-        let bundle = Order::Bundle(data_gen.create_bundle(Some(bundle_replacement_data.clone())));
-        let sbundle =
-            Order::ShareBundle(data_gen.create_sbundle(Some(sbundle_replacement_data.clone())));
-
-        let mut order_sink = MockOrderSink::new();
-        // expect bundle added
-        let bundle_id = bundle.id();
-        order_sink
-            .expect_insert_order()
-            .times(1)
-            .withf(move |o| o.id() == bundle_id)
-            .return_const(true);
-        // expect sbundle added
-        let sbundle_id = sbundle.id();
-        order_sink
-            .expect_insert_order()
-            .times(1)
-            .withf(move |o| o.id() == sbundle_id)
-            .return_const(true);
-        // expect bundle removed
-        let bundle_id = bundle.id();
-        order_sink
-            .expect_remove_order()
-            .times(1)
-            .with(eq(bundle_id))
-            .return_const(true);
-        // expect sbundle removed
-        let sbundle_id = sbundle.id();
-        order_sink
-            .expect_remove_order()
-            .times(1)
-            .with(eq(sbundle_id))
-            .return_const(true);
-
-        let mut manager = OrderReplacementManager::new(Box::new(order_sink));
-        manager.insert_order(bundle);
-        manager.insert_order(sbundle);
-        let cancel_bundle_replacement_data = BundleReplacementData {
-            key: bundle_replacement_data.key,
-            sequence_number: bundle_replacement_data.sequence_number + 1,
-        };
-        manager.remove_bundle(cancel_bundle_replacement_data);
-        manager.remove_sbundle(sbundle_replacement_data.key);
     }
 }

@@ -9,7 +9,7 @@
 use crate::{
     building::BuiltBlockTrace,
     live_builder::block_list_provider::{blocklist_hash, BlockList},
-    utils::{build_info::Version, duration_ms},
+    utils::duration_ms,
 };
 use alloy_consensus::constants::GWEI_TO_WEI;
 use alloy_primitives::{utils::Unit, U256};
@@ -25,11 +25,13 @@ use prometheus::{
     IntGaugeVec, Opts, Registry,
 };
 use rbuilder_primitives::mev_boost::MevBoostRelayID;
+use rbuilder_utils::build_info::Version;
 use std::time::Duration;
 use time::OffsetDateTime;
 use tracing::error;
 
 pub mod scope_meter;
+pub mod tokio;
 mod tracing_metrics;
 pub use tracing_metrics::*;
 
@@ -736,6 +738,7 @@ pub fn inc_bids_received(bid: &ScrapedRelayBlockBid) {
         bid_scraper::types::PublisherType::UltrasoundWs => "ultrasound_ws",
         bid_scraper::types::PublisherType::BloxrouteWs => "bloxroute_ws",
         bid_scraper::types::PublisherType::ExternalWs => "external_ws",
+        bid_scraper::types::PublisherType::TitanWs => "titan_ws",
     };
     BIDS_RECEIVED
         .with_label_values(&[relay_name, publisher_name, publisher_type])

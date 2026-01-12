@@ -9505,6 +9505,7 @@ dependencies = [
  "rayon",
  "rbuilder-config",
  "rbuilder-primitives",
+ "rbuilder-utils",
  "reipc",
  "reqwest 0.12.24",
  "reth",
@@ -9566,6 +9567,7 @@ dependencies = [
 name = "rbuilder-operator"
 version = "0.1.0"
 dependencies = [
+ "ahash",
  "alloy-primitives 1.4.1",
  "alloy-rpc-types-beacon",
  "alloy-signer",
@@ -9601,6 +9603,7 @@ dependencies = [
  "thiserror 1.0.69",
  "time",
  "tokio",
+ "tokio-stream",
  "tokio-util",
  "tonic 0.13.1",
  "tonic-build",
@@ -9648,7 +9651,6 @@ dependencies = [
  "strum 0.27.2",
  "thiserror 1.0.69",
  "time",
- "tracing",
  "tree_hash 0.8.0",
  "tree_hash_derive 0.8.0",
  "typenum",

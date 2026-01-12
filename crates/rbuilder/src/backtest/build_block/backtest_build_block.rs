@@ -106,7 +106,6 @@ where
         ctx.clone(),
         available_orders.clone(),
         provider_factory.clone(),
-        &config.base_config().sbundle_mergeable_signers(),
     )?;
 
     if let Some(tx_hash) = build_block_cfg.show_tx_extra_data {
@@ -184,7 +183,7 @@ where
 
 fn print_order(order: &Order) {
     println!("{}", order.id());
-    if let Order::Bundle(_) | Order::ShareBundle(_) = order {
+    if let Order::Bundle(_) = order {
         for (tx, _) in order.list_txs() {
             println!("      ↳ {:?}", tx.hash());
         }
@@ -242,7 +241,7 @@ fn print_order_execution_result(order_result: &ExecutionResult) {
         order_result.space_used.gas,
         format_ether(order_result.coinbase_profit),
     );
-    if let Order::Bundle(_) | Order::ShareBundle(_) = order_result.order {
+    if let Order::Bundle(_) = order_result.order {
         for tx in order_result.tx_infos.iter().map(|info| &info.tx) {
             println!("      ↳ {:?}", tx.hash());
         }

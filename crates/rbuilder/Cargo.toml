@@ -13,6 +13,7 @@ build = "build.rs"
 [dependencies]
 rbuilder-primitives.workspace = true
 rbuilder-config.workspace = true
+rbuilder-utils.workspace = true
 
 serde = { workspace = true }
 derive_more = { workspace = true }

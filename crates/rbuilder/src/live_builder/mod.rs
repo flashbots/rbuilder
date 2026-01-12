@@ -28,7 +28,7 @@ use crate::{
     },
 };
 use alloy_consensus::Header;
-use alloy_primitives::{Address, B256};
+use alloy_primitives::B256;
 use block_list_provider::BlockListProvider;
 use block_output::unfinished_block_processing::UnfinishedBuiltBlocksInputFactory;
 use building::BlockBuildingPool;
@@ -128,7 +128,6 @@ where
     /// Notify rbuilder of new [`ReplaceableOrderPoolCommand`] flow via this channel.
     pub orderpool_sender: mpsc::Sender<ReplaceableOrderPoolCommand>,
     pub orderpool_receiver: mpsc::Receiver<ReplaceableOrderPoolCommand>,
-    pub sbundle_merger_selected_signers: Arc<Vec<Address>>,
 
     pub evm_caching_enable: bool,
     pub faster_finalize: bool,
@@ -234,7 +233,6 @@ where
             orderpool_subscriber,
             order_simulation_pool,
             self.run_sparse_trie_prefetcher,
-            self.sbundle_merger_selected_signers.clone(),
             self.order_flow_tracer_manager,
             self.ace_enabled,
             self.ace_config.clone(),

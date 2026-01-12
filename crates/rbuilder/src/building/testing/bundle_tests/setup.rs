@@ -11,8 +11,8 @@ use crate::building::{
 use alloy_primitives::{Address, TxHash};
 use parking_lot::Mutex;
 use rbuilder_primitives::{
-    order_builder::OrderBuilder, BundleRefund, BundleReplacementData, OrderId, Refund,
-    RefundConfig, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior,
+    order_builder::OrderBuilder, BundleRefund, BundleReplacementData, SimulatedOrder,
+    TransactionSignedEcRecoveredWithBlobs, TxRevertBehavior,
 };
 use reth_provider::StateProvider;
 use revm::database::states::BundleState;
@@ -71,13 +71,7 @@ impl TestSetup {
         self.order_builder.start_bundle_builder(target_block);
     }
 
-    pub fn begin_share_bundle_order(&mut self, block: u64, max_block: u64) {
-        self.order_builder
-            .start_share_bundle_builder(block, max_block);
-    }
-
     // Bundle methods
-
     pub fn set_bundle_timestamp(&mut self, min_timestamp: Option<u64>, max_timestamp: Option<u64>) {
         self.order_builder
             .set_bundle_timestamp(min_timestamp, max_timestamp);
@@ -88,32 +82,8 @@ impl TestSetup {
             .set_bundle_replacement_data(replacement_data);
     }
 
-    // Share bundle methods
-
-    pub fn start_inner_bundle(&mut self, can_skip: bool) {
-        self.order_builder.start_inner_bundle(can_skip)
-    }
-
-    pub fn finish_inner_bundle(&mut self) {
-        self.order_builder.finish_inner_bundle()
-    }
-
-    pub fn set_inner_bundle_refund(&mut self, refund: Vec<Refund>) {
-        self.order_builder.set_inner_bundle_refund(refund)
-    }
-
     pub fn set_bundle_refund(&mut self, refund: BundleRefund) {
         self.order_builder.set_bundle_refund(refund)
-    }
-
-    pub fn set_inner_bundle_refund_config(&mut self, refund_config: Vec<RefundConfig>) {
-        self.order_builder
-            .set_inner_bundle_refund_config(refund_config)
-    }
-
-    pub fn set_inner_bundle_original_order_id(&mut self, original_order_id: OrderId) {
-        self.order_builder
-            .set_inner_bundle_original_order_id(original_order_id)
     }
 
     /// Adds a tx that does nothing
