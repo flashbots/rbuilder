@@ -10,7 +10,7 @@ pub struct TracingConfig {
     /// Logger configuration.
     #[serde(flatten)]
     pub logger: LoggerConfig,
-    /// OTLP configuration.
+    /// OTLP confifguration.
     #[serde(flatten, default)]
     pub otlp: Option<OtlpConfig>,
 }
@@ -28,16 +28,17 @@ macro_rules! add_fmt_and_install {
         let fmt = tracing_subscriber::fmt::layer().json().with_filter($filter);
         $registry.with(fmt).try_init()
     }};
-    (log @ $registry:ident, $filter:ident) => {{
-        let fmt = tracing_subscriber::fmt::layer().with_filter($filter);
+    (log @ $registry:ident, $filter:ident, $color:ident) => {{
+        let fmt = tracing_subscriber::fmt::layer().with_ansi($color).with_filter($filter);
         $registry.with(fmt).try_init()
     }};
     ($registry:ident, $log_cfg:expr) => {{
         let filter = $log_cfg.filter()?;
+        let color = $log_cfg.log_color;
         if $log_cfg.log_json {
             add_fmt_and_install!(json @ $registry, filter)
         } else {
-            add_fmt_and_install!(log @ $registry, filter)
+            add_fmt_and_install!(log @ $registry, filter, color)
         }.wrap_err("failed to initialize tracing subscriber")
     }};
 }
