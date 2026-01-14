@@ -12,7 +12,7 @@ use rbuilder::live_builder::{
     },
 };
 
-use rbuilder_config::{load_toml_config, EnvOrValue, LoggerConfig};
+use rbuilder_config::{load_toml_config, EnvOrValue, LoggerConfig, OtlpConfig, TracingConfig};
 use rbuilder_operator::{
     bidding_service_wrapper::server::{
         bidding_service::run_bidding_service,
@@ -32,6 +32,8 @@ pub struct Config {
     pub log_json: bool,
     pub log_level: EnvOrValue<String>,
     pub log_color: bool,
+    #[serde(default, flatten)]
+    pub otlp: Option<OtlpConfig>,
     #[serde(flatten)]
     pub true_block_value_bidding_service_config: TrueBlockValueBiddingServiceConfigToml,
 }
@@ -50,7 +52,9 @@ async fn main() -> eyre::Result<()> {
         log_json: config.log_json,
         log_color: config.log_color,
     };
-    log_config.init_tracing()?;
+    let tracing_config = TracingConfig::new(log_config).maybe_with_otlp(config.otlp);
+
+    tracing_config.init_tracing()?;
 
     let parsed_config = parse_true_block_value_bidding_service_config(
         &config.true_block_value_bidding_service_config,

@@ -34,6 +34,8 @@ pub struct Config {
     /// Example: "info"
     pub log_level: String,
     pub log_color: bool,
+    /// OTLP environment name, e.g. "production", "staging", etc.
+    pub otlp_env_name: Option<String>,
 
     /// Where we publish the bids. Example:"tcp://0.0.0.0:5555"
     pub publisher_url: String,
