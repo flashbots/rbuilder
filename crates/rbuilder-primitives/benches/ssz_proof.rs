@@ -77,9 +77,9 @@ mod impls {
         let tx_size = 1_024;
         let mut runner = TestRunner::deterministic();
 
-        let mut vanilla = VanillaSszTxProof::default();
+        let mut vanilla = VanillaSszTxProof;
         let mut vanilla_buf = VanillaBufferedSszTxProof::default();
-        let mut compact = CompactSszTxProof::default();
+        let mut compact = CompactSszTxProof;
         for _ in 0..100 {
             let txs = generate_test_data(&mut runner, num_txs, tx_size);
             let expected = vanilla.generate(&txs, proof_target);
@@ -135,7 +135,7 @@ mod impls {
         for idx in 0..MAX_CHUNK_COUNT {
             let leaf = txs
                 .get(idx)
-                .map(|tx| tx_ssz_leaf_root(&tx))
+                .map(|tx| tx_ssz_leaf_root(tx))
                 .unwrap_or(B256::ZERO);
             current_buf.insert(idx, leaf);
         }

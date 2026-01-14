@@ -144,6 +144,8 @@ pub struct ReplacementData<KeyType> {
     pub sequence_number: u64,
 }
 
+impl<KeyType: Copy> Copy for ReplacementData<KeyType> {}
+
 impl<KeyType: Clone> ReplacementData<KeyType> {
     /// Next sequence_number, useful for testing.
     pub fn next(&self) -> Self {
@@ -439,13 +441,17 @@ impl FakeSidecar for BlobTransactionSidecar {
 }
 
 /// First idea to handle blobs, might change.
-/// Don't like the fact that blobs_sidecar exists no matter if Recovered<TransactionSigned> contains a non blob tx.
-/// Great effort was put in avoiding simple access to the internal tx so we don't accidentally leak information on logs (particularly the tx sign).
+///
+/// Don't like the fact that blobs_sidecar exists no matter if
+/// [`Recovered<TransactionSigned>`] contains a non blob tx.
+///
+/// Great effort was put in avoiding simple access to the internal tx so we
+/// don't accidentally leak information on logs (particularly the tx sign).
 #[derive(Derivative)]
 #[derivative(Clone, PartialEq, Eq)]
 pub struct TransactionSignedEcRecoveredWithBlobs {
     tx: Recovered<TransactionSigned>,
-    /// Will have a non empty BlobTransactionSidecarVariant if Recovered<TransactionSigned> is 4844
+    /// Will have a non empty [`BlobTransactionSidecarVariant`] if [`Recovered<TransactionSigned>`] is 4844
     pub blobs_sidecar: Arc<BlobTransactionSidecarVariant>,
 
     #[derivative(PartialEq = "ignore", Hash = "ignore")]
@@ -858,7 +864,7 @@ impl Order {
             Order::Bundle(bundle) => bundle
                 .replacement_data
                 .as_ref()
-                .map(|r| (r.clone().key, r.sequence_number)),
+                .map(|r| (r.key, r.sequence_number)),
             Order::Tx(_) => None,
         }
     }

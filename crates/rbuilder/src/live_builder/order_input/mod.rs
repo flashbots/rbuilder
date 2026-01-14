@@ -20,13 +20,14 @@ use crate::{
 };
 use alloy_consensus::Header;
 use alloy_primitives::Address;
+use futures::{stream::FuturesUnordered, StreamExt};
 use jsonrpsee::RpcModule;
 use parking_lot::Mutex;
 use rbuilder_primitives::{BundleReplacementData, Order};
 use std::{
     net::Ipv4Addr,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Weak},
     time::{Duration, Instant},
 };
 use tokio::{sync::mpsc, task::JoinHandle};
@@ -35,13 +36,14 @@ use tracing::{debug, error, info, trace, warn};
 
 use super::base_config::BaseConfig;
 
-/// Thread safe access to OrderPool to get orderflow
+/// Thread safe access to [`OrderPool`] to get orderflow.
 #[derive(Debug)]
 pub struct OrderPoolSubscriber {
     orderpool: Arc<Mutex<OrderPool>>,
 }
 
 impl OrderPoolSubscriber {
+    /// Subscribe to events from the [`OrderPool`] by adding a sink.
     pub fn add_sink(
         &self,
         block_number: u64,
@@ -50,6 +52,7 @@ impl OrderPoolSubscriber {
         self.orderpool.lock().add_sink(block_number, sink)
     }
 
+    /// Unsubscribe from the [`OrderPool`] by removing a sink.
     pub fn remove_sink(
         &self,
         id: &OrderPoolSubscriptionId,
@@ -57,40 +60,47 @@ impl OrderPoolSubscriber {
         self.orderpool.lock().remove_sink(id)
     }
 
-    /// Returned AutoRemovingOrderPoolSubscriptionId will call remove when dropped
+    /// Subscribe to events from the [`OrderPool`] by adding a sink. The sink
+    /// is automatically removed when the returned id is dropped.
     pub fn add_sink_auto_remove(
         &self,
         block_number: u64,
         sink: Box<dyn ReplaceableOrderSink>,
     ) -> AutoRemovingOrderPoolSubscriptionId {
         AutoRemovingOrderPoolSubscriptionId {
-            orderpool: self.orderpool.clone(),
+            orderpool: Arc::downgrade(&self.orderpool),
             id: self.add_sink(block_number, sink),
         }
     }
 }
 
-/// OrderPoolSubscriptionId that removes on drop.
-/// Call add_sink to get flow and remove_sink to stop it
-/// For easy auto remove we have add_sink_auto_remove
+/// [`OrderPoolSubscriptionId`] that unsubscribes itself on drop. Create this
+/// struct with [`OrderPoolSubscriber::add_sink_auto_remove`].
 pub struct AutoRemovingOrderPoolSubscriptionId {
-    orderpool: Arc<Mutex<OrderPool>>,
+    /// Using [`Weak`] prevents subscriptions from keeping the [`OrderPool`]
+    /// alive. If the [`OrderPool`] has already been dropped, the sink
+    /// no longer needs to be removed at all.
+    orderpool: Weak<Mutex<OrderPool>>,
     id: OrderPoolSubscriptionId,
 }
 
 impl Drop for AutoRemovingOrderPoolSubscriptionId {
     fn drop(&mut self) {
-        self.orderpool.lock().remove_sink(&self.id);
+        if let Some(orderpool) = self.orderpool.upgrade() {
+            orderpool.lock().remove_sink(&self.id);
+        }
     }
 }
 
+/// Source of mempool transactions stream information.
 #[derive(Debug, Clone)]
 pub enum MempoolSource {
     Ipc(PathBuf),
     Ws(String),
 }
 
-/// All the info needed to start all the order related jobs (mempool, rcp, clean)
+/// All the info needed to start all the order related jobs (mempool, rcp,
+/// clean).
 #[derive(Debug, Clone)]
 pub struct OrderInputConfig {
     /// if true - cancellations are disabled.
@@ -117,9 +127,11 @@ pub struct OrderInputConfig {
     /// The allowlisted recipients for system transactions.
     system_recipient_allowlist: Vec<Address>,
 }
+
 pub const DEFAULT_SERVE_MAX_CONNECTIONS: u32 = 4096;
 pub const DEFAULT_RESULTS_CHANNEL_TIMEOUT: Duration = Duration::from_millis(50);
 pub const DEFAULT_INPUT_CHANNEL_BUFFER_SIZE: usize = 10_000;
+
 impl OrderInputConfig {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -260,7 +272,7 @@ where
     )
     .await?;
 
-    let mut handles = vec![clean_job, rpc_server];
+    let mut handles: FuturesUnordered<_> = [clean_job, rpc_server].into_iter().collect();
 
     if config.mempool_source.is_some() {
         info!("Txpool source configured, starting txpool subscription");
@@ -330,9 +342,8 @@ where
             new_commands.clear();
         }
 
-        for handle in handles {
+        while let Some(handle) = handles.next().await {
             handle
-                .await
                 .map_err(|err| {
                     tracing::error!(?err, "Error while waiting for OrderPoolJobs to finish")
                 })

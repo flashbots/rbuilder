@@ -8,8 +8,12 @@ use crate::{
     live_builder::{
         building::built_block_cache::BuiltBlockCache,
         order_flow_tracing::order_flow_tracer_manager::OrderFlowTracerManager,
-        order_input::replaceable_order_sink::ReplaceableOrderSink,
-        payload_events::MevBoostSlotData, simulation::SlotOrderSimResults,
+        order_input::{
+            blob_type_order_filter::BlobTypeOrderFilter,
+            replaceable_order_sink::ReplaceableOrderSink,
+        },
+        payload_events::MevBoostSlotData,
+        simulation::SlotOrderSimResults,
     },
     provider::StateProviderFactory,
 };
@@ -112,13 +116,13 @@ where
             .chain_spec
             .is_osaka_active_at_timestamp(block_ctx.attributes.timestamp)
         {
-            Box::new(order_input::blob_type_order_filter::new_fusaka(Box::new(
+            Box::new(BlobTypeOrderFilter::new_fusaka(Box::new(
                 order_replacement_manager,
             )))
         } else {
-            Box::new(order_input::blob_type_order_filter::new_pre_fusaka(
-                Box::new(order_replacement_manager),
-            ))
+            Box::new(BlobTypeOrderFilter::new_pre_fusaka(Box::new(
+                order_replacement_manager,
+            )))
         };
 
         let mempool_txs_detector_sniffer =
