@@ -28,7 +28,7 @@ use crate::{
     },
 };
 use alloy_consensus::Header;
-use alloy_primitives::B256;
+use alloy_primitives::{BlockHash, B256};
 use block_list_provider::BlockListProvider;
 use block_output::unfinished_block_processing::UnfinishedBuiltBlocksInputFactory;
 use building::BlockBuildingPool;
@@ -288,7 +288,10 @@ where
                 {
                     Ok(header) => header,
                     Err(err) => {
-                        warn!(payload_id = payload.payload_id, parent_hash = ?payload.parent_block_hash(), ?err, "Failed to get parent header for new slot");
+                        let last_blocks = get_last_blocks(&self.provider).await;
+                        let blocks_count_behind =
+                            payload.block() - last_blocks.first().unwrap_or(&(0, None)).0;
+                        warn!(payload_id = payload.payload_id, parent_hash = ?payload.parent_block_hash(), ?last_blocks, blocks_count_behind, ?err, "Failed to get parent header for new slot");
                         continue;
                     }
                 }
@@ -400,6 +403,42 @@ where
             TimingsConfig::ethereum()
         }
     }
+}
+
+/// We bring 10 blocks since that's more than enough to see the evolution of the chain.
+/// We could probably be ok even with only the last block.
+const LAST_BLOCKS_COUNT: usize = 10;
+/// Get the last blocks in decreasing order for debugging purposes.
+/// Returns a vector of tuples (block_number, header_hash) for available blocks.
+/// On error returns empty.
+pub async fn get_last_blocks<P>(provider: &P) -> Vec<(u64, Option<BlockHash>)>
+where
+    P: StateProviderFactory,
+{
+    let mut result = Vec::new();
+
+    // Get the last block number
+    let last_block_num = match provider.last_block_number() {
+        Ok(num) => num,
+        Err(err) => {
+            warn!(?err, "Failed to get last block number");
+            return result;
+        }
+    };
+
+    // Get the last headers going backwards from the last block
+    for i in 0..LAST_BLOCKS_COUNT {
+        let block_num = last_block_num.saturating_sub(i as u64);
+        let header_hash = provider
+            .header_by_number(block_num)
+            .ok()
+            .flatten()
+            .map(|h| h.hash_slow());
+
+        result.push((block_num, header_hash));
+    }
+
+    result
 }
 
 /// May fail if we wait too much (see [BLOCK_HEADER_DEAD_LINE_DELTA])
