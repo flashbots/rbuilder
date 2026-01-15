@@ -52,12 +52,13 @@ pub fn default_disk_backup_database_path() -> String {
     }
 }
 
-/// An clickhouse inserter with some sane defaults.
-pub fn default_inserter<T: Row>(client: &ClickhouseClient, table_name: &str) -> Inserter<T> {
-    // TODO: make this configurable.
-    let send_timeout = Duration::from_secs(2);
-    let end_timeout = Duration::from_secs(3);
-
+/// An clickhouse inserter with configurable timeouts.
+pub fn default_inserter<T: Row>(
+    client: &ClickhouseClient,
+    table_name: &str,
+    send_timeout: Duration,
+    end_timeout: Duration,
+) -> Inserter<T> {
     client
         .inserter::<T>(table_name)
         .with_period(Some(Duration::from_secs(4))) // Dump every 4s

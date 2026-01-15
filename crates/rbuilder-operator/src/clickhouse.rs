@@ -128,6 +128,8 @@ const BUILT_BLOCKS_CHANNEL_SIZE: usize = 5 * 1024;
 const BLOCKS_TABLE_NAME: &str = "blocks";
 const DEFAULT_MAX_DISK_SIZE_MB: u64 = 10 * KILO;
 const DEFAULT_MAX_MEMORY_SIZE_MB: u64 = KILO;
+const DEFAULT_SEND_TIMEOUT_MS: u64 = 2000;
+const DEFAULT_END_TIMEOUT_MS: u64 = 3000;
 #[derive(Debug)]
 pub struct BuiltBlocksWriter {
     blocks_tx: mpsc::Sender<BlockRow>,
@@ -165,6 +167,12 @@ impl BuiltBlocksWriter {
             &task_executor,
         )
         .expect("could not create disk backup");
+
+        let send_timeout =
+            Duration::from_millis(config.send_timeout_ms.unwrap_or(DEFAULT_SEND_TIMEOUT_MS));
+        let end_timeout =
+            Duration::from_millis(config.end_timeout_ms.unwrap_or(DEFAULT_END_TIMEOUT_MS));
+
         spawn_clickhouse_inserter_and_backup::<BlockRow, BlockRow, ClickhouseMetrics>(
             &client,
             block_rx,
@@ -176,6 +184,8 @@ impl BuiltBlocksWriter {
                 .memory_max_size_mb
                 .unwrap_or(DEFAULT_MAX_MEMORY_SIZE_MB)
                 * MEGA,
+            send_timeout,
+            end_timeout,
             BLOCKS_TABLE_NAME,
         );
         // Task to forward the cancellation to the task_manager.

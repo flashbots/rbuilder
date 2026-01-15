@@ -84,6 +84,10 @@ pub struct BuiltBlocksClickhouseConfig {
     pub disk_database_path: PathBuf,
     pub disk_max_size_mb: Option<u64>,
     pub memory_max_size_mb: Option<u64>,
+    /// Clickhouse send timeout in milliseconds. Defaults to 2000ms if not set.
+    pub send_timeout_ms: Option<u64>,
+    /// Clickhouse end timeout in milliseconds. Defaults to 3000ms if not set.
+    pub end_timeout_ms: Option<u64>,
 }
 
 #[serde_as]
