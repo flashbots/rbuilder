@@ -57,8 +57,6 @@ impl From<Quantities> for clickhouse::inserter::Quantities {
 /// Size of the channel buffer for the backup input channel.
 /// If we get more than this number of failed commits queued the inserter thread will block.
 const BACKUP_INPUT_CHANNEL_BUFFER_SIZE: usize = 128;
-const CLICKHOUSE_INSERT_TIMEOUT: Duration = Duration::from_secs(2);
-const CLICKHOUSE_END_TIMEOUT: Duration = Duration::from_secs(4);
 
 /// Main func to spawn the clickhouse inserter and backup tasks.
 #[allow(clippy::too_many_arguments)]
@@ -74,23 +72,24 @@ pub fn spawn_clickhouse_inserter_and_backup<
     builder_name: String,
     disk_backup_db: DiskBackup,
     memory_max_size_bytes: u64,
+    send_timeout: Duration,
+    end_timeout: Duration,
     tracing_target: &'static str,
 ) where
     for<'a> <DataType::ClickhouseRowType as clickhouse::Row>::Value<'a>: Sync,
 {
     let backup_table_name = RowType::TABLE_NAME.to_string();
     let (failed_commit_tx, failed_commit_rx) = mpsc::channel(BACKUP_INPUT_CHANNEL_BUFFER_SIZE);
-    let inserter = default_inserter(client, &clickhouse_table_name);
+    let inserter = default_inserter(client, &clickhouse_table_name, send_timeout, end_timeout);
     let inserter = ClickhouseInserter::<_, MetricsType>::new(inserter, failed_commit_tx);
     // Node name is not used for Blocks.
     let inserter_runner = InserterRunner::new(data_rx, inserter, builder_name);
 
     let backup = Backup::<_, MetricsType>::new(
         failed_commit_rx,
-        client.inserter(&clickhouse_table_name).with_timeouts(
-            Some(CLICKHOUSE_INSERT_TIMEOUT),
-            Some(CLICKHOUSE_END_TIMEOUT),
-        ),
+        client
+            .inserter(&clickhouse_table_name)
+            .with_timeouts(Some(send_timeout), Some(end_timeout)),
         disk_backup_db,
     )
     .with_memory_backup_config(MemoryBackupConfig::new(memory_max_size_bytes));
