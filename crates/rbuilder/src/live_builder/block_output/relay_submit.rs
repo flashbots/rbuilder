@@ -326,8 +326,8 @@ fn create_optimistic_v3_request(
     maybe_adjustment_data: Option<&BidAdjustmentData>,
     adjustment_data_required: bool,
 ) -> eyre::Result<SubmitHeaderRequest> {
-    let maybe_adjustment_data_v2 = maybe_adjustment_data.map(|d| d.clone().into_v2());
-    if maybe_adjustment_data_v2.is_none() && adjustment_data_required {
+    let maybe_adjustment_data_v3 = maybe_adjustment_data.map(|d| d.clone().into_v3());
+    if maybe_adjustment_data_v3.is_none() && adjustment_data_required {
         eyre::bail!("adjustment data is required")
     }
 
@@ -347,7 +347,7 @@ fn create_optimistic_v3_request(
                     ),
                     execution_requests: request.execution_requests.clone(),
                     commitments: request.blobs_bundle.commitments.clone(),
-                    adjustment_data: maybe_adjustment_data_v2,
+                    adjustment_data: maybe_adjustment_data_v3,
                 }),
                 signature: request.signature,
             };
@@ -368,7 +368,7 @@ fn create_optimistic_v3_request(
                     ),
                     execution_requests: request.execution_requests.clone(),
                     commitments: request.blobs_bundle.commitments.clone(),
-                    adjustment_data: maybe_adjustment_data_v2,
+                    adjustment_data: maybe_adjustment_data_v3,
                 }),
                 signature: request.signature,
             };

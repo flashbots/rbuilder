@@ -53,7 +53,7 @@ pub struct BidAdjustmentDataV1 {
     ssz_derive::Encode,
     ssz_derive::Decode,
 )]
-pub struct BidAdjustmentDataV2 {
+pub struct BidAdjustmentDataV3 {
     /// Transactions root of the payload.
     pub el_transactions_root: B256,
     /// Withdrawals root of the payload.
@@ -80,9 +80,12 @@ pub struct BidAdjustmentDataV2 {
     pub cl_placeholder_transaction_proof: Vec<B256>,
     /// The merkle proof for the receipt of the placeholder transaction. It's required for
     /// adjusting payments to contract addresses.
-    pub placeholder_receipt_proof: Vec<Bytes>,
+    pub el_placeholder_receipt_proof: Vec<Bytes>,
     /// New in V2: Logs bloom accrued until but not including the last (payment) transaction.
     pub pre_payment_logs_bloom: Bloom,
+    /// Gas used by the placeholder (payout) transaction. Required for V3 to relax the
+    /// gas_limit == gas_used requirement.
+    pub placeholder_gas_used: u64,
 }
 
 /// Common bid adjustment information that can be used for creating bid adjustment data.
@@ -106,6 +109,8 @@ pub struct BidAdjustmentData {
     pub placeholder_receipt_proof: Vec<Bytes>,
     /// New in V2: Logs bloom accrued until but not including the last (payment) transaction.
     pub pre_payment_logs_bloom: Bloom,
+    /// Gas used by the placeholder (payout) transaction.
+    pub placeholder_gas_used: u64,
     /// State proofs.
     pub state_proofs: BidAdjustmentStateProofs,
 }
@@ -128,9 +133,9 @@ impl BidAdjustmentData {
         }
     }
 
-    /// Convert bid adjustment data into [`BidAdjustmentDataV2`].
-    pub fn into_v2(self) -> BidAdjustmentDataV2 {
-        BidAdjustmentDataV2 {
+    /// Convert bid adjustment data into [`BidAdjustmentDataV3`].
+    pub fn into_v3(self) -> BidAdjustmentDataV3 {
+        BidAdjustmentDataV3 {
             el_transactions_root: self.el_transactions_root,
             el_withdrawals_root: self.el_withdrawals_root,
             builder_address: self.state_proofs.builder_address,
@@ -141,8 +146,9 @@ impl BidAdjustmentData {
             fee_payer_proof: self.state_proofs.fee_payer_proof,
             el_placeholder_transaction_proof: self.el_placeholder_transaction_proof,
             cl_placeholder_transaction_proof: self.cl_placeholder_transaction_proof,
-            placeholder_receipt_proof: self.placeholder_receipt_proof,
+            el_placeholder_receipt_proof: self.placeholder_receipt_proof,
             pre_payment_logs_bloom: self.pre_payment_logs_bloom,
+            placeholder_gas_used: self.placeholder_gas_used,
         }
     }
 }

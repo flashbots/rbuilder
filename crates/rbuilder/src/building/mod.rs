@@ -1141,6 +1141,11 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
                 &local_ctx.tx_ssz_leaf_root_cache,
             )
         });
+        let placeholder_gas_used = self
+            .executed_tx_infos
+            .last()
+            .map(|tx_info| tx_info.space_used.gas)
+            .expect("payout transaction must exist");
         let bid_adjustments = bid_adjustment_state_proofs
             .into_iter()
             .map(|(fee_payer, state_proofs)| {
@@ -1155,6 +1160,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
                         cl_placeholder_transaction_proof: cl_placeholder_transaction_proof.clone(),
                         placeholder_receipt_proof: placeholder_receipt_proof.clone(),
                         pre_payment_logs_bloom,
+                        placeholder_gas_used,
                         state_proofs,
                     },
                 )
