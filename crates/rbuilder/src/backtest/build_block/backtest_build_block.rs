@@ -212,6 +212,9 @@ fn print_sim_order(sim_order: &SimulatedOrder) {
         );
     }
     println!("      * gas_used {:?}", sim_value.gas_used());
+    if !sim_order.ace_interactions.is_empty() {
+        println!("      * ace_interactions: {:?}", sim_order.ace_interactions);
+    }
 }
 
 fn print_orders_with_tx_hash(
