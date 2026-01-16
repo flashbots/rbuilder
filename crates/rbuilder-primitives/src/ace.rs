@@ -24,14 +24,17 @@ pub struct AceConfig {
 }
 
 /// Classify an ACE order interaction type based on state trace, simulation success, and config.
-/// Uses both state trace (address access) AND function signatures to determine interaction type.
+///
+/// Classification logic:
+/// - If simulation succeeds while accessing ACE slot → `Unlocking` (tx can execute without unlock parent)
+/// - If simulation fails while accessing ACE slot → `NonUnlocking` (tx needs unlock parent)
 ///
 /// For `ProtocolForce` and `ProtocolOptional` classification, the transaction must:
 /// 1. Be a direct call to the ACE contract (`tx_to` in `config.to_addresses`)
 /// 2. Have the appropriate signature (`force_signatures` or `unlock_signatures`)
 /// 3. Be from a whitelisted address (`tx_from` in `config.from_addresses`)
 ///
-/// All other unlocking transactions are classified as `User`.
+/// All other successful unlocking transactions are classified as `User`.
 pub fn classify_ace_interaction(
     state_trace: &UsedStateTrace,
     sim_success: bool,
@@ -73,14 +76,15 @@ pub fn classify_ace_interaction(
 
     let contract_address = config.contract_address;
 
-    if sim_success && (is_force_sig || is_unlock_sig) {
+    if sim_success {
+        // If simulation succeeded while accessing ACE slot, it's Unlocking
         // Protocol orders require: direct call + correct signature + whitelisted sender
         let source = if is_direct_protocol_call && is_force_sig && is_from_whitelisted {
             AceUnlockSource::ProtocolForce
         } else if is_direct_protocol_call && is_unlock_sig && is_from_whitelisted {
             AceUnlockSource::ProtocolOptional
         } else {
-            // Any unlock without all three requirements is a User unlock
+            // Any successful simulation that accesses ACE slot is a User unlock
             AceUnlockSource::User
         };
         Some(AceInteraction::Unlocking {
@@ -88,6 +92,7 @@ pub fn classify_ace_interaction(
             source,
         })
     } else {
+        // Simulation failed while accessing ACE slot = needs unlock parent
         Some(AceInteraction::NonUnlocking { contract_address })
     }
 }
@@ -300,8 +305,9 @@ mod tests {
     }
 
     #[test]
-    fn test_ace_non_unlocking_interaction() {
-        // Transaction that accesses ACE slot but doesn't have unlock signature
+    fn test_ace_successful_sim_without_signature_is_user_unlock() {
+        // Transaction that accesses ACE slot, succeeds simulation, but doesn't have unlock signature
+        // Should be classified as User unlock since it can execute without unlock parent
         let config = real_ace_config();
         let contract = config.contract_address;
         let detection_slot = *config.detection_slots.iter().next().unwrap();
@@ -309,7 +315,7 @@ mod tests {
 
         let trace = mock_state_trace_with_slot(contract, detection_slot);
 
-        // No unlock/force signature = NonUnlocking
+        // No unlock/force signature but successful = User unlock
         let result = classify_ace_interaction(
             &trace,
             true,
@@ -321,13 +327,15 @@ mod tests {
 
         assert_eq!(
             result,
-            Some(AceInteraction::NonUnlocking {
-                contract_address: contract
+            Some(AceInteraction::Unlocking {
+                contract_address: contract,
+                source: AceUnlockSource::User
             })
         );
 
-        // Verify it's not an unlocking interaction
-        assert!(!result.unwrap().is_unlocking());
+        // Verify it's unlocking but not a protocol tx
+        assert!(result.unwrap().is_unlocking());
+        assert!(!result.unwrap().is_protocol_tx());
     }
 
     #[test]
