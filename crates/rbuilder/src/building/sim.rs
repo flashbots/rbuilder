@@ -1028,12 +1028,26 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
     match result {
         Ok(res) => {
             let sim_value = create_sim_value(&order, &res, mempool_tx_detector);
+
+            // Check if this is an ACE protocol unlock order (ProtocolForce or ProtocolOptional)
+            // These orders may have zero profit but are valuable for enabling other transactions
+            let is_ace_protocol_unlock = ace_interactions.iter().any(|i| i.is_protocol_tx());
+
             if let Err(err) = order_is_worth_executing(&sim_value) {
-                // Not an ACE-related failure, use default state
-                return Ok(OrderSimResult::Failed(SimulationFailure {
-                    error: err,
-                    ace_state: AceSimulationState::default(),
-                }));
+                if is_ace_protocol_unlock {
+                    // ACE protocol unlocks bypass profit check - their value is enabling other txs
+                    tracing::debug!(
+                        order_id = ?order.id(),
+                        ace_interactions = ?ace_interactions,
+                        "ACE sim: protocol unlock order bypassing profit check"
+                    );
+                } else {
+                    // Not an ACE protocol unlock, reject as usual
+                    return Ok(OrderSimResult::Failed(SimulationFailure {
+                        error: err,
+                        ace_state: AceSimulationState::default(),
+                    }));
+                }
             }
             let new_nonces = res.nonces_updated.into_iter().collect::<Vec<_>>();
             Ok(OrderSimResult::Success(
