@@ -78,7 +78,6 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use tokio::sync::Mutex as TokioMutex;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use url::Url;
@@ -344,11 +343,13 @@ impl L1Config {
                             .unwrap_or(DEFAULT_CAN_IGNORE_GAS_LIMIT),
                     );
                     if let Some(grpc_url) = relay_config.grpc_url.clone() {
-                        let grpc_client = Arc::new(TokioMutex::new(
-                            bloxroute_grpc::types::relay_client::RelayClient::new(
-                                tonic::transport::Endpoint::try_from(grpc_url)?.connect_lazy(),
-                            ),
-                        ));
+                        let grpc_client = bloxroute_grpc::types::relay_client::RelayClient::new(
+                            tonic::transport::Endpoint::try_from(grpc_url)?
+                                .keep_alive_while_idle(true)
+                                .keep_alive_timeout(Duration::from_secs(12))
+                                .connect_lazy(),
+                        );
+
                         client = client.with_grpc_client(grpc_client);
                     }
                     Self::create_relay_sub_objects(

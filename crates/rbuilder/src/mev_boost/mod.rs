@@ -839,7 +839,7 @@ impl RelayClient {
     /// Send gRPC submit block request to bloxroute.
     async fn call_bloxroute_grpc_submit_block(
         &self,
-        client: &GrpcRelayClient,
+        mut client: GrpcRelayClient,
         submission: &SubmitBlockRequestWithMetadata,
     ) -> Result<bloxroute_grpc::types::SubmitBlockResponse, SubmitBlockErr> {
         let mut request = tonic::Request::new(bloxroute_grpc::types::SubmitBlockRequest::from(
@@ -881,12 +881,7 @@ impl RelayClient {
                 .map_err(|_| SubmitBlockErr::InvalidHeader)?,
         );
 
-        let response = client
-            .lock()
-            .await
-            .submit_block(request)
-            .await
-            .map_err(Box::new)?;
+        let response = client.submit_block(request).await.map_err(Box::new)?;
         Ok(response.into_inner())
     }
 
@@ -903,7 +898,10 @@ impl RelayClient {
         // If gRPC client is available, attempt to submit with it.
         // TODO: support submitting to rproxy gRPC
         if let Some(client) = &self.grpc_client {
-            match self.call_bloxroute_grpc_submit_block(client, data).await {
+            match self
+                .call_bloxroute_grpc_submit_block(client.clone(), data)
+                .await
+            {
                 Ok(response) => {
                     let status = response.code.try_into().unwrap_or(u16::MAX);
                     return if status == tonic::Code::Ok as u16 {
