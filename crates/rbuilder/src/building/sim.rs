@@ -250,8 +250,22 @@ impl SimTree {
         let mut ace_config = HashMap::default();
         let mut ace_state = HashMap::default();
 
+        if ace_configs.is_empty() {
+            tracing::debug!("ACE SimTree: initialized with no ACE configs");
+        } else {
+            tracing::debug!(
+                ace_config_count = ace_configs.len(),
+                "ACE SimTree: initializing with ACE configs"
+            );
+        }
+
         for config in ace_configs {
             let contract_address = config.contract_address;
+            tracing::debug!(
+                contract_address = ?contract_address,
+                detection_slots = ?config.detection_slots,
+                "ACE SimTree: registered protocol"
+            );
             ace_config.insert(contract_address, config);
             ace_state.insert(contract_address, AceExchangeState::default());
         }
@@ -398,12 +412,24 @@ impl SimTree {
         order: Order,
         mut ace_state: AceSimulationState,
     ) {
+        let order_id = order.id();
         let difference = ace_state.dependencies_to_handle();
         // If we have handled all dependencies, this order will not be valid and thus we will
         // ignore it.
         if difference.is_empty() {
+            tracing::debug!(
+                order_id = ?order_id,
+                "ACE deps: order has no unhandled ACE dependencies, ignoring"
+            );
             return;
         }
+
+        tracing::debug!(
+            order_id = ?order_id,
+            dependency_count = difference.len(),
+            dependencies = ?difference,
+            "ACE deps: handling ACE dependencies for failed order"
+        );
 
         let mut is_ready = true;
 
@@ -413,9 +439,21 @@ impl SimTree {
                 let dep_key = DependencyKey::AceUnlock(dep.get_contract_address());
 
                 match self.dependency_providers.get(&dep_key) {
-                    Some(key) => Some(key),
+                    Some(key) => {
+                        tracing::debug!(
+                            order_id = ?order_id,
+                            contract_address = ?dep.get_contract_address(),
+                            "ACE deps: found existing unlock provider for dependency"
+                        );
+                        Some(key)
+                    }
 
                     None => {
+                        tracing::debug!(
+                            order_id = ?order_id,
+                            contract_address = ?dep.get_contract_address(),
+                            "ACE deps: no unlock provider found, order waiting for unlock parent"
+                        );
                         is_ready = false;
                         self.pending_dependencies
                             .entry(dep_key)
@@ -429,6 +467,10 @@ impl SimTree {
 
         // Order needs to wait for ACE unlock dependencies
         if !is_ready {
+            tracing::debug!(
+                order_id = ?order_id,
+                "ACE deps: order added to pending, waiting for unlock parents"
+            );
             self.pending_orders
                 .insert(order.id(), PendingOrder { order, ace_state });
             return;
@@ -453,6 +495,12 @@ impl SimTree {
             })
             .flatten()
             .collect::<Vec<_>>();
+
+        tracing::debug!(
+            order_id = ?order_id,
+            parent_count = parents.len(),
+            "ACE deps: order ready with unlock parents, queued for re-simulation"
+        );
 
         // Order is ready with all unlock txs as parents
         self.ready_orders.push(SimulationRequest {
@@ -965,6 +1013,18 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
         Vec::new()
     };
 
+    // Log ACE interactions detected for this order
+    if !ace_interactions.is_empty() {
+        for interaction in &ace_interactions {
+            tracing::debug!(
+                order_id = ?order.id(),
+                sim_success = sim_success,
+                ace_interaction = ?interaction,
+                "ACE sim: detected interaction for order"
+            );
+        }
+    }
+
     match result {
         Ok(res) => {
             let sim_value = create_sim_value(&order, &res, mempool_tx_detector);
@@ -993,6 +1053,17 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
                 .filter(|i| i.needs_unlock())
                 .copied()
                 .collect();
+
+            // Log failed orders that have ACE dependencies
+            if !non_unlocking.is_empty() {
+                tracing::debug!(
+                    order_id = ?order.id(),
+                    error = ?err,
+                    non_unlocking_count = non_unlocking.len(),
+                    non_unlocking_interactions = ?non_unlocking,
+                    "ACE sim: order failed with non-unlocking ACE interactions (needs unlock parent)"
+                );
+            }
 
             Ok(OrderSimResult::Failed(SimulationFailure {
                 error: err,

@@ -96,6 +96,27 @@ pub fn backtest_prepare_orders_from_building_context<P>(
 where
     P: StateProviderFactory + Clone + 'static,
 {
+    // Log ACE config status for debugging
+    if ace_configs.is_empty() {
+        tracing::debug!("ACE backtest: no ACE configs provided, ACE detection disabled");
+    } else {
+        tracing::debug!(
+            ace_config_count = ace_configs.len(),
+            "ACE backtest: starting simulation with ACE configs"
+        );
+        for config in &ace_configs {
+            tracing::debug!(
+                contract_address = ?config.contract_address,
+                from_addresses_count = config.from_addresses.len(),
+                to_addresses_count = config.to_addresses.len(),
+                detection_slots_count = config.detection_slots.len(),
+                unlock_signatures_count = config.unlock_signatures.len(),
+                force_signatures_count = config.force_signatures.len(),
+                "ACE backtest: loaded protocol config"
+            );
+        }
+    }
+
     let orders = available_orders
         .iter()
         .map(|order| order.order.clone())
@@ -104,8 +125,26 @@ where
         ctx.mempool_tx_detector.add_tx(order);
     }
 
+    tracing::debug!(
+        order_count = orders.len(),
+        "ACE backtest: simulating orders"
+    );
+
     let (sim_orders, sim_errors) =
         simulate_all_orders_with_sim_tree(provider, &ctx, &orders, false, ace_configs)?;
+
+    // Log simulation results
+    let ace_orders_count = sim_orders
+        .iter()
+        .filter(|o| !o.ace_interactions.is_empty())
+        .count();
+    tracing::debug!(
+        simulated_orders = sim_orders.len(),
+        sim_errors = sim_errors.len(),
+        ace_interacting_orders = ace_orders_count,
+        "ACE backtest: simulation complete"
+    );
+
     Ok(BacktestBlockInput {
         sim_orders,
         sim_errors,
