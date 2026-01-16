@@ -19,7 +19,10 @@ use rbuilder::{
         BlockBuildingContext, ExecutionError, MockRootHasher, NullPartialBlockExecutionTracer,
         OrderPriority, ThreadBlockBuildingContext,
     },
-    live_builder::{cli::LiveBuilderConfig, config::Config},
+    live_builder::{
+        cli::LiveBuilderConfig,
+        config::{AceConfig, Config},
+    },
     provider::StateProviderFactory,
     utils::{extract_onchain_block_txs, find_suggested_fee_recipient},
 };
@@ -109,12 +112,17 @@ impl LandedBlockInfo {
         orders: Vec<OrdersWithTimestamp>,
         use_original_coinbase: bool,
     ) -> eyre::Result<Vec<Arc<SimulatedOrder>>> {
+        let base_config = self.config.base_config();
+        let ace_configs: Vec<AceConfig> = if base_config.ace_enabled {
+            base_config.ace_protocols.clone()
+        } else {
+            Vec::new()
+        };
         let BacktestBlockInput { sim_orders, .. } = backtest_prepare_orders_from_building_context(
             self.get_context(use_original_coinbase),
             orders,
-            self.config
-                .base_config()
-                .create_reth_provider_factory(true)?,
+            base_config.create_reth_provider_factory(true)?,
+            ace_configs,
         )?;
         Ok(sim_orders)
     }

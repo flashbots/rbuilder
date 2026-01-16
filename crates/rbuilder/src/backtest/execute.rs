@@ -4,7 +4,7 @@ use crate::{
         builders::BacktestSimulateBlockInput, sim::simulate_all_orders_with_sim_tree,
         BlockBuildingContext, BundleErr, NullPartialBlockExecutionTracer, OrderErr, TransactionErr,
     },
-    live_builder::{block_list_provider::BlockList, cli::LiveBuilderConfig},
+    live_builder::{block_list_provider::BlockList, cli::LiveBuilderConfig, config::AceConfig},
     provider::StateProviderFactory,
     utils::{clean_extradata, mevblocker::get_mevblocker_price, Signer},
 };
@@ -91,6 +91,7 @@ pub fn backtest_prepare_orders_from_building_context<P>(
     ctx: BlockBuildingContext,
     available_orders: Vec<OrdersWithTimestamp>,
     provider: P,
+    ace_configs: Vec<AceConfig>,
 ) -> eyre::Result<BacktestBlockInput>
 where
     P: StateProviderFactory + Clone + 'static,
@@ -104,7 +105,7 @@ where
     }
 
     let (sim_orders, sim_errors) =
-        simulate_all_orders_with_sim_tree(provider, &ctx, &orders, false, vec![])?;
+        simulate_all_orders_with_sim_tree(provider, &ctx, &orders, false, ace_configs)?;
     Ok(BacktestBlockInput {
         sim_orders,
         sim_errors,
@@ -147,6 +148,12 @@ where
     P: StateProviderFactory + Clone + 'static,
     ConfigType: LiveBuilderConfig,
 {
+    let base_config = config.base_config();
+    let ace_configs = if base_config.ace_enabled {
+        base_config.ace_protocols.clone()
+    } else {
+        Vec::new()
+    };
     let BacktestBlockInput {
         sim_orders,
         sim_errors,
@@ -154,6 +161,7 @@ where
         ctx.clone(),
         block_data.available_orders,
         provider.clone(),
+        ace_configs,
     )?;
 
     let filtered_orders_blocklist_count = sim_errors
