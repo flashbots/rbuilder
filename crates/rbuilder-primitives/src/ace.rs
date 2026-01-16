@@ -26,7 +26,8 @@ pub struct AceConfig {
 /// Classify an ACE order interaction type based on state trace, simulation success, and config.
 ///
 /// Classification logic:
-/// - If simulation succeeds while accessing ACE slot → `Unlocking` (tx can execute without unlock parent)
+/// - If simulation succeeds and WRITES to ACE slot → `Unlocking` (tx performs unlock)
+/// - If simulation succeeds but only READS ACE slot → No ACE interaction (tx just uses unlocked state)
 /// - If simulation fails while accessing ACE slot → `NonUnlocking` (tx needs unlock parent)
 ///
 /// For `ProtocolForce` and `ProtocolOptional` classification, the transaction must:
@@ -34,7 +35,7 @@ pub struct AceConfig {
 /// 2. Have the appropriate signature (`force_signatures` or `unlock_signatures`)
 /// 3. Be from a whitelisted address (`tx_from` in `config.from_addresses`)
 ///
-/// All other successful unlocking transactions are classified as `User`.
+/// All other successful unlocking transactions (that WRITE to detection slot) are classified as `User`.
 pub fn classify_ace_interaction(
     state_trace: &UsedStateTrace,
     sim_success: bool,
@@ -43,7 +44,8 @@ pub fn classify_ace_interaction(
     tx_to: Option<Address>,
     tx_from: Option<Address>,
 ) -> Option<AceInteraction> {
-    let any_ace_slots_accessed = config
+    // Check if any ACE detection slots were READ
+    let any_ace_slots_read = config
         .to_addresses
         .iter()
         .flat_map(|address| {
@@ -52,13 +54,21 @@ pub fn classify_ace_interaction(
                 key: *slot,
             })
         })
-        .flat_map(|key| {
-            [
-                state_trace.read_slot_values.contains_key(&key),
-                state_trace.written_slot_values.contains_key(&key),
-            ]
+        .any(|key| state_trace.read_slot_values.contains_key(&key));
+
+    // Check if any ACE detection slots were WRITTEN
+    let any_ace_slots_written = config
+        .to_addresses
+        .iter()
+        .flat_map(|address| {
+            config.detection_slots.iter().map(|slot| SlotKey {
+                address: *address,
+                key: *slot,
+            })
         })
-        .any(|read_slot_of_interest| read_slot_of_interest);
+        .any(|key| state_trace.written_slot_values.contains_key(&key));
+
+    let any_ace_slots_accessed = any_ace_slots_read || any_ace_slots_written;
 
     if !any_ace_slots_accessed {
         return None;
@@ -77,20 +87,34 @@ pub fn classify_ace_interaction(
     let contract_address = config.contract_address;
 
     if sim_success {
-        // If simulation succeeded while accessing ACE slot, it's Unlocking
-        // Protocol orders require: direct call + correct signature + whitelisted sender
-        let source = if is_direct_protocol_call && is_force_sig && is_from_whitelisted {
-            AceUnlockSource::ProtocolForce
-        } else if is_direct_protocol_call && is_unlock_sig && is_from_whitelisted {
-            AceUnlockSource::ProtocolOptional
+        // For successful simulations, only classify as Unlocking if the tx WRITES to detection slot.
+        // A tx that only READS the slot is just using the unlocked state, not performing an unlock.
+        // Protocol orders require: direct call + correct signature + whitelisted sender + write to slot
+        if is_direct_protocol_call && is_force_sig && is_from_whitelisted && any_ace_slots_written {
+            Some(AceInteraction::Unlocking {
+                contract_address,
+                source: AceUnlockSource::ProtocolForce,
+            })
+        } else if is_direct_protocol_call
+            && is_unlock_sig
+            && is_from_whitelisted
+            && any_ace_slots_written
+        {
+            Some(AceInteraction::Unlocking {
+                contract_address,
+                source: AceUnlockSource::ProtocolOptional,
+            })
+        } else if any_ace_slots_written {
+            // User tx that writes to detection slot = User unlock
+            Some(AceInteraction::Unlocking {
+                contract_address,
+                source: AceUnlockSource::User,
+            })
         } else {
-            // Any successful simulation that accesses ACE slot is a User unlock
-            AceUnlockSource::User
-        };
-        Some(AceInteraction::Unlocking {
-            contract_address,
-            source,
-        })
+            // Successful simulation that only READS detection slot = not an unlock,
+            // just a tx that uses the unlocked state. No ACE interaction to track.
+            None
+        }
     } else {
         // Simulation failed while accessing ACE slot = needs unlock parent
         Some(AceInteraction::NonUnlocking { contract_address })
@@ -186,10 +210,23 @@ mod tests {
         }
     }
 
-    /// Create a mock state trace with the detection slot accessed
-    fn mock_state_trace_with_slot(addr: Address, slot: B256) -> UsedStateTrace {
+    /// Create a mock state trace with the detection slot READ (not written)
+    fn mock_state_trace_with_slot_read(addr: Address, slot: B256) -> UsedStateTrace {
         let mut trace = UsedStateTrace::default();
         trace.read_slot_values.insert(
+            SlotKey {
+                address: addr,
+                key: slot,
+            },
+            Default::default(),
+        );
+        trace
+    }
+
+    /// Create a mock state trace with the detection slot WRITTEN
+    fn mock_state_trace_with_slot_written(addr: Address, slot: B256) -> UsedStateTrace {
+        let mut trace = UsedStateTrace::default();
+        trace.written_slot_values.insert(
             SlotKey {
                 address: addr,
                 key: slot,
@@ -208,8 +245,8 @@ mod tests {
         let force_selector = *config.force_signatures.iter().next().unwrap();
         let whitelisted_from = *config.from_addresses.iter().next().unwrap();
 
-        // Mock state trace with detection slot accessed
-        let trace = mock_state_trace_with_slot(contract, detection_slot);
+        // Mock state trace with detection slot WRITTEN (unlock writes to slot)
+        let trace = mock_state_trace_with_slot_written(contract, detection_slot);
 
         // Direct call to ACE contract with force signature FROM WHITELISTED ADDRESS should be ProtocolForce
         let result = classify_ace_interaction(
@@ -243,8 +280,8 @@ mod tests {
         let unlock_selector = *config.unlock_signatures.iter().next().unwrap();
         let whitelisted_from = *config.from_addresses.iter().next().unwrap();
 
-        // Mock state trace with detection slot accessed
-        let trace = mock_state_trace_with_slot(contract, detection_slot);
+        // Mock state trace with detection slot WRITTEN (unlock writes to slot)
+        let trace = mock_state_trace_with_slot_written(contract, detection_slot);
 
         // Direct call to ACE contract with unlock signature FROM WHITELISTED ADDRESS should be ProtocolOptional
         let result = classify_ace_interaction(
@@ -272,12 +309,14 @@ mod tests {
     #[test]
     fn test_ace_user_unlock_indirect_call() {
         // User transaction that calls ACE contract indirectly (not tx.to = contract)
+        // and WRITES to the detection slot = User unlock
         let config = real_ace_config();
         let contract = config.contract_address;
         let detection_slot = *config.detection_slots.iter().next().unwrap();
         let unlock_selector = *config.unlock_signatures.iter().next().unwrap();
 
-        let trace = mock_state_trace_with_slot(contract, detection_slot);
+        // Use write trace since only writes classify as unlock
+        let trace = mock_state_trace_with_slot_written(contract, detection_slot);
 
         // tx.to is NOT the ACE contract (indirect call via user tx) = User unlock
         // Even with whitelisted from address, indirect call is User
@@ -305,17 +344,46 @@ mod tests {
     }
 
     #[test]
-    fn test_ace_successful_sim_without_signature_is_user_unlock() {
-        // Transaction that accesses ACE slot, succeeds simulation, but doesn't have unlock signature
-        // Should be classified as User unlock since it can execute without unlock parent
+    fn test_ace_successful_sim_read_only_returns_none() {
+        // Transaction that only READS ACE slot and succeeds simulation
+        // Should return None - tx just uses unlocked state, doesn't perform unlock
         let config = real_ace_config();
         let contract = config.contract_address;
         let detection_slot = *config.detection_slots.iter().next().unwrap();
         let whitelisted_from = *config.from_addresses.iter().next().unwrap();
 
-        let trace = mock_state_trace_with_slot(contract, detection_slot);
+        // Only READ the slot, not write
+        let trace = mock_state_trace_with_slot_read(contract, detection_slot);
 
-        // No unlock/force signature but successful = User unlock
+        // No write to slot = not an unlock, even if successful
+        let result = classify_ace_interaction(
+            &trace,
+            true,
+            &config,
+            None,
+            Some(contract),
+            Some(whitelisted_from),
+        );
+
+        assert_eq!(
+            result, None,
+            "Successful simulation that only reads detection slot should return None"
+        );
+    }
+
+    #[test]
+    fn test_ace_user_unlock_with_slot_write() {
+        // Transaction that WRITES to ACE slot and succeeds without unlock signature
+        // Should be classified as User unlock
+        let config = real_ace_config();
+        let contract = config.contract_address;
+        let detection_slot = *config.detection_slots.iter().next().unwrap();
+        let whitelisted_from = *config.from_addresses.iter().next().unwrap();
+
+        // WRITE to the slot
+        let trace = mock_state_trace_with_slot_written(contract, detection_slot);
+
+        // Writes to slot without unlock signature = User unlock
         let result = classify_ace_interaction(
             &trace,
             true,
@@ -347,7 +415,8 @@ mod tests {
         let unlock_selector = *config.unlock_signatures.iter().next().unwrap();
         let whitelisted_from = *config.from_addresses.iter().next().unwrap();
 
-        let trace = mock_state_trace_with_slot(contract, detection_slot);
+        // For failed sims, even read-only access triggers NonUnlocking
+        let trace = mock_state_trace_with_slot_read(contract, detection_slot);
 
         // sim_success = false turns unlock into NonUnlocking
         let result = classify_ace_interaction(
@@ -402,7 +471,7 @@ mod tests {
         let force_selector = *config.force_signatures.iter().next().unwrap();
         let whitelisted_from = *config.from_addresses.iter().next().unwrap();
 
-        let trace = mock_state_trace_with_slot(config.contract_address, wrong_slot);
+        let trace = mock_state_trace_with_slot_read(config.contract_address, wrong_slot);
 
         // Wrong slot accessed = None (even with valid signature)
         let result = classify_ace_interaction(
@@ -555,8 +624,8 @@ mod tests {
         // Optional unlock signature from real transaction
         let unlock_selector = Selector::from_slice(&[0x18, 0x28, 0xe0, 0xe7]);
 
-        // Mock state trace showing slot 3 was accessed
-        let trace = mock_state_trace_with_slot(contract, slot);
+        // Mock state trace showing slot 3 was WRITTEN (unlocking writes to slot)
+        let trace = mock_state_trace_with_slot_written(contract, slot);
 
         // Test 1: Direct call to ACE contract FROM WHITELISTED ADDRESS = ProtocolOptional
         let result = classify_ace_interaction(
@@ -576,7 +645,7 @@ mod tests {
             })
         );
 
-        // Test 2: Indirect call (user tx) = User unlock
+        // Test 2: Indirect call (user tx) that WRITES = User unlock
         let result_indirect = classify_ace_interaction(
             &trace,
             true,
@@ -595,8 +664,10 @@ mod tests {
         );
 
         // Test 3: Failed simulation with unlock signature = NonUnlocking
+        // (use read trace for failed sim - read access is enough to identify ACE dependency)
+        let read_trace = mock_state_trace_with_slot_read(contract, slot);
         let result_failed = classify_ace_interaction(
-            &trace,
+            &read_trace,
             false,
             &config,
             Some(unlock_selector),
@@ -665,7 +736,8 @@ mod tests {
             "Address should not be in whitelist for this test"
         );
 
-        let trace = mock_state_trace_with_slot(contract, detection_slot);
+        // Use write trace since only writes classify as unlock
+        let trace = mock_state_trace_with_slot_written(contract, detection_slot);
 
         // Direct call with force signature but from non-whitelisted address = User
         let result = classify_ace_interaction(
@@ -702,7 +774,8 @@ mod tests {
         let non_whitelisted = address!("2222222222222222222222222222222222222222");
         assert!(!config.from_addresses.contains(&non_whitelisted));
 
-        let trace = mock_state_trace_with_slot(contract, detection_slot);
+        // Use write trace since only writes classify as unlock
+        let trace = mock_state_trace_with_slot_written(contract, detection_slot);
 
         // Direct call with unlock signature but from non-whitelisted address = User
         let result = classify_ace_interaction(
@@ -735,7 +808,8 @@ mod tests {
         let detection_slot = *config.detection_slots.iter().next().unwrap();
         let force_selector = *config.force_signatures.iter().next().unwrap();
 
-        let trace = mock_state_trace_with_slot(contract, detection_slot);
+        // Use write trace since only writes classify as unlock
+        let trace = mock_state_trace_with_slot_written(contract, detection_slot);
 
         // Direct call with force signature but tx_from = None = User
         let result = classify_ace_interaction(
