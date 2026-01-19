@@ -228,17 +228,17 @@ pub(crate) enum DiskBackupError {
 impl DiskBackupError {
     /// The error is related to some physical or logical disk problem.
     pub fn is_disk_error(&self) -> bool {
-        match self {
+        matches!(
+            self,
             Self::Database(_)
-            | Self::Transactions(_)
-            | Self::Table(_)
-            | Self::Storage(_)
-            | Self::Commit(_)
-            | Self::Durability(_)
-            | Self::Serde(_)
-            | Self::Compaction(_) => true,
-            _ => false,
-        }
+                | Self::Transactions(_)
+                | Self::Table(_)
+                | Self::Storage(_)
+                | Self::Commit(_)
+                | Self::Durability(_)
+                | Self::Serde(_)
+                | Self::Compaction(_)
+        )
     }
 }
 /// A disk backup for failed commits. This handle to a database allows to write only to one table
