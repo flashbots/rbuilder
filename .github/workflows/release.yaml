@@ -142,6 +142,9 @@ jobs:
 
       - name: Build binaries (Mac)
         if: steps.platform-check.outputs.skip != 'true' && matrix.platform == 'mac'
+        env:
+          # Workaround for runng-sys CMake compatibility issue
+          CMAKE_POLICY_VERSION_MINIMUM: "3.5"
         run: |
           FEATURES="${{ matrix.features }}"
           FEATURE_FLAG=""
