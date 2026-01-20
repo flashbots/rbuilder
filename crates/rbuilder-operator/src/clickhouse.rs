@@ -8,7 +8,10 @@ use clickhouse::{Client, Row};
 use rbuilder::{
     building::BuiltBlockTrace,
     live_builder::{
-        block_output::bidding_service_interface::{BidObserver, RelaySet},
+        block_output::{
+            bidding_service_interface::{BidObserver, RelaySet},
+            relay_submit::{AlwaysSubmitPolicy, RelaySubmissionPolicy},
+        },
         payload_events::MevBoostSlotData,
         process_killer::RUN_SUBMIT_TO_RELAYS_JOB_CANCEL_TIME,
     },
@@ -30,7 +33,7 @@ use tracing::error;
 
 use crate::{
     flashbots_config::BuiltBlocksClickhouseConfig,
-    metrics::{set_disk_backup_max_size, ClickhouseMetrics},
+    metrics::{set_disk_backup_max_size, ClickhouseMetrics, CLICKHOUSE_DISK_BACKUP_SIZE_BYTES},
 };
 
 /// BlockRow to insert in clickhouse and also as entry type for the indexer since the BlockRow is made from a few &objects so it makes no sense to have a Block type and copy all the fields.
@@ -137,12 +140,49 @@ pub struct BuiltBlocksWriter {
     builder_name: String,
 }
 
+/// Policy to stop submitting blocks if the disk backup is too big.
+#[derive(Debug)]
+struct BackupNotTooBigRelaySubmissionPolicy {
+    disk_max_size_to_submit: u64,
+}
+
+impl BackupNotTooBigRelaySubmissionPolicy {
+    pub fn new(disk_max_size_to_submit: u64) -> Self {
+        Self {
+            disk_max_size_to_submit,
+        }
+    }
+}
+
+impl RelaySubmissionPolicy for BackupNotTooBigRelaySubmissionPolicy {
+    fn should_submit(&self) -> bool {
+        (CLICKHOUSE_DISK_BACKUP_SIZE_BYTES.get() as u64) < self.disk_max_size_to_submit
+    }
+}
+
 impl BuiltBlocksWriter {
+    /// Returns the writer and the submission policy what asks to stop submitting blocks if the disk backup is too big.
+    /// It's a little ugly/coupled  that we generate this here but it was easier than injecting a metric observer.
     pub fn new(
         config: BuiltBlocksClickhouseConfig,
         rbuilder_commit: String,
         cancellation_token: CancellationToken,
-    ) -> eyre::Result<Self> {
+    ) -> eyre::Result<(Self, Box<dyn RelaySubmissionPolicy + Send + Sync>)> {
+        let backup_max_size_bytes =
+            config.disk_max_size_mb.unwrap_or(DEFAULT_MAX_DISK_SIZE_MB) * MEGA;
+        let submission_policy: Box<dyn RelaySubmissionPolicy + Send + Sync> =
+            if let Some(disk_max_size_to_submit_mb) = config.disk_max_size_to_submit_mb {
+                let disk_max_size_to_submit = disk_max_size_to_submit_mb * MEGA;
+                if disk_max_size_to_submit > backup_max_size_bytes {
+                    eyre::bail!("disk_max_size_to_submit_mb must be less than disk_max_size_mb");
+                }
+                Box::new(BackupNotTooBigRelaySubmissionPolicy::new(
+                    disk_max_size_to_submit,
+                ))
+            } else {
+                Box::new(AlwaysSubmitPolicy {})
+            };
+
         let client = Client::default()
             .with_url(config.host)
             .with_database(config.database)
@@ -153,8 +193,6 @@ impl BuiltBlocksWriter {
         let task_manager = rbuilder_utils::tasks::TaskManager::current();
         let task_executor = task_manager.executor();
 
-        let backup_max_size_bytes =
-            config.disk_max_size_mb.unwrap_or(DEFAULT_MAX_DISK_SIZE_MB) * MEGA;
         set_disk_backup_max_size(backup_max_size_bytes);
 
         let (block_tx, block_rx) = mpsc::channel::<BlockRow>(BUILT_BLOCKS_CHANNEL_SIZE);
@@ -195,11 +233,14 @@ impl BuiltBlocksWriter {
             tokio::time::sleep(RUN_SUBMIT_TO_RELAYS_JOB_CANCEL_TIME).await;
             task_manager.graceful_shutdown_with_timeout(Duration::from_secs(5));
         });
-        Ok(Self {
-            blocks_tx: block_tx,
-            rbuilder_commit,
-            builder_name: config.builder_name,
-        })
+        Ok((
+            Self {
+                blocks_tx: block_tx,
+                rbuilder_commit,
+                builder_name: config.builder_name,
+            },
+            submission_policy,
+        ))
     }
 }
 
