@@ -26,7 +26,7 @@ on:
         description: "Target Platform"
         options:
           - 'linux'
-          - 'mac-m1'
+          - 'mac'
         required: false
         type: choice
       features:
@@ -70,15 +70,8 @@ jobs:
   build-binary:
     name: Build binary (${{ matrix.target }})
     needs: extract-version
-    # Run if: (build-binary enabled OR tag push) AND (platform matches)
-    # - Tag pushes: only build Linux
-    # - Manual dispatch: build selected platform (defaults to Linux)
-    if: |
-      (github.event.inputs.build-binary == 'true' || github.event_name == 'push') &&
-      (
-        (github.event_name == 'push' && matrix.platform == 'linux') ||
-        (github.event_name == 'workflow_dispatch' && (github.event.inputs.platform == matrix.platform || (github.event.inputs.platform == '' && matrix.platform == 'linux')))
-      )
+    # Run if build-binary enabled OR tag push
+    if: github.event.inputs.build-binary == 'true' || github.event_name == 'push'
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: write
@@ -93,21 +86,45 @@ jobs:
           - target: aarch64-apple-darwin
             runner: warp-macos-14-arm64-6x
             profile: release
-            platform: mac-m1
+            platform: mac
         features:
           - ${{ github.event.inputs.features || '' }}
 
     steps:
+      - name: Check platform match
+        id: platform-check
+        shell: bash
+        run: |
+          # For tag pushes, only run Linux builds
+          if [[ "${{ github.event_name }}" == "push" && "${{ matrix.platform }}" != "linux" ]]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "Skipping: tag push only builds Linux"
+            exit 0
+          fi
+          # For manual dispatch, check if platform matches
+          SELECTED_PLATFORM="${{ github.event.inputs.platform || 'linux' }}"
+          if [[ "$SELECTED_PLATFORM" != "${{ matrix.platform }}" ]]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "Skipping: selected platform ($SELECTED_PLATFORM) != matrix platform (${{ matrix.platform }})"
+            exit 0
+          fi
+          echo "skip=false" >> $GITHUB_OUTPUT
+          echo "Building for platform: ${{ matrix.platform }}"
+
       - uses: actions/checkout@v4
+        if: steps.platform-check.outputs.skip != 'true'
 
       - name: Set up Docker Buildx
+        if: steps.platform-check.outputs.skip != 'true'
         uses: docker/setup-buildx-action@v3
 
       - name: Install rust
+        if: steps.platform-check.outputs.skip != 'true'
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
       - name: Build reproducible binary with Docker
+        if: steps.platform-check.outputs.skip != 'true'
         run: |
           RUST_TOOLCHAIN=$(rustc --version | cut -d' ' -f2)
           docker build \
@@ -118,42 +135,49 @@ jobs:
             --output type=local,dest=./target .
 
       - name: Upload rbuilder artifact
+        if: steps.platform-check.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: rbuilder-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.target }}${{ matrix.features && '-' }}${{ matrix.features }}
           path: target/${{ matrix.profile }}/rbuilder
 
       - name: Upload rbuilder-operator artifact
+        if: steps.platform-check.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: rbuilder-operator-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.target }}${{ matrix.features && '-' }}${{ matrix.features }}
           path: target/${{ matrix.profile }}/rbuilder-operator
 
       - name: Upload tbv-bidding-service artifact
+        if: steps.platform-check.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: tbv-bidding-service-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.target }}${{ matrix.features && '-' }}${{ matrix.features }}
           path: target/${{ matrix.profile }}/tbv-bidding-service
 
       - name: Upload reth-rbuilder artifact
+        if: steps.platform-check.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: reth-rbuilder-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.target }}${{ matrix.features && '-' }}${{ matrix.features }}
           path: target/${{ matrix.profile }}/reth-rbuilder
 
       - name: Upload bid-scraper artifact
+        if: steps.platform-check.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: bid-scraper-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.target }}${{ matrix.features && '-' }}${{ matrix.features }}
           path: target/${{ matrix.profile }}/bid-scraper
 
       - name: Upload rbuilder-rebalancer artifact
+        if: steps.platform-check.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: rbuilder-rebalancer-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.target }}${{ matrix.features && '-' }}${{ matrix.features }}
           path: target/${{ matrix.profile }}/rbuilder-rebalancer
 
       - name: Upload *.deb packages
+        if: steps.platform-check.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: deb-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.target }}${{ matrix.features && '-' }}${{ matrix.features }}
