@@ -83,12 +83,12 @@ jobs:
             runner: warp-ubuntu-latest-x64-32x
             profile: reproducible
             platform: linux
+            features: ${{ github.event.inputs.features || '' }}
           - target: aarch64-apple-darwin
             runner: warp-macos-14-arm64-6x
             profile: release
             platform: mac
-        features:
-          - ${{ github.event.inputs.features || '' }}
+            features: ${{ github.event.inputs.features || '' }}
 
     steps:
       - name: Check platform match
