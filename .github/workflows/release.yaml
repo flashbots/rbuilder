@@ -114,17 +114,18 @@ jobs:
       - uses: actions/checkout@v4
         if: steps.platform-check.outputs.skip != 'true'
 
+      # Linux: Use Docker for reproducible builds
       - name: Set up Docker Buildx
-        if: steps.platform-check.outputs.skip != 'true'
+        if: steps.platform-check.outputs.skip != 'true' && matrix.platform == 'linux'
         uses: docker/setup-buildx-action@v3
 
-      - name: Install rust
-        if: steps.platform-check.outputs.skip != 'true'
+      - name: Install rust (for Docker build)
+        if: steps.platform-check.outputs.skip != 'true' && matrix.platform == 'linux'
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
-      - name: Build reproducible binary with Docker
-        if: steps.platform-check.outputs.skip != 'true'
+      - name: Build reproducible binary with Docker (Linux)
+        if: steps.platform-check.outputs.skip != 'true' && matrix.platform == 'linux'
         run: |
           RUST_TOOLCHAIN=$(rustc --version | cut -d' ' -f2)
           docker build \
@@ -133,6 +134,27 @@ jobs:
             --build-arg "VERSION=${{ needs.extract-version.outputs.VERSION }}" \
             -f docker/Dockerfile.reproducible -t rbuilder:release \
             --output type=local,dest=./target .
+
+      # Mac: Build natively with cargo
+      - name: Install rust toolchain (Mac)
+        if: steps.platform-check.outputs.skip != 'true' && matrix.platform == 'mac'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build binaries (Mac)
+        if: steps.platform-check.outputs.skip != 'true' && matrix.platform == 'mac'
+        run: |
+          FEATURES="${{ matrix.features }}"
+          FEATURE_FLAG=""
+          if [[ -n "$FEATURES" ]]; then
+            FEATURE_FLAG="--features $FEATURES"
+          fi
+          cargo build --profile ${{ matrix.profile }} $FEATURE_FLAG \
+            --bin rbuilder \
+            --bin rbuilder-operator \
+            --bin tbv-bidding-service \
+            --bin reth-rbuilder \
+            --bin bid-scraper \
+            --bin rbuilder-rebalancer
 
       - name: Upload rbuilder artifact
         if: steps.platform-check.outputs.skip != 'true'
@@ -177,7 +199,7 @@ jobs:
           path: target/${{ matrix.profile }}/rbuilder-rebalancer
 
       - name: Upload *.deb packages
-        if: steps.platform-check.outputs.skip != 'true'
+        if: steps.platform-check.outputs.skip != 'true' && matrix.platform == 'linux'
         uses: actions/upload-artifact@v4
         with:
           name: deb-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.target }}${{ matrix.features && '-' }}${{ matrix.features }}
