@@ -647,7 +647,7 @@ impl RelaySubmitSinkFactory {
     ) -> Box<dyn MultiRelayBlockBuildingSink> {
         // If submission is disabled, return a sink that throws away the blocks.
         if !self.submission_policy.should_submit() {
-            warn!("Submission is disabled by submission_policy, throwing away the blocks");
+            error!("Submission is disabled by submission_policy, throwing away the blocks");
             return Box::new(NullMultiRelayBlockBuildingSink {});
         }
         // Collect all relays to submit to.
