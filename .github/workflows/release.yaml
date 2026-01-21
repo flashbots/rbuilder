@@ -21,6 +21,14 @@ on:
         description: "Build Binary"
         required: false
         type: boolean
+      platform:
+        default: 'linux'
+        description: "Target Platform"
+        options:
+          - 'linux'
+          - 'mac'
+        required: false
+        type: choice
       features:
         default: ''
         description: "Binary Compilation Features"
@@ -56,42 +64,68 @@ jobs:
           echo "| \`GITHUB_REF\`      | \`${GITHUB_REF}\`      |" >> $GITHUB_STEP_SUMMARY
           echo "| \`GITHUB_SHA\`      | \`${GITHUB_SHA}\`      |" >> $GITHUB_STEP_SUMMARY
           echo "| \`VERSION\`         | \`${VERSION}\`         |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`PLATFORM\`        | \`${{ github.event.inputs.platform || 'linux (default)' }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| \`FEATURES\`        | \`${{ github.event.inputs.features || 'none' }}\` |" >> $GITHUB_STEP_SUMMARY
 
   build-binary:
-    name: Build binary
+    name: Build binary (${{ matrix.target }})
     needs: extract-version
-    if: ${{ github.event.inputs.build-binary == 'true' || github.event_name == 'push'}} # when manually triggered or version tagged
-    runs-on: ${{ matrix.configs.runner }}
+    # Run if build-binary enabled OR tag push
+    if: github.event.inputs.build-binary == 'true' || github.event_name == 'push'
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: write
       packages: write
     strategy:
       matrix:
-        configs:
+        include:
           - target: x86_64-unknown-linux-gnu
             runner: warp-ubuntu-latest-x64-32x
             profile: reproducible
-          # - target: aarch64-unknown-linux-gnu
-          #   runner: warp-ubuntu-latest-arm64-32x
-          #   profile: release
-          # Paused until docker is pre-installed https://github.com/actions/runner-images/blob/main/images/macos/macos-14-arm64-Readme.md
-          # - target: aarch64-apple-darwin
-          #   runner: warp-macos-14-arm64-6x
-        features:
-          - ${{ github.event.inputs.features || '' }}
+            platform: linux
+            features: ${{ github.event.inputs.features || '' }}
+          - target: aarch64-apple-darwin
+            runner: warp-macos-14-arm64-6x
+            profile: release
+            platform: mac
+            features: ${{ github.event.inputs.features || '' }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Check platform match
+        id: platform-check
+        shell: bash
+        run: |
+          # For tag pushes, only run Linux builds
+          if [[ "${{ github.event_name }}" == "push" && "${{ matrix.platform }}" != "linux" ]]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "Skipping: tag push only builds Linux"
+            exit 0
+          fi
+          # For manual dispatch, check if platform matches
+          SELECTED_PLATFORM="${{ github.event.inputs.platform || 'linux' }}"
+          if [[ "$SELECTED_PLATFORM" != "${{ matrix.platform }}" ]]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "Skipping: selected platform ($SELECTED_PLATFORM) != matrix platform (${{ matrix.platform }})"
+            exit 0
+          fi
+          echo "skip=false" >> $GITHUB_OUTPUT
+          echo "Building for platform: ${{ matrix.platform }}"
 
+      - uses: actions/checkout@v4
+        if: steps.platform-check.outputs.skip != 'true'
+
+      # Linux: Use Docker for reproducible builds
       - name: Set up Docker Buildx
+        if: steps.platform-check.outputs.skip != 'true' && matrix.platform == 'linux'
         uses: docker/setup-buildx-action@v3
 
-      - name: Install rust
+      - name: Install rust (for Docker build)
+        if: steps.platform-check.outputs.skip != 'true' && matrix.platform == 'linux'
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
-      - name: Build reproducible binary with Docker
+      - name: Build reproducible binary with Docker (Linux)
+        if: steps.platform-check.outputs.skip != 'true' && matrix.platform == 'linux'
         run: |
           RUST_TOOLCHAIN=$(rustc --version | cut -d' ' -f2)
           docker build \
@@ -101,46 +135,82 @@ jobs:
             -f docker/Dockerfile.reproducible -t rbuilder:release \
             --output type=local,dest=./target .
 
+      # Mac: Build natively with cargo
+      - name: Install dependencies (Mac)
+        if: steps.platform-check.outputs.skip != 'true' && matrix.platform == 'mac'
+        run: |
+          brew install protobuf
+
+      - name: Install rust toolchain (Mac)
+        if: steps.platform-check.outputs.skip != 'true' && matrix.platform == 'mac'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build binaries (Mac)
+        if: steps.platform-check.outputs.skip != 'true' && matrix.platform == 'mac'
+        env:
+          # Workaround for runng-sys CMake compatibility issue
+          CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+        run: |
+          FEATURES="${{ matrix.features }}"
+          FEATURE_FLAG=""
+          if [[ -n "$FEATURES" ]]; then
+            FEATURE_FLAG="--features $FEATURES"
+          fi
+          cargo build --profile ${{ matrix.profile }} $FEATURE_FLAG \
+            --bin rbuilder \
+            --bin rbuilder-operator \
+            --bin tbv-bidding-service \
+            --bin reth-rbuilder \
+            --bin bid-scraper \
+            --bin rbuilder-rebalancer
+
       - name: Upload rbuilder artifact
+        if: steps.platform-check.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: rbuilder-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
-          path: target/${{ matrix.configs.profile }}/rbuilder
+          name: rbuilder-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.target }}${{ matrix.features && '-' }}${{ matrix.features }}
+          path: target/${{ matrix.profile }}/rbuilder
 
       - name: Upload rbuilder-operator artifact
+        if: steps.platform-check.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: rbuilder-operator-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
-          path: target/${{ matrix.configs.profile }}/rbuilder-operator
+          name: rbuilder-operator-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.target }}${{ matrix.features && '-' }}${{ matrix.features }}
+          path: target/${{ matrix.profile }}/rbuilder-operator
 
       - name: Upload tbv-bidding-service artifact
+        if: steps.platform-check.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: tbv-bidding-service-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
-          path: target/${{ matrix.configs.profile }}/tbv-bidding-service
+          name: tbv-bidding-service-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.target }}${{ matrix.features && '-' }}${{ matrix.features }}
+          path: target/${{ matrix.profile }}/tbv-bidding-service
 
       - name: Upload reth-rbuilder artifact
+        if: steps.platform-check.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: reth-rbuilder-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
-          path: target/${{ matrix.configs.profile }}/reth-rbuilder
+          name: reth-rbuilder-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.target }}${{ matrix.features && '-' }}${{ matrix.features }}
+          path: target/${{ matrix.profile }}/reth-rbuilder
 
       - name: Upload bid-scraper artifact
+        if: steps.platform-check.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: bid-scraper-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
-          path: target/${{ matrix.configs.profile }}/bid-scraper
+          name: bid-scraper-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.target }}${{ matrix.features && '-' }}${{ matrix.features }}
+          path: target/${{ matrix.profile }}/bid-scraper
 
       - name: Upload rbuilder-rebalancer artifact
+        if: steps.platform-check.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: rbuilder-rebalancer-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
-          path: target/${{ matrix.configs.profile }}/rbuilder-rebalancer
+          name: rbuilder-rebalancer-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.target }}${{ matrix.features && '-' }}${{ matrix.features }}
+          path: target/${{ matrix.profile }}/rbuilder-rebalancer
 
       - name: Upload *.deb packages
+        if: steps.platform-check.outputs.skip != 'true' && matrix.platform == 'linux'
         uses: actions/upload-artifact@v4
         with:
-          name: deb-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
+          name: deb-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.target }}${{ matrix.features && '-' }}${{ matrix.features }}
           path: target/debian/*.deb
 
 
