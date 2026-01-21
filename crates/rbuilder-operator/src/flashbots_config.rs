@@ -85,7 +85,7 @@ pub struct BuiltBlocksClickhouseConfig {
     pub disk_database_path: PathBuf,
     /// If set must be < disk_max_size_mb.
     /// If the disk backup size is greater than this value, clickhouse will ask we stop submitting blocks.
-    pub disk_max_size_to_submit_mb: Option<u64>,
+    pub disk_max_size_to_submit_bids_to_relays_mb: Option<u64>,
     pub disk_max_size_mb: Option<u64>,
     pub memory_max_size_mb: Option<u64>,
     /// Clickhouse send timeout in milliseconds. Defaults to 2000ms if not set.

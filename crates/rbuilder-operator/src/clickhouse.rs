@@ -33,7 +33,10 @@ use tracing::error;
 
 use crate::{
     flashbots_config::BuiltBlocksClickhouseConfig,
-    metrics::{set_disk_backup_max_size, ClickhouseMetrics, CLICKHOUSE_DISK_BACKUP_SIZE_BYTES},
+    metrics::{
+        set_disk_backup_max_size, set_disk_backup_max_size_to_submit_bids_to_relays,
+        ClickhouseMetrics, CLICKHOUSE_DISK_BACKUP_SIZE_BYTES,
+    },
 };
 
 /// BlockRow to insert in clickhouse and also as entry type for the indexer since the BlockRow is made from a few &objects so it makes no sense to have a Block type and copy all the fields.
@@ -171,13 +174,21 @@ impl BuiltBlocksWriter {
         let backup_max_size_bytes =
             config.disk_max_size_mb.unwrap_or(DEFAULT_MAX_DISK_SIZE_MB) * MEGA;
         let submission_policy: Box<dyn RelaySubmissionPolicy + Send + Sync> =
-            if let Some(disk_max_size_to_submit_mb) = config.disk_max_size_to_submit_mb {
-                let disk_max_size_to_submit = disk_max_size_to_submit_mb * MEGA;
-                if disk_max_size_to_submit > backup_max_size_bytes {
-                    eyre::bail!("disk_max_size_to_submit_mb must be less than disk_max_size_mb");
+            if let Some(disk_max_size_to_submit_bids_to_relays_mb) =
+                config.disk_max_size_to_submit_bids_to_relays_mb
+            {
+                let disk_max_size_to_submit_bids_to_relays =
+                    disk_max_size_to_submit_bids_to_relays_mb * MEGA;
+                if disk_max_size_to_submit_bids_to_relays > backup_max_size_bytes {
+                    eyre::bail!(
+                    "disk_max_size_to_submit_bids_to_relays_mb must be less than disk_max_size_mb"
+                );
                 }
+                set_disk_backup_max_size_to_submit_bids_to_relays(
+                    disk_max_size_to_submit_bids_to_relays,
+                );
                 Box::new(BackupNotTooBigRelaySubmissionPolicy::new(
-                    disk_max_size_to_submit,
+                    disk_max_size_to_submit_bids_to_relays,
                 ))
             } else {
                 Box::new(AlwaysSubmitPolicy {})
