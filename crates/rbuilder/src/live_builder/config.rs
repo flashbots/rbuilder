@@ -34,7 +34,7 @@ use crate::{
         base_config::default_ip,
         block_output::{
             bidding_service_interface::{BiddingService2BidSender, RelaySet},
-            relay_submit::OptimisticV3Config,
+            relay_submit::{AlwaysSubmitPolicy, OptimisticV3Config, RelaySubmissionPolicy},
         },
         cli::LiveBuilderConfig,
         payload_events::MevBoostSlotDataGenerator,
@@ -402,6 +402,7 @@ impl L1Config {
         chain_spec: Arc<ChainSpec>,
         relay_sets: Vec<RelaySet>,
         bid_observer: Box<dyn BidObserver + Send + Sync>,
+        submission_policy: Box<dyn RelaySubmissionPolicy + Send + Sync>,
         cancellation_token: CancellationToken,
     ) -> eyre::Result<(
         RelaySubmitSinkFactory,
@@ -462,8 +463,12 @@ impl L1Config {
             eyre::bail!("No slot info providers provided");
         }
 
-        let sink_factory =
-            RelaySubmitSinkFactory::new(submission_config, submitters.clone(), relay_sets);
+        let sink_factory = RelaySubmitSinkFactory::new(
+            submission_config,
+            submitters.clone(),
+            relay_sets,
+            submission_policy,
+        );
 
         let adjustment_fee_payers = self
             .relays
@@ -517,6 +522,7 @@ impl LiveBuilderConfig for Config {
                 bidding_service.relay_sets(),
                 wallet_balance_watcher,
                 Box::new(NullBidObserver {}),
+                Box::new(AlwaysSubmitPolicy {}),
                 bidding_service,
                 cancellation_token.clone(),
             )
@@ -1074,12 +1080,14 @@ where
     .await??)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn create_sink_factory_and_relays<P>(
     base_config: &BaseConfig,
     l1_config: &L1Config,
     relay_sets: Vec<RelaySet>,
     wallet_balance_watcher: WalletBalanceWatcher<P>,
     bid_observer: Box<dyn BidObserver + Send + Sync>,
+    submission_policy: Box<dyn RelaySubmissionPolicy + Send + Sync>,
     bidding_service: Arc<dyn BiddingService>,
     cancellation_token: CancellationToken,
 ) -> eyre::Result<(
@@ -1095,6 +1103,7 @@ where
             base_config.chain_spec()?,
             relay_sets.clone(),
             bid_observer,
+            submission_policy,
             cancellation_token.clone(),
         )?;
 

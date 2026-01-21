@@ -93,6 +93,16 @@ pub trait MultiRelayBlockBuildingSink: std::fmt::Debug + Send + Sync {
     fn new_block(&self, relay_set: RelaySet, block: Block);
 }
 
+/// MultiRelayBlockBuildingSink throwing away the blocks.
+#[derive(Debug)]
+struct NullMultiRelayBlockBuildingSink {}
+
+impl MultiRelayBlockBuildingSink for NullMultiRelayBlockBuildingSink {
+    fn new_block(&self, _relay_set: RelaySet, _block: Block) {
+        // noop
+    }
+}
+
 /// Final destination of blocks (eg: submit to the relays).
 /// The destination of the blocks is abstracted, can be a single relay or a set of relays.
 #[automock]
@@ -587,6 +597,22 @@ async fn submit_bid_to_the_relay(
     }
 }
 
+/// "Switch" to decide if we should submit the block to the relay or not.
+/// Used to cancel block submissions (but keep everything else running).
+/// Eg: Save to clickhouse observer is failing so we should NOT build blocks.
+pub trait RelaySubmissionPolicy: std::fmt::Debug + Send + Sync {
+    fn should_submit(&self) -> bool;
+}
+
+#[derive(Debug)]
+pub struct AlwaysSubmitPolicy {}
+
+impl RelaySubmissionPolicy for AlwaysSubmitPolicy {
+    fn should_submit(&self) -> bool {
+        true
+    }
+}
+
 /// Real life MultiRelayBlockBuildingSink that send the blocks to the Relays
 #[derive(Debug)]
 pub struct RelaySubmitSinkFactory {
@@ -594,6 +620,7 @@ pub struct RelaySubmitSinkFactory {
     relays: Vec<MevBoostRelayBidSubmitter>,
     /// We expect to get bids only for this specific relay sets.
     relay_sets: Vec<RelaySet>,
+    submission_policy: Box<dyn RelaySubmissionPolicy>,
 }
 
 impl RelaySubmitSinkFactory {
@@ -601,11 +628,13 @@ impl RelaySubmitSinkFactory {
         submission_config: SubmissionConfig,
         relays: Vec<MevBoostRelayBidSubmitter>,
         relay_sets: Vec<RelaySet>,
+        submission_policy: Box<dyn RelaySubmissionPolicy>,
     ) -> Self {
         Self {
             submission_config: Arc::new(submission_config),
             relays,
             relay_sets,
+            submission_policy,
         }
     }
 
@@ -616,6 +645,11 @@ impl RelaySubmitSinkFactory {
         slot_data: MevBoostSlotData,
         cancel: CancellationToken,
     ) -> Box<dyn MultiRelayBlockBuildingSink> {
+        // If submission is disabled, return a sink that throws away the blocks.
+        if !self.submission_policy.should_submit() {
+            error!("Submission is disabled by submission_policy, throwing away the blocks");
+            return Box::new(NullMultiRelayBlockBuildingSink {});
+        }
         // Collect all relays to submit to.
         let mut relays = Vec::new();
         for relay in &self.relays {
