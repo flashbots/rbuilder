@@ -25,7 +25,7 @@ use parking_lot::Mutex;
 use rbuilder_primitives::{
     built_block::{block_to_execution_payload, SignedBuiltBlock},
     mev_boost::{
-        BidAdjustmentData, BidMetadata, BidValueMetadata, ExecutionPayloadHeaderElectra,
+        BidAdjustmentDataV3, BidMetadata, BidValueMetadata, ExecutionPayloadHeaderElectra,
         HeaderSubmission, HeaderSubmissionElectra, MevBoostRelayID, SignedHeaderSubmission,
         SubmitBlockRequest, SubmitBlockRequestWithMetadata, SubmitHeaderRequest,
         SubmitHeaderRequestWithMetadata, ValidatorSlotData,
@@ -323,11 +323,10 @@ fn create_submit_block_request(
 fn create_optimistic_v3_request(
     builder_url: &[u8],
     request: &AlloySubmitBlockRequest,
-    maybe_adjustment_data: Option<&BidAdjustmentData>,
+    maybe_adjustment_data: Option<&BidAdjustmentDataV3>,
     adjustment_data_required: bool,
 ) -> eyre::Result<SubmitHeaderRequest> {
-    let maybe_adjustment_data_v3 = maybe_adjustment_data.map(|d| d.clone().into_v3());
-    if maybe_adjustment_data_v3.is_none() && adjustment_data_required {
+    if maybe_adjustment_data.is_none() && adjustment_data_required {
         eyre::bail!("adjustment data is required")
     }
 
@@ -347,7 +346,7 @@ fn create_optimistic_v3_request(
                     ),
                     execution_requests: request.execution_requests.clone(),
                     commitments: request.blobs_bundle.commitments.clone(),
-                    adjustment_data: maybe_adjustment_data_v3,
+                    adjustment_data: maybe_adjustment_data.cloned(),
                 }),
                 signature: request.signature,
             };
@@ -368,7 +367,7 @@ fn create_optimistic_v3_request(
                     ),
                     execution_requests: request.execution_requests.clone(),
                     commitments: request.blobs_bundle.commitments.clone(),
-                    adjustment_data: maybe_adjustment_data_v3,
+                    adjustment_data: maybe_adjustment_data.cloned(),
                 }),
                 signature: request.signature,
             };
@@ -388,7 +387,7 @@ fn create_optimistic_v3_request(
 fn submit_block_to_relays(
     request: Arc<AlloySubmitBlockRequest>,
     bid_metadata: &BidMetadata,
-    bid_adjustments: &std::collections::HashMap<Address, BidAdjustmentData>,
+    bid_adjustments: &std::collections::HashMap<Address, BidAdjustmentDataV3>,
     relays: &Vec<MevBoostRelayBidSubmitter>,
     registrations: &HashMap<MevBoostRelayID, RelaySlotData>,
     optimistic_v3_config: &Option<OptimisticV3Config>,
@@ -442,7 +441,7 @@ fn submit_block_to_relays(
                 // For optimistic v3, it is already included in the header submission.
                 adjustment_data: maybe_adjustment_data
                     .filter(|_| optimistic_v3.is_none())
-                    .map(|adjustment_data| adjustment_data.clone().into_v1()),
+                    .cloned(),
             },
             metadata: bid_metadata.clone(),
         };

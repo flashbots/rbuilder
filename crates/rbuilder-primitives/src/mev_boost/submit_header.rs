@@ -35,7 +35,7 @@ pub struct SubmitHeaderRequest {
     /// The number of transactions in the block.
     pub tx_count: u32,
     /// The signed header data. This is the same structure used by
-    /// the Optimistic V2 'SignedHeaderSubmission'.
+    /// the Optimistic V3 'SignedHeaderSubmission'.
     pub submission: SignedHeaderSubmission,
 }
 

@@ -39,7 +39,7 @@ use evm::EthCachedEvmFactory;
 use jsonrpsee::core::Serialize;
 use parking_lot::Mutex;
 use rbuilder_primitives::{
-    mev_boost::BidAdjustmentData, BlockSpace, Order, SimValue, SimulatedOrder,
+    mev_boost::BidAdjustmentDataV3, BlockSpace, Order, SimValue, SimulatedOrder,
     TransactionSignedEcRecoveredWithBlobs,
 };
 use reth::{
@@ -613,7 +613,7 @@ pub struct FinalizeResult {
     /// The Pectra execution requests for this bid.
     pub execution_requests: Vec<Bytes>,
     /// Bid adjustment data.
-    pub bid_adjustments: HashMap<Address, BidAdjustmentData>,
+    pub bid_adjustments: HashMap<Address, BidAdjustmentDataV3>,
     /// Duration of root hash calculation.
     pub root_hash_time: Duration,
 }
@@ -1151,17 +1151,20 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             .map(|(fee_payer, state_proofs)| {
                 (
                     fee_payer,
-                    BidAdjustmentData {
-                        state_root: block.header.state_root,
+                    BidAdjustmentDataV3 {
                         el_transactions_root: block.header.transactions_root,
                         el_withdrawals_root: block.header.withdrawals_root.unwrap_or_default(),
-                        receipts_root: block.header.receipts_root,
+                        builder_address: state_proofs.builder_address,
+                        builder_proof: state_proofs.builder_proof,
+                        fee_recipient_address: state_proofs.fee_recipient_address,
+                        fee_recipient_proof: state_proofs.fee_recipient_proof,
+                        fee_payer_address: state_proofs.fee_payer_address,
+                        fee_payer_proof: state_proofs.fee_payer_proof,
                         el_placeholder_transaction_proof: el_placeholder_transaction_proof.clone(),
                         cl_placeholder_transaction_proof: cl_placeholder_transaction_proof.clone(),
-                        placeholder_receipt_proof: placeholder_receipt_proof.clone(),
+                        el_placeholder_receipt_proof: placeholder_receipt_proof.clone(),
                         pre_payment_logs_bloom,
                         placeholder_gas_used,
-                        state_proofs,
                     },
                 )
             })
