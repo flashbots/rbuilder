@@ -201,11 +201,6 @@ where
     builder
         .run(ready_to_build, start_slot_watchdog_sender)
         .await?;
-    info!(
-        wait_time_secs = MAX_WAIT_TIME.as_secs(),
-        "Main thread waiting to die..."
-    );
-    std::thread::sleep(MAX_WAIT_TIME);
     info!("Main thread exiting");
     Ok(())
 }
