@@ -17,17 +17,29 @@ pub const RUN_SUBMIT_TO_RELAYS_JOB_CANCEL_TIME_SECONDS: u64 = 1;
 /// We use a whole block as heuristic for the time to close.
 pub const BLOCK_BUILDING_CLOSE_TIME_SECONDS: u64 = SLOT_DURATION_SECS;
 
-pub const RUN_SUBMIT_TO_RELAYS_JOB_CANCEL_TIME: Duration =
-    Duration::from_secs(RUN_SUBMIT_TO_RELAYS_JOB_CANCEL_TIME_SECONDS);
+/// v3 might need to keep the server running for a while until the slot ends.
+pub const OPTIMISTIC_V3_CLOSE_TIME_SECONDS: u64 = SLOT_DURATION_SECS;
+
+/// Time to flush the clickhouse backup to disk.
+pub const CLICKHOUSE_CLOSE_TIME_SECONDS: u64 = 10;
 
 /// This time should be enough to let the process to finish its work and exit gracefully.
 /// Example of this need is the clickhouse backup that takes a while to finish and we don't want to loose any blocks.
 /// This should be > than everything we have to wait for in the constants above.
-pub const MAX_WAIT_TIME_SECONDS: u64 = BLOCK_BUILDING_CLOSE_TIME_SECONDS;
-pub const MAX_WAIT_TIME: Duration = Duration::from_secs(MAX_WAIT_TIME_SECONDS);
+
+pub const GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS: u64 = BLOCK_BUILDING_CLOSE_TIME_SECONDS;
+pub const GRACEFUL_SHUTDOWN_TIMEOUT: Duration =
+    Duration::from_secs(GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS);
 
 /// Time needed to let the tracing subscriber to flush its buffers.
 pub const FLUSH_TRACE_TIME: Duration = Duration::from_millis(200);
+pub const CRITICAL_SHUTDOWN_TIMEOUT_SECONDS: u64 = CLICKHOUSE_CLOSE_TIME_SECONDS;
+pub const CRITICAL_SHUTDOWN_TIMEOUT: Duration =
+    Duration::from_secs(CRITICAL_SHUTDOWN_TIMEOUT_SECONDS);
+
+pub const MAX_WAIT_TIME_SECONDS: u64 =
+    GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS + CRITICAL_SHUTDOWN_TIMEOUT_SECONDS;
+pub const MAX_WAIT_TIME: Duration = Duration::from_secs(MAX_WAIT_TIME_SECONDS);
 
 /// Time we wait before killing the process abruptly in ProcessKiller::kill().
 /// We add 1 second to allow the process to finish its work and exit gracefully.

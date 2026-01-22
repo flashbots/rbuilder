@@ -503,6 +503,7 @@ impl LiveBuilderConfig for Config {
     where
         P: StateProviderFactory + Clone + 'static,
     {
+        let abort_token = CancellationToken::new();
         let parsed_config = parse_true_block_value_bidding_service_config(
             &self.true_block_value_bidding_service_config,
         )?;
@@ -536,6 +537,7 @@ impl LiveBuilderConfig for Config {
             slot_info_provider,
             adjustment_fee_payers,
             cancellation_token,
+            abort_token.clone(),
         )
         .await?;
         let builders = create_builders(
@@ -1136,6 +1138,7 @@ pub async fn create_builder_from_sink<P>(
     slot_info_provider: Vec<MevBoostRelaySlotInfoProvider>,
     adjustment_fee_payers: ahash::HashMap<MevBoostRelayID, Address>,
     cancellation_token: CancellationToken,
+    abort_token: CancellationToken,
 ) -> eyre::Result<super::LiveBuilder<P>>
 where
     P: StateProviderFactory,
@@ -1155,6 +1158,7 @@ where
     base_config
         .create_builder_with_provider_factory(
             cancellation_token,
+            abort_token,
             sink_factory,
             payload_event,
             provider,
