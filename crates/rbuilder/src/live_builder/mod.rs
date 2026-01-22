@@ -575,6 +575,11 @@ async fn shutdown_builder(
             }
             _ = tokio::time::sleep_until(graceful_deadline) => {
                 warn!("Graceful shutdown timeout reached, signaling abort");
+                warn!(
+                    remaining_inner_jobs = inner_jobs.len(),
+                    remaining_critical_tasks = critical_tasks.len(),
+                    "Graceful shutdown timeout reached, signaling abort"
+                );
                 global_abort.cancel();
                 break;
             }
