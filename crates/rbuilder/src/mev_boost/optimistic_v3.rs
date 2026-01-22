@@ -1,4 +1,5 @@
 use crate::{
+    live_builder::process_killer::OPTIMISTIC_V3_CLOSE_TIME_SECONDS,
     telemetry::{exponential_buckets_range, REGISTRY},
     utils,
 };
@@ -19,6 +20,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant, SystemTime},
 };
+use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::*;
 use warp::{
@@ -88,7 +90,7 @@ pub fn spawn_server(
     relay_pubkeys: HashSet<BlsPublicKey>,
     blocks: OptimisticV3BlockCache,
     cancellation: CancellationToken,
-) -> eyre::Result<()> {
+) -> eyre::Result<JoinHandle<()>> {
     // Spawn relay server.
     let handler = Handler {
         domain,
@@ -111,13 +113,13 @@ pub fn spawn_server(
         let now = std::time::Instant::now();
         info!(target: "relay_server", "Received cancellation, initiating graceful shutdown");
         // Sleep for 12 seconds to avoid being demoted for the current slot.
-        tokio::time::sleep(Duration::from_secs(12)).await;
+        tokio::time::sleep(Duration::from_secs(OPTIMISTIC_V3_CLOSE_TIME_SECONDS)).await;
         info!(target: "relay_server", elapsed = ?now.elapsed(), "Graceful shutdown complete");
     });
-    tokio::spawn(server);
+    let res = tokio::spawn(server);
     info!(target: "relay_server", %address, "Relay server listening");
 
-    Ok(())
+    Ok(res)
 }
 
 #[derive(Clone, Debug)]

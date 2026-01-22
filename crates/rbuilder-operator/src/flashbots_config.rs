@@ -177,18 +177,22 @@ impl LiveBuilderConfig for FlashbotsConfig {
             .create_bid_observer_and_submission_policy(&cancellation_token, &abort_token)
             .await?;
 
-        let (sink_factory, slot_info_provider, adjustment_fee_payers) =
-            create_sink_factory_and_relays(
-                &self.base_config,
-                &self.l1_config,
-                bidding_service.relay_sets().to_vec(),
-                wallet_balance_watcher,
-                bid_observer,
-                submission_policy,
-                bidding_service.clone(),
-                cancellation_token.clone(),
-            )
-            .await?;
+        let (
+            sink_factory,
+            slot_info_provider,
+            adjustment_fee_payers,
+            optimistic_v3_server_join_handle,
+        ) = create_sink_factory_and_relays(
+            &self.base_config,
+            &self.l1_config,
+            bidding_service.relay_sets().to_vec(),
+            wallet_balance_watcher,
+            bid_observer,
+            submission_policy,
+            bidding_service.clone(),
+            cancellation_token.clone(),
+        )
+        .await?;
 
         let mut live_builder = create_builder_from_sink(
             &self.base_config,
@@ -205,7 +209,9 @@ impl LiveBuilderConfig for FlashbotsConfig {
         if let Some(handle) = clickhouse_shutdown_handle {
             live_builder.add_critical_task(handle);
         }
-
+        if let Some(optimistic_v3_server_join_handle) = optimistic_v3_server_join_handle {
+            live_builder.add_critical_task(optimistic_v3_server_join_handle);
+        }
         let mut module = RpcModule::new(());
         module.register_async_method("bid_subsidiseBlock", move |params, _| {
             handle_subsidise_block(bidding_service.clone(), params)

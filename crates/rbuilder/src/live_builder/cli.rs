@@ -17,10 +17,7 @@ use crate::{
         builders::{BacktestSimulateBlockInput, Block},
         PartialBlockExecutionTracer,
     },
-    live_builder::{
-        process_killer::{ProcessKiller, MAX_WAIT_TIME},
-        watchdog::spawn_watchdog_thread,
-    },
+    live_builder::{process_killer::ProcessKiller, watchdog::spawn_watchdog_thread},
     provider::StateProviderFactory,
     telemetry,
     utils::bls::generate_random_bls_address,
