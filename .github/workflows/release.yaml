@@ -21,14 +21,16 @@ on:
         description: "Build Binary"
         required: false
         type: boolean
-      platform:
-        default: 'linux'
-        description: "Target Platform"
-        options:
-          - 'linux'
-          - 'mac'
+      build-linux:
+        default: true
+        description: "Build Linux"
         required: false
-        type: choice
+        type: boolean
+      build-mac:
+        default: true
+        description: "Build Mac"
+        required: false
+        type: boolean
       features:
         default: ''
         description: "Binary Compilation Features"
@@ -64,7 +66,8 @@ jobs:
           echo "| \`GITHUB_REF\`      | \`${GITHUB_REF}\`      |" >> $GITHUB_STEP_SUMMARY
           echo "| \`GITHUB_SHA\`      | \`${GITHUB_SHA}\`      |" >> $GITHUB_STEP_SUMMARY
           echo "| \`VERSION\`         | \`${VERSION}\`         |" >> $GITHUB_STEP_SUMMARY
-          echo "| \`PLATFORM\`        | \`${{ github.event.inputs.platform || 'linux (default)' }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`BUILD_LINUX\`     | \`${{ github.event.inputs.build-linux || 'true' }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`BUILD_MAC\`       | \`${{ github.event.inputs.build-mac || 'true' }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| \`FEATURES\`        | \`${{ github.event.inputs.features || 'none' }}\` |" >> $GITHUB_STEP_SUMMARY
 
   build-binary:
@@ -95,17 +98,21 @@ jobs:
         id: platform-check
         shell: bash
         run: |
-          # For tag pushes, only run Linux builds
-          if [[ "${{ github.event_name }}" == "push" && "${{ matrix.platform }}" != "linux" ]]; then
-            echo "skip=true" >> $GITHUB_OUTPUT
-            echo "Skipping: tag push only builds Linux"
+          # For tag pushes, build both platforms
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "Building for platform: ${{ matrix.platform }} (tag push builds both)"
             exit 0
           fi
-          # For manual dispatch, check if platform matches
-          SELECTED_PLATFORM="${{ github.event.inputs.platform || 'linux' }}"
-          if [[ "$SELECTED_PLATFORM" != "${{ matrix.platform }}" ]]; then
+          # For manual dispatch, check if platform is enabled
+          if [[ "${{ matrix.platform }}" == "linux" && "${{ github.event.inputs.build-linux }}" != "true" ]]; then
             echo "skip=true" >> $GITHUB_OUTPUT
-            echo "Skipping: selected platform ($SELECTED_PLATFORM) != matrix platform (${{ matrix.platform }})"
+            echo "Skipping: Linux build not enabled"
+            exit 0
+          fi
+          if [[ "${{ matrix.platform }}" == "mac" && "${{ github.event.inputs.build-mac }}" != "true" ]]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "Skipping: Mac build not enabled"
             exit 0
           fi
           echo "skip=false" >> $GITHUB_OUTPUT
@@ -310,3 +317,15 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+
+      - name: Write Docker Summary
+        run: |
+          echo "### 🐳 Docker Images Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Package URL:** https://github.com/${{ github.repository }}/pkgs/container/rbuilder" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Pull commands:**" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ghcr.io/${{ github.repository }}:sha-${GITHUB_SHA:0:7}" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ghcr.io/${{ github.repository }}:${{ env.VERSION }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
