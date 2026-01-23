@@ -565,7 +565,7 @@ async fn shutdown_builder(
             biased;
             Some(result) = non_critical_tasks.next(), if !non_critical_tasks.is_empty() => {
                 if let Err(err) = result {
-                    warn!(?err, "Job handle await error");
+                    warn!(?err, "Non critical task handle await error");
                 }
             }
             Some(result) = critical_tasks.next(), if !critical_tasks.is_empty() => {
@@ -575,7 +575,7 @@ async fn shutdown_builder(
             }
             _ = tokio::time::sleep_until(graceful_deadline) => {
                 warn!(
-                    remaining_inner_jobs = non_critical_tasks.len(),
+                    remaining_non_critical_tasks = non_critical_tasks.len(),
                     remaining_critical_tasks = critical_tasks.len(),
                     "Graceful shutdown timeout reached, signaling abort"
                 );
