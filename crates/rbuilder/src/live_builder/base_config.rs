@@ -273,6 +273,7 @@ impl BaseConfig {
             simulation_use_random_coinbase: self.simulation_use_random_coinbase,
             faster_finalize: self.faster_finalize,
             order_flow_tracer_manager,
+            epbs_server: None,
         })
     }
 

@@ -1,6 +1,7 @@
 pub mod base_config;
 pub mod block_list_provider;
 pub mod block_output;
+pub mod builder_api;
 pub mod building;
 pub mod cli;
 pub mod config;
@@ -15,6 +16,7 @@ pub mod watchdog;
 use crate::{
     building::{builders::BlockBuildingAlgorithm, BlockBuildingContext},
     live_builder::{
+        builder_api::EpbsBuilderServer,
         order_flow_tracing::order_flow_tracer_manager::OrderFlowTracerManager,
         order_input::{start_orderpool_jobs, OrderInputConfig},
         process_killer::ProcessKiller,
@@ -134,6 +136,10 @@ where
     pub simulation_use_random_coinbase: bool,
 
     pub order_flow_tracer_manager: Box<dyn OrderFlowTracerManager>,
+
+    /// Optional EPBS Builder API server (EIP-7732).
+    /// When set, the server will be spawned alongside the builder.
+    pub epbs_server: Option<EpbsBuilderServer>,
 }
 
 impl<P> LiveBuilder<P>
@@ -146,6 +152,17 @@ where
 
     pub fn with_builders(self, builders: Vec<Arc<dyn BlockBuildingAlgorithm<P>>>) -> Self {
         Self { builders, ..self }
+    }
+
+    /// Set the EPBS Builder API server.
+    ///
+    /// When set, the server will be spawned when `run()` is called and will
+    /// serve bids to proposers via the Builder API (EIP-7732).
+    pub fn with_epbs_server(self, server: EpbsBuilderServer) -> Self {
+        Self {
+            epbs_server: Some(server),
+            ..self
+        }
     }
 
     pub async fn run(
@@ -232,6 +249,20 @@ where
             self.run_sparse_trie_prefetcher,
             self.order_flow_tracer_manager,
         );
+
+        // Spawn EPBS Builder API server if configured
+        if let Some(epbs_server) = self.epbs_server {
+            let cancel = self.global_cancellation.clone();
+            info!(
+                listen_addr = %epbs_server.listen_addr(),
+                "Starting EPBS Builder API server"
+            );
+            inner_jobs_handles.push(tokio::spawn(async move {
+                if let Err(e) = epbs_server.run(cancel).await {
+                    error!(?e, "EPBS Builder API server error");
+                }
+            }));
+        }
 
         ready_to_build.store(true, Ordering::Relaxed);
         while let Some(payload) = payload_events_channel.recv().await {

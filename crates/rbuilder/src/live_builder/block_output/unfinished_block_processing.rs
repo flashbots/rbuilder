@@ -9,6 +9,7 @@ use ahash::HashMap;
 /// 6. Bidding service asks to finalize that block with concrete proposer value  
 /// 7. Finalized block is adjusted to pay chosen amount to the proposer (`finalize_worker` thread)
 /// 8. Resulting block is submitted to `BlockBuildingSink` (in running builder its used by a thread that submits block to relays).
+/// 9. Block observers (like EPBS bid provider) are notified of the new block.
 ///
 /// Alternatively if configured (adjust_finalized_blocks = true) to run using old flow `prefinalize_worker` would not do anything with the block
 /// and `finalize_worker` would do full finalization instead of adjustment of the finalize block.
@@ -56,6 +57,7 @@ use super::{
         BiddingService, BlockSealInterfaceForSlotBidder, BuiltBlockDescriptorForSlotBidder,
         SlotBidder, SlotBidderSealBidCommand,
     },
+    block_observer::BlockObserver,
     relay_submit::RelaySubmitSinkFactory,
 };
 
@@ -67,6 +69,7 @@ use crate::live_builder::building::built_block_cache::BuiltBlockCache;
 /// 1. UnfinishedBuiltBlocksInput and starts `prefinalize_worker` and `finalize_worker` threads.
 /// 2. SlotBidder from BiddingService to manage bidding values for the sealed blocks
 /// 3. BlockBuildingSink to send finished blocks for relay submission
+/// 4. Notifies block observers (like EPBS bid provider) of finalized blocks.
 #[derive(Derivative)]
 #[derivative(Debug)]
 pub struct UnfinishedBuiltBlocksInputFactory<P> {
@@ -81,6 +84,9 @@ pub struct UnfinishedBuiltBlocksInputFactory<P> {
     adjust_finalized_blocks: bool,
     /// relay sets well get on bids.
     relay_sets: Vec<RelaySet>,
+    /// Optional block observer for EPBS and other integrations.
+    #[derivative(Debug = "ignore")]
+    block_observer: Option<Arc<dyn BlockObserver>>,
 }
 
 impl<P: StateProviderFactory> UnfinishedBuiltBlocksInputFactory<P> {
@@ -97,7 +103,14 @@ impl<P: StateProviderFactory> UnfinishedBuiltBlocksInputFactory<P> {
             wallet_balance_watcher,
             adjust_finalized_blocks,
             relay_sets,
+            block_observer: None,
         }
+    }
+
+    /// Set the block observer for EPBS integration.
+    pub fn with_block_observer(mut self, observer: Arc<dyn BlockObserver>) -> Self {
+        self.block_observer = Some(observer);
+        self
     }
 
     pub fn create_sink(
@@ -146,6 +159,10 @@ impl<P: StateProviderFactory> UnfinishedBuiltBlocksInputFactory<P> {
             .create_builder_sink(slot_data.clone(), cancel.clone())
             .into();
 
+        // extract slot info for block observer
+        let slot = slot_data.slot();
+        let parent_hash = slot_data.payload_attributes_event.data.parent_block_hash;
+
         for (relay_set, last_finalize_command) in input.last_finalize_commands.iter() {
             let finalized_blocks = input.pre_finalized_multi_blocks.clone();
             let cancellation_token = cancel.clone();
@@ -153,6 +170,7 @@ impl<P: StateProviderFactory> UnfinishedBuiltBlocksInputFactory<P> {
             let relay_set = relay_set.clone();
             let last_finalize_command = last_finalize_command.clone();
             let block_sink = block_sink.clone();
+            let block_observer = self.block_observer.clone();
             std::thread::Builder::new()
                 .name("finalize_worker".into())
                 .spawn(move || {
@@ -163,6 +181,9 @@ impl<P: StateProviderFactory> UnfinishedBuiltBlocksInputFactory<P> {
                         last_finalize_command,
                         adjust_finalized_blocks,
                         cancellation_token,
+                        block_observer,
+                        slot,
+                        parent_hash,
                     )
                 })
                 .unwrap();
@@ -597,6 +618,7 @@ impl UnfinishedBuiltBlocksInput {
 
 // finalize_worker
 impl UnfinishedBuiltBlocksInput {
+    #[allow(clippy::too_many_arguments)]
     fn run_finalize_thread(
         relay_set: RelaySet,
         block_building_sink: Arc<dyn MultiRelayBlockBuildingSink>,
@@ -604,6 +626,9 @@ impl UnfinishedBuiltBlocksInput {
         last_finalize_command: Arc<Watch<FinalizeCommand>>,
         adjust_finalized_blocks: bool,
         cancellation_token: CancellationToken,
+        block_observer: Option<Arc<dyn BlockObserver>>,
+        slot: u64,
+        parent_hash: alloy_primitives::BlockHash,
     ) {
         loop {
             if cancellation_token.is_cancelled() {
@@ -668,6 +693,12 @@ impl UnfinishedBuiltBlocksInput {
             result.block.trace.chosen_as_best_at =
                 finalize_command.prefinalized_block.chosen_as_best_at;
             result.block.trace.sent_to_bidder = finalize_command.prefinalized_block.sent_to_bidder;
+
+            // Notify block observer (EPBS bid provider) of the new block
+            if let Some(observer) = &block_observer {
+                observer.on_block_built(slot, parent_hash, &result.block);
+            }
+
             block_building_sink.new_block(relay_set.clone(), result.block);
         }
     }
