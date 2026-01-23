@@ -606,7 +606,7 @@ async fn shutdown_builder(
         }
     } else {
         info!(
-            non_critical_task_remaining = non_critical_tasks.len(),
+            remaining_non_critical_tasks = non_critical_tasks.len(),
             "No critical tasks remaining, shutting down",
         );
     }
