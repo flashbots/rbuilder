@@ -1,12 +1,9 @@
 use futures_util::FutureExt;
 use hyper_util::rt::TokioIo;
 use parking_lot::Mutex;
-use rbuilder::live_builder::{
-    block_output::bidding_service_interface::{
-        BiddingService, BlockSealInterfaceForSlotBidder, LandedBlockInfo as RealLandedBlockInfo,
-        RelaySet, ScrapedRelayBlockBidWithStats, SlotBidder, SlotBlockId,
-    },
-    process_killer::ProcessKiller,
+use rbuilder::live_builder::block_output::bidding_service_interface::{
+    BiddingService, BlockSealInterfaceForSlotBidder, LandedBlockInfo as RealLandedBlockInfo,
+    RelaySet, ScrapedRelayBlockBidWithStats, SlotBidder, SlotBlockId,
 };
 use rbuilder_utils::build_info::Version;
 use std::{
@@ -110,7 +107,6 @@ impl BiddingServiceClientAdapter {
         landed_blocks_history: &[RealLandedBlockInfo],
         all_relay_ids: RelaySet,
         cancellation_token: CancellationToken,
-        process_killer: ProcessKiller,
     ) -> Result<Self> {
         let session_id_to_slot_bidder = Arc::new(Mutex::new(HashMap::new()));
         let (commands_sender, relay_sets) = Self::init_sender_task(
@@ -118,7 +114,7 @@ impl BiddingServiceClientAdapter {
             landed_blocks_history,
             all_relay_ids,
             session_id_to_slot_bidder.clone(),
-            process_killer,
+            cancellation_token.clone(),
         )
         .await?;
         spawn_slot_bidder_seal_bid_command_subscriber(
@@ -141,7 +137,8 @@ impl BiddingServiceClientAdapter {
         self.last_session_id.fetch_add(1, Ordering::Relaxed)
     }
 
-    // returns the commands_sender to send commands to the bidding service and the relay_sets that it got on the initialize call.
+    /// returns the commands_sender to send commands to the bidding service and the relay_sets that it got on the initialize call.
+    /// cancellation_token is signaled on protocol error so rbuilder restarts.
     async fn init_sender_task(
         uds_path: &str,
         landed_blocks_history: &[RealLandedBlockInfo],
@@ -149,7 +146,7 @@ impl BiddingServiceClientAdapter {
         session_id_to_slot_bidder: Arc<
             Mutex<HashMap<u64, Arc<dyn BlockSealInterfaceForSlotBidder + Send + Sync>>>,
         >,
-        process_killer: ProcessKiller,
+        cancellation_token: CancellationToken,
     ) -> Result<(
         mpsc::UnboundedSender<BiddingServiceClientCommand>,
         Vec<RelaySet>,
@@ -189,7 +186,7 @@ impl BiddingServiceClientAdapter {
             build_time_utc: bidding_service_version.build_time_utc,
         });
         let (commands_sender, rx) = mpsc::unbounded_channel::<BiddingServiceClientCommand>();
-        Self::spawn_sender_loop_task(rx, client, session_id_to_slot_bidder, process_killer);
+        Self::spawn_sender_loop_task(rx, client, session_id_to_slot_bidder, cancellation_token);
         Ok((commands_sender, relay_sets))
     }
 
@@ -201,50 +198,44 @@ impl BiddingServiceClientAdapter {
         session_id_to_slot_bidder: Arc<
             Mutex<HashMap<u64, Arc<dyn BlockSealInterfaceForSlotBidder + Send + Sync>>>,
         >,
-        process_killer: ProcessKiller,
+        cancellation_token: CancellationToken,
     ) {
         // Spawn a task to execute received futures
         tokio::spawn(async move {
             while let Some(command) = rx.recv().await {
-                match command {
+                let rpc_result = match command {
                     BiddingServiceClientCommand::CreateSlotBidder(create_slot_data) => {
                         Self::create_slot_bidder(
                             &mut client,
                             create_slot_data,
                             session_id_to_slot_bidder.clone(),
-                            &process_killer,
                         )
-                        .await;
+                        .await
                     }
                     BiddingServiceClientCommand::MustWinBlock(must_win_block_params) => {
-                        Self::handle_error(
-                            client.must_win_block(must_win_block_params).await,
-                            &process_killer,
-                        );
+                        client.must_win_block(must_win_block_params).await
                     }
                     BiddingServiceClientCommand::UpdateNewLandedBlocksDetected(params) => {
-                        Self::handle_error(
-                            client.update_new_landed_blocks_detected(params).await,
-                            &process_killer,
-                        );
+                        client.update_new_landed_blocks_detected(params).await
                     }
                     BiddingServiceClientCommand::UpdateFailedReadingNewLandedBlocks => {
-                        Self::handle_error(
-                            client
-                                .update_failed_reading_new_landed_blocks(Empty {})
-                                .await,
-                            &process_killer,
-                        );
+                        client
+                            .update_failed_reading_new_landed_blocks(Empty {})
+                            .await
                     }
                     BiddingServiceClientCommand::DestroySlotBidder(destroy_slot_bidder_params) => {
-                        Self::handle_error(
-                            client.destroy_slot_bidder(destroy_slot_bidder_params).await,
-                            &process_killer,
-                        );
+                        let rpc_result =
+                            client.destroy_slot_bidder(destroy_slot_bidder_params).await;
                         session_id_to_slot_bidder
                             .lock()
                             .remove(&destroy_slot_bidder_params.session_id);
+                        rpc_result
                     }
+                };
+                if let Err(error) = &rpc_result {
+                    error!(error=?error,"RPC call error, cancelling so process shutdowns and reconnects");
+                    cancellation_token.cancel();
+                    return;
                 }
             }
         });
@@ -257,34 +248,18 @@ impl BiddingServiceClientAdapter {
         session_id_to_slot_bidder: Arc<
             Mutex<HashMap<u64, Arc<dyn BlockSealInterfaceForSlotBidder + Send + Sync>>>,
         >,
-        process_killer: &ProcessKiller,
-    ) {
+    ) -> tonic::Result<tonic::Response<Empty>> {
         let session_id = create_slot_bidder_data.params.session_id;
         session_id_to_slot_bidder
             .lock()
             .insert(session_id, create_slot_bidder_data.block_seal_handle.into());
-        if let Err(err) = client
+        let rpc_result = client
             .create_slot_bidder(create_slot_bidder_data.params)
-            .await
-        {
+            .await;
+        if rpc_result.is_err() {
             session_id_to_slot_bidder.lock().remove(&session_id);
-            Self::handle_error(Err(err), process_killer);
-        };
-    }
-
-    /// If error logs it.
-    /// return result is error
-    fn handle_error(
-        result: tonic::Result<tonic::Response<Empty>>,
-        process_killer: &ProcessKiller,
-    ) -> bool {
-        if let Err(error) = &result {
-            error!(error=?error,"RPC call error, killing process so it reconnects");
-            process_killer.kill("RPC call error");
-            true
-        } else {
-            false
         }
+        rpc_result
     }
 
     pub async fn must_win_block(&self, block: u64) {
