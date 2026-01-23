@@ -9,10 +9,6 @@ use alloy_eips::merge::SLOT_DURATION_SECS;
 use tokio_util::sync::CancellationToken;
 use tracing::error;
 
-/// Time for the run_submit_to_relays_job to stop submitting blocks after the cancellation token is cancelled.
-/// It's just a loop that signs blocks and submits them async (on detached tasks) so if should not take more than a second.
-pub const RUN_SUBMIT_TO_RELAYS_JOB_CANCEL_TIME_SECONDS: u64 = 1;
-
 /// Time for the block building to close after the cancellation token is cancelled.
 /// We use a whole block as heuristic for the time to close.
 pub const BLOCK_BUILDING_CLOSE_TIME_SECONDS: u64 = SLOT_DURATION_SECS;
@@ -26,7 +22,6 @@ pub const CLICKHOUSE_CLOSE_TIME_SECONDS: u64 = 10;
 /// This time should be enough to let the process to finish its work and exit gracefully.
 /// Example of this need is the clickhouse backup that takes a while to finish and we don't want to loose any blocks.
 /// This should be > than everything we have to wait for in the constants above.
-
 pub const GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS: u64 = BLOCK_BUILDING_CLOSE_TIME_SECONDS;
 pub const GRACEFUL_SHUTDOWN_TIMEOUT: Duration =
     Duration::from_secs(GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS);

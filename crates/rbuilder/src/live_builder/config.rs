@@ -1165,6 +1165,7 @@ where
 }
 
 /// Take the end of the pipeline (sink_factory) + pre-created slot_info_provider and creates an empty builder (it still needs the with_builders to be called)
+#[allow(clippy::too_many_arguments)]
 pub async fn create_builder_from_sink<P>(
     base_config: &BaseConfig,
     l1_config: &L1Config,

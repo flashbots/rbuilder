@@ -331,6 +331,7 @@ impl FlashbotsConfig {
     /// Depending on the cfg may create:
     /// - Dummy sink (no built_blocks_clickhouse_config)
     /// - BuiltBlocksWriter that writes to clickhouse
+    ///
     /// Returns (BidObserver, RelaySubmissionPolicy, Option<JoinHandle> for clickhouse shutdown)
     #[allow(clippy::type_complexity)]
     fn create_clickhouse_writer_and_submission_policy(
