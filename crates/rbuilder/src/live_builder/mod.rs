@@ -536,34 +536,34 @@ async fn try_send_to_orderpool<V, T, S>(
 }
 
 /// Gracefully shuts down the builder, waiting for tasks to complete with timeouts.
-///
-/// First waits for all tasks (inner jobs + critical tasks) with a graceful timeout.
+/// First waits for all tasks (non-critical and critical tasks) with a graceful timeout.
 /// If the timeout is reached, signals the abort token and waits only for critical tasks
 /// with a second timeout.
 async fn shutdown_builder(
     global_cancellation: CancellationToken,
     global_abort: CancellationToken,
-    inner_jobs_handles: Vec<JoinHandle<()>>,
+    non_critical_tasks_join_handles: Vec<JoinHandle<()>>,
     critical_tasks_join_handles: Vec<JoinHandle<()>>,
 ) {
     info!("Builder shutting down");
     global_cancellation.cancel();
 
     // Collect handles into FuturesUnordered for concurrent waiting
-    let mut inner_jobs: FuturesUnordered<_> = inner_jobs_handles.into_iter().collect();
+    let mut non_critical_tasks: FuturesUnordered<_> =
+        non_critical_tasks_join_handles.into_iter().collect();
     let mut critical_tasks: FuturesUnordered<_> = critical_tasks_join_handles.into_iter().collect();
 
     // First phase: wait for all handles with graceful timeout
     let graceful_deadline = tokio::time::Instant::now() + GRACEFUL_SHUTDOWN_TIMEOUT;
 
     loop {
-        if inner_jobs.is_empty() && critical_tasks.is_empty() {
+        if non_critical_tasks.is_empty() && critical_tasks.is_empty() {
             break;
         }
 
         tokio::select! {
             biased;
-            Some(result) = inner_jobs.next(), if !inner_jobs.is_empty() => {
+            Some(result) = non_critical_tasks.next(), if !non_critical_tasks.is_empty() => {
                 if let Err(err) = result {
                     warn!(?err, "Job handle await error");
                 }
@@ -575,7 +575,7 @@ async fn shutdown_builder(
             }
             _ = tokio::time::sleep_until(graceful_deadline) => {
                 warn!(
-                    remaining_inner_jobs = inner_jobs.len(),
+                    remaining_inner_jobs = non_critical_tasks.len(),
                     remaining_critical_tasks = critical_tasks.len(),
                     "Graceful shutdown timeout reached, signaling abort"
                 );
@@ -606,7 +606,7 @@ async fn shutdown_builder(
         }
     } else {
         info!(
-            non_critical_task_remaining = inner_jobs.len(),
+            non_critical_task_remaining = non_critical_tasks.len(),
             "No critical tasks remaining, shutting down",
         );
     }
