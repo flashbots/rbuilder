@@ -1,4 +1,5 @@
 use ahash::HashMap;
+use std::sync::Arc;
 
 use rbuilder_primitives::{BundleReplacementData, BundleReplacementKey, Order, OrderId};
 
@@ -34,7 +35,7 @@ impl OrderReplacementManager {
 }
 
 impl ReplaceableOrderSink for OrderReplacementManager {
-    fn insert_order(&mut self, order: Order) -> bool {
+    fn insert_order(&mut self, order: Arc<Order>) -> bool {
         if let Some((rep_key, sequence_number)) = order.replacement_key_and_sequence_number() {
             match self.replacement_states.entry(rep_key) {
                 std::collections::hash_map::Entry::Occupied(mut e) => {
@@ -47,11 +48,11 @@ impl ReplaceableOrderSink for OrderReplacementManager {
                         sequence_number,
                         order_id: order.id(),
                     }));
-                    self.sink.insert_order(order)
+                    self.sink.insert_order(Arc::clone(&order))
                 }
             }
         } else {
-            self.sink.insert_order(order)
+            self.sink.insert_order(Arc::clone(&order))
         }
     }
 
@@ -107,7 +108,7 @@ impl BundleReplacementState {
     /// returns false if some operation on the sink returned false
     fn insert_order(
         &mut self,
-        order: Order,
+        order: Arc<Order>,
         sequence_number: u64,
         sink: &mut Box<dyn OrderSink>,
     ) -> bool {
@@ -116,7 +117,7 @@ impl BundleReplacementState {
         }
         let mut res = self.send_remove_order_if_needed(sink);
         let order_id = order.id();
-        if !sink.insert_order(order) {
+        if !sink.insert_order(Arc::clone(&order)) {
             res = false;
         }
         *self = BundleReplacementState::Valid(ValidBundleState {
@@ -150,6 +151,7 @@ mod test {
     //use super::*;
 
     use mockall::predicate::eq;
+    use std::sync::Arc;
     use uuid::Uuid;
 
     use crate::live_builder::order_input::{
@@ -210,7 +212,7 @@ mod test {
             .withf(move |o| o.id() == bundle_id)
             .return_const(true);
         let mut manager = OrderReplacementManager::new(Box::new(order_sink));
-        manager.insert_order(bundle);
+        manager.insert_order(Arc::new(bundle));
     }
 
     /// simple insert followed by a cancellation of the order
@@ -238,7 +240,7 @@ mod test {
             .return_const(true);
 
         let mut manager = OrderReplacementManager::new(Box::new(order_sink));
-        manager.insert_order(bundle);
+        manager.insert_order(Arc::new(bundle));
         let cancel_bundle_replacement_data = BundleReplacementData {
             key: replacement_data.key,
             sequence_number: replacement_data.sequence_number + 1,
@@ -263,7 +265,7 @@ mod test {
             .return_const(true);
 
         let mut manager = OrderReplacementManager::new(Box::new(order_sink));
-        manager.insert_order(bundle);
+        manager.insert_order(Arc::new(bundle));
         manager.remove_bundle(replacement_data);
     }
 
@@ -287,7 +289,7 @@ mod test {
 
         let mut manager = OrderReplacementManager::new(Box::new(order_sink));
         manager.remove_bundle(replacement_data);
-        manager.insert_order(bundle);
+        manager.insert_order(Arc::new(bundle));
     }
 
     /// replacement with sequence increase should show both versions.
@@ -326,8 +328,8 @@ mod test {
             .return_const(true);
 
         let mut manager = OrderReplacementManager::new(Box::new(order_sink));
-        manager.insert_order(old_bundle);
-        manager.insert_order(new_bundle);
+        manager.insert_order(Arc::new(old_bundle));
+        manager.insert_order(Arc::new(new_bundle));
     }
 
     /// replacement with sequence decrease should ignore the older version.
@@ -350,7 +352,7 @@ mod test {
             .return_const(true);
 
         let mut manager = OrderReplacementManager::new(Box::new(order_sink));
-        manager.insert_order(new_bundle);
-        manager.insert_order(old_bundle);
+        manager.insert_order(Arc::new(new_bundle));
+        manager.insert_order(Arc::new(old_bundle));
     }
 }

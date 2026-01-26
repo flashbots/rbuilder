@@ -1,5 +1,6 @@
 use crate::live_builder::order_input::replaceable_order_sink::ReplaceableOrderSink;
 use rbuilder_primitives::{BundleReplacementData, Order, TransactionSignedEcRecoveredWithBlobs};
+use std::sync::Arc;
 use tracing::trace;
 
 /// Filters out [`Order`]s based on their blob type. [`Order`]s that do not
@@ -77,7 +78,7 @@ impl BlobTypeOrderFilter {
 }
 
 impl ReplaceableOrderSink for BlobTypeOrderFilter {
-    fn insert_order(&mut self, order: Order) -> bool {
+    fn insert_order(&mut self, order: Arc<Order>) -> bool {
         if order
             .list_txs()
             .iter()

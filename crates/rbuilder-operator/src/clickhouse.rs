@@ -337,7 +337,7 @@ impl BidObserver for BuiltBlocksWriter {
             let mut used_bundle_hashes = Vec::new();
             let mut used_bundle_uuids = Vec::new();
             for res in &built_block_trace.included_orders {
-                if let Order::Bundle(bundle) = &res.order {
+                if let Order::Bundle(bundle) = res.order.as_ref() {
                     used_bundle_hashes
                         .push(bundle.external_hash.unwrap_or(bundle.hash).to_string());
                     used_bundle_uuids.push(bundle.uuid.to_string());

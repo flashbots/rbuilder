@@ -325,15 +325,11 @@ mod test {
             gas: u64,
             order_type: OrderType,
         ) -> Arc<SimulatedOrder> {
-            Arc::new(SimulatedOrder {
-                order: self.create_order(order_type),
-                sim_value: SimValue::new_test(
-                    U256::from(full_profit),
-                    U256::from(non_mempool_profit),
-                    gas,
-                ),
-                used_state_trace: None,
-            })
+            Arc::new(SimulatedOrder::new(
+                Arc::new(self.create_order(order_type)),
+                SimValue::new_test(U256::from(full_profit), U256::from(non_mempool_profit), gas),
+                None,
+            ))
         }
     }
 

@@ -128,7 +128,7 @@ impl ReplaceableOrderSniffer {
 }
 
 impl ReplaceableOrderSink for ReplaceableOrderSniffer {
-    fn insert_order(&mut self, order: Order) -> bool {
+    fn insert_order(&mut self, order: Arc<Order>) -> bool {
         self.tracer.insert_order(&order);
         self.sink.insert_order(order)
     }
