@@ -425,6 +425,7 @@ fn init_slot_bidder_seal_bid_command_subscriber() -> Result<
 
 /// Spawns a thread that subscribes to the SlotBidderSealBidCommandRPC and forwards them to registered BlockSealInterfaceForSlotBidder in session_id_to_slot_bidder.
 /// Result tells if the init stage was successful and the thread was able to start polling.
+/// cancellation_token is used to detect shutdown.
 pub fn spawn_slot_bidder_seal_bid_command_subscriber(
     session_id_to_slot_bidder: Arc<
         Mutex<HashMap<u64, Arc<dyn BlockSealInterfaceForSlotBidder + Send + Sync>>>,
