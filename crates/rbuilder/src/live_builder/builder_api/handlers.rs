@@ -14,14 +14,16 @@ use super::EpbsBuilderState;
 /// GET /eth/v1/builder/execution_payload_bid/{slot}/{parent_hash}/{parent_root}/{proposer_index}
 ///
 /// returns a SignedExecutionPayloadBid for the given slot.
-pub async fn get_bid_handler(
+pub async fn get_execution_payload_bid_handler(
     State(state): State<Arc<EpbsBuilderState>>,
     Path((slot, parent_hash, parent_root, proposer_index)): Path<(u64, String, String, u64)>,
     headers: HeaderMap,
-) -> Result<impl IntoResponse, GetBidError> {
+) -> Result<impl IntoResponse, GetExecutionPayloadBidError> {
     // Parse path parameters
-    let parent_hash = parse_hash(&parent_hash).map_err(|_| GetBidError::InvalidParentHash)?;
-    let parent_root = parse_hash(&parent_root).map_err(|_| GetBidError::InvalidParentRoot)?;
+    let parent_hash =
+        parse_hash(&parent_hash).map_err(|_| GetExecutionPayloadBidError::InvalidParentHash)?;
+    let parent_root =
+        parse_hash(&parent_root).map_err(|_| GetExecutionPayloadBidError::InvalidParentRoot)?;
 
     // Parse headers
     let fee_recipient = parse_fee_recipient(&headers)?;
@@ -43,17 +45,17 @@ pub async fn get_bid_handler(
         proposer_index = params.proposer_index,
         ?params.parent_hash,
         ?params.fee_recipient,
-        "Received get_bid request"
+        "Received get_execution_payload_bid request"
     );
 
     // Get the best bid from the builder
-    match state.get_bid(&params).await {
+    match state.get_execution_payload_bid(&params).await {
         Ok(Some(signed_bid)) => {
             info!(
                 slot = params.slot,
                 block_hash = ?signed_bid.message.block_hash,
                 value = signed_bid.message.value,
-                "Returning bid"
+                "Returning execution payload bid"
             );
 
             let response = GetExecutionPayloadBidResponse {
@@ -68,19 +70,19 @@ pub async fn get_bid_handler(
             ))
         }
         Ok(None) => {
-            trace!(slot = params.slot, "No bid available");
-            Err(GetBidError::NoBidAvailable)
+            trace!(slot = params.slot, "No execution payload bid available");
+            Err(GetExecutionPayloadBidError::NoBidAvailable)
         }
         Err(e) => {
-            error!(slot = params.slot, error = ?e, "Error generating bid");
-            Err(GetBidError::InternalError(e.to_string()))
+            error!(slot = params.slot, error = ?e, "Error generating execution payload bid");
+            Err(GetExecutionPayloadBidError::InternalError(e.to_string()))
         }
     }
 }
 
-/// Error type for get_bid handler.
+/// Error type for get_execution_payload_bid handler.
 #[derive(Debug)]
-pub enum GetBidError {
+pub enum GetExecutionPayloadBidError {
     InvalidParentHash,
     InvalidParentRoot,
     InvalidFeeRecipient,
@@ -89,28 +91,30 @@ pub enum GetBidError {
     InternalError(String),
 }
 
-impl IntoResponse for GetBidError {
+impl IntoResponse for GetExecutionPayloadBidError {
     fn into_response(self) -> axum::response::Response {
         let (status, message) = match self {
-            GetBidError::InvalidParentHash => {
+            GetExecutionPayloadBidError::InvalidParentHash => {
                 (StatusCode::BAD_REQUEST, "Invalid parent_hash".to_string())
             }
-            GetBidError::InvalidParentRoot => {
+            GetExecutionPayloadBidError::InvalidParentRoot => {
                 (StatusCode::BAD_REQUEST, "Invalid parent_root".to_string())
             }
-            GetBidError::InvalidFeeRecipient => (
+            GetExecutionPayloadBidError::InvalidFeeRecipient => (
                 StatusCode::BAD_REQUEST,
                 "Invalid X-Fee-Recipient header".to_string(),
             ),
-            GetBidError::MissingFeeRecipient => (
+            GetExecutionPayloadBidError::MissingFeeRecipient => (
                 StatusCode::BAD_REQUEST,
                 "Missing required X-Fee-Recipient header".to_string(),
             ),
-            GetBidError::NoBidAvailable => {
-                // acc spec return 204 No Content when no bid is available
+            GetExecutionPayloadBidError::NoBidAvailable => {
+                // Per spec, return 204 No Content when no bid is available
                 return StatusCode::NO_CONTENT.into_response();
             }
-            GetBidError::InternalError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
+            GetExecutionPayloadBidError::InternalError(msg) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, msg)
+            }
         };
 
         let body = serde_json::json!({
@@ -136,17 +140,17 @@ fn parse_hash(s: &str) -> Result<B256, ()> {
     Ok(B256::from(arr))
 }
 
-fn parse_fee_recipient(headers: &HeaderMap) -> Result<Address, GetBidError> {
+fn parse_fee_recipient(headers: &HeaderMap) -> Result<Address, GetExecutionPayloadBidError> {
     let header_value = headers
         .get("X-Fee-Recipient")
-        .ok_or(GetBidError::MissingFeeRecipient)?
+        .ok_or(GetExecutionPayloadBidError::MissingFeeRecipient)?
         .to_str()
-        .map_err(|_| GetBidError::InvalidFeeRecipient)?;
+        .map_err(|_| GetExecutionPayloadBidError::InvalidFeeRecipient)?;
 
     let s = header_value.strip_prefix("0x").unwrap_or(header_value);
-    let bytes = hex::decode(s).map_err(|_| GetBidError::InvalidFeeRecipient)?;
+    let bytes = hex::decode(s).map_err(|_| GetExecutionPayloadBidError::InvalidFeeRecipient)?;
     if bytes.len() != 20 {
-        return Err(GetBidError::InvalidFeeRecipient);
+        return Err(GetExecutionPayloadBidError::InvalidFeeRecipient);
     }
     let mut arr = [0u8; 20];
     arr.copy_from_slice(&bytes);
@@ -173,6 +177,3 @@ fn parse_date_milliseconds(headers: &HeaderMap) -> Option<u64> {
 pub async fn status_handler() -> StatusCode {
     StatusCode::OK
 }
-
-
-

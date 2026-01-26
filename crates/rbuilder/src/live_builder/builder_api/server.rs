@@ -11,7 +11,7 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
-use super::handlers::{get_bid_handler, status_handler};
+use super::handlers::{get_execution_payload_bid_handler, status_handler};
 
 #[derive(Debug, Clone)]
 pub struct EpbsBuilderServerConfig {
@@ -74,8 +74,8 @@ impl EpbsBuilderState {
         }
     }
 
-    /// returns a bid given the bid params
-    pub async fn get_bid(
+    /// Returns a signed execution payload bid given the bid params.
+    pub async fn get_execution_payload_bid(
         &self,
         params: &GetBidParams,
     ) -> eyre::Result<Option<SignedExecutionPayloadBid>> {
@@ -126,7 +126,7 @@ impl EpbsBuilderServer {
         Router::new()
             .route(
                 "/eth/v1/builder/execution_payload_bid/:slot/:parent_hash/:parent_root/:proposer_index",
-                get(get_bid_handler),
+                get(get_execution_payload_bid_handler),
             )
             .route("/eth/v1/builder/status", get(status_handler))
             .with_state(self.state.clone())
