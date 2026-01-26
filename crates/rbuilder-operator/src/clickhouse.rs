@@ -13,7 +13,6 @@ use rbuilder::{
             relay_submit::{AlwaysSubmitPolicy, RelaySubmissionPolicy},
         },
         payload_events::MevBoostSlotData,
-        process_killer::RUN_SUBMIT_TO_RELAYS_JOB_CANCEL_TIME,
     },
 };
 use rbuilder_primitives::{Order, OrderId};
@@ -28,6 +27,7 @@ use rbuilder_utils::clickhouse::{
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::error;
 
@@ -164,13 +164,20 @@ impl RelaySubmissionPolicy for BackupNotTooBigRelaySubmissionPolicy {
 }
 
 impl BuiltBlocksWriter {
-    /// Returns the writer and the submission policy what asks to stop submitting blocks if the disk backup is too big.
-    /// It's a little ugly/coupled  that we generate this here but it was easier than injecting a metric observer.
+    /// Returns the writer, the submission policy, and a JoinHandle for the clickhouse tasks.
+    /// The JoinHandle can be awaited to ensure clickhouse tasks have completed during shutdown.
+    /// It's a little ugly/coupled that we generate the submission policy here but it was easier than injecting a metric observer.
+    /// abort_token is a last resort cancellation token used to cancel clickhouse tasks if the BuiltBlocksWriter is not
+    /// released. It will tell clickhouse to stop listening for new blocks and flush the backup process.
     pub fn new(
         config: BuiltBlocksClickhouseConfig,
         rbuilder_commit: String,
-        cancellation_token: CancellationToken,
-    ) -> eyre::Result<(Self, Box<dyn RelaySubmissionPolicy + Send + Sync>)> {
+        abort_token: CancellationToken,
+    ) -> eyre::Result<(
+        Self,
+        Box<dyn RelaySubmissionPolicy + Send + Sync>,
+        JoinHandle<()>,
+    )> {
         let backup_max_size_bytes =
             config.disk_max_size_mb.unwrap_or(DEFAULT_MAX_DISK_SIZE_MB) * MEGA;
         let submission_policy: Box<dyn RelaySubmissionPolicy + Send + Sync> =
@@ -222,28 +229,29 @@ impl BuiltBlocksWriter {
         let end_timeout =
             Duration::from_millis(config.end_timeout_ms.unwrap_or(DEFAULT_END_TIMEOUT_MS));
 
-        spawn_clickhouse_inserter_and_backup::<BlockRow, BlockRow, ClickhouseMetrics>(
-            &client,
-            block_rx,
-            &task_executor,
-            BLOCKS_TABLE_NAME.to_string(),
-            "".to_string(), // No buildername used in blocks table.
-            disk_backup,
-            config
-                .memory_max_size_mb
-                .unwrap_or(DEFAULT_MAX_MEMORY_SIZE_MB)
-                * MEGA,
-            send_timeout,
-            end_timeout,
-            BLOCKS_TABLE_NAME,
-        );
-        // Task to forward the cancellation to the task_manager.
+        let clickhouse_shutdown_handle =
+            spawn_clickhouse_inserter_and_backup::<BlockRow, BlockRow, ClickhouseMetrics>(
+                &client,
+                block_rx,
+                &task_executor,
+                BLOCKS_TABLE_NAME.to_string(),
+                "".to_string(), // No buildername used in blocks table.
+                disk_backup,
+                config
+                    .memory_max_size_mb
+                    .unwrap_or(DEFAULT_MAX_MEMORY_SIZE_MB)
+                    * MEGA,
+                send_timeout,
+                end_timeout,
+                BLOCKS_TABLE_NAME,
+            );
+
+        // Task to forward the abort to the task_manager.
         tokio::spawn(async move {
-            cancellation_token.cancelled().await;
-            // @Pending: Needed to avoid losing blocks but we should try to avoid this.
-            tokio::time::sleep(RUN_SUBMIT_TO_RELAYS_JOB_CANCEL_TIME).await;
-            task_manager.graceful_shutdown_with_timeout(Duration::from_secs(5));
+            abort_token.cancelled().await;
+            task_manager.graceful_shutdown();
         });
+
         Ok((
             Self {
                 blocks_tx: block_tx,
@@ -251,6 +259,7 @@ impl BuiltBlocksWriter {
                 builder_name: config.builder_name,
             },
             submission_policy,
+            clickhouse_shutdown_handle,
         ))
     }
 }

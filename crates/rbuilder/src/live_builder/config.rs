@@ -78,7 +78,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use tokio::sync::Mutex as TokioMutex;
+use tokio::{sync::Mutex as TokioMutex, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use url::Url;
@@ -395,7 +395,11 @@ impl L1Config {
         })
     }
 
-    /// Creates the RelaySubmitSinkFactory and also returns the associated relays (MevBoostRelaySlotInfoProvider).
+    /// Creates:
+    /// - RelaySubmitSinkFactory
+    /// - The associated relays (MevBoostRelaySlotInfoProvider).
+    /// - A hashmap of adjustment fee payers.
+    /// - JoinHandle for the optimistic V3 server.
     #[allow(clippy::type_complexity)]
     pub fn create_relays_sealed_sink_factory(
         &self,
@@ -408,6 +412,7 @@ impl L1Config {
         RelaySubmitSinkFactory,
         Vec<MevBoostRelaySlotInfoProvider>,
         ahash::HashMap<MevBoostRelayID, Address>,
+        Option<JoinHandle<()>>,
     )> {
         let signing_domain = get_signing_domain(
             chain_spec.chain,
@@ -416,7 +421,7 @@ impl L1Config {
         )?;
 
         let mut optimistic_v3_config = None;
-        if self
+        let optimistic_v3_server_join_handle = if self
             .relays
             .iter()
             .any(|r| r.submit_config.as_ref().is_some_and(|c| c.optimistic_v3))
@@ -433,7 +438,7 @@ impl L1Config {
             }
 
             let optimistic_v3_cache = OptimisticV3BlockCache::default();
-            optimistic_v3::spawn_server(
+            let optimistic_v3_server_join_handle = optimistic_v3::spawn_server(
                 address,
                 signing_domain,
                 self.optimistic_v3_relay_pubkeys.clone(),
@@ -444,8 +449,11 @@ impl L1Config {
             optimistic_v3_config = Some(OptimisticV3Config {
                 builder_url: builder_url.into_bytes(),
                 cache: optimistic_v3_cache,
-            })
-        }
+            });
+            Some(optimistic_v3_server_join_handle)
+        } else {
+            None
+        };
 
         let submission_config = self.submission_config(
             chain_spec,
@@ -479,7 +487,12 @@ impl L1Config {
             })
             .collect();
 
-        Ok((sink_factory, slot_info_providers, adjustment_fee_payers))
+        Ok((
+            sink_factory,
+            slot_info_providers,
+            adjustment_fee_payers,
+            optimistic_v3_server_join_handle,
+        ))
     }
 
     pub fn registration_update_interval(&self) -> Duration {
@@ -503,6 +516,7 @@ impl LiveBuilderConfig for Config {
     where
         P: StateProviderFactory + Clone + 'static,
     {
+        let abort_token = CancellationToken::new();
         let parsed_config = parse_true_block_value_bidding_service_config(
             &self.true_block_value_bidding_service_config,
         )?;
@@ -515,20 +529,24 @@ impl LiveBuilderConfig for Config {
         let (wallet_balance_watcher, _) =
             create_wallet_balance_watcher(provider.clone(), &self.base_config).await?;
 
-        let (sink_factory, slot_info_provider, adjustment_fee_payers) =
-            create_sink_factory_and_relays(
-                &self.base_config,
-                &self.l1_config,
-                bidding_service.relay_sets(),
-                wallet_balance_watcher,
-                Box::new(NullBidObserver {}),
-                Box::new(AlwaysSubmitPolicy {}),
-                bidding_service,
-                cancellation_token.clone(),
-            )
-            .await?;
+        let (
+            sink_factory,
+            slot_info_provider,
+            adjustment_fee_payers,
+            optimistic_v3_server_join_handle,
+        ) = create_sink_factory_and_relays(
+            &self.base_config,
+            &self.l1_config,
+            bidding_service.relay_sets(),
+            wallet_balance_watcher,
+            Box::new(NullBidObserver {}),
+            Box::new(AlwaysSubmitPolicy {}),
+            bidding_service,
+            cancellation_token.clone(),
+        )
+        .await?;
 
-        let live_builder = create_builder_from_sink(
+        let mut live_builder = create_builder_from_sink(
             &self.base_config,
             &self.l1_config,
             provider,
@@ -536,12 +554,16 @@ impl LiveBuilderConfig for Config {
             slot_info_provider,
             adjustment_fee_payers,
             cancellation_token,
+            abort_token.clone(),
         )
         .await?;
         let builders = create_builders(
             self.live_builders()?,
             self.base_config.max_order_execution_duration_warning(),
         );
+        if let Some(optimistic_v3_server_join_handle) = optimistic_v3_server_join_handle {
+            live_builder.add_critical_task(optimistic_v3_server_join_handle);
+        }
         Ok(live_builder.with_builders(builders))
     }
 
@@ -1080,6 +1102,11 @@ where
     .await??)
 }
 
+/// Returns:
+/// - UnfinishedBuiltBlocksInputFactory
+/// - The associated relays (MevBoostRelaySlotInfoProvider).
+/// - A hashmap of adjustment fee payers.
+/// - JoinHandle for the optimistic V3 server.
 #[allow(clippy::too_many_arguments)]
 pub async fn create_sink_factory_and_relays<P>(
     base_config: &BaseConfig,
@@ -1094,18 +1121,23 @@ pub async fn create_sink_factory_and_relays<P>(
     UnfinishedBuiltBlocksInputFactory<P>,
     Vec<MevBoostRelaySlotInfoProvider>,
     ahash::HashMap<MevBoostRelayID, Address>,
+    Option<JoinHandle<()>>,
 )>
 where
     P: StateProviderFactory + Clone + 'static,
 {
-    let (sink_sealed_factory, slot_info_provider, adjustment_fee_payers) = l1_config
-        .create_relays_sealed_sink_factory(
-            base_config.chain_spec()?,
-            relay_sets.clone(),
-            bid_observer,
-            submission_policy,
-            cancellation_token.clone(),
-        )?;
+    let (
+        sink_sealed_factory,
+        slot_info_provider,
+        adjustment_fee_payers,
+        optimistic_v3_server_join_handle,
+    ) = l1_config.create_relays_sealed_sink_factory(
+        base_config.chain_spec()?,
+        relay_sets.clone(),
+        bid_observer,
+        submission_policy,
+        cancellation_token.clone(),
+    )?;
 
     if !l1_config.relay_bid_scrapers.is_empty() {
         let sender = Arc::new(BiddingService2BidSender::new(bidding_service.clone()));
@@ -1124,10 +1156,16 @@ where
         relay_sets,
     );
 
-    Ok((sink_factory, slot_info_provider, adjustment_fee_payers))
+    Ok((
+        sink_factory,
+        slot_info_provider,
+        adjustment_fee_payers,
+        optimistic_v3_server_join_handle,
+    ))
 }
 
 /// Take the end of the pipeline (sink_factory) + pre-created slot_info_provider and creates an empty builder (it still needs the with_builders to be called)
+#[allow(clippy::too_many_arguments)]
 pub async fn create_builder_from_sink<P>(
     base_config: &BaseConfig,
     l1_config: &L1Config,
@@ -1136,6 +1174,7 @@ pub async fn create_builder_from_sink<P>(
     slot_info_provider: Vec<MevBoostRelaySlotInfoProvider>,
     adjustment_fee_payers: ahash::HashMap<MevBoostRelayID, Address>,
     cancellation_token: CancellationToken,
+    abort_token: CancellationToken,
 ) -> eyre::Result<super::LiveBuilder<P>>
 where
     P: StateProviderFactory,
@@ -1155,6 +1194,7 @@ where
     base_config
         .create_builder_with_provider_factory(
             cancellation_token,
+            abort_token,
             sink_factory,
             payload_event,
             provider,

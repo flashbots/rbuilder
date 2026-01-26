@@ -219,6 +219,7 @@ impl BaseConfig {
     pub async fn create_builder_with_provider_factory<P>(
         &self,
         cancellation_token: tokio_util::sync::CancellationToken,
+        global_abort: tokio_util::sync::CancellationToken,
         unfinished_built_blocks_input_factory: UnfinishedBuiltBlocksInputFactory<P>,
         slot_source: MevBoostSlotDataGenerator,
         provider: P,
@@ -259,6 +260,8 @@ impl BaseConfig {
             blocklist_provider,
 
             global_cancellation: cancellation_token.clone(),
+            global_abort,
+            critical_tasks_join_handles: Vec::new(),
             process_killer: ProcessKiller::new(cancellation_token),
             extra_rpc: RpcModule::new(()),
             unfinished_built_blocks_input_factory,

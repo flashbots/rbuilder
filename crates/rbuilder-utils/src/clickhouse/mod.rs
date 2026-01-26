@@ -7,6 +7,7 @@ use ::serde::{Deserialize, Serialize};
 use clickhouse::Client;
 use reth_tasks::TaskExecutor;
 use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 
 use crate::clickhouse::{
     backup::{
@@ -59,6 +60,7 @@ impl From<Quantities> for clickhouse::inserter::Quantities {
 const BACKUP_INPUT_CHANNEL_BUFFER_SIZE: usize = 128;
 
 /// Main func to spawn the clickhouse inserter and backup tasks.
+/// Returns a JoinHandle that resolves when both tasks have completed.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_clickhouse_inserter_and_backup<
     DataType: ClickhouseIndexableData + Send + Sync + 'static,
@@ -75,7 +77,8 @@ pub fn spawn_clickhouse_inserter_and_backup<
     send_timeout: Duration,
     end_timeout: Duration,
     tracing_target: &'static str,
-) where
+) -> JoinHandle<()>
+where
     for<'a> <DataType::ClickhouseRowType as clickhouse::Row>::Value<'a>: Sync,
 {
     let backup_table_name = RowType::TABLE_NAME.to_string();
@@ -93,6 +96,13 @@ pub fn spawn_clickhouse_inserter_and_backup<
         disk_backup_db,
     )
     .with_memory_backup_config(MemoryBackupConfig::new(memory_max_size_bytes));
-    inserter_runner.spawn(task_executor, backup_table_name.clone(), tracing_target);
-    backup.spawn(task_executor, backup_table_name, tracing_target);
+
+    let inserter_handle =
+        inserter_runner.spawn(task_executor, backup_table_name.clone(), tracing_target);
+    let backup_handle = backup.spawn(task_executor, backup_table_name, tracing_target);
+
+    // Spawn a wrapper task that waits for both to complete
+    tokio::spawn(async move {
+        let _ = tokio::join!(inserter_handle, backup_handle);
+    })
 }

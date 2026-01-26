@@ -13,6 +13,7 @@ use derive_more::{Deref, DerefMut};
 use redb::{ReadableDatabase, ReadableTable, ReadableTableMetadata};
 use strum::AsRefStr;
 use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 
 use crate::{
     backoff::BackoffInterval,
@@ -761,7 +762,14 @@ impl<T: ClickhouseRowExt, MetricsType: Metrics> Backup<T, MetricsType> {
     }
 
     /// Spawns the inserter runner on the given task executor.
-    pub fn spawn(mut self, task_executor: &TaskExecutor, name: String, target: &'static str)
+    /// Returns a JoinHandle that resolves when the task completes.
+    /// On shutdown will stop processing new data flush the backup. New data might be lost.
+    pub fn spawn(
+        mut self,
+        task_executor: &TaskExecutor,
+        name: String,
+        target: &'static str,
+    ) -> JoinHandle<()>
     where
         MetricsType: Send + Sync + 'static,
         for<'a> <T as clickhouse::Row>::Value<'a>: Sync,
@@ -784,7 +792,7 @@ impl<T: ClickhouseRowExt, MetricsType: Metrics> Backup<T, MetricsType> {
                 "Clickhouse backup cleanup complete"
             );
             drop(shutdown_guard);
-        });
+        })
     }
 }
 

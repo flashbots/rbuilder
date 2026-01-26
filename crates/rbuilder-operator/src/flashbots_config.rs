@@ -48,6 +48,7 @@ use crate::{
 
 use clickhouse::Client;
 use std::{path::PathBuf, sync::Arc};
+use tokio::task::JoinHandle;
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
 pub struct ClickhouseConfig {
@@ -155,6 +156,7 @@ impl LiveBuilderConfig for FlashbotsConfig {
     where
         P: StateProviderFactory + Clone + 'static,
     {
+        let abort_token = CancellationToken::new();
         if self.l1_config.relay_bid_scrapers.is_empty() {
             eyre::bail!("relay_bid_scrapers is not set");
         }
@@ -171,24 +173,28 @@ impl LiveBuilderConfig for FlashbotsConfig {
             )
             .await?;
 
-        let (bid_observer, submission_policy) = self
-            .create_bid_observer_and_submission_policy(&cancellation_token)
+        let (bid_observer, submission_policy, clickhouse_shutdown_handle) = self
+            .create_bid_observer_and_submission_policy(&cancellation_token, &abort_token)
             .await?;
 
-        let (sink_factory, slot_info_provider, adjustment_fee_payers) =
-            create_sink_factory_and_relays(
-                &self.base_config,
-                &self.l1_config,
-                bidding_service.relay_sets().to_vec(),
-                wallet_balance_watcher,
-                bid_observer,
-                submission_policy,
-                bidding_service.clone(),
-                cancellation_token.clone(),
-            )
-            .await?;
+        let (
+            sink_factory,
+            slot_info_provider,
+            adjustment_fee_payers,
+            optimistic_v3_server_join_handle,
+        ) = create_sink_factory_and_relays(
+            &self.base_config,
+            &self.l1_config,
+            bidding_service.relay_sets().to_vec(),
+            wallet_balance_watcher,
+            bid_observer,
+            submission_policy,
+            bidding_service.clone(),
+            cancellation_token.clone(),
+        )
+        .await?;
 
-        let live_builder = create_builder_from_sink(
+        let mut live_builder = create_builder_from_sink(
             &self.base_config,
             &self.l1_config,
             provider,
@@ -196,9 +202,16 @@ impl LiveBuilderConfig for FlashbotsConfig {
             slot_info_provider,
             adjustment_fee_payers,
             cancellation_token,
+            abort_token,
         )
         .await?;
 
+        if let Some(handle) = clickhouse_shutdown_handle {
+            live_builder.add_critical_task(handle);
+        }
+        if let Some(optimistic_v3_server_join_handle) = optimistic_v3_server_join_handle {
+            live_builder.add_critical_task(optimistic_v3_server_join_handle);
+        }
         let mut module = RpcModule::new(());
         module.register_async_method("bid_subsidiseBlock", move |params, _| {
             handle_subsidise_block(bidding_service.clone(), params)
@@ -318,28 +331,35 @@ impl FlashbotsConfig {
     /// Depending on the cfg may create:
     /// - Dummy sink (no built_blocks_clickhouse_config)
     /// - BuiltBlocksWriter that writes to clickhouse
+    ///
+    /// Returns (BidObserver, RelaySubmissionPolicy, Option<JoinHandle> for clickhouse shutdown)
     #[allow(clippy::type_complexity)]
     fn create_clickhouse_writer_and_submission_policy(
         &self,
-        cancellation_token: &CancellationToken,
+        clickhouse_abort_token: &CancellationToken,
         block_processor_key: Option<PrivateKeySigner>,
     ) -> eyre::Result<(
         Option<Box<dyn BidObserver + Send + Sync>>,
         Box<dyn RelaySubmissionPolicy + Send + Sync>,
+        Option<JoinHandle<()>>,
     )> {
         if let Some(built_blocks_clickhouse_config) = &self.built_blocks_clickhouse_config {
             let rbuilder_version = rbuilder_version();
-            let (writer, submission_policy) = BuiltBlocksWriter::new(
+            let (writer, submission_policy, shutdown_handle) = BuiltBlocksWriter::new(
                 built_blocks_clickhouse_config.clone(),
                 rbuilder_version.git_commit,
-                cancellation_token.clone(),
+                clickhouse_abort_token.clone(),
             )?;
-            Ok((Some(Box::new(writer)), submission_policy))
+            Ok((
+                Some(Box::new(writer)),
+                submission_policy,
+                Some(shutdown_handle),
+            ))
         } else {
             if block_processor_key.is_some() {
                 return Self::bail_blocks_processor_url_not_set();
             }
-            Ok((None, Box::new(AlwaysSubmitPolicy {})))
+            Ok((None, Box::new(AlwaysSubmitPolicy {}), None))
         }
     }
 
@@ -348,12 +368,17 @@ impl FlashbotsConfig {
     }
 
     /// Depending on the cfg add a BlocksProcessorClientBidObserver and/or a true value pusher.
+    /// Returns (BidObserver, RelaySubmissionPolicy, Option<JoinHandle> for clickhouse shutdown)
+    /// cancellation_token: used to cancel tbv_pusher
+    /// clickhouse_abort_token: used to cancel clickhouse tasks if source is hanged.
     async fn create_bid_observer_and_submission_policy(
         &self,
         cancellation_token: &CancellationToken,
+        clickhouse_abort_token: &CancellationToken,
     ) -> eyre::Result<(
         Box<dyn BidObserver + Send + Sync>,
         Box<dyn RelaySubmissionPolicy + Send + Sync>,
+        Option<JoinHandle<()>>,
     )> {
         let block_processor_key = if let Some(key_registration_url) = &self.key_registration_url {
             if self.blocks_processor_url.is_none() {
@@ -364,16 +389,20 @@ impl FlashbotsConfig {
             None
         };
 
-        let (clickhouse_writer, submission_policy) = self
+        let (clickhouse_writer, submission_policy, clickhouse_shutdown_handle) = self
             .create_clickhouse_writer_and_submission_policy(
-                cancellation_token,
+                clickhouse_abort_token,
                 block_processor_key.clone(),
             )?;
         let bid_observer = RbuilderOperatorBidObserver {
             clickhouse_writer,
             tbv_pusher: self.create_tbv_pusher(block_processor_key, cancellation_token)?,
         };
-        Ok((Box::new(bid_observer), submission_policy))
+        Ok((
+            Box::new(bid_observer),
+            submission_policy,
+            clickhouse_shutdown_handle,
+        ))
     }
 
     fn create_tbv_pusher(

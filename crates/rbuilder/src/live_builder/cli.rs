@@ -17,10 +17,7 @@ use crate::{
         builders::{BacktestSimulateBlockInput, Block},
         PartialBlockExecutionTracer,
     },
-    live_builder::{
-        process_killer::{ProcessKiller, MAX_WAIT_TIME},
-        watchdog::spawn_watchdog_thread,
-    },
+    live_builder::{process_killer::ProcessKiller, watchdog::spawn_watchdog_thread},
     provider::StateProviderFactory,
     telemetry,
     utils::bls::generate_random_bls_address,
@@ -201,11 +198,6 @@ where
     builder
         .run(ready_to_build, start_slot_watchdog_sender)
         .await?;
-    info!(
-        wait_time_secs = MAX_WAIT_TIME.as_secs(),
-        "Main thread waiting to die..."
-    );
-    std::thread::sleep(MAX_WAIT_TIME);
     info!("Main thread exiting");
     Ok(())
 }
