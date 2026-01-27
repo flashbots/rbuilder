@@ -123,7 +123,7 @@ jobs:
         if: ${{ failure() }}
         run: |
           mkdir /tmp/playground-logs
-          mv $HOME/.playground/devnet/logs /tmp/playground-logs
+          mv $HOME/.local/state/builder-playground/devnet/logs /tmp/playground-logs
           mv integration_logs /tmp/playground-logs
 
       - name: Archive playground logs
