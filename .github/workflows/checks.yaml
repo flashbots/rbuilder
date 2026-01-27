@@ -111,7 +111,28 @@ jobs:
         run: cargo build --features="${{ matrix.features }}"
 
       - name: Run the playground
-        run: builder-playground start l1 --use-native-reth &
+        run: |
+          builder-playground start l1 --use-native-reth > /tmp/playground.log 2>&1 &
+          PLAYGROUND_PID=$!
+          echo "Waiting for all services to be healthy..."
+          timeout=60  # 1 minutes timeout
+          elapsed=0
+          while [ $elapsed -lt $timeout ]; do
+            if grep -q "All services are healthy" /tmp/playground.log 2>/dev/null; then
+              echo "All services are healthy!"
+              break
+            fi
+            sleep 2
+            elapsed=$((elapsed + 2))
+          done
+          if [ $elapsed -ge $timeout ]; then
+            echo "Timeout waiting for services to be healthy"
+            echo "Last 50 lines of playground output:"
+            tail -n 50 /tmp/playground.log || true
+            kill $PLAYGROUND_PID 2>/dev/null || true
+            exit 1
+          fi
+          echo "Playground is running (PID: $PLAYGROUND_PID)"
 
       - name: Run integration tests with flags
         run: cargo test --features="${{ matrix.features }}" --package rbuilder --lib -- integration --test-threads=1
