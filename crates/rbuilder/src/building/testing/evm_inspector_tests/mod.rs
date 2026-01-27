@@ -154,3 +154,34 @@ fn test_ephemeral_contract_destruct() -> eyre::Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_read_code_empty_for_transfer() -> eyre::Result<()> {
+    let test_setup = TestSetup::new()?;
+
+    let sender = NamedAddr::User(1);
+    let receiver = NamedAddr::User(2);
+    let transfer_value = 10000;
+
+    let tx = test_setup.make_transfer_tx(sender, receiver, transfer_value)?;
+    let used_state_trace = test_setup.inspect_tx_without_commit(tx)?;
+
+    assert!(used_state_trace.read_code.is_empty());
+
+    Ok(())
+}
+
+#[test]
+fn test_create_tracks_caller_balance() -> eyre::Result<()> {
+    let test_setup = TestSetup::new()?;
+
+    let mev_test_addr = test_setup.named_address(NamedAddr::MevTest)?;
+    let refund_addr = test_setup.named_address(NamedAddr::Dummy)?;
+    let tx: reth_primitives::Recovered<TransactionSigned> =
+        test_setup.make_test_ephemeral_contract_destruct_tx(refund_addr, 100)?;
+    let used_state_trace = test_setup.inspect_tx_without_commit(tx)?;
+
+    assert!(used_state_trace.read_balances.contains_key(&mev_test_addr));
+
+    Ok(())
+}

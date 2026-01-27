@@ -6,6 +6,7 @@ use reth_primitives::{Recovered, TransactionSigned};
 use revm::{
     bytecode::opcode,
     context::ContextTr,
+    context_interface::JournalTr,
     inspector::JournalExt,
     interpreter::{interpreter_types::Jumps, CallInputs, CallOutcome, Interpreter},
     Inspector,
@@ -34,6 +35,8 @@ pub struct UsedStateTrace {
     pub sent_amount: HashMap<Address, U256>,
     pub created_contracts: Vec<Address>,
     pub destructed_contracts: Vec<Address>,
+    /// addresses whose code was read (via EXTCODECOPY, EXTCODEHASH, EXTCODESIZE)
+    pub read_code: Vec<Address>,
 }
 
 impl UsedStateTrace {
@@ -74,6 +77,13 @@ impl UsedStateTrace {
             }
             self.destructed_contracts.push(*address);
         }
+
+        for address in &other.read_code {
+            if self.read_code.contains(address) {
+                continue;
+            }
+            self.read_code.push(*address);
+        }
     }
 
     pub fn clear(&mut self) {
@@ -84,6 +94,7 @@ impl UsedStateTrace {
         self.sent_amount.clear();
         self.created_contracts.clear();
         self.destructed_contracts.clear();
+        self.read_code.clear();
     }
 }
 
@@ -197,6 +208,14 @@ where
                 let addr = interpreter.input.target_address;
                 self.next_step_action = NextStepAction::ReadBalanceResult(addr);
             }
+            opcode::EXTCODECOPY | opcode::EXTCODEHASH | opcode::EXTCODESIZE => {
+                if let Ok(addr) = interpreter.stack.peek(0) {
+                    let addr = Address::from_word(B256::from(addr.to_be_bytes()));
+                    if !self.used_state_trace.read_code.contains(&addr) {
+                        self.used_state_trace.read_code.push(addr);
+                    }
+                }
+            }
             _ => (),
         }
     }
@@ -216,6 +235,27 @@ where
                     .or_default() += transfer_value;
             }
         }
+        None
+    }
+
+    fn create(
+        &mut self,
+        context: &mut CTX,
+        inputs: &mut revm::interpreter::CreateInputs,
+    ) -> Option<revm::interpreter::CreateOutcome> {
+        let caller = inputs.caller;
+
+        if let Ok(account) = context.journal_mut().load_account(caller) {
+            self.used_state_trace
+                .read_balances
+                .entry(caller)
+                .or_insert(account.info.balance);
+        }
+
+        if !inputs.value.is_zero() {
+            *self.used_state_trace.sent_amount.entry(caller).or_default() += inputs.value;
+        }
+
         None
     }
 
@@ -302,6 +342,19 @@ where
     fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
         if let Some(used_state_inspector) = &mut self.used_state_inspector {
             used_state_inspector.call(context, inputs)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    fn create(
+        &mut self,
+        context: &mut CTX,
+        inputs: &mut revm::interpreter::CreateInputs,
+    ) -> Option<revm::interpreter::CreateOutcome> {
+        if let Some(used_state_inspector) = &mut self.used_state_inspector {
+            used_state_inspector.create(context, inputs)
         } else {
             None
         }
