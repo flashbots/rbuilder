@@ -1,0 +1,8 @@
+# Minimal runtime image that reuses a pre-built rbuilder binary.
+# The CI job downloads the linux/amd64 rbuilder binary into the build context as ./rbuilder
+
+FROM gcr.io/distroless/cc-debian12
+WORKDIR /app
+COPY rbuilder /app/rbuilder
+ENTRYPOINT ["/app/rbuilder"]
+
