@@ -266,7 +266,7 @@ jobs:
   build-docker-linux-amd64:
     if: ${{ github.event.inputs.build-docker == 'true' }}
     name: Build and publish Docker image (linux/amd64)
-    needs: extract-version
+    needs: [extract-version, build-binary]
     runs-on: warp-ubuntu-2404-x64-16x
     env:
       VERSION: ${{ needs.extract-version.outputs.VERSION }}
@@ -286,6 +286,25 @@ jobs:
           name: rbuilder-${{ env.VERSION }}-x86_64-unknown-linux-gnu${{ github.event.inputs.features && format('-{0}', github.event.inputs.features) || '' }}
           path: .
 
+      - name: Check if binary was downloaded
+        if: steps.download-binary.outcome != 'success'
+        run: |
+          echo "⚠️ Binary artifact not found. Will build from source."
+          echo "Artifact name attempted: rbuilder-${{ env.VERSION }}-x86_64-unknown-linux-gnu${{ github.event.inputs.features && format('-{0}', github.event.inputs.features) || '' }}"
+          echo "This is expected if build-binary job didn't run or Linux build was skipped."
+
+      - name: Verify binary exists
+        if: steps.download-binary.outcome == 'success'
+        run: |
+          if [ -f "./rbuilder" ]; then
+            echo "✅ Binary downloaded successfully"
+            ls -lh ./rbuilder
+          else
+            echo "❌ Binary file not found after download"
+            find . -name "rbuilder" -type f || echo "No rbuilder file found"
+            exit 1
+          fi
+
       - name: docker buildx
         uses: docker/setup-buildx-action@v3
 
@@ -296,11 +315,11 @@ jobs:
           images: ghcr.io/${{ github.repository }}
           labels: org.opencontainers.image.source=${{ github.repositoryUrl }}
           tags: |
-            type=sha
-            type=semver,pattern={{version}},value=${{ env.VERSION }}
-            type=semver,pattern={{major}}.{{minor}},value=${{ env.VERSION }}
-            type=semver,pattern={{major}},value=${{ env.VERSION }}
-            type=raw,value=latest,enable=${{ !contains(env.VERSION, '-') }}
+            type=sha,suffix=-linux-amd64
+            type=semver,pattern={{version}},value=${{ env.VERSION }},suffix=-linux-amd64,enable=${{ startsWith(env.VERSION, 'v') }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ env.VERSION }},suffix=-linux-amd64,enable=${{ startsWith(env.VERSION, 'v') }}
+            type=semver,pattern={{major}},value=${{ env.VERSION }},suffix=-linux-amd64,enable=${{ startsWith(env.VERSION, 'v') }}
+            type=raw,value=latest,enable=${{ startsWith(env.VERSION, 'v') && !contains(env.VERSION, '-') }},suffix=-linux-amd64
 
       - name: docker login
         uses: docker/login-action@v3
@@ -338,7 +357,7 @@ jobs:
   build-docker-linux-arm64:
     if: ${{ github.event.inputs.build-docker == 'true' }}
     name: Build and publish Docker image (linux/arm64)
-    needs: extract-version
+    needs: [extract-version, build-binary]
     runs-on: warp-ubuntu-2404-arm64-16x
     env:
       VERSION: ${{ needs.extract-version.outputs.VERSION }}
@@ -361,10 +380,10 @@ jobs:
           labels: org.opencontainers.image.source=${{ github.repositoryUrl }}
           tags: |
             type=sha,suffix=-linux-arm64
-            type=semver,pattern={{version}},value=${{ env.VERSION }},suffix=-linux-arm64
-            type=semver,pattern={{major}}.{{minor}},value=${{ env.VERSION }},suffix=-linux-arm64
-            type=semver,pattern={{major}},value=${{ env.VERSION }},suffix=-linux-arm64
-            type=raw,value=latest,enable=${{ !contains(env.VERSION, '-') }},suffix=-linux-arm64
+            type=semver,pattern={{version}},value=${{ env.VERSION }},suffix=-linux-arm64,enable=${{ startsWith(env.VERSION, 'v') }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ env.VERSION }},suffix=-linux-arm64,enable=${{ startsWith(env.VERSION, 'v') }}
+            type=semver,pattern={{major}},value=${{ env.VERSION }},suffix=-linux-arm64,enable=${{ startsWith(env.VERSION, 'v') }}
+            type=raw,value=latest,enable=${{ startsWith(env.VERSION, 'v') && !contains(env.VERSION, '-') }},suffix=-linux-arm64
 
       - name: docker login
         uses: docker/login-action@v3
@@ -411,29 +430,52 @@ jobs:
         run: |
           IMAGE="ghcr.io/${{ github.repository }}"
           
-          # Build list of tags
+          # Build list of tags - only create semver tags if version starts with 'v'
           TAGS=(
             "sha-${GITHUB_SHA:0:7}"
-            "${{ env.VERSION }}"
           )
           
-          # Add version tags (major.minor, major) if not a prerelease
-          if [[ "${{ env.VERSION }}" != *"-"* ]]; then
-            TAGS+=("latest")
-            # Extract major.minor if version format is vX.Y.Z
-            if [[ "${{ env.VERSION }}" =~ ^v([0-9]+)\.([0-9]+)\. ]]; then
-              MAJOR="${BASH_REMATCH[1]}"
-              MINOR="${BASH_REMATCH[2]}"
-              TAGS+=("${MAJOR}.${MINOR}" "${MAJOR}")
+          # Only add version tags if it's a proper semver (starts with 'v')
+          if [[ "${{ env.VERSION }}" =~ ^v ]]; then
+            TAGS+=("${{ env.VERSION }}")
+            
+            # Add version tags (major.minor, major) if not a prerelease
+            if [[ "${{ env.VERSION }}" != *"-"* ]]; then
+              TAGS+=("latest")
+              # Extract major.minor if version format is vX.Y.Z
+              if [[ "${{ env.VERSION }}" =~ ^v([0-9]+)\.([0-9]+)\. ]]; then
+                MAJOR="${BASH_REMATCH[1]}"
+                MINOR="${BASH_REMATCH[2]}"
+                TAGS+=("${MAJOR}.${MINOR}" "${MAJOR}")
+              fi
             fi
           fi
           
           # Create multi-arch manifest for each tag combining both architectures
           for TAG in "${TAGS[@]}"; do
+            echo "Creating multi-arch manifest for tag: ${TAG}"
+            
+            # Verify both platform-specific images exist before creating manifest
+            if ! docker buildx imagetools inspect "${IMAGE}:${TAG}-linux-amd64" >/dev/null 2>&1; then
+              echo "⚠️ Warning: ${IMAGE}:${TAG}-linux-amd64 not found, skipping this tag"
+              continue
+            fi
+            
+            if ! docker buildx imagetools inspect "${IMAGE}:${TAG}-linux-arm64" >/dev/null 2>&1; then
+              echo "⚠️ Warning: ${IMAGE}:${TAG}-linux-arm64 not found, skipping this tag"
+              continue
+            fi
+            
+            # Create the multi-arch manifest
             docker buildx imagetools create \
               --tag "${IMAGE}:${TAG}" \
               "${IMAGE}:${TAG}-linux-amd64" \
-              "${IMAGE}:${TAG}-linux-arm64"
+              "${IMAGE}:${TAG}-linux-arm64" || {
+              echo "❌ Failed to create manifest for ${TAG}"
+              exit 1
+            }
+            
+            echo "✅ Created manifest for ${TAG}"
           done
           
           echo "✅ Multi-arch manifests created for all tags"
