@@ -16,11 +16,6 @@ on:
         description: "Build Docker"
         required: false
         type: boolean
-      build-binary:
-        default: true
-        description: "Build Binary"
-        required: false
-        type: boolean
       build-linux:
         default: true
         description: "Build Linux"
@@ -73,8 +68,7 @@ jobs:
   build-binary:
     name: Build binary (${{ matrix.target }})
     needs: extract-version
-    # Run if build-binary enabled OR tag push
-    if: github.event.inputs.build-binary == 'true' || github.event_name == 'push'
+    # Always run - build-linux and build-mac control what actually gets built
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: write
