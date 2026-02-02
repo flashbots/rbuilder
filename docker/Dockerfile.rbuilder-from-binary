@@ -1,8 +1,9 @@
 # Minimal runtime image that reuses a pre-built rbuilder binary.
 # The CI job downloads the linux/amd64 rbuilder binary into the build context as ./rbuilder
+# Artifact download does not preserve execute bit; --chmod sets it on copy.
 
-FROM gcr.io/distroless/cc-debian12
+FROM gcr.io/distroless/cc-debian13
 WORKDIR /app
-COPY rbuilder /app/rbuilder
+COPY --chmod=755 rbuilder /app/rbuilder
 ENTRYPOINT ["/app/rbuilder"]
 
