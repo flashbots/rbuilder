@@ -14,6 +14,7 @@ use rbuilder_primitives::{
     Order,
 };
 use sqlx::types::chrono::DateTime;
+use std::sync::Arc;
 use std::{
     fs::create_dir_all,
     path::{Path, PathBuf},
@@ -52,7 +53,7 @@ pub fn get_mempool_transactions(
 
             Some(OrdersWithTimestamp {
                 timestamp_ms,
-                order,
+                order: Arc::new(order),
             })
         })
         .collect())

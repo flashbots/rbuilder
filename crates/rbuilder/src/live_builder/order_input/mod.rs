@@ -214,7 +214,7 @@ impl OrderInputConfig {
 #[allow(clippy::large_enum_variant)]
 pub enum ReplaceableOrderPoolCommand {
     /// New or update order
-    Order(Order),
+    Order(Arc<Order>),
     CancelBundle(BundleReplacementData),
 }
 

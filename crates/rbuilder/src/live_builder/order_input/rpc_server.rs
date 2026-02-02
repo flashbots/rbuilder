@@ -223,7 +223,7 @@ async fn send_order(
     received_at: OffsetDateTime,
 ) {
     send_command(
-        ReplaceableOrderPoolCommand::Order(order),
+        ReplaceableOrderPoolCommand::Order(Arc::new(order)),
         channel,
         timeout,
         received_at,

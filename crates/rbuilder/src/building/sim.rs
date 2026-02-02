@@ -49,7 +49,7 @@ pub struct NonceKey {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PendingOrder {
-    order: Order,
+    order: Arc<Order>,
     unsatisfied_nonces: usize,
 }
 
@@ -58,15 +58,15 @@ pub type SimulationId = u64;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SimulationRequest {
     pub id: SimulationId,
-    pub order: Order,
-    pub parents: Vec<Order>,
+    pub order: Arc<Order>,
+    pub parents: Vec<Arc<Order>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SimulatedResult {
     pub id: SimulationId,
     pub simulated_order: Arc<SimulatedOrder>,
-    pub previous_orders: Vec<Order>,
+    pub previous_orders: Vec<Arc<Order>>,
     pub nonces_after: Vec<NonceKey>,
     pub simulation_time: Duration,
 }
@@ -90,7 +90,7 @@ pub struct SimTree {
 enum OrderNonceState {
     Invalid,
     PendingNonces(Vec<NonceKey>),
-    Ready(Vec<Order>),
+    Ready(Vec<Arc<Order>>),
 }
 
 impl SimTree {
@@ -105,7 +105,7 @@ impl SimTree {
         }
     }
 
-    fn push_order(&mut self, order: Order) -> Result<(), ProviderError> {
+    fn push_order(&mut self, order: Arc<Order>) -> Result<(), ProviderError> {
         if self.pending_orders.contains_key(&order.id()) {
             return Ok(());
         }
@@ -208,7 +208,7 @@ impl SimTree {
         }
     }
 
-    pub fn push_orders(&mut self, orders: Vec<Order>) -> Result<(), ProviderError> {
+    pub fn push_orders(&mut self, orders: Vec<Arc<Order>>) -> Result<(), ProviderError> {
         for order in orders {
             self.push_order(order)?;
         }
@@ -316,7 +316,7 @@ impl SimTree {
 pub fn simulate_all_orders_with_sim_tree<P>(
     provider: P,
     ctx: &BlockBuildingContext,
-    orders: &[Order],
+    orders: &[Arc<Order>],
     randomize_insertion: bool,
 ) -> Result<(Vec<Arc<SimulatedOrder>>, Vec<OrderErr>), CriticalCommitOrderError>
 where
@@ -413,8 +413,8 @@ where
 
 /// Prepares context (fork + tracer) and calls simulate_order_using_fork
 pub fn simulate_order(
-    parent_orders: Vec<Order>,
-    order: Order,
+    parent_orders: Vec<Arc<Order>>,
+    order: Arc<Order>,
     ctx: &BlockBuildingContext,
     local_ctx: &mut ThreadBlockBuildingContext,
     state: &mut BlockState,
@@ -434,8 +434,8 @@ pub fn simulate_order(
 
 /// Simulates order (including parent (those needed to reach proper nonces) orders) using a precreated fork
 pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
-    parent_orders: Vec<Order>,
-    order: Order,
+    parent_orders: Vec<Arc<Order>>,
+    order: Arc<Order>,
     fork: &mut PartialBlockFork<'_, '_, '_, '_, Tracer, NullPartialBlockForkExecutionTracer>,
     mempool_tx_detector: &MempoolTxsDetector,
 ) -> Result<OrderSimResult, CriticalCommitOrderError> {
@@ -445,8 +445,8 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
     // We use empty combined refunds because the value of the bundle will
     // not change from batching.
     let combined_refunds = std::collections::HashMap::default();
-    for parent in parent_orders {
-        let result = fork.commit_order(&parent, space_state, true, &combined_refunds)?;
+    for parent in &parent_orders {
+        let result = fork.commit_order(parent, space_state, true, &combined_refunds)?;
         match result {
             Ok(res) => {
                 space_state.use_space(res.space_used);
@@ -471,11 +471,7 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
             }
             let new_nonces = res.nonces_updated.into_iter().collect::<Vec<_>>();
             Ok(OrderSimResult::Success(
-                Arc::new(SimulatedOrder {
-                    order,
-                    sim_value,
-                    used_state_trace: res.used_state_trace,
-                }),
+                Arc::new(SimulatedOrder::new(order, sim_value, res.used_state_trace)),
                 new_nonces,
             ))
         }

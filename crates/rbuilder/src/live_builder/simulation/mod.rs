@@ -244,7 +244,9 @@ mod tests {
         let tx = test_context.sign_tx(tx_args).unwrap();
         let tx = TransactionSignedEcRecoveredWithBlobs::new_no_blobs(tx).unwrap();
         order_sender
-            .send(OrderPoolCommand::Insert(Order::Tx(MempoolTx::new(tx))))
+            .send(OrderPoolCommand::Insert(Arc::new(Order::Tx(
+                MempoolTx::new(tx),
+            ))))
             .unwrap();
 
         // We expect to receive the simulation giving a profit of coinbase_profit since that's what we sent directly to coinbase.

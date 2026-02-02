@@ -312,7 +312,7 @@ where
     let mut txs = 0;
     let mut bundles = 0;
     for ts_order in &block_data.available_orders {
-        match &ts_order.order {
+        match ts_order.order.as_ref() {
             Order::Bundle(_) => bundles += 1,
             Order::Tx(_) => txs += 1,
         }
@@ -449,7 +449,7 @@ struct AvailableOrders {
     included_orders_by_address: Vec<(Address, Vec<OrderId>)>,
     all_orders_by_address: HashMap<Address, Vec<OrderId>>,
     orders_id_to_address: HashMap<OrderId, Address>,
-    all_orders_by_id: HashMap<OrderId, Order>,
+    all_orders_by_id: HashMap<OrderId, Arc<Order>>,
     bundle_hash_by_id: HashMap<OrderId, B256>,
     order_sender_by_id: HashMap<OrderId, Address>,
 }
@@ -550,7 +550,7 @@ fn split_orders_by_identities(
 
     for order in &block_data.available_orders {
         let id = order.order.id();
-        if let Order::Bundle(bundle) = &order.order {
+        if let Order::Bundle(bundle) = order.order.as_ref() {
             bundle_hash_by_id.insert(id, bundle.external_hash.unwrap_or(bundle.hash));
         };
         order_sender_by_id.insert(id, order_sender(&order.order));
@@ -603,7 +603,7 @@ fn split_orders_by_identities(
         all_orders_by_id: block_data
             .available_orders
             .iter()
-            .map(|order| (order.order.id(), order.order.clone()))
+            .map(|order| (order.order.id(), Arc::clone(&order.order)))
             .collect(),
         bundle_hash_by_id,
         order_sender_by_id,

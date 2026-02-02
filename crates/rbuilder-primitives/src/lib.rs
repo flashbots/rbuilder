@@ -1011,13 +1011,25 @@ impl SimValue {
 /// Order simulated (usually on top of block) + SimValue
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SimulatedOrder {
-    pub order: Order,
+    pub order: Arc<Order>,
     pub sim_value: SimValue,
     /// Info about read/write slots during the simulation to help figure out what the Order is doing.
     pub used_state_trace: Option<UsedStateTrace>,
 }
 
 impl SimulatedOrder {
+    pub fn new(
+        order: Arc<Order>,
+        sim_value: SimValue,
+        used_state_trace: Option<UsedStateTrace>,
+    ) -> Self {
+        Self {
+            order,
+            sim_value,
+            used_state_trace,
+        }
+    }
+
     pub fn id(&self) -> OrderId {
         self.order.id()
     }

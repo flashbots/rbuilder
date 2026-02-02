@@ -219,7 +219,7 @@ fn print_orders_with_tx_hash(
         .iter()
         .map(|order_with_timestamp| &order_with_timestamp.order)
         .filter(|order| order.list_txs().iter().any(|(tx, _)| tx.hash() == tx_hash))
-        .for_each(print_order);
+        .for_each(|order| print_order(order));
     println!("\nSIM ORDERS:");
     sim_orders
         .iter()
@@ -241,7 +241,7 @@ fn print_order_execution_result(order_result: &ExecutionResult) {
         order_result.space_used.gas,
         format_ether(order_result.coinbase_profit),
     );
-    if let Order::Bundle(_) = order_result.order {
+    if let Order::Bundle(_) = order_result.order.as_ref() {
         for tx in order_result.tx_infos.iter().map(|info| &info.tx) {
             println!("      ↳ {:?}", tx.hash());
         }

@@ -143,7 +143,7 @@ impl BuiltBlockTrace {
     pub fn used_order_count(&self) -> (usize, usize, usize) {
         self.included_orders
             .iter()
-            .fold((0, 0, 0), |acc, order| match order.order {
+            .fold((0, 0, 0), |acc, order| match order.order.as_ref() {
                 Order::Tx(_) => (acc.0 + 1, acc.1, acc.2),
                 Order::Bundle(_) => (acc.0, acc.1 + 1, acc.2),
             })

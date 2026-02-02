@@ -29,7 +29,7 @@ impl From<OrdersWithTimestamp> for ReplaceableOrderPoolCommandWithTimestamp {
     fn from(order: OrdersWithTimestamp) -> Self {
         ReplaceableOrderPoolCommandWithTimestamp {
             timestamp_ms: order.timestamp_ms,
-            command: ReplaceableOrderPoolCommand::Order(order.order),
+            command: ReplaceableOrderPoolCommand::Order(Arc::clone(&order.order)),
         }
     }
 }
@@ -116,7 +116,7 @@ impl FullSlotBlockData {
                         if included_orders_ids.remove(&order.id()) {
                             Some(OrdersWithTimestamp {
                                 timestamp_ms: command_ts.timestamp_ms,
-                                order: order.clone(),
+                                order: Arc::clone(order),
                             })
                         } else {
                             None
@@ -167,7 +167,7 @@ impl FullSlotBlockData {
             match command_ts.command {
                 ReplaceableOrderPoolCommand::Order(order) => {
                     order_id_to_timestamp.insert(order.id(), command_ts.timestamp_ms);
-                    order_manager.insert_order(order);
+                    order_manager.insert_order(Arc::clone(&order));
                 }
                 ReplaceableOrderPoolCommand::CancelBundle(replacement_data) => {
                     order_manager.remove_bundle(replacement_data);
@@ -181,7 +181,7 @@ impl FullSlotBlockData {
             .iter()
             .map(|o| OrdersWithTimestamp {
                 timestamp_ms: *order_id_to_timestamp.get(&o.id()).unwrap(),
-                order: o.clone(),
+                order: Arc::clone(o),
             })
             .collect();
 

@@ -487,16 +487,16 @@ mod tests {
 
             let sim_value = SimValue::new_test_no_gas(coinbase_profit, U256::ZERO);
 
-            Arc::new(SimulatedOrder {
-                order: Order::Tx(MempoolTx {
+            Arc::new(SimulatedOrder::new(
+                Arc::new(Order::Tx(MempoolTx {
                     tx_with_blobs: TransactionSignedEcRecoveredWithBlobs::new_no_blobs(
                         self.create_tx(),
                     )
                     .unwrap(),
-                }),
+                })),
                 sim_value,
-                used_state_trace: Some(trace),
-            })
+                Some(trace),
+            ))
         }
     }
 

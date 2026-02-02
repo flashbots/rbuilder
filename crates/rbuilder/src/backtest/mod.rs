@@ -12,6 +12,7 @@ mod store;
 use ahash::HashMap;
 pub use backtest_build_range::run_backtest_build_range;
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use crate::{mev_boost::BuilderBlockReceived, utils::offset_datetime_to_timestamp_ms};
 use alloy_consensus::Transaction as TransactionTrait;
@@ -38,7 +39,7 @@ impl From<OrdersWithTimestamp> for RawOrdersWithTimestamp {
     fn from(orders: OrdersWithTimestamp) -> Self {
         Self {
             timestamp_ms: orders.timestamp_ms,
-            order: orders.order.into(),
+            order: (*orders.order).clone().into(),
         }
     }
 }
@@ -46,7 +47,7 @@ impl From<OrdersWithTimestamp> for RawOrdersWithTimestamp {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct OrdersWithTimestamp {
     pub timestamp_ms: u64,
-    pub order: Order,
+    pub order: Arc<Order>,
 }
 
 /// Historic data for a block.
@@ -171,7 +172,7 @@ impl BlockData {
         let mempool_txs = self
             .available_orders
             .iter()
-            .filter_map(|o| match &o.order {
+            .filter_map(|o| match o.order.as_ref() {
                 Order::Tx(tx) => Some(tx.tx_with_blobs.hash()),
                 _ => None,
             })

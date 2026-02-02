@@ -29,6 +29,7 @@ use std::{
     ffi::OsString,
     path::{Path, PathBuf},
     str::FromStr,
+    sync::Arc,
 };
 
 /// Version of the data/format on the DB.
@@ -638,7 +639,7 @@ impl From<ReplaceableOrderPoolCommand> for RawReplaceableOrderPoolCommand {
     fn from(command: ReplaceableOrderPoolCommand) -> Self {
         match command {
             ReplaceableOrderPoolCommand::Order(order) => {
-                RawReplaceableOrderPoolCommand::Order(order.into())
+                RawReplaceableOrderPoolCommand::Order((*order).clone().into())
             }
             ReplaceableOrderPoolCommand::CancelBundle(replacement_data) => {
                 RawReplaceableOrderPoolCommand::CancelBundle(replacement_data)
@@ -673,7 +674,7 @@ impl RawReplaceableOrderPoolCommandWithTimestamp {
             timestamp_ms: self.timestamp_ms,
             command: match self.command {
                 RawReplaceableOrderPoolCommand::Order(raw_order) => {
-                    ReplaceableOrderPoolCommand::Order(raw_order.decode(encoding)?)
+                    ReplaceableOrderPoolCommand::Order(Arc::new(raw_order.decode(encoding)?))
                 }
                 RawReplaceableOrderPoolCommand::CancelBundle(replacement_data) => {
                     ReplaceableOrderPoolCommand::CancelBundle(replacement_data)

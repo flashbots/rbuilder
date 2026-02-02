@@ -5,6 +5,7 @@ use rbuilder_primitives::{
     Bundle, MempoolTx, Metadata, Order, TransactionSignedEcRecoveredWithBlobs, LAST_BUNDLE_VERSION,
 };
 use reth_provider::test_utils::MockNodeTypesWithDB;
+use std::sync::Arc;
 use uuid::Uuid;
 
 use super::backtest_build_block::{run_backtest_build_block, BuildBlockCfg, OrdersSource};
@@ -75,7 +76,7 @@ impl<ConfigType: LiveBuilderConfig> SyntheticOrdersSource<ConfigType> {
             )));
             orders.push(OrdersWithTimestamp {
                 timestamp_ms: 0,
-                order,
+                order: Arc::new(order),
             });
         }
 
@@ -106,7 +107,7 @@ impl<ConfigType: LiveBuilderConfig> SyntheticOrdersSource<ConfigType> {
             bundle.hash_slow();
             orders.push(OrdersWithTimestamp {
                 timestamp_ms: 0,
-                order: Order::Bundle(bundle),
+                order: Arc::new(Order::Bundle(bundle)),
             });
         }
 

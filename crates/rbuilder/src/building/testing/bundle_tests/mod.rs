@@ -435,6 +435,7 @@ fn test_bundle_ok_inner_tx_profits() -> eyre::Result<()> {
 
 #[test]
 fn test_bundle_consistency_check() -> eyre::Result<()> {
+    use std::sync::Arc;
     let block_number = BlockArgs::MIN_BLOCK_NUMBER;
 
     let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().with_number(block_number))?;
@@ -454,11 +455,12 @@ fn test_bundle_consistency_check() -> eyre::Result<()> {
         )?;
 
         let mut res = test_setup.commit_order_ok();
+
         // break bundle by removing revertible tx hashes
         if let Order::Bundle(Bundle {
             reverting_tx_hashes,
             ..
-        }) = &mut res.order
+        }) = Arc::make_mut(&mut res.order)
         {
             reverting_tx_hashes.clear();
         } else {

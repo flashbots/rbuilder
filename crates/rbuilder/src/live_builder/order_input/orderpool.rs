@@ -11,6 +11,7 @@ use reth_primitives_traits::InMemorySize;
 use std::{
     collections::VecDeque,
     num::NonZeroUsize,
+    sync::Arc,
     time::{Duration, Instant},
 };
 use tokio::sync::mpsc::{self};
@@ -51,7 +52,7 @@ impl OrdersForBlock {
 #[repr(transparent)]
 struct BundleBlockStore {
     /// The stored orders
-    bundles: Vec<Order>,
+    bundles: Vec<Arc<Order>>,
 }
 
 /// A sink for [`ReplaceableOrderPoolCommand`] for a specific block. This sink
@@ -80,14 +81,14 @@ pub struct OrderPoolSubscriptionId(u64);
 /// progress sinks.
 #[derive(Debug)]
 pub struct OrderPool {
-    mempool_txs: Vec<(Order, Instant)>,
+    mempool_txs: Vec<(Arc<Order>, Instant)>,
     /// Sum of measure_tx(order) for all mempool_txs
     mempool_txs_size: usize,
     /// cancelled bundle, cancellation arrival time
     bundle_cancellations: VecDeque<(BundleReplacementData, Instant)>,
     bundles_by_target_block: HashMap<u64, BundleBlockStore>,
     /// Bundles with block == None. Always returned and cleaned on head_updated.
-    bundles_for_current_block: Vec<Order>,
+    bundles_for_current_block: Vec<Arc<Order>>,
     known_orders: LruCache<(OrderId, u64), ()>,
     sinks: HashMap<OrderPoolSubscriptionId, SinkSubscription>,
     next_sink_id: u64,
@@ -119,7 +120,7 @@ impl OrderPool {
         commands.into_iter().for_each(|oc| self.process_command(oc));
     }
 
-    fn process_order(&mut self, order: &Order) {
+    fn process_order(&mut self, order: &Arc<Order>) {
         let target_block = order.target_block();
         let order_id = order.id();
         if self
@@ -131,11 +132,11 @@ impl OrderPool {
         }
         trace!(?order_id, "Adding order");
 
-        let (order, target_block) = match &order {
+        let target_block = match order.as_ref() {
             Order::Tx(..) => {
-                self.mempool_txs.push((order.clone(), Instant::now()));
+                self.mempool_txs.push((Arc::clone(order), Instant::now()));
                 self.mempool_txs_size += Self::measure_tx(order);
-                (order, None)
+                None
             }
             Order::Bundle(bundle) => {
                 let target_block = bundle.block;
@@ -145,13 +146,13 @@ impl OrderPool {
                             .bundles_by_target_block
                             .entry(target_block)
                             .or_default();
-                        bundles_store.bundles.push(order.clone());
+                        bundles_store.bundles.push(Arc::clone(order));
                     }
                     None => {
-                        self.bundles_for_current_block.push(order.clone());
+                        self.bundles_for_current_block.push(Arc::clone(order));
                     }
                 };
-                (order, target_block)
+                target_block
             }
         };
         self.known_orders
@@ -174,7 +175,7 @@ impl OrderPool {
             }
             if target_block.is_none() || target_block == Some(sub.block_number) {
                 let send_ok = match command.clone() {
-                    ReplaceableOrderPoolCommand::Order(o) => sub.sink.insert_order(o),
+                    ReplaceableOrderPoolCommand::Order(o) => sub.sink.insert_order(Arc::clone(&o)),
                     ReplaceableOrderPoolCommand::CancelBundle(replacement_data) => {
                         sub.sink.remove_bundle(replacement_data)
                     }
@@ -193,7 +194,7 @@ impl OrderPool {
         block_number: u64,
         mut sink: Box<dyn ReplaceableOrderSink>,
     ) -> OrderPoolSubscriptionId {
-        for order in self.mempool_txs.iter().map(|(order, _)| order.clone()) {
+        for order in self.mempool_txs.iter().map(|(order, _)| Arc::clone(order)) {
             sink.insert_order(order);
         }
         for replacement_data in self.bundle_cancellations.iter().map(|(key, _)| key) {
@@ -201,13 +202,13 @@ impl OrderPool {
         }
 
         if let Some(bundle_store) = self.bundles_by_target_block.get(&block_number) {
-            for order in bundle_store.bundles.iter().cloned() {
-                sink.insert_order(order);
+            for order in bundle_store.bundles.iter() {
+                sink.insert_order(Arc::clone(order));
             }
         }
 
-        for bundle in self.bundles_for_current_block.iter().cloned() {
-            sink.insert_order(bundle);
+        for bundle in &self.bundles_for_current_block {
+            sink.insert_order(Arc::clone(bundle));
         }
 
         let res = OrderPoolSubscriptionId(self.next_sink_id);

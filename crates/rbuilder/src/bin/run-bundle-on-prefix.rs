@@ -215,11 +215,8 @@ async fn main() -> eyre::Result<()> {
             break;
         }
         let order = Order::Tx(MempoolTx::new(tx.clone()));
-        let sim_order = SimulatedOrder {
-            order,
-            sim_value: Default::default(),
-            used_state_trace: Default::default(),
-        };
+        let sim_order =
+            SimulatedOrder::new(Arc::new(order), Default::default(), Default::default());
         let res = builder.commit_order(&mut block_info.local_ctx, &sim_order, &|_| Ok(()))?;
         println!("{:?} {:?}", tx.hash(), res.is_ok());
     }
@@ -301,11 +298,11 @@ fn execute_orders_on_tob(
 ) -> eyre::Result<()> {
     for order_ts in target_orders {
         let mut builder = block_info.create_building_helper(false)?;
-        let sim_order = SimulatedOrder {
-            order: order_ts.order.clone(),
-            sim_value: Default::default(),
-            used_state_trace: Default::default(),
-        };
+        let sim_order = SimulatedOrder::new(
+            Arc::clone(&order_ts.order),
+            Default::default(),
+            Default::default(),
+        );
         let res = builder.commit_order(&mut block_info.local_ctx, &sim_order, &|_| Ok(()))?;
         let profit = res
             .as_ref()
