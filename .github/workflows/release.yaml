@@ -16,11 +16,6 @@ on:
         description: "Build Docker"
         required: false
         type: boolean
-      build-binary:
-        default: true
-        description: "Build Binary"
-        required: false
-        type: boolean
       build-linux:
         default: true
         description: "Build Linux"
@@ -73,8 +68,7 @@ jobs:
   build-binary:
     name: Build binary (${{ matrix.target }})
     needs: extract-version
-    # Run if build-binary enabled OR tag push
-    if: github.event.inputs.build-binary == 'true' || github.event_name == 'push'
+    # Always run - build-linux and build-mac control what actually gets built
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: write
@@ -263,10 +257,10 @@ jobs:
           echo "### Release Draft: ${{ env.VERSION }}" >> $GITHUB_STEP_SUMMARY
           echo "${{ steps.create-release-draft.outputs.url }}" >> $GITHUB_STEP_SUMMARY
 
-  build-docker:
+  build-docker-linux-amd64:
     if: ${{ github.event.inputs.build-docker == 'true' }}
-    name: Build and publish Docker image
-    needs: extract-version
+    name: Build and publish Docker image (linux/amd64)
+    needs: [extract-version, build-binary]
     runs-on: warp-ubuntu-2404-x64-16x
     env:
       VERSION: ${{ needs.extract-version.outputs.VERSION }}
@@ -278,8 +272,32 @@ jobs:
       - name: checkout sources
         uses: actions/checkout@v4
 
-      - name: docker qemu
-        uses: docker/setup-qemu-action@v3
+      - name: Download linux rbuilder binary
+        id: download-binary
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: rbuilder-${{ env.VERSION }}-x86_64-unknown-linux-gnu${{ github.event.inputs.features && format('-{0}', github.event.inputs.features) || '' }}
+          path: .
+
+      - name: Check if binary was downloaded
+        if: steps.download-binary.outcome != 'success'
+        run: |
+          echo "⚠️ Binary artifact not found. Will build from source."
+          echo "Artifact name attempted: rbuilder-${{ env.VERSION }}-x86_64-unknown-linux-gnu${{ github.event.inputs.features && format('-{0}', github.event.inputs.features) || '' }}"
+          echo "This is expected if build-binary job didn't run or Linux build was skipped."
+
+      - name: Verify binary exists
+        if: steps.download-binary.outcome == 'success'
+        run: |
+          if [ -f "./rbuilder" ]; then
+            echo "✅ Binary downloaded successfully"
+            ls -lh ./rbuilder
+          else
+            echo "❌ Binary file not found after download"
+            find . -name "rbuilder" -type f || echo "No rbuilder file found"
+            exit 1
+          fi
 
       - name: docker buildx
         uses: docker/setup-buildx-action@v3
@@ -291,13 +309,11 @@ jobs:
           images: ghcr.io/${{ github.repository }}
           labels: org.opencontainers.image.source=${{ github.repositoryUrl }}
           tags: |
-            type=sha
-            type=semver,pattern={{version}},value=${{ env.VERSION }}
-            type=semver,pattern={{major}}.{{minor}},value=${{ env.VERSION }}
-            type=semver,pattern={{major}},value=${{ env.VERSION }}
-
-            # Push latest tag for full version only, not for prerelease versions (i.e. not for v1.2.3-rc1)
-            type=raw,value=latest,enable=${{ !contains(env.VERSION, '-') }}
+            type=sha,suffix=-linux-amd64
+            type=semver,pattern={{version}},value=${{ env.VERSION }},suffix=-linux-amd64,enable=${{ startsWith(env.VERSION, 'v') }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ env.VERSION }},suffix=-linux-amd64,enable=${{ startsWith(env.VERSION, 'v') }}
+            type=semver,pattern={{major}},value=${{ env.VERSION }},suffix=-linux-amd64,enable=${{ startsWith(env.VERSION, 'v') }}
+            type=raw,value=latest,enable=${{ startsWith(env.VERSION, 'v') && !contains(env.VERSION, '-') }},suffix=-linux-amd64
 
       - name: docker login
         uses: docker/login-action@v3
@@ -306,7 +322,21 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: docker build and push
+      - name: docker build and push (from binary)
+        if: steps.download-binary.outcome == 'success'
+        uses: docker/build-push-action@v5
+        with:
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          file: docker/Dockerfile.rbuilder-from-binary
+          context: .
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+
+      - name: docker build and push (from source)
+        if: steps.download-binary.outcome != 'success'
         uses: docker/build-push-action@v5
         with:
           cache-from: type=gha
@@ -318,9 +348,135 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
 
+  build-docker-linux-arm64:
+    if: ${{ github.event.inputs.build-docker == 'true' }}
+    name: Build and publish Docker image (linux/arm64)
+    needs: [extract-version, build-binary]
+    runs-on: warp-ubuntu-2404-arm64-16x
+    env:
+      VERSION: ${{ needs.extract-version.outputs.VERSION }}
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: checkout sources
+        uses: actions/checkout@v4
+
+      - name: docker buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: docker metadata
+        uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ghcr.io/${{ github.repository }}
+          labels: org.opencontainers.image.source=${{ github.repositoryUrl }}
+          tags: |
+            type=sha,suffix=-linux-arm64
+            type=semver,pattern={{version}},value=${{ env.VERSION }},suffix=-linux-arm64,enable=${{ startsWith(env.VERSION, 'v') }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ env.VERSION }},suffix=-linux-arm64,enable=${{ startsWith(env.VERSION, 'v') }}
+            type=semver,pattern={{major}},value=${{ env.VERSION }},suffix=-linux-arm64,enable=${{ startsWith(env.VERSION, 'v') }}
+            type=raw,value=latest,enable=${{ startsWith(env.VERSION, 'v') && !contains(env.VERSION, '-') }},suffix=-linux-arm64
+
+      - name: docker login
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: docker build and push (from source, native arm64)
+        uses: docker/build-push-action@v5
+        with:
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          file: docker/Dockerfile.rbuilder
+          context: .
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+
+  build-docker-manifest:
+    if: ${{ github.event.inputs.build-docker == 'true' }}
+    name: Create multi-arch Docker manifest
+    needs: [extract-version, build-docker-linux-amd64, build-docker-linux-arm64]
+    runs-on: warp-ubuntu-2404-x64-16x
+    env:
+      VERSION: ${{ needs.extract-version.outputs.VERSION }}
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: docker buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: docker login
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push multi-arch manifest
+        run: |
+          IMAGE="ghcr.io/${{ github.repository }}"
+          
+          # Build list of tags - only create semver tags if version starts with 'v'
+          TAGS=(
+            "sha-${GITHUB_SHA:0:7}"
+          )
+          
+          # Only add version tags if it's a proper semver (starts with 'v')
+          if [[ "${{ env.VERSION }}" =~ ^v ]]; then
+            TAGS+=("${{ env.VERSION }}")
+            
+            # Add version tags (major.minor, major) if not a prerelease
+            if [[ "${{ env.VERSION }}" != *"-"* ]]; then
+              TAGS+=("latest")
+              # Extract major.minor if version format is vX.Y.Z
+              if [[ "${{ env.VERSION }}" =~ ^v([0-9]+)\.([0-9]+)\. ]]; then
+                MAJOR="${BASH_REMATCH[1]}"
+                MINOR="${BASH_REMATCH[2]}"
+                TAGS+=("${MAJOR}.${MINOR}" "${MAJOR}")
+              fi
+            fi
+          fi
+          
+          # Create multi-arch manifest for each tag combining both architectures
+          for TAG in "${TAGS[@]}"; do
+            echo "Creating multi-arch manifest for tag: ${TAG}"
+            
+            # Verify both platform-specific images exist before creating manifest
+            if ! docker buildx imagetools inspect "${IMAGE}:${TAG}-linux-amd64" >/dev/null 2>&1; then
+              echo "⚠️ Warning: ${IMAGE}:${TAG}-linux-amd64 not found, skipping this tag"
+              continue
+            fi
+            
+            if ! docker buildx imagetools inspect "${IMAGE}:${TAG}-linux-arm64" >/dev/null 2>&1; then
+              echo "⚠️ Warning: ${IMAGE}:${TAG}-linux-arm64 not found, skipping this tag"
+              continue
+            fi
+            
+            # Create the multi-arch manifest
+            docker buildx imagetools create \
+              --tag "${IMAGE}:${TAG}" \
+              "${IMAGE}:${TAG}-linux-amd64" \
+              "${IMAGE}:${TAG}-linux-arm64" || {
+              echo "❌ Failed to create manifest for ${TAG}"
+              exit 1
+            }
+            
+            echo "✅ Created manifest for ${TAG}"
+          done
+          
+          echo "✅ Multi-arch manifests created for all tags"
+
       - name: Write Docker Summary
         run: |
-          echo "### 🐳 Docker Images Published" >> $GITHUB_STEP_SUMMARY
+          echo "### 🐳 Multi-Arch Docker Images Published" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Package URL:** https://github.com/${{ github.repository }}/pkgs/container/rbuilder" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
