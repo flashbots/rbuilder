@@ -286,8 +286,14 @@ impl FixedTrie {
                             parent_child_idx = None;
 
                             let len = node.key.len();
-                            current_path.extend_from_slice_unchecked(&path_left[..len]);
-                            path_left.as_mut_vec_unchecked().drain(..len);
+                            let mut current_path_vec = current_path.to_vec();
+                            let path_left_vec = path_left.to_vec();
+                            current_path_vec.extend_from_slice(&path_left_vec[..len]);
+                            current_path = Nibbles::from_nibbles_unchecked(&current_path_vec);
+
+                            let mut path_left_vec = path_left.to_vec();
+                            path_left_vec.drain(..len);
+                            path_left = Nibbles::from_nibbles_unchecked(&path_left_vec);
 
                             if path_left.is_empty() {
                                 break;
@@ -455,11 +461,12 @@ impl FixedTrie {
                                         // orphan node is missing
                                         // we stepped into child above so the path is the path of current child and orphan child differs
                                         // only in last nibble
-                                        let mut path = c.current_path.clone();
-                                        path.as_mut_vec_unchecked()
+                                        let mut path_vec = c.current_path.to_vec();
+                                        path_vec
                                             .last_mut()
                                             .map(|n| *n = orphan_nibble)
                                             .unwrap();
+                                        let path = Nibbles::from_nibbles_unchecked(&path_vec);
                                         missing_nodes.push(path);
                                     }
                                 }

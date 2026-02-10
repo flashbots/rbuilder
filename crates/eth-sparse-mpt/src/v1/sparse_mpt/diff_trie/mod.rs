@@ -65,7 +65,7 @@ pub struct NodeCursor {
 
 impl NodeCursor {
     pub fn new(key: Nibbles, head: u64) -> Self {
-        let current_path = Nibbles::with_capacity(key.len());
+        let current_path = Nibbles::from_nibbles_unchecked(&vec![]);
         Self {
             current_node: head,
             current_path,
@@ -75,9 +75,14 @@ impl NodeCursor {
 
     pub fn step_into_extension(&mut self, ext: &DiffExtensionNode) {
         let len = ext.key().len();
-        self.current_path
-            .extend_from_slice_unchecked(&self.path_left[..len]);
-        self.path_left.as_mut_vec_unchecked().drain(..len);
+        let mut current_path_vec = self.current_path.to_vec();
+        let path_left_vec = self.path_left.to_vec();
+        current_path_vec.extend_from_slice(&path_left_vec[..len]);
+        self.current_path = Nibbles::from_nibbles_unchecked(&current_path_vec);
+
+        let mut path_left_vec = self.path_left.to_vec();
+        path_left_vec.drain(..len);
+        self.path_left = Nibbles::from_nibbles_unchecked(&path_left_vec);
         self.current_node = ext.child.ptr();
     }
 
@@ -332,10 +337,11 @@ impl DiffTrie {
                             .other_child_nibble(n)
                             .expect("other child must exist");
                         if branch.get_diff_child(other_child_nibble).is_none() {
-                            let mut other_child_path = c.current_path.clone();
-                            if let Some(l) = other_child_path.as_mut_vec_unchecked().last_mut() {
+                            let mut other_child_path_vec = c.current_path.to_vec();
+                            if let Some(l) = other_child_path_vec.last_mut() {
                                 *l = other_child_nibble;
                             }
+                            let other_child_path = Nibbles::from_nibbles_unchecked(&other_child_path_vec);
                             return Err(DeletionError::NodeNotFound(ErrSparseNodeNotFound {
                                 path: other_child_path,
                                 ptr: u64::MAX,
@@ -428,9 +434,10 @@ impl DiffTrie {
                             DiffTrieNodeKind::Leaf(leaf_below),
                         ) => {
                             // we just replace extension node by merging its path into leaf with child_nibble
-                            let mut new_leaf_key = ext_above.key().clone();
-                            new_leaf_key.push(*child_nibble);
-                            new_leaf_key.extend_from_slice_unchecked(leaf_below.key());
+                            let mut new_leaf_key_vec = ext_above.key().to_vec();
+                            new_leaf_key_vec.push(*child_nibble);
+                            new_leaf_key_vec.extend_from_slice(&leaf_below.key().to_vec());
+                            let new_leaf_key = Nibbles::from_nibbles_unchecked(&new_leaf_key_vec);
 
                             let mut new_leaf = leaf_below;
                             new_leaf.changed_key = Some(new_leaf_key);
@@ -441,9 +448,10 @@ impl DiffTrie {
                             DiffTrieNodeKind::Extension(ext_below),
                         ) => {
                             // we merge two extension nodes into current node with child_nibble
-                            let ext_key = ext_above.key_mut();
-                            ext_key.push(*child_nibble);
-                            ext_key.extend_from_slice_unchecked(ext_below.key());
+                            let mut ext_key_vec = ext_above.key().to_vec();
+                            ext_key_vec.push(*child_nibble);
+                            ext_key_vec.extend_from_slice(&ext_below.key().to_vec());
+                            *ext_above.key_mut() = Nibbles::from_nibbles_unchecked(&ext_key_vec);
 
                             ext_above.child = ext_below.child.clone();
                         }
@@ -469,10 +477,9 @@ impl DiffTrie {
                             DiffTrieNodeKind::Leaf(mut leaf_below),
                         ) => {
                             // merge missing nibble into the leaf
-                            leaf_below
-                                .key_mut()
-                                .as_mut_vec_unchecked()
-                                .insert(0, *child_nibble);
+                            let mut leaf_key_vec = leaf_below.key().to_vec();
+                            leaf_key_vec.insert(0, *child_nibble);
+                            *leaf_below.key_mut() = Nibbles::from_nibbles_unchecked(&leaf_key_vec);
 
                             let new_leaf_ptr = get_new_ptr(&mut self.ptrs);
                             let new_child = DiffTrieNode {
@@ -491,10 +498,9 @@ impl DiffTrie {
                             DiffTrieNodeKind::Extension(mut ext_below),
                         ) => {
                             // merge missing nibble into the extension
-                            ext_below
-                                .key_mut()
-                                .as_mut_vec_unchecked()
-                                .insert(0, *child_nibble);
+                            let mut ext_key_vec = ext_below.key().to_vec();
+                            ext_key_vec.insert(0, *child_nibble);
+                            *ext_below.key_mut() = Nibbles::from_nibbles_unchecked(&ext_key_vec);
                             let new_child_ptr = get_new_ptr(&mut self.ptrs);
                             let new_child = DiffTrieNode {
                                 kind: DiffTrieNodeKind::Extension(ext_below),
@@ -563,13 +569,15 @@ impl DiffTrie {
                     .expect("orphaned child existence verif");
                 match &mut child_below.kind {
                     DiffTrieNodeKind::Leaf(leaf) => {
-                        leaf.key_mut()
-                            .as_mut_vec_unchecked()
-                            .insert(0, child_nibble);
+                        let mut leaf_key_vec = leaf.key().to_vec();
+                        leaf_key_vec.insert(0, child_nibble);
+                        *leaf.key_mut() = Nibbles::from_nibbles_unchecked(&leaf_key_vec);
                         child_below.rlp_pointer = None;
                     }
                     DiffTrieNodeKind::Extension(ext) => {
-                        ext.key_mut().as_mut_vec_unchecked().insert(0, child_nibble);
+                        let mut ext_key_vec = ext.key().to_vec();
+                        ext_key_vec.insert(0, child_nibble);
+                        *ext.key_mut() = Nibbles::from_nibbles_unchecked(&ext_key_vec);
                         child_below.rlp_pointer = None;
                     }
                     DiffTrieNodeKind::Branch(_) => {

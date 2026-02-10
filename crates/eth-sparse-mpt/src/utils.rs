@@ -29,25 +29,27 @@ pub fn rlp_pointer(rlp_encode: Bytes) -> Bytes {
 }
 
 pub fn concat_path(p1: &Nibbles, p2: &[u8]) -> Nibbles {
-    let mut result = Nibbles::with_capacity(p1.len() + p2.len());
-    result.extend_from_slice_unchecked(p1);
-    result.extend_from_slice_unchecked(p2);
-    result
+    let mut result = p1.to_vec();
+    result.extend_from_slice(p2);
+    Nibbles::from_nibbles_unchecked(&result)
 }
 
 pub fn strip_first_nibble_mut(p: &mut Nibbles) -> u8 {
-    let nibble = p[0];
-    let vec = p.as_mut_vec_unchecked();
+    let mut vec = p.to_vec();
+    let nibble = vec[0];
     vec.remove(0);
+    *p = Nibbles::from_nibbles_unchecked(&vec);
     nibble
 }
 
 #[inline]
 pub fn extract_prefix_and_suffix(p1: &Nibbles, p2: &Nibbles) -> (Nibbles, Nibbles, Nibbles) {
+    let p1_vec = p1.to_vec();
+    let p2_vec = p2.to_vec();
     let prefix_len = p1.common_prefix_length(p2);
-    let prefix = Nibbles::from_nibbles_unchecked(&p1[..prefix_len]);
-    let suffix1 = Nibbles::from_nibbles_unchecked(&p1[prefix_len..]);
-    let suffix2 = Nibbles::from_nibbles_unchecked(&p2[prefix_len..]);
+    let prefix = Nibbles::from_nibbles_unchecked(&p1_vec[..prefix_len]);
+    let suffix1 = Nibbles::from_nibbles_unchecked(&p1_vec[prefix_len..]);
+    let suffix2 = Nibbles::from_nibbles_unchecked(&p2_vec[prefix_len..]);
 
     (prefix, suffix1, suffix2)
 }
@@ -147,5 +149,5 @@ pub fn convert_reth_nybbles_to_nibbles(n: reth_trie::Nibbles) -> Nibbles {
 
 #[inline]
 pub fn convert_nibbles_to_reth_nybbles(n: Nibbles) -> reth_trie::Nibbles {
-    reth_trie::Nibbles::from_nibbles(n.as_slice())
+    reth_trie::Nibbles::from_nibbles(n.to_vec())
 }
