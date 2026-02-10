@@ -213,9 +213,9 @@ impl<OrderPriorityType: OrderPriority> OrderIntakeConsumer<OrderPriorityType> {
             self.update_onchain_nonces()?;
             self.order_consumer
                 .apply_new_commands(&mut self.block_orders);
-            return Ok(Some(next_seq));
+            Ok(Some(next_seq))
         } else {
-            return Ok(None);
+            Ok(None)
         }
     }
 
