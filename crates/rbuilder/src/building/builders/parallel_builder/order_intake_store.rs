@@ -2,9 +2,8 @@ use std::sync::Arc;
 
 use tokio::sync::broadcast;
 
-use crate::{
-    building::{builders::OrderConsumer, SimulatedOrderStore},
-    live_builder::simulation::SimulatedOrderCommand,
+use crate::building::{
+    builders::OrderConsumer, journal::SimulatedOrderJournalCommand, SimulatedOrderStore,
 };
 use rbuilder_primitives::SimulatedOrder;
 
@@ -19,7 +18,7 @@ pub struct OrderIntakeStore {
 }
 
 impl OrderIntakeStore {
-    pub fn new(orders_input_stream: broadcast::Receiver<SimulatedOrderCommand>) -> Self {
+    pub fn new(orders_input_stream: broadcast::Receiver<SimulatedOrderJournalCommand>) -> Self {
         let order_sink = SimulatedOrderStore::new();
         Self {
             order_consumer: OrderConsumer::new(orders_input_stream),

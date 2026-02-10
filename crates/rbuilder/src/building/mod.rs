@@ -81,6 +81,7 @@ pub mod cached_reads;
 pub mod conflict;
 pub mod evm;
 pub mod fmt;
+pub mod journal;
 pub mod order_commit;
 pub mod payout_tx;
 pub mod precompile_cache;
