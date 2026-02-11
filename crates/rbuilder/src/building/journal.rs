@@ -1,4 +1,4 @@
-use crate::live_builder::simulation::SimulatedOrderCommand;
+use crate::live_builder::{payload_events::MevBoostSlotData, simulation::SimulatedOrderCommand};
 
 /// Sequence number of the SimulatedOrderCommand in the journal.
 /// Starts at 0 and increments by 1 for each SimulatedOrderCommand.
@@ -24,5 +24,21 @@ impl SimulatedOrderJournalCommand {
 
     pub fn command(&self) -> &SimulatedOrderCommand {
         &self.command
+    }
+}
+
+pub trait OrderJournalObserver: std::fmt::Debug {
+    fn order_delivered(&self, slot_data: &MevBoostSlotData, command: &SimulatedOrderJournalCommand);
+}
+
+#[derive(Debug)]
+pub struct NullOrderJournalObserver {}
+
+impl OrderJournalObserver for NullOrderJournalObserver {
+    fn order_delivered(
+        &self,
+        _slot_data: &MevBoostSlotData,
+        _command: &SimulatedOrderJournalCommand,
+    ) {
     }
 }

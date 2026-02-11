@@ -3,7 +3,7 @@ pub mod built_block_cache;
 use crate::{
     building::{
         builders::{BlockBuildingAlgorithm, BlockBuildingAlgorithmInput, BuiltBlockIdSource},
-        journal::SimulatedOrderJournalCommand,
+        journal::{OrderJournalObserver, SimulatedOrderJournalCommand},
         BlockBuildingContext,
     },
     live_builder::{
@@ -53,6 +53,7 @@ pub struct BlockBuildingPool<P> {
     run_sparse_trie_prefetcher: bool,
     order_flow_tracer_manager: Box<dyn OrderFlowTracerManager>,
     built_block_id_source: Arc<BuiltBlockIdSource>,
+    order_journal_observer: Arc<dyn OrderJournalObserver + Send + Sync>,
 }
 
 impl<P> BlockBuildingPool<P>
@@ -68,6 +69,7 @@ where
         order_simulation_pool: OrderSimulationPool<P>,
         run_sparse_trie_prefetcher: bool,
         order_flow_tracer_manager: Box<dyn OrderFlowTracerManager>,
+        order_journal_observer: Arc<dyn OrderJournalObserver + Send + Sync>,
     ) -> Self {
         BlockBuildingPool {
             provider,
@@ -78,6 +80,7 @@ where
             run_sparse_trie_prefetcher,
             order_flow_tracer_manager,
             built_block_id_source: Arc::new(BuiltBlockIdSource::new()),
+            order_journal_observer,
         }
     }
 
@@ -171,6 +174,7 @@ where
         mut input: SlotOrderSimResults,
         cancel: CancellationToken,
     ) {
+        let slot_data_copy = slot_data.clone();
         let built_block_cache = Arc::new(BuiltBlockCache::new());
         let builder_sink =
             self.sink_factory
@@ -218,6 +222,8 @@ where
             });
         }
 
+        let order_journal_observer = self.order_journal_observer.clone();
+
         thread::spawn(move || {
             let mut next_journal_sequence_number = 0;
             while let Some(input) = input.orders.blocking_recv() {
@@ -226,6 +232,7 @@ where
                 let journal_command =
                     SimulatedOrderJournalCommand::new(input, next_journal_sequence_number);
                 next_journal_sequence_number += 1;
+                order_journal_observer.order_delivered(&slot_data_copy, &journal_command);
                 // we don't create new subscribers to the broadcast so here we can be sure that err means end of receivers
                 if broadcast_input.send(journal_command).is_err() {
                     trace!("Cancelling simulated orders send job, destination stopped");
