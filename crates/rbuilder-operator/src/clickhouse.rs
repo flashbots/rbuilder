@@ -271,10 +271,14 @@ impl BackupNotTooBigRelaySubmissionPolicy {
 }
 
 impl RelaySubmissionPolicy for BackupNotTooBigRelaySubmissionPolicy {
+    /// We assume should_submit is not called super often so we can look at maps.
     fn should_submit(&self) -> bool {
         (CLICKHOUSE_DISK_BACKUP_SIZE_BYTES
             .with_label_values(&[BLOCKS_TABLE_NAME])
             .get() as u64)
+            + (CLICKHOUSE_DISK_BACKUP_SIZE_BYTES
+                .with_label_values(&[ORDER_JOURNAL_TABLE_NAME])
+                .get() as u64)
             < self.disk_max_size_to_submit
     }
 }
