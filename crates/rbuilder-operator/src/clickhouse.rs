@@ -102,6 +102,7 @@ pub struct BlockRow {
     /// These 2 should be Option but for clickhouse optimization we use defaults as null values.
     pub bid_to_beat_seen_time: i64,
     pub bid_to_beat_seen_relay: String,
+    pub next_journal_sequence_number: u32,
 }
 
 impl ClickhouseRowExt for BlockRow {
@@ -521,6 +522,7 @@ impl BidObserver for BuiltBlocksWriter {
                 triggering_bid_relay,
                 bid_to_beat_seen_time,
                 bid_to_beat_seen_relay,
+                next_journal_sequence_number: built_block_trace.next_journal_sequence_number as u32,
             };
             *block_uses += 1;
 
