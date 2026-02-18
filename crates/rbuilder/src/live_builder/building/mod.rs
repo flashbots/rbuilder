@@ -3,7 +3,7 @@ pub mod built_block_cache;
 use crate::{
     building::{
         builders::{BlockBuildingAlgorithm, BlockBuildingAlgorithmInput, BuiltBlockIdSource},
-        journal::{OrderJournalObserver, SimulatedOrderJournalCommand},
+        journal::{OrderJournalObserverFactory, SimulatedOrderJournalCommand},
         BlockBuildingContext,
     },
     live_builder::{
@@ -26,7 +26,7 @@ use std::{
 };
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 /// Interval for checking if last block still corresponds to the parent of the given block building context
 const CHECK_LAST_BLOCK_INTERVAL: Duration = Duration::from_millis(100);
@@ -53,7 +53,7 @@ pub struct BlockBuildingPool<P> {
     run_sparse_trie_prefetcher: bool,
     order_flow_tracer_manager: Box<dyn OrderFlowTracerManager>,
     built_block_id_source: Arc<BuiltBlockIdSource>,
-    order_journal_observer: Arc<dyn OrderJournalObserver + Send + Sync>,
+    order_journal_observer_factory: Box<dyn OrderJournalObserverFactory + Send + Sync>,
 }
 
 impl<P> BlockBuildingPool<P>
@@ -69,7 +69,7 @@ where
         order_simulation_pool: OrderSimulationPool<P>,
         run_sparse_trie_prefetcher: bool,
         order_flow_tracer_manager: Box<dyn OrderFlowTracerManager>,
-        order_journal_observer: Arc<dyn OrderJournalObserver + Send + Sync>,
+        order_journal_observer_factory: Box<dyn OrderJournalObserverFactory + Send + Sync>,
     ) -> Self {
         BlockBuildingPool {
             provider,
@@ -80,7 +80,7 @@ where
             run_sparse_trie_prefetcher,
             order_flow_tracer_manager,
             built_block_id_source: Arc::new(BuiltBlockIdSource::new()),
-            order_journal_observer,
+            order_journal_observer_factory,
         }
     }
 
@@ -174,7 +174,20 @@ where
         mut input: SlotOrderSimResults,
         cancel: CancellationToken,
     ) {
-        let slot_data_copy = slot_data.clone();
+        let order_journal_observer = match self
+            .order_journal_observer_factory
+            .create_observer(&slot_data)
+        {
+            Ok(order_journal_observer) => order_journal_observer,
+            Err(err) => {
+                error!(
+                    ?err,
+                    "Failed to create order journal observer, cancelling building job"
+                );
+                cancel.cancel();
+                return;
+            }
+        };
         let built_block_cache = Arc::new(BuiltBlockCache::new());
         let builder_sink =
             self.sink_factory
@@ -222,8 +235,6 @@ where
             });
         }
 
-        let order_journal_observer = self.order_journal_observer.clone();
-
         thread::spawn(move || {
             let mut next_journal_sequence_number = 0;
             while let Some(input) = input.orders.blocking_recv() {
@@ -232,7 +243,7 @@ where
                 let journal_command =
                     SimulatedOrderJournalCommand::new(input, next_journal_sequence_number);
                 next_journal_sequence_number += 1;
-                order_journal_observer.order_delivered(&slot_data_copy, &journal_command);
+                order_journal_observer.order_delivered(&journal_command);
                 // we don't create new subscribers to the broadcast so here we can be sure that err means end of receivers
                 if broadcast_input.send(journal_command).is_err() {
                     trace!("Cancelling simulated orders send job, destination stopped");

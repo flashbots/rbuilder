@@ -9582,6 +9582,7 @@ dependencies = [
  "built",
  "clickhouse",
  "ctor",
+ "dashmap 6.1.0",
  "derivative",
  "exponential-backoff",
  "eyre",

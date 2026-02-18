@@ -1,4 +1,12 @@
+use thiserror::Error;
+
 use crate::live_builder::{payload_events::MevBoostSlotData, simulation::SimulatedOrderCommand};
+
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("slot already in progress")]
+    SlotAlreadyInProgress,
+}
 
 /// Sequence number of the SimulatedOrderCommand in the journal.
 /// Starts at 0 and increments by 1 for each SimulatedOrderCommand.
@@ -27,18 +35,32 @@ impl SimulatedOrderJournalCommand {
     }
 }
 
+pub trait OrderJournalObserverFactory: std::fmt::Debug {
+    fn create_observer(
+        &self,
+        slot_data: &MevBoostSlotData,
+    ) -> Result<Box<dyn OrderJournalObserver + Send + Sync>, Error>;
+}
+
 pub trait OrderJournalObserver: std::fmt::Debug {
-    fn order_delivered(&self, slot_data: &MevBoostSlotData, command: &SimulatedOrderJournalCommand);
+    fn order_delivered(&self, command: &SimulatedOrderJournalCommand);
+}
+
+#[derive(Debug)]
+pub struct NullOrderJournalObserverFactory {}
+
+impl OrderJournalObserverFactory for NullOrderJournalObserverFactory {
+    fn create_observer(
+        &self,
+        _slot_data: &MevBoostSlotData,
+    ) -> Result<Box<dyn OrderJournalObserver + Send + Sync>, Error> {
+        Ok(Box::new(NullOrderJournalObserver {}))
+    }
 }
 
 #[derive(Debug)]
 pub struct NullOrderJournalObserver {}
 
 impl OrderJournalObserver for NullOrderJournalObserver {
-    fn order_delivered(
-        &self,
-        _slot_data: &MevBoostSlotData,
-        _command: &SimulatedOrderJournalCommand,
-    ) {
-    }
+    fn order_delivered(&self, _command: &SimulatedOrderJournalCommand) {}
 }

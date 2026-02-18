@@ -1,14 +1,15 @@
 //! Clickhouse integration to save all the blocks we build and submit to relays,
 //! and to record the order journal (add/remove events) to the `available_orders_journal` table.
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
-
 use alloy_primitives::{utils::format_ether, Address, B256, U256};
 use alloy_rpc_types_beacon::relay::SubmitBlockRequest as AlloySubmitBlockRequest;
 use clickhouse::{Client, Row};
+use dashmap::DashSet;
 use rbuilder::{
     building::{
-        journal::{OrderJournalObserver, SimulatedOrderJournalCommand},
+        journal::{
+            Error, OrderJournalObserver, OrderJournalObserverFactory, SimulatedOrderJournalCommand,
+        },
         BuiltBlockTrace,
     },
     live_builder::{
@@ -32,6 +33,7 @@ use rbuilder_utils::clickhouse::{
 use rbuilder_utils::tasks::TaskExecutor;
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use time::OffsetDateTime;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -536,14 +538,23 @@ impl BidObserver for BuiltBlocksWriter {
 /// Channel size for the order journal. Orders are small and arrive frequently.
 const ORDER_JOURNAL_CHANNEL_SIZE: usize = 10 * 1024;
 
-/// Writes order journal events (Add/Remove) to the `available_orders_journal` ClickHouse table.
-#[derive(Debug)]
-pub struct OrderJournalWriter {
-    journal_tx: mpsc::Sender<OrderJournalRow>,
-    builder_name: String,
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+struct SlotKey {
+    slot_number: u64,
+    parent_block: B256,
 }
 
-impl OrderJournalWriter {
+/// Factory that creates OrderJournalWriters for each slot.
+#[derive(Debug)]
+pub struct OrderJournalWriterFactory {
+    journal_tx: mpsc::Sender<OrderJournalRow>,
+    builder_name: String,
+    /// Alive OrderJournalWriters. Set in OrderJournalWriterFactory::create_observer removed on OrderJournalWriter::drop.
+    /// We never allow 2 simultaneous OrderJournalWriters for the same slot.
+    active_slots: Arc<DashSet<SlotKey>>,
+}
+
+impl OrderJournalWriterFactory {
     /// Creates the writer and spawns the background ClickHouse inserter + backup tasks.
     /// Returns `(Self, JoinHandle<()>)` where the handle should be awaited during shutdown.
     pub fn new(
@@ -578,18 +589,46 @@ impl OrderJournalWriter {
             Self {
                 journal_tx,
                 builder_name,
+                active_slots: Arc::new(DashSet::new()),
             },
             shutdown_handle,
         )
     }
 }
 
-impl OrderJournalObserver for OrderJournalWriter {
-    fn order_delivered(
+impl OrderJournalObserverFactory for OrderJournalWriterFactory {
+    fn create_observer(
         &self,
         slot_data: &MevBoostSlotData,
-        command: &SimulatedOrderJournalCommand,
-    ) {
+    ) -> Result<Box<dyn OrderJournalObserver + Send + Sync>, Error> {
+        let slot_key = SlotKey {
+            slot_number: slot_data.slot(),
+            parent_block: slot_data.parent_block_hash(),
+        };
+        if !self.active_slots.insert(slot_key.clone()) {
+            return Err(Error::SlotAlreadyInProgress);
+        }
+        let writer = OrderJournalWriter {
+            journal_tx: self.journal_tx.clone(),
+            builder_name: self.builder_name.clone(),
+            slot_key,
+            active_slots: self.active_slots.clone(),
+        };
+        Ok(Box::new(writer))
+    }
+}
+
+/// Writes order journal events (Add/Remove) to the `available_orders_journal` ClickHouse table.
+#[derive(Debug)]
+struct OrderJournalWriter {
+    journal_tx: mpsc::Sender<OrderJournalRow>,
+    builder_name: String,
+    slot_key: SlotKey,
+    active_slots: Arc<DashSet<SlotKey>>,
+}
+
+impl OrderJournalObserver for OrderJournalWriter {
+    fn order_delivered(&self, command: &SimulatedOrderJournalCommand) {
         let (order_id, operation_type) = match command.command() {
             SimulatedOrderCommand::Simulation(sim_order) => {
                 (sim_order.id(), OrderJournalOperationType::Add)
@@ -604,8 +643,8 @@ impl OrderJournalObserver for OrderJournalWriter {
 
         let row = OrderJournalRow {
             server_id: self.builder_name.clone(),
-            slot_number: slot_data.slot(),
-            parent_block: slot_data.parent_block_hash(),
+            slot_number: self.slot_key.slot_number,
+            parent_block: self.slot_key.parent_block,
             order_type,
             order_hash: order_id.fixed_bytes(),
             operation_type,
@@ -616,5 +655,11 @@ impl OrderJournalObserver for OrderJournalWriter {
         if let Err(err) = self.journal_tx.try_send(row) {
             error!(?err, "Failed to send order journal row to clickhouse");
         }
+    }
+}
+
+impl Drop for OrderJournalWriter {
+    fn drop(&mut self) {
+        self.active_slots.remove(&self.slot_key);
     }
 }

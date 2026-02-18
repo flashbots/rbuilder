@@ -14,7 +14,8 @@ pub mod watchdog;
 
 use crate::{
     building::{
-        builders::BlockBuildingAlgorithm, journal::OrderJournalObserver, BlockBuildingContext,
+        builders::BlockBuildingAlgorithm, journal::OrderJournalObserverFactory,
+        BlockBuildingContext,
     },
     live_builder::{
         order_flow_tracing::order_flow_tracer_manager::OrderFlowTracerManager,
@@ -145,7 +146,7 @@ where
     pub simulation_use_random_coinbase: bool,
 
     pub order_flow_tracer_manager: Box<dyn OrderFlowTracerManager>,
-    pub order_journal_observer: Arc<dyn OrderJournalObserver + Send + Sync>,
+    pub order_journal_observer_factory: Box<dyn OrderJournalObserverFactory + Send + Sync>,
 }
 
 impl<P> LiveBuilder<P>
@@ -160,12 +161,12 @@ where
         Self { builders, ..self }
     }
 
-    pub fn with_order_journal_observer(
+    pub fn with_order_journal_observer_factory(
         self,
-        order_journal_observer: Arc<dyn OrderJournalObserver + Send + Sync>,
+        order_journal_observer_factory: Box<dyn OrderJournalObserverFactory + Send + Sync>,
     ) -> Self {
         Self {
-            order_journal_observer,
+            order_journal_observer_factory,
             ..self
         }
     }
@@ -259,7 +260,7 @@ where
             order_simulation_pool,
             self.run_sparse_trie_prefetcher,
             self.order_flow_tracer_manager,
-            self.order_journal_observer,
+            self.order_journal_observer_factory,
         );
 
         ready_to_build.store(true, Ordering::Relaxed);

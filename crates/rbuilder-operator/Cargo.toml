@@ -85,6 +85,7 @@ lazy_static.workspace = true
 ahash.workspace = true
 tokio-stream = { version = "0.1", features = ["net"] }
 serde_repr = "0.1.20"
+dashmap = { version = "6.1.0"}
 
 [features]
 test-utils = []

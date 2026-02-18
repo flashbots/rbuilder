@@ -10,6 +10,7 @@ use jsonrpsee::RpcModule;
 use rbuilder::{
     building::{
         builders::{parallel_builder::parallel_build_backtest, BacktestSimulateBlockInput, Block},
+        journal::{NullOrderJournalObserverFactory, OrderJournalObserverFactory},
         order_priority::{FullProfitInfoGetter, NonMempoolProfitInfoGetter},
         BuiltBlockTrace, PartialBlockExecutionTracer,
     },
@@ -43,14 +44,13 @@ use crate::{
     bidding_service_wrapper::client::bidding_service_client_adapter::BiddingServiceClientAdapter,
     build_info::rbuilder_version,
     clickhouse::{
-        create_relay_submission_policy, BuiltBlocksWriter, OrderJournalWriter,
+        create_relay_submission_policy, BuiltBlocksWriter, OrderJournalWriterFactory,
         DEFAULT_END_TIMEOUT_MS, DEFAULT_MAX_MEMORY_SIZE_MB, DEFAULT_SEND_TIMEOUT_MS, MEGA,
     },
     true_block_value_push::best_true_value_observer::BestTrueValueObserver,
 };
 
 use clickhouse::Client;
-use rbuilder::building::journal::{NullOrderJournalObserver, OrderJournalObserver};
 use rbuilder_utils::clickhouse::backup::{DiskBackup, DiskBackupConfig};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tokio::task::JoinHandle;
@@ -177,9 +177,14 @@ impl LiveBuilderConfig for FlashbotsConfig {
             )
             .await?;
 
-        let (bid_observer, submission_policy, order_journal_observer, clickhouse_shutdown_handles) =
-            self.create_bid_observer_and_submission_policy(&cancellation_token, &abort_token)
-                .await?;
+        let (
+            bid_observer,
+            submission_policy,
+            order_journal_observer_factory,
+            clickhouse_shutdown_handles,
+        ) = self
+            .create_bid_observer_and_submission_policy(&cancellation_token, &abort_token)
+            .await?;
 
         let (
             sink_factory,
@@ -222,7 +227,7 @@ impl LiveBuilderConfig for FlashbotsConfig {
         })?;
         let live_builder = live_builder
             .with_extra_rpc(module)
-            .with_order_journal_observer(order_journal_observer);
+            .with_order_journal_observer_factory(order_journal_observer_factory);
         let builders = create_builders(
             self.live_builders()?,
             self.base_config.max_order_execution_duration_warning(),
@@ -345,7 +350,7 @@ impl FlashbotsConfig {
     ) -> eyre::Result<(
         Option<Box<dyn BidObserver + Send + Sync>>,
         Box<dyn RelaySubmissionPolicy + Send + Sync>,
-        Arc<dyn OrderJournalObserver + Send + Sync>,
+        Box<dyn OrderJournalObserverFactory + Send + Sync>,
         Vec<JoinHandle<()>>,
     )> {
         if let Some(config) = &self.built_blocks_clickhouse_config {
@@ -375,7 +380,7 @@ impl FlashbotsConfig {
                 end_timeout,
             );
 
-            let (journal_writer, journal_handle) = OrderJournalWriter::new(
+            let (journal_writer, journal_handle) = OrderJournalWriterFactory::new(
                 &client,
                 &task_executor,
                 disk_backup,
@@ -388,7 +393,7 @@ impl FlashbotsConfig {
             Ok((
                 Some(Box::new(writer)),
                 submission_policy,
-                Arc::new(journal_writer),
+                Box::new(journal_writer),
                 vec![blocks_handle, journal_handle],
             ))
         } else {
@@ -398,7 +403,7 @@ impl FlashbotsConfig {
             Ok((
                 None,
                 Box::new(AlwaysSubmitPolicy {}),
-                Arc::new(NullOrderJournalObserver {}),
+                Box::new(NullOrderJournalObserverFactory {}),
                 vec![],
             ))
         }
@@ -456,7 +461,7 @@ impl FlashbotsConfig {
     ) -> eyre::Result<(
         Box<dyn BidObserver + Send + Sync>,
         Box<dyn RelaySubmissionPolicy + Send + Sync>,
-        Arc<dyn OrderJournalObserver + Send + Sync>,
+        Box<dyn OrderJournalObserverFactory + Send + Sync>,
         Vec<JoinHandle<()>>,
     )> {
         let block_processor_key = if let Some(key_registration_url) = &self.key_registration_url {
@@ -471,7 +476,7 @@ impl FlashbotsConfig {
         let (
             clickhouse_writer,
             submission_policy,
-            order_journal_observer,
+            order_journal_observer_factory,
             clickhouse_shutdown_handles,
         ) = self.create_clickhouse_writer_and_submission_policy(
             clickhouse_abort_token,
@@ -484,7 +489,7 @@ impl FlashbotsConfig {
         Ok((
             Box::new(bid_observer),
             submission_policy,
-            order_journal_observer,
+            order_journal_observer_factory,
             clickhouse_shutdown_handles,
         ))
     }
