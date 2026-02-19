@@ -76,6 +76,7 @@ Every field has a default if omitted.
 |RelayConfig.adjustment_fee_payer|optional string| Address that pays bid adjustment fees for this relay.|None|
 |RelayConfig.submit_config.optimistic_v3|bool| Use optimistic V3 submissions for this relay.|false|
 |RelayConfig.submit_config.optimistic_v3_bid_adjustment_required|bool| Whether bid adjustments are required for optimistic V3.|false|
+|RelayConfig.submit_config.optimistic_collateral_eth|optional string| Do not use optimistic V3 when bid value is above this (ETH). None = no cap.|None|
 |RelayConfig.is_bloxroute|bool|Set to `true` for bloxroute relays to add extra headers.|false|
 |RelayConfig.bloxroute_rproxy_regions|vec[string]| Bloxroute rproxy regions to try, in order of preference.|[]|
 |RelayConfig.bloxroute_rproxy_only|bool| If true, only submit to bloxroute rproxy endpoints when available.|false|

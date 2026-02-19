@@ -135,6 +135,9 @@ pub struct RelaySubmitConfig {
     /// Max bid we can submit to this relay. Any bid above this will be skipped.
     /// None -> No limit.
     pub max_bid_eth: Option<String>,
+    /// Do not use optimistic V3 when bid value is above this (ETH). None -> no cap.
+    #[serde(default)]
+    pub optimistic_collateral_eth: Option<String>,
 }
 
 impl RelayConfig {
@@ -258,6 +261,8 @@ pub struct MevBoostRelayBidSubmitter {
     /// Max bid we can submit to this relay. Any bid above this will be skipped.
     /// None -> No limit.
     max_bid: Option<U256>,
+    /// Do not use optimistic V3 when bid value is above this. None -> no cap.
+    optimistic_collateral: Option<U256>,
     /// This is not a real relay so we can send blocks to it even if it does not have any validator registered.
     test_relay: bool,
 }
@@ -275,6 +280,12 @@ impl MevBoostRelayBidSubmitter {
             .map(|s| parse_ether(s))
             .transpose()
             .map_err(|e| eyre::eyre!("Failed to parse max bid: {}", e))?;
+        let optimistic_collateral = config
+            .optimistic_collateral_eth
+            .as_ref()
+            .map(|s| parse_ether(s))
+            .transpose()
+            .map_err(|e| eyre::eyre!("Failed to parse optimistic collateral: {}", e))?;
         let submission_rate_limiter = config.interval_between_submissions_ms.map(|d| {
             Arc::new(RateLimiter::direct(
                 Quota::with_period(Duration::from_millis(d)).expect("Rate limiter time period"),
@@ -291,6 +302,7 @@ impl MevBoostRelayBidSubmitter {
             optimistic_v3: config.optimistic_v3,
             optimistic_v3_bid_adjustment_required: config.optimistic_v3_bid_adjustment_required,
             max_bid,
+            optimistic_collateral,
             test_relay,
         })
     }
@@ -317,6 +329,10 @@ impl MevBoostRelayBidSubmitter {
 
     pub fn max_bid(&self) -> Option<U256> {
         self.max_bid
+    }
+
+    pub fn optimistic_collateral(&self) -> Option<U256> {
+        self.optimistic_collateral
     }
 
     /// false -> rate limiter don't allow

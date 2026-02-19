@@ -426,7 +426,9 @@ fn submit_block_to_relays(
             .and_then(|fee_payer| bid_adjustments.get(&fee_payer));
 
         let mut optimistic_v3 = None;
-        if relay.optimistic_v3() {
+        if relay.optimistic_v3()
+            && relay.optimistic_collateral().map_or(true, |cap| bid_value <= cap)
+        {
             if let Some(config) = optimistic_v3_config {
                 optimistic_v3 = create_optimistic_v3_request(
                     &config.builder_url,
