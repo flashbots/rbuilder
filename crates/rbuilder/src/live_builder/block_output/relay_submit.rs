@@ -436,9 +436,8 @@ fn submit_block_to_relays(
                     cap = format_ether(relay.optimistic_v3_max_bid().unwrap()),
                     "Optimistic V3 disabled: bid exceeds max bid cap"
                 );
-            } else {
-                if let Some(config) = optimistic_v3_config {
-                    optimistic_v3 = create_optimistic_v3_request(
+            } else if let Some(config) = optimistic_v3_config {
+                optimistic_v3 = create_optimistic_v3_request(
                         &config.builder_url,
                         request.as_ref(),
                         maybe_adjustment_data,
@@ -452,7 +451,6 @@ fn submit_block_to_relays(
                         error!(parent: submission_span, ?error, "Unable to create optimistic V3 request");
                     })
                     .ok();
-                }
             }
         }
 
