@@ -143,8 +143,6 @@ pub enum OrderJournalOrderType {
 }
 
 /// Enum matching ClickHouse `Enum8('Add' = 0, 'Remove' = 1)`.
-
-/// Enum matching ClickHouse `Enum8('Add' = 1, 'Remove' = 2)`.
 #[derive(Debug, Clone, Copy, Serialize_repr, Deserialize_repr)]
 #[repr(i8)]
 pub enum OrderJournalOperationType {
@@ -159,9 +157,9 @@ pub enum OrderJournalOperationType {
 ///   server_id       LowCardinality(String)
 ///   slot_number     UInt64
 ///   parent_block    FixedString(32)
-///   order_type      Enum8('Tx' = 1, 'Bundle' = 2)
+///   order_type      Enum8('Tx' = 0, 'Bundle' = 1)
 ///   order_hash      FixedString(32)
-///   operation_type  Enum8('Add' = 1, 'Remove' = 2)
+///   operation_type  Enum8('Add' = 0, 'Remove' = 1)
 ///   sequence_number UInt32
 ///   timestamp       DateTime64(6)
 #[derive(Debug, Clone, Serialize, Deserialize, Row)]
