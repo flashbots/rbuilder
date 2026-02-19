@@ -134,13 +134,15 @@ impl ClickhouseIndexableData for BlockRow {
     }
 }
 
-/// Enum matching ClickHouse `Enum8('Tx' = 1, 'Bundle' = 2)`.
+/// Enum matching ClickHouse `Enum8('Tx' = 0, 'Bundle' = 1)`.
 #[derive(Debug, Clone, Copy, Serialize_repr, Deserialize_repr)]
 #[repr(i8)]
 pub enum OrderJournalOrderType {
     Tx = 0,
     Bundle = 1,
 }
+
+/// Enum matching ClickHouse `Enum8('Add' = 0, 'Remove' = 1)`.
 
 /// Enum matching ClickHouse `Enum8('Add' = 1, 'Remove' = 2)`.
 #[derive(Debug, Clone, Copy, Serialize_repr, Deserialize_repr)]
