@@ -1,49 +1,55 @@
-# rbuilder
+# vbuilder
 
-[![CI status](https://github.com/flashbots/rbuilder/actions/workflows/checks.yaml/badge.svg?branch=develop)](https://github.com/flashbots/rbuilder/actions/workflows/checks.yaml)
-[![Telegram Chat](https://img.shields.io/endpoint?color=neon&logo=telegram&label=Chat&url=https%3A%2F%2Ftg.sumanjay.workers.dev%2Fflashbots_rbuilder)](https://t.me/flashbots_rbuilder)
-[![GitHub Release](https://img.shields.io/github/v/release/flashbots/rbuilder?label=Release)](https://github.com/flashbots/rbuilder/releases)
+An AI-maintained Ethereum MEV-Boost block builder, forked from [flashbots/rbuilder](https://github.com/flashbots/rbuilder).
 
-rbuilder is an open-source, blazingly fast, cutting edge implementation of a Ethereum MEV-Boost block builder written in Rust.
-It is designed to provide a delightful developer experience, enabling community members to contribute and researchers to use rbuilder to study block building.
+vbuilder is the "vibe block builder" — an experiment in using AI agents to develop and maintain a production-grade block builder. The codebase tracks upstream rbuilder and extends it with AI-driven development infrastructure, automated testing harnesses, and documentation-first workflows.
 
-#### Features
-- **Multiple algorithms**: Can be upgraded to handle several block building algorithms. The included algorithm builds blocks by sorting the orders by either effective gas price or total profit and then trying (they might fail!) to execute them to create the block. For more details see [ordering_builder.rs](crates/rbuilder/src/building/builders/ordering_builder.rs)
-- **Backtesting**: support for quick and easy backtesting on mempool transactions and other data
-- **Bundle merging**: bundles that target transactions which have already been included in a pending block can be dropped if they are marked in `reverting_tx_hashes`.
-- **Smart nonce management**: identifies and smartly handles nonce dependencies between bundles and transactions
-- **Using [Reth](https://github.com/paradigmxyz/reth/)**: leverages fast, efficient and user-friendly Ethereum node written in Rust
-- Reproducible builds
+> **Upstream**: vbuilder regularly syncs with [flashbots/rbuilder](https://github.com/flashbots/rbuilder). See the [Origin Plan](docs/plans/000-origin-plan.md) for the sync strategy.
 
-## Running rbuilder
+## Project Status
 
-rbuilder can be run in two modes:
-- **Backtesting**: build blocks on historical data. rbuilder leverages the mempool-dumpster's
-open database of transactions to let anyone easily backtest block building on previous blocks.
-- **Live**: build and submit blocks to MEV-Boost relays in real time.
+See [`PLAN.md`](PLAN.md) for the full roadmap and current priorities.
+
+| Phase | Title            | Status  |
+| ----- | ---------------- | ------- |
+| 1     | Foundation       | pending |
+| 2     | CI/CD Upgrade    | pending |
+| 3     | Bot Deployment   | pending |
+| 4     | Testing Harness  | pending |
+| 5     | Self-Improvement | pending |
+
+## Features
+
+Inherited from rbuilder:
+
+- **Multiple algorithms**: Pluggable block building algorithms. The included algorithm sorts orders by effective gas price or total profit. See [ordering_builder.rs](crates/rbuilder/src/building/builders/ordering_builder.rs)
+- **Backtesting**: Quick backtesting on mempool transactions and historical data
+- **Bundle merging**: Bundles targeting already-included transactions can be dropped via `reverting_tx_hashes`
+- **Smart nonce management**: Identifies and handles nonce dependencies between bundles and transactions
+- **Built on [Reth](https://github.com/paradigmxyz/reth/)**: Fast, efficient Ethereum execution client in Rust
+- **Reproducible builds**
+
+## Running vbuilder
+
+vbuilder can run in two modes:
 
 ### Backtesting
-rbuilder supports backtesting against historical blocks.
-It does this by using the [mempool-dumpster](https://mempool-dumpster.flashbots.net/index.html) for historical mempool transactions to let anyone run rbuilder.
-If you have historical bundles, you can also plug that in for testing purposes.
-Moreover, rbuilder pulls the on-chain block to compare local block building against what actually landed.
-Finally, rbuilder stores historical data locally in an SQLite database to support rapid testing and iteration,
 
-For more details on how to use rbuilder for backtesting, see https://github.com/flashbots/rbuilder/wiki/Noob-Guide-for-Backtesting
+Build blocks against historical data using [mempool-dumpster](https://mempool-dumpster.flashbots.net/index.html) for historical mempool transactions. Plug in historical bundles for testing, and compare local block building against what actually landed on-chain. Results are cached in a local SQLite database for rapid iteration.
+
+For details: [Noob Guide for Backtesting](https://github.com/flashbots/rbuilder/wiki/Noob-Guide-for-Backtesting)
 
 ### Live
 
-To run rbuilder you need:
-* Reth node for state. (`reth_datadir`)
-* Reth node must expose ipc interface for mempool tx subscription (`el_node_ipc_path`).
-* Reth node must be configured to flush every block (--engine.persistence-threshold "0" --engine.memory-block-buffer-target "0")
-* CL node that triggers new payload events (it must be additionally configured to trigger payload event every single time).
-* Source of bundles that sends `eth_sendBundle`, `mev_sendBundle`, `eth_sendRawTransaction` as JSON rpc calls. (`jsonrpc_server_port`)
-  (by default rbuilder will take raw txs from the reth node mempool)
-* Relays so submit to (`relays`)
+Requirements:
+- Reth node for state (`reth_datadir`) with IPC interface for mempool tx subscription (`el_node_ipc_path`)
+- Reth configured to flush every block: `--engine.persistence-threshold "0" --engine.memory-block-buffer-target "0"`
+- CL node triggering new payload events on every slot
+- Bundle source sending `eth_sendBundle`, `mev_sendBundle`, `eth_sendRawTransaction` as JSON-RPC (`jsonrpc_server_port`)
+- Relays to submit to (`relays`)
 
-A sample configuration for running Lighthouse and triggering payload events would be:
-```
+Sample Lighthouse config:
+```bash
 ./target/maxperf/lighthouse bn \
     --network mainnet \
     --execution-endpoint http://localhost:8551 \
@@ -56,9 +62,10 @@ A sample configuration for running Lighthouse and triggering payload events woul
     --prepare-payload-lookahead 8000 \
     --suggested-fee-recipient 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045
 ```
-and for reth:
-```
-/usr/local/bin/reth node \
+
+Sample Reth config:
+```bash
+reth node \
     --datadir /mnt/md0/rethdata \
     --authrpc.jwtsecret /secrets/jwt.hex \
     --authrpc.addr 127.0.0.1 \
@@ -72,62 +79,23 @@ and for reth:
     --ws.api trace,web3,eth,debug \
     --engine.persistence-threshold "0" --engine.memory-block-buffer-target "0"
 ```
-Additionally, you can:
-* configure block processor API as a sink for submitted blocks (`blocks_processor_url`)
-* setup Prometheus / Grafana for metrics (served on `telemetry_port` + `/debug/metrics/prometheus`)
-* record traces of all events happening inside the builder (`tracing_path`, served on `telemetry_port` + `/debug/tracing/{start,stop}`)
 
+Optional:
+- Block processor API as a sink for submitted blocks (`blocks_processor_url`)
+- Prometheus / Grafana for metrics (served on `telemetry_port` + `/debug/metrics/prometheus`)
+- Trace recording (`tracing_path`, served on `telemetry_port` + `/debug/tracing/{start,stop}`)
 
 Running:
-1. Prepare config file based on the [`config-live-example.toml`](./examples/config/rbuilder/config-live-example.toml)
+1. Prepare config based on [`config-live-example.toml`](./examples/config/rbuilder/config-live-example.toml)
 2. Run `rbuilder run PATH_TO_CONFIG_FILE`
-See [`config file fields`](./docs/CONFIG.md) for more detailed info.
-**Warning**: Even if they are rare, before running a builder you should be aware of [`reorg losses`](./docs/REORG_LOSSES.md).
 
-### Benchmarking
+See [`CONFIG.md`](./docs/CONFIG.md) for config field details.
 
-rbuilder has a solid initial benchmarking setup (based on [Criterion.rs](https://github.com/bheisler/criterion.rs)).
+**Warning**: Be aware of potential [reorg losses](./docs/REORG_LOSSES.md) before running a builder in production.
 
-- All PRs receive a [benchmark report like this](https://flashbots-rbuilder-ci-stats.s3.us-east-2.amazonaws.com/benchmark/3b22d52-f468712/report/index.html).
-- You can run benchmarks with `make bench` and open the Criterion-generated report with `make bench-report-open`.
-- Benchmarks are located in [`crates/rbuilder/benches`](./crates/rbuilder/benches/). We'd love to add more meaningful benchmarks there!
-- Let us know about further improvement ideas and additional relevant benchmarks.
+### End-to-End Local Testing
 
-### Testing with a fake relay
-
-This repo includes a `test-relay` tool for testing live builders without submitting blocks to live production relays. This standalone binary implements the MEV-Boost Relay API required for builder to function. The test-relay only performs block validation and compares profits between builders who submit blocks to it, without actually sending blocks to the network.
-
-The test relay exposes several Prometheus metrics about the blocks it received.
-
-Example of how to use test relay:
-
-```bash
-./test-relay \
-    --relay "https://boost-relay-hoodi.flashbots.net" \
-    --validation-url "http://localhost:8545" \
-    --cl-clients "http://localhost:5052" 
-```
-For relay flag, instead of Hoodi, you can use:
-
-- Mainnet: [https://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@boost-relay.flashbots.net/](https://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@boost-relay.flashbots.net/)
-- Sepolia: [https://boost-relay-sepolia.flashbots.net/](https://boost-relay-sepolia.flashbots.net/)
-
-When validation-url is passed, blocks produced by the `rbuilder` are validated by the EL node. This node must support Flashbots validation API (e.g. `flashbots_validateBuilderSubmissionV3`).
-
-For rbuilder to use fake (`test-relay`), config.toml must include it as (one of) the relays. Example:
-
-```TOML
-[[relays]]
-name = "flashbots-test"
-url = "http://localhost:80"
-priority = 0
-```
-
-### End-to-end local testing
-
-You can use [builder-playground](https://github.com/flashbots/builder-playground) to deploy a fully functional local setup for the builder ([Lighthouse](https://github.com/sigp/lighthouse) consensus client (proposer + validator) + [Reth](https://github.com/paradigmxyz/reth/) execution client + [MEV-Boost-Relay](https://github.com/flashbots/mev-boost-relay))) to test rbuilder.
-
-First, start [builder-playground](https://github.com/flashbots/builder-playground):
+Use [builder-playground](https://github.com/flashbots/builder-playground) to deploy a fully functional local setup (Lighthouse + Reth + MEV-Boost-Relay):
 
 ```bash
 git clone git@github.com:flashbots/builder-playground.git
@@ -135,125 +103,92 @@ cd builder-playground
 go run main.go
 ```
 
-Next, update [`config-playground.toml`](./examples/config/rbuilder/config-playground.toml) with fully-qualified paths for entries containing `$HOME`:
-
+Update [`config-playground.toml`](./examples/config/rbuilder/config-playground.toml) with fully-qualified paths:
 ```bash
-# replaces '$HOME' with the actual value of "$HOME"
 sed -i "s|\$HOME|$HOME|g" ./examples/config/rbuilder/config-playground.toml
 ```
 
-Then run `rbuilder` using the `config-playground.toml` config file:
-
+Run vbuilder:
 ```bash
 cargo run --bin rbuilder run ./examples/config/rbuilder/config-playground.toml
 ```
 
-You can query the local relay for proposed blocks like this:
-
+Query the local relay:
 ```bash
 curl http://localhost:5555/relay/v1/data/bidtraces/proposer_payload_delivered
 ```
 
-### Reproducible builds
+### Testing with a Fake Relay
 
-You only need to set the `SOURCE_DATE_EPOCH` environment variable to ensure that the build is reproducible:
+The `test-relay` binary implements the MEV-Boost Relay API for testing without submitting to production relays. It validates blocks and compares profits between builders.
 
 ```bash
-# Use last commit timestamp as the build date
-$ export SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)
-
-# build #1
-$ rm -rf target/
-$ cargo build --release
-$ sha256sum target/release/rbuilder
-d92ac33b94e16ed4a035b9dd52108fe78bd9bb160a91fced8e439f59b84c3207  target/release/rbuilder
-
-# build #2
-$ rm -rf target/
-$ cargo build --release
-$ sha256sum target/release/rbuilder
-d92ac33b94e16ed4a035b9dd52108fe78bd9bb160a91fced8e439f59b84c3207  target/release/rbuilder
+./test-relay \
+    --relay "https://boost-relay-hoodi.flashbots.net" \
+    --validation-url "http://localhost:8545" \
+    --cl-clients "http://localhost:5052"
 ```
 
----
+Configure rbuilder to use it:
+```toml
+[[relays]]
+name = "flashbots-test"
+url = "http://localhost:80"
+priority = 0
+```
 
-## Release Stability and Development Process
+### Benchmarking
 
-rbuilder is running in production at Flashbots since Q1 2024, and is reasonably stable. It is under active (and sometimes heavy) development, as we are constantly adding new features and improvements.
-
-We encourage users to choose the version that best fits their needs: the latest stable release for production use, or the `develop` branch for those who want to test the latest features and are comfortable with potential instability.
-
-### Develop Branch
-The `develop` branch is our main integration branch for ongoing development:
-- We frequently merge pull requests into this branch.
-- While we strive for quality, the `develop` branch may occasionally be unstable.
-- There are no guarantees that code in this branch is fully tested or production-ready.
-
-### Stable Releases
-For users seeking stability:
-- We recommend using the latest tagged release.
-- Each release undergoes thorough testing in production environments before publication.
-- Tagged releases offer a higher level of reliability and are suitable for production use.
-- You can find the stable releases at [github.com/flashbots/rbuilder/releases](https://github.com/flashbots/rbuilder/releases)
-
-### Release Cadence
-
-We plan to cut a stable release at least once a month, but this may vary depending on the volume of changes and the stability of the codebase. To get notified, watch the repository, and you'll get an email notification on new releases.
-
----
-
-## Contributing
-
-We welcome contributions to rbuilder! Our contributor guidelines can be found in [`CONTRIBUTING.md`](./CONTRIBUTING.md).
-
-
-Start by cloning the repo, and running a few common commands:
+Based on [Criterion.rs](https://github.com/bheisler/criterion.rs). Benchmarks live in [`crates/rbuilder/benches`](./crates/rbuilder/benches/).
 
 ```bash
-git clone git@github.com:flashbots/rbuilder.git
-cd rbuilder
-
-# Run linter
-make lint
-
-# Run tests
-make test
-
-# Run benchmarks and open the report
 make bench
 make bench-report-open
 ```
 
----
+### Reproducible Builds
+
+Set `SOURCE_DATE_EPOCH` for reproducible output:
+```bash
+export SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)
+cargo build --release
+```
+
+## Binaries
+
+| Binary                      | Description                                                  |
+|-----------------------------|--------------------------------------------------------------|
+| `rbuilder`                  | Live block builder                                           |
+| `backtest-build-block`      | Backtest a single block                                      |
+| `backtest-build-range`      | Backtest a range of blocks                                   |
+| `backtest-fetch`            | Download backtesting data                                    |
+| `dummy-builder`             | Sample builder showing custom `BlockBuildingSink` and algorithm |
+| `misc-relays-slot`          | Show winning bid info for a block                            |
+| `debug-bench-machine`       | Test execution performance                                   |
+| `debug-order-input`         | Observe bundle and transaction input                         |
+| `debug-order-sim`           | Observe bundle and transaction simulation                    |
+| `debug-slot-data-generator` | Show new payload jobs from CL with relay data                |
+| `test-relay`                | Test MEV-Boost relay for block validation                    |
+
+## Contributing
+
+```bash
+git clone git@github.com:dmarzzz/vbuilder.git
+cd vbuilder
+
+make lint    # Run linter
+make test    # Run tests
+make bench   # Run benchmarks
+```
+
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for guidelines.
 
 ## Security
 
 See [`SECURITY.md`](./SECURITY.md)
 
----
-
 ## Acknowledgements
 
-Big shoutout to the [Reth](https://github.com/paradigmxyz/reth) team for building a kick-ass Ethereum node.
-
-
----
-
-## Various notes
-
-`make build` builds a bunch of additional binaries:
-
-
-| Binary                      | Description                                                                                           |
-|-----------------------------|-------------------------------------------------------------------------------------------------------|
-| `rbuilder`                  | Live block builder                                                                                    |
-| `backtest-build-block`      | Run backtests for a single block                                                                      |
-| `backtest-build-range`      | Run backtests for a range of block                                                                    |
-| `backtest-fetch`            | Download data for backtesting                                                                         |
-| `dummy-builder`             | Simple sample builder to show how to plugin a custom `BlockBuildingSink` and `BlockBuildingAlgorithm` |
-| `misc-relays-slot`          | Shows info about winning bid for the block                                                            |
-| `debug-bench-machine`       | Tests execution performance                                                                           |
-| `debug-order-input`         | Observe input of the bundles and transactions                                                         |
-| `debug-order-sim`           | Observe simulation of the bundles and transactions                                                    |
-| `debug-slot-data-generator` | Shows new payload jobs coming from CL with attached data from relays.                                 |
-| `test-relay`                | Test MEV-boost relay that accepts blocks and validates them.                                          |
+- [flashbots/rbuilder](https://github.com/flashbots/rbuilder) — the upstream block builder this fork is based on
+- [Reth](https://github.com/paradigmxyz/reth) — the Ethereum execution client powering the builder
+- [vibehouse](https://github.com/dapplion/vibehouse) — inspiration for the documentation-driven AI development approach
