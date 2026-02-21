@@ -29,3 +29,4 @@ Every plan should include a frontmatter block and the following sections:
 | #   | Title                              | Status | Author  | Created    |
 | --- | ---------------------------------- | ------ | ------- | ---------- |
 | 000 | [Origin Plan](000-origin-plan.md)  | active | halcyon | 2026-02-20 |
+| 001 | [Integration Test Scenarios](001-integration-test-scenarios.md) | active | claude-code | 2026-02-21 |

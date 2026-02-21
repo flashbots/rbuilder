@@ -1,4 +1,11 @@
 name: Claude Issues Assistant
+
+# Read-only issue assistant. Responds to @claude mentions on issues (not PRs).
+# This is for Q&A only — it cannot create PRs or push code.
+#
+# Note: claude-issue-agent.yaml handles labeled issues (claude/agent-safe)
+# for autonomous implementation. This workflow is for discussion only.
+
 on:
   issues:
     types: [opened, assigned]
@@ -22,7 +29,7 @@ jobs:
       issues: write
       id-token: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 1
       - uses: anthropics/claude-code-action@v1

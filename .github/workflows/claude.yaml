@@ -1,4 +1,16 @@
 name: Claude Assistant
+
+# General PR review + @claude interactive responses.
+# - claude-review: auto-reviews every same-repo PR
+# - claude-manual-review: triggered by "@claude review" comment
+# - claude-response: interactive @claude mentions on PRs
+#
+# Related workflows:
+# - security-review.yaml: focused safety review for bidding/relay/blocklist/signing paths
+#   PRs touching safety-critical paths get BOTH this general review AND the security review.
+# - claude-issue-agent.yaml: autonomous issue implementation (triggered by label, not PR)
+# - claude-issues-ro.yaml: read-only issue Q&A (triggered by @claude in issues)
+
 on:
   issue_comment: # Pull Request is just an issue with code it github's terms.
     types: [created]
@@ -22,7 +34,7 @@ jobs:
       group: claude-review-${{ github.event.pull_request.number }}
       cancel-in-progress: true
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 1
       - uses: anthropics/claude-code-action@v1
@@ -75,7 +87,7 @@ jobs:
       group: claude-manual-review-${{ github.event.issue.number }}
       cancel-in-progress: true
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 1
       - name: Checkout PR branch
@@ -137,7 +149,7 @@ jobs:
       )
     runs-on: warp-ubuntu-latest-x64-8x
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 1
       - name: Checkout PR branch (if on a PR)
