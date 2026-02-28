@@ -26,6 +26,7 @@ pub mod fetch;
 pub mod trie;
 
 const PARALLEL_HASHING_STORAGE_NODES: bool = true;
+const MAX_PROCESS_ITERS: usize = 10;
 
 pub type SharedCacheV3 = SharedCacheV2;
 pub type RootHashCalculatorV3 = RootHashCalculator;
@@ -993,7 +994,7 @@ impl RootHashCalculator {
         }
 
         let mut loop_break = false;
-        for _ in 0..10 {
+        for _ in 0..MAX_PROCESS_ITERS {
             stats.start();
             let ok = self.process_storage_tries_updates()?;
             stats.measure_insert(true);
@@ -1009,7 +1010,11 @@ impl RootHashCalculator {
             loop_break = true;
             break;
         }
-        assert!(loop_break, "storage trie are not processed after 10 iters");
+        if !loop_break {
+            return Err(SparseTrieError::Other(eyre::eyre!(
+                "storage tries did not converge after {MAX_PROCESS_ITERS} iterations"
+            )));
+        }
 
         stats.start();
         self.prepare_changes_account_trie(proof_targets);
@@ -1017,7 +1022,7 @@ impl RootHashCalculator {
 
         let mut loop_break = false;
         let mut root_hash = B256::ZERO;
-        for _ in 0..10 {
+        for _ in 0..MAX_PROCESS_ITERS {
             stats.start();
             let ok = self.process_account_tries_update()?;
             stats.measure_insert(false);
@@ -1033,10 +1038,14 @@ impl RootHashCalculator {
             loop_break = true;
             break;
         }
-        assert!(loop_break, "account trie are not processed after 10 iters");
+        if !loop_break {
+            return Err(SparseTrieError::Other(eyre::eyre!(
+                "account trie updates did not converge after {MAX_PROCESS_ITERS} iterations"
+            )));
+        }
 
         let mut loop_break = false;
-        for _ in 0..10 {
+        for _ in 0..MAX_PROCESS_ITERS {
             stats.start();
             let ok = self.process_account_trie_proofs(&shared_cache)?;
             stats.measure_other();
@@ -1058,10 +1067,11 @@ impl RootHashCalculator {
             loop_break = true;
             break;
         }
-        assert!(
-            loop_break,
-            "account trie proofs are not processed after 10 iters"
-        );
+        if !loop_break {
+            return Err(SparseTrieError::Other(eyre::eyre!(
+                "account trie proofs did not converge after {MAX_PROCESS_ITERS} iterations"
+            )));
+        }
 
         let mut proofs = HashMap::default();
         for (address, proof) in self.account_trie.proof_result.drain(..) {
