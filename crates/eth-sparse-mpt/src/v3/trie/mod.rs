@@ -841,9 +841,8 @@ impl Trie {
             .expect("root_hash_node: node not found");
         match node {
             DiffTrieNode::Branch { children } => {
-                let compute_children_this_thread = if !parallel {
-                    true
-                } else if depth >= PARALLEL_SPAWN_MAX_DEPTH {
+                let compute_children_this_thread = if !parallel || depth >= PARALLEL_SPAWN_MAX_DEPTH
+                {
                     true
                 } else {
                     let mut local_children = 0usize;
