@@ -22,19 +22,19 @@ nybbles = { version = "0.3.3", features = ["serde"] }
 tracing.workspace = true
 
 # reth
-reth-chainspec.workspace = true
-reth-db.workspace = true
-reth-evm.workspace = true
-reth-evm-ethereum.workspace = true
+reth-chainspec = { workspace = true, optional = true }
+reth-db = { workspace = true, optional = true }
+reth-evm = { workspace = true, optional = true }
+reth-evm-ethereum = { workspace = true, optional = true }
 reth-errors.workspace = true
 reth-execution-errors.workspace = true
-reth-node-api.workspace = true
-reth-node-ethereum.workspace = true
+reth-node-api = { workspace = true, optional = true }
+reth-node-ethereum = { workspace = true, optional = true }
 reth-trie.workspace = true
-reth-trie-parallel.workspace = true
+reth-trie-parallel = { workspace = true, optional = true }
 reth-trie-db.workspace = true
 reth-provider.workspace = true
-reth-revm.workspace = true
+reth-revm = { workspace = true, optional = true }
 
 # revm
 revm.workspace = true
@@ -56,6 +56,16 @@ flate2 = { workspace = true, optional = true }
 
 [features]
 benchmark-utils = ["dep:hash-db", "dep:triehash", "dep:flate2"]
+dev-tools = [
+    "dep:reth-chainspec",
+    "dep:reth-db",
+    "dep:reth-evm",
+    "dep:reth-evm-ethereum",
+    "dep:reth-node-api",
+    "dep:reth-node-ethereum",
+    "dep:reth-trie-parallel",
+    "dep:reth-revm",
+]
 
 [dev-dependencies]
 criterion = { workspace = true, features = ["html_reports"] }
@@ -78,3 +88,18 @@ harness = false
 [[bench]]
 name = "trie_do_bench"
 harness = false
+
+[[bin]]
+name = "correctness-harness"
+path = "src/bin/correctness-harness.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "cache-warm-compare"
+path = "src/bin/cache-warm-compare.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "correct_and_bench"
+path = "src/bin/correct_and_bench.rs"
+required-features = ["dev-tools"]
