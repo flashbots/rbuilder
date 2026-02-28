@@ -22,11 +22,19 @@ nybbles = { version = "0.3.3", features = ["serde"] }
 tracing.workspace = true
 
 # reth
+reth-chainspec.workspace = true
+reth-db.workspace = true
+reth-evm.workspace = true
+reth-evm-ethereum.workspace = true
 reth-errors.workspace = true
 reth-execution-errors.workspace = true
+reth-node-api.workspace = true
+reth-node-ethereum.workspace = true
 reth-trie.workspace = true
+reth-trie-parallel.workspace = true
 reth-trie-db.workspace = true
 reth-provider.workspace = true
+reth-revm.workspace = true
 
 # revm
 revm.workspace = true
@@ -70,4 +78,3 @@ harness = false
 [[bench]]
 name = "trie_do_bench"
 harness = false
-

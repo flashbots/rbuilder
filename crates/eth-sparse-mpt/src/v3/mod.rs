@@ -27,6 +27,9 @@ pub mod trie;
 
 const PARALLEL_HASHING_STORAGE_NODES: bool = true;
 
+pub type SharedCacheV3 = SharedCacheV2;
+pub type RootHashCalculatorV3 = RootHashCalculator;
+
 #[derive(Debug, Default, Clone)]
 pub struct SharedCacheV2 {
     pub account_trie: ProofStore,
