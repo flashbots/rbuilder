@@ -395,7 +395,7 @@ fn open_provider_factory(
             DatabaseArguments::new(ClientVersion::default())
                 .with_max_read_transaction_duration(Some(MaxReadTransactionDuration::Unbounded)),
         )
-            .with_context(|| format!("failed to open reth db at {}", db_path.display()))?,
+        .with_context(|| format!("failed to open reth db at {}", db_path.display()))?,
     );
 
     let static_files =
