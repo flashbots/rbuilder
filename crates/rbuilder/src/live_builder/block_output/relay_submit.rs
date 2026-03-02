@@ -427,13 +427,13 @@ fn submit_block_to_relays(
 
         let mut optimistic_v3 = None;
         if relay.optimistic_v3() {
-            if relay
+            if let Some(cap) = relay
                 .optimistic_v3_max_bid()
-                .is_some_and(|cap| bid_value > cap)
+                .filter(|&cap| bid_value >= cap)
             {
                 info!(
                     bid_value = format_ether(bid_value),
-                    cap = format_ether(relay.optimistic_v3_max_bid().unwrap()),
+                    cap = format_ether(cap),
                     "Optimistic V3 disabled: bid exceeds max bid cap"
                 );
             } else if let Some(config) = optimistic_v3_config {
