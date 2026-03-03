@@ -569,6 +569,7 @@ fn group_rows_into_block_data(
                     ),
                     sealed_at: timestamp_ms_to_offset_datetime(sealed_at_ts_ms as u64),
                     profit,
+                    journal_metadata: None,
                 },
             ))
         })
@@ -785,6 +786,7 @@ mod test {
                 .unwrap(),
             sealed_at: OffsetDateTime::from_unix_timestamp_nanos(1719845355123000000).unwrap(),
             profit: I256::try_from(42).unwrap(),
+            journal_metadata: None,
         };
         let block_data = FullSlotBlockData::new(
             12,

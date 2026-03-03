@@ -17,7 +17,7 @@ use std::sync::Arc;
 use crate::{mev_boost::BuilderBlockReceived, utils::offset_datetime_to_timestamp_ms};
 use alloy_consensus::Transaction as TransactionTrait;
 use alloy_network_primitives::TransactionResponse;
-use alloy_primitives::{TxHash, I256};
+use alloy_primitives::{TxHash, B256, I256};
 use alloy_rpc_types::{BlockTransactions, Transaction};
 pub use fetch::HistoricalDataFetcher;
 use rbuilder_primitives::{
@@ -50,6 +50,15 @@ pub struct OrdersWithTimestamp {
     pub order: Arc<Order>,
 }
 
+/// Metadata needed to replay the order journal for a built block.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JournalMetadata {
+    pub builder_name: String,
+    pub slot: u64,
+    pub parent_hash: B256,
+    pub next_journal_sequence_number: u32,
+}
+
 /// Historic data for a block.
 /// Used for backtesting.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,6 +67,7 @@ pub struct BuiltBlockData {
     pub orders_closed_at: OffsetDateTime,
     pub sealed_at: OffsetDateTime,
     pub profit: I256,
+    pub journal_metadata: Option<JournalMetadata>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
