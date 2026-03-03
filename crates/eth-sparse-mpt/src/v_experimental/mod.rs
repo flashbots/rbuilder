@@ -26,13 +26,9 @@ pub mod fetch;
 pub mod trie;
 
 const PARALLEL_HASHING_STORAGE_NODES: bool = true;
-const MAX_PROCESS_ITERS: usize = 10;
 
 pub type SharedCacheVExperimental = SharedCacheV2;
 pub type RootHashCalculatorExperimental = RootHashCalculator;
-
-pub type SharedCacheV3 = SharedCacheVExperimental;
-pub type RootHashCalculatorV3 = RootHashCalculatorExperimental;
 
 #[derive(Debug, Default, Clone)]
 pub struct SharedCacheV2 {
@@ -518,8 +514,9 @@ impl RootHashCalculator {
                 None => {
                     match storage_calc.trie.delete_nibbles_key(&applied_op.revert_key) {
                         Ok(_) => None,
-                        // Deleting an already-missing key is a no-op revert.
-                        Err(DeletionError::KeyNotFound) => None,
+                        Err(DeletionError::KeyNotFound) => {
+                            eyre::bail!("reverting nodes, can't delete key that is not in the trie (storage)");
+                        }
                         Err(DeletionError::NodeNotFound(node_not_found)) => Some(node_not_found.0),
                     }
                 }
@@ -589,8 +586,7 @@ impl RootHashCalculator {
                     storage_calc.missing_nodes.push(missing_node);
                 }
                 Err(DeletionError::KeyNotFound) => {
-                    // Deleting a non-existent key does not change trie state.
-                    storage_calc.delete_ok[i] = true;
+                    eyre::bail!("Deleting key that is not in the trie");
                 }
             }
         }
@@ -804,8 +800,9 @@ impl RootHashCalculator {
                 None => {
                     match account_trie.trie.delete_nibbles_key(&applied_op.revert_key) {
                         Ok(_) => None,
-                        // Deleting an already-missing key is a no-op revert.
-                        Err(DeletionError::KeyNotFound) => None,
+                        Err(DeletionError::KeyNotFound) => {
+                            eyre::bail!("reverting nodes, can't delete key that is not in the trie (accounts)");
+                        }
                         Err(DeletionError::NodeNotFound(node_not_found)) => Some(node_not_found.0),
                     }
                 }
@@ -874,8 +871,7 @@ impl RootHashCalculator {
                     account_trie.missing_nodes.push(missing_node);
                 }
                 Err(DeletionError::KeyNotFound) => {
-                    // Deleting a non-existent account key does not change trie state.
-                    account_trie.delete_ok[i] = true;
+                    eyre::bail!("Deleting key that is not in the trie (account trie)");
                 }
             }
         }
@@ -997,7 +993,7 @@ impl RootHashCalculator {
         }
 
         let mut loop_break = false;
-        for _ in 0..MAX_PROCESS_ITERS {
+        for _ in 0..10 {
             stats.start();
             let ok = self.process_storage_tries_updates()?;
             stats.measure_insert(true);
@@ -1013,11 +1009,7 @@ impl RootHashCalculator {
             loop_break = true;
             break;
         }
-        if !loop_break {
-            return Err(SparseTrieError::Other(eyre::eyre!(
-                "storage tries did not converge after {MAX_PROCESS_ITERS} iterations"
-            )));
-        }
+        assert!(loop_break, "storage trie are not processed after 10 iters");
 
         stats.start();
         self.prepare_changes_account_trie(proof_targets);
@@ -1025,7 +1017,7 @@ impl RootHashCalculator {
 
         let mut loop_break = false;
         let mut root_hash = B256::ZERO;
-        for _ in 0..MAX_PROCESS_ITERS {
+        for _ in 0..10 {
             stats.start();
             let ok = self.process_account_tries_update()?;
             stats.measure_insert(false);
@@ -1041,14 +1033,10 @@ impl RootHashCalculator {
             loop_break = true;
             break;
         }
-        if !loop_break {
-            return Err(SparseTrieError::Other(eyre::eyre!(
-                "account trie updates did not converge after {MAX_PROCESS_ITERS} iterations"
-            )));
-        }
+        assert!(loop_break, "account trie are not processed after 10 iters");
 
         let mut loop_break = false;
-        for _ in 0..MAX_PROCESS_ITERS {
+        for _ in 0..10 {
             stats.start();
             let ok = self.process_account_trie_proofs(&shared_cache)?;
             stats.measure_other();
@@ -1070,11 +1058,10 @@ impl RootHashCalculator {
             loop_break = true;
             break;
         }
-        if !loop_break {
-            return Err(SparseTrieError::Other(eyre::eyre!(
-                "account trie proofs did not converge after {MAX_PROCESS_ITERS} iterations"
-            )));
-        }
+        assert!(
+            loop_break,
+            "account trie proofs are not processed after 10 iters"
+        );
 
         let mut proofs = HashMap::default();
         for (address, proof) in self.account_trie.proof_result.drain(..) {
