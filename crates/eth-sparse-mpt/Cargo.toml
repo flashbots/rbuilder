@@ -89,6 +89,10 @@ harness = false
 name = "trie_do_bench"
 harness = false
 
+[[bench]]
+name = "trie_bench_v2_v3"
+harness = false
+
 [[bin]]
 name = "correctness-harness"
 path = "src/bin/correctness-harness.rs"
