@@ -138,7 +138,7 @@ struct BuiltBlockInfo {
 /// How submission works:
 /// 0. We divide relays into optimistic and non-optimistic (defined in config file)
 /// 1. We schedule submissions with non-optimistic key for all non-optimistic relays.
-///    1.1 If "optimistic_enabled" is false or bid_value >= "optimistic_max_bid_value" we schedule submissions with non-optimistic key
+///    1.1 If "optimistic_enabled" is false or bid_value >= "optimistic_v3_max_bid_eth" we schedule submissions with non-optimistic key
 ///    returns the best bid made
 #[allow(clippy::too_many_arguments)]
 async fn run_submit_to_relays_job(
@@ -427,21 +427,30 @@ fn submit_block_to_relays(
 
         let mut optimistic_v3 = None;
         if relay.optimistic_v3() {
-            if let Some(config) = optimistic_v3_config {
+            if let Some(cap) = relay
+                .optimistic_v3_max_bid()
+                .filter(|&cap| bid_value >= cap)
+            {
+                info!(
+                    bid_value = format_ether(bid_value),
+                    cap = format_ether(cap),
+                    "Optimistic V3 disabled: bid exceeds max bid cap"
+                );
+            } else if let Some(config) = optimistic_v3_config {
                 optimistic_v3 = create_optimistic_v3_request(
-                    &config.builder_url,
-                    request.as_ref(),
-                    maybe_adjustment_data,
-                    relay.optimistic_v3_bid_adjustment_required(),
-                )
-                .map(|request| (config.clone(), SubmitHeaderRequestWithMetadata {
-                    submission: request,
-                    metadata: bid_metadata.clone()
-                }))
-                .inspect_err(|error| {
-                    error!(parent: submission_span, ?error, "Unable to create optimistic V3 request");
-                })
-                .ok();
+                        &config.builder_url,
+                        request.as_ref(),
+                        maybe_adjustment_data,
+                        relay.optimistic_v3_bid_adjustment_required(),
+                    )
+                    .map(|request| (config.clone(), SubmitHeaderRequestWithMetadata {
+                        submission: request,
+                        metadata: bid_metadata.clone()
+                    }))
+                    .inspect_err(|error| {
+                        error!(parent: submission_span, ?error, "Unable to create optimistic V3 request");
+                    })
+                    .ok();
             }
         }
 
