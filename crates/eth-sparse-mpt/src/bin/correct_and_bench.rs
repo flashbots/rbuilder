@@ -69,7 +69,7 @@ fn run_cache_warm(
     cli: &Cli,
     append_csv: bool,
     csv_iteration: Option<usize>,
-    v3_root_correct: bool,
+    v_experimental_root_correct: bool,
 ) -> Result<()> {
     println!();
     let mut summary = format!(
@@ -86,7 +86,10 @@ fn run_cache_warm(
         }
         if let Some(iteration) = csv_iteration {
             summary.push_str(&format!(" --csv-iteration {iteration}"));
-            summary.push_str(&format!(" --v3-root-correct {}", v3_root_correct));
+            summary.push_str(&format!(
+                " --v-experimental-root-correct {}",
+                v_experimental_root_correct
+            ));
         }
     }
     println!("{summary}");
@@ -105,8 +108,12 @@ fn run_cache_warm(
         }
         if let Some(iteration) = csv_iteration {
             cmd.arg("--csv-iteration").arg(iteration.to_string());
-            cmd.arg("--v3-root-correct")
-                .arg(if v3_root_correct { "true" } else { "false" });
+            cmd.arg("--v-experimental-root-correct")
+                .arg(if v_experimental_root_correct {
+                    "true"
+                } else {
+                    "false"
+                });
         }
     }
 

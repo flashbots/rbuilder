@@ -1,7 +1,9 @@
 use alloy_primitives::{keccak256, B256, U256};
 use eth_sparse_mpt::{
     v2::trie::{proof_store::ProofStore as ProofStoreV2, Trie as TrieV2},
-    v3::trie::{proof_store::ProofStore as ProofStoreV3, Trie as TrieV3},
+    v_experimental::trie::{
+        proof_store::ProofStore as ProofStoreVExperimental, Trie as TrieVExperimental,
+    },
 };
 use eyre::{bail, Context, Result};
 use std::{
@@ -20,7 +22,7 @@ struct Cli {
     out_csv: Option<PathBuf>,
     append_csv: bool,
     csv_iteration: Option<usize>,
-    v3_root_correct: Option<bool>,
+    v_experimental_root_correct: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -34,8 +36,9 @@ fn main() -> Result<()> {
     let cli = parse_cli()?;
     let (keys, values) = prepare_key_value_data(cli.keys);
     let empty_proof_store_v2 = ProofStoreV2::default();
-    let empty_proof_store_v3 = ProofStoreV3::default();
-    let include_correctness_columns = cli.csv_iteration.is_some() || cli.v3_root_correct.is_some();
+    let empty_proof_store_v_experimental = ProofStoreVExperimental::default();
+    let include_correctness_columns =
+        cli.csv_iteration.is_some() || cli.v_experimental_root_correct.is_some();
     let mut csv_writer = open_csv_writer(
         cli.out_csv.as_deref(),
         cli.append_csv,
@@ -47,25 +50,32 @@ fn main() -> Result<()> {
         cli.iters, cli.keys, cli.percentages
     );
     println!(
-        "baseline=v2::Trie(root_hash parallel=true), optimized=v3::Trie(root_hash parallel=true)"
+        "baseline=v2::Trie(root_hash parallel=true), optimized=v_experimental::Trie(root_hash parallel=true)"
     );
     println!();
     println!(
         "{:<8} {:>12} {:>12} {:>12} {:>12} {:>12} {:>12} {:>12}",
-        "warm_%", "v2_p50", "v3_p50", "v2_p99", "v3_p99", "v2_mean", "v3_mean", "speedup"
+        "warm_%",
+        "v2_p50",
+        "v_experimental_p50",
+        "v2_p99",
+        "v_experimental_p99",
+        "v2_mean",
+        "v_experimental_mean",
+        "speedup"
     );
     if let Some((writer, write_header, include_correctness_columns)) = csv_writer.as_mut() {
         if *write_header {
             if *include_correctness_columns {
                 writeln!(
                     writer,
-                    "iteration,v3_root_correct,warm_pct,v2_p50_ms,v3_p50_ms,v2_p99_ms,v3_p99_ms,v2_mean_ms,v3_mean_ms,speedup"
+                    "iteration,v_experimental_root_correct,warm_pct,v2_p50_ms,v_experimental_p50_ms,v2_p99_ms,v_experimental_p99_ms,v2_mean_ms,v_experimental_mean_ms,speedup"
                 )
                 .context("failed to write CSV header")?;
             } else {
                 writeln!(
                     writer,
-                    "warm_pct,v2_p50_ms,v3_p50_ms,v2_p99_ms,v3_p99_ms,v2_mean_ms,v3_mean_ms,speedup"
+                    "warm_pct,v2_p50_ms,v_experimental_p50_ms,v2_p99_ms,v_experimental_p99_ms,v2_mean_ms,v_experimental_mean_ms,speedup"
                 )
                 .context("failed to write CSV header")?;
             }
@@ -77,10 +87,15 @@ fn main() -> Result<()> {
         let prewarm = keys.len() * *pct / 100;
 
         let v2_template = make_v2_template(&keys, &values, prewarm, &empty_proof_store_v2)?;
-        let v3_template = make_v3_template(&keys, &values, prewarm, &empty_proof_store_v3)?;
+        let v_experimental_template = make_v_experimental_template(
+            &keys,
+            &values,
+            prewarm,
+            &empty_proof_store_v_experimental,
+        )?;
 
         let mut v2_times = Vec::with_capacity(cli.iters);
-        let mut v3_times = Vec::with_capacity(cli.iters);
+        let mut v_experimental_times = Vec::with_capacity(cli.iters);
 
         for _ in 0..cli.iters {
             let (v2_hash, v2_elapsed) = run_v2_once(
@@ -90,29 +105,29 @@ fn main() -> Result<()> {
                 prewarm,
                 &empty_proof_store_v2,
             )?;
-            let (v3_hash, v3_elapsed) = run_v3_once(
-                v3_template.clone(),
+            let (v_experimental_hash, v_experimental_elapsed) = run_v_experimental_once(
+                v_experimental_template.clone(),
                 &keys,
                 &values,
                 prewarm,
-                &empty_proof_store_v3,
+                &empty_proof_store_v_experimental,
             )?;
 
-            if v2_hash != v3_hash {
+            if v2_hash != v_experimental_hash {
                 bail!(
-                    "root hash mismatch at warm {}%: v2={v2_hash:?} v3={v3_hash:?}",
+                    "root hash mismatch at warm {}%: v2={v2_hash:?} v_experimental={v_experimental_hash:?}",
                     pct
                 );
             }
 
             v2_times.push(v2_elapsed);
-            v3_times.push(v3_elapsed);
+            v_experimental_times.push(v_experimental_elapsed);
         }
 
         let v2_stats = calc_stats(&v2_times)?;
-        let v3_stats = calc_stats(&v3_times)?;
-        let speedup = if v3_stats.mean_ms > 0.0 {
-            v2_stats.mean_ms / v3_stats.mean_ms
+        let v_experimental_stats = calc_stats(&v_experimental_times)?;
+        let speedup = if v_experimental_stats.mean_ms > 0.0 {
+            v2_stats.mean_ms / v_experimental_stats.mean_ms
         } else {
             f64::INFINITY
         };
@@ -121,33 +136,33 @@ fn main() -> Result<()> {
             "{:<8} {:>10.3}ms {:>10.3}ms {:>10.3}ms {:>10.3}ms {:>10.3}ms {:>10.3}ms {:>10.2}x",
             pct,
             v2_stats.median_ms,
-            v3_stats.median_ms,
+            v_experimental_stats.median_ms,
             v2_stats.p99_ms,
-            v3_stats.p99_ms,
+            v_experimental_stats.p99_ms,
             v2_stats.mean_ms,
-            v3_stats.mean_ms,
+            v_experimental_stats.mean_ms,
             speedup
         );
 
         if let Some((writer, _, include_correctness_columns)) = csv_writer.as_mut() {
             if *include_correctness_columns {
                 let iteration = cli.csv_iteration.map(|v| v.to_string()).unwrap_or_default();
-                let v3_root_correct = cli
-                    .v3_root_correct
+                let v_experimental_root_correct = cli
+                    .v_experimental_root_correct
                     .map(|v| if v { "true" } else { "false" })
                     .unwrap_or("");
                 writeln!(
                     writer,
                     "{},{},{},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}",
                     iteration,
-                    v3_root_correct,
+                    v_experimental_root_correct,
                     pct,
                     v2_stats.median_ms,
-                    v3_stats.median_ms,
+                    v_experimental_stats.median_ms,
                     v2_stats.p99_ms,
-                    v3_stats.p99_ms,
+                    v_experimental_stats.p99_ms,
                     v2_stats.mean_ms,
-                    v3_stats.mean_ms,
+                    v_experimental_stats.mean_ms,
                     speedup
                 )
                 .context("failed to write CSV row")?;
@@ -157,11 +172,11 @@ fn main() -> Result<()> {
                     "{},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}",
                     pct,
                     v2_stats.median_ms,
-                    v3_stats.median_ms,
+                    v_experimental_stats.median_ms,
                     v2_stats.p99_ms,
-                    v3_stats.p99_ms,
+                    v_experimental_stats.p99_ms,
                     v2_stats.mean_ms,
-                    v3_stats.mean_ms,
+                    v_experimental_stats.mean_ms,
                     speedup
                 )
                 .context("failed to write CSV row")?;
@@ -187,7 +202,7 @@ fn parse_cli() -> Result<Cli> {
     let mut out_csv = None;
     let mut append_csv = false;
     let mut csv_iteration = None;
-    let mut v3_root_correct = None;
+    let mut v_experimental_root_correct = None;
 
     let mut args = env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -228,14 +243,18 @@ fn parse_cli() -> Result<Cli> {
                     .with_context(|| format!("invalid --csv-iteration: {v}"))?;
                 csv_iteration = Some(parsed);
             }
-            "--v3-root-correct" => {
+            "--v-experimental-root-correct" | "--v3-root-correct" => {
                 let v = args
                     .next()
-                    .ok_or_else(|| eyre::eyre!("--v3-root-correct requires a value"))?;
+                    .ok_or_else(|| {
+                        eyre::eyre!(
+                            "--v-experimental-root-correct requires a value (or use legacy --v3-root-correct)"
+                        )
+                    })?;
                 let parsed: bool = v
                     .parse()
-                    .with_context(|| format!("invalid --v3-root-correct: {v}"))?;
-                v3_root_correct = Some(parsed);
+                    .with_context(|| format!("invalid correctness flag value: {v}"))?;
+                v_experimental_root_correct = Some(parsed);
             }
             "--help" | "-h" => {
                 print_help();
@@ -267,7 +286,7 @@ fn parse_cli() -> Result<Cli> {
         out_csv,
         append_csv,
         csv_iteration,
-        v3_root_correct,
+        v_experimental_root_correct,
     })
 }
 
@@ -294,7 +313,10 @@ fn print_help() {
     println!("  --out-csv <PATH>         write results to CSV");
     println!("  --append-csv             append rows to CSV instead of truncating");
     println!("  --csv-iteration <N>      iteration id to include in CSV rows");
-    println!("  --v3-root-correct <BOOL> include v3 correctness (true/false) in CSV rows");
+    println!(
+        "  --v-experimental-root-correct <BOOL> include v_experimental correctness (true/false) in CSV rows"
+    );
+    println!("  --v3-root-correct <BOOL> legacy alias for --v-experimental-root-correct");
 }
 
 fn open_csv_writer(
@@ -339,10 +361,10 @@ fn open_csv_writer(
                 let header_has_correctness_column = first_line
                     .trim_end()
                     .split(',')
-                    .any(|h| h == "v3_root_correct");
+                    .any(|h| h == "v_experimental_root_correct" || h == "v3_root_correct");
                 if include_correctness_columns && !header_has_correctness_column {
                     bail!(
-                        "existing CSV {} does not include v3_root_correct column; use a new --out-csv path",
+                        "existing CSV {} does not include v_experimental_root_correct (or legacy v3_root_correct) column; use a new --out-csv path",
                         path.display()
                     );
                 }
@@ -410,13 +432,13 @@ fn make_v2_template(
     Ok(trie)
 }
 
-fn make_v3_template(
+fn make_v_experimental_template(
     keys: &[Vec<u8>],
     values: &[Vec<u8>],
     prewarm: usize,
-    proof_store: &ProofStoreV3,
-) -> Result<TrieV3> {
-    let mut trie = TrieV3::new_empty();
+    proof_store: &ProofStoreVExperimental,
+) -> Result<TrieVExperimental> {
+    let mut trie = TrieVExperimental::new_empty();
     for i in 0..prewarm {
         trie.insert(&keys[i], &values[i])?;
     }
@@ -441,12 +463,12 @@ fn run_v2_once(
     Ok((hash, start_time.elapsed()))
 }
 
-fn run_v3_once(
-    mut trie: TrieV3,
+fn run_v_experimental_once(
+    mut trie: TrieVExperimental,
     keys: &[Vec<u8>],
     values: &[Vec<u8>],
     start: usize,
-    proof_store: &ProofStoreV3,
+    proof_store: &ProofStoreVExperimental,
 ) -> Result<(B256, Duration)> {
     let start_time = Instant::now();
     for i in start..keys.len() {

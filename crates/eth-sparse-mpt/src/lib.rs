@@ -18,7 +18,11 @@ pub mod utils;
 
 pub mod v1;
 pub mod v2;
-pub mod v3;
+#[path = "v3/mod.rs"]
+pub mod v_experimental;
+pub mod v3 {
+    pub use super::v_experimental::*;
+}
 
 #[derive(Debug)]
 pub struct ChangedAccountData {
@@ -66,7 +70,7 @@ impl Default for RootHashThreadPool {
 pub struct SparseTrieSharedCache {
     cache_v1: v1::reth_sparse_trie::SparseTrieSharedCache,
     cache_v2: v2::SharedCacheV2,
-    cache_v3: v3::SharedCacheV3,
+    cache_v_experimental: v_experimental::SharedCacheVExperimental,
 }
 
 impl SparseTrieSharedCache {
@@ -76,12 +80,12 @@ impl SparseTrieSharedCache {
         );
         let mut cache_v2 = v2::SharedCacheV2::default();
         cache_v2.last_block_hash = parent_block_hash;
-        let mut cache_v3 = v3::SharedCacheV3::default();
-        cache_v3.last_block_hash = parent_block_hash;
+        let mut cache_v_experimental = v_experimental::SharedCacheVExperimental::default();
+        cache_v_experimental.last_block_hash = parent_block_hash;
         Self {
             cache_v1,
             cache_v2,
-            cache_v3,
+            cache_v_experimental,
         }
     }
 }
@@ -89,13 +93,15 @@ impl SparseTrieSharedCache {
 #[derive(Debug, Default, Clone)]
 pub struct SparseTrieLocalCache {
     calc_v2: v2::RootHashCalculator,
-    calc_v3: v3::RootHashCalculatorV3,
+    calc_v_experimental: v_experimental::RootHashCalculatorExperimental,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub enum ETHSpareMPTVersion {
     V1,
     V2,
+    VExperimental,
+    /// Backward-compatibility alias for `VExperimental`.
     V3,
 }
 
@@ -125,8 +131,12 @@ where
         ETHSpareMPTVersion::V2 => {
             v2::prefetch_proofs(consistent_db_view, &shared_cache.cache_v2, changed_data)
         }
-        ETHSpareMPTVersion::V3 => {
-            v3::prefetch_proofs(consistent_db_view, &shared_cache.cache_v3, changed_data)
+        ETHSpareMPTVersion::VExperimental | ETHSpareMPTVersion::V3 => {
+            v_experimental::prefetch_proofs(
+                consistent_db_view,
+                &shared_cache.cache_v_experimental,
+                changed_data,
+            )
         }
     }
 }
@@ -185,14 +195,16 @@ where
                 Err(err) => (Err(err), Default::default()),
             }
         }
-        ETHSpareMPTVersion::V3 => {
-            let result = local_cache.calc_v3.calculate_root_hash_with_sparse_trie(
-                consistent_db_view,
-                shared_cache.cache_v3.clone(),
-                outcome,
-                &[],
-                proof_targets,
-            );
+        ETHSpareMPTVersion::VExperimental | ETHSpareMPTVersion::V3 => {
+            let result = local_cache
+                .calc_v_experimental
+                .calculate_root_hash_with_sparse_trie(
+                    consistent_db_view,
+                    shared_cache.cache_v_experimental.clone(),
+                    outcome,
+                    &[],
+                    proof_targets,
+                );
             match result {
                 Ok((_, proofs, metrics)) => (Ok(proofs), metrics),
                 Err(err) => (Err(err), Default::default()),
@@ -277,14 +289,16 @@ where
                 Err(err) => (Err(err), Default::default()),
             }
         }
-        ETHSpareMPTVersion::V3 => {
-            let result = local_cache.calc_v3.calculate_root_hash_with_sparse_trie(
-                consistent_db_view,
-                shared_cache.cache_v3.clone(),
-                outcome,
-                incremental_change,
-                &Default::default(),
-            );
+        ETHSpareMPTVersion::VExperimental | ETHSpareMPTVersion::V3 => {
+            let result = local_cache
+                .calc_v_experimental
+                .calculate_root_hash_with_sparse_trie(
+                    consistent_db_view,
+                    shared_cache.cache_v_experimental.clone(),
+                    outcome,
+                    incremental_change,
+                    &Default::default(),
+                );
             match result {
                 Ok((res, _, metrics)) => (Ok(res), metrics),
                 Err(err) => (Err(err), Default::default()),

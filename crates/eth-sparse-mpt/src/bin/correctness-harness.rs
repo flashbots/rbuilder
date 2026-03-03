@@ -61,15 +61,15 @@ struct CompareResult {
     canonical_root: B256,
     reth_root: B256,
     v2_root: Option<B256>,
-    v3_root: B256,
+    v_experimental_root: B256,
     v1_root: Option<B256>,
     execute_ms: f64,
     reth_ms: f64,
     v2_ms: Option<f64>,
-    v3_ms: f64,
+    v_experimental_ms: f64,
     v1_ms: Option<f64>,
     v2_fetched_nodes: Option<usize>,
-    v3_fetched_nodes: usize,
+    v_experimental_fetched_nodes: usize,
     v1_fetched_nodes: Option<usize>,
 }
 
@@ -234,7 +234,7 @@ fn compare_block(
         .with_context(|| format!("failed to compute reth root for block {target_block}"))?;
     let reth_ms = elapsed_ms(reth_start);
 
-    // v2/v3 fetchers validate an expected chain-tip hash to detect DB movement while reading.
+    // v2/v_experimental fetchers validate an expected chain-tip hash to detect DB movement while reading.
     // For current-tip comparisons, this must be the actual DB tip hash (not parent hash).
     let expected_tip_block = factory
         .last_block_number()
@@ -268,19 +268,20 @@ fn compare_block(
         (Some(v2_root), Some(v2_ms), Some(v2_metrics.fetched_nodes))
     };
 
-    let mut local_v3 = SparseTrieLocalCache::default();
-    let v3_start = Instant::now();
-    let (v3_root_result, v3_metrics) = calculate_root_hash_with_sparse_trie(
+    let mut local_v_experimental = SparseTrieLocalCache::default();
+    let v_experimental_start = Instant::now();
+    let (v_experimental_root_result, v_experimental_metrics) = calculate_root_hash_with_sparse_trie(
         ConsistentDbView::new(factory.clone(), Some((parent_hash, parent_block))),
         &outcome,
         &[],
         &shared_cache,
-        &mut local_v3,
+        &mut local_v_experimental,
         &None,
-        ETHSpareMPTVersion::V3,
+        ETHSpareMPTVersion::VExperimental,
     );
-    let v3_ms = elapsed_ms(v3_start);
-    let v3_root = v3_root_result.with_context(|| "v3 root hash calculation failed")?;
+    let v_experimental_ms = elapsed_ms(v_experimental_start);
+    let v_experimental_root = v_experimental_root_result
+        .with_context(|| "v_experimental root hash calculation failed")?;
 
     let (v1_root, v1_ms, v1_fetched_nodes) = if skip_v1 {
         (None, None, None)
@@ -303,16 +304,20 @@ fn compare_block(
 
     let v2_mismatch = v2_root.is_some_and(|root| root != canonical_root);
     let v1_mismatch = v1_root.is_some_and(|root| root != canonical_root);
-    if v2_mismatch || v3_root != canonical_root || reth_root != canonical_root || v1_mismatch {
+    if v2_mismatch
+        || v_experimental_root != canonical_root
+        || reth_root != canonical_root
+        || v1_mismatch
+    {
         let v2_root_display = format_optional_root(v2_root.as_ref());
         let v1_root_display = format_optional_root(v1_root.as_ref());
         bail!(
-            "root mismatch for block {}\n  canonical: {:?}\n  reth:      {:?}\n  v2:        {}\n  v3:        {:?}\n  v1:        {}",
+            "root mismatch for block {}\n  canonical: {:?}\n  reth:      {:?}\n  v2:        {}\n  v_experimental: {:?}\n  v1:        {}",
             target_block,
             canonical_root,
             reth_root,
             v2_root_display,
-            v3_root,
+            v_experimental_root,
             v1_root_display
         );
     }
@@ -324,15 +329,15 @@ fn compare_block(
         canonical_root,
         reth_root,
         v2_root,
-        v3_root,
+        v_experimental_root,
         v1_root,
         execute_ms,
         reth_ms,
         v2_ms,
-        v3_ms,
+        v_experimental_ms,
         v1_ms,
         v2_fetched_nodes,
-        v3_fetched_nodes: v3_metrics.fetched_nodes,
+        v_experimental_fetched_nodes: v_experimental_metrics.fetched_nodes,
         v1_fetched_nodes,
     })
 }
@@ -524,7 +529,7 @@ fn parse_cli() -> Result<Cli> {
 fn print_help() {
     println!("correctness-harness");
     println!("  default mode:");
-    println!("    compares v1, v2, v3 and reth for block tip+1");
+    println!("    compares v1, v2, v_experimental and reth for block tip+1");
     println!("    expected setup: reth already unwound by 1 block");
     println!();
     println!("  --full");
@@ -572,9 +577,9 @@ fn print_compare_result(iteration: Option<usize>, result: &CompareResult) {
         optional_root_match_marker(result.v2_root.as_ref(), &result.canonical_root)
     );
     println!(
-        "    v3:        {:?} {}",
-        result.v3_root,
-        root_match_marker(result.v3_root == result.canonical_root)
+        "    v_experimental: {:?} {}",
+        result.v_experimental_root,
+        root_match_marker(result.v_experimental_root == result.canonical_root)
     );
     println!(
         "    v1:        {} {}",
@@ -590,8 +595,8 @@ fn print_compare_result(iteration: Option<usize>, result: &CompareResult) {
         .map(|v| format!("{v:.2}"))
         .unwrap_or_else(|| "skipped".to_string());
     println!(
-        "  time_ms: execute={:.2} reth={:.2} v2={} v3={:.2} v1={}",
-        result.execute_ms, result.reth_ms, v2_ms, result.v3_ms, v1_ms
+        "  time_ms: execute={:.2} reth={:.2} v2={} v_experimental={:.2} v1={}",
+        result.execute_ms, result.reth_ms, v2_ms, result.v_experimental_ms, v1_ms
     );
     let v2_nodes = result
         .v2_fetched_nodes
@@ -602,8 +607,8 @@ fn print_compare_result(iteration: Option<usize>, result: &CompareResult) {
         .map(|v| v.to_string())
         .unwrap_or_else(|| "skipped".to_string());
     println!(
-        "  fetched_nodes: v2={} v3={} v1={}",
-        v2_nodes, result.v3_fetched_nodes, v1_nodes
+        "  fetched_nodes: v2={} v_experimental={} v1={}",
+        v2_nodes, result.v_experimental_fetched_nodes, v1_nodes
     );
 }
 

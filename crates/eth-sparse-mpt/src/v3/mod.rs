@@ -28,8 +28,11 @@ pub mod trie;
 const PARALLEL_HASHING_STORAGE_NODES: bool = true;
 const MAX_PROCESS_ITERS: usize = 10;
 
-pub type SharedCacheV3 = SharedCacheV2;
-pub type RootHashCalculatorV3 = RootHashCalculator;
+pub type SharedCacheVExperimental = SharedCacheV2;
+pub type RootHashCalculatorExperimental = RootHashCalculator;
+
+pub type SharedCacheV3 = SharedCacheVExperimental;
+pub type RootHashCalculatorV3 = RootHashCalculatorExperimental;
 
 #[derive(Debug, Default, Clone)]
 pub struct SharedCacheV2 {
