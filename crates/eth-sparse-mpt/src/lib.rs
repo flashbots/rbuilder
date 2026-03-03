@@ -19,9 +19,6 @@ pub mod utils;
 pub mod v1;
 pub mod v2;
 pub mod v_experimental;
-pub mod v3 {
-    pub use super::v_experimental::*;
-}
 
 #[derive(Debug)]
 pub struct ChangedAccountData {
@@ -100,8 +97,6 @@ pub enum ETHSpareMPTVersion {
     V1,
     V2,
     VExperimental,
-    /// Backward-compatibility alias for `VExperimental`.
-    V3,
 }
 
 pub fn prefetch_tries_for_accounts<'a, Provider>(
@@ -130,7 +125,7 @@ where
         ETHSpareMPTVersion::V2 => {
             v2::prefetch_proofs(consistent_db_view, &shared_cache.cache_v2, changed_data)
         }
-        ETHSpareMPTVersion::VExperimental | ETHSpareMPTVersion::V3 => {
+        ETHSpareMPTVersion::VExperimental => {
             v_experimental::prefetch_proofs(
                 consistent_db_view,
                 &shared_cache.cache_v_experimental,
@@ -194,7 +189,7 @@ where
                 Err(err) => (Err(err), Default::default()),
             }
         }
-        ETHSpareMPTVersion::VExperimental | ETHSpareMPTVersion::V3 => {
+        ETHSpareMPTVersion::VExperimental => {
             let result = local_cache
                 .calc_v_experimental
                 .calculate_root_hash_with_sparse_trie(
@@ -288,7 +283,7 @@ where
                 Err(err) => (Err(err), Default::default()),
             }
         }
-        ETHSpareMPTVersion::VExperimental | ETHSpareMPTVersion::V3 => {
+        ETHSpareMPTVersion::VExperimental => {
             let result = local_cache
                 .calc_v_experimental
                 .calculate_root_hash_with_sparse_trie(
