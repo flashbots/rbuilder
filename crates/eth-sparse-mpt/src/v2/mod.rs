@@ -511,8 +511,9 @@ impl RootHashCalculator {
                 None => {
                     match storage_calc.trie.delete_nibbles_key(&applied_op.revert_key) {
                         Ok(_) => None,
-                        // Deleting an already-missing key is a no-op revert.
-                        Err(DeletionError::KeyNotFound) => None,
+                        Err(DeletionError::KeyNotFound) => {
+                            eyre::bail!("reverting nodes, can't delete key that is not in the trie (storage)");
+                        }
                         Err(DeletionError::NodeNotFound(node_not_found)) => Some(node_not_found.0),
                     }
                 }
@@ -582,8 +583,7 @@ impl RootHashCalculator {
                     storage_calc.missing_nodes.push(missing_node);
                 }
                 Err(DeletionError::KeyNotFound) => {
-                    // Deleting a non-existent key does not change trie state.
-                    storage_calc.delete_ok[i] = true;
+                    eyre::bail!("Deleting key that is not in the trie");
                 }
             }
         }
@@ -797,8 +797,9 @@ impl RootHashCalculator {
                 None => {
                     match account_trie.trie.delete_nibbles_key(&applied_op.revert_key) {
                         Ok(_) => None,
-                        // Deleting an already-missing key is a no-op revert.
-                        Err(DeletionError::KeyNotFound) => None,
+                        Err(DeletionError::KeyNotFound) => {
+                            eyre::bail!("reverting nodes, can't delete key that is not in the trie (accounts)");
+                        }
                         Err(DeletionError::NodeNotFound(node_not_found)) => Some(node_not_found.0),
                     }
                 }
@@ -867,8 +868,7 @@ impl RootHashCalculator {
                     account_trie.missing_nodes.push(missing_node);
                 }
                 Err(DeletionError::KeyNotFound) => {
-                    // Deleting a non-existent account key does not change trie state.
-                    account_trie.delete_ok[i] = true;
+                    eyre::bail!("Deleting key that is not in the trie (account trie)");
                 }
             }
         }
