@@ -19,7 +19,7 @@ fn prepare_key_value_data(n: usize) -> (Vec<Bytes>, Vec<Bytes>) {
 }
 
 fn insert_nodes_v2_v3(c: &mut Criterion) {
-    let (keys, values) = prepare_key_value_data(10000);
+    let (keys, values) = prepare_key_value_data(100000);
 
     let empty_proof_store_v2 = ProofStoreV2::default();
     let mut v2_hash = B256::ZERO;
