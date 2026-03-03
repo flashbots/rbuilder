@@ -6,7 +6,10 @@ pub mod ordering_builder;
 pub mod parallel_builder;
 
 use crate::{
-    building::{BlockBuildingContext, BuiltBlockTrace, SimulatedOrderSink},
+    building::{
+        journal::{JournalSequenceNumber, SimulatedOrderJournalCommand},
+        BlockBuildingContext, BuiltBlockTrace, SimulatedOrderSink,
+    },
     live_builder::{
         block_output::unfinished_block_processing::UnfinishedBuiltBlocksInput,
         building::built_block_cache::BuiltBlockCache, payload_events::InternalPayloadId,
@@ -34,7 +37,7 @@ use tokio::sync::{
     broadcast::error::{RecvError, TryRecvError},
 };
 use tokio_util::sync::CancellationToken;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use super::{simulated_order_command_to_sink, OrderPriority, PrioritizedOrderStore};
 
@@ -86,7 +89,7 @@ impl Default for BuiltBlockIdSource {
 pub struct LiveBuilderInput<P> {
     pub provider: P,
     pub ctx: BlockBuildingContext,
-    pub input: broadcast::Receiver<SimulatedOrderCommand>,
+    pub input: broadcast::Receiver<SimulatedOrderJournalCommand>,
     pub sink: UnfinishedBuiltBlocksInput,
     pub builder_name: String,
     pub cancel: CancellationToken,
@@ -100,28 +103,47 @@ pub struct LiveBuilderInput<P> {
 /// Call consume_next_cancellations and use cancel_data
 #[derive(Debug)]
 pub struct OrderConsumer {
-    orders: broadcast::Receiver<SimulatedOrderCommand>,
+    orders: broadcast::Receiver<SimulatedOrderJournalCommand>,
     // consume_next_batch scratchpad
     new_commands: Vec<SimulatedOrderCommand>,
+    /// last journal sequence number processed + 1. 0 means nothing processed yet.
+    next_journal_sequence_number: JournalSequenceNumber,
 }
 
 impl OrderConsumer {
-    pub fn new(orders: broadcast::Receiver<SimulatedOrderCommand>) -> Self {
+    pub fn new(orders: broadcast::Receiver<SimulatedOrderJournalCommand>) -> Self {
         Self {
             orders,
             new_commands: Vec::new(),
+            next_journal_sequence_number: 0,
         }
     }
 
-    /// Returns true if success, on false builder should stop
+    fn add_command(&mut self, command: SimulatedOrderJournalCommand) {
+        self.new_commands.push(command.command().clone());
+        if command.sequence_number() != self.next_journal_sequence_number {
+            error!(
+                "Journal sequence number mismatch. Expected: {}, Got: {}",
+                self.next_journal_sequence_number,
+                command.sequence_number()
+            );
+        }
+        self.next_journal_sequence_number = command.sequence_number() + 1;
+    }
+    /// On Ok returned:
+    ///     None -> builder should stop
+    ///     Some(next_seq) -> next_seq is the next expected sequence number for the order journal (last seen + 1)
+    /// Returns true if success, on false
     /// New commands are accumulatd in self.new_commands
     /// Call apply_new_commands to easily consume them.
     /// This method will block until the first command is received
-    pub fn blocking_consume_next_commands(&mut self) -> eyre::Result<bool> {
+    pub fn blocking_consume_next_commands(
+        &mut self,
+    ) -> eyre::Result<Option<JournalSequenceNumber>> {
         match self.orders.blocking_recv() {
-            Ok(order) => self.new_commands.push(order),
+            Ok(order) => self.add_command(order),
             Err(RecvError::Closed) => {
-                return Ok(false);
+                return Ok(None);
             }
             Err(RecvError::Lagged(msg)) => {
                 warn!(msg, "Builder thread lagging on sim orders channel");
@@ -129,12 +151,12 @@ impl OrderConsumer {
         }
         for _ in 0..1024 {
             match self.orders.try_recv() {
-                Ok(order) => self.new_commands.push(order),
+                Ok(order) => self.add_command(order),
                 Err(TryRecvError::Empty) => {
                     break;
                 }
                 Err(TryRecvError::Closed) => {
-                    return Ok(false);
+                    return Ok(None);
                 }
                 Err(TryRecvError::Lagged(msg)) => {
                     warn!(msg, "Builder thread lagging on sim orders channel");
@@ -142,7 +164,7 @@ impl OrderConsumer {
                 }
             }
         }
-        Ok(true)
+        Ok(Some(self.next_journal_sequence_number))
     }
 
     pub fn new_commands(&self) -> &[SimulatedOrderCommand] {
@@ -157,6 +179,8 @@ impl OrderConsumer {
     }
 }
 
+/// Struct that allows to consume new SimulatedOrderJournalCommands from a broadcast::Receiver<SimulatedOrderJournalCommand> and get the new orders in a prioritized way.
+/// It's intended for single thread usage. It must be used by calling blocking_consume_next_batch and then current_block_orders.
 #[derive(Debug)]
 pub struct OrderIntakeConsumer<OrderPriorityType> {
     nonces: NonceCache,
@@ -168,7 +192,10 @@ pub struct OrderIntakeConsumer<OrderPriorityType> {
 }
 
 impl<OrderPriorityType: OrderPriority> OrderIntakeConsumer<OrderPriorityType> {
-    pub fn new(nonces: NonceCache, orders: broadcast::Receiver<SimulatedOrderCommand>) -> Self {
+    pub fn new(
+        nonces: NonceCache,
+        orders: broadcast::Receiver<SimulatedOrderJournalCommand>,
+    ) -> Self {
         Self {
             nonces,
             block_orders: PrioritizedOrderStore::new(vec![]),
@@ -177,23 +204,23 @@ impl<OrderPriorityType: OrderPriority> OrderIntakeConsumer<OrderPriorityType> {
         }
     }
 
-    /// Returns true if success, on false builder should stop
+    /// On Ok returned:
+    ///     None -> builder should stop
+    ///     Some(next_seq) -> next_seq is the next expected sequence number for the order journal (last seen + 1)
     /// Blocks until the first item in the next batch is available.
-    pub fn blocking_consume_next_batch(&mut self) -> eyre::Result<bool> {
-        if !self.order_consumer.blocking_consume_next_commands()? {
-            return Ok(false);
+    pub fn blocking_consume_next_batch(&mut self) -> eyre::Result<Option<JournalSequenceNumber>> {
+        if let Some(next_seq) = self.order_consumer.blocking_consume_next_commands()? {
+            self.update_onchain_nonces()?;
+            self.order_consumer
+                .apply_new_commands(&mut self.block_orders);
+            Ok(Some(next_seq))
+        } else {
+            Ok(None)
         }
-        if !self.update_onchain_nonces()? {
-            return Ok(false);
-        }
-
-        self.order_consumer
-            .apply_new_commands(&mut self.block_orders);
-        Ok(true)
     }
 
     /// Updates block_orders with all the nonce needed for the new orders
-    fn update_onchain_nonces(&mut self) -> eyre::Result<bool> {
+    fn update_onchain_nonces(&mut self) -> eyre::Result<()> {
         let new_orders = self
             .order_consumer
             .new_commands()
@@ -217,7 +244,7 @@ impl<OrderPriorityType: OrderPriority> OrderIntakeConsumer<OrderPriorityType> {
             }
         }
         self.block_orders.update_onchain_nonces(&nonces);
-        Ok(true)
+        Ok(())
     }
 
     pub fn current_block_orders(&self) -> PrioritizedOrderStore<OrderPriorityType> {
@@ -236,7 +263,7 @@ impl<OrderPriorityType: OrderPriority> OrderIntakeConsumer<OrderPriorityType> {
 pub struct BlockBuildingAlgorithmInput<P> {
     pub provider: P,
     pub ctx: BlockBuildingContext,
-    pub input: broadcast::Receiver<SimulatedOrderCommand>,
+    pub input: broadcast::Receiver<SimulatedOrderJournalCommand>,
     /// output for the blocks
     pub sink: UnfinishedBuiltBlocksInput,
     /// A cache common to several builders so they can optimize their work looking at other builders blocks.

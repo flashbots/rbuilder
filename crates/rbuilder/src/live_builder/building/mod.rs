@@ -3,6 +3,7 @@ pub mod built_block_cache;
 use crate::{
     building::{
         builders::{BlockBuildingAlgorithm, BlockBuildingAlgorithmInput, BuiltBlockIdSource},
+        journal::{OrderJournalObserverFactory, SimulatedOrderJournalCommand},
         BlockBuildingContext,
     },
     live_builder::{
@@ -18,13 +19,19 @@ use crate::{
     provider::StateProviderFactory,
 };
 use reth_chainspec::EthereumHardforks as _;
-use std::{sync::Arc, thread, time::Duration};
+use std::{
+    sync::{mpsc, Arc},
+    thread,
+    time::Duration,
+};
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 /// Interval for checking if last block still corresponds to the parent of the given block building context
 const CHECK_LAST_BLOCK_INTERVAL: Duration = Duration::from_millis(100);
+/// Size of channels for sending simulated orders to the builders or root hash prefetching.
+const SIMULATED_ORDERS_CHANNEL_CAPACITY: usize = 10_000;
 
 use super::{
     block_output::unfinished_block_processing::UnfinishedBuiltBlocksInputFactory,
@@ -32,7 +39,7 @@ use super::{
         self, order_replacement_manager::OrderReplacementManager, orderpool::OrdersForBlock,
     },
     payload_events,
-    simulation::OrderSimulationPool,
+    simulation::{OrderSimulationPool, SimulatedOrderCommand},
 };
 
 /// Struct to connect the pipeline for block building.
@@ -46,6 +53,7 @@ pub struct BlockBuildingPool<P> {
     run_sparse_trie_prefetcher: bool,
     order_flow_tracer_manager: Box<dyn OrderFlowTracerManager>,
     built_block_id_source: Arc<BuiltBlockIdSource>,
+    order_journal_observer_factory: Box<dyn OrderJournalObserverFactory + Send + Sync>,
 }
 
 impl<P> BlockBuildingPool<P>
@@ -61,6 +69,7 @@ where
         order_simulation_pool: OrderSimulationPool<P>,
         run_sparse_trie_prefetcher: bool,
         order_flow_tracer_manager: Box<dyn OrderFlowTracerManager>,
+        order_journal_observer_factory: Box<dyn OrderJournalObserverFactory + Send + Sync>,
     ) -> Self {
         BlockBuildingPool {
             provider,
@@ -71,6 +80,7 @@ where
             run_sparse_trie_prefetcher,
             order_flow_tracer_manager,
             built_block_id_source: Arc::new(BuiltBlockIdSource::new()),
+            order_journal_observer_factory,
         }
     }
 
@@ -164,11 +174,29 @@ where
         mut input: SlotOrderSimResults,
         cancel: CancellationToken,
     ) {
+        let order_journal_observer = match self
+            .order_journal_observer_factory
+            .create_observer(&slot_data)
+        {
+            Ok(order_journal_observer) => order_journal_observer,
+            Err(err) => {
+                error!(
+                    ?err,
+                    "Failed to create order journal observer, cancelling building job"
+                );
+                cancel.cancel();
+                return;
+            }
+        };
         let built_block_cache = Arc::new(BuiltBlockCache::new());
         let builder_sink =
             self.sink_factory
                 .create_sink(slot_data, built_block_cache.clone(), cancel.clone());
-        let (broadcast_input, _) = broadcast::channel(10_000);
+        let (broadcast_input, _) = broadcast::channel(SIMULATED_ORDERS_CHANNEL_CAPACITY);
+
+        let (root_hasher_prefetcher_sender, root_hasher_prefetcher_receiver) =
+            mpsc::sync_channel::<SimulatedOrderCommand>(SIMULATED_ORDERS_CHANNEL_CAPACITY);
+
         let block_number = ctx.block();
         for builder in self.builders.iter() {
             let builder_name = builder.name();
@@ -201,17 +229,23 @@ where
         }
 
         if self.run_sparse_trie_prefetcher {
-            let input = broadcast_input.subscribe();
-
             tokio::task::spawn_blocking(move || {
-                ctx.root_hasher.run_prefetcher(input, cancel);
+                ctx.root_hasher
+                    .run_prefetcher(root_hasher_prefetcher_receiver);
             });
         }
 
         thread::spawn(move || {
+            let mut next_journal_sequence_number = 0;
             while let Some(input) = input.orders.blocking_recv() {
+                // Failing is not critical.
+                let _ = root_hasher_prefetcher_sender.try_send(input.clone());
+                let journal_command =
+                    SimulatedOrderJournalCommand::new(input, next_journal_sequence_number);
+                next_journal_sequence_number += 1;
+                order_journal_observer.order_delivered(&journal_command);
                 // we don't create new subscribers to the broadcast so here we can be sure that err means end of receivers
-                if broadcast_input.send(input).is_err() {
+                if broadcast_input.send(journal_command).is_err() {
                     trace!("Cancelling simulated orders send job, destination stopped");
                     return;
                 }

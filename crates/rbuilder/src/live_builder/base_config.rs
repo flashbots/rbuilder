@@ -1,6 +1,7 @@
 //! Config should always be deserializable, default values should be used
 //!
 use crate::{
+    building::journal::NullOrderJournalObserverFactory,
     live_builder::{
         order_flow_tracing::order_flow_tracer_manager::{
             NullOrderFlowTracerManager, OrderFlowTracerManager, OrderFlowTracerManagerImpl,
@@ -276,6 +277,7 @@ impl BaseConfig {
             simulation_use_random_coinbase: self.simulation_use_random_coinbase,
             faster_finalize: self.faster_finalize,
             order_flow_tracer_manager,
+            order_journal_observer_factory: Box::new(NullOrderJournalObserverFactory {}),
         })
     }
 

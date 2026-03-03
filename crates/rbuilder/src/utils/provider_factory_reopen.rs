@@ -24,9 +24,11 @@ use reth_provider::{
     TrieReader,
 };
 use revm::database::BundleState;
-use std::{ops::DerefMut, path::PathBuf, sync::Arc};
-use tokio::sync::broadcast;
-use tokio_util::sync::CancellationToken;
+use std::{
+    ops::DerefMut,
+    path::PathBuf,
+    sync::{mpsc, Arc},
+};
 use tracing::{debug, error};
 
 /// This struct is used as a workaround for https://github.com/paradigmxyz/reth/issues/7836
@@ -300,18 +302,13 @@ where
         + Clone
         + 'static,
 {
-    fn run_prefetcher(
-        &self,
-        simulated_orders: broadcast::Receiver<SimulatedOrderCommand>,
-        cancel: CancellationToken,
-    ) {
+    fn run_prefetcher(&self, simulated_orders: mpsc::Receiver<SimulatedOrderCommand>) {
         run_trie_prefetcher(
             self.parent_num_hash,
             self.sparse_trie_shared_cache.clone(),
             self.config.sparse_mpt_version,
             self.provider.clone(),
             simulated_orders,
-            cancel,
         );
     }
 

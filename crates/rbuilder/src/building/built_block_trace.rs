@@ -1,5 +1,5 @@
 use crate::{
-    building::builders::BuiltBlockId,
+    building::{builders::BuiltBlockId, journal::JournalSequenceNumber},
     live_builder::block_output::bidding_service_interface::CompetitionBidContext,
 };
 
@@ -63,6 +63,8 @@ pub struct BuiltBlockTrace {
     pub filtered_build_considered_orders_statistics: OrderStatistics,
     /// Anything we call BlockBuildingHelper::commit_order on but didn't include (redundant with filtered_build_considered_orders_statistics-included_orders) during pre-filtered build step
     pub filtered_build_failed_orders_statistics: OrderStatistics,
+    /// last journal sequence number + 1 that we saw in the order journal. 0 means nothing processed.
+    pub next_journal_sequence_number: JournalSequenceNumber,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -78,7 +80,10 @@ pub enum BuiltBlockTraceError {
 }
 
 impl BuiltBlockTrace {
-    pub fn new(build_block_id: BuiltBlockId) -> Self {
+    pub fn new(
+        build_block_id: BuiltBlockId,
+        next_journal_sequence_number: JournalSequenceNumber,
+    ) -> Self {
         Self {
             included_orders: Vec::new(),
             bid_value: U256::from(0),
@@ -105,6 +110,7 @@ impl BuiltBlockTrace {
             build_block_id,
             subsidy: I256::ZERO,
             multi_bid_copy_duration: Duration::ZERO,
+            next_journal_sequence_number,
         }
     }
 

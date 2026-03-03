@@ -6,7 +6,7 @@ use ctor::ctor;
 use lazy_static::lazy_static;
 use metrics_macros::register_metrics;
 use prometheus::{
-    HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Opts,
+    Histogram, HistogramOpts, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Opts,
 };
 use rbuilder::{
     telemetry::{exponential_buckets_range, REGISTRY},
@@ -14,6 +14,8 @@ use rbuilder::{
 };
 use rbuilder_utils::build_info::Version;
 use rbuilder_utils::clickhouse::Quantities;
+
+const TABLE_LABELS: &[&str] = &["table"];
 
 register_metrics! {
     pub static BLOCK_API_ERRORS: IntCounterVec = IntCounterVec::new(
@@ -28,50 +30,60 @@ register_metrics! {
     )
     .unwrap();
 
-    pub static CLICKHOUSE_WRITE_FAILURES: IntCounter = IntCounter::new("clickhouse_write_failures", "Clickhouse write failures for built blocks")
-    .unwrap();
-    pub static CLICKHOUSE_ROWS_COMMITTED: IntCounter = IntCounter::new("clickhouse_rows_committed", "Clickhouse built blocks commited directly to clickhouse (no backup involved)")
-    .unwrap();
-    pub static CLICKHOUSE_BYTES_COMMITTED: IntCounter = IntCounter::new("clickhouse_bytes_committed", "Clickhouse built blocks bytes commited directly to clickhouse (no backup involved)")
-    .unwrap();
-    pub static CLICKHOUSE_BATCHES_COMMITTED: IntCounter = IntCounter::new("clickhouse_batches_committed", "Clickhouse built blocks batches commited directly to clickhouse (no backup involved)")
-    .unwrap();
-    pub static CLICKHOUSE_ROWS_COMMITTED_FROM_BACKUP: IntCounter = IntCounter::new("clickhouse_rows_committed_from_backup", "Clickhouse built blocks commited to clickhouse from the local backup")
-    .unwrap();
-    pub static CLICKHOUSE_BYTES_COMMITTED_FROM_BACKUP: IntCounter = IntCounter::new("clickhouse_bytes_committed_from_backup", "Clickhouse built blocks bytes commited to clickhouse from the local backup")
-    .unwrap();
+    pub static CLICKHOUSE_WRITE_FAILURES: IntCounter =
+        IntCounter::new("clickhouse_write_failures", "Clickhouse write failures").unwrap();
+    pub static CLICKHOUSE_ROWS_COMMITTED: IntCounter =
+        IntCounter::new("clickhouse_rows_committed", "Clickhouse rows committed directly (no backup involved)").unwrap();
+    pub static CLICKHOUSE_BYTES_COMMITTED: IntCounter =
+        IntCounter::new("clickhouse_bytes_committed", "Clickhouse bytes committed directly (no backup involved)").unwrap();
+    pub static CLICKHOUSE_BATCHES_COMMITTED: IntCounter =
+        IntCounter::new("clickhouse_batches_committed", "Clickhouse batches committed directly (no backup involved)").unwrap();
+    pub static CLICKHOUSE_ROWS_COMMITTED_FROM_BACKUP: IntCounter =
+        IntCounter::new("clickhouse_rows_committed_from_backup", "Clickhouse rows committed from the local backup").unwrap();
+    pub static CLICKHOUSE_BYTES_COMMITTED_FROM_BACKUP: IntCounter =
+        IntCounter::new("clickhouse_bytes_committed_from_backup", "Clickhouse bytes committed from the local backup").unwrap();
 
-    pub static CLICKHOUSE_ROWS_LOST: IntCounter = IntCounter::new("clickhouse_rows_lost", "clickhouse_rows_lost")
-    .unwrap();
-    pub static CLICKHOUSE_BYTES_LOST: IntCounter = IntCounter::new("clickhouse_bytes_lost", "clickhouse_bytes_lost")
-    .unwrap();
+    pub static CLICKHOUSE_ROWS_LOST: IntCounter =
+        IntCounter::new("clickhouse_rows_lost", "Clickhouse rows lost").unwrap();
+    pub static CLICKHOUSE_BYTES_LOST: IntCounter =
+        IntCounter::new("clickhouse_bytes_lost", "Clickhouse bytes lost").unwrap();
 
-
-    pub static CLICKHOUSE_COMMIT_FAILURES: IntCounter = IntCounter::new("clickhouse_commit_failures", "Clickhouse built blocks batches commited failures")
-    .unwrap();
-    pub static CLICKHOUSE_BACKUP_DISK_ERRORS: IntCounter = IntCounter::new("clickhouse_backup_disk_errors", "Any problem related to the disk backup, it can be reading, writing, etc.")
-    .unwrap();
-    pub static CLICKHOUSE_BATCH_COMMIT_TIME: HistogramVec = HistogramVec::new(
-        HistogramOpts::new("clickhouse_batch_commit_time","Time to commit a block batch to Clickhouse (ms)")
+    pub static CLICKHOUSE_COMMIT_FAILURES: IntCounter =
+        IntCounter::new("clickhouse_commit_failures", "Clickhouse commit failures").unwrap();
+    pub static CLICKHOUSE_BACKUP_DISK_ERRORS: IntCounterVec = IntCounterVec::new(
+        Opts::new("clickhouse_backup_disk_errors", "Any problem related to the disk backup"),
+        TABLE_LABELS
+    ).unwrap();
+    pub static CLICKHOUSE_BATCH_COMMIT_TIME: Histogram = Histogram::with_opts(
+        HistogramOpts::new("clickhouse_batch_commit_time","Time to commit a batch to Clickhouse (ms)")
             .buckets(exponential_buckets_range(0.5, 3000.0, 50)),
-        &[]
     )
     .unwrap();
-    pub static CLICKHOUSE_QUEUE_SIZE: IntGauge =
-        IntGauge::new("clickhouse_queue_size", "Size of the queue of the task that is inserting into clickhouse").unwrap();
-    pub static CLICKHOUSE_DISK_BACKUP_SIZE_BYTES: IntGauge =
-        IntGauge::new("clickhouse_disk_backup_size_bytes", "Space used in bytes by the local DB for failed commit batches.").unwrap();
+    pub static CLICKHOUSE_QUEUE_SIZE: IntGaugeVec = IntGaugeVec::new(
+        Opts::new("clickhouse_queue_size", "Size of the queue of the task inserting into clickhouse"),
+        TABLE_LABELS
+    ).unwrap();
+    pub static CLICKHOUSE_DISK_BACKUP_SIZE_BYTES: IntGaugeVec = IntGaugeVec::new(
+        Opts::new("clickhouse_disk_backup_size_bytes", "Space used in bytes by the local DB for failed commit batches."),
+        TABLE_LABELS
+    ).unwrap();
     pub static CLICKHOUSE_DISK_BACKUP_MAX_SIZE_BYTES: IntGauge =
         IntGauge::new("clickhouse_disk_backup_max_size_bytes", "Max space used in bytes by the local DB for failed commit batches. If clickhouse_disk_backup_size_bytes reaches this value we drop data").unwrap();
     pub static CLICKHOUSE_DISK_BACKUP_MAX_SIZE_TO_SUBMIT_BIDS_TO_RELAYS_BYTES: IntGauge =
         IntGauge::new("clickhouse_disk_backup_max_size_to_submit_bids_to_relays_bytes",
         "While clickhouse_disk_backup_size_bytes is above this number we stop submitting bids to relays.").unwrap();
-    pub static CLICKHOUSE_DISK_BACKUP_SIZE_BATCHES: IntGauge =
-        IntGauge::new("clickhouse_disk_backup_size_batches", "Amount of batches in local DB for failed commit batches.").unwrap();
-    pub static CLICKHOUSE_MEMORY_BACKUP_SIZE_BYTES: IntGauge =
-        IntGauge::new("clickhouse_memory_backup_size_bytes", "Space used in bytes by the in memory DB for failed commit batches.").unwrap();
-    pub static CLICKHOUSE_MEMORY_BACKUP_SIZE_BATCHES: IntGauge =
-        IntGauge::new("clickhouse_memory_backup_size_batches", "Amount of batches in in memory DB for failed commit batches.").unwrap();
+    pub static CLICKHOUSE_DISK_BACKUP_SIZE_BATCHES: IntGaugeVec = IntGaugeVec::new(
+        Opts::new("clickhouse_disk_backup_size_batches", "Amount of batches in local DB for failed commit batches."),
+        TABLE_LABELS
+    ).unwrap();
+    pub static CLICKHOUSE_MEMORY_BACKUP_SIZE_BYTES: IntGaugeVec = IntGaugeVec::new(
+        Opts::new("clickhouse_memory_backup_size_bytes", "Space used in bytes by the in memory DB for failed commit batches."),
+        TABLE_LABELS
+    ).unwrap();
+    pub static CLICKHOUSE_MEMORY_BACKUP_SIZE_BATCHES: IntGaugeVec = IntGaugeVec::new(
+        Opts::new("clickhouse_memory_backup_size_batches", "Amount of batches in in memory DB for failed commit batches."),
+        TABLE_LABELS
+    ).unwrap();
 }
 
 /*
@@ -123,31 +135,41 @@ impl rbuilder_utils::clickhouse::backup::metrics::Metrics for ClickhouseMetrics 
     }
 
     fn record_batch_commit_time(duration: Duration) {
-        CLICKHOUSE_BATCH_COMMIT_TIME
-            .with_label_values(&[])
-            .observe(utils::duration_ms(duration));
+        CLICKHOUSE_BATCH_COMMIT_TIME.observe(utils::duration_ms(duration));
     }
 
     fn increment_commit_failures(_err: String) {
         CLICKHOUSE_COMMIT_FAILURES.inc();
     }
 
-    fn set_queue_size(size: usize, _order: &'static str) {
-        CLICKHOUSE_QUEUE_SIZE.set(size as i64);
+    fn set_queue_size(size: usize, order: &'static str) {
+        CLICKHOUSE_QUEUE_SIZE
+            .with_label_values(&[order])
+            .set(size as i64);
     }
 
-    fn set_disk_backup_size(size_bytes: u64, batches: usize, _order: &'static str) {
-        CLICKHOUSE_DISK_BACKUP_SIZE_BYTES.set(size_bytes as i64);
-        CLICKHOUSE_DISK_BACKUP_SIZE_BATCHES.set(batches as i64);
+    fn set_disk_backup_size(size_bytes: u64, batches: usize, order: &'static str) {
+        CLICKHOUSE_DISK_BACKUP_SIZE_BYTES
+            .with_label_values(&[order])
+            .set(size_bytes as i64);
+        CLICKHOUSE_DISK_BACKUP_SIZE_BATCHES
+            .with_label_values(&[order])
+            .set(batches as i64);
     }
 
-    fn increment_backup_disk_errors(_order: &'static str, _error: &str) {
-        CLICKHOUSE_BACKUP_DISK_ERRORS.inc();
+    fn increment_backup_disk_errors(order: &'static str, _error: &str) {
+        CLICKHOUSE_BACKUP_DISK_ERRORS
+            .with_label_values(&[order])
+            .inc();
     }
 
-    fn set_memory_backup_size(size_bytes: u64, batches: usize, _order: &'static str) {
-        CLICKHOUSE_MEMORY_BACKUP_SIZE_BYTES.set(size_bytes as i64);
-        CLICKHOUSE_MEMORY_BACKUP_SIZE_BATCHES.set(batches as i64);
+    fn set_memory_backup_size(size_bytes: u64, batches: usize, order: &'static str) {
+        CLICKHOUSE_MEMORY_BACKUP_SIZE_BYTES
+            .with_label_values(&[order])
+            .set(size_bytes as i64);
+        CLICKHOUSE_MEMORY_BACKUP_SIZE_BATCHES
+            .with_label_values(&[order])
+            .set(batches as i64);
     }
 
     fn process_backup_data_lost_quantities(quantities: &Quantities) {

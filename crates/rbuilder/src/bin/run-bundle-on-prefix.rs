@@ -162,6 +162,7 @@ impl LandedBlockInfo {
         let order_statistics = OrderStatistics::new();
         Ok(BlockBuildingHelperFromProvider::new(
             BuiltBlockId::ZERO,
+            0,
             block_state,
             ctx,
             &mut self.local_ctx,

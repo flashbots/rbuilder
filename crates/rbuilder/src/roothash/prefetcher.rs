@@ -1,4 +1,4 @@
-use std::{iter, time::Instant};
+use std::{iter, sync::mpsc, time::Instant};
 
 use ahash::{HashMap, HashSet};
 use alloy_eips::BlockNumHash;
@@ -6,20 +6,26 @@ use alloy_primitives::Address;
 use eth_sparse_mpt::*;
 use reth::providers::providers::ConsistentDbView;
 use reth_provider::{BlockReader, DatabaseProviderFactory};
-use tokio::sync::broadcast::{
-    self,
-    error::{RecvError, TryRecvError},
-};
-use tokio_util::sync::CancellationToken;
-use tracing::{error, trace, warn};
+use tracing::{error, trace};
 
 use crate::{
     live_builder::simulation::SimulatedOrderCommand, telemetry::inc_root_hash_prefetch_count,
     utils::elapsed_ms,
 };
-use rbuilder_primitives::evm_inspector::SlotKey;
+use rbuilder_primitives::evm_inspector::{SlotKey, UsedStateTrace};
 
 const CONSUME_SIM_ORDERS_BATCH: usize = 128;
+
+fn add_trace_to_used_state_traces(
+    used_state_traces: &mut Vec<UsedStateTrace>,
+    sim_order: &SimulatedOrderCommand,
+) {
+    if let SimulatedOrderCommand::Simulation(sim_order) = sim_order {
+        if let Some(used_state_trace) = &sim_order.used_state_trace {
+            used_state_traces.push(used_state_trace.clone());
+        }
+    }
+}
 
 /// Runs a process that prefetches pieces of the trie based on the slots used by the order in simulation
 /// Its a blocking call so it should be spawned on the separate thread.
@@ -28,8 +34,7 @@ pub fn run_trie_prefetcher<P>(
     shared_sparse_mpt_cache: SparseTrieSharedCache,
     version: ETHSpareMPTVersion,
     provider: P,
-    mut simulated_orders: broadcast::Receiver<SimulatedOrderCommand>,
-    cancel: CancellationToken,
+    simulated_orders: mpsc::Receiver<SimulatedOrderCommand>,
 ) where
     P: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync + Clone,
 {
@@ -48,56 +53,18 @@ pub fn run_trie_prefetcher<P>(
     loop {
         used_state_traces.clear();
         fetch_request.clear();
-
-        if cancel.is_cancelled() {
+        // Block for the first order or until the channel is closed
+        let Ok(sim_order) = simulated_orders.recv() else {
             return;
-        }
-
+        };
+        add_trace_to_used_state_traces(&mut used_state_traces, &sim_order);
+        // Try to batch as many extra orders as possible.
         for _ in 0..CONSUME_SIM_ORDERS_BATCH {
             match simulated_orders.try_recv() {
-                Ok(SimulatedOrderCommand::Simulation(sim_order)) => {
-                    if let Some(used_state_trace) = &sim_order.used_state_trace {
-                        used_state_traces.push(used_state_trace.clone());
-                    } else {
-                        continue;
-                    }
-                }
-                Ok(_) => continue,
-                Err(TryRecvError::Empty) => {
-                    if !used_state_traces.is_empty() {
-                        break;
-                    }
-                    // block so thread can sleep if there are no inputs
-                    match simulated_orders.blocking_recv() {
-                        Ok(SimulatedOrderCommand::Simulation(sim_order)) => {
-                            if let Some(used_state_trace) = &sim_order.used_state_trace {
-                                used_state_traces.push(used_state_trace.clone());
-                            } else {
-                                continue;
-                            }
-                        }
-                        Ok(_) => continue,
-                        Err(RecvError::Closed) => return,
-                        Err(RecvError::Lagged(msg)) => {
-                            warn!(
-                                "State trie prefetching thread lagging on sim orders channel: {}",
-                                msg
-                            );
-                            break;
-                        }
-                    }
-                }
-                Err(TryRecvError::Closed) => {
-                    return;
-                }
-                Err(TryRecvError::Lagged(msg)) => {
-                    warn!(
-                        "State trie prefetching thread lagging on sim orders channel: {}",
-                        msg
-                    );
-                    break;
-                }
-            };
+                Ok(sim_order) => add_trace_to_used_state_traces(&mut used_state_traces, &sim_order),
+                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Disconnected) => return,
+            }
         }
 
         for used_state_trace in used_state_traces.drain(..) {

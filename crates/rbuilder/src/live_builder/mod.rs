@@ -13,7 +13,10 @@ pub mod wallet_balance_watcher;
 pub mod watchdog;
 
 use crate::{
-    building::{builders::BlockBuildingAlgorithm, BlockBuildingContext},
+    building::{
+        builders::BlockBuildingAlgorithm, journal::OrderJournalObserverFactory,
+        BlockBuildingContext,
+    },
     live_builder::{
         order_flow_tracing::order_flow_tracer_manager::OrderFlowTracerManager,
         order_input::{start_orderpool_jobs, OrderInputConfig},
@@ -143,6 +146,7 @@ where
     pub simulation_use_random_coinbase: bool,
 
     pub order_flow_tracer_manager: Box<dyn OrderFlowTracerManager>,
+    pub order_journal_observer_factory: Box<dyn OrderJournalObserverFactory + Send + Sync>,
 }
 
 impl<P> LiveBuilder<P>
@@ -155,6 +159,16 @@ where
 
     pub fn with_builders(self, builders: Vec<Arc<dyn BlockBuildingAlgorithm<P>>>) -> Self {
         Self { builders, ..self }
+    }
+
+    pub fn with_order_journal_observer_factory(
+        self,
+        order_journal_observer_factory: Box<dyn OrderJournalObserverFactory + Send + Sync>,
+    ) -> Self {
+        Self {
+            order_journal_observer_factory,
+            ..self
+        }
     }
 
     pub fn add_critical_task(&mut self, handle: JoinHandle<()>) {
@@ -246,6 +260,7 @@ where
             order_simulation_pool,
             self.run_sparse_trie_prefetcher,
             self.order_flow_tracer_manager,
+            self.order_journal_observer_factory,
         );
 
         ready_to_build.store(true, Ordering::Relaxed);

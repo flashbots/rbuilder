@@ -443,7 +443,7 @@ fn test_bundle_consistency_check() -> eyre::Result<()> {
     let blocklist = HashSet::default();
     // check revertible tx detection
     {
-        let mut built_block_trace = BuiltBlockTrace::new(BuiltBlockId::ZERO);
+        let mut built_block_trace = BuiltBlockTrace::new(BuiltBlockId::ZERO, 0);
 
         // send to the blocked address
         test_setup.begin_bundle_order(block_number);
@@ -478,7 +478,7 @@ fn test_bundle_consistency_check() -> eyre::Result<()> {
         let blocklist = vec![test_setup.named_address(NamedAddr::User(0))?]
             .into_iter()
             .collect();
-        let mut built_block_trace = BuiltBlockTrace::new(BuiltBlockId::ZERO);
+        let mut built_block_trace = BuiltBlockTrace::new(BuiltBlockId::ZERO, 0);
 
         test_setup.begin_bundle_order(block_number);
         test_setup.add_dummy_tx_0_1_no_rev()?;
@@ -496,7 +496,7 @@ fn test_bundle_consistency_check() -> eyre::Result<()> {
         let blocklist = vec![test_setup.named_address(NamedAddr::User(1))?]
             .into_iter()
             .collect();
-        let mut built_block_trace = BuiltBlockTrace::new(BuiltBlockId::ZERO);
+        let mut built_block_trace = BuiltBlockTrace::new(BuiltBlockId::ZERO, 0);
 
         test_setup.begin_bundle_order(block_number);
         test_setup.add_dummy_tx_0_1_no_rev()?;
