@@ -18,7 +18,6 @@ pub mod utils;
 
 pub mod v1;
 pub mod v2;
-#[path = "v3/mod.rs"]
 pub mod v_experimental;
 pub mod v3 {
     pub use super::v_experimental::*;

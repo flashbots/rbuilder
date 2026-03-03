@@ -90,7 +90,7 @@ name = "trie_do_bench"
 harness = false
 
 [[bench]]
-name = "trie_bench_v2_v3"
+name = "trie_bench_v2_v_experimental"
 harness = false
 
 [[bin]]
