@@ -125,13 +125,11 @@ where
         ETHSpareMPTVersion::V2 => {
             v2::prefetch_proofs(consistent_db_view, &shared_cache.cache_v2, changed_data)
         }
-        ETHSpareMPTVersion::VExperimental => {
-            v_experimental::prefetch_proofs(
-                consistent_db_view,
-                &shared_cache.cache_v_experimental,
-                changed_data,
-            )
-        }
+        ETHSpareMPTVersion::VExperimental => v_experimental::prefetch_proofs(
+            consistent_db_view,
+            &shared_cache.cache_v_experimental,
+            changed_data,
+        ),
     }
 }
 

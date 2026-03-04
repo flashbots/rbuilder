@@ -243,14 +243,10 @@ fn parse_cli() -> Result<Cli> {
                     .with_context(|| format!("invalid --csv-iteration: {v}"))?;
                 csv_iteration = Some(parsed);
             }
-            "--v-experimental-root-correct" | "--v3-root-correct" => {
+            "--v-experimental-root-correct" => {
                 let v = args
                     .next()
-                    .ok_or_else(|| {
-                        eyre::eyre!(
-                            "--v-experimental-root-correct requires a value (legacy alias: --v3-root-correct)"
-                        )
-                    })?;
+                    .ok_or_else(|| eyre::eyre!("--v-experimental-root-correct requires a value"))?;
                 let parsed: bool = v
                     .parse()
                     .with_context(|| format!("invalid correctness flag value: {v}"))?;
@@ -314,10 +310,6 @@ fn print_help() {
     println!("  --append-csv             append rows to CSV instead of truncating");
     println!("  --csv-iteration <N>      iteration id to include in CSV rows");
     println!("  --v-experimental-root-correct <BOOL> include v_experimental correctness (true/false) in CSV rows");
-    println!(
-        "  --v-experimental-root-correct <BOOL> legacy alias for --v-experimental-root-correct"
-    );
-    println!("  --v3-root-correct <BOOL> legacy alias for --v-experimental-root-correct");
 }
 
 fn open_csv_writer(
@@ -359,14 +351,13 @@ fn open_csv_writer(
                 )
                 .read_line(&mut first_line)
                 .with_context(|| format!("failed to read CSV header {}", path.display()))?;
-                let header_has_correctness_column = first_line.trim_end().split(',').any(|h| {
-                    h == "v_experimental_root_correct"
-                        || h == "v_experimental_root_correct"
-                        || h == "v3_root_correct"
-                });
+                let header_has_correctness_column = first_line
+                    .trim_end()
+                    .split(',')
+                    .any(|h| h == "v_experimental_root_correct");
                 if include_correctness_columns && !header_has_correctness_column {
                     bail!(
-                        "existing CSV {} does not include v_experimental_root_correct (or legacy column name) column; use a new --out-csv path",
+                        "existing CSV {} does not include v_experimental_root_correct column; use a new --out-csv path",
                         path.display()
                     );
                 }
