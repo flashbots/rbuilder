@@ -90,6 +90,7 @@ reth-provider = { git = "https://github.com/paradigmxyz/reth", rev = "27a8c0f5a6
 reth-chainspec = { git = "https://github.com/paradigmxyz/reth", rev = "27a8c0f5a6dfb27dea84c5751776ecabdd069646" }
 reth-evm = { git = "https://github.com/paradigmxyz/reth", rev = "27a8c0f5a6dfb27dea84c5751776ecabdd069646" }
 reth-evm-ethereum = { git = "https://github.com/paradigmxyz/reth", rev = "27a8c0f5a6dfb27dea84c5751776ecabdd069646" }
+reth-revm = { git = "https://github.com/paradigmxyz/reth", rev = "27a8c0f5a6dfb27dea84c5751776ecabdd069646" }
 reth-execution-errors = { git = "https://github.com/paradigmxyz/reth", rev = "27a8c0f5a6dfb27dea84c5751776ecabdd069646" }
 reth-trie-db = { git = "https://github.com/paradigmxyz/reth", rev = "27a8c0f5a6dfb27dea84c5751776ecabdd069646" }
 reth-transaction-pool = { git = "https://github.com/paradigmxyz/reth", rev = "27a8c0f5a6dfb27dea84c5751776ecabdd069646" }

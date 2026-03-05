@@ -41,7 +41,7 @@ impl NodePtr {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default)]
 pub struct Trie {
     // 3 arrays below are of the same length
     hashed_nodes: Vec<bool>,
@@ -54,6 +54,26 @@ pub struct Trie {
 
     // scratchpad
     walk_path: Vec<(usize, u8)>, // node index, nibble
+}
+
+impl Clone for Trie {
+    fn clone(&self) -> Self {
+        fn clone_vec_with_capacity<T: Clone>(src: &Vec<T>) -> Vec<T> {
+            let mut out = Vec::with_capacity(src.capacity());
+            out.extend(src.iter().cloned());
+            out
+        }
+
+        Self {
+            hashed_nodes: clone_vec_with_capacity(&self.hashed_nodes),
+            rlp_ptrs_local: clone_vec_with_capacity(&self.rlp_ptrs_local),
+            nodes: clone_vec_with_capacity(&self.nodes),
+            values: clone_vec_with_capacity(&self.values),
+            keys: clone_vec_with_capacity(&self.keys),
+            branch_node_children: clone_vec_with_capacity(&self.branch_node_children),
+            walk_path: clone_vec_with_capacity(&self.walk_path),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
