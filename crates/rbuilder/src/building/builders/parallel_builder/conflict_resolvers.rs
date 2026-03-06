@@ -174,6 +174,7 @@ impl ResolverContext {
                 &self.ctx,
                 &mut local_ctx,
                 &mut state,
+                #[allow(clippy::result_large_err)]
                 &|_| Ok(()),
             )? {
                 Ok(res) => self.handle_successful_commit(

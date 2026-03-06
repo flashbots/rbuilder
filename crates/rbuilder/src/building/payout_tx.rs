@@ -148,6 +148,7 @@ fn estimate_payout_tx_space(ctx: &BlockBuildingContext) -> Result<BlockSpace, se
     ))
 }
 
+#[allow(clippy::manual_saturating_arithmetic)]
 pub fn estimate_payout_gas_limit(
     to: Address,
     ctx: &BlockBuildingContext,
