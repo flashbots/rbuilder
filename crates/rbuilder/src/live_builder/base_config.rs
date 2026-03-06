@@ -335,6 +335,7 @@ impl BaseConfig {
         let version = match self.root_hash_sparse_trie_version.as_str() {
             "v1" => ETHSpareMPTVersion::V1,
             "v2" => ETHSpareMPTVersion::V2,
+            "vexp" => ETHSpareMPTVersion::VExperimental,
             _ => eyre::bail!("root_hash_sparse_trie_version can be v1 or v2"),
         };
         Ok(RootHashContext::new(
