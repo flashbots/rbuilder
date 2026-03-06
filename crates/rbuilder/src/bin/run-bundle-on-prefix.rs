@@ -176,6 +176,7 @@ impl LandedBlockInfo {
 }
 
 #[tokio::main]
+#[allow(clippy::result_large_err)]
 async fn main() -> eyre::Result<()> {
     let cli = Cli::parse();
     let mut block_info = LandedBlockInfo::new(cli.config.clone(), cli.block).await?;
@@ -271,6 +272,7 @@ fn simulation_too_low<OrderPriorityType: OrderPriority>(
 }
 
 /// Sanity check of the simulation using a BlockBuildingHelper and also allows us to easily check extra stuff not in SimulatedOrder.
+#[allow(clippy::result_large_err)]
 fn execute_sim_orders_on_tob(
     sim_orders: &[Arc<SimulatedOrder>],
     block_info: &mut LandedBlockInfo,
@@ -293,6 +295,7 @@ fn execute_sim_orders_on_tob(
     Ok(())
 }
 
+#[allow(clippy::result_large_err)]
 fn execute_orders_on_tob(
     target_orders: &[OrdersWithTimestamp],
     block_info: &mut LandedBlockInfo,

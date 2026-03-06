@@ -335,6 +335,7 @@ struct TestBlockContextBuilder {
 }
 
 impl TestBlockContextBuilder {
+    #[allow(clippy::manual_saturating_arithmetic)]
     fn new(
         block_args: BlockArgs,
         builder_signer: Signer,
@@ -364,6 +365,7 @@ impl TestBlockContextBuilder {
         }
     }
 
+    #[allow(clippy::manual_saturating_arithmetic)]
     fn build(self) -> BlockBuildingContext {
         BlockBuildingContext::from_attributes(
             PayloadAttributesEvent {
