@@ -92,7 +92,7 @@ Although this stage is referred to as "building," it doesn't completely build th
 The block building process begins with a flow of `ReplaceableOrderPoolCommand`s arriving from the `OrderPool` (subscribed via an OrderPoolSubscriber). These operations can be:
 - Adding a new order (`ReplaceableOrderPoolCommand::Order`)
 - Replacing an existing order (`ReplaceableOrderPoolCommand::Order` for an existing uuid)
-- Canceling an order (`ReplaceableOrderPoolCommand::CancelBundle`/`ReplaceableOrderPoolCommand::CancelShareBundle`)
+- Canceling an order (`ReplaceableOrderPoolCommand::CancelBundle`)
 
 Throughout the order pipeline, we consistently use these commands instead of plain `Orders` since the entire pipeline must handle updates and cancellations.
 
