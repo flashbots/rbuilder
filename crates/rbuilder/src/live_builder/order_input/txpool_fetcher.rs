@@ -7,7 +7,7 @@ use rbuilder_primitives::{
     serialize::TxEncoding, MempoolTx, Order, RawTransactionDecodable,
     TransactionSignedEcRecoveredWithBlobs,
 };
-use std::{pin::pin, time::Instant};
+use std::{pin::pin, sync::Arc, time::Instant};
 use time::OffsetDateTime;
 use tokio::{
     sync::{mpsc, mpsc::error::SendTimeoutError},
@@ -76,7 +76,7 @@ pub async fn subscribe_to_txpool_with_blobs(
             trace!(order = ?order.id(), parse_duration_mus = parse_duration.as_micros(), "Mempool transaction received with blobs");
             add_txfetcher_time_to_query(parse_duration);
 
-            let orderpool_command = ReplaceableOrderPoolCommand::Order(order);
+            let orderpool_command = ReplaceableOrderPoolCommand::Order(Arc::new(order));
             mark_command_received(&orderpool_command, received_at);
             match results
                 .send_timeout(orderpool_command, config.results_channel_timeout)
@@ -175,9 +175,10 @@ mod test {
         let recv_tx = receiver.recv().await.unwrap();
 
         let tx_with_blobs = match recv_tx {
-            ReplaceableOrderPoolCommand::Order(Order::Tx(MempoolTx { tx_with_blobs })) => {
-                Some(tx_with_blobs)
-            }
+            ReplaceableOrderPoolCommand::Order(order) => match order.as_ref() {
+                Order::Tx(MempoolTx { tx_with_blobs }) => Some(tx_with_blobs.clone()),
+                _ => None,
+            },
             _ => None,
         }
         .unwrap();
@@ -197,9 +198,10 @@ mod test {
         let recv_tx = receiver.recv().await.unwrap();
 
         let tx_without_blobs = match recv_tx {
-            ReplaceableOrderPoolCommand::Order(Order::Tx(MempoolTx { tx_with_blobs })) => {
-                Some(tx_with_blobs)
-            }
+            ReplaceableOrderPoolCommand::Order(order) => match order.as_ref() {
+                Order::Tx(MempoolTx { tx_with_blobs }) => Some(tx_with_blobs.clone()),
+                _ => None,
+            },
             _ => None,
         }
         .unwrap();

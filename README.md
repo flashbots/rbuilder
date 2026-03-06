@@ -36,6 +36,7 @@ For more details on how to use rbuilder for backtesting, see https://github.com/
 To run rbuilder you need:
 * Reth node for state. (`reth_datadir`)
 * Reth node must expose ipc interface for mempool tx subscription (`el_node_ipc_path`).
+* Reth node must be configured to flush every block (--engine.persistence-threshold "0" --engine.memory-block-buffer-target "0")
 * CL node that triggers new payload events (it must be additionally configured to trigger payload event every single time).
 * Source of bundles that sends `eth_sendBundle`, `mev_sendBundle`, `eth_sendRawTransaction` as JSON rpc calls. (`jsonrpc_server_port`)
   (by default rbuilder will take raw txs from the reth node mempool)
@@ -55,7 +56,22 @@ A sample configuration for running Lighthouse and triggering payload events woul
     --prepare-payload-lookahead 8000 \
     --suggested-fee-recipient 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045
 ```
-
+and for reth:
+```
+/usr/local/bin/reth node \
+    --datadir /mnt/md0/rethdata \
+    --authrpc.jwtsecret /secrets/jwt.hex \
+    --authrpc.addr 127.0.0.1 \
+    --authrpc.port 8551 \
+    --http \
+    --ws \
+    --ws.addr 127.0.0.1 \
+    --ws.port 8545 \
+    --rpc-max-connections 429496729 \
+    --http.api trace,web3,eth,debug \
+    --ws.api trace,web3,eth,debug \
+    --engine.persistence-threshold "0" --engine.memory-block-buffer-target "0"
+```
 Additionally, you can:
 * configure block processor API as a sink for submitted blocks (`blocks_processor_url`)
 * setup Prometheus / Grafana for metrics (served on `telemetry_port` + `/debug/metrics/prometheus`)

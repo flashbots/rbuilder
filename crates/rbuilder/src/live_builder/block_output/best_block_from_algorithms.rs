@@ -42,6 +42,8 @@ impl BestBlockFromAlgorithms {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use alloy_primitives::{I256, U256};
 
     use crate::building::{
@@ -81,7 +83,7 @@ mod tests {
                     coinbase_profit: Default::default(),
                     inplace_sim: Default::default(),
                     space_used: Default::default(),
-                    order: Order::Tx(order),
+                    order: Arc::new(Order::Tx(order)),
                     tx_infos: vec![TransactionExecutionInfo {
                         tx,
                         receipt: Default::default(),

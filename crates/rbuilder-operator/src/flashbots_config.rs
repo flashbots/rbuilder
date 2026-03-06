@@ -10,13 +10,15 @@ use jsonrpsee::RpcModule;
 use rbuilder::{
     building::{
         builders::{parallel_builder::parallel_build_backtest, BacktestSimulateBlockInput, Block},
+        journal::{NullOrderJournalObserverFactory, OrderJournalObserverFactory},
         order_priority::{FullProfitInfoGetter, NonMempoolProfitInfoGetter},
         BuiltBlockTrace, PartialBlockExecutionTracer,
     },
     live_builder::{
         base_config::BaseConfig,
-        block_output::bidding_service_interface::{
-            BidObserver, BiddingService, LandedBlockInfo, RelaySet,
+        block_output::{
+            bidding_service_interface::{BidObserver, BiddingService, LandedBlockInfo, RelaySet},
+            relay_submit::{AlwaysSubmitPolicy, RelaySubmissionPolicy},
         },
         cli::LiveBuilderConfig,
         config::{
@@ -25,7 +27,6 @@ use rbuilder::{
             SpecificBuilderConfig,
         },
         payload_events::MevBoostSlotData,
-        process_killer::ProcessKiller,
         LiveBuilder,
     },
     provider::StateProviderFactory,
@@ -41,12 +42,18 @@ use url::Url;
 
 use crate::{
     bidding_service_wrapper::client::bidding_service_client_adapter::BiddingServiceClientAdapter,
-    build_info::rbuilder_version, clickhouse::BuiltBlocksWriter,
+    build_info::rbuilder_version,
+    clickhouse::{
+        create_relay_submission_policy, BuiltBlocksWriter, OrderJournalWriterFactory,
+        DEFAULT_END_TIMEOUT_MS, DEFAULT_MAX_MEMORY_SIZE_MB, DEFAULT_SEND_TIMEOUT_MS, MEGA,
+    },
     true_block_value_push::best_true_value_observer::BestTrueValueObserver,
 };
 
 use clickhouse::Client;
-use std::{path::PathBuf, sync::Arc};
+use rbuilder_utils::clickhouse::backup::{DiskBackup, DiskBackupConfig};
+use std::{path::PathBuf, sync::Arc, time::Duration};
+use tokio::task::JoinHandle;
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
 pub struct ClickhouseConfig {
@@ -82,8 +89,15 @@ pub struct BuiltBlocksClickhouseConfig {
     pub builder_name: String,
     pub password: EnvOrValue<String>,
     pub disk_database_path: PathBuf,
+    /// If set must be < disk_max_size_mb.
+    /// If the disk backup size is greater than this value, clickhouse will ask we stop submitting blocks.
+    pub disk_max_size_to_submit_bids_to_relays_mb: Option<u64>,
     pub disk_max_size_mb: Option<u64>,
     pub memory_max_size_mb: Option<u64>,
+    /// Clickhouse send timeout in milliseconds. Defaults to 2000ms if not set.
+    pub send_timeout_ms: Option<u64>,
+    /// Clickhouse end timeout in milliseconds. Defaults to 3000ms if not set.
+    pub end_timeout_ms: Option<u64>,
 }
 
 #[serde_as]
@@ -147,6 +161,7 @@ impl LiveBuilderConfig for FlashbotsConfig {
     where
         P: StateProviderFactory + Clone + 'static,
     {
+        let abort_token = CancellationToken::new();
         if self.l1_config.relay_bid_scrapers.is_empty() {
             eyre::bail!("relay_bid_scrapers is not set");
         }
@@ -159,25 +174,36 @@ impl LiveBuilderConfig for FlashbotsConfig {
                 &landed_blocks,
                 self.l1_config.relays_ids(),
                 cancellation_token.clone(),
-                ProcessKiller::new(cancellation_token.clone()),
             )
             .await?;
 
-        let bid_observer = self.create_bid_observer(&cancellation_token).await?;
-
-        let (sink_factory, slot_info_provider, adjustment_fee_payers) =
-            create_sink_factory_and_relays(
-                &self.base_config,
-                &self.l1_config,
-                bidding_service.relay_sets().to_vec(),
-                wallet_balance_watcher,
-                bid_observer,
-                bidding_service.clone(),
-                cancellation_token.clone(),
-            )
+        let (
+            bid_observer,
+            submission_policy,
+            order_journal_observer_factory,
+            clickhouse_shutdown_handles,
+        ) = self
+            .create_bid_observer_and_submission_policy(&cancellation_token, &abort_token)
             .await?;
 
-        let live_builder = create_builder_from_sink(
+        let (
+            sink_factory,
+            slot_info_provider,
+            adjustment_fee_payers,
+            optimistic_v3_server_join_handle,
+        ) = create_sink_factory_and_relays(
+            &self.base_config,
+            &self.l1_config,
+            bidding_service.relay_sets().to_vec(),
+            wallet_balance_watcher,
+            bid_observer,
+            submission_policy,
+            bidding_service.clone(),
+            cancellation_token.clone(),
+        )
+        .await?;
+
+        let mut live_builder = create_builder_from_sink(
             &self.base_config,
             &self.l1_config,
             provider,
@@ -185,14 +211,23 @@ impl LiveBuilderConfig for FlashbotsConfig {
             slot_info_provider,
             adjustment_fee_payers,
             cancellation_token,
+            abort_token,
         )
         .await?;
 
+        for handle in clickhouse_shutdown_handles {
+            live_builder.add_critical_task(handle);
+        }
+        if let Some(optimistic_v3_server_join_handle) = optimistic_v3_server_join_handle {
+            live_builder.add_critical_task(optimistic_v3_server_join_handle);
+        }
         let mut module = RpcModule::new(());
         module.register_async_method("bid_subsidiseBlock", move |params, _| {
             handle_subsidise_block(bidding_service.clone(), params)
         })?;
-        let live_builder = live_builder.with_extra_rpc(module);
+        let live_builder = live_builder
+            .with_extra_rpc(module)
+            .with_order_journal_observer_factory(order_journal_observer_factory);
         let builders = create_builders(
             self.live_builders()?,
             self.base_config.max_order_execution_duration_warning(),
@@ -269,14 +304,12 @@ impl FlashbotsConfig {
         landed_blocks_history: &[LandedBlockInfo],
         all_relay_ids: RelaySet,
         cancellation_token: CancellationToken,
-        process_killer: ProcessKiller,
     ) -> eyre::Result<Arc<BiddingServiceClientAdapter>> {
         let bidding_service_client = BiddingServiceClientAdapter::new(
             &self.bidding_service_ipc_path,
             landed_blocks_history,
             all_relay_ids,
             cancellation_token,
-            process_killer,
         )
         .await
         .map_err(|e| eyre::Report::new(e).wrap_err("Unable to connect to remote bidder"))?;
@@ -305,28 +338,111 @@ impl FlashbotsConfig {
     }
 
     /// Depending on the cfg may create:
-    /// - Dummy sink (no blocks_processor_url)
-    /// - Standard block processor client
-    /// - Secure block processor client (using block_processor_key to sign)
-    fn create_block_processor_client(
+    /// - Dummy sink (no built_blocks_clickhouse_config)
+    /// - BuiltBlocksWriter that writes to clickhouse + OrderJournalWriter
+    ///
+    /// Returns (BidObserver, RelaySubmissionPolicy, OrderJournalObserver, Vec<JoinHandle> for clickhouse shutdown)
+    #[allow(clippy::type_complexity)]
+    fn create_clickhouse_writer_and_submission_policy(
         &self,
-        cancellation_token: &CancellationToken,
+        clickhouse_abort_token: &CancellationToken,
         block_processor_key: Option<PrivateKeySigner>,
-    ) -> eyre::Result<Option<Box<dyn BidObserver + Send + Sync>>> {
-        if let Some(built_blocks_clickhouse_config) = &self.built_blocks_clickhouse_config {
+    ) -> eyre::Result<(
+        Option<Box<dyn BidObserver + Send + Sync>>,
+        Box<dyn RelaySubmissionPolicy + Send + Sync>,
+        Box<dyn OrderJournalObserverFactory + Send + Sync>,
+        Vec<JoinHandle<()>>,
+    )> {
+        if let Some(config) = &self.built_blocks_clickhouse_config {
+            let (client, task_executor, disk_backup) =
+                Self::create_clickhouse_infra(config, clickhouse_abort_token.clone())?;
+
+            let send_timeout =
+                Duration::from_millis(config.send_timeout_ms.unwrap_or(DEFAULT_SEND_TIMEOUT_MS));
+            let end_timeout =
+                Duration::from_millis(config.end_timeout_ms.unwrap_or(DEFAULT_END_TIMEOUT_MS));
+            let memory_max_size_bytes: u64 = config
+                .memory_max_size_mb
+                .unwrap_or(DEFAULT_MAX_MEMORY_SIZE_MB)
+                * MEGA;
+
+            let submission_policy = create_relay_submission_policy(config)?;
+
             let rbuilder_version = rbuilder_version();
-            let writer = BuiltBlocksWriter::new(
-                built_blocks_clickhouse_config.clone(),
+            let (writer, blocks_handle) = BuiltBlocksWriter::new(
+                &client,
+                &task_executor,
+                disk_backup.clone(),
+                config.builder_name.clone(),
                 rbuilder_version.git_commit,
-                cancellation_token.clone(),
-            )?;
-            Ok(Some(Box::new(writer)))
+                memory_max_size_bytes,
+                send_timeout,
+                end_timeout,
+            );
+
+            let (journal_writer, journal_handle) = OrderJournalWriterFactory::new(
+                &client,
+                &task_executor,
+                disk_backup,
+                config.builder_name.clone(),
+                memory_max_size_bytes,
+                send_timeout,
+                end_timeout,
+            );
+
+            Ok((
+                Some(Box::new(writer)),
+                submission_policy,
+                Box::new(journal_writer),
+                vec![blocks_handle, journal_handle],
+            ))
         } else {
             if block_processor_key.is_some() {
                 return Self::bail_blocks_processor_url_not_set();
             }
-            Ok(None)
+            Ok((
+                None,
+                Box::new(AlwaysSubmitPolicy {}),
+                Box::new(NullOrderJournalObserverFactory {}),
+                vec![],
+            ))
         }
+    }
+
+    /// Creates the shared ClickHouse infrastructure (Client, TaskExecutor, DiskBackup)
+    /// from `BuiltBlocksClickhouseConfig`. The abort token is forwarded to the TaskManager
+    /// for graceful shutdown.
+    fn create_clickhouse_infra(
+        config: &BuiltBlocksClickhouseConfig,
+        abort_token: CancellationToken,
+    ) -> eyre::Result<(Client, rbuilder_utils::tasks::TaskExecutor, DiskBackup)> {
+        let client = Client::default()
+            .with_url(&config.host)
+            .with_database(&config.database)
+            .with_user(&config.username)
+            .with_password(config.password.value()?)
+            .with_validation(false); // CRITICAL for U256 serialization.
+
+        let task_manager = rbuilder_utils::tasks::TaskManager::current();
+        let task_executor = task_manager.executor();
+
+        let disk_backup = DiskBackup::new(
+            DiskBackupConfig::new()
+                .with_path(Some(&config.disk_database_path))
+                .with_max_size_bytes(Some(
+                    config.disk_max_size_mb.unwrap_or(10 * 1024) * 1024 * 1024,
+                )),
+            &task_executor,
+        )
+        .expect("could not create disk backup");
+
+        // Task to forward the abort to the task_manager.
+        tokio::spawn(async move {
+            abort_token.cancelled().await;
+            task_manager.graceful_shutdown();
+        });
+
+        Ok((client, task_executor, disk_backup))
     }
 
     fn bail_blocks_processor_url_not_set<T>() -> Result<T, eyre::Report> {
@@ -334,10 +450,20 @@ impl FlashbotsConfig {
     }
 
     /// Depending on the cfg add a BlocksProcessorClientBidObserver and/or a true value pusher.
-    async fn create_bid_observer(
+    /// Returns (BidObserver, RelaySubmissionPolicy, OrderJournalObserver, Vec<JoinHandle> for clickhouse shutdown)
+    /// cancellation_token: used to cancel tbv_pusher
+    /// clickhouse_abort_token: used to cancel clickhouse tasks if source is hanged.
+    #[allow(clippy::type_complexity)]
+    async fn create_bid_observer_and_submission_policy(
         &self,
         cancellation_token: &CancellationToken,
-    ) -> eyre::Result<Box<dyn BidObserver + Send + Sync>> {
+        clickhouse_abort_token: &CancellationToken,
+    ) -> eyre::Result<(
+        Box<dyn BidObserver + Send + Sync>,
+        Box<dyn RelaySubmissionPolicy + Send + Sync>,
+        Box<dyn OrderJournalObserverFactory + Send + Sync>,
+        Vec<JoinHandle<()>>,
+    )> {
         let block_processor_key = if let Some(key_registration_url) = &self.key_registration_url {
             if self.blocks_processor_url.is_none() {
                 return Self::bail_blocks_processor_url_not_set();
@@ -347,12 +473,25 @@ impl FlashbotsConfig {
             None
         };
 
+        let (
+            clickhouse_writer,
+            submission_policy,
+            order_journal_observer_factory,
+            clickhouse_shutdown_handles,
+        ) = self.create_clickhouse_writer_and_submission_policy(
+            clickhouse_abort_token,
+            block_processor_key.clone(),
+        )?;
         let bid_observer = RbuilderOperatorBidObserver {
-            block_processor: self
-                .create_block_processor_client(cancellation_token, block_processor_key.clone())?,
+            clickhouse_writer,
             tbv_pusher: self.create_tbv_pusher(block_processor_key, cancellation_token)?,
         };
-        Ok(Box::new(bid_observer))
+        Ok((
+            Box::new(bid_observer),
+            submission_policy,
+            order_journal_observer_factory,
+            clickhouse_shutdown_handles,
+        ))
     }
 
     fn create_tbv_pusher(
@@ -446,7 +585,7 @@ pub fn default_blocks_processor_max_request_size_bytes() -> u32 {
 
 #[derive(Debug)]
 struct RbuilderOperatorBidObserver {
-    block_processor: Option<Box<dyn BidObserver + Send + Sync>>,
+    clickhouse_writer: Option<Box<dyn BidObserver + Send + Sync>>,
     tbv_pusher: Option<Box<dyn BidObserver + Send + Sync>>,
 }
 
@@ -460,7 +599,7 @@ impl BidObserver for RbuilderOperatorBidObserver {
         relays: &RelaySet,
         sent_to_relay_at: OffsetDateTime,
     ) {
-        if let Some(p) = self.block_processor.as_ref() {
+        if let Some(p) = self.clickhouse_writer.as_ref() {
             p.block_submitted(
                 slot_data,
                 submit_block_request.clone(),

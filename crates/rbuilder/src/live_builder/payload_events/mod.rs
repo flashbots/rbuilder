@@ -21,7 +21,6 @@ use ahash::HashMap;
 use alloy_eips::{merge::SLOT_DURATION, BlockNumHash};
 use alloy_primitives::{utils::format_ether, Address, B256, U256};
 use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
-use derivative::Derivative;
 use rbuilder_primitives::mev_boost::MevBoostRelayID;
 use std::{collections::VecDeque, sync::Arc, time::Duration};
 use tokio::{sync::mpsc, task::JoinHandle};
@@ -42,8 +41,7 @@ pub type InternalPayloadId = u64;
 
 /// Data about a slot received from relays.
 /// Contains the important information needed to build and submit the block.
-#[derive(Derivative)]
-#[derivative(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct MevBoostSlotData {
     /// The .data.payload_attributes.suggested_fee_recipient is replaced
     pub payload_attributes_event: PayloadAttributesEvent,
@@ -51,7 +49,6 @@ pub struct MevBoostSlotData {
     /// Map of relays to the registrations with matching slot data. It may not contain all the relays (eg: errors, forks, validators registering only to some relays)
     pub relay_registrations: Arc<HashMap<MevBoostRelayID, RelaySlotData>>,
     pub slot_data: SlotData,
-    #[derivative(PartialEq = "ignore", Hash = "ignore")]
     pub payload_id: InternalPayloadId,
 }
 
@@ -240,7 +237,7 @@ impl MevBoostSlotDataGenerator {
                     }
                 }
 
-                if recently_sent_data.contains(&mev_boost_slot_data) {
+                if recently_sent_data.contains(&mev_boost_slot_data.payload_attributes_event) {
                     info!(
                         payload_id,
                         reason = "the same payload was already sent",
@@ -251,7 +248,7 @@ impl MevBoostSlotDataGenerator {
                 if recently_sent_data.len() > RECENTLY_SENT_EVENTS_BUFF {
                     recently_sent_data.pop_front();
                 }
-                recently_sent_data.push_back(mev_boost_slot_data.clone());
+                recently_sent_data.push_back(mev_boost_slot_data.payload_attributes_event.clone());
 
                 report_slot_withdrawals_to_fee_recipients(&mev_boost_slot_data);
 

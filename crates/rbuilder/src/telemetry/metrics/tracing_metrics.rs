@@ -96,7 +96,7 @@ pub fn mark_command_received(command: &ReplaceableOrderPoolCommand, received_at:
     let kind = match command {
         ReplaceableOrderPoolCommand::Order(order) => {
             mark_order_received(order.id(), received_at);
-            match order {
+            match order.as_ref() {
                 Order::Bundle(_) => "bundle",
                 Order::Tx(_) => "tx",
             }

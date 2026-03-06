@@ -106,7 +106,7 @@ impl<ConfigType: LiveBuilderConfig> LandedBlockFromDBOrdersSource<ConfigType> {
             for tx in landed_txs {
                 if !existing_tx_hashes.contains(&tx.hash()) {
                     block_data.available_orders.push(OrdersWithTimestamp {
-                        order: Order::Tx(MempoolTx::new(tx)),
+                        order: Arc::new(Order::Tx(MempoolTx::new(tx))),
                         timestamp_ms: block_timestamp_ms,
                     });
                     injected_count += 1;

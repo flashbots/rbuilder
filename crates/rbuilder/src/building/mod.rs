@@ -81,6 +81,7 @@ pub mod cached_reads;
 pub mod conflict;
 pub mod evm;
 pub mod fmt;
+pub mod journal;
 pub mod order_commit;
 pub mod payout_tx;
 pub mod precompile_cache;
@@ -540,7 +541,7 @@ pub struct ExecutionResult {
     pub coinbase_profit: U256,
     pub inplace_sim: SimValue,
     pub space_used: BlockSpace,
-    pub order: Order,
+    pub order: Arc<Order>,
     /// Landed txs execution info.
     pub tx_infos: Vec<TransactionExecutionInfo>,
     pub nonces_updated: Vec<(Address, u64)>,
@@ -777,7 +778,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             coinbase_profit: ok_result.coinbase_profit,
             inplace_sim: inplace_sim_result,
             space_used: ok_result.space_used,
-            order: order.order.clone(),
+            order: Arc::clone(&order.order),
             tx_infos: ok_result.tx_infos,
             nonces_updated: ok_result.nonces_updated,
             paid_kickbacks: ok_result.paid_kickbacks,

@@ -789,7 +789,7 @@ impl Trie {
         if self.nodes.is_empty() {
             return Err(NodeNotFound(Nibbles::new()));
         }
-        self.root_hash_node(0, &mut rlp, parallel, proof_store);
+        self.root_hash_node(0, &mut rlp, parallel, 0, proof_store);
         self.rlp_encode_node(0, &mut rlp, proof_store);
         Ok(keccak256(&rlp))
     }
@@ -799,6 +799,7 @@ impl Trie {
         node_idx: usize,
         rlp: &mut Vec<u8>,
         parallel: bool,
+        depth: usize,
         proof_store: &ProofStore,
     ) {
         if self.hashed_nodes[node_idx] {
@@ -810,20 +811,18 @@ impl Trie {
             .expect("root_hash_node: node not found");
         match node {
             DiffTrieNode::Branch { children } => {
-                let compute_children_this_thread = if !parallel {
-                    true
-                } else {
+                let use_rayon = parallel && depth == 0 && {
                     let local_children = self.branch_node_children[*children]
                         .iter()
                         .filter(|c| matches!(c, Some(NodePtr::Local(_))))
                         .count();
-                    local_children <= 1
+                    local_children > 1
                 };
 
-                if compute_children_this_thread {
+                if !use_rayon {
                     for child in self.branch_node_children[*children].into_iter().flatten() {
                         if let NodePtr::Local(child) = child {
-                            self.root_hash_node(child, rlp, parallel, proof_store);
+                            self.root_hash_node(child, rlp, false, depth + 1, proof_store);
                         }
                     }
                 } else {
@@ -832,7 +831,13 @@ impl Trie {
                             if let NodePtr::Local(child) = child {
                                 scope.spawn(move |_| {
                                     let mut rlp = Vec::new();
-                                    self.root_hash_node(child, &mut rlp, parallel, proof_store);
+                                    self.root_hash_node(
+                                        child,
+                                        &mut rlp,
+                                        false,
+                                        depth + 1,
+                                        proof_store,
+                                    );
                                 })
                             }
                         }
@@ -842,7 +847,7 @@ impl Trie {
             }
             DiffTrieNode::Extension { next_node, .. } => {
                 if let NodePtr::Local(child) = next_node {
-                    self.root_hash_node(*child, rlp, parallel, proof_store);
+                    self.root_hash_node(*child, rlp, parallel, depth + 1, proof_store);
                 }
                 self.calculate_rlp_pointer_node(node_idx, rlp, proof_store);
             }

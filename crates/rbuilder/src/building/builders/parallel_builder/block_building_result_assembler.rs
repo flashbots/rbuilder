@@ -179,6 +179,7 @@ impl BlockBuildingResultAssembler {
     /// # Returns
     ///
     /// A Result containing the new block building helper or an error.
+    #[allow(unreachable_code)]
     pub fn build_new_block(
         &mut self,
         best_orderings_per_group: &mut [(ResolutionResult, ConflictGroup)],
@@ -212,6 +213,7 @@ impl BlockBuildingResultAssembler {
 
         let mut block_building_helper = BlockBuildingHelperFromProvider::new(
             self.built_block_id_source.get_new_id(),
+            0,
             self.state.clone(),
             self.ctx.clone(),
             &mut self.local_ctx,
@@ -289,6 +291,10 @@ impl BlockBuildingResultAssembler {
             }
         }
         block_building_helper.set_trace_fill_time(build_start.elapsed());
+        panic!(
+            "TODO: next_journal_sequence_number not set in BlockBuildingHelperFromProvider::new"
+        );
+
         Ok(Box::new(block_building_helper))
     }
 
@@ -326,6 +332,7 @@ impl BlockBuildingResultAssembler {
 
         let mut block_building_helper = BlockBuildingHelperFromProvider::new(
             self.built_block_id_source.get_new_id(),
+            0,
             self.state.clone(),
             self.ctx.clone(),
             &mut self.local_ctx,

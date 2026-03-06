@@ -15,7 +15,7 @@ use std::sync::Arc;
 /// This bool allows the source to cancel notifications on errors if needed.
 #[automock]
 pub trait OrderSink: Debug + Send {
-    fn insert_order(&mut self, order: Order) -> bool;
+    fn insert_order(&mut self, order: Arc<Order>) -> bool;
     fn remove_order(&mut self, id: OrderId) -> bool;
     /// @Pending remove this ugly hack to check if we can stop sending data.
     /// It should be replaced for a better control over object destruction
@@ -27,7 +27,7 @@ pub trait OrderSink: Debug + Send {
 pub struct OrderPrinter {}
 
 impl OrderSink for OrderPrinter {
-    fn insert_order(&mut self, order: Order) -> bool {
+    fn insert_order(&mut self, order: Arc<Order>) -> bool {
         info!(order_id = ?order.id() ,"New order");
         true
     }
@@ -54,7 +54,7 @@ impl Drop for OrderPrinter {
 #[allow(clippy::large_enum_variant)]
 pub enum OrderPoolCommand {
     //OrderSink::insert_order
-    Insert(Order),
+    Insert(Arc<Order>),
     //OrderSink::remove_order
     Remove(OrderId),
 }
@@ -74,7 +74,7 @@ impl OrderSender2OrderSink {
 }
 
 impl OrderSink for OrderSender2OrderSink {
-    fn insert_order(&mut self, order: Order) -> bool {
+    fn insert_order(&mut self, order: Arc<Order>) -> bool {
         self.sender.send(OrderPoolCommand::Insert(order)).is_ok()
     }
 
@@ -91,7 +91,7 @@ impl OrderSink for OrderSender2OrderSink {
 /// Usage: create, call OrderSink funcs and call into_orders/orders to get the current orders.
 #[derive(Debug)]
 pub struct OrderStore {
-    orders: HashMap<OrderId, Order>,
+    orders: HashMap<OrderId, Arc<Order>>,
 }
 
 impl OrderStore {
@@ -101,11 +101,11 @@ impl OrderStore {
         }
     }
 
-    pub fn into_orders(self) -> Vec<Order> {
+    pub fn into_orders(self) -> Vec<Arc<Order>> {
         self.orders.into_values().collect()
     }
 
-    pub fn orders(&self) -> Vec<Order> {
+    pub fn orders(&self) -> Vec<Arc<Order>> {
         self.orders.values().cloned().collect()
     }
 }
@@ -117,7 +117,7 @@ impl Default for OrderStore {
 }
 
 impl OrderSink for OrderStore {
-    fn insert_order(&mut self, order: Order) -> bool {
+    fn insert_order(&mut self, order: Arc<Order>) -> bool {
         if let Some(old_order) = self.orders.insert(order.id(), order) {
             warn!(id =?old_order.id(), "Replacing an already inserted order");
         }
@@ -149,7 +149,7 @@ impl<OrderSinkType: OrderSink> ShareableOrderSink<OrderSinkType> {
 }
 
 impl<OrderSinkType: OrderSink> OrderSink for ShareableOrderSink<OrderSinkType> {
-    fn insert_order(&mut self, order: Order) -> bool {
+    fn insert_order(&mut self, order: Arc<Order>) -> bool {
         self.sink.lock().insert_order(order)
     }
 

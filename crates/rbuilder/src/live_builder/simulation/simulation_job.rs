@@ -292,7 +292,7 @@ impl SimulationJob {
     }
 
     /// feeding the sim tree.
-    fn process_new_order(&mut self, order: Order) -> bool {
+    fn process_new_order(&mut self, order: Arc<Order>) -> bool {
         self.orders_received.accumulate(&order);
         if let Some(repl_key) = order.replacement_key() {
             self.unique_replacement_key_bundles.insert(repl_key);
@@ -313,7 +313,7 @@ impl SimulationJob {
             match new_commnad {
                 OrderPoolCommand::Insert(order) => {
                     // This is not unrecoverable error, so if it fails, we ignore it and try processing next order
-                    let _success = self.process_new_order(order.clone());
+                    let _success = self.process_new_order(Arc::clone(order));
                 }
                 OrderPoolCommand::Remove(order_id) => {
                     // Returns false if channel is closed,

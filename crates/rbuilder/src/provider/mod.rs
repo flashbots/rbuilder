@@ -1,3 +1,5 @@
+use std::sync::mpsc;
+
 use crate::{
     building::ThreadBlockBuildingContext, live_builder::simulation::SimulatedOrderCommand,
     roothash::RootHashError,
@@ -9,8 +11,6 @@ use eth_sparse_mpt::utils::{HashMap, HashSet};
 use reth_errors::ProviderResult;
 use reth_provider::StateProviderBox;
 use revm::database::BundleState;
-use tokio::sync::broadcast;
-use tokio_util::sync::CancellationToken;
 
 pub mod ipc_state_provider;
 pub mod reth_prov;
@@ -46,11 +46,7 @@ pub trait StateProviderFactory: Send + Sync {
 pub trait RootHasher: std::fmt::Debug + Send + Sync {
     /// Must be called once before using.
     /// This is too specific and prone to error (you may forget to call it), maybe it's a better idea to pass this to StateProviderFactory::root_hasher and let each RootHasher decide what to do?
-    fn run_prefetcher(
-        &self,
-        simulated_orders: broadcast::Receiver<SimulatedOrderCommand>,
-        cancel: CancellationToken,
-    );
+    fn run_prefetcher(&self, simulated_orders: mpsc::Receiver<SimulatedOrderCommand>);
 
     /// State root for changes outcome on top of parent block.
     /// Incermental change is a list of accounts that are changed for the block since the last call to state_root

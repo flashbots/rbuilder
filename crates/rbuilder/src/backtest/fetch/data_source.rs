@@ -7,6 +7,7 @@ use crate::{
 };
 use alloy_primitives::B256;
 use async_trait::async_trait;
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct DatasourceData {
@@ -45,7 +46,7 @@ pub async fn get_full_slot_data_from_data(
             .into_iter()
             .map(|o| ReplaceableOrderPoolCommandWithTimestamp {
                 timestamp_ms: o.timestamp_ms,
-                command: ReplaceableOrderPoolCommand::Order(o.order),
+                command: ReplaceableOrderPoolCommand::Order(Arc::clone(&o.order)),
             })
             .collect(),
         built_block_data: data.built_block_data,

@@ -199,12 +199,11 @@ impl TestSetup {
             Arc::from(self.test_chain.provider_factory().latest()?);
         let mut local_ctx = ThreadBlockBuildingContext::default();
 
-        let sim_order = SimulatedOrder {
-            order: self.order_builder.build_order(),
-            sim_value: Default::default(),
-            used_state_trace: Default::default(),
-            ace_interactions: Vec::new(),
-        };
+        let sim_order = SimulatedOrder::new(
+            Arc::new(self.order_builder.build_order()),
+            Default::default(),
+            Default::default(),
+        );
 
         // we commit order twice to test evm caching
         let initial_partial_block = self.partial_block.clone();

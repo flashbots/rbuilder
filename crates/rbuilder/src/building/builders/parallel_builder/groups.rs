@@ -470,17 +470,16 @@ mod tests {
                 trace.destructed_contracts.push(*contract_address);
             }
 
-            Arc::new(SimulatedOrder {
-                order: Order::Tx(MempoolTx {
+            Arc::new(SimulatedOrder::new(
+                Arc::new(Order::Tx(MempoolTx {
                     tx_with_blobs: TransactionSignedEcRecoveredWithBlobs::new_no_blobs(
                         self.create_tx(),
                     )
                     .unwrap(),
-                }),
-                used_state_trace: Some(trace),
-                sim_value: SimValue::default(),
-                ace_interactions: Vec::new(),
-            })
+                })),
+                SimValue::default(),
+                Some(trace),
+            ))
         }
     }
 

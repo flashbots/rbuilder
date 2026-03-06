@@ -26,7 +26,7 @@ impl ReplaceableOrderStreamSniffer {
 }
 
 impl ReplaceableOrderSink for ReplaceableOrderStreamSniffer {
-    fn insert_order(&mut self, order: Order) -> bool {
+    fn insert_order(&mut self, order: Arc<Order>) -> bool {
         self.detector.add_tx(&order);
         self.sink.insert_order(order)
     }

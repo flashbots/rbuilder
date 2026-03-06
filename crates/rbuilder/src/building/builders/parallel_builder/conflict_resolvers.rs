@@ -529,12 +529,11 @@ mod tests {
                 external_hash: None,
             };
 
-            Arc::new(SimulatedOrder {
-                order: Order::Bundle(bundle),
-                used_state_trace: None,
+            Arc::new(SimulatedOrder::new(
+                Arc::new(Order::Bundle(bundle)),
                 sim_value,
-                ace_interactions: Vec::new(),
-            })
+                None,
+            ))
         }
     }
 

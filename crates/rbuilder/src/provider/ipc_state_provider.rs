@@ -2,7 +2,7 @@ use std::{
     borrow::Cow,
     fmt::Debug,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{mpsc, Arc},
     time::Duration,
 };
 
@@ -30,8 +30,6 @@ use revm::{
     primitives::HashMap,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use tokio::sync::broadcast;
-use tokio_util::sync::CancellationToken;
 use tracing::{trace, trace_span};
 
 use crate::{
@@ -437,11 +435,7 @@ pub struct StatRootHashCalculator {
 }
 
 impl RootHasher for StatRootHashCalculator {
-    fn run_prefetcher(
-        &self,
-        _simulated_orders: broadcast::Receiver<SimulatedOrderCommand>,
-        _cancel: CancellationToken,
-    ) {
+    fn run_prefetcher(&self, _simulated_orders: mpsc::Receiver<SimulatedOrderCommand>) {
         unimplemented!()
     }
 

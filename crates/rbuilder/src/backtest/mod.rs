@@ -12,11 +12,12 @@ mod store;
 use ahash::HashMap;
 pub use backtest_build_range::run_backtest_build_range;
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use crate::{mev_boost::BuilderBlockReceived, utils::offset_datetime_to_timestamp_ms};
 use alloy_consensus::Transaction as TransactionTrait;
 use alloy_network_primitives::TransactionResponse;
-use alloy_primitives::{TxHash, I256};
+use alloy_primitives::{TxHash, B256, I256};
 use alloy_rpc_types::{BlockTransactions, Transaction};
 pub use fetch::HistoricalDataFetcher;
 use rbuilder_primitives::{
@@ -38,7 +39,7 @@ impl From<OrdersWithTimestamp> for RawOrdersWithTimestamp {
     fn from(orders: OrdersWithTimestamp) -> Self {
         Self {
             timestamp_ms: orders.timestamp_ms,
-            order: orders.order.into(),
+            order: (*orders.order).clone().into(),
         }
     }
 }
@@ -46,7 +47,16 @@ impl From<OrdersWithTimestamp> for RawOrdersWithTimestamp {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct OrdersWithTimestamp {
     pub timestamp_ms: u64,
-    pub order: Order,
+    pub order: Arc<Order>,
+}
+
+/// Metadata needed to replay the order journal for a built block.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JournalMetadata {
+    pub builder_name: String,
+    pub slot: u64,
+    pub parent_hash: B256,
+    pub next_journal_sequence_number: u32,
 }
 
 /// Historic data for a block.
@@ -57,6 +67,7 @@ pub struct BuiltBlockData {
     pub orders_closed_at: OffsetDateTime,
     pub sealed_at: OffsetDateTime,
     pub profit: I256,
+    pub journal_metadata: Option<JournalMetadata>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -171,7 +182,7 @@ impl BlockData {
         let mempool_txs = self
             .available_orders
             .iter()
-            .filter_map(|o| match &o.order {
+            .filter_map(|o| match o.order.as_ref() {
                 Order::Tx(tx) => Some(tx.tx_with_blobs.hash()),
                 _ => None,
             })

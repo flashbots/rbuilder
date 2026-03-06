@@ -1,36 +1,50 @@
-//! Clickhouse integration to save all the blocks we build and submit to relays.
+//! Clickhouse integration to save all the blocks we build and submit to relays,
+//! and to record the order journal (add/remove events) to the `available_orders_journal` table.
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
-
-use alloy_primitives::{utils::format_ether, Address, U256};
+use alloy_primitives::{utils::format_ether, Address, B256, U256};
 use alloy_rpc_types_beacon::relay::SubmitBlockRequest as AlloySubmitBlockRequest;
 use clickhouse::{Client, Row};
+use dashmap::DashSet;
 use rbuilder::{
-    building::BuiltBlockTrace,
+    building::{
+        journal::{
+            Error, OrderJournalObserver, OrderJournalObserverFactory, SimulatedOrderJournalCommand,
+        },
+        BuiltBlockTrace,
+    },
     live_builder::{
-        block_output::bidding_service_interface::{BidObserver, RelaySet},
+        block_output::{
+            bidding_service_interface::{BidObserver, RelaySet},
+            relay_submit::{AlwaysSubmitPolicy, RelaySubmissionPolicy},
+        },
         payload_events::MevBoostSlotData,
-        process_killer::RUN_SUBMIT_TO_RELAYS_JOB_CANCEL_TIME,
+        simulation::SimulatedOrderCommand,
     },
 };
 use rbuilder_primitives::{Order, OrderId};
 use rbuilder_utils::clickhouse::{
     backup::{
         primitives::{ClickhouseIndexableData, ClickhouseRowExt},
-        DiskBackup, DiskBackupConfig,
+        DiskBackup,
     },
     serde::{option_u256, vec_u256},
     spawn_clickhouse_inserter_and_backup,
 };
+use rbuilder_utils::tasks::TaskExecutor;
 use serde::{Deserialize, Serialize};
+use serde_repr::{Deserialize_repr, Serialize_repr};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use time::OffsetDateTime;
 use tokio::sync::mpsc;
-use tokio_util::sync::CancellationToken;
+use tokio::task::JoinHandle;
 use tracing::error;
 
 use crate::{
     flashbots_config::BuiltBlocksClickhouseConfig,
-    metrics::{set_disk_backup_max_size, ClickhouseMetrics},
+    metrics::{
+        set_disk_backup_max_size, set_disk_backup_max_size_to_submit_bids_to_relays,
+        ClickhouseMetrics, CLICKHOUSE_DISK_BACKUP_SIZE_BYTES,
+    },
 };
 
 /// BlockRow to insert in clickhouse and also as entry type for the indexer since the BlockRow is made from a few &objects so it makes no sense to have a Block type and copy all the fields.
@@ -90,6 +104,7 @@ pub struct BlockRow {
     /// These 2 should be Option but for clickhouse optimization we use defaults as null values.
     pub bid_to_beat_seen_time: i64,
     pub bid_to_beat_seen_relay: String,
+    pub next_journal_sequence_number: u32,
 }
 
 impl ClickhouseRowExt for BlockRow {
@@ -119,15 +134,124 @@ impl ClickhouseIndexableData for BlockRow {
     }
 }
 
-const KILO: u64 = 1024;
-const MEGA: u64 = KILO * KILO;
+/// Enum matching ClickHouse `Enum8('Tx' = 0, 'Bundle' = 1)`.
+#[derive(Debug, Clone, Copy, Serialize_repr, Deserialize_repr)]
+#[repr(i8)]
+pub enum OrderJournalOrderType {
+    Tx = 0,
+    Bundle = 1,
+}
+
+/// Enum matching ClickHouse `Enum8('Add' = 0, 'Remove' = 1)`.
+#[derive(Debug, Clone, Copy, Serialize_repr, Deserialize_repr)]
+#[repr(i8)]
+pub enum OrderJournalOperationType {
+    Add = 0,
+    Remove = 1,
+}
+
+/// Row for the `available_orders_journal` ClickHouse table.
+/// Records each Add/Remove order event as it flows through the builder.
+///
+/// Field order and types must exactly match the ClickHouse schema (validation is off):
+///   server_id       LowCardinality(String)
+///   slot_number     UInt64
+///   parent_block    FixedString(32)
+///   order_type      Enum8('Tx' = 0, 'Bundle' = 1)
+///   order_hash      FixedString(32)
+///   operation_type  Enum8('Add' = 0, 'Remove' = 1)
+///   sequence_number UInt32
+///   timestamp       DateTime64(6)
+#[derive(Debug, Clone, Serialize, Deserialize, Row)]
+pub struct OrderJournalRow {
+    pub server_id: String,
+    pub slot_number: u64,
+    #[serde(with = "serde_b256_fixed_bytes")]
+    pub parent_block: B256,
+    pub order_type: OrderJournalOrderType,
+    #[serde(with = "serde_b256_fixed_bytes")]
+    pub order_hash: B256,
+    pub operation_type: OrderJournalOperationType,
+    pub sequence_number: u32,
+    pub timestamp: i64,
+}
+
+/// Serde helper to serialize/deserialize `B256` as `[u8; 32]` for ClickHouse `FixedString(32)`.
+///
+/// ClickHouse `FixedString(32)` expects exactly 32 raw bytes in RowBinary (no length prefix).
+/// Using `serialize_bytes` would emit a varint length prefix + data (matching `String`), which
+/// misaligns the binary stream and causes parse errors on subsequent rows.
+/// Instead, we delegate to `[u8; 32]`'s serde impl which serializes as a fixed-size tuple.
+mod serde_b256_fixed_bytes {
+    use alloy_primitives::B256;
+    use serde::{self, Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S>(value: &B256, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let bytes: &[u8; 32] = value.as_ref();
+        bytes.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<B256, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let bytes: [u8; 32] = Deserialize::deserialize(deserializer)?;
+        Ok(B256::from(bytes))
+    }
+}
+
+impl OrderJournalRow {
+    fn trace_id(&self) -> String {
+        format!(
+            "{}:{}:{}",
+            self.slot_number, self.parent_block, self.sequence_number
+        )
+    }
+}
+
+const ORDER_JOURNAL_TABLE_NAME: &str = "available_orders_journal";
+
+impl ClickhouseRowExt for OrderJournalRow {
+    type TraceId = String;
+    const TABLE_NAME: &'static str = ORDER_JOURNAL_TABLE_NAME;
+
+    fn trace_id(&self) -> String {
+        self.trace_id()
+    }
+
+    fn to_row_ref(row: &Self) -> &<Self as Row>::Value<'_> {
+        row
+    }
+}
+
+impl ClickhouseIndexableData for OrderJournalRow {
+    type ClickhouseRowType = OrderJournalRow;
+
+    const DATA_NAME: &'static str = <OrderJournalRow as ClickhouseRowExt>::TABLE_NAME;
+
+    fn trace_id(&self) -> String {
+        self.trace_id()
+    }
+
+    fn to_row(self, _builder_name: String) -> Self::ClickhouseRowType {
+        self
+    }
+}
+
+pub(crate) const KILO: u64 = 1024;
+pub(crate) const MEGA: u64 = KILO * KILO;
 
 // Super worst scenario we submit 500 blocks per second so we have 10 seconds of buffer.
 // After this having this queued blocks we will start to drop. BlockRow is small enough (in the order of 10K, only hashes/ids, not full orders) so 5K BlockRows is not too much memory.
 const BUILT_BLOCKS_CHANNEL_SIZE: usize = 5 * 1024;
 const BLOCKS_TABLE_NAME: &str = "blocks";
 const DEFAULT_MAX_DISK_SIZE_MB: u64 = 10 * KILO;
-const DEFAULT_MAX_MEMORY_SIZE_MB: u64 = KILO;
+pub const DEFAULT_MAX_MEMORY_SIZE_MB: u64 = KILO;
+pub const DEFAULT_SEND_TIMEOUT_MS: u64 = 2000;
+pub const DEFAULT_END_TIMEOUT_MS: u64 = 3000;
 #[derive(Debug)]
 pub struct BuiltBlocksWriter {
     blocks_tx: mpsc::Sender<BlockRow>,
@@ -135,61 +259,110 @@ pub struct BuiltBlocksWriter {
     builder_name: String,
 }
 
+/// Policy to stop submitting blocks if the disk backup is too big.
+#[derive(Debug)]
+struct BackupNotTooBigRelaySubmissionPolicy {
+    disk_max_size_to_submit: u64,
+}
+
+impl BackupNotTooBigRelaySubmissionPolicy {
+    pub fn new(disk_max_size_to_submit: u64) -> Self {
+        Self {
+            disk_max_size_to_submit,
+        }
+    }
+}
+
+impl RelaySubmissionPolicy for BackupNotTooBigRelaySubmissionPolicy {
+    /// We assume should_submit is not called super often so we can look at maps.
+    fn should_submit(&self) -> bool {
+        (CLICKHOUSE_DISK_BACKUP_SIZE_BYTES
+            .with_label_values(&[BLOCKS_TABLE_NAME])
+            .get() as u64)
+            + (CLICKHOUSE_DISK_BACKUP_SIZE_BYTES
+                .with_label_values(&[ORDER_JOURNAL_TABLE_NAME])
+                .get() as u64)
+            < self.disk_max_size_to_submit
+    }
+}
+
+/// Creates a [`RelaySubmissionPolicy`] based on the ClickHouse backup config and sets the
+/// corresponding disk backup size gauges.
+///
+/// If `disk_max_size_to_submit_bids_to_relays_mb` is set, returns a policy that stops
+/// submitting when the blocks disk backup exceeds that threshold; otherwise returns
+/// [`AlwaysSubmitPolicy`].
+pub fn create_relay_submission_policy(
+    config: &BuiltBlocksClickhouseConfig,
+) -> eyre::Result<Box<dyn RelaySubmissionPolicy + Send + Sync>> {
+    let backup_max_size_bytes = config.disk_max_size_mb.unwrap_or(DEFAULT_MAX_DISK_SIZE_MB) * MEGA;
+    let submission_policy: Box<dyn RelaySubmissionPolicy + Send + Sync> =
+        if let Some(disk_max_size_to_submit_bids_to_relays_mb) =
+            config.disk_max_size_to_submit_bids_to_relays_mb
+        {
+            let disk_max_size_to_submit_bids_to_relays =
+                disk_max_size_to_submit_bids_to_relays_mb * MEGA;
+            if disk_max_size_to_submit_bids_to_relays > backup_max_size_bytes {
+                eyre::bail!(
+                    "disk_max_size_to_submit_bids_to_relays_mb must be less than disk_max_size_mb"
+                );
+            }
+            set_disk_backup_max_size_to_submit_bids_to_relays(
+                disk_max_size_to_submit_bids_to_relays,
+            );
+            Box::new(BackupNotTooBigRelaySubmissionPolicy::new(
+                disk_max_size_to_submit_bids_to_relays,
+            ))
+        } else {
+            Box::new(AlwaysSubmitPolicy {})
+        };
+
+    set_disk_backup_max_size(backup_max_size_bytes);
+
+    Ok(submission_policy)
+}
+
 impl BuiltBlocksWriter {
+    /// Creates the writer and spawns the background ClickHouse inserter + backup tasks.
+    /// Returns `(Self, JoinHandle<()>)` where the handle should be awaited during shutdown.
+    ///
+    /// Accepts pre-created shared ClickHouse infrastructure (`client`, `task_executor`, `disk_backup`)
+    /// so the same resources can be shared with other writers (e.g. `OrderJournalWriter`).
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
-        config: BuiltBlocksClickhouseConfig,
+        client: &Client,
+        task_executor: &TaskExecutor,
+        disk_backup: DiskBackup,
+        builder_name: String,
         rbuilder_commit: String,
-        cancellation_token: CancellationToken,
-    ) -> eyre::Result<Self> {
-        let client = Client::default()
-            .with_url(config.host)
-            .with_database(config.database)
-            .with_user(config.username)
-            .with_password(config.password.value()?)
-            .with_validation(false); // CRITICAL for U256 serialization.
-
-        let task_manager = rbuilder_utils::tasks::TaskManager::current();
-        let task_executor = task_manager.executor();
-
-        let backup_max_size_bytes =
-            config.disk_max_size_mb.unwrap_or(DEFAULT_MAX_DISK_SIZE_MB) * MEGA;
-        set_disk_backup_max_size(backup_max_size_bytes);
-
+        memory_max_size_bytes: u64,
+        send_timeout: Duration,
+        end_timeout: Duration,
+    ) -> (Self, JoinHandle<()>) {
         let (block_tx, block_rx) = mpsc::channel::<BlockRow>(BUILT_BLOCKS_CHANNEL_SIZE);
-        let disk_backup = DiskBackup::new(
-            DiskBackupConfig::new()
-                .with_path(Some(config.disk_database_path))
-                .with_max_size_bytes(Some(
-                    config.disk_max_size_mb.unwrap_or(DEFAULT_MAX_DISK_SIZE_MB) * MEGA,
-                )),
-            &task_executor,
+
+        let clickhouse_shutdown_handle =
+            spawn_clickhouse_inserter_and_backup::<BlockRow, BlockRow, ClickhouseMetrics>(
+                client,
+                block_rx,
+                task_executor,
+                BLOCKS_TABLE_NAME.to_string(),
+                "".to_string(), // No buildername used in blocks table.
+                disk_backup,
+                memory_max_size_bytes,
+                send_timeout,
+                end_timeout,
+                BLOCKS_TABLE_NAME,
+            );
+
+        (
+            Self {
+                blocks_tx: block_tx,
+                rbuilder_commit,
+                builder_name,
+            },
+            clickhouse_shutdown_handle,
         )
-        .expect("could not create disk backup");
-        spawn_clickhouse_inserter_and_backup::<BlockRow, BlockRow, ClickhouseMetrics>(
-            &client,
-            block_rx,
-            &task_executor,
-            BLOCKS_TABLE_NAME.to_string(),
-            "".to_string(), // No buildername used in blocks table.
-            disk_backup,
-            config
-                .memory_max_size_mb
-                .unwrap_or(DEFAULT_MAX_MEMORY_SIZE_MB)
-                * MEGA,
-            BLOCKS_TABLE_NAME,
-        );
-        // Task to forward the cancellation to the task_manager.
-        tokio::spawn(async move {
-            cancellation_token.cancelled().await;
-            // @Pending: Needed to avoid losing blocks but we should try to avoid this.
-            tokio::time::sleep(RUN_SUBMIT_TO_RELAYS_JOB_CANCEL_TIME).await;
-            task_manager.graceful_shutdown_with_timeout(Duration::from_secs(5));
-        });
-        Ok(Self {
-            blocks_tx: block_tx,
-            rbuilder_commit,
-            builder_name: config.builder_name,
-        })
     }
 }
 
@@ -266,7 +439,7 @@ impl BidObserver for BuiltBlocksWriter {
             let mut used_bundle_hashes = Vec::new();
             let mut used_bundle_uuids = Vec::new();
             for res in &built_block_trace.included_orders {
-                if let Order::Bundle(bundle) = &res.order {
+                if let Order::Bundle(bundle) = res.order.as_ref() {
                     used_bundle_hashes
                         .push(bundle.external_hash.unwrap_or(bundle.hash).to_string());
                     used_bundle_uuids.push(bundle.uuid.to_string());
@@ -351,6 +524,7 @@ impl BidObserver for BuiltBlocksWriter {
                 triggering_bid_relay,
                 bid_to_beat_seen_time,
                 bid_to_beat_seen_relay,
+                next_journal_sequence_number: built_block_trace.next_journal_sequence_number as u32,
             };
             *block_uses += 1;
 
@@ -358,5 +532,134 @@ impl BidObserver for BuiltBlocksWriter {
                 error!(?err, "Failed to send block to clickhouse");
             }
         });
+    }
+}
+
+/// Channel size for the order journal. Orders are small and arrive frequently.
+const ORDER_JOURNAL_CHANNEL_SIZE: usize = 10 * 1024;
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+struct SlotKey {
+    slot_number: u64,
+    parent_block: B256,
+}
+
+/// Factory that creates OrderJournalWriters for each slot.
+#[derive(Debug)]
+pub struct OrderJournalWriterFactory {
+    journal_tx: mpsc::Sender<OrderJournalRow>,
+    builder_name: String,
+    /// Alive OrderJournalWriters. Set in OrderJournalWriterFactory::create_observer removed on OrderJournalWriter::drop.
+    /// We never allow 2 simultaneous OrderJournalWriters for the same slot.
+    active_slots: Arc<DashSet<SlotKey>>,
+}
+
+impl OrderJournalWriterFactory {
+    /// Creates the writer and spawns the background ClickHouse inserter + backup tasks.
+    /// Returns `(Self, JoinHandle<()>)` where the handle should be awaited during shutdown.
+    pub fn new(
+        client: &Client,
+        task_executor: &TaskExecutor,
+        disk_backup: DiskBackup,
+        builder_name: String,
+        memory_max_size_bytes: u64,
+        send_timeout: Duration,
+        end_timeout: Duration,
+    ) -> (Self, JoinHandle<()>) {
+        let (journal_tx, journal_rx) = mpsc::channel::<OrderJournalRow>(ORDER_JOURNAL_CHANNEL_SIZE);
+
+        let shutdown_handle = spawn_clickhouse_inserter_and_backup::<
+            OrderJournalRow,
+            OrderJournalRow,
+            ClickhouseMetrics,
+        >(
+            client,
+            journal_rx,
+            task_executor,
+            ORDER_JOURNAL_TABLE_NAME.to_string(),
+            "".to_string(),
+            disk_backup,
+            memory_max_size_bytes,
+            send_timeout,
+            end_timeout,
+            ORDER_JOURNAL_TABLE_NAME,
+        );
+
+        (
+            Self {
+                journal_tx,
+                builder_name,
+                active_slots: Arc::new(DashSet::new()),
+            },
+            shutdown_handle,
+        )
+    }
+}
+
+impl OrderJournalObserverFactory for OrderJournalWriterFactory {
+    fn create_observer(
+        &self,
+        slot_data: &MevBoostSlotData,
+    ) -> Result<Box<dyn OrderJournalObserver + Send + Sync>, Error> {
+        let slot_key = SlotKey {
+            slot_number: slot_data.slot(),
+            parent_block: slot_data.parent_block_hash(),
+        };
+        if !self.active_slots.insert(slot_key.clone()) {
+            return Err(Error::SlotAlreadyInProgress);
+        }
+        let writer = OrderJournalWriter {
+            journal_tx: self.journal_tx.clone(),
+            builder_name: self.builder_name.clone(),
+            slot_key,
+            active_slots: self.active_slots.clone(),
+        };
+        Ok(Box::new(writer))
+    }
+}
+
+/// Writes order journal events (Add/Remove) to the `available_orders_journal` ClickHouse table.
+#[derive(Debug)]
+struct OrderJournalWriter {
+    journal_tx: mpsc::Sender<OrderJournalRow>,
+    builder_name: String,
+    slot_key: SlotKey,
+    active_slots: Arc<DashSet<SlotKey>>,
+}
+
+impl OrderJournalObserver for OrderJournalWriter {
+    fn order_delivered(&self, command: &SimulatedOrderJournalCommand) {
+        let (order_id, operation_type) = match command.command() {
+            SimulatedOrderCommand::Simulation(sim_order) => {
+                (sim_order.id(), OrderJournalOperationType::Add)
+            }
+            SimulatedOrderCommand::Cancellation(id) => (*id, OrderJournalOperationType::Remove),
+        };
+
+        let order_type = match order_id {
+            OrderId::Tx(_) => OrderJournalOrderType::Tx,
+            OrderId::Bundle(_) => OrderJournalOrderType::Bundle,
+        };
+
+        let row = OrderJournalRow {
+            server_id: self.builder_name.clone(),
+            slot_number: self.slot_key.slot_number,
+            parent_block: self.slot_key.parent_block,
+            order_type,
+            order_hash: order_id.fixed_bytes(),
+            operation_type,
+            sequence_number: command.sequence_number() as u32,
+            timestamp: (OffsetDateTime::now_utc().unix_timestamp_nanos() / 1000) as i64,
+        };
+
+        if let Err(err) = self.journal_tx.try_send(row) {
+            error!(?err, "Failed to send order journal row to clickhouse");
+        }
+    }
+}
+
+impl Drop for OrderJournalWriter {
+    fn drop(&mut self) {
+        self.active_slots.remove(&self.slot_key);
     }
 }

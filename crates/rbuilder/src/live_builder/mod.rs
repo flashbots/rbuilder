@@ -13,11 +13,14 @@ pub mod wallet_balance_watcher;
 pub mod watchdog;
 
 use crate::{
-    building::{builders::BlockBuildingAlgorithm, BlockBuildingContext},
+    building::{
+        builders::BlockBuildingAlgorithm, journal::OrderJournalObserverFactory,
+        BlockBuildingContext,
+    },
     live_builder::{
         order_flow_tracing::order_flow_tracer_manager::OrderFlowTracerManager,
         order_input::{start_orderpool_jobs, OrderInputConfig},
-        process_killer::ProcessKiller,
+        process_killer::{ProcessKiller, CRITICAL_SHUTDOWN_TIMEOUT, GRACEFUL_SHUTDOWN_TIMEOUT},
         simulation::OrderSimulationPool,
     },
     provider::StateProviderFactory,
@@ -28,11 +31,12 @@ use crate::{
     },
 };
 use alloy_consensus::Header;
-use alloy_primitives::B256;
+use alloy_primitives::{BlockHash, B256};
 use block_list_provider::BlockListProvider;
 use block_output::unfinished_block_processing::UnfinishedBuiltBlocksInputFactory;
 use building::BlockBuildingPool;
 use eyre::Context;
+use futures::{stream::FuturesUnordered, StreamExt};
 use jsonrpsee::RpcModule;
 use order_input::ReplaceableOrderPoolCommand;
 use payload_events::{InternalPayloadId, MevBoostSlotDataGenerator};
@@ -118,8 +122,16 @@ where
     pub extra_data: Vec<u8>,
     pub blocklist_provider: Arc<dyn BlockListProvider>,
 
+    /// This cancellation token is used to cancel block building in a nice way.
+    /// Every task getting this token should try to cancel asap if possible without any data corruption.
     pub global_cancellation: CancellationToken,
     pub process_killer: ProcessKiller,
+    /// If after some time rbuilder does not achieve graceful shutdown with global_cancellation it will signal this token.
+    /// Task getting this token should abort any waiting/processing of new data assuming upstream data source is hanged and try to
+    /// perform cleanup asap.
+    pub global_abort: CancellationToken,
+    /// We should try to wait for these tasks to finish before shutting down to avoid data corruption.
+    pub critical_tasks_join_handles: Vec<JoinHandle<()>>,
 
     pub unfinished_built_blocks_input_factory: UnfinishedBuiltBlocksInputFactory<P>,
     pub builders: Vec<Arc<dyn BlockBuildingAlgorithm<P>>>,
@@ -137,6 +149,7 @@ where
 
     pub ace_enabled: bool,
     pub ace_config: Vec<config::AceConfig>,
+    pub order_journal_observer_factory: Box<dyn OrderJournalObserverFactory + Send + Sync>,
 }
 
 impl<P> LiveBuilder<P>
@@ -151,12 +164,29 @@ where
         Self { builders, ..self }
     }
 
-    pub async fn run(
+    pub fn with_order_journal_observer_factory(
         self,
+        order_journal_observer_factory: Box<dyn OrderJournalObserverFactory + Send + Sync>,
+    ) -> Self {
+        Self {
+            order_journal_observer_factory,
+            ..self
+        }
+    }
+
+    pub fn add_critical_task(&mut self, handle: JoinHandle<()>) {
+        self.critical_tasks_join_handles.push(handle);
+    }
+
+    pub async fn run(
+        mut self,
         ready_to_build: Arc<AtomicBool>, // If Some, we should send a message for every slot we start building.
         start_slot_watchdog_sender: Option<flume::Sender<()>>,
     ) -> eyre::Result<()> {
         let global_cancellation = self.global_cancellation.clone();
+        let global_abort = self.global_abort.clone();
+        let critical_tasks_join_handles = std::mem::take(&mut self.critical_tasks_join_handles);
+
         let mut inner_jobs_handles = Vec::new();
         let res = self
             .run_no_cleanup(
@@ -165,14 +195,13 @@ where
                 start_slot_watchdog_sender,
             )
             .await;
-        info!("Builder shutting down");
-        global_cancellation.cancel();
-        for handle in inner_jobs_handles {
-            handle
-                .await
-                .map_err(|err| warn!(?err, "Job handle await error"))
-                .unwrap_or_default();
-        }
+        shutdown_builder(
+            global_cancellation,
+            global_abort,
+            inner_jobs_handles,
+            critical_tasks_join_handles,
+        )
+        .await;
         res
     }
 
@@ -236,6 +265,7 @@ where
             self.order_flow_tracer_manager,
             self.ace_enabled,
             self.ace_config.clone(),
+            self.order_journal_observer_factory,
         );
 
         ready_to_build.store(true, Ordering::Relaxed);
@@ -293,7 +323,10 @@ where
                 {
                     Ok(header) => header,
                     Err(err) => {
-                        warn!(payload_id = payload.payload_id, parent_hash = ?payload.parent_block_hash(), ?err, "Failed to get parent header for new slot");
+                        let last_blocks = get_last_blocks(&self.provider).await;
+                        let blocks_count_behind =
+                            payload.block() - last_blocks.first().unwrap_or(&(0, None)).0;
+                        warn!(payload_id = payload.payload_id, parent_hash = ?payload.parent_block_hash(), ?last_blocks, blocks_count_behind, ?err, "Failed to get parent header for new slot");
                         continue;
                     }
                 }
@@ -407,6 +440,42 @@ where
     }
 }
 
+/// We bring 10 blocks since that's more than enough to see the evolution of the chain.
+/// We could probably be ok even with only the last block.
+const LAST_BLOCKS_COUNT: usize = 10;
+/// Get the last blocks in decreasing order for debugging purposes.
+/// Returns a vector of tuples (block_number, header_hash) for available blocks.
+/// On error returns empty.
+pub async fn get_last_blocks<P>(provider: &P) -> Vec<(u64, Option<BlockHash>)>
+where
+    P: StateProviderFactory,
+{
+    let mut result = Vec::new();
+
+    // Get the last block number
+    let last_block_num = match provider.last_block_number() {
+        Ok(num) => num,
+        Err(err) => {
+            warn!(?err, "Failed to get last block number");
+            return result;
+        }
+    };
+
+    // Get the last headers going backwards from the last block
+    for i in 0..LAST_BLOCKS_COUNT {
+        let block_num = last_block_num.saturating_sub(i as u64);
+        let header_hash = provider
+            .header_by_number(block_num)
+            .ok()
+            .flatten()
+            .map(|h| h.hash_slow());
+
+        result.push((block_num, header_hash));
+    }
+
+    result
+}
+
 /// May fail if we wait too much (see [BLOCK_HEADER_DEAD_LINE_DELTA])
 async fn wait_for_block_header<P>(
     block: u64,
@@ -475,7 +544,7 @@ async fn try_send_to_orderpool<V, T, S>(
     match TransactionSignedEcRecoveredWithBlobs::try_from_tx_without_blobs_and_pool(tx, pool) {
         Ok(tx) => {
             let order = Order::Tx(MempoolTx::new(tx));
-            let command = ReplaceableOrderPoolCommand::Order(order);
+            let command = ReplaceableOrderPoolCommand::Order(Arc::new(order));
             if let Err(e) = orderpool_sender.send(command).await {
                 error!("Error sending order to orderpool: {:#}", e);
             }
@@ -483,5 +552,82 @@ async fn try_send_to_orderpool<V, T, S>(
         Err(e) => {
             error!("Error creating order from transaction: {:#}", e);
         }
+    }
+}
+
+/// Gracefully shuts down the builder, waiting for tasks to complete with timeouts.
+/// First waits for all tasks (non-critical and critical tasks) with a graceful timeout.
+/// If the timeout is reached, signals the abort token and waits only for critical tasks
+/// with a second timeout.
+async fn shutdown_builder(
+    global_cancellation: CancellationToken,
+    global_abort: CancellationToken,
+    non_critical_tasks_join_handles: Vec<JoinHandle<()>>,
+    critical_tasks_join_handles: Vec<JoinHandle<()>>,
+) {
+    info!("Builder shutting down");
+    global_cancellation.cancel();
+
+    // Collect handles into FuturesUnordered for concurrent waiting
+    let mut non_critical_tasks: FuturesUnordered<_> =
+        non_critical_tasks_join_handles.into_iter().collect();
+    let mut critical_tasks: FuturesUnordered<_> = critical_tasks_join_handles.into_iter().collect();
+
+    // First phase: wait for all handles with graceful timeout
+    let graceful_deadline = tokio::time::Instant::now() + GRACEFUL_SHUTDOWN_TIMEOUT;
+
+    loop {
+        if non_critical_tasks.is_empty() && critical_tasks.is_empty() {
+            break;
+        }
+
+        tokio::select! {
+            biased;
+            Some(result) = non_critical_tasks.next(), if !non_critical_tasks.is_empty() => {
+                if let Err(err) = result {
+                    warn!(?err, "Non critical task handle await error");
+                }
+            }
+            Some(result) = critical_tasks.next(), if !critical_tasks.is_empty() => {
+                if let Err(err) = result {
+                    warn!(?err, "Critical task handle await error");
+                }
+            }
+            _ = tokio::time::sleep_until(graceful_deadline) => {
+                warn!(
+                    remaining_non_critical_tasks = non_critical_tasks.len(),
+                    remaining_critical_tasks = critical_tasks.len(),
+                    "Graceful shutdown timeout reached, signaling abort"
+                );
+                global_abort.cancel();
+                break;
+            }
+        }
+    }
+
+    // Second phase: if there are remaining critical tasks, wait with second timeout
+    if !critical_tasks.is_empty() {
+        let critical_deadline = tokio::time::Instant::now() + CRITICAL_SHUTDOWN_TIMEOUT;
+        loop {
+            tokio::select! {
+                biased;
+                result = critical_tasks.next() => {
+                    match result {
+                        Some(Err(err)) => warn!(?err, "Critical task handle await error"),
+                        Some(Ok(())) => {}
+                        None => break,
+                    }
+                }
+                _ = tokio::time::sleep_until(critical_deadline) => {
+                    warn!("Critical tasks shutdown timeout reached");
+                    break;
+                }
+            }
+        }
+    } else {
+        info!(
+            remaining_non_critical_tasks = non_critical_tasks.len(),
+            "No critical tasks remaining, shutting down",
+        );
     }
 }

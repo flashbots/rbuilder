@@ -16,9 +16,14 @@ on:
         description: "Build Docker"
         required: false
         type: boolean
-      build-binary:
+      build-linux:
         default: true
-        description: "Build Binary"
+        description: "Build Linux"
+        required: false
+        type: boolean
+      build-mac:
+        default: true
+        description: "Build Mac"
         required: false
         type: boolean
       features:
@@ -56,42 +61,72 @@ jobs:
           echo "| \`GITHUB_REF\`      | \`${GITHUB_REF}\`      |" >> $GITHUB_STEP_SUMMARY
           echo "| \`GITHUB_SHA\`      | \`${GITHUB_SHA}\`      |" >> $GITHUB_STEP_SUMMARY
           echo "| \`VERSION\`         | \`${VERSION}\`         |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`BUILD_LINUX\`     | \`${{ github.event.inputs.build-linux || 'true' }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`BUILD_MAC\`       | \`${{ github.event.inputs.build-mac || 'true' }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| \`FEATURES\`        | \`${{ github.event.inputs.features || 'none' }}\` |" >> $GITHUB_STEP_SUMMARY
 
   build-binary:
-    name: Build binary
+    name: Build binary (${{ matrix.target }})
     needs: extract-version
-    if: ${{ github.event.inputs.build-binary == 'true' || github.event_name == 'push'}} # when manually triggered or version tagged
-    runs-on: ${{ matrix.configs.runner }}
+    # Always run - build-linux and build-mac control what actually gets built
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: write
       packages: write
     strategy:
       matrix:
-        configs:
+        include:
           - target: x86_64-unknown-linux-gnu
             runner: warp-ubuntu-latest-x64-32x
             profile: reproducible
-          # - target: aarch64-unknown-linux-gnu
-          #   runner: warp-ubuntu-latest-arm64-32x
-          #   profile: release
-          # Paused until docker is pre-installed https://github.com/actions/runner-images/blob/main/images/macos/macos-14-arm64-Readme.md
-          # - target: aarch64-apple-darwin
-          #   runner: warp-macos-14-arm64-6x
-        features:
-          - ${{ github.event.inputs.features || '' }}
+            platform: linux
+            features: ${{ github.event.inputs.features || '' }}
+          - target: aarch64-apple-darwin
+            runner: warp-macos-14-arm64-6x
+            profile: release
+            platform: mac
+            features: ${{ github.event.inputs.features || '' }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Check platform match
+        id: platform-check
+        shell: bash
+        run: |
+          # For tag pushes, build both platforms
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "Building for platform: ${{ matrix.platform }} (tag push builds both)"
+            exit 0
+          fi
+          # For manual dispatch, check if platform is enabled
+          if [[ "${{ matrix.platform }}" == "linux" && "${{ github.event.inputs.build-linux }}" != "true" ]]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "Skipping: Linux build not enabled"
+            exit 0
+          fi
+          if [[ "${{ matrix.platform }}" == "mac" && "${{ github.event.inputs.build-mac }}" != "true" ]]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "Skipping: Mac build not enabled"
+            exit 0
+          fi
+          echo "skip=false" >> $GITHUB_OUTPUT
+          echo "Building for platform: ${{ matrix.platform }}"
 
+      - uses: actions/checkout@v4
+        if: steps.platform-check.outputs.skip != 'true'
+
+      # Linux: Use Docker for reproducible builds
       - name: Set up Docker Buildx
+        if: steps.platform-check.outputs.skip != 'true' && matrix.platform == 'linux'
         uses: docker/setup-buildx-action@v3
 
-      - name: Install rust
+      - name: Install rust (for Docker build)
+        if: steps.platform-check.outputs.skip != 'true' && matrix.platform == 'linux'
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
-      - name: Build reproducible binary with Docker
+      - name: Build reproducible binary with Docker (Linux)
+        if: steps.platform-check.outputs.skip != 'true' && matrix.platform == 'linux'
         run: |
           RUST_TOOLCHAIN=$(rustc --version | cut -d' ' -f2)
           docker build \
@@ -101,46 +136,82 @@ jobs:
             -f docker/Dockerfile.reproducible -t rbuilder:release \
             --output type=local,dest=./target .
 
+      # Mac: Build natively with cargo
+      - name: Install dependencies (Mac)
+        if: steps.platform-check.outputs.skip != 'true' && matrix.platform == 'mac'
+        run: |
+          brew install protobuf
+
+      - name: Install rust toolchain (Mac)
+        if: steps.platform-check.outputs.skip != 'true' && matrix.platform == 'mac'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build binaries (Mac)
+        if: steps.platform-check.outputs.skip != 'true' && matrix.platform == 'mac'
+        env:
+          # Workaround for runng-sys CMake compatibility issue
+          CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+        run: |
+          FEATURES="${{ matrix.features }}"
+          FEATURE_FLAG=""
+          if [[ -n "$FEATURES" ]]; then
+            FEATURE_FLAG="--features $FEATURES"
+          fi
+          cargo build --profile ${{ matrix.profile }} $FEATURE_FLAG \
+            --bin rbuilder \
+            --bin rbuilder-operator \
+            --bin tbv-bidding-service \
+            --bin reth-rbuilder \
+            --bin bid-scraper \
+            --bin rbuilder-rebalancer
+
       - name: Upload rbuilder artifact
+        if: steps.platform-check.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: rbuilder-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
-          path: target/${{ matrix.configs.profile }}/rbuilder
+          name: rbuilder-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.target }}${{ matrix.features && '-' }}${{ matrix.features }}
+          path: target/${{ matrix.profile }}/rbuilder
 
       - name: Upload rbuilder-operator artifact
+        if: steps.platform-check.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: rbuilder-operator-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
-          path: target/${{ matrix.configs.profile }}/rbuilder-operator
+          name: rbuilder-operator-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.target }}${{ matrix.features && '-' }}${{ matrix.features }}
+          path: target/${{ matrix.profile }}/rbuilder-operator
 
       - name: Upload tbv-bidding-service artifact
+        if: steps.platform-check.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: tbv-bidding-service-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
-          path: target/${{ matrix.configs.profile }}/tbv-bidding-service
+          name: tbv-bidding-service-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.target }}${{ matrix.features && '-' }}${{ matrix.features }}
+          path: target/${{ matrix.profile }}/tbv-bidding-service
 
       - name: Upload reth-rbuilder artifact
+        if: steps.platform-check.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: reth-rbuilder-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
-          path: target/${{ matrix.configs.profile }}/reth-rbuilder
+          name: reth-rbuilder-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.target }}${{ matrix.features && '-' }}${{ matrix.features }}
+          path: target/${{ matrix.profile }}/reth-rbuilder
 
       - name: Upload bid-scraper artifact
+        if: steps.platform-check.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: bid-scraper-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
-          path: target/${{ matrix.configs.profile }}/bid-scraper
+          name: bid-scraper-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.target }}${{ matrix.features && '-' }}${{ matrix.features }}
+          path: target/${{ matrix.profile }}/bid-scraper
 
       - name: Upload rbuilder-rebalancer artifact
+        if: steps.platform-check.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: rbuilder-rebalancer-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
-          path: target/${{ matrix.configs.profile }}/rbuilder-rebalancer
+          name: rbuilder-rebalancer-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.target }}${{ matrix.features && '-' }}${{ matrix.features }}
+          path: target/${{ matrix.profile }}/rbuilder-rebalancer
 
       - name: Upload *.deb packages
+        if: steps.platform-check.outputs.skip != 'true' && matrix.platform == 'linux'
         uses: actions/upload-artifact@v4
         with:
-          name: deb-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}${{ matrix.features && '-' }}${{ matrix.features }}
+          name: deb-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.target }}${{ matrix.features && '-' }}${{ matrix.features }}
           path: target/debian/*.deb
 
 
@@ -186,10 +257,10 @@ jobs:
           echo "### Release Draft: ${{ env.VERSION }}" >> $GITHUB_STEP_SUMMARY
           echo "${{ steps.create-release-draft.outputs.url }}" >> $GITHUB_STEP_SUMMARY
 
-  build-docker:
+  build-docker-linux-amd64:
     if: ${{ github.event.inputs.build-docker == 'true' }}
-    name: Build and publish Docker image
-    needs: extract-version
+    name: Build and publish Docker image (linux/amd64)
+    needs: [extract-version, build-binary]
     runs-on: warp-ubuntu-2404-x64-16x
     env:
       VERSION: ${{ needs.extract-version.outputs.VERSION }}
@@ -201,8 +272,32 @@ jobs:
       - name: checkout sources
         uses: actions/checkout@v4
 
-      - name: docker qemu
-        uses: docker/setup-qemu-action@v3
+      - name: Download linux rbuilder binary
+        id: download-binary
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: rbuilder-${{ env.VERSION }}-x86_64-unknown-linux-gnu${{ github.event.inputs.features && format('-{0}', github.event.inputs.features) || '' }}
+          path: .
+
+      - name: Check if binary was downloaded
+        if: steps.download-binary.outcome != 'success'
+        run: |
+          echo "⚠️ Binary artifact not found. Will build from source."
+          echo "Artifact name attempted: rbuilder-${{ env.VERSION }}-x86_64-unknown-linux-gnu${{ github.event.inputs.features && format('-{0}', github.event.inputs.features) || '' }}"
+          echo "This is expected if build-binary job didn't run or Linux build was skipped."
+
+      - name: Verify binary exists
+        if: steps.download-binary.outcome == 'success'
+        run: |
+          if [ -f "./rbuilder" ]; then
+            echo "✅ Binary downloaded successfully"
+            ls -lh ./rbuilder
+          else
+            echo "❌ Binary file not found after download"
+            find . -name "rbuilder" -type f || echo "No rbuilder file found"
+            exit 1
+          fi
 
       - name: docker buildx
         uses: docker/setup-buildx-action@v3
@@ -214,13 +309,11 @@ jobs:
           images: ghcr.io/${{ github.repository }}
           labels: org.opencontainers.image.source=${{ github.repositoryUrl }}
           tags: |
-            type=sha
-            type=semver,pattern={{version}},value=${{ env.VERSION }}
-            type=semver,pattern={{major}}.{{minor}},value=${{ env.VERSION }}
-            type=semver,pattern={{major}},value=${{ env.VERSION }}
-
-            # Push latest tag for full version only, not for prerelease versions (i.e. not for v1.2.3-rc1)
-            type=raw,value=latest,enable=${{ !contains(env.VERSION, '-') }}
+            type=sha,suffix=-linux-amd64
+            type=semver,pattern={{version}},value=${{ env.VERSION }},suffix=-linux-amd64,enable=${{ startsWith(env.VERSION, 'v') }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ env.VERSION }},suffix=-linux-amd64,enable=${{ startsWith(env.VERSION, 'v') }}
+            type=semver,pattern={{major}},value=${{ env.VERSION }},suffix=-linux-amd64,enable=${{ startsWith(env.VERSION, 'v') }}
+            type=raw,value=latest,enable=${{ startsWith(env.VERSION, 'v') && !contains(env.VERSION, '-') }},suffix=-linux-amd64
 
       - name: docker login
         uses: docker/login-action@v3
@@ -229,7 +322,21 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: docker build and push
+      - name: docker build and push (from binary)
+        if: steps.download-binary.outcome == 'success'
+        uses: docker/build-push-action@v5
+        with:
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          file: docker/Dockerfile.rbuilder-from-binary
+          context: .
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+
+      - name: docker build and push (from source)
+        if: steps.download-binary.outcome != 'success'
         uses: docker/build-push-action@v5
         with:
           cache-from: type=gha
@@ -240,3 +347,141 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+
+  build-docker-linux-arm64:
+    if: ${{ github.event.inputs.build-docker == 'true' }}
+    name: Build and publish Docker image (linux/arm64)
+    needs: [extract-version, build-binary]
+    runs-on: warp-ubuntu-2404-arm64-16x
+    env:
+      VERSION: ${{ needs.extract-version.outputs.VERSION }}
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: checkout sources
+        uses: actions/checkout@v4
+
+      - name: docker buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: docker metadata
+        uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ghcr.io/${{ github.repository }}
+          labels: org.opencontainers.image.source=${{ github.repositoryUrl }}
+          tags: |
+            type=sha,suffix=-linux-arm64
+            type=semver,pattern={{version}},value=${{ env.VERSION }},suffix=-linux-arm64,enable=${{ startsWith(env.VERSION, 'v') }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ env.VERSION }},suffix=-linux-arm64,enable=${{ startsWith(env.VERSION, 'v') }}
+            type=semver,pattern={{major}},value=${{ env.VERSION }},suffix=-linux-arm64,enable=${{ startsWith(env.VERSION, 'v') }}
+            type=raw,value=latest,enable=${{ startsWith(env.VERSION, 'v') && !contains(env.VERSION, '-') }},suffix=-linux-arm64
+
+      - name: docker login
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: docker build and push (from source, native arm64)
+        uses: docker/build-push-action@v5
+        with:
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          file: docker/Dockerfile.rbuilder
+          context: .
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+
+  build-docker-manifest:
+    if: ${{ github.event.inputs.build-docker == 'true' }}
+    name: Create multi-arch Docker manifest
+    needs: [extract-version, build-docker-linux-amd64, build-docker-linux-arm64]
+    runs-on: warp-ubuntu-2404-x64-16x
+    env:
+      VERSION: ${{ needs.extract-version.outputs.VERSION }}
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: docker buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: docker login
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push multi-arch manifest
+        run: |
+          IMAGE="ghcr.io/${{ github.repository }}"
+          
+          # Build list of tags - only create semver tags if version starts with 'v'
+          TAGS=(
+            "sha-${GITHUB_SHA:0:7}"
+          )
+          
+          # Only add version tags if it's a proper semver (starts with 'v')
+          if [[ "${{ env.VERSION }}" =~ ^v ]]; then
+            TAGS+=("${{ env.VERSION }}")
+            
+            # Add version tags (major.minor, major) if not a prerelease
+            if [[ "${{ env.VERSION }}" != *"-"* ]]; then
+              TAGS+=("latest")
+              # Extract major.minor if version format is vX.Y.Z
+              if [[ "${{ env.VERSION }}" =~ ^v([0-9]+)\.([0-9]+)\. ]]; then
+                MAJOR="${BASH_REMATCH[1]}"
+                MINOR="${BASH_REMATCH[2]}"
+                TAGS+=("${MAJOR}.${MINOR}" "${MAJOR}")
+              fi
+            fi
+          fi
+          
+          # Create multi-arch manifest for each tag combining both architectures
+          for TAG in "${TAGS[@]}"; do
+            echo "Creating multi-arch manifest for tag: ${TAG}"
+            
+            # Verify both platform-specific images exist before creating manifest
+            if ! docker buildx imagetools inspect "${IMAGE}:${TAG}-linux-amd64" >/dev/null 2>&1; then
+              echo "⚠️ Warning: ${IMAGE}:${TAG}-linux-amd64 not found, skipping this tag"
+              continue
+            fi
+            
+            if ! docker buildx imagetools inspect "${IMAGE}:${TAG}-linux-arm64" >/dev/null 2>&1; then
+              echo "⚠️ Warning: ${IMAGE}:${TAG}-linux-arm64 not found, skipping this tag"
+              continue
+            fi
+            
+            # Create the multi-arch manifest
+            docker buildx imagetools create \
+              --tag "${IMAGE}:${TAG}" \
+              "${IMAGE}:${TAG}-linux-amd64" \
+              "${IMAGE}:${TAG}-linux-arm64" || {
+              echo "❌ Failed to create manifest for ${TAG}"
+              exit 1
+            }
+            
+            echo "✅ Created manifest for ${TAG}"
+          done
+          
+          echo "✅ Multi-arch manifests created for all tags"
+
+      - name: Write Docker Summary
+        run: |
+          echo "### 🐳 Multi-Arch Docker Images Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Package URL:** https://github.com/${{ github.repository }}/pkgs/container/rbuilder" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Pull commands:**" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ghcr.io/${{ github.repository }}:sha-${GITHUB_SHA:0:7}" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ghcr.io/${{ github.repository }}:${{ env.VERSION }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

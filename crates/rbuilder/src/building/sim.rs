@@ -160,7 +160,7 @@ impl AceSimulationState {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PendingOrder {
-    order: Order,
+    order: Arc<Order>,
     /// ACE state tracking detected and accounted-for interactions
     ace_state: AceSimulationState,
 }
@@ -170,8 +170,8 @@ pub type SimulationId = u64;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SimulationRequest {
     pub id: SimulationId,
-    pub order: Order,
-    pub parents: Vec<Order>,
+    pub order: Arc<Order>,
+    pub parents: Vec<Arc<Order>>,
     /// ACE contracts for which we've already provided unlock parents.
     /// Used to determine if a failure is genuine (contract already unlocked) or needs retry.
     /// Supports multiple ACE contracts - order can progressively discover needed unlocks.
@@ -185,7 +185,7 @@ pub enum SimulatedResult {
     Success {
         id: SimulationId,
         simulated_order: Arc<SimulatedOrder>,
-        previous_orders: Vec<Order>,
+        previous_orders: Vec<Arc<Order>>,
         /// Dependencies this simulation satisfies (nonces updated, ACE unlocks provided)
         dependencies_satisfied: Vec<DependencyKey>,
         simulation_time: Duration,
@@ -193,7 +193,7 @@ pub enum SimulatedResult {
     /// Order simulation failed
     Failed {
         id: SimulationId,
-        order: Order,
+        order: Arc<Order>,
         failure: SimulationFailure,
         simulation_time: Duration,
     },
@@ -209,7 +209,7 @@ impl SimulatedResult {
 #[derive(Debug, Clone)]
 struct StoredSimulation {
     // parents
-    parent_orders: Vec<Order>,
+    parent_orders: Vec<Arc<Order>>,
     // result
     simulated_order: Arc<SimulatedOrder>,
 }
@@ -242,7 +242,7 @@ pub struct SimTree {
 enum OrderDependencyState {
     Invalid,
     Pending(Vec<DependencyKey>),
-    Ready(Vec<Order>),
+    Ready(Vec<Arc<Order>>),
 }
 
 impl SimTree {
@@ -292,7 +292,7 @@ impl SimTree {
         self.ace_state.get(contract_address)
     }
 
-    fn push_order(&mut self, order: Order) -> Result<(), ProviderError> {
+    fn push_order(&mut self, order: Arc<Order>) -> Result<(), ProviderError> {
         if self.pending_orders.contains_key(&order.id()) {
             return Ok(());
         }
@@ -409,7 +409,7 @@ impl SimTree {
     /// arrive.
     pub fn handle_ace_dependencies_for_order(
         &mut self,
-        order: Order,
+        order: Arc<Order>,
         mut ace_state: AceSimulationState,
     ) {
         let order_id = order.id();
@@ -511,7 +511,7 @@ impl SimTree {
         });
     }
 
-    pub fn push_orders(&mut self, orders: Vec<Order>) -> Result<(), ProviderError> {
+    pub fn push_orders(&mut self, orders: Vec<Arc<Order>>) -> Result<(), ProviderError> {
         for order in orders {
             self.push_order(order)?;
         }
@@ -789,7 +789,7 @@ impl SimTree {
 pub fn simulate_all_orders_with_sim_tree<P>(
     provider: P,
     ctx: &BlockBuildingContext,
-    orders: &[Order],
+    orders: &[Arc<Order>],
     randomize_insertion: bool,
     ace_config: Vec<AceConfig>,
 ) -> Result<(Vec<Arc<SimulatedOrder>>, Vec<OrderErr>), CriticalCommitOrderError>
@@ -899,8 +899,8 @@ where
 
 /// Prepares context (fork + tracer) and calls simulate_order_using_fork
 pub fn simulate_order(
-    parent_orders: Vec<Order>,
-    order: Order,
+    parent_orders: Vec<Arc<Order>>,
+    order: Arc<Order>,
     ctx: &BlockBuildingContext,
     local_ctx: &mut ThreadBlockBuildingContext,
     state: &mut BlockState,
@@ -930,8 +930,8 @@ pub fn simulate_order(
 
 /// Simulates order (including parent (those needed to reach proper nonces) orders) using a precreated fork
 pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
-    parent_orders: Vec<Order>,
-    order: Order,
+    parent_orders: Vec<Arc<Order>>,
+    order: Arc<Order>,
     fork: &mut PartialBlockFork<'_, '_, '_, '_, Tracer, NullPartialBlockForkExecutionTracer>,
     mempool_tx_detector: &MempoolTxsDetector,
     ace_configs: &HashMap<Address, AceConfig>,
@@ -944,8 +944,8 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
     // We use empty combined refunds because the value of the bundle will
     // not change from batching.
     let combined_refunds = std::collections::HashMap::default();
-    for parent in parent_orders {
-        let result = fork.commit_order(&parent, space_state, true, &combined_refunds)?;
+    for parent in &parent_orders {
+        let result = fork.commit_order(parent, space_state, true, &combined_refunds)?;
         match result {
             Ok(res) => {
                 space_state.use_space(res.space_used);
@@ -1050,13 +1050,10 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
                 }
             }
             let new_nonces = res.nonces_updated.into_iter().collect::<Vec<_>>();
+            let mut simulated_order = SimulatedOrder::new(order, sim_value, res.used_state_trace);
+            simulated_order.ace_interactions = ace_interactions;
             Ok(OrderSimResult::Success(
-                Arc::new(SimulatedOrder {
-                    order,
-                    sim_value,
-                    used_state_trace: res.used_state_trace,
-                    ace_interactions,
-                }),
+                Arc::new(simulated_order),
                 new_nonces,
             ))
         }

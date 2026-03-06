@@ -12,6 +12,7 @@ use crate::{
             block_building_helper::BlockBuildingHelper, BuiltBlockId, LiveBuilderInput,
             OrderIntakeConsumer,
         },
+        journal::JournalSequenceNumber,
         order_is_worth_executing, BlockBuildingContext, ExecutionError,
         NullPartialBlockExecutionTracer, OrderPriority, PartialBlockExecutionTracer,
         PrioritizedOrderStore, SimulatedOrderSink, Sorting, ThreadBlockBuildingContext,
@@ -131,9 +132,12 @@ pub fn run_ordering_builder<P, OrderPriorityType>(
             break 'building;
         }
 
-        match order_intake_consumer.blocking_consume_next_batch() {
-            Ok(ok) => {
-                if !ok {
+        let next_journal_sequence_number = match order_intake_consumer.blocking_consume_next_batch()
+        {
+            Ok(next_seq) => {
+                if let Some(next_seq) = next_seq {
+                    next_seq
+                } else {
                     break 'building;
                 }
             }
@@ -141,10 +145,11 @@ pub fn run_ordering_builder<P, OrderPriorityType>(
                 error!(?err, "Error consuming next order batch");
                 continue;
             }
-        }
+        };
 
         let orders = order_intake_consumer.current_block_orders();
         match builder.build_block(
+            next_journal_sequence_number,
             orders,
             input.built_block_id_source.get_new_id(),
             input.cancel.clone(),
@@ -194,6 +199,7 @@ where
         Arc::new(BuiltBlockCache::new()),
     );
     let mut block_builder = builder.build_block_with_execution_tracer(
+        0,
         block_orders,
         BuiltBlockId::ZERO,
         CancellationToken::new(),
@@ -254,11 +260,13 @@ impl OrderingBuilderContext {
 
     pub fn build_block<OrderPriorityType: OrderPriority>(
         &mut self,
+        next_journal_sequence_number: JournalSequenceNumber,
         block_orders: PrioritizedOrderStore<OrderPriorityType>,
         built_block_id: BuiltBlockId,
         cancel_block: CancellationToken,
     ) -> eyre::Result<Box<dyn BlockBuildingHelper>> {
         self.build_block_with_execution_tracer(
+            next_journal_sequence_number,
             block_orders,
             built_block_id,
             cancel_block,
@@ -274,6 +282,7 @@ impl OrderingBuilderContext {
         PartialBlockExecutionTracerType: PartialBlockExecutionTracer + Clone + Send + Sync + 'static,
     >(
         &mut self,
+        next_journal_sequence_number: JournalSequenceNumber,
         mut block_orders: PrioritizedOrderStore<OrderPriorityType>,
         built_block_id: BuiltBlockId,
         cancel_block: CancellationToken,
@@ -303,6 +312,7 @@ impl OrderingBuilderContext {
 
         let mut block_building_helper = BlockBuildingHelperFromProvider::new_with_execution_tracer(
             built_block_id,
+            next_journal_sequence_number,
             self.state.clone(),
             self.ctx.clone(),
             &mut self.local_ctx,

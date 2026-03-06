@@ -11,10 +11,10 @@ use tracing::{debug, trace, warn};
 
 use crate::{
     building::{
-        builders::BuiltBlockId, estimate_payout_gas_limit, tracers::GasUsedSimulationTracer,
-        BlockBuildingContext, BlockSpace, BlockState, BuiltBlockTrace, BuiltBlockTraceError,
-        CriticalCommitOrderError, EstimatePayoutGasErr, ExecutionError, ExecutionResult,
-        FinalizeAdjustmentState, FinalizeError, FinalizeResult,
+        builders::BuiltBlockId, estimate_payout_gas_limit, journal::JournalSequenceNumber,
+        tracers::GasUsedSimulationTracer, BlockBuildingContext, BlockSpace, BlockState,
+        BuiltBlockTrace, BuiltBlockTraceError, CriticalCommitOrderError, EstimatePayoutGasErr,
+        ExecutionError, ExecutionResult, FinalizeAdjustmentState, FinalizeError, FinalizeResult,
         FinalizeRevertStateCurrentIteration, NullPartialBlockExecutionTracer, PartialBlock,
         PartialBlockExecutionTracer, ThreadBlockBuildingContext,
     },
@@ -213,6 +213,7 @@ impl BlockBuildingHelperFromProvider<NullPartialBlockExecutionTracer> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         built_block_id: BuiltBlockId,
+        next_journal_sequence_number: JournalSequenceNumber,
         state_provider: Arc<dyn StateProvider>,
         building_ctx: BlockBuildingContext,
         local_ctx: &mut ThreadBlockBuildingContext,
@@ -224,6 +225,7 @@ impl BlockBuildingHelperFromProvider<NullPartialBlockExecutionTracer> {
     ) -> Result<Self, BlockBuildingHelperError> {
         BlockBuildingHelperFromProvider::new_with_execution_tracer(
             built_block_id,
+            next_journal_sequence_number,
             state_provider,
             building_ctx,
             local_ctx,
@@ -249,6 +251,7 @@ impl<
     #[allow(clippy::too_many_arguments)]
     pub fn new_with_execution_tracer(
         built_block_id: BuiltBlockId,
+        next_journal_sequence_number: JournalSequenceNumber,
         state_provider: Arc<dyn StateProvider>,
         building_ctx: BlockBuildingContext,
         local_ctx: &mut ThreadBlockBuildingContext,
@@ -282,7 +285,8 @@ impl<
         partial_block.reserve_block_space(payout_tx_space);
         let payout_tx_gas = payout_tx_space.gas;
 
-        let mut built_block_trace = BuiltBlockTrace::new(built_block_id);
+        let mut built_block_trace =
+            BuiltBlockTrace::new(built_block_id, next_journal_sequence_number);
         built_block_trace.available_orders_statistics = available_orders_statistics;
         Ok(Self {
             _fee_recipient_balance_start: fee_recipient_balance_start,

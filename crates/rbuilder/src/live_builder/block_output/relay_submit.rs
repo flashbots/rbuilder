@@ -93,6 +93,16 @@ pub trait MultiRelayBlockBuildingSink: std::fmt::Debug + Send + Sync {
     fn new_block(&self, relay_set: RelaySet, block: Block);
 }
 
+/// MultiRelayBlockBuildingSink throwing away the blocks.
+#[derive(Debug)]
+struct NullMultiRelayBlockBuildingSink {}
+
+impl MultiRelayBlockBuildingSink for NullMultiRelayBlockBuildingSink {
+    fn new_block(&self, _relay_set: RelaySet, _block: Block) {
+        // noop
+    }
+}
+
 /// Final destination of blocks (eg: submit to the relays).
 /// The destination of the blocks is abstracted, can be a single relay or a set of relays.
 #[automock]
@@ -128,7 +138,7 @@ struct BuiltBlockInfo {
 /// How submission works:
 /// 0. We divide relays into optimistic and non-optimistic (defined in config file)
 /// 1. We schedule submissions with non-optimistic key for all non-optimistic relays.
-///    1.1 If "optimistic_enabled" is false or bid_value >= "optimistic_max_bid_value" we schedule submissions with non-optimistic key
+///    1.1 If "optimistic_enabled" is false or bid_value >= "optimistic_v3_max_bid_eth" we schedule submissions with non-optimistic key
 ///    returns the best bid made
 #[allow(clippy::too_many_arguments)]
 async fn run_submit_to_relays_job(
@@ -417,21 +427,30 @@ fn submit_block_to_relays(
 
         let mut optimistic_v3 = None;
         if relay.optimistic_v3() {
-            if let Some(config) = optimistic_v3_config {
+            if let Some(cap) = relay
+                .optimistic_v3_max_bid()
+                .filter(|&cap| bid_value >= cap)
+            {
+                info!(
+                    bid_value = format_ether(bid_value),
+                    cap = format_ether(cap),
+                    "Optimistic V3 disabled: bid exceeds max bid cap"
+                );
+            } else if let Some(config) = optimistic_v3_config {
                 optimistic_v3 = create_optimistic_v3_request(
-                    &config.builder_url,
-                    request.as_ref(),
-                    maybe_adjustment_data,
-                    relay.optimistic_v3_bid_adjustment_required(),
-                )
-                .map(|request| (config.clone(), SubmitHeaderRequestWithMetadata {
-                    submission: request,
-                    metadata: bid_metadata.clone()
-                }))
-                .inspect_err(|error| {
-                    error!(parent: submission_span, ?error, "Unable to create optimistic V3 request");
-                })
-                .ok();
+                        &config.builder_url,
+                        request.as_ref(),
+                        maybe_adjustment_data,
+                        relay.optimistic_v3_bid_adjustment_required(),
+                    )
+                    .map(|request| (config.clone(), SubmitHeaderRequestWithMetadata {
+                        submission: request,
+                        metadata: bid_metadata.clone()
+                    }))
+                    .inspect_err(|error| {
+                        error!(parent: submission_span, ?error, "Unable to create optimistic V3 request");
+                    })
+                    .ok();
             }
         }
 
@@ -587,6 +606,22 @@ async fn submit_bid_to_the_relay(
     }
 }
 
+/// "Switch" to decide if we should submit the block to the relay or not.
+/// Used to cancel block submissions (but keep everything else running).
+/// Eg: Save to clickhouse observer is failing so we should NOT build blocks.
+pub trait RelaySubmissionPolicy: std::fmt::Debug + Send + Sync {
+    fn should_submit(&self) -> bool;
+}
+
+#[derive(Debug)]
+pub struct AlwaysSubmitPolicy {}
+
+impl RelaySubmissionPolicy for AlwaysSubmitPolicy {
+    fn should_submit(&self) -> bool {
+        true
+    }
+}
+
 /// Real life MultiRelayBlockBuildingSink that send the blocks to the Relays
 #[derive(Debug)]
 pub struct RelaySubmitSinkFactory {
@@ -594,6 +629,7 @@ pub struct RelaySubmitSinkFactory {
     relays: Vec<MevBoostRelayBidSubmitter>,
     /// We expect to get bids only for this specific relay sets.
     relay_sets: Vec<RelaySet>,
+    submission_policy: Box<dyn RelaySubmissionPolicy>,
 }
 
 impl RelaySubmitSinkFactory {
@@ -601,11 +637,13 @@ impl RelaySubmitSinkFactory {
         submission_config: SubmissionConfig,
         relays: Vec<MevBoostRelayBidSubmitter>,
         relay_sets: Vec<RelaySet>,
+        submission_policy: Box<dyn RelaySubmissionPolicy>,
     ) -> Self {
         Self {
             submission_config: Arc::new(submission_config),
             relays,
             relay_sets,
+            submission_policy,
         }
     }
 
@@ -616,6 +654,11 @@ impl RelaySubmitSinkFactory {
         slot_data: MevBoostSlotData,
         cancel: CancellationToken,
     ) -> Box<dyn MultiRelayBlockBuildingSink> {
+        // If submission is disabled, return a sink that throws away the blocks.
+        if !self.submission_policy.should_submit() {
+            error!("Submission is disabled by submission_policy, throwing away the blocks");
+            return Box::new(NullMultiRelayBlockBuildingSink {});
+        }
         // Collect all relays to submit to.
         let mut relays = Vec::new();
         for relay in &self.relays {

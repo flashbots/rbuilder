@@ -1,5 +1,5 @@
 use alloy_primitives::{Address, U256};
-use rbuilder_config::{EnvOrValue, LoggerConfig};
+use rbuilder_config::{EnvOrValue, TracingConfig};
 use serde::Deserialize;
 use std::{fs, path::Path};
 
@@ -11,9 +11,9 @@ pub struct RebalancerConfig {
     pub builder_url: String,
     /// Max priority fee per to set on the transfer.
     pub transfer_max_priority_fee_per_gas: U256,
-    /// Logger configuration.
+    /// tracing configuration.
     #[serde(flatten)]
-    pub logger: LoggerConfig,
+    pub tracing: TracingConfig,
     /// Source accounts for funding.
     #[serde(default, rename = "account")]
     pub accounts: Vec<RebalancerAccount<EnvOrValue<String>>>,
@@ -140,7 +140,7 @@ mod tests {
                 rpc_url: String::new(),
                 builder_url: String::new(),
                 transfer_max_priority_fee_per_gas: U256::from(123),
-                logger: LoggerConfig::dev(),
+                tracing: TracingConfig::dev(),
                 accounts: Vec::new(),
                 rules: Vec::from([
                     RebalancerRule {

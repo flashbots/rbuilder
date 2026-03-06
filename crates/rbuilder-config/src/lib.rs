@@ -8,6 +8,12 @@ pub use logger::*;
 mod env_or_value;
 pub use env_or_value::*;
 
+mod otlp;
+pub use otlp::*;
+
+mod tracing;
+pub use tracing::*;
+
 /// Loads configuration from the toml file.
 pub fn load_toml_config<T: DeserializeOwned>(path: impl AsRef<Path>) -> eyre::Result<T> {
     let data = fs::read_to_string(path.as_ref()).with_context(|| {

@@ -13,6 +13,7 @@ use clickhouse::{
 };
 use reth_tasks::TaskExecutor;
 use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 
 use crate::{
     clickhouse::{
@@ -52,12 +53,13 @@ pub fn default_disk_backup_database_path() -> String {
     }
 }
 
-/// An clickhouse inserter with some sane defaults.
-pub fn default_inserter<T: Row>(client: &ClickhouseClient, table_name: &str) -> Inserter<T> {
-    // TODO: make this configurable.
-    let send_timeout = Duration::from_secs(2);
-    let end_timeout = Duration::from_secs(3);
-
+/// An clickhouse inserter with configurable timeouts.
+pub fn default_inserter<T: Row>(
+    client: &ClickhouseClient,
+    table_name: &str,
+    send_timeout: Duration,
+    end_timeout: Duration,
+) -> Inserter<T> {
     client
         .inserter::<T>(table_name)
         .with_period(Some(Duration::from_secs(4))) // Dump every 4s
@@ -214,7 +216,14 @@ impl<T: ClickhouseIndexableData, MetricsType: Metrics> InserterRunner<T, Metrics
     }
 
     /// Spawns the inserter runner on the given task executor.
-    pub fn spawn(mut self, task_executor: &TaskExecutor, name: String, target: &'static str)
+    /// Returns a JoinHandle that resolves when the task completes.
+    /// On shutdown will stop processing new data flush the inserter. New data might be lost.
+    pub fn spawn(
+        mut self,
+        task_executor: &TaskExecutor,
+        name: String,
+        target: &'static str,
+    ) -> JoinHandle<()>
     where
         T: Send + Sync + 'static,
         MetricsType: Send + Sync + 'static,
@@ -241,8 +250,7 @@ impl<T: ClickhouseIndexableData, MetricsType: Metrics> InserterRunner<T, Metrics
                 }
             }
             drop(shutdown_guard);
-
-        });
+        })
     }
 }
 

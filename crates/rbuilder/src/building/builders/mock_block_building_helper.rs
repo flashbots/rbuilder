@@ -1,3 +1,5 @@
+use std::sync::mpsc;
+
 use crate::{
     building::{
         builders::BuiltBlockId, BlockBuildingContext, BuiltBlockTrace, CriticalCommitOrderError,
@@ -16,8 +18,6 @@ use rbuilder_primitives::{order_statistics::OrderStatistics, SimValue, Simulated
 use reth_primitives::SealedBlock;
 use revm::database::BundleState;
 use time::OffsetDateTime;
-use tokio::sync::broadcast;
-use tokio_util::sync::CancellationToken;
 
 use super::{
     block_building_helper::{BlockBuildingHelper, BlockBuildingHelperError, FinalizeBlockResult},
@@ -37,7 +37,7 @@ impl MockBlockBuildingHelper {
     pub fn new(true_block_value: U256) -> Self {
         let built_block_trace = BuiltBlockTrace {
             true_bid_value: true_block_value,
-            ..BuiltBlockTrace::new(BuiltBlockId::ZERO)
+            ..BuiltBlockTrace::new(BuiltBlockId::ZERO, 0)
         };
         Self {
             built_block_trace,
@@ -143,12 +143,7 @@ impl BlockBuildingHelper for MockBlockBuildingHelper {
 pub struct MockRootHasher {}
 
 impl RootHasher for MockRootHasher {
-    fn run_prefetcher(
-        &self,
-        _simulated_orders: broadcast::Receiver<SimulatedOrderCommand>,
-        _cancel: CancellationToken,
-    ) {
-    }
+    fn run_prefetcher(&self, _simulated_orders: mpsc::Receiver<SimulatedOrderCommand>) {}
 
     fn account_proofs(
         &self,

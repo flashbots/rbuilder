@@ -435,6 +435,7 @@ fn test_bundle_ok_inner_tx_profits() -> eyre::Result<()> {
 
 #[test]
 fn test_bundle_consistency_check() -> eyre::Result<()> {
+    use std::sync::Arc;
     let block_number = BlockArgs::MIN_BLOCK_NUMBER;
 
     let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().with_number(block_number))?;
@@ -442,7 +443,7 @@ fn test_bundle_consistency_check() -> eyre::Result<()> {
     let blocklist = HashSet::default();
     // check revertible tx detection
     {
-        let mut built_block_trace = BuiltBlockTrace::new(BuiltBlockId::ZERO);
+        let mut built_block_trace = BuiltBlockTrace::new(BuiltBlockId::ZERO, 0);
 
         // send to the blocked address
         test_setup.begin_bundle_order(block_number);
@@ -454,11 +455,12 @@ fn test_bundle_consistency_check() -> eyre::Result<()> {
         )?;
 
         let mut res = test_setup.commit_order_ok();
+
         // break bundle by removing revertible tx hashes
         if let Order::Bundle(Bundle {
             reverting_tx_hashes,
             ..
-        }) = &mut res.order
+        }) = Arc::make_mut(&mut res.order)
         {
             reverting_tx_hashes.clear();
         } else {
@@ -476,7 +478,7 @@ fn test_bundle_consistency_check() -> eyre::Result<()> {
         let blocklist = vec![test_setup.named_address(NamedAddr::User(0))?]
             .into_iter()
             .collect();
-        let mut built_block_trace = BuiltBlockTrace::new(BuiltBlockId::ZERO);
+        let mut built_block_trace = BuiltBlockTrace::new(BuiltBlockId::ZERO, 0);
 
         test_setup.begin_bundle_order(block_number);
         test_setup.add_dummy_tx_0_1_no_rev()?;
@@ -494,7 +496,7 @@ fn test_bundle_consistency_check() -> eyre::Result<()> {
         let blocklist = vec![test_setup.named_address(NamedAddr::User(1))?]
             .into_iter()
             .collect();
-        let mut built_block_trace = BuiltBlockTrace::new(BuiltBlockId::ZERO);
+        let mut built_block_trace = BuiltBlockTrace::new(BuiltBlockId::ZERO, 0);
 
         test_setup.begin_bundle_order(block_number);
         test_setup.add_dummy_tx_0_1_no_rev()?;

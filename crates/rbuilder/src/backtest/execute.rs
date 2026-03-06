@@ -10,7 +10,7 @@ use crate::{
 };
 use alloy_eips::BlockNumHash;
 use alloy_primitives::U256;
-use rbuilder_primitives::{OrderId, SimulatedOrder};
+use rbuilder_primitives::{Order, OrderId, SimulatedOrder};
 use reth_chainspec::ChainSpec;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -117,10 +117,10 @@ where
         }
     }
 
-    let orders = available_orders
+    let orders: Vec<Arc<Order>> = available_orders
         .iter()
-        .map(|order| order.order.clone())
-        .collect::<Vec<_>>();
+        .map(|order| Arc::clone(&order.order))
+        .collect();
     for order in &orders {
         ctx.mempool_tx_detector.add_tx(order);
     }

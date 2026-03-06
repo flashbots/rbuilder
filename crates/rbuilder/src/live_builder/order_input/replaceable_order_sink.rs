@@ -2,6 +2,7 @@ use tracing::info;
 
 use core::fmt::Debug;
 use rbuilder_primitives::{BundleReplacementData, Order};
+use std::sync::Arc;
 
 /// Receiver of order commands in a low level order stream (mempool + RPC calls).
 /// Orders are assumed to be immutable so there is no update.
@@ -11,7 +12,7 @@ use rbuilder_primitives::{BundleReplacementData, Order};
 /// Due to source problems insert_order/remove_bundle can arrive out of order so Orders also have a sequence number
 /// so we can identify the newest.
 pub trait ReplaceableOrderSink: Debug + Send {
-    fn insert_order(&mut self, order: Order) -> bool;
+    fn insert_order(&mut self, order: Arc<Order>) -> bool;
     fn remove_bundle(&mut self, replacement_data: BundleReplacementData) -> bool;
     /// @Pending remove this ugly hack to check if we can stop sending data.
     /// It should be replaced for a better control over object destruction
@@ -23,7 +24,7 @@ pub trait ReplaceableOrderSink: Debug + Send {
 pub struct ReplaceableOrderPrinter {}
 
 impl ReplaceableOrderSink for ReplaceableOrderPrinter {
-    fn insert_order(&mut self, order: Order) -> bool {
+    fn insert_order(&mut self, order: Arc<Order>) -> bool {
         info!(
             order_id = ?order.id(),
             order_rep_info = ?order.replacement_key_and_sequence_number(),
@@ -52,7 +53,7 @@ impl Drop for ReplaceableOrderPrinter {
 pub struct NullReplaceableOrderSink {}
 
 impl ReplaceableOrderSink for NullReplaceableOrderSink {
-    fn insert_order(&mut self, _order: Order) -> bool {
+    fn insert_order(&mut self, _order: Arc<Order>) -> bool {
         true
     }
 

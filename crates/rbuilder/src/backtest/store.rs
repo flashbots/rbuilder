@@ -29,6 +29,7 @@ use std::{
     ffi::OsString,
     path::{Path, PathBuf},
     str::FromStr,
+    sync::Arc,
 };
 
 /// Version of the data/format on the DB.
@@ -568,6 +569,7 @@ fn group_rows_into_block_data(
                     ),
                     sealed_at: timestamp_ms_to_offset_datetime(sealed_at_ts_ms as u64),
                     profit,
+                    journal_metadata: None,
                 },
             ))
         })
@@ -638,7 +640,7 @@ impl From<ReplaceableOrderPoolCommand> for RawReplaceableOrderPoolCommand {
     fn from(command: ReplaceableOrderPoolCommand) -> Self {
         match command {
             ReplaceableOrderPoolCommand::Order(order) => {
-                RawReplaceableOrderPoolCommand::Order(order.into())
+                RawReplaceableOrderPoolCommand::Order((*order).clone().into())
             }
             ReplaceableOrderPoolCommand::CancelBundle(replacement_data) => {
                 RawReplaceableOrderPoolCommand::CancelBundle(replacement_data)
@@ -673,7 +675,7 @@ impl RawReplaceableOrderPoolCommandWithTimestamp {
             timestamp_ms: self.timestamp_ms,
             command: match self.command {
                 RawReplaceableOrderPoolCommand::Order(raw_order) => {
-                    ReplaceableOrderPoolCommand::Order(raw_order.decode(encoding)?)
+                    ReplaceableOrderPoolCommand::Order(Arc::new(raw_order.decode(encoding)?))
                 }
                 RawReplaceableOrderPoolCommand::CancelBundle(replacement_data) => {
                     ReplaceableOrderPoolCommand::CancelBundle(replacement_data)
@@ -784,6 +786,7 @@ mod test {
                 .unwrap(),
             sealed_at: OffsetDateTime::from_unix_timestamp_nanos(1719845355123000000).unwrap(),
             profit: I256::try_from(42).unwrap(),
+            journal_metadata: None,
         };
         let block_data = FullSlotBlockData::new(
             12,

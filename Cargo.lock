@@ -3966,11 +3966,19 @@ dependencies = [
  "proptest",
  "rand 0.8.5",
  "rayon",
+ "reth-chainspec",
+ "reth-db",
  "reth-errors",
+ "reth-evm",
+ "reth-evm-ethereum",
  "reth-execution-errors",
+ "reth-node-api",
+ "reth-node-ethereum",
  "reth-provider",
+ "reth-revm",
  "reth-trie",
  "reth-trie-db",
+ "reth-trie-parallel",
  "revm",
  "rustc-hash 2.1.1",
  "serde",
@@ -9557,9 +9565,15 @@ name = "rbuilder-config"
 version = "0.1.0"
 dependencies = [
  "eyre",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "opentelemetry-semantic-conventions",
+ "opentelemetry_sdk",
  "serde",
  "serde_with",
  "toml 0.8.23",
+ "tracing",
+ "tracing-opentelemetry",
  "tracing-subscriber 0.3.22",
 ]
 
@@ -9576,6 +9590,7 @@ dependencies = [
  "built",
  "clickhouse",
  "ctor",
+ "dashmap 6.1.0",
  "derivative",
  "exponential-backoff",
  "eyre",
@@ -9599,6 +9614,7 @@ dependencies = [
  "reqwest 0.12.24",
  "serde",
  "serde_json",
+ "serde_repr",
  "serde_with",
  "thiserror 1.0.69",
  "time",
@@ -13625,6 +13641,17 @@ dependencies = [
  "percent-encoding",
  "serde",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "serde_repr"
+version = "0.1.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "175ee3e80ae9982737ca543e96133087cbd9a485eecc3bc4de9c1a37b47ea59c"
+dependencies = [
+ "proc-macro2 1.0.103",
+ "quote 1.0.42",
+ "syn 2.0.111",
 ]
 
 [[package]]
