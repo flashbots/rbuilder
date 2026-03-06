@@ -336,7 +336,7 @@ impl BaseConfig {
             "v1" => ETHSpareMPTVersion::V1,
             "v2" => ETHSpareMPTVersion::V2,
             "vexp" => ETHSpareMPTVersion::VExperimental,
-            _ => eyre::bail!("root_hash_sparse_trie_version can be v1 or v2"),
+            _ => eyre::bail!("root_hash_sparse_trie_version can be v1, v2 or vexp"),
         };
         Ok(RootHashContext::new(
             self.root_hash_use_sparse_trie,
