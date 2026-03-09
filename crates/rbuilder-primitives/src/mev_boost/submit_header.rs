@@ -1,5 +1,5 @@
 use crate::mev_boost::{
-    adjustment::BidAdjustmentDataV2,
+    adjustment::BidAdjustmentDataV3,
     ssz_roots::{calculate_transactions_root_ssz, calculate_withdrawals_root_ssz},
     BidMetadata,
 };
@@ -35,7 +35,7 @@ pub struct SubmitHeaderRequest {
     /// The number of transactions in the block.
     pub tx_count: u32,
     /// The signed header data. This is the same structure used by
-    /// the Optimistic V2 'SignedHeaderSubmission'.
+    /// the Optimistic V3 'SignedHeaderSubmission'.
     pub submission: SignedHeaderSubmission,
 }
 
@@ -84,8 +84,8 @@ pub struct HeaderSubmissionElectra {
     pub execution_requests: ExecutionRequestsV4,
     /// Blob KZG commitments.
     pub commitments: Vec<alloy_consensus::Bytes48>,
-    /// Bid adjustment data V2.
-    pub adjustment_data: Option<BidAdjustmentDataV2>,
+    /// Bid adjustment data V3.
+    pub adjustment_data: Option<BidAdjustmentDataV3>,
 }
 
 impl ssz::Encode for HeaderSubmissionElectra {
@@ -99,7 +99,7 @@ impl ssz::Encode for HeaderSubmissionElectra {
             + <ExecutionRequestsV4 as ssz::Encode>::ssz_fixed_len()
             + <Vec<alloy_consensus::Bytes48> as ssz::Encode>::ssz_fixed_len();
         if self.adjustment_data.is_some() {
-            offset += <BidAdjustmentDataV2 as ssz::Encode>::ssz_fixed_len();
+            offset += <BidAdjustmentDataV3 as ssz::Encode>::ssz_fixed_len();
         }
 
         let mut encoder = ssz::SszEncoder::container(buf, offset);
@@ -123,7 +123,7 @@ impl ssz::Encode for HeaderSubmissionElectra {
             + <ExecutionRequestsV4 as ssz::Encode>::ssz_bytes_len(&self.execution_requests)
             + <Vec<alloy_consensus::Bytes48> as ssz::Encode>::ssz_bytes_len(&self.commitments);
         if let Some(adjustment) = &self.adjustment_data {
-            len += <BidAdjustmentDataV2 as ssz::Encode>::ssz_bytes_len(adjustment);
+            len += <BidAdjustmentDataV3 as ssz::Encode>::ssz_bytes_len(adjustment);
         }
         len
     }
@@ -141,7 +141,7 @@ impl ssz::Decode for HeaderSubmissionElectra {
             execution_payload_header: ExecutionPayloadHeaderElectra,
             execution_requests: ExecutionRequestsV4,
             commitments: Vec<alloy_consensus::Bytes48>,
-            adjustment_data: BidAdjustmentDataV2,
+            adjustment_data: BidAdjustmentDataV3,
         }
 
         #[derive(ssz_derive::Decode)]

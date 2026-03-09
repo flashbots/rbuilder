@@ -21,7 +21,7 @@ use crate::{
 use ahash::HashSet;
 use alloy_eips::eip7594::BlobTransactionSidecarVariant;
 use alloy_primitives::{Address, Bytes};
-use rbuilder_primitives::{mev_boost::BidAdjustmentData, AccountNonce, OrderId, SimulatedOrder};
+use rbuilder_primitives::{mev_boost::BidAdjustmentDataV3, AccountNonce, OrderId, SimulatedOrder};
 use reth::primitives::SealedBlock;
 use std::{
     collections::HashMap,
@@ -52,7 +52,7 @@ pub struct Block {
     /// The Pectra execution requests for this bid.
     pub execution_requests: Vec<Bytes>,
     /// Bid adjustment data by fee payer address.
-    pub bid_adjustments: HashMap<Address, BidAdjustmentData>,
+    pub bid_adjustments: HashMap<Address, BidAdjustmentDataV3>,
 }
 
 /// Id to uniquely identify every block built (unique even among different algorithms).

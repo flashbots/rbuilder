@@ -1,4 +1,4 @@
-use crate::mev_boost::BidAdjustmentDataV1;
+use crate::mev_boost::BidAdjustmentDataV3;
 use alloy_rpc_types_beacon::{
     relay::{
         BidTrace, SignedBidSubmissionV2, SignedBidSubmissionV3, SignedBidSubmissionV4,
@@ -22,7 +22,7 @@ pub struct SubmitBlockRequest {
     pub request: Arc<AlloySubmitBlockRequest>,
     /// Bid adjustment data if present.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub adjustment_data: Option<BidAdjustmentDataV1>,
+    pub adjustment_data: Option<BidAdjustmentDataV3>,
 }
 
 impl ssz::Encode for SubmitBlockRequest {
@@ -56,7 +56,7 @@ impl ssz::Encode for SubmitBlockRequest {
         };
         // Add adjustment data offset if present.
         if self.adjustment_data.is_some() {
-            offset += <BidAdjustmentDataV1 as ssz::Encode>::ssz_fixed_len();
+            offset += <BidAdjustmentDataV3 as ssz::Encode>::ssz_fixed_len();
         }
 
         let mut encoder = ssz::SszEncoder::container(buf, offset);
@@ -122,7 +122,7 @@ impl ssz::Encode for SubmitBlockRequest {
     fn ssz_bytes_len(&self) -> usize {
         let mut len = <AlloySubmitBlockRequest as ssz::Encode>::ssz_bytes_len(&self.request);
         if let Some(adjustment) = &self.adjustment_data {
-            len += <BidAdjustmentDataV1 as ssz::Encode>::ssz_bytes_len(adjustment);
+            len += <BidAdjustmentDataV3 as ssz::Encode>::ssz_bytes_len(adjustment);
         }
         len
     }
@@ -216,7 +216,7 @@ impl SubmitBlockRequest {
     }
 
     /// Set the bid adjustment data on the request.
-    pub fn set_adjustment_data(&mut self, data: BidAdjustmentDataV1) {
+    pub fn set_adjustment_data(&mut self, data: BidAdjustmentDataV3) {
         self.adjustment_data = Some(data);
     }
 
@@ -313,7 +313,7 @@ mod ssz_helpers {
         message: BidTrace,
         execution_payload: ExecutionPayloadV2,
         signature: BlsSignature,
-        adjustment_data: BidAdjustmentDataV1,
+        adjustment_data: BidAdjustmentDataV3,
     }
 
     impl From<CapellaSubmitBlockRequestSszHelper> for SubmitBlockRequest {
@@ -341,7 +341,7 @@ mod ssz_helpers {
         execution_payload: ExecutionPayloadV3,
         blobs_bundle: BlobsBundleV1,
         signature: BlsSignature,
-        adjustment_data: BidAdjustmentDataV1,
+        adjustment_data: BidAdjustmentDataV3,
     }
 
     impl From<DenebSubmitBlockRequestSszHelper> for SubmitBlockRequest {
@@ -372,7 +372,7 @@ mod ssz_helpers {
         blobs_bundle: BlobsBundleV1,
         execution_requests: ExecutionRequestsV4,
         signature: BlsSignature,
-        adjustment_data: BidAdjustmentDataV1,
+        adjustment_data: BidAdjustmentDataV3,
     }
 
     impl From<ElectraSubmitBlockRequestSszHelper> for SubmitBlockRequest {
@@ -405,7 +405,7 @@ mod ssz_helpers {
         blobs_bundle: BlobsBundleV2,
         execution_requests: ExecutionRequestsV4,
         signature: BlsSignature,
-        adjustment_data: BidAdjustmentDataV1,
+        adjustment_data: BidAdjustmentDataV3,
     }
 
     impl From<FuluSubmitBlockRequestSszHelper> for SubmitBlockRequest {
