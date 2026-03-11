@@ -63,10 +63,10 @@ impl BiddingServiceServerInner {
     }
 
     /// Forward to bidding_service
-    pub fn update_new_bid(&mut self, bid: ScrapedRelayBlockBidRPC) {
+    pub fn update_new_bids(&mut self, bids: Vec<ScrapedRelayBlockBidRPC>) {
         self.service
             .bidding_service()
-            .observe_relay_bids(bid.into());
+            .observe_relay_bids(bids.into_iter().map(|b| b.into()).collect());
     }
 }
 
@@ -238,10 +238,14 @@ fn spawn_scraped_bids_and_blocks_subscriber(
         init_done.set(Ok(()));
         while !cancellation_token.is_cancelled() {
             if let Ok(Some(_event_id)) = listener.timed_wait_one(THREAD_BLOCKING_DURATION) {
+                let mut bids = Vec::new();
                 if let Err(err) = scraped_bids_subscriber.poll(|sample| {
-                    inner.lock().update_new_bid(sample);
+                    bids.push(sample);
                 }) {
                     error!(err=?err, "scraped_bids_subscriber poll failed.");
+                }
+                if !bids.is_empty() {
+                    inner.lock().update_new_bids(bids);
                 }
                 if let Err(err) = blocks_subscriber.poll(|sample| {
                     inner.lock().new_block(sample);

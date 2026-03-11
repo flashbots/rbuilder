@@ -257,7 +257,7 @@ pub trait BiddingService: Send + Sync {
     /// Not &[RelaySet] because it caused problems with some Mutex<BiddingService>.
     fn relay_sets(&self) -> Vec<RelaySet>;
 
-    fn observe_relay_bids(&self, bid: ScrapedRelayBlockBidWithStats);
+    fn observe_relay_bids(&self, bid: Vec<ScrapedRelayBlockBidWithStats>);
 
     fn update_new_landed_blocks_detected(&self, landed_blocks: &[LandedBlockInfo]);
 
@@ -278,7 +278,7 @@ impl BidSender for BiddingService2BidSender {
     fn send(&self, bid: ScrapedRelayBlockBid) -> Result<(), BidSenderError> {
         inc_bids_received(&bid);
         self.inner
-            .observe_relay_bids(ScrapedRelayBlockBidWithStats::new(bid));
+            .observe_relay_bids(vec![ScrapedRelayBlockBidWithStats::new(bid)]);
         Ok(())
     }
 }
