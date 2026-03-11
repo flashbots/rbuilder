@@ -674,13 +674,23 @@ fn subsidized_label(landed: bool) -> &'static str {
     }
 }
 
-pub fn inc_subsidized_blocks(landed: bool) {
+fn inc_subsidized_blocks(landed: bool) {
     SUBSIDIZED_BLOCK_COUNT
         .with_label_values(&[subsidized_label(landed)])
         .inc();
 }
 
+/// Hardcoded .1 ETH
+const MAX_POSSIBLE_SUBSIDY: U256 =
+    U256::from_limbs([10u64.pow((Unit::ETHER.get() - 1) as u32), 0, 0, 0]);
+
+/// We filter any negative delta bigger than MAX_POSSIBLE_SUBSIDY so we don't consider withdrawals as subsidies and ruin the metric (that could trigger alerts)
+/// This might miss some subsidies (we could have a withdrawal AND a subsidy)
 pub fn add_subsidy_value(value: U256, landed: bool) {
+    if value > MAX_POSSIBLE_SUBSIDY {
+        return;
+    }
+    inc_subsidized_blocks(landed);
     let value_float = 2.0_f64.powf(value.approx_log2()) / 10_f64.pow(Unit::ETHER.get());
     SUBSIDY_VALUE
         .with_label_values(&[subsidized_label(landed)])

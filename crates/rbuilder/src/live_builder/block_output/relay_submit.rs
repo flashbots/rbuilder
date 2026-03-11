@@ -10,8 +10,7 @@ use crate::{
     telemetry::{
         add_relay_submit_time, add_subsidy_value, inc_conn_relay_errors,
         inc_failed_block_simulations, inc_initiated_submissions, inc_other_relay_errors,
-        inc_relay_accepted_submissions, inc_subsidized_blocks, inc_too_many_req_relay_errors,
-        mark_submission_start_time,
+        inc_relay_accepted_submissions, inc_too_many_req_relay_errors, mark_submission_start_time,
     },
     utils::{duration_ms, error_storage::store_error_event},
 };
@@ -695,8 +694,8 @@ impl RelaySubmitSinkFactory {
                         .await;
                         if let Some(info) = last_info {
                             if info.bid_value > info.true_bid_value {
-                                inc_subsidized_blocks(false);
-                                add_subsidy_value(info.bid_value - info.true_bid_value, false);
+                                let subsidy_value = info.bid_value - info.true_bid_value;
+                                add_subsidy_value(subsidy_value, false);
                             }
                         }
                     }

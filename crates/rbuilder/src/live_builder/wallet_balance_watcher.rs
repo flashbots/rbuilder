@@ -7,7 +7,7 @@ use tracing::{info, warn};
 
 use crate::{
     provider::StateProviderFactory,
-    telemetry::{add_subsidy_value, inc_subsidized_blocks, set_builder_balance},
+    telemetry::{add_subsidy_value, set_builder_balance},
 };
 
 use super::block_output::bidding_service_interface::LandedBlockInfo;
@@ -168,7 +168,6 @@ where
                     "Subsidy detected"
                 );
                 add_subsidy_value(subsidy_value, true);
-                inc_subsidized_blocks(true);
             }
             self.balance = landed_block_info.builder_balance;
             self.block_number = landed_block_info.block_number;
