@@ -236,19 +236,23 @@ impl<ItemTypeRPC: std::fmt::Debug + ZeroCopySend + 'static> NotifyingPublisher<I
     }
 
     pub fn send_many(&self, items: Vec<ItemTypeRPC>) -> Result<(), Error> {
-        let mut some_sent = false;
-        let mut publish_item_err = None;
+        let mut error_count = 0;
+        let item_count = items.len();
+        let mut publish_item_last_err = None;
         for item in items {
-            match self.publish_item(item) {
-                Ok(_) => some_sent = true,
-                Err(err) => publish_item_err = Some(err),
+            if let Err(err) = self.publish_item(item) {
+                error_count += 1;
+                publish_item_last_err = Some(err);
             }
         }
-        if some_sent {
+        if error_count != item_count {
             self.notifier.notify()?;
         }
-        match publish_item_err {
-            Some(err) => Err(err),
+        match publish_item_last_err {
+            Some(err) => {
+                error!(error_count,publish_item_last_err = ?err, "send_many failed to publish some items",);
+                Err(err)
+            }
             None => Ok(()),
         }
     }
