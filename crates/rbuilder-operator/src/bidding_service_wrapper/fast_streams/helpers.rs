@@ -222,12 +222,35 @@ impl<ItemTypeRPC: std::fmt::Debug + ZeroCopySend + 'static> NotifyingPublisher<I
         })
     }
 
-    pub fn send(&self, item: ItemTypeRPC) -> Result<(), Error> {
+    fn publish_item(&self, item: ItemTypeRPC) -> Result<(), Error> {
         let sample = self.publisher.loan_uninit()?;
         let sample = sample.write_payload(item);
         sample.send()?;
+        Ok(())
+    }
+
+    pub fn send(&self, item: ItemTypeRPC) -> Result<(), Error> {
+        self.publish_item(item)?;
         self.notifier.notify()?;
         Ok(())
+    }
+
+    pub fn send_many(&self, items: Vec<ItemTypeRPC>) -> Result<(), Error> {
+        let mut some_sent = false;
+        let mut publish_item_err = None;
+        for item in items {
+            match self.publish_item(item) {
+                Ok(_) => some_sent = true,
+                Err(err) => publish_item_err = Some(err),
+            }
+        }
+        if some_sent {
+            self.notifier.notify()?;
+        }
+        match publish_item_err {
+            Some(err) => Err(err),
+            None => Ok(()),
+        }
     }
 }
 
@@ -262,8 +285,12 @@ impl ScrapedBidsPublisher {
                 }
             };
             while let Ok(scraped_bid) = scraped_bids_rx.recv() {
-                if let Err(err) = notifying_publisher.send(scraped_bid) {
-                    error!(err=?err, "ScrapedBidsPublisher notifying_publisher.send failed. Bid lost.");
+                let mut bids = vec![scraped_bid];
+                while let Ok(extra) = scraped_bids_rx.try_recv() {
+                    bids.push(extra);
+                }
+                if let Err(err) = notifying_publisher.send_many(bids) {
+                    error!(err=?err, "ScrapedBidsPublisher notifying_publisher.send_many failed. Some bids lost.");
                 }
             }
         });
