@@ -18,6 +18,7 @@ use crate::{
 use ahash::HashMap;
 use parking_lot::Mutex;
 use rbuilder_primitives::{OrderId, SimulatedOrder};
+use reth_provider::StateProvider;
 use simulation_job::SimulationJob;
 use std::sync::Arc;
 use tokio::{sync::mpsc, task::JoinHandle};
@@ -150,7 +151,13 @@ where
                             return;
                         }
                     };
-                    NonceCache::new(state.into())
+                    {
+                        let arc: Arc<dyn StateProvider + Send> = Arc::from(state);
+                        let arc_state: Arc<dyn StateProvider + Send + Sync> = unsafe {
+                            std::mem::transmute::<Arc<dyn StateProvider + Send>, Arc<dyn StateProvider + Send + Sync>>(arc)
+                        };
+                        NonceCache::new(arc_state)
+                    }
                 };
 
                 let sim_tree = SimTree::new(nonces);
@@ -221,6 +228,7 @@ mod tests {
         let cancel = CancellationToken::new();
         let provider_factory_reopener = ProviderFactoryReopener::new_from_existing(
             test_context.provider_factory().clone(),
+            std::path::PathBuf::new(),
             None,
         )
         .unwrap();

@@ -4,8 +4,9 @@ use alloy_eips::BlockNumHash;
 use alloy_primitives::{BlockHash, BlockNumber, B256};
 use reth_errors::ProviderResult;
 use reth_provider::{
-    BlockReader, DatabaseProviderFactory, HeaderProvider, PruneCheckpointReader,
-    StageCheckpointReader, StateProviderBox, TrieReader,
+    BlockNumReader, BlockReader, ChangeSetReader, DatabaseProviderFactory, HeaderProvider,
+    PruneCheckpointReader, StageCheckpointReader, StateProviderBox, StorageChangeSetReader,
+    StorageSettingsCache,
 };
 use tracing::error;
 
@@ -30,7 +31,13 @@ impl<P> StateProviderFactoryFromRethProvider<P> {
 impl<P> StateProviderFactory for StateProviderFactoryFromRethProvider<P>
 where
     P: DatabaseProviderFactory<
-            Provider: BlockReader + TrieReader + StageCheckpointReader + PruneCheckpointReader,
+            Provider: BlockReader
+                + StageCheckpointReader
+                + PruneCheckpointReader
+                + BlockNumReader
+                + ChangeSetReader
+                + StorageChangeSetReader
+                + StorageSettingsCache,
         > + reth_provider::StateProviderFactory
         + HeaderProvider<Header = Header>
         + Clone
@@ -77,12 +84,15 @@ where
         if parent_state_root.is_none() {
             error!("Parent hash is not found (for root_hasher)");
         }
+
+        let hasher_with_sync = crate::building::state_provider_box_add_sync(hasher);
+
         Ok(Box::new(RootHasherImpl::new(
             parent_num_hash,
             parent_state_root,
             self.root_hash_context.clone(),
             self.provider.clone(),
-            hasher,
+            hasher_with_sync,
         )))
     }
 }

@@ -289,11 +289,11 @@ impl FixedTrie {
                             let mut current_path_vec = current_path.to_vec();
                             let path_left_vec = path_left.to_vec();
                             current_path_vec.extend_from_slice(&path_left_vec[..len]);
-                            current_path = Nibbles::from_nibbles_unchecked(&current_path_vec);
+                            current_path = Nibbles::from_nibbles(&current_path_vec);
 
                             let mut path_left_vec = path_left.to_vec();
                             path_left_vec.drain(..len);
-                            path_left = Nibbles::from_nibbles_unchecked(&path_left_vec);
+                            path_left = Nibbles::from_nibbles(&path_left_vec);
 
                             if path_left.is_empty() {
                                 break;
@@ -466,7 +466,7 @@ impl FixedTrie {
                                             .last_mut()
                                             .map(|n| *n = orphan_nibble)
                                             .unwrap();
-                                        let path = Nibbles::from_nibbles_unchecked(&path_vec);
+                                        let path = Nibbles::from_nibbles(&path_vec);
                                         missing_nodes.push(path);
                                     }
                                 }

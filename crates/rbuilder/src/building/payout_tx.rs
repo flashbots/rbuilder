@@ -10,7 +10,10 @@ use reth_chainspec::ChainSpec;
 use reth_errors::ProviderError;
 use reth_evm::Evm;
 use reth_primitives::{Recovered, Transaction, TransactionSigned};
-use revm::context::result::{EVMError, ExecutionResult};
+use revm::{
+    context::result::{EVMError, ExecutionResult},
+    database_interface::bal::EvmDatabaseError,
+};
 
 pub fn create_payout_tx(
     chain_spec: &ChainSpec,
@@ -42,7 +45,7 @@ pub enum PayoutTxErr {
     #[error("Signature error: {0}")]
     SignError(#[from] secp256k1::Error),
     #[error("EVM error: {0}")]
-    EvmError(#[from] EVMError<ProviderError>),
+    EvmError(#[from] EVMError<EvmDatabaseError<ProviderError>>),
 }
 
 impl PartialEq for PayoutTxErr {

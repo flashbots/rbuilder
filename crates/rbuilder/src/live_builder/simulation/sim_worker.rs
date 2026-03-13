@@ -1,13 +1,14 @@
 use crate::{
     building::{
         sim::{NonceKey, OrderSimResult, SimulatedResult},
-        simulate_order, BlockState, ThreadBlockBuildingContext,
+        simulate_order, state_provider_box_into_arc, BlockState, ThreadBlockBuildingContext,
     },
     live_builder::simulation::CurrentSimulationContexts,
     provider::StateProviderFactory,
     telemetry::{self, add_sim_thread_utilisation_timings, mark_order_simulation_end},
 };
 use parking_lot::Mutex;
+use reth_provider::StateProvider;
 use std::{
     sync::Arc,
     thread::sleep,
@@ -51,7 +52,7 @@ pub fn run_sim_worker<P>(
 
         let state_provider =
             match provider.history_by_block_hash(current_sim_context.block_ctx.attributes.parent) {
-                Ok(state_provider) => Arc::new(state_provider),
+                Ok(state_provider_box) => state_provider_box_into_arc(state_provider_box),
                 Err(err) => {
                     error!(?err, "Error while getting state for block");
                     continue 'main;

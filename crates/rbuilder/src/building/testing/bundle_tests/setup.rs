@@ -4,6 +4,7 @@
 //! test setup is used to build orders and commit them
 use crate::building::{
     cached_reads::{LocalCachedReads, SharedCachedReads},
+    state_provider_box_into_arc,
     testing::test_chain_state::{BlockArgs, NamedAddr, TestChainState, TxArgs},
     BlockState, ExecutionError, ExecutionResult, NullPartialBlockExecutionTracer, OrderErr,
     PartialBlock, ThreadBlockBuildingContext,
@@ -195,8 +196,8 @@ impl TestSetup {
         )
     }
     fn try_commit_order(&mut self) -> eyre::Result<Result<ExecutionResult, ExecutionError>> {
-        let state_provider: Arc<dyn StateProvider> =
-            Arc::from(self.test_chain.provider_factory().latest()?);
+        let state_provider =
+            state_provider_box_into_arc(self.test_chain.provider_factory().latest()?);
         let mut local_ctx = ThreadBlockBuildingContext::default();
 
         let sim_order = SimulatedOrder::new(

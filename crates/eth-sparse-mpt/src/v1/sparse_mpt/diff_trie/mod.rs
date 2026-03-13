@@ -65,7 +65,7 @@ pub struct NodeCursor {
 
 impl NodeCursor {
     pub fn new(key: Nibbles, head: u64) -> Self {
-        let current_path = Nibbles::from_nibbles_unchecked(&vec![]);
+        let current_path = Nibbles::from_nibbles(&vec![]);
         Self {
             current_node: head,
             current_path,
@@ -78,11 +78,11 @@ impl NodeCursor {
         let mut current_path_vec = self.current_path.to_vec();
         let path_left_vec = self.path_left.to_vec();
         current_path_vec.extend_from_slice(&path_left_vec[..len]);
-        self.current_path = Nibbles::from_nibbles_unchecked(&current_path_vec);
+        self.current_path = Nibbles::from_nibbles(&current_path_vec);
 
         let mut path_left_vec = self.path_left.to_vec();
         path_left_vec.drain(..len);
-        self.path_left = Nibbles::from_nibbles_unchecked(&path_left_vec);
+        self.path_left = Nibbles::from_nibbles(&path_left_vec);
         self.current_node = ext.child.ptr();
     }
 
@@ -341,7 +341,7 @@ impl DiffTrie {
                             if let Some(l) = other_child_path_vec.last_mut() {
                                 *l = other_child_nibble;
                             }
-                            let other_child_path = Nibbles::from_nibbles_unchecked(&other_child_path_vec);
+                            let other_child_path = Nibbles::from_nibbles(&other_child_path_vec);
                             return Err(DeletionError::NodeNotFound(ErrSparseNodeNotFound {
                                 path: other_child_path,
                                 ptr: u64::MAX,
@@ -437,7 +437,7 @@ impl DiffTrie {
                             let mut new_leaf_key_vec = ext_above.key().to_vec();
                             new_leaf_key_vec.push(*child_nibble);
                             new_leaf_key_vec.extend_from_slice(&leaf_below.key().to_vec());
-                            let new_leaf_key = Nibbles::from_nibbles_unchecked(&new_leaf_key_vec);
+                            let new_leaf_key = Nibbles::from_nibbles(&new_leaf_key_vec);
 
                             let mut new_leaf = leaf_below;
                             new_leaf.changed_key = Some(new_leaf_key);
@@ -451,7 +451,7 @@ impl DiffTrie {
                             let mut ext_key_vec = ext_above.key().to_vec();
                             ext_key_vec.push(*child_nibble);
                             ext_key_vec.extend_from_slice(&ext_below.key().to_vec());
-                            *ext_above.key_mut() = Nibbles::from_nibbles_unchecked(&ext_key_vec);
+                            *ext_above.key_mut() = Nibbles::from_nibbles(&ext_key_vec);
 
                             ext_above.child = ext_below.child.clone();
                         }
@@ -479,7 +479,7 @@ impl DiffTrie {
                             // merge missing nibble into the leaf
                             let mut leaf_key_vec = leaf_below.key().to_vec();
                             leaf_key_vec.insert(0, *child_nibble);
-                            *leaf_below.key_mut() = Nibbles::from_nibbles_unchecked(&leaf_key_vec);
+                            *leaf_below.key_mut() = Nibbles::from_nibbles(&leaf_key_vec);
 
                             let new_leaf_ptr = get_new_ptr(&mut self.ptrs);
                             let new_child = DiffTrieNode {
@@ -500,7 +500,7 @@ impl DiffTrie {
                             // merge missing nibble into the extension
                             let mut ext_key_vec = ext_below.key().to_vec();
                             ext_key_vec.insert(0, *child_nibble);
-                            *ext_below.key_mut() = Nibbles::from_nibbles_unchecked(&ext_key_vec);
+                            *ext_below.key_mut() = Nibbles::from_nibbles(&ext_key_vec);
                             let new_child_ptr = get_new_ptr(&mut self.ptrs);
                             let new_child = DiffTrieNode {
                                 kind: DiffTrieNodeKind::Extension(ext_below),
@@ -521,7 +521,7 @@ impl DiffTrie {
                             // we leave branch in the trie but create extension node instead of the remove one child node
                             let new_ext_ptr = get_new_ptr(&mut self.ptrs);
                             let new_ext_node = DiffTrieNode::new_ext(
-                                Nibbles::from_nibbles_unchecked([*child_nibble]),
+                                Nibbles::from_nibbles([*child_nibble]),
                                 DiffChildPtr::new(reinsert_branch_ptr),
                             );
                             branch_above.insert_diff_child(
@@ -571,13 +571,13 @@ impl DiffTrie {
                     DiffTrieNodeKind::Leaf(leaf) => {
                         let mut leaf_key_vec = leaf.key().to_vec();
                         leaf_key_vec.insert(0, child_nibble);
-                        *leaf.key_mut() = Nibbles::from_nibbles_unchecked(&leaf_key_vec);
+                        *leaf.key_mut() = Nibbles::from_nibbles(&leaf_key_vec);
                         child_below.rlp_pointer = None;
                     }
                     DiffTrieNodeKind::Extension(ext) => {
                         let mut ext_key_vec = ext.key().to_vec();
                         ext_key_vec.insert(0, child_nibble);
-                        *ext.key_mut() = Nibbles::from_nibbles_unchecked(&ext_key_vec);
+                        *ext.key_mut() = Nibbles::from_nibbles(&ext_key_vec);
                         child_below.rlp_pointer = None;
                     }
                     DiffTrieNodeKind::Branch(_) => {
@@ -586,7 +586,7 @@ impl DiffTrie {
                         reinsert_nodes.push((reinsert_branch_ptr, child_below.clone()));
                         child_below.kind = DiffTrieNodeKind::Extension(DiffExtensionNode {
                             fixed: None,
-                            changed_key: Some(Nibbles::from_nibbles_unchecked([child_nibble])),
+                            changed_key: Some(Nibbles::from_nibbles([child_nibble])),
                             child: DiffChildPtr::new(reinsert_branch_ptr),
                         });
                         child_below.rlp_pointer = None;

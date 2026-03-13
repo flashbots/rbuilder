@@ -122,17 +122,15 @@ impl StateProviderFactory for IpcStateProviderFactory {
 
     /// Gets state at the block hash
     fn history_by_block_hash(&self, block: BlockHash) -> ProviderResult<StateProviderBox> {
-        if let Some(state) = self.state_provider_by_hash.get(&block) {
-            return Ok(Box::new(state));
-        }
-
+        // TODO(chirag): The cache (state_provider_by_hash) is currently not being used effectively
+        // because of the type mismatch between Box<Arc<IpcStateProvider>> and Arc<IpcStateProvider>.
+        // This should be refactored in the future to properly cache state providers.
         let state = IpcStateProvider::into_boxed(
             self.ipc_provider.clone(),
             block.into(),
             self.code_cache.clone(),
         );
 
-        self.state_provider_by_hash.insert(block, *state.clone());
         Ok(state)
     }
 
@@ -229,15 +227,12 @@ impl IpcStateProvider {
     }
 
     /// Crates new instance of state provider on the heap
-    // Box::new(Arc::new(Self)) is required because StateProviderFactory returns Box<dyn StateProvider>
-    // Note: this is known clippy issue: https://github.com/rust-lang/rust-clippy/issues/7472
-    #[allow(clippy::redundant_allocation)]
     fn into_boxed(
         ipc_provider: RpcProvider,
         block_id: BlockId,
         code_cache: Arc<DashMap<B256, Bytecode>>,
-    ) -> Box<Arc<Self>> {
-        Box::new(Arc::new(Self::new(ipc_provider, block_id, code_cache)))
+    ) -> Box<Self> {
+        Box::new(Self::new(ipc_provider, block_id, code_cache))
     }
 }
 
@@ -284,6 +279,18 @@ impl StateProvider for IpcStateProvider {
         let storage = rpc_call(&self.ipc_provider, "eth_getStorageAt", (account, key))?;
         self.storage_cache.insert((account, storage_key), storage);
 
+        Ok(storage)
+    }
+
+    /// Get storage of given account by hashed key
+    fn storage_by_hashed_key(
+        &self,
+        account: Address,
+        hashed_key: alloy_primitives::FixedBytes<32>,
+    ) -> ProviderResult<Option<StorageValue>> {
+        // Convert hashed key to U256 and fetch via RPC
+        let key: U256 = U256::from_be_bytes(hashed_key.0);
+        let storage = rpc_call(&self.ipc_provider, "eth_getStorageAt", (account, key))?;
         Ok(storage)
     }
 }

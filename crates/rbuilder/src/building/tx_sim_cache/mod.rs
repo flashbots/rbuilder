@@ -10,7 +10,10 @@ use itertools::Itertools;
 use rbuilder_primitives::evm_inspector::UsedStateTrace;
 use result_store::{ActionResult, ExecutionResultStore, NextAction};
 use reth_errors::ProviderError;
-use revm::{context::result::ResultAndState, state::AccountInfo, Database};
+use revm::{
+    context::result::ResultAndState, database_interface::bal::EvmDatabaseError, state::AccountInfo,
+    Database,
+};
 use tracing::info;
 
 use crate::utils::signed_uint_delta;
@@ -222,7 +225,7 @@ impl TxExecutionCache {
 
     pub fn get_cached_result(
         &self,
-        mut db: impl Database<Error = ProviderError>,
+        mut db: impl Database<Error = EvmDatabaseError<ProviderError>>,
         tx_hash: &B256,
         coinbase: &Address,
     ) -> Result<CachingResult, CriticalCommitOrderError> {
@@ -249,13 +252,15 @@ impl TxExecutionCache {
             };
             let action_result = match next_action {
                 NextAction::CheckAccount(address) => {
-                    let current_account = db.basic(address)?;
+                    let current_account =
+                        db.basic(address).map_err(|e| e.into_external_error())?;
 
                     ActionResult::AccountValue(current_account)
                 }
                 NextAction::CheckStorage(address, index) => {
-                    db.basic(address)?; // we load account here because revm database panics if we never loaded account before slot
-                    let current_value = db.storage(address, index)?;
+                    db.basic(address).map_err(|e| e.into_external_error())?; // we load account here because revm database panics if we never loaded account before slot
+                    let current_value =
+                        db.storage(address, index).map_err(|e| e.into_external_error())?;
                     ActionResult::StorageValue(current_value)
                 }
                 NextAction::DoNothing => ActionResult::DoNothing,
@@ -287,7 +292,7 @@ impl TxExecutionCache {
             panic!("tx_sim_cache: tx did not read coinbase account");
         };
 
-        let current_coinbase = db.basic(*coinbase)?;
+        let current_coinbase = db.basic(*coinbase).map_err(|e| e.into_external_error())?;
 
         let mut coinbase_nonce_delta = 0i64;
         let mut coinbase_balance_delta = I256::ZERO;

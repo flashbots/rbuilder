@@ -31,9 +31,12 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, trace};
 
 use crate::{
-    building::builders::{
-        BacktestSimulateBlockInput, Block, BlockBuildingAlgorithm, BlockBuildingAlgorithmInput,
-        BuiltBlockIdSource, LiveBuilderInput,
+    building::{
+        builders::{
+            BacktestSimulateBlockInput, Block, BlockBuildingAlgorithm, BlockBuildingAlgorithmInput,
+            BuiltBlockIdSource, LiveBuilderInput,
+        },
+        state_provider_box_into_arc,
     },
     live_builder::block_output::bidding_service_interface::CompetitionBidContext,
     provider::StateProviderFactory,
@@ -123,10 +126,10 @@ where
         let results_aggregator =
             ResultsAggregator::new(group_result_receiver, Arc::clone(&best_results));
 
-        let block_state = input
+        let state_box = input
             .provider
-            .history_by_block_hash(input.ctx.attributes.parent)?
-            .into();
+            .history_by_block_hash(input.ctx.attributes.parent)?;
+        let block_state = state_provider_box_into_arc(state_box);
 
         let block_building_result_assembler = BlockBuildingResultAssembler::new(
             config,
@@ -329,10 +332,10 @@ where
 
     let setup_duration = setup_start.elapsed();
 
-    let block_state: Arc<dyn StateProvider> = input
+    let state_box = input
         .provider
-        .history_by_block_hash(input.ctx.attributes.parent)?
-        .into();
+        .history_by_block_hash(input.ctx.attributes.parent)?;
+    let block_state = state_provider_box_into_arc(state_box);
 
     // Group processing
     let processing_start = Instant::now();

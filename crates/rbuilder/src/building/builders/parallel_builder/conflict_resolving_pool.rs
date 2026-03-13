@@ -15,7 +15,11 @@ use super::{
     simulation_cache::SharedSimulationCache, ConflictGroup, ConflictResolutionResultPerGroup,
     ConflictTask, GroupId, ResolutionResult, TaskPriority,
 };
-use crate::{building::BlockBuildingContext, provider::StateProviderFactory, utils::elapsed_ms};
+use crate::{
+    building::{state_provider_box_into_arc, BlockBuildingContext},
+    provider::StateProviderFactory,
+    utils::elapsed_ms,
+};
 
 pub type TaskQueue = Arc<SegQueue<ConflictTask>>;
 
@@ -65,10 +69,10 @@ where
             let simulation_cache = self.simulation_cache.clone();
             let ctx = self.ctx.clone();
 
-            let block_state: Arc<dyn StateProvider> = self
+            let state_box = self
                 .provider
-                .history_by_block_hash(self.ctx.attributes.parent)?
-                .into();
+                .history_by_block_hash(self.ctx.attributes.parent)?;
+            let block_state = state_provider_box_into_arc(state_box);
             thread::spawn(move || {
                 while !cancellation_token.is_cancelled() {
                     if let Some(task) = task_queue.pop() {
@@ -112,7 +116,7 @@ where
     fn process_task(
         task: ConflictTask,
         ctx: &BlockBuildingContext,
-        state: Arc<dyn StateProvider>,
+        state: Arc<dyn StateProvider + Send + Sync>,
         cancellation_token: CancellationToken,
         simulation_cache: Arc<SharedSimulationCache>,
     ) -> Result<(GroupId, (ResolutionResult, ConflictGroup))> {
@@ -156,7 +160,7 @@ where
         &mut self,
         new_groups: Vec<ConflictGroup>,
         ctx: &BlockBuildingContext,
-        state: Arc<dyn StateProvider>,
+        state: Arc<dyn StateProvider + Send + Sync>,
         simulation_cache: Arc<SharedSimulationCache>,
     ) -> Vec<(GroupId, (ResolutionResult, ConflictGroup))> {
         let mut results = Vec::new();

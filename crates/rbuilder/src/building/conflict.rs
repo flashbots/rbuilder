@@ -1,4 +1,7 @@
-use super::{BlockBuildingContext, BlockState, PartialBlockFork, ThreadBlockBuildingContext};
+use super::{
+    state_provider_box_into_arc, BlockBuildingContext, BlockState, PartialBlockFork,
+    ThreadBlockBuildingContext,
+};
 use crate::building::BlockBuildingSpaceState;
 use alloy_primitives::{Address, U256};
 use itertools::Itertools;
@@ -30,7 +33,7 @@ pub fn find_conflict_slow(
     ctx: &BlockBuildingContext,
     orders: &[Order],
 ) -> eyre::Result<HashMap<(OrderId, OrderId), Conflict>> {
-    let mut state_provider = Arc::<dyn StateProvider>::from(state_provider);
+    let mut state_provider = state_provider_box_into_arc(state_provider);
     let mut local_ctx = ThreadBlockBuildingContext::default();
     // We use empty combined refunds because the value of the bundle will
     // not change from batching.

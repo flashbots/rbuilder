@@ -31,7 +31,7 @@ use rbuilder_primitives::order_statistics::OrderStatistics;
 
 /// Assembles block building results from the best orderings of order groups.
 pub struct BlockBuildingResultAssembler {
-    state: Arc<dyn StateProvider>,
+    state: Arc<dyn StateProvider + Send + Sync>,
     ctx: BlockBuildingContext,
     pub local_ctx: ThreadBlockBuildingContext,
     cancellation_token: CancellationToken,
@@ -58,7 +58,7 @@ impl BlockBuildingResultAssembler {
     pub fn new(
         config: &ParallelBuilderConfig,
         best_results: Arc<BestResults>,
-        state: Arc<dyn StateProvider>,
+        state: Arc<dyn StateProvider + Send + Sync>,
         ctx: BlockBuildingContext,
         cancellation_token: CancellationToken,
         builder_name: String,

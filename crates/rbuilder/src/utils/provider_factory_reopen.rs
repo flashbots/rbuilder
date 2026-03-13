@@ -13,15 +13,15 @@ use alloy_eips::BlockNumHash;
 use alloy_primitives::{Address, BlockHash, BlockNumber, Bytes, B256};
 use eth_sparse_mpt::*;
 use parking_lot::Mutex;
-use reth::providers::{BlockHashReader, ChainSpecProvider, ProviderFactory};
+use reth::{providers::{BlockHashReader, ChainSpecProvider, ProviderFactory}, tasks::Runtime};
 use reth_db::DatabaseError;
 use reth_errors::{ProviderError, ProviderResult, RethResult};
 use reth_node_api::{NodePrimitives, NodeTypesWithDB};
 use reth_provider::{
-    providers::{ProviderNodeTypes, StaticFileProvider},
-    BlockNumReader, BlockReader, DatabaseProviderFactory, HashedPostStateProvider, HeaderProvider,
-    PruneCheckpointReader, StageCheckpointReader, StateProviderBox, StaticFileProviderFactory,
-    TrieReader,
+    providers::{ProviderNodeTypes, RocksDBProvider, StaticFileProvider},
+    BlockNumReader, BlockReader, ChangeSetReader, DatabaseProviderFactory, HashedPostStateProvider,
+    HeaderProvider, PruneCheckpointReader, StageCheckpointReader, StateProviderBox,
+    StaticFileProviderFactory, StorageChangeSetReader, StorageSettingsCache,
 };
 use revm::database::BundleState;
 use std::{
@@ -40,6 +40,7 @@ pub struct ProviderFactoryReopener<N: NodeTypesWithDB> {
     provider_factory: Arc<Mutex<ProviderFactory<N>>>,
     chain_spec: Arc<N::ChainSpec>,
     static_files_path: PathBuf,
+    rocksdb_path: PathBuf,
     /// Patch to disable checking on test mode. Is ugly but ProviderFactoryReopener should die shortly (5/24/2024).
     testing_mode: bool,
     /// None ->No root hash (MockRootHasher)
@@ -52,18 +53,26 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
         db: N::DB,
         chain_spec: Arc<N::ChainSpec>,
         static_files_path: PathBuf,
+        rocksdb_path: PathBuf,
         root_hash_config: Option<RootHashContext>,
     ) -> RethResult<Self> {
+        let rocksdb_provider = RocksDBProvider::builder(&rocksdb_path)
+            .with_default_tables()
+            .build()?;
+        let runtime = Runtime::test();
         let provider_factory = ProviderFactory::new(
             db,
             chain_spec.clone(),
             StaticFileProvider::read_only(static_files_path.as_path(), true).unwrap(),
-        );
+            rocksdb_provider,
+            runtime,
+        )?;
 
         Ok(Self {
             provider_factory: Arc::new(Mutex::new(provider_factory)),
             chain_spec,
             static_files_path,
+            rocksdb_path,
             root_hash_config,
             testing_mode: false,
         })
@@ -71,6 +80,7 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
 
     pub fn new_from_existing(
         provider_factory: ProviderFactory<N>,
+        rocksdb_path: PathBuf,
         root_hash_config: Option<RootHashContext>,
     ) -> RethResult<Self> {
         let chain_spec = provider_factory.chain_spec();
@@ -79,6 +89,7 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
             provider_factory: Arc::new(Mutex::new(provider_factory)),
             chain_spec,
             static_files_path,
+            rocksdb_path,
             root_hash_config,
             testing_mode: true,
         })
@@ -110,12 +121,16 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
                     debug!(?err, "Provider factory is inconsistent, reopening");
                     inc_provider_reopen_counter();
 
+                    let rocksdb_provider = RocksDBProvider::new(&self.rocksdb_path)
+                        .map_err(|e| eyre::eyre!("Failed to create RocksDB provider: {:?}", e))?;
                     *provider_factory = ProviderFactory::new(
                         provider_factory.db_ref().clone(),
                         self.chain_spec.clone(),
                         StaticFileProvider::read_only(self.static_files_path.as_path(), true)
                             .unwrap(),
-                    );
+                        rocksdb_provider,
+                        Runtime::test(),
+                    )?;
                 }
             }
 
@@ -294,9 +309,15 @@ impl<T, HasherType> RootHasherImpl<T, HasherType> {
 
 impl<T, HasherType> RootHasher for RootHasherImpl<T, HasherType>
 where
-    HasherType: HashedPostStateProvider,
+    HasherType: HashedPostStateProvider + Send + Sync,
     T: DatabaseProviderFactory<
-            Provider: BlockReader + TrieReader + StageCheckpointReader + PruneCheckpointReader,
+            Provider: BlockReader
+                + StageCheckpointReader
+                + PruneCheckpointReader
+                + BlockNumReader
+                + ChangeSetReader
+                + StorageChangeSetReader
+                + StorageSettingsCache,
         > + Send
         + Sync
         + Clone

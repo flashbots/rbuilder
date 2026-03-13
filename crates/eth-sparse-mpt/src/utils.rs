@@ -31,14 +31,14 @@ pub fn rlp_pointer(rlp_encode: Bytes) -> Bytes {
 pub fn concat_path(p1: &Nibbles, p2: &[u8]) -> Nibbles {
     let mut result = p1.to_vec();
     result.extend_from_slice(p2);
-    Nibbles::from_nibbles_unchecked(&result)
+    Nibbles::from_nibbles(&result)
 }
 
 pub fn strip_first_nibble_mut(p: &mut Nibbles) -> u8 {
     let mut vec = p.to_vec();
     let nibble = vec[0];
     vec.remove(0);
-    *p = Nibbles::from_nibbles_unchecked(&vec);
+    *p = Nibbles::from_nibbles(&vec);
     nibble
 }
 
@@ -47,9 +47,9 @@ pub fn extract_prefix_and_suffix(p1: &Nibbles, p2: &Nibbles) -> (Nibbles, Nibble
     let p1_vec = p1.to_vec();
     let p2_vec = p2.to_vec();
     let prefix_len = p1.common_prefix_length(p2);
-    let prefix = Nibbles::from_nibbles_unchecked(&p1_vec[..prefix_len]);
-    let suffix1 = Nibbles::from_nibbles_unchecked(&p1_vec[prefix_len..]);
-    let suffix2 = Nibbles::from_nibbles_unchecked(&p2_vec[prefix_len..]);
+    let prefix = Nibbles::from_nibbles(&p1_vec[..prefix_len]);
+    let suffix1 = Nibbles::from_nibbles(&p1_vec[prefix_len..]);
+    let suffix2 = Nibbles::from_nibbles(&p2_vec[prefix_len..]);
 
     (prefix, suffix1, suffix2)
 }

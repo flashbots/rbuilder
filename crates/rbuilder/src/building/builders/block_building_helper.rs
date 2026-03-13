@@ -214,7 +214,7 @@ impl BlockBuildingHelperFromProvider<NullPartialBlockExecutionTracer> {
     pub fn new(
         built_block_id: BuiltBlockId,
         next_journal_sequence_number: JournalSequenceNumber,
-        state_provider: Arc<dyn StateProvider>,
+        state_provider: Arc<dyn StateProvider + Send + Sync>,
         building_ctx: BlockBuildingContext,
         local_ctx: &mut ThreadBlockBuildingContext,
         builder_name: String,
@@ -252,7 +252,7 @@ impl<
     pub fn new_with_execution_tracer(
         built_block_id: BuiltBlockId,
         next_journal_sequence_number: JournalSequenceNumber,
-        state_provider: Arc<dyn StateProvider>,
+        state_provider: Arc<dyn StateProvider + Send + Sync>,
         building_ctx: BlockBuildingContext,
         local_ctx: &mut ThreadBlockBuildingContext,
         builder_name: String,

@@ -5,8 +5,9 @@ use super::{
 };
 use crate::{
     building::{
-        order_is_worth_executing, BlockBuildingContext, BlockBuildingSpaceState, BlockState,
-        CriticalCommitOrderError, NullPartialBlockForkExecutionTracer,
+        order_is_worth_executing, state_provider_box_into_arc, BlockBuildingContext,
+        BlockBuildingSpaceState, BlockState, CriticalCommitOrderError,
+        NullPartialBlockForkExecutionTracer,
     },
     live_builder::order_input::mempool_txs_detector::MempoolTxsDetector,
     provider::StateProviderFactory,
@@ -324,7 +325,7 @@ where
 {
     let nonces = {
         let state = provider.history_by_block_hash(ctx.attributes.parent)?;
-        NonceCache::new(state.into())
+        NonceCache::new(state_provider_box_into_arc(state))
     };
     let mut sim_tree = SimTree::new(nonces);
 
@@ -339,8 +340,8 @@ where
     }
 
     let mut sim_errors = Vec::new();
-    let mut state_for_sim =
-        Arc::<dyn StateProvider>::from(provider.history_by_block_hash(ctx.attributes.parent)?);
+    let state_box = provider.history_by_block_hash(ctx.attributes.parent)?;
+    let mut state_for_sim = state_provider_box_into_arc(state_box);
     let mut local_ctx = ThreadBlockBuildingContext::default();
     loop {
         // mix new orders into the sim_tree

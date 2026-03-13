@@ -29,30 +29,69 @@ use revm::{
     context::result::{ExecutionResult, ResultAndState},
     context_interface::result::{EVMError, InvalidTransaction},
     database::{states::bundle_state::BundleRetention, BundleState, State},
+    database_interface::bal::EvmDatabaseError,
     Database as _, DatabaseCommit,
 };
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 
+/// Converts a [`StateProviderBox`] (`Box<dyn StateProvider + Send>`) into an
+/// `Arc<dyn StateProvider + Send + Sync>`.
+///
+/// Use this when you need to share the provider across threads via `Arc` (e.g. in
+/// `BlockState`, `BlockBuildingHelperFromProvider`, parallel builders, etc.).
+///
+/// # Why the transmute
+/// Reth's factory methods return `StateProviderBox = Box<dyn StateProvider + Send>`, which
+/// mechanically erases `Sync` at the type-erasure boundary even though every concrete reth
+/// `StateProvider` implementation (`DatabaseStateProvider`, `HistoricalStateProvider`, …) is
+/// genuinely `Sync` — the trait only exposes `&self` read-only methods with no interior
+/// mutability.
+///
+/// `Arc<T>` requires `T: Send + Sync` to be `Send + Sync` itself, so without restoring the
+/// `Sync` bound we cannot share the provider across threads at all
+pub fn state_provider_box_into_arc(
+    provider: StateProviderBox,
+) -> Arc<dyn StateProvider + Send + Sync> {
+    let arc: Arc<dyn StateProvider + Send> = Arc::from(provider);
+    unsafe { std::mem::transmute(arc) }
+}
+
+/// Converts a [`StateProviderBox`] (`Box<dyn StateProvider + Send>`) into a
+/// `Box<dyn StateProvider + Send + Sync>`.
+///
+/// Use this when you need `Sync` on the box itself but do not yet need reference-counting.
+/// Prefer [`state_provider_box_into_arc`] when sharing across threads via `Arc`.
+///
+/// # Why the transmute
+/// Same root cause as [`state_provider_box_into_arc`]: reth's `StateProviderBox` alias drops
+/// `Sync` at the type-erasure boundary even though all concrete implementations are `Sync`.
+pub fn state_provider_box_add_sync(
+    provider: StateProviderBox,
+) -> Box<dyn StateProvider + Send + Sync> {
+    // SAFETY: see doc comment above
+    unsafe { std::mem::transmute(provider) }
+}
+
 #[derive(Clone)]
 pub struct BlockState {
-    provider: Arc<dyn StateProvider>,
+    provider: Arc<dyn StateProvider + Send + Sync>,
     bundle_state: Option<BundleState>,
 }
 
 impl BlockState {
     pub fn new(provider: StateProviderBox) -> Self {
-        Self::new_arc(Arc::from(provider))
+        Self::new_arc(state_provider_box_into_arc(provider))
     }
 
-    pub fn new_arc(provider: Arc<dyn StateProvider>) -> Self {
+    pub fn new_arc(provider: Arc<dyn StateProvider + Send + Sync>) -> Self {
         Self {
             provider,
             bundle_state: Some(BundleState::default()),
         }
     }
 
-    pub fn into_provider(self) -> Arc<dyn StateProvider> {
+    pub fn into_provider(self) -> Arc<dyn StateProvider + Send + Sync> {
         self.provider
     }
 
@@ -61,7 +100,7 @@ impl BlockState {
         self
     }
 
-    pub fn into_parts(self) -> (BundleState, Arc<dyn StateProvider>) {
+    pub fn into_parts(self) -> (BundleState, Arc<dyn StateProvider + Send + Sync>) {
         (self.bundle_state.unwrap(), self.provider)
     }
 
@@ -73,7 +112,7 @@ impl BlockState {
         self.bundle_state.as_mut().unwrap()
     }
 
-    pub fn state_provider(&self) -> Arc<dyn StateProvider> {
+    pub fn state_provider(&self) -> Arc<dyn StateProvider + Send + Sync> {
         self.provider.clone()
     }
 
@@ -86,7 +125,7 @@ impl BlockState {
         shared_cache_reads: &'b SharedCachedReads,
         local_cache_reads: &'c mut LocalCachedReads,
     ) -> BlockStateDBRef<'a, CachedDB<'c, 'b, impl Database<Error = ProviderError> + 'a>> {
-        let state_provider = StateProviderDatabase::new(&self.provider);
+        let state_provider = StateProviderDatabase::new(self.provider.as_ref());
         let cachedb = CachedDB::new(state_provider, local_cache_reads, shared_cache_reads);
         let bundle_state = self.bundle_state.take().unwrap();
         let db = State::builder()
@@ -106,7 +145,8 @@ impl BlockState {
         let mut db = self.new_db_ref(shared_cache_reads, local_cache_reads);
         Ok(db
             .as_mut()
-            .basic(address)?
+            .basic(address)
+            .map_err(|e| e.into_external_error())?
             .map(|acc| acc.balance)
             .unwrap_or_default())
     }
@@ -120,7 +160,8 @@ impl BlockState {
         let mut db = self.new_db_ref(shared_cache_reads, local_cache_reads);
         Ok(db
             .as_mut()
-            .basic(address)?
+            .basic(address)
+            .map_err(|e| e.into_external_error())?
             .map(|acc| acc.nonce)
             .unwrap_or_default())
     }
@@ -134,7 +175,8 @@ impl BlockState {
         let mut db = self.new_db_ref(shared_cache_reads, local_cache_reads);
         Ok(db
             .as_mut()
-            .basic(address)?
+            .basic(address)
+            .map_err(|e| e.into_external_error())?
             .map(|acc| acc.code_hash)
             .unwrap_or_else(|| KECCAK_EMPTY))
     }
@@ -456,7 +498,7 @@ pub enum CriticalCommitOrderError {
     #[error("Reth error: {0}")]
     Reth(#[from] ProviderError),
     #[error("EVM error: {0}")]
-    EVM(#[from] EVMError<ProviderError>),
+    EVM(#[from] EVMError<EvmDatabaseError<ProviderError>>),
     /// This could happen if we can't fit a balance in a I256 (unlikely/impossible since the ETH total supply is several orders of magnitude bellow I256::max)
     #[error("BigIntConversionError error: {0}")]
     BigIntConversionError(#[from] alloy_primitives::BigIntConversionError),
@@ -1155,7 +1197,7 @@ fn execute_evm<Factory>(
     evm_env: EvmEnv,
     tx_with_blobs: &TransactionSignedEcRecoveredWithBlobs,
     used_state_tracer: Option<&mut UsedStateTrace>,
-    db: impl Database<Error = ProviderError>,
+    db: impl Database<Error = EvmDatabaseError<ProviderError>>,
     blocklist: &HashSet<Address>,
 ) -> Result<Result<ResultAndState, TransactionErr>, CriticalCommitOrderError>
 where

@@ -590,8 +590,13 @@ pub fn create_provider_factory(
         }
     };
 
-    let provider_factory_reopener =
-        ProviderFactoryReopener::new(db, chain_spec, reth_static_files_path, root_hash_config)?;
+    let provider_factory_reopener = ProviderFactoryReopener::new(
+        db,
+        chain_spec,
+        reth_static_files_path,
+        reth_db_path,
+        root_hash_config,
+    )?;
 
     if provider_factory_reopener
         .provider_factory_unchecked()
@@ -630,7 +635,7 @@ mod test {
     use reth_db::init_db;
     use reth_db_common::init::init_genesis;
     use reth_node_core::dirs::{DataDirPath, MaybePlatformPath};
-    use reth_provider::{providers::StaticFileProvider, ProviderFactory};
+    use reth_provider::{providers::{RocksDBBuilder, StaticFileProvider}, ProviderFactory};
     use tempfile::TempDir;
     use tokio_util::sync::CancellationToken;
 
@@ -664,13 +669,21 @@ mod test {
         let data_dir = MaybePlatformPath::<DataDirPath>::from(tempdir.keep());
         let data_dir = data_dir.unwrap_or_chain_default(Chain::mainnet(), DatadirArgs::default());
 
-        let db = Arc::new(init_db(data_dir.data_dir(), Default::default()).unwrap());
+        let db_path = data_dir.db();
+        let db = Arc::new(init_db(&db_path, Default::default()).unwrap());
         let provider_factory = ProviderFactory::<NodeTypesWithDBAdapter<EthereumNode, _>>::new(
             db,
             SEPOLIA.clone(),
             StaticFileProvider::read_write(data_dir.static_files().as_path()).unwrap(),
-        );
+            RocksDBBuilder::new(&db_path)
+                .with_default_tables()
+                .build()
+                .expect("failed to create test RocksDB provider"),
+            reth::tasks::Runtime::test(),
+        )
+        .expect("failed to create provider factory");
         init_genesis(&provider_factory).unwrap();
+        drop(provider_factory); // release the RW lock before create_provider_factory opens the DB again
 
         // Create longer-lived PathBuf values
         let data_dir_path = data_dir.data_dir();
