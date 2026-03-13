@@ -94,7 +94,7 @@ pub struct NodeNotFound(pub Nibbles);
 
 impl NodeNotFound {
     fn new(path: &[u8]) -> Self {
-        Self(Nibbles::from_nibbles(path))
+        Self(Nibbles::from_nibbles_unchecked(path))
     }
 }
 
@@ -428,7 +428,7 @@ impl Trie {
                                 let mut orphan_path = Vec::with_capacity(path_walked);
                                 orphan_path.extend_from_slice(&del_key[..(path_walked - 1)]);
                                 orphan_path.push(orphan_nibble as u8);
-                                return Err(NodeNotFound(Nibbles::from_nibbles(&orphan_path)).into());
+                                return Err(NodeNotFound(Nibbles::from_nibbles_unchecked(&orphan_path)).into());
                             }
                         }
                         continue;
@@ -743,7 +743,7 @@ impl Trie {
                 encode_extension(&key, child_rlp_ptr, rlp);
             }
             DiffTrieNode::Leaf { key, value } => {
-                let key = Nibbles::from_nibbles(&self.keys[key]);
+                let key = Nibbles::from_nibbles_unchecked(&self.keys[key]);
                 encode_leaf(&key, &self.values[value], rlp);
             }
             DiffTrieNode::Null => {
@@ -897,7 +897,7 @@ impl Trie {
 
             self.rlp_encode_node(current_node, &mut buf, proof_store);
             let current_node_path =
-                Nibbles::from_nibbles(&target_key_slice[..path_walked]);
+                Nibbles::from_nibbles_unchecked(&target_key_slice[..path_walked]);
             result.proof.push((current_node_path, buf.clone()));
 
             match node {
@@ -1116,7 +1116,7 @@ impl Trie {
                             break;
                         }
                         current_node = next_node.as_local().ok_or_else(|| {
-                            NodeNotFound(Nibbles::from_nibbles(&path_slice[..path_walked]))
+                            NodeNotFound(Nibbles::from_nibbles_unchecked(&path_slice[..path_walked]))
                         })?;
                         continue;
                     }

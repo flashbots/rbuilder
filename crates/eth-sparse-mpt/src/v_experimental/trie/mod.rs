@@ -448,7 +448,7 @@ impl Trie {
                                 let mut orphan_path = Vec::with_capacity(path_walked);
                                 orphan_path.extend_from_slice(&del_key[..(path_walked - 1)]);
                                 orphan_path.push(orphan_nibble as u8);
-                                return Err(NodeNotFound(Nibbles::from_nibbles(&orphan_path)).into());
+                                return Err(NodeNotFound(Nibbles::from_nibbles_unchecked(&orphan_path)).into());
                             }
                         }
                         continue;
