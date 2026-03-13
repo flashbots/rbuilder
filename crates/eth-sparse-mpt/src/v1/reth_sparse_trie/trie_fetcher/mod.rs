@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use crate::utils::{convert_reth_nybbles_to_nibbles, hash_map_with_capacity, HashMap, HashSet};
+use crate::utils::{hash_map_with_capacity, HashMap, HashSet};
 use alloy_primitives::map::HashSet as AlloyHashSet;
 use tracing::trace;
 
@@ -108,7 +108,7 @@ where
 fn pad_path(mut path: Nibbles) -> B256 {
     let mut path_vec = path.to_vec();
     path_vec.resize(64, 0);
-    path = Nibbles::from_nibbles(&path_vec);
+    path = Nibbles::from_nibbles_unchecked(&path_vec);
     let mut res = B256::default();
     path.pack_to(res.as_mut_slice());
     res
@@ -194,7 +194,7 @@ fn convert_reth_multiproof(
 ) -> MultiProof {
     let mut account_subtree = Vec::with_capacity(reth_proof.account_subtree.len());
     for (k, v) in reth_proof.account_subtree.into_inner() {
-        account_subtree.push((convert_reth_nybbles_to_nibbles(k), v));
+        account_subtree.push((k, v));
     }
     account_subtree.sort_by_key(|a| a.0.clone());
     let mut storages = hash_map_with_capacity(reth_proof.storages.len());
@@ -208,7 +208,7 @@ fn convert_reth_multiproof(
         let mut subtree = Vec::with_capacity(reth_storage_proof.subtree.len());
 
         for (k, v) in reth_storage_proof.subtree.into_inner() {
-            subtree.push((convert_reth_nybbles_to_nibbles(k), v));
+            subtree.push((k, v));
         }
         subtree.sort_by_key(|a| a.0.clone());
         let v = StorageMultiProof { subtree };

@@ -486,6 +486,7 @@ fn check_correct_gather_for_orphan_of_and_orphan() {
     compare_with_removals(add, remove).unwrap();
 }
 
+// TODO(chirag): generate new test data
 #[test]
 fn known_failure_case_0() {
     let input = StoredFailureCase::load("./test_data/failure_case_0.json.gz");

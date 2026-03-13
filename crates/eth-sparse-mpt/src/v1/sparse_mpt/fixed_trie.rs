@@ -286,14 +286,11 @@ impl FixedTrie {
                             parent_child_idx = None;
 
                             let len = node.key.len();
-                            let mut current_path_vec = current_path.to_vec();
-                            let path_left_vec = path_left.to_vec();
-                            current_path_vec.extend_from_slice(&path_left_vec[..len]);
-                            current_path = Nibbles::from_nibbles(&current_path_vec);
-
                             let mut path_left_vec = path_left.to_vec();
+                            current_path.extend_from_slice_unchecked(&path_left_vec[..len]);
+
                             path_left_vec.drain(..len);
-                            path_left = Nibbles::from_nibbles(&path_left_vec);
+                            path_left = Nibbles::from_nibbles_unchecked(&path_left_vec);
 
                             if path_left.is_empty() {
                                 break;
@@ -466,7 +463,7 @@ impl FixedTrie {
                                             .last_mut()
                                             .map(|n| *n = orphan_nibble)
                                             .unwrap();
-                                        let path = Nibbles::from_nibbles(&path_vec);
+                                        let path = Nibbles::from_nibbles_unchecked(&path_vec);
                                         missing_nodes.push(path);
                                     }
                                 }
@@ -497,6 +494,7 @@ mod tests {
     use super::*;
     use crate::test_utils::{get_test_change_set, get_test_multiproofs};
 
+    // TODO(chirag): generate new test data
     #[test]
     fn test_insert_and_gather_account_trie() {
         let account_proof = {

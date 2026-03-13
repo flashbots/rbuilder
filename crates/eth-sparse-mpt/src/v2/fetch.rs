@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    utils::{convert_nibbles_to_reth_nybbles, convert_reth_nybbles_to_nibbles, HashMap},
+    utils::{HashMap},
     SparseTrieError,
 };
 use alloy_primitives::map::B256Set;
@@ -90,11 +90,11 @@ impl MissingNodesFetcher {
                     *fetched_nodes.lock() += requested_proofs.len();
                     for requested_proof in requested_proofs {
                         let proof_for_node = storge_multiproof.subtree.matching_nodes_sorted(
-                            &convert_nibbles_to_reth_nybbles(requested_proof.clone()),
+                            &requested_proof
                         );
                         let reth_proof_for_node = proof_for_node
                             .into_iter()
-                            .map(|(k, v)| (convert_reth_nybbles_to_nibbles(k), v))
+                            .map(|(k, v)| (k, v))
                             .collect();
                         let proof_store =
                             shared_cache.account_proof_store_hashed_address(&hashed_address);
@@ -133,11 +133,11 @@ impl MissingNodesFetcher {
         for requested_node in self.account_proof_requested_nodes.drain(..) {
             let proof_for_node = multiproof
                 .account_subtree
-                .matching_nodes_sorted(&convert_nibbles_to_reth_nybbles(requested_node.clone()));
+                .matching_nodes_sorted(&requested_node);
 
             let reth_proof_for_node = proof_for_node
                 .into_iter()
-                .map(|(k, v)| (convert_reth_nybbles_to_nibbles(k), v))
+                .map(|(k, v)| (k, v))
                 .collect();
             shared_cache
                 .account_trie
@@ -152,7 +152,7 @@ impl MissingNodesFetcher {
 fn pad_path(mut path: Nibbles) -> B256 {
     let mut path_vec = path.to_vec();
     path_vec.resize(64, 0);
-    path = Nibbles::from_nibbles(&path_vec);
+    path = Nibbles::from_nibbles_unchecked(&path_vec);
     let mut res = B256::default();
     path.pack_to(res.as_mut_slice());
     res

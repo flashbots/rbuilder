@@ -729,7 +729,7 @@ impl Trie {
             DiffTrieNode::Extension { key, next_node } => {
                 let remote_nodes;
 
-                let key = Nibbles::from_nibbles(&self.keys[key]);
+                let key = Nibbles::from_nibbles_unchecked(&self.keys[key]);
                 let child_rlp_ptr = match next_node {
                     NodePtr::Local(idx) => {
                         debug_assert!(self.hashed_nodes[idx]);
