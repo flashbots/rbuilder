@@ -71,7 +71,7 @@ impl<T: std::fmt::Debug + ZeroCopySend + Copy> SubscriberPoller<T> {
 
     /// Poll the subscriber and calls process_sample on each sample.
     /// Stops polling on any error.
-    pub fn poll(&mut self, process_sample: impl Fn(T)) -> Result<(), Error> {
+    pub fn poll(&mut self, mut process_sample: impl FnMut(T)) -> Result<(), Error> {
         while let Some(sample) = self.subscriber.receive()? {
             process_sample(*sample);
         }
