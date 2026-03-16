@@ -162,6 +162,10 @@ impl LiveBuilderConfig for FlashbotsConfig {
     where
         P: StateProviderFactory + Clone + 'static,
     {
+        if self.builder_name.is_empty() {
+            eyre::bail!("builder_name must be set on BuilderNet nodes");
+        }
+
         let abort_token = CancellationToken::new();
         if self.l1_config.relay_bid_scrapers.is_empty() {
             eyre::bail!("relay_bid_scrapers is not set");
