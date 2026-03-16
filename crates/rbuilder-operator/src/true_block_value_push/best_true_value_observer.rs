@@ -33,6 +33,7 @@ pub type Result<T> = core::result::Result<T, Error>;
 #[derive(Debug)]
 pub struct BestTrueValueObserver {
     best_local_value: LastBuiltBlockInfoCell,
+    builder_server_name: String,
 }
 
 impl BestTrueValueObserver {
@@ -40,11 +41,12 @@ impl BestTrueValueObserver {
     pub fn new_redis(
         tbv_push_redis_url: String,
         tbv_push_redis_channel: String,
+        builder_server_name: String,
         cancellation_token: CancellationToken,
     ) -> Result<Self> {
         let best_true_value_redis = redis::Client::open(tbv_push_redis_url)?;
         let redis_backend = RedisBackend::new(best_true_value_redis, tbv_push_redis_channel);
-        Self::new(redis_backend, cancellation_token)
+        Self::new(redis_backend, builder_server_name, cancellation_token)
     }
 
     /// Constructor using signed JSON-RPC block-processor API
@@ -52,14 +54,16 @@ impl BestTrueValueObserver {
         url: String,
         signer: PrivateKeySigner,
         max_concurrent_requests: usize,
+        builder_server_name: String,
         cancellation_token: CancellationToken,
     ) -> Result<Self> {
         let backend = BlocksProcessorBackend::new(url, signer, max_concurrent_requests)?;
-        Self::new(backend, cancellation_token)
+        Self::new(backend, builder_server_name, cancellation_token)
     }
 
     fn new<BackendType: Backend + Send + 'static>(
         backend: BackendType,
+        builder_server_name: String,
         cancellation_token: CancellationToken,
     ) -> Result<Self> {
         let last_local_value = LastBuiltBlockInfoCell::default();
@@ -68,6 +72,7 @@ impl BestTrueValueObserver {
         std::thread::spawn(move || pusher.run_push_task());
         Ok(BestTrueValueObserver {
             best_local_value: last_local_value,
+            builder_server_name,
         })
     }
 }
@@ -78,7 +83,7 @@ impl BidObserver for BestTrueValueObserver {
         slot_data: &MevBoostSlotData,
         _submit_block_request: Arc<AlloySubmitBlockRequest>,
         built_block_trace: Arc<BuiltBlockTrace>,
-        builder_algorithm_name: String,
+        _builder_algorithm_name: String,
         _relays: &RelaySet,
         _sent_to_relay_at: OffsetDateTime,
     ) {
@@ -88,7 +93,7 @@ impl BidObserver for BestTrueValueObserver {
             built_block_trace.true_bid_value,
             built_block_trace.bid_value,
             built_block_trace.subsidy,
-            builder_algorithm_name,
+            self.builder_server_name.clone(),
             slot_data.timestamp().unix_timestamp() as u64,
         );
         self.best_local_value.update_value_safe(block_info);
