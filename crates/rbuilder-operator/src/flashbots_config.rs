@@ -143,7 +143,6 @@ pub struct FlashbotsConfig {
 
     /// Unique id for this server.
     /// Used in clickhouse to identify the builder and in TBV pushes.
-    #[serde(default)]
     pub builder_name: String,
 
     /// Should always be set on buildernet.
