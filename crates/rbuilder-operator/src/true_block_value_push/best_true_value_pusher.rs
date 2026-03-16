@@ -52,7 +52,7 @@ impl BuiltBlockInfo {
             best_true_value,
             bid,
             subsidy,
-            builder_server_name: builder_server_name,
+            builder_server_name,
             slot_end_timestamp,
         }
     }
