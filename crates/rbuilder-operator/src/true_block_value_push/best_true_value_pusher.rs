@@ -31,7 +31,7 @@ pub struct BuiltBlockInfo {
     #[serde(with = "i256decimal_serde_helper")]
     pub subsidy: I256,
     /// Unique Id of the machine that built the block.
-    pub builder_server: String,
+    pub builder_server_name: String,
     pub slot_end_timestamp: u64,
 }
 
@@ -42,7 +42,7 @@ impl BuiltBlockInfo {
         best_true_value: U256,
         bid: U256,
         subsidy: I256,
-        builder_server: String,
+        builder_server_name: String,
         slot_end_timestamp: u64,
     ) -> Self {
         BuiltBlockInfo {
@@ -52,7 +52,7 @@ impl BuiltBlockInfo {
             best_true_value,
             bid,
             subsidy,
-            builder_server,
+            builder_server_name: builder_server_name,
             slot_end_timestamp,
         }
     }
