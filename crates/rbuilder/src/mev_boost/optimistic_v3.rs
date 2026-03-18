@@ -172,7 +172,7 @@ impl Handler {
 
         let relay_pubkey = request.message.relay_public_key;
         let block_hash = request.message.block_hash;
-        info!(target: "relay_server", %relay_pubkey, %block_hash,decoding_time = ?processing_start.elapsed(), "Serving get payload request");
+        info!(target: "relay_server", %relay_pubkey, %block_hash, decoding_time = ?processing_start.elapsed(), "Serving get payload request");
 
         if !self.relay_pubkeys.contains(&relay_pubkey) {
             UNKNOWN_PUBKEY_TOTAL.inc();
