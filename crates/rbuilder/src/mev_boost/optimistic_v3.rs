@@ -33,7 +33,7 @@ register_metrics! {
      pub static RELAY_REQUEST_LATENCY: HistogramVec = HistogramVec::new(
         HistogramOpts::new("relay_server_relay_request_latency", "The number of milliseconds elapsed since relay request timestamp")
             .buckets(exponential_buckets_range(0.01, 300.0, 200)),
-        &[]
+        &["relay"]
     ).unwrap();
     pub static RESPONSE_LATENCY: HistogramVec = HistogramVec::new(
         HistogramOpts::new("relay_server_response_latency", "The number of milliseconds for returning optimistic V3 relay response")
@@ -149,6 +149,7 @@ impl Handler {
         content_type: String,
         bytes: Bytes,
     ) -> Result<warp::reply::Response, StatusCode> {
+        let processing_start = SystemTime::now();
         let mut is_json = false;
         let request: SignedGetPayloadV3 = if content_type == "application/json" {
             is_json = true;
@@ -169,17 +170,9 @@ impl Handler {
             return Err(StatusCode::BAD_REQUEST);
         };
 
-        if let Ok(relay_latency) = SystemTime::now().duration_since(
-            std::time::UNIX_EPOCH + Duration::from_millis(request.message.request_ts),
-        ) {
-            RELAY_REQUEST_LATENCY
-                .with_label_values(&[])
-                .observe(relay_latency.as_millis() as f64);
-        }
-
         let relay_pubkey = request.message.relay_public_key;
         let block_hash = request.message.block_hash;
-        debug!(target: "relay_server", %relay_pubkey, %block_hash, "Serving get payload request");
+        info!(target: "relay_server", %relay_pubkey, %block_hash, decoding_time = ?processing_start.elapsed(), "Serving get payload request");
 
         if !self.relay_pubkeys.contains(&relay_pubkey) {
             UNKNOWN_PUBKEY_TOTAL.inc();
@@ -191,6 +184,14 @@ impl Handler {
             INVALID_SIGNATURE_TOTAL.inc();
             debug!(target: "relay_server", %relay_pubkey, ?error, "error verifying request signature");
             return Err(StatusCode::UNAUTHORIZED);
+        }
+
+        if let Ok(relay_latency) = processing_start.duration_since(
+            std::time::UNIX_EPOCH + Duration::from_millis(request.message.request_ts),
+        ) {
+            RELAY_REQUEST_LATENCY
+                .with_label_values(&[relay_pubkey.to_string().as_str()])
+                .observe(relay_latency.as_millis() as f64);
         }
 
         let block = self.blocks.get(&block_hash).ok_or_else(|| {
@@ -210,7 +211,7 @@ impl Handler {
             (ssz, "application/octet-stream")
         };
 
-        debug!(target: "relay_server", %relay_pubkey, %block_hash, "Returning payload for request");
+        info!(target: "relay_server", %relay_pubkey, %block_hash, "Returning payload for request");
         let mut res = warp::http::Response::new(body.into());
         res.headers_mut()
             .insert(CONTENT_TYPE, HeaderValue::from_static(content_ty));
