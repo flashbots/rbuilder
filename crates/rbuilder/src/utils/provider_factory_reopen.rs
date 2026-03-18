@@ -57,7 +57,7 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
         let provider_factory = ProviderFactory::new(
             db,
             chain_spec.clone(),
-            StaticFileProvider::read_only(static_files_path.as_path(), true).unwrap(),
+            StaticFileProvider::read_only(static_files_path.as_path(), false).unwrap(),
         );
 
         Ok(Self {
@@ -99,7 +99,7 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
     pub fn check_consistency_and_reopen_if_needed(&self) -> eyre::Result<ProviderFactory<N>> {
         let best_block_number = self
             .provider_factory_unchecked()
-            .last_block_number()
+            .best_block_number()
             .map_err(|err| eyre::eyre!("Error getting best block number: {:?}", err))?;
         let mut provider_factory = self.provider_factory.lock();
 
@@ -113,7 +113,7 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
                     *provider_factory = ProviderFactory::new(
                         provider_factory.db_ref().clone(),
                         self.chain_spec.clone(),
-                        StaticFileProvider::read_only(self.static_files_path.as_path(), true)
+                        StaticFileProvider::read_only(self.static_files_path.as_path(), false)
                             .unwrap(),
                     );
                 }
