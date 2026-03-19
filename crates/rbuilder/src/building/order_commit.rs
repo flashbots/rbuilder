@@ -57,22 +57,6 @@ pub fn state_provider_box_into_arc(
     unsafe { std::mem::transmute(arc) }
 }
 
-/// Converts a [`StateProviderBox`] (`Box<dyn StateProvider + Send>`) into a
-/// `Box<dyn StateProvider + Send + Sync>`.
-///
-/// Use this when you need `Sync` on the box itself but do not yet need reference-counting.
-/// Prefer [`state_provider_box_into_arc`] when sharing across threads via `Arc`.
-///
-/// # Why the transmute
-/// Same root cause as [`state_provider_box_into_arc`]: reth's `StateProviderBox` alias drops
-/// `Sync` at the type-erasure boundary even though all concrete implementations are `Sync`.
-pub fn state_provider_box_add_sync(
-    provider: StateProviderBox,
-) -> Box<dyn StateProvider + Send + Sync> {
-    // SAFETY: see doc comment above
-    unsafe { std::mem::transmute(provider) }
-}
-
 #[derive(Clone)]
 pub struct BlockState {
     provider: Arc<dyn StateProvider + Send + Sync>,

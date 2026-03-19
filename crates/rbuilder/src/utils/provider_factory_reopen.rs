@@ -20,7 +20,7 @@ use reth_errors::{ProviderError, ProviderResult, RethResult};
 use reth_node_api::{NodePrimitives, NodeTypesWithDB};
 use reth_provider::{
     providers::{ProviderNodeTypes, RocksDBProvider, StaticFileProvider},
-    BlockNumReader, BlockReader, ChangeSetReader, DatabaseProviderFactory, HashedPostStateProvider,
+    BlockNumReader, BlockReader, ChangeSetReader, DatabaseProviderFactory,
     HeaderProvider, PruneCheckpointReader, StageCheckpointReader, StateProviderBox,
     StaticFileProviderFactory, StorageChangeSetReader, StorageSettingsCache,
 };
@@ -272,7 +272,6 @@ where
                 parent_num_hash,
                 parent_state_root,
                 root_hash_config.clone(),
-                provider.clone(),
                 provider,
             ))
         } else {
@@ -281,21 +280,19 @@ where
     }
 }
 
-pub struct RootHasherImpl<T, HasherType> {
+pub struct RootHasherImpl<T> {
     parent_num_hash: BlockNumHash,
     provider: T,
-    hasher: HasherType,
     sparse_trie_shared_cache: SparseTrieSharedCache,
     config: RootHashContext,
 }
 
-impl<T, HasherType> RootHasherImpl<T, HasherType> {
+impl<T> RootHasherImpl<T> {
     pub fn new(
         parent_num_hash: BlockNumHash,
         parent_state_root: Option<B256>,
         config: RootHashContext,
         provider: T,
-        hasher: HasherType,
     ) -> Self {
         let sparse_trie_shared_cache = SparseTrieSharedCache::new_with_parent_block_data(
             parent_num_hash.hash,
@@ -304,16 +301,14 @@ impl<T, HasherType> RootHasherImpl<T, HasherType> {
         Self {
             parent_num_hash,
             provider,
-            hasher,
             config,
             sparse_trie_shared_cache,
         }
     }
 }
 
-impl<T, HasherType> RootHasher for RootHasherImpl<T, HasherType>
+impl<T> RootHasher for RootHasherImpl<T>
 where
-    HasherType: HashedPostStateProvider + Send + Sync,
     T: DatabaseProviderFactory<
             Provider: BlockReader
                 + StageCheckpointReader
@@ -362,7 +357,6 @@ where
     ) -> Result<B256, RootHashError> {
         calculate_state_root(
             self.provider.clone(),
-            &self.hasher,
             self.parent_num_hash,
             outcome,
             incremental_change,
@@ -373,7 +367,7 @@ where
     }
 }
 
-impl<T, HasherType> std::fmt::Debug for RootHasherImpl<T, HasherType> {
+impl<T> std::fmt::Debug for RootHasherImpl<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RootHasherImpl")
             .field("parent_num_hash", &self.parent_num_hash)

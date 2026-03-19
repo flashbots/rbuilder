@@ -76,7 +76,6 @@ where
     }
 
     fn root_hasher(&self, parent_num_hash: BlockNumHash) -> ProviderResult<Box<dyn RootHasher>> {
-        let hasher = self.history_by_block_hash(parent_num_hash.hash)?;
         let parent_state_root = self
             .provider
             .header_by_hash_or_number(parent_num_hash.hash.into())?
@@ -85,14 +84,11 @@ where
             error!("Parent hash is not found (for root_hasher)");
         }
 
-        let hasher_with_sync = crate::building::state_provider_box_add_sync(hasher);
-
         Ok(Box::new(RootHasherImpl::new(
             parent_num_hash,
             parent_state_root,
             self.root_hash_context.clone(),
             self.provider.clone(),
-            hasher_with_sync,
         )))
     }
 }

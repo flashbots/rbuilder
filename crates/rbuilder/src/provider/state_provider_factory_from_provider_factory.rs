@@ -84,7 +84,6 @@ where
                 parent_state_root,
                 root_hash_context.clone(),
                 self.provider.clone(),
-                self.provider.clone(),
             ))
         } else {
             Box::new(MockRootHasher {})

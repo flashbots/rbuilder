@@ -9,7 +9,7 @@ use reth_provider::{
     DatabaseProviderFactory, HashedPostStateProvider, PruneCheckpointReader,
     StageCheckpointReader, StorageChangeSetReader, StorageSettingsCache,
 };
-use reth_trie::TrieInput;
+use reth_trie::{HashedPostState, KeccakKeyHasher, TrieInput};
 use reth_trie_parallel::root::{ParallelStateRoot, ParallelStateRootError};
 use revm::database::BundleState;
 use tracing::trace;
@@ -121,13 +121,11 @@ where
     })
 }
 
-fn calculate_parallel_root_hash<P, HasherType>(
-    hasher: &HasherType,
+fn calculate_parallel_root_hash<P>(
     outcome: &BundleState,
     provider: P,
 ) -> Result<B256, ParallelStateRootError>
 where
-    HasherType: HashedPostStateProvider + Sync,
     P: DatabaseProviderFactory<
             Provider: BlockReader
                 + StageCheckpointReader
@@ -142,7 +140,8 @@ where
         + 'static,
 {
     let overlay = OverlayStateProviderFactory::new(provider, ChangesetCache::new());
-    let hashed_post_state = hasher.hashed_post_state(outcome);
+    let hashed_post_state =
+        HashedPostState::from_bundle_state::<KeccakKeyHasher>(outcome.state());
     let parallel_root_calculator = ParallelStateRoot::new(
         overlay,
         TrieInput::from_state(hashed_post_state)
@@ -155,9 +154,8 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn calculate_state_root<P, HasherType>(
+pub fn calculate_state_root<P>(
     provider: P,
-    hasher: &HasherType,
     parent_num_hash: BlockNumHash,
     outcome: &BundleState,
     incremental_change: &[Address],
@@ -166,7 +164,6 @@ pub fn calculate_state_root<P, HasherType>(
     config: &RootHashContext,
 ) -> Result<B256, RootHashError>
 where
-    HasherType: HashedPostStateProvider + Sync,
     P: DatabaseProviderFactory<
             Provider: BlockReader
                 + StageCheckpointReader
@@ -194,10 +191,10 @@ where
         if let Some(thread_pool) = &config.thread_pool {
             thread_pool
                 .rayon_pool
-                .install(|| calculate_parallel_root_hash(hasher, outcome, provider.clone()))
+                .install(|| calculate_parallel_root_hash(outcome, provider.clone()))
                 .map_err(|err| RootHashError::Other(err.into()))?
         } else {
-            calculate_parallel_root_hash(hasher, outcome, provider.clone())
+            calculate_parallel_root_hash(outcome, provider.clone())
                 .map_err(|err| RootHashError::Other(err.into()))?
         }
     } else {
@@ -226,7 +223,7 @@ where
             }
         }
     } else {
-        calculate_parallel_root_hash(hasher, outcome, provider.clone())
+        calculate_parallel_root_hash(outcome, provider.clone())
             .map_err(|err| RootHashError::Other(err.into()))?
     };
 
