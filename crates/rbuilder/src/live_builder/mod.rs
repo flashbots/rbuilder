@@ -484,42 +484,49 @@ where
     P: StateProviderFactory,
 {
     let deadline = slot_time + timings.block_header_deadline_delta;
-    let mut sleep_duration: Option<Duration> = None;
     loop {
-        if let Some(sleep_duration) = sleep_duration.take() {
-            tokio::time::sleep(sleep_duration).await;
-        }
-
-        if let Some(header) = provider.header(&parent_hash)? {
-            return Ok(header);
-        } else {
-            let current_parent_hash = provider
-                .header_by_number(block.checked_sub(1).unwrap_or(1))?
-                .map(|h| h.hash_slow());
-            info!(
-                block,
-                ?parent_hash,
-                ?current_parent_hash,
-                payload_id,
-                "Payload parent header not found, trying again"
-            );
-
-            let time_to_sleep = min(
-                deadline - OffsetDateTime::now_utc(),
-                timings.get_block_header_period,
-            );
-            if time_to_sleep.is_negative() {
-                sleep_duration = None;
-            } else {
-                sleep_duration = Some(time_to_sleep.try_into().unwrap());
+        match try_to_read_block_header(block, parent_hash, payload_id, provider).await {
+            Ok(header) => return Ok(header),
+            Err(err) => {
+                info!(?err, "Failed to_read_block_header");
             }
         }
-
-        if OffsetDateTime::now_utc() > deadline {
-            break;
+        let time_to_sleep = min(
+            deadline - OffsetDateTime::now_utc(),
+            timings.get_block_header_period,
+        );
+        if time_to_sleep.is_negative() {
+            return Err(eyre::eyre!("Block header not found"));
         }
+        tokio::time::sleep(time_to_sleep.try_into().unwrap()).await;
     }
-    Err(eyre::eyre!("Block header not found"))
+}
+
+/// May fail if we wait too much (see [BLOCK_HEADER_DEAD_LINE_DELTA])
+async fn try_to_read_block_header<P>(
+    block: u64,
+    parent_hash: B256,
+    payload_id: InternalPayloadId,
+    provider: &P,
+) -> eyre::Result<Header>
+where
+    P: StateProviderFactory,
+{
+    if let Some(header) = provider.header(&parent_hash)? {
+        Ok(header)
+    } else {
+        let current_parent_hash = provider
+            .header_by_number(block.checked_sub(1).unwrap_or(1))?
+            .map(|h| h.hash_slow());
+        info!(
+            block,
+            ?parent_hash,
+            ?current_parent_hash,
+            payload_id,
+            "Payload parent header not found, trying again"
+        );
+        Err(eyre::eyre!("Block header not found"))
+    }
 }
 
 /// Attempts to forward a [`Recovered<TransactionSigned>`] to an orderpool.
