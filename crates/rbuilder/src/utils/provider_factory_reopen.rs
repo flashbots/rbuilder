@@ -14,6 +14,7 @@ use alloy_primitives::{Address, BlockHash, BlockNumber, Bytes, B256};
 use eth_sparse_mpt::*;
 use parking_lot::Mutex;
 use reth::{providers::{BlockHashReader, ChainSpecProvider, ProviderFactory}, tasks::Runtime};
+use tokio::runtime::Handle;
 use reth_db::DatabaseError;
 use reth_errors::{ProviderError, ProviderResult, RethResult};
 use reth_node_api::{NodePrimitives, NodeTypesWithDB};
@@ -59,7 +60,8 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
         let rocksdb_provider = RocksDBProvider::builder(&rocksdb_path)
             .with_default_tables()
             .build()?;
-        let runtime = Runtime::test();
+        let runtime = Runtime::with_existing_handle(Handle::current())
+            .expect("must be called within a tokio runtime");
         let provider_factory = ProviderFactory::new(
             db,
             chain_spec.clone(),
@@ -123,13 +125,15 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
 
                     let rocksdb_provider = RocksDBProvider::new(&self.rocksdb_path)
                         .map_err(|e| eyre::eyre!("Failed to create RocksDB provider: {:?}", e))?;
+                    let runtime = Runtime::with_existing_handle(Handle::current())
+                        .map_err(|e| eyre::eyre!("Failed to create runtime: {:?}", e))?;
                     *provider_factory = ProviderFactory::new(
                         provider_factory.db_ref().clone(),
                         self.chain_spec.clone(),
                         StaticFileProvider::read_only(self.static_files_path.as_path(), true)
                             .unwrap(),
                         rocksdb_provider,
-                        Runtime::test(),
+                        runtime,
                     )?;
                 }
             }

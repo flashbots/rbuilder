@@ -3,6 +3,7 @@ use alloy_eips::BlockNumHash;
 use alloy_primitives::{Address, Bytes, B256};
 use eth_sparse_mpt::*;
 use reth::{builder::rpc::ChangesetCache, providers::providers::ConsistentDbView, tasks::Runtime};
+use tokio::runtime::Handle;
 use reth_provider::{
     providers::OverlayStateProviderFactory, BlockNumReader, BlockReader, ChangeSetReader,
     DatabaseProviderFactory, HashedPostStateProvider, PruneCheckpointReader,
@@ -147,8 +148,8 @@ where
         TrieInput::from_state(hashed_post_state)
             .prefix_sets
             .freeze(),
-        // TODO(chirag): use correct runtime
-        Runtime::test(),
+        Runtime::with_existing_handle(Handle::current())
+            .expect("must be called within a tokio runtime"),
     );
     parallel_root_calculator.incremental_root()
 }
