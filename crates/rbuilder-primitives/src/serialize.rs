@@ -484,6 +484,7 @@ impl RawBundleRecovered {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RawTx {
     pub tx: Bytes,
+    #[serde(default)]
     pub is_private: bool,
 }
 
