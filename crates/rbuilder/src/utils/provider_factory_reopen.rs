@@ -59,6 +59,7 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
     ) -> RethResult<Self> {
         let rocksdb_provider = RocksDBProvider::builder(&rocksdb_path)
             .with_default_tables()
+            .with_read_only(true)
             .build()?;
         let runtime = Runtime::with_existing_handle(Handle::current())
             .expect("must be called within a tokio runtime");
@@ -123,7 +124,10 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
                     debug!(?err, "Provider factory is inconsistent, reopening");
                     inc_provider_reopen_counter();
 
-                    let rocksdb_provider = RocksDBProvider::new(&self.rocksdb_path)
+                    let rocksdb_provider = RocksDBProvider::builder(&self.rocksdb_path)
+                        .with_default_tables()
+                        .with_read_only(true)
+                        .build()
                         .map_err(|e| eyre::eyre!("Failed to create RocksDB provider: {:?}", e))?;
                     let runtime = Runtime::with_existing_handle(Handle::current())
                         .map_err(|e| eyre::eyre!("Failed to create runtime: {:?}", e))?;
