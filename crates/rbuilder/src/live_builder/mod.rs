@@ -556,6 +556,12 @@ async fn try_send_to_orderpool<V, T, S>(
             let order = Order::Tx(MempoolTx::new(tx));
             let command = ReplaceableOrderPoolCommand::Order(Arc::new(order));
             if let Err(e) = orderpool_sender.send(command).await {
+                mempool_detector.remove_tx(tx.hash());
+                error!("Error sending order to orderpool: {:#}", e);
+            }
+            let order = Order::Tx(MempoolTx::new(tx));
+            let command = ReplaceableOrderPoolCommand::Order(Arc::new(order));
+            if let Err(e) = orderpool_sender.send(command).await {
                 error!("Error sending order to orderpool: {:#}", e);
             }
         }
