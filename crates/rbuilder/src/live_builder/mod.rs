@@ -413,8 +413,7 @@ where
             .pending_recovered()
             .chain(pool.all_transactions().queued_recovered())
         {
-            try_send_to_orderpool(tx, self.orderpool_sender.clone(), pool.clone(), &detector)
-                .await;
+            try_send_to_orderpool(tx, self.orderpool_sender.clone(), pool.clone(), &detector).await;
         }
 
         // Subscribe to new transactions in-process.
@@ -552,16 +551,12 @@ async fn try_send_to_orderpool<V, T, S>(
 {
     match TransactionSignedEcRecoveredWithBlobs::try_from_tx_without_blobs_and_pool(tx, pool) {
         Ok(tx) => {
-            mempool_detector.add_tx(tx.hash());
+            let tx_hash = tx.hash();
+            mempool_detector.add_tx(tx_hash);
             let order = Order::Tx(MempoolTx::new(tx));
             let command = ReplaceableOrderPoolCommand::Order(Arc::new(order));
             if let Err(e) = orderpool_sender.send(command).await {
-                mempool_detector.remove_tx(tx.hash());
-                error!("Error sending order to orderpool: {:#}", e);
-            }
-            let order = Order::Tx(MempoolTx::new(tx));
-            let command = ReplaceableOrderPoolCommand::Order(Arc::new(order));
-            if let Err(e) = orderpool_sender.send(command).await {
+                mempool_detector.remove_tx(tx_hash);
                 error!("Error sending order to orderpool: {:#}", e);
             }
         }

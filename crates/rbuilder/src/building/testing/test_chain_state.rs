@@ -1,8 +1,7 @@
 use crate::{
     building::BlockBuildingContext,
     live_builder::{
-        block_list_provider::BlockList,
-        order_input::mempool_txs_detector::MempoolTxsDetector,
+        block_list_provider::BlockList, order_input::mempool_txs_detector::MempoolTxsDetector,
     },
     provider::RootHasher,
     roothash::RootHashContext,

@@ -135,10 +135,9 @@ where
         };
 
         // order_flow_tracer_manager may add some extra  ReplaceableOrderSink on the chain.
-        let (sim_tracer, order_flow_input) = self.order_flow_tracer_manager.create_tracers(
-            payload.slot_block_id(),
-            blob_type_order_filter,
-        );
+        let (sim_tracer, order_flow_input) = self
+            .order_flow_tracer_manager
+            .create_tracers(payload.slot_block_id(), blob_type_order_filter);
 
         // sink removal is automatic via OrderSink::is_alive false
         let _block_sub = self

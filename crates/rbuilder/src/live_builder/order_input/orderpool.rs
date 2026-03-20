@@ -273,7 +273,8 @@ impl OrderPool {
             if !retain {
                 self.mempool_txs_size -= Self::measure_tx(order);
                 if let Order::Tx(mempool_tx) = order.as_ref() {
-                    self.mempool_detector.remove_tx(mempool_tx.tx_with_blobs.hash());
+                    self.mempool_detector
+                        .remove_tx(mempool_tx.tx_with_blobs.hash());
                 }
             }
             retain

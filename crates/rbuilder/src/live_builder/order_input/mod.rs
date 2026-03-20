@@ -233,6 +233,7 @@ impl ReplaceableOrderPoolCommand {
 /// - Clean up task to remove old stuff.
 ///
 /// @Pending reengineering to modularize rpc, extra_rpc here is a patch to upgrade the created rpc server.
+#[allow(clippy::too_many_arguments)]
 pub async fn start_orderpool_jobs<P>(
     config: OrderInputConfig,
     provider_factory: P,
