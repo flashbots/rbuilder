@@ -471,12 +471,10 @@ mod tests {
             }
 
             Arc::new(SimulatedOrder::new(
-                Arc::new(Order::Tx(MempoolTx {
-                    tx_with_blobs: TransactionSignedEcRecoveredWithBlobs::new_no_blobs(
-                        self.create_tx(),
-                    )
-                    .unwrap(),
-                })),
+                Arc::new(Order::Tx(MempoolTx::new(
+                    TransactionSignedEcRecoveredWithBlobs::new_no_blobs(self.create_tx()).unwrap(),
+                    false,
+                ))),
                 SimValue::default(),
                 Some(trace),
             ))

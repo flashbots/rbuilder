@@ -847,9 +847,7 @@ mod tests {
 
     #[test]
     fn test_simplified_order_conversion_mempool_tx() {
-        let order = Order::Tx(MempoolTx {
-            tx_with_blobs: tx(0x01),
-        });
+        let order = Order::Tx(MempoolTx::new(tx(0x01), false));
         let expected = SimplifiedOrder::new(
             OrderId::Tx(hash(0x01)),
             vec![OrderTxData::new(

@@ -717,6 +717,7 @@ mod test {
                 timestamp_ms: 10,
                 command: RawReplaceableOrderPoolCommand::Order(RawOrder::Tx(RawTx {
                     tx: tx.clone().into(),
+                    is_private: false,
                 })),
             }
             .decode(TxEncoding::WithBlobData)

@@ -1313,15 +1313,11 @@ mod test {
     use super::{create_sim_value, OrderOk, TransactionExecutionInfo};
 
     /// Create a bundle with 2 txs, one from mempool and the other not.
-    /// sim_value.non_mempool_profit_info().coinbase_profit() should only sum the profit for the second.
+    /// sim_value.non_mempool_profit_info().coinbase_profit() should only sum the profit for the second if mempool tx is not private.
     #[test]
     fn test_create_sim_value_bundle_non_mempool_coinbase_profit() {
-        let detector = MempoolTxsDetector::new();
         let mut data_gen = TestDataGenerator::default();
         let tx1 = data_gen.create_tx_with_blobs_nonce(Default::default());
-        detector.add_tx(&Order::Tx(MempoolTx {
-            tx_with_blobs: tx1.clone(),
-        }));
         let tx2 = data_gen.create_tx_with_blobs_nonce(Default::default());
         let profit_1 = I256::unchecked_from(1000);
         let profit_2 = I256::unchecked_from(10000);
@@ -1331,7 +1327,7 @@ mod test {
             cumulative_space_used: Default::default(),
             tx_infos: vec![
                 TransactionExecutionInfo {
-                    tx: tx1,
+                    tx: tx1.clone(),
                     receipt: Default::default(),
                     space_used: Default::default(),
                     coinbase_profit: profit_1,
@@ -1354,11 +1350,22 @@ mod test {
             Default::default(),
             Default::default(),
         ));
-        let sim_value = create_sim_value(&dummy_bundle, &order_ok, &detector);
-        assert_eq!(
-            sim_value.non_mempool_profit_info().coinbase_profit(),
-            profit_2.unsigned_abs()
-        );
+
+        // (is_private, expected non-mempool coinbase profit)
+        for (is_private, expected_profit) in [
+            // public mempool tx: only count second tx profit
+            (false, profit_2.unsigned_abs()),
+            // private tx: count full profit
+            (true, profit_2.unsigned_abs() + profit_1.unsigned_abs()),
+        ] {
+            let detector = MempoolTxsDetector::new();
+            detector.add_tx(&Order::Tx(MempoolTx::new(tx1.clone(), is_private)));
+            let sim_value = create_sim_value(&dummy_bundle, &order_ok, &detector);
+            assert_eq!(
+                sim_value.non_mempool_profit_info().coinbase_profit(),
+                expected_profit
+            );
+        }
     }
 
     /// Create a tx from mempool.
@@ -1367,10 +1374,9 @@ mod test {
     fn test_create_sim_value_tx_non_mempool_coinbase_profit() {
         let detector = MempoolTxsDetector::new();
         let mut data_gen = TestDataGenerator::default();
-        let tx = data_gen.create_tx_with_blobs_nonce(Default::default());
-        let order = Order::Tx(MempoolTx {
-            tx_with_blobs: tx.clone(),
-        });
+        let tx: rbuilder_primitives::TransactionSignedEcRecoveredWithBlobs =
+            data_gen.create_tx_with_blobs_nonce(Default::default());
+        let order = Order::Tx(MempoolTx::new(tx.clone(), false));
         detector.add_tx(&order);
         let profit = I256::unchecked_from(1000);
         let order_ok = OrderOk {

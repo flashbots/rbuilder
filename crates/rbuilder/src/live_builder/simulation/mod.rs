@@ -245,7 +245,7 @@ mod tests {
         let tx = TransactionSignedEcRecoveredWithBlobs::new_no_blobs(tx).unwrap();
         order_sender
             .send(OrderPoolCommand::Insert(Arc::new(Order::Tx(
-                MempoolTx::new(tx),
+                MempoolTx::new(tx, false),
             ))))
             .unwrap();
 

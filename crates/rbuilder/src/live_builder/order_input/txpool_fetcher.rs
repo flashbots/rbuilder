@@ -176,7 +176,7 @@ mod test {
 
         let tx_with_blobs = match recv_tx {
             ReplaceableOrderPoolCommand::Order(order) => match order.as_ref() {
-                Order::Tx(MempoolTx { tx_with_blobs }) => Some(tx_with_blobs.clone()),
+                Order::Tx(mempool_tx) => Some(mempool_tx.tx_with_blobs.clone()),
                 _ => None,
             },
             _ => None,
@@ -199,7 +199,7 @@ mod test {
 
         let tx_without_blobs = match recv_tx {
             ReplaceableOrderPoolCommand::Order(order) => match order.as_ref() {
-                Order::Tx(MempoolTx { tx_with_blobs }) => Some(tx_with_blobs.clone()),
+                Order::Tx(mempool_tx) => Some(mempool_tx.tx_with_blobs.clone()),
                 _ => None,
             },
             _ => None,
