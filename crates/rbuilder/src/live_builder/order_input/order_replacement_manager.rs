@@ -15,8 +15,7 @@ use super::{order_sink::OrderSink, replaceable_order_sink::ReplaceableOrderSink}
 /// Cancels are treated as highest-priority, and after that we must always
 /// honor the replacement with highest `sequence_number`.
 ///
-/// Although all the structs and fields say "bundle" we always refer to Bundle
-/// or ShareBundle.
+/// Although all the structs and fields say "bundle" we always refer to Bundle.
 ///
 /// For each bundle we keep the current [`BundleReplacementState`]
 #[derive(Debug)]
@@ -84,7 +83,7 @@ struct ValidBundleState {
     pub order_id: OrderId,
 }
 
-/// Last state we have for a replaceable ShareBundle.
+/// Last state we have for a replaceable Bundle.
 /// It updates itself on new orders.
 /// On new seq:
 ///     Valid upgrades if seq > current.

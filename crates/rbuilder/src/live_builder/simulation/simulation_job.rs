@@ -230,14 +230,16 @@ impl SimulationJob {
                 }
                 SimulatedResult::Failed {
                     failure: SimulationFailure { ref ace_state, .. },
+                    ref order,
                     ..
                 } => {
-                    // Check if there are unhandled ACE dependencies
                     if !ace_state.all_dependencies_accounted() {
                         // Failed with ACE dependency - pass to sim_tree for re-queuing with unlock parent
                         sim_tree_results.push(sim_result);
+                    } else {
+                        // Permanent failure - remove from in_flight tracking
+                        self.in_flight_orders.remove(&order.id());
                     }
-                    // Permanent failure without ACE dependency - nothing to do
                 }
             }
         }

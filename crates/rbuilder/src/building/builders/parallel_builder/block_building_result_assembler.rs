@@ -11,7 +11,7 @@ use std::{
 };
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
-use tracing::{info_span, trace};
+use tracing::{error, info_span, trace};
 
 use crate::{
     building::{
@@ -233,7 +233,11 @@ impl BlockBuildingResultAssembler {
                 ace_order,
                 &|_| Ok(()), // ACE protocol orders bypass profit validation
             ) {
-                trace!(order_id = ?ace_order.id(), ?err, "Failed to pre-commit ACE protocol order");
+                if ace_order.ace_interactions.iter().any(|a| a.is_force()) {
+                    error!(order_id = ?ace_order.id(), ?err, "Failed to pre-commit ProtocolForce ACE order");
+                } else {
+                    trace!(order_id = ?ace_order.id(), ?err, "Failed to pre-commit ACE protocol order");
+                }
             }
         }
 
@@ -353,7 +357,11 @@ impl BlockBuildingResultAssembler {
                 ace_order,
                 &|_| Ok(()), // ACE protocol orders bypass profit validation
             ) {
-                trace!(order_id = ?ace_order.id(), ?err, "Failed to pre-commit ACE protocol order in backtest");
+                if ace_order.ace_interactions.iter().any(|a| a.is_force()) {
+                    error!(order_id = ?ace_order.id(), ?err, "Failed to pre-commit ProtocolForce ACE order in backtest");
+                } else {
+                    trace!(order_id = ?ace_order.id(), ?err, "Failed to pre-commit ACE protocol order in backtest");
+                }
             }
         }
 

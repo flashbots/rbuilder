@@ -137,7 +137,7 @@ pub struct Nonce {
     pub optional: bool,
 }
 
-/// Information regarding a new/update replaceable Bundle/ShareBundle.
+/// Information regarding a new/update replaceable Bundle.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ReplacementData<KeyType> {
     pub key: KeyType,
@@ -1046,7 +1046,7 @@ impl SimulatedOrder {
 }
 
 /// Unique OrderId used along the whole builder.
-/// Sadly it's not perfect since we still might have some collisions (eg: ShareBundle is the tx tree hash which does not include all the other cfg).
+/// Sadly it's not perfect since we still might have some collisions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum OrderId {
     Tx(B256),

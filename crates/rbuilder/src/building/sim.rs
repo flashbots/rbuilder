@@ -161,6 +161,8 @@ impl AceSimulationState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PendingOrder {
     order: Arc<Order>,
+    /// Number of nonce dependencies not yet satisfied
+    unsatisfied_nonce_deps: usize,
     /// ACE state tracking detected and accounted-for interactions
     ace_state: AceSimulationState,
 }
@@ -261,6 +263,12 @@ impl SimTree {
 
         for config in ace_configs {
             let contract_address = config.contract_address;
+            if ace_config.contains_key(&contract_address) {
+                error!(
+                    ?contract_address,
+                    "ACE SimTree: duplicate contract_address in ace_protocols config, last entry wins"
+                );
+            }
             tracing::debug!(
                 contract_address = ?contract_address,
                 detection_slots = ?config.detection_slots,
@@ -307,6 +315,7 @@ impl SimTree {
             }
             OrderDependencyState::Pending(pending_deps) => {
                 mark_order_pending_nonce(order_id);
+                let unsatisfied_nonce_deps = pending_deps.len();
                 for dep in pending_deps {
                     self.pending_dependencies
                         .entry(dep)
@@ -317,6 +326,7 @@ impl SimTree {
                     order.id(),
                     PendingOrder {
                         order,
+                        unsatisfied_nonce_deps,
                         ace_state: AceSimulationState::default(),
                     },
                 );
@@ -467,12 +477,28 @@ impl SimTree {
 
         // Order needs to wait for ACE unlock dependencies
         if !is_ready {
+            // Account for already-found providers so that when the remaining
+            // providers arrive, all_dependencies_accounted() can return true.
+            for sim_id in &keys {
+                if let Some(sim) = self.sims.get(sim_id) {
+                    ace_state.add_accounted_interactions(
+                        sim.simulated_order.ace_interactions.iter().copied(),
+                    );
+                }
+            }
+
             tracing::debug!(
                 order_id = ?order_id,
                 "ACE deps: order added to pending, waiting for unlock parents"
             );
-            self.pending_orders
-                .insert(order.id(), PendingOrder { order, ace_state });
+            self.pending_orders.insert(
+                order.id(),
+                PendingOrder {
+                    order,
+                    unsatisfied_nonce_deps: 0,
+                    ace_state,
+                },
+            );
             return;
         }
 
@@ -555,25 +581,39 @@ impl SimTree {
         for dep_key in dependencies_satisfied.iter().cloned() {
             match self.dependency_providers.entry(dep_key.clone()) {
                 Entry::Occupied(mut entry) => {
-                    // Already have a provider - check if this one is more profitable
-                    let current_sim_profit = {
+                    // Already have a provider - check if this one should replace it.
+                    // For ACE unlock deps, prefer by ACE priority (Force > Optional > User)
+                    // so a force unlock is never displaced by a more profitable optional.
+                    // For nonce deps, prefer by coinbase profit.
+                    let should_replace = {
                         let sim_id = entry.get_mut();
                         if let Some(existing_sim) = self.sims.get(sim_id) {
-                            existing_sim
-                                .simulated_order
-                                .sim_value
-                                .full_profit_info()
-                                .coinbase_profit()
+                            match &dep_key {
+                                DependencyKey::AceUnlock(_) => {
+                                    let existing_priority = max_ace_priority(
+                                        &existing_sim.simulated_order.ace_interactions,
+                                    );
+                                    let new_priority =
+                                        max_ace_priority(&simulated_order.ace_interactions);
+                                    new_priority > existing_priority
+                                }
+                                DependencyKey::Nonce(_) => {
+                                    simulated_order
+                                        .sim_value
+                                        .full_profit_info()
+                                        .coinbase_profit()
+                                        > existing_sim
+                                            .simulated_order
+                                            .sim_value
+                                            .full_profit_info()
+                                            .coinbase_profit()
+                                }
+                            }
                         } else {
-                            continue;
+                            true
                         }
                     };
-                    if simulated_order
-                        .sim_value
-                        .full_profit_info()
-                        .coinbase_profit()
-                        > current_sim_profit
-                    {
+                    if should_replace {
                         entry.insert(*id);
                     }
                 }
@@ -588,15 +628,23 @@ impl SimTree {
                             {
                                 let pending_order = entry.get_mut();
 
-                                // Add the unlock interactions to the order's accounted_for set
-                                if matches!(dep_key, DependencyKey::AceUnlock(_)) {
-                                    pending_order.ace_state.add_accounted_interactions(
-                                        simulated_order.ace_interactions.iter().copied(),
-                                    );
+                                match &dep_key {
+                                    DependencyKey::Nonce(_) => {
+                                        pending_order.unsatisfied_nonce_deps = pending_order
+                                            .unsatisfied_nonce_deps
+                                            .saturating_sub(1);
+                                    }
+                                    DependencyKey::AceUnlock(_) => {
+                                        pending_order.ace_state.add_accounted_interactions(
+                                            simulated_order.ace_interactions.iter().copied(),
+                                        );
+                                    }
                                 }
 
-                                // Check if all ACE deps are now accounted for
-                                if pending_order.ace_state.all_dependencies_accounted() {
+                                // Only promote when ALL dependencies (nonce + ACE) are resolved
+                                if pending_order.unsatisfied_nonce_deps == 0
+                                    && pending_order.ace_state.all_dependencies_accounted()
+                                {
                                     orders_ready.push(entry.remove());
                                 }
                                 // Otherwise order stays pending, waiting for more deps
@@ -771,11 +819,16 @@ impl SimTree {
         let mut successful_results = Vec::with_capacity(results.len());
 
         for result in results {
-            if let SimulatedResult::Success { .. } = result {
-                cancellations.extend(self.handle_ace_unlock(&result)?);
-                // All successful results need to be processed for dependency tracking
-                self.process_simulation_task_result(&result)?;
-                successful_results.push(result);
+            match result {
+                success @ SimulatedResult::Success { .. } => {
+                    cancellations.extend(self.handle_ace_unlock(&success)?);
+                    // All successful results need to be processed for dependency tracking
+                    self.process_simulation_task_result(&success)?;
+                    successful_results.push(success);
+                }
+                SimulatedResult::Failed { order, failure, .. } => {
+                    self.handle_ace_dependencies_for_order(order, failure.ace_state);
+                }
             }
         }
 
@@ -812,7 +865,7 @@ where
         sim_tree.push_orders(std::mem::take(&mut orders))?;
     }
 
-    let sim_errors = Vec::new();
+    let mut sim_errors = Vec::new();
     let mut state_for_sim =
         Arc::<dyn StateProvider>::from(provider.history_by_block_hash(ctx.attributes.parent)?);
     let mut local_ctx = ThreadBlockBuildingContext::default();
@@ -853,6 +906,7 @@ where
                     // if we have a failure, we will handle the case were its ace by either putting
                     // it into pending or requeing if we have the deps. Otherwise, no action is
                     // taken and flow handles as normal.
+                    sim_errors.push(failure.error);
                     sim_tree.handle_ace_dependencies_for_order(sim_task.order, failure.ace_state);
                 }
                 OrderSimResult::Success(sim_order, nonces) => {
@@ -1106,4 +1160,15 @@ fn interaction_priority(interaction: &AceInteraction) -> u8 {
         } => 2,
         AceInteraction::NonUnlocking { .. } => 1,
     }
+}
+
+/// Returns the maximum ACE priority across all interactions for a simulated order.
+/// Used to compare dependency providers for `DependencyKey::AceUnlock` so that
+/// a force unlock is never displaced by a more profitable optional unlock.
+fn max_ace_priority(interactions: &[AceInteraction]) -> u8 {
+    interactions
+        .iter()
+        .map(interaction_priority)
+        .max()
+        .unwrap_or(0)
 }

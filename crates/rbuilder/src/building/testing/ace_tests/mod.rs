@@ -13,8 +13,8 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 /// Create a minimal order for testing (empty bundle with unique ID)
-fn create_test_order() -> Order {
-    Order::Bundle(Bundle {
+fn create_test_order() -> Arc<Order> {
+    Arc::new(Order::Bundle(Bundle {
         version: BundleVersion::V1,
         block: None,
         min_timestamp: None,
@@ -30,7 +30,7 @@ fn create_test_order() -> Order {
         metadata: Default::default(),
         refund: None,
         external_hash: None,
-    })
+    }))
 }
 
 /// Create the real ACE config for testing
@@ -47,10 +47,10 @@ fn test_ace_config() -> AceConfig {
     }
 }
 
-/// Create a mock state trace with ACE detection slot accessed
+/// Create a mock state trace with ACE detection slot written (unlock orders write to detection slot)
 fn mock_state_trace_with_ace_slot(contract: Address, slot: B256) -> UsedStateTrace {
     let mut trace = UsedStateTrace::default();
-    trace.read_slot_values.insert(
+    trace.written_slot_values.insert(
         SlotKey {
             address: contract,
             key: slot,
@@ -613,10 +613,21 @@ fn test_classify_ace_interaction_priority_force_beats_optional() {
         })
     ));
 
-    // NonUnlocking classification (no unlock signature)
+    // NonUnlocking classification: failed tx that reads (but doesn't write) ACE detection slot
+    let read_only_trace = {
+        let mut trace = UsedStateTrace::default();
+        trace.read_slot_values.insert(
+            SlotKey {
+                address: contract,
+                key: slot,
+            },
+            Default::default(),
+        );
+        trace
+    };
     let non_unlocking_result = classify_ace_interaction(
-        &trace,
-        true,
+        &read_only_trace,
+        false, // tx failed
         &config,
         None, // no selector
         Some(contract),
