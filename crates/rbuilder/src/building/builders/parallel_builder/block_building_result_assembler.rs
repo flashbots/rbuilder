@@ -231,6 +231,7 @@ impl BlockBuildingResultAssembler {
             if let Err(err) = block_building_helper.commit_order(
                 &mut self.local_ctx,
                 ace_order,
+                #[allow(clippy::result_large_err)]
                 &|_| Ok(()), // ACE protocol orders bypass profit validation
             ) {
                 if ace_order.ace_interactions.iter().any(|a| a.is_force()) {
@@ -358,6 +359,7 @@ impl BlockBuildingResultAssembler {
             if let Err(err) = block_building_helper.commit_order(
                 &mut self.local_ctx,
                 ace_order,
+                #[allow(clippy::result_large_err)]
                 &|_| Ok(()), // ACE protocol orders bypass profit validation
             ) {
                 if ace_order.ace_interactions.iter().any(|a| a.is_force()) {

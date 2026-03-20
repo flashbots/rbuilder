@@ -100,7 +100,7 @@ impl AceExchangeState {
         // block builder.
         self.force_unlock_order
             .as_ref()
-            .or_else(|| self.optional_unlock_order.as_ref())
+            .or(self.optional_unlock_order.as_ref())
     }
 }
 
@@ -578,7 +578,7 @@ impl SimTree {
         let mut orders_ready: Vec<PendingOrder> = Vec::new();
 
         // Process each dependency this simulation satisfies
-        for dep_key in dependencies_satisfied.iter().cloned() {
+        for dep_key in dependencies_satisfied {
             match self.dependency_providers.entry(dep_key.clone()) {
                 Entry::Occupied(mut entry) => {
                     // Already have a provider - check if this one should replace it.
@@ -588,7 +588,7 @@ impl SimTree {
                     let should_replace = {
                         let sim_id = entry.get_mut();
                         if let Some(existing_sim) = self.sims.get(sim_id) {
-                            match &dep_key {
+                            match dep_key {
                                 DependencyKey::AceUnlock(_) => {
                                     let existing_priority = max_ace_priority(
                                         &existing_sim.simulated_order.ace_interactions,
@@ -622,17 +622,16 @@ impl SimTree {
                     entry.insert(*id);
 
                     // Update orders waiting on this dependency
-                    if let Some(pending_order_ids) = self.pending_dependencies.remove(&dep_key) {
+                    if let Some(pending_order_ids) = self.pending_dependencies.remove(dep_key) {
                         for order_id in pending_order_ids {
                             if let Entry::Occupied(mut entry) = self.pending_orders.entry(order_id)
                             {
                                 let pending_order = entry.get_mut();
 
-                                match &dep_key {
+                                match dep_key {
                                     DependencyKey::Nonce(_) => {
-                                        pending_order.unsatisfied_nonce_deps = pending_order
-                                            .unsatisfied_nonce_deps
-                                            .saturating_sub(1);
+                                        pending_order.unsatisfied_nonce_deps =
+                                            pending_order.unsatisfied_nonce_deps.saturating_sub(1);
                                     }
                                     DependencyKey::AceUnlock(_) => {
                                         pending_order.ace_state.add_accounted_interactions(
