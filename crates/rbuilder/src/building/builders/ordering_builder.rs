@@ -439,6 +439,7 @@ impl OrderingBuilderContext {
             let commit_result = block_building_helper.commit_order(
                 &mut self.local_ctx,
                 &sim_order,
+                #[allow(clippy::result_large_err)]
                 &|sim_result| {
                     if !sim_order.order.metadata().is_system {
                         simulation_too_low::<OrderPriorityType>(&sim_order.sim_value, sim_result)

@@ -267,9 +267,12 @@ impl BlockBuildingResultAssembler {
                     block_building_helper.builder_name(),
                 );
                 let start_time = Instant::now();
-                let commit_result =
-                    block_building_helper
-                        .commit_order(&mut self.local_ctx, sim_order, &|_| Ok(()))?;
+                let commit_result = block_building_helper.commit_order(
+                    &mut self.local_ctx,
+                    sim_order,
+                    #[allow(clippy::result_large_err)]
+                    &|_| Ok(()),
+                )?;
                 let order_commit_time = start_time.elapsed();
 
                 let mut gas_used = 0;
@@ -376,9 +379,12 @@ impl BlockBuildingResultAssembler {
             for (order_idx, _) in sequence_of_orders.sequence_of_orders.iter() {
                 let sim_order = &order_group.orders[*order_idx];
 
-                let commit_result =
-                    block_building_helper
-                        .commit_order(&mut self.local_ctx, sim_order, &|_| Ok(()))?;
+                let commit_result = block_building_helper.commit_order(
+                    &mut self.local_ctx,
+                    sim_order,
+                    #[allow(clippy::result_large_err)]
+                    &|_| Ok(()),
+                )?;
 
                 match commit_result {
                     Ok(res) => {

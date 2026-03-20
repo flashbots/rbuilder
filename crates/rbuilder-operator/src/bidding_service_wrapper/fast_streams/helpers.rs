@@ -222,12 +222,39 @@ impl<ItemTypeRPC: std::fmt::Debug + ZeroCopySend + 'static> NotifyingPublisher<I
         })
     }
 
-    pub fn send(&self, item: ItemTypeRPC) -> Result<(), Error> {
+    fn publish_item(&self, item: ItemTypeRPC) -> Result<(), Error> {
         let sample = self.publisher.loan_uninit()?;
         let sample = sample.write_payload(item);
         sample.send()?;
+        Ok(())
+    }
+
+    pub fn send(&self, item: ItemTypeRPC) -> Result<(), Error> {
+        self.publish_item(item)?;
         self.notifier.notify()?;
         Ok(())
+    }
+
+    pub fn send_many(&self, items: Vec<ItemTypeRPC>) -> Result<(), Error> {
+        let mut error_count = 0;
+        let item_count = items.len();
+        let mut publish_item_last_err = None;
+        for item in items {
+            if let Err(err) = self.publish_item(item) {
+                error_count += 1;
+                publish_item_last_err = Some(err);
+            }
+        }
+        if error_count != item_count {
+            self.notifier.notify()?;
+        }
+        match publish_item_last_err {
+            Some(err) => {
+                error!(error_count,publish_item_last_err = ?err, "send_many failed to publish some items",);
+                Err(err)
+            }
+            None => Ok(()),
+        }
     }
 }
 
@@ -262,8 +289,12 @@ impl ScrapedBidsPublisher {
                 }
             };
             while let Ok(scraped_bid) = scraped_bids_rx.recv() {
-                if let Err(err) = notifying_publisher.send(scraped_bid) {
-                    error!(err=?err, "ScrapedBidsPublisher notifying_publisher.send failed. Bid lost.");
+                let mut bids = vec![scraped_bid];
+                while let Ok(extra) = scraped_bids_rx.try_recv() {
+                    bids.push(extra);
+                }
+                if let Err(err) = notifying_publisher.send_many(bids) {
+                    error!(err=?err, "ScrapedBidsPublisher notifying_publisher.send_many failed. Some bids lost.");
                 }
             }
         });

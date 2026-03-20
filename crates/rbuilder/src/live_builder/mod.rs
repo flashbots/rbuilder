@@ -68,7 +68,7 @@ pub struct TimingsConfig {
     /// slot (https://www.paradigm.xyz/2023/04/mev-boost-ethereum-consensus Slot anatomy)
     pub slot_proposal_duration: Duration,
     /// Delta from slot time to get_header dead line. If we can't get the block header
-    /// before slot_time + BLOCK_HEADER_DEAD_LINE_DELTA we cancel the slot.
+    /// before slot_time + block_header_deadline_delta we cancel the slot.
     /// Careful: It's signed and usually negative since we need de header BEFORE the slot time.
     pub block_header_deadline_delta: time::Duration,
     /// Polling period while trying to get a block header
@@ -476,7 +476,7 @@ where
     result
 }
 
-/// May fail if we wait too much (see [BLOCK_HEADER_DEAD_LINE_DELTA])
+/// May fail if we wait too much (see [TimingsConfig::block_header_deadline_delta])
 async fn wait_for_block_header<P>(
     block: u64,
     parent_hash: B256,
@@ -489,42 +489,48 @@ where
     P: StateProviderFactory,
 {
     let deadline = slot_time + timings.block_header_deadline_delta;
-    let mut sleep_duration: Option<Duration> = None;
     loop {
-        if let Some(sleep_duration) = sleep_duration.take() {
-            tokio::time::sleep(sleep_duration).await;
-        }
-
-        if let Some(header) = provider.header(&parent_hash)? {
-            return Ok(header);
-        } else {
-            let current_parent_hash = provider
-                .header_by_number(block.checked_sub(1).unwrap_or(1))?
-                .map(|h| h.hash_slow());
-            info!(
-                block,
-                ?parent_hash,
-                ?current_parent_hash,
-                payload_id,
-                "Payload parent header not found, trying again"
-            );
-
-            let time_to_sleep = min(
-                deadline - OffsetDateTime::now_utc(),
-                timings.get_block_header_period,
-            );
-            if time_to_sleep.is_negative() {
-                sleep_duration = None;
-            } else {
-                sleep_duration = Some(time_to_sleep.try_into().unwrap());
+        match try_to_read_block_header(block, parent_hash, payload_id, provider) {
+            Ok(header) => return Ok(header),
+            Err(err) => {
+                info!(?err, "try_to_read_block_header failed");
             }
         }
-
-        if OffsetDateTime::now_utc() > deadline {
-            break;
+        let time_to_sleep = min(
+            deadline - OffsetDateTime::now_utc(),
+            timings.get_block_header_period,
+        );
+        if time_to_sleep.is_negative() {
+            return Err(eyre::eyre!("Block header not found"));
         }
+        tokio::time::sleep(time_to_sleep.try_into().unwrap()).await;
     }
-    Err(eyre::eyre!("Block header not found"))
+}
+
+fn try_to_read_block_header<P>(
+    block: u64,
+    parent_hash: B256,
+    payload_id: InternalPayloadId,
+    provider: &P,
+) -> eyre::Result<Header>
+where
+    P: StateProviderFactory,
+{
+    if let Some(header) = provider.header(&parent_hash)? {
+        Ok(header)
+    } else {
+        let current_parent_hash = provider
+            .header_by_number(block.checked_sub(1).unwrap_or(1))?
+            .map(|h| h.hash_slow());
+        info!(
+            block,
+            ?parent_hash,
+            ?current_parent_hash,
+            payload_id,
+            "Payload parent header not found, trying again"
+        );
+        Err(eyre::eyre!("Block header not found"))
+    }
 }
 
 /// Attempts to forward a [`Recovered<TransactionSigned>`] to an orderpool.

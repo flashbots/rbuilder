@@ -84,9 +84,6 @@ pub struct BuiltBlocksClickhouseConfig {
     pub host: String,
     pub database: String,
     pub username: String,
-    /// Unique id for this server.
-    /// Since this is only used in clickhouse to identify the builder blocks we put it here but we could have it in the base_config.
-    pub builder_name: String,
     pub password: EnvOrValue<String>,
     pub disk_database_path: PathBuf,
     /// If set must be < disk_max_size_mb.
@@ -144,6 +141,10 @@ pub struct FlashbotsConfig {
     /// !Some(key_registration_url) => Some(tbv_push_redis)
     tbv_push_redis: Option<TBVPushRedisConfig>,
 
+    /// Unique id for this server.
+    /// Used in clickhouse to identify the builder and in TBV pushes.
+    pub builder_name: String,
+
     /// Should always be set on buildernet.
     built_blocks_clickhouse_config: Option<BuiltBlocksClickhouseConfig>,
 }
@@ -161,6 +162,10 @@ impl LiveBuilderConfig for FlashbotsConfig {
     where
         P: StateProviderFactory + Clone + 'static,
     {
+        if self.builder_name.is_empty() {
+            eyre::bail!("builder_name must be set on BuilderNet nodes");
+        }
+
         let abort_token = CancellationToken::new();
         if self.l1_config.relay_bid_scrapers.is_empty() {
             eyre::bail!("relay_bid_scrapers is not set");
@@ -373,7 +378,7 @@ impl FlashbotsConfig {
                 &client,
                 &task_executor,
                 disk_backup.clone(),
-                config.builder_name.clone(),
+                self.builder_name.clone(),
                 rbuilder_version.git_commit,
                 memory_max_size_bytes,
                 send_timeout,
@@ -384,7 +389,7 @@ impl FlashbotsConfig {
                 &client,
                 &task_executor,
                 disk_backup,
-                config.builder_name.clone(),
+                self.builder_name.clone(),
                 memory_max_size_bytes,
                 send_timeout,
                 end_timeout,
@@ -510,6 +515,7 @@ impl FlashbotsConfig {
                     blocks_processor_url.clone(),
                     block_processor_key,
                     self.blocks_processor_max_concurrent_requests,
+                    self.builder_name.clone(),
                     cancellation_token.clone(),
                 )?)))
             } else {
@@ -525,6 +531,7 @@ impl FlashbotsConfig {
             Ok(Some(Box::new(BestTrueValueObserver::new_redis(
                 tbv_push_redis_url_value,
                 cfg.channel.clone(),
+                self.builder_name.clone(),
                 cancellation_token.clone(),
             )?)))
         } else {

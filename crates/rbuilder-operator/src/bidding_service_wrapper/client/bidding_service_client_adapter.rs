@@ -326,7 +326,9 @@ impl BiddingService for BiddingServiceClientAdapter {
             .send(BiddingServiceClientCommand::UpdateFailedReadingNewLandedBlocks);
     }
 
-    fn observe_relay_bids(&self, bid_with_stats: ScrapedRelayBlockBidWithStats) {
-        self.scraped_bids_publisher.send(bid_with_stats.clone());
+    fn observe_relay_bids(&self, bid_with_stats: Vec<ScrapedRelayBlockBidWithStats>) {
+        for bid in bid_with_stats {
+            self.scraped_bids_publisher.send(bid);
+        }
     }
 }
