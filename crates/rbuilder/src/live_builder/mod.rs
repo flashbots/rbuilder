@@ -502,7 +502,7 @@ where
     }
 }
 
-async fn try_to_read_block_header<P>(
+fn try_to_read_block_header<P>(
     block: u64,
     parent_hash: B256,
     payload_id: InternalPayloadId,
