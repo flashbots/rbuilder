@@ -68,7 +68,7 @@ pub struct TimingsConfig {
     /// slot (https://www.paradigm.xyz/2023/04/mev-boost-ethereum-consensus Slot anatomy)
     pub slot_proposal_duration: Duration,
     /// Delta from slot time to get_header dead line. If we can't get the block header
-    /// before slot_time + BLOCK_HEADER_DEAD_LINE_DELTA we cancel the slot.
+    /// before slot_time + block_header_deadline_delta we cancel the slot.
     /// Careful: It's signed and usually negative since we need de header BEFORE the slot time.
     pub block_header_deadline_delta: time::Duration,
     /// Polling period while trying to get a block header
@@ -471,7 +471,7 @@ where
     result
 }
 
-/// May fail if we wait too much (see [BLOCK_HEADER_DEAD_LINE_DELTA])
+/// May fail if we wait too much (see [TimingsConfig::block_header_deadline_delta])
 async fn wait_for_block_header<P>(
     block: u64,
     parent_hash: B256,
@@ -502,7 +502,6 @@ where
     }
 }
 
-/// May fail if we wait too much (see [BLOCK_HEADER_DEAD_LINE_DELTA])
 async fn try_to_read_block_header<P>(
     block: u64,
     parent_hash: B256,
