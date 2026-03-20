@@ -167,12 +167,12 @@ impl FixedTrie {
         for (ptr, node) in &diff_trie.nodes {
             let fixed_node = match &node.kind {
                 DiffTrieNodeKind::Leaf(leaf) => FixedTrieNode::Leaf(Arc::new(FixedLeafNode {
-                    key: leaf.key().clone(),
+                    key: *leaf.key(),
                     value: leaf.value().clone(),
                 })),
                 DiffTrieNodeKind::Extension(ext) => FixedTrieNode::Extension {
                     node: Arc::new(FixedExtensionNode {
-                        key: ext.key().clone(),
+                        key: *ext.key(),
                         child: ext
                             .child
                             .rlp_pointer
@@ -261,7 +261,7 @@ impl FixedTrie {
 
             // here we find parent to link with this new node
             let mut current_path = Nibbles::new();
-            let mut path_left = path.clone();
+            let mut path_left = *path;
             let mut current_node = self.head;
 
             let mut parent: Option<u64> = None;
@@ -459,10 +459,7 @@ impl FixedTrie {
                                         // we stepped into child above so the path is the path of current child and orphan child differs
                                         // only in last nibble
                                         let mut path_vec = c.current_path.to_vec();
-                                        path_vec
-                                            .last_mut()
-                                            .map(|n| *n = orphan_nibble)
-                                            .unwrap();
+                                        path_vec.last_mut().map(|n| *n = orphan_nibble).unwrap();
                                         let path = Nibbles::from_nibbles_unchecked(&path_vec);
                                         missing_nodes.push(path);
                                     }

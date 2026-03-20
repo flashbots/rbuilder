@@ -13,16 +13,18 @@ use alloy_eips::BlockNumHash;
 use alloy_primitives::{Address, BlockHash, BlockNumber, Bytes, B256};
 use eth_sparse_mpt::*;
 use parking_lot::Mutex;
-use reth::{providers::{BlockHashReader, ChainSpecProvider, ProviderFactory}, tasks::Runtime};
-use tokio::runtime::Handle;
+use reth::{
+    providers::{BlockHashReader, ChainSpecProvider, ProviderFactory},
+    tasks::Runtime,
+};
 use reth_db::DatabaseError;
 use reth_errors::{ProviderError, ProviderResult, RethResult};
 use reth_node_api::{NodePrimitives, NodeTypesWithDB};
 use reth_provider::{
     providers::{ProviderNodeTypes, RocksDBProvider, StaticFileProvider},
-    BlockNumReader, BlockReader, ChangeSetReader, DatabaseProviderFactory,
-    HeaderProvider, PruneCheckpointReader, StageCheckpointReader, StateProviderBox,
-    StaticFileProviderFactory, StorageChangeSetReader, StorageSettingsCache,
+    BlockNumReader, BlockReader, ChangeSetReader, DatabaseProviderFactory, HeaderProvider,
+    PruneCheckpointReader, StageCheckpointReader, StateProviderBox, StaticFileProviderFactory,
+    StorageChangeSetReader, StorageSettingsCache,
 };
 use revm::database::BundleState;
 use std::{
@@ -30,6 +32,7 @@ use std::{
     path::PathBuf,
     sync::{mpsc, Arc},
 };
+use tokio::runtime::Handle;
 use tracing::{debug, error};
 
 /// This struct is used as a workaround for https://github.com/paradigmxyz/reth/issues/7836
@@ -315,12 +318,12 @@ impl<T> RootHasher for RootHasherImpl<T>
 where
     T: DatabaseProviderFactory<
             Provider: BlockReader
-                + StageCheckpointReader
-                + PruneCheckpointReader
-                + BlockNumReader
-                + ChangeSetReader
-                + StorageChangeSetReader
-                + StorageSettingsCache,
+                          + StageCheckpointReader
+                          + PruneCheckpointReader
+                          + BlockNumReader
+                          + ChangeSetReader
+                          + StorageChangeSetReader
+                          + StorageSettingsCache,
         > + Send
         + Sync
         + Clone

@@ -13,9 +13,10 @@ use crate::{
             OrderIntakeConsumer,
         },
         journal::JournalSequenceNumber,
-        order_is_worth_executing, state_provider_box_into_arc, BlockBuildingContext, ExecutionError,
-        NullPartialBlockExecutionTracer, OrderPriority, PartialBlockExecutionTracer,
-        PrioritizedOrderStore, SimulatedOrderSink, Sorting, ThreadBlockBuildingContext,
+        order_is_worth_executing, state_provider_box_into_arc, BlockBuildingContext,
+        ExecutionError, NullPartialBlockExecutionTracer, OrderPriority,
+        PartialBlockExecutionTracer, PrioritizedOrderStore, SimulatedOrderSink, Sorting,
+        ThreadBlockBuildingContext,
     },
     live_builder::{
         block_output::bidding_service_interface::CompetitionBidContext,

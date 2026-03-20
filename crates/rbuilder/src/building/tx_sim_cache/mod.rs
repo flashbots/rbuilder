@@ -252,15 +252,15 @@ impl TxExecutionCache {
             };
             let action_result = match next_action {
                 NextAction::CheckAccount(address) => {
-                    let current_account =
-                        db.basic(address).map_err(|e| e.into_external_error())?;
+                    let current_account = db.basic(address).map_err(|e| e.into_external_error())?;
 
                     ActionResult::AccountValue(current_account)
                 }
                 NextAction::CheckStorage(address, index) => {
                     db.basic(address).map_err(|e| e.into_external_error())?; // we load account here because revm database panics if we never loaded account before slot
-                    let current_value =
-                        db.storage(address, index).map_err(|e| e.into_external_error())?;
+                    let current_value = db
+                        .storage(address, index)
+                        .map_err(|e| e.into_external_error())?;
                     ActionResult::StorageValue(current_value)
                 }
                 NextAction::DoNothing => ActionResult::DoNothing,

@@ -154,7 +154,10 @@ where
                     {
                         let arc: Arc<dyn StateProvider + Send> = Arc::from(state);
                         let arc_state: Arc<dyn StateProvider + Send + Sync> = unsafe {
-                            std::mem::transmute::<Arc<dyn StateProvider + Send>, Arc<dyn StateProvider + Send + Sync>>(arc)
+                            std::mem::transmute::<
+                                Arc<dyn StateProvider + Send>,
+                                Arc<dyn StateProvider + Send + Sync>,
+                            >(arc)
                         };
                         NonceCache::new(arc_state)
                     }

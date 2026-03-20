@@ -585,7 +585,12 @@ pub fn create_provider_factory(
     let reth_rocksdb_path = reth_datadir
         .as_ref()
         .map(|d| d.join("rocksdb"))
-        .unwrap_or_else(|| reth_db_path.parent().unwrap_or(&reth_db_path).join("rocksdb"));
+        .unwrap_or_else(|| {
+            reth_db_path
+                .parent()
+                .unwrap_or(&reth_db_path)
+                .join("rocksdb")
+        });
 
     let reth_static_files_path = match (reth_static_files_path, reth_datadir) {
         (Some(reth_static_files_path), _) => PathBuf::from(reth_static_files_path),
@@ -640,7 +645,10 @@ mod test {
     use reth_db::init_db;
     use reth_db_common::init::init_genesis;
     use reth_node_core::dirs::{DataDirPath, MaybePlatformPath};
-    use reth_provider::{providers::{RocksDBBuilder, StaticFileProvider}, ProviderFactory};
+    use reth_provider::{
+        providers::{RocksDBBuilder, StaticFileProvider},
+        ProviderFactory,
+    };
     use tempfile::TempDir;
     use tokio_util::sync::CancellationToken;
 
@@ -666,8 +674,8 @@ mod test {
             .is_err());
     }
 
-    #[test]
-    fn test_reth_db() {
+    #[tokio::test]
+    async fn test_reth_db() {
         // Setup and initialize a temp reth db (with static files)
         let tempdir = TempDir::with_prefix_in("rbuilder-", "/tmp").unwrap();
 
@@ -675,12 +683,13 @@ mod test {
         let data_dir = data_dir.unwrap_or_chain_default(Chain::mainnet(), DatadirArgs::default());
 
         let db_path = data_dir.db();
+        let rocksdb_path = data_dir.data_dir().join("rocksdb");
         let db = Arc::new(init_db(&db_path, Default::default()).unwrap());
         let provider_factory = ProviderFactory::<NodeTypesWithDBAdapter<EthereumNode, _>>::new(
             db,
             SEPOLIA.clone(),
             StaticFileProvider::read_write(data_dir.static_files().as_path()).unwrap(),
-            RocksDBBuilder::new(&db_path)
+            RocksDBBuilder::new(&rocksdb_path)
                 .with_default_tables()
                 .build()
                 .expect("failed to create test RocksDB provider"),

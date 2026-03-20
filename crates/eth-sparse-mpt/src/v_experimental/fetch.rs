@@ -1,9 +1,6 @@
 use std::sync::Arc;
 
-use crate::{
-    utils::{HashMap},
-    SparseTrieError,
-};
+use crate::{utils::HashMap, SparseTrieError};
 use alloy_primitives::map::B256Set;
 use parking_lot::Mutex;
 use rayon::prelude::*;
@@ -39,12 +36,12 @@ impl MissingNodesFetcher {
             .storage_proof_targets
             .entry(*hashed_address)
             .or_default();
-        entry.0.insert(pad_path(node.clone()));
+        entry.0.insert(pad_path(node));
         entry.1.push(node);
     }
 
     pub fn add_missing_account_node(&mut self, node: Nibbles) {
-        self.account_proof_targets.push(pad_path(node.clone()));
+        self.account_proof_targets.push(pad_path(node));
         self.account_proof_requested_nodes.push(node);
     }
 
@@ -89,13 +86,10 @@ impl MissingNodesFetcher {
                         .map_err(SparseTrieError::other)?;
                     *fetched_nodes.lock() += requested_proofs.len();
                     for requested_proof in requested_proofs {
-                        let proof_for_node = storge_multiproof.subtree.matching_nodes_sorted(
-                            &requested_proof
-                        );
-                        let reth_proof_for_node = proof_for_node
-                            .into_iter()
-                            .map(|(k, v)| (k, v))
-                            .collect();
+                        let proof_for_node = storge_multiproof
+                            .subtree
+                            .matching_nodes_sorted(&requested_proof);
+                        let reth_proof_for_node = proof_for_node.into_iter().collect();
                         let proof_store =
                             shared_cache.account_proof_store_hashed_address(&hashed_address);
                         proof_store
@@ -135,10 +129,7 @@ impl MissingNodesFetcher {
                 .account_subtree
                 .matching_nodes_sorted(&requested_node);
 
-            let reth_proof_for_node = proof_for_node
-                .into_iter()
-                .map(|(k, v)| (k, v))
-                .collect();
+            let reth_proof_for_node = proof_for_node.into_iter().collect();
             shared_cache
                 .account_trie
                 .add_proof(requested_node, reth_proof_for_node)

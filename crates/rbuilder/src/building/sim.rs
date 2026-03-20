@@ -19,7 +19,7 @@ use alloy_primitives::Address;
 use rand::seq::SliceRandom;
 use rbuilder_primitives::{Order, OrderId, SimulatedOrder};
 use reth_errors::ProviderError;
-use reth_provider::StateProvider;
+
 use std::{
     cmp::{max, min, Ordering},
     collections::hash_map::Entry,

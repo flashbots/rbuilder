@@ -284,7 +284,10 @@ impl ResolverContext {
     }
 
     /// Initializes the block state, using a cached state if available.
-    fn initialize_block_state(&mut self, state_provider: Arc<dyn StateProvider + Send + Sync>) -> BlockState {
+    fn initialize_block_state(
+        &mut self,
+        state_provider: Arc<dyn StateProvider + Send + Sync>,
+    ) -> BlockState {
         BlockState::new_arc(state_provider)
     }
 

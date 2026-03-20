@@ -3,15 +3,15 @@ use alloy_eips::BlockNumHash;
 use alloy_primitives::{Address, Bytes, B256};
 use eth_sparse_mpt::*;
 use reth::{builder::rpc::ChangesetCache, providers::providers::ConsistentDbView, tasks::Runtime};
-use tokio::runtime::Handle;
 use reth_provider::{
     providers::OverlayStateProviderFactory, BlockNumReader, BlockReader, ChangeSetReader,
-    DatabaseProviderFactory, HashedPostStateProvider, PruneCheckpointReader,
-    StageCheckpointReader, StorageChangeSetReader, StorageSettingsCache,
+    DatabaseProviderFactory, PruneCheckpointReader, StageCheckpointReader, StorageChangeSetReader,
+    StorageSettingsCache,
 };
 use reth_trie::{HashedPostState, KeccakKeyHasher, TrieInput};
 use reth_trie_parallel::root::{ParallelStateRoot, ParallelStateRootError};
 use revm::database::BundleState;
+use tokio::runtime::Handle;
 use tracing::trace;
 
 pub use prefetcher::run_trie_prefetcher;
@@ -84,12 +84,12 @@ pub fn calculate_account_proofs<P>(
 where
     P: DatabaseProviderFactory<
             Provider: BlockReader
-                + StageCheckpointReader
-                + PruneCheckpointReader
-                + BlockNumReader
-                + ChangeSetReader
-                + StorageChangeSetReader
-                + StorageSettingsCache,
+                          + StageCheckpointReader
+                          + PruneCheckpointReader
+                          + BlockNumReader
+                          + ChangeSetReader
+                          + StorageChangeSetReader
+                          + StorageSettingsCache,
         > + Send
         + Sync
         + Clone
@@ -128,20 +128,19 @@ fn calculate_parallel_root_hash<P>(
 where
     P: DatabaseProviderFactory<
             Provider: BlockReader
-                + StageCheckpointReader
-                + PruneCheckpointReader
-                + BlockNumReader
-                + ChangeSetReader
-                + StorageChangeSetReader
-                + StorageSettingsCache,
+                          + StageCheckpointReader
+                          + PruneCheckpointReader
+                          + BlockNumReader
+                          + ChangeSetReader
+                          + StorageChangeSetReader
+                          + StorageSettingsCache,
         > + Send
         + Sync
         + Clone
         + 'static,
 {
     let overlay = OverlayStateProviderFactory::new(provider, ChangesetCache::new());
-    let hashed_post_state =
-        HashedPostState::from_bundle_state::<KeccakKeyHasher>(outcome.state());
+    let hashed_post_state = HashedPostState::from_bundle_state::<KeccakKeyHasher>(outcome.state());
     let parallel_root_calculator = ParallelStateRoot::new(
         overlay,
         TrieInput::from_state(hashed_post_state)
@@ -166,12 +165,12 @@ pub fn calculate_state_root<P>(
 where
     P: DatabaseProviderFactory<
             Provider: BlockReader
-                + StageCheckpointReader
-                + PruneCheckpointReader
-                + BlockNumReader
-                + ChangeSetReader
-                + StorageChangeSetReader
-                + StorageSettingsCache,
+                          + StageCheckpointReader
+                          + PruneCheckpointReader
+                          + BlockNumReader
+                          + ChangeSetReader
+                          + StorageChangeSetReader
+                          + StorageSettingsCache,
         > + Send
         + Sync
         + Clone

@@ -773,9 +773,12 @@ pub fn create_provider_factory(
 
     let db = open_reth_db(&reth_db_path)?;
 
-    let reth_rocksdb_path = reth_datadir
-        .map(|d| d.join("rocksdb"))
-        .unwrap_or_else(|| reth_db_path.parent().unwrap_or(&reth_db_path).join("rocksdb"));
+    let reth_rocksdb_path = reth_datadir.map(|d| d.join("rocksdb")).unwrap_or_else(|| {
+        reth_db_path
+            .parent()
+            .unwrap_or(&reth_db_path)
+            .join("rocksdb")
+    });
 
     let reth_static_files_path = match (reth_static_files_path, reth_datadir) {
         (Some(reth_static_files_path), _) => PathBuf::from(reth_static_files_path),

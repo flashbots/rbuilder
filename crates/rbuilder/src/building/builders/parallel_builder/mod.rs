@@ -17,7 +17,7 @@ use crossbeam::queue::SegQueue;
 use eyre::Result;
 use itertools::Itertools;
 use results_aggregator::BestResults;
-use reth_provider::StateProvider;
+
 use serde::Deserialize;
 use simulation_cache::SharedSimulationCache;
 use std::{

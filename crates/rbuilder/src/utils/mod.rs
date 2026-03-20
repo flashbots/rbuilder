@@ -144,7 +144,7 @@ pub fn default_cfg_env(chain_spec: &ChainSpec, block_timestamp: u64, block_numbe
     let spec = revm_spec_by_timestamp_and_block_number(chain_spec, block_timestamp, block_number);
     CfgEnv::new()
         .with_chain_id(chain_spec.chain().id())
-        .with_spec(spec)
+        .with_spec_and_mainnet_gas_params(spec)
 }
 
 pub fn unix_timestamp_now() -> u64 {

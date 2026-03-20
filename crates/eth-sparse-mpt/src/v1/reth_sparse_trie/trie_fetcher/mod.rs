@@ -166,16 +166,16 @@ fn merge_results(
     let mut result = MultiProof::default();
     for mut proof in multiproofs {
         result.account_subtree.append(&mut proof.account_subtree);
-        result.account_subtree.sort_by_key(|s| s.0.clone());
-        result.account_subtree.dedup_by_key(|s| s.0.clone());
+        result.account_subtree.sort_by_key(|s| s.0);
+        result.account_subtree.dedup_by_key(|s| s.0);
 
         for (account, mut storage_proof) in proof.storages {
             let result_storage_proof = result.storages.entry(account).or_default();
             result_storage_proof
                 .subtree
                 .append(&mut storage_proof.subtree);
-            result_storage_proof.subtree.sort_by_key(|s| s.0.clone());
-            result_storage_proof.subtree.dedup_by_key(|s| s.0.clone());
+            result_storage_proof.subtree.sort_by_key(|s| s.0);
+            result_storage_proof.subtree.dedup_by_key(|s| s.0);
         }
     }
 
@@ -196,7 +196,7 @@ fn convert_reth_multiproof(
     for (k, v) in reth_proof.account_subtree.into_inner() {
         account_subtree.push((k, v));
     }
-    account_subtree.sort_by_key(|a| a.0.clone());
+    account_subtree.sort_by_key(|a| a.0);
     let mut storages = hash_map_with_capacity(reth_proof.storages.len());
     for (k, reth_storage_proof) in reth_proof.storages {
         if !all_requested_accounts.contains(&k) {
@@ -210,7 +210,7 @@ fn convert_reth_multiproof(
         for (k, v) in reth_storage_proof.subtree.into_inner() {
             subtree.push((k, v));
         }
-        subtree.sort_by_key(|a| a.0.clone());
+        subtree.sort_by_key(|a| a.0);
         let v = StorageMultiProof { subtree };
         storages.insert(k, v);
     }

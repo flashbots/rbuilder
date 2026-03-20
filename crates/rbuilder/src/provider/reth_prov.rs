@@ -32,12 +32,12 @@ impl<P> StateProviderFactory for StateProviderFactoryFromRethProvider<P>
 where
     P: DatabaseProviderFactory<
             Provider: BlockReader
-                + StageCheckpointReader
-                + PruneCheckpointReader
-                + BlockNumReader
-                + ChangeSetReader
-                + StorageChangeSetReader
-                + StorageSettingsCache,
+                          + StageCheckpointReader
+                          + PruneCheckpointReader
+                          + BlockNumReader
+                          + ChangeSetReader
+                          + StorageChangeSetReader
+                          + StorageSettingsCache,
         > + reth_provider::StateProviderFactory
         + HeaderProvider<Header = Header>
         + Clone

@@ -8,7 +8,7 @@ use crate::{
     telemetry::{self, add_sim_thread_utilisation_timings, mark_order_simulation_end},
 };
 use parking_lot::Mutex;
-use reth_provider::StateProvider;
+
 use std::{
     sync::Arc,
     thread::sleep,

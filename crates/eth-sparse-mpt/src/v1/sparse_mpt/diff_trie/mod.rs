@@ -65,7 +65,7 @@ pub struct NodeCursor {
 
 impl NodeCursor {
     pub fn new(key: Nibbles, head: u64) -> Self {
-        let current_path = Nibbles::from_nibbles_unchecked(&vec![]);
+        let current_path = Nibbles::from_nibbles_unchecked(vec![]);
         Self {
             current_node: head,
             current_path,
@@ -104,10 +104,9 @@ fn try_get_node_mut<'a>(
     ptr: u64,
     path: &Nibbles,
 ) -> Result<&'a mut DiffTrieNode, ErrSparseNodeNotFound> {
-    nodes.get_mut(&ptr).ok_or_else(|| ErrSparseNodeNotFound {
-        path: path.clone(),
-        ptr,
-    })
+    nodes
+        .get_mut(&ptr)
+        .ok_or(ErrSparseNodeNotFound { path: *path, ptr })
 }
 
 pub fn get_new_ptr(ptrs: &mut u64) -> u64 {
@@ -241,13 +240,10 @@ impl DiffTrie {
                     let n = c.step_into_branch(branch);
 
                     if branch.has_child(n) {
-                        let child =
-                            branch
-                                .get_diff_child_mut(n)
-                                .ok_or_else(|| ErrSparseNodeNotFound {
-                                    path: c.current_path.clone(),
-                                    ptr: u64::MAX,
-                                })?;
+                        let child = branch.get_diff_child_mut(n).ok_or(ErrSparseNodeNotFound {
+                            path: c.current_path,
+                            ptr: u64::MAX,
+                        })?;
                         child.mark_dirty();
                         continue;
                     } else {
@@ -316,12 +312,12 @@ impl DiffTrie {
                         return Err(DeletionError::KeyNotFound);
                     }
 
-                    let child = branch.get_diff_child_mut(n).ok_or_else(|| {
-                        DeletionError::NodeNotFound(ErrSparseNodeNotFound {
-                            path: c.current_path.clone(),
+                    let child = branch
+                        .get_diff_child_mut(n)
+                        .ok_or(DeletionError::NodeNotFound(ErrSparseNodeNotFound {
+                            path: c.current_path,
                             ptr: u64::MAX,
-                        })
-                    })?;
+                        }))?;
                     child.mark_dirty();
                     node.rlp_pointer = None;
 
@@ -339,7 +335,8 @@ impl DiffTrie {
                             if let Some(l) = other_child_path_vec.last_mut() {
                                 *l = other_child_nibble;
                             }
-                            let other_child_path = Nibbles::from_nibbles_unchecked(&other_child_path_vec);
+                            let other_child_path =
+                                Nibbles::from_nibbles_unchecked(&other_child_path_vec);
                             return Err(DeletionError::NodeNotFound(ErrSparseNodeNotFound {
                                 path: other_child_path,
                                 ptr: u64::MAX,

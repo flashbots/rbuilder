@@ -55,10 +55,8 @@ use reth_payload_builder::EthPayloadBuilderAttributes;
 use reth_primitives::BlockBody;
 use reth_primitives_traits::{proofs, Block as _};
 use revm::{
-    context_interface::result::InvalidTransaction,
-    database::states::bundle_state::BundleRetention,
-    database_interface::DatabaseCommitExt,
-    primitives::hardfork::SpecId,
+    context_interface::result::InvalidTransaction, database::states::bundle_state::BundleRetention,
+    database_interface::DatabaseCommitExt, primitives::hardfork::SpecId,
 };
 use serde::Deserialize;
 use std::{
