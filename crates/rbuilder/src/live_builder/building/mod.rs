@@ -86,7 +86,6 @@ where
 
     /// Connects OrdersForBlock (source of orders) ->
     /// [Optional] OrderFlowTracerManager provided tracer ->
-    /// ReplaceableOrderStreamSniffer (notifies mempool txs to MempoolTxsDetector) ->
     /// BlobTypeOrderFilter (filters out Orders with incorrect blobs (pre/post fusaka)) ->
     /// OrderReplacementManager (Handles cancellations and replacements) -> Simulations and calls start_building_job
     pub fn start_block_building(
@@ -135,16 +134,10 @@ where
             )))
         };
 
-        let mempool_txs_detector_sniffer =
-            order_input::mempool_txs_detector::ReplaceableOrderStreamSniffer::new(
-                blob_type_order_filter,
-                block_ctx.mempool_tx_detector.clone(),
-            );
-
         // order_flow_tracer_manager may add some extra  ReplaceableOrderSink on the chain.
         let (sim_tracer, order_flow_input) = self.order_flow_tracer_manager.create_tracers(
             payload.slot_block_id(),
-            Box::new(mempool_txs_detector_sniffer),
+            blob_type_order_filter,
         );
 
         // sink removal is automatic via OrderSink::is_alive false

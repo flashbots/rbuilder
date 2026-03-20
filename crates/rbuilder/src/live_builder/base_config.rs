@@ -6,7 +6,7 @@ use crate::{
         order_flow_tracing::order_flow_tracer_manager::{
             NullOrderFlowTracerManager, OrderFlowTracerManager, OrderFlowTracerManagerImpl,
         },
-        order_input::OrderInputConfig,
+        order_input::{mempool_txs_detector::MempoolTxsDetector, OrderInputConfig},
         process_killer::ProcessKiller,
         LiveBuilder,
     },
@@ -278,6 +278,8 @@ impl BaseConfig {
             faster_finalize: self.faster_finalize,
             order_flow_tracer_manager,
             order_journal_observer_factory: Box::new(NullOrderJournalObserverFactory {}),
+
+            mempool_detector: Arc::new(MempoolTxsDetector::new()),
         })
     }
 

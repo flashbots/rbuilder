@@ -241,6 +241,7 @@ pub async fn start_orderpool_jobs<P>(
     order_sender: mpsc::Sender<ReplaceableOrderPoolCommand>,
     order_receiver: mpsc::Receiver<ReplaceableOrderPoolCommand>,
     header_receiver: mpsc::Receiver<Header>,
+    mempool_detector: Arc<mempool_txs_detector::MempoolTxsDetector>,
 ) -> eyre::Result<(JoinHandle<()>, OrderPoolSubscriber)>
 where
     P: StateProviderFactory + 'static,
@@ -252,7 +253,10 @@ where
         warn!("ignore_blobs is set to true, some order input is ignored");
     }
 
-    let orderpool = Arc::new(Mutex::new(OrderPool::new(config.time_to_keep_mempool_txs)));
+    let orderpool = Arc::new(Mutex::new(OrderPool::new(
+        config.time_to_keep_mempool_txs,
+        mempool_detector.clone(),
+    )));
     let subscriber = OrderPoolSubscriber {
         orderpool: orderpool.clone(),
     };
@@ -279,6 +283,7 @@ where
         let txpool_fetcher = txpool_fetcher::subscribe_to_txpool_with_blobs(
             config.clone(),
             order_sender.clone(),
+            mempool_detector.clone(),
             global_cancel.clone(),
         )
         .await?;

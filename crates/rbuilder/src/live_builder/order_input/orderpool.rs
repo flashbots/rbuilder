@@ -1,4 +1,5 @@
 use super::{
+    mempool_txs_detector::MempoolTxsDetector,
     order_sink::{OrderPoolCommand, OrderSender2OrderSink},
     replaceable_order_sink::ReplaceableOrderSink,
     ReplaceableOrderPoolCommand,
@@ -94,11 +95,15 @@ pub struct OrderPool {
     next_sink_id: u64,
     /// After this time a mempool tx is dropped.
     time_to_keep_mempool_txs: Duration,
+    mempool_detector: Arc<MempoolTxsDetector>,
 }
 
 impl OrderPool {
     /// Instantiate a new OrderPool.
-    pub fn new(time_to_keep_mempool_txs: Duration) -> Self {
+    pub fn new(
+        time_to_keep_mempool_txs: Duration,
+        mempool_detector: Arc<MempoolTxsDetector>,
+    ) -> Self {
         OrderPool {
             mempool_txs: Vec::new(),
             bundles_by_target_block: HashMap::default(),
@@ -109,6 +114,7 @@ impl OrderPool {
             bundle_cancellations: Default::default(),
             time_to_keep_mempool_txs,
             mempool_txs_size: 0,
+            mempool_detector,
         }
     }
 
@@ -266,6 +272,9 @@ impl OrderPool {
                 Self::must_retain_order(time, order, new_state, &self.time_to_keep_mempool_txs);
             if !retain {
                 self.mempool_txs_size -= Self::measure_tx(order);
+                if let Order::Tx(mempool_tx) = order.as_ref() {
+                    self.mempool_detector.remove_tx(mempool_tx.tx_with_blobs.hash());
+                }
             }
             retain
         });

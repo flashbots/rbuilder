@@ -38,7 +38,7 @@ use building::BlockBuildingPool;
 use eyre::Context;
 use futures::{stream::FuturesUnordered, StreamExt};
 use jsonrpsee::RpcModule;
-use order_input::ReplaceableOrderPoolCommand;
+use order_input::{mempool_txs_detector::MempoolTxsDetector, ReplaceableOrderPoolCommand};
 use payload_events::{InternalPayloadId, MevBoostSlotDataGenerator};
 use rbuilder_primitives::{MempoolTx, Order, TransactionSignedEcRecoveredWithBlobs};
 use reth::transaction_pool::{
@@ -147,6 +147,8 @@ where
 
     pub order_flow_tracer_manager: Box<dyn OrderFlowTracerManager>,
     pub order_journal_observer_factory: Box<dyn OrderJournalObserverFactory + Send + Sync>,
+
+    pub mempool_detector: Arc<MempoolTxsDetector>,
 }
 
 impl<P> LiveBuilder<P>
@@ -230,6 +232,7 @@ where
 
         let (header_sender, header_receiver) = mpsc::channel(CLEAN_TASKS_CHANNEL_SIZE);
 
+        let mempool_detector = self.mempool_detector.clone();
         let orderpool_subscriber = {
             let (handle, sub) = start_orderpool_jobs(
                 self.order_input_config,
@@ -239,6 +242,7 @@ where
                 self.orderpool_sender,
                 self.orderpool_receiver,
                 header_receiver,
+                mempool_detector.clone(),
             )
             .await?;
             inner_jobs_handles.push(handle);
@@ -370,6 +374,7 @@ where
                     .iter()
                     .filter_map(|(_, r)| r.adjustment_fee_payer)
                     .collect(),
+                mempool_detector.clone(),
             ) {
                 mark_building_started(block_ctx.timestamp());
                 builder_pool.start_block_building(
@@ -401,13 +406,15 @@ where
         T: TransactionOrdering<Transaction = <V as TransactionValidator>::Transaction>,
         S: BlobStore,
     {
+        let detector = self.mempool_detector.clone();
         // Initialize the orderpool with every item in the reth pool.
         for tx in pool
             .all_transactions()
             .pending_recovered()
             .chain(pool.all_transactions().queued_recovered())
         {
-            try_send_to_orderpool(tx, self.orderpool_sender.clone(), pool.clone()).await;
+            try_send_to_orderpool(tx, self.orderpool_sender.clone(), pool.clone(), &detector)
+                .await;
         }
 
         // Subscribe to new transactions in-process.
@@ -416,7 +423,7 @@ where
         tokio::spawn(async move {
             while let Some(e) = recv.recv().await {
                 let tx = e.transaction.transaction.transaction().clone();
-                try_send_to_orderpool(tx, orderpool_sender.clone(), pool.clone()).await;
+                try_send_to_orderpool(tx, orderpool_sender.clone(), pool.clone(), &detector).await;
             }
         });
 
@@ -537,6 +544,7 @@ async fn try_send_to_orderpool<V, T, S>(
     tx: Recovered<TransactionSigned>,
     orderpool_sender: mpsc::Sender<ReplaceableOrderPoolCommand>,
     pool: Pool<V, T, S>,
+    mempool_detector: &Arc<MempoolTxsDetector>,
 ) where
     V: TransactionValidator<Transaction = EthPooledTransaction> + 'static,
     T: TransactionOrdering<Transaction = <V as TransactionValidator>::Transaction>,
@@ -544,6 +552,7 @@ async fn try_send_to_orderpool<V, T, S>(
 {
     match TransactionSignedEcRecoveredWithBlobs::try_from_tx_without_blobs_and_pool(tx, pool) {
         Ok(tx) => {
+            mempool_detector.add_tx(tx.hash());
             let order = Order::Tx(MempoolTx::new(tx));
             let command = ReplaceableOrderPoolCommand::Order(Arc::new(order));
             if let Err(e) = orderpool_sender.send(command).await {
