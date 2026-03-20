@@ -484,17 +484,19 @@ impl RawBundleRecovered {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RawTx {
     pub tx: Bytes,
+    pub is_private: bool,
 }
 
 impl RawTx {
     pub fn decode(self, encoding: TxEncoding) -> Result<MempoolTx, TxWithBlobsCreateError> {
-        Ok(MempoolTx::new(encoding.decode(self.tx)?))
+        Ok(MempoolTx::new(encoding.decode(self.tx)?, self.is_private))
     }
 
     /// See [TransactionSignedEcRecoveredWithBlobs::envelope_encoded_no_blobs]
     pub fn encode_no_blobs(value: MempoolTx) -> Self {
         Self {
             tx: value.tx_with_blobs.envelope_encoded_no_blobs(),
+            is_private: value.is_private(),
         }
     }
 }

@@ -102,7 +102,10 @@ pub async fn start_server_accepting_bundles(
                     return Err(err);
                 }
             };
-            let raw_tx_order = RawTx { tx: raw_tx };
+            let raw_tx_order = RawTx {
+                tx: raw_tx,
+                is_private: true,
+            };
 
             let mut tx: MempoolTx = match raw_tx_order.decode(TxEncoding::WithBlobData) {
                 Ok(tx) => tx,

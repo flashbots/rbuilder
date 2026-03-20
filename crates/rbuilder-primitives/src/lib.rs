@@ -764,14 +764,26 @@ impl std::hash::Hash for TransactionSignedEcRecoveredWithBlobs {
     }
 }
 
+/// This used to model a mempool tx but right now it models a stand alone tx.
+/// Since we get txs from mempool and also from builder's endpoint eth_sendRawTransaction
+/// MempoolTx is modeling both (is_private <=> came internally through eth_sendRawTransaction).
+/// @Pending rename to something like SingleTx.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MempoolTx {
     pub tx_with_blobs: TransactionSignedEcRecoveredWithBlobs,
+    is_private: bool,
 }
 
 impl MempoolTx {
-    pub fn new(tx_with_blobs: TransactionSignedEcRecoveredWithBlobs) -> Self {
-        Self { tx_with_blobs }
+    pub fn new(tx_with_blobs: TransactionSignedEcRecoveredWithBlobs, is_private: bool) -> Self {
+        Self {
+            tx_with_blobs,
+            is_private,
+        }
+    }
+
+    pub fn is_private(&self) -> bool {
+        self.is_private
     }
 }
 

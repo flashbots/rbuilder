@@ -216,7 +216,7 @@ async fn main() -> eyre::Result<()> {
         if tx.hash() == target_tx {
             break;
         }
-        let order = Order::Tx(MempoolTx::new(tx.clone()));
+        let order = Order::Tx(MempoolTx::new(tx.clone(), false));
         let sim_order =
             SimulatedOrder::new(Arc::new(order), Default::default(), Default::default());
         let res = builder.commit_order(&mut block_info.local_ctx, &sim_order, &|_| Ok(()))?;

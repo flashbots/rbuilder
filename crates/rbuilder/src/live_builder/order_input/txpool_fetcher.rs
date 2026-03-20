@@ -70,7 +70,7 @@ pub async fn subscribe_to_txpool_with_blobs(
                 }
             };
 
-            let tx = MempoolTx::new(tx_with_blobs);
+            let tx = MempoolTx::new(tx_with_blobs, false);
             let order = Order::Tx(tx);
             let parse_duration = start.elapsed();
             trace!(order = ?order.id(), parse_duration_mus = parse_duration.as_micros(), "Mempool transaction received with blobs");

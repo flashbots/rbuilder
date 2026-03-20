@@ -144,9 +144,7 @@ impl TestDataGenerator {
     }
 
     pub fn create_mempool_tx(&mut self, sender_nonce: AccountNonce) -> MempoolTx {
-        MempoolTx {
-            tx_with_blobs: self.create_tx_with_blobs_nonce(sender_nonce),
-        }
+        MempoolTx::new(self.create_tx_with_blobs_nonce(sender_nonce), false)
     }
 
     pub fn create_tx_order(&mut self, sender_nonce: AccountNonce) -> Order {

@@ -56,7 +56,9 @@ impl MempoolTxsDetector {
 
     pub fn add_tx(&self, order: &Order) {
         if let Order::Tx(mempool_tx) = order {
-            self.mempool_txs.insert(mempool_tx.tx_with_blobs.hash());
+            if !mempool_tx.is_private() {
+                self.mempool_txs.insert(mempool_tx.tx_with_blobs.hash());
+            }
         }
     }
 

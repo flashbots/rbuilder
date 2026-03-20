@@ -34,7 +34,7 @@ use std::{
 
 /// Version of the data/format on the DB.
 /// Since we don't have backwards compatibility every time this is increased we must re-create the DB (manually delete the sqlite)
-const VERSION: i64 = 12;
+const VERSION: i64 = 13;
 
 /// Storage of FullSlotBlockData.
 /// It allows us to locally cache (using a SQLite DB) all the info we need for backtesting so we don't have to

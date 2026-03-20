@@ -232,7 +232,11 @@ pub fn extract_onchain_block_txs(
         let tx_envelope: TxEnvelope =
             <alloy_rpc_types_eth::Transaction as Into<TxEnvelope>>::into(tx);
         let encoded = tx_envelope.encoded_2718();
-        let tx = RawTx { tx: encoded.into() }.decode(TxEncoding::NoBlobData)?;
+        let tx = RawTx {
+            tx: encoded.into(),
+            is_private: false,
+        }
+        .decode(TxEncoding::NoBlobData)?;
         result.push(tx.tx_with_blobs);
     }
     Ok(result)

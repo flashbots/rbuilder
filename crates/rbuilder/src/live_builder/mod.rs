@@ -544,7 +544,7 @@ async fn try_send_to_orderpool<V, T, S>(
 {
     match TransactionSignedEcRecoveredWithBlobs::try_from_tx_without_blobs_and_pool(tx, pool) {
         Ok(tx) => {
-            let order = Order::Tx(MempoolTx::new(tx));
+            let order = Order::Tx(MempoolTx::new(tx, false));
             let command = ReplaceableOrderPoolCommand::Order(Arc::new(order));
             if let Err(e) = orderpool_sender.send(command).await {
                 error!("Error sending order to orderpool: {:#}", e);

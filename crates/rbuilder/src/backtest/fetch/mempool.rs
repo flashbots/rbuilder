@@ -41,6 +41,7 @@ pub fn get_mempool_transactions(
         .filter_map(|tx| {
             let order: Order = RawOrder::Tx(RawTx {
                 tx: tx.raw_tx.into(),
+                is_private: false,
             })
             .decode(TxEncoding::WithBlobData)
             .map_err(|err| error!("Failed to parse raw tx: {:?}", err))
