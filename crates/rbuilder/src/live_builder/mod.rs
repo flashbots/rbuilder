@@ -485,10 +485,10 @@ where
 {
     let deadline = slot_time + timings.block_header_deadline_delta;
     loop {
-        match try_to_read_block_header(block, parent_hash, payload_id, provider).await {
+        match try_to_read_block_header(block, parent_hash, payload_id, provider) {
             Ok(header) => return Ok(header),
             Err(err) => {
-                info!(?err, "Failed to_read_block_header");
+                info!(?err, "try_to_read_block_header failed");
             }
         }
         let time_to_sleep = min(
