@@ -10,16 +10,21 @@ use rbuilder_primitives::{
 use std::{pin::pin, sync::Arc, time::Instant};
 use time::OffsetDateTime;
 use tokio::{
-    sync::{mpsc, mpsc::error::SendTimeoutError},
+    sync::{mpsc, mpsc::error::SendTimeoutError, Semaphore},
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info, trace};
+use tracing::{error, info, trace, warn};
+
+/// Max concurrent tx fetch requests to prevent overwhelming the RPC connection.
+const TX_FETCH_CONCURRENCY: usize = 64;
 
 /// Subscribes to EL mempool and pushes new txs as orders in results.
 /// This version allows 4844 by subscribing to subscribe_pending_txs to get the hashes and then calling eth_getRawTransactionByHash
 /// to get the raw tx that, in case of 4844 tx, may include blobs.
-/// In the future we may consider updating reth so we can process blob txs in a different task to avoid slowing down non blob txs.
+///
+/// Uses a separate IPC connection for RPC calls and fetches transactions
+/// concurrently to avoid blocking the subscription stream.
 pub async fn subscribe_to_txpool_with_blobs(
     config: OrderInputConfig,
     results: mpsc::Sender<ReplaceableOrderPoolCommand>,
@@ -29,70 +34,100 @@ pub async fn subscribe_to_txpool_with_blobs(
         .mempool_source
         .ok_or_else(|| eyre::eyre!("No txpool source configured"))?;
 
-    let provider = match mempool {
+    // Create TWO connections: one for subscription stream, one for RPC calls.
+    // This prevents sequential get_raw_transaction_by_hash calls from blocking
+    // the subscription consumer and causing backpressure on the IPC socket.
+    let (sub_provider, rpc_provider) = match &mempool {
         MempoolSource::Ipc(path) => {
-            let ipc = IpcConnect::new(path);
-            ProviderBuilder::new().connect_ipc(ipc).await?
+            let ipc1 = IpcConnect::new(path.clone());
+            let ipc2 = IpcConnect::new(path.clone());
+            let p1 = ProviderBuilder::new().connect_ipc(ipc1).await?;
+            let p2 = ProviderBuilder::new().connect_ipc(ipc2).await?;
+            (p1, Arc::new(p2))
         }
         MempoolSource::Ws(url) => {
-            let ws_conn = alloy_provider::WsConnect::new(url);
-            ProviderBuilder::new().connect_ws(ws_conn).await?
+            let ws1 = alloy_provider::WsConnect::new(url.clone());
+            let ws2 = alloy_provider::WsConnect::new(url.clone());
+            let p1 = ProviderBuilder::new().connect_ws(ws1).await?;
+            let p2 = ProviderBuilder::new().connect_ws(ws2).await?;
+            (p1, Arc::new(p2))
         }
     };
 
     let handle = tokio::spawn(async move {
         info!("Subscribe to txpool with blobs: started");
 
-        let stream = match provider.subscribe_pending_transactions().await {
+        let stream = match sub_provider
+            .subscribe_pending_transactions()
+            .channel_size(16384)
+            .await
+        {
             Ok(stream) => stream.into_stream().take_until(global_cancel.cancelled()),
             Err(err) => {
                 error!(?err, "Failed to subscribe to ipc txpool stream");
-                // Closing builder because this job is critical so maybe restart will help
                 global_cancel.cancel();
                 return;
             }
         };
         let mut stream = pin!(stream);
 
-        while let Some(tx_hash) = stream.next().await {
-            let received_at = OffsetDateTime::now_utc();
-            let start = Instant::now();
+        // Semaphore limits concurrent fetch tasks to avoid overwhelming the RPC connection
+        let semaphore = Arc::new(Semaphore::new(TX_FETCH_CONCURRENCY));
 
-            let tx_with_blobs = match get_tx_with_blobs(tx_hash, &provider).await {
-                Ok(Some(tx_with_blobs)) => tx_with_blobs,
-                Ok(None) => {
-                    trace!(?tx_hash, "tx not found in tx pool");
-                    continue;
-                }
-                Err(err) => {
-                    error!(?tx_hash, ?err, "Failed to get tx from pool");
+        // Consume tx hash notifications as fast as possible, spawning concurrent fetch tasks
+        while let Some(tx_hash) = stream.next().await {
+            let permit = match semaphore.clone().try_acquire_owned() {
+                Ok(permit) => permit,
+                Err(_) => {
+                    // All fetch slots busy — drop this hash rather than blocking the stream
+                    trace!(?tx_hash, "tx fetch concurrency limit reached, dropping hash");
                     continue;
                 }
             };
 
-            let tx = MempoolTx::new(tx_with_blobs);
-            let order = Order::Tx(tx);
-            let parse_duration = start.elapsed();
-            trace!(order = ?order.id(), parse_duration_mus = parse_duration.as_micros(), "Mempool transaction received with blobs");
-            add_txfetcher_time_to_query(parse_duration);
+            let provider = rpc_provider.clone();
+            let results = results.clone();
+            let config_timeout = config.results_channel_timeout;
 
-            let orderpool_command = ReplaceableOrderPoolCommand::Order(Arc::new(order));
-            mark_command_received(&orderpool_command, received_at);
-            match results
-                .send_timeout(orderpool_command, config.results_channel_timeout)
-                .await
-            {
-                Ok(()) => {}
-                Err(SendTimeoutError::Timeout(_)) => {
-                    error!("Failed to send txpool tx to results channel, timeout");
+            tokio::spawn(async move {
+                let _permit = permit; // held until task completes
+                let received_at = OffsetDateTime::now_utc();
+                let start = Instant::now();
+
+                let tx_with_blobs = match get_tx_with_blobs(tx_hash, provider.as_ref()).await {
+                    Ok(Some(tx)) => tx,
+                    Ok(None) => {
+                        trace!(?tx_hash, "tx not found in tx pool");
+                        return;
+                    }
+                    Err(err) => {
+                        trace!(?tx_hash, ?err, "Failed to get tx from pool");
+                        return;
+                    }
+                };
+
+                let tx = MempoolTx::new(tx_with_blobs);
+                let order = Order::Tx(tx);
+                let parse_duration = start.elapsed();
+                trace!(order = ?order.id(), parse_duration_mus = parse_duration.as_micros(), "Mempool transaction received with blobs");
+                add_txfetcher_time_to_query(parse_duration);
+
+                let orderpool_command = ReplaceableOrderPoolCommand::Order(Arc::new(order));
+                mark_command_received(&orderpool_command, received_at);
+                match results
+                    .send_timeout(orderpool_command, config_timeout)
+                    .await
+                {
+                    Ok(()) => {}
+                    Err(SendTimeoutError::Timeout(_)) => {
+                        warn!("Failed to send txpool tx to results channel, timeout");
+                    }
+                    Err(SendTimeoutError::Closed(_)) => {}
                 }
-                Err(SendTimeoutError::Closed(_)) => {
-                    break;
-                }
-            }
+            });
         }
 
-        // stream is closed, cancelling token because builder can't work without this stream
+        // stream ended, cancelling token because builder can't work without this stream
         global_cancel.cancel();
         info!("Subscribe to txpool: finished");
     });
