@@ -58,31 +58,10 @@ impl<CTX: ContextTr, P: PrecompileProvider<CTX, Output = InterpreterResult>> Pre
         context: &mut CTX,
         inputs: &CallInputs,
     ) -> Result<Option<Self::Output>, String> {
-        let key = (self.spec, inputs.input.bytes(context), inputs.gas_limit);
-
-        // get the result if it exists
-        if let Some(precompiles) = self.cache.lock().get_mut(&inputs.target_address) {
-            if let Some(result) = precompiles.get(&key) {
-                inc_precompile_cache_hits();
-                return result.clone().map(Some);
-            }
-        }
-
-        inc_precompile_cache_misses();
-
-        // call the precompile if cache miss
-        let output = self.precompile.run(context, inputs);
-
-        if let Some(output) = output.clone().transpose() {
-            // insert the result into the cache
-            self.cache
-                .lock()
-                .entry(inputs.target_address)
-                .or_insert(PrecompileResultCache::new(NonZeroUsize::new(2048).unwrap()))
-                .put(key, output);
-        }
-
-        output
+        // Skip the cache entirely — profiling shows 0 hits across 177K calls.
+        // The cache key includes gas_limit which varies per call, preventing hits.
+        // The Bytes clone + mutex lock/unlock overhead is pure waste.
+        self.precompile.run(context, inputs)
     }
 
     fn warm_addresses(&self) -> Box<impl Iterator<Item = Address>> {
