@@ -16,8 +16,11 @@ use std::{num::NonZeroUsize, sync::Arc};
 #[derive(Deref, DerefMut, Default, Debug)]
 pub struct PrecompileCache(HashMap<Address, PrecompileResultCache>);
 
-/// Precompile result LRU cache  stored by `(spec id, input, gas limit)` key.
-pub type PrecompileResultCache = LruCache<(SpecId, Bytes, u64), Result<InterpreterResult, String>>;
+/// Precompile result LRU cache stored by `(spec id, input)` key.
+/// gas_limit is excluded because precompile results are deterministic given the same
+/// spec and input — the gas limit only affects whether the call has enough gas to
+/// complete, not the result itself.
+pub type PrecompileResultCache = LruCache<(SpecId, Bytes), Result<InterpreterResult, String>>;
 
 /// A custom precompile that contains the cache and precompile it wraps.
 #[derive(Clone)]
@@ -58,7 +61,7 @@ impl<CTX: ContextTr, P: PrecompileProvider<CTX, Output = InterpreterResult>> Pre
         context: &mut CTX,
         inputs: &CallInputs,
     ) -> Result<Option<Self::Output>, String> {
-        let key = (self.spec, inputs.input.bytes(context), inputs.gas_limit);
+        let key = (self.spec, inputs.input.bytes(context));
 
         // get the result if it exists
         if let Some(precompiles) = self.cache.lock().get_mut(&inputs.target_address) {
