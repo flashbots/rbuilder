@@ -321,58 +321,40 @@ impl DiskBackup {
         Ok(stats)
     }
 
-    /// Retrieves the oldest failed commit from disk, if any.
-    fn retrieve_oldest<T: ClickhouseRowExt>(
+    /// Atomically retrieves and removes the oldest failed commit from disk.
+    /// Each call returns the next successive entry.
+    fn take_oldest<T: ClickhouseRowExt>(
         &mut self,
     ) -> Result<Option<DiskRetrieval<DiskBackupKey, FailedCommit<T>>>, DiskBackupError> {
         let table_def = Table::new(T::TABLE_NAME);
 
-        let reader = self.db.read().expect("not poisoned").begin_read()?;
-        let table = match reader.open_table(table_def) {
-            Ok(t) => t,
-            Err(redb::TableError::TableDoesNotExist(_)) => {
-                // No table means no data.
-                return Ok(None);
-            }
-            Err(e) => {
-                return Err(e.into());
-            }
-        };
-
-        let stats = Self::table_stats(&table)?;
-
-        // Retreives in sorted order.
-        let Some(entry_res) = table.iter()?.next() else {
-            return Ok(None);
-        };
-        let (key, rows_raw) = entry_res?;
-        let commit: FailedCommit<T> = serde_json::from_slice(&rows_raw.value())?;
-
-        Ok(Some(DiskRetrieval {
-            key: key.value(),
-            value: commit,
-            stats,
-        }))
-    }
-
-    /// Deletes the failed commit with the given key from disk.
-    fn delete<T: ClickhouseRowExt>(
-        &mut self,
-        key: DiskBackupKey,
-    ) -> Result<BackupSourceStats, DiskBackupError> {
-        let table_def = Table::new(T::TABLE_NAME);
-
-        let mut writer = self.db.write().expect("not poisoned").begin_write()?;
-        writer.set_durability(redb::Durability::Immediate)?;
-
-        let stats = {
+        let writer = self.db.write().expect("not poisoned").begin_write()?;
+        let result = {
             let mut table = writer.open_table(table_def)?;
+
+            // Read the oldest entry, extracting owned values before mutating.
+            let (key, commit) = {
+                let Some(entry_res) = table.iter()?.next() else {
+                    return Ok(None);
+                };
+                let (key, rows_raw) = entry_res?;
+                let key = key.value();
+                let commit: FailedCommit<T> = serde_json::from_slice(&rows_raw.value())?;
+                (key, commit)
+            };
+            // Iterator borrow is dropped; safe to mutate now.
             table.remove(key)?;
-            Self::table_stats(&table)?
+            let stats = Self::table_stats(&table)?;
+
+            DiskRetrieval {
+                key,
+                value: commit,
+                stats,
+            }
         };
         writer.commit()?;
 
-        Ok(stats)
+        Ok(Some(result))
     }
 
     /// Explicity flushes any pending writes to disk. This is async to avoid blocking the main
@@ -647,10 +629,10 @@ impl<T: ClickhouseRowExt, MetricsType: Metrics> Backup<T, MetricsType> {
             });
         }
 
-        match self.disk_backup.retrieve_oldest() {
+        match self.disk_backup.take_oldest() {
             Ok(maybe_commit) => {
                 maybe_commit.inspect(|data| {
-                    tracing::debug!(target: TARGET, order = T::TABLE_NAME, rows = data.stats.total_batches, "retrieved oldest failed commit from disk");
+                    tracing::debug!(target: TARGET, order = T::TABLE_NAME, rows = data.stats.total_batches, "took oldest failed commit from disk");
                 })
                 .map(|data| RetrievedFailedCommit {
                     sources: vec![BackupSource::Disk(data.key)],
@@ -658,7 +640,7 @@ impl<T: ClickhouseRowExt, MetricsType: Metrics> Backup<T, MetricsType> {
                 })
             }
             Err(e) => {
-                Self::log_disk_error("failed to retrieve oldest failed commit from disk", &e);
+                Self::log_disk_error("failed to take oldest failed commit from disk", &e);
                 None
             }
         }
@@ -674,24 +656,6 @@ impl<T: ClickhouseRowExt, MetricsType: Metrics> Backup<T, MetricsType> {
                 tracing::error!(target: TARGET, order = T::TABLE_NAME, ?e, "failed to write to backup inserter");
                 continue;
             }
-        }
-    }
-
-    /// Purges a committed failed commit from disk, if applicable.
-    async fn purge_disk_backup(&mut self, source: &BackupSource) {
-        if let BackupSource::Disk(key) = source {
-            let key = *key;
-            let start = Instant::now();
-            match self.disk_backup.delete::<T>(key) {
-                Ok(stats) => {
-                    tracing::debug!(target: TARGET, order = T::TABLE_NAME, total_size = stats.size_bytes.format_bytes(), elapsed = ?start.elapsed(), "deleted failed commit from disk");
-                    Self::update_disk_backup_stats(stats);
-                }
-                Err(e) => {
-                    tracing::error!(target: TARGET, order = T::TABLE_NAME, ?e, "failed to purge failed commit from disk");
-                }
-            }
-            tracing::debug!(target: TARGET, order = T::TABLE_NAME, "purged committed failed commit from disk");
         }
     }
 
@@ -750,17 +714,15 @@ impl<T: ClickhouseRowExt, MetricsType: Metrics> Backup<T, MetricsType> {
                                 tracing::info!(target: TARGET, order = T::TABLE_NAME, ?quantities, batch_count, "successfully backed up merged batches");
                                 MetricsType::process_backup_data_quantities(&quantities.into());
                                 MetricsType::record_batch_commit_time(start.elapsed());
-                                for source in &sources {
-                                    self.purge_disk_backup(source).await;
-                                }
+                                // Disk entries were already removed by take_oldest().
                                 // Continue to drain more if there are remaining batches.
                             }
                             Err(e) => {
                                 tracing::error!(target: TARGET, order = T::TABLE_NAME, ?e, ?merged_quantities, "failed to commit merged backup to clickhouse");
                                 MetricsType::increment_commit_failures(e.to_string());
-                                // Re-store the merged batch with its original
-                                // sources so disk keys can be purged on eventual
-                                // success.
+                                // Re-store the merged batch for retry. Disk
+                                // entries were already consumed by take_oldest(),
+                                // so this is now the only copy of the data.
                                 self.last_cached = Some(RetrievedFailedCommit {
                                     sources,
                                     commit: merged_commit,
@@ -1205,7 +1167,7 @@ mod tests {
 
         let retrieved = backup.retrieve_oldest().unwrap();
 
-        // Disk keys must be preserved so purge_disk_backup can delete them.
+        // Disk keys must be preserved for provenance tracking.
         let disk_keys: Vec<_> = retrieved
             .sources
             .iter()
