@@ -4,7 +4,10 @@ pub mod primitives;
 use std::{
     collections::VecDeque,
     path::PathBuf,
-    sync::{Arc, RwLock},
+    sync::{
+        atomic::{AtomicU64, Ordering as AtomicOrdering},
+        Arc, RwLock,
+    },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -50,13 +53,20 @@ enum BackupSource {
     Memory,
 }
 
-/// Generates a new unique key for disk backup entries, based on current system time in
-/// milliseconds.
+/// Monotonic counter to disambiguate disk backup keys created within the same
+/// microsecond (e.g. during a tight shutdown loop).
+static DISK_KEY_SEQ: AtomicU64 = AtomicU64::new(0);
+
+/// Generates a new unique key for disk backup entries. Combines the current
+/// system time in microseconds with an atomic sequence counter to avoid
+/// collisions when multiple entries are saved in quick succession.
 fn new_disk_backup_key() -> DiskBackupKey {
-    SystemTime::now()
+    let micros = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("time went backwards")
-        .as_micros()
+        .as_micros();
+    let seq = DISK_KEY_SEQ.fetch_add(1, AtomicOrdering::Relaxed) as u128;
+    (micros << 32) | seq
 }
 
 /// Represents data we failed to commit to clickhouse, including the rows and some information
@@ -767,7 +777,10 @@ impl<T: ClickhouseRowExt, MetricsType: Metrics> Backup<T, MetricsType> {
                 // Only save to disk if the CH commit failed — otherwise the
                 // data would be committed again from disk on next startup.
                 if let Err(e) = self.disk_backup.save(&cached.commit) {
-                    Self::log_disk_error("failed to write cached backup to disk during shutdown", &e);
+                    Self::log_disk_error(
+                        "failed to write cached backup to disk during shutdown",
+                        &e,
+                    );
                 }
             }
         }
@@ -788,7 +801,10 @@ impl<T: ClickhouseRowExt, MetricsType: Metrics> Backup<T, MetricsType> {
                 // Only save to disk if the CH commit failed — otherwise the
                 // data would be committed again from disk on next startup.
                 if let Err(e) = self.disk_backup.save(&failed_commit) {
-                    Self::log_disk_error("failed to write commit to disk backup during shutdown", &e);
+                    Self::log_disk_error(
+                        "failed to write commit to disk backup during shutdown",
+                        &e,
+                    );
                 }
             }
         }
@@ -943,20 +959,44 @@ mod tests {
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(mut stream) = stream else { break };
-                // Drain the full request body to avoid leaving stale data
-                // in the socket buffer that would corrupt the next request.
-                stream.set_nonblocking(true).ok();
-                let mut buf = [0u8; 65536];
-                // First read blocks until data arrives (nonblocking set after).
-                stream.set_nonblocking(false).ok();
-                let _ = stream.read(&mut buf);
-                // Drain any remaining data without blocking.
-                stream.set_nonblocking(true).ok();
+                // Read the full HTTP request: headers first, then body
+                // based on Content-Length to avoid stale socket data.
+                let mut buf = Vec::new();
+                let mut tmp = [0u8; 4096];
+                let mut content_length: Option<usize> = None;
+                let mut header_end = None;
+
+                // Read until we have the full headers + body.
                 loop {
-                    match stream.read(&mut buf) {
+                    let n = match stream.read(&mut tmp) {
                         Ok(0) => break,
-                        Ok(_) => continue,
-                        Err(_) => break, // WouldBlock or error — done reading
+                        Ok(n) => n,
+                        Err(_) => break,
+                    };
+                    buf.extend_from_slice(&tmp[..n]);
+
+                    // Find end of headers if not yet found.
+                    if header_end.is_none() {
+                        if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                            header_end = Some(pos + 4);
+                            // Parse Content-Length from headers.
+                            let headers = String::from_utf8_lossy(&buf[..pos]);
+                            for line in headers.lines() {
+                                if let Some(val) = line.strip_prefix("Content-Length: ") {
+                                    content_length = val.trim().parse().ok();
+                                }
+                            }
+                        }
+                    }
+
+                    // Check if we've read the full body.
+                    if let (Some(hend), Some(clen)) = (header_end, content_length) {
+                        if buf.len() >= hend + clen {
+                            break;
+                        }
+                    } else if header_end.is_some() && content_length.is_none() {
+                        // No Content-Length header — assume body is empty.
+                        break;
                     }
                 }
 
@@ -988,7 +1028,10 @@ mod tests {
             .inserter::<TestRow>("test_rows")
             .with_period(Some(Duration::from_secs(60)))
             .with_timeouts(Some(Duration::from_secs(5)), Some(Duration::from_secs(5)));
-        (Backup::<TestRow, NullMetrics>::new_test(rx, inserter, disk, true), tmpdir)
+        (
+            Backup::<TestRow, NullMetrics>::new_test(rx, inserter, disk, true),
+            tmpdir,
+        )
     }
 
     /// After accumulating several batches in the memory backup, the drain loop
@@ -1095,7 +1138,10 @@ mod tests {
     }
 
     /// Helper that runs the drain loop and returns the backup for inspection.
-    async fn run_drain(mut backup: Backup<TestRow, NullMetrics>, tx: mpsc::Sender<FailedCommit<TestRow>>) -> Backup<TestRow, NullMetrics> {
+    async fn run_drain(
+        mut backup: Backup<TestRow, NullMetrics>,
+        tx: mpsc::Sender<FailedCommit<TestRow>>,
+    ) -> Backup<TestRow, NullMetrics> {
         let handle = tokio::spawn(async move {
             backup.run().await;
             backup
@@ -1268,9 +1314,8 @@ mod tests {
 
         let (tx, rx) = mpsc::channel::<FailedCommit<TestRow>>(64);
         let (disk, _tmpdir) = test_disk_backup();
-        let mut backup =
-            Backup::<TestRow, NullMetrics>::new_test(rx, inserter, disk, true)
-                .with_max_rows_per_commit(50);
+        let mut backup = Backup::<TestRow, NullMetrics>::new_test(rx, inserter, disk, true)
+            .with_max_rows_per_commit(50);
 
         // Accumulate 10 batches of 10 rows each = 100 rows total.
         // Use unique values so we can detect duplicates.
@@ -1305,7 +1350,11 @@ mod tests {
             .expect("run() should complete")
             .unwrap();
 
-        assert_eq!(backup.memory_backup.failed_commits.len(), 0, "all batches should be drained");
+        assert_eq!(
+            backup.memory_backup.failed_commits.len(),
+            0,
+            "all batches should be drained"
+        );
         assert!(backup.last_cached.is_none(), "nothing should be cached");
 
         // Give ClickHouse a moment to process async inserts.
@@ -1317,7 +1366,10 @@ mod tests {
             .fetch_one()
             .await
             .expect("failed to query row count");
-        assert_eq!(row_count, total_rows as u64, "all rows should be in ClickHouse");
+        assert_eq!(
+            row_count, total_rows as u64,
+            "all rows should be in ClickHouse"
+        );
 
         // Verify no duplicates.
         let dup_count: u64 = client
@@ -1356,18 +1408,23 @@ mod tests {
 
         let (tx, rx) = mpsc::channel::<FailedCommit<TestRow>>(128);
         let (disk, _tmpdir) = test_disk_backup();
-        let mut backup =
-            Backup::<TestRow, NullMetrics>::new_test(rx, inserter, disk, true)
-                .with_max_rows_per_commit(30);
+        let mut backup = Backup::<TestRow, NullMetrics>::new_test(rx, inserter, disk, true)
+            .with_max_rows_per_commit(30);
 
         // Phase 1: Pre-load 50 rows and start the drain loop while CH is up.
         for i in 0..5 {
             let rows: Vec<TestRow> = (0..10)
-                .map(|j| TestRow { value: (i * 10 + j) as u64 })
+                .map(|j| TestRow {
+                    value: (i * 10 + j) as u64,
+                })
                 .collect();
             backup.memory_backup.save(FailedCommit {
                 rows,
-                quantities: Quantities { bytes: 10, rows: 10, transactions: 1 },
+                quantities: Quantities {
+                    bytes: 10,
+                    rows: 10,
+                    transactions: 1,
+                },
             });
         }
 
@@ -1391,11 +1448,17 @@ mod tests {
         // The drain loop's rx.recv() branch stores them in backup.
         for i in 5..10 {
             let rows: Vec<TestRow> = (0..10)
-                .map(|j| TestRow { value: (i * 10 + j) as u64 })
+                .map(|j| TestRow {
+                    value: (i * 10 + j) as u64,
+                })
                 .collect();
             tx.send(FailedCommit {
                 rows,
-                quantities: Quantities { bytes: 10, rows: 10, transactions: 1 },
+                quantities: Quantities {
+                    bytes: 10,
+                    rows: 10,
+                    transactions: 1,
+                },
             })
             .await
             .expect("channel should be open");
@@ -1490,7 +1553,8 @@ mod tests {
         backup.backup(make_failed_commit(3));
 
         assert_eq!(
-            backup.memory_backup.failed_commits.len(), 0,
+            backup.memory_backup.failed_commits.len(),
+            0,
             "nothing should be in memory when disk is available"
         );
         let stats = backup.disk_backup.get_table_stats::<TestRow>().unwrap();
@@ -1499,19 +1563,28 @@ mod tests {
         // Retrieve entries one by one — each call should consume the entry.
         let first = backup.retrieve_oldest().unwrap();
         assert!(
-            first.sources.iter().any(|s| matches!(s, BackupSource::Disk(_))),
+            first
+                .sources
+                .iter()
+                .any(|s| matches!(s, BackupSource::Disk(_))),
             "should be from disk"
         );
         let stats = backup.disk_backup.get_table_stats::<TestRow>().unwrap();
         assert_eq!(stats.total_batches, 2, "one entry should be consumed");
 
         let second = backup.retrieve_oldest().unwrap();
-        assert!(second.sources.iter().any(|s| matches!(s, BackupSource::Disk(_))));
+        assert!(second
+            .sources
+            .iter()
+            .any(|s| matches!(s, BackupSource::Disk(_))));
         let stats = backup.disk_backup.get_table_stats::<TestRow>().unwrap();
         assert_eq!(stats.total_batches, 1);
 
         let third = backup.retrieve_oldest().unwrap();
-        assert!(third.sources.iter().any(|s| matches!(s, BackupSource::Disk(_))));
+        assert!(third
+            .sources
+            .iter()
+            .any(|s| matches!(s, BackupSource::Disk(_))));
         let stats = backup.disk_backup.get_table_stats::<TestRow>().unwrap();
         assert_eq!(stats.total_batches, 0, "disk should be empty");
 
@@ -1519,9 +1592,8 @@ mod tests {
         assert!(backup.retrieve_oldest().is_none());
 
         // Verify total row counts across retrieved batches.
-        let total_rows: usize = first.commit.rows.len()
-            + second.commit.rows.len()
-            + third.commit.rows.len();
+        let total_rows: usize =
+            first.commit.rows.len() + second.commit.rows.len() + third.commit.rows.len();
         assert_eq!(total_rows, 15, "5 + 7 + 3 = 15 rows total");
     }
 
@@ -1561,7 +1633,10 @@ mod tests {
         assert_eq!(backup.memory_backup.failed_commits.len(), 0);
         assert!(backup.last_cached.is_none());
         let stats = backup.disk_backup.get_table_stats::<TestRow>().unwrap();
-        assert_eq!(stats.total_batches, 0, "all disk entries should be consumed");
+        assert_eq!(
+            stats.total_batches, 0,
+            "all disk entries should be consumed"
+        );
     }
 
     /// When disk save fails (size exceeded), `backup()` falls back to memory.
@@ -1598,7 +1673,8 @@ mod tests {
         // Second save exceeds disk size limit, falls back to memory.
         backup.backup(make_failed_commit(5));
         assert_eq!(
-            backup.memory_backup.failed_commits.len(), 1,
+            backup.memory_backup.failed_commits.len(),
+            1,
             "should fall back to memory when disk is full"
         );
     }
