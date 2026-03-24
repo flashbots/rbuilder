@@ -785,10 +785,11 @@ impl<T: ClickhouseRowExt, MetricsType: Metrics> Backup<T, MetricsType> {
             if let Err(e) = self.inserter.force_commit().await {
                 tracing::error!(target: TARGET, order = T::TABLE_NAME, ?e, "failed to commit backup to CH during shutdown, trying disk");
                 MetricsType::increment_commit_failures(e.to_string());
-            }
-
-            if let Err(e) = self.disk_backup.save(&failed_commit) {
-                Self::log_disk_error("failed to write commit to disk backup during shutdown", &e);
+                // Only save to disk if the CH commit failed — otherwise the
+                // data would be committed again from disk on next startup.
+                if let Err(e) = self.disk_backup.save(&failed_commit) {
+                    Self::log_disk_error("failed to write commit to disk backup during shutdown", &e);
+                }
             }
         }
 
@@ -897,16 +898,19 @@ mod tests {
     }
 
     /// Creates a DiskBackup without a TaskExecutor (no background flush routine).
-    fn test_disk_backup() -> DiskBackup {
+    /// Returns the `TempDir` handle alongside — it must be kept alive for the
+    /// duration of the test, and is cleaned up when dropped.
+    fn test_disk_backup() -> (DiskBackup, tempfile::TempDir) {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("test_backup.db");
         let db = redb::Database::create(&path).unwrap();
-        // Leak the tempdir so it stays alive for the test duration.
-        std::mem::forget(tmp);
-        DiskBackup {
-            db: Arc::new(RwLock::new(db)),
-            config: DiskBackupConfig::new(),
-        }
+        (
+            DiskBackup {
+                db: Arc::new(RwLock::new(db)),
+                config: DiskBackupConfig::new(),
+            },
+            tmp,
+        )
     }
 
     fn make_failed_commit(n_rows: usize) -> FailedCommit<TestRow> {
@@ -939,8 +943,22 @@ mod tests {
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(mut stream) = stream else { break };
+                // Drain the full request body to avoid leaving stale data
+                // in the socket buffer that would corrupt the next request.
+                stream.set_nonblocking(true).ok();
                 let mut buf = [0u8; 65536];
+                // First read blocks until data arrives (nonblocking set after).
+                stream.set_nonblocking(false).ok();
                 let _ = stream.read(&mut buf);
+                // Drain any remaining data without blocking.
+                stream.set_nonblocking(true).ok();
+                loop {
+                    match stream.read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(_) => continue,
+                        Err(_) => break, // WouldBlock or error — done reading
+                    }
+                }
 
                 let n = count.fetch_add(1, Ordering::SeqCst);
                 if max_successes.is_none_or(|max| n < max) {
@@ -963,13 +981,14 @@ mod tests {
     fn make_backup(
         addr: std::net::SocketAddr,
         rx: mpsc::Receiver<FailedCommit<TestRow>>,
-    ) -> Backup<TestRow, NullMetrics> {
+    ) -> (Backup<TestRow, NullMetrics>, tempfile::TempDir) {
+        let (disk, tmpdir) = test_disk_backup();
         let client = clickhouse::Client::default().with_url(format!("http://{}", addr));
         let inserter = client
             .inserter::<TestRow>("test_rows")
             .with_period(Some(Duration::from_secs(60)))
             .with_timeouts(Some(Duration::from_secs(5)), Some(Duration::from_secs(5)));
-        Backup::<TestRow, NullMetrics>::new_test(rx, inserter, test_disk_backup(), true)
+        (Backup::<TestRow, NullMetrics>::new_test(rx, inserter, disk, true), tmpdir)
     }
 
     /// After accumulating several batches in the memory backup, the drain loop
@@ -979,7 +998,7 @@ mod tests {
     async fn drain_loop_commits_all_batches_on_success() {
         let (addr, _request_count) = start_mock_clickhouse(None);
         let (tx, rx) = mpsc::channel::<FailedCommit<TestRow>>(64);
-        let mut backup = make_backup(addr, rx);
+        let (mut backup, _tmpdir) = make_backup(addr, rx);
 
         // Directly populate the memory backup with 5 batches.
         let num_batches = 5usize;
@@ -1026,7 +1045,7 @@ mod tests {
     async fn retrieve_oldest_prioritizes_cached_over_memory() {
         let (addr, _) = start_mock_clickhouse(None);
         let (_tx, rx) = mpsc::channel::<FailedCommit<TestRow>>(64);
-        let mut backup = make_backup(addr, rx);
+        let (mut backup, _tmpdir) = make_backup(addr, rx);
 
         // Populate memory with 2 batches.
         backup.memory_backup.save(make_failed_commit(1));
@@ -1061,7 +1080,7 @@ mod tests {
     async fn backup_stores_failed_commits_in_memory() {
         let (addr, _) = start_mock_clickhouse(None);
         let (tx, rx) = mpsc::channel::<FailedCommit<TestRow>>(64);
-        let mut backup = make_backup(addr, rx);
+        let (mut backup, _tmpdir) = make_backup(addr, rx);
 
         let commit = make_failed_commit(7);
         backup.backup(commit);
@@ -1095,7 +1114,8 @@ mod tests {
     async fn drain_loop_splits_batches_exceeding_row_limit() {
         let (addr, _) = start_mock_clickhouse(None);
         let (tx, rx) = mpsc::channel::<FailedCommit<TestRow>>(64);
-        let mut backup = make_backup(addr, rx).with_max_rows_per_commit(10);
+        let (backup, _tmpdir) = make_backup(addr, rx);
+        let mut backup = backup.with_max_rows_per_commit(10);
 
         // 5 batches of 4 rows = 20 rows total, limit is 10.
         // Gather while merged < 10:
@@ -1119,7 +1139,8 @@ mod tests {
     async fn drain_loop_handles_single_batch_exceeding_limit() {
         let (addr, _) = start_mock_clickhouse(None);
         let (tx, rx) = mpsc::channel::<FailedCommit<TestRow>>(64);
-        let mut backup = make_backup(addr, rx).with_max_rows_per_commit(5);
+        let (backup, _tmpdir) = make_backup(addr, rx);
+        let mut backup = backup.with_max_rows_per_commit(5);
 
         // One batch of 20 rows, limit is 5. The gather loop adds it (since
         // merged is initially 0 < 5), then stops. Committed in one go.
@@ -1136,7 +1157,8 @@ mod tests {
     async fn drain_loop_no_merging_with_limit_of_one() {
         let (addr, _) = start_mock_clickhouse(None);
         let (tx, rx) = mpsc::channel::<FailedCommit<TestRow>>(64);
-        let mut backup = make_backup(addr, rx).with_max_rows_per_commit(1);
+        let (backup, _tmpdir) = make_backup(addr, rx);
+        let mut backup = backup.with_max_rows_per_commit(1);
 
         // 3 batches of 2 rows each. With limit=1, each batch is gathered
         // individually (0 < 1 -> add batch -> 2 >= 1 -> stop -> commit).
@@ -1156,7 +1178,8 @@ mod tests {
     async fn drain_loop_exact_limit_boundary() {
         let (addr, _) = start_mock_clickhouse(None);
         let (tx, rx) = mpsc::channel::<FailedCommit<TestRow>>(64);
-        let mut backup = make_backup(addr, rx).with_max_rows_per_commit(10);
+        let (backup, _tmpdir) = make_backup(addr, rx);
+        let mut backup = backup.with_max_rows_per_commit(10);
 
         // 3 batches: 10, 10, 5 rows. Each 10-row batch fills the limit
         // exactly: gather batch(10) -> 10 >= 10 -> commit. Then batch(10)
@@ -1182,7 +1205,7 @@ mod tests {
     async fn failed_merge_preserves_disk_source_keys() {
         let (addr, _) = start_mock_clickhouse(None);
         let (_tx, rx) = mpsc::channel::<FailedCommit<TestRow>>(64);
-        let mut backup = make_backup(addr, rx);
+        let (mut backup, _tmpdir) = make_backup(addr, rx);
 
         let disk_key_1: DiskBackupKey = 1001;
         let disk_key_2: DiskBackupKey = 1002;
@@ -1244,8 +1267,9 @@ mod tests {
             .with_timeouts(Some(Duration::from_secs(5)), Some(Duration::from_secs(5)));
 
         let (tx, rx) = mpsc::channel::<FailedCommit<TestRow>>(64);
+        let (disk, _tmpdir) = test_disk_backup();
         let mut backup =
-            Backup::<TestRow, NullMetrics>::new_test(rx, inserter, test_disk_backup(), true)
+            Backup::<TestRow, NullMetrics>::new_test(rx, inserter, disk, true)
                 .with_max_rows_per_commit(50);
 
         // Accumulate 10 batches of 10 rows each = 100 rows total.
@@ -1331,8 +1355,9 @@ mod tests {
             .with_timeouts(Some(Duration::from_secs(2)), Some(Duration::from_secs(2)));
 
         let (tx, rx) = mpsc::channel::<FailedCommit<TestRow>>(128);
+        let (disk, _tmpdir) = test_disk_backup();
         let mut backup =
-            Backup::<TestRow, NullMetrics>::new_test(rx, inserter, test_disk_backup(), true)
+            Backup::<TestRow, NullMetrics>::new_test(rx, inserter, disk, true)
                 .with_max_rows_per_commit(30);
 
         // Phase 1: Pre-load 50 rows and start the drain loop while CH is up.
@@ -1395,7 +1420,9 @@ mod tests {
         }
 
         // Give the drain loop time to retry and flush everything.
-        tokio::time::sleep(Duration::from_secs(5)).await;
+        // The backoff may have grown during the outage (up to 8s max),
+        // so we need to wait long enough for at least one full cycle.
+        tokio::time::sleep(Duration::from_secs(15)).await;
 
         drop(tx);
         let backup = tokio::time::timeout(Duration::from_secs(5), handle)
@@ -1443,6 +1470,7 @@ mod tests {
     async fn disk_backup_stores_and_retrieves_entries() {
         let (addr, _) = start_mock_clickhouse(None);
         let (_tx, rx) = mpsc::channel::<FailedCommit<TestRow>>(64);
+        let (disk, _tmpdir) = test_disk_backup();
         let mut backup = Backup::<TestRow, NullMetrics>::new_test(
             rx,
             {
@@ -1452,7 +1480,7 @@ mod tests {
                     .with_period(Some(Duration::from_secs(60)))
                     .with_timeouts(Some(Duration::from_secs(5)), Some(Duration::from_secs(5)))
             },
-            test_disk_backup(),
+            disk,
             false, // use disk backup
         );
 
@@ -1503,6 +1531,7 @@ mod tests {
     async fn disk_entries_merge_into_single_commit() {
         let (addr, _) = start_mock_clickhouse(None);
         let (tx, rx) = mpsc::channel::<FailedCommit<TestRow>>(64);
+        let (disk, _tmpdir) = test_disk_backup();
         let mut backup = Backup::<TestRow, NullMetrics>::new_test(
             rx,
             {
@@ -1512,7 +1541,7 @@ mod tests {
                     .with_period(Some(Duration::from_secs(60)))
                     .with_timeouts(Some(Duration::from_secs(5)), Some(Duration::from_secs(5)))
             },
-            test_disk_backup(),
+            disk,
             false,
         )
         .with_max_rows_per_commit(1000);
@@ -1540,7 +1569,7 @@ mod tests {
     async fn disk_backup_fallback_to_memory_on_size_exceeded() {
         let (addr, _) = start_mock_clickhouse(None);
         let (_tx, rx) = mpsc::channel::<FailedCommit<TestRow>>(64);
-        let disk = test_disk_backup();
+        let (disk, _tmpdir) = test_disk_backup();
         // Reconfigure with a tiny max size so the second save exceeds it.
         let disk = DiskBackup {
             db: disk.db.clone(),
@@ -1582,7 +1611,7 @@ mod tests {
     async fn last_cached_with_disk_sources_survives_memory_pressure() {
         let (addr, _) = start_mock_clickhouse(None);
         let (_tx, rx) = mpsc::channel::<FailedCommit<TestRow>>(64);
-        let mut backup = make_backup(addr, rx);
+        let (mut backup, _tmpdir) = make_backup(addr, rx);
         // Set a tiny memory limit so drop_excess fires easily.
         backup.memory_backup.config = MemoryBackupConfig::new(1);
 
