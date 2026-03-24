@@ -764,9 +764,11 @@ impl<T: ClickhouseRowExt, MetricsType: Metrics> Backup<T, MetricsType> {
             if let Err(e) = self.inserter.force_commit().await {
                 tracing::error!(target: TARGET, order = T::TABLE_NAME, ?e, "failed to commit cached backup to CH during shutdown, trying disk");
                 MetricsType::increment_commit_failures(e.to_string());
-            }
-            if let Err(e) = self.disk_backup.save(&cached.commit) {
-                Self::log_disk_error("failed to write cached backup to disk during shutdown", &e);
+                // Only save to disk if the CH commit failed — otherwise the
+                // data would be committed again from disk on next startup.
+                if let Err(e) = self.disk_backup.save(&cached.commit) {
+                    Self::log_disk_error("failed to write cached backup to disk during shutdown", &e);
+                }
             }
         }
 
