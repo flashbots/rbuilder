@@ -328,6 +328,21 @@ impl DiskBackup {
     ) -> Result<Option<DiskRetrieval<DiskBackupKey, FailedCommit<T>>>, DiskBackupError> {
         let table_def = Table::new(T::TABLE_NAME);
 
+        // Quick read-check to avoid taking a write lock on an empty table.
+        // This reduces contention with concurrent save() calls.
+        {
+            let reader = self.db.read().expect("not poisoned").begin_read()?;
+            match reader.open_table(table_def) {
+                Ok(table) => {
+                    if table.is_empty()? {
+                        return Ok(None);
+                    }
+                }
+                Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
+                Err(e) => return Err(e.into()),
+            }
+        }
+
         let writer = self.db.write().expect("not poisoned").begin_write()?;
         let result = {
             let mut table = writer.open_table(table_def)?;
@@ -580,10 +595,6 @@ impl<T: ClickhouseRowExt, MetricsType: Metrics> Backup<T, MetricsType> {
         #[cfg(any(test, feature = "test-utils"))]
         if self.use_only_memory_backup {
             self.memory_backup.save(failed_commit);
-            self.last_cached = self
-                .last_cached
-                .take()
-                .filter(|cached| cached.sources.iter().any(|s| *s != BackupSource::Memory));
             return;
         }
 
@@ -737,8 +748,28 @@ impl<T: ClickhouseRowExt, MetricsType: Metrics> Backup<T, MetricsType> {
     }
 
     /// To call on shutdown, tries make a last-resort attempt to post back to Clickhouse all
-    /// in-memory data.
+    /// in-memory data, including any failed merged batch waiting for retry.
     async fn end(mut self) {
+        // Drain last_cached first — it holds data already removed from both
+        // disk and memory, so it would be lost if we skip it.
+        if let Some(cached) = self.last_cached.take() {
+            for row in &cached.commit.rows {
+                let value_ref = T::to_row_ref(row);
+                if let Err(e) = self.inserter.write(value_ref).await {
+                    tracing::error!(target: TARGET, order = T::TABLE_NAME, ?e, "failed to write cached backup to inserter during shutdown");
+                    MetricsType::increment_write_failures(e.to_string());
+                    continue;
+                }
+            }
+            if let Err(e) = self.inserter.force_commit().await {
+                tracing::error!(target: TARGET, order = T::TABLE_NAME, ?e, "failed to commit cached backup to CH during shutdown, trying disk");
+                MetricsType::increment_commit_failures(e.to_string());
+            }
+            if let Err(e) = self.disk_backup.save(&cached.commit) {
+                Self::log_disk_error("failed to write cached backup to disk during shutdown", &e);
+            }
+        }
+
         for failed_commit in self.memory_backup.failed_commits.drain(..) {
             for row in &failed_commit.rows {
                 let value_ref = T::to_row_ref(row);
