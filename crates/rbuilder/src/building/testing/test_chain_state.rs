@@ -1,6 +1,8 @@
 use crate::{
     building::BlockBuildingContext,
-    live_builder::block_list_provider::BlockList,
+    live_builder::{
+        block_list_provider::BlockList, order_input::mempool_txs_detector::MempoolTxsDetector,
+    },
     provider::RootHasher,
     roothash::RootHashContext,
     utils::{RootHasherImpl, Signer},
@@ -420,6 +422,7 @@ impl TestBlockContextBuilder {
             true,
             self.mev_block_price,
             Default::default(),
+            Arc::new(MempoolTxsDetector::new()),
         )
         .unwrap()
     }

@@ -23,6 +23,7 @@ use tracing::{error, info, trace};
 pub async fn subscribe_to_txpool_with_blobs(
     config: OrderInputConfig,
     results: mpsc::Sender<ReplaceableOrderPoolCommand>,
+    mempool_detector: Arc<super::mempool_txs_detector::MempoolTxsDetector>,
     global_cancel: CancellationToken,
 ) -> eyre::Result<JoinHandle<()>> {
     let mempool = config
@@ -69,7 +70,6 @@ pub async fn subscribe_to_txpool_with_blobs(
                     continue;
                 }
             };
-
             let tx = MempoolTx::new(tx_with_blobs);
             let order = Order::Tx(tx);
             let parse_duration = start.elapsed();
@@ -82,7 +82,9 @@ pub async fn subscribe_to_txpool_with_blobs(
                 .send_timeout(orderpool_command, config.results_channel_timeout)
                 .await
             {
-                Ok(()) => {}
+                Ok(()) => {
+                    mempool_detector.add_tx(tx_hash);
+                }
                 Err(SendTimeoutError::Timeout(_)) => {
                     error!("Failed to send txpool tx to results channel, timeout");
                 }
@@ -140,6 +142,9 @@ mod test {
                 ..OrderInputConfig::default_e2e()
             },
             sender,
+            Arc::new(
+                crate::live_builder::order_input::mempool_txs_detector::MempoolTxsDetector::new(),
+            ),
             CancellationToken::new(),
         )
         .await

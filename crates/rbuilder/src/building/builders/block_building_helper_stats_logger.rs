@@ -6,9 +6,8 @@ use std::{
 
 use alloy_primitives::{utils::format_ether, I256, U256};
 
-use crate::{
-    building::{builders::block_building_helper::BlockBuildingHelper, ThreadBlockBuildingContext},
-    live_builder::order_input::mempool_txs_detector::MempoolTxsDetector,
+use crate::building::{
+    builders::block_building_helper::BlockBuildingHelper, ThreadBlockBuildingContext,
 };
 use rbuilder_primitives::{order_statistics::OrderStatistics, OrderId, SimulatedOrder};
 
@@ -95,10 +94,13 @@ impl<'a> BlockBuildingHelperStatsLogger<'a> {
 
     pub fn print(&self, orders: Vec<Arc<SimulatedOrder>>) {
         let mut order_id_to_order = HashMap::new();
-        let mempool_txs_detector = MempoolTxsDetector::new();
+        let mempool_txs_detector = self
+            .block_building_helper
+            .building_context()
+            .mempool_tx_detector
+            .clone();
         for sim_order in &orders {
             order_id_to_order.insert(sim_order.id(), sim_order.clone());
-            mempool_txs_detector.add_tx(&sim_order.order);
         }
 
         println!(
