@@ -106,7 +106,21 @@ impl TestSetup {
         )
     }
 
-    /// Send value from ->to , uses currentfrom nonce
+    /// Send value from ->to , uses current from nonce
+    pub fn create_dummy_tx(
+        &mut self,
+        from: NamedAddr,
+        to: NamedAddr,
+        value: u64,
+    ) -> eyre::Result<TransactionSignedEcRecoveredWithBlobs> {
+        let args = TxArgs::new(from, self.current_nonce(from)?)
+            .to(to)
+            .value(value);
+        let tx = self.test_chain.sign_tx(args)?;
+        Ok(TransactionSignedEcRecoveredWithBlobs::new_no_blobs(tx).unwrap())
+    }
+
+    /// create_dummy_tx +
     pub fn add_dummy_tx(
         &mut self,
         from: NamedAddr,
@@ -114,16 +128,10 @@ impl TestSetup {
         value: u64,
         revert_behavior: TxRevertBehavior,
     ) -> eyre::Result<TxHash> {
-        let args = TxArgs::new(from, self.current_nonce(from)?)
-            .to(to)
-            .value(value);
-        let tx = self.test_chain.sign_tx(args)?;
+        let tx = self.create_dummy_tx(from, to, value)?;
         let tx_hash = *tx.hash();
-        self.order_builder.add_tx(
-            TransactionSignedEcRecoveredWithBlobs::new_no_blobs(tx).unwrap(),
-            revert_behavior,
-        );
-        Ok(tx_hash)
+        self.order_builder.add_tx(tx, revert_behavior);
+        Ok(tx_hash.into())
     }
 
     fn add_tx(&mut self, args: TxArgs, revert_behavior: TxRevertBehavior) -> eyre::Result<TxHash> {
@@ -134,6 +142,16 @@ impl TestSetup {
             revert_behavior,
         );
         Ok(tx_hash)
+    }
+
+    /// Allows to add a tx manually built or via create_dummy_tx
+    pub fn add_external_tx(
+        &mut self,
+        tx: TransactionSignedEcRecoveredWithBlobs,
+        revert_behavior: TxRevertBehavior,
+    ) -> eyre::Result<()> {
+        self.order_builder.add_tx(tx, revert_behavior);
+        Ok(())
     }
 
     pub fn add_send_to_coinbase_tx(&mut self, from: NamedAddr, value: u64) -> eyre::Result<TxHash> {
