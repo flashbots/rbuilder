@@ -56,7 +56,7 @@ pub struct SimulationJob {
 
     /// Orders we got via new_order_sub and are still being processed (they could be inside the SimTree or in the sim queue)
     /// and were not cancelled.
-    /// When we remove the order we set the asociated bool to false (which is checked before simulating)
+    /// When we remove the order we set the associated bool to false (which is checked before simulating)
     in_flight_orders: HashMap<OrderId, Arc<AtomicBool>>,
 
     /// Orders for which we sent downstream SimulatedOrderCommand::Simulation but not SimulatedOrderCommand::Cancellation.
