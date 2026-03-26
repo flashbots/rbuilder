@@ -272,7 +272,7 @@ impl SimulationJob {
         if let Some(cancel_handle) = self.in_flight_orders.remove(cancellation_id) {
             cancel_handle.store(true, Ordering::Relaxed);
         } else {
-            // if we removed from in_flight_orders it was never sent so there is no need to cancel
+            // Order was not in in_flight_orders (already simulated/sent), so forward the cancellation downstream.
             return self.send_cancel(cancellation_id).await;
         }
         true
