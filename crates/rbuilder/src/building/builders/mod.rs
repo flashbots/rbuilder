@@ -42,7 +42,9 @@ use tracing::{error, info, warn};
 use super::{simulated_order_command_to_sink, OrderPriority, PrioritizedOrderStore};
 
 /// Orders that blocking_consume_next_commands will consume.
-const ORDERS_CONSUMED_PER_BATCH: usize = 4096;
+/// A slow algorithm would check approx every 200ms, to fill this batch size it would take
+/// 8192/.2 = 40960 order/sec which is even more than what we see in the whole slot for a busy block.
+const ORDERS_CONSUMED_PER_BATCH: usize = 8192;
 
 /// Block we built
 #[derive(Debug, Clone)]
