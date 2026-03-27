@@ -3,7 +3,7 @@
 //! These types represent the builder's commitment to produce an execution payload.
 //! See: https://github.com/ethereum/consensus-specs/blob/master/specs/gloas/builder.md
 
-use alloy_primitives::{Address, BlockHash, B256};
+use alloy_primitives::{Address, BlockHash, Bytes, B256};
 use alloy_rpc_types_beacon::BlsSignature;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
@@ -42,8 +42,8 @@ pub struct ExecutionPayloadBid {
     /// must be zero for in protocol payments. non-zero only if proposer accepts trusted payments
     #[serde_as(as = "DisplayFromStr")]
     pub execution_payment: u64,
-    /// hash tree root of the blob KZG commitments.
-    pub blob_kzg_commitments_root: B256,
+    /// blob commitments for the payload.
+    pub blob_kzg_commitments: Vec<Bytes>,
 }
 
 impl ExecutionPayloadBid {
@@ -103,6 +103,3 @@ pub struct GetBidParams {
     /// timestamp from Date-Milliseconds header for latency measurement
     pub date_milliseconds: Option<u64>,
 }
-
-
-

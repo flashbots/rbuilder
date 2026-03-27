@@ -34,9 +34,6 @@ pub struct ExecutionPayloadEnvelope {
     /// Slot of the beacon block.
     #[serde_as(as = "DisplayFromStr")]
     pub slot: u64,
-    /// Blob KZG commitments for this payload.
-    /// The hash_tree_root of this must match blob_kzg_commitments_root in the bid.
-    pub blob_kzg_commitments: Vec<Bytes>,
     /// State root after applying the execution payload.
     pub state_root: B256,
 }
@@ -119,11 +116,7 @@ impl CachedPayloadData {
             builder_index: self.bid.message.builder_index,
             beacon_block_root,
             slot: self.bid.message.slot,
-            blob_kzg_commitments: self.blob_kzg_commitments.clone(),
             state_root,
         }
     }
 }
-
-
-
