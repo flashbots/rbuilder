@@ -13,7 +13,7 @@ use super::{
         unfinished_block_processing::UnfinishedBuiltBlocksInputFactory,
     },
     builder_api::{
-        EpbsBuilderServer, EpbsBuilderServerConfig, LiveEpbsBidProvider,
+        EpbsBuilderServer, EpbsBuilderServerConfig, EpbsP2PService, LiveEpbsBidProvider,
         LiveEpbsBidProviderConfig,
     },
     wallet_balance_watcher::WalletBalanceWatcher,
@@ -252,6 +252,30 @@ pub struct L1Config {
     /// Computed from: DOMAIN_BEACON_BUILDER + fork_data_root
     /// Can be set via env var: "$EPBS_SIGNING_DOMAIN"
     epbs_signing_domain: Option<EnvOrValue<String>>,
+
+    /// Enable P2P ePBS builder (bid gossip via beacon node).
+    #[serde(default)]
+    pub epbs_p2p_enabled: bool,
+    /// Milliseconds into slot to start bidding (P2P mode).
+    #[serde(default)]
+    pub epbs_p2p_bid_start_ms: u64,
+    /// Milliseconds into slot to stop bidding (P2P mode).
+    #[serde(default = "default_epbs_p2p_bid_end_ms")]
+    pub epbs_p2p_bid_end_ms: u64,
+    /// Interval between bid resubmissions in ms (0 = single bid, P2P mode).
+    #[serde(default = "default_epbs_p2p_bid_interval_ms")]
+    pub epbs_p2p_bid_interval_ms: u64,
+    /// Value increment per resubmission in gwei (P2P mode).
+    #[serde(default)]
+    pub epbs_p2p_bid_value_increment_gwei: u64,
+}
+
+fn default_epbs_p2p_bid_end_ms() -> u64 {
+    4000
+}
+
+fn default_epbs_p2p_bid_interval_ms() -> u64 {
+    500
 }
 
 impl Default for L1Config {
@@ -274,6 +298,12 @@ impl Default for L1Config {
             epbs_server_port: DEFAULT_EPBS_SERVER_PORT,
             epbs_builder_secret_key: None,
             epbs_signing_domain: None,
+            // EPBS P2P defaults - disabled by default
+            epbs_p2p_enabled: false,
+            epbs_p2p_bid_start_ms: 0,
+            epbs_p2p_bid_end_ms: default_epbs_p2p_bid_end_ms(),
+            epbs_p2p_bid_interval_ms: default_epbs_p2p_bid_interval_ms(),
+            epbs_p2p_bid_value_increment_gwei: 0,
         }
     }
 }
@@ -356,11 +386,18 @@ impl L1Config {
     /// Returns:
     /// - The EPBS bid provider (also implements BlockObserver)
     /// - The EPBS server (to be spawned)
+    /// - Optionally, the P2P service (if epbs_p2p_enabled)
     ///
     /// Returns None if EPBS is not enabled.
     pub fn create_epbs_components(
         &self,
-    ) -> eyre::Result<Option<(Arc<LiveEpbsBidProvider>, EpbsBuilderServer)>> {
+    ) -> eyre::Result<
+        Option<(
+            Arc<LiveEpbsBidProvider>,
+            EpbsBuilderServer,
+            Option<EpbsP2PService>,
+        )>,
+    > {
         use crate::mev_boost::sign_epbs::compute_epbs_domain;
 
         if !self.epbs_enabled {
@@ -397,6 +434,8 @@ impl L1Config {
         let provider = Arc::new(LiveEpbsBidProvider::new_uninitialized(
             LiveEpbsBidProviderConfig::default(),
         ));
+
+        let p2p_beacon_client = clients.first().cloned();
 
         // Spawn background task to fetch builder_index and signing domain, then initialize signer
         let provider_clone = provider.clone();
@@ -516,7 +555,42 @@ impl L1Config {
             "EPBS Builder API server configured (waiting for beacon chain for builder_index)"
         );
 
-        Ok(Some((provider, server)))
+        // Create P2P service if enabled
+        let p2p_service = if self.epbs_p2p_enabled {
+            use super::builder_api::p2p::{EpbsP2PConfig};
+
+            info!("EPBS P2P builder service is enabled");
+
+            let p2p_config = EpbsP2PConfig {
+                enabled: true,
+                bid_start_ms: self.epbs_p2p_bid_start_ms,
+                bid_end_ms: self.epbs_p2p_bid_end_ms,
+                bid_interval_ms: self.epbs_p2p_bid_interval_ms,
+                bid_value_increment_gwei: self.epbs_p2p_bid_value_increment_gwei,
+                // TODO: make this better
+                // genesis_time and seconds_per_slot will be set once beacon chain is available.
+                // For now use defaults; the service waits for the signer to be ready anyway.
+                genesis_time: 0,
+                seconds_per_slot: 12,
+            };
+
+            let beacon_client = p2p_beacon_client
+                .ok_or_else(|| eyre::eyre!("No beacon client available for P2P service"))?;
+
+            let p2p_service = EpbsP2PService::new(
+                p2p_config,
+                beacon_client,
+                provider.clone(),
+                provider.shared_signer(),
+                provider.shared_payload_cache(),
+            );
+
+            Some(p2p_service)
+        } else {
+            None
+        };
+
+        Ok(Some((provider, server, p2p_service)))
     }
 
     /// Analyzes relay_config and creates MevBoostRelayBidSubmitter/MevBoostRelaySlotInfoProvider as needed.
@@ -780,12 +854,15 @@ impl LiveBuilderConfig for Config {
 
         // Create EPBS components if enabled
         let epbs_components = self.l1_config.create_epbs_components()?;
-        let (block_observer, epbs_server): (
+        let (block_observer, epbs_server, epbs_p2p_service): (
             Option<Arc<dyn block_observer::BlockObserver>>,
             Option<EpbsBuilderServer>,
+            Option<EpbsP2PService>,
         ) = match epbs_components {
-            Some((bid_provider, server)) => (Some(bid_provider), Some(server)),
-            None => (None, None),
+            Some((bid_provider, server, p2p_service)) => {
+                (Some(bid_provider), Some(server), p2p_service)
+            }
+            None => (None, None, None),
         };
 
         let (sink_factory, slot_info_provider, adjustment_fee_payers) =
@@ -815,6 +892,10 @@ impl LiveBuilderConfig for Config {
         // Set EPBS server if enabled
         if let Some(server) = epbs_server {
             live_builder = live_builder.with_epbs_server(server);
+        }
+        // Set EPBS P2P service if enabled
+        if let Some(p2p_service) = epbs_p2p_service {
+            live_builder = live_builder.with_epbs_p2p_service(p2p_service);
         }
 
         let builders = create_builders(

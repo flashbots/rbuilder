@@ -265,6 +265,7 @@ impl BaseConfig {
             faster_finalize: self.faster_finalize,
             order_flow_tracer_manager,
             epbs_server: None,
+            epbs_p2p_service: None,
         })
     }
 

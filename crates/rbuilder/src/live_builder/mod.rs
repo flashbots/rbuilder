@@ -140,6 +140,11 @@ where
     /// Optional EPBS Builder API server (EIP-7732).
     /// When set, the server will be spawned alongside the builder.
     pub epbs_server: Option<EpbsBuilderServer>,
+
+    /// Optional EPBS P2P builder service.
+    /// When set, bids will be broadcast via p2p and payload envelopes
+    /// will be revealed after bid inclusion in beacon blocks.
+    pub epbs_p2p_service: Option<builder_api::EpbsP2PService>,
 }
 
 impl<P> LiveBuilder<P>
@@ -161,6 +166,20 @@ where
     pub fn with_epbs_server(self, server: EpbsBuilderServer) -> Self {
         Self {
             epbs_server: Some(server),
+            ..self
+        }
+    }
+
+    /// Set the EPBS P2P builder service.
+    ///
+    /// When set, the service will be spawned when `run()` is called and will
+    /// broadcast bids via p2p gossip and reveal payloads after bid inclusion.
+    pub fn with_epbs_p2p_service(
+        self,
+        service: builder_api::EpbsP2PService,
+    ) -> Self {
+        Self {
+            epbs_p2p_service: Some(service),
             ..self
         }
     }
@@ -260,6 +279,17 @@ where
             inner_jobs_handles.push(tokio::spawn(async move {
                 if let Err(e) = epbs_server.run(cancel).await {
                     error!(?e, "EPBS Builder API server error");
+                }
+            }));
+        }
+
+        // Spawn epbs p2p builder service if configured
+        if let Some(p2p_service) = self.epbs_p2p_service {
+            let cancel = self.global_cancellation.clone();
+            info!("Starting EPBS P2P builder service");
+            inner_jobs_handles.push(tokio::spawn(async move {
+                if let Err(e) = p2p_service.run(cancel).await {
+                    error!(?e, "EPBS P2P builder service error");
                 }
             }));
         }
