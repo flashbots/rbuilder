@@ -55,5 +55,3 @@ impl BlockObserver for MultiBlockObserver {
         }
     }
 }
-
-

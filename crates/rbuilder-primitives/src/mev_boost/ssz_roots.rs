@@ -145,3 +145,37 @@ pub fn sha_pair(a: &B256, b: &B256) -> B256 {
     h.update(b);
     B256::from_slice(&h.finalize())
 }
+
+/// KZG commitment is 48 bytes.
+#[derive(tree_hash_derive::TreeHash)]
+struct KzgCommitment {
+    inner: FixedVector<u8, typenum::U48>,
+}
+
+impl From<&[u8]> for KzgCommitment {
+    fn from(bytes: &[u8]) -> Self {
+        let mut inner = vec![0u8; 48];
+        let len = bytes.len().min(48);
+        inner[..len].copy_from_slice(&bytes[..len]);
+        Self {
+            inner: FixedVector::from(inner),
+        }
+    }
+}
+
+/// MAX_BLOB_COMMITMENTS_PER_BLOCK for Gloas.
+type MaxBlobCommitmentsPerBlock = typenum::U4096;
+
+/// Calculate SSZ hash_tree_root for blob KZG commitments.
+///
+/// This computes the Merkle root of the list of KZG commitments as required
+/// by the consensus specs for ExecutionPayloadBid.blob_kzg_commitments_root.
+pub fn calculate_blob_kzg_commitments_root_ssz(commitments: &[impl AsRef<[u8]>]) -> B256 {
+    let commitments: VariableList<KzgCommitment, MaxBlobCommitmentsPerBlock> = VariableList::from(
+        commitments
+            .iter()
+            .map(|c| KzgCommitment::from(c.as_ref()))
+            .collect::<Vec<_>>(),
+    );
+    B256::from_slice(&commitments.tree_hash_root()[..])
+}

@@ -43,6 +43,7 @@ pub struct ExecutionPayloadBid {
     #[serde_as(as = "DisplayFromStr")]
     pub execution_payment: u64,
     /// blob commitments for the payload.
+    /// per spec: List[KZGCommitment, MAX_BLOB_COMMITMENTS_PER_BLOCK]
     pub blob_kzg_commitments: Vec<Bytes>,
 }
 

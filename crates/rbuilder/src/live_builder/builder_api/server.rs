@@ -3,9 +3,7 @@
 use alloy_primitives::BlockHash;
 use axum::{routing::get, Router};
 use parking_lot::RwLock;
-use rbuilder_primitives::epbs::{
-    CachedPayloadData, GetBidParams, SignedExecutionPayloadBid,
-};
+use rbuilder_primitives::epbs::{CachedPayloadData, GetBidParams, SignedExecutionPayloadBid};
 use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
@@ -166,5 +164,3 @@ impl EpbsBuilderServer {
         Ok(())
     }
 }
-
-
