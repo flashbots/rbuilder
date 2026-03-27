@@ -3,21 +3,20 @@
 //! This module provides the `LiveEpbsBidProvider` which implements `EpbsBidProvider`
 //! by connecting to the existing block building infrastructure.
 
-use alloy_primitives::{BlockHash, B256, U256};
+use alloy_primitives::{BlockHash, U256};
 use alloy_rpc_types_engine::ExecutionPayloadV3;
 use parking_lot::RwLock;
 use rbuilder_primitives::epbs::{
     CachedPayloadData, ExecutionPayloadBid, ExecutionRequests, GetBidParams,
     SignedExecutionPayloadBid,
 };
-use std::{collections::HashMap, time::Instant};
+use std::{collections::HashMap, sync::Arc, time::Instant};
 use tracing::{debug, info, trace};
 
 use crate::{
     building::builders::Block, live_builder::block_output::block_observer::BlockObserver,
     mev_boost::EpbsBidSigner,
 };
-use alloy_primitives::keccak256;
 use alloy_primitives::Bytes;
 use alloy_rpc_types_engine::{ExecutionPayloadV1, ExecutionPayloadV2};
 
@@ -81,11 +80,11 @@ pub struct LiveEpbsBidProvider {
     config: LiveEpbsBidProviderConfig,
     /// The signer for creating signed bids. Optional to support lazy initialization.
     /// Contains the builder_index (looked up from beacon chain by public key).
-    signer: RwLock<Option<EpbsBidSigner>>,
+    signer: Arc<RwLock<Option<EpbsBidSigner>>>,
     /// Best blocks by slot/parent key.
     best_blocks: RwLock<HashMap<SlotParentKey, CachedBlockData>>,
     /// Cache of full payloads for revelation, keyed by block_hash.
-    payload_cache: RwLock<HashMap<BlockHash, CachedPayloadData>>,
+    payload_cache: Arc<RwLock<HashMap<BlockHash, CachedPayloadData>>>,
 }
 
 impl LiveEpbsBidProvider {
@@ -93,9 +92,9 @@ impl LiveEpbsBidProvider {
     pub fn new(signer: EpbsBidSigner, config: LiveEpbsBidProviderConfig) -> Self {
         Self {
             config,
-            signer: RwLock::new(Some(signer)),
+            signer: Arc::new(RwLock::new(Some(signer))),
             best_blocks: RwLock::new(HashMap::new()),
-            payload_cache: RwLock::new(HashMap::new()),
+            payload_cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -106,9 +105,9 @@ impl LiveEpbsBidProvider {
     pub fn new_uninitialized(config: LiveEpbsBidProviderConfig) -> Self {
         Self {
             config,
-            signer: RwLock::new(None),
+            signer: Arc::new(RwLock::new(None)),
             best_blocks: RwLock::new(HashMap::new()),
-            payload_cache: RwLock::new(HashMap::new()),
+            payload_cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -128,6 +127,16 @@ impl LiveEpbsBidProvider {
     /// Get the builder index (if signer is initialized).
     pub fn builder_index(&self) -> Option<u64> {
         self.signer.read().as_ref().map(|s| s.builder_index())
+    }
+
+    /// Get a shared reference to the signer for use by the P2P service.
+    pub fn shared_signer(&self) -> Arc<RwLock<Option<EpbsBidSigner>>> {
+        self.signer.clone()
+    }
+
+    /// Get a shared reference to the payload cache for use by the P2P reveal handler.
+    pub fn shared_payload_cache(&self) -> Arc<RwLock<HashMap<BlockHash, CachedPayloadData>>> {
+        self.payload_cache.clone()
     }
 
     /// Notify the provider of a new built block.
@@ -185,7 +194,7 @@ impl LiveEpbsBidProvider {
         block: &Block,
         params: &GetBidParams,
         builder_index: u64,
-        blob_kzg_commitments_root: B256,
+        blob_kzg_commitments: Vec<Bytes>,
     ) -> ExecutionPayloadBid {
         // bid_value is in wei, we need gwei
         let value_gwei = (block.trace.bid_value / U256::from(1_000_000_000u64))
@@ -196,49 +205,52 @@ impl LiveEpbsBidProvider {
             parent_block_hash: params.parent_hash,
             parent_block_root: params.parent_root,
             block_hash: block.sealed_block.hash(),
-            prev_randao: B256::ZERO, // TODO: fix this
+            prev_randao: block.sealed_block.mix_hash,
             fee_recipient: params.fee_recipient,
             gas_limit: block.sealed_block.gas_limit,
             builder_index,
             slot: params.slot,
             value: value_gwei,
             execution_payment: 0, // In protocol payment
-            blob_kzg_commitments_root,
+            blob_kzg_commitments,
         }
     }
 
-    /// Compute the hash_tree_root of blob KZG commitments.
+    // TODO: review implementation
+    /// Convert execution requests from EIP-7685 typed format to separated lists.
     ///
-    /// In a full implementation, this would use SSZ merkleization.
-    /// For now, we use a simplified version.
-    fn compute_blob_commitments_root(&self, block: &Block) -> B256 {
-        if block.txs_blobs_sidecars.is_empty() {
-            return B256::ZERO;
-        }
+    /// EIP-7685 execution requests are prefixed with a type byte:
+    /// - 0x00: Deposit requests
+    /// - 0x01: Withdrawal requests
+    /// - 0x02: Consolidation requests
+    fn convert_execution_requests(requests: &[Bytes]) -> ExecutionRequests {
+        let mut deposits = Vec::new();
+        let mut withdrawals = Vec::new();
+        let mut consolidations = Vec::new();
 
-        // Collect all commitments
-        let mut commitments_data = Vec::new();
-        for sidecar in &block.txs_blobs_sidecars {
-            match sidecar.as_ref() {
-                alloy_eips::eip7594::BlobTransactionSidecarVariant::Eip4844(s) => {
-                    for commitment in &s.commitments {
-                        commitments_data.extend_from_slice(commitment.as_slice());
-                    }
-                }
-                alloy_eips::eip7594::BlobTransactionSidecarVariant::Eip7594(s) => {
-                    for commitment in &s.commitments {
-                        commitments_data.extend_from_slice(commitment.as_slice());
-                    }
+        for request in requests {
+            if request.is_empty() {
+                continue;
+            }
+
+            let request_type = request[0];
+            let request_data = Bytes::copy_from_slice(&request[1..]);
+
+            match request_type {
+                0x00 => deposits.push(request_data),
+                0x01 => withdrawals.push(request_data),
+                0x02 => consolidations.push(request_data),
+                _ => {
+                    // Unknown request type - skip it
+                    debug!(request_type, "Unknown execution request type, skipping");
                 }
             }
         }
 
-        if commitments_data.is_empty() {
-            B256::ZERO
-        } else {
-            // Simplified: just hash the concatenated commitments
-            // In production, use proper SSZ hash_tree_root
-            keccak256(&commitments_data)
+        ExecutionRequests {
+            deposits,
+            withdrawals,
+            consolidations,
         }
     }
 
@@ -247,16 +259,17 @@ impl LiveEpbsBidProvider {
         let block_hash = signed_bid.message.block_hash;
 
         // Convert block to ExecutionPayloadV3
-        // This is a placeholder - in production you'd use proper conversion
         let payload = self.block_to_execution_payload(block);
 
         // Extract blob commitments
         let blob_kzg_commitments = self.extract_blob_commitments(block);
 
+        let execution_requests = Self::convert_execution_requests(&block.execution_requests);
+
         let cached = CachedPayloadData::new(
             signed_bid.clone(),
             payload,
-            ExecutionRequests::default(), // TODO: Convert from block.execution_requests
+            execution_requests,
             blob_kzg_commitments,
         );
 
@@ -423,15 +436,15 @@ impl EpbsBidProvider for LiveEpbsBidProvider {
             return Ok(None);
         }
 
-        // Compute blob commitments root
-        let blob_commitments_root = self.compute_blob_commitments_root(&cached_block.block);
+        // extract blob commitments
+        let blob_kzg_commitments = self.extract_blob_commitments(&cached_block.block);
 
         // Create the bid
         let bid = Self::block_to_bid(
             &cached_block.block,
             params,
             signer.builder_index(),
-            blob_commitments_root,
+            blob_kzg_commitments,
         );
 
         // Sign the bid
