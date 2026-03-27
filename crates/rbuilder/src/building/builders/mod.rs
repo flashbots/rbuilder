@@ -41,6 +41,11 @@ use tracing::{error, info, warn};
 
 use super::{simulated_order_command_to_sink, OrderPriority, PrioritizedOrderStore};
 
+/// Orders that blocking_consume_next_commands will consume.
+/// A slow algorithm would check approx every 200ms, to fill this batch size it would take
+/// 8192/.2 = 40960 order/sec which is even more than what we see in the whole slot for a busy block.
+const ORDERS_CONSUMED_PER_BATCH: usize = 8192;
+
 /// Block we built
 #[derive(Debug, Clone)]
 pub struct Block {
@@ -137,6 +142,7 @@ impl OrderConsumer {
     /// New commands are accumulatd in self.new_commands
     /// Call apply_new_commands to easily consume them.
     /// This method will block until the first command is received
+    /// @Pending: This method consumes a fixed (ORDERS_CONSUMED_PER_BATCH) number of pending orders. We should reconsider doing something depending on the age of the orders?
     pub fn blocking_consume_next_commands(
         &mut self,
     ) -> eyre::Result<Option<JournalSequenceNumber>> {
@@ -149,7 +155,7 @@ impl OrderConsumer {
                 warn!(msg, "Builder thread lagging on sim orders channel");
             }
         }
-        for _ in 0..1024 {
+        for _ in 0..ORDERS_CONSUMED_PER_BATCH {
             match self.orders.try_recv() {
                 Ok(order) => self.add_command(order),
                 Err(TryRecvError::Empty) => {
