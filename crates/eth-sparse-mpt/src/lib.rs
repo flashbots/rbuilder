@@ -75,7 +75,7 @@ impl SparseTrieSharedCache {
             parent_state_root,
         );
         let mut cache_v2 = v2::SharedCacheV2::default();
-        cache_v2.last_block_hash = parent_block_hash;
+        cache_v2.parent_state_root = parent_state_root;
         let mut cache_v_experimental = v_experimental::SharedCacheVExperimental::default();
         cache_v_experimental.last_block_hash = parent_block_hash;
         Self {
