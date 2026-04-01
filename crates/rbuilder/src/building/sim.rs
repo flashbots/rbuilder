@@ -178,6 +178,11 @@ pub struct SimulationRequest {
     /// Used to determine if a failure is genuine (contract already unlocked) or needs retry.
     /// Supports multiple ACE contracts - order can progressively discover needed unlocks.
     pub ace_state: AceSimulationState,
+    /// When true, parent orders include ACE unlock providers. The tracer's accumulated
+    /// state trace is drained after executing parents so that ACE interaction classification
+    /// reflects only the target order's own slot access — preventing parent detection slot
+    /// writes from leaking into the child's classification.
+    pub has_ace_parents: bool,
 }
 
 #[derive(Debug)]
@@ -338,6 +343,7 @@ impl SimTree {
                     parents,
                     // we don't have a state for it yet.
                     ace_state: AceSimulationState::default(),
+                    has_ace_parents: false,
                 });
             }
         }
@@ -534,6 +540,7 @@ impl SimTree {
             order,
             parents,
             ace_state,
+            has_ace_parents: true,
         });
     }
 
@@ -680,6 +687,7 @@ impl SimTree {
                         order: ready_pending_order.order,
                         parents,
                         ace_state,
+                        has_ace_parents: true,
                     });
                 }
                 OrderDependencyState::Invalid => {
@@ -897,6 +905,7 @@ where
                 &mut block_state,
                 sim_tree.ace_configs(),
                 &sim_task.ace_state,
+                sim_task.has_ace_parents,
             )?;
             let (_, provider) = block_state.into_parts();
             state_for_sim = provider;
@@ -960,6 +969,7 @@ pub fn simulate_order(
     ace_configs: &HashMap<Address, AceConfig>,
     // we have parents for these ace addresses.
     current_ace_state: &AceSimulationState,
+    has_ace_parents: bool,
 ) -> Result<OrderSimResultWithGas, CriticalCommitOrderError> {
     let mut tracer = AccumulatorSimulationTracer::new();
     let mut fork = PartialBlockFork::new(state, ctx, local_ctx).with_tracer(&mut tracer);
@@ -971,6 +981,7 @@ pub fn simulate_order(
         &ctx.mempool_tx_detector,
         ace_configs,
         current_ace_state,
+        has_ace_parents,
     );
     fork.rollback(rollback_point);
     let sim_res = sim_res?;
@@ -989,6 +1000,7 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
     mempool_tx_detector: &MempoolTxsDetector,
     ace_configs: &HashMap<Address, AceConfig>,
     current_ace_state: &AceSimulationState,
+    has_ace_parents: bool,
 ) -> Result<OrderSimResult, CriticalCommitOrderError> {
     let start = Instant::now();
 
@@ -1013,6 +1025,14 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer>(
                 }));
             }
         }
+    }
+
+    // When simulating with ACE unlock parents, drain the accumulated parent traces so that
+    // ACE interaction classification below uses only the target order's own slot access.
+    // Without this, parent writes to ACE detection slots would leak into the combined trace
+    // and cause the child to be misclassified as Unlocking when it merely reads unlocked state.
+    if has_ace_parents {
+        let _ = fork.tracer.as_mut().and_then(|t| t.take_used_state_trace());
     }
 
     // simulate

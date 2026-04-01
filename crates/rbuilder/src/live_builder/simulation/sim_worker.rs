@@ -73,6 +73,7 @@ pub fn run_sim_worker<P>(
                 &mut block_state,
                 &current_sim_context.ace_configs,
                 &task.ace_state,
+                task.has_ace_parents,
             );
             let sim_ok = match sim_result {
                 Ok(sim_result) => {

@@ -352,6 +352,7 @@ fn test_simulation_request_ace_state_empty_default() {
         order: create_test_order(),
         parents: Vec::new(),
         ace_state: AceSimulationState::default(),
+        has_ace_parents: false,
     };
 
     assert!(request.ace_state.all_dependencies_accounted());
