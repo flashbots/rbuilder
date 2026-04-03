@@ -25,7 +25,7 @@ jobs:
           - ""
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # https://github.com/dtolnay/rust-toolchain
       - name: Setup rust toolchain
@@ -76,7 +76,7 @@ jobs:
           - ""
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # https://github.com/dtolnay/rust-toolchain
       - name: Setup rust toolchain
