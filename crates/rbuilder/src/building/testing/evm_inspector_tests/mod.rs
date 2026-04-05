@@ -154,3 +154,33 @@ fn test_ephemeral_contract_destruct() -> eyre::Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_read_code() -> eyre::Result<()> {
+    let test_setup = TestSetup::new()?;
+
+    let mev_test_contract_addr = test_setup.named_address(NamedAddr::MevTest)?;
+    let dummy_addr = test_setup.named_address(NamedAddr::Dummy)?;
+
+    // read code of MevTest contract (has code)
+    let tx = test_setup.make_test_read_code_tx(mev_test_contract_addr)?;
+    let used_state_trace = test_setup.inspect_tx_without_commit(tx)?;
+
+    assert!(
+        used_state_trace
+            .read_code_addresses
+            .contains(&mev_test_contract_addr),
+        "should track EXTCODEHASH/EXTCODESIZE on contract with code"
+    );
+
+    // read code of dummy address (no code)
+    let tx = test_setup.make_test_read_code_tx(dummy_addr)?;
+    let used_state_trace = test_setup.inspect_tx_without_commit(tx)?;
+
+    assert!(
+        used_state_trace.read_code_addresses.contains(&dummy_addr),
+        "should track EXTCODEHASH/EXTCODESIZE on address without code"
+    );
+
+    Ok(())
+}
