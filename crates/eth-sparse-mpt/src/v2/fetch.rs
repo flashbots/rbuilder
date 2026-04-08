@@ -11,16 +11,29 @@ use rayon::prelude::*;
 use alloy_primitives::B256;
 use nybbles::Nibbles;
 use reth_provider::{
-    providers::ConsistentDbView, BlockHashReader, BlockNumReader, BlockReader, DBProvider,
-    DatabaseProviderFactory,
+    providers::ConsistentDbView, BlockReader, DBProvider, DatabaseProviderFactory,
 };
 use reth_trie::{
     proof::{Proof, StorageProof},
-    MultiProofTargets,
+    MultiProofTargets, StateRoot,
 };
-use reth_trie_db::{DatabaseHashedCursorFactory, DatabaseTrieCursorFactory};
+use reth_trie_db::{DatabaseHashedCursorFactory, DatabaseStateRoot, DatabaseTrieCursorFactory};
 
 use super::SharedCacheV2;
+
+pub fn check_state_root_in_db(
+    provider: &impl DBProvider,
+    expected_state_root: B256,
+) -> Result<(), SparseTrieError> {
+    let db_state_root = StateRoot::from_tx(provider.tx_ref())
+        .root()
+        .map_err(SparseTrieError::other)?;
+    if db_state_root == expected_state_root {
+        Ok(())
+    } else {
+        Err(SparseTrieError::WrongDatabaseTrieError)
+    }
+}
 
 #[derive(Debug, Default)]
 pub struct MissingNodesFetcher {
@@ -59,7 +72,7 @@ impl MissingNodesFetcher {
     {
         let fetched_nodes: Arc<Mutex<usize>> = Default::default();
 
-        let last_block_hash = shared_cache.last_block_hash;
+        let parent_state_root = shared_cache.parent_state_root;
         std::mem::take(&mut self.storage_proof_targets)
             .into_par_iter()
             .map(
@@ -67,16 +80,8 @@ impl MissingNodesFetcher {
                     let provider = consistent_db_view
                         .provider_ro()
                         .map_err(SparseTrieError::other)?;
-                    if !last_block_hash.is_zero() {
-                        let block_number = provider
-                            .last_block_number()
-                            .map_err(SparseTrieError::other)?;
-                        let block_hash = provider
-                            .block_hash(block_number)
-                            .map_err(SparseTrieError::other)?;
-                        if block_hash != Some(shared_cache.last_block_hash) {
-                            return Err(SparseTrieError::WrongDatabaseTrieError);
-                        }
+                    if !parent_state_root.is_zero() {
+                        check_state_root_in_db(&provider, parent_state_root)?;
                     }
 
                     let proof = StorageProof::new_hashed(
@@ -110,16 +115,8 @@ impl MissingNodesFetcher {
         let provider = consistent_db_view
             .provider_ro()
             .map_err(SparseTrieError::other)?;
-        if !last_block_hash.is_zero() {
-            let block_number = provider
-                .last_block_number()
-                .map_err(SparseTrieError::other)?;
-            let block_hash = provider
-                .block_hash(block_number)
-                .map_err(SparseTrieError::other)?;
-            if block_hash != Some(shared_cache.last_block_hash) {
-                return Err(SparseTrieError::WrongDatabaseTrieError);
-            }
+        if !parent_state_root.is_zero() {
+            check_state_root_in_db(&provider, parent_state_root)?
         }
 
         let proof = Proof::new(

@@ -31,7 +31,7 @@ const PARALLEL_HASHING_STORAGE_NODES: bool = true;
 pub struct SharedCacheV2 {
     pub account_trie: ProofStore,
     pub storage_tries: Arc<DashMap<B256, ProofStore, FxBuildHasher>>,
-    pub last_block_hash: B256,
+    pub parent_state_root: B256,
 }
 
 impl SharedCacheV2 {
