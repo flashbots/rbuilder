@@ -536,7 +536,8 @@ impl BidObserver for BuiltBlocksWriter {
 }
 
 /// Channel size for the order journal. Orders are small and arrive frequently.
-const ORDER_JOURNAL_CHANNEL_SIZE: usize = 10 * 1024;
+/// A busy slow can have 30K-40K orders. 100K should be more than enough.
+const ORDER_JOURNAL_CHANNEL_SIZE: usize = 100 * 1024;
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 struct SlotKey {

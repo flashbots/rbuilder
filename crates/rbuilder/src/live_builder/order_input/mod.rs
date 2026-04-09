@@ -129,8 +129,6 @@ pub struct OrderInputConfig {
 }
 
 pub const DEFAULT_SERVE_MAX_CONNECTIONS: u32 = 4096;
-pub const DEFAULT_RESULTS_CHANNEL_TIMEOUT: Duration = Duration::from_millis(50);
-pub const DEFAULT_INPUT_CHANNEL_BUFFER_SIZE: usize = 10_000;
 
 impl OrderInputConfig {
     #[allow(clippy::too_many_arguments)]
