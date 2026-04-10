@@ -28,7 +28,7 @@ use reth_provider::StateProvider;
 use std::{
     cmp::{max, min, Ordering},
     collections::hash_map::Entry,
-    sync::Arc,
+    sync::{atomic::AtomicBool, Arc},
     time::{Duration, Instant},
 };
 use tracing::{error, trace};
@@ -183,6 +183,29 @@ pub struct SimulationRequest {
     /// reflects only the target order's own slot access — preventing parent detection slot
     /// writes from leaking into the child's classification.
     pub has_ace_parents: bool,
+}
+
+/// SimulationRequest with an extra bool to be able to cancel it externally.
+#[derive(Debug, Clone)]
+pub struct CancellableSimulationRequest {
+    request: SimulationRequest,
+    // If cancelled we don't simulate.
+    cancelled: Arc<AtomicBool>,
+}
+
+impl CancellableSimulationRequest {
+    pub fn new(request: SimulationRequest, cancelled: Arc<AtomicBool>) -> Self {
+        Self { request, cancelled }
+    }
+
+    /// If cancelled returns none.
+    pub fn into_request(self) -> Option<SimulationRequest> {
+        if self.cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+            None
+        } else {
+            Some(self.request)
+        }
+    }
 }
 
 #[derive(Debug)]

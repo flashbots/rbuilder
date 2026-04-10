@@ -87,6 +87,8 @@ where
     Ok(ctx)
 }
 
+/// @Pending: change available_orders to some struct that allows to tell the difference between
+/// mempool txs and private txs.
 pub fn backtest_prepare_orders_from_building_context<P>(
     ctx: BlockBuildingContext,
     available_orders: Vec<OrdersWithTimestamp>,
@@ -122,7 +124,10 @@ where
         .map(|order| Arc::clone(&order.order))
         .collect();
     for order in &orders {
-        ctx.mempool_tx_detector.add_tx(order);
+        if let Order::Tx(mempool_tx) = order.as_ref() {
+            ctx.mempool_tx_detector
+                .add_tx(mempool_tx.tx_with_blobs.hash());
+        }
     }
 
     tracing::debug!(

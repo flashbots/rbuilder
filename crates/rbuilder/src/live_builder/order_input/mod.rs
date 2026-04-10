@@ -129,8 +129,6 @@ pub struct OrderInputConfig {
 }
 
 pub const DEFAULT_SERVE_MAX_CONNECTIONS: u32 = 4096;
-pub const DEFAULT_RESULTS_CHANNEL_TIMEOUT: Duration = Duration::from_millis(50);
-pub const DEFAULT_INPUT_CHANNEL_BUFFER_SIZE: usize = 10_000;
 
 impl OrderInputConfig {
     #[allow(clippy::too_many_arguments)]
@@ -233,6 +231,7 @@ impl ReplaceableOrderPoolCommand {
 /// - Clean up task to remove old stuff.
 ///
 /// @Pending reengineering to modularize rpc, extra_rpc here is a patch to upgrade the created rpc server.
+#[allow(clippy::too_many_arguments)]
 pub async fn start_orderpool_jobs<P>(
     config: OrderInputConfig,
     provider_factory: P,
@@ -241,6 +240,7 @@ pub async fn start_orderpool_jobs<P>(
     order_sender: mpsc::Sender<ReplaceableOrderPoolCommand>,
     order_receiver: mpsc::Receiver<ReplaceableOrderPoolCommand>,
     header_receiver: mpsc::Receiver<Header>,
+    mempool_detector: Arc<mempool_txs_detector::MempoolTxsDetector>,
 ) -> eyre::Result<(JoinHandle<()>, OrderPoolSubscriber)>
 where
     P: StateProviderFactory + 'static,
@@ -252,7 +252,10 @@ where
         warn!("ignore_blobs is set to true, some order input is ignored");
     }
 
-    let orderpool = Arc::new(Mutex::new(OrderPool::new(config.time_to_keep_mempool_txs)));
+    let orderpool = Arc::new(Mutex::new(OrderPool::new(
+        config.time_to_keep_mempool_txs,
+        mempool_detector.clone(),
+    )));
     let subscriber = OrderPoolSubscriber {
         orderpool: orderpool.clone(),
     };
@@ -279,6 +282,7 @@ where
         let txpool_fetcher = txpool_fetcher::subscribe_to_txpool_with_blobs(
             config.clone(),
             order_sender.clone(),
+            mempool_detector.clone(),
             global_cancel.clone(),
         )
         .await?;

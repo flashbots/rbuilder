@@ -58,97 +58,99 @@ pub fn run_sim_worker<P>(
                     continue 'main;
                 }
             };
-        while let Ok(task) = current_sim_context.requests.recv() {
-            let sim_thread_wait_time = last_sim_finished.elapsed();
-            let sim_start = Instant::now();
+        while let Ok(cancellable_task) = current_sim_context.requests.recv() {
+            if let Some(task) = cancellable_task.into_request() {
+                let sim_thread_wait_time = last_sim_finished.elapsed();
+                let sim_start = Instant::now();
 
-            let order_id = task.order.id();
-            let start_time = Instant::now();
-            let mut block_state = BlockState::new_arc(state_provider.clone());
-            let sim_result = simulate_order(
-                task.parents.clone(),
-                task.order.clone(),
-                &current_sim_context.block_ctx,
-                &mut local_ctx,
-                &mut block_state,
-                &current_sim_context.ace_configs,
-                &task.ace_state,
-                task.has_ace_parents,
-            );
-            let sim_ok = match sim_result {
-                Ok(sim_result) => {
-                    let sim_ok = match sim_result.result {
-                        OrderSimResult::Success(simulated_order, nonces_after) => {
-                            let mut dependencies_satisfied: Vec<DependencyKey> = nonces_after
-                                .into_iter()
-                                .map(|(address, nonce)| {
-                                    DependencyKey::Nonce(NonceKey { address, nonce })
-                                })
-                                .collect();
+                let order_id = task.order.id();
+                let start_time = Instant::now();
+                let mut block_state = BlockState::new_arc(state_provider.clone());
+                let sim_result = simulate_order(
+                    task.parents.clone(),
+                    task.order.clone(),
+                    &current_sim_context.block_ctx,
+                    &mut local_ctx,
+                    &mut block_state,
+                    &current_sim_context.ace_configs,
+                    &task.ace_state,
+                    task.has_ace_parents,
+                );
+                let sim_ok = match sim_result {
+                    Ok(sim_result) => {
+                        let sim_ok = match sim_result.result {
+                            OrderSimResult::Success(simulated_order, nonces_after) => {
+                                let mut dependencies_satisfied: Vec<DependencyKey> = nonces_after
+                                    .into_iter()
+                                    .map(|(address, nonce)| {
+                                        DependencyKey::Nonce(NonceKey { address, nonce })
+                                    })
+                                    .collect();
 
-                            // Add ACE dependencies for all unlocking interactions
-                            for interaction in &simulated_order.ace_interactions {
-                                if let AceInteraction::Unlocking {
-                                    contract_address, ..
-                                } = interaction
-                                {
-                                    dependencies_satisfied
-                                        .push(DependencyKey::AceUnlock(*contract_address));
+                                // Add ACE dependencies for all unlocking interactions
+                                for interaction in &simulated_order.ace_interactions {
+                                    if let AceInteraction::Unlocking {
+                                        contract_address, ..
+                                    } = interaction
+                                    {
+                                        dependencies_satisfied
+                                            .push(DependencyKey::AceUnlock(*contract_address));
+                                    }
                                 }
-                            }
 
-                            let result = SimulatedResult::Success {
-                                id: task.id,
-                                simulated_order,
-                                previous_orders: task.parents,
-                                dependencies_satisfied,
-                                simulation_time: start_time.elapsed(),
-                            };
-                            if current_sim_context.results.try_send(result).is_err() {
-                                error!(
-                                    ?order_id,
-                                    "Failed to send simulation result - channel full or closed"
-                                );
-                            }
-                            true
-                        }
-                        OrderSimResult::Failed(failure) => {
-                            // Only send to SimTree if there's an ACE dependency to handle
-                            if !failure.ace_state.all_dependencies_accounted() {
-                                let result = SimulatedResult::Failed {
+                                let result = SimulatedResult::Success {
                                     id: task.id,
-                                    order: task.order,
-                                    failure,
+                                    simulated_order,
+                                    previous_orders: task.parents,
+                                    dependencies_satisfied,
                                     simulation_time: start_time.elapsed(),
                                 };
                                 if current_sim_context.results.try_send(result).is_err() {
                                     error!(
                                         ?order_id,
-                                        "Failed to send Failed result with ACE dependency"
+                                        "Failed to send simulation result - channel full or closed"
                                     );
                                 }
+                                true
                             }
-                            false
-                        }
-                    };
-                    telemetry::inc_simulated_orders(sim_ok);
-                    telemetry::inc_simulation_gas_used(sim_result.gas_used);
-                    sim_ok
-                }
-                Err(err) => {
-                    error!(?err, ?order_id, "Critical error while simulating order");
-                    break;
-                }
-            };
+                            OrderSimResult::Failed(failure) => {
+                                // Only send to SimTree if there's an ACE dependency to handle
+                                if !failure.ace_state.all_dependencies_accounted() {
+                                    let result = SimulatedResult::Failed {
+                                        id: task.id,
+                                        order: task.order,
+                                        failure,
+                                        simulation_time: start_time.elapsed(),
+                                    };
+                                    if current_sim_context.results.try_send(result).is_err() {
+                                        error!(
+                                            ?order_id,
+                                            "Failed to send Failed result with ACE dependency"
+                                        );
+                                    }
+                                }
+                                false
+                            }
+                        };
+                        telemetry::inc_simulated_orders(sim_ok);
+                        telemetry::inc_simulation_gas_used(sim_result.gas_used);
+                        sim_ok
+                    }
+                    Err(err) => {
+                        error!(?err, ?order_id, "Critical error while simulating order");
+                        break;
+                    }
+                };
 
-            mark_order_simulation_end(order_id, sim_ok);
-            last_sim_finished = Instant::now();
-            let sim_thread_work_time = sim_start.elapsed();
-            add_sim_thread_utilisation_timings(
-                sim_thread_work_time,
-                sim_thread_wait_time,
-                worker_id,
-            );
+                mark_order_simulation_end(order_id, sim_ok);
+                last_sim_finished = Instant::now();
+                let sim_thread_work_time = sim_start.elapsed();
+                add_sim_thread_utilisation_timings(
+                    sim_thread_work_time,
+                    sim_thread_wait_time,
+                    worker_id,
+                );
+            }
         }
     }
 }

@@ -4,7 +4,7 @@ pub mod simulation_job_tracer;
 
 use crate::{
     building::{
-        sim::{SimTree, SimulatedResult, SimulationRequest},
+        sim::{CancellableSimulationRequest, SimTree, SimulatedResult},
         tx_sim_cache::TxExecutionCache,
         BlockBuildingContext,
     },
@@ -36,7 +36,7 @@ type BlockContextId = u64;
 pub struct SimulationContext {
     pub block_ctx: BlockBuildingContext,
     /// Simulation requests come in through this channel.
-    pub requests: flume::Receiver<SimulationRequest>,
+    pub requests: flume::Receiver<CancellableSimulationRequest>,
     /// Simulation results go out through this channel.
     pub results: mpsc::Sender<SimulatedResult>,
     /// ACE configuration for this simulation context (empty if ACE is disabled).

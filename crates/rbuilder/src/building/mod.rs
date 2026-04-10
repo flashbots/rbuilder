@@ -148,6 +148,7 @@ impl BlockBuildingContext {
         faster_finalize: bool,
         mev_blocker_price: U256,
         adjustment_fee_payers: ahash::HashSet<Address>,
+        mempool_tx_detector: Arc<MempoolTxsDetector>,
     ) -> Option<BlockBuildingContext> {
         let attributes = EthPayloadBuilderAttributes::try_new(
             attributes.data.parent_block_hash,
@@ -219,7 +220,7 @@ impl BlockBuildingContext {
             shared_cached_reads: Default::default(),
             tx_execution_cache: Arc::new(TxExecutionCache::new(evm_caching_enable)),
             max_blob_gas_per_block,
-            mempool_tx_detector: Arc::new(MempoolTxsDetector::new()),
+            mempool_tx_detector,
             faster_finalize,
             mev_blocker_price,
             adjustment_fee_payers,
@@ -1319,9 +1320,7 @@ mod test {
         let detector = MempoolTxsDetector::new();
         let mut data_gen = TestDataGenerator::default();
         let tx1 = data_gen.create_tx_with_blobs_nonce(Default::default());
-        detector.add_tx(&Order::Tx(MempoolTx {
-            tx_with_blobs: tx1.clone(),
-        }));
+        detector.add_tx(tx1.hash());
         let tx2 = data_gen.create_tx_with_blobs_nonce(Default::default());
         let profit_1 = I256::unchecked_from(1000);
         let profit_2 = I256::unchecked_from(10000);
@@ -1371,7 +1370,7 @@ mod test {
         let order = Order::Tx(MempoolTx {
             tx_with_blobs: tx.clone(),
         });
-        detector.add_tx(&order);
+        detector.add_tx(tx.hash());
         let profit = I256::unchecked_from(1000);
         let order_ok = OrderOk {
             coinbase_profit: profit.unsigned_abs(),

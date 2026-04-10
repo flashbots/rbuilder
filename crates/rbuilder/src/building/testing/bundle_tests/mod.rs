@@ -512,6 +512,42 @@ fn test_bundle_consistency_check() -> eyre::Result<()> {
     Ok(())
 }
 
+/// Tests allow_tx_skip behavior with two bundles sharing a reverting tx.
+/// Bundle 1: reverting_tx_1 + backrun_1 — both execute successfully.
+/// Bundle 2: reverting_tx_1 (stale nonce, skipped) + reverting_tx_2 + backrun_2 — only last two execute.
+#[test]
+fn test_bundle_allow_tx_skip() -> eyre::Result<()> {
+    let target_block = BlockArgs::MIN_BLOCK_NUMBER;
+    let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().with_number(target_block))?;
+
+    let reverting_tx_1 = test_setup.create_dummy_tx(NamedAddr::User(0), NamedAddr::Dummy, 0)?;
+    // Bundle 1: reverting_tx_1 (User(0), reverting) + backrun_1 (User(1))
+    test_setup.begin_bundle_order(target_block);
+    test_setup.add_external_tx(reverting_tx_1.clone(), TxRevertBehavior::AllowedIncluded)?;
+    test_setup.add_null_tx(NamedAddr::User(1), TxRevertBehavior::NotAllowed)?;
+    let result = test_setup.commit_order_ok();
+    assert_eq!(result.tx_infos.len(), 2);
+    assert!(result.tx_infos[0].receipt.success);
+    assert!(result.tx_infos[1].receipt.success);
+
+    // Bundle 2: SAME reverting_tx_1 as in bundle 1.
+    //         + reverting_tx_2 (User(2), reverting)
+    //         + backrun_2 (User(3))
+    test_setup.begin_bundle_order(target_block);
+    // reverting_tx_1 with stale nonce — will fail with NonceTooHigh and be skipped
+    // because allow_tx_skip=true and it's in reverting_tx_hashes
+    test_setup.add_external_tx(reverting_tx_1, TxRevertBehavior::AllowedIncluded)?;
+    test_setup.add_null_tx(NamedAddr::User(2), TxRevertBehavior::AllowedIncluded)?;
+    test_setup.add_null_tx(NamedAddr::User(3), TxRevertBehavior::NotAllowed)?;
+    let result = test_setup.commit_order_ok();
+    // reverting_tx_1 was skipped, only reverting_tx_2 + backrun_2 landed
+    assert_eq!(result.tx_infos.len(), 2);
+    assert!(result.tx_infos[0].receipt.success);
+    assert!(result.tx_infos[1].receipt.success);
+
+    Ok(())
+}
+
 #[test]
 ///Checks TxRevertBehavior::AllowedInclude/AllowedExcluded by checking the consumed gas.
 fn bundle_revert_modes_tests() -> eyre::Result<()> {
