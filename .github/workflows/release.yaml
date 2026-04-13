@@ -304,7 +304,7 @@ jobs:
       - name: Extract and verify binary
         if: steps.download-binary.outcome == 'success'
         run: |
-          tar xzf rbuilder-*.tar.gz
+          tar xzf "rbuilder-${{ env.VERSION }}-x86_64-unknown-linux-gnu${{ github.event.inputs.features && format('-{0}', github.event.inputs.features) || '' }}.tar.gz"
           if [ -f "./rbuilder" ]; then
             echo "✅ Binary extracted successfully"
             ls -lh ./rbuilder
