@@ -607,8 +607,20 @@ impl SimTree {
         // Track orders that become ready (all deps satisfied)
         let mut orders_ready: Vec<PendingOrder> = Vec::new();
 
-        // Process each dependency this simulation satisfies
+        // Preserve develop's single-nonce-only provider tracking: only register nonce
+        // dependencies when the simulation updates exactly one nonce. Multi-nonce sims
+        // (e.g. bundles with multiple senders) are stored in `sims` but not tracked as
+        // providers — those orders wait until each nonce is individually satisfied.
+        // ACE unlock deps are always processed regardless of nonce count.
+        let nonce_dep_count = dependencies_satisfied
+            .iter()
+            .filter(|d| matches!(d, DependencyKey::Nonce(_)))
+            .count();
+
         for dep_key in dependencies_satisfied {
+            if matches!(dep_key, DependencyKey::Nonce(_)) && nonce_dep_count != 1 {
+                continue;
+            }
             match self.dependency_providers.entry(dep_key.clone()) {
                 Entry::Occupied(mut entry) => {
                     // Already have a provider - check if this one should replace it.
