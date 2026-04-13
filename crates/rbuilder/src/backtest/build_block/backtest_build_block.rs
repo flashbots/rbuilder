@@ -17,7 +17,7 @@ use crate::{
         builders::BacktestSimulateBlockInput, BlockBuildingContext, ExecutionResult,
         NullPartialBlockExecutionTracer,
     },
-    live_builder::cli::LiveBuilderConfig,
+    live_builder::{cli::LiveBuilderConfig, config::AceConfig},
     provider::StateProviderFactory,
 };
 use clap::Parser;
@@ -102,10 +102,17 @@ where
     let provider_factory = orders_source.create_provider_factory()?;
     orders_source.print_custom_stats(provider_factory.clone())?;
 
+    let base_config = config.base_config();
+    let ace_configs: Vec<AceConfig> = if base_config.ace_enabled {
+        base_config.ace_protocols.clone()
+    } else {
+        Vec::new()
+    };
     let BacktestBlockInput { sim_orders, .. } = backtest_prepare_orders_from_building_context(
         ctx.clone(),
         available_orders.clone(),
         provider_factory.clone(),
+        ace_configs,
     )?;
 
     if let Some(tx_hash) = build_block_cfg.show_tx_extra_data {
@@ -205,6 +212,9 @@ fn print_sim_order(sim_order: &SimulatedOrder) {
         );
     }
     println!("      * gas_used {:?}", sim_value.gas_used());
+    if !sim_order.ace_interactions.is_empty() {
+        println!("      * ace_interactions: {:?}", sim_order.ace_interactions);
+    }
 }
 
 fn print_orders_with_tx_hash(

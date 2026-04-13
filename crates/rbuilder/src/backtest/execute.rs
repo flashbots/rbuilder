@@ -4,7 +4,7 @@ use crate::{
         builders::BacktestSimulateBlockInput, sim::simulate_all_orders_with_sim_tree,
         BlockBuildingContext, BundleErr, NullPartialBlockExecutionTracer, OrderErr, TransactionErr,
     },
-    live_builder::{block_list_provider::BlockList, cli::LiveBuilderConfig},
+    live_builder::{block_list_provider::BlockList, cli::LiveBuilderConfig, config::AceConfig},
     provider::StateProviderFactory,
     utils::{clean_extradata, mevblocker::get_mevblocker_price, Signer},
 };
@@ -93,10 +93,32 @@ pub fn backtest_prepare_orders_from_building_context<P>(
     ctx: BlockBuildingContext,
     available_orders: Vec<OrdersWithTimestamp>,
     provider: P,
+    ace_configs: Vec<AceConfig>,
 ) -> eyre::Result<BacktestBlockInput>
 where
     P: StateProviderFactory + Clone + 'static,
 {
+    // Log ACE config status for debugging
+    if ace_configs.is_empty() {
+        tracing::debug!("ACE backtest: no ACE configs provided, ACE detection disabled");
+    } else {
+        tracing::debug!(
+            ace_config_count = ace_configs.len(),
+            "ACE backtest: starting simulation with ACE configs"
+        );
+        for config in &ace_configs {
+            tracing::debug!(
+                contract_address = ?config.contract_address,
+                from_addresses_count = config.from_addresses.len(),
+                to_addresses_count = config.to_addresses.len(),
+                detection_slots_count = config.detection_slots.len(),
+                unlock_signatures_count = config.unlock_signatures.len(),
+                force_signatures_count = config.force_signatures.len(),
+                "ACE backtest: loaded protocol config"
+            );
+        }
+    }
+
     let orders: Vec<Arc<Order>> = available_orders
         .iter()
         .map(|order| Arc::clone(&order.order))
@@ -108,8 +130,26 @@ where
         }
     }
 
+    tracing::debug!(
+        order_count = orders.len(),
+        "ACE backtest: simulating orders"
+    );
+
     let (sim_orders, sim_errors) =
-        simulate_all_orders_with_sim_tree(provider, &ctx, &orders, false)?;
+        simulate_all_orders_with_sim_tree(provider, &ctx, &orders, false, ace_configs)?;
+
+    // Log simulation results
+    let ace_orders_count = sim_orders
+        .iter()
+        .filter(|o| !o.ace_interactions.is_empty())
+        .count();
+    tracing::debug!(
+        simulated_orders = sim_orders.len(),
+        sim_errors = sim_errors.len(),
+        ace_interacting_orders = ace_orders_count,
+        "ACE backtest: simulation complete"
+    );
+
     Ok(BacktestBlockInput {
         sim_orders,
         sim_errors,
@@ -152,6 +192,12 @@ where
     P: StateProviderFactory + Clone + 'static,
     ConfigType: LiveBuilderConfig,
 {
+    let base_config = config.base_config();
+    let ace_configs = if base_config.ace_enabled {
+        base_config.ace_protocols.clone()
+    } else {
+        Vec::new()
+    };
     let BacktestBlockInput {
         sim_orders,
         sim_errors,
@@ -159,6 +205,7 @@ where
         ctx.clone(),
         block_data.available_orders,
         provider.clone(),
+        ace_configs,
     )?;
 
     let filtered_orders_blocklist_count = sim_errors

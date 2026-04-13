@@ -146,6 +146,9 @@ where
     pub simulation_use_random_coinbase: bool,
 
     pub order_flow_tracer_manager: Box<dyn OrderFlowTracerManager>,
+
+    pub ace_enabled: bool,
+    pub ace_config: Vec<config::AceConfig>,
     pub order_journal_observer_factory: Box<dyn OrderJournalObserverFactory + Send + Sync>,
 
     pub mempool_detector: Arc<MempoolTxsDetector>,
@@ -264,6 +267,8 @@ where
             order_simulation_pool,
             self.run_sparse_trie_prefetcher,
             self.order_flow_tracer_manager,
+            self.ace_enabled,
+            self.ace_config.clone(),
             self.order_journal_observer_factory,
         );
 

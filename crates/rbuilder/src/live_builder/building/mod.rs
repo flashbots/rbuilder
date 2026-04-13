@@ -53,6 +53,8 @@ pub struct BlockBuildingPool<P> {
     run_sparse_trie_prefetcher: bool,
     order_flow_tracer_manager: Box<dyn OrderFlowTracerManager>,
     built_block_id_source: Arc<BuiltBlockIdSource>,
+    ace_enabled: bool,
+    ace_config: Vec<super::config::AceConfig>,
     order_journal_observer_factory: Box<dyn OrderJournalObserverFactory + Send + Sync>,
 }
 
@@ -69,6 +71,8 @@ where
         order_simulation_pool: OrderSimulationPool<P>,
         run_sparse_trie_prefetcher: bool,
         order_flow_tracer_manager: Box<dyn OrderFlowTracerManager>,
+        ace_enabled: bool,
+        ace_config: Vec<super::config::AceConfig>,
         order_journal_observer_factory: Box<dyn OrderJournalObserverFactory + Send + Sync>,
     ) -> Self {
         BlockBuildingPool {
@@ -80,6 +84,8 @@ where
             run_sparse_trie_prefetcher,
             order_flow_tracer_manager,
             built_block_id_source: Arc::new(BuiltBlockIdSource::new()),
+            ace_enabled,
+            ace_config,
             order_journal_observer_factory,
         }
     }
@@ -149,6 +155,8 @@ where
             orders_for_block,
             block_cancellation.clone(),
             sim_tracer,
+            self.ace_enabled,
+            self.ace_config.clone(),
         );
         self.start_building_job(
             block_ctx,

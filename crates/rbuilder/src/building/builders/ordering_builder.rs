@@ -298,6 +298,18 @@ impl OrderingBuilderContext {
         self.failed_orders.clear();
         self.order_attempts.clear();
 
+        // Extract ACE protocol orders (direct calls to protocol) from block_orders
+        // These will be pre-committed at the top of the block
+        let all_orders = block_orders.get_all_orders();
+        let mut ace_orders = Vec::new();
+        for order in all_orders {
+            if order.ace_interactions.iter().any(|a| a.is_protocol_tx()) {
+                ace_orders.push(order.clone());
+                // Remove from block_orders so they don't get processed in fill_orders
+                block_orders.remove_order(order.id());
+            }
+        }
+
         let mut block_building_helper = BlockBuildingHelperFromProvider::new_with_execution_tracer(
             built_block_id,
             next_journal_sequence_number,
@@ -311,6 +323,23 @@ impl OrderingBuilderContext {
             partial_block_execution_tracer,
             self.max_order_execution_duration_warning,
         )?;
+
+        // Pre-commit ACE protocol orders at the top of the block
+        for ace_order in &ace_orders {
+            trace!(order_id = ?ace_order.id(), "Pre-committing ACE protocol order");
+            if let Err(err) = block_building_helper.commit_order(
+                &mut self.local_ctx,
+                ace_order,
+                #[allow(clippy::result_large_err)]
+                &|_| Ok(()), // ACE protocol orders bypass profit validation
+            ) {
+                if ace_order.ace_interactions.iter().any(|a| a.is_force()) {
+                    error!(order_id = ?ace_order.id(), ?err, "Failed to pre-commit ProtocolForce ACE order");
+                } else {
+                    trace!(order_id = ?ace_order.id(), ?err, "Failed to pre-commit ACE protocol order");
+                }
+            }
+        }
         self.fill_orders(
             &mut block_building_helper,
             &mut block_orders,

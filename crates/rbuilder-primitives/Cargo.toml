@@ -50,6 +50,7 @@ eyre.workspace = true
 serde.workspace = true
 derive_more.workspace = true
 serde_json.workspace = true
+strum = { version = "0.27.2", features = ["derive"] }
 
 [dev-dependencies]
 alloy-primitives = { workspace = true, features = ["arbitrary"] }

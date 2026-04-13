@@ -7,7 +7,10 @@ use std::{
 };
 
 use crate::{
-    building::sim::{CancellableSimulationRequest, SimTree, SimulatedResult},
+    building::sim::{
+        CancellableSimulationRequest, SimTree, SimulatedResult, SimulationFailure,
+        SimulationRequest,
+    },
     live_builder::{
         order_input::order_sink::OrderPoolCommand,
         simulation::simulation_job_tracer::SimulationJobTracer,
@@ -198,54 +201,83 @@ impl SimulationJob {
         &mut self,
         new_sim_results: &mut Vec<SimulatedResult>,
     ) -> bool {
-        // send results
-        let mut valid_simulated_orders = Vec::new();
-        for sim_result in new_sim_results {
-            trace!(order_id=?sim_result.simulated_order.order.id(),
-            sim_duration_mus = sim_result.simulation_time.as_micros(),
-            profit = format_ether(sim_result.simulated_order.sim_value.full_profit_info().coinbase_profit()), "Order simulated");
-            self.orders_simulated_ok
-                .accumulate(&sim_result.simulated_order.order);
-            if let Some(repl_key) = sim_result.simulated_order.order.replacement_key() {
-                self.unique_replacement_key_bundles_sim_ok.insert(repl_key);
-                self.orders_with_replacement_key_sim_ok += 1;
-            }
-            // Skip cancelled orders and remove from in_flight_orders
-            if self
-                .in_flight_orders
-                .remove(&sim_result.simulated_order.id())
-                .is_some()
-            {
-                valid_simulated_orders.push(sim_result.clone());
-                // Only send if it's the first time.
-                if self
-                    .not_cancelled_sent_simulated_orders
-                    .insert(sim_result.simulated_order.id())
-                {
+        // Results to pass to sim_tree: successful sims and failed ones needing ACE re-queue
+        let mut sim_tree_results = Vec::new();
+        for sim_result in new_sim_results.drain(..) {
+            match &sim_result {
+                SimulatedResult::Success {
+                    simulated_order,
+                    simulation_time,
+                    ..
+                } => {
+                    trace!(order_id=?simulated_order.order.id(),
+                    sim_duration_mus = simulation_time.as_micros(),
+                    profit = format_ether(simulated_order.sim_value.full_profit_info().coinbase_profit()), "Order simulated");
+                    self.orders_simulated_ok.accumulate(&simulated_order.order);
+                    if let Some(repl_key) = simulated_order.order.replacement_key() {
+                        self.unique_replacement_key_bundles_sim_ok.insert(repl_key);
+                        self.orders_with_replacement_key_sim_ok += 1;
+                    }
+                    // Skip cancelled orders and remove from in_flight_orders
                     if self
-                        .slot_sim_results_sender
-                        .send(SimulatedOrderCommand::Simulation(
-                            sim_result.simulated_order.clone(),
-                        ))
-                        .await
-                        .is_err()
+                        .in_flight_orders
+                        .remove(&simulated_order.id())
+                        .is_some()
                     {
-                        return false; //receiver closed :(
+                        // Only send if it's the first time.
+                        if self
+                            .not_cancelled_sent_simulated_orders
+                            .insert(simulated_order.id())
+                        {
+                            if self
+                                .slot_sim_results_sender
+                                .send(SimulatedOrderCommand::Simulation(simulated_order.clone()))
+                                .await
+                                .is_err()
+                            {
+                                return false; //receiver closed :(
+                            } else {
+                                self.sim_tracer.update_simulation_sent(&sim_result);
+                            }
+                        }
+                        sim_tree_results.push(sim_result);
+                    }
+                }
+                SimulatedResult::Failed {
+                    failure: SimulationFailure { ref ace_state, .. },
+                    ref order,
+                    ..
+                } => {
+                    if !ace_state.all_dependencies_accounted() {
+                        // Failed with ACE dependency - pass to sim_tree for re-queuing with unlock parent
+                        sim_tree_results.push(sim_result);
                     } else {
-                        self.sim_tracer.update_simulation_sent(sim_result);
+                        // Permanent failure - remove from in_flight tracking
+                        self.in_flight_orders.remove(&order.id());
                     }
                 }
             }
         }
         // update simtree
-        if let Err(err) = self
+        let (_, cancellations) = match self
             .sim_tree
-            .submit_simulation_tasks_results(valid_simulated_orders)
+            .submit_simulation_tasks_results(sim_tree_results)
         {
-            error!(?err, "Failed to push order sim results into the sim tree");
-            // @Metric
-            return false;
+            Ok(result) => result,
+            Err(err) => {
+                error!(?err, "Failed to push order sim results into the sim tree");
+                // @Metric
+                return false;
+            }
+        };
+
+        // Send any cancellations generated by the sim tree (e.g., optional ACE unlocks superseded by mempool)
+        for cancel_id in cancellations {
+            if !self.send_cancel(&cancel_id).await {
+                return false;
+            }
         }
+
         true
     }
 

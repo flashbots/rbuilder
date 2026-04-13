@@ -1,5 +1,6 @@
 //! Order types used as elements for block building.
 
+pub mod ace;
 pub mod built_block;
 pub mod evm_inspector;
 pub mod fmt;
@@ -40,7 +41,8 @@ pub use test_data_generator::TestDataGenerator;
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::serialize::TxEncoding;
+use crate::{ace::AceInteraction, serialize::TxEncoding};
+pub use ace::AceConfig;
 
 /// Extra metadata for an order.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -135,7 +137,7 @@ pub struct Nonce {
     pub optional: bool,
 }
 
-/// Information regarding a new/update replaceable Bundle/ShareBundle.
+/// Information regarding a new/update replaceable Bundle.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ReplacementData<KeyType> {
     pub key: KeyType,
@@ -1015,6 +1017,9 @@ pub struct SimulatedOrder {
     pub sim_value: SimValue,
     /// Info about read/write slots during the simulation to help figure out what the Order is doing.
     pub used_state_trace: Option<UsedStateTrace>,
+    /// ACE interactions - one per ACE contract this order interacts with.
+    /// Empty if no ACE interactions.
+    pub ace_interactions: Vec<AceInteraction>,
 }
 
 impl SimulatedOrder {
@@ -1027,6 +1032,7 @@ impl SimulatedOrder {
             order,
             sim_value,
             used_state_trace,
+            ace_interactions: Vec::new(),
         }
     }
 
@@ -1040,7 +1046,7 @@ impl SimulatedOrder {
 }
 
 /// Unique OrderId used along the whole builder.
-/// Sadly it's not perfect since we still might have some collisions (eg: ShareBundle is the tx tree hash which does not include all the other cfg).
+/// Sadly it's not perfect since we still might have some collisions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum OrderId {
     Tx(B256),

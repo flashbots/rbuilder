@@ -1,4 +1,6 @@
 #[cfg(test)]
+pub mod ace_tests;
+#[cfg(test)]
 pub mod bundle_tests;
 #[cfg(test)]
 pub mod evm_inspector_tests;

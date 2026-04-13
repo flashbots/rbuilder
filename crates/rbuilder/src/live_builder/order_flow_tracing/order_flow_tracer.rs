@@ -81,24 +81,30 @@ impl OrderFlowTracer {
 
 impl SimulationJobTracer for OrderFlowTracer {
     fn update_simulation_sent(&self, sim_result: &SimulatedResult) {
+        let SimulatedResult::Success {
+            simulation_time,
+            simulated_order,
+            ..
+        } = sim_result
+        else {
+            // Only Success variants are traced
+            return;
+        };
         let event = SimulationEvent::SimulatedOrder(SimulatedOrderData {
-            simulation_time: sim_result.simulation_time,
-            order_id: sim_result.simulated_order.order.id(),
-            replacement_key_and_sequence_number: sim_result
-                .simulated_order
+            simulation_time: *simulation_time,
+            order_id: simulated_order.order.id(),
+            replacement_key_and_sequence_number: simulated_order
                 .order
                 .replacement_key_and_sequence_number(),
-            full_profit: sim_result
-                .simulated_order
+            full_profit: simulated_order
                 .sim_value
                 .full_profit_info()
                 .coinbase_profit(),
-            non_mempool_profit: sim_result
-                .simulated_order
+            non_mempool_profit: simulated_order
                 .sim_value
                 .non_mempool_profit_info()
                 .coinbase_profit(),
-            gas_used: sim_result.simulated_order.sim_value.gas_used(),
+            gas_used: simulated_order.sim_value.gas_used(),
         });
         self.sim_events
             .lock()

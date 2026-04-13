@@ -1,6 +1,7 @@
 use crate::telemetry::{add_gzip_compression_time, add_ssz_encoding_time};
 
 use super::utils::u256decimal_serde_helper;
+
 use alloy_primitives::{utils::parse_ether, Address, BlockHash, U256};
 use alloy_rpc_types_beacon::BlsPublicKey;
 use flate2::{write::GzEncoder, Compression};

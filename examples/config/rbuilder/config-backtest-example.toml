@@ -32,3 +32,19 @@ algo = "parallel-builder"
 discard_txs = true
 num_threads = 25
 safe_sorting_only = false
+
+[[ace_protocols]]
+# Contract address serves as unique identifier for this ACE protocol
+contract_address = "0x0000000aa232009084Bd71A5797d089AA4Edfad4"
+from_addresses = [
+    "0xc41ae140ca9b281d8a1dc254c50e446019517d04",
+    "0xd437f3372f3add2c2bc3245e6bd6f9c202e61bb3",
+    "0x693ca5c6852a7d212dabc98b28e15257465c11f3",
+]
+to_addresses = ["0x0000000aa232009084Bd71A5797d089AA4Edfad4"]
+# _lastBlockUpdated storage slot (slot 3)
+detection_slots = ["0x0000000000000000000000000000000000000000000000000000000000000003"]
+# unlockWithEmptyAttestation(address,bytes) nonpayable
+unlock_signatures = ["0x1828e0e7"]
+# execute(bytes) nonpayable
+force_signatures = ["0x09c5eabe"]

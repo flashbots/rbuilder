@@ -61,6 +61,7 @@ use eyre::Context;
 use lazy_static::lazy_static;
 use rbuilder_config::EnvOrValue;
 use rbuilder_primitives::mev_boost::{MevBoostRelayID, RelayMode};
+pub use rbuilder_primitives::AceConfig;
 use reth_chainspec::{Chain, ChainSpec, NamedChain};
 use reth_db::DatabaseEnv;
 use reth_node_api::NodeTypesWithDBAdapter;
@@ -69,8 +70,9 @@ use reth_primitives::StaticFileSegment;
 use reth_provider::StaticFileProviderFactory;
 use serde::Deserialize;
 use serde_with::{serde_as, OneOrMany};
+use std::collections::HashSet;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     fmt::Debug,
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     path::{Path, PathBuf},

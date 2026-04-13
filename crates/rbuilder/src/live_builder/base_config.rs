@@ -168,6 +168,17 @@ pub struct BaseConfig {
     pub orderflow_tracing_store_path: Option<PathBuf>,
     /// Max number of blocks to keep in disk.
     pub orderflow_tracing_max_blocks: usize,
+
+    /// Global ACE kill switch - when false, all ACE logic is disabled
+    #[serde(default = "default_ace_enabled")]
+    pub ace_enabled: bool,
+
+    /// Ace Configurations
+    pub ace_protocols: Vec<super::config::AceConfig>,
+}
+
+fn default_ace_enabled() -> bool {
+    true
 }
 
 pub fn default_ip() -> Ipv4Addr {
@@ -277,6 +288,8 @@ impl BaseConfig {
             simulation_use_random_coinbase: self.simulation_use_random_coinbase,
             faster_finalize: self.faster_finalize,
             order_flow_tracer_manager,
+            ace_enabled: self.ace_enabled,
+            ace_config: self.ace_protocols.clone(),
             order_journal_observer_factory: Box::new(NullOrderJournalObserverFactory {}),
 
             mempool_detector: Arc::new(MempoolTxsDetector::new()),
@@ -483,6 +496,8 @@ pub const DEFAULT_TIME_TO_KEEP_MEMPOOL_TXS_SECS: u64 = 60;
 impl Default for BaseConfig {
     fn default() -> Self {
         Self {
+            ace_enabled: true,
+            ace_protocols: vec![],
             full_telemetry_server_port: 6069,
             full_telemetry_server_ip: default_ip(),
             redacted_telemetry_server_port: 6070,

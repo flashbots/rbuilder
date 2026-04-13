@@ -27,11 +27,12 @@ use crate::{
     live_builder::{block_list_provider::BlockList, cli::LiveBuilderConfig},
     provider::StateProviderFactory,
     utils::{
-        mevblocker::get_mevblocker_price, timestamp_as_u64, timestamp_ms_to_offset_datetime,
-        ProviderFactoryReopener,
+        extract_onchain_block_txs, mevblocker::get_mevblocker_price, timestamp_as_u64,
+        timestamp_ms_to_offset_datetime, ProviderFactoryReopener,
     },
 };
 use clap::Parser;
+use rbuilder_primitives::{MempoolTx, Order};
 use std::{path::PathBuf, str::FromStr, sync::Arc};
 
 use super::backtest_build_block::{run_backtest_build_block, BuildBlockCfg, OrdersSource};
@@ -73,7 +74,7 @@ struct LandedBlockFromDBOrdersSource<ConfigType> {
 
 impl<ConfigType: LiveBuilderConfig> LandedBlockFromDBOrdersSource<ConfigType> {
     async fn new(extra_cfg: ExtraCfg, config: ConfigType) -> eyre::Result<Self> {
-        let block_data = read_block_data(
+        let mut block_data = read_block_data(
             &config.base_config().backtest_fetch_output_file,
             extra_cfg.block,
             extra_cfg
@@ -87,6 +88,39 @@ impl<ConfigType: LiveBuilderConfig> LandedBlockFromDBOrdersSource<ConfigType> {
             extra_cfg.show_missing,
         )
         .await?;
+
+        // When sim_landed_block is enabled, inject on-chain txs into available_orders
+        // This allows ACE detection to work on private txs that landed in the block
+        if extra_cfg.sim_landed_block {
+            let landed_txs = extract_onchain_block_txs(&block_data.onchain_block)?;
+            let block_timestamp_ms = timestamp_as_u64(&block_data.onchain_block) * 1000;
+
+            // Collect existing tx hashes to avoid duplicates
+            let existing_tx_hashes: ahash::HashSet<_> = block_data
+                .available_orders
+                .iter()
+                .flat_map(|o| o.order.list_txs().into_iter().map(|(tx, _)| tx.hash()))
+                .collect();
+
+            let mut injected_count = 0;
+            for tx in landed_txs {
+                if !existing_tx_hashes.contains(&tx.hash()) {
+                    block_data.available_orders.push(OrdersWithTimestamp {
+                        order: Arc::new(Order::Tx(MempoolTx::new(tx))),
+                        timestamp_ms: block_timestamp_ms,
+                    });
+                    injected_count += 1;
+                }
+            }
+
+            if injected_count > 0 {
+                println!(
+                    "Injected {} on-chain txs into available_orders for simulation",
+                    injected_count
+                );
+            }
+        }
+
         let blocklist = config
             .base_config()
             .blocklist_provider(CancellationToken::new())

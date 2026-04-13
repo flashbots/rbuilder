@@ -9664,6 +9664,7 @@ dependencies = [
  "serde_with",
  "sha2 0.10.9",
  "ssz_types",
+ "strum 0.27.2",
  "thiserror 1.0.69",
  "time",
  "tree_hash 0.8.0",

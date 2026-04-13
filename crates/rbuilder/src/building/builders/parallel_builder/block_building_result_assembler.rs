@@ -11,7 +11,7 @@ use std::{
 };
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
-use tracing::{info_span, trace};
+use tracing::{error, info_span, trace};
 
 use crate::{
     building::{
@@ -186,6 +186,31 @@ impl BlockBuildingResultAssembler {
         orders_closed_at: OffsetDateTime,
     ) -> eyre::Result<Box<dyn BlockBuildingHelper>> {
         let build_start = Instant::now();
+
+        // Extract ACE protocol orders (direct calls to protocol) from all groups
+        // These will be pre-committed at the top of the block
+        let mut ace_orders = Vec::new();
+        for (_, group) in best_orderings_per_group.iter() {
+            for order in group.orders.iter() {
+                if order.ace_interactions.iter().any(|a| a.is_protocol_tx()) {
+                    ace_orders.push(order.clone());
+                }
+            }
+        }
+
+        // Remove ACE orders from groups so they don't get processed twice
+        for (resolution_result, group) in best_orderings_per_group.iter_mut() {
+            // Filter out ACE orders from the sequence
+            resolution_result
+                .sequence_of_orders
+                .retain(|(order_idx, _)| {
+                    !group.orders[*order_idx]
+                        .ace_interactions
+                        .iter()
+                        .any(|a| a.is_protocol_tx())
+                });
+        }
+
         let mut block_building_helper = BlockBuildingHelperFromProvider::new(
             self.built_block_id_source.get_new_id(),
             0,
@@ -199,6 +224,23 @@ impl BlockBuildingResultAssembler {
             self.max_order_execution_duration_warning,
         )?;
         block_building_helper.set_trace_orders_closed_at(orders_closed_at);
+
+        // Pre-commit ACE protocol orders at the top of the block
+        for ace_order in &ace_orders {
+            trace!(order_id = ?ace_order.id(), "Pre-committing ACE protocol order");
+            if let Err(err) = block_building_helper.commit_order(
+                &mut self.local_ctx,
+                ace_order,
+                #[allow(clippy::result_large_err)]
+                &|_| Ok(()), // ACE protocol orders bypass profit validation
+            ) {
+                if ace_order.ace_interactions.iter().any(|a| a.is_force()) {
+                    error!(order_id = ?ace_order.id(), ?err, "Failed to pre-commit ProtocolForce ACE order");
+                } else {
+                    trace!(order_id = ?ace_order.id(), ?err, "Failed to pre-commit ACE protocol order");
+                }
+            }
+        }
 
         // Sort groups by total profit in descending order
         best_orderings_per_group.sort_by(|(a_ordering, _), (b_ordering, _)| {
@@ -269,6 +311,33 @@ impl BlockBuildingResultAssembler {
         best_results: HashMap<GroupId, (ResolutionResult, ConflictGroup)>,
         orders_closed_at: OffsetDateTime,
     ) -> eyre::Result<Box<dyn BlockBuildingHelper>> {
+        let mut best_orderings_per_group: Vec<(ResolutionResult, ConflictGroup)> =
+            best_results.into_values().collect();
+
+        // Extract ACE protocol orders (direct calls to protocol) from all groups
+        // These will be pre-committed at the top of the block
+        let mut ace_orders = Vec::new();
+        for (_, group) in best_orderings_per_group.iter() {
+            for order in group.orders.iter() {
+                if order.ace_interactions.iter().any(|a| a.is_protocol_tx()) {
+                    ace_orders.push(order.clone());
+                }
+            }
+        }
+
+        // Remove ACE orders from groups so they don't get processed twice
+        for (resolution_result, group) in best_orderings_per_group.iter_mut() {
+            // Filter out ACE orders from the sequence
+            resolution_result
+                .sequence_of_orders
+                .retain(|(order_idx, _)| {
+                    !group.orders[*order_idx]
+                        .ace_interactions
+                        .iter()
+                        .any(|a| a.is_protocol_tx())
+                });
+        }
+
         let mut block_building_helper = BlockBuildingHelperFromProvider::new(
             self.built_block_id_source.get_new_id(),
             0,
@@ -284,8 +353,22 @@ impl BlockBuildingResultAssembler {
 
         block_building_helper.set_trace_orders_closed_at(orders_closed_at);
 
-        let mut best_orderings_per_group: Vec<(ResolutionResult, ConflictGroup)> =
-            best_results.into_values().collect();
+        // Pre-commit ACE protocol orders at the top of the block
+        for ace_order in &ace_orders {
+            trace!(order_id = ?ace_order.id(), "Pre-committing ACE protocol order in backtest");
+            if let Err(err) = block_building_helper.commit_order(
+                &mut self.local_ctx,
+                ace_order,
+                #[allow(clippy::result_large_err)]
+                &|_| Ok(()), // ACE protocol orders bypass profit validation
+            ) {
+                if ace_order.ace_interactions.iter().any(|a| a.is_force()) {
+                    error!(order_id = ?ace_order.id(), ?err, "Failed to pre-commit ProtocolForce ACE order in backtest");
+                } else {
+                    trace!(order_id = ?ace_order.id(), ?err, "Failed to pre-commit ACE protocol order in backtest");
+                }
+            }
+        }
 
         // Sort groups by total profit in descending order
         best_orderings_per_group.sort_by(|(a_ordering, _), (b_ordering, _)| {

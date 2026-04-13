@@ -1,6 +1,6 @@
 use crate::{
     building::{
-        sim::{NonceKey, OrderSimResult, SimulatedResult},
+        sim::{DependencyKey, NonceKey, OrderSimResult, SimulatedResult},
         simulate_order, BlockState, ThreadBlockBuildingContext,
     },
     live_builder::simulation::CurrentSimulationContexts,
@@ -8,6 +8,7 @@ use crate::{
     telemetry::{self, add_sim_thread_utilisation_timings, mark_order_simulation_end},
 };
 use parking_lot::Mutex;
+use rbuilder_primitives::ace::AceInteraction;
 use std::{
     sync::Arc,
     thread::sleep,
@@ -67,32 +68,69 @@ pub fn run_sim_worker<P>(
                 let mut block_state = BlockState::new_arc(state_provider.clone());
                 let sim_result = simulate_order(
                     task.parents.clone(),
-                    task.order,
+                    task.order.clone(),
                     &current_sim_context.block_ctx,
                     &mut local_ctx,
                     &mut block_state,
+                    &current_sim_context.ace_configs,
+                    &task.ace_state,
+                    task.has_ace_parents,
                 );
                 let sim_ok = match sim_result {
                     Ok(sim_result) => {
                         let sim_ok = match sim_result.result {
                             OrderSimResult::Success(simulated_order, nonces_after) => {
-                                let result = SimulatedResult {
+                                let mut dependencies_satisfied: Vec<DependencyKey> = nonces_after
+                                    .into_iter()
+                                    .map(|(address, nonce)| {
+                                        DependencyKey::Nonce(NonceKey { address, nonce })
+                                    })
+                                    .collect();
+
+                                // Add ACE dependencies for all unlocking interactions
+                                for interaction in &simulated_order.ace_interactions {
+                                    if let AceInteraction::Unlocking {
+                                        contract_address, ..
+                                    } = interaction
+                                    {
+                                        dependencies_satisfied
+                                            .push(DependencyKey::AceUnlock(*contract_address));
+                                    }
+                                }
+
+                                let result = SimulatedResult::Success {
                                     id: task.id,
                                     simulated_order,
                                     previous_orders: task.parents,
-                                    nonces_after: nonces_after
-                                        .into_iter()
-                                        .map(|(address, nonce)| NonceKey { address, nonce })
-                                        .collect(),
+                                    dependencies_satisfied,
                                     simulation_time: start_time.elapsed(),
                                 };
-                                current_sim_context
-                                    .results
-                                    .try_send(result)
-                                    .unwrap_or_default();
+                                if current_sim_context.results.try_send(result).is_err() {
+                                    error!(
+                                        ?order_id,
+                                        "Failed to send simulation result - channel full or closed"
+                                    );
+                                }
                                 true
                             }
-                            OrderSimResult::Failed(_) => false,
+                            OrderSimResult::Failed(failure) => {
+                                // Only send to SimTree if there's an ACE dependency to handle
+                                if !failure.ace_state.all_dependencies_accounted() {
+                                    let result = SimulatedResult::Failed {
+                                        id: task.id,
+                                        order: task.order,
+                                        failure,
+                                        simulation_time: start_time.elapsed(),
+                                    };
+                                    if current_sim_context.results.try_send(result).is_err() {
+                                        error!(
+                                            ?order_id,
+                                            "Failed to send Failed result with ACE dependency"
+                                        );
+                                    }
+                                }
+                                false
+                            }
                         };
                         telemetry::inc_simulated_orders(sim_ok);
                         telemetry::inc_simulation_gas_used(sim_result.gas_used);
@@ -100,7 +138,6 @@ pub fn run_sim_worker<P>(
                     }
                     Err(err) => {
                         error!(?err, ?order_id, "Critical error while simulating order");
-                        // @Metric
                         break;
                     }
                 };
