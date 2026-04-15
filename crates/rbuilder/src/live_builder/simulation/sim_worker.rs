@@ -60,7 +60,7 @@ pub fn run_sim_worker<P>(
         while let Ok(cancellable_task) = current_sim_context.requests.recv() {
             // Avoid starting sims when the output channel is closed.
             if current_sim_context.results.is_closed() {
-                return;
+                break;
             }
             if let Some(task) = cancellable_task.into_request() {
                 let sim_thread_wait_time = last_sim_finished.elapsed();
