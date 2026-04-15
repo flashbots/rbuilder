@@ -38,6 +38,7 @@ pub struct SimulationContext {
     /// Simulation requests come in through this channel.
     pub requests: flume::Receiver<CancellableSimulationRequest>,
     /// Simulation results go out through this channel.
+    /// This is also implicitly used as a cancellation token. If this is closed there is no need to simulate anymore.
     pub results: mpsc::Sender<SimulatedResult>,
 }
 

@@ -58,6 +58,10 @@ pub fn run_sim_worker<P>(
                 }
             };
         while let Ok(cancellable_task) = current_sim_context.requests.recv() {
+            // Avoid starting sims when the output channel is closed.
+            if current_sim_context.results.is_closed() {
+                break;
+            }
             if let Some(task) = cancellable_task.into_request() {
                 let sim_thread_wait_time = last_sim_finished.elapsed();
                 let sim_start = Instant::now();
@@ -86,10 +90,15 @@ pub fn run_sim_worker<P>(
                                         .collect(),
                                     simulation_time: start_time.elapsed(),
                                 };
-                                current_sim_context
-                                    .results
-                                    .try_send(result)
-                                    .unwrap_or_default();
+                                if let Err(tokio::sync::mpsc::error::TrySendError::Full(_)) =
+                                    current_sim_context.results.try_send(result)
+                                {
+                                    error!(
+                                        ?order_id,
+                                        "Simulation results channel is full, order dropped"
+                                    );
+                                }
+
                                 true
                             }
                             OrderSimResult::Failed(_) => false,
