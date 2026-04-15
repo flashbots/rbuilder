@@ -93,7 +93,10 @@ pub fn run_sim_worker<P>(
                                 if let Err(tokio::sync::mpsc::error::TrySendError::Full(_)) =
                                     current_sim_context.results.try_send(result)
                                 {
-                                    error!(?order_id, "simulation results channel is full");
+                                    error!(
+                                        ?order_id,
+                                        "Simulation results channel is full, order dropped"
+                                    );
                                 }
 
                                 true
