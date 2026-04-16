@@ -1060,7 +1060,13 @@ async fn map_response(response: Response) -> Result<(), SubmitBlockErr> {
             // bloxroute returns empty response in this format which we handle here because its not valid
             // jsonrpc response
             let data = String::from_utf8_lossy(&bytes).to_string();
-            if data.trim() == "{}" {
+            let trimmed = data.trim();
+            if trimmed == "{}" {
+                return Ok(());
+            }
+
+            // bloxroute may return a plain-text success response instead of JSON
+            if status == StatusCode::OK && trimmed == "block received" {
                 return Ok(());
             }
 
