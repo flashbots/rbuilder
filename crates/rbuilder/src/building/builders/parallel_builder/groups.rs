@@ -193,7 +193,7 @@ impl ConflictFinder {
                 let mut code_writes: Vec<Address> = used_state
                     .created_contracts
                     .into_iter()
-                    .chain(used_state.destructed_contracts.into_iter())
+                    .chain(used_state.destructed_contracts)
                     .collect();
                 code_writes.sort_unstable();
                 code_writes.dedup();
