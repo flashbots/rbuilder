@@ -212,6 +212,7 @@ impl TestSetup {
             current_value,
         )
     }
+    #[allow(clippy::result_large_err)]
     fn try_commit_order(&mut self) -> eyre::Result<Result<ExecutionResult, ExecutionError>> {
         let state_provider: Arc<dyn StateProvider> =
             Arc::from(self.test_chain.provider_factory().latest()?);
