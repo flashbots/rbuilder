@@ -371,8 +371,8 @@ where
                 mev_blocker_price,
                 payload
                     .relay_registrations
-                    .iter()
-                    .filter_map(|(_, r)| r.adjustment_fee_payer)
+                    .values()
+                    .filter_map(|r| r.adjustment_fee_payer)
                     .collect(),
                 mempool_detector.clone(),
             ) {

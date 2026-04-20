@@ -153,7 +153,7 @@ build-deb: build-deb-bid-scraper build-deb-rbuilder-operator build-deb-rbuilder-
 .PHONY: lint
 lint: ## Run the linters
 	cargo fmt -- --check
-	cargo clippy --workspace --features "$(FEATURES)" -- -D warnings
+	cargo clippy --workspace --features "$(FEATURES)" --all-targets -- -D warnings
 
 .PHONY: test
 test: ## Run the tests for rbuilder. At reth 1.8.2 we started getting some memory errors (when creating the tmp dbs) so we had to limit the number of threads.
@@ -166,7 +166,7 @@ lt: lint test ## Run "lint" and "test"
 fmt: ## Format the code
 	cargo fmt
 	cargo fix --allow-staged
-	cargo clippy --features "$(FEATURES)" --fix --allow-staged
+	cargo clippy --workspace --features "$(FEATURES)" --all-targets --fix --allow-staged
 
 .PHONY: bench
 bench: ## Run benchmarks

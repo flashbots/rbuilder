@@ -6,9 +6,10 @@ use alloy_rpc_types::TransactionRequest;
 use alloy_signer_local::PrivateKeySigner;
 use criterion::{criterion_group, Criterion};
 use rbuilder::live_builder::order_input::{
-    txpool_fetcher::subscribe_to_txpool_with_blobs, OrderInputConfig,
+    mempool_txs_detector::MempoolTxsDetector, txpool_fetcher::subscribe_to_txpool_with_blobs,
+    OrderInputConfig,
 };
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
@@ -22,6 +23,7 @@ async fn txpool_receive_util(count: u32) {
     subscribe_to_txpool_with_blobs(
         OrderInputConfig::default_e2e(),
         sender,
+        Arc::new(MempoolTxsDetector::new()),
         CancellationToken::new(),
     )
     .await

@@ -1,7 +1,5 @@
 mod prioritized_order_store;
 
-#[cfg(test)]
-mod order_dumper;
 pub mod order_priority;
 mod test_data_generator;
 use std::sync::Arc;

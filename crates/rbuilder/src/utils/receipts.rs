@@ -91,7 +91,7 @@ pub fn calculate_receipts_data(
     }
 
     let mut receipts_with_blooms = Vec::with_capacity(executed_tx_infos.len());
-    for (info, logs_bloom) in executed_tx_infos.iter().zip(receipts_blooms.into_iter()) {
+    for (info, logs_bloom) in executed_tx_infos.iter().zip(receipts_blooms) {
         receipts_with_blooms.push(ReceiptWithBloom {
             receipt: &info.receipt,
             logs_bloom,

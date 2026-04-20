@@ -3,7 +3,7 @@ use alloy_primitives::{utils::format_ether, U256};
 use crossbeam_queue::SegQueue;
 use itertools::Itertools;
 use rbuilder_primitives::SimulatedOrder;
-use std::{sync::Arc, time::Instant};
+use std::{cmp::Reverse, sync::Arc, time::Instant};
 use tracing::trace;
 
 use super::{
@@ -52,7 +52,7 @@ impl ConflictTaskGenerator {
     /// * `new_groups` - A vector of new [ConflictGroup]s to process.
     pub fn process_groups(&mut self, new_groups: Vec<ConflictGroup>) {
         let mut sorted_groups = new_groups;
-        sorted_groups.sort_by(|a, b| b.orders.len().cmp(&a.orders.len()));
+        sorted_groups.sort_by_key(|b| Reverse(b.orders.len()));
 
         let mut processed_groups = HashSet::default();
         for new_group in sorted_groups {
