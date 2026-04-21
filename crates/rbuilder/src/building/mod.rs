@@ -85,6 +85,7 @@ pub mod journal;
 pub mod order_commit;
 pub mod payout_tx;
 pub mod precompile_cache;
+pub mod priority_update;
 pub mod sim;
 pub mod testing;
 pub mod tracers;
