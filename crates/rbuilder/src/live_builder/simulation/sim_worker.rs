@@ -51,7 +51,7 @@ pub fn run_sim_worker<P>(
 
         let mut last_sim_finished = Instant::now();
 
-        let state_provider: Arc<dyn StateProvider> =
+        let parent_state: Arc<dyn StateProvider> =
             match provider.history_by_block_hash(current_sim_context.block_ctx.attributes.parent) {
                 Ok(state_provider) => Arc::from(state_provider),
                 Err(err) => {
@@ -70,8 +70,13 @@ pub fn run_sim_worker<P>(
 
                 let order_id = task.order.id();
                 let start_time = Instant::now();
+                // TODO: wrap `parent_state` with the PUR pending state overlay so the
+                // BlockStateDB sees pending updates. Requires adapting
+                // `wrap_with_pending_state` (returns `Arc<dyn StateProvider>`) to the
+                // new `BlockStateDatabase` (`Database`-based) abstraction.
+                let _pur_state = &current_sim_context.pur_state;
                 let cached = CachedDB::new(
-                    state_provider.clone(),
+                    parent_state.clone(),
                     current_sim_context.block_ctx.shared_cached_reads.clone(),
                 );
                 let mut block_state = BlockState::new(cached);
@@ -82,6 +87,7 @@ pub fn run_sim_worker<P>(
                     &mut local_ctx,
                     &mut block_state,
                 );
+                drop(block_state);
                 let sim_ok = match sim_result {
                     Ok(sim_result) => {
                         let sim_ok = match sim_result.result {

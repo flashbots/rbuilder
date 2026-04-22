@@ -4,6 +4,9 @@ pub mod simulation_job_tracer;
 
 use crate::{
     building::{
+        priority_update::pur_simulation_job::{
+            new_pur_simulation_state, run_pur_sim_worker, PURSimulationStateExternal,
+        },
         sim::{CancellableSimulationRequest, SimTree, SimulatedResult},
         tx_sim_cache::TxExecutionCache,
         BlockBuildingContext,
@@ -40,6 +43,7 @@ pub struct SimulationContext {
     /// Simulation results go out through this channel.
     /// This is also implicitly used as a cancellation token. If this is closed there is no need to simulate anymore.
     pub results: mpsc::Sender<SimulatedResult>,
+    pub pur_state: PURSimulationStateExternal,
 }
 
 /// All active SimulationContexts
@@ -135,6 +139,7 @@ where
 
         let provider = self.provider.clone();
         let current_contexts = Arc::clone(&self.current_contexts);
+        let running_tasks = Arc::clone(&self.running_tasks);
         let block_context: BlockContextId = gen_uid();
         let span = info_span!("sim_ctx", block = ctx.block(), parent = ?ctx.attributes.parent);
 
@@ -158,15 +163,33 @@ where
                 let new_order_sub = input.new_order_sub;
                 let (sim_req_sender, sim_req_receiver) = flume::unbounded();
                 let (sim_results_sender, sim_results_receiver) = mpsc::channel(1024);
+
+                let (pur_state_external, pur_state_for_thread) = new_pur_simulation_state();
+
                 {
                     let mut contexts = current_contexts.lock();
                     let sim_context = SimulationContext {
-                        block_ctx: ctx,
+                        block_ctx: ctx.clone(),
                         requests: sim_req_receiver,
                         results: sim_results_sender,
+                        pur_state: pur_state_external.clone(),
                     };
                     contexts.contexts.insert(block_context, sim_context);
                 }
+
+                let pur_handle = tokio::spawn(run_pur_sim_worker(
+                    provider.clone(),
+                    ctx,
+                    pur_state_for_thread,
+                    slot_sim_results_sender.clone(),
+                    block_cancellation.clone(),
+                    Arc::clone(&sim_tracer),
+                ));
+                {
+                    let mut tasks = running_tasks.lock();
+                    tasks.push(pur_handle);
+                }
+
                 let mut simulation_job = SimulationJob::new(
                     block_cancellation,
                     new_order_sub,
@@ -175,11 +198,11 @@ where
                     slot_sim_results_sender,
                     sim_tree,
                     sim_tracer,
+                    pur_state_external,
                 );
 
                 simulation_job.run().await;
 
-                // clean up
                 {
                     let mut contexts = current_contexts.lock();
                     contexts.contexts.remove(&block_context);

@@ -1,5 +1,6 @@
 use ahash::{HashMap, HashSet};
 use alloy_primitives::{Address, BlockNumber, Bytes, StorageKey, StorageValue, B256, U256};
+use parking_lot::{ArcRwLockReadGuard, RawRwLock};
 use rbuilder_primitives::OrderId;
 use reth_errors::ProviderResult;
 use reth_primitives::{Account, Bytecode};
@@ -14,13 +15,10 @@ use reth_trie::{
 use revm::database::{states::PlainStorageChangeset, BundleState};
 use std::sync::Arc;
 
+#[derive(Debug)]
 pub struct PendingUpdates {
     orders: HashMap<OrderId, Vec<PlainStorageChangeset>>,
     merged: HashMap<(Address, U256), (U256, OrderId)>,
-}
-
-pub struct PendingState<'a> {
-    pub storage: &'a HashMap<(Address, U256), (U256, OrderId)>,
 }
 
 impl PendingUpdates {
@@ -31,19 +29,21 @@ impl PendingUpdates {
         }
     }
 
+    /// Returns the ids of evicted orders that conflicted with the new one.
     pub fn add_new_simulated_update(
         &mut self,
         order_id: OrderId,
         changeset: Vec<PlainStorageChangeset>,
-    ) {
+    ) -> Vec<OrderId> {
         let conflicting: HashSet<OrderId> = changeset
             .iter()
             .flat_map(|s| s.storage.iter().map(|(key, _)| (s.address, *key)))
             .filter_map(|slot| self.merged.get(&slot).map(|(_, id)| *id))
             .collect();
 
-        for id in conflicting {
-            self.remove_order(&id);
+        let evicted: Vec<OrderId> = conflicting.into_iter().collect();
+        for id in &evicted {
+            self.remove_order(id);
         }
 
         for storage in &changeset {
@@ -53,6 +53,8 @@ impl PendingUpdates {
             }
         }
         self.orders.insert(order_id, changeset);
+
+        evicted
     }
 
     pub fn remove_order(&mut self, order_id: &OrderId) {
@@ -65,10 +67,8 @@ impl PendingUpdates {
         }
     }
 
-    pub fn get_current_pending_state(&self) -> PendingState<'_> {
-        PendingState {
-            storage: &self.merged,
-        }
+    pub fn storage_lookup(&self, address: Address, key: U256) -> Option<U256> {
+        self.merged.get(&(address, key)).map(|(value, _)| *value)
     }
 }
 
@@ -78,19 +78,17 @@ impl Default for PendingUpdates {
     }
 }
 
+/// Holds the overlay read lock for the lifetime of the returned provider.
 struct PendingStateProvider {
-    storage: HashMap<(Address, U256), (U256, OrderId)>,
+    pending: ArcRwLockReadGuard<RawRwLock, PendingUpdates>,
     parent: Arc<dyn StateProvider>,
 }
 
 pub fn wrap_with_pending_state(
-    pending: PendingState<'_>,
+    pending: ArcRwLockReadGuard<RawRwLock, PendingUpdates>,
     parent: Arc<dyn StateProvider>,
 ) -> Arc<dyn StateProvider> {
-    Arc::new(PendingStateProvider {
-        storage: pending.storage.clone(),
-        parent,
-    })
+    Arc::new(PendingStateProvider { pending, parent })
 }
 
 impl StateProvider for PendingStateProvider {
@@ -100,8 +98,8 @@ impl StateProvider for PendingStateProvider {
         storage_key: StorageKey,
     ) -> ProviderResult<Option<StorageValue>> {
         let key: U256 = storage_key.into();
-        if let Some((value, _)) = self.storage.get(&(account, key)) {
-            return Ok(Some(*value));
+        if let Some(value) = self.pending.storage_lookup(account, key) {
+            return Ok(Some(value));
         }
         self.parent.storage(account, storage_key)
     }

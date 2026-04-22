@@ -7,7 +7,10 @@ use std::{
 };
 
 use crate::{
-    building::sim::{CancellableSimulationRequest, SimTree, SimulatedResult},
+    building::{
+        priority_update::pur_simulation_job::PURSimulationStateExternal,
+        sim::{CancellableSimulationRequest, SimTree, SimulatedResult},
+    },
     live_builder::{
         order_input::order_sink::OrderPoolCommand,
         simulation::simulation_job_tracer::SimulationJobTracer,
@@ -72,6 +75,8 @@ pub struct SimulationJob {
 
     /// Every send is traced here.
     sim_tracer: Arc<dyn SimulationJobTracer>,
+
+    pur_state: PURSimulationStateExternal,
 }
 
 impl SimulationJob {
@@ -83,6 +88,7 @@ impl SimulationJob {
         slot_sim_results_sender: mpsc::Sender<SimulatedOrderCommand>,
         sim_tree: SimTree,
         sim_tracer: Arc<dyn SimulationJobTracer>,
+        pur_state: PURSimulationStateExternal,
     ) -> Self {
         Self {
             block_cancellation,
@@ -100,6 +106,7 @@ impl SimulationJob {
             in_flight_orders: Default::default(),
             not_cancelled_sent_simulated_orders: Default::default(),
             sim_tracer,
+            pur_state,
         }
     }
 
@@ -298,6 +305,10 @@ impl SimulationJob {
 
     async fn process_new_commands(&mut self, new_commands: &[OrderPoolCommand]) -> bool {
         for new_commnad in new_commands {
+            // PUR consumes commands it classifies as priority-updates before the normal pipeline sees them.
+            if self.pur_state.try_consuming_new_order_command(new_commnad) {
+                continue;
+            }
             match new_commnad {
                 OrderPoolCommand::Insert(order) => {
                     // This is not unrecoverable error, so if it fails, we ignore it and try processing next order
