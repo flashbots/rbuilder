@@ -6,7 +6,7 @@ use std::{
 use alloy_primitives::{utils::format_ether, TxHash, I256, U256};
 
 use crate::building::{
-    BlockBuildingSpaceState, CriticalCommitOrderError, ExecutionError, ExecutionResult,
+    BlockBuildingSpaceState, CriticalCommitOrderError, ExecutionError, OrderCommitResult,
     PartialBlockExecutionTracer, PartialBlockForkExecutionTracer, TransactionErr, TransactionOk,
 };
 use rbuilder_primitives::{OrderId, TransactionSignedEcRecoveredWithBlobs};
@@ -209,15 +209,18 @@ impl PartialBlockExecutionTracer for FullPartialBlockExecutionTracer {
     fn update_commit_order_executed(
         &mut self,
         order: &rbuilder_primitives::SimulatedOrder,
-        res: &Result<Result<ExecutionResult, ExecutionError>, CriticalCommitOrderError>,
+        res: &Result<OrderCommitResult, CriticalCommitOrderError>,
     ) {
         let base = BaseExecutionSummary {
             execution_start: self.last_order_start_time.unwrap() - self.execution_start.unwrap(),
             execution_time: self.last_order_start_time.take().unwrap().elapsed(),
         };
         let (profit, result) = match res {
-            Ok(inner_res) => match inner_res {
+            Ok(commit_result) => match &commit_result.order {
                 Ok(execution_result) => {
+                    for priority_update in commit_result.priority_updates.iter().flatten() {
+                        self.total_profit += priority_update.coinbase_profit;
+                    }
                     self.total_profit += execution_result.coinbase_profit;
                     (
                         Some(execution_result.coinbase_profit),
@@ -231,6 +234,9 @@ impl PartialBlockExecutionTracer for FullPartialBlockExecutionTracer {
                             before: _,
                             inplace: _,
                         } => SimpleOrderExecutionResult::LowProfit,
+                        ExecutionError::PriorityUpdateProducedDelayedRefund => {
+                            SimpleOrderExecutionResult::OrderError
+                        }
                     };
                     (None, result)
                 }

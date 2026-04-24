@@ -12,12 +12,12 @@ use tracing::{debug, trace, warn};
 use crate::{
     building::{
         builders::BuiltBlockId, cached_reads::CachedDB, estimate_payout_gas_limit,
-        journal::JournalSequenceNumber, tracers::GasUsedSimulationTracer, BlockBuildingContext,
-        BlockSpace, BlockState, BuiltBlockTrace, BuiltBlockTraceError, CriticalCommitOrderError,
-        EstimatePayoutGasErr, ExecutionError, ExecutionResult, FinalizeAdjustmentState,
-        FinalizeError, FinalizeResult, FinalizeRevertStateCurrentIteration,
-        NullPartialBlockExecutionTracer, PartialBlock, PartialBlockExecutionTracer,
-        ThreadBlockBuildingContext,
+        journal::JournalSequenceNumber, priority_update::PriorityUpdatePool,
+        tracers::GasUsedSimulationTracer, BlockBuildingContext, BlockSpace, BlockState,
+        BuiltBlockTrace, BuiltBlockTraceError, CriticalCommitOrderError, EstimatePayoutGasErr,
+        ExecutionError, FinalizeAdjustmentState, FinalizeError, FinalizeResult,
+        FinalizeRevertStateCurrentIteration, NullPartialBlockExecutionTracer, OrderCommitResult,
+        PartialBlock, PartialBlockExecutionTracer, ThreadBlockBuildingContext,
     },
     live_builder::block_output::bidding_service_interface::CompetitionBidContext,
     telemetry::{self, add_block_fill_time, add_order_simulation_time},
@@ -40,15 +40,15 @@ use super::Block;
 pub trait BlockBuildingHelper: Send + Sync {
     fn box_clone(&self) -> Box<dyn BlockBuildingHelper>;
 
-    /// Tries to add an order to the end of the block.
-    /// Block state changes only on Ok(Ok)
-    /// See [PartialBlock::commit_order]
+    /// Adds an order to the block, running any priority updates from `priority_update_pool`
+    /// in front of it. See [`PartialBlock::commit_order`].
     fn commit_order(
         &mut self,
         local_ctx: &mut ThreadBlockBuildingContext,
         order: &SimulatedOrder,
+        priority_update_pool: &PriorityUpdatePool,
         result_filter: &dyn Fn(&SimValue) -> Result<(), ExecutionError>,
-    ) -> Result<Result<&ExecutionResult, ExecutionError>, CriticalCommitOrderError>;
+    ) -> Result<OrderCommitResult, CriticalCommitOrderError>;
 
     /// Call set the trace fill_time (we still have to review this)
     fn set_trace_fill_time(&mut self, time: Duration);
@@ -491,7 +491,7 @@ impl<
         &self,
         order: &SimulatedOrder,
         sim_time: Duration,
-        result: &Result<Result<ExecutionResult, ExecutionError>, CriticalCommitOrderError>,
+        result: &Result<OrderCommitResult, CriticalCommitOrderError>,
     ) {
         #[derive(Debug)]
         #[allow(dead_code)]
@@ -520,13 +520,15 @@ impl<
             }
         }
         match result {
-            Ok(Ok(result)) => {
-                warn!(?sim_time,builder_name=self.builder_name,id = ?order.id(),tob_sim_value = ?order.sim_value,txs = ?TxInfo::parse_order(order),
-                    space_used = ?result.space_used,coinbase_profit = ?result.coinbase_profit,inplace_sim = ?result.inplace_sim, "Slow order ok execution");
-            }
-            Ok(Err(err)) => {
-                warn!(?err,?sim_time,builder_name=self.builder_name,id = ?order.id(),tob_sim_value = ?order.sim_value,txs = ?TxInfo::parse_order(order), "Slow order failed execution.");
-            }
+            Ok(commit_result) => match &commit_result.order {
+                Ok(result) => {
+                    warn!(?sim_time,builder_name=self.builder_name,id = ?order.id(),tob_sim_value = ?order.sim_value,txs = ?TxInfo::parse_order(order),
+                        space_used = ?result.space_used,coinbase_profit = ?result.coinbase_profit,inplace_sim = ?result.inplace_sim, "Slow order ok execution");
+                }
+                Err(err) => {
+                    warn!(?err,?sim_time,builder_name=self.builder_name,id = ?order.id(),tob_sim_value = ?order.sim_value,txs = ?TxInfo::parse_order(order), "Slow order failed execution.");
+                }
+            },
             Err(err) => {
                 warn!(?err,?sim_time,builder_name=self.builder_name,id = ?order.id(),tob_sim_value = ?order.sim_value,txs = ?TxInfo::parse_order(order), "Slow order critical execution error.");
             }
@@ -543,8 +545,9 @@ impl<
         &mut self,
         local_ctx: &mut ThreadBlockBuildingContext,
         order: &SimulatedOrder,
+        priority_update_pool: &PriorityUpdatePool,
         result_filter: &dyn Fn(&SimValue) -> Result<(), ExecutionError>,
-    ) -> Result<Result<&ExecutionResult, ExecutionError>, CriticalCommitOrderError> {
+    ) -> Result<OrderCommitResult, CriticalCommitOrderError> {
         self.built_block_trace.add_considered_order(order);
         let start = Instant::now();
         let result = self.partial_block.commit_order(
@@ -553,6 +556,7 @@ impl<
             local_ctx,
             &mut self.block_state,
             result_filter,
+            priority_update_pool,
         );
         let sim_time = start.elapsed();
         if self
@@ -562,24 +566,29 @@ impl<
             self.trace_slow_order_execution(order, sim_time, &result);
         }
 
-        let (result, sim_ok) = match result {
-            Ok(ok_result) => match ok_result {
-                Ok(res) => {
-                    self.built_block_trace.add_included_order(res);
-                    (
-                        Ok(Ok(self.built_block_trace.included_orders.last().unwrap())),
-                        true,
-                    )
-                }
-                Err(err) => {
-                    self.built_block_trace.add_failed_order(order);
-                    (Ok(Err(err)), false)
-                }
-            },
-            Err(e) => (Err(e), false),
+        let commit_result = match result {
+            Ok(commit_result) => commit_result,
+            Err(e) => {
+                add_order_simulation_time(sim_time, &self.builder_name, false);
+                return Err(e);
+            }
         };
-        add_order_simulation_time(sim_time, &self.builder_name, sim_ok);
-        result
+
+        match &commit_result.order {
+            Ok(main_result) => {
+                for pu_result in commit_result.priority_updates.iter().flatten() {
+                    self.built_block_trace.add_included_order(pu_result.clone());
+                }
+                self.built_block_trace.add_included_order(main_result.clone());
+                add_order_simulation_time(sim_time, &self.builder_name, true);
+            }
+            Err(_) => {
+                self.built_block_trace.add_failed_order(order);
+                add_order_simulation_time(sim_time, &self.builder_name, false);
+            }
+        }
+
+        Ok(commit_result)
     }
 
     fn set_trace_fill_time(&mut self, time: Duration) {

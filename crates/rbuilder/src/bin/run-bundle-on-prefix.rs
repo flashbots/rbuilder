@@ -16,6 +16,7 @@ use rbuilder::{
             BuiltBlockId,
         },
         order_priority::{FullProfitInfoGetter, OrderMaxProfitPriority},
+        priority_update::PriorityUpdatePool,
         BlockBuildingContext, ExecutionError, MockRootHasher, NullPartialBlockExecutionTracer,
         OrderPriority, ThreadBlockBuildingContext,
     },
@@ -209,6 +210,7 @@ async fn main() -> eyre::Result<()> {
     println!("=========== BLOCK PREFIX EXEC");
     // Execute block prefix
     let mut builder = block_info.create_building_helper(true)?;
+    let priority_update_pool = PriorityUpdatePool::default();
 
     // Execute prefix (up to the user tx)
     for tx in block_info.landed_txs.clone() {
@@ -218,35 +220,42 @@ async fn main() -> eyre::Result<()> {
         let order = Order::Tx(MempoolTx::new(tx.clone()));
         let sim_order =
             SimulatedOrder::new(Arc::new(order), Default::default(), Default::default());
-        let res = builder.commit_order(&mut block_info.local_ctx, &sim_order, &|_| Ok(()))?;
-        println!("{:?} {:?}", tx.hash(), res.is_ok());
+        let res = builder.commit_order(
+            &mut block_info.local_ctx,
+            &sim_order,
+            &priority_update_pool,
+            &|_| Ok(()),
+        )?;
+        println!("{:?} {:?}", tx.hash(), res.order.is_ok());
     }
 
     // Test backruns after prefix.
     println!("Backruns after prefix");
     for sim_order in sim_orders {
         let mut builder = builder.box_clone();
-        let res = builder.commit_order(&mut block_info.local_ctx, &sim_order, &|sim_result| {
-            simulation_too_low::<OrderMaxProfitPriority<FullProfitInfoGetter>>(
-                &sim_order.sim_value,
-                sim_result,
-            )
-        })?;
+        let res = builder.commit_order(
+            &mut block_info.local_ctx,
+            &sim_order,
+            &priority_update_pool,
+            &|sim_result| {
+                simulation_too_low::<OrderMaxProfitPriority<FullProfitInfoGetter>>(
+                    &sim_order.sim_value,
+                    sim_result,
+                )
+            },
+        )?;
 
-        let profit = res
-            .as_ref()
-            .map(|res| res.coinbase_profit)
-            .unwrap_or_default();
+        let order_result = res.order.as_ref();
+        let profit = order_result.map(|r| r.coinbase_profit).unwrap_or_default();
 
-        let kickbacks = res
-            .as_ref()
-            .map(|res| res.paid_kickbacks.clone())
+        let kickbacks = order_result
+            .map(|r| r.paid_kickbacks.clone())
             .unwrap_or_default();
 
         println!(
             "{:?} {:?} profit {:?} kickbacks{:?}",
             sim_order.order.id(),
-            res.is_ok(),
+            order_result.is_ok(),
             profit,
             kickbacks
         );
@@ -277,17 +286,21 @@ fn execute_sim_orders_on_tob(
     block_info: &mut LandedBlockInfo,
 ) -> eyre::Result<()> {
     // Re test orders on ToB
+    let priority_update_pool = PriorityUpdatePool::default();
     for sim_order in sim_orders {
         let mut builder = block_info.create_building_helper(false)?;
-        let res = builder.commit_order(&mut block_info.local_ctx, sim_order, &|_| Ok(()))?;
-        let profit = res
-            .as_ref()
-            .map(|res| res.coinbase_profit)
-            .unwrap_or_default();
+        let res = builder.commit_order(
+            &mut block_info.local_ctx,
+            sim_order,
+            &priority_update_pool,
+            &|_| Ok(()),
+        )?;
+        let order_result = res.order.as_ref();
+        let profit = order_result.map(|r| r.coinbase_profit).unwrap_or_default();
         println!(
             "{:?}  res {:?} profit {:?}",
             sim_order.id(),
-            res.is_ok(),
+            order_result.is_ok(),
             profit
         );
     }
@@ -299,6 +312,7 @@ fn execute_orders_on_tob(
     target_orders: &[OrdersWithTimestamp],
     block_info: &mut LandedBlockInfo,
 ) -> eyre::Result<()> {
+    let priority_update_pool = PriorityUpdatePool::default();
     for order_ts in target_orders {
         let mut builder = block_info.create_building_helper(false)?;
         let sim_order = SimulatedOrder::new(
@@ -306,16 +320,19 @@ fn execute_orders_on_tob(
             Default::default(),
             Default::default(),
         );
-        let res = builder.commit_order(&mut block_info.local_ctx, &sim_order, &|_| Ok(()))?;
-        let profit = res
-            .as_ref()
-            .map(|res| res.coinbase_profit)
-            .unwrap_or_default();
+        let res = builder.commit_order(
+            &mut block_info.local_ctx,
+            &sim_order,
+            &priority_update_pool,
+            &|_| Ok(()),
+        )?;
+        let order_result = res.order.as_ref();
+        let profit = order_result.map(|r| r.coinbase_profit).unwrap_or_default();
         println!(
             "{:?} signer {:?} res {:?} profit {:?} Txs: {:?}",
             order_ts.order.id(),
             order_ts.order.signer(),
-            res.is_ok(),
+            order_result.is_ok(),
             profit,
             order_ts.order.list_txs(),
         );

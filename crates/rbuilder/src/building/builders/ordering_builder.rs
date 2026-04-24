@@ -13,9 +13,11 @@ use crate::{
             OrderIntakeConsumer,
         },
         journal::JournalSequenceNumber,
-        order_is_worth_executing, BlockBuildingContext, ExecutionError,
-        NullPartialBlockExecutionTracer, OrderPriority, PartialBlockExecutionTracer,
-        PrioritizedOrderStore, SimulatedOrderSink, Sorting, ThreadBlockBuildingContext,
+        order_is_worth_executing,
+        priority_update::PriorityUpdatePool,
+        BlockBuildingContext, ExecutionError, NullPartialBlockExecutionTracer, OrderPriority,
+        PartialBlockExecutionTracer, PrioritizedOrderStore, SimulatedOrderSink, Sorting,
+        ThreadBlockBuildingContext,
     },
     live_builder::{
         block_output::bidding_service_interface::CompetitionBidContext,
@@ -229,6 +231,7 @@ pub struct OrderingBuilderContext {
 
     // caches
     local_ctx: ThreadBlockBuildingContext,
+    priority_update_pool: PriorityUpdatePool,
 
     // scratchpad
     failed_orders: HashSet<OrderId>,
@@ -250,6 +253,7 @@ impl OrderingBuilderContext {
             builder_name,
             ctx,
             local_ctx: Default::default(),
+            priority_update_pool: PriorityUpdatePool::default(),
             config,
             failed_orders: HashSet::default(),
             order_attempts: HashMap::default(),
@@ -410,6 +414,7 @@ impl OrderingBuilderContext {
             let commit_result = block_building_helper.commit_order(
                 &mut self.local_ctx,
                 &sim_order,
+                &self.priority_update_pool,
                 #[allow(clippy::result_large_err)]
                 &|sim_result| {
                     if !sim_order.order.metadata().is_system {
@@ -420,11 +425,32 @@ impl OrderingBuilderContext {
                 },
             )?;
             let order_commit_time = start_time.elapsed();
+
+            for priority_update_result in &commit_result.priority_updates {
+                match priority_update_result {
+                    Ok(res) => {
+                        trace!(
+                            order_id = ?res.order.id(),
+                            success = true,
+                            gas_used = res.space_used.gas,
+                            "Executed priority update"
+                        );
+                    }
+                    Err(err) => {
+                        trace!(
+                            success = false,
+                            execution_error = ?err,
+                            "Executed priority update"
+                        );
+                    }
+                }
+            }
+
             let mut gas_used = 0;
             let mut execution_error = None;
             let mut reinserted = false;
-            let success = commit_result.is_ok();
-            match commit_result {
+            let success = commit_result.order.is_ok();
+            match commit_result.order {
                 Ok(res) => {
                     gas_used = res.space_used.gas;
                     // This intermediate step is needed until we replace all (Address, u64) for AccountNonce

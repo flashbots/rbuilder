@@ -4,6 +4,7 @@
 //! test setup is used to build orders and commit them
 use crate::building::{
     cached_reads::{CachedDB, SharedCachedReads},
+    priority_update::PriorityUpdatePool,
     testing::test_chain_state::{BlockArgs, NamedAddr, TestChainState, TxArgs},
     BlockState, ExecutionError, ExecutionResult, NullPartialBlockExecutionTracer, OrderErr,
     PartialBlock, ThreadBlockBuildingContext,
@@ -227,6 +228,7 @@ impl TestSetup {
         // we commit order twice to test evm caching
         let initial_partial_block = self.partial_block.clone();
         let initial_bundle_state = self.bundle_state.take().unwrap_or_default();
+        let priority_update_pool = PriorityUpdatePool::default();
 
         let mut results = Vec::new();
         for _ in 0..2 {
@@ -239,14 +241,15 @@ impl TestSetup {
 
             let mut partial_block = initial_partial_block.clone();
 
-            let result = partial_block.commit_order(
+            let commit_result = partial_block.commit_order(
                 &sim_order,
                 self.test_chain.block_building_context(),
                 &mut local_ctx,
                 &mut block_state,
                 &|_| Ok(()),
+                &priority_update_pool,
             )?;
-            results.push(result);
+            results.push(commit_result.order);
             let (bundle_state, _) = block_state.into_parts();
 
             self.bundle_state = Some(bundle_state);

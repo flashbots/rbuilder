@@ -19,7 +19,7 @@ use alloy_eips::{
 use alloy_primitives::{keccak256, Address, Bytes, TxHash, B256, U256};
 use alloy_rlp::Encodable as _;
 use derivative::Derivative;
-use evm_inspector::UsedStateTrace;
+use evm_inspector::{SlotKey, UsedStateTrace};
 use integer_encoding::VarInt;
 use reth_ethereum_primitives::PooledTransactionVariant;
 use reth_primitives::{
@@ -1015,6 +1015,7 @@ pub struct SimulatedOrder {
     pub sim_value: SimValue,
     /// Info about read/write slots during the simulation to help figure out what the Order is doing.
     pub used_state_trace: Option<UsedStateTrace>,
+    pub used_priority_updates: Vec<SlotKey>,
 }
 
 impl SimulatedOrder {
@@ -1027,6 +1028,7 @@ impl SimulatedOrder {
             order,
             sim_value,
             used_state_trace,
+            used_priority_updates: Vec::new(),
         }
     }
 

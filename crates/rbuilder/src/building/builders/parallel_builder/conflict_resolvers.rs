@@ -15,8 +15,8 @@ use super::{
 };
 
 use crate::building::{
-    cached_reads::CachedDB, BlockBuildingContext, BlockState, ExecutionError, ExecutionResult,
-    PartialBlock, ThreadBlockBuildingContext,
+    cached_reads::CachedDB, priority_update::PriorityUpdatePool, BlockBuildingContext, BlockState,
+    ExecutionError, ExecutionResult, PartialBlock, ThreadBlockBuildingContext,
 };
 use rbuilder_primitives::{OrderId, SimulatedOrder};
 
@@ -143,6 +143,7 @@ impl ResolverContext {
         let mut partial_block = PartialBlock::new(true);
         let mut state = self.initialize_block_state(state_provider);
         partial_block.pre_block_call(&self.ctx, &mut state)?;
+        let priority_update_pool = PriorityUpdatePool::default();
 
         // Initialize sequenced_order_result
         let mut sequenced_order_result =
@@ -169,14 +170,16 @@ impl ResolverContext {
             }
 
             let sim_order = &task.group.orders[order_idx];
-            match partial_block.commit_order(
+            let commit_result = partial_block.commit_order(
                 sim_order,
                 &self.ctx,
                 &mut local_ctx,
                 &mut state,
                 #[allow(clippy::result_large_err)]
                 &|_| Ok(()),
-            )? {
+                &priority_update_pool,
+            )?;
+            match commit_result.order {
                 Ok(res) => self.handle_successful_commit(
                     res,
                     sim_order,

@@ -38,6 +38,7 @@ use eth_sparse_mpt::SparseTrieLocalCache;
 use evm::EthCachedEvmFactory;
 use jsonrpsee::core::Serialize;
 use parking_lot::Mutex;
+use priority_update::PriorityUpdatePool;
 use rbuilder_primitives::{
     mev_boost::BidAdjustmentDataV3, BlockSpace, Order, SimValue, SimulatedOrder,
     TransactionSignedEcRecoveredWithBlobs,
@@ -426,7 +427,7 @@ pub trait PartialBlockExecutionTracer: PartialBlockForkExecutionTracer {
     fn update_commit_order_executed(
         &mut self,
         order: &SimulatedOrder,
-        res: &Result<Result<ExecutionResult, ExecutionError>, CriticalCommitOrderError>,
+        res: &Result<OrderCommitResult, CriticalCommitOrderError>,
     );
 }
 #[derive(Debug, Clone)]
@@ -436,7 +437,7 @@ impl PartialBlockExecutionTracer for NullPartialBlockExecutionTracer {
     fn update_commit_order_executed(
         &mut self,
         _order: &SimulatedOrder,
-        _res: &Result<Result<ExecutionResult, ExecutionError>, CriticalCommitOrderError>,
+        _res: &Result<OrderCommitResult, CriticalCommitOrderError>,
     ) {
     }
 }
@@ -550,6 +551,14 @@ pub struct ExecutionResult {
     pub delayed_kickback: Option<DelayedKickback>,
 }
 
+/// Main order result plus every priority update attempted in front of it.
+/// When `order` is `Err` all priority updates have been reverted.
+#[derive(Debug)]
+pub struct OrderCommitResult {
+    pub priority_updates: Vec<Result<ExecutionResult, ExecutionError>>,
+    pub order: Result<ExecutionResult, ExecutionError>,
+}
+
 #[derive(Error, Debug)]
 pub enum InsertPayoutTxErr {
     #[error("Critical order commit error: {0}")]
@@ -575,6 +584,8 @@ pub enum ExecutionError {
     OrderError(#[from] OrderErr),
     #[error("Lower inserted value, before: {before:?}, inplace: {inplace:?}")]
     LowerInsertedValue { before: SimValue, inplace: SimValue },
+    #[error("Priority update produced a delayed refund")]
+    PriorityUpdateProducedDelayedRefund,
 }
 
 impl ExecutionError {
@@ -693,6 +704,9 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         self.space_state.free_reserved_block_space();
     }
 
+    /// Commits `order` to the block. Any priority updates that `priority_update_pool`
+    /// returns for `order` are committed in front of it, so a single call can land
+    /// multiple orders.
     pub fn commit_order<DB>(
         &mut self,
         order: &SimulatedOrder,
@@ -700,13 +714,21 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         local_ctx: &mut ThreadBlockBuildingContext,
         state: &mut BlockState<DB>,
         result_filter: &dyn Fn(&SimValue) -> Result<(), ExecutionError>,
-    ) -> Result<Result<ExecutionResult, ExecutionError>, CriticalCommitOrderError>
+        priority_update_pool: &PriorityUpdatePool,
+    ) -> Result<OrderCommitResult, CriticalCommitOrderError>
     where
         DB: Database<Error = ProviderError>,
     {
         self.partial_block_execution_tracer
             .update_commit_order_about_to_execute(order);
-        let res = self.commit_order_inner(order, ctx, local_ctx, state, result_filter);
+        let res = self.commit_order_inner(
+            order,
+            ctx,
+            local_ctx,
+            state,
+            result_filter,
+            priority_update_pool,
+        );
         self.partial_block_execution_tracer
             .update_commit_order_executed(order, &res);
         res
@@ -722,10 +744,14 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         local_ctx: &mut ThreadBlockBuildingContext,
         state: &mut BlockState<DB>,
         result_filter: &dyn Fn(&SimValue) -> Result<(), ExecutionError>,
-    ) -> Result<Result<ExecutionResult, ExecutionError>, CriticalCommitOrderError>
+        priority_update_pool: &PriorityUpdatePool,
+    ) -> Result<OrderCommitResult, CriticalCommitOrderError>
     where
         DB: Database<Error = ProviderError>,
     {
+        let priority_update_orders =
+            priority_update_pool.get_updates(state, &order.used_priority_updates);
+
         let mut fork = PartialBlockFork::new_with_execution_tracer(
             state,
             ctx,
@@ -735,35 +761,91 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         .with_tracer(&mut self.tracer);
 
         let rollback = fork.rollback_point();
+        let initial_space_state = self.space_state;
+
+        let mut priority_updates: Vec<Result<ExecutionResult, ExecutionError>> =
+            Vec::with_capacity(priority_update_orders.len());
+
+        for priority_update_order in priority_update_orders {
+            let pu_rollback = fork.rollback_point();
+            let exec_result = fork.commit_order(
+                priority_update_order,
+                self.space_state,
+                self.discard_txs,
+                &self.combined_refunds,
+            )?;
+            let ok_result = match exec_result {
+                Ok(ok) => ok,
+                Err(err) => {
+                    priority_updates.push(Err(err.into()));
+                    continue;
+                }
+            };
+
+            if ok_result.delayed_kickback.is_some() {
+                fork.rollback(pu_rollback);
+                priority_updates.push(Err(ExecutionError::PriorityUpdateProducedDelayedRefund));
+                continue;
+            }
+
+            self.space_state.use_space(ok_result.space_used);
+
+            let inplace_sim =
+                create_sim_value(priority_update_order, &ok_result, &ctx.mempool_tx_detector);
+
+            priority_updates.push(Ok(ExecutionResult {
+                coinbase_profit: ok_result.coinbase_profit,
+                inplace_sim,
+                space_used: ok_result.space_used,
+                order: Arc::new(priority_update_order.clone()),
+                tx_infos: ok_result.tx_infos,
+                nonces_updated: ok_result.nonces_updated,
+                paid_kickbacks: ok_result.paid_kickbacks,
+                delayed_kickback: None,
+            }));
+        }
+
         let exec_result = fork.commit_order(
             &order.order,
             self.space_state,
             self.discard_txs,
             &self.combined_refunds,
         )?;
+
         let ok_result = match exec_result {
             Ok(ok) => ok,
             Err(err) => {
-                return Ok(Err(err.into()));
+                fork.rollback(rollback);
+                self.space_state = initial_space_state;
+                return Ok(OrderCommitResult {
+                    priority_updates,
+                    order: Err(err.into()),
+                });
             }
         };
 
         let inplace_sim_result =
             create_sim_value(&order.order, &ok_result, &ctx.mempool_tx_detector);
 
-        match result_filter(&inplace_sim_result) {
-            Ok(()) => {}
-            Err(err) => {
-                fork.rollback(rollback);
-                return Ok(Err(err));
-            }
+        if let Err(err) = result_filter(&inplace_sim_result) {
+            fork.rollback(rollback);
+            self.space_state = initial_space_state;
+            return Ok(OrderCommitResult {
+                priority_updates,
+                order: Err(err),
+            });
+        }
+
+        for priority_update in priority_updates.iter().flatten() {
+            self.coinbase_profit += priority_update.coinbase_profit;
+            self.executed_tx_infos
+                .extend(priority_update.tx_infos.iter().cloned());
         }
 
         self.space_state.use_space(ok_result.space_used);
         self.coinbase_profit += ok_result.coinbase_profit;
         self.executed_tx_infos.extend(ok_result.tx_infos.clone());
 
-        // Update combined or delayed refunds
         if let Some(DelayedKickback {
             recipient,
             payout_value,
@@ -781,16 +863,19 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             }
         }
 
-        Ok(Ok(ExecutionResult {
-            coinbase_profit: ok_result.coinbase_profit,
-            inplace_sim: inplace_sim_result,
-            space_used: ok_result.space_used,
-            order: Arc::clone(&order.order),
-            tx_infos: ok_result.tx_infos,
-            nonces_updated: ok_result.nonces_updated,
-            paid_kickbacks: ok_result.paid_kickbacks,
-            delayed_kickback: ok_result.delayed_kickback,
-        }))
+        Ok(OrderCommitResult {
+            priority_updates,
+            order: Ok(ExecutionResult {
+                coinbase_profit: ok_result.coinbase_profit,
+                inplace_sim: inplace_sim_result,
+                space_used: ok_result.space_used,
+                order: Arc::clone(&order.order),
+                tx_infos: ok_result.tx_infos,
+                nonces_updated: ok_result.nonces_updated,
+                paid_kickbacks: ok_result.paid_kickbacks,
+                delayed_kickback: ok_result.delayed_kickback,
+            }),
+        })
     }
 
     /// Gets the block profit excluding the expected payout base gas that we'll pay and MEV blocker block price.

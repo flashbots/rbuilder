@@ -2,8 +2,9 @@ use std::sync::mpsc;
 
 use crate::{
     building::{
-        builders::BuiltBlockId, BlockBuildingContext, BuiltBlockTrace, CriticalCommitOrderError,
-        ExecutionError, ExecutionResult, ThreadBlockBuildingContext,
+        builders::BuiltBlockId, priority_update::PriorityUpdatePool, BlockBuildingContext,
+        BuiltBlockTrace, CriticalCommitOrderError, ExecutionError, OrderCommitResult,
+        ThreadBlockBuildingContext,
     },
     live_builder::{
         block_output::bidding_service_interface::CompetitionBidContext,
@@ -67,8 +68,9 @@ impl BlockBuildingHelper for MockBlockBuildingHelper {
         &mut self,
         _local_ctx: &mut ThreadBlockBuildingContext,
         _order: &SimulatedOrder,
+        _priority_update_pool: &PriorityUpdatePool,
         _result_filter: &dyn Fn(&SimValue) -> Result<(), ExecutionError>,
-    ) -> Result<Result<&ExecutionResult, ExecutionError>, CriticalCommitOrderError> {
+    ) -> Result<OrderCommitResult, CriticalCommitOrderError> {
         unimplemented!()
     }
 

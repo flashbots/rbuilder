@@ -21,6 +21,7 @@ use crate::{
             },
             handle_building_error, BuiltBlockIdSource,
         },
+        priority_update::PriorityUpdatePool,
         BlockBuildingContext, ThreadBlockBuildingContext,
     },
     live_builder::block_output::unfinished_block_processing::UnfinishedBuiltBlocksInput,
@@ -43,6 +44,7 @@ pub struct BlockBuildingResultAssembler {
     last_version: Option<u64>,
     built_block_id_source: Arc<BuiltBlockIdSource>,
     max_order_execution_duration_warning: Option<Duration>,
+    priority_update_pool: PriorityUpdatePool,
 }
 
 impl BlockBuildingResultAssembler {
@@ -79,6 +81,7 @@ impl BlockBuildingResultAssembler {
             last_version: None,
             built_block_id_source,
             max_order_execution_duration_warning,
+            priority_update_pool: PriorityUpdatePool::default(),
         }
     }
 
@@ -228,15 +231,36 @@ impl BlockBuildingResultAssembler {
                 let commit_result = block_building_helper.commit_order(
                     &mut self.local_ctx,
                     sim_order,
+                    &self.priority_update_pool,
                     #[allow(clippy::result_large_err)]
                     &|_| Ok(()),
                 )?;
                 let order_commit_time = start_time.elapsed();
 
+                for priority_update_result in &commit_result.priority_updates {
+                    match priority_update_result {
+                        Ok(res) => {
+                            trace!(
+                                order_id = ?res.order.id(),
+                                success = true,
+                                gas_used = res.space_used.gas,
+                                "Executed priority update"
+                            );
+                        }
+                        Err(err) => {
+                            trace!(
+                                success = false,
+                                execution_error = ?err,
+                                "Executed priority update"
+                            );
+                        }
+                    }
+                }
+
                 let mut gas_used = 0;
                 let mut execution_error = None;
-                let success = commit_result.is_ok();
-                match commit_result {
+                let success = commit_result.order.is_ok();
+                match commit_result.order {
                     Ok(res) => {
                         gas_used = res.space_used.gas;
                     }
@@ -299,11 +323,32 @@ impl BlockBuildingResultAssembler {
                 let commit_result = block_building_helper.commit_order(
                     &mut self.local_ctx,
                     sim_order,
+                    &self.priority_update_pool,
                     #[allow(clippy::result_large_err)]
                     &|_| Ok(()),
                 )?;
 
-                match commit_result {
+                for priority_update_result in &commit_result.priority_updates {
+                    match priority_update_result {
+                        Ok(res) => {
+                            tracing::trace!(
+                                order_id = ?res.order.id(),
+                                success = true,
+                                gas_used = res.space_used.gas,
+                                "Executed priority update in backtest"
+                            );
+                        }
+                        Err(err) => {
+                            tracing::trace!(
+                                success = false,
+                                error = ?err,
+                                "Failed to execute priority update in backtest"
+                            );
+                        }
+                    }
+                }
+
+                match commit_result.order {
                     Ok(res) => {
                         tracing::trace!(
                             order_id = ?sim_order.id(),

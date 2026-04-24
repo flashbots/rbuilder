@@ -7,7 +7,8 @@ use std::{
 use alloy_primitives::{utils::format_ether, I256, U256};
 
 use crate::building::{
-    builders::block_building_helper::BlockBuildingHelper, ThreadBlockBuildingContext,
+    builders::block_building_helper::BlockBuildingHelper, priority_update::PriorityUpdatePool,
+    ThreadBlockBuildingContext,
 };
 use rbuilder_primitives::{order_statistics::OrderStatistics, OrderId, SimulatedOrder};
 
@@ -50,17 +51,21 @@ impl BlockBuildingHelperCommitLog {
     pub fn new(
         order_id: OrderId,
         result: &Result<
-            Result<&crate::building::ExecutionResult, crate::building::ExecutionError>,
+            crate::building::OrderCommitResult,
             crate::building::CriticalCommitOrderError,
         >,
         time_spent: Duration,
     ) -> Self {
-        let execution_result = if let Ok(Ok(exec_ok)) = result {
-            Some(ExecutionResult {
-                landed_tx_count: exec_ok.tx_infos.len(),
-                coinbase_profit: exec_ok.coinbase_profit,
-                gas_used: exec_ok.space_used.gas,
-            })
+        let execution_result = if let Ok(commit_result) = result {
+            if let Ok(exec_ok) = &commit_result.order {
+                Some(ExecutionResult {
+                    landed_tx_count: exec_ok.tx_infos.len(),
+                    coinbase_profit: exec_ok.coinbase_profit,
+                    gas_used: exec_ok.space_used.gas,
+                })
+            } else {
+                None
+            }
         } else {
             None
         };
@@ -168,19 +173,21 @@ impl BlockBuildingHelper for BlockBuildingHelperStatsLogger<'_> {
         &mut self,
         local_ctx: &mut ThreadBlockBuildingContext,
         order: &rbuilder_primitives::SimulatedOrder,
+        priority_update_pool: &PriorityUpdatePool,
         result_filter: &dyn Fn(
             &rbuilder_primitives::SimValue,
         ) -> Result<(), crate::building::ExecutionError>,
-    ) -> Result<
-        Result<&crate::building::ExecutionResult, crate::building::ExecutionError>,
-        crate::building::CriticalCommitOrderError,
-    > {
+    ) -> Result<crate::building::OrderCommitResult, crate::building::CriticalCommitOrderError>
+    {
         println!();
         println!("STARTED BUNDLE {:?}", order.id());
         let commit_start = Instant::now();
-        let res = self
-            .block_building_helper
-            .commit_order(local_ctx, order, result_filter);
+        let res = self.block_building_helper.commit_order(
+            local_ctx,
+            order,
+            priority_update_pool,
+            result_filter,
+        );
 
         self.logs.push(BlockBuildingHelperCommitLog::new(
             order.id(),
