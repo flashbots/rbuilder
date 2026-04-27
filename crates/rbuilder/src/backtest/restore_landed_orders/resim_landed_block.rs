@@ -72,18 +72,14 @@ where
     let mut state = BlockState::new(state_provider);
 
     partial_block
-        .pre_block_call(&ctx, &mut local_ctx, &mut state)
+        .pre_block_call(&ctx, &mut state)
         .with_context(|| "Failed to pre_block_call")?;
 
     let mut space_state = BlockBuildingSpaceState::ZERO;
     let mut written_slots: HashMap<SlotKey, Vec<B256>> = HashMap::default();
 
     for (idx, tx) in txs.into_iter().enumerate() {
-        let coinbase_balance_before = state.balance(
-            coinbase,
-            &ctx.shared_cached_reads,
-            &mut local_ctx.cached_reads,
-        )?;
+        let coinbase_balance_before = state.balance(coinbase, &ctx.shared_cached_reads)?;
         let mut accumulator_tracer = AccumulatorSimulationTracer::default();
         let result = {
             let mut fork = PartialBlockFork::new(&mut state, &ctx, &mut local_ctx)
@@ -91,11 +87,7 @@ where
             fork.commit_tx(&tx, space_state)?
                 .with_context(|| format!("Failed to commit tx: {} {:?}", idx, tx.hash()))?
         };
-        let coinbase_balance_after = state.balance(
-            coinbase,
-            &ctx.shared_cached_reads,
-            &mut local_ctx.cached_reads,
-        )?;
+        let coinbase_balance_after = state.balance(coinbase, &ctx.shared_cached_reads)?;
         let coinbase_profit = signed_uint_delta(coinbase_balance_after, coinbase_balance_before);
         space_state.use_space(result.space_used());
 

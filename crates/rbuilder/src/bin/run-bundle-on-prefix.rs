@@ -165,7 +165,6 @@ impl LandedBlockInfo {
             0,
             block_state,
             ctx,
-            &mut self.local_ctx,
             "TEST".to_string(),
             false,
             order_statistics,

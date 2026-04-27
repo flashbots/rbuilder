@@ -3,7 +3,7 @@
 //! test setup creates fake state with various and block (configurable with BlockArgs)
 //! test setup is used to build orders and commit them
 use crate::building::{
-    cached_reads::{LocalCachedReads, SharedCachedReads},
+    cached_reads::SharedCachedReads,
     testing::test_chain_state::{BlockArgs, NamedAddr, TestChainState, TxArgs},
     BlockState, ExecutionError, ExecutionResult, NullPartialBlockExecutionTracer, OrderErr,
     PartialBlock, ThreadBlockBuildingContext,
@@ -295,7 +295,6 @@ impl TestSetup {
     }
 
     pub fn current_nonce(&self, named_addr: NamedAddr) -> eyre::Result<u64> {
-        let mut local_cached_reads = LocalCachedReads::default();
         let shared_cached_reads = SharedCachedReads::default();
 
         let state_provider = self.test_chain.provider_factory().latest()?;
@@ -305,12 +304,10 @@ impl TestSetup {
         Ok(block_state.nonce(
             self.test_chain.named_address(named_addr)?,
             &shared_cached_reads,
-            &mut local_cached_reads,
         )?)
     }
 
     pub fn balance(&self, named_addr: NamedAddr) -> eyre::Result<i128> {
-        let mut local_cached_reads = LocalCachedReads::default();
         let shared_cached_reads = SharedCachedReads::default();
 
         let state_provider = self.test_chain.provider_factory().latest()?;
@@ -320,7 +317,6 @@ impl TestSetup {
             .balance(
                 self.test_chain.named_address(named_addr)?,
                 &shared_cached_reads,
-                &mut local_cached_reads,
             )?
             .to())
     }

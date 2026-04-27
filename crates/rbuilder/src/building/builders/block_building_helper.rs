@@ -216,7 +216,6 @@ impl BlockBuildingHelperFromProvider<NullPartialBlockExecutionTracer> {
         next_journal_sequence_number: JournalSequenceNumber,
         state_provider: Arc<dyn StateProvider>,
         building_ctx: BlockBuildingContext,
-        local_ctx: &mut ThreadBlockBuildingContext,
         builder_name: String,
         discard_txs: bool,
         available_orders_statistics: OrderStatistics,
@@ -228,7 +227,6 @@ impl BlockBuildingHelperFromProvider<NullPartialBlockExecutionTracer> {
             next_journal_sequence_number,
             state_provider,
             building_ctx,
-            local_ctx,
             builder_name,
             discard_txs,
             available_orders_statistics,
@@ -254,7 +252,6 @@ impl<
         next_journal_sequence_number: JournalSequenceNumber,
         state_provider: Arc<dyn StateProvider>,
         building_ctx: BlockBuildingContext,
-        local_ctx: &mut ThreadBlockBuildingContext,
         builder_name: String,
         discard_txs: bool,
         available_orders_statistics: OrderStatistics,
@@ -273,12 +270,11 @@ impl<
                 .with_tracer(GasUsedSimulationTracer::default());
         let mut block_state = BlockState::new_arc(state_provider);
         partial_block
-            .pre_block_call(&building_ctx, local_ctx, &mut block_state)
+            .pre_block_call(&building_ctx, &mut block_state)
             .map_err(|_| BlockBuildingHelperError::PreBlockCallFailed)?;
         let payout_tx_space = estimate_payout_gas_limit(
             building_ctx.attributes.suggested_fee_recipient,
             &building_ctx,
-            local_ctx,
             &mut block_state,
             BlockSpace::ZERO,
         )?;
@@ -368,7 +364,6 @@ impl<
         let fee_recipient_balance_after = self.block_state.balance(
             self.building_ctx.attributes.suggested_fee_recipient,
             &self.building_ctx.shared_cached_reads,
-            &mut local_ctx.cached_reads,
         )?;
         let fee_recipient_balance_diff = fee_recipient_balance_after
             .checked_sub(self._fee_recipient_balance_start)

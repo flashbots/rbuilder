@@ -1,5 +1,5 @@
 use super::{
-    cached_reads::{CachedDB, LocalCachedReads, SharedCachedReads},
+    cached_reads::{CachedDB, SharedCachedReads},
     create_payout_tx,
     tracers::SimulationTracer,
     tx_sim_cache::{CachedExecutionResult, EVMRecordingDatabase},
@@ -81,13 +81,12 @@ impl BlockState {
         self.bundle_state.clone().unwrap()
     }
 
-    pub fn new_db_ref<'a, 'b, 'c>(
+    pub fn new_db_ref<'a, 'b>(
         &'a mut self,
         shared_cache_reads: &'b SharedCachedReads,
-        local_cache_reads: &'c mut LocalCachedReads,
-    ) -> BlockStateDBRef<'a, CachedDB<'c, 'b, impl Database<Error = ProviderError> + 'a>> {
+    ) -> BlockStateDBRef<'a, CachedDB<'b, impl Database<Error = ProviderError> + 'a>> {
         let state_provider = StateProviderDatabase::new(&self.provider);
-        let cachedb = CachedDB::new(state_provider, local_cache_reads, shared_cache_reads);
+        let cachedb = CachedDB::new(state_provider, shared_cache_reads);
         let bundle_state = self.bundle_state.take().unwrap();
         let db = State::builder()
             .with_database(cachedb)
@@ -101,9 +100,8 @@ impl BlockState {
         &mut self,
         address: Address,
         shared_cache_reads: &SharedCachedReads,
-        local_cache_reads: &mut LocalCachedReads,
     ) -> Result<U256, ProviderError> {
-        let mut db = self.new_db_ref(shared_cache_reads, local_cache_reads);
+        let mut db = self.new_db_ref(shared_cache_reads);
         Ok(db
             .as_mut()
             .basic(address)?
@@ -115,9 +113,8 @@ impl BlockState {
         &mut self,
         address: Address,
         shared_cache_reads: &SharedCachedReads,
-        local_cache_reads: &mut LocalCachedReads,
     ) -> Result<u64, ProviderError> {
-        let mut db = self.new_db_ref(shared_cache_reads, local_cache_reads);
+        let mut db = self.new_db_ref(shared_cache_reads);
         Ok(db
             .as_mut()
             .basic(address)?
@@ -129,9 +126,8 @@ impl BlockState {
         &mut self,
         address: Address,
         shared_cache_reads: &SharedCachedReads,
-        local_cache_reads: &mut LocalCachedReads,
     ) -> Result<B256, ProviderError> {
-        let mut db = self.new_db_ref(shared_cache_reads, local_cache_reads);
+        let mut db = self.new_db_ref(shared_cache_reads);
         Ok(db
             .as_mut()
             .basic(address)?
@@ -510,7 +506,6 @@ impl<
         self.state.balance(
             self.ctx.evm_env.block_env.beneficiary,
             &self.ctx.shared_cached_reads,
-            &mut self.local_ctx.cached_reads,
         )
     }
 
@@ -589,10 +584,7 @@ impl<
         }
 
         let coinbase_balance_before = I256::try_from(self.coinbase_balance()?)?;
-        let mut db = self.state.new_db_ref(
-            &self.ctx.shared_cached_reads,
-            &mut self.local_ctx.cached_reads,
-        );
+        let mut db = self.state.new_db_ref(&self.ctx.shared_cached_reads);
         let tx = &tx_with_blobs.internal_tx_unsecure();
         if self.ctx.blocklist.contains(&tx.signer())
             || tx
@@ -764,13 +756,12 @@ impl<
         refundable_value: U256,
         space_used: BlockSpace,
     ) -> Result<ReservedPayout, BundleErr> {
-        let space_limit =
-            match estimate_payout_gas_limit(to, self.ctx, self.local_ctx, self.state, space_used) {
-                Ok(space_limit) => space_limit,
-                Err(err) => {
-                    return Err(BundleErr::EstimatePayoutGas(err));
-                }
-            };
+        let space_limit = match estimate_payout_gas_limit(to, self.ctx, self.state, space_used) {
+            Ok(space_limit) => space_limit,
+            Err(err) => {
+                return Err(BundleErr::EstimatePayoutGas(err));
+            }
+        };
         let base_fee = U256::from(self.ctx.evm_env.block_env.basefee) * U256::from(space_limit.gas);
         if base_fee > refundable_value {
             return Err(BundleErr::NotEnoughRefundForGas {
@@ -799,11 +790,9 @@ impl<
     ) -> Result<Result<(), BundleErr>, CriticalCommitOrderError> {
         let builder_signer = &self.ctx.builder_signer;
 
-        let nonce = self.state.nonce(
-            builder_signer.address,
-            &self.ctx.shared_cached_reads,
-            &mut self.local_ctx.cached_reads,
-        )?;
+        let nonce = self
+            .state
+            .nonce(builder_signer.address, &self.ctx.shared_cached_reads)?;
         let payout_tx = match create_payout_tx(
             self.ctx.chain_spec.as_ref(),
             self.ctx.evm_env.block_env.basefee,

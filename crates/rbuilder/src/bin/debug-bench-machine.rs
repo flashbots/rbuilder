@@ -133,7 +133,7 @@ async fn main() -> eyre::Result<()> {
 
                 let build_time = Instant::now();
 
-                partial_block.pre_block_call(&ctx, &mut local_ctx, &mut state)?;
+                partial_block.pre_block_call(&ctx, &mut state)?;
 
                 let mut space_state = BlockBuildingSpaceState::ZERO;
                 for (idx, tx) in txs.into_iter().enumerate() {

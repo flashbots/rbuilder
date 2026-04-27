@@ -32,7 +32,7 @@ use alloy_evm::{block::system_calls::SystemCaller, env::EvmEnv, eth::eip6110};
 use alloy_primitives::{Address, BlockNumber, Bytes, B256, I256, U256};
 use alloy_rlp::Encodable as _;
 use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
-use cached_reads::{LocalCachedReads, SharedCachedReads};
+use cached_reads::SharedCachedReads;
 use derive_more::Deref;
 use eth_sparse_mpt::SparseTrieLocalCache;
 use evm::EthCachedEvmFactory;
@@ -353,7 +353,6 @@ impl BlockBuildingContext {
 /// Caches shared between threads should go to BlockBuildingContext.
 #[derive(Debug, Clone, Default)]
 pub struct ThreadBlockBuildingContext {
-    pub cached_reads: LocalCachedReads,
     pub bloom_cache: ReceiptsDataCache,
     pub tx_root_cache: TransactionRootCache,
     pub root_hash_calculator: SparseTrieLocalCache,
@@ -815,11 +814,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         let builder_signer = &ctx.builder_signer;
         self.free_reserved_block_space();
         let mut nonce = state
-            .nonce(
-                builder_signer.address,
-                &ctx.shared_cached_reads,
-                &mut local_ctx.cached_reads,
-            )
+            .nonce(builder_signer.address, &ctx.shared_cached_reads)
             .map_err(CriticalCommitOrderError::Reth)?;
 
         let mut fork = PartialBlockFork::new(state, ctx, local_ctx).with_tracer(&mut self.tracer);
@@ -828,11 +823,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             for (refund_recipient, refund_amount) in &self.combined_refunds {
                 let refund_recipient_code_hash = fork
                     .state
-                    .code_hash(
-                        *refund_recipient,
-                        &ctx.shared_cached_reads,
-                        &mut fork.local_ctx.cached_reads,
-                    )
+                    .code_hash(*refund_recipient, &ctx.shared_cached_reads)
                     .map_err(CriticalCommitOrderError::Reth)?;
                 if refund_recipient_code_hash != KECCAK_EMPTY {
                     error!(%refund_recipient_code_hash, %refund_recipient, %refund_amount, "Refund recipient has code, skipping refund");
@@ -905,10 +896,9 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         &self,
         state: &mut BlockState,
         ctx: &BlockBuildingContext,
-        local_ctx: &mut ThreadBlockBuildingContext,
         finalize_revert_state: &mut FinalizeRevertStateCurrentIteration,
     ) -> Result<(Option<Requests>, Option<B256>), FinalizeError> {
-        let mut db = state.new_db_ref(&ctx.shared_cached_reads, &mut local_ctx.cached_reads);
+        let mut db = state.new_db_ref(&ctx.shared_cached_reads);
 
         // Apply and gather execution requests
         let requests = if ctx
@@ -979,12 +969,8 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         let start = Instant::now();
 
         let step_start = Instant::now();
-        let (requests, withdrawals_root) = self.process_requests(
-            state,
-            ctx,
-            local_ctx,
-            &mut finalize_adjustment_state.revert_state,
-        )?;
+        let (requests, withdrawals_root) =
+            self.process_requests(state, ctx, &mut finalize_adjustment_state.revert_state)?;
         let block_number = ctx.block();
 
         let request_processsing_time_ms = elapsed_ms(step_start);
@@ -1201,7 +1187,6 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
     pub fn pre_block_call(
         &mut self,
         ctx: &BlockBuildingContext,
-        local_ctx: &mut ThreadBlockBuildingContext,
         state: &mut BlockState,
     ) -> eyre::Result<()> {
         // We "pre-use" the RLP overhead for the withdrawals and the block header.
@@ -1211,7 +1196,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             0,
         ));
 
-        let mut db = state.new_db_ref(&ctx.shared_cached_reads, &mut local_ctx.cached_reads);
+        let mut db = state.new_db_ref(&ctx.shared_cached_reads);
         let mut system_caller = SystemCaller::new(ctx.chain_spec.clone());
         let mut evm = EthEvmConfig::new(ctx.chain_spec.clone())
             .evm_with_env(db.as_mut(), ctx.evm_env.clone());

@@ -303,7 +303,6 @@ impl OrderingBuilderContext {
             next_journal_sequence_number,
             self.state.clone(),
             self.ctx.clone(),
-            &mut self.local_ctx,
             self.builder_name.clone(),
             self.config.discard_txs,
             block_orders.orders_statistics(),

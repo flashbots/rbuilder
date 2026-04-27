@@ -142,7 +142,7 @@ impl ResolverContext {
         // Initialize state and partial block
         let mut partial_block = PartialBlock::new(true);
         let mut state = self.initialize_block_state(state_provider);
-        partial_block.pre_block_call(&self.ctx, &mut local_ctx, &mut state)?;
+        partial_block.pre_block_call(&self.ctx, &mut state)?;
 
         // Initialize sequenced_order_result
         let mut sequenced_order_result =
