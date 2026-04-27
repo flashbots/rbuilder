@@ -16,6 +16,7 @@ use conflict_task_generator::ConflictTaskGenerator;
 use crossbeam::queue::SegQueue;
 use eyre::Result;
 use itertools::Itertools;
+use parking_lot::RwLock;
 use results_aggregator::BestResults;
 use reth_provider::StateProvider;
 use serde::Deserialize;
@@ -31,9 +32,12 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, trace};
 
 use crate::{
-    building::builders::{
-        BacktestSimulateBlockInput, Block, BlockBuildingAlgorithm, BlockBuildingAlgorithmInput,
-        BuiltBlockIdSource, LiveBuilderInput,
+    building::{
+        builders::{
+            BacktestSimulateBlockInput, Block, BlockBuildingAlgorithm, BlockBuildingAlgorithmInput,
+            BuiltBlockIdSource, LiveBuilderInput,
+        },
+        priority_update::PriorityUpdatePool,
     },
     live_builder::block_output::bidding_service_interface::CompetitionBidContext,
     provider::StateProviderFactory,
@@ -109,6 +113,9 @@ where
             group_result_sender_for_task_generator,
         );
 
+        let order_intake_consumer = OrderIntakeStore::new(input.input);
+        let priority_update_pool = order_intake_consumer.priority_update_pool();
+
         let conflict_resolving_pool = ConflictResolvingPool::new(
             config.num_threads,
             Arc::clone(&task_queue),
@@ -118,6 +125,7 @@ where
             input.ctx.clone(),
             input.provider.clone(),
             Arc::clone(&simulation_cache),
+            Arc::clone(&priority_update_pool),
         );
 
         let results_aggregator =
@@ -138,9 +146,8 @@ where
             Some(input.sink.clone()),
             input.built_block_id_source.clone(),
             input.max_order_execution_duration_warning,
+            priority_update_pool,
         );
-
-        let order_intake_consumer = OrderIntakeStore::new(input.input);
 
         Ok(Self {
             order_intake_consumer,
@@ -316,6 +323,8 @@ where
     // Worker pool and conflict manager creation
     let setup_start = Instant::now();
 
+    let priority_update_pool = Arc::new(RwLock::new(PriorityUpdatePool::default()));
+
     let mut conflict_resolving_pool = ConflictResolvingPool::new(
         config.num_threads,
         Arc::clone(&task_queue),
@@ -325,6 +334,7 @@ where
         input.ctx.clone(),
         input.provider.clone(),
         Arc::clone(&simulation_cache),
+        Arc::clone(&priority_update_pool),
     );
 
     let setup_duration = setup_start.elapsed();
@@ -357,6 +367,7 @@ where
         None,
         Arc::new(BuiltBlockIdSource::new()),
         None,
+        priority_update_pool,
     );
     let assembler_duration = assembler_start.elapsed();
 

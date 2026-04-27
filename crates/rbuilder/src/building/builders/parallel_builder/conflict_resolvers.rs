@@ -3,6 +3,7 @@ use alloy_primitives::{Address, U256};
 use derivative::Derivative;
 use eyre::Result;
 use itertools::Itertools;
+use parking_lot::RwLock;
 use rand::{seq::SliceRandom, SeedableRng};
 use reth::providers::StateProvider;
 use std::sync::Arc;
@@ -30,29 +31,24 @@ pub struct ResolverContext {
     pub ctx: BlockBuildingContext,
     pub cancellation_token: CancellationToken,
     pub simulation_cache: Arc<SharedSimulationCache>,
+    pub priority_update_pool: Arc<RwLock<PriorityUpdatePool>>,
 }
 
 impl ResolverContext {
     /// Creates a new `ResolverContext`.
-    ///
-    /// # Arguments
-    ///
-    /// * `provider_factory` - Factory for creating state providers.
-    /// * `ctx` - Context for block building.
-    /// * `cancellation_token` - Token for cancelling operations.
-    /// * `cache` - Optional cached reads for optimization.
-    /// * `simulation_cache` - Shared cache for simulation results.
     pub fn new(
         state: Arc<dyn StateProvider>,
         ctx: BlockBuildingContext,
         cancellation_token: CancellationToken,
         simulation_cache: Arc<SharedSimulationCache>,
+        priority_update_pool: Arc<RwLock<PriorityUpdatePool>>,
     ) -> Self {
         ResolverContext {
             state,
             ctx,
             cancellation_token,
             simulation_cache,
+            priority_update_pool,
         }
     }
 
@@ -143,7 +139,7 @@ impl ResolverContext {
         let mut partial_block = PartialBlock::new(true);
         let mut state = self.initialize_block_state(state_provider);
         partial_block.pre_block_call(&self.ctx, &mut state)?;
-        let priority_update_pool = PriorityUpdatePool::default();
+        let priority_update_pool = Arc::clone(&self.priority_update_pool);
 
         // Initialize sequenced_order_result
         let mut sequenced_order_result =
@@ -177,7 +173,7 @@ impl ResolverContext {
                 &mut state,
                 #[allow(clippy::result_large_err)]
                 &|_| Ok(()),
-                &priority_update_pool,
+                &priority_update_pool.read(),
             )?;
             match commit_result.order {
                 Ok(res) => self.handle_successful_commit(

@@ -4,6 +4,7 @@ use super::{
 };
 use ahash::HashMap;
 use alloy_primitives::utils::format_ether;
+use parking_lot::RwLock;
 use reth_provider::StateProvider;
 use std::{
     sync::Arc,
@@ -44,18 +45,11 @@ pub struct BlockBuildingResultAssembler {
     last_version: Option<u64>,
     built_block_id_source: Arc<BuiltBlockIdSource>,
     max_order_execution_duration_warning: Option<Duration>,
-    priority_update_pool: PriorityUpdatePool,
+    priority_update_pool: Arc<RwLock<PriorityUpdatePool>>,
 }
 
 impl BlockBuildingResultAssembler {
     /// Creates a new `BlockBuildingResultAssembler`.
-    ///
-    /// # Arguments
-    ///
-    /// * `input` - The live builder input containing necessary components.
-    /// * `config` - The configuration for the Parallel builder.
-    /// * `build_trigger_receiver` - A receiver for build trigger signals.
-    /// * `best_results` - A shared map of the best results for each group.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         config: &ParallelBuilderConfig,
@@ -67,6 +61,7 @@ impl BlockBuildingResultAssembler {
         sink: Option<UnfinishedBuiltBlocksInput>,
         built_block_id_source: Arc<BuiltBlockIdSource>,
         max_order_execution_duration_warning: Option<Duration>,
+        priority_update_pool: Arc<RwLock<PriorityUpdatePool>>,
     ) -> Self {
         Self {
             state,
@@ -81,7 +76,7 @@ impl BlockBuildingResultAssembler {
             last_version: None,
             built_block_id_source,
             max_order_execution_duration_warning,
-            priority_update_pool: PriorityUpdatePool::default(),
+            priority_update_pool,
         }
     }
 
@@ -231,7 +226,7 @@ impl BlockBuildingResultAssembler {
                 let commit_result = block_building_helper.commit_order(
                     &mut self.local_ctx,
                     sim_order,
-                    &self.priority_update_pool,
+                    &self.priority_update_pool.read(),
                     #[allow(clippy::result_large_err)]
                     &|_| Ok(()),
                 )?;
@@ -323,7 +318,7 @@ impl BlockBuildingResultAssembler {
                 let commit_result = block_building_helper.commit_order(
                     &mut self.local_ctx,
                     sim_order,
-                    &self.priority_update_pool,
+                    &self.priority_update_pool.read(),
                     #[allow(clippy::result_large_err)]
                     &|_| Ok(()),
                 )?;
