@@ -127,7 +127,7 @@ async fn main() -> eyre::Result<()> {
             tokio::task::spawn_blocking(move || -> eyre::Result<_> {
                 let mut partial_block = PartialBlock::new(true);
                 let cached = CachedDB::new(state_provider, ctx.shared_cached_reads.clone());
-                let mut state = BlockState::new(Box::new(cached));
+                let mut state = BlockState::boxed(cached);
                 let mut local_ctx = ThreadBlockBuildingContext::default();
 
                 let mut finalize_adjustment_state = FinalizeAdjustmentState::default();

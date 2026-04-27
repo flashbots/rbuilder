@@ -265,7 +265,7 @@ mod tests {
         );
         let state_provider: Arc<dyn StateProvider> = Arc::from(provider_factory.latest().unwrap());
         let cached = CachedDB::new(state_provider, Arc::new(SharedCachedReads::default()));
-        let mut state = BlockState::new(Box::new(cached));
+        let mut state = BlockState::boxed(cached);
 
         let estimate_result =
             estimate_payout_gas_limit(proposer, &ctx, &mut state, BlockSpace::ZERO);

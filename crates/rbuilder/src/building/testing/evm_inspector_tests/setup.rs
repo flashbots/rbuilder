@@ -100,7 +100,7 @@ impl TestSetup {
                 .shared_cached_reads
                 .clone(),
         );
-        let mut block_state = BlockState::new(Box::new(cached));
+        let mut block_state = BlockState::boxed(cached);
         let mut db_ref = block_state.new_db_ref();
 
         // execute transaction

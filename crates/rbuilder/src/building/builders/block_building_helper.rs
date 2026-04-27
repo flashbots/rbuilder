@@ -270,7 +270,7 @@ impl<
             PartialBlock::new_with_execution_tracer(discard_txs, partial_block_execution_tracer)
                 .with_tracer(GasUsedSimulationTracer::default());
         let cached = CachedDB::new(state_provider, building_ctx.shared_cached_reads.clone());
-        let mut block_state = BlockState::new(Box::new(cached));
+        let mut block_state = BlockState::boxed(cached);
         partial_block
             .pre_block_call(&building_ctx, &mut block_state)
             .map_err(|_| BlockBuildingHelperError::PreBlockCallFailed)?;

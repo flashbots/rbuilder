@@ -46,29 +46,27 @@ where
 
 pub type BlockStateDB = Box<dyn BlockStateDatabase>;
 
-pub struct BlockState {
-    db: BlockStateDB,
-    bundle_state: Option<BundleState>,
-}
-
-impl Clone for BlockState {
+impl Clone for BlockStateDB {
     fn clone(&self) -> Self {
-        Self {
-            db: self.db.box_clone(),
-            bundle_state: self.bundle_state.clone(),
-        }
+        self.box_clone()
     }
 }
 
-impl BlockState {
-    pub fn new(db: BlockStateDB) -> Self {
+#[derive(Clone)]
+pub struct BlockState<DB: Database<Error = ProviderError> + Clone = BlockStateDB> {
+    db: DB,
+    bundle_state: Option<BundleState>,
+}
+
+impl<DB: Database<Error = ProviderError> + Clone> BlockState<DB> {
+    pub fn new(db: DB) -> Self {
         Self {
             db,
             bundle_state: Some(BundleState::default()),
         }
     }
 
-    pub fn into_db(self) -> BlockStateDB {
+    pub fn into_db(self) -> DB {
         self.db
     }
 
@@ -77,7 +75,7 @@ impl BlockState {
         self
     }
 
-    pub fn into_parts(self) -> (BundleState, BlockStateDB) {
+    pub fn into_parts(self) -> (BundleState, DB) {
         (self.bundle_state.unwrap(), self.db)
     }
 
@@ -93,7 +91,7 @@ impl BlockState {
         self.bundle_state.clone().unwrap()
     }
 
-    pub fn new_db_ref(&mut self) -> BlockStateDBRef<'_, &mut BlockStateDB> {
+    pub fn new_db_ref(&mut self) -> BlockStateDBRef<'_, &mut DB> {
         let bundle_state = self.bundle_state.take().unwrap();
         let db = State::builder()
             .with_database(&mut self.db)
@@ -144,6 +142,16 @@ impl BlockState {
         result.sort();
         result.dedup();
         result
+    }
+}
+
+impl BlockState<BlockStateDB> {
+    /// Convenience constructor that type-erases `db` into a [`BlockStateDB`].
+    pub fn boxed<T>(db: T) -> Self
+    where
+        T: Database<Error = ProviderError> + Send + Sync + Clone + 'static,
+    {
+        Self::new(Box::new(db))
     }
 }
 

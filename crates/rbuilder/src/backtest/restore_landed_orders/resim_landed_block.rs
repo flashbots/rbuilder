@@ -73,7 +73,7 @@ where
         Arc::from(provider.history_by_block_hash(ctx.attributes.parent)?);
     let cached = CachedDB::new(state_provider, ctx.shared_cached_reads.clone());
     let mut partial_block = PartialBlock::new(true);
-    let mut state = BlockState::new(Box::new(cached));
+    let mut state = BlockState::boxed(cached);
 
     partial_block
         .pre_block_call(&ctx, &mut state)

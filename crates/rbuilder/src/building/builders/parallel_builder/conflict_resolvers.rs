@@ -286,7 +286,7 @@ impl ResolverContext {
     /// Initializes the block state, using a cached state if available.
     fn initialize_block_state(&mut self, state_provider: Arc<dyn StateProvider>) -> BlockState {
         let cached = CachedDB::new(state_provider, self.ctx.shared_cached_reads.clone());
-        BlockState::new(Box::new(cached))
+        BlockState::boxed(cached)
     }
 
     /// Stores the simulation state in the cache.
