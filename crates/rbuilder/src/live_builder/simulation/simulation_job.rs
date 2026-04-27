@@ -8,7 +8,7 @@ use std::{
 
 use crate::{
     building::{
-        priority_update::pur_simulation_job::PURSimulationStateExternal,
+        priority_update::pur_simulation_job::PURCommandClassifier,
         sim::{CancellableSimulationRequest, SimTree, SimulatedResult},
     },
     live_builder::{
@@ -76,7 +76,7 @@ pub struct SimulationJob {
     /// Every send is traced here.
     sim_tracer: Arc<dyn SimulationJobTracer>,
 
-    pur_state: PURSimulationStateExternal,
+    pur_classifier: PURCommandClassifier,
 }
 
 impl SimulationJob {
@@ -88,7 +88,7 @@ impl SimulationJob {
         slot_sim_results_sender: mpsc::Sender<SimulatedOrderCommand>,
         sim_tree: SimTree,
         sim_tracer: Arc<dyn SimulationJobTracer>,
-        pur_state: PURSimulationStateExternal,
+        pur_classifier: PURCommandClassifier,
     ) -> Self {
         Self {
             block_cancellation,
@@ -106,7 +106,7 @@ impl SimulationJob {
             in_flight_orders: Default::default(),
             not_cancelled_sent_simulated_orders: Default::default(),
             sim_tracer,
-            pur_state,
+            pur_classifier,
         }
     }
 
@@ -306,7 +306,10 @@ impl SimulationJob {
     async fn process_new_commands(&mut self, new_commands: &[OrderPoolCommand]) -> bool {
         for new_commnad in new_commands {
             // PUR consumes commands it classifies as priority-updates before the normal pipeline sees them.
-            if self.pur_state.try_consuming_new_order_command(new_commnad) {
+            if self
+                .pur_classifier
+                .try_consuming_new_order_command(new_commnad)
+            {
                 continue;
             }
             match new_commnad {

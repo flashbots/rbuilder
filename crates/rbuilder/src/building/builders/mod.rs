@@ -39,7 +39,10 @@ use tokio::sync::{
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
-use super::{simulated_order_command_to_sink, OrderPriority, PrioritizedOrderStore};
+use super::{
+    priority_update::PriorityUpdatePool, simulated_order_command_to_sink, OrderPriority,
+    PrioritizedOrderStore,
+};
 
 /// Orders that blocking_consume_next_commands will consume.
 /// A slow algorithm would check approx every 200ms, to fill this batch size it would take
@@ -192,6 +195,7 @@ pub struct OrderIntakeConsumer<OrderPriorityType> {
     nonces: NonceCache,
 
     block_orders: PrioritizedOrderStore<OrderPriorityType>,
+    priority_update_pool: PriorityUpdatePool,
     onchain_nonces_updated: HashSet<Address>,
 
     order_consumer: OrderConsumer,
@@ -205,6 +209,7 @@ impl<OrderPriorityType: OrderPriority> OrderIntakeConsumer<OrderPriorityType> {
         Self {
             nonces,
             block_orders: PrioritizedOrderStore::new(vec![]),
+            priority_update_pool: PriorityUpdatePool::new(),
             onchain_nonces_updated: HashSet::default(),
             order_consumer: OrderConsumer::new(orders),
         }
@@ -217,8 +222,10 @@ impl<OrderPriorityType: OrderPriority> OrderIntakeConsumer<OrderPriorityType> {
     pub fn blocking_consume_next_batch(&mut self) -> eyre::Result<Option<JournalSequenceNumber>> {
         if let Some(next_seq) = self.order_consumer.blocking_consume_next_commands()? {
             self.update_onchain_nonces()?;
-            self.order_consumer
-                .apply_new_commands(&mut self.block_orders);
+            let new_commands = std::mem::take(&mut self.order_consumer.new_commands);
+            for cmd in new_commands {
+                simulated_order_command_to_sink(cmd, self);
+            }
             Ok(Some(next_seq))
         } else {
             Ok(None)
@@ -257,11 +264,38 @@ impl<OrderPriorityType: OrderPriority> OrderIntakeConsumer<OrderPriorityType> {
         self.block_orders.clone()
     }
 
+    pub fn priority_update_pool(&self) -> &PriorityUpdatePool {
+        &self.priority_update_pool
+    }
+
     pub fn remove_orders(
         &mut self,
         orders: impl IntoIterator<Item = OrderId>,
     ) -> Vec<Arc<SimulatedOrder>> {
         self.block_orders.remove_orders(orders)
+    }
+}
+
+/// Routes simulated-order commands:
+///   * Simulations carrying [`SimulatedOrder::pu_data`] feed the
+///     [`PriorityUpdatePool`].
+///   * All other Simulations go into the [`PrioritizedOrderStore`].
+///   * Cancellations are forwarded to both pools since we don't know
+///     which side owns the id.
+impl<OrderPriorityType: OrderPriority> SimulatedOrderSink
+    for OrderIntakeConsumer<OrderPriorityType>
+{
+    fn insert_order(&mut self, order: Arc<SimulatedOrder>) {
+        if order.pu_data.is_some() {
+            self.priority_update_pool.apply_update(order);
+        } else {
+            self.block_orders.insert_order(order);
+        }
+    }
+
+    fn remove_order(&mut self, id: OrderId) -> Option<Arc<SimulatedOrder>> {
+        self.priority_update_pool.apply_remove(&id);
+        self.block_orders.remove_order(id)
     }
 }
 

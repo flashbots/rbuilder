@@ -5,7 +5,8 @@ pub mod simulation_job_tracer;
 use crate::{
     building::{
         priority_update::pur_simulation_job::{
-            new_pur_simulation_state, run_pur_sim_worker, PURSimulationStateExternal,
+            new_pu_simulation_runtime, new_pur_simulation_channel, run_pur_sim_worker,
+            PUSimulationContext,
         },
         sim::{CancellableSimulationRequest, SimTree, SimulatedResult},
         tx_sim_cache::TxExecutionCache,
@@ -43,7 +44,8 @@ pub struct SimulationContext {
     /// Simulation results go out through this channel.
     /// This is also implicitly used as a cancellation token. If this is closed there is no need to simulate anymore.
     pub results: mpsc::Sender<SimulatedResult>,
-    pub pur_state: PURSimulationStateExternal,
+    /// Handle that sim workers use to subscribe to priority-update fan-out.
+    pub pu_context: PUSimulationContext,
 }
 
 /// All active SimulationContexts
@@ -164,7 +166,9 @@ where
                 let (sim_req_sender, sim_req_receiver) = flume::unbounded();
                 let (sim_results_sender, sim_results_receiver) = mpsc::channel(1024);
 
-                let (pur_state_external, pur_state_for_thread) = new_pur_simulation_state();
+                let (pur_classifier, pur_input) = new_pur_simulation_channel();
+                let (pu_context, pu_worker_state) =
+                    new_pu_simulation_runtime(slot_sim_results_sender.clone());
 
                 {
                     let mut contexts = current_contexts.lock();
@@ -172,7 +176,7 @@ where
                         block_ctx: ctx.clone(),
                         requests: sim_req_receiver,
                         results: sim_results_sender,
-                        pur_state: pur_state_external.clone(),
+                        pu_context,
                     };
                     contexts.contexts.insert(block_context, sim_context);
                 }
@@ -180,8 +184,8 @@ where
                 let pur_handle = tokio::spawn(run_pur_sim_worker(
                     provider.clone(),
                     ctx,
-                    pur_state_for_thread,
-                    slot_sim_results_sender.clone(),
+                    pur_input,
+                    pu_worker_state,
                     block_cancellation.clone(),
                     Arc::clone(&sim_tracer),
                 ));
@@ -198,7 +202,7 @@ where
                     slot_sim_results_sender,
                     sim_tree,
                     sim_tracer,
-                    pur_state_external,
+                    pur_classifier,
                 );
 
                 simulation_job.run().await;

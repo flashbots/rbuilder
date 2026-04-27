@@ -1,14 +1,16 @@
 use ahash::{HashMap, HashSet};
 use alloy_primitives::{Address, B256, U256};
-use parking_lot::{ArcRwLockReadGuard, RawRwLock};
-use rbuilder_primitives::OrderId;
+use parking_lot::{ArcMutexGuard, RawMutex};
+use rbuilder_primitives::{evm_inspector::SlotKey, OrderId};
 use reth_errors::ProviderError;
 use revm::{
     bytecode::Bytecode, database::states::PlainStorageChangeset, state::AccountInfo, Database,
 };
 use std::sync::Arc;
 
-#[derive(Debug)]
+use super::PriorityUpdatePool;
+
+#[derive(Debug, Default, Clone)]
 pub struct PendingUpdates {
     orders: HashMap<OrderId, Vec<PlainStorageChangeset>>,
     merged: HashMap<(Address, U256), (U256, OrderId)>,
@@ -63,28 +65,39 @@ impl PendingUpdates {
     pub fn storage_lookup(&self, address: Address, key: U256) -> Option<U256> {
         self.merged.get(&(address, key)).map(|(value, _)| *value)
     }
-}
 
-impl Default for PendingUpdates {
-    fn default() -> Self {
-        Self::new()
+    /// OrderId that currently owns the given slot, if any.
+    pub fn order_for_slot(&self, slot: &SlotKey) -> Option<OrderId> {
+        let key: U256 = slot.key.into();
+        self.merged.get(&(slot.address, key)).map(|(_, id)| *id)
     }
 }
 
-/// [`Database`] wrapper that overlays storage reads with [`PendingUpdates`].
-/// Holds the overlay read lock for the lifetime of the wrapper (and any clones).
-#[derive(Clone, Debug)]
+/// [`Database`] wrapper that overlays storage reads with the pending priority
+/// updates from a [`PriorityUpdatePool`].
+///
+/// Holds an [`ArcMutexGuard`] on the caller's pool for the lifetime of the
+/// wrapper (and any clones).
+#[derive(Clone)]
 pub struct PendingStateDb<DB> {
-    pending: Arc<ArcRwLockReadGuard<RawRwLock, PendingUpdates>>,
+    pool: Arc<ArcMutexGuard<RawMutex, PriorityUpdatePool>>,
     inner: DB,
 }
 
+impl<DB: std::fmt::Debug> std::fmt::Debug for PendingStateDb<DB> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PendingStateDb")
+            .field("inner", &self.inner)
+            .finish_non_exhaustive()
+    }
+}
+
 pub fn wrap_with_pending_state<DB>(
-    pending: ArcRwLockReadGuard<RawRwLock, PendingUpdates>,
+    pool: ArcMutexGuard<RawMutex, PriorityUpdatePool>,
     inner: DB,
 ) -> PendingStateDb<DB> {
     PendingStateDb {
-        pending: Arc::new(pending),
+        pool: Arc::new(pool),
         inner,
     }
 }
@@ -104,7 +117,11 @@ where
     }
 
     fn storage(&mut self, address: Address, index: U256) -> Result<U256, Self::Error> {
-        if let Some(value) = self.pending.storage_lookup(address, index) {
+        if let Some(value) = self
+            .pool
+            .pending_update_state()
+            .storage_lookup(address, index)
+        {
             return Ok(value);
         }
         self.inner.storage(address, index)

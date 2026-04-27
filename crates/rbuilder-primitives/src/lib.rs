@@ -31,6 +31,7 @@ use reth_transaction_pool::{
     BlobStore, BlobStoreError, EthPooledTransaction, Pool, TransactionOrdering, TransactionPool,
     TransactionValidator,
 };
+use revm::database::states::PlainStorageChangeset;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -1008,6 +1009,12 @@ impl SimValue {
     }
 }
 
+/// Extra data captured when a priority-update order is simulated.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PUData {
+    pub changeset: Vec<PlainStorageChangeset>,
+}
+
 /// Order simulated (usually on top of block) + SimValue
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SimulatedOrder {
@@ -1016,6 +1023,8 @@ pub struct SimulatedOrder {
     /// Info about read/write slots during the simulation to help figure out what the Order is doing.
     pub used_state_trace: Option<UsedStateTrace>,
     pub used_priority_updates: Vec<SlotKey>,
+    /// Present when this order is a simulated priority update.
+    pub pu_data: Option<PUData>,
 }
 
 impl SimulatedOrder {
@@ -1029,6 +1038,7 @@ impl SimulatedOrder {
             sim_value,
             used_state_trace,
             used_priority_updates: Vec::new(),
+            pu_data: None,
         }
     }
 

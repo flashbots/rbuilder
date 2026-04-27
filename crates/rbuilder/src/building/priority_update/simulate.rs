@@ -4,23 +4,18 @@ use crate::building::{
 };
 use ahash::HashSet;
 use alloy_primitives::Address;
-use rbuilder_primitives::{Order, SimulatedOrder};
+use rbuilder_primitives::{Order, PUData, SimulatedOrder};
 use reth_provider::StateProvider;
-use revm::database::{states::PlainStorageChangeset, OriginalValuesKnown};
+use revm::database::OriginalValuesKnown;
 use std::{collections::HashMap, sync::Arc};
 use tracing::{debug, info_span};
-
-pub struct PurSimulationResult {
-    pub simulated_order: Arc<SimulatedOrder>,
-    pub changeset: Vec<PlainStorageChangeset>,
-}
 
 pub fn simulate_priority_update(
     order: Arc<Order>,
     ctx: &BlockBuildingContext,
     local_ctx: &mut ThreadBlockBuildingContext,
     parent_block_state_provider: Arc<dyn StateProvider>,
-) -> Result<Option<PurSimulationResult>, CriticalCommitOrderError> {
+) -> Result<Option<Arc<SimulatedOrder>>, CriticalCommitOrderError> {
     let first_tx = order.list_txs().into_iter().next();
     let from = first_tx.as_ref().map(|(tx, _)| tx.signer());
     let to = first_tx.as_ref().and_then(|(tx, _)| tx.to());
@@ -55,11 +50,6 @@ pub fn simulate_priority_update(
 
     let sim_value = create_sim_value(&order, &order_ok, &ctx.mempool_tx_detector);
     let used_state_trace = order_ok.used_state_trace.clone();
-    let simulated_order = Arc::new(SimulatedOrder::new(
-        Arc::clone(&order),
-        sim_value,
-        used_state_trace,
-    ));
 
     let (bundle_state, _) = state.into_parts();
 
@@ -97,8 +87,10 @@ pub fn simulate_priority_update(
         return Ok(None);
     }
 
-    Ok(Some(PurSimulationResult {
-        simulated_order,
+    let mut simulated_order = SimulatedOrder::new(Arc::clone(&order), sim_value, used_state_trace);
+    simulated_order.pu_data = Some(PUData {
         changeset: changeset.storage,
-    }))
+    });
+
+    Ok(Some(Arc::new(simulated_order)))
 }

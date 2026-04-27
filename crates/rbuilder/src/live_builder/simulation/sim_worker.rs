@@ -49,6 +49,7 @@ pub fn run_sim_worker<P>(
         };
 
         let mut local_ctx = ThreadBlockBuildingContext::default();
+        let mut pu_orderpool = current_sim_context.pu_context.subscribe();
 
         let mut last_sim_finished = Instant::now();
 
@@ -65,30 +66,31 @@ pub fn run_sim_worker<P>(
             if current_sim_context.results.is_closed() {
                 break;
             }
+
             if let Some(task) = cancellable_task.into_request() {
                 let sim_thread_wait_time = last_sim_finished.elapsed();
                 let sim_start = Instant::now();
 
+                pu_orderpool.consume_updates();
+
                 let order_id = task.order.id();
                 let start_time = Instant::now();
-                let cached = CachedDB::new(
-                    parent_state.clone(),
-                    current_sim_context.block_ctx.shared_cached_reads.clone(),
-                );
-                // `block_state` holds the PUR overlay read lock until dropped.
-                let pending_db = wrap_with_pending_state(
-                    current_sim_context.pur_state.get_state_overlay_read_lock(),
-                    cached,
-                );
-                let mut block_state = BlockState::new(pending_db);
-                let sim_result = simulate_order(
-                    task.parents.clone(),
-                    task.order,
-                    &current_sim_context.block_ctx,
-                    &mut local_ctx,
-                    &mut block_state,
-                );
-                drop(block_state);
+                let sim_result = {
+                    let cached = CachedDB::new(
+                        parent_state.clone(),
+                        current_sim_context.block_ctx.shared_cached_reads.clone(),
+                    );
+                    let pending_db =
+                        wrap_with_pending_state(pu_orderpool.pool().lock_arc(), cached);
+                    let mut block_state = BlockState::new(pending_db);
+                    simulate_order(
+                        task.parents.clone(),
+                        task.order,
+                        &current_sim_context.block_ctx,
+                        &mut local_ctx,
+                        &mut block_state,
+                    )
+                };
                 let sim_ok = match sim_result {
                     Ok(sim_result) => {
                         let sim_ok = match sim_result.result {

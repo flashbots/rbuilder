@@ -153,6 +153,7 @@ pub fn run_ordering_builder<P, OrderPriorityType>(
         match builder.build_block(
             next_journal_sequence_number,
             orders,
+            order_intake_consumer.priority_update_pool(),
             input.built_block_id_source.get_new_id(),
             input.cancel.clone(),
         ) {
@@ -200,9 +201,11 @@ where
         None,
         Arc::new(BuiltBlockCache::new()),
     );
+    let priority_update_pool = PriorityUpdatePool::new();
     let mut block_builder = builder.build_block_with_execution_tracer(
         0,
         block_orders,
+        &priority_update_pool,
         BuiltBlockId::ZERO,
         CancellationToken::new(),
         partial_block_execution_tracer,
@@ -231,7 +234,6 @@ pub struct OrderingBuilderContext {
 
     // caches
     local_ctx: ThreadBlockBuildingContext,
-    priority_update_pool: PriorityUpdatePool,
 
     // scratchpad
     failed_orders: HashSet<OrderId>,
@@ -253,7 +255,6 @@ impl OrderingBuilderContext {
             builder_name,
             ctx,
             local_ctx: Default::default(),
-            priority_update_pool: PriorityUpdatePool::default(),
             config,
             failed_orders: HashSet::default(),
             order_attempts: HashMap::default(),
@@ -266,12 +267,14 @@ impl OrderingBuilderContext {
         &mut self,
         next_journal_sequence_number: JournalSequenceNumber,
         block_orders: PrioritizedOrderStore<OrderPriorityType>,
+        priority_update_pool: &PriorityUpdatePool,
         built_block_id: BuiltBlockId,
         cancel_block: CancellationToken,
     ) -> eyre::Result<Box<dyn BlockBuildingHelper>> {
         self.build_block_with_execution_tracer(
             next_journal_sequence_number,
             block_orders,
+            priority_update_pool,
             built_block_id,
             cancel_block,
             NullPartialBlockExecutionTracer {},
@@ -288,6 +291,7 @@ impl OrderingBuilderContext {
         &mut self,
         next_journal_sequence_number: JournalSequenceNumber,
         mut block_orders: PrioritizedOrderStore<OrderPriorityType>,
+        priority_update_pool: &PriorityUpdatePool,
         built_block_id: BuiltBlockId,
         cancel_block: CancellationToken,
         partial_block_execution_tracer: PartialBlockExecutionTracerType,
@@ -317,6 +321,7 @@ impl OrderingBuilderContext {
         self.fill_orders(
             &mut block_building_helper,
             &mut block_orders,
+            priority_update_pool,
             |_| true,
             build_start,
             self.config.build_duration_deadline(),
@@ -349,6 +354,7 @@ impl OrderingBuilderContext {
                 self.fill_orders(
                     &mut block_building_helper,
                     &mut block_orders,
+                    priority_update_pool,
                     |sim_order| {
                         block_infos
                             .iter()
@@ -388,6 +394,7 @@ impl OrderingBuilderContext {
         &mut self,
         block_building_helper: &mut dyn BlockBuildingHelper,
         block_orders: &mut PrioritizedOrderStore<OrderPriorityType>,
+        priority_update_pool: &PriorityUpdatePool,
         order_filter: OrderFilter,
         build_start: Instant,
         deadline: Option<Duration>,
@@ -414,7 +421,7 @@ impl OrderingBuilderContext {
             let commit_result = block_building_helper.commit_order(
                 &mut self.local_ctx,
                 &sim_order,
-                &self.priority_update_pool,
+                priority_update_pool,
                 #[allow(clippy::result_large_err)]
                 &|sim_result| {
                     if !sim_order.order.metadata().is_system {
