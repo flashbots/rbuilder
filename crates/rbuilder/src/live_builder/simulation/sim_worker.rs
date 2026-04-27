@@ -1,9 +1,8 @@
 use crate::{
     building::{
         cached_reads::CachedDB,
-        priority_update::pending_updates::wrap_with_pending_state,
         sim::{NonceKey, OrderSimResult, SimulatedResult},
-        simulate_order, BlockState, ThreadBlockBuildingContext,
+        simulate_order, ThreadBlockBuildingContext,
     },
     live_builder::simulation::CurrentSimulationContexts,
     provider::StateProviderFactory,
@@ -80,15 +79,15 @@ pub fn run_sim_worker<P>(
                         parent_state.clone(),
                         current_sim_context.block_ctx.shared_cached_reads.clone(),
                     );
-                    let pending_db =
-                        wrap_with_pending_state(pu_orderpool.pool().lock_arc(), cached);
-                    let mut block_state = BlockState::new(pending_db);
+                    let pool_arc = pu_orderpool.pool();
+                    let pool_guard = pool_arc.lock();
                     simulate_order(
                         task.parents.clone(),
                         task.order,
                         &current_sim_context.block_ctx,
                         &mut local_ctx,
-                        &mut block_state,
+                        &pool_guard,
+                        cached,
                     )
                 };
                 let sim_ok = match sim_result {

@@ -5,8 +5,10 @@ use super::{
 };
 use crate::{
     building::{
-        cached_reads::CachedDB, order_is_worth_executing, BlockBuildingContext,
-        BlockBuildingSpaceState, BlockState, CriticalCommitOrderError,
+        cached_reads::CachedDB,
+        order_is_worth_executing,
+        priority_update::{pending_updates::PendingStateDb, PriorityUpdatePool},
+        BlockBuildingContext, BlockBuildingSpaceState, BlockState, CriticalCommitOrderError,
         NullPartialBlockForkExecutionTracer,
     },
     live_builder::order_input::mempool_txs_detector::MempoolTxsDetector,
@@ -21,6 +23,7 @@ use rand::seq::SliceRandom;
 use rbuilder_primitives::{Order, OrderId, SimulatedOrder};
 use reth_errors::ProviderError;
 use reth_provider::StateProvider;
+use revm::Database;
 use std::{
     cmp::{max, min, Ordering},
     collections::hash_map::Entry,
@@ -366,8 +369,8 @@ where
     let mut sim_errors = Vec::new();
     let initial_provider =
         Arc::<dyn StateProvider>::from(provider.history_by_block_hash(ctx.attributes.parent)?);
-    let mut state_for_sim = CachedDB::new(initial_provider, ctx.shared_cached_reads.clone());
     let mut local_ctx = ThreadBlockBuildingContext::default();
+    let empty_pu_pool = PriorityUpdatePool::new();
     loop {
         // mix new orders into the sim_tree
         if randomize_insertion && !orders.is_empty() {
@@ -388,16 +391,15 @@ where
         let mut sim_results = Vec::new();
         for sim_task in sim_tasks {
             let start_time = Instant::now();
-            let mut block_state = BlockState::new(state_for_sim);
+            let cached = CachedDB::new(initial_provider.clone(), ctx.shared_cached_reads.clone());
             let sim_result = simulate_order(
                 sim_task.parents.clone(),
                 sim_task.order.clone(),
                 ctx,
                 &mut local_ctx,
-                &mut block_state,
+                &empty_pu_pool,
+                cached,
             )?;
-            let (_, db) = block_state.into_parts();
-            state_for_sim = db;
             match sim_result.result {
                 OrderSimResult::Failed(err) => {
                     trace!(
@@ -437,24 +439,39 @@ where
     ))
 }
 
-/// Prepares context (fork + tracer) and calls simulate_order_using_fork
+/// Prepares context (fork + tracer) and calls simulate_order_using_fork.
+///
+/// The parent state is wrapped with a [`PendingStateDb`] overlaying `pu_pool`'s
+/// pending updates. Any PU-overlay storage hits during the simulation are
+/// recorded into `SimulatedOrder::used_priority_updates` (one slot per touched
+/// PU order).
 pub fn simulate_order<DB>(
     parent_orders: Vec<Arc<Order>>,
     order: Arc<Order>,
     ctx: &BlockBuildingContext,
     local_ctx: &mut ThreadBlockBuildingContext,
-    state: &mut BlockState<DB>,
+    pu_pool: &PriorityUpdatePool,
+    parent_db: DB,
 ) -> Result<OrderSimResultWithGas, CriticalCommitOrderError>
 where
-    DB: Database<Error = ProviderError>,
+    DB: Database<Error = ProviderError> + Clone + std::fmt::Debug,
 {
+    let pending_db = PendingStateDb::new(pu_pool.pending_update_state(), parent_db);
+    let mut block_state = BlockState::new(pending_db);
+
+
     let mut tracer = AccumulatorSimulationTracer::new();
-    let mut fork = PartialBlockFork::new(state, ctx, local_ctx).with_tracer(&mut tracer);
+    let mut fork = PartialBlockFork::new(&mut block_state, ctx, local_ctx).with_tracer(&mut tracer);
     let rollback_point = fork.rollback_point();
     let sim_res =
         simulate_order_using_fork(parent_orders, order, &mut fork, &ctx.mempool_tx_detector);
     fork.rollback(rollback_point);
-    let sim_res = sim_res?;
+    let mut sim_res = sim_res?;
+
+    if let OrderSimResult::Success(ref mut sim_order, _) = sim_res {
+        Arc::make_mut(sim_order).used_priority_updates = block_state.into_db().into_used_pu_slots();
+    }
+
     Ok(OrderSimResultWithGas {
         result: sim_res,
         gas_used: tracer.used_gas,
@@ -469,7 +486,7 @@ pub fn simulate_order_using_fork<Tracer: SimulationTracer, DB>(
     mempool_tx_detector: &MempoolTxsDetector,
 ) -> Result<OrderSimResult, CriticalCommitOrderError>
 where
-    DB: Database<Error = ProviderError>,
+    DB: Database<Error = ProviderError> + Clone + std::fmt::Debug,
 {
     let start = Instant::now();
     // simulate parents

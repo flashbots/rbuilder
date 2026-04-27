@@ -29,7 +29,7 @@ impl PriorityUpdatePool {
         Self::default()
     }
 
-    /// Aggregated state for all priority updates, its used for TOB simulation.
+    /// Aggregated PU state for use as a simulation overlay.
     pub fn pending_update_state(&self) -> &PendingUpdates {
         &self.pending
     }
