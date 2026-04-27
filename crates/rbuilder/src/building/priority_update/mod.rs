@@ -1,6 +1,8 @@
 use ahash::{HashMap, HashSet};
 use alloy_primitives::U256;
-use rbuilder_primitives::{evm_inspector::SlotKey, Order, OrderId, SimulatedOrder};
+use rbuilder_primitives::{
+    evm_inspector::SlotKey, Order, OrderId, PriorityUpdateClass, SimulatedOrder,
+};
 use std::sync::Arc;
 use tracing::error;
 
@@ -23,6 +25,10 @@ pub mod simulate;
 pub struct PriorityUpdatePool {
     pending: PendingUpdates,
     orders: HashMap<OrderId, Arc<SimulatedOrder>>,
+    /// Orders classified as [`PriorityUpdateClass::ForceTopOfBlock`]. These are
+    /// committed at the top of every built block in addition to participating
+    /// in the regular PU overlay.
+    force_top_of_block: HashMap<OrderId, Arc<SimulatedOrder>>,
 }
 
 impl PriorityUpdatePool {
@@ -49,6 +55,14 @@ impl PriorityUpdatePool {
             .add_new_simulated_update(order_id, pu_data.changeset);
         for id in &evicted {
             self.orders.remove(id);
+            self.force_top_of_block.remove(id);
+        }
+        if matches!(
+            sim_order.order.metadata().priority_update_data,
+            Some(PriorityUpdateClass::ForceTopOfBlock)
+        ) {
+            self.force_top_of_block
+                .insert(order_id, Arc::clone(&sim_order));
         }
         self.orders.insert(order_id, sim_order);
         evicted
@@ -57,6 +71,17 @@ impl PriorityUpdatePool {
     pub fn apply_remove(&mut self, order_id: &OrderId) {
         self.pending.remove_order(order_id);
         self.orders.remove(order_id);
+        self.force_top_of_block.remove(order_id);
+    }
+
+    /// Orders that must be committed at the top of every built block, sorted
+    /// by [`OrderId`] for deterministic inclusion order across builders. The
+    /// builder iterates this list once at the start of `build_block` and
+    /// commits each before the regular order loop runs.
+    pub fn force_top_of_block_orders(&self) -> Vec<Arc<SimulatedOrder>> {
+        let mut orders: Vec<_> = self.force_top_of_block.values().cloned().collect();
+        orders.sort_by_key(|sim| sim.id());
+        orders
     }
 
     /// Priority-update orders that touch any of the slots in `read_slots`.

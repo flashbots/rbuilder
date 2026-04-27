@@ -50,6 +50,26 @@ pub trait BlockBuildingHelper: Send + Sync {
         result_filter: &dyn Fn(&SimValue) -> Result<(), ExecutionError>,
     ) -> Result<OrderCommitResult, CriticalCommitOrderError>;
 
+    /// Commits every order classified as
+    /// [`rbuilder_primitives::PriorityUpdateClass::ForceTopOfBlock`] to the block.
+    /// Call once at the start of `build_block`, before any other order is committed.
+    fn commit_force_top_of_block_orders(
+        &mut self,
+        local_ctx: &mut ThreadBlockBuildingContext,
+        priority_update_pool: &PriorityUpdatePool,
+    ) -> Result<Vec<(Arc<SimulatedOrder>, OrderCommitResult, Duration)>, CriticalCommitOrderError>
+    {
+        let force_orders = priority_update_pool.force_top_of_block_orders();
+        let mut results = Vec::with_capacity(force_orders.len());
+        for sim_order in force_orders {
+            let start = Instant::now();
+            let commit_result =
+                self.commit_order(local_ctx, &sim_order, priority_update_pool, &|_| Ok(()))?;
+            results.push((sim_order, commit_result, start.elapsed()));
+        }
+        Ok(results)
+    }
+
     /// Call set the trace fill_time (we still have to review this)
     fn set_trace_fill_time(&mut self, time: Duration);
     /// If not set the trace will default to creation time.

@@ -197,6 +197,26 @@ impl BlockBuildingResultAssembler {
         )?;
         block_building_helper.set_trace_orders_closed_at(orders_closed_at);
 
+        for (sim_order, commit_result, order_commit_time) in block_building_helper
+            .commit_force_top_of_block_orders(
+                &mut self.local_ctx,
+                &self.priority_update_pool.read(),
+            )?
+        {
+            let (success, gas_used, execution_error) = match commit_result.order {
+                Ok(res) => (true, res.space_used.gas, None),
+                Err(err) => (false, 0, Some(err)),
+            };
+            trace!(
+                order_id = ?sim_order.id(),
+                success,
+                order_commit_time_mus = order_commit_time.as_micros(),
+                gas_used,
+                ?execution_error,
+                "Executed force-TOB order"
+            );
+        }
+
         // Sort groups by total profit in descending order
         best_orderings_per_group.sort_by(|(a_ordering, _), (b_ordering, _)| {
             b_ordering.total_profit.cmp(&a_ordering.total_profit)
@@ -300,6 +320,26 @@ impl BlockBuildingResultAssembler {
         )?;
 
         block_building_helper.set_trace_orders_closed_at(orders_closed_at);
+
+        for (sim_order, commit_result, order_commit_time) in block_building_helper
+            .commit_force_top_of_block_orders(
+                &mut self.local_ctx,
+                &self.priority_update_pool.read(),
+            )?
+        {
+            let (success, gas_used, execution_error) = match commit_result.order {
+                Ok(res) => (true, res.space_used.gas, None),
+                Err(err) => (false, 0, Some(err)),
+            };
+            tracing::trace!(
+                order_id = ?sim_order.id(),
+                success,
+                order_commit_time_mus = order_commit_time.as_micros(),
+                gas_used,
+                ?execution_error,
+                "Executed force-TOB order in backtest"
+            );
+        }
 
         let mut best_orderings_per_group: Vec<(ResolutionResult, ConflictGroup)> =
             best_results.into_values().collect();

@@ -318,6 +318,22 @@ impl OrderingBuilderContext {
             partial_block_execution_tracer,
             self.max_order_execution_duration_warning,
         )?;
+        for (sim_order, commit_result, order_commit_time) in block_building_helper
+            .commit_force_top_of_block_orders(&mut self.local_ctx, priority_update_pool)?
+        {
+            let (success, gas_used, execution_error) = match commit_result.order {
+                Ok(res) => (true, res.space_used.gas, None),
+                Err(err) => (false, 0, Some(err)),
+            };
+            trace!(
+                order_id = ?sim_order.id(),
+                success,
+                order_commit_time_mus = order_commit_time.as_micros(),
+                gas_used,
+                ?execution_error,
+                "Executed force-TOB order"
+            );
+        }
         self.fill_orders(
             &mut block_building_helper,
             &mut block_orders,
