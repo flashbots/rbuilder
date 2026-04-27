@@ -1,4 +1,5 @@
 use ahash::{HashMap, HashSet};
+use alloy_primitives::U256;
 use rbuilder_primitives::{evm_inspector::SlotKey, Order, OrderId, SimulatedOrder};
 use std::sync::Arc;
 use tracing::error;
@@ -59,9 +60,13 @@ impl PriorityUpdatePool {
     }
 
     /// Priority-update orders that touch any of the slots in `read_slots`.
+    ///
+    /// For each read slot: if the slot was already written in the in-block
+    /// bundle state, the PU is not needed for this slot — skip it. Otherwise
+    /// surface the PU that owns the slot.
     pub fn get_updates(
         &self,
-        _current_block_state: &BlockState,
+        current_block_state: &BlockState,
         read_slots: &[SlotKey],
     ) -> Vec<&Order> {
         if read_slots.is_empty() || self.orders.is_empty() {
@@ -70,14 +75,31 @@ impl PriorityUpdatePool {
         let mut matched: HashSet<OrderId> = HashSet::default();
         let mut result: Vec<&Order> = Vec::new();
         for slot in read_slots {
-            if let Some(order_id) = self.pending.order_for_slot(slot) {
-                if matched.insert(order_id) {
-                    if let Some(sim) = self.orders.get(&order_id) {
-                        result.push(sim.order.as_ref());
-                    }
-                }
+            if slot_overwritten_in_bundle(current_block_state, slot) {
+                continue;
+            }
+            let Some(order_id) = self.pending.order_for_slot(slot) else {
+                continue;
+            };
+            if !matched.insert(order_id) {
+                continue;
+            }
+            if let Some(sim) = self.orders.get(&order_id) {
+                result.push(sim.order.as_ref());
             }
         }
         result
     }
+}
+
+fn slot_overwritten_in_bundle(state: &BlockState, slot: &SlotKey) -> bool {
+    let Some(account) = state.bundle_state().state.get(&slot.address) else {
+        return false;
+    };
+    let key = U256::from_be_bytes(slot.key.0);
+    account
+        .storage
+        .get(&key)
+        .map(|s| s.is_changed())
+        .unwrap_or(false)
 }
