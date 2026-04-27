@@ -579,7 +579,8 @@ impl<
                 for pu_result in commit_result.priority_updates.iter().flatten() {
                     self.built_block_trace.add_included_order(pu_result.clone());
                 }
-                self.built_block_trace.add_included_order(main_result.clone());
+                self.built_block_trace
+                    .add_included_order(main_result.clone());
                 add_order_simulation_time(sim_time, &self.builder_name, true);
             }
             Err(_) => {

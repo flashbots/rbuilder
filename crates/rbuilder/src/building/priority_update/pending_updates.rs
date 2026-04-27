@@ -1,18 +1,11 @@
 use ahash::{HashMap, HashSet};
-use alloy_primitives::{Address, BlockNumber, Bytes, StorageKey, StorageValue, B256, U256};
+use alloy_primitives::{Address, B256, U256};
 use parking_lot::{ArcRwLockReadGuard, RawRwLock};
 use rbuilder_primitives::OrderId;
-use reth_errors::ProviderResult;
-use reth_primitives::{Account, Bytecode};
-use reth_provider::{
-    AccountReader, BlockHashReader, BytecodeReader, HashedPostStateProvider, StateProofProvider,
-    StateProvider, StateRootProvider, StorageRootProvider,
+use reth_errors::ProviderError;
+use revm::{
+    bytecode::Bytecode, database::states::PlainStorageChangeset, state::AccountInfo, Database,
 };
-use reth_trie::{
-    updates::TrieUpdates, AccountProof, HashedPostState, HashedStorage, MultiProof,
-    MultiProofTargets, StorageMultiProof, StorageProof, TrieInput,
-};
-use revm::database::{states::PlainStorageChangeset, BundleState};
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -78,137 +71,46 @@ impl Default for PendingUpdates {
     }
 }
 
-/// Holds the overlay read lock for the lifetime of the returned provider.
-struct PendingStateProvider {
-    pending: ArcRwLockReadGuard<RawRwLock, PendingUpdates>,
-    parent: Arc<dyn StateProvider>,
+/// [`Database`] wrapper that overlays storage reads with [`PendingUpdates`].
+/// Holds the overlay read lock for the lifetime of the wrapper (and any clones).
+#[derive(Clone, Debug)]
+pub struct PendingStateDb<DB> {
+    pending: Arc<ArcRwLockReadGuard<RawRwLock, PendingUpdates>>,
+    inner: DB,
 }
 
-pub fn wrap_with_pending_state(
+pub fn wrap_with_pending_state<DB>(
     pending: ArcRwLockReadGuard<RawRwLock, PendingUpdates>,
-    parent: Arc<dyn StateProvider>,
-) -> Arc<dyn StateProvider> {
-    Arc::new(PendingStateProvider { pending, parent })
+    inner: DB,
+) -> PendingStateDb<DB> {
+    PendingStateDb {
+        pending: Arc::new(pending),
+        inner,
+    }
 }
 
-impl StateProvider for PendingStateProvider {
-    fn storage(
-        &self,
-        account: Address,
-        storage_key: StorageKey,
-    ) -> ProviderResult<Option<StorageValue>> {
-        let key: U256 = storage_key.into();
-        if let Some(value) = self.pending.storage_lookup(account, key) {
-            return Ok(Some(value));
+impl<DB> Database for PendingStateDb<DB>
+where
+    DB: Database<Error = ProviderError>,
+{
+    type Error = ProviderError;
+
+    fn basic(&mut self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
+        self.inner.basic(address)
+    }
+
+    fn code_by_hash(&mut self, code_hash: B256) -> Result<Bytecode, Self::Error> {
+        self.inner.code_by_hash(code_hash)
+    }
+
+    fn storage(&mut self, address: Address, index: U256) -> Result<U256, Self::Error> {
+        if let Some(value) = self.pending.storage_lookup(address, index) {
+            return Ok(value);
         }
-        self.parent.storage(account, storage_key)
-    }
-}
-
-impl BytecodeReader for PendingStateProvider {
-    fn bytecode_by_hash(&self, code_hash: &B256) -> ProviderResult<Option<Bytecode>> {
-        self.parent.bytecode_by_hash(code_hash)
-    }
-}
-
-impl AccountReader for PendingStateProvider {
-    fn basic_account(&self, address: &Address) -> ProviderResult<Option<Account>> {
-        self.parent.basic_account(address)
-    }
-}
-
-impl BlockHashReader for PendingStateProvider {
-    fn block_hash(&self, number: BlockNumber) -> ProviderResult<Option<B256>> {
-        self.parent.block_hash(number)
+        self.inner.storage(address, index)
     }
 
-    fn canonical_hashes_range(
-        &self,
-        start: BlockNumber,
-        end: BlockNumber,
-    ) -> ProviderResult<Vec<B256>> {
-        self.parent.canonical_hashes_range(start, end)
-    }
-}
-
-impl StateRootProvider for PendingStateProvider {
-    fn state_root(&self, hashed_state: HashedPostState) -> ProviderResult<B256> {
-        self.parent.state_root(hashed_state)
-    }
-
-    fn state_root_from_nodes(&self, input: TrieInput) -> ProviderResult<B256> {
-        self.parent.state_root_from_nodes(input)
-    }
-
-    fn state_root_with_updates(
-        &self,
-        hashed_state: HashedPostState,
-    ) -> ProviderResult<(B256, TrieUpdates)> {
-        self.parent.state_root_with_updates(hashed_state)
-    }
-
-    fn state_root_from_nodes_with_updates(
-        &self,
-        input: TrieInput,
-    ) -> ProviderResult<(B256, TrieUpdates)> {
-        self.parent.state_root_from_nodes_with_updates(input)
-    }
-}
-
-impl StorageRootProvider for PendingStateProvider {
-    fn storage_root(
-        &self,
-        address: Address,
-        hashed_storage: HashedStorage,
-    ) -> ProviderResult<B256> {
-        self.parent.storage_root(address, hashed_storage)
-    }
-
-    fn storage_proof(
-        &self,
-        address: Address,
-        slot: B256,
-        hashed_storage: HashedStorage,
-    ) -> ProviderResult<StorageProof> {
-        self.parent.storage_proof(address, slot, hashed_storage)
-    }
-
-    fn storage_multiproof(
-        &self,
-        address: Address,
-        slots: &[B256],
-        hashed_storage: HashedStorage,
-    ) -> ProviderResult<StorageMultiProof> {
-        self.parent
-            .storage_multiproof(address, slots, hashed_storage)
-    }
-}
-
-impl StateProofProvider for PendingStateProvider {
-    fn proof(
-        &self,
-        input: TrieInput,
-        address: Address,
-        slots: &[B256],
-    ) -> ProviderResult<AccountProof> {
-        self.parent.proof(input, address, slots)
-    }
-
-    fn multiproof(
-        &self,
-        input: TrieInput,
-        targets: MultiProofTargets,
-    ) -> ProviderResult<MultiProof> {
-        self.parent.multiproof(input, targets)
-    }
-
-    fn witness(&self, input: TrieInput, target: HashedPostState) -> ProviderResult<Vec<Bytes>> {
-        self.parent.witness(input, target)
-    }
-}
-
-impl HashedPostStateProvider for PendingStateProvider {
-    fn hashed_post_state(&self, bundle_state: &BundleState) -> HashedPostState {
-        self.parent.hashed_post_state(bundle_state)
+    fn block_hash(&mut self, number: u64) -> Result<B256, Self::Error> {
+        self.inner.block_hash(number)
     }
 }

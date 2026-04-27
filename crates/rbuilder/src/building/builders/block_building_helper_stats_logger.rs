@@ -177,8 +177,7 @@ impl BlockBuildingHelper for BlockBuildingHelperStatsLogger<'_> {
         result_filter: &dyn Fn(
             &rbuilder_primitives::SimValue,
         ) -> Result<(), crate::building::ExecutionError>,
-    ) -> Result<crate::building::OrderCommitResult, crate::building::CriticalCommitOrderError>
-    {
+    ) -> Result<crate::building::OrderCommitResult, crate::building::CriticalCommitOrderError> {
         println!();
         println!("STARTED BUNDLE {:?}", order.id());
         let commit_start = Instant::now();

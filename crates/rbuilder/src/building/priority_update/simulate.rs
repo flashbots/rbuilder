@@ -1,6 +1,6 @@
 use crate::building::{
-    create_sim_value, BlockBuildingContext, BlockBuildingSpaceState, BlockState,
-    CriticalCommitOrderError, PartialBlockFork, ThreadBlockBuildingContext,
+    cached_reads::CachedDB, create_sim_value, BlockBuildingContext, BlockBuildingSpaceState,
+    BlockState, CriticalCommitOrderError, PartialBlockFork, ThreadBlockBuildingContext,
 };
 use ahash::HashSet;
 use alloy_primitives::Address;
@@ -27,11 +27,8 @@ pub fn simulate_priority_update(
     let _span =
         info_span!("simulate_priority_update", order_id = ?order.id(), ?from, ?to).entered();
 
-    // TODO: build a `BlockStateDB` that wraps `parent_block_state_provider` (and the
-    // PUR pending state overlay) so PUR simulation runs against the new
-    // `BlockState`/`BlockStateDatabase` abstraction.
-    let _ = parent_block_state_provider;
-    let mut state: BlockState = todo!("PUR sim integration with new BlockState API");
+    let cached = CachedDB::new(parent_block_state_provider, ctx.shared_cached_reads.clone());
+    let mut state = BlockState::boxed(cached);
 
     let combined_refunds = HashMap::default();
     let result = {

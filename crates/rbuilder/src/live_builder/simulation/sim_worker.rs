@@ -1,6 +1,7 @@
 use crate::{
     building::{
         cached_reads::CachedDB,
+        priority_update::pending_updates::wrap_with_pending_state,
         sim::{NonceKey, OrderSimResult, SimulatedResult},
         simulate_order, BlockState, ThreadBlockBuildingContext,
     },
@@ -70,16 +71,16 @@ pub fn run_sim_worker<P>(
 
                 let order_id = task.order.id();
                 let start_time = Instant::now();
-                // TODO: wrap `parent_state` with the PUR pending state overlay so the
-                // BlockStateDB sees pending updates. Requires adapting
-                // `wrap_with_pending_state` (returns `Arc<dyn StateProvider>`) to the
-                // new `BlockStateDatabase` (`Database`-based) abstraction.
-                let _pur_state = &current_sim_context.pur_state;
                 let cached = CachedDB::new(
                     parent_state.clone(),
                     current_sim_context.block_ctx.shared_cached_reads.clone(),
                 );
-                let mut block_state = BlockState::new(cached);
+                // `block_state` holds the PUR overlay read lock until dropped.
+                let pending_db = wrap_with_pending_state(
+                    current_sim_context.pur_state.get_state_overlay_read_lock(),
+                    cached,
+                );
+                let mut block_state = BlockState::new(pending_db);
                 let sim_result = simulate_order(
                     task.parents.clone(),
                     task.order,
