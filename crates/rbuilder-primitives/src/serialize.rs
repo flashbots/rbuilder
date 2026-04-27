@@ -1,7 +1,7 @@
 use super::{
     Bundle, BundleRefund, BundleReplacementData, BundleReplacementKey, BundleVersion, MempoolTx,
-    Order, RawTransactionDecodable, TransactionSignedEcRecoveredWithBlobs, TxWithBlobsCreateError,
-    LAST_BUNDLE_VERSION,
+    Metadata, Order, PriorityUpdateRule, RawTransactionDecodable,
+    TransactionSignedEcRecoveredWithBlobs, TxWithBlobsCreateError, LAST_BUNDLE_VERSION,
 };
 use alloy_consensus::constants::EIP4844_TX_TYPE_ID;
 use alloy_eips::eip2718::Eip2718Error;
@@ -295,8 +295,12 @@ pub const BUNDLE_VERSION_V2: &str = "v2";
 
 impl RawBundle {
     /// Same as decode but fails on cancel
-    pub fn decode_new_bundle(self, encoding: TxEncoding) -> Result<Bundle, RawBundleConvertError> {
-        let decode_res = self.decode(encoding)?;
+    pub fn decode_new_bundle(
+        self,
+        encoding: TxEncoding,
+        priority_update_rules: &[PriorityUpdateRule],
+    ) -> Result<Bundle, RawBundleConvertError> {
+        let decode_res = self.decode(encoding, priority_update_rules)?;
         match decode_res {
             RawBundleDecodeResult::NewBundle(b) => Ok(b),
             RawBundleDecodeResult::CancelBundle(_) => {
@@ -308,22 +312,29 @@ impl RawBundle {
     pub fn decode(
         self,
         encoding: TxEncoding,
+        priority_update_rules: &[PriorityUpdateRule],
     ) -> Result<RawBundleDecodeResult, RawBundleConvertError> {
-        self.decode_inner(encoding, Option::<fn(B256) -> Option<Address>>::None)
+        self.decode_inner(
+            encoding,
+            Option::<fn(B256) -> Option<Address>>::None,
+            priority_update_rules,
+        )
     }
 
     pub fn decode_with_signer_lookup(
         self,
         encoding: TxEncoding,
         signer_lookup: impl Fn(B256) -> Option<Address>,
+        priority_update_rules: &[PriorityUpdateRule],
     ) -> Result<RawBundleDecodeResult, RawBundleConvertError> {
-        self.decode_inner(encoding, Some(signer_lookup))
+        self.decode_inner(encoding, Some(signer_lookup), priority_update_rules)
     }
 
     fn decode_inner(
         mut self,
         encoding: TxEncoding,
         signer_lookup: Option<impl Fn(B256) -> Option<Address>>,
+        priority_update_rules: &[PriorityUpdateRule],
     ) -> Result<RawBundleDecodeResult, RawBundleConvertError> {
         let replacement_data = self.metadata.decode_replacement_data()?; // Check for cancellation
         if self.txs.is_empty() {
@@ -365,6 +376,7 @@ impl RawBundle {
             .to();
 
         let RawBundleRecovered { metadata, txs } = recovered_bundle;
+        let priority_update_class = PriorityUpdateRule::match_rules(&txs, priority_update_rules);
         let mut bundle = Bundle {
             block: if block != 0 { Some(block) } else { None },
             txs,
@@ -377,7 +389,10 @@ impl RawBundle {
             max_timestamp: metadata.max_timestamp.filter(|t| *t != 0),
             signer: metadata.signing_address,
             refund_identity: metadata.refund_identity,
-            metadata: Default::default(),
+            metadata: Metadata {
+                priority_update_data: priority_update_class,
+                ..Default::default()
+            },
             dropping_tx_hashes: metadata.dropping_tx_hashes,
             refund,
             version,
@@ -487,8 +502,17 @@ pub struct RawTx {
 }
 
 impl RawTx {
-    pub fn decode(self, encoding: TxEncoding) -> Result<MempoolTx, TxWithBlobsCreateError> {
-        Ok(MempoolTx::new(encoding.decode(self.tx)?))
+    pub fn decode(
+        self,
+        encoding: TxEncoding,
+        priority_update_rules: &[PriorityUpdateRule],
+    ) -> Result<MempoolTx, TxWithBlobsCreateError> {
+        let tx_with_blobs = encoding.decode(self.tx)?;
+        let class = PriorityUpdateRule::match_rules(
+            std::slice::from_ref(&tx_with_blobs),
+            priority_update_rules,
+        );
+        Ok(MempoolTx::new(tx_with_blobs, class))
     }
 
     /// See [TransactionSignedEcRecoveredWithBlobs::envelope_encoded_no_blobs]
@@ -519,15 +543,19 @@ pub enum RawOrderConvertError {
 }
 
 impl RawOrder {
-    pub fn decode(self, encoding: TxEncoding) -> Result<Order, RawOrderConvertError> {
+    pub fn decode(
+        self,
+        encoding: TxEncoding,
+        priority_update_rules: &[PriorityUpdateRule],
+    ) -> Result<Order, RawOrderConvertError> {
         match self {
             RawOrder::Bundle(bundle) => Ok(Order::Bundle(
                 bundle
-                    .decode_new_bundle(encoding)
+                    .decode_new_bundle(encoding, priority_update_rules)
                     .map_err(RawOrderConvertError::FailedToDecodeBundle)?,
             )),
             RawOrder::Tx(tx) => Ok(Order::Tx(
-                tx.decode(encoding)
+                tx.decode(encoding, priority_update_rules)
                     .map_err(RawOrderConvertError::FailedToDecodeTransaction)?,
             )),
         }
@@ -571,7 +599,7 @@ mod tests {
 
         let bundle = bundle_request
             .clone()
-            .decode_new_bundle(TxEncoding::WithBlobData)
+            .decode_new_bundle(TxEncoding::WithBlobData, &[])
             .expect("failed to convert bundle request to bundle");
 
         let bundle_roundtrip = RawBundle::encode_no_blobs(bundle.clone());
@@ -638,7 +666,7 @@ mod tests {
                 serde_json::from_str(input).expect("failed to decode bundle");
 
             let bundle = bundle_request
-                .decode_new_bundle(TxEncoding::WithBlobData)
+                .decode_new_bundle(TxEncoding::WithBlobData, &[])
                 .expect("failed to convert bundle request to bundle");
 
             assert_eq!(
@@ -664,7 +692,7 @@ mod tests {
             serde_json::from_str(bundle_json).expect("failed to decode bundle");
 
         let bundle = bundle_request
-            .decode_new_bundle(TxEncoding::WithBlobData)
+            .decode_new_bundle(TxEncoding::WithBlobData, &[])
             .expect("failed to convert bundle request to bundle");
 
         assert_eq!(
@@ -688,7 +716,7 @@ mod tests {
             serde_json::from_str(bundle_json).expect("failed to decode bundle");
 
         let bundle = bundle_request
-            .decode_new_bundle(TxEncoding::WithBlobData)
+            .decode_new_bundle(TxEncoding::WithBlobData, &[])
             .expect("failed to convert bundle request to bundle");
 
         assert_eq!(
@@ -722,7 +750,7 @@ mod tests {
 
         let bundle = bundle_request
             .clone()
-            .decode_new_bundle(TxEncoding::WithBlobData)
+            .decode_new_bundle(TxEncoding::WithBlobData, &[])
             .expect("failed to convert bundle request to bundle");
 
         let bundle_roundtrip = RawBundle::encode_no_blobs(bundle.clone());
@@ -761,7 +789,7 @@ mod tests {
 
         let bundle = bundle_request
             .clone()
-            .decode_new_bundle(TxEncoding::WithBlobData)
+            .decode_new_bundle(TxEncoding::WithBlobData, &[])
             .expect("failed to convert bundle request to bundle");
 
         assert_eq!(
@@ -801,7 +829,7 @@ mod tests {
                 serde_json::from_str(input).expect("failed to decode bundle");
 
             let bundle = bundle_request
-                .decode_new_bundle(TxEncoding::WithBlobData)
+                .decode_new_bundle(TxEncoding::WithBlobData, &[])
                 .expect("failed to convert bundle request to bundle");
 
             assert_eq!(
@@ -837,7 +865,7 @@ mod tests {
 
         let bundle = bundle_request
             .clone()
-            .decode_new_bundle(TxEncoding::WithBlobData)
+            .decode_new_bundle(TxEncoding::WithBlobData, &[])
             .expect("failed to convert bundle request to bundle");
         println!("{}", bundle.txs[0].hash());
         assert_eq!(bundle.block, None);
@@ -885,7 +913,7 @@ mod tests {
 
             let bundle = bundle_request
                 .clone()
-                .decode_new_bundle(TxEncoding::WithBlobData)
+                .decode_new_bundle(TxEncoding::WithBlobData, &[])
                 .expect("failed to convert bundle request to bundle");
             assert_eq!(bundle.block, None);
             assert_eq!(
@@ -930,7 +958,7 @@ mod tests {
         assert!(matches!(
             bundle_request
                 .clone()
-                .decode_new_bundle(TxEncoding::WithBlobData),
+                .decode_new_bundle(TxEncoding::WithBlobData, &[]),
             Err(RawBundleConvertError::MoreThanOneRefundTxHash)
         ));
     }
@@ -954,7 +982,7 @@ mod tests {
 
         let bundle = bundle_request
             .clone()
-            .decode_new_bundle(TxEncoding::WithBlobData)
+            .decode_new_bundle(TxEncoding::WithBlobData, &[])
             .expect("failed to convert bundle request to bundle");
 
         assert_eq!(bundle.version, LAST_BUNDLE_VERSION);
@@ -983,7 +1011,7 @@ mod tests {
 
             let bundle = bundle_request
                 .clone()
-                .decode(TxEncoding::WithBlobData)
+                .decode(TxEncoding::WithBlobData, &[])
                 .expect("failed to convert bundle request to RawBundleDecodeResult");
             if let RawBundleDecodeResult::CancelBundle(cancel) = bundle {
                 assert_eq!(cancel.key.id, uuid!("3255ceb4-fdc5-592d-a501-2183727ca3df"));
@@ -1027,7 +1055,7 @@ mod tests {
                 serde_json::from_str(&bundle_json).expect("failed to decode bundle");
             let res = bundle_request
                 .clone()
-                .decode_new_bundle(TxEncoding::WithBlobData);
+                .decode_new_bundle(TxEncoding::WithBlobData, &[]);
             assert!(matches!(
                 res,
                 Err(RawBundleConvertError::FieldNotSupportedByVersion(
@@ -1056,7 +1084,7 @@ mod tests {
 
         let bundle = bundle_request
             .clone()
-            .decode_new_bundle(TxEncoding::WithBlobData)
+            .decode_new_bundle(TxEncoding::WithBlobData, &[])
             .expect("failed to convert bundle request to bundle");
 
         assert_eq!(bundle.min_timestamp, None);
@@ -1224,7 +1252,7 @@ mod tests {
                 serde_json::from_str(test.rpc_json).expect("failed to decode bundle");
             let bundle = bundle_request
                 .clone()
-                .decode_new_bundle(TxEncoding::WithBlobData)
+                .decode_new_bundle(TxEncoding::WithBlobData, &[])
                 .expect("failed to convert bundle request to bundle");
             assert_eq!(bundle.uuid, test.expected_uuid);
         }
@@ -1242,7 +1270,7 @@ mod tests {
 
         let tx = raw_tx_request
             .clone()
-            .decode(TxEncoding::WithBlobData)
+            .decode(TxEncoding::WithBlobData, &[])
             .expect("failed to convert raw request to tx")
             .tx_with_blobs
             .tx;
@@ -1296,7 +1324,7 @@ mod tests {
     fn test_correct_mixed_blob_mode_decoding() {
         let raw_tx =  bytes!("03f9021b01829f1084db518e44850efef5c902830249f09406a9ab27c7e2255df1815e6cc0168d7755feb19a80b90184648885fb000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000001600000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000066cc9a0eb519e9e1de68f6cf0aa1aa1efe3723d50000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001efcf00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000c0843b9aca00e1a00154404fdaef0e93e6a4df6aa099f66fc4f90267b3ef5bb6ac4d3f77a456ae5180a01367ff3e4598620be9424d5be0deafe5b3d3b7221c5f5c3d9fade0f545b19890a0026cd9941cd2aa4df41d5d36aa2e82a671c3226f2924cb206363a9458f38b8f6");
         let raw_tx_order = RawTx { tx: raw_tx };
-        let tx_res = raw_tx_order.decode(TxEncoding::WithBlobData);
+        let tx_res = raw_tx_order.decode(TxEncoding::WithBlobData, &[]);
         assert!(matches!(
             tx_res,
             Err(TxWithBlobsCreateError::FailedToDecodeTransactionProbablyIs4484Canonical(_))

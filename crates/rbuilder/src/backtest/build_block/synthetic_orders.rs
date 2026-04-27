@@ -68,12 +68,10 @@ impl<ConfigType: LiveBuilderConfig> SyntheticOrdersSource<ConfigType> {
         let test_chain_state = TestChainState::new(BlockArgs::default().with_number(block_number))?;
         let mut orders = Vec::new();
         for i in 0..extra_cfg.tx_count {
-            let order = Order::Tx(MempoolTx::new(create_tip_tx(
-                &test_chain_state,
-                1,
-                i,
-                LOW_TIP,
-            )));
+            let order = Order::Tx(MempoolTx::new(
+                create_tip_tx(&test_chain_state, 1, i, LOW_TIP),
+                None,
+            ));
             orders.push(OrdersWithTimestamp {
                 timestamp_ms: 0,
                 order: Arc::new(order),
@@ -98,6 +96,7 @@ impl<ConfigType: LiveBuilderConfig> SyntheticOrdersSource<ConfigType> {
                     received_at_timestamp: time::OffsetDateTime::from_unix_timestamp(0).unwrap(),
                     is_system: false,
                     refund_identity: None,
+                    priority_update_data: None,
                 },
                 dropping_tx_hashes: Default::default(),
                 refund: None,

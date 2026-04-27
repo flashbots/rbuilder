@@ -63,8 +63,15 @@ impl HistoricalDataFetcher {
         }
     }
 
-    pub fn with_default_datasource(mut self, mempool_datadir: PathBuf) -> eyre::Result<Self> {
-        let mempool = Box::new(mempool::MempoolDumpsterDatasource::new(mempool_datadir)?);
+    pub fn with_default_datasource(
+        mut self,
+        mempool_datadir: PathBuf,
+        priority_update_rules: Arc<Vec<rbuilder_primitives::PriorityUpdateRule>>,
+    ) -> eyre::Result<Self> {
+        let mempool = Box::new(mempool::MempoolDumpsterDatasource::new(
+            mempool_datadir,
+            priority_update_rules,
+        )?);
         self.data_sources.push(mempool);
         Ok(self)
     }

@@ -78,9 +78,11 @@ where
 
     let builders_names = config.base_config().backtest_builders.clone();
 
-    let mut historical_data_storage =
-        HistoricalDataStorage::new_from_path(&config.base_config().backtest_fetch_output_file)
-            .await?;
+    let mut historical_data_storage = HistoricalDataStorage::new_from_path(
+        &config.base_config().backtest_fetch_output_file,
+        config.base_config().priority_update_rules(),
+    )
+    .await?;
     let mut backtest_results_storage =
         BacktestResultsStorage::new_from_path(&config.base_config().backtest_results_store_path)
             .await?;

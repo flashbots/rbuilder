@@ -11,7 +11,7 @@ use eyre::WrapErr;
 use mempool_dumpster::TransactionRangeError;
 use rbuilder_primitives::{
     serialize::{RawOrder, RawTx, TxEncoding},
-    Order,
+    Order, PriorityUpdateRule,
 };
 use sqlx::types::chrono::DateTime;
 use std::sync::Arc;
@@ -29,6 +29,7 @@ pub fn get_mempool_transactions(
     data_dir: &Path,
     from: OffsetDateTime,
     to: OffsetDateTime,
+    priority_update_rules: &[PriorityUpdateRule],
 ) -> eyre::Result<Vec<OrdersWithTimestamp>> {
     let from_millis: i64 = (from.unix_timestamp_nanos() / 1_000_000).try_into()?;
     let to_millis: i64 = (to.unix_timestamp_nanos() / 1_000_000).try_into()?;
@@ -42,7 +43,7 @@ pub fn get_mempool_transactions(
             let order: Order = RawOrder::Tx(RawTx {
                 tx: tx.raw_tx.into(),
             })
-            .decode(TxEncoding::WithBlobData)
+            .decode(TxEncoding::WithBlobData, priority_update_rules)
             .map_err(|err| error!("Failed to parse raw tx: {:?}", err))
             .ok()?;
             let timestamp_ms = tx
@@ -102,6 +103,7 @@ fn check_and_download_transaction_files(
 #[derive(Debug, Clone)]
 pub struct MempoolDumpsterDatasource {
     path: PathBuf,
+    priority_update_rules: Arc<Vec<PriorityUpdateRule>>,
 }
 
 /// Implementation of DataSource via mempool dumpster.
@@ -117,12 +119,14 @@ impl DataSource for MempoolDumpsterDatasource {
                 block_time + Duration::seconds(5),
             )
         };
-        let mempool_txs = get_mempool_transactions(&self.path, from, to).wrap_err_with(|| {
-            format!(
-                "Failed to fetch mempool transactions for block {}",
-                block.block_number,
-            )
-        })?;
+        let mempool_txs =
+            get_mempool_transactions(&self.path, from, to, &self.priority_update_rules)
+                .wrap_err_with(|| {
+                    format!(
+                        "Failed to fetch mempool transactions for block {}",
+                        block.block_number,
+                    )
+                })?;
         trace!(
             "Fetched unfiltered mempool transactions, count: {}",
             mempool_txs.len()
@@ -145,14 +149,20 @@ impl DataSource for MempoolDumpsterDatasource {
 }
 
 impl MempoolDumpsterDatasource {
-    pub fn new(path: impl Into<PathBuf>) -> Result<Self, std::io::Error> {
+    pub fn new(
+        path: impl Into<PathBuf>,
+        priority_update_rules: Arc<Vec<PriorityUpdateRule>>,
+    ) -> Result<Self, std::io::Error> {
         let path: PathBuf = path.into();
 
         // create the directory if it doesn't exist
         create_dir_all(&path)?;
         create_dir_all(path.join("transactions"))?;
 
-        Ok(Self { path })
+        Ok(Self {
+            path,
+            priority_update_rules,
+        })
     }
 }
 
@@ -167,7 +177,7 @@ mod test {
     async fn test_get_mempool_transactions() {
         let data_dir = std::env::var("MEMPOOL_DATADIR").expect("MEMPOOL_DATADIR not set");
 
-        let source = MempoolDumpsterDatasource::new(data_dir).unwrap();
+        let source = MempoolDumpsterDatasource::new(data_dir, Arc::new(Vec::new())).unwrap();
         let block = BlockRef {
             block_number: 18048817,
             block_timestamp: datetime!(2023-09-04 23:59:00 UTC).unix_timestamp() as u64,

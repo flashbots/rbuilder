@@ -11,7 +11,7 @@ use jsonrpsee::{
 };
 use rbuilder_primitives::{
     serialize::{RawBundle, RawBundleDecodeResult, RawTx, TxEncoding},
-    BundleReplacementData, BundleReplacementKey, MempoolTx, Order, OrderId,
+    BundleReplacementData, BundleReplacementKey, MempoolTx, Order, OrderId, PriorityUpdateRule,
 };
 use serde::Deserialize;
 use std::{
@@ -63,6 +63,7 @@ pub async fn start_server_accepting_bundles(
     results: mpsc::Sender<ReplaceableOrderPoolCommand>,
     extra_rpc: RpcModule<()>,
     global_cancel: CancellationToken,
+    priority_update_rules: Arc<Vec<PriorityUpdateRule>>,
 ) -> eyre::Result<JoinHandle<()>> {
     let addr = SocketAddr::V4(SocketAddrV4::new(config.server_ip, config.server_port));
     let timeout = config.results_channel_timeout;
@@ -76,8 +77,14 @@ pub async fn start_server_accepting_bundles(
     let mut module = RpcModule::new(());
 
     let results_clone = results.clone();
+    let rules_clone = Arc::clone(&priority_update_rules);
     register_metered_async_method(&mut module, ETH_SEND_BUNDLE, move |params, _| {
-        handle_eth_send_bundle(results_clone.clone(), timeout, params)
+        handle_eth_send_bundle(
+            results_clone.clone(),
+            timeout,
+            params,
+            Arc::clone(&rules_clone),
+        )
     })?;
 
     let results_clone = results.clone();
@@ -88,9 +95,11 @@ pub async fn start_server_accepting_bundles(
     let builder_address = config.builder_address;
     let system_recipient_allowlist = Arc::new(config.system_recipient_allowlist.clone());
     let results_clone = results.clone();
+    let rules_clone = Arc::clone(&priority_update_rules);
     register_metered_async_method(&mut module, ETH_SEND_RAW_TRANSACTION, move |params, _| {
         let system_recipient_allowlist = system_recipient_allowlist.clone();
         let results = results_clone.clone();
+        let rules = Arc::clone(&rules_clone);
         async move {
             let received_at = OffsetDateTime::now_utc();
             let start = Instant::now();
@@ -104,7 +113,7 @@ pub async fn start_server_accepting_bundles(
             };
             let raw_tx_order = RawTx { tx: raw_tx };
 
-            let mut tx: MempoolTx = match raw_tx_order.decode(TxEncoding::WithBlobData) {
+            let mut tx: MempoolTx = match raw_tx_order.decode(TxEncoding::WithBlobData, &rules) {
                 Ok(tx) => tx,
                 Err(err) => {
                     warn!(?err, "Failed to decode raw transaction");
@@ -161,6 +170,7 @@ async fn handle_eth_send_bundle(
     results: mpsc::Sender<ReplaceableOrderPoolCommand>,
     timeout: Duration,
     params: jsonrpsee::types::Params<'static>,
+    priority_update_rules: Arc<Vec<PriorityUpdateRule>>,
 ) {
     let received_at = OffsetDateTime::now_utc();
     let start = Instant::now();
@@ -177,7 +187,7 @@ async fn handle_eth_send_bundle(
         warn!("Bundle hash is not set");
     }
 
-    let bundle_res = match raw_bundle.decode(TxEncoding::WithBlobData) {
+    let bundle_res = match raw_bundle.decode(TxEncoding::WithBlobData, &priority_update_rules) {
         Ok(bundle_res) => bundle_res,
         Err(err) => {
             warn!(?err, "Failed to decode raw bundle");

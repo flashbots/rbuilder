@@ -6,8 +6,11 @@ pub mod fmt;
 pub mod mev_boost;
 pub mod order_builder;
 pub mod order_statistics;
+pub mod priority_update_rule;
 pub mod serialize;
 mod test_data_generator;
+
+pub use priority_update_rule::{PriorityUpdateClass, PriorityUpdateRule, Selector};
 
 use alloy_consensus::Transaction as _;
 use alloy_eips::{
@@ -52,6 +55,10 @@ pub struct Metadata {
     pub is_system: bool,
     /// Order refund identity.
     pub refund_identity: Option<Address>,
+    /// Priority-update classification, stamped at order ingress when the order
+    /// matches a configured `PriorityUpdateRule`. `None` for orders that don't
+    /// match any rule.
+    pub priority_update_data: Option<PriorityUpdateClass>,
 }
 
 impl Default for Metadata {
@@ -72,6 +79,7 @@ impl Metadata {
             received_at_timestamp,
             is_system: false,
             refund_identity: None,
+            priority_update_data: None,
         }
     }
 
@@ -102,7 +110,8 @@ impl InMemorySize for Metadata {
     fn size(&self) -> usize {
         mem::size_of::<time::OffsetDateTime>() + // received_at_timestamp
             mem::size_of::<Option<Address>>() + // refund_identity
-            mem::size_of::<bool>() // is_system
+            mem::size_of::<bool>() + // is_system
+            mem::size_of::<Option<PriorityUpdateClass>>() // priority_update_class
     }
 }
 
@@ -771,7 +780,12 @@ pub struct MempoolTx {
 }
 
 impl MempoolTx {
-    pub fn new(tx_with_blobs: TransactionSignedEcRecoveredWithBlobs) -> Self {
+    /// Construct a [`MempoolTx`] with the priority-update classification
+    pub fn new(
+        mut tx_with_blobs: TransactionSignedEcRecoveredWithBlobs,
+        priority_update_class: Option<PriorityUpdateClass>,
+    ) -> Self {
+        tx_with_blobs.metadata.priority_update_data = priority_update_class;
         Self { tx_with_blobs }
     }
 }

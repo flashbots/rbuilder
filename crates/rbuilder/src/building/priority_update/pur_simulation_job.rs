@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use ahash::HashSet;
 use parking_lot::Mutex;
-use rbuilder_primitives::{Order, OrderId, SimulatedOrder};
+use rbuilder_primitives::{OrderId, SimulatedOrder};
 use reth_provider::StateProvider;
 use tokio::sync::mpsc::{self, error::TryRecvError};
 use tokio_util::sync::CancellationToken;
@@ -26,12 +26,6 @@ const PU_SUBSCRIBER_CHANNEL_CAPACITY: usize = 10_000;
 /// Upper bound on PU messages a sim worker drains per call to
 /// [`PUSimWorkerOrderpool::consume_updates`].
 const PU_BATCH_DRAIN_LIMIT: usize = 256;
-
-// TODO: implement real classification logic.
-pub fn is_priority_update(order: &Order) -> bool {
-    let _ = order;
-    false
-}
 
 #[derive(Debug)]
 struct ClassifierInner {
@@ -67,7 +61,7 @@ impl PURCommandClassifier {
     pub fn try_consuming_new_order_command(&self, cmd: &OrderPoolCommand) -> bool {
         match cmd {
             OrderPoolCommand::Insert(order) => {
-                if !is_priority_update(order.as_ref()) {
+                if order.metadata().priority_update_data.is_none() {
                     return false;
                 }
                 self.inner.tracked_orders.lock().insert(order.id());

@@ -55,9 +55,11 @@ struct LandedBlockInfo {
 impl LandedBlockInfo {
     pub async fn new(path: impl AsRef<Path>, block: u64) -> eyre::Result<Self> {
         let config: Config = load_toml_config(path)?;
-        let mut historical_data_storage =
-            HistoricalDataStorage::new_from_path(&config.base_config().backtest_fetch_output_file)
-                .await?;
+        let mut historical_data_storage = HistoricalDataStorage::new_from_path(
+            &config.base_config().backtest_fetch_output_file,
+            config.base_config().priority_update_rules(),
+        )
+        .await?;
         let block_data = historical_data_storage.read_block_data(block).await?;
         let cut_off_time = block_data
             .built_block_data
@@ -217,7 +219,7 @@ async fn main() -> eyre::Result<()> {
         if tx.hash() == target_tx {
             break;
         }
-        let order = Order::Tx(MempoolTx::new(tx.clone()));
+        let order = Order::Tx(MempoolTx::new(tx.clone(), None));
         let sim_order =
             SimulatedOrder::new(Arc::new(order), Default::default(), Default::default());
         let res = builder.commit_order(

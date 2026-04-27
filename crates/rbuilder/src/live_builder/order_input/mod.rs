@@ -23,7 +23,7 @@ use alloy_primitives::Address;
 use futures::{stream::FuturesUnordered, StreamExt};
 use jsonrpsee::RpcModule;
 use parking_lot::Mutex;
-use rbuilder_primitives::{BundleReplacementData, Order};
+use rbuilder_primitives::{BundleReplacementData, Order, PriorityUpdateRule};
 use std::{
     net::Ipv4Addr,
     path::{Path, PathBuf},
@@ -241,6 +241,7 @@ pub async fn start_orderpool_jobs<P>(
     order_receiver: mpsc::Receiver<ReplaceableOrderPoolCommand>,
     header_receiver: mpsc::Receiver<Header>,
     mempool_detector: Arc<mempool_txs_detector::MempoolTxsDetector>,
+    priority_update_rules: Arc<Vec<PriorityUpdateRule>>,
 ) -> eyre::Result<(JoinHandle<()>, OrderPoolSubscriber)>
 where
     P: StateProviderFactory + 'static,
@@ -272,6 +273,7 @@ where
         order_sender.clone(),
         extra_rpc,
         global_cancel.clone(),
+        Arc::clone(&priority_update_rules),
     )
     .await?;
 
@@ -284,6 +286,7 @@ where
             order_sender.clone(),
             mempool_detector.clone(),
             global_cancel.clone(),
+            Arc::clone(&priority_update_rules),
         )
         .await?;
         handles.push(txpool_fetcher);
