@@ -4,6 +4,7 @@ use crate::{
     utils::{constants::BASE_TX_GAS, Signer},
 };
 use alloy_consensus::{constants::KECCAK_EMPTY, TxEip1559};
+use alloy_evm::Database;
 use alloy_primitives::{Address, TxKind as TransactionKind, U256};
 use alloy_rlp::Encodable as _;
 use reth_chainspec::ChainSpec;
@@ -58,12 +59,15 @@ impl PartialEq for PayoutTxErr {
 
 impl Eq for PayoutTxErr {}
 
-pub fn insert_test_payout_tx(
+pub fn insert_test_payout_tx<DB>(
     to: Address,
     ctx: &BlockBuildingContext,
-    state: &mut BlockState,
+    state: &mut BlockState<DB>,
     gas_limit: u64,
-) -> Result<Option<u64>, PayoutTxErr> {
+) -> Result<Option<u64>, PayoutTxErr>
+where
+    DB: Database<Error = ProviderError> + Clone,
+{
     let builder_signer = &ctx.builder_signer;
 
     let nonce = state.nonce(builder_signer.address)?;
@@ -144,12 +148,15 @@ fn estimate_payout_tx_space(ctx: &BlockBuildingContext) -> Result<BlockSpace, se
 }
 
 #[allow(clippy::manual_saturating_arithmetic)]
-pub fn estimate_payout_gas_limit(
+pub fn estimate_payout_gas_limit<DB>(
     to: Address,
     ctx: &BlockBuildingContext,
-    state: &mut BlockState,
+    state: &mut BlockState<DB>,
     space_used: BlockSpace,
-) -> Result<BlockSpace, EstimatePayoutGasErr> {
+) -> Result<BlockSpace, EstimatePayoutGasErr>
+where
+    DB: Database<Error = ProviderError> + Clone,
+{
     tracing::trace!(address = ?to, "Estimating payout gas");
     // To simplify we compute the default payout tx rlp_length only once here. It's not worth computing the exact rlp_length for each estimation.
     let default_payout_tx_space =

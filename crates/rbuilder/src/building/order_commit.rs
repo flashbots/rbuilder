@@ -419,10 +419,11 @@ pub struct PartialBlockFork<
     'd,
     Tracer: SimulationTracer,
     PartialBlockForkExecutionTracerType: PartialBlockForkExecutionTracer,
+    DB: Database<Error = ProviderError> + Clone = BlockStateDB,
 > {
     pub rollbacks: usize,
     pub ctx: &'c BlockBuildingContext,
-    pub state: &'a mut BlockState,
+    pub state: &'a mut BlockState<DB>,
     pub local_ctx: &'d mut ThreadBlockBuildingContext,
     pub tracer: Option<&'b mut Tracer>,
     /// Temporary state trace used as a scratchpad for tx execution
@@ -472,12 +473,13 @@ impl<
         'd,
         Tracer: SimulationTracer,
         PartialBlockForkExecutionTracerType: PartialBlockForkExecutionTracer,
-    > PartialBlockFork<'a, 'b, 'c, 'd, Tracer, PartialBlockForkExecutionTracerType>
+        DB: Database<Error = ProviderError> + Clone,
+    > PartialBlockFork<'a, 'b, 'c, 'd, Tracer, PartialBlockForkExecutionTracerType, DB>
 {
     pub fn with_tracer<NewTracer: SimulationTracer>(
         self,
         tracer: &'b mut NewTracer,
-    ) -> PartialBlockFork<'a, 'b, 'c, 'd, NewTracer, PartialBlockForkExecutionTracerType> {
+    ) -> PartialBlockFork<'a, 'b, 'c, 'd, NewTracer, PartialBlockForkExecutionTracerType, DB> {
         PartialBlockFork {
             rollbacks: self.rollbacks,
             state: self.state,
@@ -1080,9 +1082,11 @@ impl<
     }
 }
 
-impl<'a, 'c, 'd> PartialBlockFork<'a, '_, 'c, 'd, (), NullPartialBlockForkExecutionTracer> {
+impl<'a, 'c, 'd, DB: Database<Error = ProviderError> + Clone>
+    PartialBlockFork<'a, '_, 'c, 'd, (), NullPartialBlockForkExecutionTracer, DB>
+{
     pub fn new(
-        state: &'a mut BlockState,
+        state: &'a mut BlockState<DB>,
         ctx: &'c BlockBuildingContext,
         local_ctx: &'d mut ThreadBlockBuildingContext,
     ) -> Self {
@@ -1098,11 +1102,16 @@ impl<'a, 'c, 'd> PartialBlockFork<'a, '_, 'c, 'd, (), NullPartialBlockForkExecut
     }
 }
 
-impl<'a, 'c, 'd, PartialBlockForkExecutionTracerType: PartialBlockForkExecutionTracer>
-    PartialBlockFork<'a, '_, 'c, 'd, (), PartialBlockForkExecutionTracerType>
+impl<
+        'a,
+        'c,
+        'd,
+        PartialBlockForkExecutionTracerType: PartialBlockForkExecutionTracer,
+        DB: Database<Error = ProviderError> + Clone,
+    > PartialBlockFork<'a, '_, 'c, 'd, (), PartialBlockForkExecutionTracerType, DB>
 {
     pub fn new_with_execution_tracer(
-        state: &'a mut BlockState,
+        state: &'a mut BlockState<DB>,
         ctx: &'c BlockBuildingContext,
         local_ctx: &'d mut ThreadBlockBuildingContext,
         partial_block_fork_execution_tracer: PartialBlockForkExecutionTracerType,
