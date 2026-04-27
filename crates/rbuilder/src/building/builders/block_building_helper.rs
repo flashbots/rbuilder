@@ -11,12 +11,13 @@ use tracing::{debug, trace, warn};
 
 use crate::{
     building::{
-        builders::BuiltBlockId, estimate_payout_gas_limit, journal::JournalSequenceNumber,
-        tracers::GasUsedSimulationTracer, BlockBuildingContext, BlockSpace, BlockState,
-        BuiltBlockTrace, BuiltBlockTraceError, CriticalCommitOrderError, EstimatePayoutGasErr,
-        ExecutionError, ExecutionResult, FinalizeAdjustmentState, FinalizeError, FinalizeResult,
-        FinalizeRevertStateCurrentIteration, NullPartialBlockExecutionTracer, PartialBlock,
-        PartialBlockExecutionTracer, ThreadBlockBuildingContext,
+        builders::BuiltBlockId, cached_reads::CachedDB, estimate_payout_gas_limit,
+        journal::JournalSequenceNumber, tracers::GasUsedSimulationTracer, BlockBuildingContext,
+        BlockSpace, BlockState, BuiltBlockTrace, BuiltBlockTraceError, CriticalCommitOrderError,
+        EstimatePayoutGasErr, ExecutionError, ExecutionResult, FinalizeAdjustmentState,
+        FinalizeError, FinalizeResult, FinalizeRevertStateCurrentIteration,
+        NullPartialBlockExecutionTracer, PartialBlock, PartialBlockExecutionTracer,
+        ThreadBlockBuildingContext,
     },
     live_builder::block_output::bidding_service_interface::CompetitionBidContext,
     telemetry::{self, add_block_fill_time, add_order_simulation_time},
@@ -268,7 +269,8 @@ impl<
         let mut partial_block =
             PartialBlock::new_with_execution_tracer(discard_txs, partial_block_execution_tracer)
                 .with_tracer(GasUsedSimulationTracer::default());
-        let mut block_state = BlockState::new_arc(state_provider);
+        let cached = CachedDB::new(state_provider, building_ctx.shared_cached_reads.clone());
+        let mut block_state = BlockState::new(Box::new(cached));
         partial_block
             .pre_block_call(&building_ctx, &mut block_state)
             .map_err(|_| BlockBuildingHelperError::PreBlockCallFailed)?;
@@ -361,10 +363,9 @@ impl<
 
         let (bid_value, true_value) = (payout_tx_value, self.true_block_value()?);
 
-        let fee_recipient_balance_after = self.block_state.balance(
-            self.building_ctx.attributes.suggested_fee_recipient,
-            &self.building_ctx.shared_cached_reads,
-        )?;
+        let fee_recipient_balance_after = self
+            .block_state
+            .balance(self.building_ctx.attributes.suggested_fee_recipient)?;
         let fee_recipient_balance_diff = fee_recipient_balance_after
             .checked_sub(self._fee_recipient_balance_start)
             .unwrap_or_default();

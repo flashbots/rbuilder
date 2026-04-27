@@ -3,7 +3,7 @@
 //! test setup creates fake state with various and block (configurable with BlockArgs)
 //! test setup is used to build orders and commit them
 use crate::building::{
-    cached_reads::SharedCachedReads,
+    cached_reads::{CachedDB, SharedCachedReads},
     testing::test_chain_state::{BlockArgs, NamedAddr, TestChainState, TxArgs},
     BlockState, ExecutionError, ExecutionResult, NullPartialBlockExecutionTracer, OrderErr,
     PartialBlock, ThreadBlockBuildingContext,
@@ -230,8 +230,12 @@ impl TestSetup {
 
         let mut results = Vec::new();
         for _ in 0..2 {
-            let mut block_state = BlockState::new_arc(state_provider.clone())
-                .with_bundle_state(initial_bundle_state.clone());
+            let cached = CachedDB::new(
+                state_provider.clone(),
+                Arc::new(SharedCachedReads::default()),
+            );
+            let mut block_state =
+                BlockState::new(Box::new(cached)).with_bundle_state(initial_bundle_state.clone());
 
             let mut partial_block = initial_partial_block.clone();
 
@@ -294,30 +298,23 @@ impl TestSetup {
         }
     }
 
+    fn make_block_state(&self) -> eyre::Result<BlockState> {
+        let state_provider: Arc<dyn StateProvider> =
+            Arc::from(self.test_chain.provider_factory().latest()?);
+        let cached = CachedDB::new(state_provider, Arc::new(SharedCachedReads::default()));
+        Ok(BlockState::new(Box::new(cached))
+            .with_bundle_state(self.bundle_state.clone().unwrap_or_default()))
+    }
+
     pub fn current_nonce(&self, named_addr: NamedAddr) -> eyre::Result<u64> {
-        let shared_cached_reads = SharedCachedReads::default();
-
-        let state_provider = self.test_chain.provider_factory().latest()?;
-        let mut block_state = BlockState::new(state_provider)
-            .with_bundle_state(self.bundle_state.clone().unwrap_or_default());
-
-        Ok(block_state.nonce(
-            self.test_chain.named_address(named_addr)?,
-            &shared_cached_reads,
-        )?)
+        let mut block_state = self.make_block_state()?;
+        Ok(block_state.nonce(self.test_chain.named_address(named_addr)?)?)
     }
 
     pub fn balance(&self, named_addr: NamedAddr) -> eyre::Result<i128> {
-        let shared_cached_reads = SharedCachedReads::default();
-
-        let state_provider = self.test_chain.provider_factory().latest()?;
-        let mut block_state = BlockState::new(state_provider)
-            .with_bundle_state(self.bundle_state.clone().unwrap_or_default());
+        let mut block_state = self.make_block_state()?;
         Ok(block_state
-            .balance(
-                self.test_chain.named_address(named_addr)?,
-                &shared_cached_reads,
-            )?
+            .balance(self.test_chain.named_address(named_addr)?)?
             .to())
     }
 

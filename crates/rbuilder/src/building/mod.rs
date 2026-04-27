@@ -814,7 +814,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         let builder_signer = &ctx.builder_signer;
         self.free_reserved_block_space();
         let mut nonce = state
-            .nonce(builder_signer.address, &ctx.shared_cached_reads)
+            .nonce(builder_signer.address)
             .map_err(CriticalCommitOrderError::Reth)?;
 
         let mut fork = PartialBlockFork::new(state, ctx, local_ctx).with_tracer(&mut self.tracer);
@@ -823,7 +823,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             for (refund_recipient, refund_amount) in &self.combined_refunds {
                 let refund_recipient_code_hash = fork
                     .state
-                    .code_hash(*refund_recipient, &ctx.shared_cached_reads)
+                    .code_hash(*refund_recipient)
                     .map_err(CriticalCommitOrderError::Reth)?;
                 if refund_recipient_code_hash != KECCAK_EMPTY {
                     error!(%refund_recipient_code_hash, %refund_recipient, %refund_amount, "Refund recipient has code, skipping refund");
@@ -898,7 +898,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         ctx: &BlockBuildingContext,
         finalize_revert_state: &mut FinalizeRevertStateCurrentIteration,
     ) -> Result<(Option<Requests>, Option<B256>), FinalizeError> {
-        let mut db = state.new_db_ref(&ctx.shared_cached_reads);
+        let mut db = state.new_db_ref();
 
         // Apply and gather execution requests
         let requests = if ctx
@@ -1196,7 +1196,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             0,
         ));
 
-        let mut db = state.new_db_ref(&ctx.shared_cached_reads);
+        let mut db = state.new_db_ref();
         let mut system_caller = SystemCaller::new(ctx.chain_spec.clone());
         let mut evm = EthEvmConfig::new(ctx.chain_spec.clone())
             .evm_with_env(db.as_mut(), ctx.evm_env.clone());

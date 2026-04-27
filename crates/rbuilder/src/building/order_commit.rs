@@ -1,5 +1,4 @@
 use super::{
-    cached_reads::{CachedDB, SharedCachedReads},
     create_payout_tx,
     tracers::SimulationTracer,
     tx_sim_cache::{CachedExecutionResult, EVMRecordingDatabase},
@@ -18,13 +17,10 @@ use rbuilder_primitives::{
     evm_inspector::{RBuilderEVMInspector, UsedStateTrace},
     BlockSpace, Bundle, Order, SimValue, TransactionSignedEcRecoveredWithBlobs,
 };
-use reth::{
-    consensus_common::validation::MAX_RLP_BLOCK_SIZE, revm::database::StateProviderDatabase,
-};
+use reth::consensus_common::validation::MAX_RLP_BLOCK_SIZE;
 use reth_errors::ProviderError;
 use reth_evm::{Evm, EvmEnv};
 use reth_primitives::Receipt;
-use reth_provider::{StateProvider, StateProviderBox};
 use revm::{
     context::result::{ExecutionResult, ResultAndState},
     context_interface::result::{EVMError, InvalidTransaction},
@@ -34,26 +30,46 @@ use revm::{
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 
-#[derive(Clone)]
+/// Cloneable, type-erased database used by [`BlockState`].
+pub trait BlockStateDatabase: Database<Error = ProviderError> + Send + Sync {
+    fn box_clone(&self) -> BlockStateDB;
+}
+
+impl<T> BlockStateDatabase for T
+where
+    T: Database<Error = ProviderError> + Send + Sync + Clone + 'static,
+{
+    fn box_clone(&self) -> BlockStateDB {
+        Box::new(self.clone())
+    }
+}
+
+pub type BlockStateDB = Box<dyn BlockStateDatabase>;
+
 pub struct BlockState {
-    provider: Arc<dyn StateProvider>,
+    db: BlockStateDB,
     bundle_state: Option<BundleState>,
 }
 
-impl BlockState {
-    pub fn new(provider: StateProviderBox) -> Self {
-        Self::new_arc(Arc::from(provider))
-    }
-
-    pub fn new_arc(provider: Arc<dyn StateProvider>) -> Self {
+impl Clone for BlockState {
+    fn clone(&self) -> Self {
         Self {
-            provider,
+            db: self.db.box_clone(),
+            bundle_state: self.bundle_state.clone(),
+        }
+    }
+}
+
+impl BlockState {
+    pub fn new(db: BlockStateDB) -> Self {
+        Self {
+            db,
             bundle_state: Some(BundleState::default()),
         }
     }
 
-    pub fn into_provider(self) -> Arc<dyn StateProvider> {
-        self.provider
+    pub fn into_db(self) -> BlockStateDB {
+        self.db
     }
 
     pub fn with_bundle_state(mut self, bundle_state: BundleState) -> Self {
@@ -61,8 +77,8 @@ impl BlockState {
         self
     }
 
-    pub fn into_parts(self) -> (BundleState, Arc<dyn StateProvider>) {
-        (self.bundle_state.unwrap(), self.provider)
+    pub fn into_parts(self) -> (BundleState, BlockStateDB) {
+        (self.bundle_state.unwrap(), self.db)
     }
 
     pub fn bundle_state(&self) -> &BundleState {
@@ -73,35 +89,22 @@ impl BlockState {
         self.bundle_state.as_mut().unwrap()
     }
 
-    pub fn state_provider(&self) -> Arc<dyn StateProvider> {
-        self.provider.clone()
-    }
-
     pub fn clone_bundle(&self) -> BundleState {
         self.bundle_state.clone().unwrap()
     }
 
-    pub fn new_db_ref<'a, 'b>(
-        &'a mut self,
-        shared_cache_reads: &'b SharedCachedReads,
-    ) -> BlockStateDBRef<'a, CachedDB<'b, impl Database<Error = ProviderError> + 'a>> {
-        let state_provider = StateProviderDatabase::new(&self.provider);
-        let cachedb = CachedDB::new(state_provider, shared_cache_reads);
+    pub fn new_db_ref(&mut self) -> BlockStateDBRef<'_, &mut BlockStateDB> {
         let bundle_state = self.bundle_state.take().unwrap();
         let db = State::builder()
-            .with_database(cachedb)
+            .with_database(&mut self.db)
             .with_bundle_prestate(bundle_state)
             .with_bundle_update()
             .build();
         BlockStateDBRef::new(db, &mut self.bundle_state)
     }
 
-    pub fn balance(
-        &mut self,
-        address: Address,
-        shared_cache_reads: &SharedCachedReads,
-    ) -> Result<U256, ProviderError> {
-        let mut db = self.new_db_ref(shared_cache_reads);
+    pub fn balance(&mut self, address: Address) -> Result<U256, ProviderError> {
+        let mut db = self.new_db_ref();
         Ok(db
             .as_mut()
             .basic(address)?
@@ -109,12 +112,8 @@ impl BlockState {
             .unwrap_or_default())
     }
 
-    pub fn nonce(
-        &mut self,
-        address: Address,
-        shared_cache_reads: &SharedCachedReads,
-    ) -> Result<u64, ProviderError> {
-        let mut db = self.new_db_ref(shared_cache_reads);
+    pub fn nonce(&mut self, address: Address) -> Result<u64, ProviderError> {
+        let mut db = self.new_db_ref();
         Ok(db
             .as_mut()
             .basic(address)?
@@ -122,12 +121,8 @@ impl BlockState {
             .unwrap_or_default())
     }
 
-    pub fn code_hash(
-        &mut self,
-        address: Address,
-        shared_cache_reads: &SharedCachedReads,
-    ) -> Result<B256, ProviderError> {
-        let mut db = self.new_db_ref(shared_cache_reads);
+    pub fn code_hash(&mut self, address: Address) -> Result<B256, ProviderError> {
+        let mut db = self.new_db_ref();
         Ok(db
             .as_mut()
             .basic(address)?
@@ -503,10 +498,7 @@ impl<
     }
 
     fn coinbase_balance(&mut self) -> Result<U256, ProviderError> {
-        self.state.balance(
-            self.ctx.evm_env.block_env.beneficiary,
-            &self.ctx.shared_cached_reads,
-        )
+        self.state.balance(self.ctx.evm_env.block_env.beneficiary)
     }
 
     /// Helper func that executes f and rollbacks on Ok(Err).
@@ -584,7 +576,7 @@ impl<
         }
 
         let coinbase_balance_before = I256::try_from(self.coinbase_balance()?)?;
-        let mut db = self.state.new_db_ref(&self.ctx.shared_cached_reads);
+        let mut db = self.state.new_db_ref();
         let tx = &tx_with_blobs.internal_tx_unsecure();
         if self.ctx.blocklist.contains(&tx.signer())
             || tx
@@ -790,9 +782,7 @@ impl<
     ) -> Result<Result<(), BundleErr>, CriticalCommitOrderError> {
         let builder_signer = &self.ctx.builder_signer;
 
-        let nonce = self
-            .state
-            .nonce(builder_signer.address, &self.ctx.shared_cached_reads)?;
+        let nonce = self.state.nonce(builder_signer.address)?;
         let payout_tx = match create_payout_tx(
             self.ctx.chain_spec.as_ref(),
             self.ctx.evm_env.block_env.basefee,

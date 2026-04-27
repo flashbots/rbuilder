@@ -15,8 +15,8 @@ use super::{
 };
 
 use crate::building::{
-    BlockBuildingContext, BlockState, ExecutionError, ExecutionResult, PartialBlock,
-    ThreadBlockBuildingContext,
+    cached_reads::CachedDB, BlockBuildingContext, BlockState, ExecutionError, ExecutionResult,
+    PartialBlock, ThreadBlockBuildingContext,
 };
 use rbuilder_primitives::{OrderId, SimulatedOrder};
 
@@ -285,7 +285,8 @@ impl ResolverContext {
 
     /// Initializes the block state, using a cached state if available.
     fn initialize_block_state(&mut self, state_provider: Arc<dyn StateProvider>) -> BlockState {
-        BlockState::new_arc(state_provider)
+        let cached = CachedDB::new(state_provider, self.ctx.shared_cached_reads.clone());
+        BlockState::new(Box::new(cached))
     }
 
     /// Stores the simulation state in the cache.
@@ -296,9 +297,8 @@ impl ResolverContext {
         total_profit: U256,
         per_order_profits: &[(OrderId, U256)],
     ) {
-        let (bundle_state, _) = state.clone().into_parts();
         let cached_simulation_state = CachedSimulationState {
-            bundle_state,
+            bundle_state: state.clone_bundle(),
             total_profit,
             per_order_profits: per_order_profits.to_owned(),
         };

@@ -1,4 +1,7 @@
-use super::{BlockBuildingContext, BlockState, PartialBlockFork, ThreadBlockBuildingContext};
+use super::{
+    cached_reads::CachedDB, BlockBuildingContext, BlockState, BlockStateDB, PartialBlockFork,
+    ThreadBlockBuildingContext,
+};
 use crate::building::BlockBuildingSpaceState;
 use alloy_primitives::{Address, U256};
 use itertools::Itertools;
@@ -30,7 +33,11 @@ pub fn find_conflict_slow(
     ctx: &BlockBuildingContext,
     orders: &[Order],
 ) -> eyre::Result<HashMap<(OrderId, OrderId), Conflict>> {
-    let mut state_provider = Arc::<dyn StateProvider>::from(state_provider);
+    let state_provider = Arc::<dyn StateProvider>::from(state_provider);
+    let mut block_state_db: BlockStateDB = Box::new(CachedDB::new(
+        state_provider,
+        ctx.shared_cached_reads.clone(),
+    ));
     let mut local_ctx = ThreadBlockBuildingContext::default();
     // We use empty combined refunds because the value of the bundle will
     // not change from batching.
@@ -38,7 +45,7 @@ pub fn find_conflict_slow(
     let profits_alone = {
         let mut profits_alone = HashMap::new();
         for order in orders {
-            let mut state = BlockState::new_arc(state_provider);
+            let mut state = BlockState::new(block_state_db);
             let mut fork = PartialBlockFork::new(&mut state, ctx, &mut local_ctx);
             if let Ok(res) = fork.commit_order(
                 order,
@@ -48,7 +55,7 @@ pub fn find_conflict_slow(
             )? {
                 profits_alone.insert(order.id(), res.coinbase_profit);
             };
-            state_provider = state.into_provider();
+            block_state_db = state.into_db();
         }
         profits_alone
     };
@@ -81,7 +88,7 @@ pub fn find_conflict_slow(
             continue;
         }
 
-        let mut state = BlockState::new_arc(state_provider);
+        let mut state = BlockState::new(block_state_db);
         let mut fork = PartialBlockFork::new(&mut state, ctx, &mut local_ctx);
         let mut space_state = BlockBuildingSpaceState::ZERO;
         match fork.commit_order(order1, space_state, true, &combined_refunds)? {
@@ -110,7 +117,7 @@ pub fn find_conflict_slow(
                 results.insert(pair, Conflict::Fatal);
             }
         };
-        state_provider = state.into_provider();
+        block_state_db = state.into_db();
     }
 
     Ok(results)

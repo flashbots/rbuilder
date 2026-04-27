@@ -3,6 +3,9 @@
 
 use alloy_primitives::{Address, B256, U256};
 use dashmap::DashMap;
+use reth::revm::database::StateProviderDatabase;
+use reth_errors::ProviderError;
+use reth_provider::StateProvider;
 use revm::{bytecode::Bytecode, state::AccountInfo, Database};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
@@ -39,15 +42,32 @@ impl Drop for SharedCachedReads {
     }
 }
 
-#[derive(Debug)]
-pub struct CachedDB<'b, DB> {
-    db: DB,
-    shared_cache: &'b SharedCachedReads,
+/// Database that wraps a reth state provider with a shared read cache.
+#[derive(Clone)]
+pub struct CachedDB {
+    state_provider: Arc<dyn StateProvider>,
+    shared_cache: Arc<SharedCachedReads>,
 }
 
-impl<'b, DB> CachedDB<'b, DB> {
-    pub fn new(db: DB, shared_cache: &'b SharedCachedReads) -> Self {
-        Self { db, shared_cache }
+impl std::fmt::Debug for CachedDB {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CachedDB").finish_non_exhaustive()
+    }
+}
+
+impl CachedDB {
+    pub fn new(
+        state_provider: Arc<dyn StateProvider>,
+        shared_cache: Arc<SharedCachedReads>,
+    ) -> Self {
+        Self {
+            state_provider,
+            shared_cache,
+        }
+    }
+
+    fn inner_db(&self) -> StateProviderDatabase<&dyn StateProvider> {
+        StateProviderDatabase::new(&*self.state_provider)
     }
 
     fn inc_shared_hit(&self) {
@@ -55,6 +75,7 @@ impl<'b, DB> CachedDB<'b, DB> {
             .shared_hit_count
             .fetch_add(1, Ordering::Relaxed);
     }
+
     fn inc_shared_miss(&self) {
         self.shared_cache
             .shared_miss_count
@@ -62,8 +83,8 @@ impl<'b, DB> CachedDB<'b, DB> {
     }
 }
 
-impl<DB: Database> Database for CachedDB<'_, DB> {
-    type Error = DB::Error;
+impl Database for CachedDB {
+    type Error = ProviderError;
 
     fn basic(&mut self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
         if let Some(data) = self.shared_cache.account_info.get(&address) {
@@ -71,7 +92,7 @@ impl<DB: Database> Database for CachedDB<'_, DB> {
             return Ok(data.clone());
         }
         self.inc_shared_miss();
-        let result = self.db.basic(address)?;
+        let result = self.inner_db().basic(address)?;
         self.shared_cache
             .account_info
             .insert(address, result.clone());
@@ -84,7 +105,7 @@ impl<DB: Database> Database for CachedDB<'_, DB> {
             return Ok(data.clone());
         }
         self.inc_shared_miss();
-        let data = self.db.code_by_hash(code_hash)?;
+        let data = self.inner_db().code_by_hash(code_hash)?;
         self.shared_cache
             .code_by_hash
             .insert(code_hash, data.clone());
@@ -97,7 +118,7 @@ impl<DB: Database> Database for CachedDB<'_, DB> {
             return Ok(*data);
         }
         self.inc_shared_miss();
-        let result = self.db.storage(address, index)?;
+        let result = self.inner_db().storage(address, index)?;
         self.shared_cache.storage.insert((address, index), result);
         Ok(result)
     }
@@ -108,7 +129,7 @@ impl<DB: Database> Database for CachedDB<'_, DB> {
             return Ok(*data);
         }
         self.inc_shared_miss();
-        let data = self.db.block_hash(number)?;
+        let data = self.inner_db().block_hash(number)?;
         self.shared_cache.block_hash.insert(number, data);
         Ok(data)
     }

@@ -11,8 +11,8 @@ use eyre::Context;
 use itertools::Itertools;
 use rbuilder::{
     building::{
-        BlockBuildingContext, BlockBuildingSpaceState, BlockState, FinalizeAdjustmentState,
-        PartialBlock, PartialBlockFork, ThreadBlockBuildingContext,
+        cached_reads::CachedDB, BlockBuildingContext, BlockBuildingSpaceState, BlockState,
+        FinalizeAdjustmentState, PartialBlock, PartialBlockFork, ThreadBlockBuildingContext,
     },
     live_builder::{cli::LiveBuilderConfig, config::Config},
     provider::StateProviderFactory,
@@ -126,7 +126,8 @@ async fn main() -> eyre::Result<()> {
         let (build_time, finalize_time) =
             tokio::task::spawn_blocking(move || -> eyre::Result<_> {
                 let mut partial_block = PartialBlock::new(true);
-                let mut state = BlockState::new_arc(state_provider);
+                let cached = CachedDB::new(state_provider, ctx.shared_cached_reads.clone());
+                let mut state = BlockState::new(Box::new(cached));
                 let mut local_ctx = ThreadBlockBuildingContext::default();
 
                 let mut finalize_adjustment_state = FinalizeAdjustmentState::default();

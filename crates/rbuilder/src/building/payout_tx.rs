@@ -66,7 +66,7 @@ pub fn insert_test_payout_tx(
 ) -> Result<Option<u64>, PayoutTxErr> {
     let builder_signer = &ctx.builder_signer;
 
-    let nonce = state.nonce(builder_signer.address, &ctx.shared_cached_reads)?;
+    let nonce = state.nonce(builder_signer.address)?;
 
     let tx_value = 10u128.pow(18); // 10 ether
     let tx = create_payout_tx(
@@ -78,7 +78,7 @@ pub fn insert_test_payout_tx(
         gas_limit,
         U256::from(tx_value),
     )?;
-    let mut db = state.new_db_ref(&ctx.shared_cached_reads);
+    let mut db = state.new_db_ref();
     let mut evm = ctx.evm_factory.create_evm(db.as_mut(), ctx.evm_env.clone());
 
     let cache_account = evm.db_mut().load_cache_account(builder_signer.address)?;
@@ -154,7 +154,7 @@ pub fn estimate_payout_gas_limit(
     // To simplify we compute the default payout tx rlp_length only once here. It's not worth computing the exact rlp_length for each estimation.
     let default_payout_tx_space =
         estimate_payout_tx_space(ctx).map_err(|_| EstimatePayoutGasErr::FailedToEstimate)?;
-    if state.code_hash(to, &ctx.shared_cached_reads)? == KECCAK_EMPTY {
+    if state.code_hash(to)? == KECCAK_EMPTY {
         return Ok(default_payout_tx_space);
     }
 
@@ -203,14 +203,17 @@ pub fn estimate_payout_gas_limit(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::building::builders::mock_block_building_helper::MockRootHasher;
+    use crate::building::{
+        builders::mock_block_building_helper::MockRootHasher,
+        cached_reads::{CachedDB, SharedCachedReads},
+    };
     use alloy_eips::eip1559::INITIAL_BASE_FEE;
     use alloy_primitives::B256;
     use assert_matches::assert_matches;
     use reth_chainspec::{EthereumHardfork, MAINNET};
     use reth_db::{tables, transaction::DbTxMut};
     use reth_primitives::Account;
-    use reth_provider::test_utils::create_test_provider_factory_with_chain_spec;
+    use reth_provider::{test_utils::create_test_provider_factory_with_chain_spec, StateProvider};
     use revm::primitives::hardfork::SpecId;
     use std::sync::Arc;
 
@@ -260,7 +263,9 @@ mod tests {
             false,
             U256::ZERO,
         );
-        let mut state = BlockState::new(provider_factory.latest().unwrap());
+        let state_provider: Arc<dyn StateProvider> = Arc::from(provider_factory.latest().unwrap());
+        let cached = CachedDB::new(state_provider, Arc::new(SharedCachedReads::default()));
+        let mut state = BlockState::new(Box::new(cached));
 
         let estimate_result =
             estimate_payout_gas_limit(proposer, &ctx, &mut state, BlockSpace::ZERO);

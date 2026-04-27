@@ -5,8 +5,9 @@ use super::{
 };
 use crate::{
     building::{
-        order_is_worth_executing, BlockBuildingContext, BlockBuildingSpaceState, BlockState,
-        CriticalCommitOrderError, NullPartialBlockForkExecutionTracer,
+        cached_reads::CachedDB, order_is_worth_executing, BlockBuildingContext,
+        BlockBuildingSpaceState, BlockState, BlockStateDB, CriticalCommitOrderError,
+        NullPartialBlockForkExecutionTracer,
     },
     live_builder::order_input::mempool_txs_detector::MempoolTxsDetector,
     provider::StateProviderFactory,
@@ -362,8 +363,12 @@ where
     }
 
     let mut sim_errors = Vec::new();
-    let mut state_for_sim =
+    let initial_provider =
         Arc::<dyn StateProvider>::from(provider.history_by_block_hash(ctx.attributes.parent)?);
+    let mut state_for_sim: BlockStateDB = Box::new(CachedDB::new(
+        initial_provider,
+        ctx.shared_cached_reads.clone(),
+    ));
     let mut local_ctx = ThreadBlockBuildingContext::default();
     loop {
         // mix new orders into the sim_tree
@@ -385,7 +390,7 @@ where
         let mut sim_results = Vec::new();
         for sim_task in sim_tasks {
             let start_time = Instant::now();
-            let mut block_state = BlockState::new_arc(state_for_sim);
+            let mut block_state = BlockState::new(state_for_sim);
             let sim_result = simulate_order(
                 sim_task.parents.clone(),
                 sim_task.order.clone(),
@@ -393,8 +398,8 @@ where
                 &mut local_ctx,
                 &mut block_state,
             )?;
-            let (_, provider) = block_state.into_parts();
-            state_for_sim = provider;
+            let (_, db) = block_state.into_parts();
+            state_for_sim = db;
             match sim_result.result {
                 OrderSimResult::Failed(err) => {
                     trace!(
