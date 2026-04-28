@@ -30,35 +30,13 @@ use revm::{
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 
-/// Cloneable, type-erased database used by [`BlockState`].
-pub trait BlockStateDatabase: Database<Error = ProviderError> + Send + Sync {
-    fn box_clone(&self) -> BlockStateDB;
-}
-
-impl<T> BlockStateDatabase for T
-where
-    T: Database<Error = ProviderError> + Send + Sync + Clone + 'static,
-{
-    fn box_clone(&self) -> BlockStateDB {
-        Box::new(self.clone())
-    }
-}
-
-pub type BlockStateDB = Box<dyn BlockStateDatabase>;
-
-impl Clone for BlockStateDB {
-    fn clone(&self) -> Self {
-        self.box_clone()
-    }
-}
-
 #[derive(Clone)]
-pub struct BlockState<DB: Database<Error = ProviderError> + Clone = BlockStateDB> {
+pub struct BlockState<DB: Database<Error = ProviderError>> {
     db: DB,
     bundle_state: Option<BundleState>,
 }
 
-impl<DB: Database<Error = ProviderError> + Clone> BlockState<DB> {
+impl<DB: Database<Error = ProviderError>> BlockState<DB> {
     pub fn new(db: DB) -> Self {
         Self {
             db,
@@ -142,16 +120,6 @@ impl<DB: Database<Error = ProviderError> + Clone> BlockState<DB> {
         result.sort();
         result.dedup();
         result
-    }
-}
-
-impl BlockState<BlockStateDB> {
-    /// Convenience constructor that type-erases `db` into a [`BlockStateDB`].
-    pub fn boxed<T>(db: T) -> Self
-    where
-        T: Database<Error = ProviderError> + Send + Sync + Clone + 'static,
-    {
-        Self::new(Box::new(db))
     }
 }
 
@@ -419,7 +387,7 @@ pub struct PartialBlockFork<
     'd,
     Tracer: SimulationTracer,
     PartialBlockForkExecutionTracerType: PartialBlockForkExecutionTracer,
-    DB: Database<Error = ProviderError> + Clone = BlockStateDB,
+    DB: Database<Error = ProviderError>,
 > {
     pub rollbacks: usize,
     pub ctx: &'c BlockBuildingContext,
@@ -473,7 +441,7 @@ impl<
         'd,
         Tracer: SimulationTracer,
         PartialBlockForkExecutionTracerType: PartialBlockForkExecutionTracer,
-        DB: Database<Error = ProviderError> + Clone,
+        DB: Database<Error = ProviderError>,
     > PartialBlockFork<'a, 'b, 'c, 'd, Tracer, PartialBlockForkExecutionTracerType, DB>
 {
     pub fn with_tracer<NewTracer: SimulationTracer>(
@@ -1082,7 +1050,7 @@ impl<
     }
 }
 
-impl<'a, 'c, 'd, DB: Database<Error = ProviderError> + Clone>
+impl<'a, 'c, 'd, DB: Database<Error = ProviderError>>
     PartialBlockFork<'a, '_, 'c, 'd, (), NullPartialBlockForkExecutionTracer, DB>
 {
     pub fn new(
@@ -1107,7 +1075,7 @@ impl<
         'c,
         'd,
         PartialBlockForkExecutionTracerType: PartialBlockForkExecutionTracer,
-        DB: Database<Error = ProviderError> + Clone,
+        DB: Database<Error = ProviderError>,
     > PartialBlockFork<'a, '_, 'c, 'd, (), PartialBlockForkExecutionTracerType, DB>
 {
     pub fn new_with_execution_tracer(

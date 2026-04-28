@@ -152,7 +152,7 @@ pub struct BlockBuildingHelperFromProvider<
     /// Balance of fee recipient before we stared building.
     _fee_recipient_balance_start: U256,
     /// Accumulated changes for the block (due to commit_order calls).
-    block_state: BlockState,
+    block_state: BlockState<CachedDB>,
     partial_block: PartialBlock<GasUsedSimulationTracer, PartialBlockExecutionTracerType>,
     /// Gas reserved for the final payout txs from coinbase to fee recipient.
     payout_tx_gas: u64,
@@ -270,7 +270,7 @@ impl<
             PartialBlock::new_with_execution_tracer(discard_txs, partial_block_execution_tracer)
                 .with_tracer(GasUsedSimulationTracer::default());
         let cached = CachedDB::new(state_provider, building_ctx.shared_cached_reads.clone());
-        let mut block_state = BlockState::boxed(cached);
+        let mut block_state = BlockState::new(cached);
         partial_block
             .pre_block_call(&building_ctx, &mut block_state)
             .map_err(|_| BlockBuildingHelperError::PreBlockCallFailed)?;

@@ -127,7 +127,7 @@ impl ResolverContext {
         sequence_of_orders: Vec<usize>,
         task: &ConflictTask,
         state_provider: Arc<dyn StateProvider>,
-    ) -> Result<(ResolutionResult, BlockState)> {
+    ) -> Result<(ResolutionResult, BlockState<CachedDB>)> {
         // @todo actually reuse it for the duration of the block
         let mut local_ctx = ThreadBlockBuildingContext::default();
 
@@ -284,16 +284,19 @@ impl ResolverContext {
     }
 
     /// Initializes the block state, using a cached state if available.
-    fn initialize_block_state(&mut self, state_provider: Arc<dyn StateProvider>) -> BlockState {
+    fn initialize_block_state(
+        &mut self,
+        state_provider: Arc<dyn StateProvider>,
+    ) -> BlockState<CachedDB> {
         let cached = CachedDB::new(state_provider, self.ctx.shared_cached_reads.clone());
-        BlockState::boxed(cached)
+        BlockState::new(cached)
     }
 
     /// Stores the simulation state in the cache.
     fn store_simulation_state(
         &self,
         full_order_ids: &[OrderId],
-        state: &BlockState,
+        state: &BlockState<CachedDB>,
         total_profit: U256,
         per_order_profits: &[(OrderId, U256)],
     ) {

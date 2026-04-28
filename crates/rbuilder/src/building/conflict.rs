@@ -1,5 +1,5 @@
 use super::{
-    cached_reads::CachedDB, BlockBuildingContext, BlockState, BlockStateDB, PartialBlockFork,
+    cached_reads::CachedDB, BlockBuildingContext, BlockState, PartialBlockFork,
     ThreadBlockBuildingContext,
 };
 use crate::building::BlockBuildingSpaceState;
@@ -34,10 +34,7 @@ pub fn find_conflict_slow(
     orders: &[Order],
 ) -> eyre::Result<HashMap<(OrderId, OrderId), Conflict>> {
     let state_provider = Arc::<dyn StateProvider>::from(state_provider);
-    let mut block_state_db: BlockStateDB = Box::new(CachedDB::new(
-        state_provider,
-        ctx.shared_cached_reads.clone(),
-    ));
+    let mut block_state_db = CachedDB::new(state_provider, ctx.shared_cached_reads.clone());
     let mut local_ctx = ThreadBlockBuildingContext::default();
     // We use empty combined refunds because the value of the bundle will
     // not change from batching.

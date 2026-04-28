@@ -66,7 +66,7 @@ pub fn insert_test_payout_tx<DB>(
     gas_limit: u64,
 ) -> Result<Option<u64>, PayoutTxErr>
 where
-    DB: Database<Error = ProviderError> + Clone,
+    DB: Database<Error = ProviderError>,
 {
     let builder_signer = &ctx.builder_signer;
 
@@ -155,7 +155,7 @@ pub fn estimate_payout_gas_limit<DB>(
     space_used: BlockSpace,
 ) -> Result<BlockSpace, EstimatePayoutGasErr>
 where
-    DB: Database<Error = ProviderError> + Clone,
+    DB: Database<Error = ProviderError>,
 {
     tracing::trace!(address = ?to, "Estimating payout gas");
     // To simplify we compute the default payout tx rlp_length only once here. It's not worth computing the exact rlp_length for each estimation.
@@ -272,7 +272,7 @@ mod tests {
         );
         let state_provider: Arc<dyn StateProvider> = Arc::from(provider_factory.latest().unwrap());
         let cached = CachedDB::new(state_provider, Arc::new(SharedCachedReads::default()));
-        let mut state = BlockState::boxed(cached);
+        let mut state = BlockState::new(cached);
 
         let estimate_result =
             estimate_payout_gas_limit(proposer, &ctx, &mut state, BlockSpace::ZERO);

@@ -235,7 +235,7 @@ impl TestSetup {
                 Arc::new(SharedCachedReads::default()),
             );
             let mut block_state =
-                BlockState::boxed(cached).with_bundle_state(initial_bundle_state.clone());
+                BlockState::new(cached).with_bundle_state(initial_bundle_state.clone());
 
             let mut partial_block = initial_partial_block.clone();
 
@@ -298,12 +298,14 @@ impl TestSetup {
         }
     }
 
-    fn make_block_state(&self) -> eyre::Result<BlockState> {
+    fn make_block_state(&self) -> eyre::Result<BlockState<CachedDB>> {
         let state_provider: Arc<dyn StateProvider> =
             Arc::from(self.test_chain.provider_factory().latest()?);
         let cached = CachedDB::new(state_provider, Arc::new(SharedCachedReads::default()));
-        Ok(BlockState::boxed(cached)
-            .with_bundle_state(self.bundle_state.clone().unwrap_or_default()))
+        Ok(
+            BlockState::new(cached)
+                .with_bundle_state(self.bundle_state.clone().unwrap_or_default()),
+        )
     }
 
     pub fn current_nonce(&self, named_addr: NamedAddr) -> eyre::Result<u64> {

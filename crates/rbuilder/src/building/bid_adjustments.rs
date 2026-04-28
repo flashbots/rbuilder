@@ -1,4 +1,5 @@
 use alloy_eips::Encodable2718 as _;
+use alloy_evm::Database;
 use alloy_primitives::{Address, B256};
 use rbuilder_primitives::mev_boost::{
     ssz_roots::{tx_ssz_leaf_root, CompactSszTransactionTree},
@@ -12,13 +13,17 @@ use crate::building::{
     BlockBuildingContext, BlockState, FinalizeError, ThreadBlockBuildingContext,
     TransactionSszLeafRootCache,
 };
+use reth_errors::ProviderError;
 
 /// Generate bid adjustment state proofs.
-pub fn generate_bid_adjustment_state_proofs(
-    block_state: &mut BlockState,
+pub fn generate_bid_adjustment_state_proofs<DB>(
+    block_state: &mut BlockState<DB>,
     ctx: &BlockBuildingContext,
     local_ctx: &mut ThreadBlockBuildingContext,
-) -> Result<HashMap<Address, BidAdjustmentStateProofs>, FinalizeError> {
+) -> Result<HashMap<Address, BidAdjustmentStateProofs>, FinalizeError>
+where
+    DB: Database<Error = ProviderError>,
+{
     if ctx.adjustment_fee_payers.is_empty() {
         return Ok(Default::default());
     }

@@ -74,7 +74,7 @@ pub fn run_sim_worker<P>(
                     state_provider.clone(),
                     current_sim_context.block_ctx.shared_cached_reads.clone(),
                 );
-                let mut block_state = BlockState::boxed(cached);
+                let mut block_state = BlockState::new(cached);
                 let sim_result = simulate_order(
                     task.parents.clone(),
                     task.order,
