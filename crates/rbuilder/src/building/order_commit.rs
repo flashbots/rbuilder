@@ -31,12 +31,12 @@ use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 
 #[derive(Clone)]
-pub struct BlockState<DB: Database<Error = ProviderError>> {
+pub struct BlockState<DB> {
     db: DB,
     bundle_state: Option<BundleState>,
 }
 
-impl<DB: Database<Error = ProviderError>> BlockState<DB> {
+impl<DB> BlockState<DB> {
     pub fn new(db: DB) -> Self {
         Self {
             db,
@@ -69,6 +69,27 @@ impl<DB: Database<Error = ProviderError>> BlockState<DB> {
         self.bundle_state.clone().unwrap()
     }
 
+    /// Get accounts that were changed for the last `num_reverts` revert.
+    /// Revert is created after .merge_transitions(BundleRetention::Reverts) is called
+    /// on the EVM database object
+    pub fn get_changes_for_last_reverts(&self, num_reverts: usize) -> Vec<Address> {
+        let mut result = Vec::new();
+        self.bundle_state()
+            .reverts
+            .iter()
+            .rev()
+            .take(num_reverts)
+            .for_each(|r| r.iter().for_each(|c| result.push(c.0)));
+        result.sort();
+        result.dedup();
+        result
+    }
+}
+
+impl<DB> BlockState<DB>
+where
+    DB: Database<Error = ProviderError>,
+{
     pub fn new_db_ref(&mut self) -> BlockStateDBRef<'_, &mut DB> {
         let bundle_state = self.bundle_state.take().unwrap();
         let db = State::builder()
@@ -104,22 +125,6 @@ impl<DB: Database<Error = ProviderError>> BlockState<DB> {
             .basic(address)?
             .map(|acc| acc.code_hash)
             .unwrap_or_else(|| KECCAK_EMPTY))
-    }
-
-    /// Get accounts that were changed for the last `num_reverts` revert.
-    /// Revert is created after .merge_transitions(BundleRetention::Reverts) is called
-    /// on the EVM database object
-    pub fn get_changes_for_last_reverts(&self, num_reverts: usize) -> Vec<Address> {
-        let mut result = Vec::new();
-        self.bundle_state()
-            .reverts
-            .iter()
-            .rev()
-            .take(num_reverts)
-            .for_each(|r| r.iter().for_each(|c| result.push(c.0)));
-        result.sort();
-        result.dedup();
-        result
     }
 }
 
@@ -387,7 +392,7 @@ pub struct PartialBlockFork<
     'd,
     Tracer: SimulationTracer,
     PartialBlockForkExecutionTracerType: PartialBlockForkExecutionTracer,
-    DB: Database<Error = ProviderError>,
+    DB,
 > {
     pub rollbacks: usize,
     pub ctx: &'c BlockBuildingContext,
@@ -1050,9 +1055,7 @@ impl<
     }
 }
 
-impl<'a, 'c, 'd, DB: Database<Error = ProviderError>>
-    PartialBlockFork<'a, '_, 'c, 'd, (), NullPartialBlockForkExecutionTracer, DB>
-{
+impl<'a, 'c, 'd, DB> PartialBlockFork<'a, '_, 'c, 'd, (), NullPartialBlockForkExecutionTracer, DB> {
     pub fn new(
         state: &'a mut BlockState<DB>,
         ctx: &'c BlockBuildingContext,
@@ -1070,13 +1073,8 @@ impl<'a, 'c, 'd, DB: Database<Error = ProviderError>>
     }
 }
 
-impl<
-        'a,
-        'c,
-        'd,
-        PartialBlockForkExecutionTracerType: PartialBlockForkExecutionTracer,
-        DB: Database<Error = ProviderError>,
-    > PartialBlockFork<'a, '_, 'c, 'd, (), PartialBlockForkExecutionTracerType, DB>
+impl<'a, 'c, 'd, PartialBlockForkExecutionTracerType: PartialBlockForkExecutionTracer, DB>
+    PartialBlockFork<'a, '_, 'c, 'd, (), PartialBlockForkExecutionTracerType, DB>
 {
     pub fn new_with_execution_tracer(
         state: &'a mut BlockState<DB>,

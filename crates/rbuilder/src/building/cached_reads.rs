@@ -6,7 +6,7 @@ use dashmap::DashMap;
 use reth::revm::database::StateProviderDatabase;
 use reth_errors::ProviderError;
 use reth_provider::StateProvider;
-use revm::{bytecode::Bytecode, state::AccountInfo, Database};
+use revm::{bytecode::Bytecode, state::AccountInfo, Database as RevmDatabase};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
@@ -83,7 +83,7 @@ impl CachedDB {
     }
 }
 
-impl Database for CachedDB {
+impl RevmDatabase for CachedDB {
     type Error = ProviderError;
 
     fn basic(&mut self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {

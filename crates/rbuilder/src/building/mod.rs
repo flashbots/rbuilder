@@ -891,9 +891,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         &mut self,
         finalize_revert_state: FinalizeRevertStateCurrentIteration,
         block_state: &mut BlockState<DB>,
-    ) where
-        DB: Database<Error = ProviderError>,
-    {
+    ) {
         self.space_state
             .free_used_state(finalize_revert_state.last_tx_block_space);
         self.executed_tx_infos.pop();
