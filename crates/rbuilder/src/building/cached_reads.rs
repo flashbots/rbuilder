@@ -1,10 +1,12 @@
-//! Caching layer for database, its used to minimize disc access.
-//! There are 2 caches: one global shared between different threads and one owned by local thread.
+//! Caching layer for database, used to minimize disc access.
+//! The cache is shared between threads.
 
-use ahash::HashMap;
 use alloy_primitives::{Address, B256, U256};
 use dashmap::DashMap;
-use revm::{bytecode::Bytecode, state::AccountInfo, Database};
+use reth::revm::database::StateProviderDatabase;
+use reth_errors::ProviderError;
+use reth_provider::StateProvider;
+use revm::{bytecode::Bytecode, state::AccountInfo, Database as RevmDatabase};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
@@ -23,77 +25,57 @@ pub struct SharedCachedReads {
     pub code_by_hash: DashMap<B256, Bytecode, RandomState>,
     pub block_hash: DashMap<u64, B256, RandomState>,
 
-    pub local_hit_count: Arc<AtomicU64>,
-    pub local_miss_count: Arc<AtomicU64>,
     pub shared_hit_count: Arc<AtomicU64>,
     pub shared_miss_count: Arc<AtomicU64>,
 }
 
 impl Drop for SharedCachedReads {
     fn drop(&mut self) {
-        let local_hit_count = self.local_hit_count.load(Ordering::Relaxed);
-        let local_miss_count = self.local_miss_count.load(Ordering::Relaxed);
-        let local_hit_perc =
-            100.0 * local_hit_count as f64 / (local_hit_count + local_miss_count) as f64;
         let shared_hit_count = self.shared_hit_count.load(Ordering::Relaxed);
         let shared_miss_count = self.shared_miss_count.load(Ordering::Relaxed);
         let shared_hit_perc =
             100.0 * shared_hit_count as f64 / (shared_hit_count + shared_miss_count) as f64;
         info!(
-            local_hit_count,
-            local_miss_count,
             shared_hit_count,
-            shared_miss_count,
-            local_hit_perc,
-            shared_hit_perc,
-            "Storage cache stats"
+            shared_miss_count, shared_hit_perc, "Storage cache stats"
         );
     }
 }
 
-/// Database cache local to some process. It should be created for unique parent block.
-/// It should be created for unique parent block.
-#[derive(Debug, Clone, Default)]
-pub struct LocalCachedReads {
-    pub account_info: HashMap<Address, Option<AccountInfo>>,
-    pub storage: HashMap<(Address, U256), U256>,
+/// Database that wraps a reth state provider with a shared read cache.
+#[derive(Clone)]
+pub struct CachedDB {
+    state_provider: Arc<dyn StateProvider>,
+    shared_cache: Arc<SharedCachedReads>,
 }
 
-#[derive(Debug)]
-pub struct CachedDB<'a, 'b, DB> {
-    db: DB,
-    local_cache: &'a mut LocalCachedReads,
-    shared_cache: &'b SharedCachedReads,
+impl std::fmt::Debug for CachedDB {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CachedDB").finish_non_exhaustive()
+    }
 }
 
-impl<'a, 'b, DB> CachedDB<'a, 'b, DB> {
+impl CachedDB {
     pub fn new(
-        db: DB,
-        local_cache: &'a mut LocalCachedReads,
-        shared_cache: &'b SharedCachedReads,
+        state_provider: Arc<dyn StateProvider>,
+        shared_cache: Arc<SharedCachedReads>,
     ) -> Self {
         Self {
-            db,
-            local_cache,
+            state_provider,
             shared_cache,
         }
     }
 
-    fn inc_local_hit(&self) {
-        self.shared_cache
-            .local_hit_count
-            .fetch_add(1, Ordering::Relaxed);
+    fn inner_db(&self) -> StateProviderDatabase<&dyn StateProvider> {
+        StateProviderDatabase::new(&*self.state_provider)
     }
-    fn inc_local_miss(&self) {
-        self.shared_cache
-            .local_miss_count
-            .fetch_add(1, Ordering::Relaxed);
-    }
+
     fn inc_shared_hit(&self) {
         self.shared_cache
             .shared_hit_count
             .fetch_add(1, Ordering::Relaxed);
     }
+
     fn inc_shared_miss(&self) {
         self.shared_cache
             .shared_miss_count
@@ -101,47 +83,19 @@ impl<'a, 'b, DB> CachedDB<'a, 'b, DB> {
     }
 }
 
-impl<DB: Database> Database for CachedDB<'_, '_, DB> {
-    type Error = DB::Error;
+impl RevmDatabase for CachedDB {
+    type Error = ProviderError;
 
     fn basic(&mut self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
-        let mut result = None;
-        let mut local_cache_fill = false;
-        let mut shared_cache_fill = false;
-
-        if let Some(data) = self.local_cache.account_info.get(&address) {
-            self.inc_local_hit();
-            result = Some(data.clone());
-        } else {
-            self.inc_local_miss();
-            local_cache_fill = true;
+        if let Some(data) = self.shared_cache.account_info.get(&address) {
+            self.inc_shared_hit();
+            return Ok(data.clone());
         }
-
-        if result.is_none() {
-            if let Some(data) = self.shared_cache.account_info.get(&address) {
-                self.inc_shared_hit();
-                result = Some(data.clone());
-            } else {
-                self.inc_shared_miss();
-                shared_cache_fill = true;
-            }
-        }
-        let result = if let Some(result) = result {
-            result
-        } else {
-            self.db.basic(address)?
-        };
-
-        if local_cache_fill {
-            self.local_cache
-                .account_info
-                .insert(address, result.clone());
-        }
-        if shared_cache_fill {
-            self.shared_cache
-                .account_info
-                .insert(address, result.clone());
-        }
+        self.inc_shared_miss();
+        let result = self.inner_db().basic(address)?;
+        self.shared_cache
+            .account_info
+            .insert(address, result.clone());
         Ok(result)
     }
 
@@ -151,7 +105,7 @@ impl<DB: Database> Database for CachedDB<'_, '_, DB> {
             return Ok(data.clone());
         }
         self.inc_shared_miss();
-        let data = self.db.code_by_hash(code_hash)?;
+        let data = self.inner_db().code_by_hash(code_hash)?;
         self.shared_cache
             .code_by_hash
             .insert(code_hash, data.clone());
@@ -159,39 +113,13 @@ impl<DB: Database> Database for CachedDB<'_, '_, DB> {
     }
 
     fn storage(&mut self, address: Address, index: U256) -> Result<U256, Self::Error> {
-        let mut result = None;
-        let mut local_cache_fill = false;
-        let mut shared_cache_fill = false;
-
-        if let Some(data) = self.local_cache.storage.get(&(address, index)) {
-            self.inc_local_hit();
-            result = Some(*data);
-        } else {
-            self.inc_local_miss();
-            local_cache_fill = true;
+        if let Some(data) = self.shared_cache.storage.get(&(address, index)) {
+            self.inc_shared_hit();
+            return Ok(*data);
         }
-
-        if result.is_none() {
-            if let Some(data) = self.shared_cache.storage.get(&(address, index)) {
-                self.inc_shared_hit();
-                result = Some(*data);
-            } else {
-                self.inc_shared_miss();
-                shared_cache_fill = true;
-            }
-        }
-        let result = if let Some(result) = result {
-            result
-        } else {
-            self.db.storage(address, index)?
-        };
-
-        if local_cache_fill {
-            self.local_cache.storage.insert((address, index), result);
-        }
-        if shared_cache_fill {
-            self.shared_cache.storage.insert((address, index), result);
-        }
+        self.inc_shared_miss();
+        let result = self.inner_db().storage(address, index)?;
+        self.shared_cache.storage.insert((address, index), result);
         Ok(result)
     }
 
@@ -201,7 +129,7 @@ impl<DB: Database> Database for CachedDB<'_, '_, DB> {
             return Ok(*data);
         }
         self.inc_shared_miss();
-        let data = self.db.block_hash(number)?;
+        let data = self.inner_db().block_hash(number)?;
         self.shared_cache.block_hash.insert(number, data);
         Ok(data)
     }

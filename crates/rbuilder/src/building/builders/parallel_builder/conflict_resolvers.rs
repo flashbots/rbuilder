@@ -15,8 +15,8 @@ use super::{
 };
 
 use crate::building::{
-    BlockBuildingContext, BlockState, ExecutionError, ExecutionResult, PartialBlock,
-    ThreadBlockBuildingContext,
+    cached_reads::CachedDB, BlockBuildingContext, BlockState, ExecutionError, ExecutionResult,
+    PartialBlock, ThreadBlockBuildingContext,
 };
 use rbuilder_primitives::{OrderId, SimulatedOrder};
 
@@ -127,7 +127,7 @@ impl ResolverContext {
         sequence_of_orders: Vec<usize>,
         task: &ConflictTask,
         state_provider: Arc<dyn StateProvider>,
-    ) -> Result<(ResolutionResult, BlockState)> {
+    ) -> Result<(ResolutionResult, BlockState<CachedDB>)> {
         // @todo actually reuse it for the duration of the block
         let mut local_ctx = ThreadBlockBuildingContext::default();
 
@@ -142,7 +142,7 @@ impl ResolverContext {
         // Initialize state and partial block
         let mut partial_block = PartialBlock::new(true);
         let mut state = self.initialize_block_state(state_provider);
-        partial_block.pre_block_call(&self.ctx, &mut local_ctx, &mut state)?;
+        partial_block.pre_block_call(&self.ctx, &mut state)?;
 
         // Initialize sequenced_order_result
         let mut sequenced_order_result =
@@ -284,21 +284,24 @@ impl ResolverContext {
     }
 
     /// Initializes the block state, using a cached state if available.
-    fn initialize_block_state(&mut self, state_provider: Arc<dyn StateProvider>) -> BlockState {
-        BlockState::new_arc(state_provider)
+    fn initialize_block_state(
+        &mut self,
+        state_provider: Arc<dyn StateProvider>,
+    ) -> BlockState<CachedDB> {
+        let cached = CachedDB::new(state_provider, self.ctx.shared_cached_reads.clone());
+        BlockState::new(cached)
     }
 
     /// Stores the simulation state in the cache.
     fn store_simulation_state(
         &self,
         full_order_ids: &[OrderId],
-        state: &BlockState,
+        state: &BlockState<CachedDB>,
         total_profit: U256,
         per_order_profits: &[(OrderId, U256)],
     ) {
-        let (bundle_state, _) = state.clone().into_parts();
         let cached_simulation_state = CachedSimulationState {
-            bundle_state,
+            bundle_state: state.clone_bundle(),
             total_profit,
             per_order_profits: per_order_profits.to_owned(),
         };

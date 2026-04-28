@@ -1,5 +1,4 @@
 use super::{
-    cached_reads::{CachedDB, LocalCachedReads, SharedCachedReads},
     create_payout_tx,
     tracers::SimulationTracer,
     tx_sim_cache::{CachedExecutionResult, EVMRecordingDatabase},
@@ -18,13 +17,10 @@ use rbuilder_primitives::{
     evm_inspector::{RBuilderEVMInspector, UsedStateTrace},
     BlockSpace, Bundle, Order, SimValue, TransactionSignedEcRecoveredWithBlobs,
 };
-use reth::{
-    consensus_common::validation::MAX_RLP_BLOCK_SIZE, revm::database::StateProviderDatabase,
-};
+use reth::consensus_common::validation::MAX_RLP_BLOCK_SIZE;
 use reth_errors::ProviderError;
 use reth_evm::{Evm, EvmEnv};
 use reth_primitives::Receipt;
-use reth_provider::{StateProvider, StateProviderBox};
 use revm::{
     context::result::{ExecutionResult, ResultAndState},
     context_interface::result::{EVMError, InvalidTransaction},
@@ -35,25 +31,21 @@ use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 
 #[derive(Clone)]
-pub struct BlockState {
-    provider: Arc<dyn StateProvider>,
+pub struct BlockState<DB> {
+    db: DB,
     bundle_state: Option<BundleState>,
 }
 
-impl BlockState {
-    pub fn new(provider: StateProviderBox) -> Self {
-        Self::new_arc(Arc::from(provider))
-    }
-
-    pub fn new_arc(provider: Arc<dyn StateProvider>) -> Self {
+impl<DB> BlockState<DB> {
+    pub fn new(db: DB) -> Self {
         Self {
-            provider,
+            db,
             bundle_state: Some(BundleState::default()),
         }
     }
 
-    pub fn into_provider(self) -> Arc<dyn StateProvider> {
-        self.provider
+    pub fn into_db(self) -> DB {
+        self.db
     }
 
     pub fn with_bundle_state(mut self, bundle_state: BundleState) -> Self {
@@ -61,8 +53,8 @@ impl BlockState {
         self
     }
 
-    pub fn into_parts(self) -> (BundleState, Arc<dyn StateProvider>) {
-        (self.bundle_state.unwrap(), self.provider)
+    pub fn into_parts(self) -> (BundleState, DB) {
+        (self.bundle_state.unwrap(), self.db)
     }
 
     pub fn bundle_state(&self) -> &BundleState {
@@ -73,70 +65,8 @@ impl BlockState {
         self.bundle_state.as_mut().unwrap()
     }
 
-    pub fn state_provider(&self) -> Arc<dyn StateProvider> {
-        self.provider.clone()
-    }
-
     pub fn clone_bundle(&self) -> BundleState {
         self.bundle_state.clone().unwrap()
-    }
-
-    pub fn new_db_ref<'a, 'b, 'c>(
-        &'a mut self,
-        shared_cache_reads: &'b SharedCachedReads,
-        local_cache_reads: &'c mut LocalCachedReads,
-    ) -> BlockStateDBRef<'a, CachedDB<'c, 'b, impl Database<Error = ProviderError> + 'a>> {
-        let state_provider = StateProviderDatabase::new(&self.provider);
-        let cachedb = CachedDB::new(state_provider, local_cache_reads, shared_cache_reads);
-        let bundle_state = self.bundle_state.take().unwrap();
-        let db = State::builder()
-            .with_database(cachedb)
-            .with_bundle_prestate(bundle_state)
-            .with_bundle_update()
-            .build();
-        BlockStateDBRef::new(db, &mut self.bundle_state)
-    }
-
-    pub fn balance(
-        &mut self,
-        address: Address,
-        shared_cache_reads: &SharedCachedReads,
-        local_cache_reads: &mut LocalCachedReads,
-    ) -> Result<U256, ProviderError> {
-        let mut db = self.new_db_ref(shared_cache_reads, local_cache_reads);
-        Ok(db
-            .as_mut()
-            .basic(address)?
-            .map(|acc| acc.balance)
-            .unwrap_or_default())
-    }
-
-    pub fn nonce(
-        &mut self,
-        address: Address,
-        shared_cache_reads: &SharedCachedReads,
-        local_cache_reads: &mut LocalCachedReads,
-    ) -> Result<u64, ProviderError> {
-        let mut db = self.new_db_ref(shared_cache_reads, local_cache_reads);
-        Ok(db
-            .as_mut()
-            .basic(address)?
-            .map(|acc| acc.nonce)
-            .unwrap_or_default())
-    }
-
-    pub fn code_hash(
-        &mut self,
-        address: Address,
-        shared_cache_reads: &SharedCachedReads,
-        local_cache_reads: &mut LocalCachedReads,
-    ) -> Result<B256, ProviderError> {
-        let mut db = self.new_db_ref(shared_cache_reads, local_cache_reads);
-        Ok(db
-            .as_mut()
-            .basic(address)?
-            .map(|acc| acc.code_hash)
-            .unwrap_or_else(|| KECCAK_EMPTY))
     }
 
     /// Get accounts that were changed for the last `num_reverts` revert.
@@ -153,6 +83,48 @@ impl BlockState {
         result.sort();
         result.dedup();
         result
+    }
+}
+
+impl<DB> BlockState<DB>
+where
+    DB: Database<Error = ProviderError>,
+{
+    pub fn new_db_ref(&mut self) -> BlockStateDBRef<'_, &mut DB> {
+        let bundle_state = self.bundle_state.take().unwrap();
+        let db = State::builder()
+            .with_database(&mut self.db)
+            .with_bundle_prestate(bundle_state)
+            .with_bundle_update()
+            .build();
+        BlockStateDBRef::new(db, &mut self.bundle_state)
+    }
+
+    pub fn balance(&mut self, address: Address) -> Result<U256, ProviderError> {
+        let mut db = self.new_db_ref();
+        Ok(db
+            .as_mut()
+            .basic(address)?
+            .map(|acc| acc.balance)
+            .unwrap_or_default())
+    }
+
+    pub fn nonce(&mut self, address: Address) -> Result<u64, ProviderError> {
+        let mut db = self.new_db_ref();
+        Ok(db
+            .as_mut()
+            .basic(address)?
+            .map(|acc| acc.nonce)
+            .unwrap_or_default())
+    }
+
+    pub fn code_hash(&mut self, address: Address) -> Result<B256, ProviderError> {
+        let mut db = self.new_db_ref();
+        Ok(db
+            .as_mut()
+            .basic(address)?
+            .map(|acc| acc.code_hash)
+            .unwrap_or_else(|| KECCAK_EMPTY))
     }
 }
 
@@ -420,10 +392,11 @@ pub struct PartialBlockFork<
     'd,
     Tracer: SimulationTracer,
     PartialBlockForkExecutionTracerType: PartialBlockForkExecutionTracer,
+    DB,
 > {
     pub rollbacks: usize,
     pub ctx: &'c BlockBuildingContext,
-    pub state: &'a mut BlockState,
+    pub state: &'a mut BlockState<DB>,
     pub local_ctx: &'d mut ThreadBlockBuildingContext,
     pub tracer: Option<&'b mut Tracer>,
     /// Temporary state trace used as a scratchpad for tx execution
@@ -473,12 +446,13 @@ impl<
         'd,
         Tracer: SimulationTracer,
         PartialBlockForkExecutionTracerType: PartialBlockForkExecutionTracer,
-    > PartialBlockFork<'a, 'b, 'c, 'd, Tracer, PartialBlockForkExecutionTracerType>
+        DB: Database<Error = ProviderError>,
+    > PartialBlockFork<'a, 'b, 'c, 'd, Tracer, PartialBlockForkExecutionTracerType, DB>
 {
     pub fn with_tracer<NewTracer: SimulationTracer>(
         self,
         tracer: &'b mut NewTracer,
-    ) -> PartialBlockFork<'a, 'b, 'c, 'd, NewTracer, PartialBlockForkExecutionTracerType> {
+    ) -> PartialBlockFork<'a, 'b, 'c, 'd, NewTracer, PartialBlockForkExecutionTracerType, DB> {
         PartialBlockFork {
             rollbacks: self.rollbacks,
             state: self.state,
@@ -507,11 +481,7 @@ impl<
     }
 
     fn coinbase_balance(&mut self) -> Result<U256, ProviderError> {
-        self.state.balance(
-            self.ctx.evm_env.block_env.beneficiary,
-            &self.ctx.shared_cached_reads,
-            &mut self.local_ctx.cached_reads,
-        )
+        self.state.balance(self.ctx.evm_env.block_env.beneficiary)
     }
 
     /// Helper func that executes f and rollbacks on Ok(Err).
@@ -589,10 +559,7 @@ impl<
         }
 
         let coinbase_balance_before = I256::try_from(self.coinbase_balance()?)?;
-        let mut db = self.state.new_db_ref(
-            &self.ctx.shared_cached_reads,
-            &mut self.local_ctx.cached_reads,
-        );
+        let mut db = self.state.new_db_ref();
         let tx = &tx_with_blobs.internal_tx_unsecure();
         if self.ctx.blocklist.contains(&tx.signer())
             || tx
@@ -764,13 +731,12 @@ impl<
         refundable_value: U256,
         space_used: BlockSpace,
     ) -> Result<ReservedPayout, BundleErr> {
-        let space_limit =
-            match estimate_payout_gas_limit(to, self.ctx, self.local_ctx, self.state, space_used) {
-                Ok(space_limit) => space_limit,
-                Err(err) => {
-                    return Err(BundleErr::EstimatePayoutGas(err));
-                }
-            };
+        let space_limit = match estimate_payout_gas_limit(to, self.ctx, self.state, space_used) {
+            Ok(space_limit) => space_limit,
+            Err(err) => {
+                return Err(BundleErr::EstimatePayoutGas(err));
+            }
+        };
         let base_fee = U256::from(self.ctx.evm_env.block_env.basefee) * U256::from(space_limit.gas);
         if base_fee > refundable_value {
             return Err(BundleErr::NotEnoughRefundForGas {
@@ -799,11 +765,7 @@ impl<
     ) -> Result<Result<(), BundleErr>, CriticalCommitOrderError> {
         let builder_signer = &self.ctx.builder_signer;
 
-        let nonce = self.state.nonce(
-            builder_signer.address,
-            &self.ctx.shared_cached_reads,
-            &mut self.local_ctx.cached_reads,
-        )?;
+        let nonce = self.state.nonce(builder_signer.address)?;
         let payout_tx = match create_payout_tx(
             self.ctx.chain_spec.as_ref(),
             self.ctx.evm_env.block_env.basefee,
@@ -1093,9 +1055,9 @@ impl<
     }
 }
 
-impl<'a, 'c, 'd> PartialBlockFork<'a, '_, 'c, 'd, (), NullPartialBlockForkExecutionTracer> {
+impl<'a, 'c, 'd, DB> PartialBlockFork<'a, '_, 'c, 'd, (), NullPartialBlockForkExecutionTracer, DB> {
     pub fn new(
-        state: &'a mut BlockState,
+        state: &'a mut BlockState<DB>,
         ctx: &'c BlockBuildingContext,
         local_ctx: &'d mut ThreadBlockBuildingContext,
     ) -> Self {
@@ -1111,11 +1073,11 @@ impl<'a, 'c, 'd> PartialBlockFork<'a, '_, 'c, 'd, (), NullPartialBlockForkExecut
     }
 }
 
-impl<'a, 'c, 'd, PartialBlockForkExecutionTracerType: PartialBlockForkExecutionTracer>
-    PartialBlockFork<'a, '_, 'c, 'd, (), PartialBlockForkExecutionTracerType>
+impl<'a, 'c, 'd, PartialBlockForkExecutionTracerType: PartialBlockForkExecutionTracer, DB>
+    PartialBlockFork<'a, '_, 'c, 'd, (), PartialBlockForkExecutionTracerType, DB>
 {
     pub fn new_with_execution_tracer(
-        state: &'a mut BlockState,
+        state: &'a mut BlockState<DB>,
         ctx: &'c BlockBuildingContext,
         local_ctx: &'d mut ThreadBlockBuildingContext,
         partial_block_fork_execution_tracer: PartialBlockForkExecutionTracerType,

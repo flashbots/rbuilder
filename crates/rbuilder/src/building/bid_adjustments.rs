@@ -14,8 +14,8 @@ use crate::building::{
 };
 
 /// Generate bid adjustment state proofs.
-pub fn generate_bid_adjustment_state_proofs(
-    block_state: &mut BlockState,
+pub fn generate_bid_adjustment_state_proofs<DB>(
+    block_state: &mut BlockState<DB>,
     ctx: &BlockBuildingContext,
     local_ctx: &mut ThreadBlockBuildingContext,
 ) -> Result<HashMap<Address, BidAdjustmentStateProofs>, FinalizeError> {

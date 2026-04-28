@@ -11,12 +11,13 @@ use tracing::{debug, trace, warn};
 
 use crate::{
     building::{
-        builders::BuiltBlockId, estimate_payout_gas_limit, journal::JournalSequenceNumber,
-        tracers::GasUsedSimulationTracer, BlockBuildingContext, BlockSpace, BlockState,
-        BuiltBlockTrace, BuiltBlockTraceError, CriticalCommitOrderError, EstimatePayoutGasErr,
-        ExecutionError, ExecutionResult, FinalizeAdjustmentState, FinalizeError, FinalizeResult,
-        FinalizeRevertStateCurrentIteration, NullPartialBlockExecutionTracer, PartialBlock,
-        PartialBlockExecutionTracer, ThreadBlockBuildingContext,
+        builders::BuiltBlockId, cached_reads::CachedDB, estimate_payout_gas_limit,
+        journal::JournalSequenceNumber, tracers::GasUsedSimulationTracer, BlockBuildingContext,
+        BlockSpace, BlockState, BuiltBlockTrace, BuiltBlockTraceError, CriticalCommitOrderError,
+        EstimatePayoutGasErr, ExecutionError, ExecutionResult, FinalizeAdjustmentState,
+        FinalizeError, FinalizeResult, FinalizeRevertStateCurrentIteration,
+        NullPartialBlockExecutionTracer, PartialBlock, PartialBlockExecutionTracer,
+        ThreadBlockBuildingContext,
     },
     live_builder::block_output::bidding_service_interface::CompetitionBidContext,
     telemetry::{self, add_block_fill_time, add_order_simulation_time},
@@ -151,7 +152,7 @@ pub struct BlockBuildingHelperFromProvider<
     /// Balance of fee recipient before we stared building.
     _fee_recipient_balance_start: U256,
     /// Accumulated changes for the block (due to commit_order calls).
-    block_state: BlockState,
+    block_state: BlockState<CachedDB>,
     partial_block: PartialBlock<GasUsedSimulationTracer, PartialBlockExecutionTracerType>,
     /// Gas reserved for the final payout txs from coinbase to fee recipient.
     payout_tx_gas: u64,
@@ -216,7 +217,6 @@ impl BlockBuildingHelperFromProvider<NullPartialBlockExecutionTracer> {
         next_journal_sequence_number: JournalSequenceNumber,
         state_provider: Arc<dyn StateProvider>,
         building_ctx: BlockBuildingContext,
-        local_ctx: &mut ThreadBlockBuildingContext,
         builder_name: String,
         discard_txs: bool,
         available_orders_statistics: OrderStatistics,
@@ -228,7 +228,6 @@ impl BlockBuildingHelperFromProvider<NullPartialBlockExecutionTracer> {
             next_journal_sequence_number,
             state_provider,
             building_ctx,
-            local_ctx,
             builder_name,
             discard_txs,
             available_orders_statistics,
@@ -254,7 +253,6 @@ impl<
         next_journal_sequence_number: JournalSequenceNumber,
         state_provider: Arc<dyn StateProvider>,
         building_ctx: BlockBuildingContext,
-        local_ctx: &mut ThreadBlockBuildingContext,
         builder_name: String,
         discard_txs: bool,
         available_orders_statistics: OrderStatistics,
@@ -271,14 +269,14 @@ impl<
         let mut partial_block =
             PartialBlock::new_with_execution_tracer(discard_txs, partial_block_execution_tracer)
                 .with_tracer(GasUsedSimulationTracer::default());
-        let mut block_state = BlockState::new_arc(state_provider);
+        let cached = CachedDB::new(state_provider, building_ctx.shared_cached_reads.clone());
+        let mut block_state = BlockState::new(cached);
         partial_block
-            .pre_block_call(&building_ctx, local_ctx, &mut block_state)
+            .pre_block_call(&building_ctx, &mut block_state)
             .map_err(|_| BlockBuildingHelperError::PreBlockCallFailed)?;
         let payout_tx_space = estimate_payout_gas_limit(
             building_ctx.attributes.suggested_fee_recipient,
             &building_ctx,
-            local_ctx,
             &mut block_state,
             BlockSpace::ZERO,
         )?;
@@ -365,11 +363,9 @@ impl<
 
         let (bid_value, true_value) = (payout_tx_value, self.true_block_value()?);
 
-        let fee_recipient_balance_after = self.block_state.balance(
-            self.building_ctx.attributes.suggested_fee_recipient,
-            &self.building_ctx.shared_cached_reads,
-            &mut local_ctx.cached_reads,
-        )?;
+        let fee_recipient_balance_after = self
+            .block_state
+            .balance(self.building_ctx.attributes.suggested_fee_recipient)?;
         let fee_recipient_balance_diff = fee_recipient_balance_after
             .checked_sub(self._fee_recipient_balance_start)
             .unwrap_or_default();

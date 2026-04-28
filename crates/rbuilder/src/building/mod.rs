@@ -28,11 +28,11 @@ use alloy_eips::{
     eip7840::BlobParams,
     merge::BEACON_NONCE,
 };
-use alloy_evm::{block::system_calls::SystemCaller, env::EvmEnv, eth::eip6110};
+use alloy_evm::{block::system_calls::SystemCaller, env::EvmEnv, eth::eip6110, Database};
 use alloy_primitives::{Address, BlockNumber, Bytes, B256, I256, U256};
 use alloy_rlp::Encodable as _;
 use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
-use cached_reads::{LocalCachedReads, SharedCachedReads};
+use cached_reads::SharedCachedReads;
 use derive_more::Deref;
 use eth_sparse_mpt::SparseTrieLocalCache;
 use evm::EthCachedEvmFactory;
@@ -353,7 +353,6 @@ impl BlockBuildingContext {
 /// Caches shared between threads should go to BlockBuildingContext.
 #[derive(Debug, Clone, Default)]
 pub struct ThreadBlockBuildingContext {
-    pub cached_reads: LocalCachedReads,
     pub bloom_cache: ReceiptsDataCache,
     pub tx_root_cache: TransactionRootCache,
     pub root_hash_calculator: SparseTrieLocalCache,
@@ -693,14 +692,17 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         self.space_state.free_reserved_block_space();
     }
 
-    pub fn commit_order(
+    pub fn commit_order<DB>(
         &mut self,
         order: &SimulatedOrder,
         ctx: &BlockBuildingContext,
         local_ctx: &mut ThreadBlockBuildingContext,
-        state: &mut BlockState,
+        state: &mut BlockState<DB>,
         result_filter: &dyn Fn(&SimValue) -> Result<(), ExecutionError>,
-    ) -> Result<Result<ExecutionResult, ExecutionError>, CriticalCommitOrderError> {
+    ) -> Result<Result<ExecutionResult, ExecutionError>, CriticalCommitOrderError>
+    where
+        DB: Database<Error = ProviderError>,
+    {
         self.partial_block_execution_tracer
             .update_commit_order_about_to_execute(order);
         let res = self.commit_order_inner(order, ctx, local_ctx, state, result_filter);
@@ -712,14 +714,17 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
     /// result_filter: little hack to allow "cancel" the execution depending no the SimValue result. Ideally it would be nicer to split commit_order
     ///     in 2 parts, one that executes but does not apply (returns state changes) and then another one that applies the changes.
     ///     You can always pass &|_| Ok(()) if you don't need the filter.
-    fn commit_order_inner(
+    fn commit_order_inner<DB>(
         &mut self,
         order: &SimulatedOrder,
         ctx: &BlockBuildingContext,
         local_ctx: &mut ThreadBlockBuildingContext,
-        state: &mut BlockState,
+        state: &mut BlockState<DB>,
         result_filter: &dyn Fn(&SimValue) -> Result<(), ExecutionError>,
-    ) -> Result<Result<ExecutionResult, ExecutionError>, CriticalCommitOrderError> {
+    ) -> Result<Result<ExecutionResult, ExecutionError>, CriticalCommitOrderError>
+    where
+        DB: Database<Error = ProviderError>,
+    {
         let mut fork = PartialBlockFork::new_with_execution_tracer(
             state,
             ctx,
@@ -802,24 +807,23 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
     /// Inserts payout tx to ctx.attributes.suggested_fee_recipient (should be called at the end of the block)
     /// Returns the paid value (block profit after subtracting the burned basefee of the payout tx)
     #[allow(clippy::too_many_arguments)]
-    pub fn insert_refunds_and_proposer_payout_tx(
+    pub fn insert_refunds_and_proposer_payout_tx<DB>(
         &mut self,
         gas_limit: u64,
         value: U256,
         ctx: &BlockBuildingContext,
         local_ctx: &mut ThreadBlockBuildingContext,
-        state: &mut BlockState,
+        state: &mut BlockState<DB>,
         adjust_finalized_block: bool,
         finalize_revert_state: &mut FinalizeRevertStateCurrentIteration,
-    ) -> Result<(), InsertPayoutTxErr> {
+    ) -> Result<(), InsertPayoutTxErr>
+    where
+        DB: Database<Error = ProviderError>,
+    {
         let builder_signer = &ctx.builder_signer;
         self.free_reserved_block_space();
         let mut nonce = state
-            .nonce(
-                builder_signer.address,
-                &ctx.shared_cached_reads,
-                &mut local_ctx.cached_reads,
-            )
+            .nonce(builder_signer.address)
             .map_err(CriticalCommitOrderError::Reth)?;
 
         let mut fork = PartialBlockFork::new(state, ctx, local_ctx).with_tracer(&mut self.tracer);
@@ -828,11 +832,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             for (refund_recipient, refund_amount) in &self.combined_refunds {
                 let refund_recipient_code_hash = fork
                     .state
-                    .code_hash(
-                        *refund_recipient,
-                        &ctx.shared_cached_reads,
-                        &mut fork.local_ctx.cached_reads,
-                    )
+                    .code_hash(*refund_recipient)
                     .map_err(CriticalCommitOrderError::Reth)?;
                 if refund_recipient_code_hash != KECCAK_EMPTY {
                     error!(%refund_recipient_code_hash, %refund_recipient, %refund_amount, "Refund recipient has code, skipping refund");
@@ -887,10 +887,10 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         Ok(())
     }
 
-    pub fn adjust_finalize_block_revert_to_prefinalized_state(
+    pub fn adjust_finalize_block_revert_to_prefinalized_state<DB>(
         &mut self,
         finalize_revert_state: FinalizeRevertStateCurrentIteration,
-        block_state: &mut BlockState,
+        block_state: &mut BlockState<DB>,
     ) {
         self.space_state
             .free_used_state(finalize_revert_state.last_tx_block_space);
@@ -901,14 +901,16 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
     }
 
     /// returns (requests, withdrawals_root)
-    pub fn process_requests(
+    pub fn process_requests<DB>(
         &self,
-        state: &mut BlockState,
+        state: &mut BlockState<DB>,
         ctx: &BlockBuildingContext,
-        local_ctx: &mut ThreadBlockBuildingContext,
         finalize_revert_state: &mut FinalizeRevertStateCurrentIteration,
-    ) -> Result<(Option<Requests>, Option<B256>), FinalizeError> {
-        let mut db = state.new_db_ref(&ctx.shared_cached_reads, &mut local_ctx.cached_reads);
+    ) -> Result<(Option<Requests>, Option<B256>), FinalizeError>
+    where
+        DB: Database<Error = ProviderError>,
+    {
+        let mut db = state.new_db_ref();
 
         // Apply and gather execution requests
         let requests = if ctx
@@ -968,23 +970,22 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
     }
 
     /// Mostly based on reth's (v1.2) default_ethereum_payload_builder.
-    pub fn finalize(
+    pub fn finalize<DB>(
         &mut self,
-        state: &mut BlockState,
+        state: &mut BlockState<DB>,
         ctx: &BlockBuildingContext,
         local_ctx: &mut ThreadBlockBuildingContext,
         adjust_finalize_block: bool,
         finalize_adjustment_state: &mut FinalizeAdjustmentState,
-    ) -> Result<FinalizeResult, FinalizeError> {
+    ) -> Result<FinalizeResult, FinalizeError>
+    where
+        DB: Database<Error = ProviderError>,
+    {
         let start = Instant::now();
 
         let step_start = Instant::now();
-        let (requests, withdrawals_root) = self.process_requests(
-            state,
-            ctx,
-            local_ctx,
-            &mut finalize_adjustment_state.revert_state,
-        )?;
+        let (requests, withdrawals_root) =
+            self.process_requests(state, ctx, &mut finalize_adjustment_state.revert_state)?;
         let block_number = ctx.block();
 
         let request_processsing_time_ms = elapsed_ms(step_start);
@@ -1198,12 +1199,14 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
     }
 
     /// Standard pre block ETH stuff + space allocation for rlp length
-    pub fn pre_block_call(
+    pub fn pre_block_call<DB>(
         &mut self,
         ctx: &BlockBuildingContext,
-        local_ctx: &mut ThreadBlockBuildingContext,
-        state: &mut BlockState,
-    ) -> eyre::Result<()> {
+        state: &mut BlockState<DB>,
+    ) -> eyre::Result<()>
+    where
+        DB: Database<Error = ProviderError>,
+    {
         // We "pre-use" the RLP overhead for the withdrawals and the block header.
         self.space_state.use_space(BlockSpace::new(
             0,
@@ -1211,7 +1214,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             0,
         ));
 
-        let mut db = state.new_db_ref(&ctx.shared_cached_reads, &mut local_ctx.cached_reads);
+        let mut db = state.new_db_ref();
         let mut system_caller = SystemCaller::new(ctx.chain_spec.clone());
         let mut evm = EthEvmConfig::new(ctx.chain_spec.clone())
             .evm_with_env(db.as_mut(), ctx.evm_env.clone());

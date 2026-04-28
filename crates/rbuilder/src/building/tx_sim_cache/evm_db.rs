@@ -1,7 +1,7 @@
 use alloy_primitives::{Address, B256, U256};
 use revm::{
     state::{AccountInfo, Bytecode},
-    Database,
+    Database as RevmDatabase,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -50,7 +50,7 @@ impl<DB> EVMRecordingDatabase<DB> {
     }
 }
 
-impl<DB: Database> Database for EVMRecordingDatabase<DB> {
+impl<DB: RevmDatabase> RevmDatabase for EVMRecordingDatabase<DB> {
     type Error = DB::Error;
 
     fn basic(&mut self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {

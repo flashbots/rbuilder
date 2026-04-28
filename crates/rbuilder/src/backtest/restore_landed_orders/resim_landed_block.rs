@@ -1,7 +1,8 @@
 use crate::{
     building::{
-        tracers::AccumulatorSimulationTracer, BlockBuildingContext, BlockBuildingSpaceState,
-        BlockState, PartialBlock, PartialBlockFork, ThreadBlockBuildingContext,
+        cached_reads::CachedDB, tracers::AccumulatorSimulationTracer, BlockBuildingContext,
+        BlockBuildingSpaceState, BlockState, PartialBlock, PartialBlockFork,
+        ThreadBlockBuildingContext,
     },
     provider::StateProviderFactory,
     utils::{
@@ -15,6 +16,7 @@ use eyre::Context;
 use rbuilder_primitives::evm_inspector::SlotKey;
 use reth_chainspec::ChainSpec;
 use reth_primitives::{Receipt, Recovered, TransactionSigned};
+use reth_provider::StateProvider;
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -67,23 +69,21 @@ where
 
     let mut local_ctx = ThreadBlockBuildingContext::default();
 
-    let state_provider = provider.history_by_block_hash(ctx.attributes.parent)?;
+    let state_provider: Arc<dyn StateProvider> =
+        Arc::from(provider.history_by_block_hash(ctx.attributes.parent)?);
+    let cached = CachedDB::new(state_provider, ctx.shared_cached_reads.clone());
     let mut partial_block = PartialBlock::new(true);
-    let mut state = BlockState::new(state_provider);
+    let mut state = BlockState::new(cached);
 
     partial_block
-        .pre_block_call(&ctx, &mut local_ctx, &mut state)
+        .pre_block_call(&ctx, &mut state)
         .with_context(|| "Failed to pre_block_call")?;
 
     let mut space_state = BlockBuildingSpaceState::ZERO;
     let mut written_slots: HashMap<SlotKey, Vec<B256>> = HashMap::default();
 
     for (idx, tx) in txs.into_iter().enumerate() {
-        let coinbase_balance_before = state.balance(
-            coinbase,
-            &ctx.shared_cached_reads,
-            &mut local_ctx.cached_reads,
-        )?;
+        let coinbase_balance_before = state.balance(coinbase)?;
         let mut accumulator_tracer = AccumulatorSimulationTracer::default();
         let result = {
             let mut fork = PartialBlockFork::new(&mut state, &ctx, &mut local_ctx)
@@ -91,11 +91,7 @@ where
             fork.commit_tx(&tx, space_state)?
                 .with_context(|| format!("Failed to commit tx: {} {:?}", idx, tx.hash()))?
         };
-        let coinbase_balance_after = state.balance(
-            coinbase,
-            &ctx.shared_cached_reads,
-            &mut local_ctx.cached_reads,
-        )?;
+        let coinbase_balance_after = state.balance(coinbase)?;
         let coinbase_profit = signed_uint_delta(coinbase_balance_after, coinbase_balance_before);
         space_state.use_space(result.space_used());
 
