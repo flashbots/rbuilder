@@ -23,7 +23,7 @@ pub fn simulate_priority_update(
         info_span!("simulate_priority_update", order_id = ?order.id(), ?from, ?to).entered();
 
     let cached = CachedDB::new(parent_block_state_provider, ctx.shared_cached_reads.clone());
-    let mut state = BlockState::boxed(cached);
+    let mut state = BlockState::new(cached);
 
     let combined_refunds = HashMap::default();
     let result = {

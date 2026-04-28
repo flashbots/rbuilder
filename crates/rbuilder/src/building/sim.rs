@@ -23,7 +23,6 @@ use rand::seq::SliceRandom;
 use rbuilder_primitives::{Order, OrderId, SimulatedOrder};
 use reth_errors::ProviderError;
 use reth_provider::StateProvider;
-use revm::Database;
 use std::{
     cmp::{max, min, Ordering},
     collections::hash_map::Entry,
@@ -458,7 +457,6 @@ where
 {
     let pending_db = PendingStateDb::new(pu_pool.pending_update_state(), parent_db);
     let mut block_state = BlockState::new(pending_db);
-
 
     let mut tracer = AccumulatorSimulationTracer::new();
     let mut fork = PartialBlockFork::new(&mut block_state, ctx, local_ctx).with_tracer(&mut tracer);

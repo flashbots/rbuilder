@@ -89,9 +89,9 @@ impl PriorityUpdatePool {
     /// For each read slot: if the slot was already written in the in-block
     /// bundle state, the PU is not needed for this slot — skip it. Otherwise
     /// surface the PU that owns the slot.
-    pub fn get_updates(
+    pub fn get_updates<DB>(
         &self,
-        current_block_state: &BlockState,
+        current_block_state: &BlockState<DB>,
         read_slots: &[SlotKey],
     ) -> Vec<&Order> {
         if read_slots.is_empty() || self.orders.is_empty() {
@@ -117,7 +117,7 @@ impl PriorityUpdatePool {
     }
 }
 
-fn slot_overwritten_in_bundle(state: &BlockState, slot: &SlotKey) -> bool {
+fn slot_overwritten_in_bundle<DB>(state: &BlockState<DB>, slot: &SlotKey) -> bool {
     let Some(account) = state.bundle_state().state.get(&slot.address) else {
         return false;
     };
