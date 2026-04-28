@@ -1,4 +1,4 @@
-FROM rust:1.89.0-bullseye@sha256:8f72d971a31b278cebdb2eb64a44c3900ff27c716a4ef6f4db05946d10c9ae4e AS builder
+FROM rust:1.95.0-bullseye@sha256:85f9d38ab80fa5752a6fd5bff34c953a59ce2c7ccb0d47fb678d3c0300b8a331 AS builder
 
 ARG BUILD_PROFILE=release
 ENV BUILD_PROFILE=$BUILD_PROFILE
