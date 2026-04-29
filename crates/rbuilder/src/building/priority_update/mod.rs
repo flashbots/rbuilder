@@ -12,6 +12,7 @@ use pending_updates::PendingUpdates;
 pub mod pending_updates;
 pub mod pur_simulation_job;
 pub mod simulate;
+pub mod used_priority_update_tracer;
 
 /// Holds the set of simulated priority-update orders active for the current block.
 ///
