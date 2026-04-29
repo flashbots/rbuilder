@@ -10,6 +10,7 @@ use crate::{
 };
 use ahash::HashSet;
 use alloy_consensus::{constants::KECCAK_EMPTY, Transaction};
+use alloy_evm::eth::EthEvmContext;
 use alloy_evm::Database;
 use alloy_primitives::{Address, B256, I256, U256};
 use alloy_rlp::Encodable;
@@ -25,7 +26,9 @@ use revm::{
     context::result::{ExecutionResult, ResultAndState},
     context_interface::result::{EVMError, InvalidTransaction},
     database::{states::bundle_state::BundleRetention, BundleState, State},
-    Database as _, DatabaseCommit,
+    inspector::NoOpInspector,
+    interpreter::interpreter::EthInterpreter,
+    Database as _, DatabaseCommit, Inspector,
 };
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
@@ -393,6 +396,7 @@ pub struct PartialBlockFork<
     Tracer: SimulationTracer,
     PartialBlockForkExecutionTracerType: PartialBlockForkExecutionTracer,
     DB,
+    EvmInspector = NoOpInspector,
 > {
     pub rollbacks: usize,
     pub ctx: &'c BlockBuildingContext,
@@ -402,6 +406,7 @@ pub struct PartialBlockFork<
     /// Temporary state trace used as a scratchpad for tx execution
     tmp_used_state_tracer: UsedStateTrace,
     partial_block_fork_execution_tracer: PartialBlockForkExecutionTracerType,
+    pub evm_inspector: EvmInspector,
 }
 
 pub struct PartialBlockRollobackPoint {
@@ -447,12 +452,28 @@ impl<
         Tracer: SimulationTracer,
         PartialBlockForkExecutionTracerType: PartialBlockForkExecutionTracer,
         DB: Database<Error = ProviderError>,
-    > PartialBlockFork<'a, 'b, 'c, 'd, Tracer, PartialBlockForkExecutionTracerType, DB>
+        EvmInspector,
+    >
+    PartialBlockFork<'a, 'b, 'c, 'd, Tracer, PartialBlockForkExecutionTracerType, DB, EvmInspector>
+where
+    EvmInspector: for<'p, 'q, 'r> Inspector<
+        EthEvmContext<&'p mut EVMRecordingDatabase<&'q mut State<&'r mut DB>>>,
+        EthInterpreter,
+    >,
 {
     pub fn with_tracer<NewTracer: SimulationTracer>(
         self,
         tracer: &'b mut NewTracer,
-    ) -> PartialBlockFork<'a, 'b, 'c, 'd, NewTracer, PartialBlockForkExecutionTracerType, DB> {
+    ) -> PartialBlockFork<
+        'a,
+        'b,
+        'c,
+        'd,
+        NewTracer,
+        PartialBlockForkExecutionTracerType,
+        DB,
+        EvmInspector,
+    > {
         PartialBlockFork {
             rollbacks: self.rollbacks,
             state: self.state,
@@ -461,6 +482,38 @@ impl<
             tracer: Some(tracer),
             tmp_used_state_tracer: self.tmp_used_state_tracer,
             partial_block_fork_execution_tracer: self.partial_block_fork_execution_tracer,
+            evm_inspector: self.evm_inspector,
+        }
+    }
+
+    pub fn with_evm_inspector<NewInspector>(
+        self,
+        evm_inspector: NewInspector,
+    ) -> PartialBlockFork<
+        'a,
+        'b,
+        'c,
+        'd,
+        Tracer,
+        PartialBlockForkExecutionTracerType,
+        DB,
+        NewInspector,
+    >
+    where
+        NewInspector: for<'p, 'q, 'r> Inspector<
+            EthEvmContext<&'p mut EVMRecordingDatabase<&'q mut State<&'r mut DB>>>,
+            EthInterpreter,
+        >,
+    {
+        PartialBlockFork {
+            rollbacks: self.rollbacks,
+            state: self.state,
+            ctx: self.ctx,
+            local_ctx: self.local_ctx,
+            tracer: self.tracer,
+            tmp_used_state_tracer: self.tmp_used_state_tracer,
+            partial_block_fork_execution_tracer: self.partial_block_fork_execution_tracer,
+            evm_inspector,
         }
     }
 
@@ -607,6 +660,7 @@ impl<
                 used_state_tracer,
                 &mut db,
                 &self.ctx.blocklist,
+                &mut self.evm_inspector,
             )?;
 
             if caching_result.should_cache {
@@ -1069,6 +1123,7 @@ impl<'a, 'c, 'd, DB> PartialBlockFork<'a, '_, 'c, 'd, (), NullPartialBlockForkEx
             tracer: None,
             tmp_used_state_tracer: Default::default(),
             partial_block_fork_execution_tracer: NullPartialBlockForkExecutionTracer {},
+            evm_inspector: NoOpInspector,
         }
     }
 }
@@ -1090,6 +1145,7 @@ impl<'a, 'c, 'd, PartialBlockForkExecutionTracerType: PartialBlockForkExecutionT
             tracer: None,
             tmp_used_state_tracer: Default::default(),
             partial_block_fork_execution_tracer,
+            evm_inspector: NoOpInspector,
         }
     }
 }
@@ -1112,19 +1168,23 @@ fn update_nonce_list(nonces_updated: &mut Vec<(Address, u64)>, new_update: (Addr
 ///
 /// Gas checks must be done before calling this methods
 /// thats why it can't return `TransactionErr::GasLeft` and  `TransactionErr::BlobGasLeft`
-fn execute_evm<Factory>(
+fn execute_evm<Factory, DB, ExtraInspector>(
     evm_factory: &Factory,
     evm_env: EvmEnv,
     tx_with_blobs: &TransactionSignedEcRecoveredWithBlobs,
     used_state_tracer: Option<&mut UsedStateTrace>,
-    db: impl Database<Error = ProviderError>,
+    db: DB,
     blocklist: &HashSet<Address>,
+    extra_inspector: &mut ExtraInspector,
 ) -> Result<Result<ResultAndState, TransactionErr>, CriticalCommitOrderError>
 where
     Factory: EvmFactory,
+    DB: Database<Error = ProviderError>,
+    ExtraInspector: Inspector<EthEvmContext<DB>, EthInterpreter>,
 {
     let tx = tx_with_blobs.internal_tx_unsecure();
-    let mut rbuilder_inspector = RBuilderEVMInspector::new(tx, used_state_tracer);
+    let mut rbuilder_inspector =
+        RBuilderEVMInspector::with_inspector(tx, used_state_tracer, extra_inspector);
 
     let mut evm = evm_factory.create_evm_with_inspector(db, evm_env, &mut rbuilder_inspector);
     let res = match evm.transact(tx) {

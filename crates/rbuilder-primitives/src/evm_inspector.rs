@@ -1,13 +1,15 @@
 use ahash::HashMap;
 use alloy_consensus::Transaction;
-use alloy_primitives::{Address, B256, U256};
+use alloy_primitives::{Address, Log, B256, U256};
 use alloy_rpc_types::AccessList;
 use reth_primitives::{Recovered, TransactionSigned};
 use revm::{
     bytecode::opcode,
     context::ContextTr,
-    inspector::JournalExt,
-    interpreter::{interpreter_types::Jumps, CallInputs, CallOutcome, Interpreter},
+    inspector::{JournalExt, NoOpInspector},
+    interpreter::{
+        interpreter_types::Jumps, CallInputs, CallOutcome, CreateInputs, CreateOutcome, Interpreter,
+    },
     Inspector,
 };
 use revm_inspectors::access_list::AccessListInspector;
@@ -256,15 +258,26 @@ where
 }
 
 #[derive(Debug)]
-pub struct RBuilderEVMInspector<'a> {
+pub struct RBuilderEVMInspector<'a, I = NoOpInspector> {
     access_list_inspector: AccessListInspector,
     used_state_inspector: Option<UsedStateEVMInspector<'a>>,
+    extra_inspector: I,
 }
 
-impl<'a> RBuilderEVMInspector<'a> {
+impl<'a> RBuilderEVMInspector<'a, NoOpInspector> {
     pub fn new(
         tx: &Recovered<TransactionSigned>,
         used_state_trace: Option<&'a mut UsedStateTrace>,
+    ) -> Self {
+        Self::with_inspector(tx, used_state_trace, NoOpInspector)
+    }
+}
+
+impl<'a, I> RBuilderEVMInspector<'a, I> {
+    pub fn with_inspector(
+        tx: &Recovered<TransactionSigned>,
+        used_state_trace: Option<&'a mut UsedStateTrace>,
+        extra_inspector: I,
     ) -> Self {
         let access_list_inspector =
             AccessListInspector::new(tx.access_list().cloned().unwrap_or_default());
@@ -277,6 +290,7 @@ impl<'a> RBuilderEVMInspector<'a> {
         Self {
             access_list_inspector,
             used_state_inspector,
+            extra_inspector,
         }
     }
 
@@ -285,38 +299,65 @@ impl<'a> RBuilderEVMInspector<'a> {
     }
 }
 
-impl<'a, CTX> Inspector<CTX> for RBuilderEVMInspector<'a>
+impl<'a, I, CTX> Inspector<CTX> for RBuilderEVMInspector<'a, I>
 where
     CTX: ContextTr<Journal: JournalExt>,
     UsedStateEVMInspector<'a>: Inspector<CTX>,
+    I: Inspector<CTX>,
 {
+    #[inline]
+    fn initialize_interp(&mut self, interp: &mut Interpreter, context: &mut CTX) {
+        self.extra_inspector.initialize_interp(interp, context);
+    }
+
     #[inline]
     fn step(&mut self, interp: &mut Interpreter, context: &mut CTX) {
         self.access_list_inspector.step(interp, context);
         if let Some(used_state_inspector) = &mut self.used_state_inspector {
             used_state_inspector.step(interp, context);
         }
+        self.extra_inspector.step(interp, context);
+    }
+
+    #[inline]
+    fn step_end(&mut self, interp: &mut Interpreter, context: &mut CTX) {
+        self.extra_inspector.step_end(interp, context);
+    }
+
+    #[inline]
+    fn log(&mut self, interp: &mut Interpreter, context: &mut CTX, log: Log) {
+        self.extra_inspector.log(interp, context, log);
     }
 
     #[inline]
     fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
         if let Some(used_state_inspector) = &mut self.used_state_inspector {
-            used_state_inspector.call(context, inputs)
-        } else {
-            None
+            used_state_inspector.call(context, inputs);
         }
+        self.extra_inspector.call(context, inputs)
+    }
+
+    #[inline]
+    fn call_end(&mut self, context: &mut CTX, inputs: &CallInputs, outcome: &mut CallOutcome) {
+        self.extra_inspector.call_end(context, inputs, outcome);
+    }
+
+    #[inline]
+    fn create(&mut self, context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
+        self.extra_inspector.create(context, inputs)
     }
 
     #[inline]
     fn create_end(
         &mut self,
         context: &mut CTX,
-        inputs: &revm::interpreter::CreateInputs,
-        outcome: &mut revm::interpreter::CreateOutcome,
+        inputs: &CreateInputs,
+        outcome: &mut CreateOutcome,
     ) {
         if let Some(used_state_inspector) = &mut self.used_state_inspector {
             used_state_inspector.create_end(context, inputs, outcome);
         }
+        self.extra_inspector.create_end(context, inputs, outcome);
     }
 
     #[inline]
@@ -324,5 +365,6 @@ where
         if let Some(used_state_inspector) = &mut self.used_state_inspector {
             used_state_inspector.selfdestruct(contract, target, value);
         }
+        self.extra_inspector.selfdestruct(contract, target, value);
     }
 }
