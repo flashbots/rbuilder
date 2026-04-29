@@ -1,13 +1,17 @@
 use super::{
     create_sim_value,
     tracers::{AccumulatorSimulationTracer, SimulationTracer},
+    tx_sim_cache::EVMRecordingDatabase,
     OrderErr, PartialBlockFork, ThreadBlockBuildingContext,
 };
 use crate::{
     building::{
         cached_reads::CachedDB,
         order_is_worth_executing,
-        priority_update::{pending_updates::PendingStateDb, PriorityUpdatePool},
+        priority_update::{
+            pending_updates::new_pending_state_with_tracer,
+            used_priority_update_tracer::UsedStorageSlotStatus, PriorityUpdatePool,
+        },
         BlockBuildingContext, BlockBuildingSpaceState, BlockState, CriticalCommitOrderError,
         NullPartialBlockForkExecutionTracer,
     },
@@ -17,12 +21,14 @@ use crate::{
     utils::NonceCache,
 };
 use ahash::{HashMap, HashSet};
+use alloy_evm::eth::EthEvmContext;
 use alloy_evm::Database;
 use alloy_primitives::Address;
 use rand::seq::SliceRandom;
 use rbuilder_primitives::{Order, OrderId, SimulatedOrder};
 use reth_errors::ProviderError;
 use reth_provider::StateProvider;
+use revm::{database::State, interpreter::interpreter::EthInterpreter, Inspector};
 use std::{
     cmp::{max, min, Ordering},
     collections::hash_map::Entry,
@@ -455,11 +461,14 @@ pub fn simulate_order<DB>(
 where
     DB: Database<Error = ProviderError> + Clone + std::fmt::Debug,
 {
-    let pending_db = PendingStateDb::new(pu_pool.pending_update_state(), parent_db);
+    let (pending_db, pu_tracer) =
+        new_pending_state_with_tracer(pu_pool.pending_update_state(), parent_db);
     let mut block_state = BlockState::new(pending_db);
 
     let mut tracer = AccumulatorSimulationTracer::new();
-    let mut fork = PartialBlockFork::new(&mut block_state, ctx, local_ctx).with_tracer(&mut tracer);
+    let mut fork = PartialBlockFork::new(&mut block_state, ctx, local_ctx)
+        .with_tracer(&mut tracer)
+        .with_evm_inspector(pu_tracer.clone());
     let rollback_point = fork.rollback_point();
     let sim_res =
         simulate_order_using_fork(parent_orders, order, &mut fork, &ctx.mempool_tx_detector);
@@ -467,7 +476,14 @@ where
     let mut sim_res = sim_res?;
 
     if let OrderSimResult::Success(ref mut sim_order, _) = sim_res {
-        Arc::make_mut(sim_order).used_priority_updates = block_state.into_db().into_used_pu_slots();
+        let classification = pu_tracer.classification();
+        let actually_used: Vec<_> = block_state
+            .into_db()
+            .into_used_pu_slots()
+            .into_iter()
+            .filter(|slot| matches!(classification.get(slot), Some(UsedStorageSlotStatus::Read)))
+            .collect();
+        Arc::make_mut(sim_order).used_priority_updates = actually_used;
     }
 
     Ok(OrderSimResultWithGas {
@@ -477,14 +493,27 @@ where
 }
 
 /// Simulates order (including parent (those needed to reach proper nonces) orders) using a precreated fork
-pub fn simulate_order_using_fork<Tracer: SimulationTracer, DB>(
+pub fn simulate_order_using_fork<Tracer: SimulationTracer, DB, EvmInspector>(
     parent_orders: Vec<Arc<Order>>,
     order: Arc<Order>,
-    fork: &mut PartialBlockFork<'_, '_, '_, '_, Tracer, NullPartialBlockForkExecutionTracer, DB>,
+    fork: &mut PartialBlockFork<
+        '_,
+        '_,
+        '_,
+        '_,
+        Tracer,
+        NullPartialBlockForkExecutionTracer,
+        DB,
+        EvmInspector,
+    >,
     mempool_tx_detector: &MempoolTxsDetector,
 ) -> Result<OrderSimResult, CriticalCommitOrderError>
 where
     DB: Database<Error = ProviderError> + Clone + std::fmt::Debug,
+    EvmInspector: for<'p, 'q, 'r> Inspector<
+        EthEvmContext<&'p mut EVMRecordingDatabase<&'q mut State<&'r mut DB>>>,
+        EthInterpreter,
+    >,
 {
     let start = Instant::now();
     // simulate parents

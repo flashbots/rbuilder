@@ -38,10 +38,14 @@ use eth_sparse_mpt::SparseTrieLocalCache;
 use evm::EthCachedEvmFactory;
 use jsonrpsee::core::Serialize;
 use parking_lot::Mutex;
-use priority_update::PriorityUpdatePool;
+use priority_update::{
+    select_unwritten_slots,
+    used_priority_update_tracer::{UsedPriorityStateTracer, UsedStorageSlotStatus},
+    PriorityUpdatePool,
+};
 use rbuilder_primitives::{
-    mev_boost::BidAdjustmentDataV3, BlockSpace, Order, SimValue, SimulatedOrder,
-    TransactionSignedEcRecoveredWithBlobs,
+    evm_inspector::SlotKey, mev_boost::BidAdjustmentDataV3, BlockSpace, Order, SimValue,
+    SimulatedOrder, TransactionSignedEcRecoveredWithBlobs,
 };
 use reth::{
     payload::PayloadId,
@@ -586,6 +590,8 @@ pub enum ExecutionError {
     LowerInsertedValue { before: SimValue, inplace: SimValue },
     #[error("Priority update produced a delayed refund")]
     PriorityUpdateProducedDelayedRefund,
+    #[error("Order did not use the committed priority update slots: {0:?}")]
+    PriorityUpdatesNotUsed(Vec<(SlotKey, UsedStorageSlotStatus)>),
 }
 
 impl ExecutionError {
@@ -749,8 +755,13 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
     where
         DB: Database<Error = ProviderError>,
     {
+        let unwritten_priorit_update_slots =
+            select_unwritten_slots(state, &order.used_priority_updates);
         let priority_update_orders =
-            priority_update_pool.get_updates(state, &order.used_priority_updates);
+            priority_update_pool.get_updates(&unwritten_priorit_update_slots);
+
+        let pu_tracer = UsedPriorityStateTracer::new(std::iter::empty());
+        let pu_storage_tracker = pu_tracer.storage_tracker();
 
         let mut fork = PartialBlockFork::new_with_execution_tracer(
             state,
@@ -758,7 +769,8 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             local_ctx,
             &mut self.partial_block_execution_tracer,
         )
-        .with_tracer(&mut self.tracer);
+        .with_tracer(&mut self.tracer)
+        .with_evm_inspector(pu_tracer.clone());
 
         let rollback = fork.rollback_point();
         let initial_space_state = self.space_state;
@@ -766,7 +778,8 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         let mut priority_updates: Vec<Result<ExecutionResult, ExecutionError>> =
             Vec::with_capacity(priority_update_orders.len());
 
-        for priority_update_order in priority_update_orders {
+        for priority_update_sim in priority_update_orders {
+            let priority_update_order = priority_update_sim.order.as_ref();
             let pu_rollback = fork.rollback_point();
             let exec_result = fork.commit_order(
                 priority_update_order,
@@ -805,6 +818,13 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             }));
         }
 
+        // Register the unwritten PU slots only after every PU has committed,
+        // so SLOADs done by the PUs themselves don't pollute the recording —
+        // we only want to see what the order reads.
+        for slot in &unwritten_priorit_update_slots {
+            pu_storage_tracker.track_slot(slot.clone());
+        }
+
         let exec_result = fork.commit_order(
             &order.order,
             self.space_state,
@@ -833,6 +853,24 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             return Ok(OrderCommitResult {
                 priority_updates,
                 order: Err(err),
+            });
+        }
+
+        // Verify every tracked PU slot was actually read on the surviving
+        // call path. Slots only surfaced through reverted subcalls (or not
+        // read at all) mean the owning PU is unused — fail the whole commit
+        // so the caller can re-plan.
+        let unused_slots: Vec<(SlotKey, UsedStorageSlotStatus)> = pu_tracer
+            .classification()
+            .into_iter()
+            .filter(|(_, status)| !matches!(status, UsedStorageSlotStatus::Read))
+            .collect();
+        if !unused_slots.is_empty() {
+            fork.rollback(rollback);
+            self.space_state = initial_space_state;
+            return Ok(OrderCommitResult {
+                priority_updates,
+                order: Err(ExecutionError::PriorityUpdatesNotUsed(unused_slots)),
             });
         }
 

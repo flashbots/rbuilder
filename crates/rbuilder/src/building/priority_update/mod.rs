@@ -1,8 +1,6 @@
 use ahash::{HashMap, HashSet};
 use alloy_primitives::U256;
-use rbuilder_primitives::{
-    evm_inspector::SlotKey, Order, OrderId, PriorityUpdateClass, SimulatedOrder,
-};
+use rbuilder_primitives::{evm_inspector::SlotKey, OrderId, PriorityUpdateClass, SimulatedOrder};
 use std::sync::Arc;
 use tracing::error;
 
@@ -85,25 +83,16 @@ impl PriorityUpdatePool {
         orders
     }
 
-    /// Priority-update orders that touch any of the slots in `read_slots`.
-    ///
-    /// For each read slot: if the slot was already written in the in-block
-    /// bundle state, the PU is not needed for this slot — skip it. Otherwise
-    /// surface the PU that owns the slot.
-    pub fn get_updates<DB>(
-        &self,
-        current_block_state: &BlockState<DB>,
-        read_slots: &[SlotKey],
-    ) -> Vec<&Order> {
+    /// Priority-update orders owning any of the slots in `read_slots`. The
+    /// caller is adviced to filter out slots already written in the current
+    /// bundle state via [`select_unwritten_slots`] beforehand.
+    pub fn get_updates(&self, read_slots: &[SlotKey]) -> Vec<Arc<SimulatedOrder>> {
         if read_slots.is_empty() || self.orders.is_empty() {
             return Vec::new();
         }
         let mut matched: HashSet<OrderId> = HashSet::default();
-        let mut result: Vec<&Order> = Vec::new();
+        let mut result: Vec<Arc<SimulatedOrder>> = Vec::new();
         for slot in read_slots {
-            if slot_overwritten_in_bundle(current_block_state, slot) {
-                continue;
-            }
             let Some(order_id) = self.pending.order_for_slot(slot) else {
                 continue;
             };
@@ -111,11 +100,23 @@ impl PriorityUpdatePool {
                 continue;
             }
             if let Some(sim) = self.orders.get(&order_id) {
-                result.push(sim.order.as_ref());
+                result.push(Arc::clone(sim));
             }
         }
         result
     }
+}
+
+/// Returns the subset of `slots` whose address/key has not been written in
+/// the current in-block bundle state. Used as a prefilter before
+/// [`PriorityUpdatePool::get_updates`] so already-overwritten slots don't
+/// pull in PUs that are no longer needed.
+pub fn select_unwritten_slots<DB>(state: &BlockState<DB>, slots: &[SlotKey]) -> Vec<SlotKey> {
+    slots
+        .iter()
+        .filter(|slot| !slot_overwritten_in_bundle(state, slot))
+        .cloned()
+        .collect()
 }
 
 fn slot_overwritten_in_bundle<DB>(state: &BlockState<DB>, slot: &SlotKey) -> bool {

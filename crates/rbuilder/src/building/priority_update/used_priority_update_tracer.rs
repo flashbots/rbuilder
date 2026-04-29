@@ -1,28 +1,25 @@
-//! Implements two entities that must be used together: a revm [`Inspector`]
-//! and a revm [`Database`] wrapper.
+//! Pair of entities used together: a revm [`Inspector`] that tracks the call
+//! frame tree, and a [`UsedPriorityStateStorageTracker`] that records reads
+//! of registered slots. Classify how each slot was used by the executed
+//! bundle:
 //!
-//! For a configured set of [`SlotKey`]s, classify how each slot was used by
-//! the executed bundle:
-//!
-//! - [`UsedStorageSlotStatus::Unread`] — slot was never read from the database.
+//! - [`UsedStorageSlotStatus::Unread`] — slot was never read.
 //! - [`UsedStorageSlotStatus::Read`] — slot was read and the call stack from
 //!   the read point up to the root committed without revert.
 //! - [`UsedStorageSlotStatus::ReadReverted`] — slot was read but at least one
 //!   ancestor frame on the call stack at the time of the read reverted.
 
 use ahash::{HashMap, HashSet};
-use alloy_primitives::{Address, B256};
+use alloy_primitives::B256;
 use parking_lot::Mutex;
 use rbuilder_primitives::evm_inspector::SlotKey;
-use reth_errors::ProviderError;
 use revm::{
-    bytecode::Bytecode,
-    context::ContextTr,
-    inspector::JournalExt,
-    interpreter::{CallInputs, CallOutcome, CreateInputs, CreateOutcome},
-    primitives::{StorageKey, StorageValue},
-    state::AccountInfo,
-    Database, Inspector,
+    bytecode::opcode,
+    interpreter::{
+        interpreter_types::{InputsTr, Jumps},
+        CallInputs, CallOutcome, CreateInputs, CreateOutcome, Interpreter,
+    },
+    Inspector,
 };
 use std::sync::Arc;
 
@@ -100,12 +97,38 @@ pub struct UsedPriorityStateTracer {
     inner: Arc<Mutex<UsedPriorityStateInner>>,
 }
 
-/// [`Database`] wrapper that records reads of tracked slots while delegating
-/// every operation to the underlying database.
+/// Storage-side half of the tracer pair: registers slots for tracking and
+/// records reads of them against the currently-executing EVM call frame.
+/// Use this when you have a [`revm::Database`] layer (e.g. an overlay) that
+/// already intercepts reads and want to feed them into the tracker without
+/// wrapping the database itself.
 #[derive(Clone, Debug)]
-pub struct UsedPriorityStateDB<DB> {
+pub struct UsedPriorityStateStorageTracker {
     inner: Arc<Mutex<UsedPriorityStateInner>>,
-    db: DB,
+}
+
+impl UsedPriorityStateStorageTracker {
+    /// Add `slot` to the tracker's slot-set so future reads of it are recorded.
+    pub fn track_slot(&self, slot: SlotKey) {
+        self.inner.lock().slots_to_track.insert(slot);
+    }
+
+    /// Record a read of `slot` at the currently-executing call frame. No-op
+    /// if `slot` is not in the tracker's slot-set.
+    pub fn record_storage_read(&self, slot: SlotKey) {
+        self.inner.lock().record_storage_read(slot);
+    }
+}
+
+#[cfg(test)]
+impl UsedPriorityStateTracer {
+    pub(super) fn test_enter_frame(&self) {
+        self.inner.lock().enter_frame();
+    }
+
+    pub(super) fn test_leave_frame(&self, succeeded: bool) {
+        self.inner.lock().leave_frame(succeeded);
+    }
 }
 
 impl UsedPriorityStateTracer {
@@ -117,10 +140,12 @@ impl UsedPriorityStateTracer {
         }
     }
 
-    pub fn wrap_db<DB>(&self, db: DB) -> UsedPriorityStateDB<DB> {
-        UsedPriorityStateDB {
+    /// Returns a storage tracker sharing state with this inspector. Use it
+    /// when you already have a database layer that intercepts reads and just
+    /// want to feed slots/reads into the tracker.
+    pub fn storage_tracker(&self) -> UsedPriorityStateStorageTracker {
+        UsedPriorityStateStorageTracker {
             inner: Arc::clone(&self.inner),
-            db,
         }
     }
 
@@ -157,10 +182,18 @@ impl UsedPriorityStateTracer {
     }
 }
 
-impl<CTX> Inspector<CTX> for UsedPriorityStateTracer
-where
-    CTX: ContextTr<Journal: JournalExt>,
-{
+impl<CTX> Inspector<CTX> for UsedPriorityStateTracer {
+    fn step(&mut self, interpreter: &mut Interpreter, _context: &mut CTX) {
+        if interpreter.bytecode.opcode() == opcode::SLOAD {
+            if let Ok(key) = interpreter.stack.peek(0) {
+                self.inner.lock().record_storage_read(SlotKey {
+                    address: interpreter.input.target_address(),
+                    key: B256::from(key.to_be_bytes()),
+                });
+            }
+        }
+    }
+
     fn call(&mut self, _ctx: &mut CTX, _inputs: &mut CallInputs) -> Option<CallOutcome> {
         self.inner.lock().enter_frame();
         None
@@ -182,39 +215,11 @@ where
     }
 }
 
-impl<DB: Database<Error = ProviderError>> Database for UsedPriorityStateDB<DB> {
-    type Error = DB::Error;
-
-    fn basic(&mut self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
-        self.db.basic(address)
-    }
-
-    fn code_by_hash(&mut self, code_hash: B256) -> Result<Bytecode, Self::Error> {
-        self.db.code_by_hash(code_hash)
-    }
-
-    fn storage(
-        &mut self,
-        address: Address,
-        index: StorageKey,
-    ) -> Result<StorageValue, Self::Error> {
-        let slot = SlotKey {
-            address,
-            key: B256::from(index.to_be_bytes()),
-        };
-        self.inner.lock().record_storage_read(slot);
-        self.db.storage(address, index)
-    }
-
-    fn block_hash(&mut self, number: u64) -> Result<B256, Self::Error> {
-        self.db.block_hash(number)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::utils::test_utils::{addr, hash};
+    use alloy_primitives::Address;
 
     fn slot(addr_id: u64, key_id: u64) -> SlotKey {
         SlotKey {
@@ -395,5 +400,119 @@ mod tests {
         let result = t.get_result();
         assert_eq!(result[&a1], UsedStorageSlotStatus::Read);
         assert_eq!(result[&a2], UsedStorageSlotStatus::Unread);
+    }
+
+    // The tests below simulate a bundle: each top-level call/exit_frame pair
+    // is one transaction. Between txs the call stack is empty.
+
+    #[test]
+    fn bundle_read_in_first_tx_only() {
+        // tx0 reads S and commits; tx1 commits without reading.
+        let s = slot(1, 1);
+        let mut t = Tester::new([s.clone()]);
+
+        t.new_frame(addr(1));
+        t.read_slot(1);
+        t.exit_frame(true);
+
+        t.new_frame(addr(1));
+        t.exit_frame(true);
+
+        assert_eq!(t.get_result()[&s], UsedStorageSlotStatus::Read);
+    }
+
+    #[test]
+    fn bundle_read_in_second_tx_only() {
+        // tx0 commits without reading; tx1 reads S and commits.
+        let s = slot(1, 1);
+        let mut t = Tester::new([s.clone()]);
+
+        t.new_frame(addr(1));
+        t.exit_frame(true);
+
+        t.new_frame(addr(1));
+        t.read_slot(1);
+        t.exit_frame(true);
+
+        assert_eq!(t.get_result()[&s], UsedStorageSlotStatus::Read);
+    }
+
+    #[test]
+    fn bundle_read_only_in_reverted_tx_is_revert() {
+        // tx0 reads S then reverts; tx1 commits without touching S.
+        let s = slot(1, 1);
+        let mut t = Tester::new([s.clone()]);
+
+        t.new_frame(addr(1));
+        t.read_slot(1);
+        t.exit_frame(false);
+
+        t.new_frame(addr(1));
+        t.exit_frame(true);
+
+        assert_eq!(t.get_result()[&s], UsedStorageSlotStatus::ReadReverted);
+    }
+
+    #[test]
+    fn bundle_read_in_committed_tx_outweighs_revert_in_other_tx() {
+        // tx0 reads S and commits; tx1 reads S and reverts. The committed
+        // read still counts → Read.
+        let s = slot(1, 1);
+        let mut t = Tester::new([s.clone()]);
+
+        t.new_frame(addr(1));
+        t.read_slot(1);
+        t.exit_frame(true);
+
+        t.new_frame(addr(1));
+        t.read_slot(1);
+        t.exit_frame(false);
+
+        assert_eq!(t.get_result()[&s], UsedStorageSlotStatus::Read);
+    }
+
+    #[test]
+    fn bundle_per_tx_slots_classified_independently() {
+        // tx0 reads S0 and commits; tx1 reads S1 and reverts.
+        let s0 = slot(1, 1);
+        let s1 = slot(1, 2);
+        let mut t = Tester::new([s0.clone(), s1.clone()]);
+
+        t.new_frame(addr(1));
+        t.read_slot(1);
+        t.exit_frame(true);
+
+        t.new_frame(addr(1));
+        t.read_slot(2);
+        t.exit_frame(false);
+
+        let result = t.get_result();
+        assert_eq!(result[&s0], UsedStorageSlotStatus::Read);
+        assert_eq!(result[&s1], UsedStorageSlotStatus::ReadReverted);
+    }
+
+    #[test]
+    fn bundle_with_nested_calls_per_tx() {
+        // tx0: top → sub (revert after reading S0); top exits OK → ReadReverted
+        // tx1: top → sub (commit after reading S1); top exits OK → Read
+        let s0 = slot(1, 1);
+        let s1 = slot(1, 2);
+        let mut t = Tester::new([s0.clone(), s1.clone()]);
+
+        t.new_frame(addr(1)); // tx0 top
+        t.new_frame(addr(1)); // tx0 sub
+        t.read_slot(1);
+        t.exit_frame(false); // sub reverts
+        t.exit_frame(true); // tx0 commits
+
+        t.new_frame(addr(1)); // tx1 top
+        t.new_frame(addr(1)); // tx1 sub
+        t.read_slot(2);
+        t.exit_frame(true); // sub commits
+        t.exit_frame(true); // tx1 commits
+
+        let result = t.get_result();
+        assert_eq!(result[&s0], UsedStorageSlotStatus::ReadReverted);
+        assert_eq!(result[&s1], UsedStorageSlotStatus::Read);
     }
 }

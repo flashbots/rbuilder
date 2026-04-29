@@ -237,6 +237,9 @@ impl PartialBlockExecutionTracer for FullPartialBlockExecutionTracer {
                         ExecutionError::PriorityUpdateProducedDelayedRefund => {
                             SimpleOrderExecutionResult::OrderError
                         }
+                        ExecutionError::PriorityUpdatesNotUsed(_) => {
+                            SimpleOrderExecutionResult::OrderError
+                        }
                     };
                     (None, result)
                 }
