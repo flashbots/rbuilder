@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package quote_api.v1;
+
+message PWebsocketQuoteUpdateV1Args {
+  // RLP-encoded quote-update tx bytes. Empty = cancel the replacement_uuid.
+  bytes tx = 1;
+  // single block this quote is valid for
+  uint64 block_number = 2;
+  // 16-byte quote identifier (raw UUID bytes).
+  bytes replacement_uuid = 3;
+  // monotonic per uuid (>0)
+  uint64 replacement_seq_number = 4;
+  // quotes will not be shared between builder regions
+  bool disable_cross_region_sharing = 5;
+}
+
+message PWebsocketQuoteUpdateV1Response {
+  // Quote identifier being acknowledged.
+  bytes replacement_uuid = 1;
+  uint64 replacement_seq_number = 2;
+  // RPC receive UNIX nanos.
+  uint64 timestamp = 3;
+  // Empty on success. Populated with error detail on failure.
+  string error = 4;
+}

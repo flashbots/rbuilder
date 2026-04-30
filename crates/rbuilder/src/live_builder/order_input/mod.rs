@@ -5,6 +5,7 @@ pub mod mempool_txs_detector;
 pub mod order_replacement_manager;
 pub mod order_sink;
 pub mod orderpool;
+pub mod priority_update_grpc_server;
 pub mod replaceable_order_sink;
 pub mod rpc_server;
 pub mod txpool_fetcher;
@@ -25,7 +26,7 @@ use jsonrpsee::RpcModule;
 use parking_lot::Mutex;
 use rbuilder_primitives::{BundleReplacementData, Order, PriorityUpdateRule};
 use std::{
-    net::Ipv4Addr,
+    net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     path::{Path, PathBuf},
     sync::{Arc, Weak},
     time::{Duration, Instant},
@@ -115,6 +116,10 @@ pub struct OrderInputConfig {
     server_ip: Ipv4Addr,
     /// Input RPC max connections
     serve_max_connections: u32,
+    /// gRPC priority update endpoint port.
+    priority_update_grpc_server_port: u16,
+    /// gRPC priority update endpoint ip.
+    priority_update_grpc_server_ip: Ipv4Addr,
     /// All order sources send new ReplaceableOrderPoolCommands through an mpsc::Sender bounded channel.
     /// Timeout to wait when sending to that channel (after that the ReplaceableOrderPoolCommand is lost).
     results_channel_timeout: Duration,
@@ -139,6 +144,8 @@ impl OrderInputConfig {
         server_port: u16,
         server_ip: Ipv4Addr,
         serve_max_connections: u32,
+        priority_update_grpc_server_port: u16,
+        priority_update_grpc_server_ip: Ipv4Addr,
         results_channel_timeout: Duration,
         input_channel_buffer_size: usize,
         time_to_keep_mempool_txs: Duration,
@@ -152,6 +159,8 @@ impl OrderInputConfig {
             server_port,
             server_ip,
             serve_max_connections,
+            priority_update_grpc_server_port,
+            priority_update_grpc_server_ip,
             results_channel_timeout,
             input_channel_buffer_size,
             time_to_keep_mempool_txs,
@@ -181,6 +190,8 @@ impl OrderInputConfig {
             server_port: config.jsonrpc_server_port,
             server_ip: config.jsonrpc_server_ip,
             serve_max_connections,
+            priority_update_grpc_server_port: config.priority_update_grpc_server_port,
+            priority_update_grpc_server_ip: config.priority_update_grpc_server_ip,
             results_channel_timeout: Duration::from_millis(50),
             input_channel_buffer_size: 10_000,
             time_to_keep_mempool_txs: Duration::from_secs(config.time_to_keep_mempool_txs_secs),
@@ -199,6 +210,8 @@ impl OrderInputConfig {
             serve_max_connections: DEFAULT_SERVE_MAX_CONNECTIONS,
             server_ip: Ipv4Addr::new(127, 0, 0, 1),
             server_port: 0,
+            priority_update_grpc_server_ip: Ipv4Addr::new(127, 0, 0, 1),
+            priority_update_grpc_server_port: 0,
             time_to_keep_mempool_txs: Duration::from_secs(DEFAULT_TIME_TO_KEEP_MEMPOOL_TXS_SECS),
             builder_address: Address::ZERO,
             system_recipient_allowlist: Vec::new(),
@@ -277,7 +290,18 @@ where
     )
     .await?;
 
-    let mut handles: FuturesUnordered<_> = [clean_job, rpc_server].into_iter().collect();
+    let priority_update_grpc_server =
+        priority_update_grpc_server::start_priority_update_grpc_server(
+            SocketAddr::V4(SocketAddrV4::new(
+                config.priority_update_grpc_server_ip,
+                config.priority_update_grpc_server_port,
+            )),
+            global_cancel.clone(),
+        );
+
+    let mut handles: FuturesUnordered<_> = [clean_job, rpc_server, priority_update_grpc_server]
+        .into_iter()
+        .collect();
 
     if config.mempool_source.is_some() {
         info!("Txpool source configured, starting txpool subscription");

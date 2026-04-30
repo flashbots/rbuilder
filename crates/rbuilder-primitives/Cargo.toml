@@ -50,6 +50,11 @@ eyre.workspace = true
 serde.workspace = true
 derive_more.workspace = true
 serde_json.workspace = true
+tonic.workspace = true
+prost.workspace = true
+
+[build-dependencies]
+tonic-build = "0.13"
 
 [dev-dependencies]
 alloy-primitives = { workspace = true, features = ["arbitrary"] }

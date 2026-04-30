@@ -7,6 +7,7 @@ pub mod mev_boost;
 pub mod order_builder;
 pub mod order_statistics;
 pub mod priority_update_rule;
+pub mod proto;
 pub mod serialize;
 mod test_data_generator;
 

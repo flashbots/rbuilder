@@ -87,6 +87,11 @@ pub struct BaseConfig {
     pub jsonrpc_server_ip: Ipv4Addr,
     pub jsonrpc_server_max_connections: Option<u32>,
 
+    /// gRPC endpoint used by flowproxy to forward priority updates.
+    pub priority_update_grpc_server_port: u16,
+    #[serde(default = "default_ip")]
+    pub priority_update_grpc_server_ip: Ipv4Addr,
+
     pub ignore_cancellable_orders: bool,
     pub ignore_blobs: bool,
 
@@ -483,6 +488,7 @@ impl BaseConfig {
 pub const DEFAULT_CL_NODE_URL: &str = "http://127.0.0.1:3500";
 pub const DEFAULT_EL_NODE_IPC_PATH: &str = "/tmp/reth.ipc";
 pub const DEFAULT_INCOMING_BUNDLES_PORT: u16 = 8645;
+pub const DEFAULT_PRIORITY_UPDATE_GRPC_PORT: u16 = 8646;
 pub const DEFAULT_RETH_DB_PATH: &str = "/mnt/data/reth";
 /// This will update every 2.4 hours, super reasonable.
 pub const DEFAULT_BLOCKLIST_URL_MAX_AGE_HOURS: u64 = 24;
@@ -506,6 +512,8 @@ impl Default for BaseConfig {
             jsonrpc_server_port: DEFAULT_INCOMING_BUNDLES_PORT,
             jsonrpc_server_ip: default_ip(),
             jsonrpc_server_max_connections: None,
+            priority_update_grpc_server_port: DEFAULT_PRIORITY_UPDATE_GRPC_PORT,
+            priority_update_grpc_server_ip: default_ip(),
             ignore_cancellable_orders: true,
             ignore_blobs: false,
             chain: "mainnet".to_string(),

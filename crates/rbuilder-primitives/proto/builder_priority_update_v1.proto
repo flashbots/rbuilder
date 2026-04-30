@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package builder_priority_update.v1;
+
+enum PriorityUpdatePlacement {
+  PRIORITY_UPDATE_PLACEMENT_OPTIONAL_INCLUSION = 0;
+  PRIORITY_UPDATE_PLACEMENT_ALWAYS_TOP_OF_BLOCK = 1;
+}
+
+message PriorityUpdate {
+  // RLP-encoded priority-update tx bytes. Empty = cancel the replacement_uuid.
+  bytes tx = 1;
+  // single block this priority update is valid for
+  uint64 block_number = 2;
+  // 16-byte priority-update identifier (raw UUID bytes).
+  bytes replacement_uuid = 3;
+  // monotonic per uuid (>0)
+  uint64 replacement_seq_number = 4;
+  // placement intent for this priority update.
+  PriorityUpdatePlacement placement = 5;
+  // free-form source identifier.
+  string source = 6;
+}
+
+message PriorityUpdateResponse {
+  // Empty on success. Populated with error detail on failure.
+  string error = 1;
+}
+
+service BuilderPriorityUpdateService {
+  rpc SubmitPriorityUpdate(PriorityUpdate) returns (PriorityUpdateResponse);
+}
