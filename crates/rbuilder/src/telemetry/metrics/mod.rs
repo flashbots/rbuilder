@@ -596,8 +596,10 @@ pub fn add_block_validation_time(duration: Duration) {
         .observe(duration_ms(duration));
 }
 
-pub const ORDERFLOW_STAGE_JOURNAL_STAMPING: &str = "journal_stamping";
-pub const ORDERFLOW_STAGE_PRIORITIZED_STORE_INSERT: &str = "prioritized_store_insert";
+pub const ORDERFLOW_STAGE_JOURNAL_STAMPING_ADD: &str = "journal_stamping_add";
+pub const ORDERFLOW_STAGE_JOURNAL_STAMPING_REMOVE: &str = "journal_stamping_remove";
+pub const ORDERFLOW_STAGE_PRIORITIZED_STORE_ADD: &str = "prioritized_store_add";
+pub const ORDERFLOW_STAGE_PRIORITIZED_STORE_REMOVE: &str = "prioritized_store_remove";
 
 pub fn add_orderflow_command_process_time(stage: &str, duration: Duration) {
     ORDERFLOW_COMMAND_PROCESS_TIME_NS

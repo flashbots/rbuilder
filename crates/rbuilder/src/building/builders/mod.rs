@@ -181,11 +181,16 @@ impl OrderConsumer {
     pub fn apply_new_commands<SinkType: SimulatedOrderSink>(&mut self, sink: &mut SinkType) {
         for order_command in self.new_commands.drain(..) {
             let start = Instant::now();
+            let stage = match &order_command {
+                SimulatedOrderCommand::Simulation(_) => {
+                    crate::telemetry::ORDERFLOW_STAGE_PRIORITIZED_STORE_ADD
+                }
+                SimulatedOrderCommand::Cancellation(_) => {
+                    crate::telemetry::ORDERFLOW_STAGE_PRIORITIZED_STORE_REMOVE
+                }
+            };
             simulated_order_command_to_sink(order_command, sink);
-            crate::telemetry::add_orderflow_command_process_time(
-                crate::telemetry::ORDERFLOW_STAGE_PRIORITIZED_STORE_INSERT,
-                start.elapsed(),
-            );
+            crate::telemetry::add_orderflow_command_process_time(stage, start.elapsed());
         }
     }
 }
