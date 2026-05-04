@@ -17,12 +17,14 @@ thiserror.workspace = true
 serde.workspace = true
 derive_more.workspace = true
 serde_json.workspace = true
+parking_lot.workspace = true
+ahash.workspace = true
 
 
 # alloy
 alloy-primitives.workspace = true
 
-strum = "0.27"
+strum = { version = "0.27", features = ["derive"] }
 tokio = { version = "1.40.0", default-features = false, features = [
   "sync",
   "time",
