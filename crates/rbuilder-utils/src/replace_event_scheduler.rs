@@ -14,14 +14,20 @@
 //! An optional `ReplaceEventObserver` may be attached at construction. It is
 //! notified inline from `add_event` for every successful (non-stale) store.
 
-use std::{collections::VecDeque, hash::Hash, sync::Arc};
+use std::{
+    collections::VecDeque,
+    hash::Hash,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Weak,
+    },
+};
 
 use ahash::{HashMap, HashSet};
 use parking_lot::RwLock;
 use tokio::sync::Notify;
 
 type SharedReplaceEventScheduledEvents<K, V> = Arc<RwLock<ReplaceEventScheduledEvents<K, V>>>;
-type SharedReplaceEventUnprocessedEvents<K> = Arc<RwLock<ReplaceEventUnprocessedEvents<K>>>;
 
 /// Inline notification hook called from [`ReplaceEventScheduler::add_event`]
 /// for every successful (non-stale) store. Implementations must be quick;
@@ -47,14 +53,25 @@ where
 #[derive(Debug, Clone)]
 pub struct ReplaceEventScheduler<K, V, O = ()> {
     inner: SharedReplaceEventScheduledEvents<K, V>,
+    /// Subscriptions are held as weak references so a dropped
+    /// [`ReplaceEventSchedulerSubscription`] is reclaimed automatically.
+    /// [`add_event`](Self::add_event) upgrades each weak before pushing; if any
+    /// upgrade fails, [`Self::needs_subscription_cleanup`] is set so the next
+    /// `add_event` (or `subscribe`) compacts the list under a write lock.
     subscriptions: Arc<RwLock<Vec<SubscriptionEntry<K>>>>,
+    needs_subscription_cleanup: Arc<AtomicBool>,
     observer: O,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct SubscriptionEntry<K> {
-    unprocessed: SharedReplaceEventUnprocessedEvents<K>,
-    notify: Arc<Notify>,
+    inner: Weak<SubscriptionInner<K>>,
+}
+
+#[derive(Debug)]
+struct SubscriptionInner<K> {
+    unprocessed: RwLock<ReplaceEventUnprocessedEvents<K>>,
+    notify: Notify,
 }
 
 /// Outcome of [`ReplaceEventScheduler::add_event`].
@@ -83,6 +100,7 @@ impl<K, V, O> ReplaceEventScheduler<K, V, O> {
                 data: HashMap::default(),
             })),
             subscriptions: Arc::new(RwLock::new(Vec::new())),
+            needs_subscription_cleanup: Arc::new(AtomicBool::new(false)),
             observer,
         }
     }
@@ -98,30 +116,36 @@ where
     /// subsequent updates.
     pub fn subscribe(&self) -> ReplaceEventSchedulerSubscription<K, V> {
         let mut subscriptions = self.subscriptions.write();
-        let inner = self.inner.read();
+        if self
+            .needs_subscription_cleanup
+            .swap(false, Ordering::Acquire)
+        {
+            subscriptions.retain(|entry| entry.inner.strong_count() > 0);
+        }
+        let scheduler_inner = self.inner.read();
         let mut unprocessed_set = HashSet::default();
-        let mut unprocessed_queue = VecDeque::with_capacity(inner.data.len());
-        for key in inner.data.keys() {
+        let mut unprocessed_queue = VecDeque::with_capacity(scheduler_inner.data.len());
+        for key in scheduler_inner.data.keys() {
             unprocessed_set.insert(key.clone());
             unprocessed_queue.push_back(key.clone());
         }
-        let unprocessed = Arc::new(RwLock::new(ReplaceEventUnprocessedEvents {
-            unprocessed_set,
-            unprocessed_queue,
-        }));
-        let notify = Arc::new(Notify::new());
+        let inner = Arc::new(SubscriptionInner {
+            unprocessed: RwLock::new(ReplaceEventUnprocessedEvents {
+                unprocessed_set,
+                unprocessed_queue,
+            }),
+            notify: Notify::new(),
+        });
         // Seed permit so the first notified() returns immediately if anything was already pending.
-        if !inner.data.is_empty() {
-            notify.notify_one();
+        if !scheduler_inner.data.is_empty() {
+            inner.notify.notify_one();
         }
         subscriptions.push(SubscriptionEntry {
-            unprocessed: unprocessed.clone(),
-            notify: notify.clone(),
+            inner: Arc::downgrade(&inner),
         });
         ReplaceEventSchedulerSubscription {
-            unprocessed_state: unprocessed,
+            inner,
             events: self.inner.clone(),
-            notify,
         }
     }
 
@@ -139,6 +163,13 @@ where
     /// If a subscription already has the same key pending, the key is not
     /// queued again — the worker will see only the latest value when it pops.
     pub fn add_event(&self, key: K, seq: u64, event: V) -> AddEventOutcome<V> {
+        if self
+            .needs_subscription_cleanup
+            .swap(false, Ordering::Acquire)
+        {
+            let mut subs = self.subscriptions.write();
+            subs.retain(|entry| entry.inner.strong_count() > 0);
+        }
         let subscriptions = self.subscriptions.read();
         let mut inner = self.inner.write();
         let outcome = match inner.data.get(&key) {
@@ -160,12 +191,21 @@ where
         // Observe before subscribers so the journaled order matches what the producer saw.
         let stored = inner.data.get(&key).expect("just inserted");
         self.observer.on_event(&key, stored.seq, &stored.value);
+        let mut saw_dead = false;
         for subscription in subscriptions.iter() {
-            let mut sub = subscription.unprocessed.write();
+            let Some(sub_inner) = subscription.inner.upgrade() else {
+                saw_dead = true;
+                continue;
+            };
+            let mut sub = sub_inner.unprocessed.write();
             if sub.unprocessed_set.insert(key.clone()) {
                 sub.unprocessed_queue.push_back(key.clone());
             }
-            subscription.notify.notify_one();
+            sub_inner.notify.notify_one();
+        }
+        if saw_dead {
+            self.needs_subscription_cleanup
+                .store(true, Ordering::Release);
         }
         outcome
     }
@@ -190,9 +230,8 @@ struct StoredEvent<V> {
 
 #[derive(Debug)]
 pub struct ReplaceEventSchedulerSubscription<K, V> {
-    unprocessed_state: SharedReplaceEventUnprocessedEvents<K>,
+    inner: Arc<SubscriptionInner<K>>,
     events: SharedReplaceEventScheduledEvents<K, V>,
-    notify: Arc<Notify>,
 }
 
 impl<K, V> ReplaceEventSchedulerSubscription<K, V>
@@ -209,7 +248,7 @@ where
         output: &mut Vec<(K, u64, V)>,
     ) -> usize {
         let events = self.events.read();
-        let mut state = self.unprocessed_state.write();
+        let mut state = self.inner.unprocessed.write();
         let mut count = 0;
         while count < max_events {
             let Some(key) = state.unprocessed_queue.pop_front() else {
@@ -226,12 +265,12 @@ where
 
     /// Awaits the next subscription update.
     pub async fn notified(&self) {
-        self.notify.notified().await;
+        self.inner.notify.notified().await;
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct ReplaceEventUnprocessedEvents<K> {
+#[derive(Debug)]
+struct ReplaceEventUnprocessedEvents<K> {
     unprocessed_set: HashSet<K>,
     unprocessed_queue: VecDeque<K>,
 }
@@ -367,6 +406,42 @@ mod tests {
         let mut out = pop_all(&sub);
         out.sort();
         assert_eq!(out, vec![(1, 100), (2, 20)]);
+    }
+
+    #[test]
+    fn dropped_subscription_is_reclaimed_on_next_add() {
+        let scheduler = ReplaceEventScheduler::<u32, u32>::new();
+        let sub_alive = scheduler.subscribe();
+        {
+            let _sub_dead = scheduler.subscribe();
+        }
+        assert_eq!(scheduler.subscriptions.read().len(), 2);
+        assert!(!scheduler.needs_subscription_cleanup.load(Ordering::Relaxed));
+
+        scheduler.add_event(1, 1, 10);
+        assert!(scheduler.needs_subscription_cleanup.load(Ordering::Relaxed));
+        assert_eq!(scheduler.subscriptions.read().len(), 2);
+
+        scheduler.add_event(2, 1, 20);
+        assert_eq!(scheduler.subscriptions.read().len(), 1);
+        assert!(!scheduler.needs_subscription_cleanup.load(Ordering::Relaxed));
+
+        assert_eq!(pop_all(&sub_alive), vec![(1, 10), (2, 20)]);
+    }
+
+    #[test]
+    fn dropped_subscription_is_reclaimed_on_next_subscribe() {
+        let scheduler = ReplaceEventScheduler::<u32, u32>::new();
+        {
+            let _sub_dead = scheduler.subscribe();
+        }
+        scheduler.add_event(1, 1, 10);
+        assert!(scheduler.needs_subscription_cleanup.load(Ordering::Relaxed));
+        assert_eq!(scheduler.subscriptions.read().len(), 1);
+
+        let _sub_new = scheduler.subscribe();
+        assert_eq!(scheduler.subscriptions.read().len(), 1);
+        assert!(!scheduler.needs_subscription_cleanup.load(Ordering::Relaxed));
     }
 
     #[test]
