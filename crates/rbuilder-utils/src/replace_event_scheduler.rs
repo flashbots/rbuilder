@@ -1,10 +1,11 @@
 //! Keyed event storage with coalescing fan-out to subscribers.
 //!
 //! Use it when events arrive faster than workers can process them and only
-//! the latest value per key matters. Each `add_event` replaces the stored
-//! value for its key; subscribers are notified but a key already pending
-//! delivery is not re-queued, so workers always see the latest value and
-//! skip stale intermediates.
+//! the latest value per key matters. Each `add_event` carries a per-key
+//! sequence number; an event is stored only if its sequence number is strictly
+//! greater than the one currently stored for that key. Subscribers are
+//! notified but a key already pending delivery is not re-queued, so workers
+//! always see the latest value and skip stale intermediates.
 //!
 //! New subscriptions are seeded with every key currently in storage, so a
 //! freshly-attached worker observes the existing state plus all subsequent
@@ -22,6 +23,19 @@ type SharedReplaceEventUnprocessedEvents<K> = Arc<RwLock<ReplaceEventUnprocessed
 pub struct ReplaceEventScheduler<K, V> {
     inner: SharedReplaceEventScheduledEvents<K, V>,
     subscriptions: Arc<RwLock<Vec<SharedReplaceEventUnprocessedEvents<K>>>>,
+}
+
+/// Outcome of [`ReplaceEventScheduler::add_event`].
+#[derive(Debug, PartialEq, Eq)]
+pub enum AddEventOutcome<V> {
+    /// No prior value was stored for this key. The new value is now stored.
+    Added,
+    /// An existing value was replaced because the new sequence number is
+    /// strictly greater. The previous value is returned.
+    Replaced(V),
+    /// The new sequence number is not strictly greater than the stored one;
+    /// the event was dropped and the stored value is unchanged.
+    Stale,
 }
 
 impl<K, V> ReplaceEventScheduler<K, V> {
@@ -62,22 +76,39 @@ where
         }
     }
 
-    /// Stores `event` under `key`, replacing any previous value, and notifies
-    /// every subscription. Returns the previous value for the key, if any.
+    /// Stores `event` under `key` if `seq` is strictly greater than the
+    /// sequence number already stored for that key (or no entry exists yet),
+    /// and notifies every subscription. Stale events (seq not greater than
+    /// the stored one) are dropped silently.
     ///
     /// If a subscription already has the same key pending, the key is not
     /// queued again — the worker will see only the latest value when it pops.
-    pub fn add_event(&self, key: K, event: V) -> Option<V> {
+    pub fn add_event(&self, key: K, seq: u64, event: V) -> AddEventOutcome<V> {
         let subscriptions = self.subscriptions.read();
         let mut inner = self.inner.write();
-        let prev = inner.data.insert(key.clone(), event);
+        let outcome = match inner.data.get(&key) {
+            Some(entry) if entry.seq >= seq => return AddEventOutcome::Stale,
+            Some(_) => {
+                let prev = inner
+                    .data
+                    .insert(key.clone(), StoredEvent { seq, value: event })
+                    .expect("entry just observed above");
+                AddEventOutcome::Replaced(prev.value)
+            }
+            None => {
+                inner
+                    .data
+                    .insert(key.clone(), StoredEvent { seq, value: event });
+                AddEventOutcome::Added
+            }
+        };
         for subscription in subscriptions.iter() {
             let mut sub = subscription.write();
             if sub.unprocessed_set.insert(key.clone()) {
                 sub.unprocessed_queue.push_back(key.clone());
             }
         }
-        prev
+        outcome
     }
 }
 
@@ -89,7 +120,13 @@ impl<K, V> Default for ReplaceEventScheduler<K, V> {
 
 #[derive(Debug)]
 struct ReplaceEventScheduledEvents<K, V> {
-    data: HashMap<K, V>,
+    data: HashMap<K, StoredEvent<V>>,
+}
+
+#[derive(Debug)]
+struct StoredEvent<V> {
+    seq: u64,
+    value: V,
 }
 
 #[derive(Debug)]
@@ -115,8 +152,8 @@ where
                 break;
             };
             state.unprocessed_set.remove(&key);
-            if let Some(value) = events.data.get(&key) {
-                output.push((key, value.clone()));
+            if let Some(entry) = events.data.get(&key) {
+                output.push((key, entry.value.clone()));
                 count += 1;
             }
         }
@@ -145,18 +182,38 @@ mod tests {
     #[test]
     fn add_event_returns_previous_value() {
         let scheduler = ReplaceEventScheduler::<u32, u32>::new();
-        assert_eq!(scheduler.add_event(1, 10), None);
-        assert_eq!(scheduler.add_event(1, 20), Some(10));
-        assert_eq!(scheduler.add_event(2, 30), None);
+        assert_eq!(scheduler.add_event(1, 1, 10), AddEventOutcome::Added);
+        assert_eq!(scheduler.add_event(1, 2, 20), AddEventOutcome::Replaced(10));
+        assert_eq!(scheduler.add_event(2, 1, 30), AddEventOutcome::Added);
+    }
+
+    #[test]
+    fn add_event_rejects_stale_seq() {
+        let scheduler = ReplaceEventScheduler::<u32, u32>::new();
+        assert_eq!(scheduler.add_event(1, 5, 10), AddEventOutcome::Added);
+        assert_eq!(scheduler.add_event(1, 5, 20), AddEventOutcome::Stale);
+        assert_eq!(scheduler.add_event(1, 4, 30), AddEventOutcome::Stale);
+        assert_eq!(scheduler.add_event(1, 6, 40), AddEventOutcome::Replaced(10));
+    }
+
+    #[test]
+    fn stale_add_does_not_notify_subscribers() {
+        let scheduler = ReplaceEventScheduler::<u32, u32>::new();
+        scheduler.add_event(1, 5, 10);
+        let sub = scheduler.subscribe();
+        assert_eq!(pop_all(&sub), vec![(1, 10)]);
+        assert_eq!(scheduler.add_event(1, 5, 99), AddEventOutcome::Stale);
+        let mut out = Vec::new();
+        assert_eq!(sub.pop_unprocessed_events(usize::MAX, &mut out), 0);
     }
 
     #[test]
     fn pop_returns_added_events_in_fifo_order() {
         let scheduler = ReplaceEventScheduler::<u32, u32>::new();
         let sub = scheduler.subscribe();
-        scheduler.add_event(2, 20);
-        scheduler.add_event(1, 10);
-        scheduler.add_event(3, 30);
+        scheduler.add_event(2, 1, 20);
+        scheduler.add_event(1, 1, 10);
+        scheduler.add_event(3, 1, 30);
         assert_eq!(pop_all(&sub), vec![(2, 20), (1, 10), (3, 30)]);
     }
 
@@ -164,9 +221,9 @@ mod tests {
     fn pop_coalesces_replacements_to_latest_value() {
         let scheduler = ReplaceEventScheduler::<u32, u32>::new();
         let sub = scheduler.subscribe();
-        scheduler.add_event(1, 10);
-        scheduler.add_event(1, 20);
-        scheduler.add_event(1, 30);
+        scheduler.add_event(1, 1, 10);
+        scheduler.add_event(1, 2, 20);
+        scheduler.add_event(1, 3, 30);
         assert_eq!(pop_all(&sub), vec![(1, 30)]);
     }
 
@@ -174,9 +231,9 @@ mod tests {
     fn pop_after_pop_sees_new_value() {
         let scheduler = ReplaceEventScheduler::<u32, u32>::new();
         let sub = scheduler.subscribe();
-        scheduler.add_event(1, 10);
+        scheduler.add_event(1, 1, 10);
         assert_eq!(pop_all(&sub), vec![(1, 10)]);
-        scheduler.add_event(1, 20);
+        scheduler.add_event(1, 2, 20);
         assert_eq!(pop_all(&sub), vec![(1, 20)]);
     }
 
@@ -185,7 +242,7 @@ mod tests {
         let scheduler = ReplaceEventScheduler::<u32, u32>::new();
         let sub = scheduler.subscribe();
         for i in 0..10 {
-            scheduler.add_event(i, i * 10);
+            scheduler.add_event(i, 1, i * 10);
         }
         let mut out = Vec::new();
         assert_eq!(sub.pop_unprocessed_events(3, &mut out), 3);
@@ -208,8 +265,8 @@ mod tests {
         let scheduler = ReplaceEventScheduler::<u32, u32>::new();
         let sub1 = scheduler.subscribe();
         let sub2 = scheduler.subscribe();
-        scheduler.add_event(1, 10);
-        scheduler.add_event(2, 20);
+        scheduler.add_event(1, 1, 10);
+        scheduler.add_event(2, 1, 20);
 
         assert_eq!(pop_all(&sub1), vec![(1, 10), (2, 20)]);
         assert_eq!(pop_all(&sub2), vec![(1, 10), (2, 20)]);
@@ -218,9 +275,9 @@ mod tests {
     #[test]
     fn subscribe_seeds_with_existing_keys_and_latest_value() {
         let scheduler = ReplaceEventScheduler::<u32, u32>::new();
-        scheduler.add_event(1, 10);
-        scheduler.add_event(2, 20);
-        scheduler.add_event(1, 100);
+        scheduler.add_event(1, 1, 10);
+        scheduler.add_event(2, 1, 20);
+        scheduler.add_event(1, 2, 100);
 
         let sub = scheduler.subscribe();
         let mut out = pop_all(&sub);
@@ -231,9 +288,9 @@ mod tests {
     #[test]
     fn add_after_subscribe_overrides_seeded_value() {
         let scheduler = ReplaceEventScheduler::<u32, u32>::new();
-        scheduler.add_event(1, 10);
+        scheduler.add_event(1, 1, 10);
         let sub = scheduler.subscribe();
-        scheduler.add_event(1, 99);
+        scheduler.add_event(1, 2, 99);
         assert_eq!(pop_all(&sub), vec![(1, 99)]);
     }
 
@@ -249,7 +306,7 @@ mod tests {
             let producer_done = producer_done.clone();
             thread::spawn(move || {
                 for i in 0..N {
-                    scheduler.add_event(0, i);
+                    scheduler.add_event(0, (i + 1) as u64, i);
                 }
                 producer_done.store(true, Ordering::Release);
             })
