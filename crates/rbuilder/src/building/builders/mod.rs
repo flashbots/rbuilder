@@ -30,7 +30,7 @@ use std::{
         atomic::{AtomicU64, Ordering},
         Arc,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::sync::{
     broadcast,
@@ -180,7 +180,12 @@ impl OrderConsumer {
     // Apply insertions and cancellations on sink
     pub fn apply_new_commands<SinkType: SimulatedOrderSink>(&mut self, sink: &mut SinkType) {
         for order_command in self.new_commands.drain(..) {
+            let start = Instant::now();
             simulated_order_command_to_sink(order_command, sink);
+            crate::telemetry::add_orderflow_command_process_time(
+                crate::telemetry::ORDERFLOW_STAGE_PRIORITIZED_STORE_INSERT,
+                start.elapsed(),
+            );
         }
     }
 }

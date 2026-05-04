@@ -22,7 +22,7 @@ use reth_chainspec::EthereumHardforks as _;
 use std::{
     sync::{mpsc, Arc},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
@@ -230,6 +230,7 @@ where
         thread::spawn(move || {
             let mut next_journal_sequence_number = 0;
             while let Some(input) = input.orders.blocking_recv() {
+                let start = Instant::now();
                 // Failing is not critical.
                 let _ = root_hasher_prefetcher_sender.try_send(input.clone());
                 let journal_command =
@@ -237,7 +238,12 @@ where
                 next_journal_sequence_number += 1;
                 order_journal_observer.order_delivered(&journal_command);
                 // we don't create new subscribers to the broadcast so here we can be sure that err means end of receivers
-                if broadcast_input.send(journal_command).is_err() {
+                let send_result = broadcast_input.send(journal_command);
+                crate::telemetry::add_orderflow_command_process_time(
+                    crate::telemetry::ORDERFLOW_STAGE_JOURNAL_STAMPING,
+                    start.elapsed(),
+                );
+                if send_result.is_err() {
                     trace!("Cancelling simulated orders send job, destination stopped");
                     return;
                 }

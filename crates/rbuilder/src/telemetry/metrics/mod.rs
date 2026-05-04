@@ -439,6 +439,18 @@ register_metrics! {
     )
     .unwrap();
 
+    // TEMPORARY: per-orderflow-command processing time in nanoseconds.
+    // Stages: "journal_stamping", "prioritized_store_insert".
+    pub static ORDERFLOW_COMMAND_PROCESS_TIME_NS: HistogramVec = HistogramVec::new(
+        HistogramOpts::new(
+            "orderflow_command_process_time_ns",
+            "Time to process one orderflow command (nanoseconds)"
+        )
+        .buckets(exponential_buckets_range(1.0, 100_000_000.0, 1000)),
+        &["stage"]
+    )
+    .unwrap();
+
 }
 
 pub(super) fn set_version(version: Version) {
@@ -582,6 +594,15 @@ pub fn add_block_validation_time(duration: Duration) {
     BLOCK_VALIDATION_TIME
         .with_label_values(&[])
         .observe(duration_ms(duration));
+}
+
+pub const ORDERFLOW_STAGE_JOURNAL_STAMPING: &str = "journal_stamping";
+pub const ORDERFLOW_STAGE_PRIORITIZED_STORE_INSERT: &str = "prioritized_store_insert";
+
+pub fn add_orderflow_command_process_time(stage: &str, duration: Duration) {
+    ORDERFLOW_COMMAND_PROCESS_TIME_NS
+        .with_label_values(&[stage])
+        .observe(duration.as_nanos() as f64);
 }
 
 pub fn inc_active_slots() {
