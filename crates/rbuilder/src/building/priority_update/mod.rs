@@ -8,6 +8,7 @@ use super::BlockState;
 use pending_updates::PendingUpdates;
 
 pub mod pending_updates;
+pub mod priority_update_pool;
 pub mod pur_simulation_job;
 pub mod simulate;
 pub mod used_priority_update_tracer;

@@ -15,6 +15,7 @@ use self::{
     replaceable_order_sink::ReplaceableOrderSink,
 };
 use crate::{
+    building::priority_update::priority_update_pool::PriorityUpdateIngressOrderpool,
     live_builder::base_config::DEFAULT_TIME_TO_KEEP_MEMPOOL_TXS_SECS,
     provider::StateProviderFactory,
     telemetry::{set_current_block, set_ordepool_stats},
@@ -270,6 +271,7 @@ where
         config.time_to_keep_mempool_txs,
         mempool_detector.clone(),
     )));
+    let priority_update_pool = PriorityUpdateIngressOrderpool::new();
     let subscriber = OrderPoolSubscriber {
         orderpool: orderpool.clone(),
     };
@@ -278,6 +280,7 @@ where
         header_receiver,
         provider_factory,
         orderpool.clone(),
+        priority_update_pool.clone(),
         global_cancel.clone(),
     )
     .await?;
@@ -296,6 +299,7 @@ where
                 config.priority_update_grpc_server_ip,
                 config.priority_update_grpc_server_port,
             )),
+            priority_update_pool.clone(),
             global_cancel.clone(),
         );
 
@@ -400,6 +404,7 @@ async fn spawn_clean_orderpool_job<P>(
     header_receiver: mpsc::Receiver<Header>,
     provider_factory: P,
     orderpool: Arc<Mutex<OrderPool>>,
+    priority_update_pool: PriorityUpdateIngressOrderpool,
     global_cancellation: CancellationToken,
 ) -> eyre::Result<JoinHandle<()>>
 where
@@ -429,6 +434,7 @@ where
                         let start = Instant::now();
 
                         orderpool.head_updated(current_block, &state);
+                        priority_update_pool.head_updated(current_block);
 
                         let update_time = start.elapsed();
                         let (tx_count, bundle_count) = orderpool.content_count();
