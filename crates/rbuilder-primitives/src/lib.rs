@@ -51,7 +51,7 @@ pub struct Metadata {
     pub is_system: bool,
     /// Order refund identity.
     pub refund_identity: Option<Address>,
-    /// Used for encode_no_blobs conversion.
+    /// `RawBundle` field, round-tripped through `Bundle`. Not consumed by rbuilder.
     pub disable_cross_region_sharing: Option<bool>,
 }
 
@@ -116,7 +116,8 @@ impl InMemorySize for Metadata {
     fn size(&self) -> usize {
         mem::size_of::<time::OffsetDateTime>() + // received_at_timestamp
             mem::size_of::<Option<Address>>() + // refund_identity
-            mem::size_of::<bool>() // is_system
+            mem::size_of::<bool>() + // is_system
+            mem::size_of::<Option<bool>>() // disable_cross_region_sharing
     }
 }
 
