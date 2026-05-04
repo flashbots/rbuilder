@@ -100,11 +100,8 @@ pub async fn run_backtest_fetch<
             backtest_fetch_output_file_path.pop();
             fs::create_dir_all(&backtest_fetch_output_file_path)?;
 
-            let mut historical_data_storage = HistoricalDataStorage::new_from_path(
-                backtest_fetch_output_file_buf,
-                config.base_config().priority_update_rules(),
-            )
-            .await?;
+            let mut historical_data_storage =
+                HistoricalDataStorage::new_from_path(backtest_fetch_output_file_buf).await?;
 
             for block in blocks_to_fetch {
                 let block_data = match fetcher.fetch_full_slot_historical_data(block).await {
@@ -124,7 +121,6 @@ pub async fn run_backtest_fetch<
         Commands::List => {
             let mut historical_data_storage = HistoricalDataStorage::new_from_path(
                 config.base_config().backtest_fetch_output_file.clone(),
-                config.base_config().priority_update_rules(),
             )
             .await?;
             let blocks = historical_data_storage.get_blocks_info().await?;
@@ -142,7 +138,6 @@ pub async fn run_backtest_fetch<
         Commands::Remove { blocks } => {
             let mut historical_data_storage = HistoricalDataStorage::new_from_path(
                 config.base_config().backtest_fetch_output_file.clone(),
-                config.base_config().priority_update_rules(),
             )
             .await?;
             for block in blocks {

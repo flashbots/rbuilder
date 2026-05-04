@@ -25,7 +25,6 @@ async fn txpool_receive_util(count: u32) {
         sender,
         Arc::new(MempoolTxsDetector::new()),
         CancellationToken::new(),
-        Arc::new(Vec::new()),
     )
     .await
     .unwrap();

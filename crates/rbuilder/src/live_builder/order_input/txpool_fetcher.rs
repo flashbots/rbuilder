@@ -4,7 +4,7 @@ use alloy_primitives::FixedBytes;
 use alloy_provider::{IpcConnect, Provider, ProviderBuilder};
 use futures::StreamExt;
 use rbuilder_primitives::{
-    serialize::TxEncoding, MempoolTx, Order, PriorityUpdateRule, RawTransactionDecodable,
+    serialize::TxEncoding, MempoolTx, Order, RawTransactionDecodable,
     TransactionSignedEcRecoveredWithBlobs,
 };
 use std::{pin::pin, sync::Arc, time::Instant};
@@ -25,7 +25,6 @@ pub async fn subscribe_to_txpool_with_blobs(
     results: mpsc::Sender<ReplaceableOrderPoolCommand>,
     mempool_detector: Arc<super::mempool_txs_detector::MempoolTxsDetector>,
     global_cancel: CancellationToken,
-    priority_update_rules: Arc<Vec<PriorityUpdateRule>>,
 ) -> eyre::Result<JoinHandle<()>> {
     let mempool = config
         .mempool_source
@@ -71,11 +70,7 @@ pub async fn subscribe_to_txpool_with_blobs(
                     continue;
                 }
             };
-            let class = PriorityUpdateRule::match_rules(
-                std::slice::from_ref(&tx_with_blobs),
-                &priority_update_rules,
-            );
-            let order = Order::Tx(MempoolTx::new(tx_with_blobs, class));
+            let order = Order::Tx(MempoolTx::new(tx_with_blobs));
             let parse_duration = start.elapsed();
             trace!(order = ?order.id(), parse_duration_mus = parse_duration.as_micros(), "Mempool transaction received with blobs");
             add_txfetcher_time_to_query(parse_duration);
@@ -150,7 +145,6 @@ mod test {
                 crate::live_builder::order_input::mempool_txs_detector::MempoolTxsDetector::new(),
             ),
             CancellationToken::new(),
-            Arc::new(Vec::new()),
         )
         .await
         .unwrap();

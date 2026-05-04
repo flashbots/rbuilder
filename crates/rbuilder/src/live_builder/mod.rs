@@ -40,9 +40,7 @@ use futures::{stream::FuturesUnordered, StreamExt};
 use jsonrpsee::RpcModule;
 use order_input::{mempool_txs_detector::MempoolTxsDetector, ReplaceableOrderPoolCommand};
 use payload_events::{InternalPayloadId, MevBoostSlotDataGenerator};
-use rbuilder_primitives::{
-    MempoolTx, Order, PriorityUpdateRule, TransactionSignedEcRecoveredWithBlobs,
-};
+use rbuilder_primitives::{MempoolTx, Order, TransactionSignedEcRecoveredWithBlobs};
 use reth::transaction_pool::{
     BlobStore, EthPooledTransaction, Pool, TransactionListenerKind, TransactionOrdering,
     TransactionPool, TransactionValidator,
@@ -151,9 +149,6 @@ where
     pub order_journal_observer_factory: Box<dyn OrderJournalObserverFactory + Send + Sync>,
 
     pub mempool_detector: Arc<MempoolTxsDetector>,
-
-    /// Rules used by the PU classifier to route orders into the priority-update pipeline.
-    pub priority_update_rules: Arc<Vec<PriorityUpdateRule>>,
 }
 
 impl<P> LiveBuilder<P>
@@ -248,7 +243,6 @@ where
                 self.orderpool_receiver,
                 header_receiver,
                 mempool_detector.clone(),
-                Arc::clone(&self.priority_update_rules),
             )
             .await?;
             inner_jobs_handles.push(handle);
@@ -414,21 +408,13 @@ where
         S: BlobStore,
     {
         let detector = self.mempool_detector.clone();
-        let priority_update_rules = Arc::clone(&self.priority_update_rules);
         // Initialize the orderpool with every item in the reth pool.
         for tx in pool
             .all_transactions()
             .pending_recovered()
             .chain(pool.all_transactions().queued_recovered())
         {
-            try_send_to_orderpool(
-                tx,
-                self.orderpool_sender.clone(),
-                pool.clone(),
-                &detector,
-                &priority_update_rules,
-            )
-            .await;
+            try_send_to_orderpool(tx, self.orderpool_sender.clone(), pool.clone(), &detector).await;
         }
 
         // Subscribe to new transactions in-process.
@@ -437,14 +423,7 @@ where
         tokio::spawn(async move {
             while let Some(e) = recv.recv().await {
                 let tx = e.transaction.transaction.transaction().clone();
-                try_send_to_orderpool(
-                    tx,
-                    orderpool_sender.clone(),
-                    pool.clone(),
-                    &detector,
-                    &priority_update_rules,
-                )
-                .await;
+                try_send_to_orderpool(tx, orderpool_sender.clone(), pool.clone(), &detector).await;
             }
         });
 
@@ -566,7 +545,6 @@ async fn try_send_to_orderpool<V, T, S>(
     orderpool_sender: mpsc::Sender<ReplaceableOrderPoolCommand>,
     pool: Pool<V, T, S>,
     mempool_detector: &Arc<MempoolTxsDetector>,
-    priority_update_rules: &Arc<Vec<PriorityUpdateRule>>,
 ) where
     V: TransactionValidator<Transaction = EthPooledTransaction> + 'static,
     T: TransactionOrdering<Transaction = <V as TransactionValidator>::Transaction>,
@@ -576,9 +554,7 @@ async fn try_send_to_orderpool<V, T, S>(
         Ok(tx) => {
             let tx_hash = tx.hash();
             mempool_detector.add_tx(tx_hash);
-            let class =
-                PriorityUpdateRule::match_rules(std::slice::from_ref(&tx), priority_update_rules);
-            let order = Order::Tx(MempoolTx::new(tx, class));
+            let order = Order::Tx(MempoolTx::new(tx));
             let command = ReplaceableOrderPoolCommand::Order(Arc::new(order));
             if let Err(e) = orderpool_sender.send(command).await {
                 mempool_detector.remove_tx(tx_hash);

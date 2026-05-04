@@ -12,9 +12,7 @@ use rbuilder::{
 async fn create_order_source(config: Config) -> eyre::Result<Box<dyn DataSource>> {
     // create paths for backtest_fetch_mempool_data_dir (i.e "~/.rbuilder/mempool-data" and ".../transactions")
     let backtest_fetch_mempool_data_dir = config.base_config().backtest_fetch_mempool_data_dir()?;
-    let priority_update_rules = config.base_config().priority_update_rules();
-    let mempool_datasource =
-        MempoolDumpsterDatasource::new(backtest_fetch_mempool_data_dir, priority_update_rules)?;
+    let mempool_datasource = MempoolDumpsterDatasource::new(backtest_fetch_mempool_data_dir)?;
     Ok(Box::new(mempool_datasource))
 }
 

@@ -85,7 +85,6 @@ impl<ConfigType: LiveBuilderConfig> LandedBlockFromDBOrdersSource<ConfigType> {
                 .collect::<Result<Vec<OrderId>, eyre::Error>>()?,
             extra_cfg.block_building_time_ms,
             extra_cfg.show_missing,
-            config.base_config().priority_update_rules(),
         )
         .await?;
         let blocklist = config
@@ -174,11 +173,9 @@ async fn read_block_data(
     only_order_ids: Vec<OrderId>,
     block_building_time_ms: i64,
     show_missing: bool,
-    priority_update_rules: Arc<Vec<rbuilder_primitives::PriorityUpdateRule>>,
 ) -> eyre::Result<BlockData> {
     let mut historical_data_storage =
-        HistoricalDataStorage::new_from_path(backtest_fetch_output_file, priority_update_rules)
-            .await?;
+        HistoricalDataStorage::new_from_path(backtest_fetch_output_file).await?;
 
     let full_block_data = historical_data_storage.read_block_data(block).await?;
     let orders_cutoff_time = timestamp_ms_to_offset_datetime(

@@ -26,7 +26,6 @@ use eth_sparse_mpt::{ETHSpareMPTVersion, RootHashThreadPool};
 use eyre::Context;
 use jsonrpsee::RpcModule;
 use rbuilder_config::{EnvOrValue, LoggerConfig, OtlpConfig, TracingConfig};
-use rbuilder_primitives::PriorityUpdateRule;
 use reth::chainspec::chain_value_parser;
 use reth_chainspec::ChainSpec;
 use reth_db::DatabaseEnv;
@@ -174,9 +173,6 @@ pub struct BaseConfig {
     pub orderflow_tracing_store_path: Option<PathBuf>,
     /// Max number of blocks to keep in disk.
     pub orderflow_tracing_max_blocks: usize,
-
-    /// Rules used to classify incoming orders as priority updates.
-    priority_update_rules: Arc<Vec<PriorityUpdateRule>>,
 }
 
 pub fn default_ip() -> Ipv4Addr {
@@ -184,10 +180,6 @@ pub fn default_ip() -> Ipv4Addr {
 }
 
 impl BaseConfig {
-    pub fn priority_update_rules(&self) -> Arc<Vec<PriorityUpdateRule>> {
-        Arc::clone(&self.priority_update_rules)
-    }
-
     pub fn setup_tracing_subscriber(&self) -> eyre::Result<()> {
         let log_level = self.log_level.value()?;
 
@@ -293,7 +285,6 @@ impl BaseConfig {
             order_journal_observer_factory: Box::new(NullOrderJournalObserverFactory {}),
 
             mempool_detector: Arc::new(MempoolTxsDetector::new()),
-            priority_update_rules: self.priority_update_rules(),
         })
     }
 
@@ -550,7 +541,6 @@ impl Default for BaseConfig {
             orderflow_tracing_max_blocks: 0,
             system_recipient_allowlist: Vec::new(),
             max_order_execution_duration_warning_us: None,
-            priority_update_rules: Arc::new(Vec::new()),
         }
     }
 }

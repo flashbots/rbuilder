@@ -18,7 +18,7 @@ use lz4_flex::{block::DecompressError, compress_prepend_size, decompress_size_pr
 use rayon::prelude::*;
 use rbuilder_primitives::{
     serialize::{RawOrder, RawOrderConvertError, TxEncoding},
-    BundleReplacementData, OrderId, PriorityUpdateRule,
+    BundleReplacementData, OrderId,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::{
@@ -41,7 +41,6 @@ const VERSION: i64 = 12;
 /// go to the mempool dumpster (or any other source) every time we simulate a block.
 pub struct HistoricalDataStorage {
     conn: SqliteConnection,
-    priority_update_rules: Arc<Vec<PriorityUpdateRule>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,10 +53,7 @@ pub struct HistoricalBlocksInfo {
 }
 
 impl HistoricalDataStorage {
-    pub async fn new_from_path(
-        path: impl AsRef<Path>,
-        priority_update_rules: Arc<Vec<PriorityUpdateRule>>,
-    ) -> eyre::Result<Self> {
+    pub async fn new_from_path(path: impl AsRef<Path>) -> eyre::Result<Self> {
         // expand the path
         let path_expanded = shellexpand::tilde(path.as_ref().to_str().unwrap());
         let path_expanded_buf = PathBuf::from(OsString::from(path_expanded.as_ref()));
@@ -68,18 +64,14 @@ impl HistoricalDataStorage {
                 .create_if_missing(true)
                 .connect()
                 .await?,
-            priority_update_rules,
         };
         res.create_tables().await?;
         Ok(res)
     }
 
-    pub async fn new_from_memory(
-        priority_update_rules: Arc<Vec<PriorityUpdateRule>>,
-    ) -> eyre::Result<Self> {
+    pub async fn new_from_memory() -> eyre::Result<Self> {
         let mut res = Self {
             conn: SqliteConnectOptions::new().connect().await?,
-            priority_update_rules,
         };
         res.create_tables().await?;
         Ok(res)
@@ -359,7 +351,6 @@ impl HistoricalDataStorage {
             orders,
             built_block_data,
             built_block_included_orders,
-            &self.priority_update_rules,
         )
         .map(|mut v| v.remove(0))
     }
@@ -419,7 +410,6 @@ impl HistoricalDataStorage {
             orders,
             built_block_data,
             built_block_included_orders,
-            &self.priority_update_rules,
         )?;
         let blocks = blocks.iter().collect::<HashSet<_>>();
         res.retain(|block| blocks.contains(&block.block_number));
@@ -531,7 +521,6 @@ fn group_rows_into_block_data(
     orders: Vec<SqliteRow>,
     built_block_data: Vec<SqliteRow>,
     built_block_included_orders: Vec<SqliteRow>,
-    priority_update_rules: &[PriorityUpdateRule],
 ) -> eyre::Result<Vec<FullSlotBlockData>> {
     let mut block_data_by_block = blocks_data
         .into_par_iter()
@@ -614,7 +603,7 @@ fn group_rows_into_block_data(
                 let raw_order: RawReplaceableOrderPoolCommandWithTimestamp =
                     serde_json::from_slice(&order_data)?;
                 let order: ReplaceableOrderPoolCommandWithTimestamp =
-                    raw_order.decode(TxEncoding::NoBlobData, priority_update_rules)?;
+                    raw_order.decode(TxEncoding::NoBlobData)?;
                 Ok((block_number, order))
             },
         )
@@ -681,15 +670,12 @@ impl RawReplaceableOrderPoolCommandWithTimestamp {
     fn decode(
         self,
         encoding: TxEncoding,
-        priority_update_rules: &[PriorityUpdateRule],
     ) -> Result<ReplaceableOrderPoolCommandWithTimestamp, RawOrderConvertError> {
         Ok(ReplaceableOrderPoolCommandWithTimestamp {
             timestamp_ms: self.timestamp_ms,
             command: match self.command {
                 RawReplaceableOrderPoolCommand::Order(raw_order) => {
-                    ReplaceableOrderPoolCommand::Order(Arc::new(
-                        raw_order.decode(encoding, priority_update_rules)?,
-                    ))
+                    ReplaceableOrderPoolCommand::Order(Arc::new(raw_order.decode(encoding)?))
                 }
                 RawReplaceableOrderPoolCommand::CancelBundle(replacement_data) => {
                     ReplaceableOrderPoolCommand::CancelBundle(replacement_data)
@@ -718,9 +704,7 @@ mod test {
 
     #[tokio::test]
     async fn test_create_tables() {
-        let mut storage = HistoricalDataStorage::new_from_memory(Arc::new(Vec::new()))
-            .await
-            .unwrap();
+        let mut storage = HistoricalDataStorage::new_from_memory().await.unwrap();
         storage.create_tables().await.unwrap();
     }
 
@@ -735,7 +719,7 @@ mod test {
                     tx: tx.clone().into(),
                 })),
             }
-            .decode(TxEncoding::WithBlobData, &[])
+            .decode(TxEncoding::WithBlobData)
             .unwrap(),
             RawReplaceableOrderPoolCommandWithTimestamp {
                 timestamp_ms: 11,
@@ -763,7 +747,7 @@ mod test {
                     },
                 })),
             }
-            .decode(TxEncoding::WithBlobData, &[])
+            .decode(TxEncoding::WithBlobData)
             .unwrap(),
             ReplaceableOrderPoolCommandWithTimestamp {
                 timestamp_ms: 1234,
@@ -812,9 +796,7 @@ mod test {
             Some(built_block_data),
         );
 
-        let mut storage = HistoricalDataStorage::new_from_memory(Arc::new(Vec::new()))
-            .await
-            .unwrap();
+        let mut storage = HistoricalDataStorage::new_from_memory().await.unwrap();
         storage.create_tables().await.unwrap();
 
         storage
