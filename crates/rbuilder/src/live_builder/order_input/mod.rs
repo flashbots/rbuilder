@@ -256,7 +256,11 @@ pub async fn start_orderpool_jobs<P>(
     header_receiver: mpsc::Receiver<Header>,
     mempool_detector: Arc<mempool_txs_detector::MempoolTxsDetector>,
     priority_update_rules: Arc<Vec<PriorityUpdateRule>>,
-) -> eyre::Result<(JoinHandle<()>, OrderPoolSubscriber)>
+) -> eyre::Result<(
+    JoinHandle<()>,
+    OrderPoolSubscriber,
+    PriorityUpdateIngressOrderpool,
+)>
 where
     P: StateProviderFactory + 'static,
 {
@@ -387,7 +391,7 @@ where
         info!("OrderPoolJobs: finished");
     });
 
-    Ok((handle, subscriber))
+    Ok((handle, subscriber, priority_update_pool))
 }
 
 pub fn expand_path(path: &Path) -> eyre::Result<PathBuf> {

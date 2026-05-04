@@ -4,9 +4,11 @@ pub mod simulation_job_tracer;
 
 use crate::{
     building::{
-        priority_update::pur_simulation_job::{
-            new_pu_simulation_runtime, new_pur_simulation_channel, run_pur_sim_worker,
-            PUSimulationContext,
+        priority_update::{
+            priority_update_pool::PriorityUpdateIngressOrderpool,
+            pur_simulation_job::{
+                new_pu_simulation_runtime, run_pur_sim_worker, PUSimulationContext,
+            },
         },
         sim::{CancellableSimulationRequest, SimTree, SimulatedResult},
         tx_sim_cache::TxExecutionCache,
@@ -68,6 +70,7 @@ pub struct OrderSimulationPool<P> {
     current_contexts: Arc<Mutex<CurrentSimulationContexts>>,
     worker_threads: Vec<std::thread::JoinHandle<()>>,
     use_random_coinbase: bool,
+    priority_update_pool: PriorityUpdateIngressOrderpool,
 }
 
 /// Result of a simulation.
@@ -88,6 +91,7 @@ where
         num_workers: usize,
         use_random_coinbase: bool,
         global_cancellation: CancellationToken,
+        priority_update_pool: PriorityUpdateIngressOrderpool,
     ) -> Self {
         let mut result = Self {
             provider,
@@ -97,6 +101,7 @@ where
             })),
             worker_threads: Vec::new(),
             use_random_coinbase,
+            priority_update_pool,
         };
         for i in 0..num_workers {
             let ctx = Arc::clone(&result.current_contexts);
@@ -143,7 +148,9 @@ where
         let current_contexts = Arc::clone(&self.current_contexts);
         let running_tasks = Arc::clone(&self.running_tasks);
         let block_context: BlockContextId = gen_uid();
-        let span = info_span!("sim_ctx", block = ctx.block(), parent = ?ctx.attributes.parent);
+        let block_number = ctx.block();
+        let pu_subscription = self.priority_update_pool.subscribe(block_number);
+        let span = info_span!("sim_ctx", block = block_number, parent = ?ctx.attributes.parent);
 
         let handle = tokio::spawn(
             async move {
@@ -166,7 +173,6 @@ where
                 let (sim_req_sender, sim_req_receiver) = flume::unbounded();
                 let (sim_results_sender, sim_results_receiver) = mpsc::channel(1024);
 
-                let (pur_classifier, pur_input) = new_pur_simulation_channel();
                 let (pu_context, pu_worker_state) =
                     new_pu_simulation_runtime(slot_sim_results_sender.clone());
 
@@ -181,15 +187,15 @@ where
                     contexts.contexts.insert(block_context, sim_context);
                 }
 
-                let pur_handle = tokio::spawn(run_pur_sim_worker(
-                    provider.clone(),
-                    ctx,
-                    pur_input,
-                    pu_worker_state,
-                    block_cancellation.clone(),
-                    Arc::clone(&sim_tracer),
-                ));
                 {
+                    let pur_handle = tokio::spawn(run_pur_sim_worker(
+                        provider.clone(),
+                        ctx,
+                        pu_subscription,
+                        pu_worker_state,
+                        block_cancellation.clone(),
+                        Arc::clone(&sim_tracer),
+                    ));
                     let mut tasks = running_tasks.lock();
                     tasks.push(pur_handle);
                 }
@@ -202,7 +208,6 @@ where
                     slot_sim_results_sender,
                     sim_tree,
                     sim_tracer,
-                    pur_classifier,
                 );
 
                 simulation_job.run().await;
@@ -253,7 +258,13 @@ mod tests {
         )
         .unwrap();
 
-        let sim_pool = OrderSimulationPool::new(provider_factory_reopener, 4, true, cancel.clone());
+        let sim_pool = OrderSimulationPool::new(
+            provider_factory_reopener,
+            4,
+            true,
+            cancel.clone(),
+            PriorityUpdateIngressOrderpool::new(),
+        );
         let (order_sender, order_receiver) = mpsc::unbounded_channel();
         let orders_for_block = OrdersForBlock {
             new_order_sub: order_receiver,

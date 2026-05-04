@@ -238,8 +238,8 @@ where
         let (header_sender, header_receiver) = mpsc::channel(CLEAN_TASKS_CHANNEL_SIZE);
 
         let mempool_detector = self.mempool_detector.clone();
-        let orderpool_subscriber = {
-            let (handle, sub) = start_orderpool_jobs(
+        let (orderpool_subscriber, priority_update_pool) = {
+            let (handle, sub, pu_pool) = start_orderpool_jobs(
                 self.order_input_config,
                 self.provider.clone(),
                 self.extra_rpc,
@@ -252,7 +252,7 @@ where
             )
             .await?;
             inner_jobs_handles.push(handle);
-            sub
+            (sub, pu_pool)
         };
 
         let order_simulation_pool = OrderSimulationPool::new(
@@ -260,6 +260,7 @@ where
             self.simulation_threads,
             self.simulation_use_random_coinbase,
             self.global_cancellation.clone(),
+            priority_update_pool,
         );
 
         let mut builder_pool = BlockBuildingPool::new(

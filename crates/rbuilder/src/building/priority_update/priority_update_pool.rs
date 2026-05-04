@@ -82,18 +82,13 @@ impl PriorityUpdateIngressOrderpool {
     pub fn subscribe(
         &self,
         block_number: u64,
-    ) -> Option<ReplaceEventSchedulerSubscription<Uuid, Option<Arc<Order>>>> {
+    ) -> ReplaceEventSchedulerSubscription<Uuid, Option<Arc<Order>>> {
         let mut inner = self.inner.write();
-        if block_number <= inner.last_block {
-            return None;
-        }
-        Some(
-            inner
-                .pools_for_block
-                .entry(block_number)
-                .or_default()
-                .subscribe(),
-        )
+        inner
+            .pools_for_block
+            .entry(block_number)
+            .or_default()
+            .subscribe()
     }
 
     pub fn head_updated(&self, new_block_number: u64) {

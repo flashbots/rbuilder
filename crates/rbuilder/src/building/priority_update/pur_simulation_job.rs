@@ -1,19 +1,18 @@
 use std::sync::Arc;
 
-use ahash::HashSet;
+use ahash::HashMap;
 use parking_lot::Mutex;
-use rbuilder_primitives::{OrderId, SimulatedOrder};
+use rbuilder_primitives::{Order, OrderId, SimulatedOrder};
+use rbuilder_utils::replace_event_scheduler::ReplaceEventSchedulerSubscription;
 use reth_provider::StateProvider;
-use tokio::sync::mpsc::{self, error::TryRecvError};
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, trace};
+use uuid::Uuid;
 
 use crate::{
     building::{BlockBuildingContext, ThreadBlockBuildingContext},
-    live_builder::{
-        order_input::order_sink::OrderPoolCommand,
-        simulation::{simulation_job_tracer::SimulationJobTracer, SimulatedOrderCommand},
-    },
+    live_builder::simulation::{simulation_job_tracer::SimulationJobTracer, SimulatedOrderCommand},
     provider::StateProviderFactory,
 };
 
@@ -23,66 +22,8 @@ use super::{simulate::simulate_priority_update, PriorityUpdatePool};
 /// [`PUSimulationContext::subscribe`]. Matches the builder pipeline channel.
 const PU_SUBSCRIBER_CHANNEL_CAPACITY: usize = 10_000;
 
-/// Upper bound on PU messages a sim worker drains per call to
-/// [`PUSimWorkerOrderpool::consume_updates`].
+/// Upper bound on PU updates a sim worker drains per loop iteration.
 const PU_BATCH_DRAIN_LIMIT: usize = 256;
-
-#[derive(Debug)]
-struct ClassifierInner {
-    cmd_sender: mpsc::UnboundedSender<OrderPoolCommand>,
-    tracked_orders: Mutex<HashSet<OrderId>>,
-}
-
-/// Classifier shared with [`SimulationJob`]: PU-classified commands are
-/// forwarded to the PUR sim thread and swallowed from the main pipeline.
-#[derive(Clone, Debug)]
-pub struct PURCommandClassifier {
-    inner: Arc<ClassifierInner>,
-}
-
-/// Receiver side handed to the PUR sim thread.
-pub struct PURSimulationInput {
-    cmd_receiver: mpsc::UnboundedReceiver<OrderPoolCommand>,
-}
-
-pub fn new_pur_simulation_channel() -> (PURCommandClassifier, PURSimulationInput) {
-    let (cmd_sender, cmd_receiver) = mpsc::unbounded_channel();
-    let classifier = PURCommandClassifier {
-        inner: Arc::new(ClassifierInner {
-            cmd_sender,
-            tracked_orders: Mutex::new(HashSet::default()),
-        }),
-    };
-    let input = PURSimulationInput { cmd_receiver };
-    (classifier, input)
-}
-
-impl PURCommandClassifier {
-    pub fn try_consuming_new_order_command(&self, cmd: &OrderPoolCommand) -> bool {
-        match cmd {
-            OrderPoolCommand::Insert(order) => {
-                if order.metadata().priority_update_data.is_none() {
-                    return false;
-                }
-                self.inner.tracked_orders.lock().insert(order.id());
-                let _ = self
-                    .inner
-                    .cmd_sender
-                    .send(OrderPoolCommand::Insert(Arc::clone(order)));
-                true
-            }
-            OrderPoolCommand::Remove(id) => {
-                let known = self.inner.tracked_orders.lock().remove(id);
-                if known {
-                    let _ = self.inner.cmd_sender.send(OrderPoolCommand::Remove(*id));
-                    true
-                } else {
-                    false
-                }
-            }
-        }
-    }
-}
 
 /// Shared inner state of the priority-update pool plus the fan-out subscriber
 /// list.
@@ -139,7 +80,8 @@ impl PUSimWorkerOrderpool {
                 Ok(SimulatedOrderCommand::Cancellation(id)) => {
                     pool.apply_remove(&id);
                 }
-                Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => break,
+                Err(mpsc::error::TryRecvError::Empty)
+                | Err(mpsc::error::TryRecvError::Disconnected) => break,
             }
         }
     }
@@ -196,10 +138,11 @@ pub fn new_pu_simulation_runtime(
     )
 }
 
+/// Drives the priority-update simulation thread for one block.
 pub async fn run_pur_sim_worker<P>(
     provider: P,
     block_ctx: BlockBuildingContext,
-    input: PURSimulationInput,
+    subscription: ReplaceEventSchedulerSubscription<Uuid, Option<Arc<Order>>>,
     state: PUSimulationWorkerState,
     block_cancellation: CancellationToken,
     sim_tracer: Arc<dyn SimulationJobTracer>,
@@ -215,72 +158,86 @@ pub async fn run_pur_sim_worker<P>(
             }
         };
 
-    let PURSimulationInput { mut cmd_receiver } = input;
-
     let mut local_ctx = ThreadBlockBuildingContext::default();
+    let mut active: HashMap<Uuid, OrderId> = HashMap::default();
+    let mut buf: Vec<(Uuid, Option<Arc<Order>>)> = Vec::new();
 
     loop {
+        buf.clear();
+        subscription.pop_unprocessed_events(PU_BATCH_DRAIN_LIMIT, &mut buf);
+        for (uuid, maybe_order) in buf.drain(..) {
+            process_event(
+                uuid,
+                maybe_order,
+                &block_ctx,
+                &mut local_ctx,
+                &parent_state,
+                &state,
+                &sim_tracer,
+                &mut active,
+            )
+            .await;
+        }
+
         tokio::select! {
             _ = block_cancellation.cancelled() => return,
-            maybe_cmd = cmd_receiver.recv() => {
-                let Some(cmd) = maybe_cmd else { return; };
-                process_command(
-                    cmd,
-                    &block_ctx,
-                    &mut local_ctx,
-                    &parent_state,
-                    &state,
-                    &sim_tracer,
-                )
-                .await;
-            }
+            _ = subscription.notified() => {}
         }
     }
 }
 
-async fn process_command(
-    cmd: OrderPoolCommand,
+#[allow(clippy::too_many_arguments)]
+async fn process_event(
+    uuid: Uuid,
+    maybe_order: Option<Arc<Order>>,
     block_ctx: &BlockBuildingContext,
     local_ctx: &mut ThreadBlockBuildingContext,
     parent_state: &Arc<dyn StateProvider>,
     state: &PUSimulationWorkerState,
     sim_tracer: &Arc<dyn SimulationJobTracer>,
+    active: &mut HashMap<Uuid, OrderId>,
 ) {
-    match cmd {
-        OrderPoolCommand::Insert(order) => {
+    match maybe_order {
+        Some(order) => {
             let order_id = order.id();
-
             let sim_res = simulate_priority_update(
                 Arc::clone(&order),
                 block_ctx,
                 local_ctx,
                 Arc::clone(parent_state),
             );
-
             let simulated_order = match sim_res {
                 Ok(Some(res)) => {
-                    trace!(?order_id, success = true, "PU simulated");
+                    trace!(?order_id, ?uuid, success = true, "PU simulated");
                     res
                 }
                 Ok(None) => {
-                    trace!(?order_id, success = false, "PU simulated");
+                    trace!(?order_id, ?uuid, success = false, "PU simulated");
                     return;
                 }
                 Err(err) => {
-                    trace!(?order_id, success = false, ?err, "PU simulated");
+                    trace!(?order_id, ?uuid, success = false, ?err, "PU simulated");
                     return;
                 }
             };
 
+            // New version supersedes the old: drop the previous OrderId for this uuid first.
+            if let Some(prev_id) = active.remove(&uuid) {
+                state.apply_remove(prev_id).await;
+                sim_tracer.update_cancellation_sent(&prev_id);
+            }
             let evicted = state.apply_update(Arc::clone(&simulated_order)).await;
             for evicted_id in &evicted {
                 trace!(order_id = ?evicted_id, reason = "conflicting", "PU removed");
             }
+            active.insert(uuid, order_id);
         }
-        OrderPoolCommand::Remove(order_id) => {
-            trace!(?order_id, reason = "cancelled", "PU removed");
-            state.apply_remove(order_id).await;
-            sim_tracer.update_cancellation_sent(&order_id);
+        None => {
+            if let Some(prev_id) = active.remove(&uuid) {
+                trace!(order_id = ?prev_id, ?uuid, reason = "cancelled", "PU removed");
+                state.apply_remove(prev_id).await;
+                sim_tracer.update_cancellation_sent(&prev_id);
+            }
         }
     }
 }
