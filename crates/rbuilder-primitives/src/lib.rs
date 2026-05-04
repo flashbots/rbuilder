@@ -51,6 +51,8 @@ pub struct Metadata {
     pub is_system: bool,
     /// Order refund identity.
     pub refund_identity: Option<Address>,
+    /// Used for encode_no_blobs conversion.
+    pub disable_cross_region_sharing: Option<bool>,
 }
 
 impl Default for Metadata {
@@ -71,6 +73,7 @@ impl Metadata {
             received_at_timestamp,
             is_system: false,
             refund_identity: None,
+            disable_cross_region_sharing: None,
         }
     }
 
@@ -94,6 +97,18 @@ impl Metadata {
     /// Set the refund identity.
     pub fn set_refund_identity(&mut self, refund_identity: Option<Address>) {
         self.refund_identity = refund_identity;
+    }
+
+    pub fn with_disable_cross_region_sharing(
+        mut self,
+        disable_cross_region_sharing: Option<bool>,
+    ) -> Self {
+        self.disable_cross_region_sharing = disable_cross_region_sharing;
+        self
+    }
+
+    pub fn set_disable_cross_region_sharing(&mut self, disable_cross_region_sharing: Option<bool>) {
+        self.disable_cross_region_sharing = disable_cross_region_sharing;
     }
 }
 

@@ -1,7 +1,7 @@
 use super::{
     Bundle, BundleRefund, BundleReplacementData, BundleReplacementKey, BundleVersion, MempoolTx,
-    Order, RawTransactionDecodable, TransactionSignedEcRecoveredWithBlobs, TxWithBlobsCreateError,
-    LAST_BUNDLE_VERSION,
+    Metadata, Order, RawTransactionDecodable, TransactionSignedEcRecoveredWithBlobs,
+    TxWithBlobsCreateError, LAST_BUNDLE_VERSION,
 };
 use alloy_consensus::constants::EIP4844_TX_TYPE_ID;
 use alloy_eips::eip2718::Eip2718Error;
@@ -153,6 +153,9 @@ pub struct RawBundleMetadata {
     /// bundleHash, externally set unique identifier for the bundle
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bundle_hash: Option<B256>,
+    /// Disable multiplexing bundle to other region builders.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disable_cross_region_sharing: Option<bool>,
 }
 
 impl RawBundleMetadata {
@@ -228,6 +231,12 @@ impl RawBundleMetadata {
                 if self.delayed_refund.is_some() {
                     return Err(RawBundleConvertError::FieldNotSupportedByVersion(
                         "delayed_refund".to_owned(),
+                        version,
+                    ));
+                }
+                if self.disable_cross_region_sharing.is_some() {
+                    return Err(RawBundleConvertError::FieldNotSupportedByVersion(
+                        "disable_cross_region_sharing".to_owned(),
                         version,
                     ));
                 }
@@ -377,7 +386,8 @@ impl RawBundle {
             max_timestamp: metadata.max_timestamp.filter(|t| *t != 0),
             signer: metadata.signing_address,
             refund_identity: metadata.refund_identity,
-            metadata: Default::default(),
+            metadata: Metadata::default()
+                .with_disable_cross_region_sharing(metadata.disable_cross_region_sharing),
             dropping_tx_hashes: metadata.dropping_tx_hashes,
             refund,
             version,
@@ -417,6 +427,7 @@ impl RawBundle {
                 delayed_refund: value.refund.as_ref().map(|br| br.delayed),
                 version: Some(Self::encode_version(value.version)),
                 bundle_hash: value.external_hash,
+                disable_cross_region_sharing: value.metadata.disable_cross_region_sharing,
             },
         }
     }

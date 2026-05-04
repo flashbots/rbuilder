@@ -98,6 +98,7 @@ impl<ConfigType: LiveBuilderConfig> SyntheticOrdersSource<ConfigType> {
                     received_at_timestamp: time::OffsetDateTime::from_unix_timestamp(0).unwrap(),
                     is_system: false,
                     refund_identity: None,
+                    disable_cross_region_sharing: None,
                 },
                 dropping_tx_hashes: Default::default(),
                 refund: None,

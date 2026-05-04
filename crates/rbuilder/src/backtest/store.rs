@@ -744,6 +744,7 @@ mod test {
                         refund_identity: None,
                         version: Some(RawBundle::encode_version(LAST_BUNDLE_VERSION)),
                         bundle_hash: None,
+                        disable_cross_region_sharing: None,
                     },
                 })),
             }
