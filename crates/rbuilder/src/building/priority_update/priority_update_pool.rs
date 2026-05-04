@@ -178,7 +178,9 @@ mod tests {
     ) -> Vec<(Uuid, Option<Arc<Order>>)> {
         let mut out = Vec::new();
         sub.pop_unprocessed_events(usize::MAX, &mut out);
-        out
+        out.into_iter()
+            .map(|(uuid, _seq, value)| (uuid, value))
+            .collect()
     }
 
     #[test]
@@ -186,7 +188,7 @@ mod tests {
         let pool = PriorityUpdateIngressOrderpool::new();
         let mut gen = TestDataGenerator::default();
         let uuid = Uuid::new_v4();
-        let sub = pool.subscribe(10).unwrap();
+        let sub = pool.subscribe(10);
         pool.add_priority_update(update(&mut gen, uuid, 10, 1))
             .unwrap();
 
@@ -211,7 +213,7 @@ mod tests {
     fn cancellation_is_stored_as_none() {
         let pool = PriorityUpdateIngressOrderpool::new();
         let uuid = Uuid::new_v4();
-        let sub = pool.subscribe(10).unwrap();
+        let sub = pool.subscribe(10);
         pool.add_priority_update(cancel(uuid, 10, 1)).unwrap();
         let drained = drain(&sub);
         assert_eq!(drained.len(), 1);
@@ -223,7 +225,7 @@ mod tests {
     fn stale_seq_is_silently_dropped() {
         let pool = PriorityUpdateIngressOrderpool::new();
         let uuid = Uuid::new_v4();
-        let sub = pool.subscribe(10).unwrap();
+        let sub = pool.subscribe(10);
         pool.add_priority_update(cancel(uuid, 10, 5)).unwrap();
         // same seq → dropped, but Ok
         pool.add_priority_update(cancel(uuid, 10, 5)).unwrap();
@@ -255,9 +257,19 @@ mod tests {
         let uuid = Uuid::new_v4();
         pool.add_priority_update(cancel(uuid, 11, 1)).unwrap();
         pool.add_priority_update(cancel(uuid, 12, 1)).unwrap();
+        // Block 12's entry still exists and is seeded with the cancellation.
+        let sub_12 = pool.subscribe(12);
+        let mut out = Vec::new();
+        sub_12.pop_unprocessed_events(usize::MAX, &mut out);
+        assert_eq!(out.len(), 1);
+        // After head moves past 11, adds targeting 11 are rejected.
         pool.head_updated(11);
-        assert!(pool.subscribe(11).is_none());
-        assert!(pool.subscribe(12).is_some());
+        assert!(matches!(
+            pool.add_priority_update(cancel(uuid, 11, 2)),
+            Err(AddPriorityUpdateError::BlockTooOld { .. })
+        ));
+        // Block 12 remains usable.
+        pool.add_priority_update(cancel(uuid, 12, 2)).unwrap();
     }
 
     #[test]

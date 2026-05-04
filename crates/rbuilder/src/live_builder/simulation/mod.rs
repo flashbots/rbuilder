@@ -32,7 +32,10 @@ use tracing::{error, info_span, Instrument};
 
 #[derive(Debug)]
 pub struct SlotOrderSimResults {
+    /// Non-PU sim results (and their cancellations) from the regular simulation pipeline.
     pub orders: mpsc::Receiver<SimulatedOrderCommand>,
+    /// Handle to the priority-update result scheduler.
+    pub pu_context: PUSimulationContext,
 }
 
 type BlockContextId = u64;
@@ -129,6 +132,7 @@ where
         input: OrdersForBlock,
         block_cancellation: CancellationToken,
         sim_tracer: Arc<dyn SimulationJobTracer>,
+        journal_observer: Arc<dyn crate::building::journal::OrderJournalObserver + Send + Sync>,
     ) -> SlotOrderSimResults {
         let (slot_sim_results_sender, slot_sim_results_receiver) = mpsc::channel(10_000);
 
@@ -150,6 +154,8 @@ where
         let block_context: BlockContextId = gen_uid();
         let block_number = ctx.block();
         let pu_subscription = self.priority_update_pool.subscribe(block_number);
+        let (pu_context, pu_worker_state) = new_pu_simulation_runtime(journal_observer);
+        let pu_context_for_results = pu_context.clone();
         let span = info_span!("sim_ctx", block = block_number, parent = ?ctx.attributes.parent);
 
         let handle = tokio::spawn(
@@ -173,9 +179,6 @@ where
                 let (sim_req_sender, sim_req_receiver) = flume::unbounded();
                 let (sim_results_sender, sim_results_receiver) = mpsc::channel(1024);
 
-                let (pu_context, pu_worker_state) =
-                    new_pu_simulation_runtime(slot_sim_results_sender.clone());
-
                 {
                     let mut contexts = current_contexts.lock();
                     let sim_context = SimulationContext {
@@ -194,7 +197,6 @@ where
                         pu_subscription,
                         pu_worker_state,
                         block_cancellation.clone(),
-                        Arc::clone(&sim_tracer),
                     ));
                     let mut tasks = running_tasks.lock();
                     tasks.push(pur_handle);
@@ -228,6 +230,7 @@ where
 
         SlotOrderSimResults {
             orders: slot_sim_results_receiver,
+            pu_context: pu_context_for_results,
         }
     }
 }
@@ -275,6 +278,7 @@ mod tests {
             orders_for_block,
             cancel.clone(),
             Arc::new(NullSimulationJobTracer {}),
+            Arc::new(crate::building::journal::NullOrderJournalObserver {}),
         );
         // Create a simple tx that sends to coinbase 5 wei.
         let coinbase_profit = 5;

@@ -40,8 +40,11 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 use super::{
-    priority_update::PriorityUpdatePool, simulated_order_command_to_sink, OrderPriority,
-    PrioritizedOrderStore,
+    priority_update::{
+        pur_simulation_job::{PUResultSubscription, PUSimulationContext},
+        PriorityUpdatePool,
+    },
+    simulated_order_command_to_sink, OrderPriority, PrioritizedOrderStore,
 };
 
 /// Orders that blocking_consume_next_commands will consume.
@@ -98,6 +101,10 @@ pub struct LiveBuilderInput<P> {
     pub provider: P,
     pub ctx: BlockBuildingContext,
     pub input: broadcast::Receiver<SimulatedOrderJournalCommand>,
+    /// Handle to the priority-update result scheduler. Each consumer subscribes
+    /// independently and folds the resulting events into its own
+    /// [`PriorityUpdatePool`] via [`PriorityUpdatePool::apply_events`].
+    pub pu_context: PUSimulationContext,
     pub sink: UnfinishedBuiltBlocksInput,
     pub builder_name: String,
     pub cancel: CancellationToken,
@@ -190,6 +197,9 @@ impl OrderConsumer {
 
 /// Struct that allows to consume new SimulatedOrderJournalCommands from a broadcast::Receiver<SimulatedOrderJournalCommand> and get the new orders in a prioritized way.
 /// It's intended for single thread usage. It must be used by calling blocking_consume_next_batch and then current_block_orders.
+/// Upper bound on PU events we drain from the subscription per call.
+const PU_DRAIN_LIMIT: usize = 256;
+
 #[derive(Debug)]
 pub struct OrderIntakeConsumer<OrderPriorityType> {
     nonces: NonceCache,
@@ -199,12 +209,15 @@ pub struct OrderIntakeConsumer<OrderPriorityType> {
     onchain_nonces_updated: HashSet<Address>,
 
     order_consumer: OrderConsumer,
+    pu_subscription: PUResultSubscription,
+    pu_buf: Vec<(uuid::Uuid, u64, Option<Arc<SimulatedOrder>>)>,
 }
 
 impl<OrderPriorityType: OrderPriority> OrderIntakeConsumer<OrderPriorityType> {
     pub fn new(
         nonces: NonceCache,
         orders: broadcast::Receiver<SimulatedOrderJournalCommand>,
+        pu_context: &PUSimulationContext,
     ) -> Self {
         Self {
             nonces,
@@ -212,7 +225,19 @@ impl<OrderPriorityType: OrderPriority> OrderIntakeConsumer<OrderPriorityType> {
             priority_update_pool: PriorityUpdatePool::new(),
             onchain_nonces_updated: HashSet::default(),
             order_consumer: OrderConsumer::new(orders),
+            pu_subscription: pu_context.subscribe(),
+            pu_buf: Vec::new(),
         }
+    }
+
+    /// Drains pending PU events from the subscription and folds them into the
+    /// local [`PriorityUpdatePool`].
+    pub fn consume_pu_batches(&mut self) {
+        self.pu_buf.clear();
+        self.pu_subscription
+            .pop_unprocessed_events(PU_DRAIN_LIMIT, &mut self.pu_buf);
+        self.priority_update_pool
+            .apply_events(self.pu_buf.drain(..));
     }
 
     /// On Ok returned:
@@ -276,25 +301,16 @@ impl<OrderPriorityType: OrderPriority> OrderIntakeConsumer<OrderPriorityType> {
     }
 }
 
-/// Routes simulated-order commands:
-///   * Simulations carrying [`SimulatedOrder::pu_data`] feed the
-///     [`PriorityUpdatePool`].
-///   * All other Simulations go into the [`PrioritizedOrderStore`].
-///   * Cancellations are forwarded to both pools since we don't know
-///     which side owns the id.
+/// PU sims arrive via the dedicated `pu_batches` channel and don't appear on
+/// the journal stream, so this sink only sees regular orders.
 impl<OrderPriorityType: OrderPriority> SimulatedOrderSink
     for OrderIntakeConsumer<OrderPriorityType>
 {
     fn insert_order(&mut self, order: Arc<SimulatedOrder>) {
-        if order.pu_data.is_some() {
-            self.priority_update_pool.apply_update(order);
-        } else {
-            self.block_orders.insert_order(order);
-        }
+        self.block_orders.insert_order(order);
     }
 
     fn remove_order(&mut self, id: OrderId) -> Option<Arc<SimulatedOrder>> {
-        self.priority_update_pool.apply_remove(&id);
         self.block_orders.remove_order(id)
     }
 }
@@ -304,6 +320,8 @@ pub struct BlockBuildingAlgorithmInput<P> {
     pub provider: P,
     pub ctx: BlockBuildingContext,
     pub input: broadcast::Receiver<SimulatedOrderJournalCommand>,
+    /// Handle to the priority-update result scheduler.
+    pub pu_context: PUSimulationContext,
     /// output for the blocks
     pub sink: UnfinishedBuiltBlocksInput,
     /// A cache common to several builders so they can optimize their work looking at other builders blocks.

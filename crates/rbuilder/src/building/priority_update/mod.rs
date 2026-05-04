@@ -1,8 +1,9 @@
 use ahash::{HashMap, HashSet};
 use alloy_primitives::U256;
-use rbuilder_primitives::{evm_inspector::SlotKey, OrderId, PriorityUpdateClass, SimulatedOrder};
+use rbuilder_primitives::{evm_inspector::SlotKey, PriorityUpdateClass, SimulatedOrder};
 use std::sync::Arc;
 use tracing::error;
+use uuid::Uuid;
 
 use super::BlockState;
 use pending_updates::PendingUpdates;
@@ -15,20 +16,17 @@ pub mod used_priority_update_tracer;
 
 /// Holds the set of simulated priority-update orders active for the current block.
 ///
-/// Used by three kinds of consumers:
-/// 1. The PUR simulation thread (tracks its own emitted PUs for bookkeeping).
-/// 2. Each simulation worker thread (so that in-flight simulations can read the
-///    merged overlay).
-/// 3. Each builder thread (so that [`Self::get_updates`] returns the PUs that
-///    should run alongside an order at commit time).
+/// Indexed by the priority-update `replacement_uuid`. Each entry remembers the
+/// scheduler seq it was added with so storage-conflict eviction emissions can
+/// reuse that seq when overwriting the entry on the result scheduler.
 #[derive(Debug, Default, Clone)]
 pub struct PriorityUpdatePool {
     pending: PendingUpdates,
-    orders: HashMap<OrderId, Arc<SimulatedOrder>>,
+    orders: HashMap<Uuid, (u64, Arc<SimulatedOrder>)>,
     /// Orders classified as [`PriorityUpdateClass::ForceTopOfBlock`]. These are
     /// committed at the top of every built block in addition to participating
     /// in the regular PU overlay.
-    force_top_of_block: HashMap<OrderId, Arc<SimulatedOrder>>,
+    force_top_of_block: HashMap<Uuid, Arc<SimulatedOrder>>,
 }
 
 impl PriorityUpdatePool {
@@ -41,47 +39,81 @@ impl PriorityUpdatePool {
         &self.pending
     }
 
-    /// Merges a simulated priority update into the pool. Orders whose
-    /// storage writes conflict with the new one are evicted and their ids
-    /// returned.
-    pub fn apply_update(&mut self, sim_order: Arc<SimulatedOrder>) -> Vec<OrderId> {
-        let Some(pu_data) = sim_order.pu_data.clone() else {
-            error!(order_id = ?sim_order.id(), "apply_update called with non-PU simulated order");
-            return Vec::new();
-        };
-        let order_id = sim_order.id();
-        let evicted = self
-            .pending
-            .add_new_simulated_update(order_id, pu_data.changeset);
-        for id in &evicted {
-            self.orders.remove(id);
-            self.force_top_of_block.remove(id);
+    /// Apply a single keyed event. `Some(sim)` installs/replaces the order
+    /// stored under `uuid` at the given `seq`; `None` drops it. Returns
+    /// `(evicted_uuid, evicted_seq)` for orders evicted by storage-slot
+    /// conflicts caused by the new sim — the seq is the one the evicted entry
+    /// was added with, so callers can reuse it to overwrite the result
+    /// scheduler's stored value. Same-uuid replacements are NOT included in
+    /// the returned list.
+    pub fn apply_event(
+        &mut self,
+        uuid: Uuid,
+        seq: u64,
+        maybe_sim: Option<Arc<SimulatedOrder>>,
+    ) -> Vec<(Uuid, u64)> {
+        match maybe_sim {
+            Some(sim_order) => {
+                let Some(pu_data) = sim_order.pu_data.clone() else {
+                    error!(?uuid, "apply_event called with non-PU simulated order");
+                    return Vec::new();
+                };
+                // Replace prior version of this uuid (if any) before adding the new one.
+                self.pending.remove_order(&uuid);
+                self.orders.remove(&uuid);
+                self.force_top_of_block.remove(&uuid);
+
+                let evicted_uuids = self
+                    .pending
+                    .add_new_simulated_update(uuid, pu_data.changeset);
+                let mut evicted = Vec::with_capacity(evicted_uuids.len());
+                for id in evicted_uuids {
+                    self.force_top_of_block.remove(&id);
+                    if let Some((evicted_seq, _)) = self.orders.remove(&id) {
+                        evicted.push((id, evicted_seq));
+                    }
+                }
+                if matches!(
+                    sim_order.order.metadata().priority_update_data,
+                    Some(PriorityUpdateClass::ForceTopOfBlock)
+                ) {
+                    self.force_top_of_block.insert(uuid, Arc::clone(&sim_order));
+                }
+                self.orders.insert(uuid, (seq, sim_order));
+                evicted
+            }
+            None => {
+                self.pending.remove_order(&uuid);
+                self.orders.remove(&uuid);
+                self.force_top_of_block.remove(&uuid);
+                Vec::new()
+            }
         }
-        if matches!(
-            sim_order.order.metadata().priority_update_data,
-            Some(PriorityUpdateClass::ForceTopOfBlock)
-        ) {
-            self.force_top_of_block
-                .insert(order_id, Arc::clone(&sim_order));
+    }
+
+    /// Convenience wrapper around [`Self::apply_event`] for batch input.
+    pub fn apply_events<I>(&mut self, events: I) -> Vec<(Uuid, u64)>
+    where
+        I: IntoIterator<Item = (Uuid, u64, Option<Arc<SimulatedOrder>>)>,
+    {
+        let mut evicted = Vec::new();
+        for (uuid, seq, maybe_sim) in events {
+            evicted.extend(self.apply_event(uuid, seq, maybe_sim));
         }
-        self.orders.insert(order_id, sim_order);
         evicted
     }
 
-    pub fn apply_remove(&mut self, order_id: &OrderId) {
-        self.pending.remove_order(order_id);
-        self.orders.remove(order_id);
-        self.force_top_of_block.remove(order_id);
-    }
-
     /// Orders that must be committed at the top of every built block, sorted
-    /// by [`OrderId`] for deterministic inclusion order across builders. The
+    /// by uuid for deterministic inclusion order across builders. The
     /// builder iterates this list once at the start of `build_block` and
     /// commits each before the regular order loop runs.
     pub fn force_top_of_block_orders(&self) -> Vec<Arc<SimulatedOrder>> {
-        let mut orders: Vec<_> = self.force_top_of_block.values().cloned().collect();
-        orders.sort_by_key(|sim| sim.id());
-        orders
+        let mut entries: Vec<_> = self.force_top_of_block.iter().collect();
+        entries.sort_by_key(|(uuid, _)| **uuid);
+        entries
+            .into_iter()
+            .map(|(_, sim)| Arc::clone(sim))
+            .collect()
     }
 
     /// Priority-update orders owning any of the slots in `read_slots`. The
@@ -91,16 +123,16 @@ impl PriorityUpdatePool {
         if read_slots.is_empty() || self.orders.is_empty() {
             return Vec::new();
         }
-        let mut matched: HashSet<OrderId> = HashSet::default();
+        let mut matched: HashSet<Uuid> = HashSet::default();
         let mut result: Vec<Arc<SimulatedOrder>> = Vec::new();
         for slot in read_slots {
-            let Some(order_id) = self.pending.order_for_slot(slot) else {
+            let Some(uuid) = self.pending.order_for_slot(slot) else {
                 continue;
             };
-            if !matched.insert(order_id) {
+            if !matched.insert(uuid) {
                 continue;
             }
-            if let Some(sim) = self.orders.get(&order_id) {
+            if let Some((_, sim)) = self.orders.get(&uuid) {
                 result.push(Arc::clone(sim));
             }
         }

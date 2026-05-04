@@ -3,7 +3,7 @@ pub mod built_block_cache;
 use crate::{
     building::{
         builders::{BlockBuildingAlgorithm, BlockBuildingAlgorithmInput, BuiltBlockIdSource},
-        journal::{OrderJournalObserverFactory, SimulatedOrderJournalCommand},
+        journal::{JournalLane, OrderJournalObserverFactory, SimulatedOrderJournalCommand},
         BlockBuildingContext,
     },
     live_builder::{
@@ -144,16 +144,35 @@ where
             .orderpool_subscriber
             .add_sink(block_ctx.block(), order_flow_input);
 
+        let journal_observer: Arc<
+            dyn crate::building::journal::OrderJournalObserver + Send + Sync,
+        > = match self
+            .order_journal_observer_factory
+            .create_observer(&payload)
+        {
+            Ok(obs) => Arc::from(obs),
+            Err(err) => {
+                error!(
+                    ?err,
+                    "Failed to create order journal observer, cancelling building job"
+                );
+                block_cancellation.cancel();
+                return;
+            }
+        };
+
         let simulations_for_block = self.order_simulation_pool.spawn_simulation_job(
             block_ctx.clone(),
             orders_for_block,
             block_cancellation.clone(),
             sim_tracer,
+            Arc::clone(&journal_observer),
         );
         self.start_building_job(
             block_ctx,
             payload,
             simulations_for_block,
+            journal_observer,
             block_cancellation,
         );
     }
@@ -164,22 +183,11 @@ where
         ctx: BlockBuildingContext,
         slot_data: MevBoostSlotData,
         mut input: SlotOrderSimResults,
+        order_journal_observer: Arc<
+            dyn crate::building::journal::OrderJournalObserver + Send + Sync,
+        >,
         cancel: CancellationToken,
     ) {
-        let order_journal_observer = match self
-            .order_journal_observer_factory
-            .create_observer(&slot_data)
-        {
-            Ok(order_journal_observer) => order_journal_observer,
-            Err(err) => {
-                error!(
-                    ?err,
-                    "Failed to create order journal observer, cancelling building job"
-                );
-                cancel.cancel();
-                return;
-            }
-        };
         let built_block_cache = Arc::new(BuiltBlockCache::new());
         let builder_sink =
             self.sink_factory
@@ -203,6 +211,7 @@ where
                 provider: self.provider.clone(),
                 ctx: ctx.clone(),
                 input: broadcast_input.subscribe(),
+                pu_context: input.pu_context.clone(),
                 sink: builder_sink.clone(),
                 cancel: cancel.clone(),
                 built_block_cache: built_block_cache.clone(),
@@ -232,8 +241,11 @@ where
             while let Some(input) = input.orders.blocking_recv() {
                 // Failing is not critical.
                 let _ = root_hasher_prefetcher_sender.try_send(input.clone());
-                let journal_command =
-                    SimulatedOrderJournalCommand::new(input, next_journal_sequence_number);
+                let journal_command = SimulatedOrderJournalCommand::new(
+                    input,
+                    next_journal_sequence_number,
+                    JournalLane::Main,
+                );
                 next_journal_sequence_number += 1;
                 order_journal_observer.order_delivered(&journal_command);
                 // we don't create new subscribers to the broadcast so here we can be sure that err means end of receivers

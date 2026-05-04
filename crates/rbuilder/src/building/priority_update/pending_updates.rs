@@ -1,10 +1,11 @@
 use ahash::{HashMap, HashSet};
 use alloy_primitives::{Address, B256, U256};
-use rbuilder_primitives::{evm_inspector::SlotKey, OrderId};
+use rbuilder_primitives::evm_inspector::SlotKey;
 use reth_errors::ProviderError;
 use revm::{
     bytecode::Bytecode, database::states::PlainStorageChangeset, state::AccountInfo, Database,
 };
+use uuid::Uuid;
 
 use super::used_priority_update_tracer::{
     UsedPriorityStateStorageTracker, UsedPriorityStateTracer,
@@ -12,8 +13,8 @@ use super::used_priority_update_tracer::{
 
 #[derive(Debug, Default, Clone)]
 pub struct PendingUpdates {
-    orders: HashMap<OrderId, Vec<PlainStorageChangeset>>,
-    merged: HashMap<(Address, U256), (U256, OrderId)>,
+    orders: HashMap<Uuid, Vec<PlainStorageChangeset>>,
+    merged: HashMap<(Address, U256), (U256, Uuid)>,
 }
 
 impl PendingUpdates {
@@ -24,36 +25,35 @@ impl PendingUpdates {
         }
     }
 
-    /// Returns the ids of evicted orders that conflicted with the new one.
+    /// Returns the uuids of evicted orders that conflicted with the new one.
     pub fn add_new_simulated_update(
         &mut self,
-        order_id: OrderId,
+        uuid: Uuid,
         changeset: Vec<PlainStorageChangeset>,
-    ) -> Vec<OrderId> {
-        let conflicting: HashSet<OrderId> = changeset
+    ) -> Vec<Uuid> {
+        let conflicting: HashSet<Uuid> = changeset
             .iter()
             .flat_map(|s| s.storage.iter().map(|(key, _)| (s.address, *key)))
             .filter_map(|slot| self.merged.get(&slot).map(|(_, id)| *id))
             .collect();
 
-        let evicted: Vec<OrderId> = conflicting.into_iter().collect();
+        let evicted: Vec<Uuid> = conflicting.into_iter().collect();
         for id in &evicted {
             self.remove_order(id);
         }
 
         for storage in &changeset {
             for (key, value) in &storage.storage {
-                self.merged
-                    .insert((storage.address, *key), (*value, order_id));
+                self.merged.insert((storage.address, *key), (*value, uuid));
             }
         }
-        self.orders.insert(order_id, changeset);
+        self.orders.insert(uuid, changeset);
 
         evicted
     }
 
-    pub fn remove_order(&mut self, order_id: &OrderId) {
-        if let Some(changeset) = self.orders.remove(order_id) {
+    pub fn remove_order(&mut self, uuid: &Uuid) {
+        if let Some(changeset) = self.orders.remove(uuid) {
             for storage in &changeset {
                 for (key, _) in &storage.storage {
                     self.merged.remove(&(storage.address, *key));
@@ -66,17 +66,13 @@ impl PendingUpdates {
         self.merged.get(&(address, key)).map(|(value, _)| *value)
     }
 
-    /// Combined lookup that also returns the OrderId currently owning the slot.
-    pub fn storage_lookup_with_owner(
-        &self,
-        address: Address,
-        key: U256,
-    ) -> Option<(U256, OrderId)> {
+    /// Combined lookup that also returns the Uuid currently owning the slot.
+    pub fn storage_lookup_with_owner(&self, address: Address, key: U256) -> Option<(U256, Uuid)> {
         self.merged.get(&(address, key)).copied()
     }
 
-    /// OrderId that currently owns the given slot, if any.
-    pub fn order_for_slot(&self, slot: &SlotKey) -> Option<OrderId> {
+    /// Uuid that currently owns the given slot, if any.
+    pub fn order_for_slot(&self, slot: &SlotKey) -> Option<Uuid> {
         let key: U256 = slot.key.into();
         self.merged.get(&(slot.address, key)).map(|(_, id)| *id)
     }
@@ -95,7 +91,7 @@ pub struct PendingStateDb<'a, DB> {
     pending: &'a PendingUpdates,
     tracker: UsedPriorityStateStorageTracker,
     db: DB,
-    used_pu_slots: HashMap<OrderId, SlotKey>,
+    used_pu_slots: HashMap<Uuid, SlotKey>,
 }
 
 impl<DB> PendingStateDb<'_, DB> {
@@ -141,13 +137,13 @@ where
     }
 
     fn storage(&mut self, address: Address, index: U256) -> Result<U256, Self::Error> {
-        if let Some((value, order_id)) = self.pending.storage_lookup_with_owner(address, index) {
+        if let Some((value, uuid)) = self.pending.storage_lookup_with_owner(address, index) {
             let slot = SlotKey {
                 address,
                 key: index.into(),
             };
             self.used_pu_slots
-                .entry(order_id)
+                .entry(uuid)
                 .or_insert_with(|| slot.clone());
             self.tracker.track_slot(slot.clone());
             self.tracker.record_storage_read(slot);
@@ -166,9 +162,13 @@ mod tests {
     use super::*;
     use crate::{
         building::priority_update::used_priority_update_tracer::UsedStorageSlotStatus,
-        utils::test_utils::{addr, hash, order_id},
+        utils::test_utils::{addr, hash},
     };
     use revm::database::states::PlainStorageChangeset;
+
+    fn uuid_n(n: u128) -> Uuid {
+        Uuid::from_u128(n)
+    }
 
     /// Minimal `Database` returning all-zero state — exercise overlay/tracking
     /// behaviour without spinning up a real provider.
@@ -192,7 +192,7 @@ mod tests {
         }
     }
 
-    fn pu_with_order(order: OrderId, slots: &[(u64, u64, u64)]) -> PendingUpdates {
+    fn pu_with_order(uuid: Uuid, slots: &[(u64, u64, u64)]) -> PendingUpdates {
         let mut pending = PendingUpdates::new();
         let mut by_addr: HashMap<Address, Vec<(U256, U256)>> = HashMap::default();
         for (addr_id, key_id, value) in slots {
@@ -209,7 +209,7 @@ mod tests {
                 storage,
             })
             .collect();
-        pending.add_new_simulated_update(order, changeset);
+        pending.add_new_simulated_update(uuid, changeset);
         pending
     }
 
@@ -254,8 +254,8 @@ mod tests {
 
     #[test]
     fn pu_slot_read_in_committed_root_classifies_as_read() {
-        let order = order_id(1);
-        let pending = pu_with_order(order, &[(1, 1, 42)]);
+        let uuid = uuid_n(1);
+        let pending = pu_with_order(uuid, &[(1, 1, 42)]);
         let mut t = Tester::new(&pending);
 
         t.enter();
@@ -271,8 +271,8 @@ mod tests {
 
     #[test]
     fn pu_slot_read_only_in_reverted_subcall_is_revert() {
-        let order = order_id(1);
-        let pending = pu_with_order(order, &[(1, 1, 42)]);
+        let uuid = uuid_n(1);
+        let pending = pu_with_order(uuid, &[(1, 1, 42)]);
         let mut t = Tester::new(&pending);
 
         t.enter(); // root
@@ -282,16 +282,14 @@ mod tests {
         t.exit(true); // root commits
 
         assert_eq!(t.classify(1, 1), Some(UsedStorageSlotStatus::ReadReverted));
-        // existing behaviour: used_pu_slots tracks the touched slot regardless
-        // — callers can filter by classification to drop reverted reads.
         let used = t.into_used_pu_slots();
         assert_eq!(used.len(), 1);
     }
 
     #[test]
     fn pu_slot_read_in_revert_then_at_root_is_read() {
-        let order = order_id(1);
-        let pending = pu_with_order(order, &[(1, 1, 42)]);
+        let uuid = uuid_n(1);
+        let pending = pu_with_order(uuid, &[(1, 1, 42)]);
         let mut t = Tester::new(&pending);
 
         t.enter(); // root
@@ -306,26 +304,26 @@ mod tests {
 
     #[test]
     fn non_pu_slot_is_not_tracked() {
-        let order = order_id(1);
-        let pending = pu_with_order(order, &[(1, 1, 42)]); // only (1,1) is PU-owned
+        let uuid = uuid_n(1);
+        let pending = pu_with_order(uuid, &[(1, 1, 42)]);
         let mut t = Tester::new(&pending);
 
         t.enter();
-        let v = t.read(2, 3); // address/key not in pending
+        let v = t.read(2, 3);
         t.exit(true);
 
-        assert_eq!(v, U256::ZERO); // came from ZeroDb passthrough
+        assert_eq!(v, U256::ZERO);
         assert!(t.classify(2, 3).is_none());
         assert!(t.into_used_pu_slots().is_empty());
     }
 
     #[test]
     fn slots_from_multiple_orders_classified_independently() {
-        let order_a = order_id(1);
-        let order_b = order_id(2);
+        let uuid_a = uuid_n(1);
+        let uuid_b = uuid_n(2);
         let mut pending = PendingUpdates::new();
         pending.add_new_simulated_update(
-            order_a,
+            uuid_a,
             vec![PlainStorageChangeset {
                 address: addr(1),
                 wipe_storage: false,
@@ -333,7 +331,7 @@ mod tests {
             }],
         );
         pending.add_new_simulated_update(
-            order_b,
+            uuid_b,
             vec![PlainStorageChangeset {
                 address: addr(2),
                 wipe_storage: false,
@@ -342,10 +340,10 @@ mod tests {
         );
         let mut t = Tester::new(&pending);
 
-        t.enter(); // root
-        let v_a = t.read(1, 1); // order_a's slot — committed at root
-        t.enter(); // sub
-        let v_b = t.read(2, 2); // order_b's slot — inside reverting sub
+        t.enter();
+        let v_a = t.read(1, 1);
+        t.enter();
+        let v_b = t.read(2, 2);
         t.exit(false);
         t.exit(true);
 

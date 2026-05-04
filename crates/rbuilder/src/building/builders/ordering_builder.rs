@@ -116,7 +116,7 @@ pub fn run_ordering_builder<P, OrderPriorityType>(
     let nonces = NonceCache::new(block_state.clone());
 
     let mut order_intake_consumer =
-        OrderIntakeConsumer::<OrderPriorityType>::new(nonces, input.input);
+        OrderIntakeConsumer::<OrderPriorityType>::new(nonces, input.input, &input.pu_context);
 
     let mut builder = OrderingBuilderContext::new(
         block_state.clone(),
@@ -148,6 +148,7 @@ pub fn run_ordering_builder<P, OrderPriorityType>(
                 continue;
             }
         };
+        order_intake_consumer.consume_pu_batches();
 
         let orders = order_intake_consumer.current_block_orders();
         match builder.build_block(
@@ -561,6 +562,7 @@ where
             provider: input.provider,
             ctx: input.ctx.clone(),
             input: input.input,
+            pu_context: input.pu_context,
             sink: input.sink,
             builder_name: self.name.clone(),
             cancel: input.cancel,

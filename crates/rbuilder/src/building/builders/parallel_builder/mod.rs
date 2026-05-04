@@ -113,7 +113,7 @@ where
             group_result_sender_for_task_generator,
         );
 
-        let order_intake_consumer = OrderIntakeStore::new(input.input);
+        let order_intake_consumer = OrderIntakeStore::new(input.input, &input.pu_context);
         let priority_update_pool = order_intake_consumer.priority_update_pool();
 
         let conflict_resolving_pool = ConflictResolvingPool::new(
@@ -442,6 +442,7 @@ where
             provider: input.provider,
             ctx: input.ctx.clone(),
             input: input.input,
+            pu_context: input.pu_context,
             sink: input.sink,
             builder_name: self.name.clone(),
             cancel: input.cancel,
