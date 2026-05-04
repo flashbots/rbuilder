@@ -15,6 +15,7 @@ use std::{collections::VecDeque, hash::Hash, sync::Arc};
 
 use ahash::{HashMap, HashSet};
 use parking_lot::RwLock;
+use tokio::sync::Notify;
 
 type SharedReplaceEventScheduledEvents<K, V> = Arc<RwLock<ReplaceEventScheduledEvents<K, V>>>;
 type SharedReplaceEventUnprocessedEvents<K> = Arc<RwLock<ReplaceEventUnprocessedEvents<K>>>;
@@ -22,7 +23,13 @@ type SharedReplaceEventUnprocessedEvents<K> = Arc<RwLock<ReplaceEventUnprocessed
 #[derive(Debug, Clone)]
 pub struct ReplaceEventScheduler<K, V> {
     inner: SharedReplaceEventScheduledEvents<K, V>,
-    subscriptions: Arc<RwLock<Vec<SharedReplaceEventUnprocessedEvents<K>>>>,
+    subscriptions: Arc<RwLock<Vec<SubscriptionEntry<K>>>>,
+}
+
+#[derive(Debug, Clone)]
+struct SubscriptionEntry<K> {
+    unprocessed: SharedReplaceEventUnprocessedEvents<K>,
+    notify: Arc<Notify>,
 }
 
 /// Outcome of [`ReplaceEventScheduler::add_event`].
@@ -69,10 +76,19 @@ where
             unprocessed_set,
             unprocessed_queue,
         }));
-        subscriptions.push(unprocessed.clone());
+        let notify = Arc::new(Notify::new());
+        // Seed permit so the first notified() returns immediately if anything was already pending.
+        if !inner.data.is_empty() {
+            notify.notify_one();
+        }
+        subscriptions.push(SubscriptionEntry {
+            unprocessed: unprocessed.clone(),
+            notify: notify.clone(),
+        });
         ReplaceEventSchedulerSubscription {
             unprocessed_state: unprocessed,
             events: self.inner.clone(),
+            notify,
         }
     }
 
@@ -103,10 +119,11 @@ where
             }
         };
         for subscription in subscriptions.iter() {
-            let mut sub = subscription.write();
+            let mut sub = subscription.unprocessed.write();
             if sub.unprocessed_set.insert(key.clone()) {
                 sub.unprocessed_queue.push_back(key.clone());
             }
+            subscription.notify.notify_one();
         }
         outcome
     }
@@ -133,6 +150,7 @@ struct StoredEvent<V> {
 pub struct ReplaceEventSchedulerSubscription<K, V> {
     unprocessed_state: SharedReplaceEventUnprocessedEvents<K>,
     events: SharedReplaceEventScheduledEvents<K, V>,
+    notify: Arc<Notify>,
 }
 
 impl<K, V> ReplaceEventSchedulerSubscription<K, V>
@@ -158,6 +176,11 @@ where
             }
         }
         count
+    }
+
+    /// Awaits the next subscription update.
+    pub async fn notified(&self) {
+        self.notify.notified().await;
     }
 }
 
@@ -292,6 +315,27 @@ mod tests {
         let sub = scheduler.subscribe();
         scheduler.add_event(1, 2, 99);
         assert_eq!(pop_all(&sub), vec![(1, 99)]);
+    }
+
+    #[tokio::test]
+    async fn notified_wakes_on_add_and_does_not_lose_permits() {
+        let scheduler = ReplaceEventScheduler::<u32, u32>::new();
+        let sub = scheduler.subscribe();
+        // No prior data — notified should block until something is added.
+        let waiter = tokio::spawn(async move {
+            sub.notified().await;
+            pop_all(&sub)
+        });
+        scheduler.add_event(1, 1, 10);
+        let drained = waiter.await.unwrap();
+        assert_eq!(drained, vec![(1, 10)]);
+
+        // Permit deposited before await still wakes us.
+        let sub2 = scheduler.subscribe();
+        let _ = pop_all(&sub2); // drain seeded
+        scheduler.add_event(2, 1, 20);
+        sub2.notified().await; // returns immediately via stored permit
+        assert_eq!(pop_all(&sub2), vec![(2, 20)]);
     }
 
     #[test]
