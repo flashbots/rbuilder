@@ -346,6 +346,7 @@ pub struct BacktestSimulateBlockInput<'a, P> {
     pub ctx: BlockBuildingContext,
     pub builder_name: String,
     pub sim_orders: &'a Vec<Arc<SimulatedOrder>>,
+    pub priority_update_pool: &'a PriorityUpdatePool,
     pub provider: P,
 }
 

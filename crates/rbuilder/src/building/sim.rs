@@ -9,7 +9,7 @@ use crate::{
         cached_reads::CachedDB,
         order_is_worth_executing,
         priority_update::{
-            pending_updates::new_pending_state_with_tracer,
+            pending_updates::new_pending_state_with_tracer, simulate::simulate_priority_update,
             used_priority_update_tracer::UsedStorageSlotStatus, PriorityUpdatePool,
         },
         BlockBuildingContext, BlockBuildingSpaceState, BlockState, CriticalCommitOrderError,
@@ -343,25 +343,57 @@ impl SimTree {
     }
 }
 
-/// Non-interactive usage of sim tree that will simply simulate all orders.
-/// `randomize_insertion` is used to debug if sim tree works correctly when orders are inserted in a different order
-/// outputs should be independent of this arg.
+/// Non-interactive simulation of a batch of orders.
+///
+/// Splits incoming orders into priority-update orders (those carrying
+/// `metadata.priority_update_data`) and regular orders. PU orders are
+/// simulated first. Regular orders are then
+/// simulated with that pool installed as a state overlay.
+///
+/// `randomize_insertion` is used to debug whether the sim tree works
+/// correctly when regular orders are pushed in different order — outputs
+/// should be independent of this arg.
 pub fn simulate_all_orders_with_sim_tree<P>(
     provider: P,
     ctx: &BlockBuildingContext,
     orders: &[Arc<Order>],
     randomize_insertion: bool,
-) -> Result<(Vec<Arc<SimulatedOrder>>, Vec<OrderErr>), CriticalCommitOrderError>
+) -> Result<SimulateAllOrdersResult, CriticalCommitOrderError>
 where
     P: StateProviderFactory + Clone,
 {
-    let nonces = {
-        let state = provider.history_by_block_hash(ctx.attributes.parent)?;
-        NonceCache::new(state.into())
-    };
+    let initial_provider =
+        Arc::<dyn StateProvider>::from(provider.history_by_block_hash(ctx.attributes.parent)?);
+    let mut local_ctx = ThreadBlockBuildingContext::default();
+
+    let (pu_orders, regular_orders): (Vec<Arc<Order>>, Vec<Arc<Order>>) = orders
+        .iter()
+        .cloned()
+        .partition(|o| o.metadata().priority_update_data.is_some());
+
+    let mut priority_update_pool = PriorityUpdatePool::new();
+    let mut pu_orders_sorted = pu_orders;
+    pu_orders_sorted.sort_by_key(|o| o.metadata().received_at_timestamp);
+    for order in pu_orders_sorted {
+        let order_id = order.id();
+        let Some((key, seq)) = order.replacement_key_and_sequence_number() else {
+            error!(?order_id, "PU order missing replacement key, skipping");
+            continue;
+        };
+        match simulate_priority_update(order, ctx, &mut local_ctx, initial_provider.clone())? {
+            Some(sim) => {
+                priority_update_pool.apply_event(key.id, seq, Some(sim));
+            }
+            None => {
+                trace!(?order_id, "PU order discarded during pre-simulation");
+            }
+        }
+    }
+
+    let nonces = NonceCache::new(initial_provider.clone());
     let mut sim_tree = SimTree::new(nonces);
 
-    let mut orders = orders.to_vec();
+    let mut orders = regular_orders;
     let random_insert_size = max(orders.len() / 20, 1);
     if randomize_insertion {
         let mut rng = rand::thread_rng();
@@ -372,10 +404,6 @@ where
     }
 
     let mut sim_errors = Vec::new();
-    let initial_provider =
-        Arc::<dyn StateProvider>::from(provider.history_by_block_hash(ctx.attributes.parent)?);
-    let mut local_ctx = ThreadBlockBuildingContext::default();
-    let empty_pu_pool = PriorityUpdatePool::new();
     loop {
         // mix new orders into the sim_tree
         if randomize_insertion && !orders.is_empty() {
@@ -402,7 +430,7 @@ where
                 sim_task.order.clone(),
                 ctx,
                 &mut local_ctx,
-                &empty_pu_pool,
+                &priority_update_pool,
                 cached,
             )?;
             match sim_result.result {
@@ -434,14 +462,26 @@ where
         sim_tree.submit_simulation_tasks_results(sim_results)?;
     }
 
-    Ok((
-        sim_tree
+    Ok(SimulateAllOrdersResult {
+        sim_orders: sim_tree
             .sims
             .into_values()
             .map(|sim| sim.simulated_order)
             .collect(),
         sim_errors,
-    ))
+        priority_update_pool,
+    })
+}
+
+/// Output of [`simulate_all_orders_with_sim_tree`].
+#[derive(Debug)]
+pub struct SimulateAllOrdersResult {
+    /// Successfully simulated regular (non-PU) orders.
+    pub sim_orders: Vec<Arc<SimulatedOrder>>,
+    /// Per-order errors collected from regular order simulation.
+    pub sim_errors: Vec<OrderErr>,
+    /// Pool seeded with priority-update orders that simulated successfully.
+    pub priority_update_pool: PriorityUpdatePool,
 }
 
 /// Prepares context (fork + tracer) and calls simulate_order_using_fork.

@@ -202,11 +202,10 @@ where
         None,
         Arc::new(BuiltBlockCache::new()),
     );
-    let priority_update_pool = PriorityUpdatePool::new();
     let mut block_builder = builder.build_block_with_execution_tracer(
         0,
         block_orders,
-        &priority_update_pool,
+        input.priority_update_pool,
         BuiltBlockId::ZERO,
         CancellationToken::new(),
         partial_block_execution_tracer,

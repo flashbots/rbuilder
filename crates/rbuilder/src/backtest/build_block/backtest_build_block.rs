@@ -102,7 +102,11 @@ where
     let provider_factory = orders_source.create_provider_factory()?;
     orders_source.print_custom_stats(provider_factory.clone())?;
 
-    let BacktestBlockInput { sim_orders, .. } = backtest_prepare_orders_from_building_context(
+    let BacktestBlockInput {
+        sim_orders,
+        priority_update_pool,
+        ..
+    } = backtest_prepare_orders_from_building_context(
         ctx.clone(),
         available_orders.clone(),
         provider_factory.clone(),
@@ -137,6 +141,7 @@ where
                     ctx: ctx.clone(),
                     builder_name: builder_name.clone(),
                     sim_orders: &sim_orders,
+                    priority_update_pool: &priority_update_pool,
                     provider: provider_factory.clone(),
                 };
                 let build_res = if build_block_cfg.trace_block_building {

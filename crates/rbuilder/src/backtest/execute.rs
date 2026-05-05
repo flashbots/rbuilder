@@ -1,7 +1,9 @@
 use crate::{
     backtest::BlockData,
     building::{
-        builders::BacktestSimulateBlockInput, sim::simulate_all_orders_with_sim_tree,
+        builders::BacktestSimulateBlockInput,
+        priority_update::PriorityUpdatePool,
+        sim::{simulate_all_orders_with_sim_tree, SimulateAllOrdersResult},
         BlockBuildingContext, BundleErr, NullPartialBlockExecutionTracer, OrderErr, TransactionErr,
     },
     live_builder::{block_list_provider::BlockList, cli::LiveBuilderConfig},
@@ -52,6 +54,7 @@ pub struct BlockBacktestValue {
 pub struct BacktestBlockInput {
     pub sim_orders: Vec<Arc<SimulatedOrder>>,
     pub sim_errors: Vec<OrderErr>,
+    pub priority_update_pool: PriorityUpdatePool,
 }
 
 pub fn backtest_get_block_building_context_for_block<P>(
@@ -108,11 +111,15 @@ where
         }
     }
 
-    let (sim_orders, sim_errors) =
-        simulate_all_orders_with_sim_tree(provider, &ctx, &orders, false)?;
+    let SimulateAllOrdersResult {
+        sim_orders,
+        sim_errors,
+        priority_update_pool,
+    } = simulate_all_orders_with_sim_tree(provider, &ctx, &orders, false)?;
     Ok(BacktestBlockInput {
         sim_orders,
         sim_errors,
+        priority_update_pool,
     })
 }
 
@@ -155,6 +162,7 @@ where
     let BacktestBlockInput {
         sim_orders,
         sim_errors,
+        priority_update_pool,
     } = backtest_prepare_orders_from_building_context(
         ctx.clone(),
         block_data.available_orders,
@@ -198,6 +206,7 @@ where
             ctx: ctx.clone(),
             builder_name: building_algorithm_name.clone(),
             sim_orders: &sim_orders,
+            priority_update_pool: &priority_update_pool,
             provider: provider.clone(),
         };
 

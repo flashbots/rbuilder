@@ -32,12 +32,9 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, trace};
 
 use crate::{
-    building::{
-        builders::{
-            BacktestSimulateBlockInput, Block, BlockBuildingAlgorithm, BlockBuildingAlgorithmInput,
-            BuiltBlockIdSource, LiveBuilderInput,
-        },
-        priority_update::PriorityUpdatePool,
+    building::builders::{
+        BacktestSimulateBlockInput, Block, BlockBuildingAlgorithm, BlockBuildingAlgorithmInput,
+        BuiltBlockIdSource, LiveBuilderInput,
     },
     live_builder::block_output::bidding_service_interface::CompetitionBidContext,
     provider::StateProviderFactory,
@@ -323,7 +320,7 @@ where
     // Worker pool and conflict manager creation
     let setup_start = Instant::now();
 
-    let priority_update_pool = Arc::new(RwLock::new(PriorityUpdatePool::default()));
+    let priority_update_pool = Arc::new(RwLock::new(input.priority_update_pool.clone()));
 
     let mut conflict_resolving_pool = ConflictResolvingPool::new(
         config.num_threads,
