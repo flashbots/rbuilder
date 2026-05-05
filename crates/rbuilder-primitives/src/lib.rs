@@ -11,7 +11,7 @@ pub mod serialize;
 mod test_data_generator;
 
 /// Classification stamped on priority-update orders to control inclusion semantics.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PriorityUpdateKind {
     /// Always committed at the top of the block, regardless of demand.
     ForceTopOfBlock,
@@ -20,7 +20,7 @@ pub enum PriorityUpdateKind {
 }
 
 /// Priority-update metadata stamped on orders ingested via the priority-update pipeline.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PriorityUpdateData {
     pub kind: PriorityUpdateKind,
     pub source: String,

@@ -18,7 +18,7 @@ use lz4_flex::{block::DecompressError, compress_prepend_size, decompress_size_pr
 use rayon::prelude::*;
 use rbuilder_primitives::{
     serialize::{RawOrder, RawOrderConvertError, TxEncoding},
-    BundleReplacementData, OrderId,
+    BundleReplacementData, Order, OrderId, PriorityUpdateData, PriorityUpdateKind,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::{
@@ -34,7 +34,7 @@ use std::{
 
 /// Version of the data/format on the DB.
 /// Since we don't have backwards compatibility every time this is increased we must re-create the DB (manually delete the sqlite)
-const VERSION: i64 = 12;
+const VERSION: i64 = 13;
 
 /// Storage of FullSlotBlockData.
 /// It allows us to locally cache (using a SQLite DB) all the info we need for backtesting so we don't have to
@@ -117,7 +117,8 @@ impl HistoricalDataStorage {
                 coinbase_profit TEXT,
                 gas_used INTEGER,
                 order_id TEXT,
-                order_data BLOB NOT NULL
+                order_data BLOB NOT NULL,
+                priority_update_data BLOB
             );
 
             CREATE INDEX IF NOT EXISTS orders_block_number_idx ON orders (block_number);
@@ -245,21 +246,32 @@ impl HistoricalDataStorage {
 
             for order in block_data.available_orders() {
                 let raw_order: RawReplaceableOrderPoolCommandWithTimestamp = order.clone().into();
-                let order_id = match &order.command {
-                    ReplaceableOrderPoolCommand::Order(order) => Some( order.id().to_string()),
-                    ReplaceableOrderPoolCommand::CancelBundle(_) => None,
+                let (order_id, priority_update_data) = match &order.command {
+                    ReplaceableOrderPoolCommand::Order(order) => {
+                        let pu = order
+                            .metadata()
+                            .priority_update_data
+                            .as_ref()
+                            .map(|pu| -> eyre::Result<Vec<u8>> {
+                                Ok(compress_data(&serde_json::to_vec(pu)?))
+                            })
+                            .transpose()?;
+                        (Some(order.id().to_string()), pu)
+                    }
+                    ReplaceableOrderPoolCommand::CancelBundle(_) => (None, None),
                 };
                 let order_json = compress_data(&serde_json::to_vec(&raw_order)?);
                 sqlx::query(
                     r#"
-                INSERT INTO orders (block_number, timestamp_ms, order_type, order_id, order_data)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO orders (block_number, timestamp_ms, order_type, order_id, order_data, priority_update_data)
+                VALUES (?, ?, ?, ?, ?, ?)
                 "#,
                 ).bind(block_data.block_number as i64)
                     .bind(order.timestamp_ms as i64)
                     .bind(order_type(&raw_order.command))
                     .bind(order_id)
                     .bind(order_json)
+                    .bind(priority_update_data)
                     .execute(conn.as_mut())
                     .await?;
             }
@@ -318,7 +330,7 @@ impl HistoricalDataStorage {
 
         let orders = sqlx::query(
             r#"
-        SELECT block_number, timestamp_ms, order_data FROM orders
+        SELECT block_number, timestamp_ms, order_data, priority_update_data FROM orders
         WHERE block_number = ?
         "#,
         )
@@ -374,7 +386,7 @@ impl HistoricalDataStorage {
 
         let orders = sqlx::query(
             r#"
-        SELECT block_number, timestamp_ms, order_data FROM orders
+        SELECT block_number, timestamp_ms, order_data, priority_update_data FROM orders
         WHERE block_number between ? and ?
         "#,
         )
@@ -602,8 +614,26 @@ fn group_rows_into_block_data(
                 let block_number = row.try_get::<i64, _>("block_number")? as u64;
                 let raw_order: RawReplaceableOrderPoolCommandWithTimestamp =
                     serde_json::from_slice(&order_data)?;
-                let order: ReplaceableOrderPoolCommandWithTimestamp =
+                let mut order: ReplaceableOrderPoolCommandWithTimestamp =
                     raw_order.decode(TxEncoding::NoBlobData)?;
+
+                let priority_update_data = row
+                    .try_get::<Option<Vec<u8>>, _>("priority_update_data")?
+                    .map(|bytes| -> eyre::Result<PriorityUpdateData> {
+                        Ok(serde_json::from_slice(&decompress_data(&bytes)?)?)
+                    })
+                    .transpose()?;
+                if let (Some(pu), ReplaceableOrderPoolCommand::Order(arc_order)) =
+                    (priority_update_data, &mut order.command)
+                {
+                    match Arc::make_mut(arc_order) {
+                        Order::Bundle(b) => b.metadata.priority_update_data = Some(pu),
+                        Order::Tx(tx) => {
+                            tx.tx_with_blobs.metadata.priority_update_data = Some(pu)
+                        }
+                    }
+                }
+
                 Ok((block_number, order))
             },
         )
@@ -813,6 +843,96 @@ mod test {
 
         let blocks = storage.get_blocks().await.unwrap();
         assert_eq!(blocks, vec![12]);
+    }
+
+    #[tokio::test]
+    async fn test_priority_update_data_round_trips() {
+        let tx = hex!("02f9037b018203cd8405f5e1008503692da370830388ba943fc91a3afd70395cd496c647d5a6cc9d4b2b7fad8780e531581b77c4b903043593564c000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000a00000000000000000000000000000000000000000000000000000000064f390d300000000000000000000000000000000000000000000000000000000000000030b090c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000c000000000000000000000000000000000000000000000000000000000000001e0000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000080e531581b77c400000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000009184e72a0000000000000000000000000000000000000000000000000000080e531581b77c400000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000c02aaa39b223fe8d0a0e5c4f27ead9083c756cc2000000000000000000000000b5ea574dd8f2b735424dfc8c4e16760fc44a931b000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000c001a0a9ea84ad107d335afd5e5d2ddcc576f183be37386a9ac6c9d4469d0329c22e87a06a51ea5a0809f43bf72d0156f1db956da3a9f3da24b590b7eed01128ff84a2c1").to_vec();
+
+        let decoded = RawReplaceableOrderPoolCommandWithTimestamp {
+            timestamp_ms: 11,
+            command: RawReplaceableOrderPoolCommand::Order(RawOrder::Bundle(RawBundle {
+                txs: vec![tx.clone().into()],
+                metadata: RawBundleMetadata {
+                    block_number: Some(U64::from(12)),
+                    reverting_tx_hashes: vec![],
+                    replacement_uuid: Some(uuid::Uuid::from_u128(11)),
+                    signing_address: Some(alloy_primitives::address!(
+                        "0101010101010101010101010101010101010101"
+                    )),
+                    min_timestamp: None,
+                    max_timestamp: None,
+                    replacement_nonce: Some(0),
+                    dropping_tx_hashes: vec![],
+                    uuid: None,
+                    refund_percent: None,
+                    refund_recipient: None,
+                    refund_tx_hashes: None,
+                    delayed_refund: None,
+                    refund_identity: None,
+                    version: Some(RawBundle::encode_version(LAST_BUNDLE_VERSION)),
+                    bundle_hash: None,
+                },
+            })),
+        }
+        .decode(TxEncoding::WithBlobData)
+        .unwrap();
+
+        let pu = PriorityUpdateData {
+            kind: PriorityUpdateKind::ForceTopOfBlock,
+            source: "test-source".to_string(),
+        };
+
+        let order_with_pu = match decoded.command {
+            ReplaceableOrderPoolCommand::Order(arc_order) => {
+                let mut order = (*arc_order).clone();
+                match &mut order {
+                    Order::Bundle(b) => b.metadata.priority_update_data = Some(pu.clone()),
+                    Order::Tx(_) => panic!("expected bundle"),
+                }
+                ReplaceableOrderPoolCommandWithTimestamp {
+                    timestamp_ms: decoded.timestamp_ms,
+                    command: ReplaceableOrderPoolCommand::Order(Arc::new(order)),
+                }
+            }
+            ReplaceableOrderPoolCommand::CancelBundle(_) => panic!("expected order"),
+        };
+
+        let winning_bid_trace = BuilderBlockReceived {
+            slot: 12,
+            parent_hash: Default::default(),
+            block_hash: Default::default(),
+            builder_pubkey: Default::default(),
+            proposer_pubkey: Default::default(),
+            proposer_fee_recipient: Default::default(),
+            gas_limit: 30_000_000,
+            gas_used: 15_000_000,
+            value: Default::default(),
+            num_tx: 1,
+            block_number: 12,
+            timestamp: 12,
+            timestamp_ms: 12000,
+            optimistic_submission: false,
+        };
+        let block_data = FullSlotBlockData::new(
+            12,
+            winning_bid_trace,
+            create_test_block(),
+            vec![order_with_pu],
+            None,
+        );
+
+        let mut storage = HistoricalDataStorage::new_from_memory().await.unwrap();
+        storage.write_block_data(block_data).await.unwrap();
+        let read = storage.read_block_data(12).await.unwrap();
+
+        let read_orders = read.available_orders();
+        assert_eq!(read_orders.len(), 1);
+        let read_pu = match &read_orders[0].command {
+            ReplaceableOrderPoolCommand::Order(o) => o.metadata().priority_update_data.clone(),
+            ReplaceableOrderPoolCommand::CancelBundle(_) => panic!("expected order"),
+        };
+        assert_eq!(read_pu, Some(pu));
     }
 
     fn create_empty_block_header() -> Header {
