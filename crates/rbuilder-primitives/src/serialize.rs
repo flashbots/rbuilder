@@ -154,8 +154,12 @@ pub struct RawBundleMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bundle_hash: Option<B256>,
     /// Disable multiplexing bundle to other region builders.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub disable_cross_region_sharing: Option<bool>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub disable_cross_region_sharing: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 impl RawBundleMetadata {
@@ -234,7 +238,7 @@ impl RawBundleMetadata {
                         version,
                     ));
                 }
-                if self.disable_cross_region_sharing.is_some() {
+                if self.disable_cross_region_sharing {
                     return Err(RawBundleConvertError::FieldNotSupportedByVersion(
                         "disable_cross_region_sharing".to_owned(),
                         version,
