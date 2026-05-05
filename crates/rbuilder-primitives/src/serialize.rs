@@ -1029,6 +1029,8 @@ mod tests {
             r#" "refundPercent": 1 "#,
             r#" "refundRecipient": "0x95222290dd7278aa3ddd389cc1e1d165cc4bafe5" "#,
             r#" "refundTxHashes": ["0x75662ab9cb6d1be7334723db5587435616352c7e581a52867959ac24006ac1fe"] "#,
+            r#" "delayedRefund": true "#,
+            r#" "disableCrossRegionSharing": true "#,
         ];
 
         for field in extra_invalid_fields {
