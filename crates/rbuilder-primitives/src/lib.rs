@@ -99,10 +99,7 @@ impl Metadata {
         self.refund_identity = refund_identity;
     }
 
-    pub fn with_disable_cross_region_sharing(
-        mut self,
-        disable_cross_region_sharing: bool,
-    ) -> Self {
+    pub fn with_disable_cross_region_sharing(mut self, disable_cross_region_sharing: bool) -> Self {
         self.disable_cross_region_sharing = disable_cross_region_sharing;
         self
     }
