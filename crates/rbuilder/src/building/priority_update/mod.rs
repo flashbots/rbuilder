@@ -1,6 +1,6 @@
 use ahash::{HashMap, HashSet};
 use alloy_primitives::U256;
-use rbuilder_primitives::{evm_inspector::SlotKey, PriorityUpdateClass, SimulatedOrder};
+use rbuilder_primitives::{evm_inspector::SlotKey, PriorityUpdateKind, SimulatedOrder};
 use std::sync::Arc;
 use tracing::error;
 use uuid::Uuid;
@@ -23,7 +23,7 @@ pub mod used_priority_update_tracer;
 pub struct PriorityUpdatePool {
     pending: PendingUpdates,
     orders: HashMap<Uuid, (u64, Arc<SimulatedOrder>)>,
-    /// Orders classified as [`PriorityUpdateClass::ForceTopOfBlock`]. These are
+    /// Orders classified as [`PriorityUpdateKind::ForceTopOfBlock`]. These are
     /// committed at the top of every built block in addition to participating
     /// in the regular PU overlay.
     force_top_of_block: HashMap<Uuid, Arc<SimulatedOrder>>,
@@ -74,8 +74,13 @@ impl PriorityUpdatePool {
                     }
                 }
                 if matches!(
-                    sim_order.order.metadata().priority_update_data,
-                    Some(PriorityUpdateClass::ForceTopOfBlock)
+                    sim_order
+                        .order
+                        .metadata()
+                        .priority_update_data
+                        .as_ref()
+                        .map(|d| d.kind),
+                    Some(PriorityUpdateKind::ForceTopOfBlock)
                 ) {
                     self.force_top_of_block.insert(uuid, Arc::clone(&sim_order));
                 }

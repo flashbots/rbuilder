@@ -3,8 +3,8 @@ use parking_lot::RwLock;
 use rbuilder_primitives::{
     proto::builder_priority_update_v1::{PriorityUpdate, PriorityUpdatePlacement},
     serialize::TxEncoding,
-    Bundle, BundleReplacementData, BundleReplacementKey, Metadata, Order, PriorityUpdateClass,
-    TxWithBlobsCreateError, LAST_BUNDLE_VERSION,
+    Bundle, BundleReplacementData, BundleReplacementKey, Metadata, Order, PriorityUpdateData,
+    PriorityUpdateKind, TxWithBlobsCreateError, LAST_BUNDLE_VERSION,
 };
 use rbuilder_utils::replace_event_scheduler::{
     ReplaceEventScheduler, ReplaceEventSchedulerSubscription,
@@ -110,9 +110,9 @@ fn priority_update_to_order(
         .decode(update.tx.clone().into())
         .map_err(AddPriorityUpdateError::InvalidTx)?;
 
-    let class = match PriorityUpdatePlacement::try_from(update.placement) {
-        Ok(PriorityUpdatePlacement::AlwaysTopOfBlock) => PriorityUpdateClass::ForceTopOfBlock,
-        _ => PriorityUpdateClass::Regular,
+    let kind = match PriorityUpdatePlacement::try_from(update.placement) {
+        Ok(PriorityUpdatePlacement::AlwaysTopOfBlock) => PriorityUpdateKind::ForceTopOfBlock,
+        _ => PriorityUpdateKind::Regular,
     };
 
     let mut bundle = Bundle {
@@ -132,7 +132,10 @@ fn priority_update_to_order(
         signer: None,
         refund_identity: None,
         metadata: Metadata {
-            priority_update_data: Some(class),
+            priority_update_data: Some(PriorityUpdateData {
+                kind,
+                source: update.source.clone(),
+            }),
             ..Metadata::new_received_now()
         },
         refund: None,

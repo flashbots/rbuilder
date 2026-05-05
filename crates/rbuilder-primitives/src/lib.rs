@@ -12,11 +12,18 @@ mod test_data_generator;
 
 /// Classification stamped on priority-update orders to control inclusion semantics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum PriorityUpdateClass {
+pub enum PriorityUpdateKind {
     /// Always committed at the top of the block, regardless of demand.
     ForceTopOfBlock,
     /// Committed only when used by another order via the PU overlay.
     Regular,
+}
+
+/// Priority-update metadata stamped on orders ingested via the priority-update pipeline.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PriorityUpdateData {
+    pub kind: PriorityUpdateKind,
+    pub source: String,
 }
 
 use alloy_consensus::Transaction as _;
@@ -62,9 +69,9 @@ pub struct Metadata {
     pub is_system: bool,
     /// Order refund identity.
     pub refund_identity: Option<Address>,
-    /// Priority-update classification, stamped on orders ingested via the
+    /// Priority-update metadata, stamped on orders ingested via the
     /// priority-update pipeline. `None` for orders from any other source.
-    pub priority_update_data: Option<PriorityUpdateClass>,
+    pub priority_update_data: Option<PriorityUpdateData>,
 }
 
 impl Default for Metadata {
@@ -117,7 +124,7 @@ impl InMemorySize for Metadata {
         mem::size_of::<time::OffsetDateTime>() + // received_at_timestamp
             mem::size_of::<Option<Address>>() + // refund_identity
             mem::size_of::<bool>() + // is_system
-            mem::size_of::<Option<PriorityUpdateClass>>() // priority_update_class
+            mem::size_of::<Option<PriorityUpdateData>>() // priority_update_data
     }
 }
 

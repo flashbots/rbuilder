@@ -51,7 +51,7 @@ pub trait BlockBuildingHelper: Send + Sync {
     ) -> Result<OrderCommitResult, CriticalCommitOrderError>;
 
     /// Commits every order classified as
-    /// [`rbuilder_primitives::PriorityUpdateClass::ForceTopOfBlock`] to the block.
+    /// [`rbuilder_primitives::PriorityUpdateKind::ForceTopOfBlock`] to the block.
     /// Call once at the start of `build_block`, before any other order is committed.
     fn commit_force_top_of_block_orders(
         &mut self,
