@@ -52,7 +52,7 @@ pub struct Metadata {
     /// Order refund identity.
     pub refund_identity: Option<Address>,
     /// `RawBundle` field, round-tripped through `Bundle`. Not consumed by rbuilder.
-    pub disable_cross_region_sharing: Option<bool>,
+    pub disable_cross_region_sharing: bool,
 }
 
 impl Default for Metadata {
@@ -73,7 +73,7 @@ impl Metadata {
             received_at_timestamp,
             is_system: false,
             refund_identity: None,
-            disable_cross_region_sharing: None,
+            disable_cross_region_sharing: false,
         }
     }
 
@@ -99,16 +99,9 @@ impl Metadata {
         self.refund_identity = refund_identity;
     }
 
-    pub fn with_disable_cross_region_sharing(
-        mut self,
-        disable_cross_region_sharing: Option<bool>,
-    ) -> Self {
+    pub fn with_disable_cross_region_sharing(mut self, disable_cross_region_sharing: bool) -> Self {
         self.disable_cross_region_sharing = disable_cross_region_sharing;
         self
-    }
-
-    pub fn set_disable_cross_region_sharing(&mut self, disable_cross_region_sharing: Option<bool>) {
-        self.disable_cross_region_sharing = disable_cross_region_sharing;
     }
 }
 
@@ -117,7 +110,7 @@ impl InMemorySize for Metadata {
         mem::size_of::<time::OffsetDateTime>() + // received_at_timestamp
             mem::size_of::<Option<Address>>() + // refund_identity
             mem::size_of::<bool>() + // is_system
-            mem::size_of::<Option<bool>>() // disable_cross_region_sharing
+            mem::size_of::<bool>() // disable_cross_region_sharing
     }
 }
 
