@@ -556,11 +556,19 @@ pub struct ExecutionResult {
 }
 
 /// Main order result plus every priority update attempted in front of it.
-/// When `order` is `Err` all priority updates have been reverted.
+/// When `order` is `Err` priority_updates will be empty even if they were attempted.
 #[derive(Debug)]
 pub struct OrderCommitResult {
     pub priority_updates: Vec<Result<ExecutionResult, ExecutionError>>,
     pub order: Result<ExecutionResult, ExecutionError>,
+}
+
+impl OrderCommitResult {
+    /// Returns `(ok_priority_updates, failed_priority_updates)`.
+    pub fn priority_update_counts(&self) -> (usize, usize) {
+        let ok = self.priority_updates.iter().filter(|r| r.is_ok()).count();
+        (ok, self.priority_updates.len() - ok)
+    }
 }
 
 #[derive(Error, Debug)]
@@ -755,10 +763,10 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
     where
         DB: Database<Error = ProviderError>,
     {
-        let unwritten_priorit_update_slots =
+        let unwritten_priority_update_slots =
             select_unwritten_slots(state, &order.used_priority_updates);
         let priority_update_orders =
-            priority_update_pool.get_updates(&unwritten_priorit_update_slots);
+            priority_update_pool.get_updates(&unwritten_priority_update_slots);
 
         let pu_tracer = UsedPriorityStateTracer::new(std::iter::empty());
         let pu_storage_tracker = pu_tracer.storage_tracker();
@@ -772,6 +780,8 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         .with_tracer(&mut self.tracer)
         .with_evm_inspector(pu_tracer.clone());
 
+        // rollback data, we copy self.space_state because its mutated by priority update commits
+        // rolling back to this point will rollback all priority updates
         let rollback = fork.rollback_point();
         let initial_space_state = self.space_state;
 
@@ -810,7 +820,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
                 coinbase_profit: ok_result.coinbase_profit,
                 inplace_sim,
                 space_used: ok_result.space_used,
-                order: Arc::new(priority_update_order.clone()),
+                order: Arc::clone(&priority_update_sim.order),
                 tx_infos: ok_result.tx_infos,
                 nonces_updated: ok_result.nonces_updated,
                 paid_kickbacks: ok_result.paid_kickbacks,
@@ -821,7 +831,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         // Register the unwritten PU slots only after every PU has committed,
         // so SLOADs done by the PUs themselves don't pollute the recording —
         // we only want to see what the order reads.
-        for slot in &unwritten_priorit_update_slots {
+        for slot in &unwritten_priority_update_slots {
             pu_storage_tracker.track_slot(slot.clone());
         }
 
@@ -838,7 +848,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
                 fork.rollback(rollback);
                 self.space_state = initial_space_state;
                 return Ok(OrderCommitResult {
-                    priority_updates,
+                    priority_updates: Vec::new(),
                     order: Err(err.into()),
                 });
             }
@@ -851,25 +861,23 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             fork.rollback(rollback);
             self.space_state = initial_space_state;
             return Ok(OrderCommitResult {
-                priority_updates,
+                priority_updates: Vec::new(),
                 order: Err(err),
             });
         }
 
         // Verify every tracked PU slot was actually read on the surviving
-        // call path. Slots only surfaced through reverted subcalls (or not
-        // read at all) mean the owning PU is unused — fail the whole commit
-        // so the caller can re-plan.
+        // call path. Currently we consider slots that were read on the reverting callstack as used.
         let unused_slots: Vec<(SlotKey, UsedStorageSlotStatus)> = pu_tracer
             .classification()
             .into_iter()
-            .filter(|(_, status)| !matches!(status, UsedStorageSlotStatus::Read))
+            .filter(|(_, status)| !status.is_read())
             .collect();
         if !unused_slots.is_empty() {
             fork.rollback(rollback);
             self.space_state = initial_space_state;
             return Ok(OrderCommitResult {
-                priority_updates,
+                priority_updates: Vec::new(),
                 order: Err(ExecutionError::PriorityUpdatesNotUsed(unused_slots)),
             });
         }

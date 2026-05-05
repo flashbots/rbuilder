@@ -261,7 +261,7 @@ pub async fn start_orderpool_jobs<P>(
     PriorityUpdateIngressOrderpool,
 )>
 where
-    P: StateProviderFactory + 'static,
+    P: StateProviderFactory + Clone + 'static,
 {
     if config.ignore_cancellable_orders {
         warn!("ignore_cancellable_orders is set to true, some order input is ignored");
@@ -281,7 +281,7 @@ where
 
     let clean_job = spawn_clean_orderpool_job(
         header_receiver,
-        provider_factory,
+        provider_factory.clone(),
         orderpool.clone(),
         priority_update_pool.clone(),
         global_cancel.clone(),
@@ -302,6 +302,7 @@ where
                 config.priority_update_grpc_server_port,
             )),
             priority_update_pool.clone(),
+            provider_factory,
             global_cancel.clone(),
         );
 

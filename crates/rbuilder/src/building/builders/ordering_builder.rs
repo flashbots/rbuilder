@@ -470,10 +470,12 @@ impl OrderingBuilderContext {
                 }
             }
 
-            let mut gas_used = 0;
+            let mut gas_used = 0; // does not count priority updates
             let mut execution_error = None;
             let mut reinserted = false;
             let success = commit_result.order.is_ok();
+            let (ok_priority_updates, failed_priority_updates) =
+                commit_result.priority_update_counts();
             match commit_result.order {
                 Ok(res) => {
                     gas_used = res.space_used.gas;
@@ -509,6 +511,7 @@ impl OrderingBuilderContext {
                     execution_error = Some(err);
                 }
             }
+
             trace!(
                 order_id = ?sim_order.id(),
                 success,
@@ -516,6 +519,8 @@ impl OrderingBuilderContext {
                 gas_used,
                 ?execution_error,
                 reinserted,
+                ok_priority_updates,
+                failed_priority_updates,
                 "Executed order"
             );
         }

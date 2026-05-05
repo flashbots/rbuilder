@@ -141,6 +141,22 @@ impl ResolverContext {
         partial_block.pre_block_call(&self.ctx, &mut state)?;
         let priority_update_pool = Arc::clone(&self.priority_update_pool);
 
+        // Commit force-TOB priority update orders so the simulated state
+        // matches what the assembler will produce at the top of the block.
+        // Their profits are not part of the conflict group's ResolutionResult.
+        let force_tob_orders = priority_update_pool.read().force_top_of_block_orders();
+        for force_tob_order in &force_tob_orders {
+            partial_block.commit_order(
+                force_tob_order,
+                &self.ctx,
+                &mut local_ctx,
+                &mut state,
+                #[allow(clippy::result_large_err)]
+                &|_| Ok(()),
+                &priority_update_pool.read(),
+            )?;
+        }
+
         // Initialize sequenced_order_result
         let mut sequenced_order_result =
             self.initialize_result_order_sequence(&cached_state_option, &order_id_to_index);
@@ -175,6 +191,7 @@ impl ResolverContext {
                 &|_| Ok(()),
                 &priority_update_pool.read(),
             )?;
+            // NOTE: we ingore priority update commits here as they are not relevant for conflict resolver
             match commit_result.order {
                 Ok(res) => self.handle_successful_commit(
                     res,

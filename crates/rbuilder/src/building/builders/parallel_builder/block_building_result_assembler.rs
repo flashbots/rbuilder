@@ -272,9 +272,11 @@ impl BlockBuildingResultAssembler {
                     }
                 }
 
-                let mut gas_used = 0;
+                let mut gas_used = 0; // does not count priority updates
                 let mut execution_error = None;
                 let success = commit_result.order.is_ok();
+                let (ok_priority_updates, failed_priority_updates) =
+                    commit_result.priority_update_counts();
                 match commit_result.order {
                     Ok(res) => {
                         gas_used = res.space_used.gas;
@@ -287,6 +289,8 @@ impl BlockBuildingResultAssembler {
                     order_commit_time_mus = order_commit_time.as_micros(),
                     gas_used,
                     ?execution_error,
+                    ok_priority_updates,
+                    failed_priority_updates,
                     "Executed order"
                 );
             } else {
@@ -331,7 +335,7 @@ impl BlockBuildingResultAssembler {
                 Ok(res) => (true, res.space_used.gas, None),
                 Err(err) => (false, 0, Some(err)),
             };
-            tracing::trace!(
+            trace!(
                 order_id = ?sim_order.id(),
                 success,
                 order_commit_time_mus = order_commit_time.as_micros(),
@@ -366,7 +370,7 @@ impl BlockBuildingResultAssembler {
                 for priority_update_result in &commit_result.priority_updates {
                     match priority_update_result {
                         Ok(res) => {
-                            tracing::trace!(
+                            trace!(
                                 order_id = ?res.order.id(),
                                 success = true,
                                 gas_used = res.space_used.gas,
@@ -374,7 +378,7 @@ impl BlockBuildingResultAssembler {
                             );
                         }
                         Err(err) => {
-                            tracing::trace!(
+                            trace!(
                                 success = false,
                                 error = ?err,
                                 "Failed to execute priority update in backtest"
@@ -385,7 +389,7 @@ impl BlockBuildingResultAssembler {
 
                 match commit_result.order {
                     Ok(res) => {
-                        tracing::trace!(
+                        trace!(
                             order_id = ?sim_order.id(),
                             success = true,
                             gas_used = res.space_used.gas,
@@ -393,7 +397,7 @@ impl BlockBuildingResultAssembler {
                         );
                     }
                     Err(err) => {
-                        tracing::trace!(
+                        trace!(
                             order_id = ?sim_order.id(),
                             success = false,
                             error = ?err,

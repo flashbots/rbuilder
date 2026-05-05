@@ -30,6 +30,12 @@ pub enum UsedStorageSlotStatus {
     ReadReverted,
 }
 
+impl UsedStorageSlotStatus {
+    pub fn is_read(&self) -> bool {
+        matches!(self, Self::Read | Self::ReadReverted)
+    }
+}
+
 #[derive(Debug)]
 struct UsedPriorityStateInner {
     slots_to_track: HashSet<SlotKey>,

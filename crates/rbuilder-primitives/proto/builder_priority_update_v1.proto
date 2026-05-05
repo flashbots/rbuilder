@@ -20,6 +20,8 @@ message PriorityUpdate {
   PriorityUpdatePlacement placement = 5;
   // free-form source identifier.
   string source = 6;
+  // required 32-byte external hash carried on the resulting order.
+  bytes external_hash = 7;
 }
 
 message PriorityUpdateResponse {
