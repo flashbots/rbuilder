@@ -263,21 +263,20 @@ fn process_event(
                 local_ctx,
                 Arc::clone(parent_state),
             );
-            let simulated_order = match sim_res {
+            match sim_res {
                 Ok(Some(res)) => {
                     trace!(?order_id, ?uuid, success = true, "PU simulated");
-                    res
+                    state.submit_update(uuid, seq, res);
                 }
                 Ok(None) => {
                     trace!(?order_id, ?uuid, success = false, "PU simulated");
-                    return;
+                    state.submit_cancel(uuid, seq);
                 }
                 Err(err) => {
                     trace!(?order_id, ?uuid, success = false, ?err, "PU simulated");
-                    return;
+                    state.submit_cancel(uuid, seq);
                 }
             };
-            state.submit_update(uuid, seq, simulated_order);
         }
         None => {
             trace!(?uuid, reason = "cancelled", "PU removed");
