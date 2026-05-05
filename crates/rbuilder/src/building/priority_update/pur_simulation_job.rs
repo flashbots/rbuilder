@@ -25,11 +25,49 @@ use crate::{
 use super::{simulate::simulate_priority_update, PriorityUpdatePool};
 
 /// Upper bound on PU updates a worker drains per loop iteration.
-const PU_BATCH_DRAIN_LIMIT: usize = 256;
+const PU_DRAIN_LIMIT: usize = 2048;
 
-/// Subscription type produced by [`PUSimulationContext::subscribe`].
-pub type PUResultSubscription =
-    ReplaceEventSchedulerSubscription<Uuid, Option<Arc<SimulatedOrder>>>;
+#[derive(Debug)]
+pub struct PUResultSubscription {
+    subscription: Option<ReplaceEventSchedulerSubscription<Uuid, Option<Arc<SimulatedOrder>>>>,
+    pool: PriorityUpdatePool,
+    buf: Vec<(Uuid, u64, Option<Arc<SimulatedOrder>>)>,
+}
+
+impl PUResultSubscription {
+    fn from_subscription(
+        subscription: ReplaceEventSchedulerSubscription<Uuid, Option<Arc<SimulatedOrder>>>,
+    ) -> Self {
+        Self {
+            subscription: Some(subscription),
+            pool: PriorityUpdatePool::new(),
+            buf: Vec::new(),
+        }
+    }
+
+    /// No-op on [`Self::consume_new_updates_from_subscription`]; for backtest
+    /// paths that have a pre-populated pool and no event source.
+    pub fn from_pool(pool: PriorityUpdatePool) -> Self {
+        Self {
+            subscription: None,
+            pool,
+            buf: Vec::new(),
+        }
+    }
+
+    pub fn consume_new_updates_from_subscription(&mut self) {
+        let Some(subscription) = self.subscription.as_ref() else {
+            return;
+        };
+        self.buf.clear();
+        subscription.pop_unprocessed_events(PU_DRAIN_LIMIT, &mut self.buf);
+        self.pool.apply_events(self.buf.drain(..));
+    }
+
+    pub fn pool(&self) -> &PriorityUpdatePool {
+        &self.pool
+    }
+}
 
 /// Adapter that turns each successful add on the PU result scheduler into
 /// `SimulatedOrderJournalCommand`s on the [`JournalLane::Pu`] lane and forwards
@@ -108,7 +146,7 @@ pub struct PUSimulationContext {
 
 impl PUSimulationContext {
     pub fn subscribe(&self) -> PUResultSubscription {
-        self.inner.lock().scheduler.subscribe()
+        PUResultSubscription::from_subscription(self.inner.lock().scheduler.subscribe())
     }
 }
 
@@ -187,7 +225,7 @@ pub async fn run_pur_sim_worker<P>(
 
     loop {
         buf.clear();
-        subscription.pop_unprocessed_events(PU_BATCH_DRAIN_LIMIT, &mut buf);
+        subscription.pop_unprocessed_events(PU_DRAIN_LIMIT, &mut buf);
         for (uuid, seq, maybe_order) in buf.drain(..) {
             process_event(
                 uuid,

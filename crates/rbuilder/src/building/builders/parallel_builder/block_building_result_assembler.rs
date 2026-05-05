@@ -22,7 +22,7 @@ use crate::{
             },
             handle_building_error, BuiltBlockIdSource,
         },
-        priority_update::PriorityUpdatePool,
+        priority_update::pur_simulation_job::PUResultSubscription,
         BlockBuildingContext, ThreadBlockBuildingContext,
     },
     live_builder::block_output::unfinished_block_processing::UnfinishedBuiltBlocksInput,
@@ -45,7 +45,7 @@ pub struct BlockBuildingResultAssembler {
     last_version: Option<u64>,
     built_block_id_source: Arc<BuiltBlockIdSource>,
     max_order_execution_duration_warning: Option<Duration>,
-    priority_update_pool: Arc<RwLock<PriorityUpdatePool>>,
+    pu_subscription: Arc<RwLock<PUResultSubscription>>,
 }
 
 impl BlockBuildingResultAssembler {
@@ -61,7 +61,7 @@ impl BlockBuildingResultAssembler {
         sink: Option<UnfinishedBuiltBlocksInput>,
         built_block_id_source: Arc<BuiltBlockIdSource>,
         max_order_execution_duration_warning: Option<Duration>,
-        priority_update_pool: Arc<RwLock<PriorityUpdatePool>>,
+        pu_subscription: Arc<RwLock<PUResultSubscription>>,
     ) -> Self {
         Self {
             state,
@@ -76,7 +76,7 @@ impl BlockBuildingResultAssembler {
             last_version: None,
             built_block_id_source,
             max_order_execution_duration_warning,
-            priority_update_pool,
+            pu_subscription,
         }
     }
 
@@ -200,7 +200,7 @@ impl BlockBuildingResultAssembler {
         for (sim_order, commit_result, order_commit_time) in block_building_helper
             .commit_force_top_of_block_orders(
                 &mut self.local_ctx,
-                &self.priority_update_pool.read(),
+                self.pu_subscription.read().pool(),
             )?
         {
             let (success, gas_used, execution_error) = match commit_result.order {
@@ -246,7 +246,7 @@ impl BlockBuildingResultAssembler {
                 let commit_result = block_building_helper.commit_order(
                     &mut self.local_ctx,
                     sim_order,
-                    &self.priority_update_pool.read(),
+                    self.pu_subscription.read().pool(),
                     #[allow(clippy::result_large_err)]
                     &|_| Ok(()),
                 )?;
@@ -328,7 +328,7 @@ impl BlockBuildingResultAssembler {
         for (sim_order, commit_result, order_commit_time) in block_building_helper
             .commit_force_top_of_block_orders(
                 &mut self.local_ctx,
-                &self.priority_update_pool.read(),
+                self.pu_subscription.read().pool(),
             )?
         {
             let (success, gas_used, execution_error) = match commit_result.order {
@@ -362,7 +362,7 @@ impl BlockBuildingResultAssembler {
                 let commit_result = block_building_helper.commit_order(
                     &mut self.local_ctx,
                     sim_order,
-                    &self.priority_update_pool.read(),
+                    self.pu_subscription.read().pool(),
                     #[allow(clippy::result_large_err)]
                     &|_| Ok(()),
                 )?;

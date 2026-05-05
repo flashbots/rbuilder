@@ -17,7 +17,7 @@ use super::{
     ConflictTask, GroupId, ResolutionResult, TaskPriority,
 };
 use crate::{
-    building::{priority_update::PriorityUpdatePool, BlockBuildingContext},
+    building::{priority_update::pur_simulation_job::PUResultSubscription, BlockBuildingContext},
     provider::StateProviderFactory,
     utils::elapsed_ms,
 };
@@ -31,7 +31,7 @@ pub struct ConflictResolvingPool<P> {
     ctx: BlockBuildingContext,
     provider: P,
     simulation_cache: Arc<SharedSimulationCache>,
-    priority_update_pool: Arc<RwLock<PriorityUpdatePool>>,
+    pu_subscription: Arc<RwLock<PUResultSubscription>>,
     num_threads: usize,
     safe_sorting_only: bool,
 }
@@ -50,7 +50,7 @@ where
         ctx: BlockBuildingContext,
         provider: P,
         simulation_cache: Arc<SharedSimulationCache>,
-        priority_update_pool: Arc<RwLock<PriorityUpdatePool>>,
+        pu_subscription: Arc<RwLock<PUResultSubscription>>,
     ) -> Self {
         Self {
             task_queue,
@@ -60,7 +60,7 @@ where
             ctx,
             provider,
             simulation_cache,
-            priority_update_pool,
+            pu_subscription,
             num_threads,
         }
     }
@@ -71,7 +71,7 @@ where
             let cancellation_token = self.cancellation_token.clone();
             let group_result_sender = self.group_result_sender.clone();
             let simulation_cache = self.simulation_cache.clone();
-            let priority_update_pool = Arc::clone(&self.priority_update_pool);
+            let pu_subscription = Arc::clone(&self.pu_subscription);
             let ctx = self.ctx.clone();
 
             let block_state: Arc<dyn StateProvider> = self
@@ -91,7 +91,7 @@ where
                             block_state.clone(),
                             cancellation_token.clone(),
                             Arc::clone(&simulation_cache),
-                            Arc::clone(&priority_update_pool),
+                            Arc::clone(&pu_subscription),
                         ) {
                             match group_result_sender.send((task_id, result)) {
                                 Ok(_) => {
@@ -125,14 +125,14 @@ where
         state: Arc<dyn StateProvider>,
         cancellation_token: CancellationToken,
         simulation_cache: Arc<SharedSimulationCache>,
-        priority_update_pool: Arc<RwLock<PriorityUpdatePool>>,
+        pu_subscription: Arc<RwLock<PUResultSubscription>>,
     ) -> Result<(GroupId, (ResolutionResult, ConflictGroup))> {
         let mut merging_context = ResolverContext::new(
             state,
             ctx.clone(),
             cancellation_token.clone(),
             simulation_cache,
-            priority_update_pool,
+            pu_subscription,
         );
         let task_id = task.group_idx;
         let task_group = task.group.clone();
@@ -182,7 +182,7 @@ where
                     state.clone(),
                     CancellationToken::new(),
                     simulation_cache,
-                    Arc::clone(&self.priority_update_pool),
+                    Arc::clone(&self.pu_subscription),
                 );
                 if let Ok(result) = result {
                     results.push(result);

@@ -1,7 +1,7 @@
 use crate::{
     building::{
         cached_reads::CachedDB,
-        priority_update::{pur_simulation_job::PUResultSubscription, PriorityUpdatePool},
+        priority_update::pur_simulation_job::PUResultSubscription,
         sim::{NonceKey, OrderSimResult, SimulatedResult},
         simulate_order, ThreadBlockBuildingContext,
     },
@@ -18,8 +18,6 @@ use std::{
 };
 use tokio_util::sync::CancellationToken;
 use tracing::error;
-
-const PU_DRAIN_LIMIT: usize = 256;
 
 /// Function that continuously looks for a SimulationContext on ctx and when it finds one it polls its "request for simulation" channel (SimulationContext::requests).
 /// When the channel closes it goes back to waiting for a new SimulationContext.
@@ -51,9 +49,7 @@ pub fn run_sim_worker<P>(
         };
 
         let mut local_ctx = ThreadBlockBuildingContext::default();
-        let pu_subscription: PUResultSubscription = current_sim_context.pu_context.subscribe();
-        let mut pu_pool = PriorityUpdatePool::new();
-        let mut pu_buf = Vec::new();
+        let mut pu_subscription: PUResultSubscription = current_sim_context.pu_context.subscribe();
 
         let mut last_sim_finished = Instant::now();
 
@@ -75,9 +71,7 @@ pub fn run_sim_worker<P>(
                 let sim_thread_wait_time = last_sim_finished.elapsed();
                 let sim_start = Instant::now();
 
-                pu_buf.clear();
-                pu_subscription.pop_unprocessed_events(PU_DRAIN_LIMIT, &mut pu_buf);
-                pu_pool.apply_events(pu_buf.drain(..));
+                pu_subscription.consume_new_updates_from_subscription();
 
                 let order_id = task.order.id();
                 let start_time = Instant::now();
@@ -91,7 +85,7 @@ pub fn run_sim_worker<P>(
                         task.order,
                         &current_sim_context.block_ctx,
                         &mut local_ctx,
-                        &pu_pool,
+                        pu_subscription.pool(),
                         cached,
                     )
                 };

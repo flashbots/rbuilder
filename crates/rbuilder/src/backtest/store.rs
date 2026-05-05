@@ -628,9 +628,7 @@ fn group_rows_into_block_data(
                 {
                     match Arc::make_mut(arc_order) {
                         Order::Bundle(b) => b.metadata.priority_update_data = Some(pu),
-                        Order::Tx(tx) => {
-                            tx.tx_with_blobs.metadata.priority_update_data = Some(pu)
-                        }
+                        Order::Tx(tx) => tx.tx_with_blobs.metadata.priority_update_data = Some(pu),
                     }
                 }
 

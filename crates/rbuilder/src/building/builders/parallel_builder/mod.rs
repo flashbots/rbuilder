@@ -32,9 +32,12 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, trace};
 
 use crate::{
-    building::builders::{
-        BacktestSimulateBlockInput, Block, BlockBuildingAlgorithm, BlockBuildingAlgorithmInput,
-        BuiltBlockIdSource, LiveBuilderInput,
+    building::{
+        builders::{
+            BacktestSimulateBlockInput, Block, BlockBuildingAlgorithm, BlockBuildingAlgorithmInput,
+            BuiltBlockIdSource, LiveBuilderInput,
+        },
+        priority_update::pur_simulation_job::PUResultSubscription,
     },
     live_builder::block_output::bidding_service_interface::CompetitionBidContext,
     provider::StateProviderFactory,
@@ -111,7 +114,7 @@ where
         );
 
         let order_intake_consumer = OrderIntakeStore::new(input.input, &input.pu_context);
-        let priority_update_pool = order_intake_consumer.priority_update_pool();
+        let pu_subscription = order_intake_consumer.pu_subscription();
 
         let conflict_resolving_pool = ConflictResolvingPool::new(
             config.num_threads,
@@ -122,7 +125,7 @@ where
             input.ctx.clone(),
             input.provider.clone(),
             Arc::clone(&simulation_cache),
-            Arc::clone(&priority_update_pool),
+            Arc::clone(&pu_subscription),
         );
 
         let results_aggregator =
@@ -143,7 +146,7 @@ where
             Some(input.sink.clone()),
             input.built_block_id_source.clone(),
             input.max_order_execution_duration_warning,
-            priority_update_pool,
+            pu_subscription,
         );
 
         Ok(Self {
@@ -320,7 +323,9 @@ where
     // Worker pool and conflict manager creation
     let setup_start = Instant::now();
 
-    let priority_update_pool = Arc::new(RwLock::new(input.priority_update_pool.clone()));
+    let pu_subscription = Arc::new(RwLock::new(PUResultSubscription::from_pool(
+        input.priority_update_pool.clone(),
+    )));
 
     let mut conflict_resolving_pool = ConflictResolvingPool::new(
         config.num_threads,
@@ -331,7 +336,7 @@ where
         input.ctx.clone(),
         input.provider.clone(),
         Arc::clone(&simulation_cache),
-        Arc::clone(&priority_update_pool),
+        Arc::clone(&pu_subscription),
     );
 
     let setup_duration = setup_start.elapsed();
@@ -364,7 +369,7 @@ where
         None,
         Arc::new(BuiltBlockIdSource::new()),
         None,
-        priority_update_pool,
+        pu_subscription,
     );
     let assembler_duration = assembler_start.elapsed();
 

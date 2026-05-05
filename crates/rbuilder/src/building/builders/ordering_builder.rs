@@ -148,7 +148,6 @@ pub fn run_ordering_builder<P, OrderPriorityType>(
                 continue;
             }
         };
-        order_intake_consumer.consume_pu_batches();
 
         let orders = order_intake_consumer.current_block_orders();
         match builder.build_block(

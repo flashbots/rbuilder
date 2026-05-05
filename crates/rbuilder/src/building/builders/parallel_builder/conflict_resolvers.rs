@@ -16,8 +16,9 @@ use super::{
 };
 
 use crate::building::{
-    cached_reads::CachedDB, priority_update::PriorityUpdatePool, BlockBuildingContext, BlockState,
-    ExecutionError, ExecutionResult, PartialBlock, ThreadBlockBuildingContext,
+    cached_reads::CachedDB, priority_update::pur_simulation_job::PUResultSubscription,
+    BlockBuildingContext, BlockState, ExecutionError, ExecutionResult, PartialBlock,
+    ThreadBlockBuildingContext,
 };
 use rbuilder_primitives::{OrderId, SimulatedOrder};
 
@@ -31,7 +32,7 @@ pub struct ResolverContext {
     pub ctx: BlockBuildingContext,
     pub cancellation_token: CancellationToken,
     pub simulation_cache: Arc<SharedSimulationCache>,
-    pub priority_update_pool: Arc<RwLock<PriorityUpdatePool>>,
+    pub pu_subscription: Arc<RwLock<PUResultSubscription>>,
 }
 
 impl ResolverContext {
@@ -41,14 +42,14 @@ impl ResolverContext {
         ctx: BlockBuildingContext,
         cancellation_token: CancellationToken,
         simulation_cache: Arc<SharedSimulationCache>,
-        priority_update_pool: Arc<RwLock<PriorityUpdatePool>>,
+        pu_subscription: Arc<RwLock<PUResultSubscription>>,
     ) -> Self {
         ResolverContext {
             state,
             ctx,
             cancellation_token,
             simulation_cache,
-            priority_update_pool,
+            pu_subscription,
         }
     }
 
@@ -139,12 +140,12 @@ impl ResolverContext {
         let mut partial_block = PartialBlock::new(true);
         let mut state = self.initialize_block_state(state_provider);
         partial_block.pre_block_call(&self.ctx, &mut state)?;
-        let priority_update_pool = Arc::clone(&self.priority_update_pool);
+        let pu_subscription = Arc::clone(&self.pu_subscription);
 
         // Commit force-TOB priority update orders so the simulated state
         // matches what the assembler will produce at the top of the block.
         // Their profits are not part of the conflict group's ResolutionResult.
-        let force_tob_orders = priority_update_pool.read().force_top_of_block_orders();
+        let force_tob_orders = pu_subscription.read().pool().force_top_of_block_orders();
         for force_tob_order in &force_tob_orders {
             partial_block.commit_order(
                 force_tob_order,
@@ -153,7 +154,7 @@ impl ResolverContext {
                 &mut state,
                 #[allow(clippy::result_large_err)]
                 &|_| Ok(()),
-                &priority_update_pool.read(),
+                pu_subscription.read().pool(),
             )?;
         }
 
@@ -189,7 +190,7 @@ impl ResolverContext {
                 &mut state,
                 #[allow(clippy::result_large_err)]
                 &|_| Ok(()),
-                &priority_update_pool.read(),
+                pu_subscription.read().pool(),
             )?;
             // NOTE: we ingore priority update commits here as they are not relevant for conflict resolver
             match commit_result.order {

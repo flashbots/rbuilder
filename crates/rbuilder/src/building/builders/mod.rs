@@ -197,20 +197,15 @@ impl OrderConsumer {
 
 /// Struct that allows to consume new SimulatedOrderJournalCommands from a broadcast::Receiver<SimulatedOrderJournalCommand> and get the new orders in a prioritized way.
 /// It's intended for single thread usage. It must be used by calling blocking_consume_next_batch and then current_block_orders.
-/// Upper bound on PU events we drain from the subscription per call.
-const PU_DRAIN_LIMIT: usize = 256;
-
 #[derive(Debug)]
 pub struct OrderIntakeConsumer<OrderPriorityType> {
     nonces: NonceCache,
 
     block_orders: PrioritizedOrderStore<OrderPriorityType>,
-    priority_update_pool: PriorityUpdatePool,
     onchain_nonces_updated: HashSet<Address>,
 
     order_consumer: OrderConsumer,
     pu_subscription: PUResultSubscription,
-    pu_buf: Vec<(uuid::Uuid, u64, Option<Arc<SimulatedOrder>>)>,
 }
 
 impl<OrderPriorityType: OrderPriority> OrderIntakeConsumer<OrderPriorityType> {
@@ -222,22 +217,10 @@ impl<OrderPriorityType: OrderPriority> OrderIntakeConsumer<OrderPriorityType> {
         Self {
             nonces,
             block_orders: PrioritizedOrderStore::new(vec![]),
-            priority_update_pool: PriorityUpdatePool::new(),
             onchain_nonces_updated: HashSet::default(),
             order_consumer: OrderConsumer::new(orders),
             pu_subscription: pu_context.subscribe(),
-            pu_buf: Vec::new(),
         }
-    }
-
-    /// Drains pending PU events from the subscription and folds them into the
-    /// local [`PriorityUpdatePool`].
-    pub fn consume_pu_batches(&mut self) {
-        self.pu_buf.clear();
-        self.pu_subscription
-            .pop_unprocessed_events(PU_DRAIN_LIMIT, &mut self.pu_buf);
-        self.priority_update_pool
-            .apply_events(self.pu_buf.drain(..));
     }
 
     /// On Ok returned:
@@ -251,6 +234,7 @@ impl<OrderPriorityType: OrderPriority> OrderIntakeConsumer<OrderPriorityType> {
             for cmd in new_commands {
                 simulated_order_command_to_sink(cmd, self);
             }
+            self.pu_subscription.consume_new_updates_from_subscription();
             Ok(Some(next_seq))
         } else {
             Ok(None)
@@ -290,7 +274,7 @@ impl<OrderPriorityType: OrderPriority> OrderIntakeConsumer<OrderPriorityType> {
     }
 
     pub fn priority_update_pool(&self) -> &PriorityUpdatePool {
-        &self.priority_update_pool
+        self.pu_subscription.pool()
     }
 
     pub fn remove_orders(
