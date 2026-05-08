@@ -9,7 +9,9 @@ use ethereum_consensus::{
     signing::sign_with_domain,
     ssz::prelude::*,
 };
-use reth_primitives::SealedBlock;
+use reth_primitives_traits::SealedBlock;
+
+type EthSealedBlock = SealedBlock<reth_ethereum_primitives::Block>;
 use serde_with::{serde_as, DisplayFromStr};
 
 /// Object to sign blocks to be sent to relays.
@@ -101,7 +103,7 @@ fn a2e_address(a: &Address) -> ExecutionAddress {
 
 pub fn sign_block_for_relay(
     signer: &BLSBlockSigner,
-    sealed_block: &SealedBlock,
+    sealed_block: &EthSealedBlock,
     attrs: &PayloadAttributesData,
     proposer_pubkey: BlsPublicKey,
     value: U256,

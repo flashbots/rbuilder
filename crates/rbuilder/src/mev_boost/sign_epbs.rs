@@ -2,21 +2,25 @@
 //!
 //! This module implements signing for ExecutionPayloadBid and ExecutionPayloadEnvelope
 //! using the DOMAIN_BEACON_BUILDER domain as specified in the consensus specs.
+//!
+//! uses lh consensus types for ssz hash_tree_root computation
 
-use alloy_primitives::{Address, BlockHash, B256};
+use alloy_primitives::B256;
 use alloy_rpc_types_beacon::BlsSignature;
-use ethereum_consensus::{
-    bellatrix::Transaction,
-    capella::Withdrawal,
-    crypto::SecretKey,
-    primitives::{Bytes32, ExecutionAddress, Gwei, Hash32},
-    signing::sign_with_domain,
-    ssz::prelude::*,
+use ethereum_consensus::crypto::SecretKey;
+use lighthouse_bls::{PublicKeyBytes, SignatureBytes};
+use lighthouse_types::{
+    ConsolidationRequest, DepositRequest, ExecutionBlockHash,
+    ExecutionPayloadBid as LhExecutionPayloadBid,
+    ExecutionPayloadEnvelope as LhExecutionPayloadEnvelope, ExecutionPayloadGloas,
+    ExecutionRequests as LhExecutionRequests, Hash256, KzgCommitments, MainnetEthSpec, SignedRoot,
+    Slot, Withdrawal as LhWithdrawal, WithdrawalRequest,
 };
 use rbuilder_primitives::epbs::{
     ExecutionPayloadBid, ExecutionPayloadEnvelope, SignedExecutionPayloadBid,
     SignedExecutionPayloadEnvelope,
 };
+use lighthouse_ssz_types::VariableList;
 
 /// DOMAIN_BEACON_BUILDER from consensus-specs/specs/gloas/beacon-chain.md
 /// Value: DomainType('0x0B000000')
@@ -63,16 +67,11 @@ impl EpbsBidSigner {
         alloy_rpc_types_beacon::BlsPublicKey::from_slice(&self.sec.public_key())
     }
 
-    /// Sign an ExecutionPayloadBid.
-    ///
-    /// This follows the spec:
-    /// ```python
-    /// def get_execution_payload_bid_signature(
-    ///     state: BeaconState, bid: ExecutionPayloadBid, privkey: int
-    /// ) -> BLSSignature
+    /// Sign an ExecutionPayloadBid using lh ssz types.
     pub fn sign_bid(&self, bid: &ExecutionPayloadBid) -> eyre::Result<SignedExecutionPayloadBid> {
-        let ssz_bid = SszExecutionPayloadBid::from_bid(bid);
-        let signature = sign_with_domain(&ssz_bid, &self.sec, *self.domain)?;
+        let lh_bid = to_lh_bid(bid);
+        let signing_root = lh_bid.signing_root(self.domain);
+        let signature = self.sec.sign(signing_root.as_ref());
         let signature = BlsSignature::from_slice(&signature);
 
         Ok(SignedExecutionPayloadBid {
@@ -81,12 +80,14 @@ impl EpbsBidSigner {
         })
     }
 
+    /// Sign an ExecutionPayloadEnvelope using Lighthouse's SSZ types.
     pub fn sign_envelope(
         &self,
         envelope: &ExecutionPayloadEnvelope,
     ) -> eyre::Result<SignedExecutionPayloadEnvelope> {
-        let ssz_envelope = SszExecutionPayloadEnvelope::from_envelope(envelope)?;
-        let signature = sign_with_domain(&ssz_envelope, &self.sec, *self.domain)?;
+        let lh_envelope = to_lh_envelope(envelope)?;
+        let signing_root = lh_envelope.signing_root(self.domain);
+        let signature = self.sec.sign(signing_root.as_ref());
         let signature = BlsSignature::from_slice(&signature);
 
         Ok(SignedExecutionPayloadEnvelope {
@@ -96,277 +97,197 @@ impl EpbsBidSigner {
     }
 }
 
-/// SSZ-merkleizable version of ExecutionPayloadBid for signing.
+// ---------------------------------------------------------------------------
+// bid conversion: alloy types -> lh types
+// ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, SimpleSerialize)]
-pub struct SszExecutionPayloadBid {
-    pub parent_block_hash: Hash32,
-    pub parent_block_root: Hash32,
-    pub block_hash: Hash32,
-    pub prev_randao: Hash32,
-    pub fee_recipient: ExecutionAddress,
-    pub gas_limit: u64,
-    pub builder_index: u64,
-    pub slot: u64,
-    pub value: u64,
-    pub execution_payment: u64,
-    pub blob_kzg_commitments_root: Hash32,
-}
+fn to_lh_bid(bid: &ExecutionPayloadBid) -> LhExecutionPayloadBid {
+    let commitments_refs: Vec<&[u8]> = bid
+        .blob_kzg_commitments
+        .iter()
+        .map(|c| c.as_ref())
+        .collect();
+    let commitments_root =
+        rbuilder_primitives::mev_boost::ssz_roots::calculate_blob_kzg_commitments_root_ssz(
+            &commitments_refs,
+        );
 
-// TODO: use a better approach here. Import types when available rather
-impl SszExecutionPayloadBid {
-    pub fn from_bid(bid: &ExecutionPayloadBid) -> Self {
-        let commitments_refs: Vec<&[u8]> = bid
-            .blob_kzg_commitments
-            .iter()
-            .map(|c| c.as_ref())
-            .collect();
-        let commitments_root =
-            rbuilder_primitives::mev_boost::ssz_roots::calculate_blob_kzg_commitments_root_ssz(
-                &commitments_refs,
-            );
-
-        Self {
-            parent_block_hash: hash32_from_block_hash(&bid.parent_block_hash),
-            parent_block_root: hash32_from_b256(&bid.parent_block_root),
-            block_hash: hash32_from_block_hash(&bid.block_hash),
-            prev_randao: hash32_from_b256(&bid.prev_randao),
-            fee_recipient: address_to_execution_address(&bid.fee_recipient),
-            gas_limit: bid.gas_limit,
-            builder_index: bid.builder_index,
-            slot: bid.slot,
-            value: bid.value,
-            execution_payment: bid.execution_payment,
-            blob_kzg_commitments_root: hash32_from_b256(&commitments_root),
-        }
+    LhExecutionPayloadBid {
+        parent_block_hash: ExecutionBlockHash::from_root(Hash256::from(bid.parent_block_hash)),
+        parent_block_root: Hash256::from(bid.parent_block_root),
+        block_hash: ExecutionBlockHash::from_root(Hash256::from(bid.block_hash)),
+        prev_randao: Hash256::from(bid.prev_randao),
+        fee_recipient: bid.fee_recipient,
+        gas_limit: bid.gas_limit,
+        builder_index: bid.builder_index,
+        slot: Slot::new(bid.slot),
+        value: bid.value,
+        execution_payment: bid.execution_payment,
+        blob_kzg_commitments_root: Hash256::from(commitments_root),
     }
 }
 
-// mainnet constants from consensus-specs
-const BYTES_PER_LOGS_BLOOM: usize = 256;
-const MAX_EXTRA_DATA_BYTES: usize = 32;
-const MAX_BYTES_PER_TRANSACTION: usize = 1_073_741_824; // 2^30
-const MAX_TRANSACTIONS_PER_PAYLOAD: usize = 1_048_576; // 2^20
-const MAX_WITHDRAWALS_PER_PAYLOAD: usize = 16;
-const MAX_DEPOSIT_REQUESTS_PER_PAYLOAD: usize = 8192; // 2^13
-const MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD: usize = 16; // 2^4
-const MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD: usize = 2; // 2^1
+// ---------------------------------------------------------------------------
+// envelope conversion: alloy types -> lh types
+// ---------------------------------------------------------------------------
 
-// TODO: import via libs when available
-/// SSZ `DepositRequest` from Electra.
-#[derive(Default, Debug, Clone, PartialEq, Eq, SimpleSerialize)]
-pub struct SszDepositRequest {
-    pub pubkey: ByteVector<48>,
-    pub withdrawal_credentials: Bytes32,
-    pub amount: u64,
-    pub signature: ByteVector<96>,
-    pub index: u64,
-}
+fn to_lh_envelope(
+    envelope: &ExecutionPayloadEnvelope,
+) -> eyre::Result<LhExecutionPayloadEnvelope<MainnetEthSpec>> {
+    let payload = to_lh_execution_payload(envelope)?;
+    let execution_requests = to_lh_execution_requests(&envelope.execution_requests)?;
 
-// TODO: import via libs when available
-/// SSZ `WithdrawalRequest` from Electra.
-#[derive(Default, Debug, Clone, PartialEq, Eq, SimpleSerialize)]
-pub struct SszWithdrawalRequest {
-    pub source_address: ExecutionAddress,
-    pub validator_pubkey: ByteVector<48>,
-    pub amount: u64,
-}
-
-// TODO: import via libs when available
-/// SSZ `ConsolidationRequest` from Electra.
-#[derive(Default, Debug, Clone, PartialEq, Eq, SimpleSerialize)]
-pub struct SszConsolidationRequest {
-    pub source_address: ExecutionAddress,
-    pub source_pubkey: ByteVector<48>,
-    pub target_pubkey: ByteVector<48>,
-}
-
-// TODO: import via libs when available
-/// SSZ `ExecutionRequests` from Electra.
-#[derive(Default, Debug, Clone, PartialEq, Eq, SimpleSerialize)]
-pub struct SszExecutionRequests {
-    pub deposits: List<SszDepositRequest, MAX_DEPOSIT_REQUESTS_PER_PAYLOAD>,
-    pub withdrawals: List<SszWithdrawalRequest, MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD>,
-    pub consolidations: List<SszConsolidationRequest, MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD>,
-}
-
-/// SSZ `ExecutionPayload`
-#[derive(Default, Debug, Clone, PartialEq, Eq, SimpleSerialize)]
-pub struct SszExecutionPayload {
-    pub parent_hash: Hash32,
-    pub fee_recipient: ExecutionAddress,
-    pub state_root: Bytes32,
-    pub receipts_root: Bytes32,
-    pub logs_bloom: ByteVector<BYTES_PER_LOGS_BLOOM>,
-    pub prev_randao: Bytes32,
-    pub block_number: u64,
-    pub gas_limit: u64,
-    pub gas_used: u64,
-    pub timestamp: u64,
-    pub extra_data: ByteList<MAX_EXTRA_DATA_BYTES>,
-    pub base_fee_per_gas: U256,
-    pub block_hash: Hash32,
-    pub transactions:
-        List<Transaction<MAX_BYTES_PER_TRANSACTION>, MAX_TRANSACTIONS_PER_PAYLOAD>,
-    pub withdrawals: List<Withdrawal, MAX_WITHDRAWALS_PER_PAYLOAD>,
-    pub blob_gas_used: u64,
-    pub excess_blob_gas: u64,
-}
-
-// TODO: import via libs when available
-/// SSZ `ExecutionPayloadEnvelope` from Gloas.
-#[derive(Default, Debug, Clone, PartialEq, Eq, SimpleSerialize)]
-pub struct SszExecutionPayloadEnvelope {
-    pub payload: SszExecutionPayload,
-    pub execution_requests: SszExecutionRequests,
-    pub builder_index: u64,
-    pub beacon_block_root: Hash32,
-    pub slot: u64,
-    pub state_root: Hash32,
-}
-
-impl SszExecutionPayloadEnvelope {
-    pub fn from_envelope(
-        envelope: &ExecutionPayloadEnvelope,
-    ) -> eyre::Result<Self> {
-        let inner1 = &envelope.payload.payload_inner.payload_inner;
-        let inner2 = &envelope.payload.payload_inner;
-        let inner3 = &envelope.payload;
-
-        // convert transactions
-        let mut transactions = List::default();
-        for tx_bytes in &inner1.transactions {
-            let tx = Transaction::try_from(tx_bytes.as_ref())
-                .map_err(|e| eyre::eyre!("Failed to convert transaction: {:?}", e))?;
-            transactions.push(tx);
-        }
-
-        // convert withdrawals
-        let mut withdrawals = List::default();
-        for w in &inner2.withdrawals {
-            let withdrawal = Withdrawal {
-                index: w.index as usize,
-                validator_index: w.validator_index as usize,
-                address: ExecutionAddress::try_from(w.address.as_slice())
-                    .expect("Address is 20 bytes"),
-                amount: w.amount as Gwei,
-            };
-            withdrawals.push(withdrawal);
-        }
-
-        // convert extra_data
-        let extra_data = ByteList::try_from(inner1.extra_data.as_ref())
-            .map_err(|e| eyre::eyre!("Extra data too long: {:?}", e))?;
-
-        let payload = SszExecutionPayload {
-            parent_hash: hash32_from_b256(&B256::from(inner1.parent_hash)),
-            fee_recipient: ExecutionAddress::try_from(inner1.fee_recipient.as_slice())
-                .expect("Address is 20 bytes"),
-            state_root: bytes32_from_b256(&B256::from(inner1.state_root)),
-            receipts_root: bytes32_from_b256(&B256::from(inner1.receipts_root)),
-            logs_bloom: ByteVector::try_from(inner1.logs_bloom.as_ref())
-                .map_err(|e| eyre::eyre!("Invalid logs_bloom: {:?}", e))?,
-            prev_randao: bytes32_from_b256(&B256::from(inner1.prev_randao)),
-            block_number: inner1.block_number,
-            gas_limit: inner1.gas_limit,
-            gas_used: inner1.gas_used,
-            timestamp: inner1.timestamp,
-            extra_data,
-            base_fee_per_gas: inner1.base_fee_per_gas,
-            block_hash: hash32_from_b256(&B256::from(inner1.block_hash)),
-            transactions,
-            withdrawals,
-            blob_gas_used: inner3.blob_gas_used,
-            excess_blob_gas: inner3.excess_blob_gas,
-        };
-
-        // convert execution requests
-        let execution_requests =
-            convert_execution_requests_to_ssz(&envelope.execution_requests)?;
-
-        Ok(Self {
-            payload,
-            execution_requests,
-            builder_index: envelope.builder_index,
-            beacon_block_root: hash32_from_b256(&envelope.beacon_block_root),
-            slot: envelope.slot,
-            state_root: hash32_from_b256(&envelope.state_root),
+    let commitments: Vec<lighthouse_types::KzgCommitment> = envelope
+        .blob_kzg_commitments
+        .iter()
+        .map(|c| {
+            let mut bytes = [0u8; 48];
+            let len = c.len().min(48);
+            bytes[..len].copy_from_slice(&c[..len]);
+            lighthouse_types::KzgCommitment(bytes)
         })
-    }
+        .collect();
+    let blob_kzg_commitments = KzgCommitments::<MainnetEthSpec>::new(commitments)
+        .map_err(|e| eyre::eyre!("Too many blob KZG commitments: {:?}", e))?;
+
+    Ok(LhExecutionPayloadEnvelope {
+        payload,
+        execution_requests,
+        builder_index: envelope.builder_index,
+        beacon_block_root: Hash256::from(envelope.beacon_block_root),
+        slot: Slot::new(envelope.slot),
+        blob_kzg_commitments,
+        state_root: Hash256::from(envelope.state_root),
+    })
 }
 
-/// Convert our raw-bytes ExecutionRequests to proper SSZ typed requests.
-fn convert_execution_requests_to_ssz(
+fn to_lh_execution_payload(
+    envelope: &ExecutionPayloadEnvelope,
+) -> eyre::Result<ExecutionPayloadGloas<MainnetEthSpec>> {
+    let inner1 = &envelope.payload.payload_inner.payload_inner;
+    let inner2 = &envelope.payload.payload_inner;
+    let inner3 = &envelope.payload;
+
+    // convert transactions
+    let transactions: Vec<_> = inner1
+        .transactions
+        .iter()
+        .map(|tx| {
+            VariableList::new(tx.to_vec())
+                .map_err(|e| eyre::eyre!("Transaction too large: {:?}", e))
+        })
+        .collect::<eyre::Result<Vec<_>>>()?;
+    let transactions = VariableList::new(transactions)
+        .map_err(|e| eyre::eyre!("Too many transactions: {:?}", e))?;
+
+    // convert withdrawals
+    let withdrawals: Vec<LhWithdrawal> = inner2
+        .withdrawals
+        .iter()
+        .map(|w| LhWithdrawal {
+            index: w.index,
+            validator_index: w.validator_index,
+            address: w.address,
+            amount: w.amount,
+        })
+        .collect();
+    let withdrawals = VariableList::new(withdrawals)
+        .map_err(|e| eyre::eyre!("Too many withdrawals: {:?}", e))?;
+
+    // convert extra_data
+    let extra_data = VariableList::new(inner1.extra_data.to_vec())
+        .map_err(|e| eyre::eyre!("Extra data too long: {:?}", e))?;
+
+    // convert logs_bloom
+    let logs_bloom = lighthouse_ssz_types::FixedVector::new(inner1.logs_bloom.to_vec())
+        .map_err(|e| eyre::eyre!("Invalid logs_bloom: {:?}", e))?;
+
+    Ok(ExecutionPayloadGloas {
+        parent_hash: ExecutionBlockHash::from_root(Hash256::from(inner1.parent_hash)),
+        fee_recipient: inner1.fee_recipient,
+        state_root: Hash256::from(inner1.state_root),
+        receipts_root: Hash256::from(inner1.receipts_root),
+        logs_bloom,
+        prev_randao: Hash256::from(inner1.prev_randao),
+        block_number: inner1.block_number,
+        gas_limit: inner1.gas_limit,
+        gas_used: inner1.gas_used,
+        timestamp: inner1.timestamp,
+        extra_data,
+        base_fee_per_gas: inner1.base_fee_per_gas,
+        block_hash: ExecutionBlockHash::from_root(Hash256::from(inner1.block_hash)),
+        transactions,
+        withdrawals,
+        blob_gas_used: inner3.blob_gas_used,
+        excess_blob_gas: inner3.excess_blob_gas,
+    })
+}
+
+fn to_lh_execution_requests(
     requests: &rbuilder_primitives::epbs::ExecutionRequests,
-) -> eyre::Result<SszExecutionRequests> {
-    let mut ssz_requests = SszExecutionRequests::default();
+) -> eyre::Result<LhExecutionRequests<MainnetEthSpec>> {
+    let deposits: Vec<DepositRequest> = requests
+        .deposits
+        .iter()
+        .filter(|raw| raw.len() >= 192)
+        .map(|raw| {
+            Ok(DepositRequest {
+                pubkey: PublicKeyBytes::deserialize(&raw[0..48])
+                    .map_err(|e| eyre::eyre!("deposit pubkey: {:?}", e))?,
+                withdrawal_credentials: Hash256::from_slice(&raw[48..80]),
+                amount: u64::from_le_bytes(raw[80..88].try_into().unwrap()),
+                signature: SignatureBytes::deserialize(&raw[88..184])
+                    .map_err(|e| eyre::eyre!("deposit signature: {:?}", e))?,
+                index: u64::from_le_bytes(raw[184..192].try_into().unwrap()),
+            })
+        })
+        .collect::<eyre::Result<Vec<_>>>()?;
+    let deposits = VariableList::new(deposits)
+        .map_err(|e| eyre::eyre!("Too many deposit requests: {:?}", e))?;
 
-    for raw in &requests.deposits {
-        if raw.len() < 192 {
-            continue; // skip malformed
-        }
-        let req = SszDepositRequest {
-            pubkey: ByteVector::try_from(&raw[0..48])
-                .map_err(|e| eyre::eyre!("deposit pubkey: {:?}", e))?,
-            withdrawal_credentials: Bytes32::try_from(&raw[48..80])
-                .map_err(|e| eyre::eyre!("deposit withdrawal_credentials: {:?}", e))?,
-            amount: u64::from_le_bytes(raw[80..88].try_into().unwrap()),
-            signature: ByteVector::try_from(&raw[88..184])
-                .map_err(|e| eyre::eyre!("deposit signature: {:?}", e))?,
-            index: u64::from_le_bytes(raw[184..192].try_into().unwrap()),
-        };
-        ssz_requests.deposits.push(req);
-    }
+    let withdrawals: Vec<WithdrawalRequest> = requests
+        .withdrawals
+        .iter()
+        .filter(|raw| raw.len() >= 76)
+        .map(|raw| {
+            Ok(WithdrawalRequest {
+                source_address: alloy_primitives::Address::from_slice(&raw[0..20]),
+                validator_pubkey: PublicKeyBytes::deserialize(&raw[20..68])
+                    .map_err(|e| eyre::eyre!("withdrawal validator_pubkey: {:?}", e))?,
+                amount: u64::from_le_bytes(raw[68..76].try_into().unwrap()),
+            })
+        })
+        .collect::<eyre::Result<Vec<_>>>()?;
+    let withdrawals = VariableList::new(withdrawals)
+        .map_err(|e| eyre::eyre!("Too many withdrawal requests: {:?}", e))?;
 
-    for raw in &requests.withdrawals {
-        if raw.len() < 76 {
-            continue;
-        }
-        let req = SszWithdrawalRequest {
-            source_address: ExecutionAddress::try_from(&raw[0..20])
-                .map_err(|e| eyre::eyre!("withdrawal source_address: {:?}", e))?,
-            validator_pubkey: ByteVector::try_from(&raw[20..68])
-                .map_err(|e| eyre::eyre!("withdrawal validator_pubkey: {:?}", e))?,
-            amount: u64::from_le_bytes(raw[68..76].try_into().unwrap()),
-        };
-        ssz_requests.withdrawals.push(req);
-    }
+    let consolidations: Vec<ConsolidationRequest> = requests
+        .consolidations
+        .iter()
+        .filter(|raw| raw.len() >= 116)
+        .map(|raw| {
+            Ok(ConsolidationRequest {
+                source_address: alloy_primitives::Address::from_slice(&raw[0..20]),
+                source_pubkey: PublicKeyBytes::deserialize(&raw[20..68])
+                    .map_err(|e| eyre::eyre!("consolidation source_pubkey: {:?}", e))?,
+                target_pubkey: PublicKeyBytes::deserialize(&raw[68..116])
+                    .map_err(|e| eyre::eyre!("consolidation target_pubkey: {:?}", e))?,
+            })
+        })
+        .collect::<eyre::Result<Vec<_>>>()?;
+    let consolidations = VariableList::new(consolidations)
+        .map_err(|e| eyre::eyre!("Too many consolidation requests: {:?}", e))?;
 
-    for raw in &requests.consolidations {
-        if raw.len() < 116 {
-            continue;
-        }
-        let req = SszConsolidationRequest {
-            source_address: ExecutionAddress::try_from(&raw[0..20])
-                .map_err(|e| eyre::eyre!("consolidation source_address: {:?}", e))?,
-            source_pubkey: ByteVector::try_from(&raw[20..68])
-                .map_err(|e| eyre::eyre!("consolidation source_pubkey: {:?}", e))?,
-            target_pubkey: ByteVector::try_from(&raw[68..116])
-                .map_err(|e| eyre::eyre!("consolidation target_pubkey: {:?}", e))?,
-        };
-        ssz_requests.consolidations.push(req);
-    }
-
-    Ok(ssz_requests)
+    Ok(LhExecutionRequests {
+        deposits,
+        withdrawals,
+        consolidations,
+    })
 }
 
-// Helper conversion functions
-
-fn hash32_from_block_hash(h: &BlockHash) -> Hash32 {
-    Hash32::try_from(h.as_slice()).expect("BlockHash is 32 bytes")
-}
-
-fn hash32_from_b256(h: &B256) -> Hash32 {
-    Hash32::try_from(h.as_slice()).expect("B256 is 32 bytes")
-}
-
-fn bytes32_from_b256(h: &B256) -> Bytes32 {
-    Bytes32::try_from(h.as_slice()).expect("B256 is 32 bytes")
-}
-
-fn address_to_execution_address(a: &Address) -> ExecutionAddress {
-    ExecutionAddress::try_from(a.as_slice()).expect("Address is 20 bytes")
-}
+// ---------------------------------------------------------------------------
+// domain computation
+// ---------------------------------------------------------------------------
 
 /// Compute the EPBS signing domain from beacon chain genesis data.
 ///
@@ -374,9 +295,6 @@ fn address_to_execution_address(a: &Address) -> ExecutionAddress {
 /// ```python
 /// domain = compute_domain(DOMAIN_BEACON_BUILDER, fork_version, genesis_validators_root)
 /// ```
-///
-/// The `fork_version` and `genesis_validators_root` are fetched from the beacon chain
-/// via the `/eth/v1/beacon/genesis` endpoint in `config.rs`.
 pub fn compute_epbs_domain(fork_version: [u8; 4], genesis_validators_root: B256) -> B256 {
     use ethereum_consensus::{
         phase0::beacon_state::ForkData,
@@ -384,7 +302,6 @@ pub fn compute_epbs_domain(fork_version: [u8; 4], genesis_validators_root: B256)
         ssz::prelude::*,
     };
 
-    // create ForkData and compute its hash_tree_root
     let version = Version::try_from(fork_version.as_slice()).expect("fork_version is 4 bytes");
     let root = Root::try_from(genesis_validators_root.as_slice()).expect("root is 32 bytes");
 
