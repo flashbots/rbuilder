@@ -42,6 +42,10 @@ pub struct EpbsP2PService {
     bid_provider: Arc<LiveEpbsBidProvider>,
     signer: Arc<RwLock<Option<EpbsBidSigner>>>,
     payload_cache: Arc<RwLock<HashMap<BlockHash, rbuilder_primitives::epbs::CachedPayloadData>>>,
+    /// Receiver for fresh block cached notifications from the bid provider.
+    /// Consumed by the main loop to fire bids the moment a block is ready,
+    /// bypassing the polling interval.
+    fresh_block_rx: tokio::sync::Mutex<Option<mpsc::UnboundedReceiver<u64>>>,
 }
 
 impl EpbsP2PService {
@@ -54,12 +58,14 @@ impl EpbsP2PService {
             RwLock<HashMap<BlockHash, rbuilder_primitives::epbs::CachedPayloadData>>,
         >,
     ) -> Self {
+        let fresh_block_rx = bid_provider.subscribe_fresh_blocks();
         Self {
             config,
             beacon_client,
             bid_provider,
             signer,
             payload_cache,
+            fresh_block_rx: tokio::sync::Mutex::new(Some(fresh_block_rx)),
         }
     }
 
@@ -137,6 +143,13 @@ impl EpbsP2PService {
         let mut current_slot = scheduler.current_slot();
         let mut bid_interval = self.create_bid_interval();
 
+        let mut fresh_block_rx = self
+            .fresh_block_rx
+            .lock()
+            .await
+            .take()
+            .expect("fresh_block_rx initialized in EpbsP2PService::new");
+
         info!(current_slot, "EPBS P2P service entering main loop");
 
         loop {
@@ -154,7 +167,15 @@ impl EpbsP2PService {
                         current_slot = new_slot;
                         bid_tracker.cleanup(current_slot);
                         //TODO keeping for 2 epochs think again about it.
-                        prefs_cache.cleanup(current_slot, 64); 
+                        prefs_cache.cleanup(current_slot, 64);
+                        // we keep the most recent PAYLOAD_CACHE_RETENTION_SLOTS
+                        // worth of entries, long enough to still reveal a
+                        // bid that won a few slots ago, short enough to cap
+                        // memory at PAYLOAD_CACHE_RETENTION_SLOTS × per-slot payload size.
+                        const PAYLOAD_CACHE_RETENTION_SLOTS: u64 = 64;
+                        let oldest_to_keep = current_slot
+                            .saturating_sub(PAYLOAD_CACHE_RETENTION_SLOTS);
+                        self.bid_provider.cleanup_older_than(oldest_to_keep);
                     }
 
                     // check if our bid was included in this block
@@ -181,21 +202,43 @@ impl EpbsP2PService {
 
                 // submit/resubmit bid
                 _ = bid_interval.tick() => {
-                    let target_slot = current_slot + 1;
-                    if scheduler.is_in_bidding_window(target_slot) || scheduler.is_in_bidding_window(current_slot) {
-                        let bid_slot = if scheduler.is_in_bidding_window(target_slot) {
-                            target_slot
-                        } else {
-                            current_slot
-                        };
+                    let next_slot = current_slot + 1;
+                    let bid_slot = if scheduler.is_in_bidding_window(next_slot) {
+                        Some(next_slot)
+                    } else if scheduler.is_in_bidding_window(current_slot) {
+                        Some(current_slot)
+                    } else {
+                        None
+                    };
 
+                    if let Some(slot) = bid_slot {
                         if let Err(e) = self.submit_bid(
-                            bid_slot,
+                            slot,
                             &prefs_cache,
                             &bid_tracker,
                         ).await {
-                            debug!(slot = bid_slot, error = %e, "Failed to submit bid");
+                            debug!(slot, error = %e, "Failed to submit bid");
                         }
+                    }
+                }
+
+                Some(slot) = fresh_block_rx.recv() => {
+                    if scheduler.is_in_bidding_window(slot) {
+                        debug!(slot, "Fresh block ready and in window, submitting bid immediately");
+                        if let Err(e) = self.submit_bid(
+                            slot,
+                            &prefs_cache,
+                            &bid_tracker,
+                        ).await {
+                            debug!(slot, error = %e, "Failed to submit fresh-block bid");
+                        }
+                    } else {
+                        let rel = scheduler.ms_relative_to_slot(slot);
+                        debug!(
+                            slot,
+                            ms_relative_to_slot = rel,
+                            "Fresh block ready but outside bid window; will be picked up by next interval tick"
+                        );
                     }
                 }
             }
@@ -221,11 +264,7 @@ impl EpbsP2PService {
         let slot = head_event.slot;
         let block_root = head_event.block;
 
-        // check if we had a bid for this slot
-        let our_bid = match bid_tracker.our_bid(slot) {
-            Some(bid) => bid,
-            None => return, // we didn't bid for this slot
-        };
+        let our_bid = bid_tracker.our_bid(slot);
 
         // query the beacon node to see which bid was included
         let block_root_hex = format!("0x{}", hex::encode(block_root));
@@ -235,12 +274,25 @@ impl EpbsP2PService {
             .await
         {
             Ok(Some(included_bid)) => {
-                if included_bid.message.builder_index == builder_index
-                    && included_bid.message.block_hash == our_bid.message.block_hash
-                {
+                // trigger the reveal whenever the included bid is ours. We may
+                // have submitted several bids per slot with different block hashes
+                // the payload cache is keyed by block hash, so the RevealHandler 
+                // will look up he included bids block hash directly.
+                if included_bid.message.builder_index == builder_index {
+                    if let Some(ref tracked) = our_bid {
+                        if tracked.message.block_hash != included_bid.message.block_hash {
+                            debug!(
+                                slot,
+                                included_block_hash = ?included_bid.message.block_hash,
+                                latest_tracked_block_hash = ?tracked.message.block_hash,
+                                "Proposer included one of our earlier bids (not our latest); revealing the included payload"
+                            );
+                        }
+                    }
                     info!(
                         slot,
                         ?block_root,
+                        included_block_hash = ?included_bid.message.block_hash,
                         "Our bid was included in the beacon block, triggering reveal"
                     );
 
@@ -268,27 +320,48 @@ impl EpbsP2PService {
     }
 
     /// Generate and submit a bid for the given slot.
+    ///
+    /// if proposer preferences are available, uses them for fee_recipient and validates
+    /// the bid against them. If not available, falls back to using the payload's own
+    /// values, which come from the suggested_fee_recipient in payload attributes.
     async fn submit_bid(
         &self,
         slot: u64,
         prefs_cache: &ProposerPreferencesCache,
         bid_tracker: &BidTracker,
     ) -> eyre::Result<()> {
-        // retireve proposer preferences for this slot, should be cached already
-        let prefs = prefs_cache.get(slot).ok_or_else(|| {
-            eyre::eyre!(
-                "No proposer preferences found for slot {}, skipping P2P bid",
-                slot
-            )
-        })?;
+        let prefs = prefs_cache.get(slot);
+        let has_prefs = prefs.is_some();
+
+        if !has_prefs {
+            debug!(
+                slot,
+                "No proposer preferences for slot, falling back to payload values"
+            );
+        }
+
+        // TODO: per consensus specs gloas/p2p-interface.md, `bid.fee_recipient`
+        // MUST equal `ProposerPreferences.fee_recipient` for the slot. The proposer
+        // signs and broadcasts these on the `proposer_preferences`
+        // Once we receive prefs reliably via the SSE stream this hardcoded
+        // fallback should be removed and bids should always use cached prefs.
+        const DEVNET_FALLBACK_FEE_RECIPIENT: alloy_primitives::Address =
+            alloy_primitives::address!("8943545177806ED17B9F23F0a21ee5948eCaa776");
+
+        let fee_recipient = prefs
+            .as_ref()
+            .map(|p| p.fee_recipient)
+            .unwrap_or(DEVNET_FALLBACK_FEE_RECIPIENT);
 
         let params = GetBidParams {
             slot,
             // bid provider uses the best cached blocks parent_hash
             parent_hash: BlockHash::ZERO, // this will be overridden by providers cached data
-            parent_root: B256::ZERO,      // this will be overridden by providers cached data
-            proposer_index: prefs.validator_index,
-            fee_recipient: prefs.fee_recipient,
+            // bid provider uses the cached parent_block_root captured from the
+            // payload_attributes event when the block was built
+            parent_root: B256::ZERO,
+            proposer_index: prefs.as_ref().map(|p| p.validator_index).unwrap_or(0),
+            fee_recipient,
             timeout_ms: None,
             date_milliseconds: None,
         };
@@ -309,22 +382,25 @@ impl EpbsP2PService {
             ));
         }
 
-        // [REJECT] fee_recipient must match proposer preferences
-        if signed_bid.message.fee_recipient != prefs.fee_recipient {
-            return Err(eyre::eyre!(
-                "Bid fee_recipient {:?} does not match proposer preferences {:?}",
-                signed_bid.message.fee_recipient,
-                prefs.fee_recipient
-            ));
-        }
+        // validate against proposer preferences only if available
+        if let Some(ref prefs) = prefs {
+            // [REJECT] fee_recipient must match proposer preferences
+            if signed_bid.message.fee_recipient != prefs.fee_recipient {
+                return Err(eyre::eyre!(
+                    "Bid fee_recipient {:?} does not match proposer preferences {:?}",
+                    signed_bid.message.fee_recipient,
+                    prefs.fee_recipient
+                ));
+            }
 
-        // [REJECT] gas_limit must match proposer preferences
-        if signed_bid.message.gas_limit != prefs.gas_limit {
-            return Err(eyre::eyre!(
-                "Bid gas_limit {} does not match proposer preferences {}",
-                signed_bid.message.gas_limit,
-                prefs.gas_limit
-            ));
+            // [REJECT] gas_limit must match proposer preferences
+            if signed_bid.message.gas_limit != prefs.gas_limit {
+                return Err(eyre::eyre!(
+                    "Bid gas_limit {} does not match proposer preferences {}",
+                    signed_bid.message.gas_limit,
+                    prefs.gas_limit
+                ));
+            }
         }
 
         // [REJECT] blob_kzg_commitments length must not exceed MAX_BLOB_COMMITMENTS_PER_BLOCK

@@ -60,6 +60,10 @@ impl MevBoostSlotData {
         self.payload_attributes_event.data.parent_block_hash
     }
 
+    pub fn parent_block_root(&self) -> B256 {
+        self.payload_attributes_event.data.parent_block_root
+    }
+
     pub fn parent_block_num_hash(&self) -> BlockNumHash {
         BlockNumHash::new(
             self.payload_attributes_event.data.parent_block_number,
@@ -162,13 +166,21 @@ impl MevBoostSlotDataGenerator {
             let mut relays = relays;
             let mut recently_sent_data = VecDeque::with_capacity(RECENTLY_SENT_EVENTS_BUFF);
 
-            while let Some(event) = source.recv().await {
+            while let Some(mut event) = source.recv().await {
                 if self.global_cancellation.is_cancelled() {
                     return;
                 }
 
                 let payload_id: InternalPayloadId = payload_counter;
                 payload_counter += 1;
+
+                // fix b: TODO: fix this. Currently prysms fork delivers payload_attributes
+                // with a stale `parent_block_hash` (pre-envelope state.latest_block_hash,
+                // which is the previous-previous slot's revealed payload). The correct
+                // value — what forkchoice's VerifyParentBlockHash expects — is the
+                // parent beacon block's bid.message.block_hash. Override here so both
+                // the EL build and our outgoing bid use the right parent.
+                gloas_override_parent_block_hash(&self.cls, &mut event, payload_id).await;
 
                 let slot = event.data.proposal_slot;
                 let block = event.data.parent_block_number + 1;
@@ -184,30 +196,45 @@ impl MevBoostSlotDataGenerator {
                     "Payload attributes received from CL client"
                 );
 
-                let (slot_data, relay_registrations) = if let Some(res) = relays.slot_data(slot) {
-                    res
-                } else {
-                    info!(
-                        payload_id,
-                        reason = "no MEV-Boost relay data",
-                        "Payload attributes discarded"
-                    );
-                    continue;
-                };
-
-                info!(
-                    payload_id,
-                    ?slot_data,
-                    ?relay_registrations,
-                    "Slot data from relays received"
-                );
-
-                let mut correct_event = event;
-                correct_event
-                    .data
-                    .payload_attributes
-                    .suggested_fee_recipient = slot_data.fee_recipient;
-                info!(payload_id, address = ?slot_data.fee_recipient, "Payload attributes correct fee recipient set");
+                let (slot_data, relay_registrations, correct_event) =
+                    if let Some((sd, rr)) = relays.slot_data(slot) {
+                        let mut ev = event;
+                        ev.data.payload_attributes.suggested_fee_recipient = sd.fee_recipient;
+                        info!(payload_id, address = ?sd.fee_recipient, "Payload attributes correct fee recipient set from relay");
+                        (sd, rr, ev)
+                    } else if self.relays.is_empty() {
+                        // EPBS mode: no relays configured, use CL-provided payload attributes as is.
+                        // The fee_recipient comes from the CL's suggested_fee_recipient (payload attributes),
+                        // and gas_limit from the default block gas limit.
+                        let fee_recipient = event.data.payload_attributes.suggested_fee_recipient;
+                        info!(
+                            payload_id,
+                            ?fee_recipient,
+                            "No relays configured, using CL payload attributes directly (EPBS mode)"
+                        );
+                        // TODO: per consensus-specs gloas/p2p-interface.md
+                        // `bid.gas_limit` MUST equal `ProposerPreferences.gas_limit`
+                        // for the slot. Until we receive prefs reliably via SSE,
+                        // hardcode the gas_limit kurtosis Prysm validators sign
+                        // (60_000_000 = DefaultBuilderGasLimit per Prysm config).
+                        // Bids with any other gas_limit fail the gossip [REJECT] rule.
+                        // This must be set here so reth builds the block with the
+                        // matching gas_limit; we can't override it post build.
+                        let sd = SlotData {
+                            fee_recipient,
+                            gas_limit: 60_000_000,
+                            pubkey: alloy_rpc_types_beacon::BlsPublicKey::ZERO,
+                        };
+                        let rr = Arc::new(HashMap::default());
+                        (sd, rr, event)
+                    } else {
+                        info!(
+                            payload_id,
+                            reason = "no MEV-Boost relay data",
+                            "Payload attributes discarded"
+                        );
+                        continue;
+                    };
 
                 let mev_boost_slot_data = MevBoostSlotData {
                     payload_attributes_event: correct_event,
@@ -291,6 +318,43 @@ fn check_slot_data_for_blocklist(
         return Ok(false);
     }
     Ok(true)
+}
+
+
+async fn gloas_override_parent_block_hash(
+    cls: &[Client],
+    event: &mut PayloadAttributesEvent,
+    payload_id: InternalPayloadId,
+) {
+    let parent_block_root = event.data.parent_block_root;
+    if parent_block_root.is_zero() {
+        return;
+    }
+    let parent_root_id = format!("0x{}", hex::encode(parent_block_root.as_slice()));
+    for cl in cls {
+        match cl.get_beacon_block_bid(&parent_root_id).await {
+            Ok(Some(signed_bid)) => {
+                let correct = signed_bid.message.block_hash;
+                if correct != event.data.parent_block_hash {
+                    info!(
+                        payload_id,
+                        sse_parent_hash = ?event.data.parent_block_hash,
+                        correct_parent_hash = ?correct,
+                        ?parent_block_root,
+                        "Overriding stale parent_block_hash from Prysm SSE with parent beacon block's bid.block_hash (Gloas/EPBS Fix B)"
+                    );
+                    event.data.parent_block_hash = correct;
+                }
+                return;
+            }
+            Ok(None) => {
+                debug!(payload_id, ?parent_block_root, "Parent beacon block not found via CL, leaving parent_block_hash as-is");
+            }
+            Err(err) => {
+                debug!(payload_id, ?err, "Failed to fetch parent beacon block; trying next CL");
+            }
+        }
+    }
 }
 
 fn report_slot_withdrawals_to_fee_recipients(data: &MevBoostSlotData) {

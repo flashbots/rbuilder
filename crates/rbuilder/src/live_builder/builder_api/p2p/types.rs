@@ -5,14 +5,21 @@ use serde::Deserialize;
 pub struct EpbsP2PConfig {
     /// Whether P2P bid broadcasting is enabled.
     pub enabled: bool,
-    /// Milliseconds into slot to start bidding (default: 0 = slot start).
-    pub bid_start_ms: u64,
-    /// Milliseconds into slot to stop bidding (default: 4000).
-    pub bid_end_ms: u64,
+    /// Milliseconds relative to slot start when bidding opens. Negative = before
+    /// slot start. Bids gossiped before slot start land in proposer caches in
+    /// time for the slot start getBlock query.
+    pub bid_start_ms: i64,
+    /// Milliseconds relative to slot start when bidding closes. Typically positive
+    /// (some grace after slot start in case the proposer queries late).
+    pub bid_end_ms: i64,
     /// Interval between bid resubmissions in ms. 0 = single bid mode.
     pub bid_interval_ms: u64,
     /// Value increment per resubmission in gwei.
     pub bid_value_increment_gwei: u64,
+    /// subsidy added to `bid.value` to win the proposer's
+    /// "P2P bid > local EL value" comparison
+    /// TODO: Added for testing and will probably need to be removed
+    pub bid_value_subsidy_gwei: u64,
     /// Genesis time from the beacon chain (seconds since unix epoch).
     pub genesis_time: u64,
     /// Slot duration in seconds (from beacon spec).
@@ -23,10 +30,11 @@ impl Default for EpbsP2PConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            bid_start_ms: 0,
-            bid_end_ms: 4000,
-            bid_interval_ms: 500,
+            bid_start_ms: -1000,
+            bid_end_ms: 1000,
+            bid_interval_ms: 250,
             bid_value_increment_gwei: 0,
+            bid_value_subsidy_gwei: 0,
             genesis_time: 0,
             seconds_per_slot: 12,
         }
